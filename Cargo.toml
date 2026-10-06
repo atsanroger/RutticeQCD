@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli", "mpi"]
-# Everything except `mpi`, which needs an MPI installation and libclang to build.
+members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli", "backends/mpi"]
+# Everything except `backends/mpi`, which needs an MPI installation and libclang to build.
 default-members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli"]
 
 [workspace.package]

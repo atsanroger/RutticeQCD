@@ -209,6 +209,7 @@ let c = pion_correlator(&s);                        // one value per time slice
 | `measure/` | `ruttice-measure` | sources and meson correlators |
 | `cli/` | `ruttice-cli` | the `ruttice` program |
 | `validation/` | `ruttice-validation` | the checks described above |
+| `backends/mpi/` | `ruttice-mpi` | the communicator on MPI and the `ruttice-mpi` program; not built by default (needs MPI and libclang) |
 
 Things the library can do that the program does not expose yet: single precision, and
 double-precision accuracy from single-precision solves.
