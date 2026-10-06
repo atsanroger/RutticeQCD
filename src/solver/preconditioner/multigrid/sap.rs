@@ -25,9 +25,11 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 /// are solved approximately by a fixed number of minimal-residual steps; D restricted to a
 /// block drops every hop that leaves the block.
 ///
-/// The number of cycles and of block steps are fixed, so the result is a fixed linear map
-/// of the right-hand side: usable inside flexible Krylov solvers and as the smoother of a
+/// The number of cycles and of block steps are fixed, but the minimal-residual
+/// coefficients depend on the residual, so the result is not a linear function of the
+/// right-hand side: use it inside flexible Krylov solvers (FGMRES) and as the smoother of a
 /// multigrid cycle. Starts from zero; `mult(x, b)` returns the approximation to D^{-1} b.
+/// Every vector of a multi-vector is treated independently.
 ///
 /// The parameters follow the smoother of the Bridge++ multigrid solver (`ASolver_SAP`).
 pub struct Sap<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> {

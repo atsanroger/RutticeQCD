@@ -11,7 +11,7 @@ file = "conf_04040408.txt"      # plain text, one real per line
 format = "bridge_text"          # the only format so far; may be omitted
 
 [solver]
-type = "cg_normal"              # cg_normal | bicgstab
+type = "cg_normal"              # cg_normal | bicgstab | fgmres (fgmres can take a [solver.multigrid] block, see the README)
 even_odd = true                 # default true; needs even lattice extents
 tolerance_squared = 1.0e-28     # on |r|^2 / |b|^2, for every right-hand side
 max_iterations = 2000           # per restart

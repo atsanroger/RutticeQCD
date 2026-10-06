@@ -93,14 +93,41 @@ when the file is read, with the line and the accepted alternatives.
 | `gauge.file` | path of the configuration | required |
 | `gauge.format` | `bridge_text` | `bridge_text` |
 | `gauge.fixing` | fix the gauge first; see below | none |
-| `solver.type` | `cg_normal` (conjugate gradient on the normal equations) or `bicgstab` | required |
+| `solver.type` | `cg_normal` (conjugate gradient on the normal equations), `bicgstab`, or `fgmres` (flexible GMRES; `max_iterations` is then the Krylov space kept before a restart) | required |
 | `solver.even_odd` | solve through the even-odd (red-black) Schur complement; needs even extents | `true` |
 | `solver.tolerance_squared` | stop when \|r\|²/\|b\|² is below this for every right-hand side | required |
 | `solver.max_iterations` | iterations before the true residual is recomputed and the solver restarts | required |
 | `solver.max_restarts` | number of such restarts allowed | `3` |
+| `solver.multigrid` | precondition with two-level multigrid; see below | none |
 | `quark` | a list; one entry per quark flavour, each with `fermion` and `source` | at least one |
 | `measure.channels` | list of channel names | all thirteen |
 | `output.file` | also write the table to this file | none |
+
+Multigrid needs `solver.type = "fgmres"` and `solver.even_odd = false`, and runs on one
+process only so far. Only `block` is required; the defaults are those of the Bridge++ test
+`test_alt_Multigrid.yaml`:
+
+| `solver.multigrid` key | Meaning | Default |
+|---|---|---|
+| `block` | `[bx, by, bz, bt]`: the blocks of the coarse lattice and of the smoother; must divide the lattice | required |
+| `test_vectors` | number of test vectors (at most 6 × the block volume) | `16` |
+| `setup_iterations` | rounds that improve the test vectors after the initial smoothing | `4` |
+| `coarse_tolerance_squared` | the coarse solve (BiCGStab) stops below this \|r\|²/\|b\|² … | `2.0e-3` |
+| `coarse_max_iterations` | … or after this many iterations | `200` |
+| `smoother_cycles` | SAP cycles of the smoother | `4` |
+| `smoother_block_steps` | minimal-residual steps per block in each cycle | `6` |
+| `precision` | `single` or `double`: what the preconditioner works in; the outer solve is always double | `single` |
+| `seed` | seed of the random initial test vectors | `1` |
+
+```toml
+[solver]
+type = "fgmres"
+even_odd = false
+tolerance_squared = 1.0e-28
+max_iterations = 30
+max_restarts = 30
+multigrid = { block = [2, 2, 2, 2] }
+```
 
 Each quark has a fermion action:
 
@@ -251,14 +278,17 @@ One Cargo package, `ruttice`. Where things go is fixed by the design document (�
 | `measure` | sources and meson correlators |
 | `app` | parameter files, building what they name, running and reporting |
 
-Things the library can do that the program does not expose yet: single precision, and
-double-precision accuracy from single-precision solves.
+Things the library can do that the program does not expose yet: single-precision solves
+and double-precision accuracy from them by defect correction (multigrid already works in
+single precision inside a double outer solve).
 
 ## Limitations and plans
 
 Not there yet, roughly in the order planned:
 
-- multigrid solvers
+- fast multigrid: it works and cuts the outer iterations (FGMRES from 157 to 8 on the
+  Bridge++ test configuration, test `multigrid_on_the_bridge_configuration`), but its smoother
+  is not tuned, so on small lattices it is slower than CG
 - domain-wall fermions
 - vectorised (SIMD) kernels and running on more than one process (MPI)
 - generating configurations (HMC), Landau gauge fixing, smearing

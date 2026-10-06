@@ -1,6 +1,7 @@
-//! Checks: the coarse-grid components of the multigrid solver (aggregation, restriction
-//! and prolongation, Galerkin coarse operator). All of them are identities that hold for
-//! any set of test vectors, so random vectors are used.
+//! Checks: the multigrid preconditioner. The coarse-grid components (aggregation,
+//! restriction and prolongation, Galerkin coarse operator) are identities that hold for any
+//! set of test vectors, so random vectors are used; then the SAP smoother and the
+//! two-level cycle inside FGMRES.
 
 mod common;
 
@@ -9,7 +10,10 @@ use ruttice::fermion::{
     Bound, Clover, CloverParams, FermionOp, HopTerms, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
-use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp, MultigridError};
+use ruttice::solver::preconditioner::multigrid::{
+    Aggregation, Basis, CoarseOp, Multigrid, MultigridError, MultigridParams, Sap,
+};
+use ruttice::solver::{Convert, Fgmres, Solver, Stop};
 use ruttice::{random_spinor, TestRng};
 use ruttice::{
     Boundary, Coarse, ConvertFrom, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage,
@@ -274,4 +278,204 @@ fn single_precision_agrees_with_double() {
     widened.convert_from(&out32);
     let diff = max_abs_diff_coarse(&widened, &out64);
     assert!(diff < 2e-5, "{diff:e}");
+}
+
+// ---- The smoother and the two-level preconditioner ----
+
+fn clover_at<T: Storage>(lat: &Arc<Lattice>, u: &Field<f64, Gauge>, kappa: f64) -> Clover<T> {
+    let mut op = Clover::new(
+        lat,
+        CloverParams {
+            kappa,
+            csw: 1.0,
+            boundary: MIXED,
+        },
+    );
+    op.set_gauge(u).unwrap();
+    op
+}
+
+/// |b - D x|^2 / |b|^2 for every vector.
+fn residual_sqr<F: FermionOp<V64>>(op: &F, x: &V64, b: &V64) -> Vec<f64> {
+    let nv = b.num_vectors();
+    let mut r = b.zeros_like();
+    Bound::new(op, Variant::D).mult(&mut r, x);
+    r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+    let (mut rn, mut bn) = (vec![0.0; nv], vec![0.0; nv]);
+    r.norm_sqr(&mut rn);
+    b.norm_sqr(&mut bn);
+    rn.iter().zip(&bn).map(|(r, b)| r / b).collect()
+}
+
+/// SAP on its own is a convergent iteration for a heavy enough quark: more cycles, smaller
+/// residual.
+#[test]
+fn sap_reduces_the_residual() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 501), 0.12);
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let b = random_spinor(&lat, 1, 502);
+    let mut previous = 1.0;
+    for cycles in [1, 2, 4, 8] {
+        let mut x = b.zeros_like();
+        Sap::new(&op, &agg, cycles, 6).mult(&mut x, &b);
+        let r = residual_sqr(&op, &x, &b)[0];
+        assert!(
+            r < 0.1 * previous,
+            "{cycles} cycles: {r:e} after {previous:e}"
+        );
+        previous = r;
+    }
+    assert!(previous < 1e-8, "{previous:e}");
+}
+
+/// Vectors of a multi-vector are smoothed independently.
+#[test]
+fn sap_treats_vectors_independently() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 511), 0.12);
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let b = random_spinor(&lat, 3, 512);
+    let mut sap = Sap::new(&op, &agg, 2, 4);
+    let mut together = b.zeros_like();
+    sap.mult(&mut together, &b);
+    for v in 0..3 {
+        let mut one = V64::spinor(&lat, 1);
+        let mut x = V64::spinor(&lat, 1);
+        for site in 0..lat.num_sites() {
+            let len = one.site_len();
+            one.site_mut(0, site)
+                .copy_from_slice(&b.site(0, site)[v * len..(v + 1) * len]);
+        }
+        sap.mult(&mut x, &one);
+        for site in 0..lat.num_sites() {
+            let len = x.site_len();
+            let t = &together.site(0, site)[v * len..(v + 1) * len];
+            assert_eq!(x.site(0, site), t, "vector {v}, site {site}");
+        }
+    }
+}
+
+/// The test vectors handed out are orthonormal on the aggregates: restricting them gives
+/// the coarse vectors they were built from.
+#[test]
+fn test_vectors_restrict_to_unit_coarse_vectors() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 521), 0.12);
+    let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+    params.num_test_vectors = 6;
+    params.setup_iterations = 1;
+    let mg = Multigrid::new(&op, &lat, &params).unwrap();
+    let n = 6;
+    let mut c = mg.basis().coarse_field(n);
+    mg.basis().restrict(&mut c, &mg.test_vectors());
+    let dim = mg.basis().coarse_dim();
+    for site in 0..c.num_sites() {
+        for (i, v) in c.site(0, site).chunks_exact(2 * dim).enumerate() {
+            for k in 0..dim {
+                let want = if k == i || k == n + i { 1.0 } else { 0.0 };
+                assert!((v[2 * k] - want).abs() < 1e-12 && v[2 * k + 1].abs() < 1e-12);
+            }
+        }
+    }
+}
+
+/// FGMRES on D with the two-level preconditioner reaches the tolerance in far fewer
+/// iterations than without, in double and in single precision inside a double outer
+/// solve.
+#[test]
+fn multigrid_preconditioned_fgmres_converges() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 531);
+    let op = clover_at::<f64>(&lat, &u, 0.2);
+    let op32 = clover_at::<f32>(&lat, &u, 0.2);
+    let b = random_spinor(&lat, 1, 532);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let solve = |m: Option<&mut dyn LinearFn<V64>>| {
+        let mut x = b.zeros_like();
+        let info = Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), m, &mut x, &b)
+            .unwrap();
+        assert!(residual_sqr(&op, &x, &b)[0] < 1e-24);
+        info.iterations
+    };
+    let plain = solve(None);
+    let params = MultigridParams::bridge([2, 2, 2, 2]);
+    let mut mg = Multigrid::new(&op, &lat, &params).unwrap();
+    let with_mg = solve(Some(&mut mg));
+    let mg32 = Multigrid::new(&op32, &lat, &params).unwrap();
+    let mut mixed = Convert::new(mg32, &Field::<f32, Spinor>::spinor(&lat, 1));
+    let with_mg32 = solve(Some(&mut mixed));
+    eprintln!("FGMRES iterations: {plain} plain, {with_mg} with multigrid, {with_mg32} with single-precision multigrid");
+    assert!(with_mg * 5 < plain && with_mg32 * 5 < plain);
+}
+
+/// The single-precision preconditioner really works in single precision: every component
+/// it returns is a single-precision number.
+#[test]
+fn single_precision_multigrid_returns_single_precision_values() {
+    let lat = lattice();
+    let op32 = clover_at::<f32>(&lat, &random_gauge(&lat, 541), 0.12);
+    let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+    params.num_test_vectors = 8;
+    params.setup_iterations = 1;
+    let mg32 = Multigrid::new(&op32, &lat, &params).unwrap();
+    let mut m = Convert::new(mg32, &Field::<f32, Spinor>::spinor(&lat, 1));
+    let b = random_spinor(&lat, 1, 542);
+    let mut x = b.zeros_like();
+    m.mult(&mut x, &b);
+    assert!(x.as_slice().iter().all(|v| (*v as f32) as f64 == *v));
+    assert!(x.as_slice().iter().any(|v| *v != 0.0));
+}
+
+/// The Bridge++ test configuration with the operator of the Bridge++ multigrid test
+/// (`test_alt_Multigrid.yaml`: clover, κ = 0.13, c_SW = 1.1, periodic) and its multigrid
+/// parameters on 2^4 blocks. No reference iteration count: the Bridge++ multigrid test
+/// could not be built here (DESIGN.md §14). Skipped without the configuration.
+#[test]
+fn multigrid_on_the_bridge_configuration() {
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let lat = lattice();
+    let u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
+    let params = CloverParams {
+        kappa: 0.13,
+        csw: 1.1,
+        boundary: [Boundary::Periodic; ND],
+    };
+    let mut op = Clover::<f64>::new(&lat, params);
+    op.set_gauge(&u).unwrap();
+    let mut op32 = Clover::<f32>::new(&lat, params);
+    op32.set_gauge(&u).unwrap();
+    let b = random_spinor(&lat, 1, 551);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let solve = |m: Option<&mut dyn LinearFn<V64>>| {
+        let mut x = b.zeros_like();
+        let info = Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), m, &mut x, &b)
+            .unwrap();
+        assert!(residual_sqr(&op, &x, &b)[0] < 1e-24);
+        info.iterations
+    };
+    let plain = solve(None);
+    let mg32 = Multigrid::new(&op32, &lat, &MultigridParams::bridge([2, 2, 2, 2])).unwrap();
+    let with_mg = solve(Some(&mut Convert::new(
+        mg32,
+        &Field::<f32, Spinor>::spinor(&lat, 1),
+    )));
+    eprintln!("FGMRES iterations: {plain} plain, {with_mg} with single-precision multigrid");
+    assert!(with_mg * 10 < plain);
 }

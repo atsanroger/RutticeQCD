@@ -113,6 +113,21 @@ fn impossible_requests_are_rejected_before_any_work() {
         "[gauge]\nfixing = { type = \"coulomb\", overrelaxation = 0.0 }\n",
     ));
     assert!(m.contains("overrelaxation"), "{m}");
+    // Multigrid needs FGMRES on the whole lattice and blocks that divide it.
+    let with_multigrid = |block: &str| {
+        WILSON_TOML.replace(
+            "max_restarts = 3 ",
+            &format!("multigrid = {{ block = {block} }}\nmax_restarts = 3 "),
+        )
+    };
+    let m = invalid(with_multigrid("[2, 2, 2, 2]"));
+    assert!(m.contains("fgmres"), "{m}");
+    let fgmres = |text: String| text.replace("\"cg_normal\"", "\"fgmres\"");
+    let m = invalid(fgmres(with_multigrid("[2, 2, 2, 2]")));
+    assert!(m.contains("even_odd"), "{m}");
+    let whole = |text: String| text.replace("even_odd = true", "even_odd = false");
+    let m = invalid(whole(fgmres(with_multigrid("[3, 2, 2, 2]"))));
+    assert!(m.contains("block"), "{m}");
 }
 
 #[test]
@@ -147,11 +162,26 @@ fn every_solver_choice_gives_the_same_correlator() {
     assert_eq!(reference.len(), 8);
     assert!(reference[0].re > reference[1].re && reference[1].re > 0.0);
 
+    // FGMRES keeps its whole Krylov space, so it gets a small one and restarts.
+    let fgmres = base
+        .replace("\"cg_normal\"", "\"fgmres\"")
+        .replace("max_iterations = 2000", "max_iterations = 30")
+        .replace("max_restarts = 3 ", "max_restarts = 100 ");
+    let multigrid = |precision: &str| {
+        fgmres.replace("even_odd = true", "even_odd = false").replace(
+            "max_restarts = 100 ",
+            &format!("multigrid = {{ block = [2, 2, 2, 2], test_vectors = 8, precision = \"{precision}\" }}\nmax_restarts = 100 "),
+        )
+    };
     for variant in [
         base.replace("even_odd = true", "even_odd = false"),
         base.replace("\"cg_normal\"", "\"bicgstab\""),
         base.replace("\"cg_normal\"", "\"bicgstab\"")
             .replace("even_odd = true", "even_odd = false"),
+        fgmres.clone(),
+        fgmres.replace("even_odd = true", "even_odd = false"),
+        multigrid("single"),
+        multigrid("double"),
     ] {
         for (a, b) in correlator(variant).iter().zip(&reference) {
             assert!(

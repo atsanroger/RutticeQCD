@@ -5,7 +5,8 @@ mod config;
 
 pub use config::{
     BoundaryConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig, GaugeFormat,
-    MeasureConfig, OutputConfig, QuarkConfig, SolverConfig, SolverKind, SourceConfig,
+    MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig, SolverConfig, SolverKind,
+    SourceConfig,
 };
 
 use crate::fermion::{
@@ -18,7 +19,10 @@ use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
     channel, exponential_source, meson_correlator, point_source, CHANNELS, NUM_SOURCES,
 };
-use crate::solver::{solve_cgne, BiCgStab, Cg, SolveError, SolveInfo, Solver, Stop};
+use crate::solver::preconditioner::multigrid::{Multigrid, MultigridError};
+use crate::solver::{
+    solve_cgne, BiCgStab, Cg, Convert, Fgmres, SolveError, SolveInfo, Solver, Stop,
+};
 use crate::{
     Boundary, Comm, Field, Lattice, LinearFn, SingleComm, Spinor, Stencil, Vector, C64, ND,
 };
@@ -52,6 +56,11 @@ pub enum CliError {
         quark: usize,
         source: SolveError,
     },
+    /// The multigrid setup failed.
+    Multigrid {
+        quark: usize,
+        source: MultigridError,
+    },
 }
 
 impl fmt::Display for CliError {
@@ -65,6 +74,9 @@ impl fmt::Display for CliError {
             CliError::GaugeFixing(e) => write!(f, "gauge configuration: {e}"),
             CliError::Operator { quark, source } => write!(f, "quark {quark}: {source}"),
             CliError::Solve { quark, source } => write!(f, "quark {quark}: solver: {source}"),
+            CliError::Multigrid { quark, source } => {
+                write!(f, "quark {quark}: multigrid setup: {source}")
+            }
         }
     }
 }
@@ -209,6 +221,9 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
             );
         }
     }
+    if let Some(mg) = &config.solver.multigrid {
+        validate_multigrid(config, mg, grid)?;
+    }
     let tolerance = config.solver.tolerance_squared;
     if tolerance.is_nan() || tolerance <= 0.0 || config.solver.max_iterations == 0 {
         return invalid(
@@ -249,6 +264,7 @@ fn propagator<D: DiagTerm<f64>>(
     op: &WilsonOp<f64, Dirac, D>,
     b: &V,
     solver: &SolverConfig,
+    m: Option<&mut dyn LinearFn<V>>,
 ) -> Result<(V, SolveInfo), SolveError> {
     let stop = Stop {
         tolerance_sqr: solver.tolerance_squared,
@@ -264,6 +280,7 @@ fn propagator<D: DiagTerm<f64>>(
             solve_even_odd(op, index, &mut s, b, |schur, x_e, rhs| match kind {
                 SolverKind::CgNormal => solve_cgne(&mut Cg::new(stop), schur, x_e, rhs),
                 SolverKind::Bicgstab => BiCgStab::new(stop).solve(schur, None, x_e, rhs),
+                SolverKind::Fgmres => Fgmres::new(stop).solve(schur, None, x_e, rhs),
             })?
         }
         (false, SolverKind::CgNormal) => solve_cgne(
@@ -275,8 +292,90 @@ fn propagator<D: DiagTerm<f64>>(
         (false, SolverKind::Bicgstab) => {
             BiCgStab::new(stop).solve(&mut Bound::new(op, Variant::D), None, &mut s, b)?
         }
+        (false, SolverKind::Fgmres) => {
+            Fgmres::new(stop).solve(&mut Bound::new(op, Variant::D), m, &mut s, b)?
+        }
     };
     Ok((s, info))
+}
+
+/// Solve for one quark with `op`, building the multigrid preconditioner first when the
+/// parameter file asks for one. `single` builds the single-precision copy of `op` that a
+/// single-precision preconditioner works with. Returns the worst residual, the solution
+/// and what the solver reported.
+fn solve_quark<D, D32>(
+    lat: &Arc<Lattice>,
+    op: &WilsonOp<f64, Dirac, D>,
+    single: impl FnOnce() -> Result<WilsonOp<f32, Dirac, D32>, GaugeError>,
+    b: &V,
+    solver: &SolverConfig,
+    quark: usize,
+) -> Result<(f64, V, SolveInfo), CliError>
+where
+    D: DiagTerm<f64>,
+    D32: DiagTerm<f32>,
+{
+    let setup_failed = |e| CliError::Multigrid { quark, source: e };
+    let solved = match &solver.multigrid {
+        None => propagator(op, b, solver, None),
+        Some(mg) => match mg.precision {
+            Precision::Double => {
+                let mut m = Multigrid::new(op, lat, &mg.params()).map_err(setup_failed)?;
+                propagator(op, b, solver, Some(&mut m))
+            }
+            Precision::Single => {
+                let op32 = single().map_err(|e| CliError::Operator { quark, source: e })?;
+                let m32 = Multigrid::new(&op32, lat, &mg.params()).map_err(setup_failed)?;
+                let like = Field::<f32, Spinor>::spinor(lat, b.num_vectors());
+                propagator(op, b, solver, Some(&mut Convert::new(m32, &like)))
+            }
+        },
+    };
+    let (s, info) = solved.map_err(|e| CliError::Solve { quark, source: e })?;
+    Ok((worst_residual(op, &s, b), s, info))
+}
+
+/// Checks on the multigrid section that do not need the gauge configuration.
+fn validate_multigrid(
+    config: &Config,
+    mg: &MultigridConfig,
+    grid: [usize; ND],
+) -> Result<(), CliError> {
+    if config.solver.kind != SolverKind::Fgmres {
+        return invalid("solver.multigrid needs solver.type = fgmres".to_string());
+    }
+    if config.solver.even_odd {
+        return invalid(
+            "solver.multigrid works on the whole lattice; set solver.even_odd = false".to_string(),
+        );
+    }
+    if grid != [1; ND] {
+        return Err(CliError::Grid(
+            "multigrid runs on one process only so far".to_string(),
+        ));
+    }
+    if (0..ND).any(|mu| mg.block[mu] == 0 || !config.lattice[mu].is_multiple_of(mg.block[mu])) {
+        return invalid(format!(
+            "solver.multigrid.block {:?} must divide the lattice {:?}",
+            mg.block, config.lattice
+        ));
+    }
+    // Six complex components per chirality and site.
+    let aggregate_dim = 6 * mg.block.iter().product::<usize>();
+    if mg.test_vectors == 0 || mg.test_vectors > aggregate_dim {
+        return invalid(format!(
+            "solver.multigrid.test_vectors must be between 1 and {aggregate_dim} for blocks of {:?}",
+            mg.block
+        ));
+    }
+    let tolerance = mg.coarse_tolerance_squared;
+    if tolerance.is_nan() || tolerance <= 0.0 || mg.coarse_max_iterations == 0 {
+        return invalid(
+            "solver.multigrid.coarse_tolerance_squared and coarse_max_iterations must be positive"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Worst |D S - b|^2 / |b|^2 over the right-hand sides, using the full operator.
@@ -350,8 +449,11 @@ pub fn run_on(
                 );
                 op.set_gauge(&u)
                     .map_err(|e| CliError::Operator { quark, source: e })?;
-                propagator(&op, &b, &config.solver)
-                    .map(|(s, info)| (worst_residual(&op, &s, &b), s, info))
+                let single = || {
+                    let mut op = Wilson::<f32>::new(&lat, *op.params());
+                    op.set_gauge(&u).map(|()| op)
+                };
+                solve_quark(&lat, &op, single, &b, &config.solver, quark)?
             }
             FermionConfig::Clover {
                 kappa,
@@ -366,12 +468,14 @@ pub fn run_on(
                 let mut op = Clover::<f64>::new(&lat, params);
                 op.set_gauge(&u)
                     .map_err(|e| CliError::Operator { quark, source: e })?;
-                propagator(&op, &b, &config.solver)
-                    .map(|(s, info)| (worst_residual(&op, &s, &b), s, info))
+                let single = || {
+                    let mut op = Clover::<f32>::new(&lat, params);
+                    op.set_gauge(&u).map(|()| op)
+                };
+                solve_quark(&lat, &op, single, &b, &config.solver, quark)?
             }
         };
-        let (worst_residual_sqr, s, info) =
-            solved.map_err(|e| CliError::Solve { quark, source: e })?;
+        let (worst_residual_sqr, s, info) = solved;
         solves.push(SolveReport {
             quark,
             iterations: info.iterations,
