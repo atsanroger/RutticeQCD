@@ -30,6 +30,20 @@ recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
 | `measure/` | `ruttice-measure` | sources and hadron correlators |
 | `validation/` | `ruttice-validation` | physics checks and comparisons with reference codes |
 
+## Running something
+
+There is no command-line program yet; the crates are libraries. One example runs the whole
+chain on a single configuration (plain-text format, one real per line):
+
+```bash
+cargo run --release -p ruttice-validation --example pion -- CONFIG LX LY LZ LT KAPPA
+```
+
+It prints the plaquette, solves for the propagator from a point source at the origin and
+prints the pion correlator for every time slice. Its source,
+[validation/examples/pion.rs](validation/examples/pion.rs), is the shortest complete
+illustration of how the pieces fit together.
+
 ## Tests
 
 ```bash
