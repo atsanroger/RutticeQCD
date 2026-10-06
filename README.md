@@ -9,9 +9,10 @@ Stages refer to DESIGN.md §9.1.
 
 - Stage 0, done: fields, nearest-neighbour stencil, site-parallel entry points, reading a
   plain-text gauge configuration, the plaquette.
-- Stage 1, in progress: the Wilson operator (fused sweep for D, D†, γ5 D, and the hopping
-  terms one direction at a time); CG and BiCGStab for one or several right-hand sides;
-  mixed precision by defect correction. Not yet: even-odd, FGMRES, propagators.
+- Stage 1, done except FGMRES: the Wilson operator (fused sweep for D, D†, γ5 D; hopping
+  terms one direction at a time; even-odd blocks); CG and BiCGStab for one or several
+  right-hand sides; mixed precision by defect correction; even-odd preconditioning written
+  once for all fermions; point sources and meson correlators.
 
 Single node, array-of-structures layout only. Comparisons with reference codes are
 recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
@@ -26,6 +27,7 @@ recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
 | `gauge/` | `ruttice-gauge` | gauge observables |
 | `fermion/` | `ruttice-fermion` | fermion operators, one per file |
 | `solver/` | `ruttice-solver` | Krylov solvers and the pieces mixed precision is built from |
+| `measure/` | `ruttice-measure` | sources and hadron correlators |
 | `validation/` | `ruttice-validation` | physics checks and comparisons with reference codes |
 
 ## Tests

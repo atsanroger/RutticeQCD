@@ -1,6 +1,9 @@
 //! Fermion operators (DESIGN.md §5). One fermion per file.
 
+mod evenodd;
 mod wilson;
+
+pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
 pub use wilson::{Wilson, WilsonParams, WilsonWork};
 

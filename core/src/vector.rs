@@ -79,13 +79,15 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     }
 
     fn zeros_like(&self) -> Self {
-        Field::with_shape(
+        let mut z = Field::with_shape(
             self.lattice(),
             self.internal_dof(),
             self.ls(),
             Field::num_vectors(self),
             self.outer(),
-        )
+        );
+        z.copy_parity_from(self);
+        z
     }
 
     fn same_shape(&self, x: &Self) -> bool {
@@ -94,6 +96,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
             && Field::num_vectors(self) == Field::num_vectors(x)
             && self.outer() == x.outer()
             && self.num_sites() == x.num_sites()
+            && self.parity() == x.parity()
     }
 
     fn copy_from(&mut self, x: &Self) {

@@ -1,3 +1,4 @@
+use crate::evenodd::{EvenOddIndex, Parity};
 use crate::lattice::{Lattice, ND};
 
 /// Boundary condition in one direction.
@@ -58,16 +59,39 @@ impl Stencil {
         }
     }
 
+    /// All sites of the lattice; neighbours are full-lattice indices.
     pub fn nearest(lat: &Lattice, boundary: [Boundary; ND]) -> Self {
+        Self::build(lat, boundary, 0..lat.num_sites(), |site| site)
+    }
+
+    /// The sites of one parity; neighbours are indices within the opposite parity.
+    pub fn nearest_parity(
+        lat: &Lattice,
+        boundary: [Boundary; ND],
+        index: &EvenOddIndex,
+        parity: Parity,
+    ) -> Self {
+        let sites = index.full_sites(parity).iter().map(|s| *s as usize);
+        Self::build(lat, boundary, sites, |site| index.half_site(site).1)
+    }
+
+    /// `sites` are the full-lattice indices this stencil covers, in order; `index_of` turns
+    /// the full-lattice index of a neighbour into the index stored in the table.
+    fn build(
+        lat: &Lattice,
+        boundary: [Boundary; ND],
+        sites: impl ExactSizeIterator<Item = usize>,
+        index_of: impl Fn(usize) -> usize,
+    ) -> Self {
         assert_eq!(
             lat.grid, [1; ND],
             "stencils across processes are not implemented yet"
         );
-        let num_sites = lat.num_sites();
-        assert!(num_sites <= u32::MAX as usize);
+        assert!(lat.num_sites() <= u32::MAX as usize);
+        let num_sites = sites.len();
         let mut neighbor = vec![0u32; num_sites * Self::LEGS];
         let mut flags = vec![0u8; num_sites * Self::LEGS];
-        for site in 0..num_sites {
+        for (i, site) in sites.enumerate() {
             let x = lat.coords(site);
             for mu in 0..ND {
                 let l = lat.local[mu];
@@ -78,8 +102,8 @@ impl Stencil {
                     };
                     let mut y = x;
                     y[mu] = xn;
-                    let k = site * Self::LEGS + Self::leg(mu, dir);
-                    neighbor[k] = lat.site(y) as u32;
+                    let k = i * Self::LEGS + Self::leg(mu, dir);
+                    neighbor[k] = index_of(lat.site(y)) as u32;
                     if wrapped {
                         flags[k] = match boundary[mu] {
                             Boundary::Dirichlet => ZERO,
@@ -168,5 +192,34 @@ mod tests {
             st.source(lat.site([0, 0, 0, 0]), 3, Direction::Backward),
             Source::Zero
         );
+    }
+
+    #[test]
+    fn parity_stencil_agrees_with_the_full_one() {
+        let lat = Lattice::single_node([4, 2, 6, 4]);
+        let index = EvenOddIndex::new(&lat);
+        let mut bc = [Boundary::Antiperiodic; ND];
+        bc[1] = Boundary::Dirichlet;
+        let full = Stencil::nearest(&lat, bc);
+        for parity in [Parity::Even, Parity::Odd] {
+            let half = Stencil::nearest_parity(&lat, bc, &index, parity);
+            assert_eq!(half.num_sites(), lat.num_sites() / 2);
+            for h in 0..half.num_sites() {
+                let site = index.full_site(parity, h);
+                for mu in 0..ND {
+                    for dir in [Direction::Forward, Direction::Backward] {
+                        let want = match full.source(site, mu, dir) {
+                            Source::Local { site: n, wrapped } => {
+                                let (p, i) = index.half_site(n);
+                                assert_eq!(p, parity.flip());
+                                Source::Local { site: i, wrapped }
+                            }
+                            other => other,
+                        };
+                        assert_eq!(half.source(h, mu, dir), want);
+                    }
+                }
+            }
+        }
     }
 }

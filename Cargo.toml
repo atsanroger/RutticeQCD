@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "core", "io", "gauge", "fermion", "solver", "validation"]
+members = ["kernel", "core", "io", "gauge", "fermion", "solver", "measure", "validation"]
 
 [workspace.package]
 version = "0.0.1"
@@ -14,6 +14,7 @@ ruttice-io = { path = "io" }
 ruttice-gauge = { path = "gauge" }
 ruttice-fermion = { path = "fermion" }
 ruttice-solver = { path = "solver" }
+ruttice-measure = { path = "measure" }
 rayon = "1"
 
 [workspace.lints.clippy]

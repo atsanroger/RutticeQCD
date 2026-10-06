@@ -95,3 +95,71 @@ running both.
 
 Not compared: BiCGStab (the Bridge++ variants count iterations differently and have extra
 parameters), CGNR, any solution vector element by element.
+
+## 4. Even-odd preconditioned Wilson operator applied to a constant spinor
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 2-norm of (1 - M_eo M_oe) b on the even sites, every real of b equal to 1 |
+| Reference | Bridge++ test `Mult_Wilson_eo`, `expected_result` in `tests/test_Mult_Wilson_eo.yaml` |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
+| RutticeQCD | stage 1; `ruttice-validation` test `bridge_mult_wilson_eo`; `Schur` on `Parity::Even` |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+
+| | Value |
+|---|---|
+| Bridge++ | 8.07908371651806e+01 |
+| RutticeQCD | 8.07908371651807e+01 |
+| Tolerance | 1e-13 relative (the Bridge++ test itself uses 1e-14) |
+| Result | pass |
+
+The same quantity on the odd sites is 8.13216769729418e+01, so the agreement also fixes
+which parity Bridge++ calls even: x + y + z + t even.
+
+What this validates: the hopping blocks between the two parities, the half-lattice
+stencil, and the Schur complement for a unit diagonal.
+
+What it does not validate: the ordering of sites within a parity (a norm does not see
+it), the right-hand-side preparation and the reconstruction of the other parity (those
+are checked against the full operator only), a non-trivial diagonal block.
+
+## 5. Pion correlator from a point source
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | Real part of the pseudoscalar-pseudoscalar correlator at t = 0 |
+| Reference | Bridge++ test `Spectrum_Wilson_Hadron2ptFunction`, `expected_result` in the yaml file of that name |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | κ = 0.12, antiperiodic in all four directions, point source at the origin, all 12 spin-colour components |
+| RutticeQCD | stage 1; `ruttice-validation` test `bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+
+| | Value |
+|---|---|
+| Bridge++ | 14.2250394502083 |
+| RutticeQCD | 14.2250394502083 |
+| Tolerance | 1e-12 relative |
+| Result | pass |
+
+Worst full-system residual \|D S − b\|² over the 12 columns: 8.8e-29.
+
+The Bridge++ test fixes the gauge to Landau gauge before solving; that step was skipped.
+The pseudoscalar correlator from a point source is gauge invariant, and the agreement to
+all printed digits is consistent with that.
+
+What this validates: the point source, the solve for several right-hand sides at once,
+the even-odd solve end to end (preparation, Schur solve, reconstruction), and the
+time-slice reduction.
+
+What it does not validate: the other time slices against Bridge++ (only t = 0 is in the
+yaml file), any channel other than the pseudoscalar. `meson_correlator` with other gamma
+matrices has only been checked to reduce to the pion case for γ5; its sign and
+normalisation conventions for other channels are unverified.
+

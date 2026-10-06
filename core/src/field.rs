@@ -1,3 +1,4 @@
+use crate::evenodd::Parity;
 use crate::lattice::Lattice;
 use crate::storage::Storage;
 use std::marker::PhantomData;
@@ -113,6 +114,8 @@ pub struct Field<T: Storage, K: Kind, S: Sites = Full, L: Layout = Aos, B: Backe
     num_vectors: usize,
     outer: usize,
     num_sites: usize,
+    /// Which parity a `Half` field lives on. Always `Even` for `Full` fields.
+    parity: Parity,
     _marker: Marker<K, S, L>,
 }
 
@@ -146,8 +149,17 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout, B: Backend> Field<T, K, S, L, B> 
             num_vectors,
             outer,
             num_sites,
+            parity: Parity::Even,
             _marker: PhantomData,
         }
+    }
+
+    pub fn parity(&self) -> Parity {
+        self.parity
+    }
+
+    pub(crate) fn copy_parity_from(&mut self, other: &Self) {
+        self.parity = other.parity;
     }
 
     pub fn lattice(&self) -> &Arc<Lattice> {
@@ -186,6 +198,21 @@ impl<T: Storage> Field<T, Gauge> {
     /// A gauge field: one link per direction per site, all zero.
     pub fn gauge(lat: &Arc<Lattice>) -> Self {
         Self::with_shape(lat, 18, 1, 1, crate::lattice::ND)
+    }
+}
+
+impl<T: Storage, K: Kind, L: Layout, B: Backend> Field<T, K, Half, L, B> {
+    pub fn set_parity(&mut self, parity: Parity) {
+        self.parity = parity;
+    }
+}
+
+impl<T: Storage> Field<T, Spinor, Half> {
+    /// `num_vectors` spinor fields on the sites of one parity, all zero.
+    pub fn spinor_half(lat: &Arc<Lattice>, num_vectors: usize, parity: Parity) -> Self {
+        let mut f = Self::with_shape(lat, 24, 1, num_vectors, 1);
+        f.parity = parity;
+        f
     }
 }
 

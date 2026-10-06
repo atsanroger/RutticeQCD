@@ -8,7 +8,7 @@ pub use bicgstab::BiCgStab;
 pub use cg::Cg;
 pub use mixed::{Convert, Refine, Solve};
 
-use ruttice_core::{LinearFn, Vector};
+use ruttice_core::{Adjoint, LinearFn, LinearOp, Normal, Vector};
 use std::fmt;
 
 /// Stopping rule shared by the solvers.
@@ -104,4 +104,22 @@ pub(crate) fn true_residual<V: Vector>(
             *o /= n;
         }
     }
+}
+
+/// Solve `A x = b` for a general `A` through the normal equations `A A^† y = b`,
+/// `x = A^† y` (CGNE when `solver` is CG). The residual the solver sees is that of the
+/// original system. Starts from zero; the content of `x` on entry is ignored.
+pub fn solve_cgne<V: Vector, A: LinearOp<V>>(
+    solver: &mut dyn Solver<V>,
+    a: &mut A,
+    x: &mut V,
+    b: &V,
+) -> Result<SolveInfo, SolveError> {
+    let mut y = b.zeros_like();
+    let info = {
+        let mut a_adag = Normal::new(Adjoint(&mut *a), b);
+        solver.solve(&mut a_adag, None, &mut y, b)?
+    };
+    a.mult_dag(x, &y);
+    Ok(info)
 }

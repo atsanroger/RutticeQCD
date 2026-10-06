@@ -144,6 +144,20 @@ pub struct Gamma {
 }
 
 impl Gamma {
+    pub const IDENTITY: Gamma = Gamma {
+        col: [0, 1, 2, 3],
+        val: [Unit::One; NS],
+    };
+
+    /// The matrix product `self * o`.
+    pub fn mul(&self, o: &Gamma) -> Gamma {
+        // (a b psi)_r = a.val[r] * b.val[a.col[r]] * psi_{b.col[a.col[r]]}
+        Gamma {
+            col: core::array::from_fn(|r| o.col[self.col[r]]),
+            val: core::array::from_fn(|r| self.val[r].mul(o.val[self.col[r]])),
+        }
+    }
+
     #[inline(always)]
     pub fn apply<T: Real>(&self, psi: &Spinor<T>) -> Spinor<T> {
         Spinor(core::array::from_fn(|a| {
