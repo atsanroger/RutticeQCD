@@ -10,6 +10,7 @@ use ruttice_fermion::{
 };
 use ruttice_gauge::{field_strength, link, set_unit, PLANES};
 use ruttice_io::read_bridge_text;
+use ruttice_kernel::{Dirac, GammaRepre, Spinor as SiteSpinor};
 use ruttice_solver::{solve_cgne, Cg, Stop};
 use ruttice_validation::{
     bridge_test_file, gauge_transform, gauge_transform_spinor, max_abs_diff, random_gauge,
@@ -282,6 +283,39 @@ fn even_odd_solve_solves_the_full_system() {
     r.axpy(&[C64::new(1.0, 0.0)], &b);
     let residual = norm_sqr(&r) / norm_sqr(&b);
     assert!(residual < 1e-24, "residual {residual:e}");
+}
+
+/// The stored block (two packed 6 × 6 matrices in the γ5 eigenbasis) agrees with the
+/// defining formula applied directly, T ψ = ψ - κ c_SW Σ_{mu<nu} F_mu_nu γ_mu γ_nu ψ,
+/// for a clover coefficient other than one.
+#[test]
+fn diagonal_block_matches_the_direct_formula() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let u = random_gauge(&lat, 270);
+    let (kappa, csw) = (0.12, 1.7);
+    let op = clover(&lat, csw, PERIODIC, &u);
+    let psi = random_spinor(&lat, 1, 271);
+    let mut got = psi.zeros_like();
+    op.mult_diag(&mut op.work(), &mut got, &psi);
+
+    let f = field_strength(&u, &Stencil::nearest(&lat, PERIODIC));
+    let mut want = psi.zeros_like();
+    for site in 0..lat.num_sites() {
+        let p = SiteSpinor::from_reals(psi.site(0, site));
+        let mut acc = p;
+        for (plane, (mu, nu)) in PLANES.into_iter().enumerate() {
+            let gg = Dirac::GAMMA[mu].mul(&Dirac::GAMMA[nu]);
+            let term = gg.apply(&p).color_mul(&link(&f, plane, site));
+            acc = acc.sub_scaled(kappa * csw, &term);
+        }
+        acc.write_reals(want.site_mut(0, site));
+    }
+    assert!(
+        max_abs_diff(&want, &psi) > 1e-2,
+        "the term should be visible"
+    );
+    let diff = max_abs_diff(&got, &want);
+    assert!(diff < 1e-14, "max difference {diff}");
 }
 
 // ---- Comparison with Bridge++ (skipped unless the test inputs are provided) ----

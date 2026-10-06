@@ -89,27 +89,21 @@ impl<T: Real> HalfSpinor<T> {
     }
 }
 
-/// Rows (and columns) of a matrix acting on spin and colour at one site.
-pub const SITE_MATRIX_DIM: usize = NC * NS;
-/// Reals in such a matrix: row-major, (re, im) pairs, element (r, c) at `2 * (12 r + c)`
-/// with row and column index `colour + NC * spin`.
-pub const SITE_MATRIX_REALS: usize = 2 * SITE_MATRIX_DIM * SITE_MATRIX_DIM;
+/// Reals in a packed Hermitian 6 × 6 matrix: the six real diagonal entries, then the
+/// upper triangle row by row as (re, im) pairs.
+pub const HERMITIAN6_REALS: usize = 36;
 
-/// `M ψ` for a dense matrix on spin and colour.
+/// `M v` for a packed Hermitian 6 × 6 matrix.
 #[inline(always)]
-pub fn site_matrix_mul<T: Real>(m: &[T; SITE_MATRIX_REALS], psi: &Spinor<T>) -> Spinor<T> {
-    let mut out = Spinor::zero();
-    for a in 0..NS {
-        for i in 0..NC {
-            let row = 2 * SITE_MATRIX_DIM * (i + NC * a);
-            let mut s = Cplx::ZERO;
-            for b in 0..NS {
-                for j in 0..NC {
-                    let k = row + 2 * (j + NC * b);
-                    s += Cplx::new(m[k], m[k + 1]) * psi.0[b][j];
-                }
-            }
-            out.0[a][i] = s;
+pub fn hermitian6_mul<T: Real>(m: &[T; HERMITIAN6_REALS], v: &[Cplx<T>; 6]) -> [Cplx<T>; 6] {
+    let mut out: [Cplx<T>; 6] = core::array::from_fn(|r| v[r].scale(m[r]));
+    let mut k = 6;
+    for r in 0..6 {
+        for c in r + 1..6 {
+            let z = Cplx::new(m[k], m[k + 1]);
+            out[r] += z * v[c];
+            out[c] += z.conj() * v[r];
+            k += 2;
         }
     }
     out
@@ -426,33 +420,32 @@ mod tests {
     }
 
     #[test]
-    fn site_matrix_built_from_gamma_and_colour_acts_like_both() {
-        // M = γ_y ⊗ C for a colour matrix C: element ((a,i),(b,j)) = γ_ab C_ij.
-        let psi = sample();
-        let g = &Dirac::GAMMA[1];
-        let mut c = ColorMatrix::<f64>::zero();
-        for i in 0..NC {
-            for j in 0..NC {
-                c.0[i][j] = Cplx::new(0.3 * i as f64 - 0.2 * j as f64, 0.1 + 0.5 * (i * j) as f64);
+    fn packed_hermitian_product_matches_the_dense_one() {
+        // A Hermitian matrix H = A + A^† from an arbitrary A, packed and dense.
+        let a = |r: usize, c: usize| {
+            Cplx::new(0.3 * r as f64 - 0.7 * c as f64, 0.2 + 0.1 * (r * c) as f64)
+        };
+        let h = |r: usize, c: usize| a(r, c) + a(c, r).conj();
+        let mut packed = [0.0f64; HERMITIAN6_REALS];
+        let mut k = 6;
+        for r in 0..6 {
+            packed[r] = h(r, r).re;
+            for c in r + 1..6 {
+                packed[k] = h(r, c).re;
+                packed[k + 1] = h(r, c).im;
+                k += 2;
             }
         }
-        let mut m = [0.0f64; SITE_MATRIX_REALS];
-        for a in 0..NS {
-            for i in 0..NC {
-                for j in 0..NC {
-                    let z = g.val[a].times(c.0[i][j]);
-                    let k = 2 * (SITE_MATRIX_DIM * (i + NC * a) + (j + NC * g.col[a]));
-                    m[k] = z.re;
-                    m[k + 1] = z.im;
-                }
+        assert_eq!(k, HERMITIAN6_REALS);
+        let v: [Cplx<f64>; 6] =
+            core::array::from_fn(|i| Cplx::new(1.0 - 0.4 * i as f64, 0.5 * i as f64 - 1.0));
+        let got = hermitian6_mul(&packed, &v);
+        for r in 0..6 {
+            let mut want = Cplx::ZERO;
+            for c in 0..6 {
+                want += h(r, c) * v[c];
             }
-        }
-        let got = site_matrix_mul(&m, &psi);
-        let want = g.apply(&psi).color_mul(&c);
-        for a in 0..NS {
-            for i in 0..NC {
-                assert!((got.0[a][i] - want.0[a][i]).norm_sqr() < 1e-24);
-            }
+            assert!((got[r] - want).norm_sqr() < 1e-24);
         }
     }
 

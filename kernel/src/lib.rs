@@ -9,8 +9,8 @@
 mod spin;
 
 pub use spin::{
-    project, sink_spinor, site_matrix_mul, transport, ColorVector, Dirac, Gamma, GammaRepre,
-    HalfSpinor, LinkUse, Sign, Spinor, Unit, NS, SITE_MATRIX_DIM, SITE_MATRIX_REALS, SPINOR_REALS,
+    hermitian6_mul, project, sink_spinor, transport, ColorVector, Dirac, Gamma, GammaRepre,
+    HalfSpinor, LinkUse, Sign, Spinor, Unit, HERMITIAN6_REALS, NS, SPINOR_REALS,
 };
 
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};

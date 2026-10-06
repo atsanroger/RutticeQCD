@@ -188,8 +188,11 @@ What this validates: the clover-leaf field strength (orientation of the four lea
 1/8, no trace removal), the sign and normalisation of the clover term, the spin matrices
 that multiply it, and a boundary that differs between directions.
 
-What it does not validate: c_SW other than 1 (the term is linear in it), other gamma
-representations.
+What it does not validate against Bridge++: c_SW other than 1, other gamma
+representations. For c_SW = 1.7 the stored diagonal block is checked against the defining
+formula applied directly (test `diagonal_block_matches_the_direct_formula`); together with
+this entry, which fixes the sign and normalisation of that formula at c_SW = 1, that covers
+other values without a second reference number.
 
 ## 7. Even-odd preconditioned clover operator applied to a constant spinor
 
