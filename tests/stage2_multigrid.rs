@@ -12,9 +12,10 @@ use ruttice::fermion::{
 use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, GammaRepre, Spinor as SiteSpinor, SPINOR_REALS};
 use ruttice::solver::preconditioner::multigrid::{
-    Aggregation, Basis, CoarseOp, Multigrid, MultigridError, MultigridParams, Sap,
+    Aggregation, Basis, CoarseOp, CycleParts, Multigrid, MultigridError, MultigridParams, Sap,
+    SetupHooks,
 };
-use ruttice::solver::{Convert, Fgmres, Solver, Stop};
+use ruttice::solver::{BiCgStab, Convert, Fgmres, Solve, Solver, Stop};
 use ruttice::{random_spinor, TestRng};
 use ruttice::{
     Boundary, Coarse, ConvertFrom, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage,
@@ -576,4 +577,66 @@ fn multigrid_on_the_bridge_configuration() {
     )));
     eprintln!("FGMRES iterations: {plain} plain, {with_mg} with single-precision multigrid");
     assert!(with_mg * 10 < plain);
+}
+
+/// The members of the cycle can be exchanged: the domain-wall choices of the CUDA version
+/// (GMRES(m) before and after the coarse correction, GMRES(m) on the coarse lattice, coarse
+/// operator preconditioned by its diagonal blocks), here on a clover operator, still make a
+/// good preconditioner. And the outer solver can be BiCGStab, which is flexible with a
+/// preconditioner.
+#[test]
+fn exchangeable_members_and_outer_solvers() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 561), 0.2);
+    let b = random_spinor(&lat, 1, 562);
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    // GMRES(m) is FGMRES without a preconditioner, m iterations, no restarts.
+    let smoother = || {
+        Box::new(Solve::new(
+            Fgmres::<V64>::new(Stop::simple(1e-3, 4)),
+            Bound::new(&op, Variant::D),
+        ))
+    };
+    let parts = CycleParts {
+        operator: Box::new(Bound::new(&op, Variant::D)),
+        pre_smoother: Some(smoother()),
+        post_smoother: smoother(),
+        coarse_solver: Box::new(Fgmres::<C64Field>::new(Stop::simple(1e-2, 5))),
+    };
+    let hooks = SetupHooks {
+        precondition_coarse_diagonal: true,
+        ..SetupHooks::default()
+    };
+    let mut mg =
+        Multigrid::with_parts(&op, &agg, random_spinor(&lat, 8, 563), 2, parts, hooks).unwrap();
+    assert!(mg.coarse_operator().is_diagonal_preconditioned());
+
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let plain = {
+        let mut x = b.zeros_like();
+        Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), None, &mut x, &b)
+            .unwrap()
+            .iterations
+    };
+    let mut outer: [(&str, Box<dyn Solver<V64>>); 2] = [
+        ("FGMRES", Box::new(Fgmres::new(stop))),
+        ("BiCGStab", Box::new(BiCgStab::new(stop))),
+    ];
+    for (name, solver) in outer.iter_mut() {
+        let mut x = b.zeros_like();
+        let info = solver
+            .solve(&mut Bound::new(&op, Variant::D), Some(&mut mg), &mut x, &b)
+            .unwrap();
+        assert!(residual_sqr(&op, &x, &b)[0] < 1e-24);
+        eprintln!(
+            "{name} with the domain-wall style cycle: {} iterations (FGMRES alone {plain})",
+            info.iterations
+        );
+        assert!(info.iterations * 5 < plain, "{name}");
+    }
 }
