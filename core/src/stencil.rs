@@ -1,3 +1,4 @@
+use crate::comm::{opposite_face, HaloSpec, FACES};
 use crate::evenodd::{EvenOddIndex, Parity};
 use crate::lattice::{Lattice, ND};
 
@@ -18,38 +19,52 @@ pub enum Direction {
     Backward,
 }
 
-/// Where the neighbour of a site comes from.
+/// Where the neighbour of a site comes from. `wrapped` is true if the hop crossed the
+/// boundary of the global lattice, so the caller can apply the boundary phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Another site on this process. `wrapped` is true if the hop crossed the global
-    /// boundary, so the caller can apply the boundary phase.
+    /// Another site on this process.
     Local {
         site: usize,
         wrapped: bool,
     },
-    /// A position in a communication buffer. Not produced until MPI is implemented.
+    /// A site of the neighbouring process: position `index` in what was received on the
+    /// face in the direction of the hop.
     Buffer {
         index: usize,
+        wrapped: bool,
     },
     Zero,
 }
 
 const WRAPPED: u8 = 1;
 const ZERO: u8 = 2;
+const BUFFER: u8 = 4;
 
 /// Nearest-neighbour geometry of a lattice, built once and shared by kernels and `shift`.
 ///
-/// So far: unit displacements, single node. Whether this is a table or
-/// arithmetic is an internal choice that callers do not see.
+/// So far: unit displacements. Whether this is a table or arithmetic is an internal choice
+/// that callers do not see.
+///
+/// In a direction with more than one process, the neighbours beyond the local lattice are
+/// `Source::Buffer`. The sites a process has to send are listed by `send_sites`, in the
+/// order the receiving side indexes them: both sides order a face by increasing site
+/// index, which is the same order because their local lattices have the same shape.
 pub struct Stencil {
     num_sites: usize,
     neighbor: Vec<u32>,
     flags: Vec<u8>,
     boundary: [Boundary; ND],
+    /// Rank on the other side of each face.
+    neighbour_rank: [usize; FACES],
+    /// Whether leaving through each face crosses the boundary of the global lattice.
+    at_global_boundary: [bool; FACES],
+    /// For each face, the input sites whose data the neighbour on that side needs.
+    send_sites: [Vec<u32>; FACES],
 }
 
 impl Stencil {
-    pub const LEGS: usize = 2 * ND;
+    pub const LEGS: usize = FACES;
 
     #[inline(always)]
     pub fn leg(mu: usize, dir: Direction) -> usize {
@@ -61,7 +76,7 @@ impl Stencil {
 
     /// All sites of the lattice; neighbours are full-lattice indices.
     pub fn nearest(lat: &Lattice, boundary: [Boundary; ND]) -> Self {
-        Self::build(lat, boundary, 0..lat.num_sites(), |site| site)
+        Self::build(lat, boundary, 0..lat.num_sites(), Some)
     }
 
     /// The sites of one parity; neighbours are indices within the opposite parity.
@@ -72,52 +87,93 @@ impl Stencil {
         parity: Parity,
     ) -> Self {
         let sites = index.full_sites(parity).iter().map(|s| *s as usize);
-        Self::build(lat, boundary, sites, |site| index.half_site(site).1)
+        Self::build(lat, boundary, sites, |site| {
+            let (p, half) = index.half_site(site);
+            (p != parity).then_some(half)
+        })
     }
 
-    /// `sites` are the full-lattice indices this stencil covers, in order; `index_of` turns
-    /// the full-lattice index of a neighbour into the index stored in the table.
+    /// `sites` are the full-lattice indices this stencil covers, in order. `input_index`
+    /// gives the index of a full-lattice site in the field the neighbours are read from, or
+    /// `None` if that field does not live on the site; it must increase with the site.
     fn build(
         lat: &Lattice,
         boundary: [Boundary; ND],
         sites: impl ExactSizeIterator<Item = usize>,
-        index_of: impl Fn(usize) -> usize,
+        input_index: impl Fn(usize) -> Option<usize>,
     ) -> Self {
-        assert_eq!(
-            lat.grid, [1; ND],
-            "stencils across processes are not implemented yet"
-        );
         assert!(lat.num_sites() <= u32::MAX as usize);
+        let legs = (0..ND).flat_map(|mu| [(mu, Direction::Forward), (mu, Direction::Backward)]);
+        let exchanged = |mu: usize| lat.grid[mu] > 1;
+        let at_global_boundary: [bool; FACES] = {
+            let mut at = [false; FACES];
+            for (mu, dir) in legs.clone() {
+                at[Self::leg(mu, dir)] = lat.at_global_boundary(mu, dir);
+            }
+            at
+        };
+
         let num_sites = sites.len();
         let mut neighbor = vec![0u32; num_sites * Self::LEGS];
         let mut flags = vec![0u8; num_sites * Self::LEGS];
+        let mut received = [0u32; FACES];
         for (i, site) in sites.enumerate() {
             let x = lat.coords(site);
-            for mu in 0..ND {
+            for (mu, dir) in legs.clone() {
                 let l = lat.local[mu];
-                for dir in [Direction::Forward, Direction::Backward] {
-                    let (xn, wrapped) = match dir {
-                        Direction::Forward => ((x[mu] + 1) % l, x[mu] + 1 == l),
-                        Direction::Backward => ((x[mu] + l - 1) % l, x[mu] == 0),
-                    };
+                let (xn, leaves) = match dir {
+                    Direction::Forward => ((x[mu] + 1) % l, x[mu] + 1 == l),
+                    Direction::Backward => ((x[mu] + l - 1) % l, x[mu] == 0),
+                };
+                let leg = Self::leg(mu, dir);
+                let k = i * Self::LEGS + leg;
+                let wrapped = leaves && at_global_boundary[leg];
+                if wrapped && boundary[mu] == Boundary::Dirichlet {
+                    flags[k] = ZERO;
+                } else if leaves && exchanged(mu) {
+                    neighbor[k] = received[leg];
+                    received[leg] += 1;
+                    flags[k] = BUFFER | if wrapped { WRAPPED } else { 0 };
+                } else {
                     let mut y = x;
                     y[mu] = xn;
-                    let k = i * Self::LEGS + Self::leg(mu, dir);
-                    neighbor[k] = index_of(lat.site(y)) as u32;
-                    if wrapped {
-                        flags[k] = match boundary[mu] {
-                            Boundary::Dirichlet => ZERO,
-                            _ => WRAPPED,
-                        };
-                    }
+                    let n = input_index(lat.site(y))
+                        .expect("the neighbour of a covered site holds no input");
+                    neighbor[k] = n as u32;
+                    flags[k] = if wrapped { WRAPPED } else { 0 };
                 }
             }
         }
+
+        // What leaves through a face are the input sites in the outermost layer on that side.
+        let mut send_sites: [Vec<u32>; FACES] = Default::default();
+        for (mu, dir) in legs.filter(|(mu, _)| exchanged(*mu)) {
+            let layer = match dir {
+                Direction::Forward => lat.local[mu] - 1,
+                Direction::Backward => 0,
+            };
+            send_sites[Self::leg(mu, dir)] = (0..lat.num_sites())
+                .filter(|site| lat.coords(*site)[mu] == layer)
+                .filter_map(&input_index)
+                .map(|n| n as u32)
+                .collect();
+        }
+
         Self {
             num_sites,
             neighbor,
             flags,
             boundary,
+            neighbour_rank: {
+                let mut rank = [lat.comm.rank(); FACES];
+                for mu in 0..ND {
+                    rank[mu] = lat.neighbour_rank(mu, Direction::Forward);
+                    rank[ND + mu] = lat.neighbour_rank(mu, Direction::Backward);
+                }
+                rank
+            },
+            at_global_boundary,
+            send_sites,
         }
     }
 
@@ -132,12 +188,46 @@ impl Stencil {
     #[inline(always)]
     pub fn source(&self, site: usize, mu: usize, dir: Direction) -> Source {
         let k = site * Self::LEGS + Self::leg(mu, dir);
-        match self.flags[k] {
-            ZERO => Source::Zero,
-            f => Source::Local {
-                site: self.neighbor[k] as usize,
-                wrapped: f == WRAPPED,
-            },
+        let (flags, n) = (self.flags[k], self.neighbor[k] as usize);
+        let wrapped = flags & WRAPPED != 0;
+        if flags & ZERO != 0 {
+            Source::Zero
+        } else if flags & BUFFER != 0 {
+            Source::Buffer { index: n, wrapped }
+        } else {
+            Source::Local { site: n, wrapped }
+        }
+    }
+
+    /// Whether any neighbour comes from another process.
+    pub fn has_buffers(&self) -> bool {
+        self.send_sites.iter().any(|s| !s.is_empty())
+    }
+
+    /// The input sites to send through the face (mu, dir), in the order the neighbour
+    /// indexes them. Empty if that direction has a single process.
+    pub fn send_sites(&self, mu: usize, dir: Direction) -> &[u32] {
+        &self.send_sites[Self::leg(mu, dir)]
+    }
+
+    /// Whether what is sent through the face (mu, dir) crosses the boundary of the global
+    /// lattice.
+    pub fn sends_across_boundary(&self, mu: usize, dir: Direction) -> bool {
+        self.at_global_boundary[Self::leg(mu, dir)]
+    }
+
+    /// The exchange that carries `reals_per_site` reals for every site of every face. A
+    /// face receives as many sites as the opposite face sends.
+    pub fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
+        HaloSpec {
+            neighbour: self.neighbour_rank,
+            len: core::array::from_fn(|face| {
+                debug_assert_eq!(
+                    self.send_sites[face].len(),
+                    self.send_sites[opposite_face(face)].len()
+                );
+                reals_per_site * self.send_sites[face].len()
+            }),
         }
     }
 }

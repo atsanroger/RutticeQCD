@@ -10,6 +10,8 @@ use crate::{ColorMatrix, Cplx, Real, NC};
 pub const NS: usize = 4;
 /// Reals in one spinor.
 pub const SPINOR_REALS: usize = 2 * NC * NS;
+/// Reals in a half spinor.
+pub const HALF_SPINOR_REALS: usize = SPINOR_REALS / 2;
 
 pub type ColorVector<T> = [Cplx<T>; NC];
 
@@ -81,6 +83,24 @@ impl<T: Real> Spinor<T> {
 }
 
 impl<T: Real> HalfSpinor<T> {
+    /// Read from reals ordered [spin][colour][re, im].
+    #[inline(always)]
+    pub fn from_reals(v: &[T; HALF_SPINOR_REALS]) -> Self {
+        Self(core::array::from_fn(|s| {
+            core::array::from_fn(|c| Cplx::new(v[2 * (NC * s + c)], v[2 * (NC * s + c) + 1]))
+        }))
+    }
+
+    #[inline(always)]
+    pub fn write_reals(&self, v: &mut [T; HALF_SPINOR_REALS]) {
+        for s in 0..2 {
+            for c in 0..NC {
+                v[2 * (NC * s + c)] = self.0[s][c].re;
+                v[2 * (NC * s + c) + 1] = self.0[s][c].im;
+            }
+        }
+    }
+
     #[inline(always)]
     pub fn scale_cplx(&self, z: Cplx<T>) -> Self {
         Self(core::array::from_fn(|k| {
@@ -335,10 +355,23 @@ pub fn transport<T: Real>(
     link_use: LinkUse,
     phase: Option<Cplx<T>>,
 ) -> HalfSpinor<T> {
-    let mut h = project(g, sign, psi);
-    if let Some(z) = phase {
-        h = h.scale_cplx(z);
-    }
+    transport_half(&project(g, sign, psi), link, link_use, phase)
+}
+
+/// The part of `transport` after the projection: the boundary phase, then the link. Split
+/// off so that a projected spinor received from another process is finished with exactly
+/// the same arithmetic as a local one.
+#[inline(always)]
+pub fn transport_half<T: Real>(
+    h: &HalfSpinor<T>,
+    link: &ColorMatrix<T>,
+    link_use: LinkUse,
+    phase: Option<Cplx<T>>,
+) -> HalfSpinor<T> {
+    let h = match phase {
+        Some(z) => h.scale_cplx(z),
+        None => *h,
+    };
     HalfSpinor(core::array::from_fn(|k| match link_use {
         LinkUse::Direct => link.mul_vec(&h.0[k]),
         LinkUse::Adjoint => link.adj_mul_vec(&h.0[k]),

@@ -52,7 +52,9 @@ pub fn plaquette<T: Storage>(u: &Field<T, Gauge>, st: &Stencil) -> f64 {
     let forward = |site: usize, mu: usize| match st.source(site, mu, Direction::Forward) {
         Source::Local { site, .. } => Some(site),
         Source::Zero => None,
-        Source::Buffer { .. } => unreachable!("no communication buffers on a single node"),
+        Source::Buffer { .. } => {
+            panic!("the plaquette across processes is not implemented yet")
+        }
     };
     let sum = reduce_sites(num_sites, |x| {
         let mut s = 0.0;

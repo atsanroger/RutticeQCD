@@ -201,6 +201,8 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
                 }
             }
         });
+        let mut sums = sums;
+        self.lattice().comm.sum(&mut sums);
         for (o, s) in out.iter_mut().zip(sums.as_chunks::<2>().0) {
             *o = Cplx::new(s[0], s[1]);
         }
@@ -221,6 +223,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
             }
         });
         out.copy_from_slice(&sums);
+        self.lattice().comm.sum(out);
     }
 }
 

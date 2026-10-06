@@ -1,3 +1,4 @@
+use crate::comm::{Comm, HaloExchange, HaloSpec};
 use ruttice_kernel::Real;
 
 /// What a field stores. Kernels compute in `Compute`; only load/store touch the stored type,
@@ -6,6 +7,8 @@ pub trait Storage: Copy + Default + Send + Sync + 'static {
     type Compute: Real;
     fn load(self) -> Self::Compute;
     fn store(x: Self::Compute) -> Self;
+    /// Buffers for exchanging faces of fields stored as this type.
+    fn halo(comm: &dyn Comm, spec: &HaloSpec) -> Box<dyn HaloExchange<Self>>;
 }
 
 impl Storage for f32 {
@@ -18,6 +21,9 @@ impl Storage for f32 {
     fn store(x: f32) -> f32 {
         x
     }
+    fn halo(comm: &dyn Comm, spec: &HaloSpec) -> Box<dyn HaloExchange<f32>> {
+        comm.halo_f32(spec)
+    }
 }
 
 impl Storage for f64 {
@@ -29,5 +35,8 @@ impl Storage for f64 {
     #[inline(always)]
     fn store(x: f64) -> f64 {
         x
+    }
+    fn halo(comm: &dyn Comm, spec: &HaloSpec) -> Box<dyn HaloExchange<f64>> {
+        comm.halo_f64(spec)
     }
 }

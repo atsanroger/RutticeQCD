@@ -6,7 +6,7 @@ use crate::sites::reduce_sites_n;
 use crate::storage::Storage;
 use ruttice_kernel::Real;
 
-/// Sum of squares of every real in the field.
+/// Sum of squares of every real in the field, over all processes.
 pub fn norm_sqr<T, K, S>(a: &Field<T, K, S, Aos, Cpu>) -> f64
 where
     T: Storage,
@@ -23,7 +23,9 @@ where
         }
         [s]
     });
-    s
+    let mut s = [s];
+    a.lattice().comm.sum(&mut s);
+    s[0]
 }
 
 /// `<a|b> = Σ conj(a) b`, treating consecutive reals as (re, im). Returns (re, im).
@@ -51,7 +53,9 @@ where
         }
         [re, im]
     });
-    (re, im)
+    let mut s = [re, im];
+    a.lattice().comm.sum(&mut s);
+    (s[0], s[1])
 }
 
 /// Set every real to `value`.

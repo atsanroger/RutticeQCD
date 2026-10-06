@@ -1,6 +1,7 @@
 //! Fields, lattice geometry, stencils and site-parallel entry points.
 //!
-//! So far: `Aos` layout, `Cpu` backend, single node.
+//! So far: `Aos` layout, `Cpu` backend. Several processes are supported by the stencil,
+//! `shift`, and the reductions; see `comm` for what moves the data.
 
 mod blas;
 mod comm;
@@ -14,7 +15,7 @@ mod storage;
 mod vector;
 
 pub use blas::{dot, fill, norm_sqr};
-pub use comm::{Comm, SingleComm};
+pub use comm::{opposite_face, Comm, HaloExchange, HaloSpec, LocalComm, SingleComm, FACES};
 pub use evenodd::{extract_parity, insert_parity, EvenOddIndex, Parity};
 pub use field::{Aos, Backend, Coarse, Cpu, Field, Full, Gauge, Half, Kind, Layout, Sites, Spinor};
 pub use lattice::{Lattice, ND};

@@ -1,3 +1,4 @@
+use crate::comm::{opposite_face, FACES};
 use crate::field::{Aos, Cpu, Field, Kind, Sites};
 use crate::stencil::{Direction, Source, Stencil};
 use crate::storage::Storage;
@@ -89,6 +90,9 @@ where
 
 /// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to
 /// the default value. No boundary phase is applied.
+///
+/// Meant to be simple and general, not fast: with several processes it sets up its own
+/// exchange on every call.
 pub fn shift<T, K, S>(
     out: &mut Field<T, K, S, Aos, Cpu>,
     inp: &Field<T, K, S, Aos, Cpu>,
@@ -104,12 +108,36 @@ pub fn shift<T, K, S>(
     assert_eq!(out.site_len(), inp.site_len());
     assert_eq!(st.num_sites(), inp.num_sites());
     let site_len = inp.site_len();
+    // What this process receives from direction `dir` is what the neighbour there sends
+    // through its opposite face; only that pair of faces carries data.
+    let (face, back) = (Stencil::leg(mu, dir), opposite_face(Stencil::leg(mu, dir)));
+    let back_dir = match dir {
+        Direction::Forward => Direction::Backward,
+        Direction::Backward => Direction::Forward,
+    };
+    let mut spec = st.halo_spec(site_len);
+    for f in (0..FACES).filter(|f| *f != face && *f != back) {
+        spec.len[f] = 0;
+    }
+    let mut exchange = T::halo(inp.lattice().comm.as_ref(), &spec);
     for o in 0..inp.outer() {
+        let send = exchange.send_buffer(back);
+        for (v, site) in send
+            .chunks_exact_mut(site_len)
+            .zip(st.send_sites(mu, back_dir))
+        {
+            v.copy_from_slice(inp.site(o, *site as usize));
+        }
+        exchange.start();
+        exchange.wait();
+        let received = exchange.recv_buffer(face);
         for_sites(out.slab_mut(o), site_len, |site, v| {
             match st.source(site, mu, dir) {
                 Source::Local { site: n, .. } => v.copy_from_slice(inp.site(o, n)),
                 Source::Zero => v.fill(T::default()),
-                Source::Buffer { .. } => unreachable!("no communication buffers on a single node"),
+                Source::Buffer { index, .. } => {
+                    v.copy_from_slice(&received[index * site_len..(index + 1) * site_len])
+                }
             }
         });
     }

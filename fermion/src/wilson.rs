@@ -7,6 +7,11 @@
 //!
 //! The sweep is generic over the site-diagonal block (`DiagTerm`), so fermions that differ
 //! from Wilson only within a site (clover) reuse everything here.
+//! With several processes, a sweep first exchanges the faces of the input: projected half
+//! spinors, with the link already applied on the side that holds it. The exchange is
+//! finished before the sweep starts; computing the interior while it is under way is not
+//! done yet.
+//!
 //! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
 //! preconditioning. Tools needed: none.
 //!
@@ -15,12 +20,12 @@
 
 use crate::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use ruttice_core::{
-    for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, Lattice, Parity, Sites,
-    Source, Spinor, Stencil, Storage, Vector, ND,
+    for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, HaloExchange, Lattice,
+    Parity, Sites, Source, Spinor, Stencil, Storage, Vector, FACES, ND,
 };
 use ruttice_kernel::{
-    sink_spinor, transport, ColorMatrix, Cplx, Dirac, GammaRepre, LinkUse, Real, Sign,
-    Spinor as SiteSpinor, SPINOR_REALS,
+    project, sink_spinor, transport, transport_half, ColorMatrix, Cplx, Dirac, GammaRepre,
+    HalfSpinor, LinkUse, Real, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, SPINOR_REALS,
 };
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -32,12 +37,44 @@ pub struct WilsonParams {
     pub boundary: [Boundary; ND],
 }
 
-/// Scratch space for `Wilson`. Empty on a single node; communication buffers go here.
-pub struct WilsonWork {}
+/// Scratch space for operators of Wilson type: the buffers of the halo exchanges, one set
+/// per geometry and number of spinors per site, created on first use.
+pub struct WilsonWork<T: Storage> {
+    exchanges: Vec<(usize, usize, Box<dyn HaloExchange<T>>)>,
+}
+
+impl<T: Storage> WilsonWork<T> {
+    fn new() -> Self {
+        Self {
+            exchanges: Vec::new(),
+        }
+    }
+
+    fn exchange(
+        &mut self,
+        geo: &Geometry,
+        copies: usize,
+        lat: &Lattice,
+    ) -> &mut dyn HaloExchange<T> {
+        let found = self
+            .exchanges
+            .iter()
+            .position(|(id, c, _)| *id == geo.id && *c == copies);
+        let at = found.unwrap_or_else(|| {
+            let spec = geo.stencil.halo_spec(copies * HALF_SPINOR_REALS);
+            let exchange = T::halo(lat.comm.as_ref(), &spec);
+            self.exchanges.push((geo.id, copies, exchange));
+            self.exchanges.len() - 1
+        });
+        self.exchanges[at].2.as_mut()
+    }
+}
 
 /// Which sites a sweep writes, where their neighbours are, and how both map to the
 /// full-lattice numbering the gauge field uses.
 struct Geometry {
+    /// Distinguishes the geometries of one operator.
+    id: usize,
     stencil: Stencil,
     /// Full-lattice index of each output site; `None` when the output is the full lattice.
     out_full: Option<Vec<u32>>,
@@ -48,6 +85,7 @@ struct Geometry {
 impl Geometry {
     fn full(lat: &Lattice, boundary: [Boundary; ND]) -> Self {
         Self {
+            id: 0,
             stencil: Stencil::nearest(lat, boundary),
             out_full: None,
             inp_full: None,
@@ -57,6 +95,7 @@ impl Geometry {
     /// Output on the sites of parity `to`, input on the other parity.
     fn parity(lat: &Lattice, boundary: [Boundary; ND], index: &EvenOddIndex, to: Parity) -> Self {
         Self {
+            id: 1 + to.index(),
             stencil: Stencil::nearest_parity(lat, boundary, index, to),
             out_full: Some(index.full_sites(to).to_vec()),
             inp_full: Some(index.full_sites(to.flip()).to_vec()),
@@ -136,12 +175,35 @@ pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>> {
 /// Wilson fermions: the diagonal block is the identity.
 pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 
-/// Where one leg of the stencil comes from, resolved for one site.
+/// One leg of the stencil resolved for one output site: where the neighbour is and what
+/// is still to be done to it.
 #[derive(Clone, Copy)]
-struct Leg<R> {
-    site: usize,
-    /// Boundary phase to apply, if the hop crossed a boundary with a non-trivial phase.
-    phase: Option<Cplx<R>>,
+enum Hop<R> {
+    /// Nothing arrives (Dirichlet boundary).
+    Absent,
+    /// A site of the input field: project, apply the phase and the link.
+    Local {
+        site: usize,
+        link: ColorMatrix<R>,
+        phase: Option<Cplx<R>>,
+    },
+    /// A projected spinor from the neighbouring process; the link is on this side.
+    Projected {
+        index: usize,
+        link: ColorMatrix<R>,
+        phase: Option<Cplx<R>>,
+    },
+    /// A spinor the neighbouring process has already transported.
+    Transported { index: usize },
+}
+
+/// The spin structure and link use of the legs in one direction.
+#[inline(always)]
+fn leg_kind(dir: Direction) -> (Sign, LinkUse) {
+    match dir {
+        Direction::Forward => (Sign::Minus, LinkUse::Direct),
+        Direction::Backward => (Sign::Plus, LinkUse::Adjoint),
+    }
 }
 
 impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag> {
@@ -185,39 +247,164 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             .expect("Wilson: set_gauge must be called before the operator is applied")
     }
 
-    /// The neighbour in direction (mu, dir) of output site `site`, or `None` across a
-    /// Dirichlet boundary. A hop backward across the boundary picks up the conjugate phase.
+    /// The phase a hop in direction (mu, dir) picks up when it crosses the boundary of the
+    /// global lattice. A hop backward picks up the conjugate.
+    fn boundary_phase(&self, mu: usize, dir: Direction) -> Option<Cplx<T::Compute>> {
+        let phase = match self.params.boundary[mu] {
+            Boundary::Periodic | Boundary::Dirichlet => None,
+            Boundary::Antiperiodic => Some((-1.0, 0.0)),
+            Boundary::Phase(re, im) => Some(match dir {
+                Direction::Forward => (re, im),
+                Direction::Backward => (re, -im),
+            }),
+        };
+        phase.map(|(re, im)| Cplx::new(Real::from_f64(re), Real::from_f64(im)))
+    }
+
+    /// The leg in direction (mu, dir) of output site `site`.
+    ///
+    /// Forward legs use the link at the output site. Backward legs use the link at the
+    /// neighbour; when the neighbour is on another process, that process applies it (and
+    /// the phase) before sending.
     #[inline(always)]
-    fn leg(
-        &self,
-        geo: &Geometry,
-        site: usize,
+    fn resolve(&self, geo: &Geometry, site: usize, mu: usize, dir: Direction) -> Hop<T::Compute> {
+        let phase = |wrapped: bool| {
+            if wrapped {
+                self.boundary_phase(mu, dir)
+            } else {
+                None
+            }
+        };
+        match (geo.stencil.source(site, mu, dir), dir) {
+            (Source::Zero, _) => Hop::Absent,
+            (Source::Local { site: n, wrapped }, _) => Hop::Local {
+                site: n,
+                link: match dir {
+                    Direction::Forward => self.link(mu, geo.out_site(site)),
+                    Direction::Backward => self.link(mu, geo.inp_site(n)),
+                },
+                phase: phase(wrapped),
+            },
+            (Source::Buffer { index, wrapped }, Direction::Forward) => Hop::Projected {
+                index,
+                link: self.link(mu, geo.out_site(site)),
+                phase: phase(wrapped),
+            },
+            (Source::Buffer { index, .. }, Direction::Backward) => Hop::Transported { index },
+        }
+    }
+
+    /// The half spinor that arrives along one leg, ready for the sink, for spinor `r` of
+    /// the site. `local(site)` reads the input field; `received` is what came in on the
+    /// face of this leg.
+    #[inline(always)]
+    fn arrive(
+        hop: &Hop<T::Compute>,
         mu: usize,
         dir: Direction,
-    ) -> Option<Leg<T::Compute>> {
-        match geo.stencil.source(site, mu, dir) {
-            Source::Zero => None,
-            Source::Local {
-                site,
-                wrapped: false,
-            } => Some(Leg { site, phase: None }),
-            Source::Local {
-                site,
-                wrapped: true,
-            } => {
-                let phase = match self.params.boundary[mu] {
-                    Boundary::Periodic => None,
-                    Boundary::Antiperiodic => Some((-1.0, 0.0)),
-                    Boundary::Phase(re, im) => Some(match dir {
-                        Direction::Forward => (re, im),
-                        Direction::Backward => (re, -im),
-                    }),
-                    Boundary::Dirichlet => unreachable!("Dirichlet hops are Source::Zero"),
+        local: impl Fn(usize) -> SiteSpinor<T::Compute>,
+        received: &[T],
+        slot: impl Fn(usize) -> usize,
+    ) -> Option<HalfSpinor<T::Compute>> {
+        let (sign, link_use) = leg_kind(dir);
+        match hop {
+            Hop::Absent => None,
+            Hop::Local { site, link, phase } => Some(transport(
+                &G::GAMMA[mu],
+                sign,
+                &local(*site),
+                link,
+                link_use,
+                *phase,
+            )),
+            Hop::Projected { index, link, phase } => Some(transport_half(
+                &load_half::<T>(received, slot(*index)),
+                link,
+                link_use,
+                *phase,
+            )),
+            Hop::Transported { index } => Some(load_half::<T>(received, slot(*index))),
+        }
+    }
+
+    /// Send the faces of `inp` that the neighbouring processes need and return what
+    /// arrived, by face. Does nothing on a single process.
+    ///
+    /// Through a forward face goes what the neighbour's backward legs need: this side
+    /// holds the link, so the spinor is fully transported here. Through a backward face
+    /// goes the projection only; the neighbour holds the link of its forward legs.
+    ///
+    /// `only` restricts the packing to what the legs in one direction need.
+    fn exchange<'w, SI: Sites>(
+        &self,
+        work: &'w mut WilsonWork<T>,
+        geo: &Geometry,
+        inp: &Field<T, Spinor, SI>,
+        pre: bool,
+        only: Option<(usize, Direction)>,
+    ) -> [&'w [T]; FACES] {
+        if !geo.stencil.has_buffers() {
+            return [&[]; FACES];
+        }
+        let copies = inp.copies();
+        let exchange = work.exchange(geo, copies, &self.lat);
+        for mu in 0..ND {
+            for send in [Direction::Forward, Direction::Backward] {
+                // What leaves through a face serves the legs pointing the other way.
+                let serves = match send {
+                    Direction::Forward => Direction::Backward,
+                    Direction::Backward => Direction::Forward,
                 };
-                let phase = phase.map(|(re, im)| Cplx::new(Real::from_f64(re), Real::from_f64(im)));
-                Some(Leg { site, phase })
+                let sites = geo.stencil.send_sites(mu, send);
+                if sites.is_empty() || only.is_some_and(|leg| leg != (mu, serves)) {
+                    continue;
+                }
+                let (sign, link_use) = leg_kind(serves);
+                let phase = if geo.stencil.sends_across_boundary(mu, send) {
+                    self.boundary_phase(mu, serves)
+                } else {
+                    None
+                };
+                let buffer = exchange.send_buffer(Stencil::leg(mu, send));
+                for_sites(buffer, copies * HALF_SPINOR_REALS, |k, o| {
+                    let site = sites[k] as usize;
+                    let link = match send {
+                        Direction::Forward => Some(self.link(mu, geo.inp_site(site))),
+                        Direction::Backward => None,
+                    };
+                    let o = o.as_chunks_mut::<HALF_SPINOR_REALS>().0;
+                    for (r, o) in o.iter_mut().enumerate() {
+                        let psi = Self::input(inp, site, r, pre);
+                        let h = match &link {
+                            Some(link) => {
+                                transport(&G::GAMMA[mu], sign, &psi, link, link_use, phase)
+                            }
+                            None => project(&G::GAMMA[mu], sign, &psi),
+                        };
+                        store_half::<T>(&h, o);
+                    }
+                });
             }
-            Source::Buffer { .. } => unreachable!("no communication buffers on a single node"),
+        }
+        exchange.start();
+        exchange.wait();
+        let exchange: &'w dyn HaloExchange<T> = exchange;
+        core::array::from_fn(|face| exchange.recv_buffer(face))
+    }
+
+    /// Spinor `r` at one site of the input, with γ5 applied if `pre` is set.
+    #[inline(always)]
+    fn input<SI: Sites>(
+        inp: &Field<T, Spinor, SI>,
+        site: usize,
+        r: usize,
+        pre: bool,
+    ) -> SiteSpinor<T::Compute> {
+        let psi = load_spinor::<T>(&inp.site(0, site)[r * SPINOR_REALS..(r + 1) * SPINOR_REALS]);
+        if pre {
+            G::GAMMA5.apply(&psi)
+        } else {
+            psi
         }
     }
 
@@ -279,66 +466,41 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// One fused sweep: `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`.
     /// The full operator and the even-odd hopping blocks are both this, on different
-    /// geometries.
+    /// geometries. The last argument is (pre, post).
     fn sweep<SO: Sites, SI: Sites>(
         &self,
+        work: &mut WilsonWork<T>,
         geo: &Geometry,
         out: &mut Field<T, Spinor, SO>,
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
-        pre: bool,
-        post: bool,
+        (pre, post): (bool, bool),
     ) {
         self.check(geo, out, inp);
         let kappa: T::Compute = Real::from_f64(self.params.kappa);
         let copies = inp.copies();
+        let received = self.exchange(work, geo, inp, pre, None);
+        let (fwd, bwd) = (Direction::Forward, Direction::Backward);
 
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
             // Geometry and links are resolved once per site and shared by all copies.
-            let forward: [_; ND] =
-                core::array::from_fn(|mu| self.leg(geo, x, mu, Direction::Forward));
-            let backward: [_; ND] =
-                core::array::from_fn(|mu| self.leg(geo, x, mu, Direction::Backward));
+            let forward: [_; ND] = core::array::from_fn(|mu| self.resolve(geo, x, mu, fwd));
+            let backward: [_; ND] = core::array::from_fn(|mu| self.resolve(geo, x, mu, bwd));
             let x_full = geo.out_site(x);
-            let link_forward: [_; ND] = core::array::from_fn(|mu| self.link(mu, x_full));
-            let link_backward: [_; ND] = core::array::from_fn(|mu| {
-                backward[mu].map(|leg| self.link(mu, geo.inp_site(leg.site)))
-            });
 
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
-                let at = |site: usize| {
-                    let s = &inp.site(0, site)[r * SPINOR_REALS..(r + 1) * SPINOR_REALS];
-                    let psi = load_spinor::<T>(s);
-                    if pre {
-                        G::GAMMA5.apply(&psi)
-                    } else {
-                        psi
-                    }
-                };
+                let at = |site: usize| Self::input(inp, site, r, pre);
+                let slot = |index: usize| index * copies + r;
 
                 let mut hops = SiteSpinor::zero();
                 for mu in 0..ND {
                     let gamma = &G::GAMMA[mu];
-                    if let Some(leg) = forward[mu] {
-                        let h = transport(
-                            gamma,
-                            Sign::Minus,
-                            &at(leg.site),
-                            &link_forward[mu],
-                            LinkUse::Direct,
-                            leg.phase,
-                        );
+                    let face = received[Stencil::leg(mu, fwd)];
+                    if let Some(h) = Self::arrive(&forward[mu], mu, fwd, at, face, slot) {
                         sink_spinor(&mut hops, &h, gamma, Sign::Minus);
                     }
-                    if let (Some(leg), Some(link)) = (backward[mu], &link_backward[mu]) {
-                        let h = transport(
-                            gamma,
-                            Sign::Plus,
-                            &at(leg.site),
-                            link,
-                            LinkUse::Adjoint,
-                            leg.phase,
-                        );
+                    let face = received[Stencil::leg(mu, bwd)];
+                    if let Some(h) = Self::arrive(&backward[mu], mu, bwd, at, face, slot) {
                         sink_spinor(&mut hops, &h, gamma, Sign::Plus);
                     }
                 }
@@ -357,39 +519,49 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     }
 
     /// Add one hopping term to `out`. Shared by `hop_forward` and `hop_backward`.
-    fn hop(&self, mu: usize, dir: Direction, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+    fn hop_term(
+        &self,
+        work: &mut WilsonWork<T>,
+        mu: usize,
+        dir: Direction,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
         let geo = &self.full;
         self.check(geo, out, inp);
-        let gamma = &G::GAMMA[mu];
-        let (sign, link_use) = match dir {
-            Direction::Forward => (Sign::Minus, LinkUse::Direct),
-            Direction::Backward => (Sign::Plus, LinkUse::Adjoint),
-        };
+        let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
+        let received = self.exchange(work, geo, inp, false, Some((mu, dir)));
+        let face = received[Stencil::leg(mu, dir)];
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
-            let Some(leg) = self.leg(geo, x, mu, dir) else {
-                return;
-            };
-            let link = match dir {
-                Direction::Forward => self.link(mu, x),
-                Direction::Backward => self.link(mu, leg.site),
-            };
-            let neighbour = inp.site(0, leg.site);
-            let o = o.as_chunks_mut::<SPINOR_REALS>().0;
-            for (o, n) in o.iter_mut().zip(neighbour.as_chunks::<SPINOR_REALS>().0) {
-                let mut acc = load_spinor::<T>(o);
-                let h = transport(
-                    gamma,
-                    sign,
-                    &load_spinor::<T>(n),
-                    &link,
-                    link_use,
-                    leg.phase,
-                );
-                sink_spinor(&mut acc, &h, gamma, sign);
-                store_spinor::<T>(&acc, o);
+            let hop = self.resolve(geo, x, mu, dir);
+            for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
+                let at = |site: usize| Self::input(inp, site, r, false);
+                let slot = |index: usize| index * copies + r;
+                if let Some(h) = Self::arrive(&hop, mu, dir, at, face, slot) {
+                    let mut acc = load_spinor::<T>(o);
+                    sink_spinor(&mut acc, &h, &G::GAMMA[mu], sign);
+                    store_spinor::<T>(&acc, o);
+                }
             }
         });
+    }
+}
+
+/// Half spinor number `slot` of a face buffer.
+#[inline(always)]
+fn load_half<T: Storage>(buffer: &[T], slot: usize) -> HalfSpinor<T::Compute> {
+    let s = &buffer[slot * HALF_SPINOR_REALS..(slot + 1) * HALF_SPINOR_REALS];
+    let v: [T::Compute; HALF_SPINOR_REALS] = core::array::from_fn(|k| s[k].load());
+    HalfSpinor::from_reals(&v)
+}
+
+#[inline(always)]
+fn store_half<T: Storage>(h: &HalfSpinor<T::Compute>, s: &mut [T; HALF_SPINOR_REALS]) {
+    let mut v = [T::Compute::ZERO; HALF_SPINOR_REALS];
+    h.write_reals(&mut v);
+    for (dst, src) in s.iter_mut().zip(v) {
+        *dst = T::store(src);
     }
 }
 
@@ -409,10 +581,10 @@ fn store_spinor<T: Storage>(p: &SiteSpinor<T::Compute>, s: &mut [T]) {
 }
 
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for WilsonOp<T, G, D> {
-    type Work = WilsonWork;
+    type Work = WilsonWork<T>;
 
-    fn work(&self) -> WilsonWork {
-        WilsonWork {}
+    fn work(&self) -> WilsonWork<T> {
+        WilsonWork::new()
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
@@ -430,7 +602,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
 
     fn mult(
         &self,
-        _work: &mut WilsonWork,
+        work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
         variant: Variant,
@@ -441,34 +613,34 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
             Variant::Gamma5D => (false, true),
             Variant::Dagger => (true, true),
         };
-        self.sweep(&self.full, out, inp, Diagonal::Present, pre, post);
+        self.sweep(work, &self.full, out, inp, Diagonal::Present, (pre, post));
     }
 }
 
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for WilsonOp<T, G, D> {
     fn hop_forward(
         &self,
-        _work: &mut WilsonWork,
+        work: &mut WilsonWork<T>,
         mu: usize,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        self.hop(mu, Direction::Forward, out, inp);
+        self.hop_term(work, mu, Direction::Forward, out, inp);
     }
 
     fn hop_backward(
         &self,
-        _work: &mut WilsonWork,
+        work: &mut WilsonWork<T>,
         mu: usize,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        self.hop(mu, Direction::Backward, out, inp);
+        self.hop_term(work, mu, Direction::Backward, out, inp);
     }
 
     fn mult_diag(
         &self,
-        _work: &mut WilsonWork,
+        _work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
@@ -484,7 +656,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
 
     fn mult_gamma5(
         &self,
-        _work: &mut WilsonWork,
+        _work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
@@ -506,15 +678,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
     for WilsonOp<T, G, D>
 {
-    type Work = WilsonWork;
+    type Work = WilsonWork<T>;
 
-    fn even_odd_work(&self) -> WilsonWork {
-        WilsonWork {}
+    fn even_odd_work(&self) -> WilsonWork<T> {
+        WilsonWork::new()
     }
 
     fn hop(
         &self,
-        _work: &mut WilsonWork,
+        work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor, Half>,
         inp: &Field<T, Spinor, Half>,
         to: Parity,
@@ -527,12 +699,19 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
         assert_eq!(out.parity(), to, "output field has the wrong parity");
         assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
         let g5 = dagger == Dagger::Yes;
-        self.sweep(&eo.to[to.index()], out, inp, Diagonal::Absent, g5, g5);
+        self.sweep(
+            work,
+            &eo.to[to.index()],
+            out,
+            inp,
+            Diagonal::Absent,
+            (g5, g5),
+        );
     }
 
     fn diag(
         &self,
-        _work: &mut WilsonWork,
+        _work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor, Half>,
         inp: &Field<T, Spinor, Half>,
         parity: Parity,
@@ -554,7 +733,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
 
     fn diag_inv(
         &self,
-        _work: &mut WilsonWork,
+        _work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor, Half>,
         inp: &Field<T, Spinor, Half>,
         parity: Parity,

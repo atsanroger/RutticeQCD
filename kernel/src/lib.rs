@@ -9,9 +9,9 @@
 mod spin;
 
 pub use spin::{
-    chiral_join, chiral_split, hermitian6_mul, project, sink_spinor, transport, ColorVector, Dirac,
-    Gamma, GammaRepre, HalfSpinor, LinkUse, Sign, Spinor, Unit, CHIRAL_DIM, HERMITIAN6_REALS, NS,
-    SPINOR_REALS,
+    chiral_join, chiral_split, hermitian6_mul, project, sink_spinor, transport, transport_half,
+    ColorVector, Dirac, Gamma, GammaRepre, HalfSpinor, LinkUse, Sign, Spinor, Unit, CHIRAL_DIM,
+    HALF_SPINOR_REALS, HERMITIAN6_REALS, NS, SPINOR_REALS,
 };
 
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
