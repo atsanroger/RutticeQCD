@@ -1,9 +1,13 @@
-//! Krylov solvers. They know only `Vector` and `LinearFn`.
+//! Krylov solvers and preconditioners.
+//!
+//! The Krylov solvers know only `Vector` and `LinearFn`; nothing outside the
+//! `preconditioner` module may refer to fermions or to the lattice.
 
 mod bicgstab;
 mod cg;
 mod fgmres;
 mod mixed;
+pub mod preconditioner;
 
 pub use bicgstab::BiCgStab;
 pub use cg::Cg;

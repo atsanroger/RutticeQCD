@@ -5,7 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+ruttice-kernel.workspace = true
 ruttice-core.workspace = true
+ruttice-fermion.workspace = true
 ruttice-numerics.workspace = true
 
 [lints]

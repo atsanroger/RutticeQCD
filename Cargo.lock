@@ -162,15 +162,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruttice-multigrid"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-fermion",
- "ruttice-kernel",
-]
-
-[[package]]
 name = "ruttice-numerics"
 version = "0.0.1"
 dependencies = [
@@ -182,6 +173,8 @@ name = "ruttice-solver"
 version = "0.0.1"
 dependencies = [
  "ruttice-core",
+ "ruttice-fermion",
+ "ruttice-kernel",
  "ruttice-numerics",
 ]
 
@@ -196,7 +189,6 @@ dependencies = [
  "ruttice-io",
  "ruttice-kernel",
  "ruttice-measure",
- "ruttice-multigrid",
  "ruttice-solver",
 ]
 

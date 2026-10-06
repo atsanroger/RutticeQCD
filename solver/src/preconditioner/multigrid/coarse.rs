@@ -1,4 +1,4 @@
-use crate::Basis;
+use super::Basis;
 use ruttice_core::{
     for_sites, Boundary, Coarse, Direction, Field, Lattice, LinearFn, LinearOp, Source, Spinor,
     Stencil, Storage, ND,

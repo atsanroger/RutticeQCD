@@ -9,7 +9,7 @@ use ruttice_core::{
 use ruttice_fermion::{
     Bound, Clover, CloverParams, FermionOp, HopTerms, Variant, Wilson, WilsonParams,
 };
-use ruttice_multigrid::{Aggregation, Basis, CoarseOp, MultigridError};
+use ruttice_solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp, MultigridError};
 use ruttice_validation::{max_abs_diff, random_gauge, random_spinor, TestRng};
 use std::sync::Arc;
 

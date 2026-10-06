@@ -1,4 +1,4 @@
-use crate::{Aggregation, MultigridError};
+use super::{Aggregation, MultigridError};
 use ruttice_core::{for_sites, Coarse, Field, Spinor, Storage, C64};
 use ruttice_kernel::{
     chiral_join, chiral_split, Cplx, Real, Spinor as SiteSpinor, CHIRAL_DIM, SPINOR_REALS,
