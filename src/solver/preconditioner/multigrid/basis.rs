@@ -1,63 +1,67 @@
 use super::{Aggregation, MultigridError};
-use crate::kernel::{
-    chiral_join, chiral_split, Cplx, Real, Spinor as SiteSpinor, CHIRAL_DIM, SPINOR_REALS,
-};
-use crate::{for_sites, Coarse, Field, Spinor, Storage, C64};
+use crate::kernel::{Cplx, Real};
+use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
 use std::sync::Arc;
-
-/// Reals stored per fine site and test vector: the six complex components of each
-/// chirality, positive first.
-const VECTOR_REALS: usize = 2 * 2 * CHIRAL_DIM;
-
-/// The components of one chirality at one site.
-type Chiral<T> = [Cplx<T>; CHIRAL_DIM];
 
 /// The prolongation P between a coarse lattice and the fine one, and the restriction P†.
 ///
 /// A coarse site carries `2 n` complex numbers for `n` test vectors: component `i` is the
 /// coefficient of test vector `i` on the positive-chirality aggregate of that block,
 /// component `n + i` the same on the negative-chirality one.
+///
+/// The chiralities come from the operator's Γ5, given with the test vectors: the aggregate
+/// of a block and chirality ± is spanned by (1 ± Γ5) v_i / 2 restricted to the block. Γ5
+/// may act on all components of a site, including a fifth dimension (`ls > 1`): the
+/// aggregate holds every s. This is how Bridge++ (`MultiGrid_Clover`) and the CUDA
+/// domain-wall multigrid (`MultiGrid_Domainwall`) do it (DESIGN.md §7.6.1).
 pub struct Basis<T: Storage> {
     agg: Arc<Aggregation>,
     n: usize,
-    /// `[fine site][vector][chirality][6 complex]`, orthonormal over every aggregate.
+    /// Reals of one vector at one site: `24 * ls`.
+    reals: usize,
+    /// `[fine site][vector][chirality][reals]`, orthonormal over every aggregate.
     data: Vec<T>,
 }
 
 impl<T: Storage> Basis<T> {
-    /// Build P from test vectors, given as one field holding `n` vectors. Works in double
-    /// precision and stores the result as `T`.
+    /// Build P from test vectors `x` (one field holding `n` vectors) and `g5x` = Γ5 x, the
+    /// operator's Γ5 applied to them. Works in double precision and stores the result as
+    /// `T`.
     pub fn from_vectors(
         agg: &Arc<Aggregation>,
-        vectors: &Field<f64, Spinor>,
+        x: &Field<f64, Spinor>,
+        g5x: &Field<f64, Spinor>,
     ) -> Result<Self, MultigridError> {
         let fine = agg.fine_lattice();
-        assert_eq!(vectors.num_sites(), fine.num_sites());
-        assert!(vectors.outer() == 1 && vectors.ls() == 1);
-        let n = vectors.num_vectors();
+        assert_eq!(x.num_sites(), fine.num_sites());
+        assert!(x.outer() == 1 && x.same_shape(g5x));
+        let n = x.num_vectors();
+        let reals = x.site_len() / n;
         let volume = agg.block_volume();
+        // Complex numbers of one vector on one aggregate (both chiralities stored).
+        let dim = volume * reals / 2;
         assert!(
-            n <= CHIRAL_DIM * volume,
+            n <= dim / 2,
             "{n} test vectors do not fit into aggregates of dimension {}",
-            CHIRAL_DIM * volume
+            dim / 2
         );
 
-        let mut data = vec![T::default(); fine.num_sites() * n * VECTOR_REALS];
-        // w[chirality][vector][site in block * 6 + component]
-        let dim = CHIRAL_DIM * volume;
+        let mut data = vec![T::default(); fine.num_sites() * n * 2 * reals];
+        // w[chirality][vector][site in block * reals/2 + component]
         let mut w = [vec![C64::ZERO; n * dim], vec![C64::ZERO; n * dim]];
 
         for coarse_site in 0..agg.coarse_lattice().num_sites() {
             let sites = agg.fine_sites(coarse_site);
-            for (k, x) in sites.iter().enumerate() {
-                let all = vectors.site(0, *x as usize);
+            for (k, site) in sites.iter().enumerate() {
+                let (xs, gs) = (x.site(0, *site as usize), g5x.site(0, *site as usize));
                 for i in 0..n {
-                    let psi =
-                        SiteSpinor::from_reals(&all[i * SPINOR_REALS..(i + 1) * SPINOR_REALS]);
-                    let (plus, minus) = chiral_split(&psi);
-                    let at = i * dim + k * CHIRAL_DIM;
-                    w[0][at..at + CHIRAL_DIM].copy_from_slice(&plus);
-                    w[1][at..at + CHIRAL_DIM].copy_from_slice(&minus);
+                    let at = i * dim + k * reals / 2;
+                    for d in 0..reals / 2 {
+                        let v = C64::new(xs[i * reals + 2 * d], xs[i * reals + 2 * d + 1]);
+                        let g = C64::new(gs[i * reals + 2 * d], gs[i * reals + 2 * d + 1]);
+                        w[0][at + d] = (v + g).scale(0.5);
+                        w[1][at + d] = (v - g).scale(0.5);
+                    }
                 }
             }
 
@@ -70,15 +74,14 @@ impl<T: Storage> Basis<T> {
                 })?;
             }
 
-            for (k, x) in sites.iter().enumerate() {
+            for (k, site) in sites.iter().enumerate() {
                 for i in 0..n {
-                    let base = (*x as usize * n + i) * VECTOR_REALS;
                     for (c, chirality) in w.iter().enumerate() {
-                        for d in 0..CHIRAL_DIM {
-                            let z = chirality[i * dim + k * CHIRAL_DIM + d];
-                            let at = base + 2 * (c * CHIRAL_DIM + d);
-                            data[at] = T::store(Real::from_f64(z.re));
-                            data[at + 1] = T::store(Real::from_f64(z.im));
+                        let base = ((*site as usize * n + i) * 2 + c) * reals;
+                        for d in 0..reals / 2 {
+                            let z = chirality[i * dim + k * reals / 2 + d];
+                            data[base + 2 * d] = T::store(Real::from_f64(z.re));
+                            data[base + 2 * d + 1] = T::store(Real::from_f64(z.im));
                         }
                     }
                 }
@@ -87,6 +90,7 @@ impl<T: Storage> Basis<T> {
         Ok(Self {
             agg: agg.clone(),
             n,
+            reals,
             data,
         })
     }
@@ -116,52 +120,56 @@ impl<T: Storage> Basis<T> {
         )
     }
 
-    /// The stored components of test vector `i` at fine site `x`: (positive, negative).
+    /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`.
     #[inline(always)]
-    fn components(&self, x: usize, i: usize) -> (Chiral<T::Compute>, Chiral<T::Compute>) {
-        let s = &self.data[(x * self.n + i) * VECTOR_REALS..(x * self.n + i + 1) * VECTOR_REALS];
-        let get = |c: usize| {
-            core::array::from_fn(|d| {
-                let at = 2 * (c * CHIRAL_DIM + d);
-                Cplx::new(s[at].load(), s[at + 1].load())
-            })
-        };
-        (get(0), get(1))
+    fn part(&self, x: usize, i: usize, c: usize) -> &[T] {
+        let base = ((x * self.n + i) * 2 + c) * self.reals;
+        &self.data[base..base + self.reals]
     }
 
     fn check(&self, coarse: &Field<T, Coarse>, fine: &Field<T, Spinor>) {
         assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
         assert_eq!(coarse.num_sites(), self.agg.coarse_lattice().num_sites());
         assert_eq!(coarse.internal_dof(), 2 * self.coarse_dim());
-        assert!(
-            fine.ls() == 1 && coarse.ls() == 1,
-            "fifth-dimension fields are not supported yet"
-        );
+        assert_eq!(coarse.ls(), 1);
         assert_eq!(coarse.num_vectors(), fine.num_vectors());
+        assert_eq!(
+            fine.site_len() / fine.num_vectors(),
+            self.reals,
+            "the fine field has another number of reals per vector than the test vectors"
+        );
     }
 
     /// `coarse = P† fine`.
     pub fn restrict(&self, coarse: &mut Field<T, Coarse>, fine: &Field<T, Spinor>) {
         self.check(coarse, fine);
-        let (n, dim) = (self.n, self.coarse_dim());
+        let (n, dim, reals) = (self.n, self.coarse_dim(), self.reals);
         let site_len = coarse.site_len();
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
             out.fill(T::default());
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
-                let fine_site = fine.site(0, x).as_chunks::<SPINOR_REALS>().0;
-                for (out, psi) in out.chunks_exact_mut(2 * dim).zip(fine_site) {
-                    let psi: [T::Compute; SPINOR_REALS] = psi.map(Storage::load);
-                    let (plus, minus) = chiral_split(&SiteSpinor::from_reals(&psi));
+                let fine_site = fine.site(0, x);
+                for (out, f) in out
+                    .chunks_exact_mut(2 * dim)
+                    .zip(fine_site.chunks_exact(reals))
+                {
                     for i in 0..n {
-                        let (b_plus, b_minus) = self.components(x, i);
-                        let (mut cp, mut cm) = (Cplx::ZERO, Cplx::ZERO);
-                        for d in 0..CHIRAL_DIM {
-                            cp += b_plus[d].conj() * plus[d];
-                            cm += b_minus[d].conj() * minus[d];
+                        for c in 0..2 {
+                            let mut z = Cplx::<T::Compute>::ZERO;
+                            for (b, f) in self
+                                .part(x, i, c)
+                                .as_chunks::<2>()
+                                .0
+                                .iter()
+                                .zip(f.as_chunks::<2>().0)
+                            {
+                                let b = Cplx::new(b[0].load(), b[1].load());
+                                z += b.conj() * Cplx::new(f[0].load(), f[1].load());
+                            }
+                            let k = 2 * (c * n + i);
+                            add(&mut out[k..k + 2], z);
                         }
-                        add(&mut out[2 * i..2 * i + 2], cp);
-                        add(&mut out[2 * (n + i)..2 * (n + i) + 2], cm);
                     }
                 }
             }
@@ -171,27 +179,27 @@ impl<T: Storage> Basis<T> {
     /// `fine = P coarse`.
     pub fn prolong(&self, fine: &mut Field<T, Spinor>, coarse: &Field<T, Coarse>) {
         self.check(coarse, fine);
-        let (n, dim) = (self.n, self.coarse_dim());
+        let (n, dim, reals) = (self.n, self.coarse_dim(), self.reals);
         let site_len = fine.site_len();
         for_sites(fine.slab_mut(0), site_len, |x, out| {
             let coarse_site = coarse.site(0, self.agg.coarse_site(x));
-            let out = out.as_chunks_mut::<SPINOR_REALS>().0;
-            for (out, c) in out.iter_mut().zip(coarse_site.chunks_exact(2 * dim)) {
-                let mut plus = [Cplx::ZERO; CHIRAL_DIM];
-                let mut minus = [Cplx::ZERO; CHIRAL_DIM];
+            for (out, c) in out
+                .chunks_exact_mut(reals)
+                .zip(coarse_site.chunks_exact(2 * dim))
+            {
+                let mut acc = vec![Cplx::<T::Compute>::ZERO; reals / 2];
                 for i in 0..n {
-                    let (b_plus, b_minus) = self.components(x, i);
-                    let cp = Cplx::new(c[2 * i].load(), c[2 * i + 1].load());
-                    let cm = Cplx::new(c[2 * (n + i)].load(), c[2 * (n + i) + 1].load());
-                    for d in 0..CHIRAL_DIM {
-                        plus[d] += cp * b_plus[d];
-                        minus[d] += cm * b_minus[d];
+                    for ch in 0..2 {
+                        let k = 2 * (ch * n + i);
+                        let coef = Cplx::new(c[k].load(), c[k + 1].load());
+                        for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
+                            *a += coef * Cplx::new(b[0].load(), b[1].load());
+                        }
                     }
                 }
-                let mut reals = [T::Compute::ZERO; SPINOR_REALS];
-                chiral_join(&plus, &minus).write_reals(&mut reals);
-                for (o, r) in out.iter_mut().zip(reals) {
-                    *o = T::store(r);
+                for (o, a) in out.as_chunks_mut::<2>().0.iter_mut().zip(acc) {
+                    o[0] = T::store(a.re);
+                    o[1] = T::store(a.im);
                 }
             }
         });

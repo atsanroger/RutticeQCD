@@ -99,7 +99,7 @@ impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
         let v = random_vectors::<T>(lat, n, params.seed);
         let mut x = v.zeros_like();
         smoother.mult(&mut x, &v);
-        let basis = basis_from(&agg, &x)?;
+        let basis = basis_from(op, &mut work, &agg, &x)?;
         let coarse = CoarseOp::build(op, &mut work, &basis);
 
         let mut mg = Self {
@@ -114,7 +114,7 @@ impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
         for _ in 0..params.setup_iterations {
             let v = mg.test_vectors();
             mg.mult(&mut x, &v);
-            mg.basis = basis_from(&agg, &x)?;
+            mg.basis = basis_from(mg.op, &mut mg.work, &agg, &x)?;
             mg.coarse = CoarseOp::build(mg.op, &mut mg.work, &mg.basis);
         }
         Ok(mg)
@@ -149,14 +149,27 @@ impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
     }
 }
 
-/// Orthonormalise the vectors of `x` on the aggregates.
-fn basis_from<T: Storage>(
+/// Orthonormalise the chiral halves of the vectors of `x` on the aggregates, with the
+/// chirality given by the operator's Γ5.
+fn basis_from<F: HopTerms<Field<T, Spinor>>, T: Storage>(
+    op: &F,
+    work: &mut F::Work,
     agg: &Arc<Aggregation>,
     x: &Field<T, Spinor>,
 ) -> Result<Basis<T>, MultigridError> {
-    let mut x64 = Field::<f64, Spinor>::spinor(agg.fine_lattice(), x.num_vectors());
+    let mut g5x = x.zeros_like();
+    op.mult_gamma5(work, &mut g5x, x);
+    let mut x64 = Field::<f64, Spinor>::with_shape(
+        agg.fine_lattice(),
+        x.internal_dof(),
+        x.ls(),
+        x.num_vectors(),
+        1,
+    );
+    let mut g64 = x64.zeros_like();
     x64.convert_from(x);
-    Basis::from_vectors(agg, &x64)
+    g64.convert_from(&g5x);
+    Basis::from_vectors(agg, &x64, &g64)
 }
 
 /// `n` vectors with every real uniform in (−1, 1), from SplitMix64.

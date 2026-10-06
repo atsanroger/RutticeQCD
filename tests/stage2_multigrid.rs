@@ -10,6 +10,7 @@ use ruttice::fermion::{
     Bound, Clover, CloverParams, FermionOp, HopTerms, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
+use ruttice::kernel::{Dirac, GammaRepre, Spinor as SiteSpinor, SPINOR_REALS};
 use ruttice::solver::preconditioner::multigrid::{
     Aggregation, Basis, CoarseOp, Multigrid, MultigridError, MultigridParams, Sap,
 };
@@ -69,6 +70,26 @@ fn random_coarse(basis: &Basis<f64>, num_vectors: usize, seed: u64) -> C64Field 
     c
 }
 
+/// Γ5 in the Dirac representation, applied to every spinor of `v`: the operators of these
+/// tests use it.
+fn gamma5(v: &V64) -> V64 {
+    let mut out = v.zeros_like();
+    for site in 0..v.num_sites() {
+        let src = v.site(0, site).as_chunks::<SPINOR_REALS>().0;
+        let dst = out.site_mut(0, site).as_chunks_mut::<SPINOR_REALS>().0;
+        for (o, s) in dst.iter_mut().zip(src) {
+            Dirac::GAMMA5
+                .apply(&SiteSpinor::from_reals(s))
+                .write_reals(o);
+        }
+    }
+    out
+}
+
+fn basis64(agg: &Arc<Aggregation>, v: &V64) -> Result<Basis<f64>, MultigridError> {
+    Basis::from_vectors(agg, v, &gamma5(v))
+}
+
 fn max_abs_diff_coarse(a: &C64Field, b: &C64Field) -> f64 {
     max_abs_diff(a, b)
 }
@@ -78,7 +99,7 @@ fn restriction_undoes_prolongation() {
     let lat = lattice();
     for block in [[2, 2, 2, 2], [2, 2, 2, 4], [4, 4, 4, 8], [1, 2, 4, 2]] {
         let agg = Aggregation::new(&lat, block);
-        let basis = Basis::<f64>::from_vectors(&agg, &random_spinor(&lat, 5, 401)).unwrap();
+        let basis = basis64(&agg, &random_spinor(&lat, 5, 401)).unwrap();
         assert_eq!(basis.coarse_dim(), 10);
         let c = random_coarse(&basis, 2, 402);
         let mut fine = V64::spinor(&lat, 2);
@@ -96,7 +117,7 @@ fn restriction_undoes_prolongation() {
 fn prolongation_after_restriction_is_an_orthogonal_projector() {
     let lat = lattice();
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
-    let basis = Basis::<f64>::from_vectors(&agg, &random_spinor(&lat, 4, 411)).unwrap();
+    let basis = basis64(&agg, &random_spinor(&lat, 4, 411)).unwrap();
 
     let v = random_spinor(&lat, 1, 412);
     let mut c = basis.coarse_field(1);
@@ -127,7 +148,7 @@ fn test_vectors_are_reproduced() {
     let vectors = random_spinor(&lat, 3, 421);
     for block in [[2, 2, 2, 2], [4, 4, 2, 4]] {
         let agg = Aggregation::new(&lat, block);
-        let basis = Basis::<f64>::from_vectors(&agg, &vectors).unwrap();
+        let basis = basis64(&agg, &vectors).unwrap();
         let mut c = basis.coarse_field(3);
         let mut back = vectors.zeros_like();
         basis.restrict(&mut c, &vectors);
@@ -143,7 +164,7 @@ fn prolongation_commutes_with_gamma5() {
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 431));
     let mut work = op.work();
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    let basis = Basis::<f64>::from_vectors(&agg, &random_spinor(&lat, 4, 432)).unwrap();
+    let basis = basis64(&agg, &random_spinor(&lat, 4, 432)).unwrap();
     let n = basis.num_test_vectors();
 
     let c = random_coarse(&basis, 1, 433);
@@ -178,7 +199,7 @@ fn dependent_test_vectors_are_reported() {
         }
     }
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    match Basis::<f64>::from_vectors(&agg, &vectors) {
+    match basis64(&agg, &vectors) {
         Err(MultigridError::DependentTestVectors { vector: 2, .. }) => {}
         other => panic!("expected a dependence error, got {:?}", other.err()),
     }
@@ -188,7 +209,7 @@ fn dependent_test_vectors_are_reported() {
 fn check_galerkin<F: HopTerms<V64>>(op: &F, block: [usize; ND], seed: u64) -> f64 {
     let lat = lattice();
     let agg = Aggregation::new(&lat, block);
-    let basis = Basis::<f64>::from_vectors(&agg, &random_spinor(&lat, 4, seed)).unwrap();
+    let basis = basis64(&agg, &random_spinor(&lat, 4, seed)).unwrap();
     let mut work = op.work();
     let mut coarse_op = CoarseOp::build(op, &mut work, &basis);
     assert_eq!(coarse_op.dim(), 8);
@@ -228,7 +249,7 @@ fn coarse_adjoint() {
     let lat = lattice();
     let op = clover::<f64>(&lat, &random_gauge(&lat, 461));
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
-    let basis = Basis::<f64>::from_vectors(&agg, &random_spinor(&lat, 4, 462)).unwrap();
+    let basis = basis64(&agg, &random_spinor(&lat, 4, 462)).unwrap();
     let mut work = op.work();
     let mut coarse_op = CoarseOp::build(&op, &mut work, &basis);
 
@@ -261,10 +282,10 @@ fn single_precision_agrees_with_double() {
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
 
     let op64 = clover::<f64>(&lat, &u);
-    let basis64 = Basis::<f64>::from_vectors(&agg, &vectors).unwrap();
+    let basis64 = basis64(&agg, &vectors).unwrap();
     let mut coarse64 = CoarseOp::build(&op64, &mut op64.work(), &basis64);
     let op32 = clover::<f32>(&lat, &u);
-    let basis32 = Basis::<f32>::from_vectors(&agg, &vectors).unwrap();
+    let basis32 = Basis::<f32>::from_vectors(&agg, &vectors, &gamma5(&vectors)).unwrap();
     let mut coarse32 = CoarseOp::build(&op32, &mut op32.work(), &basis32);
 
     let c64 = random_coarse(&basis64, 1, 473);
