@@ -4,7 +4,7 @@
 
 use super::CliError;
 use crate::gauge::CoulombParams;
-use crate::solver::preconditioner::multigrid::MultigridParams;
+use crate::solver::preconditioner::multigrid::{MultigridParams, SmootherChoice};
 use crate::solver::Stop;
 use crate::{Boundary, ND};
 use serde::Deserialize;
@@ -235,9 +235,12 @@ impl MultigridConfig {
             num_test_vectors: self.test_vectors,
             setup_iterations: self.setup_iterations,
             coarse_stop: Stop::simple(self.coarse_tolerance_squared, self.coarse_max_iterations),
-            smoother_cycles: self.smoother_cycles,
-            smoother_block_steps: self.smoother_block_steps,
+            smoother: SmootherChoice::Sap {
+                cycles: self.smoother_cycles,
+                block_steps: self.smoother_block_steps,
+            },
             seed: self.seed,
+            ..bridge_mg()
         }
     }
 }
@@ -257,11 +260,20 @@ fn mg_coarse_tolerance() -> f64 {
 fn mg_coarse_iterations() -> usize {
     bridge_mg().coarse_stop.max_iterations
 }
+fn bridge_sap() -> (usize, usize) {
+    match bridge_mg().smoother {
+        SmootherChoice::Sap {
+            cycles,
+            block_steps,
+        } => (cycles, block_steps),
+        SmootherChoice::Gmres { .. } => unreachable!("the Bridge++ clover smoother is SAP"),
+    }
+}
 fn mg_smoother_cycles() -> usize {
-    bridge_mg().smoother_cycles
+    bridge_sap().0
 }
 fn mg_smoother_block_steps() -> usize {
-    bridge_mg().smoother_block_steps
+    bridge_sap().1
 }
 fn mg_seed() -> u64 {
     bridge_mg().seed
