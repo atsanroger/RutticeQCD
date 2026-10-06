@@ -89,6 +89,44 @@ impl<T: Real> HalfSpinor<T> {
     }
 }
 
+/// Complex components of a spinor with one chirality.
+pub const CHIRAL_DIM: usize = NC * NS / 2;
+
+/// The components of a spinor with γ5 = +1 and with γ5 = -1, for representations in which
+/// γ5 = [[0, 1], [1, 0]] in 2 × 2 spin blocks: `(upper ± lower) / √2`. The map is unitary.
+#[inline(always)]
+pub fn chiral_split<T: Real>(psi: &Spinor<T>) -> ([Cplx<T>; CHIRAL_DIM], [Cplx<T>; CHIRAL_DIM]) {
+    let r = T::from_f64(core::f64::consts::FRAC_1_SQRT_2);
+    let mut plus = [Cplx::ZERO; CHIRAL_DIM];
+    let mut minus = [Cplx::ZERO; CHIRAL_DIM];
+    for s in 0..NS / 2 {
+        for c in 0..NC {
+            let (upper, lower) = (psi.0[s][c], psi.0[s + NS / 2][c]);
+            plus[NC * s + c] = (upper + lower).scale(r);
+            minus[NC * s + c] = (upper - lower).scale(r);
+        }
+    }
+    (plus, minus)
+}
+
+/// Inverse of [`chiral_split`].
+#[inline(always)]
+pub fn chiral_join<T: Real>(
+    plus: &[Cplx<T>; CHIRAL_DIM],
+    minus: &[Cplx<T>; CHIRAL_DIM],
+) -> Spinor<T> {
+    let r = T::from_f64(core::f64::consts::FRAC_1_SQRT_2);
+    let mut psi = Spinor::zero();
+    for s in 0..NS / 2 {
+        for c in 0..NC {
+            let (p, m) = (plus[NC * s + c], minus[NC * s + c]);
+            psi.0[s][c] = (p + m).scale(r);
+            psi.0[s + NS / 2][c] = (p - m).scale(r);
+        }
+    }
+    psi
+}
+
 /// Reals in a packed Hermitian 6 × 6 matrix: the six real diagonal entries, then the
 /// upper triangle row by row as (re, im) pairs.
 pub const HERMITIAN6_REALS: usize = 36;
@@ -455,6 +493,28 @@ mod tests {
             }
             assert!((got[r] - want).norm_sqr() < 1e-24);
         }
+    }
+
+    #[test]
+    fn chiral_split_diagonalises_gamma5_and_is_unitary() {
+        let psi = sample();
+        let (plus, minus) = chiral_split(&psi);
+        let (g_plus, g_minus) = chiral_split(&Dirac::GAMMA5.apply(&psi));
+        let mut norm = 0.0;
+        for k in 0..CHIRAL_DIM {
+            assert!((g_plus[k] - plus[k]).norm_sqr() < 1e-28);
+            assert!((g_minus[k] + minus[k]).norm_sqr() < 1e-28);
+            norm += plus[k].norm_sqr() + minus[k].norm_sqr();
+        }
+        let back = chiral_join(&plus, &minus);
+        let mut want = 0.0;
+        for s in 0..NS {
+            for c in 0..NC {
+                assert!((back.0[s][c] - psi.0[s][c]).norm_sqr() < 1e-28);
+                want += psi.0[s][c].norm_sqr();
+            }
+        }
+        assert!((norm - want).abs() < 1e-12 * want);
     }
 
     #[test]

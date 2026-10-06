@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli"]
+members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "multigrid", "measure", "validation", "cli"]
 
 [workspace.package]
 version = "0.0.1"
@@ -15,6 +15,7 @@ ruttice-io = { path = "io" }
 ruttice-gauge = { path = "gauge" }
 ruttice-fermion = { path = "fermion" }
 ruttice-solver = { path = "solver" }
+ruttice-multigrid = { path = "multigrid" }
 ruttice-measure = { path = "measure" }
 rayon = "1"
 
