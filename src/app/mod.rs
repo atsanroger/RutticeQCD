@@ -290,7 +290,7 @@ fn propagator<D: DiagTerm<f64>>(
             b,
         )?,
         (false, SolverKind::Bicgstab) => {
-            BiCgStab::new(stop).solve(&mut Bound::new(op, Variant::D), None, &mut s, b)?
+            BiCgStab::new(stop).solve(&mut Bound::new(op, Variant::D), m, &mut s, b)?
         }
         (false, SolverKind::Fgmres) => {
             Fgmres::new(stop).solve(&mut Bound::new(op, Variant::D), m, &mut s, b)?
@@ -346,8 +346,15 @@ fn validate_multigrid(
     mg: &MultigridConfig,
     grid: [usize; ND],
 ) -> Result<(), CliError> {
-    if config.solver.kind != SolverKind::Fgmres {
-        return invalid("solver.multigrid needs solver.type = fgmres".to_string());
+    // The cycle is not a fixed linear map: the outer solver must be a flexible one.
+    if !matches!(
+        config.solver.kind,
+        SolverKind::Fgmres | SolverKind::Bicgstab
+    ) {
+        return invalid(
+            "solver.multigrid needs solver.type = fgmres or bicgstab (flexible with a preconditioner)"
+                .to_string(),
+        );
     }
     if config.solver.even_odd {
         return invalid(
@@ -372,6 +379,13 @@ fn validate_multigrid(
             "solver.multigrid.test_vectors must be between 1 and {aggregate_dim} for blocks of {:?}",
             mg.block
         ));
+    }
+    let smoother_tolerance = mg.smoother_tolerance_squared;
+    if smoother_tolerance.is_nan() || smoother_tolerance < 0.0 || mg.smoother_iterations == 0 {
+        return invalid(
+            "solver.multigrid.smoother_iterations must be positive and smoother_tolerance_squared not negative"
+                .to_string(),
+        );
     }
     let tolerance = mg.coarse_tolerance_squared;
     if tolerance.is_nan() || tolerance <= 0.0 || mg.coarse_max_iterations == 0 {

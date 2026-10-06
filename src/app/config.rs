@@ -4,7 +4,9 @@
 
 use super::CliError;
 use crate::gauge::CoulombParams;
-use crate::solver::preconditioner::multigrid::{MultigridParams, SmootherChoice};
+use crate::solver::preconditioner::multigrid::{
+    CoarseSolverChoice, MultigridParams, SmootherChoice,
+};
 use crate::solver::Stop;
 use crate::{Boundary, ND};
 use serde::Deserialize;
@@ -201,23 +203,60 @@ pub struct MultigridConfig {
     pub test_vectors: usize,
     #[serde(default = "mg_setup_iterations")]
     pub setup_iterations: usize,
-    /// The coarse solve (BiCGStab) stops at this |r|^2 / |b|^2 ...
+    /// The coarse solver.
+    #[serde(default)]
+    pub coarse_solver: CoarseSolverKind,
+    /// The coarse solve stops at this |r|^2 / |b|^2 ...
     #[serde(default = "mg_coarse_tolerance")]
     pub coarse_tolerance_squared: f64,
-    /// ... or after this many iterations.
+    /// ... or after this many iterations (for GMRES: the m of GMRES(m), no restarts).
     #[serde(default = "mg_coarse_iterations")]
     pub coarse_max_iterations: usize,
+    /// Precondition the coarse operator by the inverse of its diagonal blocks.
+    #[serde(default)]
+    pub precondition_coarse_diagonal: bool,
+    /// The smoother.
+    #[serde(default)]
+    pub smoother: SmootherKind,
+    /// Smooth before the coarse correction too, instead of starting from x = b.
+    #[serde(default)]
+    pub pre_smoothing: bool,
+    /// SAP: cycles ...
     #[serde(default = "mg_smoother_cycles")]
     pub smoother_cycles: usize,
-    /// Minimal-residual steps per block in each smoother cycle.
+    /// ... and minimal-residual steps per block in each cycle.
     #[serde(default = "mg_smoother_block_steps")]
     pub smoother_block_steps: usize,
+    /// GMRES: the m of GMRES(m) ...
+    #[serde(default = "mg_smoother_iterations")]
+    pub smoother_iterations: usize,
+    /// ... and an earlier stop at this |r|^2 / |b|^2.
+    #[serde(default = "mg_smoother_tolerance")]
+    pub smoother_tolerance_squared: f64,
     /// Precision the preconditioner works in; the outer solve is always double.
     #[serde(default)]
     pub precision: Precision,
     /// Seed of the random initial test vectors.
     #[serde(default = "mg_seed")]
     pub seed: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SmootherKind {
+    /// Schwarz alternating procedure (the Bridge++ clover multigrid).
+    #[default]
+    Sap,
+    /// GMRES(m) on the operator (the CUDA domain-wall multigrid).
+    Gmres,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoarseSolverKind {
+    #[default]
+    Bicgstab,
+    Gmres,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -235,12 +274,23 @@ impl MultigridConfig {
             num_test_vectors: self.test_vectors,
             setup_iterations: self.setup_iterations,
             coarse_stop: Stop::simple(self.coarse_tolerance_squared, self.coarse_max_iterations),
-            smoother: SmootherChoice::Sap {
-                cycles: self.smoother_cycles,
-                block_steps: self.smoother_block_steps,
+            coarse_solver: match self.coarse_solver {
+                CoarseSolverKind::Bicgstab => CoarseSolverChoice::BiCgStab,
+                CoarseSolverKind::Gmres => CoarseSolverChoice::Gmres,
             },
+            smoother: match self.smoother {
+                SmootherKind::Sap => SmootherChoice::Sap {
+                    cycles: self.smoother_cycles,
+                    block_steps: self.smoother_block_steps,
+                },
+                SmootherKind::Gmres => SmootherChoice::Gmres {
+                    iterations: self.smoother_iterations,
+                    tolerance_sqr: self.smoother_tolerance_squared,
+                },
+            },
+            pre_smoothing: self.pre_smoothing,
+            precondition_coarse_diagonal: self.precondition_coarse_diagonal,
             seed: self.seed,
-            ..bridge_mg()
         }
     }
 }
@@ -274,6 +324,14 @@ fn mg_smoother_cycles() -> usize {
 }
 fn mg_smoother_block_steps() -> usize {
     bridge_sap().1
+}
+/// GMRES(m) smoother of the CUDA domain-wall test: `smoother_number_of_iteration: 4`,
+/// `smoother_convergence_criterion_squared: 1.0e-3`.
+fn mg_smoother_iterations() -> usize {
+    4
+}
+fn mg_smoother_tolerance() -> f64 {
+    1e-3
 }
 fn mg_seed() -> u64 {
     bridge_mg().seed

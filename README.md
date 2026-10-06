@@ -103,19 +103,28 @@ when the file is read, with the line and the accepted alternatives.
 | `measure.channels` | list of channel names | all thirteen |
 | `output.file` | also write the table to this file | none |
 
-Multigrid needs `solver.type = "fgmres"` and `solver.even_odd = false`, and runs on one
-process only so far. Only `block` is required; the defaults are those of the Bridge++ test
-`test_alt_Multigrid.yaml`:
+Multigrid needs a solver that tolerates a preconditioner changing from one application to
+the next, `solver.type = "fgmres"` or `"bicgstab"`, and `solver.even_odd = false`; it runs on
+one process only so far. Only `block` is required; the defaults are those of the Bridge++
+test `test_alt_Multigrid.yaml` (SAP smoother, BiCGStab on the coarse lattice). The other
+choices are those of the CUDA domain-wall multigrid (GMRES(m) smoother before and after,
+GMRES(m) on the coarse lattice, coarse operator preconditioned by its diagonal blocks):
 
 | `solver.multigrid` key | Meaning | Default |
 |---|---|---|
 | `block` | `[bx, by, bz, bt]`: the blocks of the coarse lattice and of the smoother; must divide the lattice | required |
 | `test_vectors` | number of test vectors (at most 6 × the block volume) | `16` |
 | `setup_iterations` | rounds that improve the test vectors after the initial smoothing | `4` |
-| `coarse_tolerance_squared` | the coarse solve (BiCGStab) stops below this \|r\|²/\|b\|² … | `2.0e-3` |
-| `coarse_max_iterations` | … or after this many iterations | `200` |
-| `smoother_cycles` | SAP cycles of the smoother | `4` |
-| `smoother_block_steps` | minimal-residual steps per block in each cycle | `6` |
+| `coarse_solver` | `bicgstab` or `gmres` | `bicgstab` |
+| `coarse_tolerance_squared` | the coarse solve stops below this \|r\|²/\|b\|² … | `2.0e-3` |
+| `coarse_max_iterations` | … or after this many iterations (`gmres`: the m of GMRES(m)) | `200` |
+| `precondition_coarse_diagonal` | multiply the coarse operator by the inverse of its diagonal blocks | `false` |
+| `smoother` | `sap` or `gmres` | `sap` |
+| `pre_smoothing` | smooth before the coarse correction too, instead of starting from x = b | `false` |
+| `smoother_cycles` | `sap`: cycles | `4` |
+| `smoother_block_steps` | `sap`: minimal-residual steps per block in each cycle | `6` |
+| `smoother_iterations` | `gmres`: the m of GMRES(m) | `4` |
+| `smoother_tolerance_squared` | `gmres`: stop earlier below this \|r\|²/\|b\|² | `1.0e-3` |
 | `precision` | `single` or `double`: what the preconditioner works in; the outer solve is always double | `single` |
 | `seed` | seed of the random initial test vectors | `1` |
 
