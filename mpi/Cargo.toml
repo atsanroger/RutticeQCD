@@ -1,0 +1,18 @@
+[package]
+name = "ruttice-mpi"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Needs an MPI installation and libclang to build, so it is not among the workspace's
+# default members.
+
+[dependencies]
+ruttice-core.workspace = true
+ruttice-fermion.workspace = true
+ruttice-solver.workspace = true
+ruttice-validation = { path = "../validation" }
+mpi = "0.8"
+
+[lints]
+workspace = true
