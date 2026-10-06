@@ -10,6 +10,7 @@ ruttice-core.workspace = true
 ruttice-io.workspace = true
 ruttice-gauge.workspace = true
 ruttice-fermion.workspace = true
+ruttice-solver.workspace = true
 
 [dev-dependencies]
 rayon.workspace = true

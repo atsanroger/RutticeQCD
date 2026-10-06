@@ -89,6 +89,13 @@ name = "ruttice-kernel"
 version = "0.0.1"
 
 [[package]]
+name = "ruttice-solver"
+version = "0.0.1"
+dependencies = [
+ "ruttice-core",
+]
+
+[[package]]
 name = "ruttice-validation"
 version = "0.0.1"
 dependencies = [
@@ -98,4 +105,5 @@ dependencies = [
  "ruttice-gauge",
  "ruttice-io",
  "ruttice-kernel",
+ "ruttice-solver",
 ]

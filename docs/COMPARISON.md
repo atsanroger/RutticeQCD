@@ -65,3 +65,33 @@ Independent checks that passed alongside (no reference needed): free-field plane
 against the analytic result, gauge covariance, <χ, Dψ> = <D†χ, ψ>, the fused sweep against
 the sum of the eight hopping terms, and several spinors stored together against each one
 applied separately.
+
+## 3. Iteration count of CG on the Wilson normal operator
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | round(Nconv / 10), Nconv = 1 + number of CG steps |
+| Reference | Bridge++ test `Solver_Wilson_CGNE`, `expected_result` in `tests/test_Solver_Wilson_CGNE.yaml` |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | κ = 0.12, antiperiodic in all directions; point source at the origin, spin 0, colour 0; CG on D D† starting from x = b; stop at \|r\|²/\|b\|² < 1e-28; true residual and restart every 100 steps |
+| RutticeQCD | stage 1; `ruttice-validation` test `bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+
+| | Value |
+|---|---|
+| Bridge++ | 11 |
+| RutticeQCD | 11 (Nconv = 109, one restart; final \|D x − b\|²/\|b\|² = 7.1e-29) |
+| Tolerance | exact match of the rounded value |
+| Result | pass |
+
+This is a coarse comparison: any Nconv from 105 to 114 gives the same rounded value, so it
+shows the solver follows the same procedure, not that it reproduces it step for step.
+The Bridge++ test fixes the gauge to Landau gauge first; that step was skipped here because
+the CG residual history of a point source is gauge covariant. This was not checked by
+running both.
+
+Not compared: BiCGStab (the Bridge++ variants count iterations differently and have extra
+parameters), CGNR, any solution vector element by element.

@@ -58,6 +58,35 @@ where
     total
 }
 
+/// `reduce_sites` when the number of sums is only known at run time. `f(site, acc)` adds
+/// the contribution of one site into `acc`, which has length `n`.
+pub fn reduce_sites_dyn<F>(num_sites: usize, n: usize, f: F) -> Vec<f64>
+where
+    F: Fn(usize, &mut [f64]) + Sync,
+{
+    let mut total = vec![0.0; n];
+    if n == 0 || num_sites == 0 {
+        return total;
+    }
+    let mut partial = vec![0.0; num_sites.div_ceil(REDUCE_CHUNK) * n];
+    partial
+        .par_chunks_mut(n)
+        .enumerate()
+        .for_each(|(chunk, acc)| {
+            let lo = chunk * REDUCE_CHUNK;
+            let hi = (lo + REDUCE_CHUNK).min(num_sites);
+            for site in lo..hi {
+                f(site, acc);
+            }
+        });
+    for p in partial.chunks_exact(n) {
+        for (t, x) in total.iter_mut().zip(p) {
+            *t += x;
+        }
+    }
+    total
+}
+
 /// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to
 /// the default value. No boundary phase is applied.
 pub fn shift<T, K, S>(

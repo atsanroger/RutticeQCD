@@ -140,6 +140,19 @@ impl<T: Real> Mul for Cplx<T> {
     }
 }
 
+impl<T: Real> Div for Cplx<T> {
+    type Output = Self;
+    #[inline(always)]
+    fn div(self, o: Self) -> Self {
+        let d = o.norm_sqr();
+        let n = self * o.conj();
+        Self {
+            re: n.re / d,
+            im: n.im / d,
+        }
+    }
+}
+
 impl<T: Real> Neg for Cplx<T> {
     type Output = Self;
     #[inline(always)]
