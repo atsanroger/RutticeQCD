@@ -182,6 +182,13 @@ fn every_solver_choice_gives_the_same_correlator() {
         fgmres.replace("even_odd = true", "even_odd = false"),
         multigrid("single"),
         multigrid("double"),
+        // BiCGStab is flexible with a preconditioner.
+        multigrid("single").replace("\"fgmres\"", "\"bicgstab\""),
+        // The choices of the CUDA domain-wall multigrid.
+        multigrid("single").replace(
+            "precision = \"single\"",
+            "precision = \"single\", smoother = \"gmres\", pre_smoothing = true, coarse_solver = \"gmres\", coarse_max_iterations = 5, coarse_tolerance_squared = 1.0e-2, precondition_coarse_diagonal = true",
+        ),
     ] {
         for (a, b) in correlator(variant).iter().zip(&reference) {
             assert!(
