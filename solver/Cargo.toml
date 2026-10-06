@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 ruttice-core.workspace = true
+ruttice-numerics.workspace = true
 
 [lints]
 workspace = true

@@ -1,5 +1,9 @@
 //! Small dense numerical tools that do not involve lattice fields.
 
+mod lsq;
+
+pub use lsq::HessenbergLsq;
+
 use std::fmt;
 
 /// The matrix has no inverse to working precision.

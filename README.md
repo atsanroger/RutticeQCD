@@ -185,7 +185,7 @@ let c = pion_correlator(&s);                        // one value per time slice
 | `io/` | `ruttice-io` | reading and writing gauge configurations |
 | `gauge/` | `ruttice-gauge` | plaquette, field strength |
 | `fermion/` | `ruttice-fermion` | Wilson and clover operators, even-odd preconditioning |
-| `solver/` | `ruttice-solver` | conjugate gradient, BiCGStab, mixed precision by defect correction |
+| `solver/` | `ruttice-solver` | conjugate gradient, BiCGStab, flexible GMRES, mixed precision by defect correction |
 | `measure/` | `ruttice-measure` | sources and meson correlators |
 | `cli/` | `ruttice-cli` | the `ruttice` program |
 | `validation/` | `ruttice-validation` | the checks described above |

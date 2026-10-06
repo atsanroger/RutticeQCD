@@ -2,10 +2,12 @@
 
 mod bicgstab;
 mod cg;
+mod fgmres;
 mod mixed;
 
 pub use bicgstab::BiCgStab;
 pub use cg::Cg;
+pub use fgmres::Fgmres;
 pub use mixed::{Convert, Refine, Solve};
 
 use ruttice_core::{Adjoint, LinearFn, LinearOp, Normal, Vector};
