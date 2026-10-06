@@ -345,109 +345,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
-name = "ruttice-cli"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-fermion",
- "ruttice-gauge",
- "ruttice-io",
- "ruttice-kernel",
- "ruttice-measure",
- "ruttice-solver",
- "ruttice-validation",
- "serde",
- "serde_yaml_ng",
- "toml",
-]
-
-[[package]]
-name = "ruttice-core"
-version = "0.0.1"
-dependencies = [
- "rayon",
- "ruttice-kernel",
-]
-
-[[package]]
-name = "ruttice-fermion"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-gauge",
- "ruttice-kernel",
- "ruttice-numerics",
-]
-
-[[package]]
-name = "ruttice-gauge"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-kernel",
-]
-
-[[package]]
-name = "ruttice-io"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
-]
-
-[[package]]
-name = "ruttice-kernel"
-version = "0.0.1"
-
-[[package]]
-name = "ruttice-measure"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-kernel",
-]
-
-[[package]]
-name = "ruttice-mpi"
+name = "ruttice"
 version = "0.0.1"
 dependencies = [
  "mpi",
- "ruttice-cli",
- "ruttice-core",
- "ruttice-fermion",
- "ruttice-io",
- "ruttice-solver",
- "ruttice-validation",
-]
-
-[[package]]
-name = "ruttice-numerics"
-version = "0.0.1"
-dependencies = [
- "ruttice-kernel",
-]
-
-[[package]]
-name = "ruttice-solver"
-version = "0.0.1"
-dependencies = [
- "ruttice-core",
- "ruttice-fermion",
- "ruttice-kernel",
- "ruttice-numerics",
-]
-
-[[package]]
-name = "ruttice-validation"
-version = "0.0.1"
-dependencies = [
  "rayon",
- "ruttice-core",
- "ruttice-fermion",
- "ruttice-gauge",
- "ruttice-io",
- "ruttice-kernel",
- "ruttice-measure",
- "ruttice-solver",
+ "serde",
+ "serde_yaml_ng",
+ "toml",
 ]
 
 [[package]]

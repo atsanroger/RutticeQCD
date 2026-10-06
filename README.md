@@ -16,7 +16,7 @@ You need a stable Rust toolchain (1.89 or newer) and a gauge configuration.
 ```bash
 git clone https://github.com/atsanroger/RutticeQCD.git
 cd RutticeQCD
-cargo build --release -p ruttice-cli
+cargo build --release
 ```
 
 This produces the program `target/release/ruttice`. It takes one argument, a parameter
@@ -30,9 +30,9 @@ A parameter file names the lattice, the gauge configuration, the solver, the qua
 what to measure. Start from one of the two commented examples and put it next to your
 configuration file (paths inside a parameter file are relative to that file):
 
-- [cli/examples/wilson_pion.toml](cli/examples/wilson_pion.toml): Wilson fermions, point
+- [examples/wilson_pion.toml](examples/wilson_pion.toml): Wilson fermions, point
   source, pion correlator
-- [cli/examples/clover_two_flavours.yaml](cli/examples/clover_two_flavours.yaml): clover
+- [examples/clover_two_flavours.yaml](examples/clover_two_flavours.yaml): clover
   fermions, two flavours, smeared sources, every channel
 
 The output for the first example, on a 4×4×4×8 lattice, looks like this:
@@ -53,11 +53,11 @@ the two quarks it was built from (`11` is quark 1 with itself, `12` is quark 1 w
 
 ### Running on several processes
 
-The MPI version is a second program, `ruttice-mpi`, built from the `ruttice-mpi` package.
-Building it needs an MPI installation (Open MPI or MPICH) and libclang:
+The MPI version is a second program, `ruttice-mpi`, built when the feature `mpi` is turned
+on. Building it needs an MPI installation (Open MPI or MPICH) and libclang:
 
 ```bash
-cargo build --release -p ruttice-mpi
+cargo build --release --features mpi
 mpirun -np 4 target/release/ruttice-mpi --grid 1,1,2,2 my_run/wilson_pion.toml
 ```
 
@@ -92,6 +92,7 @@ when the file is read, with the line and the accepted alternatives.
 | `lattice` | `[Lx, Ly, Lz, Lt]` | required |
 | `gauge.file` | path of the configuration | required |
 | `gauge.format` | `bridge_text` | `bridge_text` |
+| `gauge.fixing` | fix the gauge first; see below | none |
 | `solver.type` | `cg_normal` (conjugate gradient on the normal equations) or `bicgstab` | required |
 | `solver.even_odd` | solve through the even-odd (red-black) Schur complement; needs even extents | `true` |
 | `solver.tolerance_squared` | stop when \|r\|²/\|b\|² is below this for every right-hand side | required |
@@ -116,7 +117,31 @@ and a source:
 | `source.type` | Other keys | What it is |
 |---|---|---|
 | `point` | `position` | a unit source at one site |
-| `exponential` | `position`, `slope`, `power` | `exp(-slope * r^power)` on the time slice of `position`, normalised to unit norm. It depends on the gauge the configuration is in; no gauge fixing is applied. |
+| `exponential` | `position`, `slope`, `power` | `exp(-slope * r^power)` on the time slice of `position`, normalised to unit norm. It depends on the gauge the configuration is in, so it is normally used with `gauge.fixing`. |
+
+Gauge fixing has one type, `coulomb`; every other key is optional:
+
+| `gauge.fixing` key | Meaning | Default |
+|---|---|---|
+| `type` | `coulomb` | required |
+| `tolerance_squared` | stop when the violation is below this on every time slice | `1.0e-24` |
+| `max_iterations` | give up after this many sweeps | `5000` |
+| `naive_iterations` | sweeps without overrelaxation at the start and after every reset | `50` |
+| `measure_interval` | measure the violation every this many sweeps | `10` |
+| `reset_interval` | every this many sweeps, randomly transform the time slices that have not converged | `1000` |
+| `overrelaxation` | overrelaxation parameter ω | `1.6` |
+| `seed` | seed for those random transformations | `1234567` |
+
+The defaults are those of the Bridge++ test `Spectrum_Clover_Hadron2ptFunction`, and so is
+the measure of the violation, so the same parameters stop after the same number of sweeps.
+In YAML:
+
+```yaml
+gauge:
+  file: conf_04040408.txt
+  fixing:
+    type: coulomb
+```
 
 For every quark the propagator is computed for all twelve spin-colour components of the
 source at once. Correlators are then formed for every pair of quarks (i, j) with i ≤ j.
@@ -146,6 +171,10 @@ So that numbers can be compared with other codes:
   where S1 and S2 are the propagators of the two quarks from the same source and the trace
   is over spin and colour. No further sign or normalisation is applied.
 - **Plaquette.** Normalised so that a unit gauge field gives 1.
+- **Coulomb gauge.** Maximises Σ_x Σ_i Re tr U_i(x) over the spatial directions i on every
+  time slice. The violation of a time slice is Σ_x |Δ(x)|² / (4 Nc V_t), where Δ(x) is the
+  traceless part of M − M† with M = Σ_i [U_i(x−i) − U_i(x)], |·|² sums the squares of all
+  real components and V_t is the number of sites in a time slice.
 
 These follow Bridge++, which is what the results are checked against.
 
@@ -161,7 +190,7 @@ solver, the same bits for any number of threads.
 **Comparisons with Bridge++.** The plaquette; the Wilson and clover operators applied to a
 vector, with and without even-odd preconditioning; solver iteration counts; and meson
 correlators in thirteen channels on every time slice, for one and two quark flavours and
-for point and smeared sources. Every comparison is written down in
+for point and smeared sources, with and without Coulomb gauge fixing. Every comparison is written down in
 [docs/COMPARISON.md](docs/COMPARISON.md): what was compared, the two numbers, the
 tolerance, and what the comparison does and does not establish.
 
@@ -177,9 +206,9 @@ Without it those comparisons print `SKIPPED` and the rest still run.
 
 ## Using it as a library
 
-The program is a thin layer over a set of crates; anything it does can be done from Rust
+The program is a thin layer over the library (`ruttice`, in `src/`); anything it does can be done from Rust
 code. The shortest complete example is
-[validation/examples/pion.rs](validation/examples/pion.rs). Its core:
+[examples/pion.rs](examples/pion.rs). Its core:
 
 ```rust
 let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -197,19 +226,30 @@ solve_even_odd(&op, index, &mut s, &b, |schur, x_e, rhs| {
 let c = pion_correlator(&s);                        // one value per time slice
 ```
 
-| Directory | Crate | Contents |
-|---|---|---|
-| `kernel/` | `ruttice-kernel` | arithmetic on single sites: complex numbers, colour matrices, spinors, gamma matrices. No standard library |
-| `numerics/` | `ruttice-numerics` | small dense linear algebra |
-| `core/` | `ruttice-core` | lattice, fields, neighbour tables, even-odd decomposition, the vector and linear-operator interfaces |
-| `io/` | `ruttice-io` | reading and writing gauge configurations |
-| `gauge/` | `ruttice-gauge` | plaquette, field strength |
-| `fermion/` | `ruttice-fermion` | Wilson and clover operators, even-odd preconditioning |
-| `solver/` | `ruttice-solver` | conjugate gradient, BiCGStab, flexible GMRES, mixed precision by defect correction |
-| `measure/` | `ruttice-measure` | sources and meson correlators |
-| `cli/` | `ruttice-cli` | the `ruttice` program |
-| `validation/` | `ruttice-validation` | the checks described above |
-| `backends/mpi/` | `ruttice-mpi` | the communicator on MPI and the `ruttice-mpi` program; not built by default (needs MPI and libclang) |
+One Cargo package, `ruttice`. Where things go is fixed by the design document (§8):
+
+| Directory | Contents |
+|---|---|
+| `src/` | the library, one directory per subject (below) |
+| `apps/` | the programs: `ruttice`, and with the feature `mpi` `ruttice-mpi` and `ruttice-mpi-check` |
+| `tests/` | the checks described above; `tests/data/` holds the reference values |
+| `examples/` | `pion.rs` and the parameter-file examples |
+| `docs/` | `COMPARISON.md` |
+
+| Directory under `src/` | Contents |
+|---|---|
+| `field` | fields, storage types, the vector and linear-operator interfaces |
+| `lattice` | lattice geometry, neighbour tables, even-odd decomposition, site-parallel loops |
+| `comm` | communication between processes |
+| `backend` | backends that need an external library: the communicator on MPI (`backend::mpi`, feature `mpi`) |
+| `kernel` | arithmetic on single sites: complex numbers, colour matrices, spinors, gamma matrices |
+| `numerics` | small dense linear algebra |
+| `io` | reading and writing gauge configurations |
+| `gauge` | plaquette, field strength, gauge transformations, Coulomb gauge fixing |
+| `fermion` | Wilson and clover operators, even-odd preconditioning |
+| `solver` | conjugate gradient, BiCGStab, flexible GMRES, mixed precision by defect correction, multigrid |
+| `measure` | sources and meson correlators |
+| `app` | parameter files, building what they name, running and reporting |
 
 Things the library can do that the program does not expose yet: single precision, and
 double-precision accuracy from single-precision solves.
@@ -221,7 +261,7 @@ Not there yet, roughly in the order planned:
 - multigrid solvers
 - domain-wall fermions
 - vectorised (SIMD) kernels and running on more than one process (MPI)
-- generating configurations (HMC), gauge fixing, smearing
+- generating configurations (HMC), Landau gauge fixing, smearing
 - GPUs
 
 No timing in this repository should be read as a performance figure.

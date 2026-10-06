@@ -1,26 +1,50 @@
-[workspace]
-resolver = "2"
-members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli", "backends/mpi"]
-# Everything except `backends/mpi`, which needs an MPI installation and libclang to build.
-default-members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation", "cli"]
-
-[workspace.package]
+# One package: the library in src/, the programs in apps/, tests in tests/, examples in
+# examples/. The layout is fixed by DESIGN.md §8.
+[package]
+name = "ruttice"
 version = "0.0.1"
 edition = "2021"
 publish = false
 
-[workspace.dependencies]
-ruttice-kernel = { path = "kernel" }
-ruttice-core = { path = "core" }
-ruttice-numerics = { path = "numerics" }
-ruttice-io = { path = "io" }
-ruttice-gauge = { path = "gauge" }
-ruttice-fermion = { path = "fermion" }
-ruttice-solver = { path = "solver" }
-ruttice-measure = { path = "measure" }
-rayon = "1"
+[[bin]]
+name = "ruttice"
+path = "apps/ruttice.rs"
 
-[workspace.lints.clippy]
+# The same program on several processes.
+[[bin]]
+name = "ruttice-mpi"
+path = "apps/ruttice_mpi.rs"
+required-features = ["mpi"]
+
+# Compares the operator and a solve on several MPI processes with one process; run by the
+# test `mpirun`.
+[[bin]]
+name = "ruttice-mpi-check"
+path = "apps/mpi_check.rs"
+required-features = ["mpi"]
+
+[[test]]
+name = "mpirun"
+required-features = ["mpi"]
+
+[[test]]
+name = "mpi_program"
+required-features = ["mpi"]
+
+[features]
+# The communicator on MPI (`backend::mpi`) and the programs that use it. Needs an MPI
+# installation and libclang to build.
+mpi = ["dep:mpi"]
+
+[dependencies]
+rayon = "1"
+mpi = { version = "0.8", optional = true }
+# Parameter files (`app`).
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+serde_yaml_ng = "0.10"
+
+[lints.clippy]
 # Lattice, spin and colour indices (mu, a, c) are written as explicit index loops so the
 # code reads like the formulas it implements.
 needless_range_loop = "allow"

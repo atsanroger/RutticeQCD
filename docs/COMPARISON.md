@@ -12,7 +12,7 @@ regression baseline only after an entry here shows it agreeing with the referenc
 | Reference | Bridge++ test `Gauge_lex`, `expected_result` in `tests/test_Gauge_lex.yaml` |
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | md5 `a8cd38fbb5711577001d85bd12d29422`, 36864 values |
-| RutticeQCD | `ruttice-validation` test `bridge_gauge_lex_plaquette` |
+| RutticeQCD | test `bridge_gauge_lex_plaquette` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process, periodic neighbours |
 
@@ -42,7 +42,7 @@ than `Aos`, more than one process.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
-| RutticeQCD | `ruttice-validation` test `bridge_mult_wilson`; fused kernel, variant `D` |
+| RutticeQCD | test `bridge_mult_wilson`; fused kernel, variant `D` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -76,7 +76,7 @@ applied separately.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, antiperiodic in all directions; point source at the origin, spin 0, colour 0; CG on D D† starting from x = b; stop at \|r\|²/\|b\|² < 1e-28; true residual and restart every 100 steps |
-| RutticeQCD | `ruttice-validation` test `bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
+| RutticeQCD | test `bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -106,7 +106,7 @@ parameters), CGNR, any solution vector element by element.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
-| RutticeQCD | `ruttice-validation` test `bridge_mult_wilson_eo`; `Schur` on `Parity::Even` |
+| RutticeQCD | test `bridge_mult_wilson_eo`; `Schur` on `Parity::Even` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -137,7 +137,7 @@ are checked against the full operator only), a non-trivial diagonal block.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, antiperiodic in all four directions, point source at the origin, all 12 spin-colour components |
-| RutticeQCD | `ruttice-validation` test `bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
+| RutticeQCD | test `bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -173,7 +173,7 @@ channels are compared in entry 8.
 | Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
-| RutticeQCD | `ruttice-validation` test `bridge_mult_clover`; `Clover`, variant `D` |
+| RutticeQCD | test `bridge_mult_clover`; `Clover`, variant `D` |
 
 | | Value |
 |---|---|
@@ -204,7 +204,7 @@ other values without a second reference number.
 | Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
-| RutticeQCD | `ruttice-validation` test `bridge_mult_clover_eo`; `Schur` on `Parity::Even` followed by the inverse diagonal block |
+| RutticeQCD | test `bridge_mult_clover_eo`; `Schur` on `Parity::Even` followed by the inverse diagonal block |
 
 | | Value |
 |---|---|
@@ -226,7 +226,7 @@ Entries 1 to 7 use numbers shipped with Bridge++. From here on the numbers come 
 running the Bridge++ test program ourselves (CPU build of the same source tree, git
 `5540a26` with local modifications, one process, one thread, 2026-10-06), sometimes with a
 parameter changed so that one feature is exercised at a time. The values are stored in
-`validation/tests/data/` with their provenance in the file headers; nothing from Bridge++
+`tests/data/` with their provenance in the file headers; nothing from Bridge++
 itself is in this repository.
 
 ## 8. All meson channels and time slices, Wilson, point source
@@ -237,7 +237,7 @@ itself is in this repository.
 | What | 13 channels (PS, V1-3, A4-PS, PS-A4, S, γ5γ1-3, σ12, σ23, σ31) on 8 time slices: 104 complex numbers |
 | Reference | output of the unmodified Bridge++ test `Spectrum.Wilson.Hadron2ptFunction` |
 | Parameters | κ = 0.12, antiperiodic in all directions, point source at the origin; Bridge++ fixes the gauge to Landau gauge first, RutticeQCD does not |
-| RutticeQCD | `ruttice-validation` test `wilson_meson_channels`; `meson_correlator` |
+| RutticeQCD | test `wilson_meson_channels`; `meson_correlator` |
 | Precision of the reference | 13 significant digits |
 
 | | |
@@ -257,7 +257,7 @@ every channel the Bridge++ spectrum test prints, including the composite gamma m
 | What | the same 13 channels and 8 time slices for the flavour pairs (1,1), (2,2) and (1,2): 312 complex numbers |
 | Reference | output of the Bridge++ test `Spectrum.Clover.Hadron2ptFunction` with `gauge_fixing_type` changed from `Coulomb` to `None` |
 | Parameters | c_SW = 1, periodic in space, antiperiodic in time; exponential source at the origin with power 2. Flavour 1: κ = 0.12, slope 0.25. Flavour 2: κ = 0.115, slope 0.5 |
-| RutticeQCD | `ruttice-validation` test `clover_two_flavours_exponential_source`; `exponential_source`, even-odd CGNE, `meson_correlator` with two propagators |
+| RutticeQCD | test `clover_two_flavours_exponential_source`; `exponential_source`, even-odd CGNE, `meson_correlator` with two propagators |
 | Precision of the reference | 13 significant digits |
 
 | | |
@@ -269,9 +269,8 @@ every channel the Bridge++ spectrum test prints, including the composite gamma m
 What this validates: the exponential source, clover solves for two hopping parameters,
 and correlators built from two different propagators.
 
-What it does not validate: the unmodified test, whose `expected_result`
-(81.2796854325709) is for the Coulomb-gauge-fixed configuration. An exponential source is
-gauge dependent, so that number needs gauge fixing, which RutticeQCD does not have yet.
+What it does not validate: gauge fixing; the unmodified test fixes the configuration to
+Coulomb gauge first (entry 11).
 
 ## 10. Clover operator with another coefficient
 
@@ -281,7 +280,7 @@ gauge dependent, so that number needs gauge fixing, which RutticeQCD does not ha
 | What | 2-norm of D b, every real of b equal to 1 |
 | Reference | the Bridge++ test `Mult.Clover` with `clover_coefficient` changed from 1.0 to 1.7 |
 | Parameters | κ = 0.12, c_SW = 1.7, periodic in space, antiperiodic in time |
-| RutticeQCD | `ruttice-validation` test `clover_mult_with_another_coefficient` |
+| RutticeQCD | test `clover_mult_with_another_coefficient` |
 
 | | Value |
 |---|---|
@@ -290,3 +289,38 @@ gauge dependent, so that number needs gauge fixing, which RutticeQCD does not ha
 | Tolerance | 1e-13 relative |
 | Result | pass |
 
+## 11. Clover, two flavours, exponential source, Coulomb gauge
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | the same 312 numbers as entry 9, and the number of gauge-fixing sweeps |
+| Reference | output of the unmodified Bridge++ test `Spectrum.Clover.Hadron2ptFunction` |
+| Parameters | as entry 9, after Coulomb gauge fixing: overrelaxation ω = 1.6 after 50 sweeps with ω = 1, violation measured every 10 sweeps, stop below 1e-24 on every time slice, random reset every 1000 sweeps |
+| RutticeQCD | test `clover_two_flavours_coulomb_gauge`; `fix_coulomb`, then as entry 9. Also through the program: test `clover_example_in_coulomb_gauge_reproduces_the_reference_table` |
+| Precision of the reference | 13 significant digits |
+
+| | Bridge++ | RutticeQCD |
+|---|---|---|
+| Sweeps until converged | 120 | 120 |
+| Plaquette change | 4.9e-15 | below 1e-13 (checked) |
+| `expected_result` (PS, flavours 1 1, t = 0) | 81.2796854325709 | within 6.5e-12 |
+
+| | |
+|---|---|
+| Largest difference | 6.5e-12 over all 312 values |
+| Tolerance | 1.6e-10 absolute (2e-12 of the largest value) |
+| Result | pass, all 312 |
+
+What this validates: the Coulomb gauge-fixing algorithm and its convergence measure
+(stopping at the same sweep requires the same normalisation of the violation and the
+same sequence of sweeps), and that the gauge it reaches is the same one: the exponential
+source is gauge dependent: the first value is 81.28 here and 15.24 without gauge fixing
+(entry 9).
+
+What it does not validate: the random gauge transformations after `reset_interval`
+sweeps, which this run never reached. They use RutticeQCD's own random numbers, so a run
+that needs them will not follow Bridge++ sweep for sweep. Independent checks
+(`stage2_gauge_fixing.rs`): convergence from a random configuration, the plaquette being
+unchanged, the same configuration on every process grid with and without resets, and the
+gauge transformation against a separate reference implementation.

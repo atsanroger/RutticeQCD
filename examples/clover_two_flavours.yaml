@@ -1,0 +1,39 @@
+# Meson correlators with clover fermions: two flavours with different hopping parameters
+# and source widths, all channels, for the pairs (1,1), (1,2) and (2,2).
+#
+#   cargo run --release --bin ruttice -- examples/clover_two_flavours.yaml
+#
+# Relative paths are taken from the directory of this file.
+# The exponential source is gauge dependent; no gauge fixing is applied.
+
+lattice: [4, 4, 4, 8]
+
+gauge:
+  file: conf_04040408.txt
+
+solver:
+  type: cg_normal
+  tolerance_squared: 1.0e-28
+  max_iterations: 2000
+
+quark:
+  - fermion:
+      type: clover
+      kappa: 0.12
+      csw: 1.0
+      boundary: [periodic, periodic, periodic, antiperiodic]
+    source:
+      type: exponential
+      position: [0, 0, 0, 0]
+      slope: 0.25
+      power: 2.0
+  - fermion:
+      type: clover
+      kappa: 0.115
+      csw: 1.0
+      boundary: [periodic, periodic, periodic, antiperiodic]
+    source:
+      type: exponential
+      position: [0, 0, 0, 0]
+      slope: 0.5
+      power: 2.0
