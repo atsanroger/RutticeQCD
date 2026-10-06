@@ -1,6 +1,6 @@
 # Numerical comparisons
 
-One entry per comparison against a reference code (FLOW.md §D1). A feature gets its own
+One entry per comparison against a reference code. A feature gets its own
 regression baseline only after an entry here shows it agreeing with the reference.
 
 ## 1. Plaquette of the Bridge++ test configuration
@@ -12,7 +12,7 @@ regression baseline only after an entry here shows it agreeing with the referenc
 | Reference | Bridge++ test `Gauge_lex`, `expected_result` in `tests/test_Gauge_lex.yaml` |
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | md5 `a8cd38fbb5711577001d85bd12d29422`, 36864 values |
-| RutticeQCD | stage 0; `ruttice-validation` test `bridge_gauge_lex_plaquette` |
+| RutticeQCD | `ruttice-validation` test `bridge_gauge_lex_plaquette` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process, periodic neighbours |
 
@@ -42,7 +42,7 @@ than `Aos`, more than one process.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
-| RutticeQCD | stage 1; `ruttice-validation` test `bridge_mult_wilson`; fused kernel, variant `D` |
+| RutticeQCD | `ruttice-validation` test `bridge_mult_wilson`; fused kernel, variant `D` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -76,7 +76,7 @@ applied separately.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, antiperiodic in all directions; point source at the origin, spin 0, colour 0; CG on D D† starting from x = b; stop at \|r\|²/\|b\|² < 1e-28; true residual and restart every 100 steps |
-| RutticeQCD | stage 1; `ruttice-validation` test `bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
+| RutticeQCD | `ruttice-validation` test `bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -106,7 +106,7 @@ parameters), CGNR, any solution vector element by element.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
-| RutticeQCD | stage 1; `ruttice-validation` test `bridge_mult_wilson_eo`; `Schur` on `Parity::Even` |
+| RutticeQCD | `ruttice-validation` test `bridge_mult_wilson_eo`; `Schur` on `Parity::Even` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -137,7 +137,7 @@ are checked against the full operator only), a non-trivial diagonal block.
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
 | Parameters | κ = 0.12, antiperiodic in all four directions, point source at the origin, all 12 spin-colour components |
-| RutticeQCD | stage 1; `ruttice-validation` test `bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
+| RutticeQCD | `ruttice-validation` test `bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
 
@@ -173,7 +173,7 @@ channels are compared in entry 8.
 | Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
-| RutticeQCD | stage 2; `ruttice-validation` test `bridge_mult_clover`; `Clover`, variant `D` |
+| RutticeQCD | `ruttice-validation` test `bridge_mult_clover`; `Clover`, variant `D` |
 
 | | Value |
 |---|---|
@@ -204,7 +204,7 @@ other values without a second reference number.
 | Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
-| RutticeQCD | stage 2; `ruttice-validation` test `bridge_mult_clover_eo`; `Schur` on `Parity::Even` followed by the inverse diagonal block |
+| RutticeQCD | `ruttice-validation` test `bridge_mult_clover_eo`; `Schur` on `Parity::Even` followed by the inverse diagonal block |
 
 | | Value |
 |---|---|

@@ -1,5 +1,5 @@
-/// Communication between processes. Stage 0 has only what a single node needs; halo
-/// exchange and general messaging (DESIGN.md §4) arrive with the MPI implementation.
+/// Communication between processes. Only what a single node needs so far; halo
+/// exchange and general messaging arrive with the MPI implementation.
 pub trait Comm: Send + Sync {
     fn rank(&self) -> usize;
     fn size(&self) -> usize;

@@ -1,4 +1,4 @@
-//! Stage 1 checks (DESIGN.md §9.1): solvers on the Wilson operator.
+//! Checks: solvers on the Wilson operator.
 
 use ruttice_core::{
     Adjoint, Boundary, ConvertFrom, Field, Gauge, Lattice, LinearFn, Product, Spinor, Vector, ND,
@@ -201,7 +201,7 @@ fn mixed_precision_reaches_double_accuracy() {
     assert!(r[0] <= 1.1e-24, "true residual {:e}", r[0]);
 }
 
-/// The ownership pattern of DESIGN.md §7.3 in use: an outer and an inner solver share
+/// The ownership pattern in use: an outer and an inner solver share
 /// operators through short-lived bindings, and the gauge field is replaced between solves.
 #[test]
 fn nested_solves_across_gauge_updates() {

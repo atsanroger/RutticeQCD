@@ -91,8 +91,8 @@ pub trait Backend: Send + Sync + 'static {
 pub struct Cpu;
 impl Backend for Cpu {
     type Buf<T: Storage> = Vec<T>;
-    // TODO(stage 4): align to the SIMD width and leave first touch to the sweeping threads
-    // (DESIGN.md §7.5). A zeroed Vec is enough for the Aos reference path.
+    // TODO: align to the SIMD width and leave first touch to the sweeping threads
+    //. A zeroed Vec is enough for the Aos reference path.
     fn alloc<T: Storage>(len: usize) -> Vec<T> {
         vec![T::default(); len]
     }

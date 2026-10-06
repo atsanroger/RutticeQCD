@@ -1,4 +1,4 @@
-//! Fermion operators (DESIGN.md §5). One fermion per file.
+//! Fermion operators. One fermion per file.
 
 mod clover;
 mod evenodd;
@@ -59,7 +59,7 @@ impl fmt::Display for GaugeError {
 impl std::error::Error for GaugeError {}
 
 /// A fermion operator. The operator itself is read-only while in use; scratch space lives
-/// in `Work`, so several users can apply the same operator at once (DESIGN.md §7.3).
+/// in `Work`, so several users can apply the same operator at once.
 pub trait FermionOp<V> {
     type Work;
     fn work(&self) -> Self::Work;

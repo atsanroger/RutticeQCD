@@ -1,4 +1,4 @@
-//! Even-odd preconditioning, written once for every fermion (DESIGN.md §7.4).
+//! Even-odd preconditioning, written once for every fermion.
 //!
 //! Split the operator by parity, M = [[M_ee, M_eo], [M_oe, M_oo]]. The diagonal blocks act
 //! within a site; the off-diagonal blocks are hops. A fermion supplies the blocks through

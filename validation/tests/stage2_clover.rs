@@ -1,4 +1,4 @@
-//! Stage 2 checks (DESIGN.md §9.1): field strength and the clover operator.
+//! Checks: field strength and the clover operator.
 
 use ruttice_core::{
     dot, extract_parity, fill, insert_parity, norm_sqr, Boundary, Field, Gauge, Half, Lattice,

@@ -1,5 +1,5 @@
 //! Comparisons against output of the Bridge++ test program that we produced ourselves
-//! (FLOW.md §D1): every meson channel and time slice, a second quark flavour, an
+//!: every meson channel and time slice, a second quark flavour, an
 //! exponential source, and a clover coefficient other than one. The numbers are in
 //! `tests/data/`, with their provenance in the file headers; the gauge configuration is
 //! still read from `RUTTICE_BRIDGE_TESTS`.

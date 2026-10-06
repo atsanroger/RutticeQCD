@@ -20,7 +20,7 @@ where
 /// Sum `f(site)` over all sites.
 ///
 /// Sites are summed in fixed-size chunks and the chunk sums are added in order, so the
-/// result is the same on every run and for every thread count (DESIGN.md §6.5).
+/// result is the same on every run and for every thread count.
 pub fn reduce_sites<F>(num_sites: usize, f: F) -> f64
 where
     F: Fn(usize) -> f64 + Sync,

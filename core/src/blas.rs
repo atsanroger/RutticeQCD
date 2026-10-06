@@ -1,4 +1,4 @@
-//! Whole-field reductions and fills. The per-vector `Vector` interface (DESIGN.md §7.1)
+//! Whole-field reductions and fills. The per-vector `Vector` interface
 //! is built on these when the solvers arrive.
 
 use crate::field::{Aos, Cpu, Field, Kind, Sites};

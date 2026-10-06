@@ -1,4 +1,4 @@
-//! Small dense numerical tools that do not involve lattice fields (DESIGN.md §8).
+//! Small dense numerical tools that do not involve lattice fields.
 
 use std::fmt;
 

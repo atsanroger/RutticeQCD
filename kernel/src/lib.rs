@@ -1,7 +1,7 @@
 //! Arithmetic on small by-value objects: reals, complex numbers, 3x3 colour matrices.
 //!
 //! No standard library, no allocation, no dynamic dispatch, so that the same code has a
-//! chance of being accepted by a GPU code generator later (DESIGN.md §7.5).
+//! chance of being accepted by a GPU code generator later.
 //!
 //! Written from the mathematics; not derived from any other code base.
 #![no_std]
@@ -15,7 +15,7 @@ pub use spin::{
 
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
 
-/// Number of colours. Fixed at compile time (DESIGN.md §10).
+/// Number of colours. Fixed at compile time.
 pub const NC: usize = 3;
 
 /// A real type kernels compute with.

@@ -1,6 +1,6 @@
-//! Fields, lattice geometry, stencils and site-parallel entry points (DESIGN.md §2–§4).
+//! Fields, lattice geometry, stencils and site-parallel entry points.
 //!
-//! Stage 0 scope: `Aos` layout, `Full` sites, `Cpu` backend, single node.
+//! So far: `Aos` layout, `Cpu` backend, single node.
 
 mod blas;
 mod comm;

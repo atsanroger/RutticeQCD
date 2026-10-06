@@ -1,4 +1,4 @@
-//! Stage 0 checks (DESIGN.md §9.1): configuration I/O and the plaquette.
+//! Checks: configuration I/O and the plaquette.
 
 use ruttice_core::{Boundary, Field, Gauge, Lattice, Stencil, ND};
 use ruttice_gauge::{link, plaquette, set_unit};

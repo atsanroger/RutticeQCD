@@ -1,4 +1,4 @@
-//! Linear maps and how to combine them (DESIGN.md §5.1, §7.2).
+//! Linear maps and how to combine them.
 
 use crate::vector::{Vector, C64};
 

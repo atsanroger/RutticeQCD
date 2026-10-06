@@ -1,4 +1,4 @@
-//! Stage 1 checks (DESIGN.md §9.1): point source, propagator, meson correlators.
+//! Checks: point source, propagator, meson correlators.
 
 use ruttice_core::{norm_sqr, Boundary, Field, Gauge, Lattice, LinearFn, Spinor, Vector, C64, ND};
 use ruttice_fermion::{solve_even_odd, Bound, FermionOp, Variant, Wilson, WilsonParams};

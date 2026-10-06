@@ -1,4 +1,4 @@
-//! Krylov solvers (DESIGN.md §7.2). They know only `Vector` and `LinearFn`.
+//! Krylov solvers. They know only `Vector` and `LinearFn`.
 
 mod bicgstab;
 mod cg;

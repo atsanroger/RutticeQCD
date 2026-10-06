@@ -39,7 +39,7 @@ const ZERO: u8 = 2;
 
 /// Nearest-neighbour geometry of a lattice, built once and shared by kernels and `shift`.
 ///
-/// Stage 0: unit displacements, all sites, single node. Whether this is a table or
+/// So far: unit displacements, single node. Whether this is a table or
 /// arithmetic is an internal choice that callers do not see.
 pub struct Stencil {
     num_sites: usize,

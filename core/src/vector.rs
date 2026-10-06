@@ -1,4 +1,4 @@
-//! The only interface solvers need from a vector (DESIGN.md §7.1).
+//! The only interface solvers need from a vector.
 
 use crate::field::{Aos, Cpu, Field, Kind, Sites};
 use crate::sites::{for_sites, reduce_sites_dyn};

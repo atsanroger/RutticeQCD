@@ -1,4 +1,4 @@
-//! Stage 1 checks (DESIGN.md §9.1): even-odd preconditioning of the Wilson operator.
+//! Checks: even-odd preconditioning of the Wilson operator.
 
 use ruttice_core::{
     extract_parity, fill, insert_parity, norm_sqr, Boundary, Field, Gauge, Half, Lattice, LinearFn,

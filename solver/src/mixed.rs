@@ -1,4 +1,4 @@
-//! The generic pieces that mixed precision is assembled from (DESIGN.md §7.2):
+//! The generic pieces that mixed precision is assembled from:
 //! defect correction, precision conversion, and a solver bound to its operator.
 
 use crate::{true_residual, SolveError, SolveInfo, Solver, Stop};

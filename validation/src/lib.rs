@@ -1,4 +1,4 @@
-//! Helpers for the validation tests (DESIGN.md §8).
+//! Helpers for the validation tests.
 //!
 //! The random numbers here only build test inputs. They are not the generators of the
 //! physics code and make no attempt to match any other program.

@@ -1,4 +1,4 @@
-//! Sources and hadron correlators (FLOW.md §B).
+//! Sources and hadron correlators.
 //!
 //! A propagator from one source point is a spinor field with twelve vectors: vector
 //! `k = colour + 3 * spin` is the solution for a unit source in that spin and colour.

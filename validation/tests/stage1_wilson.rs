@@ -1,4 +1,4 @@
-//! Stage 1 checks (DESIGN.md §9.1): the Wilson operator.
+//! Checks: the Wilson operator.
 
 use ruttice_core::{dot, fill, norm_sqr, Boundary, Field, Gauge, Lattice, Spinor, ND};
 use ruttice_fermion::{FermionOp, HopTerms, Variant, Wilson, WilsonParams};
