@@ -1,5 +1,5 @@
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap};
-use crate::fermion::{HopTerms, Variant};
+use crate::fermion::{Bound, HopTerms, Variant};
 use crate::kernel::Real;
 use crate::solver::{BiCgStab, Solver, Stop};
 use crate::{Coarse, ConvertFrom, Field, Lattice, LinearFn, Spinor, Storage, Vector, C64, ND};
@@ -42,84 +42,156 @@ impl MultigridParams {
     }
 }
 
-/// Two-level multigrid as a preconditioner: an approximate inverse of D, to be passed as
-/// `m` to a flexible outer solver.
+type Fine<T> = Field<T, Spinor>;
+
+/// The members of the cycle (DESIGN.md §7.6.3); each can be exchanged.
+pub struct CycleParts<'a, T: Storage> {
+    /// The operator whose inverse the cycle approximates: D for clover, A for the
+    /// domain-wall target operator.
+    pub operator: Box<dyn LinearFn<Fine<T>> + 'a>,
+    /// Smoothing before the coarse correction, from a zero start. Without it the cycle
+    /// starts from x = b, as Bridge++ `APrecond_MG` does.
+    pub pre_smoother: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
+    /// Smoothing after the coarse correction. It also smooths the test vectors in the setup.
+    pub post_smoother: Box<dyn LinearFn<Fine<T>> + 'a>,
+    /// Solves the coarse system; not reaching its tolerance is not an error.
+    pub coarse_solver: Box<dyn Solver<Field<T, Coarse>> + 'a>,
+}
+
+/// How the setup builds the test vectors and the coarse operator, beyond the defaults.
+pub struct SetupHooks<'a, T: Storage> {
+    /// Applied to every test vector after it was smoothed (domain-wall: D_PV).
+    pub after_smoothing: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
+    /// A site-local factor R in the coarse operator P† D R P (domain-wall: C_PV^{-1}).
+    pub coarse_right: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
+    /// Precondition the coarse operator by its diagonal blocks.
+    pub precondition_coarse_diagonal: bool,
+}
+
+impl<T: Storage> Default for SetupHooks<'_, T> {
+    fn default() -> Self {
+        Self {
+            after_smoothing: None,
+            coarse_right: None,
+            precondition_coarse_diagonal: false,
+        }
+    }
+}
+
+/// Two-level multigrid as a preconditioner: an approximate inverse of the cycle's operator
+/// A, to be passed as `m` to a flexible outer solver (FGMRES, or BiCGStab, which is the
+/// flexible form with a preconditioner).
 ///
-/// One application, for a right-hand side b (the cycle of the Bridge++ class
-/// `APrecond_MG`):
+/// One application, for a right-hand side b:
 ///
-/// 1. start from x = b;
-/// 2. coarse-grid correction: x += P D_c^{-1} P† (b − D x), with D_c^{-1} an inexact
-///    BiCGStab solve on the coarse lattice;
-/// 3. smoothing: x += S (b − D x), with S the SAP smoother.
+/// 1. x = S_pre(b) with a pre-smoother, otherwise x = b;
+/// 2. coarse-grid correction: x += P A_c^{-1} P† (b − A x), with A_c^{-1} an inexact solve
+///    on the coarse lattice (after multiplying by the inverse diagonal blocks when the
+///    coarse operator is preconditioned by them);
+/// 3. x += S_post(b − A x).
 ///
-/// The coarse solve stops at a tolerance, so the map is not exactly linear; use it with
-/// FGMRES or another flexible method.
+/// Without a pre-smoother this is the cycle of Bridge++ `APrecond_MG`; with one it is the
+/// cycle of the CUDA domain-wall `APrecond_MG_dw`.
 ///
-/// The test vectors are found when the preconditioner is built: random vectors are
-/// smoothed by S, then improved by `setup_iterations` rounds of x_i ← M x_i with the
-/// cycle M built from the current vectors. P is rebuilt after each round.
+/// The test vectors are found when the preconditioner is built: the initial vectors are
+/// smoothed by S_post (and passed through `after_smoothing`), then improved by
+/// `setup_iterations` rounds of v_i ← M v_i with the cycle M built from the current
+/// vectors. P and the coarse operator are rebuilt after each round.
 ///
 /// Works on one process only, like the aggregation it is built on.
-pub struct Multigrid<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> {
+pub struct Multigrid<'a, F: HopTerms<Fine<T>>, T: Storage> {
     op: &'a F,
     work: F::Work,
+    agg: Arc<Aggregation>,
     basis: Basis<T>,
     coarse: CoarseOp<T>,
-    coarse_solver: BiCgStab<Field<T, Coarse>>,
-    smoother: Sap<'a, F, T>,
+    parts: CycleParts<'a, T>,
+    hooks: SetupHooks<'a, T>,
     scratch: Option<Scratch<T>>,
 }
 
 struct Scratch<T: Storage> {
-    r: Field<T, Spinor>,
-    e: Field<T, Spinor>,
+    r: Fine<T>,
+    e: Fine<T>,
     coarse_r: Field<T, Coarse>,
+    coarse_rhs: Field<T, Coarse>,
     coarse_e: Field<T, Coarse>,
 }
 
-impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
-    /// Build the aggregation, find the test vectors and build the coarse operator. `lat`
-    /// is the lattice `op` acts on.
+impl<'a, F, T> Multigrid<'a, F, T>
+where
+    F: HopTerms<Fine<T>> + 'a,
+    F::Work: 'a,
+    T: Storage + 'a,
+{
+    /// The clover multigrid of Bridge++ (DESIGN.md §7.6.2): cycle on D, no pre-smoothing,
+    /// SAP after the coarse correction, BiCGStab on the coarse lattice, random initial
+    /// test vectors.
     pub fn new(
         op: &'a F,
         lat: &Arc<Lattice>,
         params: &MultigridParams,
     ) -> Result<Self, MultigridError> {
         let agg = Aggregation::new(lat, params.block);
-        let n = params.num_test_vectors;
-        let mut smoother = Sap::new(
+        let parts = CycleParts {
+            operator: Box::new(Bound::new(op, Variant::D)),
+            pre_smoother: None,
+            post_smoother: Box::new(Sap::new(
+                op,
+                &agg,
+                params.smoother_cycles,
+                params.smoother_block_steps,
+            )),
+            coarse_solver: Box::new(BiCgStab::new(params.coarse_stop)),
+        };
+        let initial = random_vectors::<T>(lat, params.num_test_vectors, params.seed);
+        Self::with_parts(
             op,
             &agg,
-            params.smoother_cycles,
-            params.smoother_block_steps,
-        );
+            initial,
+            params.setup_iterations,
+            parts,
+            SetupHooks::default(),
+        )
+    }
+
+    /// Multigrid from any members and setup hooks. `initial` holds the initial test
+    /// vectors (random, or eigenvectors); `op` provides the parts the coarse operator is
+    /// built from and Γ5.
+    pub fn with_parts(
+        op: &'a F,
+        agg: &Arc<Aggregation>,
+        initial: Fine<T>,
+        setup_iterations: usize,
+        mut parts: CycleParts<'a, T>,
+        mut hooks: SetupHooks<'a, T>,
+    ) -> Result<Self, MultigridError> {
         let mut work = op.work();
-
-        let v = random_vectors::<T>(lat, n, params.seed);
-        let mut x = v.zeros_like();
-        smoother.mult(&mut x, &v);
-        let basis = basis_from(op, &mut work, &agg, &x)?;
-        let coarse = CoarseOp::build(op, &mut work, &basis);
-
+        let mut x = initial.zeros_like();
+        parts.post_smoother.mult(&mut x, &initial);
+        let basis = basis_after_smoothing(op, &mut work, agg, &mut hooks, &x)?;
+        let coarse = build_coarse(op, &mut work, &basis, &mut hooks)?;
         let mut mg = Self {
             op,
             work,
+            agg: agg.clone(),
             basis,
             coarse,
-            coarse_solver: BiCgStab::new(params.coarse_stop),
-            smoother,
+            parts,
+            hooks,
             scratch: None,
         };
-        for _ in 0..params.setup_iterations {
+        for _ in 0..setup_iterations {
             let v = mg.test_vectors();
             mg.mult(&mut x, &v);
-            mg.basis = basis_from(mg.op, &mut mg.work, &agg, &x)?;
-            mg.coarse = CoarseOp::build(mg.op, &mut mg.work, &mg.basis);
+            mg.basis = basis_after_smoothing(mg.op, &mut mg.work, &mg.agg, &mut mg.hooks, &x)?;
+            mg.coarse = build_coarse(mg.op, &mut mg.work, &mg.basis, &mut mg.hooks)?;
         }
         Ok(mg)
     }
+}
 
+impl<F: HopTerms<Fine<T>>, T: Storage> Multigrid<'_, F, T> {
     pub fn basis(&self) -> &Basis<T> {
         &self.basis
     }
@@ -130,7 +202,7 @@ impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
 
     /// The current test vectors, orthonormalised on every aggregate, as one fine field:
     /// vector i is P applied to the coarse vector with ones at components i and n + i.
-    pub fn test_vectors(&self) -> Field<T, Spinor> {
+    pub fn test_vectors(&self) -> Fine<T> {
         let n = self.basis.num_test_vectors();
         let mut c = self.basis.coarse_field(n);
         let one = T::store(T::Compute::ONE);
@@ -143,10 +215,41 @@ impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Multigrid<'a, F, T> {
                 v[2 * (n + i)] = one;
             }
         }
-        let mut fine = Field::spinor(self.basis.aggregation().fine_lattice(), n);
+        let mut fine = self.basis.fine_field(n);
         self.basis.prolong(&mut fine, &c);
         fine
     }
+}
+
+/// The basis from smoothed vectors `x`, passed through `after_smoothing` first.
+fn basis_after_smoothing<F: HopTerms<Fine<T>>, T: Storage>(
+    op: &F,
+    work: &mut F::Work,
+    agg: &Arc<Aggregation>,
+    hooks: &mut SetupHooks<'_, T>,
+    x: &Fine<T>,
+) -> Result<Basis<T>, MultigridError> {
+    match hooks.after_smoothing.as_mut() {
+        Some(after) => {
+            let mut y = x.zeros_like();
+            after.mult(&mut y, x);
+            basis_from(op, work, agg, &y)
+        }
+        None => basis_from(op, work, agg, x),
+    }
+}
+
+fn build_coarse<F: HopTerms<Fine<T>>, T: Storage>(
+    op: &F,
+    work: &mut F::Work,
+    basis: &Basis<T>,
+    hooks: &mut SetupHooks<'_, T>,
+) -> Result<CoarseOp<T>, MultigridError> {
+    let right = hooks
+        .coarse_right
+        .as_mut()
+        .map(|r| r.as_mut() as &mut dyn LinearFn<Fine<T>>);
+    CoarseOp::build_with(op, work, basis, right, hooks.precondition_coarse_diagonal)
 }
 
 /// Orthonormalise the chiral halves of the vectors of `x` on the aggregates, with the
@@ -188,8 +291,8 @@ fn random_vectors<T: Storage>(lat: &Arc<Lattice>, n: usize, seed: u64) -> Field<
     v
 }
 
-impl<F: HopTerms<Field<T, Spinor>>, T: Storage> LinearFn<Field<T, Spinor>> for Multigrid<'_, F, T> {
-    fn mult(&mut self, x: &mut Field<T, Spinor>, b: &Field<T, Spinor>) {
+impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T> {
+    fn mult(&mut self, x: &mut Fine<T>, b: &Fine<T>) {
         assert!(x.same_shape(b));
         let nv = b.num_vectors();
         if !self.scratch.as_ref().is_some_and(|s| s.r.same_shape(b)) {
@@ -197,6 +300,7 @@ impl<F: HopTerms<Field<T, Spinor>>, T: Storage> LinearFn<Field<T, Spinor>> for M
                 r: b.zeros_like(),
                 e: b.zeros_like(),
                 coarse_r: self.basis.coarse_field(nv),
+                coarse_rhs: self.basis.coarse_field(nv),
                 coarse_e: self.basis.coarse_field(nv),
             });
         }
@@ -204,32 +308,42 @@ impl<F: HopTerms<Field<T, Spinor>>, T: Storage> LinearFn<Field<T, Spinor>> for M
             r,
             e,
             coarse_r,
+            coarse_rhs,
             coarse_e,
         }) = self.scratch.as_mut()
         else {
             unreachable!("the scratch fields were just created");
         };
+        let parts = &mut self.parts;
         let one = vec![C64::new(1.0, 0.0); nv];
         let minus_one = vec![C64::new(-1.0, 0.0); nv];
-        let residual =
-            |op: &F, work: &mut F::Work, r: &mut Field<T, Spinor>, x: &Field<T, Spinor>| {
-                op.mult(work, r, x, Variant::D);
-                r.aypx(&minus_one, b);
-            };
+        let mut residual = |r: &mut Fine<T>, x: &Fine<T>| {
+            parts.operator.mult(r, x);
+            r.aypx(&minus_one, b);
+        };
 
-        x.copy_from(b);
-        residual(self.op, &mut self.work, r, x);
+        match parts.pre_smoother.as_mut() {
+            Some(pre) => pre.mult(x, b),
+            None => x.copy_from(b),
+        }
+        residual(r, x);
         self.basis.restrict(coarse_r, r);
+        let rhs = if self.coarse.is_diagonal_preconditioned() {
+            self.coarse.apply_diagonal_inverse(coarse_rhs, coarse_r);
+            &*coarse_rhs
+        } else {
+            &*coarse_r
+        };
         coarse_e.set_zero();
         // An inexact coarse solve is expected; whatever it reached is used.
-        let _ = self
+        let _ = parts
             .coarse_solver
-            .solve(&mut self.coarse, None, coarse_e, coarse_r);
+            .solve(&mut self.coarse, None, coarse_e, rhs);
         self.basis.prolong(e, coarse_e);
         x.axpy(&one, e);
 
-        residual(self.op, &mut self.work, r, x);
-        self.smoother.mult(e, r);
+        residual(r, x);
+        parts.post_smoother.mult(e, r);
         x.axpy(&one, e);
     }
 }

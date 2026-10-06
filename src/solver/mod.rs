@@ -92,6 +92,18 @@ pub trait Solver<V: Vector> {
     ) -> Result<SolveInfo, SolveError>;
 }
 
+impl<V: Vector, S: Solver<V> + ?Sized> Solver<V> for &mut S {
+    fn solve(
+        &mut self,
+        a: &mut dyn LinearFn<V>,
+        m: Option<&mut dyn LinearFn<V>>,
+        x: &mut V,
+        b: &V,
+    ) -> Result<SolveInfo, SolveError> {
+        (**self).solve(a, m, x, b)
+    }
+}
+
 /// `out_j = |b_j - (A x)_j|^2 / |b_j|^2`, using `r` as scratch. A zero right-hand side
 /// counts as residual zero when `x` is zero too.
 pub(crate) fn true_residual<V: Vector>(

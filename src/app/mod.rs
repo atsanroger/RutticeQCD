@@ -327,7 +327,12 @@ where
                 let op32 = single().map_err(|e| CliError::Operator { quark, source: e })?;
                 let m32 = Multigrid::new(&op32, lat, &mg.params()).map_err(setup_failed)?;
                 let like = Field::<f32, Spinor>::spinor(lat, b.num_vectors());
-                propagator(op, b, solver, Some(&mut Convert::new(m32, &like)))
+                let mut m = Convert::new(m32, &like);
+                // Bound to a name so that the preconditioner, which borrows op32, is dropped
+                // before op32 is.
+                #[allow(clippy::let_and_return)]
+                let solved = propagator(op, b, solver, Some(&mut m));
+                solved
             }
         },
     };

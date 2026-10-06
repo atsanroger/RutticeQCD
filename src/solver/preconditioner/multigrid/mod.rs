@@ -18,7 +18,7 @@ mod sap;
 pub use aggregation::Aggregation;
 pub use basis::Basis;
 pub use coarse::CoarseOp;
-pub use cycle::{Multigrid, MultigridParams};
+pub use cycle::{CycleParts, Multigrid, MultigridParams, SetupHooks};
 pub use sap::Sap;
 
 use std::fmt;

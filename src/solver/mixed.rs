@@ -106,16 +106,20 @@ where
 ///
 /// Not reaching the tolerance is normal for an inner solve and is not an error here; the
 /// outcome of the most recent solve is kept in `last`.
-pub struct Solve<'a, S, A, M> {
-    solver: &'a mut S,
+///
+/// The solver is owned; pass `&mut solver` to keep using it elsewhere. With a fixed number
+/// of iterations and no tolerance to reach, this is how a Krylov solver becomes a smoother
+/// (GMRES(m): `Fgmres` with `max_iterations = m`, no restarts).
+pub struct Solve<S, A, M> {
+    solver: S,
     a: A,
     m: Option<M>,
     pub last: Option<Result<SolveInfo, SolveError>>,
 }
 
-impl<'a, S, A> Solve<'a, S, A, A> {
+impl<S, A> Solve<S, A, A> {
     /// Without a preconditioner.
-    pub fn new(solver: &'a mut S, a: A) -> Self {
+    pub fn new(solver: S, a: A) -> Self {
         Self {
             solver,
             a,
@@ -125,8 +129,8 @@ impl<'a, S, A> Solve<'a, S, A, A> {
     }
 }
 
-impl<'a, S, A, M> Solve<'a, S, A, M> {
-    pub fn preconditioned(solver: &'a mut S, a: A, m: M) -> Self {
+impl<S, A, M> Solve<S, A, M> {
+    pub fn preconditioned(solver: S, a: A, m: M) -> Self {
         Self {
             solver,
             a,
@@ -136,7 +140,7 @@ impl<'a, S, A, M> Solve<'a, S, A, M> {
     }
 }
 
-impl<V, S, A, M> LinearFn<V> for Solve<'_, S, A, M>
+impl<V, S, A, M> LinearFn<V> for Solve<S, A, M>
 where
     V: Vector,
     S: Solver<V>,
