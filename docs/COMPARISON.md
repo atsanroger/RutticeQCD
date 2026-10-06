@@ -163,3 +163,59 @@ yaml file), any channel other than the pseudoscalar. `meson_correlator` with oth
 matrices has only been checked to reduce to the pion case for γ5; its sign and
 normalisation conventions for other channels are unverified.
 
+## 6. Clover operator applied to a constant spinor
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 2-norm of D b, every real of b equal to 1, D applied once |
+| Reference | Bridge++ test `Mult_Clover`, `expected_result` in `tests/test_Mult_Clover.yaml` |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+| RutticeQCD | stage 2; `ruttice-validation` test `bridge_mult_clover`; `Clover`, variant `D` |
+
+| | Value |
+|---|---|
+| Bridge++ | 1.23817935905285e+02 |
+| RutticeQCD | 1.23817935905285e+02 |
+| Tolerance | 1e-13 relative (the Bridge++ test itself uses 1e-14) |
+| Result | pass |
+
+What this validates: the clover-leaf field strength (orientation of the four leaves, the
+1/8, no trace removal), the sign and normalisation of the clover term, the spin matrices
+that multiply it, and a boundary that differs between directions.
+
+What it does not validate: c_SW other than 1 (the term is linear in it), other gamma
+representations.
+
+## 7. Even-odd preconditioned clover operator applied to a constant spinor
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 2-norm of (1 - T_ee^-1 M_eo T_oo^-1 M_oe) b on the even sites, every real of b equal to 1 |
+| Reference | Bridge++ test `Mult_Clover_eo`, `expected_result` in `tests/test_Mult_Clover_eo.yaml` |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | kappa = 0.12, c_SW = 1, Dirac representation, periodic in space, antiperiodic in time |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+| RutticeQCD | stage 2; `ruttice-validation` test `bridge_mult_clover_eo`; `Schur` on `Parity::Even` followed by the inverse diagonal block |
+
+| | Value |
+|---|---|
+| Bridge++ | 8.10390521901559e+01 |
+| RutticeQCD | 8.10390521901559e+01 |
+| Tolerance | 1e-13 relative (the Bridge++ test itself uses 1e-14) |
+| Result | pass |
+
+Bridge++ normalises the preconditioned operator by the inverse diagonal block; the Schur
+complement here is T_ee - M_eo T_oo^-1 M_oe, so one more multiplication by T_ee^-1 is
+needed to compare.
+
+What this validates: the inverse of the 12 x 12 diagonal block on both parities, and the
+generic Schur complement with a non-trivial diagonal.
+

@@ -49,7 +49,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let b = point_source::<f64>(&lat, [0; ND]);
     let mut s = b.zeros_like();
-    let stop = Stop { tolerance_sqr: 1e-28, max_iterations: 2000, max_restarts: 3 };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 2000,
+        max_restarts: 3,
+    };
     let start = Instant::now();
     let info = solve_even_odd(&op, index, &mut s, &b, |schur, x_e, rhs| {
         solve_cgne(&mut Cg::new(stop), schur, x_e, rhs)
@@ -66,7 +70,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let worst = rr.iter().fold(0.0, |m: f64, x| m.max(*x));
 
     println!("kappa      {kappa}");
-    println!("solve      {} CG steps, {} restarts, {seconds:.3} s", info.iterations, info.restarts);
+    println!(
+        "solve      {} CG steps, {} restarts, {seconds:.3} s",
+        info.iterations, info.restarts
+    );
     println!("residual   worst |D S - b|^2 over {NUM_SOURCES} columns = {worst:.3e}");
     println!("# t  C_PS(t)");
     for (t, c) in pion_correlator(&s).iter().enumerate() {

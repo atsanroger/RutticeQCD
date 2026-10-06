@@ -9,8 +9,8 @@
 mod spin;
 
 pub use spin::{
-    project, sink_spinor, transport, ColorVector, Dirac, Gamma, GammaRepre, HalfSpinor, LinkUse,
-    Sign, Spinor, Unit, NS, SPINOR_REALS,
+    project, sink_spinor, site_matrix_mul, transport, ColorVector, Dirac, Gamma, GammaRepre,
+    HalfSpinor, LinkUse, Sign, Spinor, Unit, NS, SITE_MATRIX_DIM, SITE_MATRIX_REALS, SPINOR_REALS,
 };
 
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -268,6 +268,27 @@ impl<T: Real> ColorMatrix<T> {
             }
             s
         })
+    }
+
+    #[inline(always)]
+    pub fn add(&self, o: &Self) -> Self {
+        Self(core::array::from_fn(|a| {
+            core::array::from_fn(|b| self.0[a][b] + o.0[a][b])
+        }))
+    }
+
+    #[inline(always)]
+    pub fn sub(&self, o: &Self) -> Self {
+        Self(core::array::from_fn(|a| {
+            core::array::from_fn(|b| self.0[a][b] - o.0[a][b])
+        }))
+    }
+
+    #[inline(always)]
+    pub fn scale(&self, k: T) -> Self {
+        Self(core::array::from_fn(|a| {
+            core::array::from_fn(|b| self.0[a][b].scale(k))
+        }))
     }
 
     #[inline(always)]

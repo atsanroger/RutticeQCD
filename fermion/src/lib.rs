@@ -1,11 +1,14 @@
 //! Fermion operators (DESIGN.md §5). One fermion per file.
 
+mod clover;
 mod evenodd;
 mod wilson;
 
+pub use clover::{Clover, CloverDiag, CloverParams};
+
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
-pub use wilson::{Wilson, WilsonParams, WilsonWork};
+pub use wilson::{DiagTerm, UnitDiag, Wilson, WilsonOp, WilsonParams, WilsonWork};
 
 use ruttice_core::{Field, Gauge, LinearFn, LinearOp, Vector};
 use std::fmt;
@@ -36,6 +39,8 @@ impl Variant {
 pub enum GaugeError {
     /// The gauge field lives on a different lattice than the operator.
     LatticeMismatch,
+    /// The site-diagonal block of the operator could not be inverted at this site.
+    SingularDiagonal { site: usize },
 }
 
 impl fmt::Display for GaugeError {
@@ -43,6 +48,9 @@ impl fmt::Display for GaugeError {
         match self {
             GaugeError::LatticeMismatch => {
                 write!(f, "gauge field and operator are on different lattices")
+            }
+            GaugeError::SingularDiagonal { site } => {
+                write!(f, "the site-diagonal block is singular at site {site}")
             }
         }
     }

@@ -14,6 +14,10 @@ Stages refer to DESIGN.md §9.1.
   right-hand sides; mixed precision by defect correction; even-odd preconditioning written
   once for all fermions; point sources and meson correlators.
 
+- Stage 2, in progress: clover-leaf field strength; the clover operator, which is the
+  Wilson sweep with a non-trivial site-diagonal block, including its even-odd form.
+  Not yet: FGMRES, multigrid.
+
 Single node, array-of-structures layout only. Comparisons with reference codes are
 recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
 
@@ -22,6 +26,7 @@ recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
 | Directory | Crate | Contents |
 |---|---|---|
 | `kernel/` | `ruttice-kernel` | arithmetic on small by-value objects, `no_std` |
+| `numerics/` | `ruttice-numerics` | small dense linear algebra, no lattice fields |
 | `core/` | `ruttice-core` | fields, lattice, stencil, site-parallel entry points |
 | `io/` | `ruttice-io` | gauge configuration I/O |
 | `gauge/` | `ruttice-gauge` | gauge observables |

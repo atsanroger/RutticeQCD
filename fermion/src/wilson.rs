@@ -4,6 +4,9 @@
 //!
 //! Provides: `mult` (fused, one sweep) for D, D† and γ5 D; the hopping terms one direction
 //! at a time; the even-odd blocks (the site-diagonal blocks are the identity).
+//!
+//! The sweep is generic over the site-diagonal block (`DiagTerm`), so fermions that differ
+//! from Wilson only within a site (clover) reuse everything here.
 //! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
 //! preconditioning. Tools needed: none.
 //!
@@ -77,24 +80,61 @@ struct EvenOddGeometry {
     to: [Geometry; 2],
 }
 
-/// The site-diagonal term of a sweep.
+/// Whether a sweep includes the site-diagonal block.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Diagonal {
-    /// The identity: the input at the same site is added to the result.
-    Unit,
+    /// The operator's own diagonal block applied to the input at the same site.
+    Present,
     /// No diagonal term: the sweep is a pure hopping block.
     Absent,
 }
 
-pub struct Wilson<T: Storage, G: GammaRepre = Dirac> {
+/// The site-diagonal block of an operator of Wilson type. It must be Hermitian and commute
+/// with γ5, so that D† = γ5 D γ5 keeps holding.
+pub trait DiagTerm<T: Storage>: Send + Sync + 'static {
+    /// True when the block is the identity; lets callers skip work.
+    const IS_UNIT: bool;
+    /// The block at `full_site` applied to `phi`.
+    fn apply(&self, full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute>;
+    /// Its inverse applied to `phi`.
+    fn apply_inv(&self, full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute>;
+    /// Rebuild whatever depends on the gauge field.
+    fn set_gauge(&mut self, lat: &Arc<Lattice>, u: &Field<f64, Gauge>) -> Result<(), GaugeError>;
+}
+
+/// The identity: plain Wilson fermions.
+pub struct UnitDiag;
+
+impl<T: Storage> DiagTerm<T> for UnitDiag {
+    const IS_UNIT: bool = true;
+    #[inline(always)]
+    fn apply(&self, _full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute> {
+        *phi
+    }
+    #[inline(always)]
+    fn apply_inv(&self, _full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute> {
+        *phi
+    }
+    fn set_gauge(&mut self, _lat: &Arc<Lattice>, _u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
+        Ok(())
+    }
+}
+
+/// An operator of Wilson type: the Wilson hopping term plus a site-diagonal block `D`.
+/// `Wilson` and `Clover` are this with different blocks.
+pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>> {
     params: WilsonParams,
     lat: Arc<Lattice>,
     full: Geometry,
     /// Present when every extent of the lattice is even.
     even_odd: Option<EvenOddGeometry>,
     u: Option<Field<T, Gauge>>,
+    diag: D,
     _gamma: PhantomData<G>,
 }
+
+/// Wilson fermions: the diagonal block is the identity.
+pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 
 /// Where one leg of the stencil comes from, resolved for one site.
 #[derive(Clone, Copy)]
@@ -104,8 +144,15 @@ struct Leg<R> {
     phase: Option<Cplx<R>>,
 }
 
-impl<T: Storage, G: GammaRepre> Wilson<T, G> {
+impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag> {
     pub fn new(lat: &Arc<Lattice>, params: WilsonParams) -> Self {
+        Self::with_diag(lat, params, UnitDiag)
+    }
+}
+
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
+    /// An operator of Wilson type with the given site-diagonal block.
+    pub fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Self {
         let even_odd = lat.local.iter().all(|l| l % 2 == 0).then(|| {
             let index = Arc::new(EvenOddIndex::new(lat));
             let to = [Parity::Even, Parity::Odd]
@@ -118,6 +165,7 @@ impl<T: Storage, G: GammaRepre> Wilson<T, G> {
             full: Geometry::full(lat, params.boundary),
             even_odd,
             u: None,
+            diag,
             _gamma: PhantomData,
         }
     }
@@ -200,6 +248,35 @@ impl<T: Storage, G: GammaRepre> Wilson<T, G> {
         );
     }
 
+    /// `out = B inp` site by site, where B is the diagonal block or its inverse. `full_site`
+    /// gives the full-lattice index of each site of the fields.
+    fn site_block<S: Sites>(
+        &self,
+        out: &mut Field<T, Spinor, S>,
+        inp: &Field<T, Spinor, S>,
+        full_site: impl Fn(usize) -> usize + Sync,
+        inverse: bool,
+    ) {
+        assert_eq!(out.as_slice().len(), inp.as_slice().len());
+        let copies = inp.copies();
+        for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
+            let site = full_site(x);
+            let o = o.as_chunks_mut::<SPINOR_REALS>().0;
+            for (o, s) in o
+                .iter_mut()
+                .zip(inp.site(0, x).as_chunks::<SPINOR_REALS>().0)
+            {
+                let phi = load_spinor::<T>(s);
+                let result = if inverse {
+                    self.diag.apply_inv(site, &phi)
+                } else {
+                    self.diag.apply(site, &phi)
+                };
+                store_spinor::<T>(&result, o);
+            }
+        });
+    }
+
     /// One fused sweep: `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`.
     /// The full operator and the even-odd hopping blocks are both this, on different
     /// geometries.
@@ -267,7 +344,7 @@ impl<T: Storage, G: GammaRepre> Wilson<T, G> {
                 }
 
                 let diag = match diagonal {
-                    Diagonal::Unit => at(x),
+                    Diagonal::Present => self.diag.apply(x_full, &at(x)),
                     Diagonal::Absent => SiteSpinor::zero(),
                 };
                 let mut result = diag.sub_scaled(kappa, &hops);
@@ -331,7 +408,7 @@ fn store_spinor<T: Storage>(p: &SiteSpinor<T::Compute>, s: &mut [T]) {
     }
 }
 
-impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Wilson<T, G> {
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for WilsonOp<T, G, D> {
     type Work = WilsonWork;
 
     fn work(&self) -> WilsonWork {
@@ -346,6 +423,7 @@ impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Wilson<T, G> {
         for (dst, src) in own.as_mut_slice().iter_mut().zip(u.as_slice()) {
             *dst = T::store(Real::from_f64(*src));
         }
+        self.diag.set_gauge(&self.lat, u)?;
         self.u = Some(own);
         Ok(())
     }
@@ -363,11 +441,11 @@ impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Wilson<T, G> {
             Variant::Gamma5D => (false, true),
             Variant::Dagger => (true, true),
         };
-        self.sweep(&self.full, out, inp, Diagonal::Unit, pre, post);
+        self.sweep(&self.full, out, inp, Diagonal::Present, pre, post);
     }
 }
 
-impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Wilson<T, G> {
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for WilsonOp<T, G, D> {
     fn hop_forward(
         &self,
         _work: &mut WilsonWork,
@@ -395,9 +473,11 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Wilson<T, G> {
         inp: &Field<T, Spinor>,
     ) {
         self.check(&self.full, out, inp);
+        let copies = inp.copies();
         for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
             let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
-            let sum = load_spinor::<T>(o).add(&load_spinor::<T>(s));
+            let term = self.diag.apply(i / copies, &load_spinor::<T>(s));
+            let sum = load_spinor::<T>(o).add(&term);
             store_spinor::<T>(&sum, o);
         });
     }
@@ -420,9 +500,12 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Wilson<T, G> {
     }
 }
 
-/// With M = [[1, M_eo], [M_oe, 1]] and M_eo = -κ (hops from odd to even sites).
-/// M† = γ5 M γ5 and γ5 is site-diagonal, so the blocks of M† are γ5 (block of M) γ5.
-impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Wilson<T, G> {
+/// With M = [[T_ee, M_eo], [M_oe, T_oo]], T the site-diagonal block and
+/// M_eo = -κ (hops from odd to even sites). M† = γ5 M γ5 and γ5 is site-diagonal, so the
+/// blocks of M† are γ5 (block of M) γ5; T is Hermitian and commutes with γ5.
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
+    for WilsonOp<T, G, D>
+{
     type Work = WilsonWork;
 
     fn even_odd_work(&self) -> WilsonWork {
@@ -456,7 +539,17 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Wilson<T, G>
         _dagger: Dagger,
     ) {
         assert_eq!(inp.parity(), parity);
-        out.copy_from(inp);
+        assert_eq!(out.parity(), parity);
+        if D::IS_UNIT {
+            out.copy_from(inp);
+        } else {
+            let eo = self
+                .even_odd
+                .as_ref()
+                .expect("Wilson: even-odd needs even extents");
+            let geo = &eo.to[parity.index()];
+            self.site_block(out, inp, |h| geo.out_site(h), false);
+        }
     }
 
     fn diag_inv(
@@ -468,6 +561,16 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Wilson<T, G>
         _dagger: Dagger,
     ) {
         assert_eq!(inp.parity(), parity);
-        out.copy_from(inp);
+        assert_eq!(out.parity(), parity);
+        if D::IS_UNIT {
+            out.copy_from(inp);
+        } else {
+            let eo = self
+                .even_odd
+                .as_ref()
+                .expect("Wilson: even-odd needs even extents");
+            let geo = &eo.to[parity.index()];
+            self.site_block(out, inp, |h| geo.out_site(h), true);
+        }
     }
 }

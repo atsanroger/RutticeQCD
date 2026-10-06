@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "core", "io", "gauge", "fermion", "solver", "measure", "validation"]
+members = ["kernel", "numerics", "core", "io", "gauge", "fermion", "solver", "measure", "validation"]
 
 [workspace.package]
 version = "0.0.1"
@@ -10,6 +10,7 @@ publish = false
 [workspace.dependencies]
 ruttice-kernel = { path = "kernel" }
 ruttice-core = { path = "core" }
+ruttice-numerics = { path = "numerics" }
 ruttice-io = { path = "io" }
 ruttice-gauge = { path = "gauge" }
 ruttice-fermion = { path = "fermion" }

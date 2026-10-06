@@ -66,7 +66,9 @@ name = "ruttice-fermion"
 version = "0.0.1"
 dependencies = [
  "ruttice-core",
+ "ruttice-gauge",
  "ruttice-kernel",
+ "ruttice-numerics",
 ]
 
 [[package]]
@@ -95,6 +97,10 @@ dependencies = [
  "ruttice-core",
  "ruttice-kernel",
 ]
+
+[[package]]
+name = "ruttice-numerics"
+version = "0.0.1"
 
 [[package]]
 name = "ruttice-solver"

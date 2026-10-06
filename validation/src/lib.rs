@@ -128,7 +128,10 @@ pub fn gauge_transform_spinor(
 }
 
 /// Largest absolute difference between two fields of the same shape.
-pub fn max_abs_diff<K: ruttice_core::Kind>(a: &Field<f64, K>, b: &Field<f64, K>) -> f64 {
+pub fn max_abs_diff<K: ruttice_core::Kind, S: ruttice_core::Sites>(
+    a: &Field<f64, K, S>,
+    b: &Field<f64, K, S>,
+) -> f64 {
     assert_eq!(a.as_slice().len(), b.as_slice().len());
     a.as_slice()
         .iter()
