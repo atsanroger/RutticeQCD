@@ -11,8 +11,8 @@ publish.workspace = true
 ruttice-core.workspace = true
 ruttice-fermion.workspace = true
 ruttice-solver.workspace = true
-ruttice-validation = { path = "../validation" }
-ruttice-cli = { path = "../cli" }
+ruttice-validation = { path = "../../validation" }
+ruttice-cli = { path = "../../cli" }
 mpi = "0.8"
 
 [dev-dependencies]
