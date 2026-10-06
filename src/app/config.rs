@@ -4,6 +4,8 @@
 
 use super::CliError;
 use crate::gauge::CoulombParams;
+use crate::solver::preconditioner::multigrid::MultigridParams;
+use crate::solver::Stop;
 use crate::{Boundary, ND};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -183,6 +185,86 @@ pub struct SolverConfig {
     pub max_iterations: usize,
     #[serde(default = "default_restarts")]
     pub max_restarts: usize,
+    /// Precondition with two-level multigrid; needs `type = fgmres` and `even_odd = false`.
+    pub multigrid: Option<MultigridConfig>,
+}
+
+/// The multigrid preconditioner. Everything except `block` defaults to the parameters of
+/// the Bridge++ test `test_alt_Multigrid.yaml`.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MultigridConfig {
+    /// Block size [bx, by, bz, bt]: the aggregates of the coarse lattice and the blocks of
+    /// the smoother. Must divide the lattice.
+    pub block: [usize; ND],
+    #[serde(default = "mg_test_vectors")]
+    pub test_vectors: usize,
+    #[serde(default = "mg_setup_iterations")]
+    pub setup_iterations: usize,
+    /// The coarse solve (BiCGStab) stops at this |r|^2 / |b|^2 ...
+    #[serde(default = "mg_coarse_tolerance")]
+    pub coarse_tolerance_squared: f64,
+    /// ... or after this many iterations.
+    #[serde(default = "mg_coarse_iterations")]
+    pub coarse_max_iterations: usize,
+    #[serde(default = "mg_smoother_cycles")]
+    pub smoother_cycles: usize,
+    /// Minimal-residual steps per block in each smoother cycle.
+    #[serde(default = "mg_smoother_block_steps")]
+    pub smoother_block_steps: usize,
+    /// Precision the preconditioner works in; the outer solve is always double.
+    #[serde(default)]
+    pub precision: Precision,
+    /// Seed of the random initial test vectors.
+    #[serde(default = "mg_seed")]
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Precision {
+    #[default]
+    Single,
+    Double,
+}
+
+impl MultigridConfig {
+    pub fn params(&self) -> MultigridParams {
+        MultigridParams {
+            block: self.block,
+            num_test_vectors: self.test_vectors,
+            setup_iterations: self.setup_iterations,
+            coarse_stop: Stop::simple(self.coarse_tolerance_squared, self.coarse_max_iterations),
+            smoother_cycles: self.smoother_cycles,
+            smoother_block_steps: self.smoother_block_steps,
+            seed: self.seed,
+        }
+    }
+}
+
+fn bridge_mg() -> MultigridParams {
+    MultigridParams::bridge([1; ND])
+}
+fn mg_test_vectors() -> usize {
+    bridge_mg().num_test_vectors
+}
+fn mg_setup_iterations() -> usize {
+    bridge_mg().setup_iterations
+}
+fn mg_coarse_tolerance() -> f64 {
+    bridge_mg().coarse_stop.tolerance_sqr
+}
+fn mg_coarse_iterations() -> usize {
+    bridge_mg().coarse_stop.max_iterations
+}
+fn mg_smoother_cycles() -> usize {
+    bridge_mg().smoother_cycles
+}
+fn mg_smoother_block_steps() -> usize {
+    bridge_mg().smoother_block_steps
+}
+fn mg_seed() -> u64 {
+    bridge_mg().seed
 }
 
 fn yes() -> bool {
@@ -200,6 +282,9 @@ pub enum SolverKind {
     CgNormal,
     /// BiCGStab on the operator itself.
     Bicgstab,
+    /// Flexible GMRES on the operator itself; `max_iterations` is the size of the Krylov
+    /// space built before a restart. The solver to use with `multigrid`.
+    Fgmres,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
