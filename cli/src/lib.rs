@@ -8,7 +8,9 @@ pub use config::{
     QuarkConfig, SolverConfig, SolverKind, SourceConfig,
 };
 
-use ruttice_core::{Boundary, Field, Lattice, LinearFn, Spinor, Stencil, Vector, C64, ND};
+use ruttice_core::{
+    Boundary, Comm, Field, Lattice, LinearFn, SingleComm, Spinor, Stencil, Vector, C64, ND,
+};
 use ruttice_fermion::{
     solve_even_odd, Bound, Clover, CloverParams, DiagTerm, FermionOp, GaugeError, Variant, Wilson,
     WilsonOp, WilsonParams,
@@ -23,6 +25,7 @@ use ruttice_solver::{solve_cgne, BiCgStab, Cg, SolveError, SolveInfo, Solver, St
 use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 type V = Field<f64, Spinor>;
@@ -37,6 +40,8 @@ pub enum CliError {
     Parse(String),
     /// The parameter file is well formed but asks for something impossible.
     Invalid(String),
+    /// The lattice cannot be split over the processes the way that was asked for.
+    Grid(String),
     Gauge(IoError),
     Operator {
         quark: usize,
@@ -54,6 +59,7 @@ impl fmt::Display for CliError {
             CliError::Io { path, source } => write!(f, "{}: {source}", path.display()),
             CliError::Parse(m) => write!(f, "parameter file: {m}"),
             CliError::Invalid(m) => write!(f, "parameter file: {m}"),
+            CliError::Grid(m) => write!(f, "process grid: {m}"),
             CliError::Gauge(e) => write!(f, "gauge configuration: {e}"),
             CliError::Operator { quark, source } => write!(f, "quark {quark}: {source}"),
             CliError::Solve { quark, source } => write!(f, "quark {quark}: solver: {source}"),
@@ -86,6 +92,8 @@ pub struct Correlator {
 
 #[derive(Debug, Clone)]
 pub struct Report {
+    /// Processes per direction.
+    pub grid: [usize; ND],
     pub plaquette: f64,
     pub solves: Vec<SolveReport>,
     pub correlators: Vec<Correlator>,
@@ -95,19 +103,81 @@ fn invalid<T>(message: String) -> Result<T, CliError> {
     Err(CliError::Invalid(message))
 }
 
-/// Checks that do not need the gauge configuration.
-fn validate(config: &Config) -> Result<Vec<String>, CliError> {
-    if config.lattice.contains(&0) {
+/// Split the lattice over `processes` processes: each prime factor goes to the direction
+/// whose local extent is largest among those it divides (the later direction on a tie).
+fn choose_grid(lattice: [usize; ND], processes: usize) -> Option<[usize; ND]> {
+    let (mut grid, mut local, mut left) = ([1; ND], lattice, processes);
+    let mut factors = Vec::new();
+    let mut p = 2;
+    while left > 1 {
+        if left.is_multiple_of(p) {
+            factors.push(p);
+            left /= p;
+        } else {
+            p += 1;
+        }
+    }
+    for p in factors.into_iter().rev() {
+        let mu = (0..ND)
+            .filter(|mu| local[*mu].is_multiple_of(p))
+            .max_by_key(|mu| local[*mu])?;
+        grid[mu] *= p;
+        local[mu] /= p;
+    }
+    Some(grid)
+}
+
+/// The process grid to use: the one asked for if it fits, otherwise one chosen here.
+fn process_grid(
+    config: &Config,
+    processes: usize,
+    asked: Option<[usize; ND]>,
+) -> Result<[usize; ND], CliError> {
+    let lattice = config.lattice;
+    if lattice.contains(&0) {
         return invalid(format!(
-            "lattice extents must be positive, got {:?}",
-            config.lattice
+            "lattice extents must be positive, got {lattice:?}"
         ));
     }
-    if config.solver.even_odd && config.lattice.iter().any(|l| l % 2 != 0) {
-        return invalid(format!(
-            "even_odd needs even lattice extents, got {:?}; set solver.even_odd = false",
-            config.lattice
-        ));
+    match asked {
+        Some(grid) => {
+            let fits = (0..ND).all(|mu| grid[mu] > 0 && lattice[mu].is_multiple_of(grid[mu]));
+            if grid.iter().product::<usize>() != processes {
+                Err(CliError::Grid(format!(
+                    "{grid:?} needs {} processes, but there are {processes}",
+                    grid.iter().product::<usize>()
+                )))
+            } else if !fits {
+                Err(CliError::Grid(format!(
+                    "{grid:?} does not divide the lattice {lattice:?}"
+                )))
+            } else {
+                Ok(grid)
+            }
+        }
+        None => choose_grid(lattice, processes).ok_or_else(|| {
+            CliError::Grid(format!(
+                "the lattice {lattice:?} cannot be split evenly over {processes} processes"
+            ))
+        }),
+    }
+}
+
+/// Checks that do not need the gauge configuration.
+fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError> {
+    let local: [usize; ND] = core::array::from_fn(|mu| config.lattice[mu] / grid[mu]);
+    if config.solver.even_odd && local.iter().any(|l| l % 2 != 0) {
+        return if grid == [1; ND] {
+            invalid(format!(
+                "even_odd needs even lattice extents, got {:?}; set solver.even_odd = false",
+                config.lattice
+            ))
+        } else {
+            Err(CliError::Grid(format!(
+                "even_odd needs even extents on every process, but {grid:?} gives {local:?}; \
+                 choose another grid with --grid or set solver.even_odd = false"
+            )))
+        };
     }
     if config.quark.is_empty() {
         return invalid("at least one quark is needed".to_string());
@@ -197,10 +267,24 @@ fn worst_residual<D: DiagTerm<f64>>(op: &WilsonOp<f64, Dirac, D>, s: &V, b: &V) 
     rr.iter().zip(&bb).fold(0.0f64, |m, (r, b)| m.max(r / b))
 }
 
-/// Run what the parameter file describes. Relative paths in it are resolved against `base`.
+/// Run what the parameter file describes on one process. Relative paths in it are
+/// resolved against `base`.
 pub fn run(config: &Config, base: &Path) -> Result<Report, CliError> {
-    let channels = validate(config)?;
-    let lat = Lattice::single_node(config.lattice);
+    run_on(config, base, Arc::new(SingleComm), None)
+}
+
+/// Run what the parameter file describes on the processes of `comm`; every one of them
+/// must make this call and gets the same report. `grid` is the number of processes per
+/// direction; one is chosen if it is not given.
+pub fn run_on(
+    config: &Config,
+    base: &Path,
+    comm: Arc<dyn Comm>,
+    grid: Option<[usize; ND]>,
+) -> Result<Report, CliError> {
+    let grid = process_grid(config, comm.size(), grid)?;
+    let channels = validate(config, grid)?;
+    let lat = Lattice::new(config.lattice, grid, comm);
 
     let gauge_path = base.join(&config.gauge.file);
     let u = match config.gauge.format {
@@ -280,6 +364,7 @@ pub fn run(config: &Config, base: &Path) -> Result<Report, CliError> {
         }
     }
     Ok(Report {
+        grid,
         plaquette: plaq,
         solves,
         correlators,
@@ -290,6 +375,9 @@ pub fn run(config: &Config, base: &Path) -> Result<Report, CliError> {
 /// channel and time slice: `<i><j> <channel> <t> <re> <im>`.
 pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> std::io::Result<()> {
     writeln!(out, "# lattice    {:?}", config.lattice)?;
+    if report.grid != [1; ND] {
+        writeln!(out, "# processes  {:?}", report.grid)?;
+    }
     writeln!(out, "# plaquette  {:.15}", report.plaquette)?;
     for s in &report.solves {
         writeln!(
@@ -311,11 +399,26 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
     Ok(())
 }
 
-/// Load, run, print to `stdout`, and write the output file if the parameter file names one.
+/// Load, run on one process, print to `stdout`, and write the output file if the
+/// parameter file names one.
 pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
+    run_file_on(path, stdout, Arc::new(SingleComm), None)
+}
+
+/// `run_file` on the processes of `comm`. Only rank 0 prints and writes.
+pub fn run_file_on(
+    path: &Path,
+    stdout: &mut dyn Write,
+    comm: Arc<dyn Comm>,
+    grid: Option<[usize; ND]>,
+) -> Result<(), CliError> {
     let config = Config::load(path)?;
     let base = path.parent().unwrap_or(Path::new("."));
-    let report = run(&config, base)?;
+    let root = comm.rank() == 0;
+    let report = run_on(&config, base, comm, grid)?;
+    if !root {
+        return Ok(());
+    }
     let io_error = |p: &Path| {
         let p = p.to_path_buf();
         move |e| CliError::Io { path: p, source: e }
@@ -331,4 +434,61 @@ pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
         write_report(&report, &config, &mut f).map_err(io_error(&target))?;
     }
     Ok(())
+}
+
+const USAGE: &str = "\
+usage: ruttice [--grid PX,PY,PZ,PT] PARAMETER_FILE
+
+Reads a parameter file (.toml, .yaml or .yml), solves for the quark propagators it
+describes and prints meson two-point functions. See cli/examples/ for parameter files.
+
+--grid gives the number of processes in each direction when the program runs on several
+processes; without it the lattice is split automatically.";
+
+fn parse_grid(text: &str) -> Option<[usize; ND]> {
+    let parts: Vec<usize> = text
+        .split(',')
+        .map(|p| p.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    parts.try_into().ok()
+}
+
+/// The whole program: interpret the command line (without the program name), run, and
+/// return the exit code. Every process of `comm` makes this call; only rank 0 prints.
+pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write) -> u8 {
+    let root = comm.rank() == 0;
+    let (grid, file) = match args {
+        [flag] if flag == "-h" || flag == "--help" => {
+            if root {
+                // Nothing useful can be done if printing the help fails.
+                let _ = writeln!(stdout, "{USAGE}");
+            }
+            return 0;
+        }
+        [file] if !file.starts_with('-') => (None, file),
+        [flag, grid, file] if flag == "--grid" => match parse_grid(grid) {
+            Some(grid) => (Some(grid), file),
+            None => {
+                if root {
+                    eprintln!("ruttice: --grid takes four numbers, as in --grid 2,2,2,4");
+                }
+                return 1;
+            }
+        },
+        _ => {
+            if root {
+                eprintln!("{USAGE}");
+            }
+            return 1;
+        }
+    };
+    match run_file_on(Path::new(file), stdout, comm, grid) {
+        Ok(()) => 0,
+        Err(e) => {
+            if root {
+                eprintln!("ruttice: {e}");
+            }
+            1
+        }
+    }
 }

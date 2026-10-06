@@ -36,26 +36,37 @@ impl std::error::Error for IoError {}
 /// File order, outermost first: global site (x fastest), direction, then the 18 reals of
 /// the link, row-major with the real part first (the ILDG ordering). This interoperates
 /// with the file format only; the reader is written from that description.
+///
+/// With several processes, every process reads the whole file and keeps its own part.
 pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
-    if lat.local != lat.global {
-        return Err(IoError::Unsupported(
-            "reading a configuration on more than one process",
-        ));
-    }
     let text = std::fs::read_to_string(path).map_err(IoError::Read)?;
     let mut u = Field::<f64, Gauge>::gauge(lat);
     let num_sites = lat.num_sites();
-    let expected = ND * num_sites * 18;
+    let expected = ND * lat.num_global_sites() * 18;
     let out = u.as_mut_slice();
+    // The local site of the global site being read, if this process holds it.
+    let mut local = None;
     let mut found = 0;
     for token in text.split_ascii_whitespace() {
         if found < expected {
             // The field keeps the direction outermost; the file keeps the site outermost.
             let (site, mu, c) = (found / (ND * 18), (found / 18) % ND, found % 18);
-            out[c + 18 * (site + num_sites * mu)] = token.parse().map_err(|_| IoError::Parse {
+            if mu == 0 && c == 0 {
+                let mut rest = site;
+                let x = lat.global.map(|l| {
+                    let x = rest % l;
+                    rest /= l;
+                    x
+                });
+                local = lat.local_site(x);
+            }
+            let value: f64 = token.parse().map_err(|_| IoError::Parse {
                 index: found,
                 token: token.to_string(),
             })?;
+            if let Some(site) = local {
+                out[c + 18 * (site + num_sites * mu)] = value;
+            }
         }
         found += 1;
     }

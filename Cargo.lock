@@ -411,8 +411,10 @@ name = "ruttice-mpi"
 version = "0.0.1"
 dependencies = [
  "mpi",
+ "ruttice-cli",
  "ruttice-core",
  "ruttice-fermion",
+ "ruttice-io",
  "ruttice-solver",
  "ruttice-validation",
 ]

@@ -80,6 +80,23 @@ impl Lattice {
         core::array::from_fn(|mu| self.origin[mu] + x[mu])
     }
 
+    /// The local site with the given global coordinates, if this process holds it.
+    pub fn local_site(&self, global: [usize; ND]) -> Option<usize> {
+        let mut x = [0; ND];
+        for mu in 0..ND {
+            x[mu] = global[mu].checked_sub(self.origin[mu])?;
+            if x[mu] >= self.local[mu] {
+                return None;
+            }
+        }
+        Some(self.site(x))
+    }
+
+    /// Number of sites of the global lattice.
+    pub fn num_global_sites(&self) -> usize {
+        self.global.iter().product()
+    }
+
     /// Position of this process in the process grid.
     pub fn grid_position(&self) -> [usize; ND] {
         core::array::from_fn(|mu| self.origin[mu] / self.local[mu])
@@ -146,6 +163,12 @@ mod tests {
         for x in boxes.into_iter().flatten() {
             assert!(!std::mem::replace(&mut seen[whole.site(x)], true));
         }
+        LocalComm::run(global, [2, 3, 1, 2], |lat| {
+            let held = (0..whole.num_sites())
+                .filter_map(|s| lat.local_site(whole.coords(s)))
+                .collect::<Vec<_>>();
+            assert_eq!(held, (0..lat.num_sites()).collect::<Vec<_>>());
+        });
         assert!(seen.into_iter().all(|s| s));
     }
 

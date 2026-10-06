@@ -1,7 +1,7 @@
 //! Gauge-field observables and operations.
 
 use ruttice_core::{
-    for_sites, reduce_sites, Direction, Field, Gauge, Source, Stencil, Storage, ND,
+    for_sites, reduce_sites, shift, Boundary, Direction, Field, Gauge, Stencil, Storage, ND,
 };
 use ruttice_kernel::{ColorMatrix, Real, NC};
 
@@ -46,34 +46,46 @@ pub fn set_unit<T: Storage>(u: &mut Field<T, Gauge>) {
 ///
 /// Planes with a `Zero` neighbour (Dirichlet boundary) are skipped and still counted in
 /// the normalisation.
+///
+/// The sum runs over all processes.
 pub fn plaquette<T: Storage>(u: &Field<T, Gauge>, st: &Stencil) -> f64 {
+    let lat = u.lattice();
     let num_sites = u.num_sites();
     assert_eq!(st.num_sites(), num_sites);
-    let forward = |site: usize, mu: usize| match st.source(site, mu, Direction::Forward) {
-        Source::Local { site, .. } => Some(site),
-        Source::Zero => None,
-        Source::Buffer { .. } => {
-            panic!("the plaquette across processes is not implemented yet")
-        }
-    };
+    // up[mu] holds U(x + mu); zero where the stencil has no neighbour.
+    let up: [Field<T, Gauge>; ND] = core::array::from_fn(|mu| shifted(u, st, mu, FWD));
     let sum = reduce_sites(num_sites, |x| {
         let mut s = 0.0;
         for mu in 0..ND {
             for nu in mu + 1..ND {
-                let (Some(x_mu), Some(x_nu)) = (forward(x, mu), forward(x, nu)) else {
-                    continue;
-                };
                 let loop_ = link(u, mu, x)
-                    .mul(&link(u, nu, x_mu))
-                    .mul(&link(u, mu, x_nu).adj())
+                    .mul(&link(&up[mu], nu, x))
+                    .mul(&link(&up[nu], mu, x).adj())
                     .mul(&link(u, nu, x).adj());
                 s += loop_.trace().re.to_f64();
             }
         }
         s
     });
+    let mut sum = [sum];
+    lat.comm.sum(&mut sum);
     let planes = ND * (ND - 1) / 2;
-    sum / (num_sites * planes * NC) as f64
+    sum[0] / (lat.num_global_sites() * planes * NC) as f64
+}
+
+const FWD: Direction = Direction::Forward;
+const BWD: Direction = Direction::Backward;
+
+/// A copy of a gauge field moved by one site: the result at x is the field at x ± mu.
+fn shifted<T: Storage>(
+    u: &Field<T, Gauge>,
+    st: &Stencil,
+    mu: usize,
+    dir: Direction,
+) -> Field<T, Gauge> {
+    let mut out = Field::<T, Gauge>::gauge(u.lattice());
+    shift(&mut out, u, st, mu, dir);
+    out
 }
 
 /// The six planes, in the order the field strength is stored.
@@ -87,43 +99,50 @@ pub const PLANES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3),
 /// its trace is not removed.
 ///
 /// The stencil must give a neighbour in every direction (no Dirichlet boundaries).
+///
+/// Neighbours are reached through shifted copies of the gauge field, so this works on any
+/// number of processes; it is meant to be simple, not fast.
 pub fn field_strength(u: &Field<f64, Gauge>, st: &Stencil) -> Field<f64, Gauge> {
-    let step = |site: usize, mu: usize, dir: Direction| match st.source(site, mu, dir) {
-        Source::Local { site, .. } => site,
-        _ => panic!("field_strength needs a neighbour in every direction"),
-    };
-    let (fwd, bwd) = (Direction::Forward, Direction::Backward);
+    assert!(
+        (0..ND).all(|mu| st.boundary(mu) != Boundary::Dirichlet),
+        "field_strength needs a neighbour in every direction"
+    );
+    // The gauge field at x + d and at x - d.
+    let plus: [_; ND] = core::array::from_fn(|d| shifted(u, st, d, FWD));
+    let minus: [_; ND] = core::array::from_fn(|d| shifted(u, st, d, BWD));
     let mut f = Field::<f64, Gauge>::with_shape(u.lattice(), 18, 1, 1, PLANES.len());
     for (plane, (mu, nu)) in PLANES.into_iter().enumerate() {
+        let (p_mu, p_nu, m_mu, m_nu) = (&plus[mu], &plus[nu], &minus[mu], &minus[nu]);
+        // The gauge field at x - mu + nu, x + mu - nu and x - mu - nu.
+        let m_mu_p_nu = &shifted(m_mu, st, nu, FWD);
+        let p_mu_m_nu = &shifted(p_mu, st, nu, BWD);
+        let m_mu_m_nu = &shifted(m_mu, st, nu, BWD);
         for_sites(f.slab_mut(plane), 18, |x, out| {
-            let (xp_mu, xp_nu) = (step(x, mu, fwd), step(x, nu, fwd));
-            let (xm_mu, xm_nu) = (step(x, mu, bwd), step(x, nu, bwd));
-            let (xm_mu_p_nu, xp_mu_m_nu) = (step(xm_mu, nu, fwd), step(xp_mu, nu, bwd));
-            let xm_mu_m_nu = step(xm_mu, nu, bwd);
-            let l = |d: usize, site: usize| link(u, d, site);
+            // The link in direction d of a shifted copy, at this site.
+            let at = |field: &Field<f64, Gauge>, d: usize| link(field, d, x);
 
             // x -> x+mu -> x+mu+nu -> x+nu -> x
-            let q1 = l(mu, x)
-                .mul(&l(nu, xp_mu))
-                .mul(&l(mu, xp_nu).adj())
-                .mul(&l(nu, x).adj());
+            let q1 = at(u, mu)
+                .mul(&at(p_mu, nu))
+                .mul(&at(p_nu, mu).adj())
+                .mul(&at(u, nu).adj());
             // x -> x+nu -> x-mu+nu -> x-mu -> x
-            let q2 = l(nu, x)
-                .mul(&l(mu, xm_mu_p_nu).adj())
-                .mul(&l(nu, xm_mu).adj())
-                .mul(&l(mu, xm_mu));
+            let q2 = at(u, nu)
+                .mul(&at(m_mu_p_nu, mu).adj())
+                .mul(&at(m_mu, nu).adj())
+                .mul(&at(m_mu, mu));
             // x -> x-mu -> x-mu-nu -> x-nu -> x
-            let q3 = l(mu, xm_mu)
+            let q3 = at(m_mu, mu)
                 .adj()
-                .mul(&l(nu, xm_mu_m_nu).adj())
-                .mul(&l(mu, xm_mu_m_nu))
-                .mul(&l(nu, xm_nu));
+                .mul(&at(m_mu_m_nu, nu).adj())
+                .mul(&at(m_mu_m_nu, mu))
+                .mul(&at(m_nu, nu));
             // x -> x-nu -> x+mu-nu -> x+mu -> x
-            let q4 = l(nu, xm_nu)
+            let q4 = at(m_nu, nu)
                 .adj()
-                .mul(&l(mu, xm_nu))
-                .mul(&l(nu, xp_mu_m_nu))
-                .mul(&l(mu, x).adj());
+                .mul(&at(m_nu, mu))
+                .mul(&at(p_mu_m_nu, nu))
+                .mul(&at(u, mu).adj());
 
             let q = q1.add(&q2).add(&q3).add(&q4);
             q.sub(&q.adj()).scale(0.125).write_reals(out);

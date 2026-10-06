@@ -10,18 +10,21 @@ use std::sync::Arc;
 /// Number of source components of a point-to-all propagator.
 pub const NUM_SOURCES: usize = NC * NS;
 
-/// Twelve unit sources at one site: vector `k` has a real 1 in component `k`.
+/// Twelve unit sources at one site: vector `k` has a real 1 in component `k`. `position`
+/// is in global coordinates; the process that holds the site sets it.
 pub fn point_source<T: Storage>(lat: &Arc<Lattice>, position: [usize; ND]) -> Field<T, Spinor> {
     for mu in 0..ND {
         assert!(
-            position[mu] < lat.local[mu],
+            position[mu] < lat.global[mu],
             "source position outside the lattice"
         );
     }
     let mut b = Field::<T, Spinor>::spinor(lat, NUM_SOURCES);
-    let site = b.site_mut(0, lat.site(position));
-    for k in 0..NUM_SOURCES {
-        site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(1.0));
+    if let Some(site) = lat.local_site(position) {
+        let site = b.site_mut(0, site);
+        for k in 0..NUM_SOURCES {
+            site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(1.0));
+        }
     }
     b
 }
@@ -41,15 +44,12 @@ pub fn exponential_source<T: Storage>(
 ) -> Field<T, Spinor> {
     for mu in 0..ND {
         assert!(
-            position[mu] < lat.local[mu],
+            position[mu] < lat.global[mu],
             "source position outside the lattice"
         );
     }
-    assert_eq!(
-        lat.local, lat.global,
-        "sources on more than one process are not implemented"
-    );
-    let l = [lat.local[0], lat.local[1], lat.local[2]];
+    // The profile is computed on the whole time slice by every process.
+    let l = [lat.global[0], lat.global[1], lat.global[2]];
     let mut profile = vec![0.0f64; l[0] * l[1] * l[2]];
     let range = |n: usize| -(n as i64) + 1..n as i64;
     let wrap = |x0: usize, d: i64, n: usize| (x0 as i64 + d).rem_euclid(n as i64) as usize;
@@ -67,15 +67,15 @@ pub fn exponential_source<T: Storage>(
     let norm = profile.iter().map(|w| w * w).sum::<f64>().sqrt();
 
     let mut b = Field::<T, Spinor>::spinor(lat, NUM_SOURCES);
-    for z in 0..l[2] {
-        for y in 0..l[1] {
-            for x in 0..l[0] {
-                let w = profile[x + l[0] * (y + l[1] * z)] / norm;
-                let site = b.site_mut(0, lat.site([x, y, z, position[3]]));
-                for k in 0..NUM_SOURCES {
-                    site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(w));
-                }
-            }
+    for site in 0..lat.num_sites() {
+        let [x, y, z, t] = lat.global_coords(site);
+        if t != position[3] {
+            continue;
+        }
+        let w = profile[x + l[0] * (y + l[1] * z)] / norm;
+        let site = b.site_mut(0, site);
+        for k in 0..NUM_SOURCES {
+            site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(w));
         }
     }
     b
@@ -129,14 +129,9 @@ fn check_propagator<T: Storage>(prop: &Field<T, Spinor>) {
         NUM_SOURCES,
         "a propagator has {NUM_SOURCES} vectors"
     );
-    let lat = prop.lattice();
-    assert_eq!(
-        lat.local, lat.global,
-        "correlators on more than one process are not implemented"
-    );
 }
 
-/// Zero-momentum meson two-point function, one value per time slice:
+/// Zero-momentum meson two-point function, one value per time slice of the global lattice:
 ///
 /// `C(t) = Σ_x Tr[ (γ5 Γ_sink) S1(x, t) (Γ_source γ5) S2(x, t)^† ]`
 ///
@@ -156,11 +151,11 @@ pub fn meson_correlator<T: Storage>(
     check_propagator(prop2);
     assert_eq!(prop1.num_sites(), prop2.num_sites());
     let lat = prop1.lattice();
-    let nt = lat.local[3];
+    let nt = lat.global[3];
     let (a_mat, b_mat) = (gamma5.mul(sink), source.mul(gamma5));
 
-    let sums = reduce_sites_dyn(prop1.num_sites(), 2 * nt, |site, acc| {
-        let t = lat.coords(site)[3];
+    let mut sums = reduce_sites_dyn(prop1.num_sites(), 2 * nt, |site, acc| {
+        let t = lat.global_coords(site)[3];
         let (s1, s2) = (prop1.site(0, site), prop2.site(0, site));
         let mut c = Cplx::ZERO;
         // (A S)_{(a,i),k} = A.val[a] S_{(A.col[a], i), k}
@@ -180,6 +175,7 @@ pub fn meson_correlator<T: Storage>(
         acc[2 * t] += c.re;
         acc[2 * t + 1] += c.im;
     });
+    lat.comm.sum(&mut sums);
     sums.as_chunks::<2>()
         .0
         .iter()
@@ -192,11 +188,13 @@ pub fn meson_correlator<T: Storage>(
 pub fn pion_correlator<T: Storage>(prop: &Field<T, Spinor>) -> Vec<f64> {
     check_propagator(prop);
     let lat = prop.lattice();
-    reduce_sites_dyn(prop.num_sites(), lat.local[3], |site, acc| {
-        let t = lat.coords(site)[3];
+    let mut sums = reduce_sites_dyn(prop.num_sites(), lat.global[3], |site, acc| {
+        let t = lat.global_coords(site)[3];
         for x in prop.site(0, site) {
             let x = x.load().to_f64();
             acc[t] += x * x;
         }
-    })
+    });
+    lat.comm.sum(&mut sums);
+    sums
 }

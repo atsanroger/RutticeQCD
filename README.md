@@ -3,8 +3,9 @@
 Lattice QCD in Rust.
 
 RutticeQCD computes quark propagators and meson two-point functions on a given gauge
-configuration, with Wilson and clover fermions. It is at an early stage: it runs on one
-process, has not been tuned for speed, and cannot generate gauge configurations yet. What
+configuration, with Wilson and clover fermions. It is at an early stage: it has not been
+tuned for speed and cannot generate gauge configurations yet. It runs on one process or,
+with MPI, on several (see [Running on several processes](#running-on-several-processes)). What
 it does compute has been checked number by number against
 [Bridge++](https://bridge.kek.jp/Lattice-code/) (see [Correctness](#correctness)).
 
@@ -49,6 +50,25 @@ The output for the first example, on a 4×4×4×8 lattice, looks like this:
 Lines starting with `#` describe the run. Every other line is one value of a correlator:
 the two quarks it was built from (`11` is quark 1 with itself, `12` is quark 1 with quark
 2), the channel, the time slice, and the real and imaginary parts.
+
+### Running on several processes
+
+The MPI version is a second program, `ruttice-mpi`, built from the `ruttice-mpi` package.
+Building it needs an MPI installation (Open MPI or MPICH) and libclang:
+
+```bash
+cargo build --release -p ruttice-mpi
+mpirun -np 4 target/release/ruttice-mpi --grid 1,1,2,2 my_run/wilson_pion.toml
+```
+
+It reads the same parameter files and prints the same table. `--grid` gives the number of
+processes in x, y, z and t; their product must be the number of processes, and each must
+divide the lattice extent in its direction. Without `--grid` the lattice is split
+automatically. With `even_odd = true`, the part of the lattice on each process must have
+even extents.
+
+Every process reads the whole configuration file and keeps its part, so this is meant
+for files that fit in memory. The results agree with a single process up to rounding.
 
 ### The gauge configuration file
 
