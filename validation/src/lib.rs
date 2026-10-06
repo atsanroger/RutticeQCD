@@ -3,9 +3,9 @@
 //! The random numbers here only build test inputs. They are not the generators of the
 //! physics code and make no attempt to match any other program.
 
-use ruttice_core::{Direction, Field, Gauge, Lattice, Source, Stencil, ND};
+use ruttice_core::{Direction, Field, Gauge, Lattice, Source, Spinor, Stencil, ND};
 use ruttice_gauge::{link, set_link};
-use ruttice_kernel::{ColorMatrix, Cplx};
+use ruttice_kernel::{ColorMatrix, Cplx, Spinor as SiteSpinor, SPINOR_REALS};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -99,4 +99,39 @@ pub fn gauge_transform(
         }
     }
     out
+}
+
+/// `num_vectors` spinor fields with every real uniform in (-1, 1).
+pub fn random_spinor(lat: &Arc<Lattice>, num_vectors: usize, seed: u64) -> Field<f64, Spinor> {
+    let mut rng = TestRng::new(seed);
+    let mut psi = Field::<f64, Spinor>::spinor(lat, num_vectors);
+    for x in psi.as_mut_slice() {
+        *x = rng.uniform();
+    }
+    psi
+}
+
+/// ψ(x) -> G(x) ψ(x).
+pub fn gauge_transform_spinor(
+    psi: &Field<f64, Spinor>,
+    g: &[ColorMatrix<f64>],
+) -> Field<f64, Spinor> {
+    let mut out = Field::<f64, Spinor>::spinor(psi.lattice(), psi.num_vectors());
+    for (site, g) in g.iter().enumerate() {
+        let src = psi.site(0, site).as_chunks::<SPINOR_REALS>().0;
+        let dst = out.site_mut(0, site).as_chunks_mut::<SPINOR_REALS>().0;
+        for (o, s) in dst.iter_mut().zip(src) {
+            SiteSpinor::from_reals(s).color_mul(g).write_reals(o);
+        }
+    }
+    out
+}
+
+/// Largest absolute difference between two fields of the same shape.
+pub fn max_abs_diff<K: ruttice_core::Kind>(a: &Field<f64, K>, b: &Field<f64, K>) -> f64 {
+    assert_eq!(a.as_slice().len(), b.as_slice().len());
+    a.as_slice()
+        .iter()
+        .zip(b.as_slice())
+        .fold(0.0, |m, (x, y)| m.max((x - y).abs()))
 }

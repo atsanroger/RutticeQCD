@@ -31,3 +31,37 @@ row-major), lexicographic site numbering with x fastest, the nearest-neighbour s
 
 What it does not validate: anything with a boundary phase, any fermion code, layouts other
 than `Aos`, more than one process.
+
+## 2. Wilson operator applied to a constant spinor
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 2-norm of D b, where every real of b is 1 and D is applied once |
+| Reference | Bridge++ test `Mult_Wilson`, `expected_result` in `tests/test_Mult_Wilson.yaml` |
+| Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
+| Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
+| Parameters | κ = 0.12, Dirac representation, antiperiodic in all four directions |
+| RutticeQCD | stage 1; `ruttice-validation` test `bridge_mult_wilson`; fused kernel, variant `D` |
+| Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
+| Settings | `f64`, `Aos`, single process |
+
+| | Value |
+|---|---|
+| Bridge++ | 1.23160709257508e+02 |
+| RutticeQCD | 1.23160709257508e+02 |
+| Tolerance | 1e-13 relative (the Bridge++ test itself uses 1e-14) |
+| Result | pass |
+
+What this validates: the gamma matrices and the spinor component order, the sign and
+orientation of both hopping terms, the link and its adjoint, the antiperiodic phase on
+hops across the boundary, and the normalisation D = 1 - κ (hops).
+
+What it does not validate: D† and γ5 D against a reference (they are checked against D by
+adjointness and by γ5 hermiticity only), other boundary types, other gamma representations,
+`f32`, layouts other than `Aos`, more than one process.
+
+Independent checks that passed alongside (no reference needed): free-field plane wave
+against the analytic result, gauge covariance, <χ, Dψ> = <D†χ, ψ>, the fused sweep against
+the sum of the eight hopping terms, and several spinors stored together against each one
+applied separately.

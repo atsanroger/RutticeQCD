@@ -189,6 +189,13 @@ impl<T: Storage> Field<T, Gauge> {
     }
 }
 
+impl<T: Storage> Field<T, Spinor> {
+    /// `num_vectors` four-dimensional spinor fields stored together, all zero.
+    pub fn spinor(lat: &Arc<Lattice>, num_vectors: usize) -> Self {
+        Self::with_shape(lat, 24, 1, num_vectors, 1)
+    }
+}
+
 impl<T: Storage, K: Kind, S: Sites, L: Layout> Field<T, K, S, L, Cpu> {
     pub fn as_slice(&self) -> &[T] {
         &self.buf

@@ -7,3 +7,6 @@ publish.workspace = true
 [dependencies]
 ruttice-kernel.workspace = true
 rayon.workspace = true
+
+[lints]
+workspace = true

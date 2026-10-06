@@ -6,6 +6,13 @@
 //! Written from the mathematics; not derived from any other code base.
 #![no_std]
 
+mod spin;
+
+pub use spin::{
+    project, sink_spinor, transport, ColorVector, Dirac, Gamma, GammaRepre, HalfSpinor, LinkUse,
+    Sign, Spinor, Unit, NS, SPINOR_REALS,
+};
+
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// Number of colours. Fixed at compile time (DESIGN.md §10).
@@ -226,6 +233,30 @@ impl<T: Real> ColorMatrix<T> {
         m
     }
 
+    /// `self * v`.
+    #[inline(always)]
+    pub fn mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
+        core::array::from_fn(|a| {
+            let mut s = Cplx::ZERO;
+            for b in 0..NC {
+                s += self.0[a][b] * v[b];
+            }
+            s
+        })
+    }
+
+    /// `self^† * v`, without forming the adjoint.
+    #[inline(always)]
+    pub fn adj_mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
+        core::array::from_fn(|a| {
+            let mut s = Cplx::ZERO;
+            for b in 0..NC {
+                s += self.0[b][a].conj() * v[b];
+            }
+            s
+        })
+    }
+
     #[inline(always)]
     pub fn trace(&self) -> Cplx<T> {
         let mut s = Cplx::ZERO;
@@ -265,6 +296,25 @@ mod tests {
             for j in 0..NC {
                 assert!((lhs.0[i][j] - rhs.0[i][j]).norm_sqr() < 1e-24);
             }
+        }
+    }
+
+    #[test]
+    fn matrix_times_vector_matches_matrix_product() {
+        let a = sample();
+        let v = [
+            Cplx::new(0.3, -1.1),
+            Cplx::new(2.0, 0.5),
+            Cplx::new(-0.7, 0.9),
+        ];
+        let mut col = ColorMatrix::zero();
+        for (b, z) in v.iter().enumerate() {
+            col.0[b][0] = *z;
+        }
+        let (p, q) = (a.mul(&col), a.adj().mul(&col));
+        for b in 0..NC {
+            assert_eq!(a.mul_vec(&v)[b], p.0[b][0]);
+            assert_eq!(a.adj_mul_vec(&v)[b], q.0[b][0]);
         }
     }
 

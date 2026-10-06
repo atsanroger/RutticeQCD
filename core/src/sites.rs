@@ -25,15 +25,37 @@ pub fn reduce_sites<F>(num_sites: usize, f: F) -> f64
 where
     F: Fn(usize) -> f64 + Sync,
 {
-    let partial: Vec<f64> = (0..num_sites.div_ceil(REDUCE_CHUNK))
+    let [s] = reduce_sites_n(num_sites, |site| [f(site)]);
+    s
+}
+
+/// `reduce_sites` for several sums at once, in one sweep.
+pub fn reduce_sites_n<const N: usize, F>(num_sites: usize, f: F) -> [f64; N]
+where
+    F: Fn(usize) -> [f64; N] + Sync,
+{
+    let partial: Vec<[f64; N]> = (0..num_sites.div_ceil(REDUCE_CHUNK))
         .into_par_iter()
         .map(|chunk| {
             let lo = chunk * REDUCE_CHUNK;
             let hi = (lo + REDUCE_CHUNK).min(num_sites);
-            (lo..hi).map(&f).sum::<f64>()
+            let mut sum = [0.0; N];
+            for site in lo..hi {
+                let v = f(site);
+                for (s, x) in sum.iter_mut().zip(v) {
+                    *s += x;
+                }
+            }
+            sum
         })
         .collect();
-    partial.iter().sum()
+    let mut total = [0.0; N];
+    for p in &partial {
+        for (t, x) in total.iter_mut().zip(p) {
+            *t += x;
+        }
+    }
+    total
 }
 
 /// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to

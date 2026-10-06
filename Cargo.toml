@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "core", "io", "gauge", "validation"]
+members = ["kernel", "core", "io", "gauge", "fermion", "validation"]
 
 [workspace.package]
 version = "0.0.1"
@@ -12,7 +12,13 @@ ruttice-kernel = { path = "kernel" }
 ruttice-core = { path = "core" }
 ruttice-io = { path = "io" }
 ruttice-gauge = { path = "gauge" }
+ruttice-fermion = { path = "fermion" }
 rayon = "1"
+
+[workspace.lints.clippy]
+# Lattice, spin and colour indices (mu, a, c) are written as explicit index loops so the
+# code reads like the formulas it implements.
+needless_range_loop = "allow"
 
 [profile.release]
 opt-level = 3

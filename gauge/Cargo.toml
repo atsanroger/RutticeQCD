@@ -7,3 +7,6 @@ publish.workspace = true
 [dependencies]
 ruttice-kernel.workspace = true
 ruttice-core.workspace = true
+
+[lints]
+workspace = true

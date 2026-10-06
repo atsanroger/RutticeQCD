@@ -62,6 +62,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruttice-fermion"
+version = "0.0.1"
+dependencies = [
+ "ruttice-core",
+ "ruttice-kernel",
+]
+
+[[package]]
 name = "ruttice-gauge"
 version = "0.0.1"
 dependencies = [
@@ -86,6 +94,7 @@ version = "0.0.1"
 dependencies = [
  "rayon",
  "ruttice-core",
+ "ruttice-fermion",
  "ruttice-gauge",
  "ruttice-io",
  "ruttice-kernel",

@@ -5,9 +5,15 @@ Lattice QCD in Rust. Early development. Code comments cite sections of the desig
 
 ## Status
 
-Stage 0 of DESIGN.md §9.1: fields, nearest-neighbour stencil, site-parallel entry
-points, reading a plain-text gauge configuration, and the plaquette. Single node, `f64`,
-array-of-structures layout only.
+Stages refer to DESIGN.md §9.1.
+
+- Stage 0, done: fields, nearest-neighbour stencil, site-parallel entry points, reading a
+  plain-text gauge configuration, the plaquette.
+- Stage 1, in progress: the Wilson operator (fused sweep for D, D†, γ5 D, and the hopping
+  terms one direction at a time). Not yet: even-odd, solvers, propagators.
+
+Single node, array-of-structures layout only. Comparisons with reference codes are
+recorded in [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Layout
 
@@ -17,6 +23,7 @@ array-of-structures layout only.
 | `core/` | `ruttice-core` | fields, lattice, stencil, site-parallel entry points |
 | `io/` | `ruttice-io` | gauge configuration I/O |
 | `gauge/` | `ruttice-gauge` | gauge observables |
+| `fermion/` | `ruttice-fermion` | fermion operators, one per file |
 | `validation/` | `ruttice-validation` | physics checks and comparisons with reference codes |
 
 ## Tests
