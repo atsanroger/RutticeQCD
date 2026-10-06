@@ -6,6 +6,15 @@ use crate::{LinearFn, Vector, C64};
 /// BiCGStab with an optional right preconditioner. Every vector of a multi-vector has its
 /// own coefficients; a converged vector stops being updated.
 ///
+/// With a preconditioner M the solution is updated with the preconditioned vectors
+/// themselves (x += α M p + ω M s), so M may change from one application to the next: this
+/// is the flexible BiCGStab of Bridge++ (`ASolver_FBiCGStab`), usable with a multigrid
+/// preconditioner.
+///
+/// ω is stabilised as in Bridge++ (`Omega_tolerance`): when |⟨t, s⟩| / (|t| |s|) is below
+/// `omega_tolerance`, ω is scaled up by `omega_tolerance` divided by that ratio. Bridge++
+/// uses 0.7, the default here; 0 turns it off.
+///
 /// The shadow residual is the residual at the start of a cycle. BiCGStab breaks down when
 /// the shadow residual becomes orthogonal to the vectors it is tested against; this is not
 /// exotic: a point source on a Wilson-type operator does it on the second step, because
@@ -14,6 +23,7 @@ use crate::{LinearFn, Vector, C64};
 /// residual. Only a breakdown on the very first step of a cycle is an error.
 pub struct BiCgStab<V> {
     pub stop: Stop,
+    pub omega_tolerance: f64,
     work: Option<Work<V>>,
 }
 
@@ -30,7 +40,11 @@ struct Work<V> {
 
 impl<V: Vector> BiCgStab<V> {
     pub fn new(stop: Stop) -> Self {
-        Self { stop, work: None }
+        Self {
+            stop,
+            omega_tolerance: 0.7,
+            work: None,
+        }
     }
 }
 
@@ -89,6 +103,7 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
         let mut coef = vec![C64::ZERO; nv];
         let mut dots = vec![C64::ZERO; nv];
         let mut tt = vec![0.0; nv];
+        let mut ss = vec![0.0; nv];
         let mut active = vec![true; nv];
         let mut residual = vec![0.0; nv];
         let mut iterations = 0;
@@ -145,9 +160,15 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 a.mult(t, s_hat);
                 t.dot(s, &mut dots);
                 t.norm_sqr(&mut tt);
+                s.norm_sqr(&mut ss);
                 for j in 0..nv {
                     omega[j] = if active[j] && tt[j] > 0.0 {
-                        C64::new(dots[j].re / tt[j], dots[j].im / tt[j])
+                        let mut w = C64::new(dots[j].re / tt[j], dots[j].im / tt[j]);
+                        let cosine = dots[j].norm_sqr().sqrt() / (tt[j] * ss[j]).sqrt();
+                        if cosine > 0.0 && cosine < self.omega_tolerance {
+                            w = w.scale(self.omega_tolerance / cosine);
+                        }
+                        w
                     } else {
                         C64::ZERO
                     };
