@@ -5,6 +5,13 @@ use ruttice_core::{LinearFn, Vector, C64};
 
 /// BiCGStab with an optional right preconditioner. Every vector of a multi-vector has its
 /// own coefficients; a converged vector stops being updated.
+///
+/// The shadow residual is the residual at the start of a cycle. BiCGStab breaks down when
+/// the shadow residual becomes orthogonal to the vectors it is tested against; this is not
+/// exotic: a point source on a Wilson-type operator does it on the second step, because
+/// hopping out and straight back is projected to zero. A breakdown after at least one
+/// step therefore starts a new cycle from the current solution, with a new shadow
+/// residual. Only a breakdown on the very first step of a cycle is an error.
 pub struct BiCgStab<V> {
     pub stop: Stop,
     work: Option<Work<V>>,
@@ -72,6 +79,7 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
         let mut b_norm = vec![0.0; nv];
         b.norm_sqr(&mut b_norm);
         let tol = self.stop.tolerance_sqr;
+        let limit = self.stop.max_iterations * (self.stop.max_restarts + 1);
 
         let mut rr = vec![0.0; nv];
         let mut rho = vec![C64::ZERO; nv];
@@ -84,15 +92,21 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
         let mut active = vec![true; nv];
         let mut residual = vec![0.0; nv];
         let mut iterations = 0;
+        // Cycles that ended at the iteration limit; cycles ended by a breakdown are counted
+        // in `cycles` only.
+        let mut exhausted = 0;
+        let mut cycles = 0;
 
-        for restart in 0..=self.stop.max_restarts {
+        loop {
             a.mult_xpay(r, x, &minus_one, b);
             r0.copy_from(r);
             p.copy_from(r);
             r.norm_sqr(&mut rr);
             r0.dot(r, &mut rho);
+            let mut in_cycle = 0;
+            let mut broke_down: Option<&'static str> = None;
 
-            for _ in 0..self.stop.max_iterations {
+            while in_cycle < self.stop.max_iterations && iterations < limit {
                 for j in 0..nv {
                     active[j] = rr[j] > tol * b_norm[j];
                 }
@@ -107,13 +121,11 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 }
                 a.mult(v, p_hat);
                 r0.dot(v, &mut dots);
+                if (0..nv).any(|j| active[j] && !usable(dots[j])) {
+                    broke_down = Some("<r0, A p> vanished");
+                    break;
+                }
                 for j in 0..nv {
-                    if active[j] && !usable(dots[j]) {
-                        return Err(SolveError::Breakdown {
-                            iterations,
-                            what: "<r0, A p> vanished",
-                        });
-                    }
                     alpha[j] = if active[j] {
                         rho[j] / dots[j]
                     } else {
@@ -145,27 +157,21 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 // x += alpha M p + omega M s,  r = s - omega t
                 x.axpy(&alpha, p_hat);
                 x.axpy(&omega, s_hat);
-                for j in 0..nv {
-                    if !active[j] {
-                        // s equals r for a frozen vector; keep r as it is.
-                        coef[j] = C64::ZERO;
-                    }
-                }
                 r.copy_from(s);
                 r.axpy_norm_sqr(&coef, t, &mut rr);
+                iterations += 1;
+                in_cycle += 1;
 
                 // p = r + beta (p - omega v),  beta = (rho_new / rho) (alpha / omega)
                 r0.dot(r, &mut rho_new);
+                let still_active = |j: usize| active[j] && rr[j] > tol * b_norm[j];
+                if (0..nv).any(|j| still_active(j) && !(usable(rho_new[j]) && usable(omega[j]))) {
+                    broke_down = Some("the new rho or omega vanished");
+                    break;
+                }
                 for j in 0..nv {
-                    let still_active = active[j] && rr[j] > tol * b_norm[j];
-                    if still_active && !(usable(rho[j]) && usable(omega[j])) {
-                        return Err(SolveError::Breakdown {
-                            iterations,
-                            what: "rho or omega vanished",
-                        });
-                    }
                     coef[j] = -omega[j];
-                    dots[j] = if still_active {
+                    dots[j] = if still_active(j) {
                         (rho_new[j] / rho[j]) * (alpha[j] / omega[j])
                     } else {
                         C64::ZERO
@@ -174,22 +180,30 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 p.axpy(&coef, v);
                 p.aypx(&dots, r);
                 rho.copy_from_slice(&rho_new);
-                iterations += 1;
             }
 
             true_residual(a, x, b, &b_norm, r, &minus_one, &mut residual);
             let info = SolveInfo {
                 iterations,
-                restarts: restart,
+                restarts: cycles,
                 residual_sqr: residual.clone(),
             };
             if residual.iter().all(|r| *r <= tol) {
                 return Ok(info);
             }
-            if restart == self.stop.max_restarts {
+            match broke_down {
+                // No step was taken in this cycle: a new cycle would start from the same
+                // state and break down the same way.
+                Some(what) if in_cycle == 0 => {
+                    return Err(SolveError::Breakdown { iterations, what });
+                }
+                Some(_) => {}
+                None => exhausted += 1,
+            }
+            if exhausted > self.stop.max_restarts || iterations >= limit {
                 return Err(SolveError::NotConverged(info));
             }
+            cycles += 1;
         }
-        unreachable!("the loop returns on its last pass");
     }
 }

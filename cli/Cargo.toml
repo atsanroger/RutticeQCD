@@ -1,0 +1,27 @@
+[package]
+name = "ruttice-cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ruttice"
+path = "src/main.rs"
+
+[dependencies]
+ruttice-kernel.workspace = true
+ruttice-core.workspace = true
+ruttice-io.workspace = true
+ruttice-gauge.workspace = true
+ruttice-fermion.workspace = true
+ruttice-solver.workspace = true
+ruttice-measure.workspace = true
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+serde_yaml_ng = "0.10"
+
+[dev-dependencies]
+ruttice-validation = { path = "../validation" }
+
+[lints]
+workspace = true

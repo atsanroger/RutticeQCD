@@ -137,6 +137,28 @@ fn bicgstab_solves_d() {
     }
 }
 
+/// A point source makes BiCGStab break down on its second step: hopping out and straight
+/// back is projected to zero, so the residual has no component along the source. The
+/// solver has to recover by starting a new cycle, not report failure.
+#[test]
+fn bicgstab_recovers_from_the_point_source_breakdown() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 8));
+    let mut b = V64::spinor(&lat, 1);
+    b.site_mut(0, lat.site([1, 2, 3, 4]))[10] = 1.0;
+    let mut a = Bound::new(&op, Variant::D);
+
+    let mut x = b.zeros_like();
+    let info = BiCgStab::new(Stop::simple(1e-24, 500))
+        .solve(&mut a, None, &mut x, &b)
+        .unwrap();
+    assert!(
+        info.restarts >= 1,
+        "expected a breakdown and a new cycle, got {info:?}"
+    );
+    assert!(residual_sqr(&mut a, &x, &b)[0] <= 1.1e-24);
+}
+
 /// Double-precision accuracy from single-precision solves: defect correction outside,
 /// a converted f32 CG inside.
 #[test]

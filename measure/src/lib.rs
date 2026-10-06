@@ -4,7 +4,7 @@
 //! `k = colour + 3 * spin` is the solution for a unit source in that spin and colour.
 
 use ruttice_core::{reduce_sites_dyn, Field, Lattice, Spinor, Storage, C64, ND};
-use ruttice_kernel::{Cplx, Gamma, Real, NC, NS, SPINOR_REALS};
+use ruttice_kernel::{Cplx, Gamma, GammaRepre, Real, Unit, NC, NS, SPINOR_REALS};
 use std::sync::Arc;
 
 /// Number of source components of a point-to-all propagator.
@@ -79,6 +79,41 @@ pub fn exponential_source<T: Storage>(
         }
     }
     b
+}
+
+/// Names of the meson channels `channel` knows, in the order Bridge++ prints them.
+pub const CHANNELS: [&str; 13] = [
+    "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "S", "G51", "G52", "G53", "S12", "S23", "S31",
+];
+
+/// The (sink, source) gamma matrices of a named meson channel, to pass to
+/// `meson_correlator`:
+///
+/// - `PS`: γ5 at both ends; `S`: the identity; `V1`..`V3`: γ_k
+/// - `A4_PS`: γ4 γ5 at the sink, γ5 at the source; `PS_A4`: γ5 at the sink, γ5 γ4 at the source
+/// - `G51`..`G53`: γ5 γ_k; `S12`, `S23`, `S31`: i γ2 γ1, i γ3 γ2, i γ1 γ3
+///
+/// The composite matrices are defined as in the Bridge++ gamma-matrix set.
+pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
+    let g = G::GAMMA;
+    let g5 = G::GAMMA5;
+    let both = |m: Gamma| Some((m, m));
+    match name {
+        "PS" => both(g5),
+        "V1" => both(g[0]),
+        "V2" => both(g[1]),
+        "V3" => both(g[2]),
+        "A4_PS" => Some((g[3].mul(&g5), g5)),
+        "PS_A4" => Some((g5, g5.mul(&g[3]))),
+        "S" => both(Gamma::IDENTITY),
+        "G51" => both(g5.mul(&g[0])),
+        "G52" => both(g5.mul(&g[1])),
+        "G53" => both(g5.mul(&g[2])),
+        "S12" => both(g[1].mul(&g[0]).scaled(Unit::I)),
+        "S23" => both(g[2].mul(&g[1]).scaled(Unit::I)),
+        "S31" => both(g[0].mul(&g[2]).scaled(Unit::I)),
+        _ => None,
+    }
 }
 
 /// Element of the propagator at one site: sink (spin `a`, colour `i`), source vector `k`.

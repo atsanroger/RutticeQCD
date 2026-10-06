@@ -12,8 +12,8 @@ use ruttice_fermion::{
     WilsonParams,
 };
 use ruttice_io::read_bridge_text;
-use ruttice_kernel::{Dirac, Gamma, GammaRepre, Unit};
-use ruttice_measure::{exponential_source, meson_correlator, point_source};
+use ruttice_kernel::{Dirac, GammaRepre};
+use ruttice_measure::{channel, exponential_source, meson_correlator, point_source};
 use ruttice_solver::{solve_cgne, Cg, Stop};
 use ruttice_validation::{bridge_test_file, BRIDGE_TESTS_ENV};
 use std::sync::Arc;
@@ -27,30 +27,6 @@ const TIME_ANTIPERIODIC: [Boundary; ND] = [
     Boundary::Periodic,
     Boundary::Antiperiodic,
 ];
-
-/// (sink, source) gamma matrices of a channel, named as in the reference tables. The
-/// definitions of the composite matrices are those of the Bridge++ gamma-matrix set.
-fn channel(name: &str) -> (Gamma, Gamma) {
-    let g = Dirac::GAMMA;
-    let g5 = Dirac::GAMMA5;
-    let both = |m: Gamma| (m, m);
-    match name {
-        "PS" => both(g5),
-        "V1" => both(g[0]),
-        "V2" => both(g[1]),
-        "V3" => both(g[2]),
-        "A4_PS" => (g[3].mul(&g5), g5),
-        "PS_A4" => (g5, g5.mul(&g[3])),
-        "S" => both(Gamma::IDENTITY),
-        "G51" => both(g5.mul(&g[0])),
-        "G52" => both(g5.mul(&g[1])),
-        "G53" => both(g5.mul(&g[2])),
-        "S12" => both(g[1].mul(&g[0]).scaled(Unit::I)),
-        "S23" => both(g[2].mul(&g[1]).scaled(Unit::I)),
-        "S31" => both(g[0].mul(&g[2]).scaled(Unit::I)),
-        other => panic!("unknown channel {other}"),
-    }
-}
 
 struct Row {
     flavours: String,
@@ -122,7 +98,7 @@ fn compare(table: &str, props: &[&V]) -> usize {
             .is_some_and(|(f, c, _)| *f == row.flavours && *c == row.channel)
         {
             let flavour = |i: usize| props[row.flavours.as_bytes()[i] as usize - b'1' as usize];
-            let (sink, source) = channel(&row.channel);
+            let (sink, source) = channel::<Dirac>(&row.channel).expect("known channel");
             let c = meson_correlator(flavour(0), flavour(1), &sink, &source, &Dirac::GAMMA5);
             cache = Some((row.flavours.clone(), row.channel.clone(), c));
         }

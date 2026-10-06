@@ -65,6 +65,29 @@ pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Ga
     Ok(u)
 }
 
+/// Write a gauge configuration in the same plain-text format, one real per line, with
+/// enough digits that reading it back gives the same bits.
+pub fn write_bridge_text(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+    use std::fmt::Write;
+    let lat = u.lattice();
+    if lat.local != lat.global {
+        return Err(IoError::Unsupported(
+            "writing a configuration on more than one process",
+        ));
+    }
+    let num_sites = lat.num_sites();
+    let mut text = String::with_capacity(ND * num_sites * 18 * 25);
+    for site in 0..num_sites {
+        for mu in 0..ND {
+            for x in u.site(mu, site) {
+                // Writing to a String cannot fail.
+                let _ = writeln!(text, "{x:.16e}");
+            }
+        }
+    }
+    std::fs::write(path, text).map_err(IoError::Read)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,6 +105,19 @@ mod tests {
         let u = read_bridge_text(&good, &lat).unwrap();
         // direction 1, site 3, component 4
         assert_eq!(u.site(1, 3)[4], (3 * 72 + 18 + 4) as f64 * 0.5);
+
+        // Writing and reading back is exact.
+        let copy = dir.join("ruttice_io_test_copy.txt");
+        let mut v = u;
+        for (i, x) in v.as_mut_slice().iter_mut().enumerate() {
+            *x = (i as f64 * 0.37).sin() / 3.0;
+        }
+        write_bridge_text(&copy, &v).unwrap();
+        assert_eq!(
+            read_bridge_text(&copy, &lat).unwrap().as_slice(),
+            v.as_slice()
+        );
+        let _ = std::fs::remove_file(copy);
 
         let short = dir.join("ruttice_io_test_short.txt");
         std::fs::write(&short, "1.0\n2.0\n").unwrap();
