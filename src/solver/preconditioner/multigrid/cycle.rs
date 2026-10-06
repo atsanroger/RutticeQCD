@@ -1,7 +1,7 @@
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::kernel::Real;
-use crate::solver::{BiCgStab, Solver, Stop};
+use crate::solver::{BiCgStab, Fgmres, Solve, Solver, Stop};
 use crate::{Coarse, ConvertFrom, Field, Lattice, LinearFn, Spinor, Storage, Vector, C64, ND};
 use std::sync::Arc;
 
@@ -15,14 +15,41 @@ pub struct MultigridParams {
     pub num_test_vectors: usize,
     /// Inverse iterations that improve the test vectors after the initial smoothing.
     pub setup_iterations: usize,
-    /// The coarse-grid solve (BiCGStab). Not reaching the tolerance is not an error.
+    /// The coarse-grid solver.
+    pub coarse_solver: CoarseSolverChoice,
+    /// When the coarse solve stops; for GMRES `max_iterations` is m. Not reaching the
+    /// tolerance is not an error.
     pub coarse_stop: Stop,
-    /// SAP cycles of the smoother.
-    pub smoother_cycles: usize,
-    /// Minimal-residual steps per block solve in the smoother.
-    pub smoother_block_steps: usize,
+    /// The smoother after (and, with `pre_smoothing`, before) the coarse correction.
+    pub smoother: SmootherChoice,
+    /// Smooth before the coarse correction too, from a zero start, instead of starting
+    /// from x = b.
+    pub pre_smoothing: bool,
+    /// Precondition the coarse operator by its diagonal blocks.
+    pub precondition_coarse_diagonal: bool,
     /// Seed of the random initial test vectors.
     pub seed: u64,
+}
+
+/// The smoother of the cycle (DESIGN.md §7.6.0).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SmootherChoice {
+    /// SAP: `cycles` cycles, `block_steps` minimal-residual steps per block.
+    Sap { cycles: usize, block_steps: usize },
+    /// GMRES(m) on the cycle's operator from a zero start: at most `iterations` steps, fewer
+    /// if |r|²/|b|² drops below `tolerance_sqr`.
+    Gmres {
+        iterations: usize,
+        tolerance_sqr: f64,
+    },
+}
+
+/// The coarse-grid solver (DESIGN.md §7.6.0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoarseSolverChoice {
+    BiCgStab,
+    /// GMRES(m), restarted as `coarse_stop` allows.
+    Gmres,
 }
 
 impl MultigridParams {
@@ -34,9 +61,14 @@ impl MultigridParams {
             block,
             num_test_vectors: 16,
             setup_iterations: 4,
+            coarse_solver: CoarseSolverChoice::BiCgStab,
             coarse_stop: Stop::simple(2e-3, 200),
-            smoother_cycles: 4,
-            smoother_block_steps: 6,
+            smoother: SmootherChoice::Sap {
+                cycles: 4,
+                block_steps: 6,
+            },
+            pre_smoothing: false,
+            precondition_coarse_diagonal: false,
             seed: 1,
         }
     }
@@ -124,35 +156,46 @@ where
     F::Work: 'a,
     T: Storage + 'a,
 {
-    /// The clover multigrid of Bridge++ (DESIGN.md §7.6.2): cycle on D, no pre-smoothing,
-    /// SAP after the coarse correction, BiCGStab on the coarse lattice, random initial
-    /// test vectors.
+    /// A cycle on D from the choices in `params`, with random initial test vectors.
+    /// `MultigridParams::bridge` gives the clover multigrid of Bridge++ (DESIGN.md §7.6.2):
+    /// no pre-smoothing, SAP after the coarse correction, BiCGStab on the coarse lattice.
     pub fn new(
         op: &'a F,
         lat: &Arc<Lattice>,
         params: &MultigridParams,
     ) -> Result<Self, MultigridError> {
         let agg = Aggregation::new(lat, params.block);
+        let smoother = || -> Box<dyn LinearFn<Fine<T>> + 'a> {
+            match params.smoother {
+                SmootherChoice::Sap {
+                    cycles,
+                    block_steps,
+                } => Box::new(Sap::new(op, &agg, cycles, block_steps)),
+                SmootherChoice::Gmres {
+                    iterations,
+                    tolerance_sqr,
+                } => Box::new(Solve::new(
+                    Fgmres::new(Stop::simple(tolerance_sqr, iterations)),
+                    Bound::new(op, Variant::D),
+                )),
+            }
+        };
+        let coarse_solver: Box<dyn Solver<Field<T, Coarse>> + 'a> = match params.coarse_solver {
+            CoarseSolverChoice::BiCgStab => Box::new(BiCgStab::new(params.coarse_stop)),
+            CoarseSolverChoice::Gmres => Box::new(Fgmres::new(params.coarse_stop)),
+        };
         let parts = CycleParts {
             operator: Box::new(Bound::new(op, Variant::D)),
-            pre_smoother: None,
-            post_smoother: Box::new(Sap::new(
-                op,
-                &agg,
-                params.smoother_cycles,
-                params.smoother_block_steps,
-            )),
-            coarse_solver: Box::new(BiCgStab::new(params.coarse_stop)),
+            pre_smoother: params.pre_smoothing.then(smoother),
+            post_smoother: smoother(),
+            coarse_solver,
+        };
+        let hooks = SetupHooks {
+            precondition_coarse_diagonal: params.precondition_coarse_diagonal,
+            ..SetupHooks::default()
         };
         let initial = random_vectors::<T>(lat, params.num_test_vectors, params.seed);
-        Self::with_parts(
-            op,
-            &agg,
-            initial,
-            params.setup_iterations,
-            parts,
-            SetupHooks::default(),
-        )
+        Self::with_parts(op, &agg, initial, params.setup_iterations, parts, hooks)
     }
 
     /// Multigrid from any members and setup hooks. `initial` holds the initial test

@@ -18,7 +18,9 @@ mod sap;
 pub use aggregation::Aggregation;
 pub use basis::Basis;
 pub use coarse::CoarseOp;
-pub use cycle::{CycleParts, Multigrid, MultigridParams, SetupHooks};
+pub use cycle::{
+    CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
+};
 pub use sap::Sap;
 
 use std::fmt;
