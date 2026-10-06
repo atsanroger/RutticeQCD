@@ -73,10 +73,11 @@ impl<V: Vector> Solver<V> for Fgmres<V> {
         let mut h = vec![vec![C64::ZERO; krylov + 1]; nv];
         let mut y = vec![vec![C64::ZERO; krylov]; nv];
         let mut estimate = vec![0.0; nv];
-        let mut dots = vec![C64::ZERO; nv];
         let mut coef = vec![C64::ZERO; nv];
         let mut norms = vec![0.0; nv];
         let mut scale = vec![0.0; nv];
+        let mut w_norm = vec![0.0; nv];
+        let mut basis_dots = vec![vec![C64::ZERO; nv]; krylov + 1];
         let mut residual = vec![0.0; nv];
         let mut iterations = 0;
 
@@ -117,22 +118,36 @@ impl<V: Vector> Solver<V> for Fgmres<V> {
                     }
                     None => a.mult(w, &v[k]),
                 }
-                // Orthogonalise against the basis (modified Gram-Schmidt).
-                for i in 0..=k {
-                    v[i].dot(w, &mut dots);
-                    for j in 0..nv {
-                        h[j][i] = dots[j];
-                        coef[j] = -dots[j];
+                // Orthogonalise against the basis: classical Gram-Schmidt, twice, with the
+                // second pass's corrections folded into H. One pass loses orthogonality on
+                // strongly non-normal operators (the domain-wall multigrid target), as in
+                // the GMRES(m) of the CUDA domain-wall multigrid this follows.
+                w.norm_sqr(&mut w_norm);
+                for pass in 0..2 {
+                    for (i, vi) in v.iter().enumerate().take(k + 1) {
+                        vi.dot(w, &mut basis_dots[i]);
                     }
-                    w.axpy(&coef, &v[i]);
+                    for (i, vi) in v.iter().enumerate().take(k + 1) {
+                        for j in 0..nv {
+                            let d = basis_dots[i][j];
+                            h[j][i] = if pass == 0 { d } else { h[j][i] + d };
+                            coef[j] = -d;
+                        }
+                        w.axpy(&coef, vi);
+                    }
                 }
                 w.norm_sqr(&mut norms);
                 for j in 0..nv {
                     let n = norms[j].sqrt();
                     h[j][k + 1] = C64::new(n, 0.0);
-                    // A vanishing norm means the Krylov space is exhausted for this vector:
-                    // its solution is already exact within the space.
-                    scale[j] = if n > 0.0 { 1.0 / n } else { 0.0 };
+                    // A norm that is round-off compared with |A v_k| means the Krylov space
+                    // is exhausted for this vector: its solution is already exact within the
+                    // space. Scaling the round-off up would only add noise.
+                    let exhausted = n <= 1e-12 * w_norm[j].sqrt() || n == 0.0;
+                    if exhausted {
+                        h[j][k + 1] = C64::ZERO;
+                    }
+                    scale[j] = if exhausted { 0.0 } else { 1.0 / n };
                     estimate[j] = lsq[j].push(&mut h[j][..k + 2]);
                 }
                 v[k + 1].copy_from(w);
