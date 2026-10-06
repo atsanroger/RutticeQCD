@@ -26,6 +26,61 @@ pub fn point_source<T: Storage>(lat: &Arc<Lattice>, position: [usize; ND]) -> Fi
     b
 }
 
+/// Twelve smeared sources on one time slice: vector `k` has the same real profile in
+/// component `k` at every site of the time slice of `position`.
+///
+/// The profile at displacement d from `position` is `exp(-slope * |d|^power)`, summed over
+/// all displacements with each component in (-L, L) so that the tail is folded back into
+/// the periodic box, and normalised to unit 2-norm. This is not gauge invariant: results
+/// depend on the gauge the configuration is in.
+pub fn exponential_source<T: Storage>(
+    lat: &Arc<Lattice>,
+    position: [usize; ND],
+    slope: f64,
+    power: f64,
+) -> Field<T, Spinor> {
+    for mu in 0..ND {
+        assert!(
+            position[mu] < lat.local[mu],
+            "source position outside the lattice"
+        );
+    }
+    assert_eq!(
+        lat.local, lat.global,
+        "sources on more than one process are not implemented"
+    );
+    let l = [lat.local[0], lat.local[1], lat.local[2]];
+    let mut profile = vec![0.0f64; l[0] * l[1] * l[2]];
+    let range = |n: usize| -(n as i64) + 1..n as i64;
+    let wrap = |x0: usize, d: i64, n: usize| (x0 as i64 + d).rem_euclid(n as i64) as usize;
+    for dz in range(l[2]) {
+        for dy in range(l[1]) {
+            for dx in range(l[0]) {
+                let r = ((dx * dx + dy * dy + dz * dz) as f64).sqrt();
+                let x = wrap(position[0], dx, l[0]);
+                let y = wrap(position[1], dy, l[1]);
+                let z = wrap(position[2], dz, l[2]);
+                profile[x + l[0] * (y + l[1] * z)] += (-slope * r.powf(power)).exp();
+            }
+        }
+    }
+    let norm = profile.iter().map(|w| w * w).sum::<f64>().sqrt();
+
+    let mut b = Field::<T, Spinor>::spinor(lat, NUM_SOURCES);
+    for z in 0..l[2] {
+        for y in 0..l[1] {
+            for x in 0..l[0] {
+                let w = profile[x + l[0] * (y + l[1] * z)] / norm;
+                let site = b.site_mut(0, lat.site([x, y, z, position[3]]));
+                for k in 0..NUM_SOURCES {
+                    site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(w));
+                }
+            }
+        }
+    }
+    b
+}
+
 /// Element of the propagator at one site: sink (spin `a`, colour `i`), source vector `k`.
 #[inline(always)]
 fn element<T: Storage>(site: &[T], a: usize, i: usize, k: usize) -> C64 {
@@ -48,25 +103,30 @@ fn check_propagator<T: Storage>(prop: &Field<T, Spinor>) {
 
 /// Zero-momentum meson two-point function, one value per time slice:
 ///
-/// `C(t) = Σ_x Tr[ (γ5 Γ_sink) S(x, t) (Γ_source γ5) S(x, t)^† ]`
+/// `C(t) = Σ_x Tr[ (γ5 Γ_sink) S1(x, t) (Γ_source γ5) S2(x, t)^† ]`
 ///
-/// with the trace over spin and colour. This uses γ5-hermiticity of the propagator to
-/// express the backward propagator through the forward one. No further sign or
-/// normalisation factors are applied.
+/// with the trace over spin and colour. `prop1` and `prop2` are the propagators of the two
+/// quarks from the same source; pass the same field twice for degenerate quarks. This uses
+/// γ5-hermiticity to express the backward propagator through the forward one. No further
+/// sign or normalisation factors are applied; the convention agrees with Bridge++ for all
+/// thirteen channels its spectrum test prints (docs/COMPARISON.md).
 pub fn meson_correlator<T: Storage>(
-    prop: &Field<T, Spinor>,
+    prop1: &Field<T, Spinor>,
+    prop2: &Field<T, Spinor>,
     sink: &Gamma,
     source: &Gamma,
     gamma5: &Gamma,
 ) -> Vec<C64> {
-    check_propagator(prop);
-    let lat = prop.lattice();
+    check_propagator(prop1);
+    check_propagator(prop2);
+    assert_eq!(prop1.num_sites(), prop2.num_sites());
+    let lat = prop1.lattice();
     let nt = lat.local[3];
     let (a_mat, b_mat) = (gamma5.mul(sink), source.mul(gamma5));
 
-    let sums = reduce_sites_dyn(prop.num_sites(), 2 * nt, |site, acc| {
+    let sums = reduce_sites_dyn(prop1.num_sites(), 2 * nt, |site, acc| {
         let t = lat.coords(site)[3];
-        let s = prop.site(0, site);
+        let (s1, s2) = (prop1.site(0, site), prop2.site(0, site));
         let mut c = Cplx::ZERO;
         // (A S)_{(a,i),k} = A.val[a] S_{(A.col[a], i), k}
         // (X B)_{r,(b,j)} = X_{r,(b',j)} B.val[b']  with  b = B.col[b']
@@ -75,8 +135,8 @@ pub fn meson_correlator<T: Storage>(
                 let coefficient = a_mat.val[a].mul(b_mat.val[bp]);
                 for i in 0..NC {
                     for j in 0..NC {
-                        let lhs = element(s, a_mat.col[a], i, j + NC * bp);
-                        let rhs = element(s, a, i, j + NC * b_mat.col[bp]);
+                        let lhs = element(s1, a_mat.col[a], i, j + NC * bp);
+                        let rhs = element(s2, a, i, j + NC * b_mat.col[bp]);
                         c += coefficient.times(lhs * rhs.conj());
                     }
                 }

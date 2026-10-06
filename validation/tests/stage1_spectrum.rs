@@ -72,7 +72,7 @@ fn gamma5_channel_is_the_norm_per_time_slice() {
     let lat = Lattice::single_node([4, 4, 2, 6]);
     let s = random_spinor(&lat, NUM_SOURCES, 90);
     let g5 = &Dirac::GAMMA5;
-    let general = meson_correlator(&s, g5, g5, g5);
+    let general = meson_correlator(&s, &s, g5, g5, g5);
     let pion = pion_correlator(&s);
     assert_eq!(pion.len(), 6);
     for (c, p) in general.iter().zip(&pion) {
@@ -135,7 +135,7 @@ fn bridge_spectrum_wilson_pion() {
 
     let pion = pion_correlator(&s);
     let g5 = &Dirac::GAMMA5;
-    let general = meson_correlator(&s, g5, g5, g5);
+    let general = meson_correlator(&s, &s, g5, g5, g5);
     eprintln!("worst |D S - b|^2 over the 12 columns: {residual:e}");
     for (t, c) in pion.iter().enumerate() {
         eprintln!("  t = {t}  C_PS(t) = {c:.12e}");

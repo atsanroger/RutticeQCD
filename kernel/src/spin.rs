@@ -169,6 +169,14 @@ impl Gamma {
         val: [Unit::One; NS],
     };
 
+    /// The matrix multiplied by a fourth root of unity.
+    pub fn scaled(&self, u: Unit) -> Gamma {
+        Gamma {
+            col: self.col,
+            val: core::array::from_fn(|r| self.val[r].mul(u)),
+        }
+    }
+
     /// The matrix product `self * o`.
     pub fn mul(&self, o: &Gamma) -> Gamma {
         // (a b psi)_r = a.val[r] * b.val[a.col[r]] * psi_{b.col[a.col[r]]}

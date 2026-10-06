@@ -15,8 +15,9 @@ Stages refer to DESIGN.md §9.1.
   once for all fermions; point sources and meson correlators.
 
 - Stage 2, in progress: clover-leaf field strength; the clover operator, which is the
-  Wilson sweep with a non-trivial site-diagonal block, including its even-odd form.
-  Not yet: FGMRES, multigrid.
+  Wilson sweep with a non-trivial site-diagonal block, including its even-odd form;
+  exponential sources; meson correlators from two different propagators.
+  Not yet: FGMRES, multigrid, gauge fixing.
 
 Single node, array-of-structures layout only. Comparisons with reference codes are
 recorded in [docs/COMPARISON.md](docs/COMPARISON.md).

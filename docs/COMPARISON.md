@@ -158,10 +158,8 @@ What this validates: the point source, the solve for several right-hand sides at
 the even-odd solve end to end (preparation, Schur solve, reconstruction), and the
 time-slice reduction.
 
-What it does not validate: the other time slices against Bridge++ (only t = 0 is in the
-yaml file), any channel other than the pseudoscalar. `meson_correlator` with other gamma
-matrices has only been checked to reduce to the pion case for γ5; its sign and
-normalisation conventions for other channels are unverified.
+The yaml file holds only this one number. The other time slices and the other twelve
+channels are compared in entry 8.
 
 ## 6. Clover operator applied to a constant spinor
 
@@ -221,4 +219,74 @@ needed to compare.
 
 What this validates: the inverse of the 12 x 12 diagonal block on both parities, and the
 generic Schur complement with a non-trivial diagonal.
+
+## Reference runs made for this project
+
+Entries 1 to 7 use numbers shipped with Bridge++. From here on the numbers come from
+running the Bridge++ test program ourselves (CPU build of the same source tree, git
+`5540a26` with local modifications, one process, one thread, 2026-10-06), sometimes with a
+parameter changed so that one feature is exercised at a time. The values are stored in
+`validation/tests/data/` with their provenance in the file headers; nothing from Bridge++
+itself is in this repository.
+
+## 8. All meson channels and time slices, Wilson, point source
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 13 channels (PS, V1-3, A4-PS, PS-A4, S, γ5γ1-3, σ12, σ23, σ31) on 8 time slices: 104 complex numbers |
+| Reference | output of the unmodified Bridge++ test `Spectrum.Wilson.Hadron2ptFunction` |
+| Parameters | κ = 0.12, antiperiodic in all directions, point source at the origin; Bridge++ fixes the gauge to Landau gauge first, RutticeQCD does not |
+| RutticeQCD | `ruttice-validation` test `wilson_meson_channels`; `meson_correlator` |
+| Precision of the reference | 13 significant digits |
+
+| | |
+|---|---|
+| Largest difference | 4.3e-12 |
+| Tolerance | 2.9e-11 absolute (2e-12 of the largest value) |
+| Result | pass, all 104 |
+
+What this validates: the sign and normalisation conventions of `meson_correlator` for
+every channel the Bridge++ spectrum test prints, including the composite gamma matrices.
+
+## 9. Clover, two flavours, exponential source
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | the same 13 channels and 8 time slices for the flavour pairs (1,1), (2,2) and (1,2): 312 complex numbers |
+| Reference | output of the Bridge++ test `Spectrum.Clover.Hadron2ptFunction` with `gauge_fixing_type` changed from `Coulomb` to `None` |
+| Parameters | c_SW = 1, periodic in space, antiperiodic in time; exponential source at the origin with power 2. Flavour 1: κ = 0.12, slope 0.25. Flavour 2: κ = 0.115, slope 0.5 |
+| RutticeQCD | `ruttice-validation` test `clover_two_flavours_exponential_source`; `exponential_source`, even-odd CGNE, `meson_correlator` with two propagators |
+| Precision of the reference | 13 significant digits |
+
+| | |
+|---|---|
+| Largest difference | 4.9e-12 |
+| Tolerance | 3.1e-11 absolute |
+| Result | pass, all 312 |
+
+What this validates: the exponential source, clover solves for two hopping parameters,
+and correlators built from two different propagators.
+
+What it does not validate: the unmodified test, whose `expected_result`
+(81.2796854325709) is for the Coulomb-gauge-fixed configuration. An exponential source is
+gauge dependent, so that number needs gauge fixing, which RutticeQCD does not have yet.
+
+## 10. Clover operator with another coefficient
+
+| | |
+|---|---|
+| Date | 2026-10-06 |
+| What | 2-norm of D b, every real of b equal to 1 |
+| Reference | the Bridge++ test `Mult.Clover` with `clover_coefficient` changed from 1.0 to 1.7 |
+| Parameters | κ = 0.12, c_SW = 1.7, periodic in space, antiperiodic in time |
+| RutticeQCD | `ruttice-validation` test `clover_mult_with_another_coefficient` |
+
+| | Value |
+|---|---|
+| Bridge++ | 1.24728260729018e+02 |
+| RutticeQCD | 1.24728260729018e+02 |
+| Tolerance | 1e-13 relative |
+| Result | pass |
 
