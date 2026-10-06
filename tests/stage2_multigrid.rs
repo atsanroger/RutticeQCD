@@ -273,6 +273,83 @@ fn coarse_adjoint() {
     assert!(max_abs_diff_coarse(&dag_a, &want) < 1e-13);
 }
 
+/// A site-local factor for `CoarseOp::build_with`: the site-diagonal part of an operator.
+struct SiteDiagonal<'a, F: HopTerms<V64>> {
+    op: &'a F,
+    work: F::Work,
+}
+
+impl<F: HopTerms<V64>> LinearFn<V64> for SiteDiagonal<'_, F> {
+    fn mult(&mut self, out: &mut V64, inp: &V64) {
+        out.set_zero();
+        self.op.mult_diag(&mut self.work, out, inp);
+    }
+}
+
+/// With a site-local right factor R the coarse operator is P† D R P.
+#[test]
+fn coarse_operator_with_a_right_factor() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 481);
+    let op = wilson::<f64>(&lat, &u);
+    let factor = clover::<f64>(&lat, &u);
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let basis = basis64(&agg, &random_spinor(&lat, 4, 482)).unwrap();
+    let mut work = op.work();
+    let mut right = SiteDiagonal {
+        op: &factor,
+        work: factor.work(),
+    };
+    let mut coarse = CoarseOp::build_with(&op, &mut work, &basis, Some(&mut right), false).unwrap();
+
+    let c = random_coarse(&basis, 2, 483);
+    let (mut p_c, mut r_p_c, mut d_r_p_c) = (
+        V64::spinor(&lat, 2),
+        V64::spinor(&lat, 2),
+        V64::spinor(&lat, 2),
+    );
+    basis.prolong(&mut p_c, &c);
+    right.mult(&mut r_p_c, &p_c);
+    op.mult(&mut work, &mut d_r_p_c, &r_p_c, Variant::D);
+    let mut want = basis.coarse_field(2);
+    basis.restrict(&mut want, &d_r_p_c);
+    let mut got = basis.coarse_field(2);
+    coarse.mult(&mut got, &c);
+    assert!(max_abs_diff_coarse(&got, &want) < 1e-12);
+}
+
+/// Preconditioned by its diagonal blocks the coarse operator is A^{-1} D_c, and its
+/// adjoint is still the adjoint.
+#[test]
+fn diagonally_preconditioned_coarse_operator() {
+    let lat = lattice();
+    let op = clover::<f64>(&lat, &random_gauge(&lat, 491));
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let basis = basis64(&agg, &random_spinor(&lat, 4, 492)).unwrap();
+    let mut work = op.work();
+    let mut plain = CoarseOp::build(&op, &mut work, &basis);
+    let mut prec = CoarseOp::build_with(&op, &mut work, &basis, None, true).unwrap();
+    assert!(prec.is_diagonal_preconditioned() && !plain.is_diagonal_preconditioned());
+
+    let c = random_coarse(&basis, 1, 493);
+    let mut d_c = basis.coarse_field(1);
+    let mut want = basis.coarse_field(1);
+    plain.mult(&mut d_c, &c);
+    prec.apply_diagonal_inverse(&mut want, &d_c);
+    let mut got = basis.coarse_field(1);
+    prec.mult(&mut got, &c);
+    assert!(max_abs_diff_coarse(&got, &want) < 1e-12);
+
+    let a = random_coarse(&basis, 1, 494);
+    let (mut m_c, mut m_dag_a) = (basis.coarse_field(1), basis.coarse_field(1));
+    prec.mult(&mut m_c, &c);
+    prec.mult_dag(&mut m_dag_a, &a);
+    let (mut lhs, mut rhs) = ([C64::ZERO], [C64::ZERO]);
+    a.dot(&m_c, &mut lhs);
+    m_dag_a.dot(&c, &mut rhs);
+    assert!((lhs[0] - rhs[0]).norm_sqr().sqrt() < 1e-11 * lhs[0].norm_sqr().sqrt());
+}
+
 /// The single-precision hierarchy is the double-precision one rounded.
 #[test]
 fn single_precision_agrees_with_double() {

@@ -28,6 +28,8 @@ pub enum MultigridError {
     /// The test vectors are linearly dependent within one aggregate, so they cannot be
     /// orthonormalised there. Fewer vectors or larger blocks are needed.
     DependentTestVectors { coarse_site: usize, vector: usize },
+    /// The diagonal block of the coarse operator cannot be inverted at this coarse site.
+    SingularCoarseDiagonal { coarse_site: usize },
 }
 
 impl fmt::Display for MultigridError {
@@ -36,6 +38,10 @@ impl fmt::Display for MultigridError {
             MultigridError::DependentTestVectors { coarse_site, vector } => write!(
                 f,
                 "test vector {vector} depends linearly on the earlier ones in the block at coarse site {coarse_site}"
+            ),
+            MultigridError::SingularCoarseDiagonal { coarse_site } => write!(
+                f,
+                "the diagonal block of the coarse operator is singular at coarse site {coarse_site}"
             ),
         }
     }

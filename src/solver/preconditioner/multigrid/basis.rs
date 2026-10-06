@@ -120,6 +120,12 @@ impl<T: Storage> Basis<T> {
         )
     }
 
+    /// A zero field on the fine lattice of the shape the test vectors have (`ls` included),
+    /// holding `num_vectors` vectors.
+    pub fn fine_field(&self, num_vectors: usize) -> Field<T, Spinor> {
+        Field::with_shape(self.agg.fine_lattice(), 24, self.reals / 24, num_vectors, 1)
+    }
+
     /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`.
     #[inline(always)]
     fn part(&self, x: usize, i: usize, c: usize) -> &[T] {
