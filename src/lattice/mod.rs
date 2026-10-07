@@ -1,3 +1,4 @@
+pub(crate) mod blocks;
 pub(crate) mod evenodd;
 pub(crate) mod parts;
 pub(crate) mod sites;

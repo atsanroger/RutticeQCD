@@ -1,8 +1,9 @@
 //! The only interface solvers need from a vector.
 
 use crate::field::storage::Storage;
-use crate::field::{Aos, Cpu, Field, Kind, Sites};
+use crate::field::{Aos, Aosoa, Cpu, Field, Full, Kind, Layout, Sites};
 use crate::kernel::{Cplx, Number, Real};
+use crate::lattice::blocks::Blocks;
 use crate::lattice::sites::{for_sites, reduce_sites_dyn};
 
 /// Coefficients and reduction results are always double precision, whatever the field stores.
@@ -43,13 +44,28 @@ pub trait ConvertFrom<Src> {
     fn convert_from(&mut self, src: &Src);
 }
 
-/// Reals of one vector on one site: the `ls` copies belonging to it are contiguous.
-fn vector_len<T: Storage, K: Kind, S: Sites>(f: &Field<T, K, S, Aos, Cpu>) -> usize {
-    f.internal_dof() * f.ls()
+/// Reals of one vector in one block of the layout (one site for `Aos`): the `ls` copies
+/// belonging to it are contiguous, and in a block layout every real comes once per lane.
+fn vector_len<T: Storage, K: Kind, S: Sites, L: Layout>(f: &Field<T, K, S, L, Cpu>) -> usize {
+    f.internal_dof() * f.ls() * L::LANES
 }
 
-/// Apply `f(vector index, dst, src)` to every vector on every site, in parallel. The
-/// outer slabs are treated as more sites.
+/// The complex numbers of one vector in one block, as (real parts, imaginary parts): the
+/// reals come in pairs of runs of `lanes` values, one run per lane. With one lane these are
+/// the usual (re, im) pairs.
+#[inline(always)]
+fn complex_runs<T>(v: &[T], lanes: usize) -> impl Iterator<Item = (&[T], &[T])> {
+    v.chunks_exact(2 * lanes).map(move |c| c.split_at(lanes))
+}
+
+#[inline(always)]
+fn complex_runs_mut<T>(v: &mut [T], lanes: usize) -> impl Iterator<Item = (&mut [T], &mut [T])> {
+    v.chunks_exact_mut(2 * lanes)
+        .map(move |c| c.split_at_mut(lanes))
+}
+
+/// Apply `f(vector index, dst, src)` to every vector in every block, in parallel. The
+/// outer slabs are treated as more blocks.
 fn update<T, F>(dst: &mut [T], src: &[T], site_len: usize, vector_len: usize, f: F)
 where
     T: Storage,
@@ -73,7 +89,7 @@ fn coefficient<R: Real>(a: C64) -> Cplx<R> {
     Cplx::new(R::from_f64(a.re), R::from_f64(a.im))
 }
 
-impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
+impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu> {
     fn num_vectors(&self) -> usize {
         Field::num_vectors(self)
     }
@@ -101,7 +117,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
 
     fn copy_from(&mut self, x: &Self) {
         assert!(self.same_shape(x));
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         update(
             self.as_mut_slice(),
             x.as_slice(),
@@ -112,13 +128,13 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     }
 
     fn set_zero(&mut self) {
-        let site_len = self.site_len();
+        let site_len = self.block_len();
         for_sites(self.as_mut_slice(), site_len, |_, d| d.fill(T::default()));
     }
 
     fn scale(&mut self, a: &[f64]) {
         assert_eq!(a.len(), Field::num_vectors(self));
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         for_sites(self.as_mut_slice(), site_len, |_, d| {
             for (j, d) in d.chunks_exact_mut(vector_len).enumerate() {
                 let k = T::Compute::from_f64(a[j]);
@@ -132,7 +148,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     fn axpy(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
         assert_eq!(a.len(), Field::num_vectors(self));
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         update(
             self.as_mut_slice(),
             x.as_slice(),
@@ -140,15 +156,13 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
             vector_len,
             |j, d, s| {
                 let k: Cplx<T::Compute> = coefficient(a[j]);
-                for (d, s) in d
-                    .as_chunks_mut::<2>()
-                    .0
-                    .iter_mut()
-                    .zip(s.as_chunks::<2>().0)
-                {
-                    let z = k * Cplx::new(s[0].load(), s[1].load());
-                    d[0] = T::store(d[0].load() + z.re);
-                    d[1] = T::store(d[1].load() + z.im);
+                let runs = complex_runs_mut(d, L::LANES).zip(complex_runs(s, L::LANES));
+                for ((d_re, d_im), (s_re, s_im)) in runs {
+                    for l in 0..L::LANES {
+                        let z = k * Cplx::new(s_re[l].load(), s_im[l].load());
+                        d_re[l] = T::store(d_re[l].load() + z.re);
+                        d_im[l] = T::store(d_im[l].load() + z.im);
+                    }
                 }
             },
         );
@@ -157,7 +171,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     fn aypx(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
         assert_eq!(a.len(), Field::num_vectors(self));
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         update(
             self.as_mut_slice(),
             x.as_slice(),
@@ -165,15 +179,13 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
             vector_len,
             |j, d, s| {
                 let k: Cplx<T::Compute> = coefficient(a[j]);
-                for (d, s) in d
-                    .as_chunks_mut::<2>()
-                    .0
-                    .iter_mut()
-                    .zip(s.as_chunks::<2>().0)
-                {
-                    let z = k * Cplx::new(d[0].load(), d[1].load());
-                    d[0] = T::store(z.re + s[0].load());
-                    d[1] = T::store(z.im + s[1].load());
+                let runs = complex_runs_mut(d, L::LANES).zip(complex_runs(s, L::LANES));
+                for ((d_re, d_im), (s_re, s_im)) in runs {
+                    for l in 0..L::LANES {
+                        let z = k * Cplx::new(d_re[l].load(), d_im[l].load());
+                        d_re[l] = T::store(z.re + s_re[l].load());
+                        d_im[l] = T::store(z.im + s_im[l].load());
+                    }
                 }
             },
         );
@@ -183,7 +195,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
         assert!(self.same_shape(x));
         let nv = Field::num_vectors(self);
         assert_eq!(out.len(), nv);
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         let (a, b) = (self.as_slice(), x.as_slice());
         let sums = reduce_sites_dyn(a.len() / site_len, 2 * nv, |i, acc| {
             let range = i * site_len..(i + 1) * site_len;
@@ -193,11 +205,14 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
                 .zip(b.chunks_exact(vector_len))
                 .enumerate()
             {
-                for (x, y) in a.as_chunks::<2>().0.iter().zip(b.as_chunks::<2>().0) {
-                    let (ar, ai) = (x[0].load().to_f64(), x[1].load().to_f64());
-                    let (br, bi) = (y[0].load().to_f64(), y[1].load().to_f64());
-                    acc[2 * j] += ar * br + ai * bi;
-                    acc[2 * j + 1] += ar * bi - ai * br;
+                let runs = complex_runs(a, L::LANES).zip(complex_runs(b, L::LANES));
+                for ((a_re, a_im), (b_re, b_im)) in runs {
+                    for l in 0..L::LANES {
+                        let (ar, ai) = (a_re[l].load().to_f64(), a_im[l].load().to_f64());
+                        let (br, bi) = (b_re[l].load().to_f64(), b_im[l].load().to_f64());
+                        acc[2 * j] += ar * br + ai * bi;
+                        acc[2 * j + 1] += ar * bi - ai * br;
+                    }
                 }
             }
         });
@@ -211,7 +226,7 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     fn norm_sqr(&self, out: &mut [f64]) {
         let nv = Field::num_vectors(self);
         assert_eq!(out.len(), nv);
-        let (site_len, vector_len) = (self.site_len(), vector_len(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
         let a = self.as_slice();
         let sums = reduce_sites_dyn(a.len() / site_len, nv, |i, acc| {
             let a = &a[i * site_len..(i + 1) * site_len];
@@ -227,23 +242,93 @@ impl<T: Storage, K: Kind, S: Sites> Vector for Field<T, K, S, Aos, Cpu> {
     }
 }
 
-impl<T, U, K, S> ConvertFrom<Field<U, K, S, Aos, Cpu>> for Field<T, K, S, Aos, Cpu>
+/// Change of precision within one layout.
+impl<T, U, K, S, L> ConvertFrom<Field<U, K, S, L, Cpu>> for Field<T, K, S, L, Cpu>
 where
     T: Storage,
     U: Storage,
     K: Kind,
     S: Sites,
+    L: Layout,
 {
-    fn convert_from(&mut self, src: &Field<U, K, S, Aos, Cpu>) {
+    fn convert_from(&mut self, src: &Field<U, K, S, L, Cpu>) {
         assert_eq!(self.as_slice().len(), src.as_slice().len());
         assert_eq!(self.site_len(), src.site_len());
-        let site_len = self.site_len();
+        let site_len = self.block_len();
         let s = src.as_slice();
         for_sites(self.as_mut_slice(), site_len, |i, d| {
             for (d, s) in d.iter_mut().zip(&s[i * site_len..(i + 1) * site_len]) {
                 *d = T::store(Number::from_f64(s.load().to_f64()));
             }
         });
+    }
+}
+
+/// The blocks of a field's lattice for `W` lanes.
+fn blocks_of<const W: usize>(lat: &crate::Lattice) -> Blocks {
+    Blocks::new(lat.local, W).unwrap_or_else(|| {
+        panic!(
+            "the lattice {:?} cannot be cut into {W} sub-lattices",
+            lat.local
+        )
+    })
+}
+
+/// From the usual layout to blocks of `W` sites, changing the precision if asked to.
+impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Full, Aos, Cpu>>
+    for Field<T, K, Full, Aosoa<W>, Cpu>
+where
+    T: Storage,
+    U: Storage,
+    K: Kind,
+{
+    fn convert_from(&mut self, src: &Field<U, K, Full, Aos, Cpu>) {
+        assert_eq!(self.as_slice().len(), src.as_slice().len());
+        assert_eq!(
+            (self.site_len(), self.outer()),
+            (src.site_len(), src.outer())
+        );
+        let blocks = blocks_of::<W>(self.lattice());
+        let (block_len, slab_len, site_len) = (self.block_len(), self.slab_len(), self.site_len());
+        for (o, slab) in self.as_mut_slice().chunks_exact_mut(slab_len).enumerate() {
+            for_sites(slab, block_len, |block, d| {
+                for lane in 0..W {
+                    let from = src.site(o, blocks.site(block, lane));
+                    for c in 0..site_len {
+                        d[lane + W * c] = T::store(Number::from_f64(from[c].load().to_f64()));
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// From blocks of `W` sites back to the usual layout.
+impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Full, Aosoa<W>, Cpu>>
+    for Field<T, K, Full, Aos, Cpu>
+where
+    T: Storage,
+    U: Storage,
+    K: Kind,
+{
+    fn convert_from(&mut self, src: &Field<U, K, Full, Aosoa<W>, Cpu>) {
+        assert_eq!(self.as_slice().len(), src.as_slice().len());
+        assert_eq!(
+            (self.site_len(), self.outer()),
+            (src.site_len(), src.outer())
+        );
+        let blocks = blocks_of::<W>(self.lattice());
+        let (block_len, slab_len, site_len) = (src.block_len(), self.slab_len(), self.site_len());
+        for (o, slab) in self.as_mut_slice().chunks_exact_mut(slab_len).enumerate() {
+            let from = src.slab(o);
+            for_sites(slab, site_len, |site, d| {
+                let (block, lane) = blocks.block_lane(site);
+                let from = &from[block * block_len..(block + 1) * block_len];
+                for c in 0..site_len {
+                    d[c] = T::store(Number::from_f64(from[lane + W * c].load().to_f64()));
+                }
+            });
+        }
     }
 }
 

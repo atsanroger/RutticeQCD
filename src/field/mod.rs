@@ -88,6 +88,28 @@ impl Layout for Aos {
     }
 }
 
+/// Blocks of `W` sites, for SIMD: within a block every real is stored `W` times in a row,
+/// once per lane. The buffer position of real `c` of copy `r` in lane `lane` of block
+/// `block` is `lane + W * (c + internal_dof * (r + copies * block))`. Which lattice sites
+/// are the lanes of which block is decided by `Blocks` (one site from each of `W`
+/// sub-lattices); `offset` takes `site = block * W + lane`.
+#[derive(Clone, Copy)]
+pub struct Aosoa<const W: usize>;
+impl<const W: usize> Layout for Aosoa<W> {
+    const LANES: usize = W;
+    #[inline(always)]
+    fn offset(
+        internal_dof: usize,
+        copies: usize,
+        _num_sites: usize,
+        c: usize,
+        r: usize,
+        site: usize,
+    ) -> usize {
+        site % W + W * (c + internal_dof * (r + copies * (site / W)))
+    }
+}
+
 /// Buffers of at least this many reals are first written in parallel (see `Cpu::alloc`).
 const FIRST_TOUCH_MIN: usize = 1 << 20;
 /// Reals per task of that first write: a few pages.
@@ -159,6 +181,11 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout, B: Backend> Field<T, K, S, L, B> 
         }
         assert!(internal_dof > 0 && ls > 0 && num_vectors > 0 && outer > 0);
         let num_sites = S::num_sites(lat);
+        assert!(
+            num_sites.is_multiple_of(L::LANES),
+            "{num_sites} sites cannot be grouped into blocks of {}",
+            L::LANES
+        );
         let len = internal_dof * ls * num_vectors * num_sites * outer;
         Self {
             lat: lat.clone(),
@@ -210,6 +237,14 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout, B: Backend> Field<T, K, S, L, B> 
     /// Reals in one outer slab.
     pub fn slab_len(&self) -> usize {
         self.site_len() * self.num_sites
+    }
+    /// Reals of one block of the layout (one site for `Aos`) within one outer slab.
+    pub fn block_len(&self) -> usize {
+        self.site_len() * L::LANES
+    }
+    /// Blocks of the layout in one outer slab (the number of sites for `Aos`).
+    pub fn num_blocks(&self) -> usize {
+        self.num_sites / L::LANES
     }
 }
 

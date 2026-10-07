@@ -40,7 +40,10 @@ pub use field::linear::{Adjoint, LinearFn, LinearOp, Normal, Product};
 pub use field::random::{random_spinor, TestRng};
 pub use field::storage::Storage;
 pub use field::vector::{ConvertFrom, Vector, C64};
-pub use field::{Aos, Backend, Coarse, Cpu, Field, Full, Gauge, Half, Kind, Layout, Sites, Spinor};
+pub use field::{
+    Aos, Aosoa, Backend, Coarse, Cpu, Field, Full, Gauge, Half, Kind, Layout, Sites, Spinor,
+};
+pub use lattice::blocks::{BlockStencil, Blocks, Edge};
 pub use lattice::evenodd::{extract_parity, insert_parity, EvenOddIndex, Parity};
 pub use lattice::parts::{assemble, local_part};
 pub use lattice::sites::{
