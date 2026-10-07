@@ -63,14 +63,20 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
     let scale = reference.correlators[0].values[5].re.abs();
     assert_eq!(reference.correlators.len(), 9);
 
-    // The last one leaves the choice of the grid to the program.
-    for (processes, grid) in [
-        (4, Some("[2, 1, 1, 2]")),
-        (8, Some("[1, 2, 2, 2]")),
-        (4, None),
+    // The last but one leaves the choice of the grid to the program; the last keeps the
+    // fields in blocks of two sites.
+    for (processes, grid, simd) in [
+        (4, Some("[2, 1, 1, 2]"), 1),
+        (8, Some("[1, 2, 2, 2]"), 1),
+        (4, None, 1),
+        (4, Some("[1, 1, 2, 2]"), 2),
     ] {
         let grid_line = grid.map_or(String::new(), |g| format!("process_grid = {g}\n"));
-        std::fs::write(&file, format!("{grid_line}{PARAMETERS}")).unwrap();
+        let parameters = PARAMETERS.replace(
+            "max_iterations = 2000\n",
+            &format!("max_iterations = 2000\nsimd = {simd}\n"),
+        );
+        std::fs::write(&file, format!("{grid_line}{parameters}")).unwrap();
         let mut command = common::mpirun(processes);
         command.arg(env!("CARGO_BIN_EXE_ruttice-mpi"));
         let output = match command.arg(&file).output() {

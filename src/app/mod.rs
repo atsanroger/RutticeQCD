@@ -286,21 +286,23 @@ fn validate_simd(config: &Config, grid: [usize; ND], local: [usize; ND]) -> Resu
             "solver.multigrid works on fields in the usual layout; set solver.simd = 1".to_string(),
         );
     }
-    if grid != [1; ND] {
-        return Err(CliError::Grid(
-            "solver.simd runs on one process only so far".to_string(),
-        ));
-    }
+    // On several processes it is the part of the lattice on one process that is cut.
+    let on_one = if grid == [1; ND] {
+        String::new()
+    } else {
+        format!(" on each process (process_grid {grid:?})")
+    };
     let Some(blocks) = Blocks::new(local, lanes) else {
         return invalid(format!(
-            "solver.simd = {lanes}: the lattice {local:?} cannot be halved often enough to give \
-             {lanes} equal parts"
+            "solver.simd = {lanes}: the lattice {local:?}{on_one} cannot be halved often enough \
+             to give {lanes} equal parts"
         ));
     };
     if config.solver.even_odd && blocks.even_odd_index().is_none() {
         return invalid(format!(
-            "solver.simd = {lanes} with even_odd: the lattice is cut into {lanes} parts of extents \
-             {:?}, which must all be even; use a smaller solver.simd or set solver.even_odd = false",
+            "solver.simd = {lanes} with even_odd: the lattice {local:?}{on_one} is cut into \
+             {lanes} parts of extents {:?}, which must all be even; use a smaller solver.simd \
+             or set solver.even_odd = false",
             blocks.reduced()
         ));
     }

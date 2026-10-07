@@ -2,7 +2,7 @@
 //!
 //! Applies D on a random gauge field and prints the time of one application and the speed
 //! in GFlops per core, in double and in single precision, with the links kept in full and
-//! as two rows, and, on one process, for fields in blocks of sites (the SIMD layout). The
+//! as two rows, and for fields in blocks of sites (the SIMD layout). The
 //! flops are the operator's nominal count (`FermionOp::flops_per_site`), the one Bridge++
 //! uses, so the figure can be set next to the "GFlops / core" that Bridge++ prints. The operator, the hopping parameter and the boundary condition are
 //! those of the Bridge++ test `Mult_Wilson`, so that the two programs can be timed on the
@@ -84,8 +84,8 @@ where
     }
 }
 
-/// `time_mult` for fields in blocks of `W` sites (the SIMD layout), on one process. `None`
-/// if the lattice cannot be cut into `W` sub-lattices.
+/// `time_mult` for fields in blocks of `W` sites (the SIMD layout). `None` if the lattice
+/// cannot be cut into `W` sub-lattices.
 fn time_simd<T: Storage, const W: usize>(lat: &Arc<Lattice>, mults: usize) -> Option<Timing>
 where
     T::Compute: LaneOf<W>,
@@ -95,22 +95,24 @@ where
         boundary: [Boundary::Antiperiodic; ND],
     };
     let mut op = WilsonSimd::<T, W>::new(lat, params)?;
-    op.set_gauge(&random_gauge(lat, 1))
+    let rank = u64::try_from(lat.comm.rank()).expect("ranks fit in 64 bits");
+    op.set_gauge(&random_gauge(lat, 1 + 2 * rank))
         .expect("the gauge field is on this lattice");
     let mut a = Field::<T, Spinor, Full, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
-    a.convert_from(&random_spinor(lat, 1, 2));
+    a.convert_from(&random_spinor(lat, 1, 2 + 2 * rank));
     let mut b = a.zeros_like();
+    let mut work = op.work();
     for _ in 0..2 {
-        op.mult(&mut (), &mut b, &a, Variant::D);
-        op.mult(&mut (), &mut a, &b, Variant::D);
+        op.mult(&mut work, &mut b, &a, Variant::D);
+        op.mult(&mut work, &mut a, &b, Variant::D);
     }
-    a.convert_from(&random_spinor(lat, 1, 2));
+    a.convert_from(&random_spinor(lat, 1, 2 + 2 * rank));
 
     let mut seconds = Vec::with_capacity(REPEATS);
     for _ in 0..REPEATS {
         let start = Instant::now();
         for _ in 0..mults {
-            op.mult(&mut (), &mut b, &a, Variant::D);
+            op.mult(&mut work, &mut b, &a, Variant::D);
         }
         seconds.push(start.elapsed().as_secs_f64() / mults as f64);
     }
@@ -182,17 +184,15 @@ pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Writ
         ("single     full    ", time_mult::<f32>(&lat, mults, full)),
         ("single     two rows", time_mult::<f32>(&lat, mults, two)),
     ];
-    // The block layout: one process only so far. Widths that fill a 256-bit and a 512-bit
-    // register in each precision.
-    if processes == 1 {
-        let simd = [
-            ("double     blocks 4", time_simd::<f64, 4>(&lat, mults)),
-            ("double     blocks 8", time_simd::<f64, 8>(&lat, mults)),
-            ("single     blocks 8", time_simd::<f32, 8>(&lat, mults)),
-            ("single     blocks16", time_simd::<f32, 16>(&lat, mults)),
-        ];
-        rows.extend(simd.into_iter().filter_map(|(name, t)| Some((name, t?))));
-    }
+    // The block layout, for the widths that fill a 256-bit and a 512-bit register in each
+    // precision.
+    let simd = [
+        ("double     blocks 4", time_simd::<f64, 4>(&lat, mults)),
+        ("double     blocks 8", time_simd::<f64, 8>(&lat, mults)),
+        ("single     blocks 8", time_simd::<f32, 8>(&lat, mults)),
+        ("single     blocks16", time_simd::<f32, 16>(&lat, mults)),
+    ];
+    rows.extend(simd.into_iter().filter_map(|(name, t)| Some((name, t?))));
     for (name, t) in rows {
         line(format!(
             "{name}  {:>13.4}  {:>13.4}  {:>13.2}  {:>11.4}  {:.12e}",
