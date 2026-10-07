@@ -6,7 +6,6 @@ pub(crate) mod vector;
 use crate::field::storage::Storage;
 use crate::lattice::evenodd::Parity;
 use crate::lattice::Lattice;
-use rayon::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -112,8 +111,8 @@ impl<const W: usize> Layout for Aosoa<W> {
 
 /// Buffers of at least this many reals are first written in parallel (see `Cpu::alloc`).
 const FIRST_TOUCH_MIN: usize = 1 << 20;
-/// Reals per task of that first write: a few pages.
-const FIRST_TOUCH_CHUNK: usize = 1 << 14;
+/// Reals written at a time by that first write.
+const FIRST_TOUCH_UNIT: usize = 24;
 
 /// Where memory lives.
 pub trait Backend: Send + Sync + 'static {
@@ -132,8 +131,11 @@ impl Backend for Cpu {
     fn alloc<T: Storage>(len: usize) -> CpuBuf<T> {
         let mut buf = CpuBuf::zeroed(len);
         if len >= FIRST_TOUCH_MIN {
-            buf.par_chunks_mut(FIRST_TOUCH_CHUNK)
-                .for_each(|chunk| chunk.fill(T::default()));
+            // One piece per thread, cut as the loops over sites cut a field
+            // (`for_light_sites`): a thread then works on the pages it placed.
+            crate::for_light_sites(&mut buf, FIRST_TOUCH_UNIT, |_, piece| {
+                piece.fill(T::default());
+            });
         }
         buf
     }

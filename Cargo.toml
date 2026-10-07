@@ -60,6 +60,10 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 serde_yaml_ng = "0.10"
 
+# Binding threads to processors (`lattice::pool`).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [lints.clippy]
 # Lattice, spin and colour indices (mu, a, c) are written as explicit index loops so the
 # code reads like the formulas it implements.

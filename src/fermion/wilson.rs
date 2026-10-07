@@ -34,10 +34,10 @@ use crate::kernel::{
     NS, SPINOR_REALS,
 };
 use crate::{
-    for_site_runs, for_sites, for_sites_then, stream_fence, streams, Aos, Aosoa, BlockStencil,
-    Boundary, Direction, Edge, EvenOddIndex, Field, Full, Gauge, Half, HaloExchange, HaloSpec,
-    Lattice, Layout, Parity, SiteRuns, Sites, Source, Spinor, Stencil, Storage, Vector, FACES, ND,
-    NOT_RECEIVED,
+    for_site_runs, for_sites, for_sites_as, for_sites_then, stream_fence, streams, Aos, Aosoa,
+    BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Full, Gauge, Half, HaloExchange,
+    HaloSpec, Lattice, Layout, Parity, SiteRuns, Sites, Source, Spinor, Stencil, Storage, Vector,
+    FACES, ND, NOT_RECEIVED,
 };
 use rayon::prelude::*;
 use std::marker::PhantomData;
@@ -719,7 +719,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     None
                 };
                 let buffer = exchange.send_buffer(Stencil::leg(mu, send));
-                for_sites(buffer, copies * HALF_SPINOR_REALS, |k, o| {
+                let (len, work) = (copies * HALF_SPINOR_REALS, copies * SPINOR_REALS);
+                for_sites_as(buffer, len, work, |k, o| {
                     let site = sites[k] as usize;
                     let link = match send {
                         Direction::Forward => Some(self.link::<R>(mu, geo.inp_site(site))),
@@ -1757,7 +1758,8 @@ where
                     None
                 };
                 let buffer = exchange.send_buffer(face);
-                for_sites(buffer, copies * HALF_SPINOR_REALS, |k, o| {
+                let (len, work) = (copies * HALF_SPINOR_REALS, copies * SPINOR_REALS);
+                for_sites_as(buffer, len, work, |k, o| {
                     let (block, lane) = (lanes[k].0 as usize, lanes[k].1 as usize);
                     let link = match send {
                         Direction::Forward => Some(lane_link::<T, W>(

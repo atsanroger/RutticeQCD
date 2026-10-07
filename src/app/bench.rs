@@ -205,7 +205,8 @@ pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Writ
         }
     };
     line(format!(
-        "lattice {dims:?}, {processes} processes {grid:?} x {threads} threads, {mults} mults x {REPEATS} repeats, at least {} sites per task",
+        "lattice {dims:?}, {processes} processes {grid:?} x {threads} threads, {mults} mults x {REPEATS} repeats, schedule {:?}, at least {} sites per task",
+        crate::schedule(),
         min_sites_per_task()
     ));
     line(

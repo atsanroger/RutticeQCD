@@ -553,6 +553,7 @@ name = "ruttice"
 version = "0.0.1"
 dependencies = [
  "hdf5",
+ "libc",
  "mpi",
  "ndarray",
  "rayon",
