@@ -4,7 +4,7 @@ mod clover;
 mod evenodd;
 mod wilson;
 
-pub use clover::{Clover, CloverDiag, CloverParams};
+pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 

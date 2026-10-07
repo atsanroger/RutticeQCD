@@ -5,8 +5,8 @@
 //! `EvenOdd`; the Schur complement and the solve around it are generic.
 
 use crate::{
-    extract_parity, insert_parity, Aos, Cpu, EvenOddIndex, Field, Half, Kind, LinearFn, LinearOp,
-    Parity, Storage, Vector, C64,
+    extract_parity, insert_parity, Cpu, EvenOddIndex, Field, Half, Kind, Layout, LinearFn,
+    LinearOp, Parity, Storage, Vector, C64,
 };
 
 /// Whether a block of M or of M† is meant.
@@ -82,7 +82,7 @@ impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for Schur<'_, F, H> {
     }
 }
 
-type HalfField<T, K> = Field<T, K, Half, Aos, Cpu>;
+type HalfField<T, K, L> = Field<T, K, Half, L, Cpu>;
 
 /// Solve `M x = b` on the full lattice through the Schur complement on the even sites:
 ///
@@ -92,24 +92,28 @@ type HalfField<T, K> = Field<T, K, Half, Aos, Cpu>;
 ///
 /// `solve` receives the Schur complement, the unknown (zero on entry) and the right-hand
 /// side, and may use any solver. Its result is passed through.
-pub fn solve_even_odd<T, K, F, R, E>(
+///
+/// `index` is the decomposition the operator uses (its `even_odd_index`): of the lattice
+/// for the usual layout, of the lattice of blocks for the SIMD layout.
+pub fn solve_even_odd<T, K, L, F, R, E>(
     op: &F,
     index: &EvenOddIndex,
-    x: &mut Field<T, K>,
-    b: &Field<T, K>,
+    x: &mut Field<T, K, crate::Full, L>,
+    b: &Field<T, K, crate::Full, L>,
     solve: impl FnOnce(
-        &mut Schur<'_, F, HalfField<T, K>>,
-        &mut HalfField<T, K>,
-        &HalfField<T, K>,
+        &mut Schur<'_, F, HalfField<T, K, L>>,
+        &mut HalfField<T, K, L>,
+        &HalfField<T, K, L>,
     ) -> Result<R, E>,
 ) -> Result<R, E>
 where
     T: Storage,
     K: Kind,
-    F: EvenOdd<HalfField<T, K>>,
+    L: Layout,
+    F: EvenOdd<HalfField<T, K, L>>,
 {
     let half = |parity: Parity| {
-        let mut f = HalfField::<T, K>::with_shape(
+        let mut f = HalfField::<T, K, L>::with_shape(
             b.lattice(),
             b.internal_dof(),
             b.ls(),
