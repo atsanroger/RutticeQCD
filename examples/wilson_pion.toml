@@ -17,6 +17,7 @@ even_odd = true                 # default true; needs even lattice extents
 tolerance_squared = 1.0e-28     # on |r|^2 / |b|^2, for every right-hand side
 max_iterations = 2000           # per restart
 max_restarts = 3                # default 3
+simd = 1                        # sites per SIMD block: 1 (default), 2, 4 or 8; see the README
 
 [[quark]]
 fermion = { type = "wilson", kappa = 0.12, boundary = ["antiperiodic", "antiperiodic", "antiperiodic", "antiperiodic"] }

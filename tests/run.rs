@@ -135,6 +135,20 @@ fn impossible_requests_are_rejected_before_any_work() {
     let whole = |text: String| text.replace("even_odd = true", "even_odd = false");
     let m = invalid(whole(fgmres(with_multigrid("[3, 2, 2, 2]"))));
     assert!(m.contains("block"), "{m}");
+    // Blocks of sites: a width there is an operator for, a lattice that can be cut, parts
+    // with even extents for even-odd, and no multigrid.
+    let simd = |lanes: usize| WILSON_TOML.replace("simd = 1 ", &format!("simd = {lanes} "));
+    let m = invalid(simd(3));
+    assert!(m.contains("solver.simd must be"), "{m}");
+    let m = invalid(simd(8).replace("lattice = [4, 4, 4, 8]", "lattice = [4, 4, 2, 8]"));
+    assert!(m.contains("which must all be even"), "{m}");
+    let m = invalid(whole(
+        simd(4).replace("lattice = [4, 4, 4, 8]", "lattice = [3, 3, 3, 6]"),
+    ));
+    assert!(m.contains("cannot be halved"), "{m}");
+    let m =
+        invalid(whole(fgmres(with_multigrid("[2, 2, 2, 2]"))).replace("simd = 1 ", "simd = 4 "));
+    assert!(m.contains("solver.simd = 1"), "{m}");
 }
 
 #[test]
@@ -191,6 +205,14 @@ fn every_solver_choice_gives_the_same_correlator() {
         multigrid("double"),
         // BiCGStab is flexible with a preconditioner.
         multigrid("single").replace("\"fgmres\"", "\"bicgstab\""),
+        // Fields in blocks of sites.
+        base.replace("simd = 1 ", "simd = 2 "),
+        base.replace("simd = 1 ", "simd = 8 "),
+        base.replace("simd = 1 ", "simd = 4 ")
+            .replace("even_odd = true", "even_odd = false"),
+        fgmres.replace("simd = 1 ", "simd = 4 "),
+        base.replace("simd = 1 ", "simd = 4 ")
+            .replace("\"cg_normal\"", "\"bicgstab\""),
         // The choices of the CUDA domain-wall multigrid.
         multigrid("single").replace(
             "precision = \"single\"",
@@ -266,6 +288,29 @@ fn clover_example_reproduces_the_reference_table() {
     )
     .unwrap();
     assert_eq!(report.gauge_fixing_sweeps, None);
+    compare_with_table(
+        &report,
+        include_str!("data/bridge_spectrum_clover_nogfix.txt"),
+    );
+}
+
+/// The same run with the fields in blocks of eight sites.
+#[test]
+fn clover_example_in_blocks_reproduces_the_reference_table() {
+    let Some(conf) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let text = CLOVER_YAML.replace(
+        "  type: cg_normal
+",
+        "  type: cg_normal
+  simd: 8
+",
+    );
+    let config = Config::from_yaml(&text).unwrap();
+    assert_eq!(config.solver.simd, 8);
+    let report = run(&config, conf.parent().unwrap()).unwrap();
     compare_with_table(
         &report,
         include_str!("data/bridge_spectrum_clover_nogfix.txt"),

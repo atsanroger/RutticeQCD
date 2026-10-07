@@ -191,6 +191,11 @@ pub struct SolverConfig {
     pub max_iterations: usize,
     #[serde(default = "default_restarts")]
     pub max_restarts: usize,
+    /// Lattice sites computed together, as the lanes of one SIMD register: 1 (the usual
+    /// layout of the fields), 2, 4 or 8. In double precision 4 fills a 256-bit register
+    /// and 8 a 512-bit one.
+    #[serde(default = "one")]
+    pub simd: usize,
     /// Precondition with two-level multigrid; needs `type = fgmres` and `even_odd = false`.
     pub multigrid: Option<MultigridConfig>,
 }
@@ -347,6 +352,10 @@ fn yes() -> bool {
 
 fn default_restarts() -> usize {
     3
+}
+
+fn one() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
