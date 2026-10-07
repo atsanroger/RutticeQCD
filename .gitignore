@@ -1,1 +1,3 @@
 /target
+# Output of runs (`output.file` in a parameter file).
+*.out

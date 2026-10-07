@@ -41,6 +41,33 @@ fn mult(op: &Wilson<f64>, inp: &Field<f64, Spinor>, variant: Variant) -> Field<f
     out
 }
 
+/// The operator and the inner product give the same bits for every number of threads, on a
+/// lattice large enough for the site loops to be split over the thread pool.
+#[test]
+fn results_do_not_depend_on_thread_count() {
+    let lat = Lattice::single_node([8, 8, 8, 8]);
+    assert!(lat.num_sites() > 2 * ruttice::min_sites_per_task());
+    let op = wilson(&lat, 0.12, MIXED, &random_gauge(&lat, 21));
+    let psi = random_spinor(&lat, 2, 22);
+    let run = |threads| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let out = mult(&op, &psi, Variant::Dagger);
+                let overlap = dot(&psi, &out);
+                (out, overlap)
+            })
+    };
+    let (out1, dot1) = run(1);
+    for threads in [3, 8] {
+        let (out, overlap) = run(threads);
+        assert!(out.as_slice() == out1.as_slice(), "{threads} threads");
+        assert_eq!(overlap, dot1, "{threads} threads");
+    }
+}
+
 // ---- Physics checks: no reference values needed ----
 
 /// With unit links and periodic boundaries a plane wave is an eigenvector of the hopping
