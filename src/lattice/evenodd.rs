@@ -1,7 +1,7 @@
 //! Even-odd (checkerboard) decomposition of a lattice.
 
 use crate::field::storage::Storage;
-use crate::field::{Aos, Cpu, Field, Full, Half, Kind};
+use crate::field::{Cpu, Field, Full, Half, Kind, Layout};
 use crate::lattice::Lattice;
 
 /// Parity of a site: whether x + y + z + t is even or odd.
@@ -47,18 +47,30 @@ impl EvenOddIndex {
     /// Every extent must be even, so that the checkerboard is consistent across the
     /// periodic boundaries.
     pub fn new(lat: &Lattice) -> Self {
+        Self::of_extents(lat.local)
+    }
+
+    /// The decomposition of a box with these extents, numbered like a lattice (x fastest).
+    /// Used for the lattice itself and for the lattice of blocks of the SIMD layout.
+    pub fn of_extents(extents: [usize; 4]) -> Self {
         assert!(
-            lat.local.iter().all(|l| l % 2 == 0),
-            "even-odd decomposition needs even extents, got {:?}",
-            lat.local
+            extents.iter().all(|l| l % 2 == 0),
+            "even-odd decomposition needs even extents, got {extents:?}"
         );
-        let n = lat.num_sites();
+        let n: usize = extents.iter().product();
         assert!(n <= u32::MAX as usize);
+        let coords = |mut site: usize| {
+            extents.map(|l| {
+                let x = site % l;
+                site /= l;
+                x
+            })
+        };
         let mut full_of = [Vec::with_capacity(n / 2), Vec::with_capacity(n / 2)];
         let mut half_of = vec![0u32; n];
         let mut parity_of = vec![Parity::Even; n];
         for site in 0..n {
-            let p = Parity::of(lat.coords(site));
+            let p = Parity::of(coords(site));
             half_of[site] = full_of[p.index()].len() as u32;
             parity_of[site] = p;
             full_of[p.index()].push(site as u32);
@@ -93,37 +105,45 @@ impl EvenOddIndex {
 }
 
 /// Copy the sites of one parity out of a full field. The half field takes that parity.
-pub fn extract_parity<T: Storage, K: Kind>(
-    half: &mut Field<T, K, Half, Aos, Cpu>,
-    full: &Field<T, K, Full, Aos, Cpu>,
+///
+/// What is moved are the blocks of the layout, so `index` is the decomposition of the
+/// lattice of blocks: of the lattice itself for the usual layout, of the reduced lattice
+/// for the SIMD layout, where all lanes of a block have the parity of the block.
+pub fn extract_parity<T: Storage, K: Kind, L: Layout>(
+    half: &mut Field<T, K, Half, L, Cpu>,
+    full: &Field<T, K, Full, L, Cpu>,
     index: &EvenOddIndex,
     parity: Parity,
 ) {
     assert_eq!(half.site_len(), full.site_len());
     assert_eq!(half.outer(), full.outer());
-    assert_eq!(half.num_sites(), index.num_half_sites());
+    assert_eq!(half.num_blocks(), index.num_half_sites());
     half.set_parity(parity);
+    let n = full.block_len();
     for o in 0..full.outer() {
+        let (to, from) = (half.slab_mut(o), full.slab(o));
         for (h, f) in index.full_sites(parity).iter().enumerate() {
-            half.site_mut(o, h)
-                .copy_from_slice(full.site(o, *f as usize));
+            let f = *f as usize;
+            to[h * n..(h + 1) * n].copy_from_slice(&from[f * n..(f + 1) * n]);
         }
     }
 }
 
 /// Copy a half field into the sites of its parity in a full field; other sites are untouched.
-pub fn insert_parity<T: Storage, K: Kind>(
-    full: &mut Field<T, K, Full, Aos, Cpu>,
-    half: &Field<T, K, Half, Aos, Cpu>,
+pub fn insert_parity<T: Storage, K: Kind, L: Layout>(
+    full: &mut Field<T, K, Full, L, Cpu>,
+    half: &Field<T, K, Half, L, Cpu>,
     index: &EvenOddIndex,
 ) {
     assert_eq!(half.site_len(), full.site_len());
     assert_eq!(half.outer(), full.outer());
-    assert_eq!(half.num_sites(), index.num_half_sites());
+    assert_eq!(half.num_blocks(), index.num_half_sites());
+    let n = full.block_len();
     for o in 0..full.outer() {
+        let (to, from) = (full.slab_mut(o), half.slab(o));
         for (h, f) in index.full_sites(half.parity()).iter().enumerate() {
-            full.site_mut(o, *f as usize)
-                .copy_from_slice(half.site(o, h));
+            let f = *f as usize;
+            to[f * n..(f + 1) * n].copy_from_slice(&from[h * n..(h + 1) * n]);
         }
     }
 }

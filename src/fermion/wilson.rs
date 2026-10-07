@@ -14,9 +14,9 @@
 //!
 //! For fields in blocks of W sites (`Aosoa<W>`, the SIMD layout) there is a second sweep,
 //! over blocks, at the end of this file: the same kernel functions with a lane type in place
-//! of a real number. So far it covers plain Wilson fermions on the whole lattice of one
-//! process. When it also covers even-odd blocks, several processes and the site-diagonal
-//! term, the sweep over sites becomes the case W = 1 of it and goes away.
+//! of a real number. It covers the whole lattice and the even-odd blocks, with any
+//! site-diagonal term, on one process. When it also covers several processes, the sweep
+//! over sites becomes the case W = 1 of it and goes away.
 //!
 //! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
 //! preconditioning. Tools needed: none.
@@ -212,8 +212,8 @@ pub struct SiteState<T: Storage> {
 /// Wilson fermions: the diagonal block is the identity.
 pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 
-/// Wilson fermions on fields in blocks of `W` sites (the SIMD layout). One process, the
-/// whole lattice, links kept in full.
+/// Wilson fermions on fields in blocks of `W` sites (the SIMD layout). One process, links
+/// kept in full.
 pub type WilsonSimd<T, const W: usize, G = Dirac> = WilsonOp<T, G, UnitDiag, Aosoa<W>>;
 
 /// One leg of the stencil resolved for one output site: where the neighbour is and what
@@ -1136,9 +1136,66 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
 // ---------------------------------------------------------------------------------------
 // Fields in blocks of W sites.
 
+/// Which blocks a sweep writes, where their neighbours are, and how both map to the
+/// numbering of all blocks, which the links use. The counterpart of `Geometry`.
+struct BlockGeometry<const W: usize> {
+    stencil: BlockStencil<W>,
+    /// Number among all blocks of each output block; `None` when the output is all blocks.
+    out_full: Option<Vec<u32>>,
+    /// The same for the blocks of the input.
+    inp_full: Option<Vec<u32>>,
+}
+
+impl<const W: usize> BlockGeometry<W> {
+    fn full(lat: &Lattice, boundary: [Boundary; ND]) -> Option<Self> {
+        Some(Self {
+            stencil: BlockStencil::new(lat, boundary)?,
+            out_full: None,
+            inp_full: None,
+        })
+    }
+
+    /// Output on the blocks of parity `to`, input on the other parity.
+    fn parity(
+        lat: &Lattice,
+        boundary: [Boundary; ND],
+        index: &EvenOddIndex,
+        to: Parity,
+    ) -> Option<Self> {
+        Some(Self {
+            stencil: BlockStencil::new_parity(lat, boundary, index, to)?,
+            out_full: Some(index.full_sites(to).to_vec()),
+            inp_full: Some(index.full_sites(to.flip()).to_vec()),
+        })
+    }
+
+    #[inline(always)]
+    fn out_block(&self, i: usize) -> usize {
+        self.out_full.as_ref().map_or(i, |m| m[i] as usize)
+    }
+
+    #[inline(always)]
+    fn inp_block(&self, i: usize) -> usize {
+        self.inp_full.as_ref().map_or(i, |m| m[i] as usize)
+    }
+}
+
+struct BlockEvenOdd<const W: usize> {
+    /// The even-odd decomposition of the lattice of blocks.
+    index: Arc<EvenOddIndex>,
+    /// Indexed by the parity of the output.
+    to: [BlockGeometry<W>; 2],
+}
+
 /// What the operator keeps for fields in blocks of `W` sites.
 pub struct BlockState<T: Storage, const W: usize> {
-    stencil: BlockStencil<W>,
+    full: BlockGeometry<W>,
+    /// Present when every extent of the lattice of blocks is even: then all lanes of a
+    /// block have the same parity, and a field on one parity is a field on half the blocks.
+    even_odd: Option<BlockEvenOdd<W>>,
+    /// The lattice site of every lane of every block, for the site-diagonal term. Empty
+    /// when that term is the identity.
+    sites: Vec<[u32; W]>,
     /// `[mu * num_blocks + block]`: the link of every lane of the block. Empty until the
     /// gauge field is set.
     links: Vec<BlockLink<T, W>>,
@@ -1150,6 +1207,9 @@ type BlockLink<T, const W: usize> = [[T; W]; FULL_LINK_REALS];
 
 /// The lane type the sweep computes with.
 type LaneType<T, const W: usize> = <<T as Storage>::Compute as LaneOf<W>>::Lane;
+
+/// A field of spinors in blocks of `W` sites.
+type BlockField<T, S, const W: usize> = Field<T, Spinor, S, Aosoa<W>>;
 
 #[inline(always)]
 fn load_lanes<T: Storage, const W: usize>(s: &[T; W]) -> LaneType<T, W>
@@ -1177,6 +1237,22 @@ where
 }
 
 #[inline(always)]
+fn store_block_spinor<T: Storage, const W: usize>(
+    p: &SiteSpinor<LaneType<T, W>>,
+    s: &mut BlockSpinor<T, W>,
+) where
+    T::Compute: LaneOf<W>,
+{
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            s[k] = p.0[a][c].re.to_array().map(T::store);
+            s[k + 1] = p.0[a][c].im.to_array().map(T::store);
+        }
+    }
+}
+
+#[inline(always)]
 fn load_block_link<T: Storage, const W: usize>(s: &BlockLink<T, W>) -> ColorMatrix<LaneType<T, W>>
 where
     T::Compute: LaneOf<W>,
@@ -1189,6 +1265,13 @@ where
         }
     }
     m
+}
+
+/// A field in blocks as a slice of stored spinors, `copies` of them per block.
+fn block_spinors<T: Storage, S: Sites, const W: usize>(
+    f: &BlockField<T, S, W>,
+) -> &[BlockSpinor<T, W>] {
+    f.slab(0).as_chunks::<W>().0.as_chunks().0
 }
 
 /// Reads spinor `r` of the blocks of an input field, with γ5 applied first if `pre` is set.
@@ -1267,21 +1350,66 @@ where
 {
     /// `None` if the lattice cannot be cut into `W` sub-lattices of equal shape.
     pub fn new(lat: &Arc<Lattice>, params: WilsonParams) -> Option<Self> {
+        Self::with_diag(lat, params, UnitDiag)
+    }
+}
+
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> WilsonOp<T, G, D, Aosoa<W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    /// An operator of Wilson type with the given site-diagonal block, for fields in blocks.
+    /// `None` if the lattice cannot be cut into `W` sub-lattices of equal shape.
+    pub fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Option<Self> {
+        let full = BlockGeometry::full(lat, params.boundary)?;
+        let blocks = full.stencil.blocks();
+        let even_odd = match blocks.even_odd_index() {
+            Some(index) => {
+                let geometry = |to| BlockGeometry::parity(lat, params.boundary, &index, to);
+                let to = [geometry(Parity::Even)?, geometry(Parity::Odd)?];
+                Some(BlockEvenOdd {
+                    index: Arc::new(index),
+                    to,
+                })
+            }
+            None => None,
+        };
+        let sites = if D::IS_UNIT {
+            Vec::new()
+        } else {
+            (0..blocks.num_blocks())
+                .map(|block| {
+                    core::array::from_fn(|lane| {
+                        u32::try_from(blocks.site(block, lane))
+                            .expect("the stencil has checked that sites fit in 31 bits")
+                    })
+                })
+                .collect()
+        };
         Some(Self {
             params,
             lat: lat.clone(),
             state: BlockState {
-                stencil: BlockStencil::new(lat, params.boundary)?,
+                full,
+                even_odd,
+                sites,
                 links: Vec::new(),
             },
             link_format: LinkFormat::Full,
-            diag: UnitDiag,
+            diag,
             _gamma: PhantomData,
         })
     }
 
     pub fn params(&self) -> &WilsonParams {
         &self.params
+    }
+
+    /// The even-odd numbering this operator uses, if the lattice allows one. It numbers
+    /// blocks, not sites: it is the one to hand to `solve_even_odd`, `extract_parity` and
+    /// `insert_parity` together with fields in blocks.
+    pub fn even_odd_index(&self) -> Option<&Arc<EvenOddIndex>> {
+        self.state.even_odd.as_ref().map(|eo| &eo.index)
     }
 
     /// Add the forward and the backward leg of direction `MU` of one block to `hops`.
@@ -1295,12 +1423,13 @@ where
     fn add_block_legs<const MU: usize>(
         &self,
         hops: &mut SiteSpinor<LaneType<T, W>>,
+        geo: &BlockGeometry<W>,
         block: usize,
         input: &BlockInput<'_, T, G, W>,
         edges: &[EdgeLanes<LaneType<T, W>, W>; FACES],
     ) {
         let gamma = &G::GAMMA[MU];
-        let (stencil, links) = (&self.state.stencil, &self.state.links);
+        let (stencil, links) = (&geo.stencil, &self.state.links);
         let num_blocks = stencil.blocks().num_blocks();
 
         let leg = Stencil::leg(MU, Direction::Forward);
@@ -1309,7 +1438,7 @@ where
         if edge.is_some() {
             h = edges[leg].rotate(&h).scale_cplx(edges[leg].factor);
         }
-        let link = load_block_link::<T, W>(&links[MU * num_blocks + block]);
+        let link = load_block_link::<T, W>(&links[MU * num_blocks + geo.out_block(block)]);
         let h = transport_half(&h, &link, LinkUse::Direct, None);
         sink_spinor(hops, &h, gamma, Sign::Minus);
 
@@ -1319,7 +1448,7 @@ where
         if edge.is_some() {
             h = h.scale_cplx(edges[leg].factor_at_source);
         }
-        let link = load_block_link::<T, W>(&links[MU * num_blocks + from]);
+        let link = load_block_link::<T, W>(&links[MU * num_blocks + geo.inp_block(from)]);
         let mut h = transport_half(&h, &link, LinkUse::Adjoint, None);
         if edge.is_some() {
             h = edges[leg].rotate(&h);
@@ -1327,33 +1456,83 @@ where
         sink_spinor(hops, &h, gamma, Sign::Plus);
     }
 
-    /// `out = γ5^post ( φ - κ Σ hops φ )` with `φ = γ5^pre inp`, block by block.
-    fn block_sweep(
+    /// The site-diagonal block, or its inverse, applied to the lanes of block `full_block`
+    /// one at a time. The block is written for one site, and this keeps it written once;
+    /// it costs a pass through the stack per lane.
+    #[inline(always)]
+    fn diag_lanes(
         &self,
-        out: &mut Field<T, Spinor, Full, Aosoa<W>>,
-        inp: &Field<T, Spinor, Full, Aosoa<W>>,
+        full_block: usize,
+        phi: &SiteSpinor<LaneType<T, W>>,
+        inverse: bool,
+    ) -> SiteSpinor<LaneType<T, W>> {
+        let sites = &self.state.sites[full_block];
+        let zero = [[[<T::Compute as Number>::from_f64(0.0); W]; NC]; NS];
+        let (mut re, mut im) = (zero, zero);
+        for a in 0..NS {
+            for c in 0..NC {
+                re[a][c] = phi.0[a][c].re.to_array();
+                im[a][c] = phi.0[a][c].im.to_array();
+            }
+        }
+        for lane in 0..W {
+            let mut one = SiteSpinor::zero();
+            for a in 0..NS {
+                for c in 0..NC {
+                    one.0[a][c] = Cplx::new(re[a][c][lane], im[a][c][lane]);
+                }
+            }
+            let site = sites[lane] as usize;
+            let result = if inverse {
+                self.diag.apply_inv(site, &one)
+            } else {
+                self.diag.apply(site, &one)
+            };
+            for a in 0..NS {
+                for c in 0..NC {
+                    re[a][c][lane] = result.0[a][c].re;
+                    im[a][c][lane] = result.0[a][c].im;
+                }
+            }
+        }
+        let mut out = SiteSpinor::zero();
+        for a in 0..NS {
+            for c in 0..NC {
+                out.0[a][c] = Cplx::new(Lane::from_array(re[a][c]), Lane::from_array(im[a][c]));
+            }
+        }
+        out
+    }
+
+    /// `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`, block by block:
+    /// `sweep` for fields in blocks.
+    fn block_sweep<SO: Sites, SI: Sites>(
+        &self,
+        geo: &BlockGeometry<W>,
+        out: &mut BlockField<T, SO, W>,
+        inp: &BlockField<T, SI, W>,
+        diagonal: Diagonal,
         (pre, post): (bool, bool),
     ) {
-        let stencil = &self.state.stencil;
-        let num_blocks = stencil.blocks().num_blocks();
+        let stencil = &geo.stencil;
         assert_eq!(
             self.state.links.len(),
-            ND * num_blocks,
+            ND * stencil.blocks().num_blocks(),
             "set_gauge must be called before the operator is applied"
         );
-        assert!(inp.num_sites() == num_blocks * W && out.num_sites() == inp.num_sites());
+        assert_eq!(
+            out.num_blocks(),
+            stencil.num_blocks(),
+            "output on the wrong sites"
+        );
+        assert_eq!(inp.num_blocks(), out.num_blocks());
         assert!(out.outer() == 1 && inp.outer() == 1);
         assert_eq!(out.copies(), inp.copies());
         let copies = inp.copies();
         let kappa = <LaneType<T, W> as Number>::from_f64(self.params.kappa);
-        let edges: [EdgeLanes<LaneType<T, W>, W>; FACES] = core::array::from_fn(|leg| {
-            // Any block gives the same answer for a leg; one with an edge is needed.
-            let edge = (0..num_blocks)
-                .find_map(|block| stencil.source(block, leg).1)
-                .expect("every direction has blocks at the edge of the sub-lattice");
-            EdgeLanes::new(edge)
-        });
-        let spinors: &[BlockSpinor<T, W>] = inp.slab(0).as_chunks::<W>().0.as_chunks().0;
+        let edges: [EdgeLanes<LaneType<T, W>, W>; FACES] =
+            core::array::from_fn(|leg| EdgeLanes::new(stencil.edge(leg)));
+        let spinors = block_spinors(inp);
 
         for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
             let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
@@ -1366,28 +1545,58 @@ where
                     _gamma: PhantomData::<G>,
                 };
                 let mut hops = SiteSpinor::zero();
-                self.add_block_legs::<0>(&mut hops, block, &input, &edges);
-                self.add_block_legs::<1>(&mut hops, block, &input, &edges);
-                self.add_block_legs::<2>(&mut hops, block, &input, &edges);
-                self.add_block_legs::<3>(&mut hops, block, &input, &edges);
-                let mut result = input.at(block).sub_scaled(kappa, &hops);
+                self.add_block_legs::<0>(&mut hops, geo, block, &input, &edges);
+                self.add_block_legs::<1>(&mut hops, geo, block, &input, &edges);
+                self.add_block_legs::<2>(&mut hops, geo, block, &input, &edges);
+                self.add_block_legs::<3>(&mut hops, geo, block, &input, &edges);
+                let diag = match diagonal {
+                    Diagonal::Present if D::IS_UNIT => input.at(block),
+                    Diagonal::Present => {
+                        self.diag_lanes(geo.out_block(block), &input.at(block), false)
+                    }
+                    Diagonal::Absent => SiteSpinor::zero(),
+                };
+                let mut result = diag.sub_scaled(kappa, &hops);
                 if post {
                     result = G::GAMMA5.apply(&result);
                 }
-                for a in 0..NS {
-                    for c in 0..NC {
-                        let k = 2 * (NC * a + c);
-                        o[k] = result.0[a][c].re.to_array().map(T::store);
-                        o[k + 1] = result.0[a][c].im.to_array().map(T::store);
-                    }
-                }
+                store_block_spinor::<T, W>(&result, o);
             }
         });
     }
+
+    /// `out = B inp` block by block, where B is the diagonal term or its inverse.
+    /// `full_block` gives the number among all blocks of each block of the fields.
+    fn block_diag<S: Sites>(
+        &self,
+        out: &mut BlockField<T, S, W>,
+        inp: &BlockField<T, S, W>,
+        full_block: impl Fn(usize) -> usize + Sync,
+        inverse: bool,
+    ) {
+        assert_eq!(out.as_slice().len(), inp.as_slice().len());
+        let copies = inp.copies();
+        let spinors = block_spinors(inp);
+        for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
+            let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
+            for (r, o) in o.iter_mut().enumerate() {
+                let phi = load_block_spinor::<T, W>(&spinors[block * copies + r]);
+                store_block_spinor::<T, W>(&self.diag_lanes(full_block(block), &phi, inverse), o);
+            }
+        });
+    }
+
+    fn parity_geometry(&self, parity: Parity) -> &BlockGeometry<W> {
+        let eo = self.state.even_odd.as_ref().expect(
+            "Wilson: even-odd blocks need a lattice of blocks with even extents; \
+             check `even_odd_index` first",
+        );
+        &eo.to[parity.index()]
+    }
 }
 
-impl<T: Storage, G: GammaRepre, const W: usize> FermionOp<Field<T, Spinor, Full, Aosoa<W>>>
-    for WilsonOp<T, G, UnitDiag, Aosoa<W>>
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> FermionOp<BlockField<T, Full, W>>
+    for WilsonOp<T, G, D, Aosoa<W>>
 where
     T::Compute: LaneOf<W>,
 {
@@ -1396,17 +1605,17 @@ where
     fn work(&self) {}
 
     fn flops_per_site(&self) -> usize {
-        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1))
+        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
         if u.num_sites() != self.lat.num_sites() || u.lattice().local != self.lat.local {
             return Err(GaugeError::LatticeMismatch);
         }
-        let blocks = self.state.stencil.blocks();
+        let blocks = self.state.full.stencil.blocks();
         let num_blocks = blocks.num_blocks();
         // Filled by the threads of the pool, like the fields (`Cpu::alloc`).
-        self.state.links = (0..ND * num_blocks)
+        let links = (0..ND * num_blocks)
             .into_par_iter()
             .with_min_len(LINKS_PER_TASK)
             .map(|i| {
@@ -1421,14 +1630,16 @@ where
                 link
             })
             .collect();
+        self.diag.set_gauge(&self.lat, u)?;
+        self.state.links = links;
         Ok(())
     }
 
     fn mult(
         &self,
         _work: &mut (),
-        out: &mut Field<T, Spinor, Full, Aosoa<W>>,
-        inp: &Field<T, Spinor, Full, Aosoa<W>>,
+        out: &mut BlockField<T, Full, W>,
+        inp: &BlockField<T, Full, W>,
         variant: Variant,
     ) {
         let gamma5 = match variant {
@@ -1436,6 +1647,74 @@ where
             Variant::Gamma5D => (false, true),
             Variant::Dagger => (true, true),
         };
-        self.block_sweep(out, inp, gamma5);
+        self.block_sweep(&self.state.full, out, inp, Diagonal::Present, gamma5);
+    }
+}
+
+/// The even-odd blocks for fields in blocks of sites; see the implementation for the usual
+/// layout above. A half field holds the blocks of one parity of the lattice of blocks.
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> EvenOdd<BlockField<T, Half, W>>
+    for WilsonOp<T, G, D, Aosoa<W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    type Work = ();
+
+    fn even_odd_work(&self) {}
+
+    fn hop(
+        &self,
+        _work: &mut (),
+        out: &mut BlockField<T, Half, W>,
+        inp: &BlockField<T, Half, W>,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        assert_eq!(out.parity(), to, "output field has the wrong parity");
+        assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
+        let g5 = dagger == Dagger::Yes;
+        self.block_sweep(
+            self.parity_geometry(to),
+            out,
+            inp,
+            Diagonal::Absent,
+            (g5, g5),
+        );
+    }
+
+    fn diag(
+        &self,
+        _work: &mut (),
+        out: &mut BlockField<T, Half, W>,
+        inp: &BlockField<T, Half, W>,
+        parity: Parity,
+        _dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity(), parity);
+        assert_eq!(out.parity(), parity);
+        if D::IS_UNIT {
+            out.copy_from(inp);
+        } else {
+            let geo = self.parity_geometry(parity);
+            self.block_diag(out, inp, |h| geo.out_block(h), false);
+        }
+    }
+
+    fn diag_inv(
+        &self,
+        _work: &mut (),
+        out: &mut BlockField<T, Half, W>,
+        inp: &BlockField<T, Half, W>,
+        parity: Parity,
+        _dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity(), parity);
+        assert_eq!(out.parity(), parity);
+        if D::IS_UNIT {
+            out.copy_from(inp);
+        } else {
+            let geo = self.parity_geometry(parity);
+            self.block_diag(out, inp, |h| geo.out_block(h), true);
+        }
     }
 }

@@ -7,6 +7,7 @@
 //! the lanes in the same order, so a stencil loads it as one vector. Only when the hop
 //! leaves the sub-lattice do the lanes have to be rotated (`BlockStencil`).
 
+use super::evenodd::{EvenOddIndex, Parity};
 use super::stencil::{Boundary, Direction, Stencil};
 use super::{Lattice, ND};
 
@@ -90,6 +91,16 @@ impl Blocks {
         )
     }
 
+    /// The even-odd decomposition of the lattice of blocks, if every one of its extents is
+    /// even. Then every lane of a block has the parity of the block's position, so a field
+    /// on one parity is a field on the blocks of that parity.
+    pub fn even_odd_index(&self) -> Option<EvenOddIndex> {
+        self.reduced
+            .iter()
+            .all(|l| l.is_multiple_of(2))
+            .then(|| EvenOddIndex::of_extents(self.reduced))
+    }
+
     /// The block and the lane of a lattice site.
     pub fn block_lane(&self, site: usize) -> (usize, usize) {
         let x = unlex(site, self.local);
@@ -115,6 +126,8 @@ pub struct Edge<const W: usize> {
 /// One process only so far: neighbours beyond the lattice are the periodic images.
 pub struct BlockStencil<const W: usize> {
     blocks: Blocks,
+    /// Blocks covered: all of them, or those of one parity.
+    num_blocks: usize,
     /// `[block * LEGS + leg]`: the neighbouring block, with the top bit set if the hop
     /// leaves the sub-lattice.
     neighbor: Vec<u32>,
@@ -125,16 +138,45 @@ pub struct BlockStencil<const W: usize> {
 const EDGE: u32 = 1 << 31;
 
 impl<const W: usize> BlockStencil<W> {
-    /// `None` if the lattice cannot be cut into W sub-lattices.
+    /// All blocks; neighbours are numbered among all blocks. `None` if the lattice cannot
+    /// be cut into W sub-lattices.
     pub fn new(lat: &Lattice, boundary: [Boundary; ND]) -> Option<Self> {
+        let blocks = Blocks::new(lat.local, W)?;
+        let covered = 0..blocks.num_blocks();
+        Some(Self::build(lat, boundary, blocks, covered, |block| block))
+    }
+
+    /// The blocks of one parity; neighbours are numbered within the other parity. `index`
+    /// is the even-odd decomposition of the lattice of blocks (`Blocks::even_odd_index`).
+    pub fn new_parity(
+        lat: &Lattice,
+        boundary: [Boundary; ND],
+        index: &EvenOddIndex,
+        parity: Parity,
+    ) -> Option<Self> {
+        let blocks = Blocks::new(lat.local, W)?;
+        let covered = index.full_sites(parity).iter().map(|b| *b as usize);
+        Some(Self::build(lat, boundary, blocks, covered, |block| {
+            index.half_site(block).1
+        }))
+    }
+
+    /// `covered` are the blocks of this stencil, in order; `index_of` turns the number of a
+    /// neighbouring block into the index stored for it.
+    fn build(
+        lat: &Lattice,
+        boundary: [Boundary; ND],
+        blocks: Blocks,
+        covered: impl ExactSizeIterator<Item = usize>,
+        index_of: impl Fn(usize) -> usize,
+    ) -> Self {
         assert_eq!(
             lat.grid, [1; ND],
             "the SIMD layout on several processes is not implemented yet"
         );
-        let blocks = Blocks::new(lat.local, W)?;
         let (reduced, split) = (blocks.reduced, blocks.split);
-        let n = blocks.num_blocks();
-        assert!(n < EDGE as usize);
+        let n = covered.len();
+        assert!(blocks.num_blocks() < EDGE as usize);
         let legs = |leg: usize| {
             let (mu, dir) = (
                 leg % ND,
@@ -164,13 +206,14 @@ impl<const W: usize> BlockStencil<W> {
         };
 
         let mut neighbor = vec![0u32; n * Stencil::LEGS];
-        for block in 0..n {
+        for (i, block) in covered.enumerate() {
             let o = unlex(block, reduced);
             for leg in 0..Stencil::LEGS {
                 let (mu, dir) = legs(leg);
                 let (to, leaves) = step(o, mu, dir, reduced);
-                let to = u32::try_from(lex(to, reduced)).expect("checked against EDGE above");
-                neighbor[block * Stencil::LEGS + leg] = to | if leaves { EDGE } else { 0 };
+                let to =
+                    u32::try_from(index_of(lex(to, reduced))).expect("checked against EDGE above");
+                neighbor[i * Stencil::LEGS + leg] = to | if leaves { EDGE } else { 0 };
             }
         }
         let edge = core::array::from_fn(|leg| {
@@ -194,15 +237,26 @@ impl<const W: usize> BlockStencil<W> {
             }
             Edge { from, factor }
         });
-        Some(Self {
+        Self {
             blocks,
+            num_blocks: n,
             neighbor,
             edge,
-        })
+        }
     }
 
     pub fn blocks(&self) -> &Blocks {
         &self.blocks
+    }
+
+    /// Number of blocks this stencil covers.
+    pub fn num_blocks(&self) -> usize {
+        self.num_blocks
+    }
+
+    /// What a hop along `leg` that leaves the sub-lattice does to the lanes.
+    pub fn edge(&self, leg: usize) -> &Edge<W> {
+        &self.edge[leg]
     }
 
     /// The neighbouring block of `block` along `leg` (numbered as `Stencil::leg`), and what
