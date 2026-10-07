@@ -4,7 +4,7 @@ use crate::field::storage::Storage;
 use crate::field::{Aos, Aosoa, Cpu, Field, Full, Kind, Layout, Sites};
 use crate::kernel::{Cplx, Number, Real};
 use crate::lattice::blocks::Blocks;
-use crate::lattice::sites::{for_sites, reduce_sites_dyn, reduce_sites_mut};
+use crate::lattice::sites::{for_light_sites, reduce_sites_dyn, reduce_sites_mut};
 
 /// Coefficients and reduction results are always double precision, whatever the field stores.
 pub type C64 = Cplx<f64>;
@@ -19,6 +19,12 @@ pub trait Vector: Sized {
     fn num_vectors(&self) -> usize;
     /// A zero vector of the same shape.
     fn zeros_like(&self) -> Self;
+    /// A zero vector of the same shape except that it holds `num_vectors` vectors.
+    fn zeros_with(&self, num_vectors: usize) -> Self;
+    /// The vectors `which` of this set, in that order, as a set of their own.
+    fn select(&self, which: &[usize]) -> Self;
+    /// `self_{which[k]} = from_k`: put the vectors of a smaller set back.
+    fn assign(&mut self, which: &[usize], from: &Self);
     fn same_shape(&self, x: &Self) -> bool;
     fn copy_from(&mut self, x: &Self);
     fn set_zero(&mut self);
@@ -113,7 +119,7 @@ where
     F: Fn(usize, &mut [T], &[T]) + Sync,
 {
     assert_eq!(dst.len(), src.len());
-    for_sites(dst, site_len, |i, d| {
+    for_light_sites(dst, site_len, |i, d| {
         let s = &src[i * site_len..(i + 1) * site_len];
         for (j, (d, s)) in d
             .chunks_exact_mut(vector_len)
@@ -137,7 +143,7 @@ where
     F: Fn(usize, &mut [T], &[T], &[T]) + Sync,
 {
     assert!(dst.len() == src[0].len() && dst.len() == src[1].len());
-    for_sites(dst, site_len, |i, d| {
+    for_light_sites(dst, site_len, |i, d| {
         let range = i * site_len..(i + 1) * site_len;
         let (s0, s1) = (&src[0][range.clone()], &src[1][range]);
         let sources = s0.chunks_exact(vector_len).zip(s1.chunks_exact(vector_len));
@@ -203,15 +209,51 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn zeros_like(&self) -> Self {
+        self.zeros_with(Field::num_vectors(self))
+    }
+
+    fn zeros_with(&self, num_vectors: usize) -> Self {
         let mut z = Field::with_shape(
             self.lattice(),
             self.internal_dof(),
             self.ls(),
-            Field::num_vectors(self),
+            num_vectors,
             self.outer(),
         );
         z.copy_parity_from(self);
         z
+    }
+
+    fn select(&self, which: &[usize]) -> Self {
+        assert!(which.iter().all(|j| *j < Field::num_vectors(self)));
+        let mut out = self.zeros_with(which.len());
+        let (len, from_len, to_len) = (vector_len(self), self.block_len(), out.block_len());
+        let from = self.as_slice();
+        for_light_sites(out.as_mut_slice(), to_len, |i, to| {
+            let from = &from[i * from_len..(i + 1) * from_len];
+            for (to, j) in to.chunks_exact_mut(len).zip(which) {
+                to.copy_from_slice(&from[j * len..(j + 1) * len]);
+            }
+        });
+        out
+    }
+
+    fn assign(&mut self, which: &[usize], from: &Self) {
+        assert_eq!(which.len(), Field::num_vectors(from));
+        assert!(which.iter().all(|j| *j < Field::num_vectors(self)));
+        // The same kind of vector, only fewer of them.
+        assert_eq!(
+            from.as_slice().len() * Field::num_vectors(self),
+            self.as_slice().len() * which.len()
+        );
+        let (len, to_len, from_len) = (vector_len(self), self.block_len(), from.block_len());
+        let from = from.as_slice();
+        for_light_sites(self.as_mut_slice(), to_len, |i, to| {
+            let from = &from[i * from_len..(i + 1) * from_len];
+            for (from, j) in from.chunks_exact(len).zip(which) {
+                to[j * len..(j + 1) * len].copy_from_slice(from);
+            }
+        });
     }
 
     fn same_shape(&self, x: &Self) -> bool {
@@ -237,13 +279,13 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
 
     fn set_zero(&mut self) {
         let site_len = self.block_len();
-        for_sites(self.as_mut_slice(), site_len, |_, d| d.fill(T::default()));
+        for_light_sites(self.as_mut_slice(), site_len, |_, d| d.fill(T::default()));
     }
 
     fn scale(&mut self, a: &[f64]) {
         assert_eq!(a.len(), Field::num_vectors(self));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
-        for_sites(self.as_mut_slice(), site_len, |_, d| {
+        for_light_sites(self.as_mut_slice(), site_len, |_, d| {
             for (j, d) in d.chunks_exact_mut(vector_len).enumerate() {
                 let k = T::Compute::from_f64(a[j]);
                 for x in d {
@@ -473,7 +515,7 @@ where
         assert_eq!(self.site_len(), src.site_len());
         let site_len = self.block_len();
         let s = src.as_slice();
-        for_sites(self.as_mut_slice(), site_len, |i, d| {
+        for_light_sites(self.as_mut_slice(), site_len, |i, d| {
             for (d, s) in d.iter_mut().zip(&s[i * site_len..(i + 1) * site_len]) {
                 *d = T::store(Number::from_f64(s.load().to_f64()));
             }
@@ -508,7 +550,7 @@ where
         let blocks = blocks_of::<W>(self.lattice());
         let (block_len, slab_len, site_len) = (self.block_len(), self.slab_len(), self.site_len());
         for (o, slab) in self.as_mut_slice().chunks_exact_mut(slab_len).enumerate() {
-            for_sites(slab, block_len, |block, d| {
+            for_light_sites(slab, block_len, |block, d| {
                 for lane in 0..W {
                     let from = src.site(o, blocks.site(block, lane));
                     for c in 0..site_len {
@@ -538,7 +580,7 @@ where
         let (block_len, slab_len, site_len) = (src.block_len(), self.slab_len(), self.site_len());
         for (o, slab) in self.as_mut_slice().chunks_exact_mut(slab_len).enumerate() {
             let from = src.slab(o);
-            for_sites(slab, site_len, |site, d| {
+            for_light_sites(slab, site_len, |site, d| {
                 let (block, lane) = blocks.block_lane(site);
                 let from = &from[block * block_len..(block + 1) * block_len];
                 for c in 0..site_len {
