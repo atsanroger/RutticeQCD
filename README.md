@@ -207,9 +207,9 @@ The channels are named after the gamma matrices at the sink and at the source:
 | `A4_PS` | γ4γ5 ← γ5 | `S12` `S23` `S31` | iγ2γ1, iγ3γ2, iγ1γ3 at both ends |
 | `PS_A4` | γ5 ← γ5γ4 | `A4_A4` | γ4γ5 ← γ5γ4 |
 
-The first thirteen are the channels of the Bridge++ spectrum test, in its order, and were
-checked against it. `A4_A4` is not in Bridge++; it comes last in the output and has no
-reference values from another program.
+They are printed in the order of the Bridge++ spectrum test, with `A4_A4` after the other
+axial channels. All but `A4_A4` were checked against Bridge++; `A4_A4` is not in Bridge++
+and has no reference values from another program.
 
 ## Conventions
 

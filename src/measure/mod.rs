@@ -81,14 +81,12 @@ pub fn exponential_source<T: Storage>(
     b
 }
 
-/// Names of the meson channels `channel` knows, in the order Bridge++ prints them.
-pub const CHANNELS: [&str; 13] = [
-    "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "S", "G51", "G52", "G53", "S12", "S23", "S31",
+/// Names of the meson channels `channel` knows, in the order they are printed: that of
+/// Bridge++, with `A4_A4`, which Bridge++ does not have, after the other axial channels.
+pub const CHANNELS: [&str; 14] = [
+    "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "A4_A4", "S", "G51", "G52", "G53", "S12", "S23",
+    "S31",
 ];
-
-/// Channels `channel` knows beyond those of Bridge++. They have no reference values
-/// from another program.
-pub const EXTRA_CHANNELS: [&str; 1] = ["A4_A4"];
 
 /// The (sink, source) gamma matrices of a named meson channel, to pass to
 /// `meson_correlator`:

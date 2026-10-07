@@ -8,7 +8,7 @@ use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, GammaRepre};
 use ruttice::measure::{
-    channel, meson_correlator, pion_correlator, point_source, EXTRA_CHANNELS, NUM_SOURCES,
+    channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
 };
 use ruttice::random_spinor;
 use ruttice::solver::{solve_cgne, Cg, Stop};
@@ -161,7 +161,7 @@ fn bridge_spectrum_wilson_pion() {
 /// the Dirac representation, so the trace is a sum of `±|S|²` over the elements.
 #[test]
 fn axial_axial_channel_is_the_trace_with_gamma4_on_both_sides() {
-    assert!(EXTRA_CHANNELS.contains(&"A4_A4"));
+    assert!(CHANNELS.contains(&"A4_A4"));
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson(&lat, &random_gauge(&lat, 91));
     let stop = Stop {
