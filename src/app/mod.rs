@@ -144,22 +144,28 @@ fn choose_grid(lattice: [usize; ND], processes: usize) -> Option<[usize; ND]> {
 }
 
 /// The process grid to use: the one asked for if it fits, otherwise one chosen here.
-fn process_grid(
-    config: &Config,
-    processes: usize,
-    asked: Option<[usize; ND]>,
-) -> Result<[usize; ND], CliError> {
+fn process_grid(config: &Config, processes: usize) -> Result<[usize; ND], CliError> {
     let lattice = config.lattice;
     if lattice.contains(&0) {
         return invalid(format!("lattice extents must be positive, got {lattice:?}"));
     }
-    match asked {
+    match config.process_grid {
         Some(grid) => {
             let fits = (0..ND).all(|mu| grid[mu] > 0 && lattice[mu].is_multiple_of(grid[mu]));
-            if grid.iter().product::<usize>() != processes {
+            let needed: usize = grid.iter().product();
+            if needed != processes {
+                // One process where several were asked for usually means the launcher
+                // belongs to another MPI installation than the one the program was
+                // built with: every process then believes it is alone.
+                let hint = if processes == 1 {
+                    "; if the program was started with mpirun, check that mpirun comes \
+                     from the MPI installation the program was built with"
+                } else {
+                    ""
+                };
                 Err(CliError::Grid(format!(
-                    "{grid:?} needs {} processes, but there are {processes}",
-                    grid.iter().product::<usize>()
+                    "process_grid = {grid:?} needs {needed} processes, but there are \
+                     {processes}{hint}"
                 )))
             } else if !fits {
                 Err(CliError::Grid(format!(
@@ -189,7 +195,7 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
         } else {
             Err(CliError::Grid(format!(
                 "even_odd needs even extents on every process, but {grid:?} gives {local:?}; \
-                 choose another grid with --grid or set solver.even_odd = false"
+                 set process_grid in the parameter file or set solver.even_odd = false"
             )))
         };
     }
@@ -412,19 +418,13 @@ fn worst_residual<D: DiagTerm<f64>>(op: &WilsonOp<f64, Dirac, D>, s: &V, b: &V) 
 /// Run what the parameter file describes on one process. Relative paths in it are
 /// resolved against `base`.
 pub fn run(config: &Config, base: &Path) -> Result<Report, CliError> {
-    run_on(config, base, Arc::new(SingleComm), None)
+    run_on(config, base, Arc::new(SingleComm))
 }
 
 /// Run what the parameter file describes on the processes of `comm`; every one of them
-/// must make this call and gets the same report. `grid` is the number of processes per
-/// direction; one is chosen if it is not given.
-pub fn run_on(
-    config: &Config,
-    base: &Path,
-    comm: Arc<dyn Comm>,
-    grid: Option<[usize; ND]>,
-) -> Result<Report, CliError> {
-    let grid = process_grid(config, comm.size(), grid)?;
+/// must make this call and gets the same report.
+pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Report, CliError> {
+    let grid = process_grid(config, comm.size())?;
     let channels = validate(config, grid)?;
     let lat = Lattice::new(config.lattice, grid, comm);
 
@@ -561,7 +561,7 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
 /// Load, run on one process, print to `stdout`, and write the output file if the
 /// parameter file names one.
 pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
-    run_file_on(path, stdout, Arc::new(SingleComm), None)
+    run_file_on(path, stdout, Arc::new(SingleComm))
 }
 
 /// `run_file` on the processes of `comm`. Only rank 0 prints and writes.
@@ -569,12 +569,11 @@ pub fn run_file_on(
     path: &Path,
     stdout: &mut dyn Write,
     comm: Arc<dyn Comm>,
-    grid: Option<[usize; ND]>,
 ) -> Result<(), CliError> {
     let config = Config::load(path)?;
     let base = path.parent().unwrap_or(Path::new("."));
     let root = comm.rank() == 0;
-    let report = run_on(&config, base, comm, grid)?;
+    let report = run_on(&config, base, comm)?;
     if !root {
         return Ok(());
     }
@@ -596,27 +595,16 @@ pub fn run_file_on(
 }
 
 const USAGE: &str = "\
-usage: ruttice [--grid PX,PY,PZ,PT] PARAMETER_FILE
+usage: ruttice PARAMETER_FILE
 
 Reads a parameter file (.toml, .yaml or .yml), solves for the quark propagators it
-describes and prints meson two-point functions. See cli/examples/ for parameter files.
-
---grid gives the number of processes in each direction when the program runs on several
-processes; without it the lattice is split automatically.";
-
-fn parse_grid(text: &str) -> Option<[usize; ND]> {
-    let parts: Vec<usize> = text
-        .split(',')
-        .map(|p| p.trim().parse().ok())
-        .collect::<Option<_>>()?;
-    parts.try_into().ok()
-}
+describes and prints meson two-point functions. See examples/ for parameter files.";
 
 /// The whole program: interpret the command line (without the program name), run, and
 /// return the exit code. Every process of `comm` makes this call; only rank 0 prints.
 pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write) -> u8 {
     let root = comm.rank() == 0;
-    let (grid, file) = match args {
+    let file = match args {
         [flag] if flag == "-h" || flag == "--help" => {
             if root {
                 // Nothing useful can be done if printing the help fails.
@@ -624,16 +612,7 @@ pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write
             }
             return 0;
         }
-        [file] if !file.starts_with('-') => (None, file),
-        [flag, grid, file] if flag == "--grid" => match parse_grid(grid) {
-            Some(grid) => (Some(grid), file),
-            None => {
-                if root {
-                    eprintln!("ruttice: --grid takes four numbers, as in --grid 2,2,2,4");
-                }
-                return 1;
-            }
-        },
+        [file] if !file.starts_with('-') => file,
         _ => {
             if root {
                 eprintln!("{USAGE}");
@@ -641,7 +620,7 @@ pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write
             return 1;
         }
     };
-    match run_file_on(Path::new(file), stdout, comm, grid) {
+    match run_file_on(Path::new(file), stdout, comm) {
         Ok(()) => 0,
         Err(e) => {
             if root {

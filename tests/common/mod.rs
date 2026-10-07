@@ -66,3 +66,18 @@ pub fn max_abs_diff<K: Kind, S: Sites>(a: &Field<f64, K, S>, b: &Field<f64, K, S
         .zip(b.as_slice())
         .fold(0.0, |m, (x, y)| m.max((x - y).abs()))
 }
+
+/// `mpirun -np processes`, allowing more processes than cores. Open MPI has to be told
+/// so; other launchers do not know its option.
+pub fn mpirun(processes: usize) -> std::process::Command {
+    let open_mpi = std::process::Command::new("mpirun")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("Open MPI"));
+    let mut command = std::process::Command::new("mpirun");
+    if open_mpi {
+        command.arg("--oversubscribe");
+    }
+    command.args(["-np", &processes.to_string()]);
+    command
+}

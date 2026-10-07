@@ -8,7 +8,6 @@ use ruttice::gauge::random_gauge;
 use ruttice::io::write_bridge_text;
 use ruttice::Lattice;
 use std::io::ErrorKind;
-use std::process::Command;
 
 /// A Wilson and a clover quark, a point and a smeared source away from the origin, so
 /// that the sources and the clover term all cross process boundaries.
@@ -59,21 +58,21 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
     let whole = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf.txt"), &random_gauge(&whole, 700)).unwrap();
     let file = dir.join("run.toml");
-    std::fs::write(&file, PARAMETERS).unwrap();
 
     let reference = run(&Config::from_toml(PARAMETERS).unwrap(), &dir).unwrap();
     let scale = reference.correlators[0].values[5].re.abs();
     assert_eq!(reference.correlators.len(), 9);
 
     // The last one leaves the choice of the grid to the program.
-    for (processes, grid) in [(4, Some("2,1,1,2")), (8, Some("1,2,2,2")), (4, None)] {
-        let mut command = Command::new("mpirun");
-        command
-            .args(["--oversubscribe", "-np", &processes.to_string()])
-            .arg(env!("CARGO_BIN_EXE_ruttice-mpi"));
-        if let Some(grid) = grid {
-            command.args(["--grid", grid]);
-        }
+    for (processes, grid) in [
+        (4, Some("[2, 1, 1, 2]")),
+        (8, Some("[1, 2, 2, 2]")),
+        (4, None),
+    ] {
+        let grid_line = grid.map_or(String::new(), |g| format!("process_grid = {g}\n"));
+        std::fs::write(&file, format!("{grid_line}{PARAMETERS}")).unwrap();
+        let mut command = common::mpirun(processes);
+        command.arg(env!("CARGO_BIN_EXE_ruttice-mpi"));
         let output = match command.arg(&file).output() {
             Ok(output) => output,
             Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -112,14 +111,17 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
     }
 
     // A grid that does not fit is an error from every process, not a hang.
-    let output = Command::new("mpirun")
-        .args(["--oversubscribe", "-np", "2"])
+    std::fs::write(&file, format!("process_grid = [1, 1, 1, 4]\n{PARAMETERS}")).unwrap();
+    let output = common::mpirun(2)
         .arg(env!("CARGO_BIN_EXE_ruttice-mpi"))
-        .args(["--grid", "1,1,1,4"])
         .arg(&file)
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("process grid"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("needs 4 processes, but there are 2"),
+        "{stderr}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

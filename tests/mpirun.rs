@@ -1,8 +1,9 @@
 //! Checks: the MPI communicator, by launching `ruttice-mpi-check` under `mpirun` for several
 //! process grids. Skipped, with a message, if there is no `mpirun`.
 
+mod common;
+
 use std::io::ErrorKind;
-use std::process::Command;
 
 #[test]
 fn distributed_results_match_a_single_process() {
@@ -14,8 +15,7 @@ fn distributed_results_match_a_single_process() {
         [2, 2, 2, 2],
     ] {
         let processes: usize = grid.iter().product();
-        let output = Command::new("mpirun")
-            .args(["--oversubscribe", "-np", &processes.to_string()])
+        let output = common::mpirun(processes)
             .arg(env!("CARGO_BIN_EXE_ruttice-mpi-check"))
             .args(grid.map(|n| n.to_string()))
             .output();

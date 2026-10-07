@@ -17,6 +17,10 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     /// Lattice extents [Lx, Ly, Lz, Lt].
     pub lattice: [usize; ND],
+    /// Number of processes in each direction when the program runs on several. Their
+    /// product must be the number of processes. Chosen automatically when absent.
+    #[serde(default)]
+    pub process_grid: Option<[usize; ND]>,
     pub gauge: GaugeConfig,
     pub solver: SolverConfig,
     /// One entry per quark flavour. Correlators are computed for every pair (i, j), i <= j.
