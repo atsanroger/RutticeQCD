@@ -46,10 +46,15 @@ required-features = ["mpi"]
 # The communicator on MPI (`backend::mpi`) and the programs that use it. Needs an MPI
 # installation and libclang to build.
 mpi = ["dep:mpi"]
+# Gauge configurations in HDF5 files (`io::hdf5`). Needs the HDF5 library to build.
+hdf5 = ["dep:hdf5", "dep:ndarray"]
 
 [dependencies]
 rayon = "1"
 mpi = { version = "0.8", optional = true }
+# HDF5 files, and the arrays its interface is written in.
+hdf5 = { version = "0.8", optional = true }
+ndarray = { version = "0.15", optional = true }
 # Parameter files (`app`).
 serde = { version = "1", features = ["derive"] }
 toml = "1"

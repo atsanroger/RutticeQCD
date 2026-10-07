@@ -1,4 +1,27 @@
 //! Reading and writing gauge configurations.
+//!
+//! A file format is a type that implements `GaugeFile`:
+//!
+//! - `BridgeText`: plain text, one real per line (`bridge`)
+//! - `Ildg` and `Scidac`: binary data in a LIME container, as the ILDG specifies it and as
+//!   the SciDAC QIO library writes it (`lime`)
+//! - `Hdf5`: one dataset in an HDF5 file, read by hyperslabs; only with the feature `hdf5`
+//!
+//! All of them keep the links in the same order, the one of ILDG: the site outermost with x
+//! running fastest, then the direction, then the 3x3 matrix row by row, real part first.
+//!
+//! Reading works on several processes; each keeps the part of the lattice it holds.
+//! Writing is for one process so far.
+
+mod bridge;
+#[cfg(feature = "hdf5")]
+mod hdf5;
+mod lime;
+
+pub use bridge::{read_bridge_text, write_bridge_text};
+#[cfg(feature = "hdf5")]
+pub use hdf5::{read_hdf5, write_hdf5};
+pub use lime::{read_lime, write_ildg, write_scidac};
 
 use crate::{Field, Gauge, Lattice, ND};
 use std::fmt;
@@ -7,22 +30,50 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum IoError {
+    /// The file could not be read or written.
     Read(std::io::Error),
-    Parse { index: usize, token: String },
-    Count { expected: usize, found: usize },
+    Parse {
+        index: usize,
+        token: String,
+    },
+    Count {
+        expected: usize,
+        found: usize,
+    },
+    /// The file is not what the format says it should be.
+    Format(String),
+    /// The file is for another lattice.
+    Lattice {
+        file: [usize; ND],
+        expected: [usize; ND],
+    },
+    /// The data do not have the checksum recorded in the file.
+    Checksum {
+        recorded: (u32, u32),
+        computed: (u32, u32),
+    },
     Unsupported(&'static str),
 }
 
 impl fmt::Display for IoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IoError::Read(e) => write!(f, "cannot read file: {e}"),
+            IoError::Read(e) => write!(f, "cannot read or write the file: {e}"),
             IoError::Parse { index, token } => {
                 write!(f, "value {index} is not a number: {token:?}")
             }
             IoError::Count { expected, found } => {
                 write!(f, "expected {expected} values, found {found}")
             }
+            IoError::Format(what) => write!(f, "{what}"),
+            IoError::Lattice { file, expected } => {
+                write!(f, "the file holds a {file:?} lattice, not {expected:?}")
+            }
+            IoError::Checksum { recorded, computed } => write!(
+                f,
+                "checksum mismatch: the file records {:x} {:x}, its data give {:x} {:x}",
+                recorded.0, recorded.1, computed.0, computed.1
+            ),
             IoError::Unsupported(what) => write!(f, "not supported yet: {what}"),
         }
     }
@@ -30,113 +81,126 @@ impl fmt::Display for IoError {
 
 impl std::error::Error for IoError {}
 
-/// Read a gauge configuration in the plain-text format used by Bridge++ (one real per
-/// line).
-///
-/// File order, outermost first: global site (x fastest), direction, then the 18 reals of
-/// the link, row-major with the real part first (the ILDG ordering). This interoperates
-/// with the file format only; the reader is written from that description.
-///
-/// With several processes, every process reads the whole file and keeps its own part.
-pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
-    let text = std::fs::read_to_string(path).map_err(IoError::Read)?;
-    let mut u = Field::<f64, Gauge>::gauge(lat);
-    let num_sites = lat.num_sites();
-    let expected = ND * lat.num_global_sites() * 18;
-    let out = u.as_mut_slice();
-    // The local site of the global site being read, if this process holds it.
-    let mut local = None;
-    let mut found = 0;
-    for token in text.split_ascii_whitespace() {
-        if found < expected {
-            // The field keeps the direction outermost; the file keeps the site outermost.
-            let (site, mu, c) = (found / (ND * 18), (found / 18) % ND, found % 18);
-            if mu == 0 && c == 0 {
-                let mut rest = site;
-                let x = lat.global.map(|l| {
-                    let x = rest % l;
-                    rest /= l;
-                    x
-                });
-                local = lat.local_site(x);
-            }
-            let value: f64 = token.parse().map_err(|_| IoError::Parse {
-                index: found,
-                token: token.to_string(),
-            })?;
-            if let Some(site) = local {
-                out[c + 18 * (site + num_sites * mu)] = value;
-            }
-        }
-        found += 1;
+impl From<std::io::Error> for IoError {
+    fn from(e: std::io::Error) -> Self {
+        IoError::Read(e)
     }
-    if found != expected {
-        return Err(IoError::Count { expected, found });
-    }
-    Ok(u)
 }
 
-/// Write a gauge configuration in the same plain-text format, one real per line, with
-/// enough digits that reading it back gives the same bits.
-pub fn write_bridge_text(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
-    use std::fmt::Write;
-    let lat = u.lattice();
-    if lat.local != lat.global {
-        return Err(IoError::Unsupported(
+/// A file format for gauge configurations.
+pub trait GaugeFile {
+    /// Read the configuration of the lattice `lat`. Every process makes this call and gets
+    /// its part.
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError>;
+    /// Write a configuration held by one process.
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError>;
+}
+
+/// The precision of the reals in a binary file. Fields in memory are double precision
+/// either way.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FilePrecision {
+    Single,
+    #[default]
+    Double,
+}
+
+impl FilePrecision {
+    /// Bytes of one real.
+    pub fn bytes(self) -> usize {
+        match self {
+            FilePrecision::Single => 4,
+            FilePrecision::Double => 8,
+        }
+    }
+}
+
+/// Plain text, one real per line: the text format of Bridge++.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BridgeText;
+
+impl GaugeFile for BridgeText {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_bridge_text(path, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_bridge_text(path, u)
+    }
+}
+
+/// The ILDG format: a LIME container with the records `ildg-format` and
+/// `ildg-binary-data`. Written the way QIO writes ILDG files, with the SciDAC records and
+/// the checksum next to them. Reading takes the precision from the file.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Ildg {
+    /// The precision to write in.
+    pub precision: FilePrecision,
+}
+
+impl GaugeFile for Ildg {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_lime(path, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_ildg(path, u, self.precision)
+    }
+}
+
+/// A lattice-colour-matrix record of the SciDAC QIO library: a LIME container with the
+/// record `scidac-binary-data`. Reading is the same as for `Ildg`: either kind of binary
+/// record is accepted.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Scidac {
+    /// The precision to write in.
+    pub precision: FilePrecision,
+}
+
+impl GaugeFile for Scidac {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_lime(path, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_scidac(path, u, self.precision)
+    }
+}
+
+/// One dataset of an HDF5 file; see `hdf5` for its shape.
+#[cfg(feature = "hdf5")]
+#[derive(Clone, Debug)]
+pub struct Hdf5 {
+    /// Name of the dataset in the file.
+    pub dataset: String,
+}
+
+#[cfg(feature = "hdf5")]
+impl Default for Hdf5 {
+    fn default() -> Self {
+        Self {
+            dataset: "gauge".to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "hdf5")]
+impl GaugeFile for Hdf5 {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_hdf5(path, &self.dataset, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_hdf5(path, &self.dataset, u)
+    }
+}
+
+/// Reals of one link: a 3x3 complex matrix.
+const LINK_REALS: usize = 18;
+
+/// Writing needs the whole lattice on the calling process.
+fn on_one_process(lat: &Lattice) -> Result<(), IoError> {
+    if lat.local == lat.global {
+        Ok(())
+    } else {
+        Err(IoError::Unsupported(
             "writing a configuration on more than one process",
-        ));
-    }
-    let num_sites = lat.num_sites();
-    let mut text = String::with_capacity(ND * num_sites * 18 * 25);
-    for site in 0..num_sites {
-        for mu in 0..ND {
-            for x in u.site(mu, site) {
-                // Writing to a String cannot fail.
-                let _ = writeln!(text, "{x:.16e}");
-            }
-        }
-    }
-    std::fs::write(path, text).map_err(IoError::Read)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_in_field_order_and_checks_count() {
-        let lat = Lattice::single_node([2, 2, 2, 2]);
-        let n = ND * 16 * 18;
-        let dir = std::env::temp_dir();
-        let good = dir.join("ruttice_io_test_good.txt");
-        let text: String = (0..n)
-            .map(|i| format!("{:.14e}\n", i as f64 * 0.5))
-            .collect();
-        std::fs::write(&good, &text).unwrap();
-        let u = read_bridge_text(&good, &lat).unwrap();
-        // direction 1, site 3, component 4
-        assert_eq!(u.site(1, 3)[4], (3 * 72 + 18 + 4) as f64 * 0.5);
-
-        // Writing and reading back is exact.
-        let copy = dir.join("ruttice_io_test_copy.txt");
-        let mut v = u;
-        for (i, x) in v.as_mut_slice().iter_mut().enumerate() {
-            *x = (i as f64 * 0.37).sin() / 3.0;
-        }
-        write_bridge_text(&copy, &v).unwrap();
-        assert_eq!(
-            read_bridge_text(&copy, &lat).unwrap().as_slice(),
-            v.as_slice()
-        );
-        let _ = std::fs::remove_file(copy);
-
-        let short = dir.join("ruttice_io_test_short.txt");
-        std::fs::write(&short, "1.0\n2.0\n").unwrap();
-        assert!(matches!(
-            read_bridge_text(&short, &lat),
-            Err(IoError::Count { found: 2, .. })
-        ));
-        let _ = std::fs::remove_file(good);
-        let _ = std::fs::remove_file(short);
+        ))
     }
 }

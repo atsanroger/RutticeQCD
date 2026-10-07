@@ -88,14 +88,28 @@ for files that fit in memory. The results agree with a single process up to roun
 
 ### The gauge configuration file
 
-One format is read so far: plain text with one real number per line, the format Bridge++
-calls `Text`. The numbers are ordered, from the outermost loop to the innermost:
+`gauge.format` names the format of the file:
+
+| `gauge.format` | File |
+|---|---|
+| `bridge_text` | plain text with one real number per line, the format Bridge++ calls `Text` |
+| `ildg` | the ILDG format: a LIME container with the records `ildg-format` and `ildg-binary-data` |
+| `scidac` | a lattice-colour-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
+| `hdf5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library |
+
+All four keep the numbers in the same order, from the outermost loop to the innermost:
 
 1. site, with x running fastest: `site = x + Lx * (y + Ly * (z + Lz * t))`
 2. direction mu = x, y, z, t
 3. the 3×3 link matrix row by row, real part then imaginary part of each entry
 
-That is `Lx * Ly * Lz * Lt * 4 * 18` numbers. A file of the wrong length is rejected.
+That is `Lx * Ly * Lz * Lt * 4 * 18` numbers. A file of the wrong length or for another
+lattice is rejected. The binary formats hold big-endian reals in single or double precision;
+`ildg` and `scidac` are read by the same code, which accepts either kind of binary record
+and verifies the SciDAC checksum when the file has one.
+
+The LIME and HDF5 readers and writers were written from the descriptions of the formats and
+have not yet been tried on files from other programs; the HDF5 layout is this program's own.
 
 ## The parameter file
 
@@ -107,7 +121,7 @@ when the file is read, with the line and the accepted alternatives.
 |---|---|---|
 | `lattice` | `[Lx, Ly, Lz, Lt]` | required |
 | `gauge.file` | path of the configuration | required |
-| `gauge.format` | `bridge_text` | `bridge_text` |
+| `gauge.format` | `bridge_text`, `ildg`, `scidac` or `hdf5`; see below | `bridge_text` |
 | `gauge.fixing` | fix the gauge first; see below | none |
 | `solver.type` | `cg_normal` (conjugate gradient on the normal equations), `bicgstab`, or `fgmres` (flexible GMRES; `max_iterations` is then the Krylov space kept before a restart) | required |
 | `solver.even_odd` | solve through the even-odd (red-black) Schur complement; needs even extents | `true` |

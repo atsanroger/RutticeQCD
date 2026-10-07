@@ -122,6 +122,13 @@ pub enum GaugeFormat {
     /// Plain text, one real per line (the Bridge++ text format).
     #[default]
     BridgeText,
+    /// The ILDG format: binary data in a LIME container.
+    Ildg,
+    /// A lattice-colour-matrix record written by the SciDAC QIO library, in a LIME
+    /// container.
+    Scidac,
+    /// The dataset `gauge` of an HDF5 file; needs a program built with the feature `hdf5`.
+    Hdf5,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

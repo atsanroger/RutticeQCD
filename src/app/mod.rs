@@ -17,7 +17,7 @@ use crate::fermion::{
     GaugeError, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
 };
 use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
-use crate::io::{read_bridge_text, IoError};
+use crate::io::{BridgeText, GaugeFile, Ildg, IoError, Scidac};
 use crate::kernel::{Dirac, GammaRepre, LaneOf, SPINOR_REALS};
 use crate::measure::{
     channel, exponential_source, meson_correlator, point_source, CHANNELS, NUM_SOURCES,
@@ -510,9 +510,20 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
     let lat = Lattice::new(config.lattice, grid, comm);
 
     let gauge_path = base.join(&config.gauge.file);
-    let mut u = match config.gauge.format {
-        GaugeFormat::BridgeText => read_bridge_text(&gauge_path, &lat).map_err(CliError::Gauge)?,
+    let format: &dyn GaugeFile = match config.gauge.format {
+        GaugeFormat::BridgeText => &BridgeText,
+        GaugeFormat::Ildg => &Ildg::default(),
+        GaugeFormat::Scidac => &Scidac::default(),
+        #[cfg(feature = "hdf5")]
+        GaugeFormat::Hdf5 => &crate::io::Hdf5::default(),
+        #[cfg(not(feature = "hdf5"))]
+        GaugeFormat::Hdf5 => {
+            return invalid(
+                "gauge.format = hdf5 needs a program built with the feature hdf5".to_string(),
+            )
+        }
     };
+    let mut u = format.read(&gauge_path, &lat).map_err(CliError::Gauge)?;
     let plaq = plaquette(&u, &Stencil::nearest(&lat, [Boundary::Periodic; ND]));
     let gauge_fixing_sweeps = match &config.gauge.fixing {
         None => None,
