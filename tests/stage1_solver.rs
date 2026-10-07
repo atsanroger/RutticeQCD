@@ -122,6 +122,77 @@ fn cg_with_several_vectors_matches_separate_solves() {
     }
 }
 
+/// A linear map that counts the vectors it is applied to.
+struct Counted<'a, A> {
+    a: A,
+    vectors: &'a std::cell::Cell<usize>,
+}
+
+impl<A: LinearFn<V64>> LinearFn<V64> for Counted<'_, A> {
+    fn mult(&mut self, out: &mut V64, inp: &V64) {
+        self.vectors.set(self.vectors.get() + inp.num_vectors());
+        self.a.mult(out, inp);
+    }
+}
+
+/// Vectors that have converged leave the iteration: the solver goes on with a smaller set,
+/// the operator is applied to fewer vectors, and the vectors that go on get the bits they
+/// get when they are solved by themselves. Two right-hand sides are solved alone; then a
+/// set of four holds each of them twice, once starting from zero and once starting from
+/// the solution.
+#[test]
+fn converged_vectors_leave_the_iteration() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 31));
+    let hard = random_spinor(&lat, 2, 32);
+    let stop = Stop::simple(1e-24, 500);
+    let (fresh, solved) = ([0, 2], [1, 3]);
+    let mut four = hard.zeros_with(4);
+    four.assign(&fresh, &hard);
+    four.assign(&solved, &hard);
+
+    for name in ["cg", "bicgstab"] {
+        let count = std::cell::Cell::new(0);
+        let run = |x: &mut V64, b: &V64| {
+            count.set(0);
+            let info = if name == "cg" {
+                let mut a = Counted {
+                    a: ddag_d(&op, b),
+                    vectors: &count,
+                };
+                Cg::new(stop).solve(&mut a, None, x, b).unwrap()
+            } else {
+                let mut a = Counted {
+                    a: Bound::new(&op, Variant::D),
+                    vectors: &count,
+                };
+                BiCgStab::new(stop).solve(&mut a, None, x, b).unwrap()
+            };
+            (info, count.get())
+        };
+
+        let mut alone = hard.zeros_like();
+        let (info_alone, vectors_alone) = run(&mut alone, &hard);
+
+        let mut x = four.zeros_like();
+        x.assign(&solved, &alone);
+        let (info, vectors) = run(&mut x, &four);
+
+        assert_eq!(info.iterations, info_alone.iterations, "{name}");
+        assert!(
+            x.select(&fresh).as_slice() == alone.as_slice(),
+            "{name}: the vectors that went on differ from the ones solved alone"
+        );
+        assert!(
+            x.select(&solved).as_slice() == alone.as_slice(),
+            "{name}: the vectors that had converged were changed"
+        );
+        assert!(info.residual_sqr.iter().all(|r| *r <= 1e-24), "{name}");
+        // All four vectors only for the first residual and for the last one.
+        assert_eq!(vectors, vectors_alone + 2 * 2, "{name}");
+    }
+}
+
 #[test]
 fn bicgstab_solves_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);

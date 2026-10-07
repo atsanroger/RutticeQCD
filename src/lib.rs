@@ -36,7 +36,7 @@ mod lattice;
 
 pub use comm::{opposite_face, Comm, HaloExchange, HaloSpec, LocalComm, SingleComm, FACES};
 pub use field::blas::{dot, fill, norm_sqr};
-pub use field::linear::{Adjoint, LinearFn, LinearOp, Normal, Product};
+pub use field::linear::{fit, Adjoint, LinearFn, LinearOp, Normal, Product};
 pub use field::random::{random_spinor, TestRng};
 pub use field::storage::{stream_fence, Storage};
 pub use field::vector::{ConvertFrom, Vector, C64};
@@ -47,8 +47,8 @@ pub use lattice::blocks::{BlockStencil, Blocks, Edge, NOT_RECEIVED};
 pub use lattice::evenodd::{extract_parity, insert_parity, EvenOddIndex, Parity};
 pub use lattice::parts::{assemble, local_part};
 pub use lattice::sites::{
-    for_site_runs, for_sites, for_sites_then, min_sites_per_task, reduce_sites, reduce_sites_dyn,
-    reduce_sites_n, shift, stream_min_bytes, streams, SiteRuns, REDUCE_CHUNK,
+    for_light_sites, for_site_runs, for_sites, for_sites_then, min_sites_per_task, reduce_sites,
+    reduce_sites_dyn, reduce_sites_n, shift, stream_min_bytes, streams, SiteRuns, REDUCE_CHUNK,
 };
 pub use lattice::stencil::{Boundary, Direction, Source, Stencil};
 pub use lattice::{Lattice, ND};

@@ -58,6 +58,14 @@ impl<'a, F: EvenOdd<H>, H: Vector> Schur<'a, F, H> {
 
     fn apply(&mut self, out: &mut H, inp: &H, dagger: Dagger) {
         let (p, q) = (self.parity, self.parity.flip());
+        // The solvers go on with fewer vectors once some have converged.
+        if self.same.num_vectors() != inp.num_vectors() {
+            let n = inp.num_vectors();
+            self.other_a = self.other_a.zeros_with(n);
+            self.other_b = self.other_b.zeros_with(n);
+            self.same = self.same.zeros_with(n);
+            self.minus_one = vec![C64::new(-1.0, 0.0); n];
+        }
         // (S†) has the same form with every block replaced by the block of M†.
         self.op
             .hop(&mut self.work, &mut self.other_a, inp, q, dagger);
