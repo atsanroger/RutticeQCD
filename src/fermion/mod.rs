@@ -2,11 +2,14 @@
 
 mod clover;
 mod evenodd;
+mod mdwf;
 mod wilson;
 
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
+
+pub use mdwf::{Mdwf, MdwfParams, MdwfWork, MAX_LS};
 
 pub use wilson::{
     DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonSimd,
