@@ -1,6 +1,6 @@
 use crate::comm::{opposite_face, FACES};
 use crate::field::storage::Storage;
-use crate::field::{Aos, Cpu, Field, Kind, Sites};
+use crate::field::{Aos, Cpu, Field, Kind, Sites, CACHE_LINE};
 use crate::lattice::stencil::{Direction, Source, Stencil};
 use rayon::prelude::*;
 
@@ -27,6 +27,34 @@ pub fn min_sites_per_task() -> usize {
     })
 }
 
+/// Smallest output, in bytes, that a sweep writes with stores that bypass the cache
+/// (`Storage::stream`). Such a store only pays when the data would not have stayed in the
+/// cache until it is read again; below this size an ordinary store is used. The
+/// environment variable `RUTTICE_STREAM_MIN_BYTES` overrides it, for measuring.
+pub fn stream_min_bytes() -> usize {
+    static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("RUTTICE_STREAM_MIN_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(STREAM_MIN_BYTES)
+    })
+}
+
+/// The default of `stream_min_bytes`: about the last-level cache of one processor of a
+/// current server. Timing the Wilson operator alone, streaming was no slower at any size
+/// tried, from one thread to a whole machine; the threshold is there for the solvers, which
+/// read the result of the operator straight away. That case has not been measured.
+const STREAM_MIN_BYTES: usize = 32 << 20;
+
+/// Whether a sweep that fills `out` in pieces of `piece_len` values should use
+/// `Storage::stream`: the output is large, and every piece covers whole cache lines.
+pub fn streams<T>(out: &[T], piece_len: usize) -> bool {
+    size_of_val(out) >= stream_min_bytes()
+        && out.as_ptr().align_offset(CACHE_LINE) == 0
+        && (piece_len * size_of::<T>()).is_multiple_of(CACHE_LINE)
+}
+
 /// Call `f(site, reals_of_that_site)` for every site of `out`, in parallel.
 pub fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
 where
@@ -43,6 +71,32 @@ where
             .with_min_len(grain)
             .enumerate()
             .for_each(|(site, v)| f(site, v));
+    }
+}
+
+/// `for_sites`, with `finish()` called on each thread after the last site of every run of
+/// sites it was handed. For work that has to be closed once per task rather than once per
+/// site, such as `stream_fence` after `Storage::stream`.
+pub fn for_sites_then<T, F, E>(out: &mut [T], site_len: usize, f: F, finish: E)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+    E: Fn() + Sync,
+{
+    let grain = min_sites_per_task();
+    if out.len() <= site_len * grain {
+        for (site, v) in out.chunks_mut(site_len).enumerate() {
+            f(site, v);
+        }
+        finish();
+    } else {
+        // A fold runs over one run of sites on one thread and hands its result on from
+        // that thread when the run is finished.
+        out.par_chunks_mut(site_len)
+            .with_min_len(grain)
+            .enumerate()
+            .fold(|| (), |(), (site, v)| f(site, v))
+            .for_each(|()| finish());
     }
 }
 
