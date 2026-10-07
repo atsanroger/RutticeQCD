@@ -8,7 +8,7 @@ pub use clover::{Clover, CloverDiag, CloverParams};
 
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
-pub use wilson::{DiagTerm, UnitDiag, Wilson, WilsonOp, WilsonParams, WilsonWork};
+pub use wilson::{DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonOp, WilsonParams, WilsonWork};
 
 use crate::{Field, Gauge, LinearFn, LinearOp, Vector};
 use std::fmt;
@@ -41,6 +41,13 @@ pub enum GaugeError {
     LatticeMismatch,
     /// The site-diagonal block of the operator could not be inverted at this site.
     SingularDiagonal { site: usize },
+    /// The operator keeps two rows of each link, which needs links in SU(3), and this one
+    /// is not: `deviation` is how far it is from unitary with unit determinant.
+    NotSpecialUnitary {
+        mu: usize,
+        site: usize,
+        deviation: f64,
+    },
 }
 
 impl fmt::Display for GaugeError {
@@ -52,6 +59,14 @@ impl fmt::Display for GaugeError {
             GaugeError::SingularDiagonal { site } => {
                 write!(f, "the site-diagonal block is singular at site {site}")
             }
+            GaugeError::NotSpecialUnitary {
+                mu,
+                site,
+                deviation,
+            } => write!(
+                f,
+                "the link in direction {mu} at site {site} is not in SU(3) (off by {deviation:e}),                  so two rows of it are not enough; use the full link format"
+            ),
         }
     }
 }

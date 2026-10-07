@@ -171,7 +171,8 @@ pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>> {
     full: Geometry,
     /// Present when every extent of the lattice is even.
     even_odd: Option<EvenOddGeometry>,
-    u: Option<Field<T, Gauge>>,
+    links: LinkStore<T>,
+    link_format: LinkFormat,
     diag: D,
     _gamma: PhantomData<G>,
 }
@@ -185,19 +186,19 @@ pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 /// Links are referred to where they are stored and converted when they are used: holding
 /// eight converted matrices per site cost a copy through the stack for each.
 #[derive(Clone, Copy)]
-enum Hop<'a, T: Storage> {
+enum Hop<'a, T: Storage, R: LinkRepr> {
     /// Nothing arrives (Dirichlet boundary).
     Absent,
     /// A site of the input field: project, apply the phase and the link.
     Local {
         site: usize,
-        link: &'a StoredLink<T>,
+        link: &'a R::Stored<T>,
         phase: Option<Cplx<T::Compute>>,
     },
     /// A projected spinor from the neighbouring process; the link is on this side.
     Projected {
         index: usize,
-        link: &'a StoredLink<T>,
+        link: &'a R::Stored<T>,
         phase: Option<Cplx<T::Compute>>,
     },
     /// A spinor the neighbouring process has already transported.
@@ -236,8 +237,116 @@ impl<T: Storage, G: GammaRepre> Input<'_, T, G> {
     }
 }
 
-/// The reals of one link as the gauge field stores them.
-type StoredLink<T> = [T; 2 * NC * NC];
+/// How an operator keeps the links.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinkFormat {
+    /// All 18 reals of each link.
+    #[default]
+    Full,
+    /// The first two rows, 12 reals; the third row is rebuilt as the conjugate of their
+    /// cross product every time the link is used. A third less gauge-field memory to read,
+    /// which is what limits the speed once all cores of a processor are in use, at the
+    /// price of more arithmetic per link. Only for links in SU(3): `set_gauge` checks.
+    TwoRows,
+}
+
+/// Largest deviation from unitarity and from unit determinant that `set_gauge` accepts
+/// for `LinkFormat::TwoRows`.
+const SU3_TOLERANCE: f64 = 1e-10;
+
+/// The links of the operator, `[mu * num_sites + site]`, in the format it was asked for.
+enum LinkStore<T> {
+    Unset,
+    Full(Vec<[T; FULL_LINK_REALS]>),
+    TwoRows(Vec<[T; TWO_ROW_REALS]>),
+}
+
+const FULL_LINK_REALS: usize = 2 * NC * NC;
+const TWO_ROW_REALS: usize = 2 * 2 * NC;
+
+/// One way of keeping a link. The sweeps are generic over it, so the choice costs nothing
+/// in the site loop; it is made once per sweep from the operator's `LinkFormat`.
+trait LinkRepr: Copy + Send + Sync + 'static {
+    type Stored<T: Storage>: Copy + Send + Sync;
+    /// The links of a store that holds this representation.
+    fn of<T: Storage>(store: &LinkStore<T>) -> &[Self::Stored<T>];
+    fn load<T: Storage>(s: &Self::Stored<T>) -> ColorMatrix<T::Compute>;
+}
+
+#[derive(Clone, Copy)]
+struct FullLinks;
+#[derive(Clone, Copy)]
+struct TwoRowLinks;
+
+impl LinkRepr for FullLinks {
+    type Stored<T: Storage> = [T; FULL_LINK_REALS];
+
+    fn of<T: Storage>(store: &LinkStore<T>) -> &[Self::Stored<T>] {
+        match store {
+            LinkStore::Full(links) => links,
+            _ => unreachable!("the sweep is chosen from the format of the store"),
+        }
+    }
+
+    #[inline(always)]
+    fn load<T: Storage>(s: &Self::Stored<T>) -> ColorMatrix<T::Compute> {
+        let mut m = ColorMatrix::zero();
+        for a in 0..NC {
+            for b in 0..NC {
+                let k = 2 * (a * NC + b);
+                m.0[a][b] = Cplx::new(s[k].load(), s[k + 1].load());
+            }
+        }
+        m
+    }
+}
+
+impl LinkRepr for TwoRowLinks {
+    type Stored<T: Storage> = [T; TWO_ROW_REALS];
+
+    fn of<T: Storage>(store: &LinkStore<T>) -> &[Self::Stored<T>] {
+        match store {
+            LinkStore::TwoRows(links) => links,
+            _ => unreachable!("the sweep is chosen from the format of the store"),
+        }
+    }
+
+    /// For U in SU(3) the third row is the conjugate of the cross product of the first two.
+    #[inline(always)]
+    fn load<T: Storage>(s: &Self::Stored<T>) -> ColorMatrix<T::Compute> {
+        let mut m = ColorMatrix::zero();
+        for a in 0..2 {
+            for b in 0..NC {
+                let k = 2 * (a * NC + b);
+                m.0[a][b] = Cplx::new(s[k].load(), s[k + 1].load());
+            }
+        }
+        let (x, y) = (m.0[0], m.0[1]);
+        m.0[2] = [
+            (x[1] * y[2] - x[2] * y[1]).conj(),
+            (x[2] * y[0] - x[0] * y[2]).conj(),
+            (x[0] * y[1] - x[1] * y[0]).conj(),
+        ];
+        m
+    }
+}
+
+/// How far a matrix is from SU(3): the largest element of `U U† - 1` and `|det U - 1|`.
+fn su3_deviation(u: &ColorMatrix<f64>) -> f64 {
+    let product = u.mul(&u.adj());
+    let mut worst = 0.0f64;
+    for a in 0..NC {
+        for b in 0..NC {
+            let want = if a == b { Cplx::ONE } else { Cplx::ZERO };
+            worst = worst.max((product.0[a][b] - want).norm_sqr().sqrt());
+        }
+    }
+    let m = &u.0;
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    worst.max((det - Cplx::ONE).norm_sqr().sqrt())
+}
 
 /// What is the same for every site of a sweep: the gauge field and, for each leg, the
 /// phase of a hop across the boundary of the global lattice.
@@ -246,21 +355,9 @@ type StoredLink<T> = [T; 2 * NC * NC];
 /// site. Reading a link is then one index with one bounds check; going through
 /// `Field::site` for every read recomputed the site's range from the shape of the field
 /// each time.
-struct Fixed<'a, T: Storage> {
-    links: [&'a [StoredLink<T>]; ND],
+struct Fixed<'a, T: Storage, R: LinkRepr> {
+    links: [&'a [R::Stored<T>]; ND],
     phase: [Option<Cplx<T::Compute>>; FACES],
-}
-
-#[inline(always)]
-fn load_link<T: Storage>(s: &StoredLink<T>) -> ColorMatrix<T::Compute> {
-    let mut m = ColorMatrix::zero();
-    for a in 0..NC {
-        for b in 0..NC {
-            let k = 2 * (a * NC + b);
-            m.0[a][b] = Cplx::new(s[k].load(), s[k + 1].load());
-        }
-    }
-    m
 }
 
 /// The spin structure and link use of the legs in one direction.
@@ -292,7 +389,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             lat: lat.clone(),
             full: Geometry::full(lat, params.boundary),
             even_odd,
-            u: None,
+            links: LinkStore::Unset,
+            link_format: LinkFormat::Full,
             diag,
             _gamma: PhantomData,
         }
@@ -307,10 +405,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         self.even_odd.as_ref().map(|eo| &eo.index)
     }
 
-    fn gauge(&self) -> &Field<T, Gauge> {
-        self.u
-            .as_ref()
-            .expect("Wilson: set_gauge must be called before the operator is applied")
+    /// Choose how the links are kept. The gauge field has to be set again afterwards.
+    pub fn with_link_format(mut self, format: LinkFormat) -> Self {
+        self.link_format = format;
+        self.links = LinkStore::Unset;
+        self
+    }
+
+    pub fn link_format(&self) -> LinkFormat {
+        self.link_format
     }
 
     /// The phase a hop in direction (mu, dir) picks up when it crosses the boundary of the
@@ -333,13 +436,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// neighbour; when the neighbour is on another process, that process applies it (and
     /// the phase) before sending.
     #[inline(always)]
-    fn resolve<'a>(
+    fn resolve<'a, R: LinkRepr>(
         geo: &Geometry,
-        fixed: &Fixed<'a, T>,
+        fixed: &Fixed<'a, T, R>,
         site: usize,
         mu: usize,
         dir: Direction,
-    ) -> Hop<'a, T> {
+    ) -> Hop<'a, T, R> {
         let phase = |wrapped: bool| {
             if wrapped {
                 fixed.phase[Stencil::leg(mu, dir)]
@@ -367,16 +470,16 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     }
 
     /// What `resolve` needs and does not change during a sweep.
-    fn fixed(&self) -> Fixed<'_, T> {
+    fn fixed<R: LinkRepr>(&self) -> Fixed<'_, T, R> {
         let mut phase = [None; FACES];
         for mu in 0..ND {
             for dir in [Direction::Forward, Direction::Backward] {
                 phase[Stencil::leg(mu, dir)] = self.boundary_phase(mu, dir);
             }
         }
-        let u = self.gauge();
+        let (all, n) = (R::of(&self.links), self.lat.num_sites());
         Fixed {
-            links: core::array::from_fn(|mu| u.slab(mu).as_chunks().0),
+            links: core::array::from_fn(|mu| &all[mu * n..(mu + 1) * n]),
             phase,
         }
     }
@@ -385,8 +488,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// the site. `local(site)` reads the input field; `received` is what came in on the
     /// face of this leg.
     #[inline(always)]
-    fn arrive(
-        hop: &Hop<'_, T>,
+    fn arrive<R: LinkRepr>(
+        hop: &Hop<'_, T, R>,
         mu: usize,
         dir: Direction,
         input: &Input<'_, T, G>,
@@ -399,13 +502,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 &G::GAMMA[mu],
                 sign,
                 &input.local(*site),
-                &load_link::<T>(link),
+                &R::load::<T>(link),
                 link_use,
                 *phase,
             )),
             Hop::Projected { index, link, phase } => Some(transport_half(
                 &load_half::<T>(received, input.slot(*index)),
-                &load_link::<T>(link),
+                &R::load::<T>(link),
                 link_use,
                 *phase,
             )),
@@ -420,10 +523,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// as a loop variable the compiler kept the loop and the table lookups (seen in the
     /// generated code as indirect jumps on every component).
     #[inline(always)]
-    fn add_legs<const MU: usize>(
+    fn add_legs<const MU: usize, R: LinkRepr>(
         hops: &mut SiteSpinor<T::Compute>,
-        forward: &Hop<'_, T>,
-        backward: &Hop<'_, T>,
+        forward: &Hop<'_, T, R>,
+        backward: &Hop<'_, T, R>,
         input: &Input<'_, T, G>,
         received: &[&[T]; FACES],
     ) {
@@ -447,7 +550,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// goes the projection only; the neighbour holds the link of its forward legs.
     ///
     /// `only` restricts the packing to what the legs in one direction need.
-    fn exchange<'w, SI: Sites>(
+    fn exchange<'w, R: LinkRepr, SI: Sites>(
         &self,
         work: &'w mut WilsonWork<T>,
         geo: &Geometry,
@@ -481,7 +584,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 for_sites(buffer, copies * HALF_SPINOR_REALS, |k, o| {
                     let site = sites[k] as usize;
                     let link = match send {
-                        Direction::Forward => Some(self.link(mu, geo.inp_site(site))),
+                        Direction::Forward => Some(self.link::<R>(mu, geo.inp_site(site))),
                         Direction::Backward => None,
                     };
                     let o = o.as_chunks_mut::<HALF_SPINOR_REALS>().0;
@@ -489,7 +592,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                         let psi = Self::input(inp, site, r, pre);
                         let h = match link {
                             Some(link) => {
-                                let link = load_link::<T>(link);
+                                let link = R::load::<T>(link);
                                 transport(&G::GAMMA[mu], sign, &psi, &link, link_use, phase)
                             }
                             None => project(&G::GAMMA[mu], sign, &psi),
@@ -525,8 +628,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// The link U_mu at a full-lattice site.
     #[inline(always)]
-    fn link(&self, mu: usize, full_site: usize) -> &StoredLink<T> {
-        &self.gauge().slab(mu).as_chunks().0[full_site]
+    fn link<R: LinkRepr>(&self, mu: usize, full_site: usize) -> &R::Stored<T> {
+        &R::of(&self.links)[mu * self.lat.num_sites() + full_site]
     }
 
     fn check<SO: Sites, SI: Sites>(
@@ -587,13 +690,34 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor, SO>,
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
+        gamma5: (bool, bool),
+    ) {
+        match self.links {
+            LinkStore::Full(_) => {
+                self.sweep_with::<FullLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5)
+            }
+            LinkStore::TwoRows(_) => {
+                self.sweep_with::<TwoRowLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5)
+            }
+            LinkStore::Unset => panic!("set_gauge must be called before the operator is applied"),
+        }
+    }
+
+    /// `sweep` for one representation of the links.
+    fn sweep_with<R: LinkRepr, SO: Sites, SI: Sites>(
+        &self,
+        work: &mut WilsonWork<T>,
+        geo: &Geometry,
+        out: &mut Field<T, Spinor, SO>,
+        inp: &Field<T, Spinor, SI>,
+        diagonal: Diagonal,
         (pre, post): (bool, bool),
     ) {
         self.check(geo, out, inp);
         let kappa: T::Compute = Real::from_f64(self.params.kappa);
         let copies = inp.copies();
-        let received = self.exchange(work, geo, inp, pre, None);
-        let fixed = self.fixed();
+        let received = self.exchange::<R, SI>(work, geo, inp, pre, None);
+        let fixed = self.fixed::<R>();
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
 
@@ -616,10 +740,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
                 let mut hops = SiteSpinor::zero();
                 let (f, b) = (&forward, &backward);
-                Self::add_legs::<0>(&mut hops, &f[0], &b[0], &input, &received);
-                Self::add_legs::<1>(&mut hops, &f[1], &b[1], &input, &received);
-                Self::add_legs::<2>(&mut hops, &f[2], &b[2], &input, &received);
-                Self::add_legs::<3>(&mut hops, &f[3], &b[3], &input, &received);
+                Self::add_legs::<0, R>(&mut hops, &f[0], &b[0], &input, &received);
+                Self::add_legs::<1, R>(&mut hops, &f[1], &b[1], &input, &received);
+                Self::add_legs::<2, R>(&mut hops, &f[2], &b[2], &input, &received);
+                Self::add_legs::<3, R>(&mut hops, &f[3], &b[3], &input, &received);
 
                 let diag = match diagonal {
                     Diagonal::Present => self.diag.apply(x_full, &input.local(x)),
@@ -643,12 +767,28 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
+        match self.links {
+            LinkStore::Full(_) => self.hop_term_with::<FullLinks>(work, mu, dir, out, inp),
+            LinkStore::TwoRows(_) => self.hop_term_with::<TwoRowLinks>(work, mu, dir, out, inp),
+            LinkStore::Unset => panic!("set_gauge must be called before the operator is applied"),
+        }
+    }
+
+    /// `hop_term` for one representation of the links.
+    fn hop_term_with<R: LinkRepr>(
+        &self,
+        work: &mut WilsonWork<T>,
+        mu: usize,
+        dir: Direction,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
         let geo = &self.full;
         self.check(geo, out, inp);
         let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
-        let received = self.exchange(work, geo, inp, false, Some((mu, dir)));
-        let fixed = self.fixed();
+        let received = self.exchange::<R, crate::Full>(work, geo, inp, false, Some((mu, dir)));
+        let fixed = self.fixed::<R>();
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let face = received[Stencil::leg(mu, dir)];
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
@@ -748,12 +888,38 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
         if u.num_sites() != self.lat.num_sites() || u.lattice().local != self.lat.local {
             return Err(GaugeError::LatticeMismatch);
         }
-        let mut own = Field::<T, Gauge>::gauge(&self.lat);
-        for (dst, src) in own.as_mut_slice().iter_mut().zip(u.as_slice()) {
-            *dst = T::store(Real::from_f64(*src));
-        }
+        // Every link in the operator's precision, `[mu][site]` as in the gauge field.
+        let convert = |x: &f64| T::store(Real::from_f64(*x));
+        let stored: &[[f64; FULL_LINK_REALS]] = u.as_slice().as_chunks().0;
+        let links = match self.link_format {
+            LinkFormat::Full => LinkStore::Full(
+                stored
+                    .iter()
+                    .map(|link| core::array::from_fn(|k| convert(&link[k])))
+                    .collect(),
+            ),
+            LinkFormat::TwoRows => {
+                let n = self.lat.num_sites();
+                for (i, link) in stored.iter().enumerate() {
+                    let deviation = su3_deviation(&ColorMatrix::from_reals(link));
+                    if deviation.is_nan() || deviation > SU3_TOLERANCE {
+                        return Err(GaugeError::NotSpecialUnitary {
+                            mu: i / n,
+                            site: i % n,
+                            deviation,
+                        });
+                    }
+                }
+                LinkStore::TwoRows(
+                    stored
+                        .iter()
+                        .map(|link| core::array::from_fn(|k| convert(&link[k])))
+                        .collect(),
+                )
+            }
+        };
         self.diag.set_gauge(&self.lat, u)?;
-        self.u = Some(own);
+        self.links = links;
         Ok(())
     }
 
