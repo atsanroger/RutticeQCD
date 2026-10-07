@@ -324,3 +324,27 @@ that needs them will not follow Bridge++ sweep for sweep. Independent checks
 (`stage2_gauge_fixing.rs`): convergence from a random configuration, the plaquette being
 unchanged, the same configuration on every process grid with and without resets, and the
 gauge transformation against a separate reference implementation.
+
+## 12. Domain-wall operator (Shamir), one application
+
+| | |
+|---|---|
+| Reference | Bridge++ test `Mult_Domainwall` (`test_Mult_Domainwall.yaml`), its `expected_result` |
+| What | the norm of D applied to a field with every real equal to 1 |
+| Parameters | 4×4×4×8, `conf_04040408.txt`, Ls = 8, M5 = 1.6, m = 0.1, b = 1, c = 0, boundary (1, 1, 1, -1), Dirac representation |
+| RutticeQCD | test `bridge_mult_domainwall`; `Mdwf::mult` with `Variant::D` |
+| Precision of the reference | 15 significant digits |
+
+| | Bridge++ | RutticeQCD |
+|---|---|---|
+| \|D 1\| | 1.02352320377108e+03 | agrees to 1e-12 relative (the tolerance of the test) |
+
+What this validates: the normalisation of the Wilson kernel inside the operator
+(κ = 1/(8 - 2 M5), the factor 4 - M5), the projectors and the sign of the hops in the fifth
+dimension, and the mass term across the walls.
+
+What it does not validate: the Möbius coefficients (c = 0 here), D†, and Γ5 D. Those have
+only checks that need no reference (`stage3_mdwf.rs`): D† is the adjoint of D for
+(b, c) = (1.5, 0.5); Γ5 D is Hermitian for c = 0 and is not for c ≠ 0; two vectors in one
+field are independent; several processes give the bits of one.
+
