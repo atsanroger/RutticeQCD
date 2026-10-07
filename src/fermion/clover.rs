@@ -21,7 +21,7 @@ use super::wilson::{DiagTerm, WilsonOp, WilsonParams};
 use super::GaugeError;
 use crate::gauge::{field_strength, PLANES};
 use crate::kernel::{
-    hermitian6_mul, Cplx, Dirac, Gamma, GammaRepre, Real, Spinor as SiteSpinor, Unit,
+    hermitian6_mul, Cplx, Dirac, Gamma, GammaRepre, Number, Spinor as SiteSpinor, Unit,
     HERMITIAN6_REALS, NC, NS,
 };
 use crate::numerics::invert_complex;
@@ -92,7 +92,7 @@ impl<T: Storage> CloverDiag<T> {
         );
 
         // Back to spin components; the two 1/√2 combine into 1/2.
-        let half: T::Compute = Real::from_f64(0.5);
+        let half: T::Compute = Number::from_f64(0.5);
         let mut out = SiteSpinor::zero();
         for k in 0..BLOCK {
             out.0[k / NC][k % NC] = (p[k] + m[k]).scale(half);
@@ -196,7 +196,7 @@ impl<T: Storage> DiagTerm<T> for CloverDiag<T> {
         let mut t_inv = vec![T::default(); n * SITE_REALS];
         let store = |dst: &mut [T], src: &[f64; HERMITIAN6_REALS]| {
             for (d, s) in dst.iter_mut().zip(src) {
-                *d = T::store(Real::from_f64(*s));
+                *d = T::store(Number::from_f64(*s));
             }
         };
 

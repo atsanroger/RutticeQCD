@@ -5,7 +5,10 @@
 //!
 //! Written from the mathematics; not derived from any other code base.
 
+mod lanes;
 mod spin;
+
+pub use lanes::{Lane, LaneOf, Lanes};
 
 pub use spin::{
     chiral_join, chiral_split, hermitian6_mul, project, sink_spinor, transport, transport_half,
@@ -18,10 +21,10 @@ use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
 /// Number of colours. Fixed at compile time.
 pub const NC: usize = 3;
 
-/// A real type kernels compute with.
-pub trait Real:
+/// What the kernels compute with: a real number, or several of them in lanes
+/// (`lanes::Lane`), with the arithmetic the kernels need and nothing else.
+pub trait Number:
     Copy
-    + PartialOrd
     + core::fmt::Debug
     + Send
     + Sync
@@ -29,7 +32,6 @@ pub trait Real:
     + Add<Output = Self>
     + Sub<Output = Self>
     + Mul<Output = Self>
-    + Div<Output = Self>
     + Neg<Output = Self>
     + AddAssign
     + SubAssign
@@ -37,30 +39,41 @@ pub trait Real:
 {
     const ZERO: Self;
     const ONE: Self;
+    /// The value `x`, in every lane if there are several.
     fn from_f64(x: f64) -> Self;
+}
+
+/// A single real number: what fields store and reductions read.
+pub trait Real: Number + PartialOrd + Div<Output = Self> {
     fn to_f64(self) -> f64;
 }
 
-impl Real for f32 {
+impl Number for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     #[inline(always)]
     fn from_f64(x: f64) -> Self {
         x as f32
     }
+}
+
+impl Real for f32 {
     #[inline(always)]
     fn to_f64(self) -> f64 {
         self as f64
     }
 }
 
-impl Real for f64 {
+impl Number for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     #[inline(always)]
     fn from_f64(x: f64) -> Self {
         x
     }
+}
+
+impl Real for f64 {
     #[inline(always)]
     fn to_f64(self) -> f64 {
         self
@@ -73,7 +86,7 @@ pub struct Cplx<T> {
     pub im: T,
 }
 
-impl<T: Real> Cplx<T> {
+impl<T: Number> Cplx<T> {
     pub const ZERO: Self = Self {
         re: T::ZERO,
         im: T::ZERO,
@@ -107,7 +120,7 @@ impl<T: Real> Cplx<T> {
     }
 }
 
-impl<T: Real> Add for Cplx<T> {
+impl<T: Number> Add for Cplx<T> {
     type Output = Self;
     #[inline(always)]
     fn add(self, o: Self) -> Self {
@@ -118,7 +131,7 @@ impl<T: Real> Add for Cplx<T> {
     }
 }
 
-impl<T: Real> Sub for Cplx<T> {
+impl<T: Number> Sub for Cplx<T> {
     type Output = Self;
     #[inline(always)]
     fn sub(self, o: Self) -> Self {
@@ -129,7 +142,7 @@ impl<T: Real> Sub for Cplx<T> {
     }
 }
 
-impl<T: Real> Mul for Cplx<T> {
+impl<T: Number> Mul for Cplx<T> {
     type Output = Self;
     #[inline(always)]
     fn mul(self, o: Self) -> Self {
@@ -153,7 +166,7 @@ impl<T: Real> Div for Cplx<T> {
     }
 }
 
-impl<T: Real> Neg for Cplx<T> {
+impl<T: Number> Neg for Cplx<T> {
     type Output = Self;
     #[inline(always)]
     fn neg(self) -> Self {
@@ -164,7 +177,7 @@ impl<T: Real> Neg for Cplx<T> {
     }
 }
 
-impl<T: Real> AddAssign for Cplx<T> {
+impl<T: Number> AddAssign for Cplx<T> {
     #[inline(always)]
     fn add_assign(&mut self, o: Self) {
         self.re += o.re;
@@ -181,7 +194,7 @@ const _: () = assert!(
     "mul_vec and adj_mul_vec are written out for three colours"
 );
 
-impl<T: Real> ColorMatrix<T> {
+impl<T: Number> ColorMatrix<T> {
     /// Number of reals in the full (uncompressed) representation.
     pub const REALS: usize = 2 * NC * NC;
 

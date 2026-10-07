@@ -1,6 +1,6 @@
 use super::{Basis, MultigridError};
 use crate::fermion::HopTerms;
-use crate::kernel::{Cplx, Real};
+use crate::kernel::{Cplx, Number, Real};
 use crate::numerics::invert_complex;
 use crate::{
     for_sites, Boundary, Coarse, Direction, Field, Lattice, LinearFn, LinearOp, Source, Spinor,
@@ -80,7 +80,7 @@ impl<T: Storage> CoarseOp<T> {
         let matrix = 2 * dim * dim;
         let mut diag = vec![T::default(); n_coarse * matrix];
         let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
-        let hop_coefficient: T::Compute = Real::from_f64(op.hop_coefficient());
+        let hop_coefficient: T::Compute = Number::from_f64(op.hop_coefficient());
         let one = T::store(T::Compute::ONE);
 
         let mut unit = basis.coarse_field(1);
@@ -160,7 +160,7 @@ impl<T: Storage> CoarseOp<T> {
                 invert_complex(dim, &mut a, &mut a_inv)
                     .map_err(|_| MultigridError::SingularCoarseDiagonal { coarse_site: site })?;
                 for (o, x) in inv[block].iter_mut().zip(&a_inv) {
-                    *o = T::store(Real::from_f64(*x));
+                    *o = T::store(Number::from_f64(*x));
                 }
             }
             Some(inv)

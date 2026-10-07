@@ -21,7 +21,8 @@
 use super::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use crate::kernel::{
     project, sink_spinor, transport, transport_half, ColorMatrix, Cplx, Dirac, GammaRepre,
-    HalfSpinor, LinkUse, Real, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, NC, NS, SPINOR_REALS,
+    HalfSpinor, LinkUse, Number, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, NC, NS,
+    SPINOR_REALS,
 };
 use crate::{
     for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, HaloExchange, Lattice,
@@ -432,7 +433,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 Direction::Backward => (re, -im),
             }),
         };
-        phase.map(|(re, im)| Cplx::new(Real::from_f64(re), Real::from_f64(im)))
+        phase.map(|(re, im)| Cplx::new(Number::from_f64(re), Number::from_f64(im)))
     }
 
     /// The leg in direction (mu, dir) of output site `site`.
@@ -719,7 +720,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         (pre, post): (bool, bool),
     ) {
         self.check(geo, out, inp);
-        let kappa: T::Compute = Real::from_f64(self.params.kappa);
+        let kappa: T::Compute = Number::from_f64(self.params.kappa);
         let copies = inp.copies();
         let received = self.exchange::<R, SI>(work, geo, inp, pre, None);
         let fixed = self.fixed::<R>();
@@ -894,7 +895,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
             return Err(GaugeError::LatticeMismatch);
         }
         // Every link in the operator's precision, `[mu][site]` as in the gauge field.
-        let convert = |x: &f64| T::store(Real::from_f64(*x));
+        let convert = |x: &f64| T::store(Number::from_f64(*x));
         let stored: &[[f64; FULL_LINK_REALS]] = u.as_slice().as_chunks().0;
         let links = match self.link_format {
             LinkFormat::Full => LinkStore::Full(

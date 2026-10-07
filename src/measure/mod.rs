@@ -3,7 +3,7 @@
 //! A propagator from one source point is a spinor field with twelve vectors: vector
 //! `k = colour + 3 * spin` is the solution for a unit source in that spin and colour.
 
-use crate::kernel::{Cplx, Gamma, GammaRepre, Real, Unit, NC, NS, SPINOR_REALS};
+use crate::kernel::{Cplx, Gamma, GammaRepre, Number, Real, Unit, NC, NS, SPINOR_REALS};
 use crate::{reduce_sites_dyn, Field, Lattice, Spinor, Storage, C64, ND};
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub fn point_source<T: Storage>(lat: &Arc<Lattice>, position: [usize; ND]) -> Fi
     if let Some(site) = lat.local_site(position) {
         let site = b.site_mut(0, site);
         for k in 0..NUM_SOURCES {
-            site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(1.0));
+            site[k * SPINOR_REALS + 2 * k] = T::store(Number::from_f64(1.0));
         }
     }
     b
@@ -75,7 +75,7 @@ pub fn exponential_source<T: Storage>(
         let w = profile[x + l[0] * (y + l[1] * z)] / norm;
         let site = b.site_mut(0, site);
         for k in 0..NUM_SOURCES {
-            site[k * SPINOR_REALS + 2 * k] = T::store(Real::from_f64(w));
+            site[k * SPINOR_REALS + 2 * k] = T::store(Number::from_f64(w));
         }
     }
     b

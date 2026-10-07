@@ -1,5 +1,5 @@
 use super::{Aggregation, MultigridError};
-use crate::kernel::{Cplx, Real};
+use crate::kernel::{Cplx, Number};
 use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
 use std::sync::Arc;
 
@@ -80,8 +80,8 @@ impl<T: Storage> Basis<T> {
                         let base = ((*site as usize * n + i) * 2 + c) * reals;
                         for d in 0..reals / 2 {
                             let z = chirality[i * dim + k * reals / 2 + d];
-                            data[base + 2 * d] = T::store(Real::from_f64(z.re));
-                            data[base + 2 * d + 1] = T::store(Real::from_f64(z.im));
+                            data[base + 2 * d] = T::store(Number::from_f64(z.re));
+                            data[base + 2 * d + 1] = T::store(Number::from_f64(z.im));
                         }
                     }
                 }
