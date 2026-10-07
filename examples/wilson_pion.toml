@@ -5,6 +5,7 @@
 # Relative paths are taken from the directory of this file.
 
 lattice = [4, 4, 4, 8]
+# process_grid = [1, 1, 2, 2]  # processes in x, y, z, t for ruttice-mpi; chosen automatically if omitted
 
 [gauge]
 file = "conf_04040408.txt"      # plain text, one real per line

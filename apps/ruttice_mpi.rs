@@ -1,6 +1,6 @@
 //! The `ruttice` program for several processes:
 //!
-//!     mpirun -np 4 ruttice-mpi --grid 1,1,2,2 PARAMETER_FILE
+//!     mpirun -np 4 ruttice-mpi PARAMETER_FILE
 //!
 //! Same parameter files and output as `ruttice`.
 

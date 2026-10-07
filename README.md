@@ -54,18 +54,28 @@ the two quarks it was built from (`11` is quark 1 with itself, `12` is quark 1 w
 ### Running on several processes
 
 The MPI version is a second program, `ruttice-mpi`, built when the feature `mpi` is turned
-on. Building it needs an MPI installation (Open MPI or MPICH) and libclang:
+on. Building it needs an MPI installation (Open MPI, MPICH or Intel MPI) and libclang:
 
 ```bash
 cargo build --release --features mpi
-mpirun -np 4 target/release/ruttice-mpi --grid 1,1,2,2 my_run/wilson_pion.toml
+mpirun -np 4 target/release/ruttice-mpi my_run/wilson_pion.toml
 ```
 
-It reads the same parameter files and prints the same table. `--grid` gives the number of
-processes in x, y, z and t; their product must be the number of processes, and each must
-divide the lattice extent in its direction. Without `--grid` the lattice is split
-automatically. With `even_odd = true`, the part of the lattice on each process must have
-even extents.
+It reads the same parameter files and prints the same table. How the lattice is split is
+set in the parameter file:
+
+```toml
+process_grid = [1, 1, 2, 2]     # processes in x, y, z, t
+```
+
+The product must be the number of processes, and each number must divide the lattice
+extent in its direction. Without `process_grid` the lattice is split automatically. With
+`even_odd = true`, the part of the lattice on each process must have even extents.
+
+`mpirun` must come from the same MPI installation the program was built with. If it does
+not, every process believes it is alone, and the program stops with a message saying that
+`process_grid` needs more processes than there are. After switching to another MPI
+installation, run `cargo clean -p mpi-sys` before building again.
 
 Every process reads the whole configuration file and keeps its part, so this is meant
 for files that fit in memory. The results agree with a single process up to rounding.
