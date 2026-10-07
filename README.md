@@ -114,10 +114,21 @@ when the file is read, with the line and the accepted alternatives.
 | `solver.tolerance_squared` | stop when \|r\|²/\|b\|² is below this for every right-hand side | required |
 | `solver.max_iterations` | iterations before the true residual is recomputed and the solver restarts | required |
 | `solver.max_restarts` | number of such restarts allowed | `3` |
+| `solver.simd` | lattice sites computed together as the lanes of one SIMD register: `1`, `2`, `4` or `8`; see below | `1` |
 | `solver.multigrid` | precondition with two-level multigrid; see below | none |
 | `quark` | a list; one entry per quark flavour, each with `fermion` and `source` | at least one |
 | `measure.channels` | `"all"` or a list of channel names | `"all"` |
 | `output.file` | also write the table to this file | none |
+
+With `solver.simd` above 1 the fields are kept in blocks of that many sites, and the
+operator and the solvers work on whole blocks. In double precision `4` fills a 256-bit
+register (AVX2) and `8` a 512-bit one (AVX-512); the program must have been built for a
+processor that has them (`RUSTFLAGS="-C target-cpu=native"`), otherwise the blocks are
+computed with ordinary instructions. The results are those of `simd = 1` up to the order
+of the sums in the solver. The lattice is cut into that many equal parts by halving it,
+t first, then z, y, x; with `even_odd = true` the parts must have even extents, so a
+4×4×4×8 lattice allows up to `8`. One process only so far, and not together with
+multigrid.
 
 Multigrid needs a solver that tolerates a preconditioner changing from one application to
 the next, `solver.type = "fgmres"` or `"bicgstab"`, and `solver.even_odd = false`; it runs on
