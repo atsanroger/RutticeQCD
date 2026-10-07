@@ -7,7 +7,9 @@ use ruttice::fermion::{solve_even_odd, Bound, FermionOp, Variant, Wilson, Wilson
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, GammaRepre};
-use ruttice::measure::{meson_correlator, pion_correlator, point_source, NUM_SOURCES};
+use ruttice::measure::{
+    channel, meson_correlator, pion_correlator, point_source, EXTRA_CHANNELS, NUM_SOURCES,
+};
 use ruttice::random_spinor;
 use ruttice::solver::{solve_cgne, Cg, Stop};
 use ruttice::{norm_sqr, Boundary, Field, Gauge, Lattice, LinearFn, Spinor, Vector, C64, ND};
@@ -152,4 +154,53 @@ fn bridge_spectrum_wilson_pion() {
     let relative = (pion[0] - BRIDGE_PION_CORRELATOR_T0).abs() / BRIDGE_PION_CORRELATOR_T0;
     assert!(relative < 1e-12, "relative difference {relative:e}");
     assert!((general[0].re - pion[0]).abs() < 1e-11 && general[0].im.abs() < 1e-11);
+}
+
+/// The axial-axial channel against the trace written out by hand: with γ4 γ5 at the sink
+/// and γ5 γ4 at the source the correlator is `Σ_x Tr[γ4 S γ4 S†]`, and γ4 is diagonal in
+/// the Dirac representation, so the trace is a sum of `±|S|²` over the elements.
+#[test]
+fn axial_axial_channel_is_the_trace_with_gamma4_on_both_sides() {
+    assert!(EXTRA_CHANNELS.contains(&"A4_A4"));
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson(&lat, &random_gauge(&lat, 91));
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 500,
+        max_restarts: 2,
+    };
+    let (s, _) = propagator(&op, &lat, [1, 0, 3, 2], stop);
+    let (sink, source) = channel::<Dirac>("A4_A4").unwrap();
+    let got = meson_correlator(&s, &s, &sink, &source, &Dirac::GAMMA5);
+    assert_eq!(got.len(), 8);
+
+    // γ4 = diag(1, 1, -1, -1); sink spin a, source spin b of vector k = colour + 3 b.
+    let sign = |spin: usize| if spin < 2 { 1.0 } else { -1.0 };
+    let mut want = [0.0; 8];
+    for site in 0..lat.num_sites() {
+        let t = lat.coords(site)[3];
+        let all = s.site(0, site);
+        for k in 0..NUM_SOURCES {
+            for a in 0..4 {
+                for i in 0..3 {
+                    let at = k * 24 + 2 * (i + 3 * a);
+                    let abs_sqr = all[at] * all[at] + all[at + 1] * all[at + 1];
+                    want[t] += sign(a) * sign(k / 3) * abs_sqr;
+                }
+            }
+        }
+    }
+    let scale = want[2].abs();
+    for t in 0..8 {
+        assert!(
+            (got[t].re - want[t]).abs() < 1e-12 * scale,
+            "t = {t}: {:?} vs {}",
+            got[t],
+            want[t]
+        );
+        assert!(got[t].im.abs() < 1e-12 * scale);
+    }
+    // Not the pseudoscalar correlator in disguise.
+    let ps = pion_correlator(&s);
+    assert!((got[2].re - ps[2]).abs() > 1e-3 * ps[2]);
 }
