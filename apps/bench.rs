@@ -2,8 +2,11 @@
 //!
 //!     ruttice-bench LX LY LZ LT [NUMBER_OF_MULTS]
 //!
-//! Prints the time of one application of D, in double and in single precision, for the
-//! number of threads the thread pool has (set with RAYON_NUM_THREADS). The operator, the
+//! Prints the time of one application of D and the speed in GFlops per core, in double and
+//! in single precision, for the number of threads the thread pool has (set with
+//! RAYON_NUM_THREADS). The flops are the operator's nominal count
+//! (`FermionOp::flops_per_site`), the one Bridge++ uses, so the figure can be set next to
+//! the "GFlops / core" that Bridge++ prints. The operator, the
 //! hopping parameter and the boundary condition are those of the Bridge++ test
 //! `Mult_Wilson`, so that the two programs can be timed on the same problem.
 
@@ -21,6 +24,8 @@ struct Timing {
     best: f64,
     mean: f64,
     norm_sqr: f64,
+    /// Nominal floating-point operations of one application on the whole lattice.
+    flops: f64,
 }
 
 /// Seconds per application of D, from `REPEATS` loops of `mults` applications each.
@@ -61,6 +66,7 @@ where
         best: seconds.iter().copied().fold(f64::INFINITY, f64::min),
         mean: seconds.iter().sum::<f64>() / REPEATS as f64,
         norm_sqr: ruttice::norm_sqr(&b),
+        flops: (op.flops_per_site() * lat.num_sites()) as f64,
     }
 }
 
@@ -88,16 +94,18 @@ fn main() -> ExitCode {
         rayon::current_num_threads(),
         ruttice::min_sites_per_task()
     );
-    println!("precision  ms/mult(best)  ms/mult(mean)  ns/site(best)  |D psi|^2");
+    let threads = rayon::current_num_threads() as f64;
+    println!("precision  ms/mult(best)  ms/mult(mean)  ns/site(best)  GFlops/core  |D psi|^2");
     for (name, t) in [
         ("double", time_mult::<f64>(&lat, mults)),
         ("single", time_mult::<f32>(&lat, mults)),
     ] {
         println!(
-            "{name:<9}  {:>13.4}  {:>13.4}  {:>13.2}  {:.12e}",
+            "{name:<9}  {:>13.4}  {:>13.4}  {:>13.2}  {:>11.4}  {:.12e}",
             t.best * 1e3,
             t.mean * 1e3,
             t.best * 1e9 / sites,
+            t.flops / t.best / threads * 1e-9,
             t.norm_sqr
         );
     }

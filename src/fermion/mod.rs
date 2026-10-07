@@ -67,6 +67,14 @@ pub trait FermionOp<V> {
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError>;
     /// `out = M inp` for the chosen variant.
     fn mult(&self, work: &mut Self::Work, out: &mut V, inp: &V, variant: Variant);
+    /// Floating-point operations of one `mult` per site and per vector, for reporting
+    /// speed as GFlops.
+    ///
+    /// This is a nominal count of the arithmetic the operator needs, taken from the
+    /// counting Bridge++ uses for the same operator (its `flop_count`), so that the
+    /// figures of the two programs can be compared. It is not a count of the instructions
+    /// this implementation executes.
+    fn flops_per_site(&self) -> usize;
 }
 
 /// The pieces of the operator, one direction at a time. Needed by the fermion force and by

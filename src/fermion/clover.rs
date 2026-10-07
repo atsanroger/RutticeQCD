@@ -22,7 +22,7 @@ use super::GaugeError;
 use crate::gauge::{field_strength, PLANES};
 use crate::kernel::{
     hermitian6_mul, Cplx, Dirac, Gamma, GammaRepre, Real, Spinor as SiteSpinor, Unit,
-    HERMITIAN6_REALS, NC,
+    HERMITIAN6_REALS, NC, NS,
 };
 use crate::numerics::invert_complex;
 use crate::{Boundary, Field, Gauge, Lattice, Stencil, Storage, ND};
@@ -173,6 +173,9 @@ fn pack_hermitian(m: &[f64]) -> ([f64; HERMITIAN6_REALS], f64) {
 
 impl<T: Storage> DiagTerm<T> for CloverDiag<T> {
     const IS_UNIT: bool = false;
+    /// The count Bridge++ uses for its clover term, `Nc Nd (2 + 48 Nc)`, plus the
+    /// `2 Nc Nd` additions that combine it with the hopping term: 1776 for three colours.
+    const FLOPS_PER_SITE: usize = NC * NS * (2 + 48 * NC) + 2 * NC * NS;
 
     #[inline(always)]
     fn apply(&self, full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute> {
