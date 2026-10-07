@@ -1,6 +1,6 @@
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap};
 use crate::fermion::{Bound, HopTerms, Variant};
-use crate::kernel::Real;
+use crate::kernel::Number;
 use crate::solver::{BiCgStab, Fgmres, Solve, Solver, Stop};
 use crate::{Coarse, ConvertFrom, Field, Lattice, LinearFn, Spinor, Storage, Vector, C64, ND};
 use std::sync::Arc;
@@ -329,7 +329,7 @@ fn random_vectors<T: Storage>(lat: &Arc<Lattice>, n: usize, seed: u64) -> Field<
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^= z >> 31;
         let u = (z >> 11) as f64 / (1u64 << 52) as f64 - 1.0;
-        *r = T::store(Real::from_f64(u));
+        *r = T::store(Number::from_f64(u));
     }
     v
 }

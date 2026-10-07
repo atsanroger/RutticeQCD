@@ -1,6 +1,6 @@
 use super::Aggregation;
 use crate::fermion::{HopTerms, Variant};
-use crate::kernel::Real;
+use crate::kernel::{Number, Real};
 use crate::{for_sites, Direction, Field, LinearFn, Spinor, Storage, Vector, C64, ND};
 use std::sync::Arc;
 
@@ -116,7 +116,7 @@ impl Blocks {
     {
         out.set_zero();
         op.mult_diag(work, out, inp);
-        let k: T::Compute = Real::from_f64(self.hop_coefficient);
+        let k: T::Compute = Number::from_f64(self.hop_coefficient);
         let site_len = out.site_len();
         for (mu, dir) in DIRECTIONS {
             hop.set_zero();
@@ -206,8 +206,8 @@ impl Blocks {
             let xs = x.site(0, site);
             for v in 0..nv {
                 let (re, im): (T::Compute, T::Compute) = (
-                    Real::from_f64(sign * a[v].re),
-                    Real::from_f64(sign * a[v].im),
+                    Number::from_f64(sign * a[v].re),
+                    Number::from_f64(sign * a[v].im),
                 );
                 let range = v * reals..(v + 1) * reals;
                 for (yz, xz) in ys[range.clone()]

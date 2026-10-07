@@ -2,7 +2,7 @@
 
 use crate::field::storage::Storage;
 use crate::field::{Aos, Cpu, Field, Kind, Sites};
-use crate::kernel::{Cplx, Real};
+use crate::kernel::{Cplx, Number, Real};
 use crate::lattice::sites::{for_sites, reduce_sites_dyn};
 
 /// Coefficients and reduction results are always double precision, whatever the field stores.
@@ -241,7 +241,7 @@ where
         let s = src.as_slice();
         for_sites(self.as_mut_slice(), site_len, |i, d| {
             for (d, s) in d.iter_mut().zip(&s[i * site_len..(i + 1) * site_len]) {
-                *d = T::store(Real::from_f64(s.load().to_f64()));
+                *d = T::store(Number::from_f64(s.load().to_f64()));
             }
         });
     }

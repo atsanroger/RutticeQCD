@@ -1,6 +1,6 @@
 //! Gauge-field observables and operations: plaquette, field strength, gauge fixing.
 
-use crate::kernel::{ColorMatrix, Real, NC};
+use crate::kernel::{ColorMatrix, Number, Real, NC};
 use crate::{
     for_sites, reduce_sites, shift, Boundary, Direction, Field, Gauge, Stencil, Storage, ND,
 };
