@@ -10,6 +10,11 @@ publish = false
 name = "ruttice"
 path = "apps/ruttice.rs"
 
+# Times the Wilson operator; see the top of the file.
+[[bin]]
+name = "ruttice-bench"
+path = "apps/bench.rs"
+
 # The same program on several processes.
 [[bin]]
 name = "ruttice-mpi"
