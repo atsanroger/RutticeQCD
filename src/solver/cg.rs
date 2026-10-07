@@ -72,12 +72,20 @@ impl<V: Vector> Solver<V> for Cg<V> {
             // r = b - A x
             a.mult_xpay(r, x, &minus_one, b);
             r.norm_sqr(&mut rr);
+            // Without a preconditioner z is r: it is not copied, and <r, z> is |r|^2.
             match m.as_mut() {
-                Some(m) => m.mult(z, r),
-                None => z.copy_from(r),
+                Some(m) => {
+                    m.mult(z, r);
+                    p.copy_from(z);
+                    r.dot(z, &mut rz);
+                }
+                None => {
+                    p.copy_from(r);
+                    for (rz, rr) in rz.iter_mut().zip(&rr) {
+                        *rz = real(*rr);
+                    }
+                }
             }
-            p.copy_from(z);
-            r.dot(z, &mut rz);
 
             for _ in 0..self.stop.max_iterations {
                 if converged(&rr, &b_norm) {
@@ -105,10 +113,16 @@ impl<V: Vector> Solver<V> for Cg<V> {
                 r.axpy_norm_sqr(&alpha, ap, &mut rr);
 
                 match m.as_mut() {
-                    Some(m) => m.mult(z, r),
-                    None => z.copy_from(r),
+                    Some(m) => {
+                        m.mult(z, r);
+                        r.dot(z, &mut rz_new);
+                    }
+                    None => {
+                        for (rz, rr) in rz_new.iter_mut().zip(&rr) {
+                            *rz = real(*rr);
+                        }
+                    }
                 }
-                r.dot(z, &mut rz_new);
                 for j in 0..nv {
                     // A vector whose alpha was zero keeps its old r and z, so beta is one for
                     // it and p stays where it was; force zero to keep p = z exactly.
@@ -119,7 +133,7 @@ impl<V: Vector> Solver<V> for Cg<V> {
                     };
                 }
                 rz.copy_from_slice(&rz_new);
-                p.aypx(&beta, z);
+                p.aypx(&beta, if m.is_some() { &*z } else { &*r });
                 iterations += 1;
             }
 

@@ -486,6 +486,97 @@ fn even_odd_needs_a_lattice_of_blocks_with_even_extents() {
     assert!(op.even_odd_index().is_some());
 }
 
+/// The fused vector operations give the bits of the compositions they stand for: the
+/// vectors bit for bit, and the sums too, because both add the sites in the same chunks.
+/// Checked on a lattice large enough for the parallel path, in both layouts.
+#[test]
+fn fused_vector_operations_are_their_compositions() {
+    fn check<X: Vector>(x: &X, y: &X, z: &X, same: impl Fn(&X, &X) -> bool, layout: &str) {
+        let a = [C64::new(0.3, -1.1), C64::new(-0.7, 0.2)];
+        let b = [C64::new(1.5, 0.9), C64::new(0.0, -0.4)];
+        let copy = |v: &X| {
+            let mut c = v.zeros_like();
+            c.copy_from(v);
+            c
+        };
+
+        // axpy_norm_sqr
+        let (mut fused, mut plain) = (copy(z), copy(z));
+        let (mut n1, mut n2) = ([0.0; 2], [0.0; 2]);
+        fused.axpy_norm_sqr(&a, x, &mut n1);
+        plain.axpy(&a, x);
+        plain.norm_sqr(&mut n2);
+        assert!(same(&fused, &plain) && n1 == n2, "{layout}: axpy_norm_sqr");
+
+        // xpay
+        let (mut fused, mut plain) = (copy(z), copy(z));
+        fused.xpay(x, &a, y);
+        plain.copy_from(x);
+        plain.axpy(&a, y);
+        assert!(same(&fused, &plain), "{layout}: xpay");
+
+        // xpay_norm_sqr_dot
+        let (mut fused, mut plain) = (copy(z), copy(z));
+        let (mut d1, mut d2) = ([C64::ZERO; 2], [C64::ZERO; 2]);
+        fused.xpay_norm_sqr_dot(x, &a, y, &mut n1, z, &mut d1);
+        plain.copy_from(x);
+        plain.axpy(&a, y);
+        plain.norm_sqr(&mut n2);
+        z.dot(&plain, &mut d2);
+        assert!(same(&fused, &plain), "{layout}: xpay_norm_sqr_dot");
+        assert!(n1 == n2 && d1 == d2, "{layout}: sums of xpay_norm_sqr_dot");
+
+        // axpy2
+        let (mut fused, mut plain) = (copy(z), copy(z));
+        fused.axpy2(&a, x, &b, y);
+        plain.axpy(&a, x);
+        plain.axpy(&b, y);
+        assert!(same(&fused, &plain), "{layout}: axpy2");
+
+        // axpy_aypx
+        let (mut fused, mut plain) = (copy(z), copy(z));
+        fused.axpy_aypx(&a, x, &b, y);
+        plain.axpy(&a, x);
+        plain.aypx(&b, y);
+        assert!(same(&fused, &plain), "{layout}: axpy_aypx");
+
+        // dot_norms
+        let (mut m1, mut m2) = ([0.0; 2], [0.0; 2]);
+        let (mut k1, mut k2) = ([0.0; 2], [0.0; 2]);
+        x.dot_norms(y, &mut d1, &mut m1, &mut k1);
+        x.dot(y, &mut d2);
+        x.norm_sqr(&mut m2);
+        y.norm_sqr(&mut k2);
+        assert!(d1 == d2 && m1 == m2 && k1 == k2, "{layout}: dot_norms");
+    }
+    let lat = Lattice::single_node([8, 8, 8, 16]);
+    let (x, y, z) = (
+        random_spinor(&lat, 2, 1101),
+        random_spinor(&lat, 2, 1102),
+        random_spinor(&lat, 2, 1103),
+    );
+    check(&x, &y, &z, |a, b| a.as_slice() == b.as_slice(), "sites");
+    check(
+        &to_blocks::<4>(&x),
+        &to_blocks::<4>(&y),
+        &to_blocks::<4>(&z),
+        |a, b| a.as_slice() == b.as_slice(),
+        "blocks",
+    );
+    let single = |v: &V| {
+        let mut s = Field::<f32, Spinor>::spinor(&lat, 2);
+        s.convert_from(v);
+        s
+    };
+    check(
+        &single(&x),
+        &single(&y),
+        &single(&z),
+        |a, b| a.as_slice() == b.as_slice(),
+        "single precision",
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // Several processes (threads of the test, `LocalComm`).
 
