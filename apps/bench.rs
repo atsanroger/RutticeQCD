@@ -4,13 +4,13 @@
 //!
 //! Prints the time of one application of D and the speed in GFlops per core, in double and
 //! in single precision, for the number of threads the thread pool has (set with
-//! RAYON_NUM_THREADS). The flops are the operator's nominal count
+//! RAYON_NUM_THREADS), with the links kept in full and as two rows. The flops are the operator's nominal count
 //! (`FermionOp::flops_per_site`), the one Bridge++ uses, so the figure can be set next to
 //! the "GFlops / core" that Bridge++ prints. The operator, the
 //! hopping parameter and the boundary condition are those of the Bridge++ test
 //! `Mult_Wilson`, so that the two programs can be timed on the same problem.
 
-use ruttice::fermion::{FermionOp, Variant, Wilson, WilsonParams};
+use ruttice::fermion::{FermionOp, LinkFormat, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;
 use ruttice::{random_spinor, Boundary, ConvertFrom, Field, Lattice, Spinor, Storage, ND};
 use std::process::ExitCode;
@@ -29,7 +29,7 @@ struct Timing {
 }
 
 /// Seconds per application of D, from `REPEATS` loops of `mults` applications each.
-fn time_mult<T: Storage>(lat: &Arc<Lattice>, mults: usize) -> Timing
+fn time_mult<T: Storage>(lat: &Arc<Lattice>, mults: usize, links: LinkFormat) -> Timing
 where
     Field<T, Spinor>: ConvertFrom<Field<f64, Spinor>>,
 {
@@ -39,7 +39,8 @@ where
             kappa: 0.12,
             boundary: [Boundary::Antiperiodic; ND],
         },
-    );
+    )
+    .with_link_format(links);
     op.set_gauge(&random_gauge(lat, 1))
         .expect("the gauge field is on this lattice");
     let mut work = op.work();
@@ -95,13 +96,18 @@ fn main() -> ExitCode {
         ruttice::min_sites_per_task()
     );
     let threads = rayon::current_num_threads() as f64;
-    println!("precision  ms/mult(best)  ms/mult(mean)  ns/site(best)  GFlops/core  |D psi|^2");
+    println!(
+        "precision  links     ms/mult(best)  ms/mult(mean)  ns/site(best)  GFlops/core  |D psi|^2"
+    );
+    let (full, two) = (LinkFormat::Full, LinkFormat::TwoRows);
     for (name, t) in [
-        ("double", time_mult::<f64>(&lat, mults)),
-        ("single", time_mult::<f32>(&lat, mults)),
+        ("double     full    ", time_mult::<f64>(&lat, mults, full)),
+        ("double     two rows", time_mult::<f64>(&lat, mults, two)),
+        ("single     full    ", time_mult::<f32>(&lat, mults, full)),
+        ("single     two rows", time_mult::<f32>(&lat, mults, two)),
     ] {
         println!(
-            "{name:<9}  {:>13.4}  {:>13.4}  {:>13.2}  {:>11.4}  {:.12e}",
+            "{name}  {:>13.4}  {:>13.4}  {:>13.2}  {:>11.4}  {:.12e}",
             t.best * 1e3,
             t.mean * 1e3,
             t.best * 1e9 / sites,
