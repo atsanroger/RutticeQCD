@@ -6,6 +6,7 @@ pub(crate) mod vector;
 use crate::field::storage::Storage;
 use crate::lattice::evenodd::Parity;
 use crate::lattice::Lattice;
+use rayon::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -87,6 +88,11 @@ impl Layout for Aos {
     }
 }
 
+/// Buffers of at least this many reals are first written in parallel (see `Cpu::alloc`).
+const FIRST_TOUCH_MIN: usize = 1 << 20;
+/// Reals per task of that first write: a few pages.
+const FIRST_TOUCH_CHUNK: usize = 1 << 14;
+
 /// Where memory lives.
 pub trait Backend: Send + Sync + 'static {
     type Buf<T: Storage>: Send + Sync;
@@ -96,10 +102,18 @@ pub trait Backend: Send + Sync + 'static {
 pub struct Cpu;
 impl Backend for Cpu {
     type Buf<T: Storage> = Vec<T>;
-    // TODO: align to the SIMD width and leave first touch to the sweeping threads
-    //. A zeroed Vec is enough for the Aos reference path.
+    /// A zeroed buffer. Large ones are written once by the threads of the pool before
+    /// they are returned: on a machine with several memory nodes a page is placed on the
+    /// node of the thread that first writes to it, and a buffer written first by the
+    /// calling thread alone ends up on one node, out of reach of the memory bandwidth of
+    /// the others.
     fn alloc<T: Storage>(len: usize) -> Vec<T> {
-        vec![T::default(); len]
+        let mut buf = vec![T::default(); len];
+        if len >= FIRST_TOUCH_MIN {
+            buf.par_chunks_mut(FIRST_TOUCH_CHUNK)
+                .for_each(|chunk| chunk.fill(T::default()));
+        }
+        buf
     }
 }
 

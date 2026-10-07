@@ -27,6 +27,7 @@ use crate::{
     for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, HaloExchange, Lattice,
     Parity, Sites, Source, Spinor, Stencil, Storage, Vector, FACES, ND,
 };
+use rayon::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -262,6 +263,10 @@ enum LinkStore<T> {
 }
 
 const FULL_LINK_REALS: usize = 2 * NC * NC;
+/// Links converted per task when the operator's copy is filled. It is filled by the
+/// threads of the pool so that its pages are spread over the memory nodes like those of
+/// the fields (`Cpu::alloc`).
+const LINKS_PER_TASK: usize = 1024;
 const TWO_ROW_REALS: usize = 2 * 2 * NC;
 
 /// One way of keeping a link. The sweeps are generic over it, so the choice costs nothing
@@ -894,7 +899,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
         let links = match self.link_format {
             LinkFormat::Full => LinkStore::Full(
                 stored
-                    .iter()
+                    .par_iter()
+                    .with_min_len(LINKS_PER_TASK)
                     .map(|link| core::array::from_fn(|k| convert(&link[k])))
                     .collect(),
             ),
@@ -912,7 +918,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
                 }
                 LinkStore::TwoRows(
                     stored
-                        .iter()
+                        .par_iter()
+                        .with_min_len(LINKS_PER_TASK)
                         .map(|link| core::array::from_fn(|k| convert(&link[k])))
                         .collect(),
                 )
