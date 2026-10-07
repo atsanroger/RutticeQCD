@@ -83,10 +83,25 @@ where
     F: Fn(usize, &mut [T]) + Sync,
     E: Fn() + Sync,
 {
-    let grain = min_sites_per_task();
+    for_sites_from(out, 0, site_len, min_sites_per_task(), &f, &finish);
+}
+
+/// `for_sites_then` for a piece of a field: `out` holds the sites from `first` on.
+fn for_sites_from<T, F, E>(
+    out: &mut [T],
+    first: usize,
+    site_len: usize,
+    grain: usize,
+    f: &F,
+    finish: &E,
+) where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+    E: Fn() + Sync,
+{
     if out.len() <= site_len * grain {
-        for (site, v) in out.chunks_mut(site_len).enumerate() {
-            f(site, v);
+        for (i, v) in out.chunks_mut(site_len).enumerate() {
+            f(first + i, v);
         }
         finish();
     } else {
@@ -95,8 +110,121 @@ where
         out.par_chunks_mut(site_len)
             .with_min_len(grain)
             .enumerate()
-            .fold(|| (), |(), (site, v)| f(site, v))
+            .fold(|| (), |(), (i, v)| f(first + i, v))
             .for_each(|()| finish());
+    }
+}
+
+/// Some of the sites of a field, as runs of consecutive sites in increasing order. A sweep
+/// over them (`for_site_runs`) visits those sites and no others; nothing is tested per
+/// site, and the work is divided by the number of sites in the runs.
+pub struct SiteRuns {
+    /// (first site, number of sites) of each run.
+    runs: Vec<(u32, u32)>,
+    /// `before[i]`: sites in the runs before run `i`; one entry more than there are runs.
+    before: Vec<u32>,
+}
+
+impl SiteRuns {
+    /// The sites below `num_sites` for which `member` holds.
+    pub fn collect(num_sites: usize, member: impl Fn(usize) -> bool) -> Self {
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        for site in (0..num_sites).filter(|site| member(*site)) {
+            let site = u32::try_from(site).expect("site numbers fit in 32 bits");
+            match runs.last_mut() {
+                Some((first, len)) if *first + *len == site => *len += 1,
+                _ => runs.push((site, 1)),
+            }
+        }
+        let mut before = Vec::with_capacity(runs.len() + 1);
+        let mut total = 0;
+        before.push(total);
+        for (_, len) in &runs {
+            total += len;
+            before.push(total);
+        }
+        Self { runs, before }
+    }
+
+    pub fn num_sites(&self) -> usize {
+        self.before[self.runs.len()] as usize
+    }
+}
+
+/// What every task of `for_site_runs` needs.
+struct RunTask<'a, F, E> {
+    site_len: usize,
+    grain: usize,
+    f: &'a F,
+    finish: &'a E,
+}
+
+/// Call `f(site, reals_of_that_site)` for the sites of `runs`, in parallel, and `finish()`
+/// as `for_sites_then` does. The other sites of `out` are not touched.
+pub fn for_site_runs<T, F, E>(out: &mut [T], site_len: usize, runs: &SiteRuns, f: F, finish: E)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+    E: Fn() + Sync,
+{
+    let task = RunTask {
+        site_len,
+        grain: min_sites_per_task(),
+        f: &f,
+        finish: &finish,
+    };
+    over_runs(out, 0, &runs.runs, &runs.before, &task);
+}
+
+/// `out` holds the sites from `first` on and contains all of `runs`; `before` are the
+/// entries of `SiteRuns::before` for these runs and the one after them. Halves the runs by
+/// the number of sites in them until a piece is small enough for one task.
+fn over_runs<T, F, E>(
+    out: &mut [T],
+    first: usize,
+    runs: &[(u32, u32)],
+    before: &[u32],
+    task: &RunTask<'_, F, E>,
+) where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+    E: Fn() + Sync,
+{
+    let n = task.site_len;
+    // The first site of a run and where its sites are in `out`.
+    let piece = |run: (u32, u32)| {
+        let (start, len) = (run.0 as usize, run.1 as usize);
+        (start, (start - first) * n..(start - first + len) * n)
+    };
+    match runs {
+        [] => {}
+        // One run: a piece of the field like any other.
+        [run] => {
+            let (start, range) = piece(*run);
+            for_sites_from(&mut out[range], start, n, task.grain, task.f, task.finish);
+        }
+        _ if (before[runs.len()] - before[0]) as usize <= task.grain => {
+            for run in runs {
+                let (start, range) = piece(*run);
+                for (i, v) in out[range].chunks_mut(n).enumerate() {
+                    (task.f)(start + i, v);
+                }
+            }
+            (task.finish)();
+        }
+        _ => {
+            // The run in which half of the sites is reached starts the second half.
+            let half = before[0] + (before[runs.len()] - before[0]) / 2;
+            let m = before[..runs.len()]
+                .partition_point(|b| *b < half)
+                .clamp(1, runs.len() - 1);
+            let second = runs[m].0 as usize;
+            let (lo, hi) = out.split_at_mut((second - first) * n);
+            rayon::join(
+                || over_runs(lo, first, &runs[..m], &before[..=m], task),
+                || over_runs(hi, second, &runs[m..], &before[m..], task),
+            );
+        }
     }
 }
 
@@ -235,6 +363,48 @@ pub fn shift<T, K, S>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sweep over runs visits the listed sites once each, with their own numbers and
+    /// reals, leaves the others alone, and closes every task.
+    #[test]
+    fn runs_cover_exactly_their_sites() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (num_sites, site_len) = (50_000, 3);
+        for member in [
+            (|site| site % 7 == 3) as fn(usize) -> bool,
+            |site| !(10_000..40_000).contains(&site),
+            |site| (123..45_678).contains(&site),
+            |_| false,
+            |_| true,
+        ] {
+            let runs = SiteRuns::collect(num_sites, member);
+            assert_eq!(
+                runs.num_sites(),
+                (0..num_sites).filter(|s| member(*s)).count()
+            );
+            let mut out = vec![0u64; num_sites * site_len];
+            let closed = AtomicUsize::new(0);
+            for_site_runs(
+                &mut out,
+                site_len,
+                &runs,
+                |site, v| {
+                    assert_eq!(v.len(), site_len);
+                    for x in v {
+                        *x += 1 + site as u64;
+                    }
+                },
+                || {
+                    closed.fetch_add(1, Ordering::Relaxed);
+                },
+            );
+            for (site, v) in out.chunks(site_len).enumerate() {
+                let want = if member(site) { 1 + site as u64 } else { 0 };
+                assert!(v.iter().all(|x| *x == want), "site {site}");
+            }
+            assert!(closed.load(Ordering::Relaxed) >= usize::from(runs.num_sites() > 0));
+        }
+    }
     use crate::field::Gauge;
     use crate::lattice::stencil::Boundary;
     use crate::lattice::{Lattice, ND};
