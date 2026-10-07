@@ -199,7 +199,11 @@ The channels are named after the gamma matrices at the sink and at the source:
 | `PS` | γ5 ← γ5 | `S` | 1 ← 1 |
 | `V1` `V2` `V3` | γ_k ← γ_k | `G51` `G52` `G53` | γ5γ_k ← γ5γ_k |
 | `A4_PS` | γ4γ5 ← γ5 | `S12` `S23` `S31` | iγ2γ1, iγ3γ2, iγ1γ3 at both ends |
-| `PS_A4` | γ5 ← γ5γ4 | | |
+| `PS_A4` | γ5 ← γ5γ4 | `A4_A4` | γ4γ5 ← γ5γ4 |
+
+`A4_A4` is not among the thirteen channels computed by default (those are the ones the
+Bridge++ spectrum test prints, which the others were checked against); name it in
+`measure.channels` to get it.
 
 ## Conventions
 

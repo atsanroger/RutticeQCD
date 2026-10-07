@@ -17,7 +17,8 @@ use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
 use crate::io::{read_bridge_text, IoError};
 use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
-    channel, exponential_source, meson_correlator, point_source, CHANNELS, NUM_SOURCES,
+    channel, exponential_source, meson_correlator, point_source, CHANNELS, EXTRA_CHANNELS,
+    NUM_SOURCES,
 };
 use crate::solver::preconditioner::multigrid::{Multigrid, MultigridError};
 use crate::solver::{
@@ -257,8 +258,9 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
     for name in &channels {
         if channel::<Dirac>(name).is_none() {
             return invalid(format!(
-                "unknown channel {name:?}; known channels: {}",
-                CHANNELS.join(", ")
+                "unknown channel {name:?}; known channels: {}, {}",
+                CHANNELS.join(", "),
+                EXTRA_CHANNELS.join(", ")
             ));
         }
     }

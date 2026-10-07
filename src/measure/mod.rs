@@ -86,11 +86,17 @@ pub const CHANNELS: [&str; 13] = [
     "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "S", "G51", "G52", "G53", "S12", "S23", "S31",
 ];
 
+/// Channels `channel` knows beyond those of Bridge++. They are computed only when asked
+/// for by name, and have no reference values from another program.
+pub const EXTRA_CHANNELS: [&str; 1] = ["A4_A4"];
+
 /// The (sink, source) gamma matrices of a named meson channel, to pass to
 /// `meson_correlator`:
 ///
 /// - `PS`: γ5 at both ends; `S`: the identity; `V1`..`V3`: γ_k
 /// - `A4_PS`: γ4 γ5 at the sink, γ5 at the source; `PS_A4`: γ5 at the sink, γ5 γ4 at the source
+/// - `A4_A4`: the axial current at both ends, γ4 γ5 at the sink and γ5 γ4 at the source,
+///   which makes the correlator `Σ_x Tr[γ4 S γ4 S†]`
 /// - `G51`..`G53`: γ5 γ_k; `S12`, `S23`, `S31`: i γ2 γ1, i γ3 γ2, i γ1 γ3
 ///
 /// The composite matrices are defined as in the Bridge++ gamma-matrix set.
@@ -105,6 +111,7 @@ pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
         "V3" => both(g[2]),
         "A4_PS" => Some((g[3].mul(&g5), g5)),
         "PS_A4" => Some((g5, g5.mul(&g[3]))),
+        "A4_A4" => Some((g[3].mul(&g5), g5.mul(&g[3]))),
         "S" => both(Gamma::IDENTITY),
         "G51" => both(g5.mul(&g[0])),
         "G52" => both(g5.mul(&g[1])),
