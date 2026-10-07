@@ -9,9 +9,10 @@
 //! same problem.
 
 use super::choose_grid;
-use crate::fermion::{FermionOp, LinkFormat, Variant, Wilson, WilsonParams, WilsonSimd};
+use crate::fermion::{Bound, FermionOp, LinkFormat, Variant, Wilson, WilsonParams, WilsonSimd};
 use crate::gauge::random_gauge;
 use crate::kernel::LaneOf;
+use crate::solver::{solve_cgne, BiCgStab, Cg, SolveError, Solver, Stop};
 use crate::{
     min_sites_per_task, norm_sqr, random_spinor, Aosoa, Boundary, Comm, ConvertFrom, Field, Full,
     Lattice, Spinor, Storage, Vector, ND,
@@ -126,6 +127,40 @@ where
     })
 }
 
+/// Milliseconds per iteration of CG on the normal equations and of BiCGStab on `op`, from
+/// a fixed number of iterations on a random right-hand side: (CG, BiCGStab). An iteration
+/// of either applies the operator twice; the rest is the solver's own work on its vectors.
+fn time_solvers<V: Vector, F: FermionOp<V>>(op: &F, b: &V, iterations: usize) -> (f64, f64) {
+    // A tolerance of zero is never met: the solver runs for the iterations it is given.
+    let stop = Stop::simple(0.0, iterations);
+    let per_iteration = |solve: &mut dyn FnMut(&mut V) -> Result<(), SolveError>| {
+        let mut best = f64::INFINITY;
+        for _ in 0..3 {
+            let mut x = b.zeros_like();
+            let start = Instant::now();
+            let done = match solve(&mut x) {
+                Err(SolveError::NotConverged(info)) => info.iterations,
+                // Anything else did not run the iterations asked for.
+                _ => return f64::NAN,
+            };
+            best = best.min(start.elapsed().as_secs_f64() * 1e3 / done as f64);
+        }
+        best
+    };
+    // The solvers are kept across the repetitions, so that from the second one on no
+    // work vector is allocated inside the time measured.
+    let (mut cg, mut bicgstab) = (Cg::new(stop), BiCgStab::new(stop));
+    let cg = per_iteration(&mut |x| {
+        solve_cgne(&mut cg, &mut Bound::new(op, Variant::D), x, b).map(|_| ())
+    });
+    let bicgstab = per_iteration(&mut |x| {
+        bicgstab
+            .solve(&mut Bound::new(op, Variant::D), None, x, b)
+            .map(|_| ())
+    });
+    (cg, bicgstab)
+}
+
 /// The whole benchmark program: interpret the arguments (without the program name), run on
 /// the processes of `comm`, and return the exit code. Only rank 0 prints.
 pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -> u8 {
@@ -201,6 +236,42 @@ pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Writ
             t.best * 1e9 / sites,
             t.flops / t.best / cores * 1e-9,
             t.norm_sqr
+        ));
+    }
+
+    // The solvers, on one right-hand side: what an iteration costs beyond its two
+    // applications of the operator is the work on the vectors.
+    let params = WilsonParams {
+        kappa: 0.12,
+        boundary: [Boundary::Antiperiodic; ND],
+    };
+    let iterations = mults.max(20);
+    let rank = u64::try_from(lat.comm.rank()).expect("ranks fit in 64 bits");
+    let u = random_gauge(&lat, 1 + 2 * rank);
+    let b = random_spinor(&lat, 1, 2 + 2 * rank);
+    let mut op = Wilson::<f64>::new(&lat, params);
+    op.set_gauge(&u)
+        .expect("the gauge field is on this lattice");
+    let on_sites = time_solvers(&op, &b, iterations);
+    let on_blocks = WilsonSimd::<f64, 4>::new(&lat, params).map(|mut op| {
+        op.set_gauge(&u)
+            .expect("the gauge field is on this lattice");
+        let mut blocks = Field::<f64, Spinor, Full, Aosoa<4>>::with_shape(&lat, 24, 1, 1, 1);
+        blocks.convert_from(&b);
+        time_solvers(&op, &blocks, iterations)
+    });
+    line(format!(
+        "solvers, double, ms/iteration over {iterations} iterations (two applications of D each)"
+    ));
+    line(format!(
+        "cg_normal  sites     {:>10.4}
+bicgstab   sites     {:>10.4}",
+        on_sites.0, on_sites.1
+    ));
+    if let Some((cg, bicgstab)) = on_blocks {
+        line(format!(
+            "cg_normal  blocks 4  {cg:>10.4}
+bicgstab   blocks 4  {bicgstab:>10.4}"
         ));
     }
     0

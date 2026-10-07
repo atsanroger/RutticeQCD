@@ -7,24 +7,100 @@ use rayon::prelude::*;
 /// Sites per partial sum in `reduce_sites`. Fixed, so results do not depend on thread count.
 pub const REDUCE_CHUNK: usize = 1024;
 
-/// Fewest sites handed to one task of the thread pool. Loops over no more sites than this
-/// run on the calling thread without touching the pool.
-///
-/// Handing work to the pool has a cost per call that does not depend on the amount of
-/// work, so very small loops are slower in parallel than serially: with one site per task
-/// and 32 threads, the gauge-fixing tests on a 4x4x4x8 lattice took 207 s, against 11 s
-/// with the loops kept on the calling thread. The default is the chunk of the reductions;
-/// it has not been tuned on large lattices. The environment variable
-/// `RUTTICE_MIN_SITES_PER_TASK` overrides it, for measuring.
-pub fn min_sites_per_task() -> usize {
-    static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+/// How much a loop does at each site, which decides how few sites are worth a task.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Weight {
+    /// Real work: a stencil, a product of matrices.
+    Heavy,
+    /// A few arithmetic operations per real, such as the updates of a vector.
+    Light,
+}
+
+/// Tasks a loop aims at for every thread of the pool, so that threads that finish early
+/// find work to take over.
+const TASKS_PER_THREAD: usize = 4;
+/// Fewest spinors (reals, divided by 24) in a task of a heavy loop and of a light one. A
+/// loop whose sites hold several spinors, or a block of sites of the SIMD layout, takes
+/// fewer sites in proportion.
+const MIN_SPINORS_HEAVY: usize = 512;
+const MIN_SPINORS_LIGHT: usize = 1024;
+const SPINOR_REALS: usize = 24;
+
+/// The value of `RUTTICE_MIN_SITES_PER_TASK`, if it is set.
+fn fixed_task_sites() -> Option<usize> {
+    static VALUE: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
         std::env::var("RUTTICE_MIN_SITES_PER_TASK")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|v| *v > 0)
-            .unwrap_or(REDUCE_CHUNK)
     })
+}
+
+/// The smallest task a heavy loop over sites of one spinor may be cut into.
+pub fn min_sites_per_task() -> usize {
+    fixed_task_sites().unwrap_or(MIN_SPINORS_HEAVY)
+}
+
+/// Fewest sites handed to one task of the thread pool by a loop over `num_sites` sites of
+/// `site_len` reals each. A loop over no more sites than this runs on the calling thread
+/// without touching the pool.
+///
+/// The rule: a loop goes to the pool only if every thread can be given a task of the
+/// smallest size, and is then cut into `TASKS_PER_THREAD` tasks per thread, none smaller
+/// than that size. It replaces a fixed 1024 sites per task, which failed at both ends:
+///
+/// - Too large for a loop of middling length: the Wilson operator on blocks of four sites
+///   on a 16^3 x 8 lattice was cut into eight tasks for twelve threads and took 1.9 ms,
+///   against 1.0 ms with tasks of 128 or 16 sites; each part of a sweep in two parts
+///   (latency hiding) got fewer tasks still.
+/// - Too small is worse, and how small is too small depends on the number of threads. With
+///   tasks of 72 spinors on 32 threads, the end-to-end tests on a 4x4x4x8 lattice with
+///   twelve right-hand sides (6144 spinors per loop) took 62 s, against 4.7 s with those
+///   loops on the calling thread. On twelve cores, loops of 8192 spinors gain from the
+///   pool: keeping them on the calling thread made the operator on two processes four
+///   times slower.
+///
+/// Measured on those two machines only. The environment variable
+/// `RUTTICE_MIN_SITES_PER_TASK` replaces the rule by a fixed number of sites, for measuring.
+fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
+    let (scale, spinors) = match weight {
+        Weight::Heavy => (1, MIN_SPINORS_HEAVY),
+        Weight::Light => (8, MIN_SPINORS_LIGHT),
+    };
+    if let Some(fixed) = fixed_task_sites() {
+        return scale * fixed;
+    }
+    // The smallest task, in sites of this loop.
+    let smallest = (spinors * SPINOR_REALS).div_ceil(site_len.max(1));
+    let threads = rayon::current_num_threads();
+    if num_sites < smallest * threads {
+        num_sites
+    } else {
+        (num_sites / (TASKS_PER_THREAD * threads)).max(smallest)
+    }
+}
+
+/// Call `f(site, reals_of_that_site)` for every site of `out`, in parallel. For loops that
+/// do real work at each site: a stencil, a product of matrices.
+pub fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+{
+    let grain = task_sites(out.len() / site_len, site_len, Weight::Heavy);
+    for_sites_from(out, 0, site_len, grain, &f, &|| ());
+}
+
+/// `for_sites` for loops that do little at each site, such as the updates of a vector:
+/// their tasks hold more sites.
+pub fn for_light_sites<T, F>(out: &mut [T], site_len: usize, f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+{
+    let grain = task_sites(out.len() / site_len, site_len, Weight::Light);
+    for_sites_from(out, 0, site_len, grain, &f, &|| ());
 }
 
 /// Smallest output, in bytes, that a sweep writes with stores that bypass the cache
@@ -55,25 +131,6 @@ pub fn streams<T>(out: &[T], piece_len: usize) -> bool {
         && (piece_len * size_of::<T>()).is_multiple_of(CACHE_LINE)
 }
 
-/// Call `f(site, reals_of_that_site)` for every site of `out`, in parallel.
-pub fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
-where
-    T: Send,
-    F: Fn(usize, &mut [T]) + Sync,
-{
-    let grain = min_sites_per_task();
-    if out.len() <= site_len * grain {
-        for (site, v) in out.chunks_mut(site_len).enumerate() {
-            f(site, v);
-        }
-    } else {
-        out.par_chunks_mut(site_len)
-            .with_min_len(grain)
-            .enumerate()
-            .for_each(|(site, v)| f(site, v));
-    }
-}
-
 /// `for_sites`, with `finish()` called on each thread after the last site of every run of
 /// sites it was handed. For work that has to be closed once per task rather than once per
 /// site, such as `stream_fence` after `Storage::stream`.
@@ -83,7 +140,8 @@ where
     F: Fn(usize, &mut [T]) + Sync,
     E: Fn() + Sync,
 {
-    for_sites_from(out, 0, site_len, min_sites_per_task(), &f, &finish);
+    let grain = task_sites(out.len() / site_len, site_len, Weight::Heavy);
+    for_sites_from(out, 0, site_len, grain, &f, &finish);
 }
 
 /// `for_sites_then` for a piece of a field: `out` holds the sites from `first` on.
@@ -169,7 +227,7 @@ where
 {
     let task = RunTask {
         site_len,
-        grain: min_sites_per_task(),
+        grain: task_sites(runs.num_sites(), site_len, Weight::Heavy),
         f: &f,
         finish: &finish,
     };
@@ -259,7 +317,7 @@ where
     };
     let chunks = num_sites.div_ceil(REDUCE_CHUNK);
     // The same partial sums either way, so the result does not depend on the path taken.
-    let partial: Vec<[f64; N]> = if num_sites <= min_sites_per_task() {
+    let partial: Vec<[f64; N]> = if num_sites <= REDUCE_CHUNK {
         (0..chunks).map(chunk_sum).collect()
     } else {
         (0..chunks).into_par_iter().map(chunk_sum).collect()
@@ -292,7 +350,7 @@ where
         }
     };
     // The same partial sums either way, so the result does not depend on the path taken.
-    if num_sites <= min_sites_per_task() {
+    if num_sites <= REDUCE_CHUNK {
         partial.chunks_mut(n).enumerate().for_each(chunk_sum);
     } else {
         partial.par_chunks_mut(n).enumerate().for_each(chunk_sum);
@@ -326,7 +384,7 @@ where
         }
     };
     let chunk_len = site_len * REDUCE_CHUNK;
-    if num_sites <= min_sites_per_task() {
+    if num_sites <= REDUCE_CHUNK {
         out.chunks_mut(chunk_len)
             .zip(partial.chunks_mut(n))
             .enumerate()
