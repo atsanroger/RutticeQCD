@@ -3,12 +3,13 @@
 mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
-use ruttice::fermion::{FermionOp, Mdwf, MdwfParams, Variant};
+use ruttice::fermion::{Bound, FermionOp, Mdwf, MdwfParams, PvPreconditioned, Variant};
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
+use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
 use ruttice::{
-    assemble, local_part, random_spinor, Boundary, Field, Gauge, Lattice, LocalComm, Spinor,
-    Vector, C64, ND,
+    assemble, local_part, random_spinor, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp,
+    LocalComm, Spinor, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -164,4 +165,121 @@ fn several_processes_give_the_same_bits() {
             );
         }
     }
+}
+
+fn max_diff(a: &V, b: &V) -> f64 {
+    a.as_slice()
+        .iter()
+        .zip(b.as_slice())
+        .fold(0.0, |m, (x, y)| m.max((x - y).abs()))
+}
+
+/// The inverse of the site-local part undoes it, for C and for C†, at the quark mass and
+/// at the Pauli-Villars mass; and C is what is left of D when the links are switched off:
+/// with all links zero the Wilson kernel is its diagonal, so D = C.
+#[test]
+fn site_local_part_and_its_inverse() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 71));
+    let psi = random(&lat, MOBIUS.ls, 2, 72);
+    for mass in [MOBIUS.mass, 1.0] {
+        for dagger in [false, true] {
+            let (mut c, mut back) = (psi.zeros_like(), psi.zeros_like());
+            op.mult_site(&mut c, &psi, mass, dagger);
+            op.mult_site_inv(&mut back, &c, mass, dagger);
+            let diff = max_diff(&back, &psi);
+            assert!(diff < 1e-13, "mass {mass}, dagger {dagger}: {diff:e}");
+            assert!(max_diff(&c, &psi) > 0.1);
+        }
+    }
+
+    let zero_links = Field::<f64, Gauge>::gauge(&lat);
+    let free = operator(&lat, MOBIUS, &zero_links);
+    for (variant, dagger) in [(Variant::D, false), (Variant::Dagger, true)] {
+        let mut c = psi.zeros_like();
+        free.mult_site(&mut c, &psi, MOBIUS.mass, dagger);
+        let diff = max_diff(&mult(&free, &psi, variant), &c);
+        assert!(diff < 1e-13, "{variant:?}: {diff:e}");
+    }
+}
+
+/// A† is the adjoint of A.
+#[test]
+fn preconditioned_operator_has_its_adjoint() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 81));
+    let (x, y) = (
+        random(&lat, MOBIUS.ls, 1, 82),
+        random(&lat, MOBIUS.ls, 1, 83),
+    );
+    let mut a = PvPreconditioned::new(&op, &x);
+    let (mut ay, mut adag_x) = (x.zeros_like(), x.zeros_like());
+    a.mult(&mut ay, &y);
+    a.mult_dag(&mut adag_x, &x);
+    let (lhs, rhs) = (dot(&x, &ay), dot(&adag_x, &y));
+    assert!(
+        (lhs - rhs).norm_sqr().sqrt() < 1e-12 * dot(&x, &x).re,
+        "{lhs:?} vs {rhs:?}"
+    );
+}
+
+/// Solving A x = P b with BiCGStab gives the solution of D x = b, checked with D itself;
+/// and it takes fewer applications of the Wilson kernel than CG on the normal equations
+/// of D. On the Bridge++ test configuration.
+#[test]
+fn bicgstab_on_the_preconditioned_operator_solves_d() {
+    let Some(path) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = read_bridge_text(&path, &lat).unwrap();
+    let params = MdwfParams {
+        ls: 8,
+        m5: 1.0,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: BOUNDARY,
+    };
+    let op = operator(&lat, params, &u);
+    let b = random(&lat, params.ls, 1, 91);
+    let residual = |x: &V| {
+        let mut r = mult(&op, x, Variant::D);
+        r.scale(&[-1.0]);
+        r.axpy(&[C64::new(1.0, 0.0)], &b);
+        dot(&r, &r).re / dot(&b, &b).re
+    };
+
+    let stop = Stop {
+        tolerance_sqr: 1e-22,
+        max_iterations: 4000,
+        max_restarts: 5,
+    };
+    let mut a = PvPreconditioned::new(&op, &b);
+    let mut rhs = b.zeros_like();
+    a.precondition(&mut rhs, &b);
+    let mut x = b.zeros_like();
+    let info = BiCgStab::new(stop)
+        .solve(&mut a, None, &mut x, &rhs)
+        .unwrap();
+    let physical = residual(&x);
+    assert!(physical < 1e-16, "|D x - b|^2 / |b|^2 = {physical:e}");
+
+    let mut y = b.zeros_like();
+    let cg = solve_cgne(
+        &mut Cg::new(stop),
+        &mut Bound::new(&op, Variant::D),
+        &mut y,
+        &b,
+    )
+    .unwrap();
+    assert!(residual(&y) < 1e-16);
+    // Wilson sweeps: A is two, an iteration of BiCGStab applies it twice; an iteration of
+    // CG on the normal equations applies D and D† once each.
+    let (sweeps_a, sweeps_cg) = (4 * info.iterations, 2 * cg.iterations);
+    eprintln!(
+        "BiCGStab on A: {} iterations ({sweeps_a} sweeps), residual {physical:e};          CG on D D†: {} iterations ({sweeps_cg} sweeps)",
+        info.iterations, cg.iterations
+    );
 }

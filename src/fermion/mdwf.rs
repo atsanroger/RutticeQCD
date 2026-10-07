@@ -20,21 +20,43 @@
 //! Provides: `mult` for D, D† and Γ5 D with Γ5 = γ5 R, R the reflection s -> Ls-1-s. For
 //! c = 0, Γ5 D is Hermitian; for c ≠ 0 it is not (W does not commute with P±).
 //!
+//! The part of D that stays within a four-dimensional site is
+//!
+//!   C = d+ + d- Y,    d+ = 1 + b (4 - M5),    d- = 1 - c (4 - M5),
+//!
+//! an Ls x Ls matrix in the fifth dimension for each chirality: P+ ψ only sees its
+//! neighbour below and P- ψ its neighbour above, plus the mass term in one corner.
+//! `mult_site` applies C and `mult_site_inv` its inverse, by substitution along s with the
+//! corner taken out first, so the inverse is exact and costs a few operations per s.
+//!
+//! `PvPreconditioned` is the operator
+//!
+//!   A = (D_PV C_PV^-1)† C^-1 D,
+//!
+//! with D_PV and C_PV the same at m = 1 (Pauli-Villars). D alone has eigenvalues on both
+//! sides of the imaginary axis and Krylov solvers for general matrices stall on it; the
+//! factor in front turns the spectrum into the right half plane (Brower, Clark, Howarth,
+//! Weinberg; Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414). Since A = P D with
+//! P = (D_PV C_PV^-1)† C^-1 non-singular, solving A x = P b gives the solution of D x = b.
+//!
 //! A site of the field holds its Ls spinors next to each other (`Field::ls`), so the
 //! four-dimensional part is the Wilson sweep over Ls times as many spinors per site, with
 //! the links read once per site. The fifth dimension is local to a site. So far the
 //! operator is put together from three passes (the combination before W, the Wilson sweep,
 //! the combination after it); a sweep that does all three at a site is not written yet.
 //!
-//! Solvers: BiCGStab or FGMRES on the Pauli-Villars preconditioned operator; CG on the
-//! normal equations. Tools needed: the inverse of the site-local part (not here yet).
+//! Solvers: BiCGStab or FGMRES on `PvPreconditioned`; CG on the normal equations of D.
+//! Tools needed: none beyond what is here.
 //!
 //! The normalisation and the placement of the mass term follow Bridge++
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
 use super::{FermionOp, GaugeError, Variant, Wilson, WilsonParams, WilsonWork};
 use crate::kernel::{Dirac, GammaRepre, Number, Spinor as SiteSpinor, NC, SPINOR_REALS};
-use crate::{for_sites, Boundary, Field, Gauge, Lattice, Spinor, Storage, Vector, ND};
+use crate::{
+    fit, for_sites, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage, Vector,
+    ND,
+};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,18 +115,18 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         &self.params
     }
 
-    /// `(Y φ)_s`, or `(Y† φ)_s`, from the `ls` spinors of one site.
+    /// `(Y φ)_s`, or `(Y† φ)_s`, at mass `mass`, from the `ls` spinors of one site.
     #[inline(always)]
     fn fifth(
-        &self,
         phi: &[SiteSpinor<T::Compute>],
         s: usize,
         dagger: bool,
+        mass: f64,
     ) -> SiteSpinor<T::Compute> {
         let ls = phi.len();
         let number = <T::Compute as Number>::from_f64;
         // The coefficient of the projected neighbour: -1, or +m across the walls.
-        let across = |wall: bool| number(0.5 * if wall { self.params.mass } else { -1.0 });
+        let across = |wall: bool| number(0.5 * if wall { mass } else { -1.0 });
         // Y takes P- from above and P+ from below; Y† the other way round.
         let (above, below) = if dagger { (1.0, -1.0) } else { (-1.0, 1.0) };
         let projected = |from: usize, sign: f64, k: T::Compute| {
@@ -123,13 +145,13 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// `out_s = Σ_k a_k x_k,s + Σ_k y_k (Y x_k)_s` for the spinors of every site and vector:
     /// each `(field, a, y)` of `terms` contributes its spinor times `a` and its hop in the
     /// fifth dimension (Y, or Y† if `dagger`) times `y`. With `reflect`, the result at s is
-    /// γ5 times what would be at Ls-1-s: Γ5 applied last.
+    /// γ5 times what would be at Ls-1-s: Γ5 applied last. Y is taken at mass `mass`.
     fn combine(
         &self,
         out: &mut Field<T, Spinor>,
         terms: &[(&Field<T, Spinor>, f64, f64)],
-        dagger: bool,
-        reflect: bool,
+        (dagger, reflect): (bool, bool),
+        mass: f64,
     ) {
         let ls = self.params.ls;
         let number = <T::Compute as Number>::from_f64;
@@ -148,7 +170,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                     for s in 0..ls {
                         let mut term = SiteSpinor::zero().sub_scaled(number(-*a), &phi[s]);
                         if *y != 0.0 {
-                            let hop = self.fifth(&phi[..ls], s, dagger);
+                            let hop = Self::fifth(&phi[..ls], s, dagger, mass);
                             term = term.sub_scaled(number(-*y), &hop);
                         }
                         result[s] = result[s].add(&term);
@@ -163,6 +185,218 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                 }
             }
         });
+    }
+}
+
+impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+    /// The coefficients (d+, d-) of the site-local part C = d+ + d- Y.
+    fn site_coefficients(&self) -> (f64, f64) {
+        let height = 4.0 - self.params.m5;
+        (1.0 + self.params.b * height, 1.0 - self.params.c * height)
+    }
+
+    /// `out = C inp`, or `C† inp`: the part of D (at mass `mass`) that stays within a
+    /// four-dimensional site.
+    pub fn mult_site(
+        &self,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        mass: f64,
+        dagger: bool,
+    ) {
+        assert!(inp.ls() == self.params.ls && out.same_shape(inp));
+        let (d_plus, d_minus) = self.site_coefficients();
+        self.combine(out, &[(inp, d_plus, d_minus)], (dagger, false), mass);
+    }
+
+    /// `out = C^-1 inp`, or `C†^-1 inp`, exactly.
+    ///
+    /// For one chirality C is `d+` on the diagonal, `-d-` next to it on one side and
+    /// `m d-` in the far corner. Substitution along s gives every x_s as a known part plus
+    /// a multiple of the x at the wall the corner refers to; the corner row then fixes
+    /// that one. P+ runs upward in s and P- downward; for C† they change places.
+    pub fn mult_site_inv(
+        &self,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        mass: f64,
+        dagger: bool,
+    ) {
+        assert!(inp.ls() == self.params.ls && out.same_shape(inp));
+        let ls = self.params.ls;
+        let number = <T::Compute as Number>::from_f64;
+        let (d_plus, d_minus) = self.site_coefficients();
+        let q = d_minus / d_plus;
+        // x at the first row of the substitution, from the corner row:
+        // d+ x_first + m d- (p_last + q^(Ls-1) x_first) = r_first.
+        let corner = number(
+            1.0 / (d_plus
+                + mass * d_minus * q.powi(i32::try_from(ls - 1).expect("Ls is at most MAX_LS"))),
+        );
+        let (to_last, per_step) = (number(-mass * d_minus), number(1.0 / d_plus));
+        let scaled =
+            |k: T::Compute, x: &SiteSpinor<T::Compute>| SiteSpinor::zero().sub_scaled(-k, x);
+        let site_len = out.site_len();
+        for_sites(out.slab_mut(0), site_len, |x, o| {
+            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
+                let from = &inp.site(0, x)[v * ls * SPINOR_REALS..(v + 1) * ls * SPINOR_REALS];
+                let mut result = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+                // The two chiralities, P+ first. `up`: the substitution runs from s = 0.
+                for (sign, up) in [(1.0, !dagger), (-1.0, dagger)] {
+                    let at = |i: usize| if up { i } else { ls - 1 - i };
+                    let mut r = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+                    for i in 0..ls {
+                        let reals = &from[at(i) * SPINOR_REALS..(at(i) + 1) * SPINOR_REALS];
+                        let phi = load::<T>(reals);
+                        // (1 + sign γ5) / 2
+                        let both = phi.sub_scaled(number(-sign), &G::GAMMA5.apply(&phi));
+                        r[i] = scaled(number(0.5), &both);
+                    }
+                    // p_0 = 0, p_i = (r_i + d- p_(i-1)) / d+
+                    let mut part = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+                    for i in 1..ls {
+                        let sum = r[i].sub_scaled(number(-d_minus), &part[i - 1]);
+                        part[i] = scaled(per_step, &sum);
+                    }
+                    let first = scaled(corner, &r[0].sub_scaled(-to_last, &part[ls - 1]));
+                    let mut power = 1.0;
+                    for i in 0..ls {
+                        let x_i = part[i].sub_scaled(number(-power), &first);
+                        result[at(i)] = result[at(i)].add(&x_i);
+                        power *= q;
+                    }
+                }
+                for (s, reals) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
+                    store::<T>(&result[s], reals);
+                }
+            }
+        });
+    }
+
+    /// `mult` at another mass: the Pauli-Villars operator is this at `mass = 1`.
+    pub fn mult_at(
+        &self,
+        work: &mut MdwfWork<T>,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        variant: Variant,
+        mass: f64,
+    ) {
+        assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
+        assert!(out.same_shape(inp));
+        if !work.fields.as_ref().is_some_and(|f| f[0].same_shape(inp)) {
+            work.fields = Some([inp.zeros_like(), inp.zeros_like(), inp.zeros_like()]);
+        }
+        let Some([w, v, d]) = work.fields.as_mut() else {
+            unreachable!("the fields were just made");
+        };
+        let MdwfParams { m5, b, c, .. } = self.params;
+        let height = 4.0 - m5;
+        let plain = (false, false);
+        match variant {
+            // D ψ = ψ + Y ψ + W (b ψ - c Y ψ)
+            Variant::D | Variant::Gamma5D => {
+                self.combine(w, &[(inp, b, -c)], plain, mass);
+                self.wilson.mult(&mut work.wilson, v, w, Variant::D);
+                let reflect = variant == Variant::Gamma5D;
+                // Γ5 goes on last, so it needs D ψ whole before it is reflected.
+                let to = if reflect { &mut *d } else { &mut *out };
+                self.combine(to, &[(inp, 1.0, 1.0), (v, height, 0.0)], plain, mass);
+                if reflect {
+                    self.combine(out, &[(d, 1.0, 0.0)], (false, true), mass);
+                }
+            }
+            // D† ψ = ψ + Y† ψ + (b - c Y†) W† ψ
+            Variant::Dagger => {
+                self.wilson.mult(&mut work.wilson, v, inp, Variant::Dagger);
+                let terms = [(inp, 1.0, 1.0), (&*v, height * b, -height * c)];
+                self.combine(out, &terms, (true, false), mass);
+            }
+        }
+    }
+}
+
+/// The Pauli-Villars preconditioned operator `A = (D_PV C_PV^-1)† C^-1 D` of an `Mdwf`,
+/// and the left preconditioner `P = (D_PV C_PV^-1)† C^-1` that goes with it: the solution
+/// of `A x = P b` solves `D x = b`. See the top of the file.
+///
+/// One application is two sweeps of the Wilson kernel (through D and through D_PV†) and
+/// two exact site-local inverses.
+pub struct PvPreconditioned<'a, T: Storage, G: GammaRepre = Dirac> {
+    op: &'a Mdwf<T, G>,
+    work: MdwfWork<T>,
+    first: Field<T, Spinor>,
+    second: Field<T, Spinor>,
+}
+
+impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
+    /// `like` only provides the shape of the intermediate fields.
+    pub fn new(op: &'a Mdwf<T, G>, like: &Field<T, Spinor>) -> Self {
+        Self {
+            op,
+            work: op.work(),
+            first: like.zeros_like(),
+            second: like.zeros_like(),
+        }
+    }
+
+    /// `out = P inp = C_PV†^-1 D_PV† C^-1 inp`: what the right-hand side of `D x = b` is
+    /// multiplied by before `A` is solved.
+    pub fn precondition(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        let mass = self.op.params.mass;
+        fit(&mut self.first, inp);
+        fit(&mut self.second, inp);
+        self.op.mult_site_inv(&mut self.first, inp, mass, false);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.second,
+            &self.first,
+            Variant::Dagger,
+            1.0,
+        );
+        self.op.mult_site_inv(out, &self.second, 1.0, true);
+    }
+}
+
+impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
+    /// `out = A inp = P D inp`.
+    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        let mass = self.op.params.mass;
+        fit(&mut self.first, inp);
+        fit(&mut self.second, inp);
+        self.op
+            .mult_at(&mut self.work, &mut self.first, inp, Variant::D, mass);
+        self.op
+            .mult_site_inv(&mut self.second, &self.first, mass, false);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.first,
+            &self.second,
+            Variant::Dagger,
+            1.0,
+        );
+        self.op.mult_site_inv(out, &self.first, 1.0, true);
+    }
+}
+
+impl<T: Storage, G: GammaRepre> LinearOp<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
+    /// `out = A† inp = D† C†^-1 D_PV C_PV^-1 inp`.
+    fn mult_dag(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        let mass = self.op.params.mass;
+        fit(&mut self.first, inp);
+        fit(&mut self.second, inp);
+        self.op.mult_site_inv(&mut self.first, inp, 1.0, false);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.second,
+            &self.first,
+            Variant::D,
+            1.0,
+        );
+        self.op
+            .mult_site_inv(&mut self.first, &self.second, mass, true);
+        self.op
+            .mult_at(&mut self.work, out, &self.first, Variant::Dagger, mass);
     }
 }
 
@@ -215,39 +449,6 @@ impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Mdwf<T, G> {
         inp: &Field<T, Spinor>,
         variant: Variant,
     ) {
-        assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
-        assert!(out.same_shape(inp));
-        if !work.fields.as_ref().is_some_and(|f| f[0].same_shape(inp)) {
-            work.fields = Some([inp.zeros_like(), inp.zeros_like(), inp.zeros_like()]);
-        }
-        let Some([w, v, d]) = work.fields.as_mut() else {
-            unreachable!("the fields were just made");
-        };
-        let MdwfParams { m5, b, c, .. } = self.params;
-        let height = 4.0 - m5;
-        match variant {
-            // D ψ = ψ + Y ψ + W (b ψ - c Y ψ)
-            Variant::D | Variant::Gamma5D => {
-                self.combine(w, &[(inp, b, -c)], false, false);
-                self.wilson.mult(&mut work.wilson, v, w, Variant::D);
-                let reflect = variant == Variant::Gamma5D;
-                // Γ5 goes on last, so it needs D ψ whole before it is reflected.
-                let to = if reflect { &mut *d } else { &mut *out };
-                self.combine(to, &[(inp, 1.0, 1.0), (v, height, 0.0)], false, false);
-                if reflect {
-                    self.combine(out, &[(d, 1.0, 0.0)], false, true);
-                }
-            }
-            // D† ψ = ψ + Y† ψ + (b - c Y†) W† ψ
-            Variant::Dagger => {
-                self.wilson.mult(&mut work.wilson, v, inp, Variant::Dagger);
-                self.combine(
-                    out,
-                    &[(inp, 1.0, 1.0), (v, height * b, -height * c)],
-                    true,
-                    false,
-                );
-            }
-        }
+        self.mult_at(work, out, inp, variant, self.params.mass);
     }
 }
