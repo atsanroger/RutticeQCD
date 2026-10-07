@@ -10,6 +10,7 @@
 use super::evenodd::{EvenOddIndex, Parity};
 use super::stencil::{Boundary, Direction, Stencil};
 use super::{Lattice, ND};
+use crate::comm::{HaloSpec, FACES};
 
 /// The division of a lattice into blocks of `lanes` sites.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,14 +117,23 @@ pub struct Edge<const W: usize> {
     /// Lane `i` of the block being computed reads lane `from[i]` of the neighbouring block.
     pub from: [usize; W],
     /// For each lane of the block being computed: the factor (re, im) of the boundary
-    /// condition if its hop crosses the boundary of the lattice, (1, 0) otherwise.
+    /// condition if its hop crosses the boundary of the global lattice, (1, 0) otherwise.
     /// Zero for a Dirichlet boundary.
     pub factor: [(f64, f64); W],
 }
 
+/// In `BlockStencil::received`: the lane does not come from another process.
+pub const NOT_RECEIVED: u32 = u32::MAX;
+
 /// Nearest neighbours of blocks: the counterpart of `Stencil` for the SIMD layout.
 ///
-/// One process only so far: neighbours beyond the lattice are the periodic images.
+/// In a direction with more than one process, the hops that leave the local lattice get
+/// their data from the neighbouring process. They are some of the lanes of the blocks at
+/// the edge of the sub-lattice, those of the last sub-lattice in that direction; the other
+/// lanes of such a block are found on this process as before. What is exchanged is
+/// numbered site by site exactly as `Stencil` numbers it, so both layouts fill and read
+/// the same buffers: `send_lanes` lists what leaves through a face and `received` says
+/// where the lanes of a block are in what arrived.
 pub struct BlockStencil<const W: usize> {
     blocks: Blocks,
     /// Blocks covered: all of them, or those of one parity.
@@ -133,6 +143,19 @@ pub struct BlockStencil<const W: usize> {
     neighbor: Vec<u32>,
     /// Per leg, what to do to the lanes of such a hop.
     edge: [Edge<W>; Stencil::LEGS],
+    /// Rank on the other side of each face.
+    neighbour_rank: [usize; FACES],
+    /// Whether leaving through each face crosses the boundary of the global lattice.
+    at_global_boundary: [bool; FACES],
+    /// For each face, the (block, lane) of the input sites the neighbour on that side
+    /// needs, in the order of `Stencil::send_sites`.
+    send: [Vec<(u32, u32)>; FACES],
+    /// `[block * LEGS + leg]`: the entry of `received` for that hop, or `NOT_RECEIVED`.
+    /// Empty on a single process.
+    received_at: Vec<u32>,
+    /// For each lane of such a hop, its position in what arrived on the face of the leg,
+    /// or `NOT_RECEIVED`.
+    received: Vec<[u32; W]>,
 }
 
 const EDGE: u32 = 1 << 31;
@@ -143,7 +166,7 @@ impl<const W: usize> BlockStencil<W> {
     pub fn new(lat: &Lattice, boundary: [Boundary; ND]) -> Option<Self> {
         let blocks = Blocks::new(lat.local, W)?;
         let covered = 0..blocks.num_blocks();
-        Some(Self::build(lat, boundary, blocks, covered, |block| block))
+        Some(Self::build(lat, boundary, blocks, covered, Some))
     }
 
     /// The blocks of one parity; neighbours are numbered within the other parity. `index`
@@ -157,23 +180,21 @@ impl<const W: usize> BlockStencil<W> {
         let blocks = Blocks::new(lat.local, W)?;
         let covered = index.full_sites(parity).iter().map(|b| *b as usize);
         Some(Self::build(lat, boundary, blocks, covered, |block| {
-            index.half_site(block).1
+            let (p, half) = index.half_site(block);
+            (p != parity).then_some(half)
         }))
     }
 
-    /// `covered` are the blocks of this stencil, in order; `index_of` turns the number of a
-    /// neighbouring block into the index stored for it.
+    /// `covered` are the blocks of this stencil, in order. `input_index` gives the index of
+    /// a block in the field the neighbours are read from, or `None` if that field does not
+    /// live on the block.
     fn build(
         lat: &Lattice,
         boundary: [Boundary; ND],
         blocks: Blocks,
         covered: impl ExactSizeIterator<Item = usize>,
-        index_of: impl Fn(usize) -> usize,
+        input_index: impl Fn(usize) -> Option<usize>,
     ) -> Self {
-        assert_eq!(
-            lat.grid, [1; ND],
-            "the SIMD layout on several processes is not implemented yet"
-        );
         let (reduced, split) = (blocks.reduced, blocks.split);
         let n = covered.len();
         assert!(blocks.num_blocks() < EDGE as usize);
@@ -205,27 +226,35 @@ impl<const W: usize> BlockStencil<W> {
             (y, wrapped)
         };
 
+        let small = |i: usize| u32::try_from(i).expect("checked against EDGE above");
         let mut neighbor = vec![0u32; n * Stencil::LEGS];
+        // Position of each block among the covered ones.
+        let mut covered_at = vec![NOT_RECEIVED; blocks.num_blocks()];
         for (i, block) in covered.enumerate() {
+            covered_at[block] = small(i);
             let o = unlex(block, reduced);
             for leg in 0..Stencil::LEGS {
                 let (mu, dir) = legs(leg);
                 let (to, leaves) = step(o, mu, dir, reduced);
-                let to =
-                    u32::try_from(index_of(lex(to, reduced))).expect("checked against EDGE above");
-                neighbor[i * Stencil::LEGS + leg] = to | if leaves { EDGE } else { 0 };
+                let to = input_index(lex(to, reduced))
+                    .expect("the neighbour of a covered block holds no input");
+                neighbor[i * Stencil::LEGS + leg] = small(to) | if leaves { EDGE } else { 0 };
             }
         }
+        let at_global_boundary: [bool; FACES] = core::array::from_fn(|leg| {
+            let (mu, dir) = legs(leg);
+            lat.at_global_boundary(mu, dir)
+        });
         let edge = core::array::from_fn(|leg| {
             let (mu, dir) = legs(leg);
             let mut from = [0; W];
             let mut factor = [(1.0, 0.0); W];
             for lane in 0..W {
                 // Leaving the sub-lattice, the hop arrives in the next sub-lattice along mu;
-                // from the last one it crosses the boundary of the lattice.
+                // from the last one it leaves the local lattice.
                 let (to, crosses) = step(unlex(lane, split), mu, dir, split);
                 from[lane] = lex(to, split);
-                if crosses {
+                if crosses && at_global_boundary[leg] {
                     factor[lane] = match (boundary[mu], dir) {
                         (Boundary::Periodic, _) => (1.0, 0.0),
                         (Boundary::Antiperiodic, _) => (-1.0, 0.0),
@@ -237,11 +266,88 @@ impl<const W: usize> BlockStencil<W> {
             }
             Edge { from, factor }
         });
+
+        // What is exchanged, site by site in the order of `Stencil`: both the sites sent
+        // through a face and the sites that receive on it are taken by increasing site
+        // number, and only the latter are counted where a Dirichlet boundary cuts the hop.
+        let exchanged = |mu: usize| lat.grid[mu] > 1;
+        let mut send: [Vec<(u32, u32)>; FACES] = Default::default();
+        let (mut received_at, mut received) = (Vec::new(), Vec::<[u32; W]>::new());
+        if (0..ND).any(exchanged) {
+            received_at = vec![NOT_RECEIVED; n * Stencil::LEGS];
+            let mut arrived = [0u32; FACES];
+            for site in 0..lat.num_sites() {
+                let x = unlex(site, blocks.local);
+                let (block, lane) = blocks.block_lane(site);
+                for leg in 0..Stencil::LEGS {
+                    let (mu, dir) = legs(leg);
+                    if !exchanged(mu) || !step(x, mu, dir, blocks.local).1 {
+                        continue;
+                    }
+                    if let Some(i) = input_index(block) {
+                        send[leg].push((small(i), small(lane)));
+                    }
+                    let cut = at_global_boundary[leg] && boundary[mu] == Boundary::Dirichlet;
+                    if covered_at[block] != NOT_RECEIVED && !cut {
+                        let k = covered_at[block] as usize * Stencil::LEGS + leg;
+                        if received_at[k] == NOT_RECEIVED {
+                            received_at[k] = small(received.len());
+                            received.push([NOT_RECEIVED; W]);
+                        }
+                        received[received_at[k] as usize][lane] = arrived[leg];
+                        arrived[leg] += 1;
+                    }
+                }
+            }
+        }
         Self {
             blocks,
             num_blocks: n,
             neighbor,
             edge,
+            neighbour_rank: core::array::from_fn(|leg| {
+                let (mu, dir) = legs(leg);
+                lat.neighbour_rank(mu, dir)
+            }),
+            at_global_boundary,
+            send,
+            received_at,
+            received,
+        }
+    }
+
+    /// Whether any neighbour comes from another process.
+    pub fn has_buffers(&self) -> bool {
+        self.send.iter().any(|s| !s.is_empty())
+    }
+
+    /// The (block, lane) in the input field of the sites to send through face `leg`, in
+    /// the order the neighbour indexes them. Empty if that direction has a single process.
+    pub fn send_lanes(&self, leg: usize) -> &[(u32, u32)] {
+        &self.send[leg]
+    }
+
+    /// Whether what is sent through face `leg` crosses the boundary of the global lattice.
+    pub fn sends_across_boundary(&self, leg: usize) -> bool {
+        self.at_global_boundary[leg]
+    }
+
+    /// The exchange that carries `reals_per_site` reals for every site of every face.
+    pub fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
+        HaloSpec {
+            neighbour: self.neighbour_rank,
+            len: core::array::from_fn(|face| reals_per_site * self.send[face].len()),
+        }
+    }
+
+    /// For a hop of `block` along `leg` that takes lanes from the neighbouring process:
+    /// the position of each lane in what arrived on the face of the leg, `NOT_RECEIVED` for
+    /// the lanes found on this process.
+    #[inline(always)]
+    pub fn received(&self, block: usize, leg: usize) -> Option<&[u32; W]> {
+        match self.received_at.get(block * Stencil::LEGS + leg) {
+            None | Some(&NOT_RECEIVED) => None,
+            Some(at) => Some(&self.received[*at as usize]),
         }
     }
 
@@ -361,5 +467,142 @@ mod tests {
         check::<4>(&lat, boundary, &sites);
         check::<8>(&lat, boundary, &sites);
         check::<16>(&lat, boundary, &sites);
+    }
+
+    /// On several processes, for all blocks and for the blocks of each parity: every lane
+    /// of every hop is the neighbour `Stencil` names, on this process or at the same
+    /// position of what arrives, with the same factor; and the same sites are sent.
+    #[test]
+    fn exchanged_lanes_are_the_exchanged_sites() {
+        use crate::lattice::stencil::Source;
+        use crate::LocalComm;
+        let boundary = [
+            Boundary::Phase(0.6, 0.8),
+            Boundary::Periodic,
+            Boundary::Dirichlet,
+            Boundary::Antiperiodic,
+        ];
+        fn phase(boundary: Boundary, dir: Direction) -> (f64, f64) {
+            match (boundary, dir) {
+                (Boundary::Periodic, _) => (1.0, 0.0),
+                (Boundary::Antiperiodic, _) => (-1.0, 0.0),
+                (Boundary::Phase(re, im), Direction::Forward) => (re, im),
+                (Boundary::Phase(re, im), Direction::Backward) => (re, -im),
+                (Boundary::Dirichlet, _) => (0.0, 0.0),
+            }
+        }
+        /// `site_of(i)`: the lattice site of output site `i` of `sites`; `input(block)`:
+        /// the lattice sites of the lanes of input block `block`.
+        fn compare<const W: usize>(
+            st: &BlockStencil<W>,
+            sites: &Stencil,
+            boundary: [Boundary; ND],
+            out_site: &dyn Fn(usize, usize) -> usize,
+            inp_site: &dyn Fn(usize, usize) -> usize,
+            site_index: &dyn Fn(usize) -> usize,
+        ) {
+            assert_eq!(st.num_blocks() * W, sites.num_sites());
+            assert_eq!(st.has_buffers(), sites.has_buffers());
+            assert_eq!(st.halo_spec(12), sites.halo_spec(12));
+            for leg in 0..Stencil::LEGS {
+                let (mu, dir) = (
+                    leg % ND,
+                    [Direction::Forward, Direction::Backward][leg / ND],
+                );
+                assert_eq!(
+                    st.sends_across_boundary(leg),
+                    sites.sends_across_boundary(mu, dir)
+                );
+                let sent: Vec<usize> = st
+                    .send_lanes(leg)
+                    .iter()
+                    .map(|(block, lane)| site_index(inp_site(*block as usize, *lane as usize)))
+                    .collect();
+                let want: Vec<usize> = sites
+                    .send_sites(mu, dir)
+                    .iter()
+                    .map(|s| *s as usize)
+                    .collect();
+                assert_eq!(sent, want, "W = {W}, face {leg}");
+
+                for block in 0..st.num_blocks() {
+                    let (to, edge) = st.source(block, leg);
+                    let received = st.received(block, leg);
+                    assert!(received.is_none() || edge.is_some());
+                    for lane in 0..W {
+                        let (from, factor) = match edge {
+                            Some(e) => (e.from[lane], e.factor[lane]),
+                            None => (lane, (1.0, 0.0)),
+                        };
+                        let arrives = received.map_or(NOT_RECEIVED, |r| r[lane]);
+                        let site = site_index(out_site(block, lane));
+                        match sites.source(site, mu, dir) {
+                            Source::Local { site, wrapped } => {
+                                assert_eq!(arrives, NOT_RECEIVED);
+                                assert_eq!(site_index(inp_site(to, from)), site);
+                                let want = if wrapped {
+                                    phase(boundary[mu], dir)
+                                } else {
+                                    (1.0, 0.0)
+                                };
+                                assert_eq!(factor, want);
+                            }
+                            Source::Buffer { index, wrapped } => {
+                                assert_eq!(arrives as usize, index, "W = {W}, leg {leg}");
+                                let want = if wrapped {
+                                    phase(boundary[mu], dir)
+                                } else {
+                                    (1.0, 0.0)
+                                };
+                                assert_eq!(factor, want);
+                            }
+                            Source::Zero => {
+                                assert_eq!(arrives, NOT_RECEIVED);
+                                assert_eq!(factor, (0.0, 0.0));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fn check<const W: usize>(lat: &Lattice, boundary: [Boundary; ND]) {
+            let blocks = Blocks::new(lat.local, W).unwrap();
+            let st = BlockStencil::<W>::new(lat, boundary).unwrap();
+            let sites = Stencil::nearest(lat, boundary);
+            let site = |block: usize, lane: usize| blocks.site(block, lane);
+            compare(&st, &sites, boundary, &site, &site, &|s| s);
+
+            let Some(block_index) = blocks.even_odd_index() else {
+                return;
+            };
+            let site_index = EvenOddIndex::new(lat);
+            for to in [Parity::Even, Parity::Odd] {
+                let st = BlockStencil::<W>::new_parity(lat, boundary, &block_index, to).unwrap();
+                let sites = Stencil::nearest_parity(lat, boundary, &site_index, to);
+                let out =
+                    |block: usize, lane: usize| blocks.site(block_index.full_site(to, block), lane);
+                let inp = |block: usize, lane: usize| {
+                    blocks.site(block_index.full_site(to.flip(), block), lane)
+                };
+                compare(&st, &sites, boundary, &out, &inp, &|s| {
+                    site_index.half_site(s).1
+                });
+            }
+        }
+        for grid in [
+            [2, 1, 1, 1],
+            [1, 2, 1, 2],
+            [2, 2, 2, 2],
+            [1, 1, 2, 4],
+            [1, 1, 1, 1],
+        ] {
+            LocalComm::run([8, 8, 8, 16], grid, |lat| {
+                check::<1>(&lat, boundary);
+                check::<2>(&lat, boundary);
+                check::<4>(&lat, boundary);
+                check::<8>(&lat, boundary);
+                check::<16>(&lat, boundary);
+            });
+        }
     }
 }

@@ -43,7 +43,7 @@ pub use field::vector::{ConvertFrom, Vector, C64};
 pub use field::{
     Aos, Aosoa, Backend, Coarse, Cpu, Field, Full, Gauge, Half, Kind, Layout, Sites, Spinor,
 };
-pub use lattice::blocks::{BlockStencil, Blocks, Edge};
+pub use lattice::blocks::{BlockStencil, Blocks, Edge, NOT_RECEIVED};
 pub use lattice::evenodd::{extract_parity, insert_parity, EvenOddIndex, Parity};
 pub use lattice::parts::{assemble, local_part};
 pub use lattice::sites::{

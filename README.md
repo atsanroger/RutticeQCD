@@ -127,8 +127,8 @@ processor that has them (`RUSTFLAGS="-C target-cpu=native"`), otherwise the bloc
 computed with ordinary instructions. The results are those of `simd = 1` up to the order
 of the sums in the solver. The lattice is cut into that many equal parts by halving it,
 t first, then z, y, x; with `even_odd = true` the parts must have even extents, so a
-4×4×4×8 lattice allows up to `8`. One process only so far, and not together with
-multigrid.
+4×4×4×8 lattice allows up to `8`. On several processes it is the part of the lattice on
+each process that is cut. Not together with multigrid.
 
 Multigrid needs a solver that tolerates a preconditioner changing from one application to
 the next, `solver.type = "fgmres"` or `"bicgstab"`, and `solver.even_odd = false`; it runs on

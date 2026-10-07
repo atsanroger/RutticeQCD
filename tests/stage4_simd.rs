@@ -12,8 +12,8 @@ use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, LaneOf};
 use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
 use ruttice::{
-    extract_parity, insert_parity, random_spinor, Aosoa, Boundary, ConvertFrom, Field, Gauge, Half,
-    Lattice, Parity, Spinor, Storage, Vector, C64, ND,
+    assemble, extract_parity, insert_parity, local_part, random_spinor, Aosoa, Boundary,
+    ConvertFrom, Field, Gauge, Half, Lattice, LocalComm, Parity, Spinor, Storage, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -162,7 +162,7 @@ fn wilson_on_blocks_is_identical() {
             let mut want = psi.zeros_like();
             reference.mult(&mut reference.work(), &mut want, psi, variant);
             let mut out = inp.zeros_like();
-            op.mult(&mut (), &mut out, &inp, variant);
+            op.mult(&mut op.work(), &mut out, &inp, variant);
             assert!(
                 to_sites(&out).as_slice() == want.as_slice(),
                 "W = {W}, {variant:?}: max difference {:e}",
@@ -198,7 +198,7 @@ fn wilson_on_blocks_is_identical_in_single_precision() {
         let mut inp = Field::<f32, Spinor, ruttice::Full, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
         inp.convert_from(psi);
         let mut out = inp.zeros_like();
-        op.mult(&mut (), &mut out, &inp, Variant::Dagger);
+        op.mult(&mut op.work(), &mut out, &inp, Variant::Dagger);
         let mut back = psi.zeros_like();
         back.convert_from(&out);
         assert!(back.as_slice() == want.as_slice(), "W = {W}");
@@ -291,7 +291,7 @@ fn clover_on_blocks_is_identical() {
             let mut want = psi.zeros_like();
             reference.mult(&mut reference.work(), &mut want, psi, variant);
             let mut out = inp.zeros_like();
-            op.mult(&mut (), &mut out, &inp, variant);
+            op.mult(&mut op.work(), &mut out, &inp, variant);
             assert!(
                 to_sites(&out).as_slice() == want.as_slice(),
                 "W = {W}, {variant:?}: max difference {:e}",
@@ -328,6 +328,7 @@ fn even_odd_blocks_agree<D: DiagTerm<f64>, const W: usize>(
     let half_sites = || HalfSites::with_shape(lat, 24, 1, copies, 1);
     let half_blocks = || HalfBlocks::<W>::with_shape(lat, 24, 1, copies, 1);
     let mut work = sites.even_odd_work();
+    let mut block_work = blocks.even_odd_work();
 
     for to in [Parity::Even, Parity::Odd] {
         for dagger in [Dagger::No, Dagger::Yes] {
@@ -348,15 +349,15 @@ fn even_odd_blocks_agree<D: DiagTerm<f64>, const W: usize>(
                 match case {
                     0 => {
                         sites.hop(&mut work, &mut out_s, &inp_s, to, dagger);
-                        blocks.hop(&mut (), &mut out_b, &inp_b, to, dagger);
+                        blocks.hop(&mut block_work, &mut out_b, &inp_b, to, dagger);
                     }
                     1 => {
                         sites.diag(&mut work, &mut out_s, &same_s, to, dagger);
-                        blocks.diag(&mut (), &mut out_b, &same_b, to, dagger);
+                        blocks.diag(&mut block_work, &mut out_b, &same_b, to, dagger);
                     }
                     _ => {
                         sites.diag_inv(&mut work, &mut out_s, &same_s, to, dagger);
-                        blocks.diag_inv(&mut (), &mut out_b, &same_b, to, dagger);
+                        blocks.diag_inv(&mut block_work, &mut out_b, &same_b, to, dagger);
                     }
                 }
                 let (mut whole_s, mut whole_b) = (psi.zeros_like(), psi_blocks.zeros_like());
@@ -483,4 +484,192 @@ fn even_odd_needs_a_lattice_of_blocks_with_even_extents() {
     assert!(op.even_odd_index().is_none());
     let op = WilsonSimd::<f64, 2>::new(&lat, params()).unwrap();
     assert!(op.even_odd_index().is_some());
+}
+
+// ---------------------------------------------------------------------------------------
+// Several processes (threads of the test, `LocalComm`).
+
+const GLOBAL: [usize; ND] = [4, 4, 8, 8];
+
+/// Splits that leave lattices of blocks with even extents for W = 4, and some that do not.
+const GRIDS: [[usize; ND]; 5] = [
+    [1, 1, 2, 2],
+    [2, 2, 1, 1],
+    [1, 2, 2, 2],
+    [1, 1, 1, 4],
+    [1, 1, 1, 1],
+];
+
+/// The operator on blocks on every process of every grid against the operator on sites on
+/// one process: D, D† and γ5 D and, where the blocks have a parity, the hops onto both
+/// parities for M and M†. `sites` and `blocks` build the two operators on a lattice.
+fn blocks_on_processes_agree<D: DiagTerm<f64>, const W: usize>(
+    sites: impl Fn(&Arc<Lattice>) -> WilsonOp<f64, Dirac, D>,
+    blocks: impl Fn(&Arc<Lattice>) -> Option<WilsonOp<f64, Dirac, D, Aosoa<W>>> + Sync,
+    u: &Field<f64, Gauge>,
+    psi: &V,
+) where
+    f64: LaneOf<W>,
+{
+    const VARIANTS: [Variant; 3] = [Variant::D, Variant::Dagger, Variant::Gamma5D];
+    let hops = || {
+        [Parity::Even, Parity::Odd]
+            .into_iter()
+            .flat_map(|to| [Dagger::No, Dagger::Yes].map(|dagger| (to, dagger)))
+    };
+    let whole = psi.lattice();
+    let copies = psi.num_vectors();
+
+    let mut reference = sites(whole);
+    reference.set_gauge(u).unwrap();
+    let mut want: Vec<V> = VARIANTS
+        .iter()
+        .map(|variant| {
+            let mut out = psi.zeros_like();
+            reference.mult(&mut reference.work(), &mut out, psi, *variant);
+            out
+        })
+        .collect();
+    let index = reference.even_odd_index().unwrap();
+    for (to, dagger) in hops() {
+        let mut inp = HalfSites::with_shape(whole, 24, 1, copies, 1);
+        let mut out = inp.zeros_like();
+        extract_parity(&mut inp, psi, index, to.flip());
+        out.set_parity(to);
+        reference.hop(&mut reference.even_odd_work(), &mut out, &inp, to, dagger);
+        let mut full = psi.zeros_like();
+        insert_parity(&mut full, &out, index);
+        want.push(full);
+    }
+
+    for grid in GRIDS {
+        // Result i of every process, in rank order.
+        let mut results: Vec<Vec<V>> = Vec::new();
+        for part in LocalComm::run(GLOBAL, grid, |lat| {
+            let mut op = blocks(&lat).unwrap();
+            op.set_gauge(&local_part(u, &lat)).unwrap();
+            let inp = to_blocks::<W>(&local_part(psi, &lat));
+            let mut work = op.work();
+            let mut got: Vec<V> = VARIANTS
+                .iter()
+                .map(|variant| {
+                    let mut out = inp.zeros_like();
+                    // Twice with the same work object: the exchange buffers are reused.
+                    op.mult(&mut work, &mut out, &inp, *variant);
+                    op.mult(&mut work, &mut out, &inp, *variant);
+                    to_sites(&out)
+                })
+                .collect();
+            let Some(index) = op.even_odd_index() else {
+                return got;
+            };
+            let mut work = op.even_odd_work();
+            for (to, dagger) in hops() {
+                let mut half = HalfBlocks::<W>::with_shape(&lat, 24, 1, copies, 1);
+                let mut out = half.zeros_like();
+                extract_parity(&mut half, &inp, index, to.flip());
+                out.set_parity(to);
+                op.hop(&mut work, &mut out, &half, to, dagger);
+                let mut full = inp.zeros_like();
+                insert_parity(&mut full, &out, index);
+                got.push(to_sites(&full));
+            }
+            got
+        }) {
+            for (i, field) in part.into_iter().enumerate() {
+                if results.len() <= i {
+                    results.push(Vec::new());
+                }
+                results[i].push(field);
+            }
+        }
+        assert!(results.len() == 3 || results.len() == want.len());
+        for (i, (parts, want)) in results.iter().zip(&want).enumerate() {
+            let got = assemble(whole, parts);
+            assert!(
+                got.as_slice() == want.as_slice(),
+                "W = {W}, grid {grid:?}, result {i}: max difference {:e}",
+                max_abs_diff(&got, want)
+            );
+        }
+    }
+}
+
+#[test]
+fn wilson_on_blocks_is_identical_on_several_processes() {
+    let whole = Lattice::single_node(GLOBAL);
+    let u = random_gauge(&whole, 1001);
+    let psi = random_spinor(&whole, 2, 1002);
+    let sites = |lat: &Arc<Lattice>| Wilson::<f64>::new(lat, params());
+    blocks_on_processes_agree(
+        sites,
+        |lat| WilsonSimd::<f64, 1>::new(lat, params()),
+        &u,
+        &psi,
+    );
+    blocks_on_processes_agree(
+        sites,
+        |lat| WilsonSimd::<f64, 2>::new(lat, params()),
+        &u,
+        &psi,
+    );
+    blocks_on_processes_agree(
+        sites,
+        |lat| WilsonSimd::<f64, 4>::new(lat, params()),
+        &u,
+        &psi,
+    );
+    blocks_on_processes_agree(
+        sites,
+        |lat| WilsonSimd::<f64, 8>::new(lat, params()),
+        &u,
+        &psi,
+    );
+}
+
+#[test]
+fn clover_on_blocks_is_identical_on_several_processes() {
+    let whole = Lattice::single_node(GLOBAL);
+    let u = random_gauge(&whole, 1011);
+    let psi = random_spinor(&whole, 2, 1012);
+    let sites = |lat: &Arc<Lattice>| Clover::<f64>::new(lat, clover_params());
+    let blocks = |lat: &Arc<Lattice>| CloverSimd::<f64, 4>::new(lat, clover_params());
+    blocks_on_processes_agree(sites, blocks, &u, &psi);
+}
+
+/// The even-odd solve on blocks on several processes solves the system of the whole
+/// lattice.
+#[test]
+fn even_odd_solve_runs_on_blocks_on_several_processes() {
+    let whole = Lattice::single_node(GLOBAL);
+    let u = random_gauge(&whole, 1021);
+    let b = random_spinor(&whole, 1, 1022);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 1000,
+        max_restarts: 3,
+    };
+    let parts = LocalComm::run(GLOBAL, [1, 1, 2, 2], |lat| {
+        let mut op = CloverSimd::<f64, 4>::new(&lat, clover_params()).unwrap();
+        op.set_gauge(&local_part(&u, &lat)).unwrap();
+        let rhs = to_blocks::<4>(&local_part(&b, &lat));
+        let mut x = rhs.zeros_like();
+        let index = op.even_odd_index().unwrap();
+        solve_even_odd(&op, index, &mut x, &rhs, |schur, x_e, rhs| {
+            BiCgStab::new(stop).solve(schur, None, x_e, rhs)
+        })
+        .unwrap();
+        to_sites(&x)
+    });
+    let x = assemble(&whole, &parts);
+    let mut reference = Clover::<f64>::new(&whole, clover_params());
+    reference.set_gauge(&u).unwrap();
+    let mut r = b.zeros_like();
+    reference.mult(&mut reference.work(), &mut r, &x, Variant::D);
+    r.scale(&[-1.0]);
+    r.axpy(&[C64::new(1.0, 0.0)], &b);
+    let (mut rr, mut bb) = ([0.0], [0.0]);
+    r.norm_sqr(&mut rr);
+    b.norm_sqr(&mut bb);
+    assert!(rr[0] / bb[0] < 1e-22, "{:e}", rr[0] / bb[0]);
 }

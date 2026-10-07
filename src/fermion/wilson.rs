@@ -14,9 +14,9 @@
 //!
 //! For fields in blocks of W sites (`Aosoa<W>`, the SIMD layout) there is a second sweep,
 //! over blocks, at the end of this file: the same kernel functions with a lane type in place
-//! of a real number. It covers the whole lattice and the even-odd blocks, with any
-//! site-diagonal term, on one process. When it also covers several processes, the sweep
-//! over sites becomes the case W = 1 of it and goes away.
+//! of a real number. It covers what the sweep over sites covers except the single hopping
+//! terms and the two-row links. On several processes it fills and reads the same face
+//! buffers, one site at a time.
 //!
 //! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
 //! preconditioning. Tools needed: none.
@@ -32,8 +32,8 @@ use crate::kernel::{
 };
 use crate::{
     for_sites, Aos, Aosoa, BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Full,
-    Gauge, Half, HaloExchange, Lattice, Layout, Parity, Sites, Source, Spinor, Stencil, Storage,
-    Vector, FACES, ND,
+    Gauge, Half, HaloExchange, HaloSpec, Lattice, Layout, Parity, Sites, Source, Spinor, Stencil,
+    Storage, Vector, FACES, ND, NOT_RECEIVED,
 };
 use rayon::prelude::*;
 use std::marker::PhantomData;
@@ -59,20 +59,22 @@ impl<T: Storage> WilsonWork<T> {
         }
     }
 
+    /// The buffers for geometry `id` of the operator with `copies` spinors per site;
+    /// `spec` describes them if they have to be created.
     fn exchange(
         &mut self,
-        geo: &Geometry,
+        id: usize,
         copies: usize,
         lat: &Lattice,
+        spec: impl FnOnce() -> HaloSpec,
     ) -> &mut dyn HaloExchange<T> {
         let found = self
             .exchanges
             .iter()
-            .position(|(id, c, _)| *id == geo.id && *c == copies);
+            .position(|(i, c, _)| *i == id && *c == copies);
         let at = found.unwrap_or_else(|| {
-            let spec = geo.stencil.halo_spec(copies * HALF_SPINOR_REALS);
-            let exchange = T::halo(lat.comm.as_ref(), &spec);
-            self.exchanges.push((geo.id, copies, exchange));
+            let exchange = T::halo(lat.comm.as_ref(), &spec());
+            self.exchanges.push((id, copies, exchange));
             self.exchanges.len() - 1
         });
         self.exchanges[at].2.as_mut()
@@ -400,6 +402,20 @@ struct Fixed<'a, T: Storage, R: LinkRepr> {
     phase: [Option<Cplx<T::Compute>>; FACES],
 }
 
+/// The phase a hop in direction `dir` picks up when it crosses a boundary of the global
+/// lattice with this condition. A hop backward picks up the conjugate.
+fn boundary_phase<C: Number>(boundary: Boundary, dir: Direction) -> Option<Cplx<C>> {
+    let phase = match boundary {
+        Boundary::Periodic | Boundary::Dirichlet => None,
+        Boundary::Antiperiodic => Some((-1.0, 0.0)),
+        Boundary::Phase(re, im) => Some(match dir {
+            Direction::Forward => (re, im),
+            Direction::Backward => (re, -im),
+        }),
+    };
+    phase.map(|(re, im)| Cplx::new(Number::from_f64(re), Number::from_f64(im)))
+}
+
 /// The spin structure and link use of the legs in one direction.
 #[inline(always)]
 fn leg_kind(dir: Direction) -> (Sign, LinkUse) {
@@ -461,15 +477,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// The phase a hop in direction (mu, dir) picks up when it crosses the boundary of the
     /// global lattice. A hop backward picks up the conjugate.
     fn boundary_phase(&self, mu: usize, dir: Direction) -> Option<Cplx<T::Compute>> {
-        let phase = match self.params.boundary[mu] {
-            Boundary::Periodic | Boundary::Dirichlet => None,
-            Boundary::Antiperiodic => Some((-1.0, 0.0)),
-            Boundary::Phase(re, im) => Some(match dir {
-                Direction::Forward => (re, im),
-                Direction::Backward => (re, -im),
-            }),
-        };
-        phase.map(|(re, im)| Cplx::new(Number::from_f64(re), Number::from_f64(im)))
+        boundary_phase(self.params.boundary[mu], dir)
     }
 
     /// The leg in direction (mu, dir) of output site `site`.
@@ -604,7 +612,9 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             return [&[]; FACES];
         }
         let copies = inp.copies();
-        let exchange = work.exchange(geo, copies, &self.lat);
+        let exchange = work.exchange(geo.id, copies, &self.lat, || {
+            geo.stencil.halo_spec(copies * HALF_SPINOR_REALS)
+        });
         for mu in 0..ND {
             for send in [Direction::Forward, Direction::Backward] {
                 // What leaves through a face serves the legs pointing the other way.
@@ -1139,6 +1149,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
 /// Which blocks a sweep writes, where their neighbours are, and how both map to the
 /// numbering of all blocks, which the links use. The counterpart of `Geometry`.
 struct BlockGeometry<const W: usize> {
+    /// Distinguishes the geometries of one operator.
+    id: usize,
     stencil: BlockStencil<W>,
     /// Number among all blocks of each output block; `None` when the output is all blocks.
     out_full: Option<Vec<u32>>,
@@ -1149,6 +1161,7 @@ struct BlockGeometry<const W: usize> {
 impl<const W: usize> BlockGeometry<W> {
     fn full(lat: &Lattice, boundary: [Boundary; ND]) -> Option<Self> {
         Some(Self {
+            id: 0,
             stencil: BlockStencil::new(lat, boundary)?,
             out_full: None,
             inp_full: None,
@@ -1163,6 +1176,7 @@ impl<const W: usize> BlockGeometry<W> {
         to: Parity,
     ) -> Option<Self> {
         Some(Self {
+            id: 1 + to.index(),
             stencil: BlockStencil::new_parity(lat, boundary, index, to)?,
             out_full: Some(index.full_sites(to).to_vec()),
             inp_full: Some(index.full_sites(to.flip()).to_vec()),
@@ -1267,6 +1281,38 @@ where
     m
 }
 
+/// One lane of a stored spinor, as the sweep over sites would load that site.
+#[inline(always)]
+fn lane_spinor<T: Storage, const W: usize>(
+    s: &BlockSpinor<T, W>,
+    lane: usize,
+) -> SiteSpinor<T::Compute> {
+    let mut psi = SiteSpinor::zero();
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            psi.0[a][c] = Cplx::new(s[k][lane].load(), s[k + 1][lane].load());
+        }
+    }
+    psi
+}
+
+/// One lane of a stored link.
+#[inline(always)]
+fn lane_link<T: Storage, const W: usize>(
+    s: &BlockLink<T, W>,
+    lane: usize,
+) -> ColorMatrix<T::Compute> {
+    let mut m = ColorMatrix::zero();
+    for a in 0..NC {
+        for b in 0..NC {
+            let k = 2 * (a * NC + b);
+            m.0[a][b] = Cplx::new(s[k][lane].load(), s[k + 1][lane].load());
+        }
+    }
+    m
+}
+
 /// A field in blocks as a slice of stored spinors, `copies` of them per block.
 fn block_spinors<T: Storage, S: Sites, const W: usize>(
     f: &BlockField<T, S, W>,
@@ -1297,6 +1343,33 @@ where
         } else {
             psi
         }
+    }
+
+    /// `h` with the lanes that come from the neighbouring process replaced by what
+    /// arrived: `lanes` gives, for each lane, the site's position in `buffer`.
+    #[inline(always)]
+    fn arrived(
+        &self,
+        h: &HalfSpinor<LaneType<T, W>>,
+        buffer: &[T],
+        lanes: &[u32; W],
+    ) -> HalfSpinor<LaneType<T, W>> {
+        let mut out = *h;
+        for a in 0..2 {
+            for c in 0..NC {
+                let k = 2 * (NC * a + c);
+                let (mut re, mut im) = (h.0[a][c].re.to_array(), h.0[a][c].im.to_array());
+                for lane in 0..W {
+                    if lanes[lane] != NOT_RECEIVED {
+                        let slot = lanes[lane] as usize * self.copies + self.r;
+                        re[lane] = buffer[slot * HALF_SPINOR_REALS + k].load();
+                        im[lane] = buffer[slot * HALF_SPINOR_REALS + k + 1].load();
+                    }
+                }
+                out.0[a][c] = Cplx::new(Lane::from_array(re), Lane::from_array(im));
+            }
+        }
+        out
     }
 }
 
@@ -1419,6 +1492,11 @@ where
     /// the neighbouring block are rotated into place and each lane gets its boundary factor.
     /// The backward leg multiplies by the neighbouring block's link first, in that block's
     /// order of lanes, and rotates the product: the link then never has to be rotated.
+    ///
+    /// Lanes whose hop leaves the local lattice towards another process are computed like
+    /// the others, from the periodic image on this process, and then replaced by what
+    /// arrived in `received`: a projected spinor on the forward leg, where this side holds
+    /// the link, a transported one on the backward leg.
     #[inline(always)]
     fn add_block_legs<const MU: usize>(
         &self,
@@ -1427,6 +1505,7 @@ where
         block: usize,
         input: &BlockInput<'_, T, G, W>,
         edges: &[EdgeLanes<LaneType<T, W>, W>; FACES],
+        received: &[&[T]; FACES],
     ) {
         let gamma = &G::GAMMA[MU];
         let (stencil, links) = (&geo.stencil, &self.state.links);
@@ -1436,7 +1515,11 @@ where
         let (from, edge) = stencil.source(block, leg);
         let mut h = project(gamma, Sign::Minus, &input.at(from));
         if edge.is_some() {
-            h = edges[leg].rotate(&h).scale_cplx(edges[leg].factor);
+            h = edges[leg].rotate(&h);
+            if let Some(lanes) = stencil.received(block, leg) {
+                h = input.arrived(&h, received[leg], lanes);
+            }
+            h = h.scale_cplx(edges[leg].factor);
         }
         let link = load_block_link::<T, W>(&links[MU * num_blocks + geo.out_block(block)]);
         let h = transport_half(&h, &link, LinkUse::Direct, None);
@@ -1452,6 +1535,9 @@ where
         let mut h = transport_half(&h, &link, LinkUse::Adjoint, None);
         if edge.is_some() {
             h = edges[leg].rotate(&h);
+            if let Some(lanes) = stencil.received(block, leg) {
+                h = input.arrived(&h, received[leg], lanes);
+            }
         }
         sink_spinor(hops, &h, gamma, Sign::Plus);
     }
@@ -1504,10 +1590,81 @@ where
         out
     }
 
+    /// `exchange` for fields in blocks: the same buffers with the same contents, filled
+    /// one site at a time from the lanes `BlockStencil::send_lanes` names.
+    fn block_exchange<'w, SI: Sites>(
+        &self,
+        work: &'w mut WilsonWork<T>,
+        geo: &BlockGeometry<W>,
+        inp: &BlockField<T, SI, W>,
+        pre: bool,
+    ) -> [&'w [T]; FACES] {
+        let stencil = &geo.stencil;
+        if !stencil.has_buffers() {
+            return [&[]; FACES];
+        }
+        let copies = inp.copies();
+        let num_blocks = stencil.blocks().num_blocks();
+        let spinors = block_spinors(inp);
+        let exchange = work.exchange(geo.id, copies, &self.lat, || {
+            stencil.halo_spec(copies * HALF_SPINOR_REALS)
+        });
+        for mu in 0..ND {
+            for send in [Direction::Forward, Direction::Backward] {
+                // What leaves through a face serves the legs pointing the other way.
+                let serves = match send {
+                    Direction::Forward => Direction::Backward,
+                    Direction::Backward => Direction::Forward,
+                };
+                let face = Stencil::leg(mu, send);
+                let lanes = stencil.send_lanes(face);
+                if lanes.is_empty() {
+                    continue;
+                }
+                let (sign, link_use) = leg_kind(serves);
+                let phase = if stencil.sends_across_boundary(face) {
+                    boundary_phase::<T::Compute>(self.params.boundary[mu], serves)
+                } else {
+                    None
+                };
+                let buffer = exchange.send_buffer(face);
+                for_sites(buffer, copies * HALF_SPINOR_REALS, |k, o| {
+                    let (block, lane) = (lanes[k].0 as usize, lanes[k].1 as usize);
+                    let link = match send {
+                        Direction::Forward => Some(lane_link::<T, W>(
+                            &self.state.links[mu * num_blocks + geo.inp_block(block)],
+                            lane,
+                        )),
+                        Direction::Backward => None,
+                    };
+                    let o = o.as_chunks_mut::<HALF_SPINOR_REALS>().0;
+                    for (r, o) in o.iter_mut().enumerate() {
+                        let mut psi = lane_spinor::<T, W>(&spinors[block * copies + r], lane);
+                        if pre {
+                            psi = G::GAMMA5.apply(&psi);
+                        }
+                        let h = match &link {
+                            Some(link) => {
+                                transport(&G::GAMMA[mu], sign, &psi, link, link_use, phase)
+                            }
+                            None => project(&G::GAMMA[mu], sign, &psi),
+                        };
+                        store_half::<T>(&h, o);
+                    }
+                });
+            }
+        }
+        exchange.start();
+        exchange.wait();
+        let exchange: &'w dyn HaloExchange<T> = exchange;
+        core::array::from_fn(|face| exchange.recv_buffer(face))
+    }
+
     /// `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`, block by block:
     /// `sweep` for fields in blocks.
     fn block_sweep<SO: Sites, SI: Sites>(
         &self,
+        work: &mut WilsonWork<T>,
         geo: &BlockGeometry<W>,
         out: &mut BlockField<T, SO, W>,
         inp: &BlockField<T, SI, W>,
@@ -1533,6 +1690,7 @@ where
         let edges: [EdgeLanes<LaneType<T, W>, W>; FACES] =
             core::array::from_fn(|leg| EdgeLanes::new(stencil.edge(leg)));
         let spinors = block_spinors(inp);
+        let received = self.block_exchange(work, geo, inp, pre);
 
         for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
             let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
@@ -1545,10 +1703,10 @@ where
                     _gamma: PhantomData::<G>,
                 };
                 let mut hops = SiteSpinor::zero();
-                self.add_block_legs::<0>(&mut hops, geo, block, &input, &edges);
-                self.add_block_legs::<1>(&mut hops, geo, block, &input, &edges);
-                self.add_block_legs::<2>(&mut hops, geo, block, &input, &edges);
-                self.add_block_legs::<3>(&mut hops, geo, block, &input, &edges);
+                self.add_block_legs::<0>(&mut hops, geo, block, &input, &edges, &received);
+                self.add_block_legs::<1>(&mut hops, geo, block, &input, &edges, &received);
+                self.add_block_legs::<2>(&mut hops, geo, block, &input, &edges, &received);
+                self.add_block_legs::<3>(&mut hops, geo, block, &input, &edges, &received);
                 let diag = match diagonal {
                     Diagonal::Present if D::IS_UNIT => input.at(block),
                     Diagonal::Present => {
@@ -1600,9 +1758,11 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> FermionOp<BlockF
 where
     T::Compute: LaneOf<W>,
 {
-    type Work = ();
+    type Work = WilsonWork<T>;
 
-    fn work(&self) {}
+    fn work(&self) -> WilsonWork<T> {
+        WilsonWork::new()
+    }
 
     fn flops_per_site(&self) -> usize {
         NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
@@ -1637,7 +1797,7 @@ where
 
     fn mult(
         &self,
-        _work: &mut (),
+        work: &mut WilsonWork<T>,
         out: &mut BlockField<T, Full, W>,
         inp: &BlockField<T, Full, W>,
         variant: Variant,
@@ -1647,7 +1807,7 @@ where
             Variant::Gamma5D => (false, true),
             Variant::Dagger => (true, true),
         };
-        self.block_sweep(&self.state.full, out, inp, Diagonal::Present, gamma5);
+        self.block_sweep(work, &self.state.full, out, inp, Diagonal::Present, gamma5);
     }
 }
 
@@ -1658,13 +1818,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> EvenOdd<BlockFie
 where
     T::Compute: LaneOf<W>,
 {
-    type Work = ();
+    type Work = WilsonWork<T>;
 
-    fn even_odd_work(&self) {}
+    fn even_odd_work(&self) -> WilsonWork<T> {
+        WilsonWork::new()
+    }
 
     fn hop(
         &self,
-        _work: &mut (),
+        work: &mut WilsonWork<T>,
         out: &mut BlockField<T, Half, W>,
         inp: &BlockField<T, Half, W>,
         to: Parity,
@@ -1674,6 +1836,7 @@ where
         assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
         let g5 = dagger == Dagger::Yes;
         self.block_sweep(
+            work,
             self.parity_geometry(to),
             out,
             inp,
@@ -1684,7 +1847,7 @@ where
 
     fn diag(
         &self,
-        _work: &mut (),
+        _work: &mut WilsonWork<T>,
         out: &mut BlockField<T, Half, W>,
         inp: &BlockField<T, Half, W>,
         parity: Parity,
@@ -1702,7 +1865,7 @@ where
 
     fn diag_inv(
         &self,
-        _work: &mut (),
+        _work: &mut WilsonWork<T>,
         out: &mut BlockField<T, Half, W>,
         inp: &BlockField<T, Half, W>,
         parity: Parity,
