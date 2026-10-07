@@ -44,7 +44,8 @@ pub use field::{Aos, Backend, Coarse, Cpu, Field, Full, Gauge, Half, Kind, Layou
 pub use lattice::evenodd::{extract_parity, insert_parity, EvenOddIndex, Parity};
 pub use lattice::parts::{assemble, local_part};
 pub use lattice::sites::{
-    for_sites, reduce_sites, reduce_sites_dyn, reduce_sites_n, shift, REDUCE_CHUNK,
+    for_sites, min_sites_per_task, reduce_sites, reduce_sites_dyn, reduce_sites_n, shift,
+    REDUCE_CHUNK,
 };
 pub use lattice::stencil::{Boundary, Direction, Source, Stencil};
 pub use lattice::{Lattice, ND};

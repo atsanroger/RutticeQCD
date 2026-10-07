@@ -7,15 +7,43 @@ use rayon::prelude::*;
 /// Sites per partial sum in `reduce_sites`. Fixed, so results do not depend on thread count.
 pub const REDUCE_CHUNK: usize = 1024;
 
+/// Fewest sites handed to one task of the thread pool. Loops over no more sites than this
+/// run on the calling thread without touching the pool.
+///
+/// Handing work to the pool has a cost per call that does not depend on the amount of
+/// work, so very small loops are slower in parallel than serially: with one site per task
+/// and 32 threads, the gauge-fixing tests on a 4x4x4x8 lattice took 207 s, against 11 s
+/// with the loops kept on the calling thread. The default is the chunk of the reductions;
+/// it has not been tuned on large lattices. The environment variable
+/// `RUTTICE_MIN_SITES_PER_TASK` overrides it, for measuring.
+pub fn min_sites_per_task() -> usize {
+    static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("RUTTICE_MIN_SITES_PER_TASK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(REDUCE_CHUNK)
+    })
+}
+
 /// Call `f(site, reals_of_that_site)` for every site of `out`, in parallel.
 pub fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
 where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
 {
-    out.par_chunks_mut(site_len)
-        .enumerate()
-        .for_each(|(site, v)| f(site, v));
+    let grain = min_sites_per_task();
+    if out.len() <= site_len * grain {
+        for (site, v) in out.chunks_mut(site_len).enumerate() {
+            f(site, v);
+        }
+    } else {
+        out.par_chunks_mut(site_len)
+            .with_min_len(grain)
+            .enumerate()
+            .for_each(|(site, v)| f(site, v));
+    }
 }
 
 /// Sum `f(site)` over all sites.
@@ -35,21 +63,25 @@ pub fn reduce_sites_n<const N: usize, F>(num_sites: usize, f: F) -> [f64; N]
 where
     F: Fn(usize) -> [f64; N] + Sync,
 {
-    let partial: Vec<[f64; N]> = (0..num_sites.div_ceil(REDUCE_CHUNK))
-        .into_par_iter()
-        .map(|chunk| {
-            let lo = chunk * REDUCE_CHUNK;
-            let hi = (lo + REDUCE_CHUNK).min(num_sites);
-            let mut sum = [0.0; N];
-            for site in lo..hi {
-                let v = f(site);
-                for (s, x) in sum.iter_mut().zip(v) {
-                    *s += x;
-                }
+    let chunk_sum = |chunk: usize| {
+        let lo = chunk * REDUCE_CHUNK;
+        let hi = (lo + REDUCE_CHUNK).min(num_sites);
+        let mut sum = [0.0; N];
+        for site in lo..hi {
+            let v = f(site);
+            for (s, x) in sum.iter_mut().zip(v) {
+                *s += x;
             }
-            sum
-        })
-        .collect();
+        }
+        sum
+    };
+    let chunks = num_sites.div_ceil(REDUCE_CHUNK);
+    // The same partial sums either way, so the result does not depend on the path taken.
+    let partial: Vec<[f64; N]> = if num_sites <= min_sites_per_task() {
+        (0..chunks).map(chunk_sum).collect()
+    } else {
+        (0..chunks).into_par_iter().map(chunk_sum).collect()
+    };
     let mut total = [0.0; N];
     for p in &partial {
         for (t, x) in total.iter_mut().zip(p) {
@@ -70,16 +102,19 @@ where
         return total;
     }
     let mut partial = vec![0.0; num_sites.div_ceil(REDUCE_CHUNK) * n];
-    partial
-        .par_chunks_mut(n)
-        .enumerate()
-        .for_each(|(chunk, acc)| {
-            let lo = chunk * REDUCE_CHUNK;
-            let hi = (lo + REDUCE_CHUNK).min(num_sites);
-            for site in lo..hi {
-                f(site, acc);
-            }
-        });
+    let chunk_sum = |(chunk, acc): (usize, &mut [f64])| {
+        let lo = chunk * REDUCE_CHUNK;
+        let hi = (lo + REDUCE_CHUNK).min(num_sites);
+        for site in lo..hi {
+            f(site, acc);
+        }
+    };
+    // The same partial sums either way, so the result does not depend on the path taken.
+    if num_sites <= min_sites_per_task() {
+        partial.chunks_mut(n).enumerate().for_each(chunk_sum);
+    } else {
+        partial.par_chunks_mut(n).enumerate().for_each(chunk_sum);
+    }
     for p in partial.chunks_exact(n) {
         for (t, x) in total.iter_mut().zip(p) {
             *t += x;

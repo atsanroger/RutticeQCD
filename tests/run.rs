@@ -215,7 +215,7 @@ fn every_solver_choice_gives_the_same_correlator() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Compare every row of a reference table in validation/tests/data with the report.
+/// Compare every row of a reference table in tests/data with the report.
 fn compare_with_table(report: &ruttice::app::Report, table: &str) {
     let mut compared = 0;
     for line in table
@@ -246,7 +246,7 @@ fn compare_with_table(report: &ruttice::app::Report, table: &str) {
 }
 
 /// The YAML example, run on the Bridge++ test configuration, reproduces the reference
-/// table produced with Bridge++ (validation/tests/data).
+/// table produced with Bridge++ (tests/data).
 #[test]
 fn clover_example_reproduces_the_reference_table() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
