@@ -1,7 +1,10 @@
 //! The application layer: read a parameter file, build the pieces it names, run, report.
 //! Nothing below this crate knows that parameter files exist.
 
+mod bench;
 mod config;
+
+pub use bench::wilson_benchmark;
 
 pub use config::{
     BoundaryConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig, GaugeFormat,
