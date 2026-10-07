@@ -133,6 +133,9 @@ enum Diagonal {
 pub trait DiagTerm<T: Storage>: Send + Sync + 'static {
     /// True when the block is the identity; lets callers skip work.
     const IS_UNIT: bool;
+    /// Nominal floating-point operations of applying the block at one site, including
+    /// adding the result to the hopping term (see `FermionOp::flops_per_site`).
+    const FLOPS_PER_SITE: usize;
     /// The block at `full_site` applied to `phi`.
     fn apply(&self, full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute>;
     /// Its inverse applied to `phi`.
@@ -146,6 +149,7 @@ pub struct UnitDiag;
 
 impl<T: Storage> DiagTerm<T> for UnitDiag {
     const IS_UNIT: bool = true;
+    const FLOPS_PER_SITE: usize = 0;
     #[inline(always)]
     fn apply(&self, _full_site: usize, phi: &SiteSpinor<T::Compute>) -> SiteSpinor<T::Compute> {
         *phi
@@ -233,6 +237,21 @@ impl<T: Storage, SI: Sites, G: GammaRepre> Input<'_, T, SI, G> {
 /// The reals of one link as the gauge field stores them.
 type StoredLink<T> = [T; 2 * NC * NC];
 
+/// What is the same for every site of a sweep: the gauge field and, for each leg, the
+/// phase of a hop across the boundary of the global lattice.
+struct Fixed<'a, T: Storage> {
+    u: &'a Field<T, Gauge>,
+    phase: [Option<Cplx<T::Compute>>; FACES],
+}
+
+/// The link U_mu at a full-lattice site, as stored.
+#[inline(always)]
+fn stored_link<T: Storage>(u: &Field<T, Gauge>, mu: usize, full_site: usize) -> &StoredLink<T> {
+    u.site(mu, full_site)
+        .try_into()
+        .expect("a link has 18 reals")
+}
+
 #[inline(always)]
 fn load_link<T: Storage>(s: &StoredLink<T>) -> ColorMatrix<T::Compute> {
     let mut m = ColorMatrix::zero();
@@ -315,10 +334,16 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// neighbour; when the neighbour is on another process, that process applies it (and
     /// the phase) before sending.
     #[inline(always)]
-    fn resolve(&self, geo: &Geometry, site: usize, mu: usize, dir: Direction) -> Hop<'_, T> {
+    fn resolve<'a>(
+        geo: &Geometry,
+        fixed: &Fixed<'a, T>,
+        site: usize,
+        mu: usize,
+        dir: Direction,
+    ) -> Hop<'a, T> {
         let phase = |wrapped: bool| {
             if wrapped {
-                self.boundary_phase(mu, dir)
+                fixed.phase[Stencil::leg(mu, dir)]
             } else {
                 None
             }
@@ -328,17 +353,31 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             (Source::Local { site: n, wrapped }, _) => Hop::Local {
                 site: n,
                 link: match dir {
-                    Direction::Forward => self.link(mu, geo.out_site(site)),
-                    Direction::Backward => self.link(mu, geo.inp_site(n)),
+                    Direction::Forward => stored_link(fixed.u, mu, geo.out_site(site)),
+                    Direction::Backward => stored_link(fixed.u, mu, geo.inp_site(n)),
                 },
                 phase: phase(wrapped),
             },
             (Source::Buffer { index, wrapped }, Direction::Forward) => Hop::Projected {
                 index,
-                link: self.link(mu, geo.out_site(site)),
+                link: stored_link(fixed.u, mu, geo.out_site(site)),
                 phase: phase(wrapped),
             },
             (Source::Buffer { index, .. }, Direction::Backward) => Hop::Transported { index },
+        }
+    }
+
+    /// What `resolve` needs and does not change during a sweep.
+    fn fixed(&self) -> Fixed<'_, T> {
+        let mut phase = [None; FACES];
+        for mu in 0..ND {
+            for dir in [Direction::Forward, Direction::Backward] {
+                phase[Stencil::leg(mu, dir)] = self.boundary_phase(mu, dir);
+            }
+        }
+        Fixed {
+            u: self.gauge(),
+            phase,
         }
     }
 
@@ -485,10 +524,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// The link U_mu at a full-lattice site.
     #[inline(always)]
     fn link(&self, mu: usize, full_site: usize) -> &StoredLink<T> {
-        self.gauge()
-            .site(mu, full_site)
-            .try_into()
-            .expect("a link has 18 reals")
+        stored_link(self.gauge(), mu, full_site)
     }
 
     fn check<SO: Sites, SI: Sites>(
@@ -555,12 +591,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let kappa: T::Compute = Real::from_f64(self.params.kappa);
         let copies = inp.copies();
         let received = self.exchange(work, geo, inp, pre, None);
+        let fixed = self.fixed();
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
 
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
             // Geometry and links are resolved once per site and shared by all copies.
-            let forward: [_; ND] = core::array::from_fn(|mu| self.resolve(geo, x, mu, fwd));
-            let backward: [_; ND] = core::array::from_fn(|mu| self.resolve(geo, x, mu, bwd));
+            let forward: [_; ND] =
+                core::array::from_fn(|mu| Self::resolve(geo, &fixed, x, mu, fwd));
+            let backward: [_; ND] =
+                core::array::from_fn(|mu| Self::resolve(geo, &fixed, x, mu, bwd));
             let x_full = geo.out_site(x);
 
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
@@ -606,9 +645,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
         let received = self.exchange(work, geo, inp, false, Some((mu, dir)));
+        let fixed = self.fixed();
         let face = received[Stencil::leg(mu, dir)];
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
-            let hop = self.resolve(geo, x, mu, dir);
+            let hop = Self::resolve(geo, &fixed, x, mu, dir);
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
                 let input = Input {
                     field: inp,
@@ -682,6 +722,14 @@ fn store_spinor<T: Storage>(p: &SiteSpinor<T::Compute>, s: &mut [T]) {
 
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for WilsonOp<T, G, D> {
     type Work = WilsonWork<T>;
+
+    /// The hopping term and the unit diagonal are counted as Bridge++ counts its Wilson
+    /// operator in the Dirac representation: `Nc Nd (4 + 6 (4 Nc + 2) + 2 (4 Nc + 1))`,
+    /// 1368 for three colours. Six of the eight legs have an off-diagonal gamma matrix
+    /// and two a diagonal one, which needs no additions to project.
+    fn flops_per_site(&self) -> usize {
+        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
+    }
 
     fn work(&self) -> WilsonWork<T> {
         WilsonWork::new()
