@@ -1,6 +1,7 @@
 pub(crate) mod blocks;
 pub(crate) mod evenodd;
 pub(crate) mod parts;
+pub(crate) mod pool;
 pub(crate) mod sites;
 pub(crate) mod stencil;
 use crate::comm::{Comm, SingleComm};
@@ -41,6 +42,7 @@ impl Lattice {
             grid.iter().product::<usize>(),
             "the process grid {grid:?} does not match the number of processes"
         );
+        pool::setup();
         for mu in 0..ND {
             assert!(
                 grid[mu] > 0 && global[mu] > 0 && global[mu].is_multiple_of(grid[mu]),

@@ -1,6 +1,7 @@
 use crate::comm::{opposite_face, FACES};
 use crate::field::storage::Storage;
 use crate::field::{Aos, Cpu, Field, Kind, Sites, CACHE_LINE};
+use crate::lattice::pool::{each_thread, schedule, static_threads, Schedule};
 use crate::lattice::stencil::{Direction, Source, Stencil};
 use rayon::prelude::*;
 
@@ -16,9 +17,6 @@ enum Weight {
     Light,
 }
 
-/// Tasks a loop aims at for every thread of the pool, so that threads that finish early
-/// find work to take over.
-const TASKS_PER_THREAD: usize = 4;
 /// Fewest spinors (reals, divided by 24) in a task of a heavy loop and of a light one. A
 /// loop whose sites hold several spinors, or a block of sites of the SIMD layout, takes
 /// fewer sites in proportion.
@@ -42,27 +40,26 @@ pub fn min_sites_per_task() -> usize {
     fixed_task_sites().unwrap_or(MIN_SPINORS_HEAVY)
 }
 
-/// Fewest sites handed to one task of the thread pool by a loop over `num_sites` sites of
-/// `site_len` reals each. A loop over no more sites than this runs on the calling thread
-/// without touching the pool.
+/// The number of sites up to which a loop over `num_sites` sites of `site_len` reals stays
+/// on the calling thread; a longer loop gives every thread of the pool one piece
+/// (`on_each_thread`).
 ///
-/// The rule: a loop goes to the pool only if every thread can be given a task of the
-/// smallest size, and is then cut into `TASKS_PER_THREAD` tasks per thread, none smaller
-/// than that size. It replaces a fixed 1024 sites per task, which failed at both ends:
+/// History, because the first attempts cost time: loops used to be cut into tasks that the
+/// pool handed out and threads stole from each other, and the size of a task had to be
+/// chosen. A fixed 1024 sites was too coarse for loops of middling length (the Wilson
+/// operator on blocks of four sites on 16^3 x 8: eight tasks for twelve threads, 1.9 ms
+/// against 1.0 ms with smaller tasks); tasks of 72 spinors were far too fine (end-to-end
+/// tests on 4x4x4x8 with twelve right-hand sides, nine at once on 32 threads: 62 s against
+/// 4.7 s); a size that grew with the loop took the balancing away from the pool (10 %
+/// slower on 32^4 on two processes). A lattice loop does the same work at every site, so
+/// none of that choice is needed: one piece per thread.
 ///
-/// - Too large for a loop of middling length: the Wilson operator on blocks of four sites
-///   on a 16^3 x 8 lattice was cut into eight tasks for twelve threads and took 1.9 ms,
-///   against 1.0 ms with tasks of 128 or 16 sites; each part of a sweep in two parts
-///   (latency hiding) got fewer tasks still.
-/// - Too small is worse, and how small is too small depends on the number of threads. With
-///   tasks of 72 spinors on 32 threads, the end-to-end tests on a 4x4x4x8 lattice with
-///   twelve right-hand sides (6144 spinors per loop) took 62 s, against 4.7 s with those
-///   loops on the calling thread. On twelve cores, loops of 8192 spinors gain from the
-///   pool: keeping them on the calling thread made the operator on two processes four
-///   times slower.
-///
-/// Measured on those two machines only. The environment variable
-/// `RUTTICE_MIN_SITES_PER_TASK` replaces the rule by a fixed number of sites, for measuring.
+/// What is left is whether a loop is worth entering the pool at all: it is not below
+/// twice `MIN_SPINORS_HEAVY` spinors of work (`MIN_SPINORS_LIGHT` for the updates of a
+/// vector). `site_len` measures the work at a site: the reals written or, where a site
+/// costs more than what it writes shows, the reals of the spinors it handles
+/// (`for_sites_as`). `RUTTICE_MIN_SITES_PER_TASK` replaces the threshold by a fixed number
+/// of sites, for measuring.
 fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
     let (scale, spinors) = match weight {
         Weight::Heavy => (1, MIN_SPINORS_HEAVY),
@@ -73,11 +70,10 @@ fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
     }
     // The smallest task, in sites of this loop.
     let smallest = (spinors * SPINOR_REALS).div_ceil(site_len.max(1));
-    let threads = rayon::current_num_threads();
-    if num_sites < smallest * threads {
+    if num_sites < 2 * smallest {
         num_sites
     } else {
-        (num_sites / (TASKS_PER_THREAD * threads)).max(smallest)
+        2 * smallest - 1
     }
 }
 
@@ -89,6 +85,18 @@ where
     F: Fn(usize, &mut [T]) + Sync,
 {
     let grain = task_sites(out.len() / site_len, site_len, Weight::Heavy);
+    for_sites_from(out, 0, site_len, grain, &f, &|| ());
+}
+
+/// `for_sites` for a loop whose work per site is not what `site_len` suggests: it is
+/// counted as that of `work_len` reals. Filling a face buffer writes half a spinor per site
+/// but projects a whole one and multiplies it by a link.
+pub fn for_sites_as<T, F>(out: &mut [T], site_len: usize, work_len: usize, f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+{
+    let grain = task_sites(out.len() / site_len, work_len, Weight::Heavy);
     for_sites_from(out, 0, site_len, grain, &f, &|| ());
 }
 
@@ -144,7 +152,29 @@ where
     for_sites_from(out, 0, site_len, grain, &f, &finish);
 }
 
-/// `for_sites_then` for a piece of a field: `out` holds the sites from `first` on.
+/// One piece of `out` per thread, for the static schedules: thread `k` gets the units from
+/// `cut(k)` to `cut(k + 1)`, as (first unit, piece). A unit is `unit` elements: a site, or
+/// a chunk of a reduction. Thread `k` always gets the same part of a field of a given
+/// size; `Cpu::alloc` cuts the same way, so a thread works on the memory it touched first.
+fn pieces<T>(
+    out: &mut [T],
+    unit: usize,
+    threads: usize,
+    cut: impl Fn(usize) -> usize,
+) -> Vec<(usize, &mut [T])> {
+    let mut pieces = Vec::with_capacity(threads);
+    let (mut rest, mut at) = (out, 0);
+    for k in 0..threads {
+        let end = cut(k + 1).max(at);
+        let (piece, after) = rest.split_at_mut(((end - at) * unit).min(rest.len()));
+        pieces.push((at, piece));
+        (rest, at) = (after, end);
+    }
+    pieces
+}
+
+/// `for_sites_then` for a piece of a field: `out` holds the sites from `first` on. A loop
+/// of no more than `grain` sites runs on the calling thread.
 fn for_sites_from<T, F, E>(
     out: &mut [T],
     first: usize,
@@ -157,19 +187,35 @@ fn for_sites_from<T, F, E>(
     F: Fn(usize, &mut [T]) + Sync,
     E: Fn() + Sync,
 {
-    if out.len() <= site_len * grain {
-        for (i, v) in out.chunks_mut(site_len).enumerate() {
-            f(first + i, v);
+    let num_sites = out.len() / site_len;
+    let serial = |from: usize, piece: &mut [T]| {
+        for (i, v) in piece.chunks_mut(site_len).enumerate() {
+            f(first + from + i, v);
         }
         finish();
-    } else {
-        // A fold runs over one run of sites on one thread and hands its result on from
-        // that thread when the run is finished.
-        out.par_chunks_mut(site_len)
-            .with_min_len(grain)
+    };
+    if num_sites <= grain {
+        return serial(0, out);
+    }
+    match static_threads() {
+        Some(threads) => each_thread(
+            pieces(out, site_len, threads, |k| k * num_sites / threads),
+            |_, (from, piece)| {
+                if !piece.is_empty() {
+                    serial(from, piece);
+                }
+            },
+        ),
+        // Tasks that the threads take from each other, none smaller than half of what
+        // is worth the pool. A fold runs over one run of sites on one thread and hands
+        // its result on from that thread when the run is finished.
+        None if schedule() == Schedule::Steal => out
+            .par_chunks_mut(site_len)
+            .with_min_len(grain.div_ceil(2))
             .enumerate()
             .fold(|| (), |(), (i, v)| f(first + i, v))
-            .for_each(|()| finish());
+            .for_each(|()| finish()),
+        None => serial(0, out),
     }
 }
 
@@ -181,6 +227,17 @@ pub struct SiteRuns {
     runs: Vec<(u32, u32)>,
     /// `before[i]`: sites in the runs before run `i`; one entry more than there are runs.
     before: Vec<u32>,
+    /// The runs dealt out to the threads of the pool, made on first use.
+    plan: std::sync::OnceLock<Plan>,
+}
+
+/// The runs of a `SiteRuns` cut so that every thread gets the same number of sites.
+struct Plan {
+    threads: usize,
+    /// The runs, with those that straddle two threads cut in two.
+    runs: Vec<(u32, u32)>,
+    /// `first_run[k]`: the first run of thread `k`; one entry more than there are threads.
+    first_run: Vec<usize>,
 }
 
 impl SiteRuns {
@@ -201,20 +258,41 @@ impl SiteRuns {
             total += len;
             before.push(total);
         }
-        Self { runs, before }
+        Self {
+            runs,
+            before,
+            plan: std::sync::OnceLock::new(),
+        }
+    }
+
+    fn plan(&self, threads: usize) -> Plan {
+        let total = self.num_sites();
+        let (mut runs, mut first_run) = (Vec::with_capacity(self.runs.len() + threads), vec![0]);
+        let mut done = 0;
+        for &(mut start, mut len) in &self.runs {
+            while len > 0 {
+                // Sites still to go to the thread being filled.
+                let quota = first_run.len() * total / threads - done;
+                if quota == 0 {
+                    first_run.push(runs.len());
+                    continue;
+                }
+                let take = len.min(u32::try_from(quota).unwrap_or(u32::MAX));
+                runs.push((start, take));
+                (start, len, done) = (start + take, len - take, done + take as usize);
+            }
+        }
+        first_run.resize(threads + 1, runs.len());
+        Plan {
+            threads,
+            runs,
+            first_run,
+        }
     }
 
     pub fn num_sites(&self) -> usize {
         self.before[self.runs.len()] as usize
     }
-}
-
-/// What every task of `for_site_runs` needs.
-struct RunTask<'a, F, E> {
-    site_len: usize,
-    grain: usize,
-    f: &'a F,
-    finish: &'a E,
 }
 
 /// Call `f(site, reals_of_that_site)` for the sites of `runs`, in parallel, and `finish()`
@@ -225,13 +303,58 @@ where
     F: Fn(usize, &mut [T]) + Sync,
     E: Fn() + Sync,
 {
-    let task = RunTask {
-        site_len,
-        grain: task_sites(runs.num_sites(), site_len, Weight::Heavy),
-        f: &f,
-        finish: &finish,
+    // The runs `some`, all of them inside `piece`, which holds the sites from `first` on.
+    let sweep = |some: &[(u32, u32)], first: usize, piece: &mut [T]| {
+        for &(start, len) in some {
+            let (start, len) = (start as usize, len as usize);
+            let sites = &mut piece[(start - first) * site_len..(start - first + len) * site_len];
+            for (i, v) in sites.chunks_mut(site_len).enumerate() {
+                f(start + i, v);
+            }
+        }
+        finish();
     };
-    over_runs(out, 0, &runs.runs, &runs.before, &task);
+    let grain = task_sites(runs.num_sites(), site_len, Weight::Heavy);
+    if runs.num_sites() <= grain {
+        return sweep(&runs.runs, 0, out);
+    }
+    match static_threads() {
+        // Every thread gets the same number of sites.
+        Some(threads) => {
+            let plan = runs.plan.get_or_init(|| runs.plan(threads));
+            assert_eq!(plan.threads, threads, "the pool has changed its size");
+            let end = out.len() / site_len;
+            // A thread's piece of the field begins at its first run.
+            let cut = |k: usize| match plan.runs.get(plan.first_run[k]) {
+                Some((start, _)) if k < threads => *start as usize,
+                _ => end,
+            };
+            each_thread(pieces(out, site_len, threads, cut), |k, (first, piece)| {
+                let mine = &plan.runs[plan.first_run[k]..plan.first_run[k + 1]];
+                if !mine.is_empty() {
+                    sweep(mine, first, piece);
+                }
+            });
+        }
+        None if schedule() == Schedule::Steal => {
+            let task = RunTask {
+                site_len,
+                grain,
+                f: &f,
+                finish: &finish,
+            };
+            over_runs(out, 0, &runs.runs, &runs.before, &task);
+        }
+        None => sweep(&runs.runs, 0, out),
+    }
+}
+
+/// What every task of the work-stealing sweep over runs needs.
+struct RunTask<'a, F, E> {
+    site_len: usize,
+    grain: usize,
+    f: &'a F,
+    finish: &'a E,
 }
 
 /// `out` holds the sites from `first` on and contains all of `runs`; `before` are the
@@ -261,7 +384,7 @@ fn over_runs<T, F, E>(
             let (start, range) = piece(*run);
             for_sites_from(&mut out[range], start, n, task.grain, task.f, task.finish);
         }
-        _ if (before[runs.len()] - before[0]) as usize <= task.grain => {
+        _ if (before[runs.len()] - before[0]) as usize <= task.grain.div_ceil(2) => {
             for run in runs {
                 let (start, range) = piece(*run);
                 for (i, v) in out[range].chunks_mut(n).enumerate() {
@@ -319,6 +442,17 @@ where
     // The same partial sums either way, so the result does not depend on the path taken.
     let partial: Vec<[f64; N]> = if num_sites <= REDUCE_CHUNK {
         (0..chunks).map(chunk_sum).collect()
+    } else if let Some(threads) = static_threads() {
+        let mut partial = vec![[0.0; N]; chunks];
+        each_thread(
+            pieces(&mut partial, 1, threads, |k| k * chunks / threads),
+            |_, (chunk, sums)| {
+                for (i, sum) in sums.iter_mut().enumerate() {
+                    *sum = chunk_sum(chunk + i);
+                }
+            },
+        );
+        partial
     } else {
         (0..chunks).into_par_iter().map(chunk_sum).collect()
     };
@@ -350,8 +484,18 @@ where
         }
     };
     // The same partial sums either way, so the result does not depend on the path taken.
+    let chunks = partial.len() / n;
     if num_sites <= REDUCE_CHUNK {
         partial.chunks_mut(n).enumerate().for_each(chunk_sum);
+    } else if let Some(threads) = static_threads() {
+        each_thread(
+            pieces(&mut partial, n, threads, |k| k * chunks / threads),
+            |_, (chunk, sums)| {
+                for (i, acc) in sums.chunks_mut(n).enumerate() {
+                    chunk_sum((chunk + i, acc));
+                }
+            },
+        );
     } else {
         partial.par_chunks_mut(n).enumerate().for_each(chunk_sum);
     }
@@ -384,11 +528,27 @@ where
         }
     };
     let chunk_len = site_len * REDUCE_CHUNK;
+    let chunks = partial.len() / n;
     if num_sites <= REDUCE_CHUNK {
         out.chunks_mut(chunk_len)
             .zip(partial.chunks_mut(n))
             .enumerate()
             .for_each(chunk_sum);
+    } else if let Some(threads) = static_threads() {
+        let cut = |k: usize| k * chunks / threads;
+        let both: Vec<_> = pieces(out, chunk_len, threads, cut)
+            .into_iter()
+            .zip(pieces(&mut partial, n, threads, cut))
+            .collect();
+        each_thread(both, |_, ((chunk, sites), (_, sums))| {
+            for (i, pair) in sites
+                .chunks_mut(chunk_len)
+                .zip(sums.chunks_mut(n))
+                .enumerate()
+            {
+                chunk_sum((chunk + i, pair));
+            }
+        });
     } else {
         out.par_chunks_mut(chunk_len)
             .zip(partial.par_chunks_mut(n))
