@@ -9,8 +9,10 @@
 //! from Wilson only within a site (clover) reuse everything here.
 //! With several processes, a sweep first exchanges the faces of the input: projected half
 //! spinors, with the link already applied on the side that holds it. The exchange is
-//! finished before the sweep starts; computing the interior while it is under way is not
-//! done yet.
+//! finished before the sweep starts. Computing the sites that need nothing from it in a
+//! first pass while it is under way, and the others in a second pass, was tried and taken
+//! out: on one machine nothing travels until the process waits, so nothing was gained, and
+//! the two passes were slower than one (see the commit that reverts it).
 //!
 //! For fields in blocks of W sites (`Aosoa<W>`, the SIMD layout) there is a second sweep,
 //! over blocks, at the end of this file: the same kernel functions with a lane type in place
@@ -31,9 +33,9 @@ use crate::kernel::{
     NS, SPINOR_REALS,
 };
 use crate::{
-    for_sites, Aos, Aosoa, BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Full,
-    Gauge, Half, HaloExchange, HaloSpec, Lattice, Layout, Parity, Sites, Source, Spinor, Stencil,
-    Storage, Vector, FACES, ND, NOT_RECEIVED,
+    for_sites, for_sites_then, stream_fence, streams, Aos, Aosoa, BlockStencil, Boundary,
+    Direction, Edge, EvenOddIndex, Field, Full, Gauge, Half, HaloExchange, HaloSpec, Lattice,
+    Layout, Parity, Sites, Source, Spinor, Stencil, Storage, Vector, FACES, ND, NOT_RECEIVED,
 };
 use rayon::prelude::*;
 use std::marker::PhantomData;
@@ -772,8 +774,14 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let fixed = self.fixed::<R>();
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
+        let stream = streams(out.slab(0), copies * SPINOR_REALS);
+        let fence = || {
+            if stream {
+                stream_fence();
+            }
+        };
 
-        for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
+        let site = |x: usize, o: &mut [T]| {
             // Geometry and links are resolved once per site and shared by all copies.
             let forward: [_; ND] =
                 core::array::from_fn(|mu| Self::resolve(geo, &fixed, x, mu, fwd));
@@ -805,9 +813,16 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 if post {
                     result = G::GAMMA5.apply(&result);
                 }
-                store_spinor::<T>(&result, o);
+                if stream {
+                    let mut stored = [T::default(); SPINOR_REALS];
+                    store_spinor::<T>(&result, &mut stored);
+                    T::stream(o, &stored);
+                } else {
+                    store_spinor::<T>(&result, o);
+                }
             }
-        });
+        };
+        for_sites_then(out.slab_mut(0), copies * SPINOR_REALS, site, fence);
     }
 
     /// Add one hopping term to `out`. Shared by `hop_forward` and `hop_backward`.
@@ -1691,8 +1706,14 @@ where
             core::array::from_fn(|leg| EdgeLanes::new(stencil.edge(leg)));
         let spinors = block_spinors(inp);
         let received = self.block_exchange(work, geo, inp, pre);
+        let stream = streams(out.slab(0), copies * SPINOR_REALS * W);
+        let fence = || {
+            if stream {
+                stream_fence();
+            }
+        };
 
-        for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
+        let block = |block: usize, o: &mut [T]| {
             let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
             for (r, o) in o.iter_mut().enumerate() {
                 let input = BlockInput {
@@ -1718,9 +1739,16 @@ where
                 if post {
                     result = G::GAMMA5.apply(&result);
                 }
-                store_block_spinor::<T, W>(&result, o);
+                if stream {
+                    let mut stored = [[T::default(); W]; SPINOR_REALS];
+                    store_block_spinor::<T, W>(&result, &mut stored);
+                    T::stream(o.as_flattened_mut(), stored.as_flattened());
+                } else {
+                    store_block_spinor::<T, W>(&result, o);
+                }
             }
-        });
+        };
+        for_sites_then(out.slab_mut(0), copies * SPINOR_REALS * W, block, fence);
     }
 
     /// `out = B inp` block by block, where B is the diagonal term or its inverse.

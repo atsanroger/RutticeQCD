@@ -123,19 +123,60 @@ pub trait Backend: Send + Sync + 'static {
 
 pub struct Cpu;
 impl Backend for Cpu {
-    type Buf<T: Storage> = Vec<T>;
-    /// A zeroed buffer. Large ones are written once by the threads of the pool before
-    /// they are returned: on a machine with several memory nodes a page is placed on the
-    /// node of the thread that first writes to it, and a buffer written first by the
-    /// calling thread alone ends up on one node, out of reach of the memory bandwidth of
-    /// the others.
-    fn alloc<T: Storage>(len: usize) -> Vec<T> {
-        let mut buf = vec![T::default(); len];
+    type Buf<T: Storage> = CpuBuf<T>;
+    /// A zeroed buffer that starts on a cache line. Large ones are written once by the
+    /// threads of the pool before they are returned: on a machine with several memory
+    /// nodes a page is placed on the node of the thread that first writes to it, and a
+    /// buffer written first by the calling thread alone ends up on one node, out of reach
+    /// of the memory bandwidth of the others.
+    fn alloc<T: Storage>(len: usize) -> CpuBuf<T> {
+        let mut buf = CpuBuf::zeroed(len);
         if len >= FIRST_TOUCH_MIN {
             buf.par_chunks_mut(FIRST_TOUCH_CHUNK)
                 .for_each(|chunk| chunk.fill(T::default()));
         }
         buf
+    }
+}
+
+/// Bytes of a cache line; field buffers start on a multiple of it.
+pub const CACHE_LINE: usize = 64;
+
+/// The memory of a field on the CPU: a slice that starts on a cache line.
+///
+/// Sites and blocks whose size is a multiple of a cache line then cover whole lines, which
+/// is what a store that bypasses the cache needs (`Storage::stream`). The memory is a
+/// vector a little longer than asked for, of which the part from the first aligned element
+/// is used; that needs no unsafe code.
+pub struct CpuBuf<T> {
+    memory: Vec<T>,
+    start: usize,
+    len: usize,
+}
+
+impl<T: Storage> CpuBuf<T> {
+    fn zeroed(len: usize) -> Self {
+        let spare = CACHE_LINE / size_of::<T>().max(1);
+        let memory = vec![T::default(); len + spare];
+        // The allocator aligns to the element at least, so an aligned element is within
+        // one cache line of the start. If it could not say, the buffer is just unaligned.
+        let start = memory.as_ptr().align_offset(CACHE_LINE).min(spare);
+        Self { memory, start, len }
+    }
+}
+
+impl<T> core::ops::Deref for CpuBuf<T> {
+    type Target = [T];
+    #[inline(always)]
+    fn deref(&self) -> &[T] {
+        &self.memory[self.start..self.start + self.len]
+    }
+}
+
+impl<T> core::ops::DerefMut for CpuBuf<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.memory[self.start..self.start + self.len]
     }
 }
 
