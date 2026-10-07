@@ -1,10 +1,14 @@
 //! BiCGStab for general (non-Hermitian) operators.
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{fewer, kept, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// BiCGStab with an optional right preconditioner. Every vector of a multi-vector has its
-/// own coefficients; a converged vector stops being updated.
+/// own coefficients; a converged vector stops being updated. Without a preconditioner,
+/// once a quarter of the vectors have converged the others are gathered into a smaller set
+/// and the iteration goes on with that: the operator and the updates no longer run over
+/// vectors that are finished. The recurrences are per vector, so the iterates of the
+/// vectors that go on are unchanged.
 ///
 /// With a preconditioner M the solution is updated with the preconditioned vectors
 /// themselves (x += α M p + ω M s), so M may change from one application to the next: this
@@ -92,6 +96,7 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
         let minus_one = vec![C64::new(-1.0, 0.0); nv];
         let mut b_norm = vec![0.0; nv];
         b.norm_sqr(&mut b_norm);
+        let all_b_norm = b_norm.clone();
         let tol = self.stop.tolerance_sqr;
         let limit = self.stop.max_iterations * (self.stop.max_restarts + 1);
 
@@ -113,6 +118,29 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
         let mut cycles = 0;
 
         loop {
+            // A cycle starts with all vectors; the previous one may have ended with fewer.
+            for w in [&mut *r, &mut *r0, &mut *p, &mut *v, &mut *s, &mut *t] {
+                crate::fit(w, b);
+            }
+            for list in [&mut rr, &mut tt, &mut ss] {
+                list.resize(nv, 0.0);
+            }
+            for list in [
+                &mut rho,
+                &mut rho_new,
+                &mut alpha,
+                &mut omega,
+                &mut coef,
+                &mut dots,
+            ] {
+                list.resize(nv, C64::ZERO);
+            }
+            active.resize(nv, true);
+            // |b|^2 of the vectors the cycle is working on, and their solution once they
+            // are fewer than all.
+            let mut b_norm = b_norm.clone();
+            let mut narrowed: Option<Narrowed<V>> = None;
+
             a.mult_xpay(r, x, &minus_one, b);
             r0.copy_from(r);
             p.copy_from(r);
@@ -122,12 +150,36 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
             let mut broke_down: Option<&'static str> = None;
 
             while in_cycle < self.stop.max_iterations && iterations < limit {
-                for j in 0..nv {
+                for j in 0..active.len() {
                     active[j] = rr[j] > tol * b_norm[j];
                 }
                 if !active.iter().any(|a| *a) {
                     break;
                 }
+                if let Some(keep) = fewer(&active).filter(|_| m.is_none()) {
+                    narrowed = Some(Narrowed::narrow(narrowed, x, &keep));
+                    for w in [&mut *r, &mut *r0, &mut *p] {
+                        *w = w.select(&keep);
+                    }
+                    for w in [&mut *v, &mut *s, &mut *t] {
+                        *w = w.zeros_with(keep.len());
+                    }
+                    for list in [&mut rr, &mut tt, &mut ss, &mut b_norm] {
+                        kept(list, &keep);
+                    }
+                    for list in [
+                        &mut rho,
+                        &mut rho_new,
+                        &mut alpha,
+                        &mut omega,
+                        &mut coef,
+                        &mut dots,
+                    ] {
+                        kept(list, &keep);
+                    }
+                    kept(&mut active, &keep);
+                }
+                let nv = active.len();
 
                 // v = A M p,  alpha = rho / <r0, v>. Without a preconditioner M p is p
                 // itself, not a copy of it.
@@ -173,6 +225,7 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 }
 
                 // x += alpha M p + omega M s,  r = s - omega t,  rho_new = <r0, r>
+                let x = narrowed.as_mut().map_or(&mut *x, |n| &mut n.x);
                 if preconditioned {
                     x.axpy2(&alpha, p_hat, &omega, s_hat);
                 } else {
@@ -200,7 +253,12 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 rho.copy_from_slice(&rho_new);
             }
 
-            true_residual(a, x, b, &b_norm, r, &minus_one, &mut residual);
+            // Back to all vectors for the residual of the solution as it now is.
+            if let Some(last) = narrowed {
+                x.assign(&last.of, &last.x);
+            }
+            crate::fit(r, b);
+            true_residual(a, x, b, &all_b_norm, r, &minus_one, &mut residual);
             let info = SolveInfo {
                 iterations,
                 restarts: cycles,

@@ -104,6 +104,47 @@ impl<V: Vector, S: Solver<V> + ?Sized> Solver<V> for &mut S {
     }
 }
 
+/// Which vectors a solver should go on with, given which are still active: `Some` when
+/// few enough are left that it pays to gather them into a smaller set, which costs a copy
+/// of the solver's vectors. A quarter of the set must have converged.
+pub(crate) fn fewer(active: &[bool]) -> Option<Vec<usize>> {
+    let keep: Vec<usize> = (0..active.len()).filter(|j| active[*j]).collect();
+    (!keep.is_empty() && 4 * keep.len() <= 3 * active.len()).then_some(keep)
+}
+
+/// Keep the entries `keep` of a list of per-vector numbers.
+pub(crate) fn kept<T: Copy>(values: &mut Vec<T>, keep: &[usize]) {
+    *values = keep.iter().map(|j| values[*j]).collect();
+}
+
+/// The solution of a solver that has gone on with fewer vectors: the smaller set and, for
+/// each of its vectors, the vector of the caller's solution it is.
+pub(crate) struct Narrowed<V> {
+    pub x: V,
+    pub of: Vec<usize>,
+}
+
+impl<V: Vector> Narrowed<V> {
+    /// Go on with the vectors `keep` of the current set, which is `narrowed` if there is
+    /// one and the caller's `x` otherwise. The vectors left out are final and are put back
+    /// into `x` now.
+    pub(crate) fn narrow(narrowed: Option<Self>, x: &mut V, keep: &[usize]) -> Self {
+        match narrowed {
+            None => Self {
+                x: x.select(keep),
+                of: keep.to_vec(),
+            },
+            Some(current) => {
+                x.assign(&current.of, &current.x);
+                Self {
+                    x: current.x.select(keep),
+                    of: keep.iter().map(|k| current.of[*k]).collect(),
+                }
+            }
+        }
+    }
+}
+
 /// `out_j = |b_j - (A x)_j|^2 / |b_j|^2`, using `r` as scratch. A zero right-hand side
 /// counts as residual zero when `x` is zero too.
 pub(crate) fn true_residual<V: Vector>(

@@ -1,13 +1,15 @@
 //! Conjugate gradient for Hermitian positive-definite operators.
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{fewer, kept, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// Conjugate gradient, optionally preconditioned (the preconditioner must then be Hermitian
 /// positive definite and the same at every application).
 ///
 /// Every vector of a multi-vector has its own coefficients and its own convergence test;
-/// a converged vector stops being updated while the others continue.
+/// a converged vector stops being updated while the others continue. Without a
+/// preconditioner, once a quarter of the vectors have converged the others are gathered
+/// into a smaller set and the iteration goes on with that (see `BiCgStab`).
 pub struct Cg<V> {
     pub stop: Stop,
     work: Option<Work<V>>,
@@ -68,7 +70,19 @@ impl<V: Vector> Solver<V> for Cg<V> {
         let mut residual = vec![0.0; nv];
         let mut iterations = 0;
 
+        let all_b_norm = b_norm.clone();
         for restart in 0..=self.stop.max_restarts {
+            // A cycle starts with all vectors; the previous one may have ended with fewer.
+            for w in [&mut *r, &mut *p, &mut *ap] {
+                crate::fit(w, b);
+            }
+            rr.resize(nv, 0.0);
+            for list in [&mut rz, &mut rz_new, &mut pap, &mut alpha, &mut beta] {
+                list.resize(nv, C64::ZERO);
+            }
+            let mut b_norm = all_b_norm.clone();
+            let mut narrowed: Option<Narrowed<V>> = None;
+
             // r = b - A x
             a.mult_xpay(r, x, &minus_one, b);
             r.norm_sqr(&mut rr);
@@ -91,6 +105,21 @@ impl<V: Vector> Solver<V> for Cg<V> {
                 if converged(&rr, &b_norm) {
                     break;
                 }
+                let active: Vec<bool> = (0..rr.len()).map(|j| rr[j] > tol * b_norm[j]).collect();
+                if let Some(keep) = fewer(&active).filter(|_| m.is_none()) {
+                    narrowed = Some(Narrowed::narrow(narrowed, x, &keep));
+                    for w in [&mut *r, &mut *p] {
+                        *w = w.select(&keep);
+                    }
+                    *ap = ap.zeros_with(keep.len());
+                    for list in [&mut rr, &mut b_norm] {
+                        kept(list, &keep);
+                    }
+                    for list in [&mut rz, &mut rz_new, &mut pap, &mut alpha, &mut beta] {
+                        kept(list, &keep);
+                    }
+                }
+                let nv = rr.len();
                 a.mult_dot(ap, p, &mut pap);
                 for j in 0..nv {
                     let active = rr[j] > tol * b_norm[j];
@@ -106,7 +135,10 @@ impl<V: Vector> Solver<V> for Cg<V> {
                         C64::ZERO
                     };
                 }
-                x.axpy(&alpha, p);
+                narrowed
+                    .as_mut()
+                    .map_or(&mut *x, |n| &mut n.x)
+                    .axpy(&alpha, p);
                 for a in alpha.iter_mut() {
                     *a = -*a;
                 }
@@ -137,7 +169,12 @@ impl<V: Vector> Solver<V> for Cg<V> {
                 iterations += 1;
             }
 
-            true_residual(a, x, b, &b_norm, r, &minus_one, &mut residual);
+            // Back to all vectors for the residual of the solution as it now is.
+            if let Some(last) = narrowed {
+                x.assign(&last.of, &last.x);
+            }
+            crate::fit(r, b);
+            true_residual(a, x, b, &all_b_norm, r, &minus_one, &mut residual);
             let info = SolveInfo {
                 iterations,
                 restarts: restart,
