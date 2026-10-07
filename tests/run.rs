@@ -4,7 +4,7 @@ mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
 use ruttice::app::{
-    run, BoundaryConfig, CliError, Config, FermionConfig, SolverKind, SourceConfig,
+    run, BoundaryConfig, ChannelsConfig, CliError, Config, FermionConfig, SolverKind, SourceConfig,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::io::write_bridge_text;
@@ -35,12 +35,19 @@ fn the_example_files_parse() {
             boundary: [BoundaryConfig::Antiperiodic; 4]
         }
     );
-    assert_eq!(wilson.measure.channels, Some(vec!["PS".to_string()]));
+    assert_eq!(
+        wilson.measure.channels,
+        ChannelsConfig::List(vec!["PS".to_string()])
+    );
 
     let clover = Config::from_yaml(CLOVER_YAML).unwrap();
     assert_eq!(clover.quark.len(), 2);
     assert_eq!(clover.solver.max_restarts, 3, "default");
-    assert_eq!(clover.measure.channels, None, "all channels when absent");
+    assert_eq!(
+        clover.measure.channels,
+        ChannelsConfig::All,
+        "all channels when absent"
+    );
     assert_eq!(
         clover.quark[1].source,
         SourceConfig::Exponential {

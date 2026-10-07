@@ -20,15 +20,21 @@ cargo build --release
 ```
 
 This produces the program `target/release/ruttice`. It takes one argument, a parameter
-file:
+file. A parameter file names the lattice, the gauge configuration, the solver, the quarks
+and what to measure; paths inside it are relative to the file itself.
+
+Keep your own runs in `run/` at the top of the repository: git ignores that directory, so
+configurations, parameter files and results can live there without ever being committed.
+Copy an example into it, put the configuration next to it, and run:
 
 ```bash
-target/release/ruttice my_run/wilson_pion.toml
+mkdir -p run
+cp examples/wilson_pion.toml run/
+cp /path/to/conf_04040408.txt run/
+target/release/ruttice run/wilson_pion.toml
 ```
 
-A parameter file names the lattice, the gauge configuration, the solver, the quarks and
-what to measure. Start from one of the two commented examples and put it next to your
-configuration file (paths inside a parameter file are relative to that file):
+The two commented examples to start from:
 
 - [examples/wilson_pion.toml](examples/wilson_pion.toml): Wilson fermions, point
   source, pion correlator
@@ -58,7 +64,7 @@ on. Building it needs an MPI installation (Open MPI, MPICH or Intel MPI) and lib
 
 ```bash
 cargo build --release --features mpi
-mpirun -np 4 target/release/ruttice-mpi my_run/wilson_pion.toml
+mpirun -np 4 target/release/ruttice-mpi run/wilson_pion.toml
 ```
 
 It reads the same parameter files and prints the same table. How the lattice is split is
@@ -110,7 +116,7 @@ when the file is read, with the line and the accepted alternatives.
 | `solver.max_restarts` | number of such restarts allowed | `3` |
 | `solver.multigrid` | precondition with two-level multigrid; see below | none |
 | `quark` | a list; one entry per quark flavour, each with `fermion` and `source` | at least one |
-| `measure.channels` | list of channel names | all thirteen |
+| `measure.channels` | `"all"` or a list of channel names | `"all"` |
 | `output.file` | also write the table to this file | none |
 
 Multigrid needs a solver that tolerates a preconditioner changing from one application to
@@ -201,9 +207,9 @@ The channels are named after the gamma matrices at the sink and at the source:
 | `A4_PS` | γ4γ5 ← γ5 | `S12` `S23` `S31` | iγ2γ1, iγ3γ2, iγ1γ3 at both ends |
 | `PS_A4` | γ5 ← γ5γ4 | `A4_A4` | γ4γ5 ← γ5γ4 |
 
-`A4_A4` is not among the thirteen channels computed by default (those are the ones the
-Bridge++ spectrum test prints, which the others were checked against); name it in
-`measure.channels` to get it.
+The first thirteen are the channels of the Bridge++ spectrum test, in its order, and were
+checked against it. `A4_A4` is not in Bridge++; it comes last in the output and has no
+reference values from another program.
 
 ## Conventions
 
@@ -244,15 +250,15 @@ for point and smeared sources, with and without Coulomb gauge fixing. Every comp
 [docs/COMPARISON.md](docs/COMPARISON.md): what was compared, the two numbers, the
 tolerance, and what the comparison does and does not establish.
 
-The comparisons read a Bridge++ test configuration that is not part of this repository.
-Point `RUTTICE_BRIDGE_TESTS` at a directory containing `conf_04040408.txt` (it ships with
-Bridge++):
+The comparisons read a Bridge++ test configuration, `conf_04040408.txt`, that ships with
+Bridge++ and is not part of this repository. Put it in `run/` and `cargo test` finds it;
+or keep it elsewhere and name the directory:
 
 ```bash
 RUTTICE_BRIDGE_TESTS=/path/to/that/directory cargo test
 ```
 
-Without it those comparisons print `SKIPPED` and the rest still run.
+Without the file those comparisons print `SKIPPED` and the rest still run.
 
 ## Using it as a library
 

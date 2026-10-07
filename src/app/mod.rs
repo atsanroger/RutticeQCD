@@ -7,9 +7,9 @@ mod config;
 pub use bench::wilson_benchmark;
 
 pub use config::{
-    BoundaryConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig, GaugeFormat,
-    MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig, SolverConfig, SolverKind,
-    SourceConfig,
+    BoundaryConfig, ChannelsConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig,
+    GaugeFormat, MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig,
+    SolverConfig, SolverKind, SourceConfig,
 };
 
 use crate::fermion::{
@@ -255,8 +255,12 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
         }
     }
     let channels = match &config.measure.channels {
-        None => CHANNELS.iter().map(|c| c.to_string()).collect(),
-        Some(list) => list.clone(),
+        ChannelsConfig::All => CHANNELS
+            .iter()
+            .chain(&EXTRA_CHANNELS)
+            .map(|c| c.to_string())
+            .collect(),
+        ChannelsConfig::List(list) => list.clone(),
     };
     for name in &channels {
         if channel::<Dirac>(name).is_none() {

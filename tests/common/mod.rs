@@ -10,12 +10,17 @@ use ruttice::{Direction, Field, Gauge, Kind, Sites, Source, Spinor, Stencil, ND}
 use std::path::PathBuf;
 
 /// Environment variable naming a directory that holds the Bridge++ test inputs
-/// (`conf_04040408.txt`). Comparisons against Bridge++ are skipped when it is not set;
-/// those files are not part of this repository.
+/// (`conf_04040408.txt`). Without it they are looked for in `run/` at the top of the
+/// repository. Comparisons against Bridge++ are skipped when the files are in neither
+/// place; they are not part of this repository.
 pub const BRIDGE_TESTS_ENV: &str = "RUTTICE_BRIDGE_TESTS";
 
 pub fn bridge_test_file(name: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(std::env::var_os(BRIDGE_TESTS_ENV)?).join(name);
+    let dir = match std::env::var_os(BRIDGE_TESTS_ENV) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("run"),
+    };
+    let path = dir.join(name);
     path.is_file().then_some(path)
 }
 

@@ -86,8 +86,8 @@ pub const CHANNELS: [&str; 13] = [
     "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "S", "G51", "G52", "G53", "S12", "S23", "S31",
 ];
 
-/// Channels `channel` knows beyond those of Bridge++. They are computed only when asked
-/// for by name, and have no reference values from another program.
+/// Channels `channel` knows beyond those of Bridge++. They have no reference values
+/// from another program.
 pub const EXTRA_CHANNELS: [&str; 1] = ["A4_A4"];
 
 /// The (sink, source) gamma matrices of a named meson channel, to pass to
