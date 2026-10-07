@@ -176,6 +176,11 @@ impl<T: Real> AddAssign for Cplx<T> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorMatrix<T>(pub [[Cplx<T>; NC]; NC]);
 
+const _: () = assert!(
+    NC == 3,
+    "mul_vec and adj_mul_vec are written out for three colours"
+);
+
 impl<T: Real> ColorMatrix<T> {
     /// Number of reals in the full (uncompressed) representation.
     pub const REALS: usize = 2 * NC * NC;
@@ -249,25 +254,23 @@ impl<T: Real> ColorMatrix<T> {
     /// `self * v`.
     #[inline(always)]
     pub fn mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
-        core::array::from_fn(|a| {
-            let mut s = Cplx::ZERO;
-            for b in 0..NC {
-                s += self.0[a][b] * v[b];
-            }
-            s
-        })
+        let m = &self.0;
+        [
+            m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+            m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+            m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+        ]
     }
 
     /// `self^† * v`, without forming the adjoint.
     #[inline(always)]
     pub fn adj_mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
-        core::array::from_fn(|a| {
-            let mut s = Cplx::ZERO;
-            for b in 0..NC {
-                s += self.0[b][a].conj() * v[b];
-            }
-            s
-        })
+        let m = &self.0;
+        [
+            m[0][0].conj() * v[0] + m[1][0].conj() * v[1] + m[2][0].conj() * v[2],
+            m[0][1].conj() * v[0] + m[1][1].conj() * v[1] + m[2][1].conj() * v[2],
+            m[0][2].conj() * v[0] + m[1][2].conj() * v[1] + m[2][2].conj() * v[2],
+        ]
     }
 
     #[inline(always)]

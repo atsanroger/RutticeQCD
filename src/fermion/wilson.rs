@@ -21,7 +21,7 @@
 use super::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use crate::kernel::{
     project, sink_spinor, transport, transport_half, ColorMatrix, Cplx, Dirac, GammaRepre,
-    HalfSpinor, LinkUse, Real, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, SPINOR_REALS,
+    HalfSpinor, LinkUse, Real, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, NC, NS, SPINOR_REALS,
 };
 use crate::{
     for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, HaloExchange, Lattice,
@@ -177,24 +177,72 @@ pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 
 /// One leg of the stencil resolved for one output site: where the neighbour is and what
 /// is still to be done to it.
+///
+/// Links are referred to where they are stored and converted when they are used: holding
+/// eight converted matrices per site cost a copy through the stack for each.
 #[derive(Clone, Copy)]
-enum Hop<R> {
+enum Hop<'a, T: Storage> {
     /// Nothing arrives (Dirichlet boundary).
     Absent,
     /// A site of the input field: project, apply the phase and the link.
     Local {
         site: usize,
-        link: ColorMatrix<R>,
-        phase: Option<Cplx<R>>,
+        link: &'a StoredLink<T>,
+        phase: Option<Cplx<T::Compute>>,
     },
     /// A projected spinor from the neighbouring process; the link is on this side.
     Projected {
         index: usize,
-        link: ColorMatrix<R>,
-        phase: Option<Cplx<R>>,
+        link: &'a StoredLink<T>,
+        phase: Option<Cplx<T::Compute>>,
     },
     /// A spinor the neighbouring process has already transported.
     Transported { index: usize },
+}
+
+/// Reads spinor `r` of the sites of an input field, with γ5 applied first if `pre` is set.
+/// A struct with methods rather than closures, so that the reads are expanded in place.
+struct Input<'a, T: Storage, SI: Sites, G: GammaRepre> {
+    field: &'a Field<T, Spinor, SI>,
+    r: usize,
+    /// Spinors per site.
+    copies: usize,
+    pre: bool,
+    _gamma: PhantomData<G>,
+}
+
+impl<T: Storage, SI: Sites, G: GammaRepre> Input<'_, T, SI, G> {
+    #[inline(always)]
+    fn local(&self, site: usize) -> SiteSpinor<T::Compute> {
+        let s = &self.field.site(0, site)[self.r * SPINOR_REALS..(self.r + 1) * SPINOR_REALS];
+        let psi = load_spinor::<T>(s);
+        if self.pre {
+            G::GAMMA5.apply(&psi)
+        } else {
+            psi
+        }
+    }
+
+    /// Position in a face buffer of spinor `r` of received site `index`.
+    #[inline(always)]
+    fn slot(&self, index: usize) -> usize {
+        index * self.copies + self.r
+    }
+}
+
+/// The reals of one link as the gauge field stores them.
+type StoredLink<T> = [T; 2 * NC * NC];
+
+#[inline(always)]
+fn load_link<T: Storage>(s: &StoredLink<T>) -> ColorMatrix<T::Compute> {
+    let mut m = ColorMatrix::zero();
+    for a in 0..NC {
+        for b in 0..NC {
+            let k = 2 * (a * NC + b);
+            m.0[a][b] = Cplx::new(s[k].load(), s[k + 1].load());
+        }
+    }
+    m
 }
 
 /// The spin structure and link use of the legs in one direction.
@@ -267,7 +315,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// neighbour; when the neighbour is on another process, that process applies it (and
     /// the phase) before sending.
     #[inline(always)]
-    fn resolve(&self, geo: &Geometry, site: usize, mu: usize, dir: Direction) -> Hop<T::Compute> {
+    fn resolve(&self, geo: &Geometry, site: usize, mu: usize, dir: Direction) -> Hop<'_, T> {
         let phase = |wrapped: bool| {
             if wrapped {
                 self.boundary_phase(mu, dir)
@@ -298,13 +346,12 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// the site. `local(site)` reads the input field; `received` is what came in on the
     /// face of this leg.
     #[inline(always)]
-    fn arrive(
-        hop: &Hop<T::Compute>,
+    fn arrive<SI: Sites>(
+        hop: &Hop<'_, T>,
         mu: usize,
         dir: Direction,
-        local: impl Fn(usize) -> SiteSpinor<T::Compute>,
+        input: &Input<'_, T, SI, G>,
         received: &[T],
-        slot: impl Fn(usize) -> usize,
     ) -> Option<HalfSpinor<T::Compute>> {
         let (sign, link_use) = leg_kind(dir);
         match hop {
@@ -312,18 +359,44 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             Hop::Local { site, link, phase } => Some(transport(
                 &G::GAMMA[mu],
                 sign,
-                &local(*site),
-                link,
+                &input.local(*site),
+                &load_link::<T>(link),
                 link_use,
                 *phase,
             )),
             Hop::Projected { index, link, phase } => Some(transport_half(
-                &load_half::<T>(received, slot(*index)),
-                link,
+                &load_half::<T>(received, input.slot(*index)),
+                &load_link::<T>(link),
                 link_use,
                 *phase,
             )),
-            Hop::Transported { index } => Some(load_half::<T>(received, slot(*index))),
+            Hop::Transported { index } => Some(load_half::<T>(received, input.slot(*index))),
+        }
+    }
+
+    /// Add the forward and the backward leg of direction `MU` to `hops`.
+    ///
+    /// The direction is a compile-time constant so that the gamma matrix is one too: its
+    /// table of columns and phases then folds into straight-line code. With the direction
+    /// as a loop variable the compiler kept the loop and the table lookups (seen in the
+    /// generated code as indirect jumps on every component).
+    #[inline(always)]
+    fn add_legs<const MU: usize, SI: Sites>(
+        hops: &mut SiteSpinor<T::Compute>,
+        forward: &Hop<'_, T>,
+        backward: &Hop<'_, T>,
+        input: &Input<'_, T, SI, G>,
+        received: &[&[T]; FACES],
+    ) {
+        let (fwd, bwd) = (Direction::Forward, Direction::Backward);
+        let gamma = &G::GAMMA[MU];
+        let face = received[Stencil::leg(MU, fwd)];
+        if let Some(h) = Self::arrive(forward, MU, fwd, input, face) {
+            sink_spinor(hops, &h, gamma, Sign::Minus);
+        }
+        let face = received[Stencil::leg(MU, bwd)];
+        if let Some(h) = Self::arrive(backward, MU, bwd, input, face) {
+            sink_spinor(hops, &h, gamma, Sign::Plus);
         }
     }
 
@@ -375,9 +448,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     let o = o.as_chunks_mut::<HALF_SPINOR_REALS>().0;
                     for (r, o) in o.iter_mut().enumerate() {
                         let psi = Self::input(inp, site, r, pre);
-                        let h = match &link {
+                        let h = match link {
                             Some(link) => {
-                                transport(&G::GAMMA[mu], sign, &psi, link, link_use, phase)
+                                let link = load_link::<T>(link);
+                                transport(&G::GAMMA[mu], sign, &psi, &link, link_use, phase)
                             }
                             None => project(&G::GAMMA[mu], sign, &psi),
                         };
@@ -410,10 +484,11 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// The link U_mu at a full-lattice site.
     #[inline(always)]
-    fn link(&self, mu: usize, full_site: usize) -> ColorMatrix<T::Compute> {
-        let s = self.gauge().site(mu, full_site);
-        let v: [T::Compute; 18] = core::array::from_fn(|k| s[k].load());
-        ColorMatrix::from_reals(&v)
+    fn link(&self, mu: usize, full_site: usize) -> &StoredLink<T> {
+        self.gauge()
+            .site(mu, full_site)
+            .try_into()
+            .expect("a link has 18 reals")
     }
 
     fn check<SO: Sites, SI: Sites>(
@@ -489,24 +564,23 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             let x_full = geo.out_site(x);
 
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
-                let at = |site: usize| Self::input(inp, site, r, pre);
-                let slot = |index: usize| index * copies + r;
+                let input = Input {
+                    field: inp,
+                    r,
+                    copies,
+                    pre,
+                    _gamma: PhantomData::<G>,
+                };
 
                 let mut hops = SiteSpinor::zero();
-                for mu in 0..ND {
-                    let gamma = &G::GAMMA[mu];
-                    let face = received[Stencil::leg(mu, fwd)];
-                    if let Some(h) = Self::arrive(&forward[mu], mu, fwd, at, face, slot) {
-                        sink_spinor(&mut hops, &h, gamma, Sign::Minus);
-                    }
-                    let face = received[Stencil::leg(mu, bwd)];
-                    if let Some(h) = Self::arrive(&backward[mu], mu, bwd, at, face, slot) {
-                        sink_spinor(&mut hops, &h, gamma, Sign::Plus);
-                    }
-                }
+                let (f, b) = (&forward, &backward);
+                Self::add_legs::<0, SI>(&mut hops, &f[0], &b[0], &input, &received);
+                Self::add_legs::<1, SI>(&mut hops, &f[1], &b[1], &input, &received);
+                Self::add_legs::<2, SI>(&mut hops, &f[2], &b[2], &input, &received);
+                Self::add_legs::<3, SI>(&mut hops, &f[3], &b[3], &input, &received);
 
                 let diag = match diagonal {
-                    Diagonal::Present => self.diag.apply(x_full, &at(x)),
+                    Diagonal::Present => self.diag.apply(x_full, &input.local(x)),
                     Diagonal::Absent => SiteSpinor::zero(),
                 };
                 let mut result = diag.sub_scaled(kappa, &hops);
@@ -536,9 +610,14 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
             let hop = self.resolve(geo, x, mu, dir);
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
-                let at = |site: usize| Self::input(inp, site, r, false);
-                let slot = |index: usize| index * copies + r;
-                if let Some(h) = Self::arrive(&hop, mu, dir, at, face, slot) {
+                let input = Input {
+                    field: inp,
+                    r,
+                    copies,
+                    pre: false,
+                    _gamma: PhantomData::<G>,
+                };
+                if let Some(h) = Self::arrive(&hop, mu, dir, &input, face) {
                     let mut acc = load_spinor::<T>(o);
                     sink_spinor(&mut acc, &h, &G::GAMMA[mu], sign);
                     store_spinor::<T>(&acc, o);
@@ -551,32 +630,53 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 /// Half spinor number `slot` of a face buffer.
 #[inline(always)]
 fn load_half<T: Storage>(buffer: &[T], slot: usize) -> HalfSpinor<T::Compute> {
-    let s = &buffer[slot * HALF_SPINOR_REALS..(slot + 1) * HALF_SPINOR_REALS];
-    let v: [T::Compute; HALF_SPINOR_REALS] = core::array::from_fn(|k| s[k].load());
-    HalfSpinor::from_reals(&v)
+    let s: &[T; HALF_SPINOR_REALS] = buffer
+        [slot * HALF_SPINOR_REALS..(slot + 1) * HALF_SPINOR_REALS]
+        .try_into()
+        .expect("the range has the length of a half spinor");
+    let mut h = HalfSpinor([[Cplx::ZERO; NC]; 2]);
+    for a in 0..2 {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            h.0[a][c] = Cplx::new(s[k].load(), s[k + 1].load());
+        }
+    }
+    h
 }
 
 #[inline(always)]
 fn store_half<T: Storage>(h: &HalfSpinor<T::Compute>, s: &mut [T; HALF_SPINOR_REALS]) {
-    let mut v = [T::Compute::ZERO; HALF_SPINOR_REALS];
-    h.write_reals(&mut v);
-    for (dst, src) in s.iter_mut().zip(v) {
-        *dst = T::store(src);
+    for a in 0..2 {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            s[k] = T::store(h.0[a][c].re);
+            s[k + 1] = T::store(h.0[a][c].im);
+        }
     }
 }
 
 #[inline(always)]
 fn load_spinor<T: Storage>(s: &[T]) -> SiteSpinor<T::Compute> {
-    let v: [T::Compute; SPINOR_REALS] = core::array::from_fn(|k| s[k].load());
-    SiteSpinor::from_reals(&v)
+    let s: &[T; SPINOR_REALS] = s.try_into().expect("a spinor has 24 reals");
+    let mut psi = SiteSpinor::zero();
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            psi.0[a][c] = Cplx::new(s[k].load(), s[k + 1].load());
+        }
+    }
+    psi
 }
 
 #[inline(always)]
 fn store_spinor<T: Storage>(p: &SiteSpinor<T::Compute>, s: &mut [T]) {
-    let mut v = [T::Compute::ZERO; SPINOR_REALS];
-    p.write_reals(&mut v);
-    for (dst, src) in s.iter_mut().zip(v) {
-        *dst = T::store(src);
+    let s: &mut [T; SPINOR_REALS] = s.try_into().expect("a spinor has 24 reals");
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            s[k] = T::store(p.0[a][c].re);
+            s[k + 1] = T::store(p.0[a][c].im);
+        }
     }
 }
 

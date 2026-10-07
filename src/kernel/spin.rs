@@ -103,9 +103,7 @@ impl<T: Real> HalfSpinor<T> {
 
     #[inline(always)]
     pub fn scale_cplx(&self, z: Cplx<T>) -> Self {
-        Self(core::array::from_fn(|k| {
-            core::array::from_fn(|c| z * self.0[k][c])
-        }))
+        Self([scale_color(z, &self.0[0]), scale_color(z, &self.0[1])])
     }
 }
 
@@ -325,6 +323,26 @@ fn surviving_rows(g: &Gamma, sign: Sign) -> [usize; 2] {
     rows
 }
 
+// The small helpers below are functions, not closures: `#[inline(always)]` does not reach
+// a closure defined inside the function that carries it, and the compiler left such
+// closures out of line in the hopping kernel (seen in the generated code).
+
+/// `a + u * b` for colour vectors.
+#[inline(always)]
+fn add_unit<T: Real>(a: &ColorVector<T>, u: Unit, b: &ColorVector<T>) -> ColorVector<T> {
+    [
+        a[0] + u.times(b[0]),
+        a[1] + u.times(b[1]),
+        a[2] + u.times(b[2]),
+    ]
+}
+
+/// `z * v` for a colour vector.
+#[inline(always)]
+fn scale_color<T: Real>(z: Cplx<T>, v: &ColorVector<T>) -> ColorVector<T> {
+    [z * v[0], z * v[1], z * v[2]]
+}
+
 /// The two independent components of `(1 + sign * γ) ψ`.
 ///
 /// `1 + sign * γ` has rank two. For an off-diagonal γ, rows 0 and 1 determine the other
@@ -332,15 +350,16 @@ fn surviving_rows(g: &Gamma, sign: Sign) -> [usize; 2] {
 #[inline(always)]
 pub fn project<T: Real>(g: &Gamma, sign: Sign, psi: &Spinor<T>) -> HalfSpinor<T> {
     if g.col[0] != 0 {
-        HalfSpinor(core::array::from_fn(|k| {
-            let u = sign.times(g.val[k]);
-            core::array::from_fn(|c| psi.0[k][c] + u.times(psi.0[g.col[k]][c]))
-        }))
+        HalfSpinor([
+            add_unit(&psi.0[0], sign.times(g.val[0]), &psi.0[g.col[0]]),
+            add_unit(&psi.0[1], sign.times(g.val[1]), &psi.0[g.col[1]]),
+        ])
     } else {
         let rows = surviving_rows(g, sign);
-        HalfSpinor(core::array::from_fn(|k| {
-            core::array::from_fn(|c| psi.0[rows[k]][c] + psi.0[rows[k]][c])
-        }))
+        HalfSpinor([
+            add_unit(&psi.0[rows[0]], Unit::One, &psi.0[rows[0]]),
+            add_unit(&psi.0[rows[1]], Unit::One, &psi.0[rows[1]]),
+        ])
     }
 }
 
@@ -372,10 +391,10 @@ pub fn transport_half<T: Real>(
         Some(z) => h.scale_cplx(z),
         None => *h,
     };
-    HalfSpinor(core::array::from_fn(|k| match link_use {
-        LinkUse::Direct => link.mul_vec(&h.0[k]),
-        LinkUse::Adjoint => link.adj_mul_vec(&h.0[k]),
-    }))
+    match link_use {
+        LinkUse::Direct => HalfSpinor([link.mul_vec(&h.0[0]), link.mul_vec(&h.0[1])]),
+        LinkUse::Adjoint => HalfSpinor([link.adj_mul_vec(&h.0[0]), link.adj_mul_vec(&h.0[1])]),
+    }
 }
 
 /// Sink for Dslash and hopping terms: rebuild the four-component spinor from a transported
