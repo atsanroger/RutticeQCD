@@ -12,6 +12,12 @@
 //! finished before the sweep starts; computing the interior while it is under way is not
 //! done yet.
 //!
+//! For fields in blocks of W sites (`Aosoa<W>`, the SIMD layout) there is a second sweep,
+//! over blocks, at the end of this file: the same kernel functions with a lane type in place
+//! of a real number. So far it covers plain Wilson fermions on the whole lattice of one
+//! process. When it also covers even-odd blocks, several processes and the site-diagonal
+//! term, the sweep over sites becomes the case W = 1 of it and goes away.
+//!
 //! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
 //! preconditioning. Tools needed: none.
 //!
@@ -21,12 +27,13 @@
 use super::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use crate::kernel::{
     project, sink_spinor, transport, transport_half, ColorMatrix, Cplx, Dirac, GammaRepre,
-    HalfSpinor, LinkUse, Number, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, NC, NS,
-    SPINOR_REALS,
+    HalfSpinor, Lane, LaneOf, LinkUse, Number, Sign, Spinor as SiteSpinor, HALF_SPINOR_REALS, NC,
+    NS, SPINOR_REALS,
 };
 use crate::{
-    for_sites, Boundary, Direction, EvenOddIndex, Field, Gauge, Half, HaloExchange, Lattice,
-    Parity, Sites, Source, Spinor, Stencil, Storage, Vector, FACES, ND,
+    for_sites, Aos, Aosoa, BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Full,
+    Gauge, Half, HaloExchange, Lattice, Layout, Parity, Sites, Source, Spinor, Stencil, Storage,
+    Vector, FACES, ND,
 };
 use rayon::prelude::*;
 use std::marker::PhantomData;
@@ -167,20 +174,47 @@ impl<T: Storage> DiagTerm<T> for UnitDiag {
 
 /// An operator of Wilson type: the Wilson hopping term plus a site-diagonal block `D`.
 /// `Wilson` and `Clover` are this with different blocks.
-pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>> {
+///
+/// `L` is the layout of the fields it acts on. The geometry and the operator's copy of the
+/// links depend on it and are kept in `state`; the arithmetic of a leg (`kernel::project`,
+/// `transport_half`, `sink_spinor`) is the same code for every layout.
+pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T> = Aos> {
     params: WilsonParams,
     lat: Arc<Lattice>,
-    full: Geometry,
-    /// Present when every extent of the lattice is even.
-    even_odd: Option<EvenOddGeometry>,
-    links: LinkStore<T>,
+    state: L::State,
     link_format: LinkFormat,
     diag: D,
     _gamma: PhantomData<G>,
 }
 
+/// A layout the Wilson operator has a sweep for.
+pub trait WilsonLayout<T: Storage>: Layout {
+    /// The geometry and the links of an operator for this layout.
+    type State: Send + Sync;
+}
+
+impl<T: Storage> WilsonLayout<T> for Aos {
+    type State = SiteState<T>;
+}
+
+impl<T: Storage, const W: usize> WilsonLayout<T> for Aosoa<W> {
+    type State = BlockState<T, W>;
+}
+
+/// What the operator keeps for fields in the usual layout.
+pub struct SiteState<T: Storage> {
+    full: Geometry,
+    /// Present when every extent of the lattice is even.
+    even_odd: Option<EvenOddGeometry>,
+    links: LinkStore<T>,
+}
+
 /// Wilson fermions: the diagonal block is the identity.
 pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
+
+/// Wilson fermions on fields in blocks of `W` sites (the SIMD layout). One process, the
+/// whole lattice, links kept in full.
+pub type WilsonSimd<T, const W: usize, G = Dirac> = WilsonOp<T, G, UnitDiag, Aosoa<W>>;
 
 /// One leg of the stencil resolved for one output site: where the neighbour is and what
 /// is still to be done to it.
@@ -393,9 +427,11 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         Self {
             params,
             lat: lat.clone(),
-            full: Geometry::full(lat, params.boundary),
-            even_odd,
-            links: LinkStore::Unset,
+            state: SiteState {
+                full: Geometry::full(lat, params.boundary),
+                even_odd,
+                links: LinkStore::Unset,
+            },
             link_format: LinkFormat::Full,
             diag,
             _gamma: PhantomData,
@@ -408,13 +444,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// The even-odd numbering this operator uses, if the lattice allows one.
     pub fn even_odd_index(&self) -> Option<&Arc<EvenOddIndex>> {
-        self.even_odd.as_ref().map(|eo| &eo.index)
+        self.state.even_odd.as_ref().map(|eo| &eo.index)
     }
 
     /// Choose how the links are kept. The gauge field has to be set again afterwards.
     pub fn with_link_format(mut self, format: LinkFormat) -> Self {
         self.link_format = format;
-        self.links = LinkStore::Unset;
+        self.state.links = LinkStore::Unset;
         self
     }
 
@@ -483,7 +519,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 phase[Stencil::leg(mu, dir)] = self.boundary_phase(mu, dir);
             }
         }
-        let (all, n) = (R::of(&self.links), self.lat.num_sites());
+        let (all, n) = (R::of(&self.state.links), self.lat.num_sites());
         Fixed {
             links: core::array::from_fn(|mu| &all[mu * n..(mu + 1) * n]),
             phase,
@@ -635,7 +671,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// The link U_mu at a full-lattice site.
     #[inline(always)]
     fn link<R: LinkRepr>(&self, mu: usize, full_site: usize) -> &R::Stored<T> {
-        &R::of(&self.links)[mu * self.lat.num_sites() + full_site]
+        &R::of(&self.state.links)[mu * self.lat.num_sites() + full_site]
     }
 
     fn check<SO: Sites, SI: Sites>(
@@ -698,7 +734,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         diagonal: Diagonal,
         gamma5: (bool, bool),
     ) {
-        match self.links {
+        match self.state.links {
             LinkStore::Full(_) => {
                 self.sweep_with::<FullLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5)
             }
@@ -773,7 +809,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        match self.links {
+        match self.state.links {
             LinkStore::Full(_) => self.hop_term_with::<FullLinks>(work, mu, dir, out, inp),
             LinkStore::TwoRows(_) => self.hop_term_with::<TwoRowLinks>(work, mu, dir, out, inp),
             LinkStore::Unset => panic!("set_gauge must be called before the operator is applied"),
@@ -789,7 +825,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        let geo = &self.full;
+        let geo = &self.state.full;
         self.check(geo, out, inp);
         let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
@@ -927,7 +963,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
             }
         };
         self.diag.set_gauge(&self.lat, u)?;
-        self.links = links;
+        self.state.links = links;
         Ok(())
     }
 
@@ -944,7 +980,14 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
             Variant::Gamma5D => (false, true),
             Variant::Dagger => (true, true),
         };
-        self.sweep(work, &self.full, out, inp, Diagonal::Present, (pre, post));
+        self.sweep(
+            work,
+            &self.state.full,
+            out,
+            inp,
+            Diagonal::Present,
+            (pre, post),
+        );
     }
 }
 
@@ -975,7 +1018,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        self.check(&self.full, out, inp);
+        self.check(&self.state.full, out, inp);
         let copies = inp.copies();
         for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
             let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
@@ -993,7 +1036,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        self.check(&self.full, out, inp);
+        self.check(&self.state.full, out, inp);
         for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
             let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
             store_spinor::<T>(&G::GAMMA5.apply(&load_spinor::<T>(stored_spinor(s))), o);
@@ -1026,6 +1069,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
         dagger: Dagger,
     ) {
         let eo = self
+            .state
             .even_odd
             .as_ref()
             .expect("Wilson: even-odd blocks need a lattice with even extents");
@@ -1056,6 +1100,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
             out.copy_from(inp);
         } else {
             let eo = self
+                .state
                 .even_odd
                 .as_ref()
                 .expect("Wilson: even-odd needs even extents");
@@ -1078,11 +1123,319 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
             out.copy_from(inp);
         } else {
             let eo = self
+                .state
                 .even_odd
                 .as_ref()
                 .expect("Wilson: even-odd needs even extents");
             let geo = &eo.to[parity.index()];
             self.site_block(out, inp, |h| geo.out_site(h), true);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Fields in blocks of W sites.
+
+/// What the operator keeps for fields in blocks of `W` sites.
+pub struct BlockState<T: Storage, const W: usize> {
+    stencil: BlockStencil<W>,
+    /// `[mu * num_blocks + block]`: the link of every lane of the block. Empty until the
+    /// gauge field is set.
+    links: Vec<BlockLink<T, W>>,
+}
+
+/// The stored reals of one spinor, and of one link, for the `W` lanes of a block.
+type BlockSpinor<T, const W: usize> = [[T; W]; SPINOR_REALS];
+type BlockLink<T, const W: usize> = [[T; W]; FULL_LINK_REALS];
+
+/// The lane type the sweep computes with.
+type LaneType<T, const W: usize> = <<T as Storage>::Compute as LaneOf<W>>::Lane;
+
+#[inline(always)]
+fn load_lanes<T: Storage, const W: usize>(s: &[T; W]) -> LaneType<T, W>
+where
+    T::Compute: LaneOf<W>,
+{
+    Lane::from_array(s.map(Storage::load))
+}
+
+#[inline(always)]
+fn load_block_spinor<T: Storage, const W: usize>(
+    s: &BlockSpinor<T, W>,
+) -> SiteSpinor<LaneType<T, W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    let mut psi = SiteSpinor::zero();
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (NC * a + c);
+            psi.0[a][c] = Cplx::new(load_lanes::<T, W>(&s[k]), load_lanes::<T, W>(&s[k + 1]));
+        }
+    }
+    psi
+}
+
+#[inline(always)]
+fn load_block_link<T: Storage, const W: usize>(s: &BlockLink<T, W>) -> ColorMatrix<LaneType<T, W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    let mut m = ColorMatrix::zero();
+    for a in 0..NC {
+        for b in 0..NC {
+            let k = 2 * (a * NC + b);
+            m.0[a][b] = Cplx::new(load_lanes::<T, W>(&s[k]), load_lanes::<T, W>(&s[k + 1]));
+        }
+    }
+    m
+}
+
+/// Reads spinor `r` of the blocks of an input field, with γ5 applied first if `pre` is set.
+/// A struct with a method, not a closure, so that the read is expanded in place.
+struct BlockInput<'a, T: Storage, G: GammaRepre, const W: usize> {
+    spinors: &'a [BlockSpinor<T, W>],
+    r: usize,
+    /// Spinors per site.
+    copies: usize,
+    pre: bool,
+    _gamma: PhantomData<G>,
+}
+
+impl<T: Storage, G: GammaRepre, const W: usize> BlockInput<'_, T, G, W>
+where
+    T::Compute: LaneOf<W>,
+{
+    #[inline(always)]
+    fn at(&self, block: usize) -> SiteSpinor<LaneType<T, W>> {
+        let psi = load_block_spinor::<T, W>(&self.spinors[block * self.copies + self.r]);
+        if self.pre {
+            G::GAMMA5.apply(&psi)
+        } else {
+            psi
+        }
+    }
+}
+
+/// The treatment of the lanes of a hop that leaves the sub-lattice, in the lane type.
+struct EdgeLanes<V, const W: usize> {
+    from: [usize; W],
+    /// The boundary factor of each lane, in the order of the lanes of the block computed.
+    factor: Cplx<V>,
+    /// The same factors in the order of the lanes of the neighbouring block.
+    factor_at_source: Cplx<V>,
+}
+
+impl<V: Lane<W>, const W: usize> EdgeLanes<V, W> {
+    fn new(edge: &Edge<W>) -> Self {
+        let scalar = |x: f64| <V::Scalar as Number>::from_f64(x);
+        let lanes = |values: [(f64, f64); W]| {
+            Cplx::new(
+                V::from_array(values.map(|(re, _)| scalar(re))),
+                V::from_array(values.map(|(_, im)| scalar(im))),
+            )
+        };
+        let mut at_source = [(1.0, 0.0); W];
+        for lane in 0..W {
+            at_source[edge.from[lane]] = edge.factor[lane];
+        }
+        Self {
+            from: edge.from,
+            factor: lanes(edge.factor),
+            factor_at_source: lanes(at_source),
+        }
+    }
+
+    /// Bring the lanes of a half spinor from the order of the neighbouring block into the
+    /// order of the block computed.
+    #[inline(always)]
+    fn rotate(&self, h: &HalfSpinor<V>) -> HalfSpinor<V> {
+        let mut out = *h;
+        for a in 0..2 {
+            for c in 0..NC {
+                let z = h.0[a][c];
+                out.0[a][c] = Cplx::new(z.re.permute(&self.from), z.im.permute(&self.from));
+            }
+        }
+        out
+    }
+}
+
+impl<T: Storage, G: GammaRepre, const W: usize> WilsonOp<T, G, UnitDiag, Aosoa<W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    /// `None` if the lattice cannot be cut into `W` sub-lattices of equal shape.
+    pub fn new(lat: &Arc<Lattice>, params: WilsonParams) -> Option<Self> {
+        Some(Self {
+            params,
+            lat: lat.clone(),
+            state: BlockState {
+                stencil: BlockStencil::new(lat, params.boundary)?,
+                links: Vec::new(),
+            },
+            link_format: LinkFormat::Full,
+            diag: UnitDiag,
+            _gamma: PhantomData,
+        })
+    }
+
+    pub fn params(&self) -> &WilsonParams {
+        &self.params
+    }
+
+    /// Add the forward and the backward leg of direction `MU` of one block to `hops`.
+    ///
+    /// The steps are those of the sweep over sites, in the same order, so that every lane
+    /// gets the bits its site gets there. Where the hop leaves the sub-lattice, the lanes of
+    /// the neighbouring block are rotated into place and each lane gets its boundary factor.
+    /// The backward leg multiplies by the neighbouring block's link first, in that block's
+    /// order of lanes, and rotates the product: the link then never has to be rotated.
+    #[inline(always)]
+    fn add_block_legs<const MU: usize>(
+        &self,
+        hops: &mut SiteSpinor<LaneType<T, W>>,
+        block: usize,
+        input: &BlockInput<'_, T, G, W>,
+        edges: &[EdgeLanes<LaneType<T, W>, W>; FACES],
+    ) {
+        let gamma = &G::GAMMA[MU];
+        let (stencil, links) = (&self.state.stencil, &self.state.links);
+        let num_blocks = stencil.blocks().num_blocks();
+
+        let leg = Stencil::leg(MU, Direction::Forward);
+        let (from, edge) = stencil.source(block, leg);
+        let mut h = project(gamma, Sign::Minus, &input.at(from));
+        if edge.is_some() {
+            h = edges[leg].rotate(&h).scale_cplx(edges[leg].factor);
+        }
+        let link = load_block_link::<T, W>(&links[MU * num_blocks + block]);
+        let h = transport_half(&h, &link, LinkUse::Direct, None);
+        sink_spinor(hops, &h, gamma, Sign::Minus);
+
+        let leg = Stencil::leg(MU, Direction::Backward);
+        let (from, edge) = stencil.source(block, leg);
+        let mut h = project(gamma, Sign::Plus, &input.at(from));
+        if edge.is_some() {
+            h = h.scale_cplx(edges[leg].factor_at_source);
+        }
+        let link = load_block_link::<T, W>(&links[MU * num_blocks + from]);
+        let mut h = transport_half(&h, &link, LinkUse::Adjoint, None);
+        if edge.is_some() {
+            h = edges[leg].rotate(&h);
+        }
+        sink_spinor(hops, &h, gamma, Sign::Plus);
+    }
+
+    /// `out = γ5^post ( φ - κ Σ hops φ )` with `φ = γ5^pre inp`, block by block.
+    fn block_sweep(
+        &self,
+        out: &mut Field<T, Spinor, Full, Aosoa<W>>,
+        inp: &Field<T, Spinor, Full, Aosoa<W>>,
+        (pre, post): (bool, bool),
+    ) {
+        let stencil = &self.state.stencil;
+        let num_blocks = stencil.blocks().num_blocks();
+        assert_eq!(
+            self.state.links.len(),
+            ND * num_blocks,
+            "set_gauge must be called before the operator is applied"
+        );
+        assert!(inp.num_sites() == num_blocks * W && out.num_sites() == inp.num_sites());
+        assert!(out.outer() == 1 && inp.outer() == 1);
+        assert_eq!(out.copies(), inp.copies());
+        let copies = inp.copies();
+        let kappa = <LaneType<T, W> as Number>::from_f64(self.params.kappa);
+        let edges: [EdgeLanes<LaneType<T, W>, W>; FACES] = core::array::from_fn(|leg| {
+            // Any block gives the same answer for a leg; one with an edge is needed.
+            let edge = (0..num_blocks)
+                .find_map(|block| stencil.source(block, leg).1)
+                .expect("every direction has blocks at the edge of the sub-lattice");
+            EdgeLanes::new(edge)
+        });
+        let spinors: &[BlockSpinor<T, W>] = inp.slab(0).as_chunks::<W>().0.as_chunks().0;
+
+        for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
+            let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
+            for (r, o) in o.iter_mut().enumerate() {
+                let input = BlockInput {
+                    spinors,
+                    r,
+                    copies,
+                    pre,
+                    _gamma: PhantomData::<G>,
+                };
+                let mut hops = SiteSpinor::zero();
+                self.add_block_legs::<0>(&mut hops, block, &input, &edges);
+                self.add_block_legs::<1>(&mut hops, block, &input, &edges);
+                self.add_block_legs::<2>(&mut hops, block, &input, &edges);
+                self.add_block_legs::<3>(&mut hops, block, &input, &edges);
+                let mut result = input.at(block).sub_scaled(kappa, &hops);
+                if post {
+                    result = G::GAMMA5.apply(&result);
+                }
+                for a in 0..NS {
+                    for c in 0..NC {
+                        let k = 2 * (NC * a + c);
+                        o[k] = result.0[a][c].re.to_array().map(T::store);
+                        o[k + 1] = result.0[a][c].im.to_array().map(T::store);
+                    }
+                }
+            }
+        });
+    }
+}
+
+impl<T: Storage, G: GammaRepre, const W: usize> FermionOp<Field<T, Spinor, Full, Aosoa<W>>>
+    for WilsonOp<T, G, UnitDiag, Aosoa<W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    type Work = ();
+
+    fn work(&self) {}
+
+    fn flops_per_site(&self) -> usize {
+        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1))
+    }
+
+    fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
+        if u.num_sites() != self.lat.num_sites() || u.lattice().local != self.lat.local {
+            return Err(GaugeError::LatticeMismatch);
+        }
+        let blocks = self.state.stencil.blocks();
+        let num_blocks = blocks.num_blocks();
+        // Filled by the threads of the pool, like the fields (`Cpu::alloc`).
+        self.state.links = (0..ND * num_blocks)
+            .into_par_iter()
+            .with_min_len(LINKS_PER_TASK)
+            .map(|i| {
+                let (mu, block) = (i / num_blocks, i % num_blocks);
+                let mut link = [[T::default(); W]; FULL_LINK_REALS];
+                for lane in 0..W {
+                    let from = u.site(mu, blocks.site(block, lane));
+                    for c in 0..FULL_LINK_REALS {
+                        link[c][lane] = T::store(Number::from_f64(from[c]));
+                    }
+                }
+                link
+            })
+            .collect();
+        Ok(())
+    }
+
+    fn mult(
+        &self,
+        _work: &mut (),
+        out: &mut Field<T, Spinor, Full, Aosoa<W>>,
+        inp: &Field<T, Spinor, Full, Aosoa<W>>,
+        variant: Variant,
+    ) {
+        let gamma5 = match variant {
+            Variant::D => (false, false),
+            Variant::Gamma5D => (false, true),
+            Variant::Dagger => (true, true),
+        };
+        self.block_sweep(out, inp, gamma5);
     }
 }

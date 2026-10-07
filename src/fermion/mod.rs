@@ -8,7 +8,10 @@ pub use clover::{Clover, CloverDiag, CloverParams};
 
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
-pub use wilson::{DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonOp, WilsonParams, WilsonWork};
+pub use wilson::{
+    DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonSimd,
+    WilsonWork,
+};
 
 use crate::{Field, Gauge, LinearFn, LinearOp, Vector};
 use std::fmt;

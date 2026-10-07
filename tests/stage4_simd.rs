@@ -4,7 +4,14 @@
 mod common;
 
 use common::max_abs_diff;
-use ruttice::{random_spinor, Aosoa, ConvertFrom, Field, Lattice, Spinor, Vector, C64};
+use ruttice::fermion::{Bound, FermionOp, Variant, Wilson, WilsonParams, WilsonSimd};
+use ruttice::gauge::random_gauge;
+use ruttice::kernel::LaneOf;
+use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
+use ruttice::{
+    random_spinor, Aosoa, Boundary, ConvertFrom, Field, Gauge, Lattice, Spinor, Storage, Vector,
+    C64, ND,
+};
 use std::sync::Arc;
 
 type V = Field<f64, Spinor>;
@@ -106,4 +113,148 @@ fn conversion_can_change_the_precision() {
     back.convert_from(&single);
     let diff = max_abs_diff(&back, &a);
     assert!(diff > 0.0 && diff < 1e-7, "{diff:e}");
+}
+
+const MIXED: [Boundary; ND] = [
+    Boundary::Phase(0.6, 0.8),
+    Boundary::Periodic,
+    Boundary::Dirichlet,
+    Boundary::Antiperiodic,
+];
+
+fn params() -> WilsonParams {
+    WilsonParams {
+        kappa: 0.12,
+        boundary: MIXED,
+    }
+}
+
+fn simd<T: Storage, const W: usize>(lat: &Arc<Lattice>, u: &Field<f64, Gauge>) -> WilsonSimd<T, W>
+where
+    T::Compute: LaneOf<W>,
+{
+    let mut op = WilsonSimd::<T, W>::new(lat, params()).unwrap();
+    op.set_gauge(u).unwrap();
+    op
+}
+
+/// The operator on blocks gives every site the bits the operator on sites gives it: D, D†
+/// and γ5 D, two spinors per site, every kind of boundary, every width. With W = 1 a block
+/// is one site; with W = 16 every direction is cut and every hop out of a sub-lattice
+/// rotates lanes.
+#[test]
+fn wilson_on_blocks_is_identical() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 931);
+    let psi = random_spinor(&lat, 2, 932);
+    let mut reference = Wilson::<f64>::new(&lat, params());
+    reference.set_gauge(&u).unwrap();
+    fn check<const W: usize>(reference: &Wilson<f64>, u: &Field<f64, Gauge>, psi: &V)
+    where
+        f64: LaneOf<W>,
+    {
+        let op = simd::<f64, W>(psi.lattice(), u);
+        let inp = to_blocks::<W>(psi);
+        for variant in [Variant::D, Variant::Dagger, Variant::Gamma5D] {
+            let mut want = psi.zeros_like();
+            reference.mult(&mut reference.work(), &mut want, psi, variant);
+            let mut out = inp.zeros_like();
+            op.mult(&mut (), &mut out, &inp, variant);
+            assert!(
+                to_sites(&out).as_slice() == want.as_slice(),
+                "W = {W}, {variant:?}: max difference {:e}",
+                max_abs_diff(&to_sites(&out), &want)
+            );
+        }
+    }
+    check::<1>(&reference, &u, &psi);
+    check::<2>(&reference, &u, &psi);
+    check::<4>(&reference, &u, &psi);
+    check::<8>(&reference, &u, &psi);
+}
+
+#[test]
+fn wilson_on_blocks_is_identical_in_single_precision() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 941);
+    let mut psi = Field::<f32, Spinor>::spinor(&lat, 1);
+    psi.convert_from(&random_spinor(&lat, 1, 942));
+    let mut reference = Wilson::<f32>::new(&lat, params());
+    reference.set_gauge(&u).unwrap();
+    let mut want = psi.zeros_like();
+    reference.mult(&mut reference.work(), &mut want, &psi, Variant::Dagger);
+    fn check<const W: usize>(
+        u: &Field<f64, Gauge>,
+        psi: &Field<f32, Spinor>,
+        want: &Field<f32, Spinor>,
+    ) where
+        f32: LaneOf<W>,
+    {
+        let lat = psi.lattice();
+        let op = simd::<f32, W>(lat, u);
+        let mut inp = Field::<f32, Spinor, ruttice::Full, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
+        inp.convert_from(psi);
+        let mut out = inp.zeros_like();
+        op.mult(&mut (), &mut out, &inp, Variant::Dagger);
+        let mut back = psi.zeros_like();
+        back.convert_from(&out);
+        assert!(back.as_slice() == want.as_slice(), "W = {W}");
+    }
+    check::<4>(&u, &psi, &want);
+    check::<8>(&u, &psi, &want);
+    check::<16>(&u, &psi, &want);
+}
+
+/// The solvers know only vectors and operators, so they run on blocks as they are.
+#[test]
+fn solvers_run_on_blocks() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 951);
+    let b = random_spinor(&lat, 2, 952);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 1000,
+        max_restarts: 3,
+    };
+    let op = simd::<f64, 4>(&lat, &u);
+    let rhs = to_blocks::<4>(&b);
+
+    let mut x = rhs.zeros_like();
+    solve_cgne(
+        &mut Cg::new(stop),
+        &mut Bound::new(&op, Variant::D),
+        &mut x,
+        &rhs,
+    )
+    .unwrap();
+    let mut y = rhs.zeros_like();
+    BiCgStab::new(stop)
+        .solve(&mut Bound::new(&op, Variant::D), None, &mut y, &rhs)
+        .unwrap();
+
+    // The residual, with the operator on sites.
+    let mut reference = Wilson::<f64>::new(&lat, params());
+    reference.set_gauge(&u).unwrap();
+    for (name, solution) in [("CG", to_sites(&x)), ("BiCGStab", to_sites(&y))] {
+        let mut r = b.zeros_like();
+        reference.mult(&mut reference.work(), &mut r, &solution, Variant::D);
+        r.scale(&[-1.0; 2]);
+        r.axpy(&[C64::new(1.0, 0.0); 2], &b);
+        let (mut rr, mut bb) = ([0.0; 2], [0.0; 2]);
+        r.norm_sqr(&mut rr);
+        b.norm_sqr(&mut bb);
+        assert!(
+            rr[0] / bb[0] < 2e-24 && rr[1] / bb[1] < 2e-24,
+            "{name}: {rr:?}"
+        );
+    }
+}
+
+/// A lattice that cannot be cut into W equal sub-lattices is refused when the operator is
+/// built.
+#[test]
+fn lattices_that_cannot_be_cut_are_refused() {
+    let odd = Lattice::single_node([3, 3, 3, 4]);
+    assert!(WilsonSimd::<f64, 4>::new(&odd, params()).is_some());
+    assert!(WilsonSimd::<f64, 8>::new(&odd, params()).is_none());
 }
