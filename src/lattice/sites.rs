@@ -305,6 +305,46 @@ where
     total
 }
 
+/// `reduce_sites_dyn` for a sweep that also writes: `f(site, reals_of_that_site, acc)`
+/// updates the site of `out` and adds its contribution to the `n` sums. The partial sums
+/// are those of `reduce_sites_dyn`, so a sum made here has the bits of the same sum made
+/// there in a sweep of its own.
+pub fn reduce_sites_mut<T, F>(out: &mut [T], site_len: usize, n: usize, f: F) -> Vec<f64>
+where
+    T: Send,
+    F: Fn(usize, &mut [T], &mut [f64]) + Sync,
+{
+    let num_sites = out.len() / site_len;
+    let mut total = vec![0.0; n];
+    if n == 0 || num_sites == 0 {
+        return total;
+    }
+    let mut partial = vec![0.0; num_sites.div_ceil(REDUCE_CHUNK) * n];
+    let chunk_sum = |(chunk, (sites, acc)): (usize, (&mut [T], &mut [f64]))| {
+        for (i, v) in sites.chunks_mut(site_len).enumerate() {
+            f(chunk * REDUCE_CHUNK + i, v, acc);
+        }
+    };
+    let chunk_len = site_len * REDUCE_CHUNK;
+    if num_sites <= min_sites_per_task() {
+        out.chunks_mut(chunk_len)
+            .zip(partial.chunks_mut(n))
+            .enumerate()
+            .for_each(chunk_sum);
+    } else {
+        out.par_chunks_mut(chunk_len)
+            .zip(partial.par_chunks_mut(n))
+            .enumerate()
+            .for_each(chunk_sum);
+    }
+    for p in partial.chunks_exact(n) {
+        for (t, x) in total.iter_mut().zip(p) {
+            *t += x;
+        }
+    }
+    total
+}
+
 /// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to
 /// the default value. No boundary phase is applied.
 ///

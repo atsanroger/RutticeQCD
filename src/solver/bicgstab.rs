@@ -129,12 +129,13 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                     break;
                 }
 
-                // v = A M p,  alpha = rho / <r0, v>
-                match m.as_mut() {
-                    Some(m) => m.mult(p_hat, p),
-                    None => p_hat.copy_from(p),
+                // v = A M p,  alpha = rho / <r0, v>. Without a preconditioner M p is p
+                // itself, not a copy of it.
+                let preconditioned = m.is_some();
+                if let Some(m) = m.as_mut() {
+                    m.mult(p_hat, p);
                 }
-                a.mult(v, p_hat);
+                a.mult(v, if preconditioned { &*p_hat } else { &*p });
                 r0.dot(v, &mut dots);
                 if (0..nv).any(|j| active[j] && !usable(dots[j])) {
                     broke_down = Some("<r0, A p> vanished");
@@ -149,18 +150,14 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                     coef[j] = -alpha[j];
                 }
                 // s = r - alpha v
-                s.copy_from(r);
-                s.axpy(&coef, v);
+                s.xpay(r, &coef, v);
 
                 // t = A M s,  omega = <t, s> / <t, t>
-                match m.as_mut() {
-                    Some(m) => m.mult(s_hat, s),
-                    None => s_hat.copy_from(s),
+                if let Some(m) = m.as_mut() {
+                    m.mult(s_hat, s);
                 }
-                a.mult(t, s_hat);
-                t.dot(s, &mut dots);
-                t.norm_sqr(&mut tt);
-                s.norm_sqr(&mut ss);
+                a.mult(t, if preconditioned { &*s_hat } else { &*s });
+                t.dot_norms(s, &mut dots, &mut tt, &mut ss);
                 for j in 0..nv {
                     omega[j] = if active[j] && tt[j] > 0.0 {
                         let mut w = C64::new(dots[j].re / tt[j], dots[j].im / tt[j]);
@@ -175,16 +172,17 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                     coef[j] = -omega[j];
                 }
 
-                // x += alpha M p + omega M s,  r = s - omega t
-                x.axpy(&alpha, p_hat);
-                x.axpy(&omega, s_hat);
-                r.copy_from(s);
-                r.axpy_norm_sqr(&coef, t, &mut rr);
+                // x += alpha M p + omega M s,  r = s - omega t,  rho_new = <r0, r>
+                if preconditioned {
+                    x.axpy2(&alpha, p_hat, &omega, s_hat);
+                } else {
+                    x.axpy2(&alpha, p, &omega, s);
+                }
+                r.xpay_norm_sqr_dot(s, &coef, t, &mut rr, r0, &mut rho_new);
                 iterations += 1;
                 in_cycle += 1;
 
                 // p = r + beta (p - omega v),  beta = (rho_new / rho) (alpha / omega)
-                r0.dot(r, &mut rho_new);
                 let still_active = |j: usize| active[j] && rr[j] > tol * b_norm[j];
                 if (0..nv).any(|j| still_active(j) && !(usable(rho_new[j]) && usable(omega[j]))) {
                     broke_down = Some("the new rho or omega vanished");
@@ -198,8 +196,7 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                         C64::ZERO
                     };
                 }
-                p.axpy(&coef, v);
-                p.aypx(&dots, r);
+                p.axpy_aypx(&coef, v, &dots, r);
                 rho.copy_from_slice(&rho_new);
             }
 

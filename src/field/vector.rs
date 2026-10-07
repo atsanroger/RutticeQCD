@@ -4,7 +4,7 @@ use crate::field::storage::Storage;
 use crate::field::{Aos, Aosoa, Cpu, Field, Full, Kind, Layout, Sites};
 use crate::kernel::{Cplx, Number, Real};
 use crate::lattice::blocks::Blocks;
-use crate::lattice::sites::{for_sites, reduce_sites_dyn};
+use crate::lattice::sites::{for_sites, reduce_sites_dyn, reduce_sites_mut};
 
 /// Coefficients and reduction results are always double precision, whatever the field stores.
 pub type C64 = Cplx<f64>;
@@ -32,10 +32,51 @@ pub trait Vector: Sized {
     fn dot(&self, x: &Self, out: &mut [C64]);
     /// `out_j = |self_j|^2`.
     fn norm_sqr(&self, out: &mut [f64]);
-    /// `self_j += a_j x_j`, then `out_j = |self_j|^2`. Implementations may do both in one sweep.
+    // The operations below are compositions of the ones above. A Krylov iteration on a
+    // large lattice is limited by how often it reads and writes its vectors, so an
+    // implementation should do each of them in one sweep over the memory; the defaults say
+    // what the result is. Fields do them in one sweep and give the same bits as the
+    // compositions.
+
+    /// `self_j += a_j x_j`, then `out_j = |self_j|^2`.
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
         self.axpy(a, x);
         self.norm_sqr(out);
+    }
+    /// `self_j = x_j + a_j y_j`.
+    fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
+        self.copy_from(x);
+        self.axpy(a, y);
+    }
+    /// `self_j = x_j + a_j y_j`, then `norm_j = |self_j|^2` and `dot_j = <z_j | self_j>`.
+    fn xpay_norm_sqr_dot(
+        &mut self,
+        x: &Self,
+        a: &[C64],
+        y: &Self,
+        norm: &mut [f64],
+        z: &Self,
+        dot: &mut [C64],
+    ) {
+        self.xpay(x, a, y);
+        self.norm_sqr(norm);
+        z.dot(self, dot);
+    }
+    /// `self_j += a_j x_j + b_j y_j`.
+    fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        self.axpy(a, x);
+        self.axpy(b, y);
+    }
+    /// `self_j = y_j + b_j (self_j + a_j x_j)`.
+    fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        self.axpy(a, x);
+        self.aypx(b, y);
+    }
+    /// `dot_j = <self_j | x_j>`, `norm_j = |self_j|^2` and `norm_x_j = |x_j|^2`.
+    fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
+        self.dot(x, dot);
+        self.norm_sqr(norm);
+        x.norm_sqr(norm_x);
     }
 }
 
@@ -87,6 +128,73 @@ where
 #[inline(always)]
 fn coefficient<R: Real>(a: C64) -> Cplx<R> {
     Cplx::new(R::from_f64(a.re), R::from_f64(a.im))
+}
+
+/// `update` with a second source: `f(vector index, dst, first, second)`.
+fn update2<T, F>(dst: &mut [T], src: [&[T]; 2], site_len: usize, vector_len: usize, f: F)
+where
+    T: Storage,
+    F: Fn(usize, &mut [T], &[T], &[T]) + Sync,
+{
+    assert!(dst.len() == src[0].len() && dst.len() == src[1].len());
+    for_sites(dst, site_len, |i, d| {
+        let range = i * site_len..(i + 1) * site_len;
+        let (s0, s1) = (&src[0][range.clone()], &src[1][range]);
+        let sources = s0.chunks_exact(vector_len).zip(s1.chunks_exact(vector_len));
+        for (j, (d, (s0, s1))) in d.chunks_exact_mut(vector_len).zip(sources).enumerate() {
+            f(j, d, s0, s1);
+        }
+    });
+}
+
+// The arithmetic of the vector operations on one vector in one block. Each is used by the
+// operation of its name and by the fused operations, which is what makes a fused operation
+// give the bits of the composition it stands for.
+
+/// `d += k s`.
+#[inline(always)]
+fn axpy_block<T: Storage>(d: &mut [T], k: Cplx<T::Compute>, s: &[T], lanes: usize) {
+    for ((d_re, d_im), (s_re, s_im)) in complex_runs_mut(d, lanes).zip(complex_runs(s, lanes)) {
+        for l in 0..lanes {
+            let z = k * Cplx::new(s_re[l].load(), s_im[l].load());
+            d_re[l] = T::store(d_re[l].load() + z.re);
+            d_im[l] = T::store(d_im[l].load() + z.im);
+        }
+    }
+}
+
+/// `d = k d + s`.
+#[inline(always)]
+fn aypx_block<T: Storage>(d: &mut [T], k: Cplx<T::Compute>, s: &[T], lanes: usize) {
+    for ((d_re, d_im), (s_re, s_im)) in complex_runs_mut(d, lanes).zip(complex_runs(s, lanes)) {
+        for l in 0..lanes {
+            let z = k * Cplx::new(d_re[l].load(), d_im[l].load());
+            d_re[l] = T::store(z.re + s_re[l].load());
+            d_im[l] = T::store(z.im + s_im[l].load());
+        }
+    }
+}
+
+/// `acc += |a|^2`.
+#[inline(always)]
+fn norm_block<T: Storage>(acc: &mut f64, a: &[T]) {
+    for x in a {
+        let x = x.load().to_f64();
+        *acc += x * x;
+    }
+}
+
+/// `(re, im) += <a | b>`.
+#[inline(always)]
+fn dot_block<T: Storage>(re: &mut f64, im: &mut f64, a: &[T], b: &[T], lanes: usize) {
+    for ((a_re, a_im), (b_re, b_im)) in complex_runs(a, lanes).zip(complex_runs(b, lanes)) {
+        for l in 0..lanes {
+            let (ar, ai) = (a_re[l].load().to_f64(), a_im[l].load().to_f64());
+            let (br, bi) = (b_re[l].load().to_f64(), b_im[l].load().to_f64());
+            *re += ar * br + ai * bi;
+            *im += ar * bi - ai * br;
+        }
+    }
 }
 
 impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu> {
@@ -154,17 +262,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
             x.as_slice(),
             site_len,
             vector_len,
-            |j, d, s| {
-                let k: Cplx<T::Compute> = coefficient(a[j]);
-                let runs = complex_runs_mut(d, L::LANES).zip(complex_runs(s, L::LANES));
-                for ((d_re, d_im), (s_re, s_im)) in runs {
-                    for l in 0..L::LANES {
-                        let z = k * Cplx::new(s_re[l].load(), s_im[l].load());
-                        d_re[l] = T::store(d_re[l].load() + z.re);
-                        d_im[l] = T::store(d_im[l].load() + z.im);
-                    }
-                }
-            },
+            |j, d, s| axpy_block(d, coefficient(a[j]), s, L::LANES),
         );
     }
 
@@ -177,17 +275,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
             x.as_slice(),
             site_len,
             vector_len,
-            |j, d, s| {
-                let k: Cplx<T::Compute> = coefficient(a[j]);
-                let runs = complex_runs_mut(d, L::LANES).zip(complex_runs(s, L::LANES));
-                for ((d_re, d_im), (s_re, s_im)) in runs {
-                    for l in 0..L::LANES {
-                        let z = k * Cplx::new(d_re[l].load(), d_im[l].load());
-                        d_re[l] = T::store(z.re + s_re[l].load());
-                        d_im[l] = T::store(z.im + s_im[l].load());
-                    }
-                }
-            },
+            |j, d, s| aypx_block(d, coefficient(a[j]), s, L::LANES),
         );
     }
 
@@ -205,15 +293,10 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
                 .zip(b.chunks_exact(vector_len))
                 .enumerate()
             {
-                let runs = complex_runs(a, L::LANES).zip(complex_runs(b, L::LANES));
-                for ((a_re, a_im), (b_re, b_im)) in runs {
-                    for l in 0..L::LANES {
-                        let (ar, ai) = (a_re[l].load().to_f64(), a_im[l].load().to_f64());
-                        let (br, bi) = (b_re[l].load().to_f64(), b_im[l].load().to_f64());
-                        acc[2 * j] += ar * br + ai * bi;
-                        acc[2 * j + 1] += ar * bi - ai * br;
-                    }
-                }
+                let [re, im] = &mut acc[2 * j..2 * j + 2] else {
+                    unreachable!("two sums per vector");
+                };
+                dot_block(re, im, a, b, L::LANES);
             }
         });
         let mut sums = sums;
@@ -231,14 +314,148 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
         let sums = reduce_sites_dyn(a.len() / site_len, nv, |i, acc| {
             let a = &a[i * site_len..(i + 1) * site_len];
             for (j, a) in a.chunks_exact(vector_len).enumerate() {
-                for x in a {
-                    let x = x.load().to_f64();
-                    acc[j] += x * x;
-                }
+                norm_block(&mut acc[j], a);
             }
         });
         out.copy_from_slice(&sums);
         self.lattice().comm.sum(out);
+    }
+
+    fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
+        assert!(self.same_shape(x));
+        let nv = Field::num_vectors(self);
+        assert!(a.len() == nv && out.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let x = x.as_slice();
+        let sums = reduce_sites_mut(self.as_mut_slice(), site_len, nv, |i, d, acc| {
+            let x = &x[i * site_len..(i + 1) * site_len];
+            let vectors = d
+                .chunks_exact_mut(vector_len)
+                .zip(x.chunks_exact(vector_len));
+            for (j, (d, x)) in vectors.enumerate() {
+                axpy_block(d, coefficient(a[j]), x, L::LANES);
+                norm_block(&mut acc[j], d);
+            }
+        });
+        out.copy_from_slice(&sums);
+        self.lattice().comm.sum(out);
+    }
+
+    fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        assert_eq!(a.len(), Field::num_vectors(self));
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let sources = [x.as_slice(), y.as_slice()];
+        update2(
+            self.as_mut_slice(),
+            sources,
+            site_len,
+            vector_len,
+            |j, d, x, y| {
+                d.copy_from_slice(x);
+                axpy_block(d, coefficient(a[j]), y, L::LANES);
+            },
+        );
+    }
+
+    fn xpay_norm_sqr_dot(
+        &mut self,
+        x: &Self,
+        a: &[C64],
+        y: &Self,
+        norm: &mut [f64],
+        z: &Self,
+        dot: &mut [C64],
+    ) {
+        assert!(self.same_shape(x) && self.same_shape(y) && self.same_shape(z));
+        let nv = Field::num_vectors(self);
+        assert!(a.len() == nv && norm.len() == nv && dot.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let (x, y, z) = (x.as_slice(), y.as_slice(), z.as_slice());
+        // Per vector: |self|^2, then the real and the imaginary part of <z | self>.
+        let mut sums = reduce_sites_mut(self.as_mut_slice(), site_len, 3 * nv, |i, d, acc| {
+            let range = i * site_len..(i + 1) * site_len;
+            let (x, y, z) = (&x[range.clone()], &y[range.clone()], &z[range]);
+            for (j, d) in d.chunks_exact_mut(vector_len).enumerate() {
+                let at = j * vector_len..(j + 1) * vector_len;
+                d.copy_from_slice(&x[at.clone()]);
+                axpy_block(d, coefficient(a[j]), &y[at.clone()], L::LANES);
+                let [n, re, im] = &mut acc[3 * j..3 * j + 3] else {
+                    unreachable!("three sums per vector");
+                };
+                norm_block(n, d);
+                dot_block(re, im, &z[at], d, L::LANES);
+            }
+        });
+        self.lattice().comm.sum(&mut sums);
+        for (j, s) in sums.as_chunks::<3>().0.iter().enumerate() {
+            norm[j] = s[0];
+            dot[j] = Cplx::new(s[1], s[2]);
+        }
+    }
+
+    fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        let nv = Field::num_vectors(self);
+        assert!(a.len() == nv && b.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let sources = [x.as_slice(), y.as_slice()];
+        update2(
+            self.as_mut_slice(),
+            sources,
+            site_len,
+            vector_len,
+            |j, d, x, y| {
+                axpy_block(d, coefficient(a[j]), x, L::LANES);
+                axpy_block(d, coefficient(b[j]), y, L::LANES);
+            },
+        );
+    }
+
+    fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        let nv = Field::num_vectors(self);
+        assert!(a.len() == nv && b.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let sources = [x.as_slice(), y.as_slice()];
+        update2(
+            self.as_mut_slice(),
+            sources,
+            site_len,
+            vector_len,
+            |j, d, x, y| {
+                axpy_block(d, coefficient(a[j]), x, L::LANES);
+                aypx_block(d, coefficient(b[j]), y, L::LANES);
+            },
+        );
+    }
+
+    fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
+        assert!(self.same_shape(x));
+        let nv = Field::num_vectors(self);
+        assert!(dot.len() == nv && norm.len() == nv && norm_x.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let (a, b) = (self.as_slice(), x.as_slice());
+        // Per vector: the real and the imaginary part of <self | x>, |self|^2, |x|^2.
+        let mut sums = reduce_sites_dyn(a.len() / site_len, 4 * nv, |i, acc| {
+            let range = i * site_len..(i + 1) * site_len;
+            let (a, b) = (&a[range.clone()], &b[range]);
+            let vectors = a.chunks_exact(vector_len).zip(b.chunks_exact(vector_len));
+            for (j, (a, b)) in vectors.enumerate() {
+                let [re, im, na, nb] = &mut acc[4 * j..4 * j + 4] else {
+                    unreachable!("four sums per vector");
+                };
+                dot_block(re, im, a, b, L::LANES);
+                norm_block(na, a);
+                norm_block(nb, b);
+            }
+        });
+        self.lattice().comm.sum(&mut sums);
+        for (j, s) in sums.as_chunks::<4>().0.iter().enumerate() {
+            dot[j] = Cplx::new(s[0], s[1]);
+            norm[j] = s[2];
+            norm_x[j] = s[3];
+        }
     }
 }
 

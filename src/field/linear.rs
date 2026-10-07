@@ -95,6 +95,18 @@ impl<A: LinearOp<V>, V: Vector> LinearFn<V> for Normal<A, V> {
         self.a.mult(&mut self.tmp, inp);
         self.a.mult_dag(out, &self.tmp);
     }
+
+    /// `<p, A† A p>` is `|A p|^2`: one vector to read instead of two, and real and
+    /// positive whatever the rounding.
+    fn mult_dot(&mut self, out: &mut V, inp: &V, dot: &mut [C64]) {
+        self.a.mult(&mut self.tmp, inp);
+        let mut norm = vec![0.0; dot.len()];
+        self.tmp.norm_sqr(&mut norm);
+        for (d, n) in dot.iter_mut().zip(norm) {
+            *d = C64::new(n, 0.0);
+        }
+        self.a.mult_dag(out, &self.tmp);
+    }
 }
 
 impl<A: LinearOp<V>, V: Vector> LinearOp<V> for Normal<A, V> {
