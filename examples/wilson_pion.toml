@@ -23,7 +23,8 @@ fermion = { type = "wilson", kappa = 0.12, boundary = ["antiperiodic", "antiperi
 source = { type = "point", position = [0, 0, 0, 0] }
 
 [measure]
-channels = ["PS"]               # omit to get all of: PS V1 V2 V3 A4_PS PS_A4 S G51 G52 G53 S12 S23 S31
+channels = ["PS"]               # or "all" (the same as leaving this section out):
+                                # PS V1 V2 V3 A4_PS PS_A4 S G51 G52 G53 S12 S23 S31 A4_A4
 
 [output]
 file = "wilson_pion.out"        # optional; the table is always printed as well

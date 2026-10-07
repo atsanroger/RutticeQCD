@@ -1,3 +1,5 @@
 /target
 # Output of runs (`output.file` in a parameter file).
 *.out
+# Your own runs: gauge configurations, parameter files, results.
+/run/

@@ -364,8 +364,41 @@ pub enum SolverKind {
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MeasureConfig {
-    /// Meson channels to compute; all of them when absent.
-    pub channels: Option<Vec<String>>,
+    /// Meson channels to compute: `"all"` or a list of names. All of them when absent.
+    #[serde(default)]
+    pub channels: ChannelsConfig,
+}
+
+/// Which meson channels to compute.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(try_from = "ChannelsText")]
+pub enum ChannelsConfig {
+    /// Every channel the program knows.
+    #[default]
+    All,
+    List(Vec<String>),
+}
+
+/// What may be written for `channels` in a parameter file.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ChannelsText {
+    Word(String),
+    List(Vec<String>),
+}
+
+impl TryFrom<ChannelsText> for ChannelsConfig {
+    type Error = String;
+
+    fn try_from(text: ChannelsText) -> Result<Self, String> {
+        match text {
+            ChannelsText::Word(word) if word == "all" => Ok(ChannelsConfig::All),
+            ChannelsText::Word(word) => Err(format!(
+                "channels must be \"all\" or a list of channel names, not {word:?}"
+            )),
+            ChannelsText::List(names) => Ok(ChannelsConfig::List(names)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
