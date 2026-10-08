@@ -8,15 +8,17 @@
 //! For each number N of test vectors (default 8 16), P is built from the lowest N Ritz
 //! vectors of the checkpoint, split by Γ5 over aggregates BLOCK^4 (default 3) that keep
 //! every s. Printed:
-//! - the exact Galerkin coarse correction P (P†AP)⁻¹ P† A on the next eight Ritz vectors
-//!   (low modes not in P): what it leaves of each, against the floor √(1 − |PP†t|²). This is
-//!   the test the coarse correction failed with random and inverse-iteration vectors
-//!   (log §4: 0.99 left against a floor of 0.88).
+//! - the exact coarse correction P (R A P)⁻¹ R A on the next eight Ritz vectors (low modes
+//!   not in P): what it leaves of each and of its residual, against the floor
+//!   √(1 − |PP†t|²), for three restrictions: Galerkin R = P†; Petrov-Galerkin R = Q† with Q
+//!   from the left singular vectors u = A v / |A v|; and R = P†A†, which minimises the
+//!   residual over span(P). Galerkin is the test the coarse correction failed with random
+//!   and inverse-iteration vectors (log §4: 0.99 left against a floor of 0.88).
 //! - BiCGStab and FGMRES(20) on A y = X† b to |r|²/|b|² < 1e-16 preconditioned by
 //!   (s) the smoother alone, as a cycle without coarse correction;
 //!   (p) the library cycle with the probed Galerkin coarse operator (nearest neighbours);
-//!   (e) the same cycle with the exact coarse operator P†AP, applied through the fine
-//!   lattice;
+//!   (e) the same cycle with the exact coarse operator R A P, applied through the fine
+//!   lattice, for each of the three restrictions;
 //!   with the outer iterations, the applications of A on the fine lattice (all of them:
 //!   outer, smoothers, residuals, exact coarse operator) and the residual of D x = b.
 //!   The smoother is GMRES(4) before and after, as in the log §3.
@@ -27,7 +29,9 @@ use ruttice::solver::preconditioner::multigrid::{
     Aggregation, Basis, CycleParts, Multigrid, SetupHooks,
 };
 use ruttice::solver::{BiCgStab, Fgmres, Solve, SolveError, Solver, Stop};
-use ruttice::{random_spinor, Boundary, Coarse, Field, Lattice, LinearFn, Spinor, Vector, C64, ND};
+use ruttice::{
+    random_spinor, Boundary, Coarse, Field, Lattice, LinearFn, LinearOp, Spinor, Vector, C64, ND,
+};
 use std::cell::Cell;
 use std::error::Error;
 use std::io::Read;
@@ -70,6 +74,36 @@ impl LinearFn<V> for Counted<'_> {
     }
 }
 
+impl Counted<'_> {
+    fn mult_dag(&mut self, out: &mut V, inp: &V) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        self.a.mult_dag(out, inp);
+    }
+}
+
+/// The restriction R of the coarse correction e ← e − P (R A P)⁻¹ R A e.
+#[derive(Clone, Copy, PartialEq)]
+enum Restriction {
+    /// R = P†: Galerkin.
+    Galerkin,
+    /// R = Q†, Q from the left singular vectors u = A v / σ: Petrov-Galerkin, with A
+    /// mapping span(P) onto span(Q) for exact singular vectors.
+    Left,
+    /// R = P† A†: the correction minimises |A e| over span(P); R A P = P†A†AP is
+    /// Hermitian positive definite.
+    MinRes,
+}
+
+impl Restriction {
+    fn name(self) -> &'static str {
+        match self {
+            Restriction::Galerkin => "G  R = P†",
+            Restriction::Left => "L  R = Q† (left vectors)",
+            Restriction::MinRes => "M  R = P†A†",
+        }
+    }
+}
+
 /// GMRES(4) on A, the smoother of the log §3.
 fn gmres4<'a>(op: &'a Mdwf<f64>, like: &V, n: &Count) -> Box<dyn LinearFn<V> + 'a> {
     Box::new(Solve::new(
@@ -78,23 +112,65 @@ fn gmres4<'a>(op: &'a Mdwf<f64>, like: &V, n: &Count) -> Box<dyn LinearFn<V> + '
     ))
 }
 
-/// P† A P through the fine lattice.
+/// R A P through the fine lattice.
 struct Exact<'a, 'b> {
     a: Counted<'a>,
     p: &'b Basis<f64>,
+    q: &'b Basis<f64>,
+    kind: Restriction,
     fine: V,
     a_fine: V,
+}
+
+/// `out = R r`, with `tmp` as scratch.
+fn restrict(
+    kind: Restriction,
+    [p, q]: [&Basis<f64>; 2],
+    a: &mut Counted<'_>,
+    tmp: &mut V,
+    out: &mut C,
+    r: &V,
+) {
+    match kind {
+        Restriction::Galerkin => p.restrict(out, r),
+        Restriction::Left => q.restrict(out, r),
+        Restriction::MinRes => {
+            a.mult_dag(tmp, r);
+            p.restrict(out, tmp);
+        }
+    }
+}
+
+impl Exact<'_, '_> {
+    /// `out = R r`.
+    fn restrict(&mut self, out: &mut C, r: &V) {
+        restrict(
+            self.kind,
+            [self.p, self.q],
+            &mut self.a,
+            &mut self.fine,
+            out,
+            r,
+        );
+    }
 }
 
 impl LinearFn<C> for Exact<'_, '_> {
     fn mult(&mut self, out: &mut C, inp: &C) {
         self.p.prolong(&mut self.fine, inp);
         self.a.mult(&mut self.a_fine, &self.fine);
-        self.p.restrict(out, &self.a_fine);
+        restrict(
+            self.kind,
+            [self.p, self.q],
+            &mut self.a,
+            &mut self.fine,
+            out,
+            &self.a_fine,
+        );
     }
 }
 
-/// The two-level cycle written out: x = S r; x += P c with (P†AP) c = P†(r − A x) when
+/// The two-level cycle written out: x = S r; x += P c with (R A P) c = R (r − A x) when
 /// `coarse` is given; x += S (r − A x).
 struct TwoLevel<'a, 'b> {
     a: Counted<'a>,
@@ -113,7 +189,7 @@ impl LinearFn<V> for TwoLevel<'_, '_> {
             self.a.mult(&mut self.r, x);
             self.r.aypx(&minus, b);
             let mut rc = exact.p.coarse_field(b.num_vectors());
-            exact.p.restrict(&mut rc, &self.r);
+            exact.restrict(&mut rc, &self.r);
             let mut c = rc.zeros_like();
             let _ = solver.solve(exact, None, &mut c, &rc);
             exact.p.prolong(&mut self.e, &c);
@@ -316,9 +392,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             2 * n
         );
 
-        // The exact coarse correction on the next eight Ritz vectors.
+        // Q from the left singular vectors u = A v / |A v|.
+        let mut u = vectors.zeros_like();
+        Counted::new(&op, &like, &Count::default()).mult(&mut u, &vectors);
+        let mut un = vec![0.0; n];
+        u.norm_sqr(&mut un);
+        u.scale(&un.iter().map(|x| 1.0 / x.sqrt()).collect::<Vec<_>>());
+        let mut g5u = u.zeros_like();
+        op.mult_gamma5(&mut op.work(), &mut g5u, &u);
+        let q = Basis::from_vectors(&agg, &u, &g5u)?;
+
+        // The exact coarse correction on the next eight Ritz vectors: what it leaves of the
+        // error t and of the residual A t, against the floor √(1 − |PP†t|²) of the error.
         let none = Count::default();
-        let mut line = String::from("    exact correction leaves (floor):");
+        let mut floor = String::from("    floor √(1 − |PP†t|²):        ");
         for j in n..n + 8 {
             let t = ritz.select(&[j]);
             let mut c = p.coarse_field(1);
@@ -326,36 +413,50 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut inside = like.zeros_like();
             p.prolong(&mut inside, &c);
             let held = norm(&inside) / norm(&t);
-            let mut a_t = t.zeros_like();
-            a.mult(&mut a_t, &t);
-            let mut rc = p.coarse_field(1);
-            p.restrict(&mut rc, &a_t);
-            let mut y = rc.zeros_like();
-            let mut exact = Exact {
-                a: Counted::new(&op, &like, &none),
-                p: &p,
-                fine: like.zeros_like(),
-                a_fine: like.zeros_like(),
-            };
-            let solved = Fgmres::new(Stop {
-                tolerance_sqr: 1e-14,
-                max_iterations: 100,
-                max_restarts: 10,
-            })
-            .solve(&mut exact, None, &mut y, &rc);
-            if solved.is_err() {
-                line += " [coarse solve not converged]";
-            }
-            let mut left = like.zeros_like();
-            p.prolong(&mut left, &y);
-            left.aypx(&[C64::new(-1.0, 0.0)], &t);
-            line += &format!(
-                " {:.3} ({:.3})",
-                norm(&left) / norm(&t),
-                (1.0 - held * held).max(0.0).sqrt()
-            );
+            floor += &format!(" {:.3}", (1.0 - held * held).max(0.0).sqrt());
         }
-        println!("{line}");
+        println!("{floor}");
+        for kind in [
+            Restriction::Galerkin,
+            Restriction::Left,
+            Restriction::MinRes,
+        ] {
+            let mut line = format!("    {:<28} error / residual:", kind.name());
+            for j in n..n + 8 {
+                let t = ritz.select(&[j]);
+                let mut a_t = t.zeros_like();
+                a.mult(&mut a_t, &t);
+                let mut exact = Exact {
+                    a: Counted::new(&op, &like, &none),
+                    p: &p,
+                    q: &q,
+                    kind,
+                    fine: like.zeros_like(),
+                    a_fine: like.zeros_like(),
+                };
+                let mut rc = p.coarse_field(1);
+                exact.restrict(&mut rc, &a_t);
+                let mut y = rc.zeros_like();
+                let solved = Fgmres::new(Stop {
+                    tolerance_sqr: 1e-14,
+                    max_iterations: 100,
+                    max_restarts: 10,
+                })
+                .solve(&mut exact, None, &mut y, &rc);
+                let mut left = like.zeros_like();
+                p.prolong(&mut left, &y);
+                left.aypx(&[C64::new(-1.0, 0.0)], &t);
+                let mut a_left = left.zeros_like();
+                a.mult(&mut a_left, &left);
+                line += &format!(
+                    " {:.3}/{:.3}{}",
+                    norm(&left) / norm(&t),
+                    norm(&a_left) / norm(&a_t),
+                    if solved.is_err() { "*" } else { "" }
+                );
+            }
+            println!("{line}");
+        }
 
         problem.outer("(p) cycle, probed P†AP", &|count| {
             let parts = CycleParts {
@@ -380,27 +481,36 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .expect("the multigrid setup"),
             )
         });
-        problem.outer("(e) cycle, exact P†AP", &|count| {
-            Box::new(TwoLevel {
-                a: Counted::new(&op, &like, count),
-                smoother: gmres4(&op, &like, count),
-                coarse: Some((
-                    Exact {
-                        a: Counted::new(&op, &like, count),
-                        p: &p,
-                        fine: like.zeros_like(),
-                        a_fine: like.zeros_like(),
-                    },
-                    Fgmres::new(Stop {
-                        tolerance_sqr: 1e-4,
-                        max_iterations: 30,
-                        max_restarts: 1,
-                    }),
-                )),
-                r: like.zeros_like(),
-                e: like.zeros_like(),
-            })
-        });
+        for kind in [
+            Restriction::Galerkin,
+            Restriction::Left,
+            Restriction::MinRes,
+        ] {
+            let name = format!("(e) cycle, exact, {}", kind.name());
+            problem.outer(&name, &|count| {
+                Box::new(TwoLevel {
+                    a: Counted::new(&op, &like, count),
+                    smoother: gmres4(&op, &like, count),
+                    coarse: Some((
+                        Exact {
+                            a: Counted::new(&op, &like, count),
+                            p: &p,
+                            q: &q,
+                            kind,
+                            fine: like.zeros_like(),
+                            a_fine: like.zeros_like(),
+                        },
+                        Fgmres::new(Stop {
+                            tolerance_sqr: 1e-4,
+                            max_iterations: 30,
+                            max_restarts: 1,
+                        }),
+                    )),
+                    r: like.zeros_like(),
+                    e: like.zeros_like(),
+                })
+            });
+        }
     }
     Ok(())
 }
