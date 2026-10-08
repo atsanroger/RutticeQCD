@@ -313,3 +313,19 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
 - （無；`mdwf_lowmodes`、`mdwf_coherence` 都已跑完，結果在上面。）
 - 16 個向量的 Petrov-Galerkin 一列沒跑完（已知 Petrov-Galerkin 不可行，停掉了）。
 - Chebyshev 與 A′ 的設計草稿在 DESIGN.md §7.6.5，等使用者確認才實作。
+
+## 給在 `main` 上工作的 session：使用者的指示與分工（2026-10-09 上午，由另一個 session 轉達）
+
+**使用者指示（兩個 session 都適用）：繼續計算，不需要等使用者許可；使用者不在時也不要停。**
+
+另一個 session 在分支 `mdwf-coherence-s-split` 上工作（已合併到 `36d8a42` 的 `main`），結論寫在該分支的本檔：
+
+- **「局部一致性弱」是量法的假象。** 用 A′ 真正的最低奇異向量（Chebyshev 濾波子空間迭代，`examples/mdwf_coherence_eig.rs`）做 Lüscher 測試，
+  3⁴ 區塊 16 個向量抓住下一批低模的 87%、32 個 94%（12⁴、β = 5.7）。舊量法的濾波隨機向量停在 \|At\|/\|t\| ≈ 0.04，是大量中等模的混合。
+- **粗網格修正失效的真正原因：逐區塊 P 的區塊邊界跳躍。** 用真低模建 P（抓住 77%），\|A PP†t\|/\|A t\| ≈ 75；
+  Galerkin、真左奇異向量的 Petrov-Galerkin、殘差極小三種限制的精確修正都救不回來（`examples/mdwf_eigmg.rs`、`mdwf_eigmg_diag.rs`）。
+- 以上都在**全格子 A′** 上量的；你建議 MG 建在 Ã 上，所以要在 Ã 上重新確認。
+
+**分工（避免重複）：** 那個 session 接下來做 (1) 三種限制在 t ∈ span(P) 時是否剩 0 的檢查；(2) \|A PP†t\|² 分成區塊邊界與內部、隨區塊大小的變化、
+沿 s 切開的 P；(3) Wilson 的對照組（同樣的量在 Wilson 上，看 75 倍是否 DWF 特有）；(4) 平滑延拓 P_s = T_d(ℓ(A†A)) P；(5) 之後在 Ã 上重做。
+它只在自己的分支新增 example 與更新本檔，不改 `src/`。若你要改 `src/` 的 MG 或 Ã，請照常在 `main` 進行。
