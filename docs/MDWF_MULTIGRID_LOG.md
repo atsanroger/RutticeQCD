@@ -303,6 +303,10 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
 1. ~~even-odd 版的 A′~~：做了（上面），與 CGNE 打平。
 2. **把 Chebyshev 預處理做成正式選項**：`Chebyshev` 已在函式庫；缺的是自動選 hi（已有 `largest_magnitude`）與 ratio、steps 的預設（目前最好：17 步、ratio 300）。
 3. 多重網格（粗網格修正）的問題留著：局部一致性弱、需要精確的 2-hop 粗網格與大量向量，目前看不到能贏多項式預處理的路。
+   **【2026-10-09 另一個 session 更正，分支 `mdwf-coherence-s-split`，見本檔「3(b) 進度」與「`mdwf_eigmg`」各節】**
+   「局部一致性弱」是量法的假象：用 A′ 真正的最低奇異向量做 Lüscher 測試，3⁴ 區塊 16 個向量抓住下一批低模的 87%。
+   粗網格修正失效的真正原因是**逐區塊 P 的區塊邊界跳躍**：P 抓住低模的 77%，但 \|A PP†t\|/\|A t\| ≈ 75；
+   Galerkin、左奇異向量的 Petrov-Galerkin、殘差極小三種限制都救不回來。這些都是在全格子 A′ 上量的，要在 Ã 上重新確認。
 
 **Chebyshev 已實作並 push（`f72260f`）**：`ChebyshevFilter`、`Chebyshev`、`largest_magnitude`（`src/solver/chebyshev.rs`），
 `MdwfSmoother::Chebyshev { steps, ratio }`；測試在 `stage1_solver`（純量算符上逐位等於 Chebyshev 多項式的封閉形式）與
