@@ -4,7 +4,8 @@
 //!
 //! - The cycle approximates the inverse of `A = (D_PV C_PV^-1)† C^-1 D`
 //!   (`PvPreconditioned`), so it is the preconditioner of a flexible solver on A.
-//! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start.
+//! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start, or
+//!   a polynomial of A fitted once (`MdwfSmoother`).
 //! - Aggregates: blocks in space-time that keep the whole fifth dimension, split by the
 //!   chirality of Γ5 = γ5 R.
 //! - Test vectors: random vectors, smoothed, then multiplied by D_PV.
@@ -17,8 +18,8 @@ use super::cycle::random_vectors;
 use super::{Aggregation, CycleParts, Multigrid, MultigridError, SetupHooks};
 use crate::fermion::{Mdwf, MdwfAt, PvPreconditioned, SiteInverse, Variant};
 use crate::kernel::GammaRepre;
-use crate::solver::{Fgmres, Solve, Stop};
-use crate::{Adjoint, Field, Lattice, Spinor, Storage, ND};
+use crate::solver::{Fgmres, Polynomial, Solve, Stop};
+use crate::{Adjoint, Field, Lattice, LinearFn, Spinor, Storage, ND};
 use std::sync::Arc;
 
 /// Parameters of the domain-wall multigrid.
@@ -30,9 +31,7 @@ pub struct MdwfMultigridParams {
     pub num_test_vectors: usize,
     /// Rounds of improving the test vectors with the cycle itself after the first setup.
     pub setup_iterations: usize,
-    /// The smoother: at most `max_iterations` steps of GMRES on A, fewer if |r|²/|b|² drops
-    /// below `tolerance_sqr`.
-    pub smoother: Stop,
+    pub smoother: MdwfSmoother,
     /// The coarse solver: GMRES(`max_iterations`) with `max_restarts` restarts.
     pub coarse: Stop,
     /// Seed of the random initial test vectors.
@@ -41,6 +40,19 @@ pub struct MdwfMultigridParams {
     pub coarse_operator: MdwfCoarse,
     /// Multiply the smoothed test vectors by D_PV before they span the aggregates.
     pub through_pauli_villars: bool,
+}
+
+/// The smoother of the domain-wall multigrid.
+#[derive(Clone, Copy, Debug)]
+pub enum MdwfSmoother {
+    /// At most `max_iterations` steps of GMRES on A, fewer if |r|²/|b|² drops below
+    /// `tolerance_sqr`. Keeps `max_iterations + 1` vectors, and is a different map for
+    /// every input.
+    Gmres(Stop),
+    /// `Polynomial`: a polynomial of A with `degree` coefficients, fitted to a random
+    /// vector in the setup and applied `passes` times as a stationary correction. Keeps
+    /// three vectors, and is the same linear map every time.
+    Polynomial { degree: usize, passes: usize },
 }
 
 /// The coarse operator of the domain-wall multigrid.
@@ -67,7 +79,7 @@ impl MdwfMultigridParams {
             block,
             num_test_vectors: 8,
             setup_iterations: 0,
-            smoother: Stop::simple(1e-6, 4),
+            smoother: MdwfSmoother::Gmres(Stop::simple(1e-6, 4)),
             coarse: Stop {
                 tolerance_sqr: 1e-4,
                 max_iterations: 5,
@@ -93,16 +105,28 @@ where
 {
     let ls = op.params().ls;
     let like = Field::<T, Spinor>::with_shape(lat, 24, ls, 1, 1);
-    let smoother = || {
-        Box::new(Solve::new(
-            Fgmres::new(params.smoother),
-            PvPreconditioned::new(op, &like),
-        ))
+    let sample = random_vectors::<T>(lat, ls, 1, params.seed ^ 0x5EED);
+    let smoother = |dagger: bool| -> Result<Box<dyn LinearFn<Field<T, Spinor>> + 'a>, _> {
+        let a = PvPreconditioned::new(op, &like);
+        Ok(match (params.smoother, dagger) {
+            (MdwfSmoother::Gmres(stop), false) => Box::new(Solve::new(Fgmres::new(stop), a)),
+            (MdwfSmoother::Gmres(stop), true) => {
+                Box::new(Solve::new(Fgmres::new(stop), Adjoint(a)))
+            }
+            (MdwfSmoother::Polynomial { degree, passes }, false) => Box::new(
+                Polynomial::fit(a, &sample, degree, passes)
+                    .map_err(|_| MultigridError::DependentPowers { degree })?,
+            ),
+            (MdwfSmoother::Polynomial { degree, passes }, true) => Box::new(
+                Polynomial::fit(Adjoint(a), &sample, degree, passes)
+                    .map_err(|_| MultigridError::DependentPowers { degree })?,
+            ),
+        })
     };
     let parts = CycleParts {
         operator: Box::new(PvPreconditioned::new(op, &like)),
-        pre_smoother: Some(smoother()),
-        post_smoother: smoother(),
+        pre_smoother: Some(smoother(false)?),
+        post_smoother: smoother(false)?,
         coarse_solver: Box::new(Fgmres::new(params.coarse)),
     };
     let mut hooks = SetupHooks {
@@ -125,10 +149,7 @@ where
         }
         MdwfCoarse::PetrovGalerkin => {
             hooks.galerkin_of = Some(Box::new(PvPreconditioned::new(op, &like)));
-            hooks.adjoint_smoother = Some(Box::new(Solve::new(
-                Fgmres::new(params.smoother),
-                Adjoint(PvPreconditioned::new(op, &like)),
-            )));
+            hooks.adjoint_smoother = Some(smoother(true)?);
         }
     }
     let agg = Aggregation::new(lat, params.block);
