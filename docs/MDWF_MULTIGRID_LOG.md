@@ -123,8 +123,8 @@ cycle 的全部效果來自 smoother（cycle 和「兩次平滑」在三位數�
 | 0 | 量測與診斷（上面 1–5） | 完成 | — |
 | 1 | 精確 P†AP（`mdwf_coarse_check`）：分開「2-hop 截斷」與「斜投影」 | **完成（8 個向量）：截斷不是原因**，見下 | — |
 | 2 | **A 改成論文的 A′**（§7.6.5 (a)，已確認）：`PvPreconditioned` 換成 A′ = X†Y、`right_hand_side`（X†b，原 `precondition`）、`solution`（x = C⁻¹y）；tests、`mdwf_multigrid` 文件、examples 一起改；粗網格建法先不動 | **完成，未 commit**；`stage3_mdwf` 13 個測試通過（含 Bridge++ 組態：`RUTTICE_BRIDGE_TESTS=/home/chen/test/RUQCD/bridge_ref`）；clippy、fmt 乾淨 | — |
-| 3 | Chebyshev 測試向量（§7.6.5 (b)）：對 H = A′†A′ 低通濾波，`ChebyshevFilter` 放 `src/solver/` | 待使用者確認 (b) | 半天（與 4 合計） |
-| 4 | Chebyshev smoother（§7.6.5 (c)）：非厄米 Chebyshev 迭代，`MdwfSmoother::Chebyshev` | 待使用者確認 (c) | 同上 |
+| 3 | Chebyshev 測試向量（§7.6.5 (b)）：對 H = A′†A′ 低通濾波，`ChebyshevFilter` 放 `src/solver/` | **實作完成（`f72260f`）**；接進 `mdwf_multigrid` 的 setup 還沒做（目前在 example 裡用）；效果量測中 | — |
+| 4 | Chebyshev smoother（§7.6.5 (c)）：非厄米 Chebyshev 迭代，`MdwfSmoother::Chebyshev` | **實作完成（`f72260f`）**；在 12⁴ 上的效果還沒量 | — |
 | 5 | 粗網格算符（§7.6.5 (d)）：步驟 1 說不是截斷 → 「保留 81 點」不會有用；要查的是投影本身（見下的推測），或考慮 Kanamori 2023 結構（cycle 作用在 D） | 待決定 | 不確定（研究問題） |
 | 6 | 驗收：12⁴、16⁴，M5 = 1.0，5 個右手邊，物理殘差 ≈ 1e-16，BiCGStab + MG 的細網格 sweep 總數 < even-odd CGNE（12⁴ 約 400） | — | 1–2 小時 |
 
@@ -132,10 +132,13 @@ cycle 的全部效果來自 smoother（cycle 和「兩次平滑」在三位數�
 
 ## 步驟 1 的結果：精確 P†AP（12⁴，舊 A；A 與 A′ 在粗網格上表現相同）
 
-| 8 個向量，反迭代 1e-6，Galerkin | e = P c 修正後剩 | e = s 修正後剩 | 理論下限 |
+| 反迭代 1e-6，Galerkin | e = P c 修正後剩 | e = s 修正後剩 | 理論下限 |
 |---|---|---|---|
-| 探測（截到 8 個最近鄰） | 0.033 | 0.995 | 0.926 |
-| **精確 P†AP（不截斷）** | **0.000** | **0.995** | 0.926 |
+| 8 個向量，探測（截到 8 個最近鄰） | 0.033 | 0.995 | 0.926 |
+| **8 個向量，精確 P†AP（不截斷）** | **0.000** | **0.995** | 0.926 |
+| 16 個向量，探測 | 0.034 | 0.990 | 0.883 |
+| **16 個向量，精確** | **0.000** | **0.991** | 0.883 |
+| 8 個向量，Petrov-Galerkin（Q 來自 A† 反迭代），探測與精確 | 0.996 | 1.000 | 0.926 |
 
 不截斷時 span(P) 裡的誤差完全修掉，平滑誤差卻一樣沒動 → **不是截斷**。
 推測（未驗證）：s 落在 span(P) 的 38% 是逐區塊投影的 PP†s，在區塊邊界不連續、帶大量高模，A(PP†s) 不小，
@@ -148,7 +151,25 @@ Galerkin 修正因此不指向 s。對厄米算符這靠 smoother 或 smoothed a
 與 12⁴ 的 −4% 方向相反 → 速度不是改用 A′ 的理由）；BiCGStab + cycle（Ls 4、m 0.1）62–71 次（舊 A 356–488 次），
 原因未確認，可能只是 BiCGStab 配變動預處理器的跳動。
 
+## 之後的量測（2026-10-08 晚，使用者授權自行進行）
+
+**smoothed aggregation 沒有用**（`mdwf_smoothed_aggregation`，8 個反迭代向量，精確 P_ω†A P_ω）：
+P_ω = (1 − ωA)P，ω = 0、0.25、0.5、1.0 除以 |λ_max(A)| ≈ 4.53：平滑誤差 s 都剩 0.993–0.995。
+
+**「區塊邊界粗糙」只部分成立**：|A v|/|v| 對 s 是 0.290，對 PP†s 是 0.528（粗 1.8 倍），對 s − PP†s 是 0.380，隨機向量 1.550。
+
+**重要但書：s 不夠低。** s = A⁻¹v（v 隨機）的 |As|/|s| = 0.29，只比隨機向量低 5 倍；A 的最低模約 3e-3。
+隨機向量在最低幾個模上的分量極小，A⁻¹ 放大的主要是大量中等模。所以上面所有「e = s 剩 0.99」量的是粗網格對中等模的效果，
+不是對讓 Krylov 停滯的最低模。**用真正的低模重量**：Chebyshev 濾波 T_200(ℓ(A†A)) 作用在隨機向量上得到 t，|At|/|t| = 0.040
+（`mdwf_lowmodes`）。反迭代 8 個向量：|PP†t| = 0.310，精確修正後 t 剩 0.994（下限 0.951）——對真正的低模一樣沒有作用。
+Chebyshev 濾波的測試向量對 t 的結果、以及兩種測試向量的 cycle 迭代數：見下（跑中）。
+
+**Chebyshev 已實作並 push（`f72260f`）**：`ChebyshevFilter`、`Chebyshev`、`largest_magnitude`（`src/solver/chebyshev.rs`），
+`MdwfSmoother::Chebyshev { steps, ratio }`；測試在 `stage1_solver`（純量算符上逐位等於 Chebyshev 多項式的封閉形式）與
+`stage3_mdwf`（BiCGStab + Chebyshev cycle 解 D x = b）。λ_max(A†A) ≈ 20.9（power iteration），|λ_max(A)| ≈ 4.53。
+
 ## 尚未跑完（寫這份時）
 
-- `mdwf_coarse_check` 的 16 個向量兩列（輸出在 as13 的 `/tmp/claude-25116/-home-chen-test/f082ac9a-b2e3-41dd-8bad-d9b0129a9044/tasks/b5mrfmw39.output`，暫存檔，可能會被清掉；要重跑：`./target/release/examples/mdwf_coarse_check /home/chen/test/RUQCD/bench/hmc12/conf_quench_12x12x12x12.txt 12 1.0 0.005 8 3`，約 1 小時）。
+- `mdwf_lowmodes`（12⁴、8 個向量、濾波 degree 100）：Chebyshev 測試向量的 |PP†t| 與 cycle 迭代數。
+- 16 個向量的 Petrov-Galerkin 一列沒跑完（已知 Petrov-Galerkin 不可行，停掉了）。
 - Chebyshev 與 A′ 的設計草稿在 DESIGN.md §7.6.5，等使用者確認才實作。
