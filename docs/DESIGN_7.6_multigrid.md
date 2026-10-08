@@ -114,6 +114,10 @@ Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，
 
 **(c) smoother：Chebyshev 迭代（非厄米）。（已實作：`Chebyshev`、`MdwfSmoother::Chebyshev { steps, ratio }`）**
 
+量測（12⁴、M5 = 1.0、5 個右手邊）：換成 Chebyshev smoother 後 BiCGStab + cycle 的迭代數從 70–122 變成 13–15（9 步、ratio 100），不再跳動；
+但只用 Chebyshev 多項式當預處理器（不要 cycle）更便宜：17 步、ratio 300，12–13 次，≈ 420 次 A，與 FGMRES + GMRES(4) cycle 相當，仍輸 even-odd CGNE 約 2.2 倍。
+下一步建議 even-odd 版的 A′（見 `RutticeQCD/docs/MDWF_MULTIGRID_LOG.md` 最後）。
+
 凍結的 MR 多項式（`Polynomial`）放進 Krylov 會停滯（4 次 × 2 單獨當預處理器也停滯）；GMRES(m) 每次是不同的映射，BiCGStab 的迭代數因此在 45–119 跳動。
 要的是固定、穩定、對正定非厄米算符有理論保證的多項式。
 
