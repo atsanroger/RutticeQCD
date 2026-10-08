@@ -318,7 +318,7 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
 
 **使用者指示（兩個 session 都適用）：繼續計算，不需要等使用者許可；使用者不在時也不要停。**
 
-另一個 session 在分支 `mdwf-coherence-s-split` 上工作（已合併到 `36d8a42` 的 `main`），結論寫在該分支的本檔：
+另一個 session 在分支 `mdwf-coherence-s-split` 上工作（該分支已合併 `main`；`main` 本身沒有它的結果），結論寫在該分支的本檔：
 
 - **「局部一致性弱」是量法的假象。** 用 A′ 真正的最低奇異向量（Chebyshev 濾波子空間迭代，`examples/mdwf_coherence_eig.rs`）做 Lüscher 測試，
   3⁴ 區塊 16 個向量抓住下一批低模的 87%、32 個 94%（12⁴、β = 5.7）。舊量法的濾波隨機向量停在 \|At\|/\|t\| ≈ 0.04，是大量中等模的混合。
