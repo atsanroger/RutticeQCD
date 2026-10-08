@@ -98,6 +98,20 @@ pub struct SetupHooks<'a, T: Storage> {
     pub coarse_right: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
     /// Precondition the coarse operator by its diagonal blocks.
     pub precondition_coarse_diagonal: bool,
+    /// Build the coarse operator as the Galerkin projection `P† A P` of this map, cut down
+    /// to nearest neighbours (`CoarseOp::probe`), instead of from the parts of the fine
+    /// operator; `coarse_right` is then not used.
+    pub galerkin_of: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
+    /// Makes test vectors for a restriction of its own from the initial vectors: a smoother
+    /// for the adjoint of the operator of the cycle. The restriction is then R = Q† with Q
+    /// built from these vectors like P from the others, and the coarse operator `R A P`
+    /// (with `galerkin_of`).
+    ///
+    /// What a smoother leaves of a residual lies along the vectors that the adjoint
+    /// operator nearly annihilates. For an operator with A† = Γ5 A Γ5 those are Γ5 times
+    /// the vectors A nearly annihilates, which the chiral halves of P contain, so P† does
+    /// as a restriction; for an operator without that property it does not.
+    pub adjoint_smoother: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
 }
 
 impl<T: Storage> Default for SetupHooks<'_, T> {
@@ -106,6 +120,8 @@ impl<T: Storage> Default for SetupHooks<'_, T> {
             after_smoothing: None,
             coarse_right: None,
             precondition_coarse_diagonal: false,
+            galerkin_of: None,
+            adjoint_smoother: None,
         }
     }
 }
@@ -136,6 +152,8 @@ pub struct Multigrid<'a, F: HopTerms<Fine<T>>, T: Storage> {
     work: F::Work,
     agg: Arc<Aggregation>,
     basis: Basis<T>,
+    /// The basis of the restriction when it is not that of the prolongation.
+    restriction: Option<Basis<T>>,
     coarse: CoarseOp<T>,
     parts: CycleParts<'a, T>,
     hooks: SetupHooks<'a, T>,
@@ -194,7 +212,7 @@ where
             precondition_coarse_diagonal: params.precondition_coarse_diagonal,
             ..SetupHooks::default()
         };
-        let initial = random_vectors::<T>(lat, params.num_test_vectors, params.seed);
+        let initial = random_vectors::<T>(lat, 1, params.num_test_vectors, params.seed);
         Self::with_parts(op, &agg, initial, params.setup_iterations, parts, hooks)
     }
 
@@ -213,12 +231,25 @@ where
         let mut x = initial.zeros_like();
         parts.post_smoother.mult(&mut x, &initial);
         let basis = basis_after_smoothing(op, &mut work, agg, &mut hooks, &x)?;
-        let coarse = build_coarse(op, &mut work, &basis, &mut hooks)?;
+        let restriction = match hooks.adjoint_smoother.as_mut() {
+            Some(smoother) => {
+                assert_eq!(
+                    setup_iterations, 0,
+                    "improving the test vectors of a separate restriction is not implemented"
+                );
+                let mut y = initial.zeros_like();
+                smoother.mult(&mut y, &initial);
+                Some(basis_from(op, &mut work, agg, &y)?)
+            }
+            None => None,
+        };
+        let coarse = build_coarse(op, &mut work, &basis, restriction.as_ref(), &mut hooks)?;
         let mut mg = Self {
             op,
             work,
             agg: agg.clone(),
             basis,
+            restriction,
             coarse,
             parts,
             hooks,
@@ -228,7 +259,7 @@ where
             let v = mg.test_vectors();
             mg.mult(&mut x, &v);
             mg.basis = basis_after_smoothing(mg.op, &mut mg.work, &mg.agg, &mut mg.hooks, &x)?;
-            mg.coarse = build_coarse(mg.op, &mut mg.work, &mg.basis, &mut mg.hooks)?;
+            mg.coarse = build_coarse(mg.op, &mut mg.work, &mg.basis, None, &mut mg.hooks)?;
         }
         Ok(mg)
     }
@@ -286,8 +317,18 @@ fn build_coarse<F: HopTerms<Fine<T>>, T: Storage>(
     op: &F,
     work: &mut F::Work,
     basis: &Basis<T>,
+    restriction: Option<&Basis<T>>,
     hooks: &mut SetupHooks<'_, T>,
 ) -> Result<CoarseOp<T>, MultigridError> {
+    if let Some(a) = hooks.galerkin_of.as_mut() {
+        let restriction = restriction.unwrap_or(basis);
+        let precondition = hooks.precondition_coarse_diagonal;
+        return CoarseOp::probe(a.as_mut(), basis, restriction, precondition);
+    }
+    assert!(
+        restriction.is_none(),
+        "a separate restriction needs the coarse operator made by probing"
+    );
     let right = hooks
         .coarse_right
         .as_mut()
@@ -318,9 +359,14 @@ fn basis_from<F: HopTerms<Field<T, Spinor>>, T: Storage>(
     Basis::from_vectors(agg, &x64, &g64)
 }
 
-/// `n` vectors with every real uniform in (−1, 1), from SplitMix64.
-fn random_vectors<T: Storage>(lat: &Arc<Lattice>, n: usize, seed: u64) -> Field<T, Spinor> {
-    let mut v = Field::<T, Spinor>::spinor(lat, n);
+/// `n` vectors of `ls` spinors per site with every real uniform in (−1, 1), from SplitMix64.
+pub(super) fn random_vectors<T: Storage>(
+    lat: &Arc<Lattice>,
+    ls: usize,
+    n: usize,
+    seed: u64,
+) -> Field<T, Spinor> {
+    let mut v = Field::<T, Spinor>::with_shape(lat, 24, ls, n, 1);
     let mut state = seed;
     for r in v.as_mut_slice() {
         state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -370,7 +416,10 @@ impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T>
             None => x.copy_from(b),
         }
         residual(r, x);
-        self.basis.restrict(coarse_r, r);
+        self.restriction
+            .as_ref()
+            .unwrap_or(&self.basis)
+            .restrict(coarse_r, r);
         let rhs = if self.coarse.is_diagonal_preconditioned() {
             self.coarse.apply_diagonal_inverse(coarse_rhs, coarse_r);
             &*coarse_rhs

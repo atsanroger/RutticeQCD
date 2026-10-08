@@ -13,6 +13,7 @@ mod aggregation;
 mod basis;
 mod coarse;
 mod cycle;
+mod mdwf;
 mod sap;
 
 pub use aggregation::Aggregation;
@@ -21,6 +22,7 @@ pub use coarse::CoarseOp;
 pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };
+pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams};
 pub use sap::Sap;
 
 use std::fmt;

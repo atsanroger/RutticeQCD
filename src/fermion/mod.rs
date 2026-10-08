@@ -9,7 +9,7 @@ pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
-pub use mdwf::{Mdwf, MdwfParams, MdwfWork, PvPreconditioned, MAX_LS};
+pub use mdwf::{Mdwf, MdwfAt, MdwfParams, MdwfWork, PvPreconditioned, SiteInverse, MAX_LS};
 
 pub use wilson::{
     DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonSimd,

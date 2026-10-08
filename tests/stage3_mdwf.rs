@@ -3,9 +3,12 @@
 mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
-use ruttice::fermion::{Bound, FermionOp, Mdwf, MdwfParams, PvPreconditioned, Variant};
+use ruttice::fermion::{Bound, FermionOp, HopTerms, Mdwf, MdwfParams, PvPreconditioned, Variant};
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
+use ruttice::solver::preconditioner::multigrid::{
+    mdwf_multigrid, CoarseOp, MdwfCoarse, MdwfMultigridParams,
+};
 use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
 use ruttice::{
     assemble, local_part, random_spinor, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp,
@@ -282,4 +285,145 @@ fn bicgstab_on_the_preconditioned_operator_solves_d() {
         "BiCGStab on A: {} iterations ({sweeps_a} sweeps), residual {physical:e};          CG on D D†: {} iterations ({sweeps_cg} sweeps)",
         info.iterations, cg.iterations
     );
+}
+
+/// The parts multigrid coarsening uses add up to the operator: D = diagonal part +
+/// coefficient x (the eight hopping terms).
+#[test]
+fn parts_add_up_to_the_operator() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 101));
+    let psi = random(&lat, MOBIUS.ls, 1, 102);
+    let mut work = op.work();
+    let mut hops = psi.zeros_like();
+    for mu in 0..ND {
+        op.hop_forward(&mut work, mu, &mut hops, &psi);
+        op.hop_backward(&mut work, mu, &mut hops, &psi);
+    }
+    let mut sum = psi.zeros_like();
+    op.mult_diag(&mut work, &mut sum, &psi);
+    sum.axpy(&[C64::new(op.hop_coefficient(), 0.0)], &hops);
+    let diff = max_diff(&sum, &mult(&op, &psi, Variant::D));
+    assert!(diff < 1e-13, "{diff:e}");
+
+    // Γ5 squares to one.
+    let (mut once, mut twice) = (psi.zeros_like(), psi.zeros_like());
+    op.mult_gamma5(&mut work, &mut once, &psi);
+    op.mult_gamma5(&mut work, &mut twice, &once);
+    assert!(max_diff(&twice, &psi) == 0.0 && max_diff(&once, &psi) > 0.1);
+}
+
+/// The multigrid cycle as the preconditioner of BiCGStab on A: the solver converges and
+/// the solution solves D x = b. On the Bridge++ test configuration.
+///
+/// On this problem (4x4x4x8, aggregates of 2^4) the cycle does not yet pay: BiCGStab takes
+/// 443 iterations without it and between 356 and 488 with it, for either coarse operator
+/// and with or without D_PV on the test vectors. The test checks that the pieces work
+/// together, not that they help.
+#[test]
+fn multigrid_cycle_runs_as_a_preconditioner() {
+    let Some(path) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = read_bridge_text(&path, &lat).unwrap();
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.0,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: BOUNDARY,
+    };
+    let op = operator(&lat, params, &u);
+    let b = random(&lat, params.ls, 1, 91);
+    let stop = Stop {
+        tolerance_sqr: 1e-20,
+        max_iterations: 2000,
+        max_restarts: 5,
+    };
+    let mut a = PvPreconditioned::new(&op, &b);
+    let mut rhs = b.zeros_like();
+    a.precondition(&mut rhs, &b);
+    for coarse_operator in [MdwfCoarse::RightPreconditioned, MdwfCoarse::Galerkin] {
+        let choice = MdwfMultigridParams {
+            coarse_operator,
+            num_test_vectors: 4,
+            ..MdwfMultigridParams::note([2, 2, 2, 2])
+        };
+        let mut mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
+        let mut x = b.zeros_like();
+        let info = BiCgStab::new(stop)
+            .solve(&mut a, Some(&mut mg), &mut x, &rhs)
+            .unwrap();
+        let mut r = mult(&op, &x, Variant::D);
+        r.scale(&[-1.0]);
+        r.axpy(&[C64::new(1.0, 0.0)], &b);
+        let physical = dot(&r, &r).re / dot(&b, &b).re;
+        eprintln!(
+            "{coarse_operator:?}: {} iterations, |D x - b|^2/|b|^2 = {physical:e}",
+            info.iterations
+        );
+        assert!(physical < 1e-15, "{coarse_operator:?}: {physical:e}");
+    }
+}
+
+/// How much of `P† A P` the probed coarse operator keeps: applied to a random coarse
+/// vector, against restricting A applied to the prolonged vector. The difference is the
+/// couplings to diagonal neighbours that probing leaves out.
+#[test]
+fn probed_coarse_operator_against_the_projection() {
+    let lat = Lattice::single_node([8, 8, 4, 4]);
+    let u = random_gauge(&lat, 111);
+    let params = MdwfParams { ls: 4, ..MOBIUS };
+    let op = operator(&lat, params, &u);
+    let choice = MdwfMultigridParams {
+        coarse_operator: MdwfCoarse::Galerkin,
+        through_pauli_villars: false,
+        num_test_vectors: 4,
+        ..MdwfMultigridParams::note([2, 2, 2, 2])
+    };
+    let mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
+    let basis = mg.basis();
+    let like = random(&lat, params.ls, 1, 112);
+    let mut a = PvPreconditioned::new(&op, &like);
+    let mut coarse = CoarseOp::probe(&mut a, basis, basis, false).unwrap();
+
+    let mut c = basis.coarse_field(1);
+    for (i, x) in c.as_mut_slice().iter_mut().enumerate() {
+        *x = ((i * 7 + 3) as f64 * 0.37).sin();
+    }
+    let (mut fine, mut a_fine) = (like.zeros_like(), like.zeros_like());
+    basis.prolong(&mut fine, &c);
+    a.mult(&mut a_fine, &fine);
+    let mut projected = c.zeros_like();
+    basis.restrict(&mut projected, &a_fine);
+    let mut probed = c.zeros_like();
+    coarse.mult(&mut probed, &c);
+
+    let norm = |v: &Field<f64, ruttice::Coarse>| {
+        let mut n = [0.0];
+        v.norm_sqr(&mut n);
+        n[0].sqrt()
+    };
+    let mut diff = probed.zeros_like();
+    diff.copy_from(&probed);
+    diff.axpy(&[C64::new(-1.0, 0.0)], &projected);
+    eprintln!(
+        "|A_c c| = {:.4e}, |P† A P c| = {:.4e}, difference {:.4e}",
+        norm(&probed),
+        norm(&projected),
+        norm(&diff)
+    );
+    // Restricting what was prolonged gives it back: the basis is orthonormal.
+    let mut back = c.zeros_like();
+    basis.restrict(&mut back, &fine);
+    back.axpy(&[C64::new(-1.0, 0.0)], &c);
+    assert!(
+        norm(&back) < 1e-12 * norm(&c),
+        "P† P is not one: {:e}",
+        norm(&back)
+    );
+    assert!(norm(&diff) < 0.5 * norm(&projected));
 }

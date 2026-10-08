@@ -39,6 +39,33 @@ pub struct CoarseOp<T: Storage> {
     /// then A^{-1} D_c (see `build_with`).
     diag_inv: Option<Vec<T>>,
     scratch: Option<Field<T, Coarse>>,
+    /// Whether `D_c† = Γ5 D_c Γ5`: true for an operator built from the parts of a fine
+    /// operator with that property, not for a probed one.
+    adjoint_from_gamma5: bool,
+}
+
+/// The inverses of the diagonal blocks of a coarse operator.
+fn invert_blocks<T: Storage>(
+    diag: &[T],
+    dim: usize,
+    n_coarse: usize,
+) -> Result<Vec<T>, MultigridError> {
+    let matrix = 2 * dim * dim;
+    let mut inv = vec![T::default(); n_coarse * matrix];
+    let mut a = vec![0.0; matrix];
+    let mut a_inv = vec![0.0; matrix];
+    for site in 0..n_coarse {
+        let block = site * matrix..(site + 1) * matrix;
+        for (x, d) in a.iter_mut().zip(&diag[block.clone()]) {
+            *x = d.load().to_f64();
+        }
+        invert_complex(dim, &mut a, &mut a_inv)
+            .map_err(|_| MultigridError::SingularCoarseDiagonal { coarse_site: site })?;
+        for (o, x) in inv[block].iter_mut().zip(&a_inv) {
+            *o = T::store(Number::from_f64(*x));
+        }
+    }
+    Ok(inv)
 }
 
 impl<T: Storage> CoarseOp<T> {
@@ -149,21 +176,7 @@ impl<T: Storage> CoarseOp<T> {
         }
 
         let diag_inv = if precondition_diagonal {
-            let mut inv = vec![T::default(); n_coarse * matrix];
-            let mut a = vec![0.0; matrix];
-            let mut a_inv = vec![0.0; matrix];
-            for site in 0..n_coarse {
-                let block = site * matrix..(site + 1) * matrix;
-                for (x, d) in a.iter_mut().zip(&diag[block.clone()]) {
-                    *x = d.load().to_f64();
-                }
-                invert_complex(dim, &mut a, &mut a_inv)
-                    .map_err(|_| MultigridError::SingularCoarseDiagonal { coarse_site: site })?;
-                for (o, x) in inv[block].iter_mut().zip(&a_inv) {
-                    *o = T::store(Number::from_f64(*x));
-                }
-            }
-            Some(inv)
+            Some(invert_blocks(&diag, dim, n_coarse)?)
         } else {
             None
         };
@@ -176,6 +189,127 @@ impl<T: Storage> CoarseOp<T> {
             links,
             diag_inv,
             scratch: None,
+            adjoint_from_gamma5: true,
+        })
+    }
+
+    /// The coarse operator `R A P` of any map A on the fine lattice, cut down to the
+    /// couplings of a coarse site with itself and its eight neighbours. P is the
+    /// prolongation of `basis` and R the restriction of `restriction`; with the same basis
+    /// for both this is the Galerkin operator `P† A P`.
+    ///
+    /// A is used as a black box: the coarse unit vectors of one component are prolonged,
+    /// A is applied, and the result is restricted. Sites that are far enough apart can be
+    /// probed together: with A reaching no further than the neighbouring aggregates, also
+    /// diagonally, sources three coarse sites apart in every direction do not disturb the
+    /// neighbours of one another. That is at most 81 applications of A per component (more
+    /// on a coarse lattice with an extent of four, where every position is probed by
+    /// itself). Couplings to diagonal neighbours are left out; for an A that is a product
+    /// of two nearest-neighbour operators they exist, and leaving them out is an
+    /// approximation.
+    ///
+    /// The adjoint of such an operator is not available (`mult_dag` panics): it does not
+    /// follow from Γ5 as it does for `build`.
+    pub fn probe(
+        a: &mut dyn LinearFn<Field<T, Spinor>>,
+        basis: &Basis<T>,
+        restriction: &Basis<T>,
+        precondition_diagonal: bool,
+    ) -> Result<Self, MultigridError> {
+        assert_eq!(basis.coarse_dim(), restriction.coarse_dim());
+        let agg = basis.aggregation();
+        let lat = agg.coarse_lattice().clone();
+        let stencil = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
+        let dim = basis.coarse_dim();
+        let n_coarse = lat.num_sites();
+        let matrix = 2 * dim * dim;
+        let mut diag = vec![T::default(); n_coarse * matrix];
+        let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
+        let one = T::store(T::Compute::ONE);
+        // Sources of one colour are `colours[mu]` apart in direction mu: three, or a
+        // divisor of the extent above that, or the whole extent when it is small.
+        let colours = lat.local.map(|l| {
+            if l <= 4 {
+                l
+            } else {
+                (3..=l).find(|k| l.is_multiple_of(*k)).unwrap_or(l)
+            }
+        });
+
+        let mut unit = basis.coarse_field(1);
+        let mut restricted = basis.coarse_field(1);
+        let mut phi = basis.fine_field(1);
+        let mut a_phi = basis.fine_field(1);
+        let column_of = |target: &mut [T], site: usize, column: usize, values: &[T]| {
+            for row in 0..dim {
+                let at = site * matrix + 2 * (dim * row + column);
+                target[at] = values[2 * row];
+                target[at + 1] = values[2 * row + 1];
+            }
+        };
+
+        for colour in 0..colours.iter().product::<usize>() {
+            let mut rest = colour;
+            let want = colours.map(|k| {
+                let c = rest % k;
+                rest /= k;
+                c
+            });
+            let sources: Vec<usize> = (0..n_coarse)
+                .filter(|site| {
+                    let x = lat.coords(*site);
+                    (0..ND).all(|mu| x[mu] % colours[mu] == want[mu])
+                })
+                .collect();
+            for column in 0..dim {
+                unit.as_mut_slice().fill(T::default());
+                for site in &sources {
+                    unit.site_mut(0, *site)[2 * column] = one;
+                }
+                basis.prolong(&mut phi, &unit);
+                a.mult(&mut a_phi, &phi);
+                restriction.restrict(&mut restricted, &a_phi);
+                for source in &sources {
+                    column_of(&mut diag, *source, column, restricted.site(0, *source));
+                    for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+                        // The link in direction `dir` at X multiplies the field at
+                        // X + dir, so the source is X + dir. With an extent of one the
+                        // neighbour is the site itself, with two both neighbours are the
+                        // same site: then everything is in the diagonal block, or in the
+                        // forward link.
+                        let extent = lat.local[mu];
+                        if extent == 1 || (extent == 2 && dir == Direction::Backward) {
+                            continue;
+                        }
+                        let back = match dir {
+                            Direction::Forward => Direction::Backward,
+                            Direction::Backward => Direction::Forward,
+                        };
+                        let Source::Local { site: x, .. } = stencil.source(*source, mu, back)
+                        else {
+                            unreachable!("the coarse stencil is periodic and on one process");
+                        };
+                        let range = d * n_coarse * matrix..(d + 1) * n_coarse * matrix;
+                        column_of(&mut links[range], x, column, restricted.site(0, x));
+                    }
+                }
+            }
+        }
+
+        let diag_inv = if precondition_diagonal {
+            Some(invert_blocks(&diag, dim, n_coarse)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            stencil,
+            lat,
+            dim,
+            diag,
+            links,
+            diag_inv,
+            scratch: None,
+            adjoint_from_gamma5: false,
         })
     }
 
@@ -313,6 +447,10 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for CoarseOp<T> {
 /// satisfies `D† = γ5 D γ5`.
 impl<T: Storage> LinearOp<Field<T, Coarse>> for CoarseOp<T> {
     fn mult_dag(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        assert!(
+            self.adjoint_from_gamma5,
+            "the adjoint of a probed coarse operator is not implemented"
+        );
         if self.diag_inv.is_none() {
             self.apply(out, inp, true);
             return;
