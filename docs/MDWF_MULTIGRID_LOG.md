@@ -224,11 +224,41 @@ cycle 是 `mdwf_multigrid` 的參考設定（8 個隨機測試向量、參考粗
 - **Chebyshev 多項式預處理的 BiCGStab ≈ 420 次 A ≈ 840 sweeps，與 FGMRES + GMRES(4) cycle（≈ 430）相當**，記憶體少很多（BiCGStab 8 個向量 + 多項式 3 個，對 FGMRES(20) 的 40 多個）。
 - **仍輸 even-odd CGNE 約 2.2 倍**（CGNE 物理 ~1e-16 約 190 次、380 sweeps）。其中約 2 倍來自 A 作用在全格子。
 
+## even-odd 版的 A′：Ã = S_X† S_Y（`mdwf_evenodd_a`，2026-10-08 晚）
+
+C 是 D 的 site 內對角區塊（even-odd 分解的 D_ee、D_oo），Y = D C⁻¹、X = D_PV C_PV⁻¹（A′ = X†Y）。在 even 點上的 Schur 補：
+
+  S_Y = 1 − D_eo C_o⁻¹ D_oe C_e⁻¹，S_X 同理（D_PV，另一個 m = 1 的 `Mdwf`，因為 hop 帶質量項），D 的 Schur 補 S_D = S_Y C_e。
+
+半格子算符 **Ã = S_X† S_Y**（同 A′ 的形式，m = M_PV 時是 S_X†S_X）。解法：Ã y = S_X† b′_e，b′_e = b_e − D_eo C_o⁻¹ b_o；
+x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格子 hop = 2 個 Wilson sweep，與 A′ 相同。
+
+- 正定性：Re⟨v, Ãv⟩/|v|² 隨機向量 +1.146，低模（Chebyshev 濾波）+0.018，6 個向量全正。|λ_max|：A′ 4.46、Ã 2.28。
+- 12⁴、M5 = 1.0、5 個右手邊（seed 91–95），sweep 是每個右手邊的平均：
+
+| 方法 | 迭代數 | sweeps | 最差 \|Dx−b\|²/\|b\|² |
+|---|---|---|---|
+| BiCGStab 解 A′（全格子），無預處理，停 1e-16 | 223 274 252 221 280 | 1004 | 2e-14 |
+| BiCGStab 解 A′，Chebyshev 17/300 | 13 12 12 12 13 | 911 | 8e-15 |
+| BiCGStab 解 A′，Chebyshev 33/1000 | 8 8 8 8 8 | 1188 | 3e-16 |
+| BiCGStab 解 Ã（半格子），無預處理，停 1e-16 | 92 93 79 96 87 | 357 | 4e-15 |
+| BiCGStab 解 Ã，停 1e-17 | 98 104 85 98 93 | 382 | 2e-16 |
+| **BiCGStab 解 Ã，停 1e-18** | **102 108 91 99 99** | **399** | **4e-17** |
+| BiCGStab 解 Ã，停 1e-19 | 111 112 101 110 113 | 437 | 4e-18 |
+| BiCGStab 解 Ã，Chebyshev 17/300 | 24 23 23 23 23 | 1645 | 2e-16 |
+| BiCGStab 解 Ã，Chebyshev 33/1000 | （30 分鐘沒跑完，停掉） | — | — |
+| **even-odd CGNE** | **197 195 196 196 194** | **391** | **7e-17** |
+
+- **不加預處理的 BiCGStab 解 Ã，在相同物理殘差下與 even-odd CGNE 打平**（399 對 391 sweeps，物理殘差 4e-17 對 7e-17）。全格子 A′ 是 ~1000：even-odd 化快 2.5 倍。
+- Chebyshev 多項式對 Ã 是負擔（Ã 的條件數已經好很多，多項式每次 16 個 Ã 只換到 4 倍少的迭代）。ratio 是照 A′ 調的，沒有為 Ã 重調。
+- 這是目標的第一個里程碑：**BiCGStab 直接解正定算符、與 CGNE 同速**。之後任何有效的預處理器（MG 的粗網格修正）都會讓它勝出。
+
 ### 新的方向（建議下一個 session 先做）
 
-1. **even-odd 版的 A′**：D 與 D_PV 都有 even-odd 分解（`Mdwf` 已實作 `EvenOdd`），C 是 site 內的對角區塊。
-   把 A′ = X†Y 的兩個因子各自換成 Schur 補（Y_ee = (D C⁻¹) 的 Schur、X 同理），得到半格子上的正定算子，
-   預期 sweeps 減半，與 CGNE 打平；配上 Chebyshev 多項式的 BiCGStab 每次迭代只有幾個全域內積（8 次迭代 vs CGNE ~190 次），在多節點/GPU 上是實際優勢。需要先寫設計（正定性要重新確認）。
+0. **把 Ã 做進函式庫**（DESIGN 要先寫；`Mdwf` 已有 `EvenOdd`；PV 側需要 m = 1 的 hop，現在用第二個 `Mdwf` 實例）。在 16⁴、M5 = 1.8 驗證（16⁴ 在跑）。
+   之後的 MG 應該建在 Ã 上（半格子），而不是 A′。
+
+1. ~~even-odd 版的 A′~~：做了（上面），與 CGNE 打平。
 2. **把 Chebyshev 預處理做成正式選項**：`Chebyshev` 已在函式庫；缺的是自動選 hi（已有 `largest_magnitude`）與 ratio、steps 的預設（目前最好：17 步、ratio 300）。
 3. 多重網格（粗網格修正）的問題留著：局部一致性弱、需要精確的 2-hop 粗網格與大量向量，目前看不到能贏多項式預處理的路。
 
