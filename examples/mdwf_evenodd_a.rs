@@ -1,7 +1,7 @@
 //! An even-odd version of the Pauli-Villars preconditioned operator, on half the lattice.
 //!
 //! ```text
-//! cargo run --release --example mdwf_evenodd_a -- CONFIG L M5 MASS [LS] [cgne|ladder]
+//! cargo run --release --example mdwf_evenodd_a -- CONFIG L M5 MASS [LS] [cgne|ladder|scan]
 //! ```
 //!
 //! With C the site-local diagonal blocks of D and Y = D C^-1, X = D_PV C_PV^-1 (the paper's
@@ -24,7 +24,9 @@
 //! (one application of either operator is two). Even-odd CGNE for comparison, to the
 //! physical residual 1e-16. Also Re<v, Ã v>/|v|^2 for random and low-mode vectors.
 //! `cgne` runs only the CGNE comparison; `ladder` runs only BiCGStab on Ã without a
-//! preconditioner to the tolerances 1e-16 .. 1e-19, to match the physical residual of CGNE.
+//! preconditioner to the tolerances 1e-16 .. 1e-19, to match the physical residual of CGNE;
+//! `scan` runs BiCGStab on Ã with the best Chebyshev polynomials of the scans in the log
+//! (5 steps ratio 30, 9 and 17 steps ratio 100) to 1e-18.
 
 use ruttice::fermion::{
     solve_even_odd, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, PvPreconditioned, Variant,
@@ -42,7 +44,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_evenodd_a CONFIG L M5 MASS [LS] [cgne|ladder]";
+const USAGE: &str = "usage: mdwf_evenodd_a CONFIG L M5 MASS [LS] [cgne|ladder|scan]";
 
 type V = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
@@ -243,7 +245,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (even, odd) = (half(Parity::Even), half(Parity::Odd));
 
     let mode = args.get(5).map(String::as_str);
-    let only_cgne = mode == Some("cgne") || mode == Some("ladder");
+    let only_cgne = matches!(mode, Some("cgne") | Some("ladder") | Some("scan"));
     // Positivity: Re<v, Ã v>/|v|^2 on random and low-mode vectors.
     if !only_cgne {
         let mut a = HalfA::new(&op, &pv, &even, &odd);
@@ -306,13 +308,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         hi_half / 1.1
     );
     println!("method                                  iterations (seeds 91..95)   sweeps (mean)  worst |Dx-b|^2  s");
-    let preconditioners: &[Option<(usize, f64)>] = if only_cgne {
+    // The best of the scans on 12^4 (5/30, 9/100, 17/100); earlier scans in the log.
+    let scan: Vec<Option<(usize, f64)>> =
+        vec![Some((5, 30.0)), Some((9, 100.0)), Some((17, 100.0))];
+    let preconditioners: &[Option<(usize, f64)>] = if mode == Some("scan") {
+        &scan
+    } else if only_cgne {
         &[]
     } else {
         &[None, Some((17, 300.0)), Some((33, 1000.0))]
     };
     for &preconditioner in preconditioners {
-        for on_half in [false, true] {
+        let lattices: &[bool] = if mode == Some("scan") {
+            &[true]
+        } else {
+            &[false, true]
+        };
+        for &on_half in lattices {
             let start = Instant::now();
             let (mut counts, mut sweeps, mut worst) = (Vec::new(), 0usize, 0.0_f64);
             for seed in 91..=95 {
@@ -345,7 +357,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                         a: &mut a,
                         count: 0,
                     };
-                    let result = BiCgStab::new(stop).solve(
+                    let tolerance_sqr = if mode == Some("scan") {
+                        1e-18
+                    } else {
+                        stop.tolerance_sqr
+                    };
+                    let result = BiCgStab::new(Stop {
+                        tolerance_sqr,
+                        ..stop
+                    })
+                    .solve(
                         &mut counted,
                         cheb.as_mut().map(|c| c as &mut dyn LinearFn<H>),
                         &mut y,
@@ -463,6 +484,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    if mode == Some("scan") {
+        return Ok(());
+    }
     // Even-odd CGNE: an iteration is two Wilson sweeps.
     let start = Instant::now();
     let (mut counts, mut sweeps, mut worst) = (Vec::new(), 0usize, 0.0_f64);
