@@ -1,7 +1,8 @@
 # MDWF 多重網格：工作紀錄（2026-10-08）
 
 給下一個 session 的交接。目標、量到的數字、結論、還沒做的事都在這裡；設計本身在
-`/home/chen/test/RUQCD/docs/DESIGN.md` §7.6（這份紀錄的結論還沒寫進 DESIGN）。
+`/home/chen/test/RUQCD/docs/DESIGN.md` §7.6（不在 git 裡），副本是同目錄的 `DESIGN_7.6_multigrid.md`，
+這份紀錄的修正方向在其中的 §7.6.5。
 
 ## 目標
 
@@ -115,7 +116,7 @@ cycle 的全部效果來自 smoother（cycle 和「兩次平滑」在三位數�
 
 ## 計畫（2026-10-08 定）
 
-設計細節在 DESIGN.md §7.6.5。每一步完成後更新本檔。
+設計細節在 DESIGN.md §7.6.5（副本：`docs/DESIGN_7.6_multigrid.md`）。每一步完成後更新本檔。
 
 | 步 | 內容 | 狀態 | 估計 |
 |---|---|---|---|
