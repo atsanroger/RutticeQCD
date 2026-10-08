@@ -267,6 +267,14 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
             if residual.iter().all(|r| *r <= tol) {
                 return Ok(info);
             }
+            // A solution that is no longer finite (the operator or the preconditioner
+            // returned NaN or infinity) cannot be restarted from.
+            if residual.iter().any(|r| !r.is_finite()) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the solution is not finite",
+                });
+            }
             match broke_down {
                 // No step was taken in this cycle: a new cycle would start from the same
                 // state and break down the same way.
