@@ -79,7 +79,7 @@ clover 對 Bridge++ 的 `test_alt_multigrid`，domain-wall 對 CUDA 版在同樣
 測試向量來自各自的亂數產生器，所以迭代次數只能比到「同一個量級、隨參數的變化相同」；
 要逐步比對時，兩邊都改用給定的測試向量（例如同一組特徵向量）。
 
-#### 7.6.5 domain-wall 的修正：A′、Chebyshev 測試向量、Chebyshev smoother（2026-10-08；(a) 已確認並完成，(b)(c) 待確認，(d) 已量：不是截斷）
+#### 7.6.5 domain-wall 的修正：A′、Chebyshev 測試向量、Chebyshev smoother（2026-10-08；(a) 完成；(b)(c) 使用者同意、已實作（RutticeQCD `f72260f`），效果量測中；(d) 已量：不是截斷）
 
 依據：`RutticeQCD/docs/MDWF_MULTIGRID_LOG.md` 的量測（12⁴ β = 5.7 與 16⁴ β = 6.0，Ls = 8，M5 = 1.0，m = 0.005）。
 目標：外層用 BiCGStab 解正定算符，多重網格當固定的預處理器，不靠 FGMRES。
@@ -99,7 +99,7 @@ clover 對 Bridge++ 的 `test_alt_multigrid`，domain-wall 對 CUDA 版在同樣
 `mdwf_multigrid` 這一步只換 cycle 作用的算符（A → A′），粗網格的建法（`coarse_right` = C_PV⁻¹、test vector 乘 D_PV）先不動：
 量測上它對 A 與 A′ 一樣沒有作用（平滑誤差都剩 0.707），換成 A′ 自然的 C⁻¹ 也一樣；要不要改由 (d) 決定。
 
-**(b) 測試向量：Chebyshev 低通濾波。**
+**(b) 測試向量：Chebyshev 低通濾波。（已實作：`ChebyshevFilter`，`src/solver/chebyshev.rs`；尚未接進 `mdwf_multigrid` 的 setup）**
 
 現在的測試向量是「隨機向量經一次 GMRES(4)」，平滑向量只有 7.7% 落在粗空間；反迭代到 1e-6 是 38%（8 個）與 47%（16 個）。
 Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，60–64 個。
@@ -112,7 +112,7 @@ Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，
 - 一次濾波是 n 次 H = 2n 次 A′；n_vec 個向量放在同一個多向量場裡一起濾（§2，共用 link）。
 - 濾完正規化，交給現有的 `Multigrid::with_parts(initial, …)`，setup 迭代 0 次。
 
-**(c) smoother：Chebyshev 迭代（非厄米）。**
+**(c) smoother：Chebyshev 迭代（非厄米）。（已實作：`Chebyshev`、`MdwfSmoother::Chebyshev { steps, ratio }`）**
 
 凍結的 MR 多項式（`Polynomial`）放進 Krylov 會停滯（4 次 × 2 單獨當預處理器也停滯）；GMRES(m) 每次是不同的映射，BiCGStab 的迭代數因此在 45–119 跳動。
 要的是固定、穩定、對正定非厄米算符有理論保證的多項式。
@@ -136,6 +136,8 @@ Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，
 量測結果（2026-10-08，8 個向量）：精確 P†A P 對 e = P c 剩 0.000、對 s 仍剩 0.995（探測版 0.033 / 0.995）→ **不是截斷**，81 點不必做。
 推測是逐區塊投影 PP†s 在區塊邊界不連續、帶高模，Galerkin 修正因此不指向 s；候選：smoothed aggregation（P ← S P）、
 或 Kanamori 2023 的結構。細節在 `RutticeQCD/docs/MDWF_MULTIGRID_LOG.md`。
+之後：16 個向量精確版一樣（0.991）；smoothed aggregation P ← (1 − ωA)P 沒有用（0.993–0.995）；
+用真正的低模 t（Chebyshev 濾波，|At|/|t| = 0.04）量，反迭代向量的精確修正也只剩 0.994。
 
 **驗收：** 12⁴ 與 16⁴、M5 = 1.0、5 個右手邊，BiCGStab + 多重網格到物理殘差 |Dx − b|²/|b|² ≈ 1e-16，
 「每個右手邊的細網格 Wilson sweep 總數」（含 smoother、setup 攤提另列）少於 even-odd CGNE（12⁴：約 400）。
