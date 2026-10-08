@@ -197,7 +197,40 @@ FGMRES 能排除、BiCGStab 不行。所以「不是截斷」只對「單獨一�
    - **Kanamori 2023 結構**（cycle 作用在 D、粗網格 1-hop 的 R D D_PV⁻¹ P、外層仍 BiCGStab 解 A′）。
    - **deflation**：既然粗空間其實就是在抓低模，直接用 Chebyshev 濾出的低模做 deflation（DESIGN §7.7 的方向）。
    - **Chebyshev smoother 取代 GMRES(4)**：固定映射，應該能讓 BiCGStab 的迭代數不再跳動；已實作，在 12⁴ 上還沒量。
-4. 待修：BiCGStab 在預處理器輸出 NaN 時要報 breakdown。
+4. ~~待修：BiCGStab 在預處理器輸出 NaN 時要報 breakdown。~~ 已修（`40177fd`）。
+
+## Chebyshev smoother 與 Chebyshev 多項式預處理（`mdwf_smoother_compare`，12⁴、M5 = 1.0、A 系統到 1e-16、5 個右手邊）
+
+cycle 是 `mdwf_multigrid` 的參考設定（8 個隨機測試向量、參考粗網格），只換 smoother。
+「A 總數」= 外層迭代 ×（2 + 2 × 每次預處理作用 A 的次數）；BiCGStab 每次迭代作用 A 兩次、預處理器兩次。1 次 A = 2 個 Wilson sweep。
+
+| 預處理器 | 每次預處理作用 A | BiCGStab（seed 91–95） | A 總數 | FGMRES(20)（seed 91） |
+|---|---|---|---|---|
+| cycle，GMRES(4) | 9 | 122 100 104 78 70 | ≈ 1900 | 43（≈ 430） |
+| cycle，Chebyshev 5 步、ratio 10 | 9 | 42 38 33 34 35 | ≈ 720 | 59 |
+| cycle，Chebyshev 5、ratio 30 | 9 | 31 27 26 29 29 | ≈ 560 | 46 |
+| cycle，Chebyshev 9、ratio 30 | 17 | 21 20 20 19 19 | ≈ 720 | 32 |
+| cycle，Chebyshev 9、ratio 100 | 17 | 15 14 13 13 14 | ≈ 500 | 24 |
+| **只有 Chebyshev 多項式** 9 步、ratio 100 | 8 | 25 24 22 23 26 | ≈ 430 | — |
+| 只有多項式 9、ratio 300 | 8 | 26 25 24 24 24 | ≈ 440 | — |
+| **只有多項式 17、ratio 300** | 16 | 13 12 12 12 13 | **≈ 420** | — |
+| 只有多項式 17、ratio 1000 | 16 | 17 17 16 18 16 | ≈ 570 | — |
+| 只有多項式 33、ratio 1000 | 32 | 8 8 8 8 8 | ≈ 530 | — |
+
+（hi = 1.1 |λ_max(A)| = 4.905；物理殘差 1e-14 左右，ratio 1000 的兩列是 3e-16，原因未查。）
+
+- **固定的 Chebyshev smoother 讓 BiCGStab 穩定**：GMRES(4) 的迭代數跳 70–122，Chebyshev 只差 1–2 次。這證實「BiCGStab 不穩是因為 GMRES smoother 讓 M 不固定」。
+- **cycle 沒有貢獻**：只用多項式（沒有 setup、沒有粗網格）的 A 總數比 cycle 還少（≈ 420 對 ≈ 500）。cycle 的迭代數較少只是因為前後各平滑一次，等於兩倍次數的多項式。
+- **Chebyshev 多項式預處理的 BiCGStab ≈ 420 次 A ≈ 840 sweeps，與 FGMRES + GMRES(4) cycle（≈ 430）相當**，記憶體少很多（BiCGStab 8 個向量 + 多項式 3 個，對 FGMRES(20) 的 40 多個）。
+- **仍輸 even-odd CGNE 約 2.2 倍**（CGNE 物理 ~1e-16 約 190 次、380 sweeps）。其中約 2 倍來自 A 作用在全格子。
+
+### 新的方向（建議下一個 session 先做）
+
+1. **even-odd 版的 A′**：D 與 D_PV 都有 even-odd 分解（`Mdwf` 已實作 `EvenOdd`），C 是 site 內的對角區塊。
+   把 A′ = X†Y 的兩個因子各自換成 Schur 補（Y_ee = (D C⁻¹) 的 Schur、X 同理），得到半格子上的正定算子，
+   預期 sweeps 減半，與 CGNE 打平；配上 Chebyshev 多項式的 BiCGStab 每次迭代只有幾個全域內積（8 次迭代 vs CGNE ~190 次），在多節點/GPU 上是實際優勢。需要先寫設計（正定性要重新確認）。
+2. **把 Chebyshev 預處理做成正式選項**：`Chebyshev` 已在函式庫；缺的是自動選 hi（已有 `largest_magnitude`）與 ratio、steps 的預設（目前最好：17 步、ratio 300）。
+3. 多重網格（粗網格修正）的問題留著：局部一致性弱、需要精確的 2-hop 粗網格與大量向量，目前看不到能贏多項式預處理的路。
 
 **Chebyshev 已實作並 push（`f72260f`）**：`ChebyshevFilter`、`Chebyshev`、`largest_magnitude`（`src/solver/chebyshev.rs`），
 `MdwfSmoother::Chebyshev { steps, ratio }`；測試在 `stage1_solver`（純量算符上逐位等於 Chebyshev 多項式的封閉形式）與
