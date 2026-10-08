@@ -51,11 +51,11 @@
 //! The normalisation and the placement of the mass term follow Bridge++
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
-use super::{FermionOp, GaugeError, Variant, Wilson, WilsonParams, WilsonWork};
+use super::{FermionOp, GaugeError, HopTerms, Variant, Wilson, WilsonParams, WilsonWork};
 use crate::kernel::{Dirac, GammaRepre, Number, Spinor as SiteSpinor, NC, SPINOR_REALS};
 use crate::{
     fit, for_sites, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage, Vector,
-    ND,
+    C64, ND,
 };
 use std::sync::Arc;
 
@@ -284,12 +284,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
         assert!(out.same_shape(inp));
-        if !work.fields.as_ref().is_some_and(|f| f[0].same_shape(inp)) {
-            work.fields = Some([inp.zeros_like(), inp.zeros_like(), inp.zeros_like()]);
-        }
-        let Some([w, v, d]) = work.fields.as_mut() else {
-            unreachable!("the fields were just made");
-        };
+        let [w, v, d] = scratch(&mut work.fields, inp);
         let MdwfParams { m5, b, c, .. } = self.params;
         let height = 4.0 - m5;
         let plain = (false, false);
@@ -397,6 +392,126 @@ impl<T: Storage, G: GammaRepre> LinearOp<Field<T, Spinor>> for PvPreconditioned<
             .mult_site_inv(&mut self.first, &self.second, mass, true);
         self.op
             .mult_at(&mut self.work, out, &self.first, Variant::Dagger, mass);
+    }
+}
+
+/// The parts of D, as multigrid coarsening needs them: with `w = b ψ - c Y ψ`,
+/// `D ψ = C ψ - (4 - M5) κ Σ hops(w)`, the hops being those of the Wilson kernel. The
+/// part that stays within a site is C; Γ5 is γ5 times the reflection of the fifth
+/// dimension.
+impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
+    fn hop_forward(
+        &self,
+        work: &mut MdwfWork<T>,
+        mu: usize,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
+        let MdwfWork { wilson, fields } = work;
+        let w = self.before_kernel(fields, inp);
+        self.wilson.hop_forward(wilson, mu, out, w);
+    }
+
+    fn hop_backward(
+        &self,
+        work: &mut MdwfWork<T>,
+        mu: usize,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
+        let MdwfWork { wilson, fields } = work;
+        let w = self.before_kernel(fields, inp);
+        self.wilson.hop_backward(wilson, mu, out, w);
+    }
+
+    fn mult_diag(
+        &self,
+        work: &mut MdwfWork<T>,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
+        let [c, ..] = scratch(&mut work.fields, inp);
+        self.mult_site(c, inp, self.params.mass, false);
+        out.axpy(&vec![C64::new(1.0, 0.0); inp.num_vectors()], c);
+    }
+
+    fn mult_gamma5(
+        &self,
+        _work: &mut MdwfWork<T>,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+    ) {
+        self.combine(out, &[(inp, 1.0, 0.0)], (false, true), self.params.mass);
+    }
+
+    fn hop_coefficient(&self) -> f64 {
+        -(4.0 - self.params.m5) / (8.0 - 2.0 * self.params.m5)
+    }
+}
+
+/// The three scratch fields of a work object, in the shape of `like`.
+fn scratch<'w, T: Storage>(
+    fields: &'w mut Option<[Field<T, Spinor>; 3]>,
+    like: &Field<T, Spinor>,
+) -> &'w mut [Field<T, Spinor>; 3] {
+    if !fields.as_ref().is_some_and(|f| f[0].same_shape(like)) {
+        *fields = Some([like.zeros_like(), like.zeros_like(), like.zeros_like()]);
+    }
+    fields.as_mut().expect("the fields were just made")
+}
+
+impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+    /// `b ψ - c Y ψ`, what the Wilson kernel is applied to, in a scratch field.
+    fn before_kernel<'w>(
+        &self,
+        fields: &'w mut Option<[Field<T, Spinor>; 3]>,
+        inp: &Field<T, Spinor>,
+    ) -> &'w Field<T, Spinor> {
+        let [w, ..] = scratch(fields, inp);
+        let MdwfParams { b, c, mass, .. } = self.params;
+        self.combine(w, &[(inp, b, -c)], (false, false), mass);
+        w
+    }
+}
+
+/// D, D† or Γ5 D of an `Mdwf` at a chosen mass, as a linear map: the Pauli-Villars
+/// operator is this at mass 1.
+pub struct MdwfAt<'a, T: Storage, G: GammaRepre = Dirac> {
+    op: &'a Mdwf<T, G>,
+    work: MdwfWork<T>,
+    variant: Variant,
+    mass: f64,
+}
+
+impl<'a, T: Storage, G: GammaRepre> MdwfAt<'a, T, G> {
+    pub fn new(op: &'a Mdwf<T, G>, variant: Variant, mass: f64) -> Self {
+        Self {
+            op,
+            work: op.work(),
+            variant,
+            mass,
+        }
+    }
+}
+
+impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for MdwfAt<'_, T, G> {
+    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        self.op
+            .mult_at(&mut self.work, out, inp, self.variant, self.mass);
+    }
+}
+
+/// The inverse of the site-local part of an `Mdwf` at a chosen mass, `C^-1` or `C†^-1`, as
+/// a linear map.
+pub struct SiteInverse<'a, T: Storage, G: GammaRepre = Dirac> {
+    pub op: &'a Mdwf<T, G>,
+    pub mass: f64,
+    pub dagger: bool,
+}
+
+impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for SiteInverse<'_, T, G> {
+    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        self.op.mult_site_inv(out, inp, self.mass, self.dagger);
     }
 }
 
