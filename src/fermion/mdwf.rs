@@ -51,11 +51,13 @@
 //! The normalisation and the placement of the mass term follow Bridge++
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
-use super::{FermionOp, GaugeError, HopTerms, Variant, Wilson, WilsonParams, WilsonWork};
+use super::{
+    Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant, Wilson, WilsonParams, WilsonWork,
+};
 use crate::kernel::{Dirac, GammaRepre, Number, Spinor as SiteSpinor, NC, SPINOR_REALS};
 use crate::{
-    fit, for_sites, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage, Vector,
-    C64, ND,
+    fit, for_sites, Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, LinearOp,
+    Parity, Sites, Spinor, Storage, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -146,10 +148,10 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// each `(field, a, y)` of `terms` contributes its spinor times `a` and its hop in the
     /// fifth dimension (Y, or Y† if `dagger`) times `y`. With `reflect`, the result at s is
     /// γ5 times what would be at Ls-1-s: Γ5 applied last. Y is taken at mass `mass`.
-    fn combine(
+    fn combine<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor>,
-        terms: &[(&Field<T, Spinor>, f64, f64)],
+        out: &mut Field<T, Spinor, S>,
+        terms: &[(&Field<T, Spinor, S>, f64, f64)],
         (dagger, reflect): (bool, bool),
         mass: f64,
     ) {
@@ -196,11 +198,11 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     }
 
     /// `out = C inp`, or `C† inp`: the part of D (at mass `mass`) that stays within a
-    /// four-dimensional site.
-    pub fn mult_site(
+    /// four-dimensional site. The fields may be on the whole lattice or on one parity.
+    pub fn mult_site<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
+        out: &mut Field<T, Spinor, S>,
+        inp: &Field<T, Spinor, S>,
         mass: f64,
         dagger: bool,
     ) {
@@ -215,10 +217,10 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// `m d-` in the far corner. Substitution along s gives every x_s as a known part plus
     /// a multiple of the x at the wall the corner refers to; the corner row then fixes
     /// that one. P+ runs upward in s and P- downward; for C† they change places.
-    pub fn mult_site_inv(
+    pub fn mult_site_inv<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
+        out: &mut Field<T, Spinor, S>,
+        inp: &Field<T, Spinor, S>,
         mass: f64,
         dagger: bool,
     ) {
@@ -446,6 +448,99 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
 
     fn hop_coefficient(&self) -> f64 {
         -(4.0 - self.params.m5) / (8.0 - 2.0 * self.params.m5)
+    }
+}
+
+/// Scratch space of the even-odd blocks of `Mdwf`: one field on each parity, made on first
+/// use.
+pub struct MdwfHalfWork<T: Storage> {
+    wilson: WilsonWork<T>,
+    fields: [Option<Field<T, Spinor, Half>>; 2],
+}
+
+/// The scratch field on the parity of `like`, in its shape.
+fn half_scratch<'w, T: Storage>(
+    fields: &'w mut [Option<Field<T, Spinor, Half>>; 2],
+    like: &Field<T, Spinor, Half>,
+) -> &'w mut Field<T, Spinor, Half> {
+    let slot = &mut fields[like.parity().index()];
+    if !slot.as_ref().is_some_and(|f| f.same_shape(like)) {
+        *slot = Some(like.zeros_like());
+    }
+    slot.as_mut().expect("the field was just made")
+}
+
+impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+    /// The even-odd numbering this operator uses, if the lattice allows one.
+    pub fn even_odd_index(&self) -> Option<&Arc<EvenOddIndex>> {
+        self.wilson.even_odd_index()
+    }
+}
+
+/// The even-odd blocks of D, in four dimensions: all `ls` spinors of a site have the
+/// parity of the site. With `B = b - c Y` and the hops `M_pq` of the Wilson kernel,
+///
+///   D = [[C, (4 - M5) M_eo B], [(4 - M5) M_oe B, C]],
+///
+/// so the diagonal blocks are the site-local part C, whose inverse is exact, and
+/// `(D†)_pq = B† (4 - M5) (M†)_pq`.
+impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
+    type Work = MdwfHalfWork<T>;
+
+    fn even_odd_work(&self) -> MdwfHalfWork<T> {
+        MdwfHalfWork {
+            wilson: self.wilson.even_odd_work(),
+            fields: [None, None],
+        }
+    }
+
+    fn hop(
+        &self,
+        work: &mut MdwfHalfWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
+        let MdwfParams { m5, b, c, mass, .. } = self.params;
+        let height = 4.0 - m5;
+        match dagger {
+            Dagger::No => {
+                let w = half_scratch(&mut work.fields, inp);
+                self.combine(w, &[(inp, height * b, -height * c)], (false, false), mass);
+                self.wilson.hop(&mut work.wilson, out, w, to, dagger);
+            }
+            Dagger::Yes => {
+                let v = half_scratch(&mut work.fields, out);
+                self.wilson.hop(&mut work.wilson, v, inp, to, dagger);
+                self.combine(out, &[(&*v, height * b, -height * c)], (true, false), mass);
+            }
+        }
+    }
+
+    fn diag(
+        &self,
+        _work: &mut MdwfHalfWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        parity: Parity,
+        dagger: Dagger,
+    ) {
+        assert!(inp.parity() == parity && out.parity() == parity);
+        self.mult_site(out, inp, self.params.mass, dagger == Dagger::Yes);
+    }
+
+    fn diag_inv(
+        &self,
+        _work: &mut MdwfHalfWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        parity: Parity,
+        dagger: Dagger,
+    ) {
+        assert!(inp.parity() == parity && out.parity() == parity);
+        self.mult_site_inv(out, inp, self.params.mass, dagger == Dagger::Yes);
     }
 }
 

@@ -22,7 +22,7 @@ pub use coarse::CoarseOp;
 pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };
-pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams};
+pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::Sap;
 
 use std::fmt;
@@ -34,6 +34,9 @@ pub enum MultigridError {
     DependentTestVectors { coarse_site: usize, vector: usize },
     /// The diagonal block of the coarse operator cannot be inverted at this coarse site.
     SingularCoarseDiagonal { coarse_site: usize },
+    /// The powers of the operator that a polynomial smoother of this degree is fitted to
+    /// are linearly dependent to working precision. A lower degree is needed.
+    DependentPowers { degree: usize },
 }
 
 impl fmt::Display for MultigridError {
@@ -46,6 +49,10 @@ impl fmt::Display for MultigridError {
             MultigridError::SingularCoarseDiagonal { coarse_site } => write!(
                 f,
                 "the diagonal block of the coarse operator is singular at coarse site {coarse_site}"
+            ),
+            MultigridError::DependentPowers { degree } => write!(
+                f,
+                "a polynomial smoother of degree {degree} cannot be fitted: the powers of the operator are linearly dependent"
             ),
         }
     }

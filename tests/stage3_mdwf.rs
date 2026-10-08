@@ -3,16 +3,19 @@
 mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
-use ruttice::fermion::{Bound, FermionOp, HopTerms, Mdwf, MdwfParams, PvPreconditioned, Variant};
+use ruttice::fermion::{
+    solve_even_odd, Bound, Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams,
+    PvPreconditioned, Variant,
+};
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{
-    mdwf_multigrid, CoarseOp, MdwfCoarse, MdwfMultigridParams,
+    mdwf_multigrid, CoarseOp, MdwfCoarse, MdwfMultigridParams, MdwfSmoother,
 };
-use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
+use ruttice::solver::{solve_cgne, BiCgStab, Cg, Fgmres, Polynomial, Solve, Solver, Stop};
 use ruttice::{
-    assemble, local_part, random_spinor, Boundary, Field, Gauge, Lattice, LinearFn, LinearOp,
-    LocalComm, Spinor, Vector, C64, ND,
+    assemble, extract_parity, insert_parity, local_part, random_spinor, Boundary, Field, Gauge,
+    Half, Lattice, LinearFn, LinearOp, LocalComm, Parity, Spinor, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -367,6 +370,195 @@ fn multigrid_cycle_runs_as_a_preconditioner() {
         );
         assert!(physical < 1e-15, "{coarse_operator:?}: {physical:e}");
     }
+}
+
+/// The even-odd blocks put together are D, and those of the adjoint are D†.
+#[test]
+fn even_odd_blocks_add_up_to_the_operator() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 31));
+    let index = op.even_odd_index().unwrap();
+    let x = random(&lat, MOBIUS.ls, 2, 32);
+    let half = |parity: Parity| {
+        let mut h = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+        h.set_parity(parity);
+        h
+    };
+    let mut work = op.even_odd_work();
+    for (dagger, variant) in [(Dagger::No, Variant::D), (Dagger::Yes, Variant::Dagger)] {
+        let mut blocks = x.zeros_like();
+        for to in [Parity::Even, Parity::Odd] {
+            let (mut same, mut other) = (half(to), half(to.flip()));
+            extract_parity(&mut same, &x, index, to);
+            extract_parity(&mut other, &x, index, to.flip());
+            let (mut local, mut hopped) = (half(to), half(to));
+            op.diag(&mut work, &mut local, &same, to, dagger);
+            op.hop(&mut work, &mut hopped, &other, to, dagger);
+            local.axpy(&[C64::new(1.0, 0.0); 2], &hopped);
+            insert_parity(&mut blocks, &local, index);
+
+            // The inverse of the diagonal block undoes it.
+            let mut back = half(to);
+            op.diag(&mut work, &mut hopped, &same, to, dagger);
+            op.diag_inv(&mut work, &mut back, &hopped, to, dagger);
+            back.axpy(&[C64::new(-1.0, 0.0); 2], &same);
+            let (mut left, mut size) = ([0.0; 2], [0.0; 2]);
+            back.norm_sqr(&mut left);
+            same.norm_sqr(&mut size);
+            assert!(
+                left[0] < 1e-26 * size[0],
+                "{dagger:?} {to:?}: {:e}",
+                left[0] / size[0]
+            );
+        }
+        let whole = mult(&op, &x, variant);
+        let diff = max_diff(&blocks, &whole);
+        assert!(diff < 1e-13, "{variant:?}: {diff:e}");
+    }
+}
+
+/// CG on the normal equations of the Schur complement solves D x = b, in fewer iterations
+/// than on those of D.
+#[test]
+fn even_odd_solve_solves_the_full_system() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 33));
+    let b = random(&lat, MOBIUS.ls, 2, 34);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 4000,
+        max_restarts: 2,
+    };
+    let mut x = b.zeros_like();
+    let info = solve_even_odd(
+        &op,
+        op.even_odd_index().unwrap(),
+        &mut x,
+        &b,
+        |schur, x_e, rhs| solve_cgne(&mut Cg::new(stop), schur, x_e, rhs),
+    )
+    .unwrap();
+    let mut r = mult(&op, &x, Variant::D);
+    r.scale(&[-1.0; 2]);
+    r.axpy(&[C64::new(1.0, 0.0); 2], &b);
+    let (mut left, mut size) = ([0.0; 2], [0.0; 2]);
+    r.norm_sqr(&mut left);
+    b.norm_sqr(&mut size);
+    let mut y = b.zeros_like();
+    let whole = solve_cgne(
+        &mut Cg::new(stop),
+        &mut Bound::new(&op, Variant::D),
+        &mut y,
+        &b,
+    )
+    .unwrap();
+    eprintln!(
+        "even-odd: {} iterations, |D x - b|^2/|b|^2 = {:e}; whole lattice: {} iterations",
+        info.iterations,
+        left[0] / size[0],
+        whole.iterations
+    );
+    assert!(left.iter().zip(&size).all(|(l, s)| l < &(1e-20 * s)));
+    assert!(info.iterations < whole.iterations);
+}
+
+/// The frozen polynomial of A: it is the minimal-residual polynomial of its sample, so on
+/// the sample it leaves what GMRES of the same length leaves; it is the same linear map for
+/// every input; further passes reduce the residual further; and BiCGStab preconditioned by
+/// a cycle that smooths with it solves D x = b.
+#[test]
+fn frozen_polynomial_smoother() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 17);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.0,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: BOUNDARY,
+    };
+    let op = operator(&lat, params, &u);
+    let sample = random(&lat, params.ls, 1, 5);
+    let mut a = PvPreconditioned::new(&op, &sample);
+    let mut left = |x: &V, b: &V| {
+        let mut r = b.zeros_like();
+        a.mult(&mut r, x);
+        r.scale(&[-1.0]);
+        r.axpy(&[C64::new(1.0, 0.0)], b);
+        (dot(&r, &r).re / dot(b, b).re).sqrt()
+    };
+
+    let degree = 4;
+    let mut once =
+        Polynomial::fit(PvPreconditioned::new(&op, &sample), &sample, degree, 1).unwrap();
+    let mut gmres = Solve::new(
+        Fgmres::new(Stop::simple(0.0, degree)),
+        PvPreconditioned::new(&op, &sample),
+    );
+    let (mut x, mut y) = (sample.zeros_like(), sample.zeros_like());
+    once.mult(&mut x, &sample);
+    gmres.mult(&mut y, &sample);
+    let (polynomial, krylov) = (left(&x, &sample), left(&y, &sample));
+    eprintln!("on its sample: polynomial {polynomial:.6}, GMRES({degree}) {krylov:.6}");
+    assert!((polynomial - krylov).abs() < 1e-8 * krylov);
+
+    // Linear: p(A)(2 v + i w) = 2 p(A) v + i p(A) w.
+    let (v, w) = (random(&lat, params.ls, 1, 6), random(&lat, params.ls, 1, 7));
+    let mut combined = v.zeros_like();
+    combined.axpy(&[C64::new(2.0, 0.0)], &v);
+    combined.axpy(&[C64::new(0.0, 1.0)], &w);
+    let (mut pv, mut pw, mut pc) = (v.zeros_like(), v.zeros_like(), v.zeros_like());
+    once.mult(&mut pv, &v);
+    once.mult(&mut pw, &w);
+    once.mult(&mut pc, &combined);
+    pc.axpy(&[C64::new(-2.0, 0.0)], &pv);
+    pc.axpy(&[C64::new(0.0, -1.0)], &pw);
+    assert!(dot(&pc, &pc).re < 1e-24 * dot(&pv, &pv).re);
+
+    // On another vector it cannot beat GMRES, and a second pass leaves less.
+    gmres.mult(&mut y, &v);
+    let mut twice =
+        Polynomial::fit(PvPreconditioned::new(&op, &sample), &sample, degree, 2).unwrap();
+    twice.mult(&mut x, &v);
+    let (one, two, krylov) = (left(&pv, &v), left(&x, &v), left(&y, &v));
+    eprintln!(
+        "on another vector: one pass {one:.4}, two passes {two:.4}, GMRES({degree}) {krylov:.4}"
+    );
+    assert!(krylov <= one * (1.0 + 1e-10) && two < one && one < 1.0);
+
+    let b = random(&lat, params.ls, 1, 91);
+    let mut rhs = b.zeros_like();
+    PvPreconditioned::new(&op, &b).precondition(&mut rhs, &b);
+    let choice = MdwfMultigridParams {
+        num_test_vectors: 4,
+        smoother: MdwfSmoother::Polynomial { degree, passes: 1 },
+        ..MdwfMultigridParams::note([2, 2, 2, 2])
+    };
+    let mut mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
+    let stop = Stop {
+        tolerance_sqr: 1e-20,
+        max_iterations: 2000,
+        max_restarts: 5,
+    };
+    let mut x = b.zeros_like();
+    let info = BiCgStab::new(stop)
+        .solve(
+            &mut PvPreconditioned::new(&op, &b),
+            Some(&mut mg),
+            &mut x,
+            &rhs,
+        )
+        .unwrap();
+    let mut r = mult(&op, &x, Variant::D);
+    r.scale(&[-1.0]);
+    r.axpy(&[C64::new(1.0, 0.0)], &b);
+    let physical = dot(&r, &r).re / dot(&b, &b).re;
+    eprintln!(
+        "BiCGStab with the cycle: {} iterations, |D x - b|^2/|b|^2 = {physical:e}",
+        info.iterations
+    );
+    assert!(physical < 1e-15, "{physical:e}");
 }
 
 /// How much of `P† A P` the probed coarse operator keeps: applied to a random coarse

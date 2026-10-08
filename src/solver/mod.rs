@@ -7,12 +7,14 @@ mod bicgstab;
 mod cg;
 mod fgmres;
 mod mixed;
+mod polynomial;
 pub mod preconditioner;
 
 pub use bicgstab::BiCgStab;
 pub use cg::Cg;
 pub use fgmres::Fgmres;
 pub use mixed::{Convert, Refine, Solve};
+pub use polynomial::Polynomial;
 
 use crate::{Adjoint, LinearFn, LinearOp, Normal, Vector};
 use std::fmt;
