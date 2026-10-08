@@ -18,8 +18,10 @@ use rayon::prelude::*;
 use ruttice::fermion::{Bound, FermionOp, HopTerms, Variant, Wilson, WilsonParams};
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis};
-use ruttice::solver::{largest_magnitude, ChebyshevFilter};
-use ruttice::{random_spinor, Boundary, Field, Lattice, LinearFn, Normal, Spinor, Vector, C64, ND};
+use ruttice::solver::{largest_magnitude, ChebyshevFilter, Fgmres, Solve, Solver, Stop};
+use ruttice::{
+    random_spinor, Boundary, Coarse, Field, Lattice, LinearFn, Normal, Spinor, Vector, C64, ND,
+};
 use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -27,6 +29,19 @@ use std::time::Instant;
 const USAGE: &str = "usage: wilson_boundary CONFIG L KAPPA [K] [M] [ITERS]";
 
 type V = Field<f64, Spinor>;
+type C = Field<f64, Coarse>;
+
+trait CoarseNorm {
+    fn norm(&self) -> f64;
+}
+
+impl CoarseNorm for C {
+    fn norm(&self) -> f64 {
+        let mut n = vec![0.0; self.num_vectors()];
+        self.norm_sqr(&mut n);
+        n.iter().sum::<f64>().sqrt()
+    }
+}
 
 fn norms(x: &V) -> Vec<f64> {
     let mut n = vec![0.0; x.num_vectors()];
@@ -417,6 +432,91 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
         }
         println!("{line}");
+    }
+    // The coarse correction itself, as `mdwf_eigmg_diag` measures it for A: on 3^4 blocks,
+    // the exact Galerkin correction P (P†DP)⁻¹ P† D t, then post-smoothing with GMRES(4) on
+    // D; the low-mode content |X† e| (X: all M Ritz vectors). And the coarse residual
+    // |P†D PP†t| / |P†D t|: how far P†DP is from having P†t as a near-null vector.
+    if l.is_multiple_of(3) {
+        struct Galerkin<'a, 'b> {
+            d: Bound<'a, Wilson<f64>, V>,
+            p: &'b Basis<f64>,
+            f: V,
+            g: V,
+        }
+        impl LinearFn<C> for Galerkin<'_, '_> {
+            fn mult(&mut self, out: &mut C, inp: &C) {
+                self.p.prolong(&mut self.f, inp);
+                self.d.mult(&mut self.g, &self.f);
+                self.p.restrict(out, &self.g);
+            }
+        }
+        let agg = Aggregation::new(&lat, [3; ND]);
+        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let mut smoother = Solve::new(
+            Fgmres::new(Stop::simple(1e-6, 4)),
+            Bound::new(&op, Variant::D),
+        );
+        let low = |e: &V| -> f64 {
+            let mut s = 0.0;
+            for j in 0..m {
+                let mut dd = vec![C64::ZERO; 1];
+                x.select(&[j]).dot(e, &mut dd);
+                s += dd[0].norm_sqr();
+            }
+            s.sqrt()
+        };
+        let mut smooth = |d: &mut Bound<'_, Wilson<f64>, V>, e: &V| -> V {
+            let mut de = e.zeros_like();
+            d.mult(&mut de, e);
+            let mut se = e.zeros_like();
+            smoother.mult(&mut se, &de);
+            let mut out = e.zeros_like();
+            out.copy_from(e);
+            out.axpy(&[C64::new(-1.0, 0.0)], &se);
+            out
+        };
+        println!("  3^4, N = {n}: low-mode content left (t = v_8..v_11):");
+        for j in n..n + 4 {
+            let t = v.select(&[j]);
+            let mut c = p.coarse_field(1);
+            p.restrict(&mut c, &t);
+            let mut held = t.zeros_like();
+            p.prolong(&mut held, &c);
+            let floor = (1.0 - norm(&held).powi(2)).max(0.0).sqrt();
+            let (mut dt, mut dh) = (t.zeros_like(), t.zeros_like());
+            d_op.mult(&mut dt, &t);
+            d_op.mult(&mut dh, &held);
+            let (mut cdt, mut cdh) = (p.coarse_field(1), p.coarse_field(1));
+            p.restrict(&mut cdt, &dt);
+            p.restrict(&mut cdh, &dh);
+            let coarse_ratio = cdh.norm() / cdt.norm();
+            let mut y = cdt.zeros_like();
+            let mut gal = Galerkin {
+                d: Bound::new(&op, Variant::D),
+                p: &p,
+                f: t.zeros_like(),
+                g: t.zeros_like(),
+            };
+            let solved = Fgmres::new(Stop {
+                tolerance_sqr: 1e-16,
+                max_iterations: 100,
+                max_restarts: 20,
+            })
+            .solve(&mut gal, None, &mut y, &cdt);
+            let mut e = t.zeros_like();
+            p.prolong(&mut e, &y);
+            e.aypx(&[C64::new(-1.0, 0.0)], &t);
+            let smoothed_only = smooth(&mut d_op, &t);
+            let after = smooth(&mut d_op, &e);
+            println!(
+                "    j = {j}: floor {floor:.3}; coarse residual ratio {coarse_ratio:.1}; smoothing alone {:.3}; Galerkin {:.3}{} → with smoothing {:.3}",
+                low(&smoothed_only),
+                low(&e),
+                if solved.is_err() { "*" } else { "" },
+                low(&after)
+            );
+        }
     }
     println!("done ({:.0} s)", start.elapsed().as_secs_f64());
     Ok(())

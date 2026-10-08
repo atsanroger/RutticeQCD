@@ -333,6 +333,25 @@ fn main() -> Result<(), Box<dyn Error>> {
             "check on {b0}^4: |PP†t| {held:.4}; written-out projection − Basis {:.1e}",
             norm(&mine)
         );
+        // How far P†AP is from having P†t as a near-null vector.
+        let mut line = String::from("  coarse residual ratio |P†A PP†t| / |P†A t| for the four t:");
+        for t in &ts {
+            let mut c = p.coarse_field(1);
+            p.restrict(&mut c, t);
+            let mut held = like.zeros_like();
+            p.prolong(&mut held, &c);
+            let (at, ah) = (apply(&mut a, t), apply(&mut a, &held));
+            let (mut cat, mut cah) = (p.coarse_field(1), p.coarse_field(1));
+            p.restrict(&mut cat, &at);
+            p.restrict(&mut cah, &ah);
+            let coarse_norm = |c: &C| {
+                let mut n = vec![0.0; 1];
+                c.norm_sqr(&mut n);
+                n[0].sqrt()
+            };
+            line += &format!(" {:.1}", coarse_norm(&cah) / coarse_norm(&cat));
+        }
+        println!("{line}");
         let mut line = String::from("  t_in = PP†t: what each exact correction leaves of it:");
         for (kind, name) in ["R = P†", "R = Q†", "R = P†A†"].iter().enumerate() {
             let left = corrected(&op, [&p, &q], kind, &by_basis);
