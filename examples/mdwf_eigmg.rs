@@ -337,12 +337,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 fine: like.zeros_like(),
                 a_fine: like.zeros_like(),
             };
-            let _ = Fgmres::new(Stop {
-                tolerance_sqr: 1e-20,
+            let solved = Fgmres::new(Stop {
+                tolerance_sqr: 1e-14,
                 max_iterations: 100,
-                max_restarts: 50,
+                max_restarts: 10,
             })
             .solve(&mut exact, None, &mut y, &rc);
+            if solved.is_err() {
+                line += " [coarse solve not converged]";
+            }
             let mut left = like.zeros_like();
             p.prolong(&mut left, &y);
             left.aypx(&[C64::new(-1.0, 0.0)], &t);
