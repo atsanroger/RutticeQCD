@@ -507,7 +507,7 @@ fn bicgstab_reports_a_non_finite_preconditioner() {
         fn mult(&mut self, out: &mut V64, inp: &V64) {
             self.0 += 1;
             out.copy_from(inp);
-            if self.0 >= 4 && self.0 % 2 == 0 {
+            if self.0 >= 4 && self.0.is_multiple_of(2) {
                 out.as_mut_slice()[0] = f64::NAN;
             }
         }
