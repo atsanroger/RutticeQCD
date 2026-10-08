@@ -138,6 +138,9 @@ Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，
 或 Kanamori 2023 的結構。細節在 `RutticeQCD/docs/MDWF_MULTIGRID_LOG.md`。
 之後：16 個向量精確版一樣（0.991）；smoothed aggregation P ← (1 − ωA)P 沒有用（0.993–0.995）；
 用真正的低模 t（Chebyshev 濾波，|At|/|t| = 0.04）量，反迭代向量的精確修正也只剩 0.994。
+更平滑的測試向量（反迭代、Chebyshev 濾波）讓探測粗網格變不準，cycle 變有害（BiCGStab 發散／NaN，FGMRES 43 → 78–98）。
+局部一致性弱：2⁴ × 32 個向量也只抓到低模的 72%（3⁴ × 8：29%）。結論與替代方向（Kanamori 2023 結構、deflation、Chebyshev smoother）
+見 `RutticeQCD/docs/MDWF_MULTIGRID_LOG.md`「結論與建議」。
 
 **驗收：** 12⁴ 與 16⁴、M5 = 1.0、5 個右手邊，BiCGStab + 多重網格到物理殘差 |Dx − b|²/|b|² ≈ 1e-16，
 「每個右手邊的細網格 Wilson sweep 總數」（含 smoother、setup 攤提另列）少於 even-odd CGNE（12⁴：約 400）。
