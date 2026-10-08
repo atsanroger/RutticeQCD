@@ -493,3 +493,43 @@ fn chebyshev_on_the_wilson_normal_operator() {
     let after = residual_sqr(&mut h, &pv, &v)[0];
     assert!(after < 0.5, "|b - H p(H) b|^2/|b|^2 = {after}");
 }
+
+/// A preconditioner that starts returning NaN after a few steps is reported as a
+/// breakdown, not as a solve that ran out of iterations with a NaN solution. The NaN comes
+/// in through the second application of an iteration (M s), which reaches the solution
+/// before the breakdown check on ω; a new cycle then starts from a NaN residual, every
+/// comparison with the tolerance is false, and without the check the vectors looked
+/// converged and the solve ended as "not converged".
+#[test]
+fn bicgstab_reports_a_non_finite_preconditioner() {
+    struct Poisoned(usize);
+    impl LinearFn<V64> for Poisoned {
+        fn mult(&mut self, out: &mut V64, inp: &V64) {
+            self.0 += 1;
+            out.copy_from(inp);
+            if self.0 >= 4 && self.0 % 2 == 0 {
+                out.as_mut_slice()[0] = f64::NAN;
+            }
+        }
+    }
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let u = random_gauge(&lat, 7);
+    let op = wilson::<f64>(&lat, &u);
+    let b: V64 = random_spinor(&lat, 1, 8);
+    let mut x = b.zeros_like();
+    let result = BiCgStab::new(Stop {
+        tolerance_sqr: 1e-20,
+        max_iterations: 50,
+        max_restarts: 3,
+    })
+    .solve(
+        &mut Bound::new(&op, Variant::D),
+        Some(&mut Poisoned(0)),
+        &mut x,
+        &b,
+    );
+    assert!(
+        matches!(result, Err(SolveError::Breakdown { .. })),
+        "{result:?}"
+    );
+}
