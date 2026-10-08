@@ -623,3 +623,52 @@ fn probed_coarse_operator_against_the_projection() {
     );
     assert!(norm(&diff) < 0.5 * norm(&projected));
 }
+
+/// BiCGStab preconditioned by a cycle that smooths with Chebyshev iteration solves D x = b;
+/// the cycle is then a fixed linear map (apart from the coarse solve).
+#[test]
+fn chebyshev_smoother_in_the_cycle() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 17);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.0,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: BOUNDARY,
+    };
+    let op = operator(&lat, params, &u);
+    let b = random(&lat, params.ls, 1, 91);
+    let mut a = PvPreconditioned::new(&op, &b);
+    let mut rhs = b.zeros_like();
+    a.right_hand_side(&mut rhs, &b);
+    let choice = MdwfMultigridParams {
+        num_test_vectors: 4,
+        smoother: MdwfSmoother::Chebyshev {
+            steps: 4,
+            ratio: 10.0,
+        },
+        ..MdwfMultigridParams::note([2, 2, 2, 2])
+    };
+    let mut mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
+    let stop = Stop {
+        tolerance_sqr: 1e-20,
+        max_iterations: 2000,
+        max_restarts: 5,
+    };
+    let (mut y, mut x) = (b.zeros_like(), b.zeros_like());
+    let info = BiCgStab::new(stop)
+        .solve(&mut a, Some(&mut mg), &mut y, &rhs)
+        .unwrap();
+    a.solution(&mut x, &y);
+    let mut r = mult(&op, &x, Variant::D);
+    r.scale(&[-1.0]);
+    r.axpy(&[C64::new(1.0, 0.0)], &b);
+    let physical = dot(&r, &r).re / dot(&b, &b).re;
+    eprintln!(
+        "BiCGStab with the Chebyshev cycle: {} iterations, |D x - b|^2/|b|^2 = {physical:e}",
+        info.iterations
+    );
+    assert!(physical < 1e-15, "{physical:e}");
+}

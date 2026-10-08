@@ -4,8 +4,9 @@
 //!
 //! - The cycle approximates the inverse of `A = (D_PV C_PV^-1)† D C^-1`
 //!   (`PvPreconditioned`), so it is the preconditioner of a flexible solver on A.
-//! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start, or
-//!   a polynomial of A fitted once (`MdwfSmoother`).
+//! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start, a
+//!   polynomial of A fitted once, or Chebyshev iteration on the upper part of the spectrum
+//!   of A (`MdwfSmoother`).
 //! - Aggregates: blocks in space-time that keep the whole fifth dimension, split by the
 //!   chirality of Γ5 = γ5 R.
 //! - Test vectors: random vectors, smoothed, then multiplied by D_PV.
@@ -21,7 +22,7 @@ use super::cycle::random_vectors;
 use super::{Aggregation, CycleParts, Multigrid, MultigridError, SetupHooks};
 use crate::fermion::{Mdwf, MdwfAt, PvPreconditioned, SiteInverse, Variant};
 use crate::kernel::GammaRepre;
-use crate::solver::{Fgmres, Polynomial, Solve, Stop};
+use crate::solver::{largest_magnitude, Chebyshev, Fgmres, Polynomial, Solve, Stop};
 use crate::{Adjoint, Field, Lattice, LinearFn, Spinor, Storage, ND};
 use std::sync::Arc;
 
@@ -54,8 +55,14 @@ pub enum MdwfSmoother {
     Gmres(Stop),
     /// `Polynomial`: a polynomial of A with `degree` coefficients, fitted to a random
     /// vector in the setup and applied `passes` times as a stationary correction. Keeps
-    /// three vectors, and is the same linear map every time.
+    /// three vectors, and is the same linear map every time. In a Krylov solver it can
+    /// stall (degree 4 does on a 12^4 configuration; docs/MDWF_MULTIGRID_LOG.md).
     Polynomial { degree: usize, passes: usize },
+    /// `Chebyshev`: `steps` steps of Chebyshev iteration on A for the real interval
+    /// `[hi/ratio, hi]`, hi = 1.1 |λ_max(A)| from 30 steps of the power iteration in the
+    /// setup (DESIGN.md §7.6.5 (c)). Keeps three vectors, and is the same linear map every
+    /// time.
+    Chebyshev { steps: usize, ratio: f64 },
 }
 
 /// The coarse operator of the domain-wall multigrid.
@@ -109,6 +116,13 @@ where
     let ls = op.params().ls;
     let like = Field::<T, Spinor>::with_shape(lat, 24, ls, 1, 1);
     let sample = random_vectors::<T>(lat, ls, 1, params.seed ^ 0x5EED);
+    let top = match params.smoother {
+        MdwfSmoother::Chebyshev { .. } => {
+            let mut start = random_vectors::<T>(lat, ls, 1, params.seed ^ 0x70B);
+            1.1 * largest_magnitude(&mut PvPreconditioned::new(op, &like), &mut start, 30)
+        }
+        _ => 0.0,
+    };
     let smoother = |dagger: bool| -> Result<Box<dyn LinearFn<Field<T, Spinor>> + 'a>, _> {
         let a = PvPreconditioned::new(op, &like);
         Ok(match (params.smoother, dagger) {
@@ -124,6 +138,12 @@ where
                 Polynomial::fit(Adjoint(a), &sample, degree, passes)
                     .map_err(|_| MultigridError::DependentPowers { degree })?,
             ),
+            (MdwfSmoother::Chebyshev { steps, ratio }, false) => {
+                Box::new(Chebyshev::new(a, steps, top / ratio, top, &like))
+            }
+            (MdwfSmoother::Chebyshev { steps, ratio }, true) => {
+                Box::new(Chebyshev::new(Adjoint(a), steps, top / ratio, top, &like))
+            }
         })
     };
     let parts = CycleParts {

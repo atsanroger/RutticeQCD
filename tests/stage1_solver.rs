@@ -356,3 +356,140 @@ fn bridge_solver_wilson_cgne_iteration_count() {
     assert!(r[0] < 1e-26);
     assert_eq!((nconv as f64 / 10.0).round(), BRIDGE_CGNE_NCONV_OVER_10);
 }
+
+/// `out = λ inp`: an operator with one eigenvalue, on which a polynomial of the operator is
+/// a number that can be computed independently.
+struct Scalar(f64);
+
+impl LinearFn<V64> for Scalar {
+    fn mult(&mut self, out: &mut V64, inp: &V64) {
+        out.copy_from(inp);
+        out.scale(&[self.0]);
+    }
+}
+
+/// T_n(x) for real x, from cos or cosh.
+fn chebyshev_t(n: usize, x: f64) -> f64 {
+    let n = n as f64;
+    if x.abs() <= 1.0 {
+        (n * x.acos()).cos()
+    } else {
+        x.signum().powi(n as i32) * (n * x.abs().acosh()).cosh()
+    }
+}
+
+/// How far `out` is from `factor * v`, relative to the largest entry of `factor * v`.
+fn off_by(out: &V64, v: &V64, factor: f64) -> f64 {
+    let mut d = v.zeros_like();
+    d.copy_from(v);
+    d.scale(&[factor]);
+    let size = d.as_slice().iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+    max_abs_diff(out, &d) / size
+}
+
+/// The Chebyshev filter is T_n(ℓ(λ)) on an eigenvalue λ: bounded by one on [lo, hi],
+/// growing below lo.
+#[test]
+fn chebyshev_filter_is_the_chebyshev_polynomial() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let v: V64 = random_spinor(&lat, 1, 3);
+    let (lo, hi) = (0.1, 4.0);
+    for degree in [1, 2, 7, 30] {
+        for lambda in [0.0, 0.05, 0.1, 1.3, 4.0] {
+            let mut f = ruttice::solver::ChebyshevFilter::new(Scalar(lambda), degree, lo, hi, &v);
+            let mut out = v.zeros_like();
+            f.mult(&mut out, &v);
+            let expected = chebyshev_t(degree, (2.0 * lambda - (hi + lo)) / (hi - lo));
+            let error = off_by(&out, &v, expected);
+            assert!(error < 1e-12, "degree {degree}, λ {lambda}: {error:e}");
+            if (lo..=hi).contains(&lambda) {
+                assert!(expected.abs() <= 1.0 + 1e-12);
+            }
+        }
+    }
+}
+
+/// Chebyshev iteration from zero leaves the residual polynomial
+/// T_k((θ - λ)/δ) / T_k(θ/δ) on an eigenvalue λ (Saad, Iterative Methods, eq. 12.8): one at
+/// λ = 0, small on [lo, hi], and k steps apply A k - 1 times.
+#[test]
+fn chebyshev_iteration_leaves_its_residual_polynomial() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let b: V64 = random_spinor(&lat, 1, 4);
+    let (lo, hi) = (0.2, 3.0);
+    let (theta, delta) = ((hi + lo) / 2.0, (hi - lo) / 2.0);
+    for steps in [1, 2, 5, 12] {
+        for lambda in [0.2, 0.9, 3.0] {
+            let mut cheb = ruttice::solver::Chebyshev::new(Scalar(lambda), steps, lo, hi, &b);
+            let mut x = b.zeros_like();
+            cheb.mult(&mut x, &b);
+            // r = b - λ x
+            let mut r = b.zeros_like();
+            r.copy_from(&b);
+            r.axpy(&[ruttice::C64::new(-lambda, 0.0)], &x);
+            let expected =
+                chebyshev_t(steps, (theta - lambda) / delta) / chebyshev_t(steps, theta / delta);
+            let error = off_by(&r, &b, expected);
+            assert!(error < 1e-10, "steps {steps}, λ {lambda}: {error:e}");
+            assert!(expected.abs() < 1.0);
+        }
+    }
+}
+
+/// On the Wilson D†D: the filtered vector has a far smaller Rayleigh quotient than the
+/// random one it came from; Chebyshev iteration is linear and reduces the residual; the
+/// power iteration finds the top of the spectrum.
+#[test]
+fn chebyshev_on_the_wilson_normal_operator() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 21);
+    let op = wilson::<f64>(&lat, &u);
+    let v: V64 = random_spinor(&lat, 1, 22);
+    let rayleigh = |h: &mut dyn LinearFn<V64>, x: &V64| {
+        let mut hx = x.zeros_like();
+        h.mult(&mut hx, x);
+        let (mut d, mut n) = ([ruttice::C64::ZERO], [0.0]);
+        x.dot(&hx, &mut d);
+        x.norm_sqr(&mut n);
+        d[0].re / n[0]
+    };
+    let mut h = ddag_d(&op, &v);
+    let mut start: V64 = random_spinor(&lat, 1, 23);
+    let top = ruttice::solver::largest_magnitude(&mut h, &mut start, 100);
+    // D = 1 - κ H with |H| ≤ 8, so the spectrum of D†D lies in [0, (1 + 8κ)^2].
+    assert!(
+        top > 0.5 && top <= (1.0 + 8.0 * PARAMS.kappa).powi(2) * (1.0 + 1e-9),
+        "{top}"
+    );
+
+    let hi = 1.1 * top;
+    // A random gauge field at κ = 0.12 leaves little of the spectrum near zero; the
+    // threshold sits at a quarter of the top so that there is something below it to keep.
+    let mut filter = ruttice::solver::ChebyshevFilter::new(ddag_d(&op, &v), 40, hi / 4.0, hi, &v);
+    let mut filtered = v.zeros_like();
+    filter.mult(&mut filtered, &v);
+    let (before, after) = (rayleigh(&mut h, &v), rayleigh(&mut h, &filtered));
+    assert!(after < before / 5.0, "{before} -> {after}");
+
+    let mut cheb = ruttice::solver::Chebyshev::new(ddag_d(&op, &v), 10, hi / 50.0, hi, &v);
+    let w: V64 = random_spinor(&lat, 1, 24);
+    let mut combined = v.zeros_like();
+    combined.copy_from(&v);
+    combined.axpy(&[ruttice::C64::new(0.0, 2.0)], &w);
+    let (mut pv, mut pw, mut pc) = (v.zeros_like(), v.zeros_like(), v.zeros_like());
+    cheb.mult(&mut pv, &v);
+    cheb.mult(&mut pw, &w);
+    cheb.mult(&mut pc, &combined);
+    pc.axpy(&[ruttice::C64::new(-1.0, 0.0)], &pv);
+    pc.axpy(&[ruttice::C64::new(0.0, -2.0)], &pw);
+    let (mut left, mut size) = ([0.0], [0.0]);
+    pc.norm_sqr(&mut left);
+    pv.norm_sqr(&mut size);
+    assert!(
+        left[0] < 1e-24 * size[0],
+        "not linear: {:e}",
+        left[0] / size[0]
+    );
+    let after = residual_sqr(&mut h, &pv, &v)[0];
+    assert!(after < 0.5, "|b - H p(H) b|^2/|b|^2 = {after}");
+}
