@@ -2,8 +2,11 @@
 //! fifth dimension: does cutting s help more than adding test vectors?
 //!
 //! ```text
-//! cargo run --release --example mdwf_coherence_s -- CONFIG L M5 MASS [LS] [DEGREE]
+//! cargo run --release --example mdwf_coherence_s -- CONFIG L M5 MASS [LS] [DEGREE] [MAX_N]
 //! ```
+//!
+//! MAX_N (default 32) is the largest number of test vectors; on 16^4 with Ls 8 one vector
+//! is 100 MB and 7 GB hold at most 16.
 //!
 //! Same vectors as `mdwf_coherence` (same seeds): test vectors filtered by
 //! T_DEGREE(ℓ(A†A)), low-mode errors t1, t2 filtered with twice and three times the degree.
@@ -27,7 +30,7 @@ use ruttice::{random_spinor, Boundary, Field, Lattice, LinearFn, Normal, Spinor,
 use std::error::Error;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: mdwf_coherence_s CONFIG L M5 MASS [LS] [DEGREE]";
+const USAGE: &str = "usage: mdwf_coherence_s CONFIG L M5 MASS [LS] [DEGREE] [MAX_N]";
 
 type V = Field<f64, Spinor>;
 
@@ -147,7 +150,7 @@ fn captured_sqr(
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if !(4..=6).contains(&args.len()) {
+    if !(4..=7).contains(&args.len()) {
         return Err(USAGE.into());
     }
     let path = PathBuf::from(&args[0]);
@@ -161,6 +164,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let degree: usize = args
         .get(5)
         .map_or(Ok(100), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let max_n: usize = args
+        .get(6)
+        .map_or(Ok(32), |s| s.parse())
         .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
@@ -216,18 +223,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         norm(&w) / norm(v)
     };
 
-    let max_n = 32;
-    // Filtered a few vectors at a time: the filter keeps several fields of the size of its
-    // input, and 32 vectors at once do not fit into 7 GB on 12^4. Each vector is filtered
-    // by itself either way, so the result is that of `mdwf_coherence`.
-    let all = {
-        let start = random(max_n, 11);
-        let mut all = start.zeros_like();
-        for chunk in (0..max_n).collect::<Vec<_>>().chunks(8) {
-            all.assign(chunk, &filter(&start.select(chunk), degree));
-        }
-        all
-    };
+    // Filtered a few vectors at a time and in place: the filter keeps several fields of the
+    // size of its input, and 32 vectors at once do not fit into 7 GB on 12^4. Each vector is
+    // filtered by itself either way, so the result is that of `mdwf_coherence`.
+    let mut all = random(max_n, 11);
+    for chunk in (0..max_n).collect::<Vec<_>>().chunks(4) {
+        let filtered = filter(&all.select(chunk), degree);
+        all.assign(chunk, &filtered);
+    }
     let errors = [
         ("t1", filter(&random(1, 302), 2 * degree)),
         ("t2", filter(&random(1, 303), 3 * degree)),
@@ -254,7 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  block   n  partition   coarse/block   |PP†t1|/|t1|  |PP†t2|/|t2|");
     for b in blocks {
         let agg = Aggregation::new(&lat, [b; ND]);
-        for n in [4, 8, 16, 32] {
+        for n in [4, 8, 16, 32].into_iter().filter(|n| *n <= max_n) {
             for (name, groups) in &parts {
                 let smallest = groups.iter().map(|g| g.len()).min().unwrap_or(0);
                 // Per chirality an aggregate has b^4 |group| 6 complex dimensions.
