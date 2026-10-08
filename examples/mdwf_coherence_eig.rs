@@ -451,11 +451,26 @@ fn main() -> Result<(), Box<dyn Error>> {
         y
     };
 
-    // Subspace iteration: filter, orthonormalise, Rayleigh-Ritz.
+    // Subspace iteration: filter, orthonormalise, Rayleigh-Ritz. Resumed from the checkpoint
+    // of an earlier run with the same parameters, if there is one.
+    let checkpoint = PathBuf::from(format!("run/eig_ckpt_{l}_{m5}_{mass}_{ls}_{k}_{m}.bin"));
     let mut x = random(m, 21);
     let mut lo = hi / 1000.0;
     let mut theta = vec![0.0; m];
-    for iteration in 0..iters {
+    let mut first_iteration = 0;
+    if let Some((done, t)) = load(&checkpoint, &mut x)? {
+        first_iteration = done;
+        lo = t[m - 1];
+        theta = t;
+        println!(
+            "resumed from {} after {done} iterations: σ_0 {:.4e}, σ_{} {:.4e}",
+            checkpoint.display(),
+            theta[0].sqrt(),
+            m - 1,
+            theta[m - 1].sqrt()
+        );
+    }
+    for iteration in first_iteration..iters {
         // The filter separates λ below lo from [lo, hi] by T_d(1 + 2 (lo − λ)/(hi − lo)),
         // which grows like exp(2 d √((lo − λ)/hi)): with lo near the low modes a fixed
         // degree stops separating them, so the degree follows √(hi/lo).
@@ -482,7 +497,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         w.axpy(&scale, &x);
         let res: Vec<f64> = norms(&w).iter().zip(&theta).map(|(r, t)| r / t).collect();
         let worst = res[..k].iter().cloned().fold(0.0, f64::max);
+        drop(w);
         lo = theta[m - 1];
+        save(&checkpoint, iteration + 1, &theta, &x)?;
         println!(
             "iteration {iteration:2}, degree {d}: σ_0 {:.4e}, σ_{} {:.4e}, σ_{} {:.4e}; lowest {k}: worst relative residual {worst:.1e}, largest change of θ {change:.1e} ({:.0} s)",
             theta[0].sqrt(),
@@ -494,12 +511,77 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
         // Converged vectors, or a subspace that no longer moves: the test averages over the
         // span of the lowest K, which matters more than each vector by itself.
-        if worst < 1e-2 || change < 1e-3 {
+        let last = worst < 1e-2 || change < 1e-3 || iteration + 1 == iters;
+        // The test on the subspace as it is, from the fourth iteration on: numbers that no
+        // longer change between iterations are the answer even before the vectors converge.
+        if iteration >= 3 || last {
+            report(&op, &lat, [l, ls, k], &theta, &x);
+            println!("({:.0} s)", elapsed());
+        }
+        if last {
             break;
         }
     }
+    println!("done ({:.0} s)", elapsed());
+    Ok(())
+}
+
+/// `x` (its first `m` vectors) and θ after `done` iterations, to `path`.
+fn save(path: &PathBuf, done: usize, theta: &[f64], x: &V) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+    for h in [done as u64, theta.len() as u64, x.as_slice().len() as u64] {
+        f.write_all(&h.to_le_bytes())?;
+    }
+    for v in theta.iter().chain(x.as_slice()) {
+        f.write_all(&v.to_le_bytes())?;
+    }
+    f.flush()?;
+    drop(f);
+    std::fs::rename(tmp, path)
+}
+
+/// The iterations done and θ, with `x` filled, from a checkpoint of the same shape.
+/// Iterations done and θ.
+type Progress = (usize, Vec<f64>);
+
+fn load(path: &PathBuf, x: &mut V) -> Result<Option<Progress>, Box<dyn Error>> {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return Ok(None);
+    };
+    let mut f = std::io::BufReader::new(file);
+    let mut word = [0u8; 8];
+    let mut next = |f: &mut std::io::BufReader<std::fs::File>| -> std::io::Result<[u8; 8]> {
+        f.read_exact(&mut word)?;
+        Ok(word)
+    };
+    let done = u64::from_le_bytes(next(&mut f)?) as usize;
+    let m = u64::from_le_bytes(next(&mut f)?) as usize;
+    let len = u64::from_le_bytes(next(&mut f)?) as usize;
+    if m != x.num_vectors() || len != x.as_slice().len() {
+        return Err(format!("{} is for another shape", path.display()).into());
+    }
+    let mut theta = vec![0.0; m];
+    for t in theta.iter_mut() {
+        *t = f64::from_le_bytes(next(&mut f)?);
+    }
+    for v in x.as_mut_slice() {
+        *v = f64::from_le_bytes(next(&mut f)?);
+    }
+    Ok(Some((done, theta)))
+}
+
+/// Lüscher's test on the lowest `k` vectors of `x` (right singular vectors of A, θ = σ²).
+fn report(
+    op: &Mdwf<f64>,
+    lat: &std::sync::Arc<Lattice>,
+    [l, ls, k]: [usize; 3],
+    theta: &[f64],
+    x: &V,
+) {
     let v = x.select(&(0..k).collect::<Vec<_>>());
-    drop(x);
     println!(
         "σ_j: {}",
         theta[..k]
@@ -514,7 +596,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut lv = copy(&v);
     in_chunks(&mut lv, |c| {
         let mut y = c.zeros_like();
-        PvPreconditioned::new(&op, c).mult(&mut y, c);
+        PvPreconditioned::new(op, c).mult(&mut y, c);
         y
     });
     let inv: Vec<f64> = norms(&lv).iter().map(|n| 1.0 / n).collect();
@@ -526,8 +608,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .max()
         .unwrap_or(1);
     let first: Vec<usize> = (0..max_n).collect();
-    let right = chiral_halves(&op, &v.select(&first));
-    let left = chiral_halves(&op, &lv.select(&first));
+    let right = chiral_halves(op, &v.select(&first));
+    let left = chiral_halves(op, &lv.select(&first));
 
     let blocks: Vec<usize> = [2, 3, 4]
         .into_iter()
@@ -535,7 +617,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
     println!("  block   N   right mean/min/at N   left mean/min/at N   cross mean   random");
     for b in blocks {
-        let agg = Aggregation::new(&lat, [b; ND]);
+        let agg = Aggregation::new(lat, [b; ND]);
         for n in [4, 8, 16, 32].into_iter().filter(|n| *n < k) {
             let r = captured(&agg, &right, n, &v);
             let le = captured(&agg, &left, n, &lv);
@@ -551,6 +633,4 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
         }
     }
-    println!("done ({:.0} s)", elapsed());
-    Ok(())
 }
