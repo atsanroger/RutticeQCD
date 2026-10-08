@@ -208,3 +208,18 @@ FGMRES 能排除、BiCGStab 不行。所以「不是截斷」只對「單獨一�
 - （無；`mdwf_lowmodes`、`mdwf_coherence` 都已跑完，結果在上面。）
 - 16 個向量的 Petrov-Galerkin 一列沒跑完（已知 Petrov-Galerkin 不可行，停掉了）。
 - Chebyshev 與 A′ 的設計草稿在 DESIGN.md §7.6.5，等使用者確認才實作。
+
+## 進行中：A-2，聚合沿 s 也切開（另一個 session，2026-10-08 晚，分支 `mdwf-coherence-s-split`）
+
+**別的 session 請先別動這個分支；這裡只新增 `examples/mdwf_coherence_s.rs` 並更新本節，不改 `src/`。**
+
+方向（使用者決定）：只走「全部作用在 A 上」或 Kanamori 2023 結構，不走 Boyle 的路。
+
+問題：局部一致性弱（2⁴×32 也只有 72%）是 A 低模的本性，還是聚合方式的問題？目前每個聚合把整條 s 綁在一起
+（一個測試向量在一個區塊上只有一個係數），而 DWF 低模在 s 方向集中在牆上、向內衰減，這個自由度從沒變過。
+
+做法：與 `mdwf_coherence` 同樣的向量（同 seed），每個（區塊，手徵）再依 s 分組，各組各自一份限制後正交化的測試向量。
+Γ5 = γ5 R 把 s 對到 Ls−1−s，所以分組按到牆的距離 d = min(s, Ls−1−s)：`whole`（現狀，應重現 `mdwf_coherence`）、
+`d0|rest`、`d01|rest`、`each d`。比較相同「每區塊粗網格維度」下切 s 與加向量哪個抓到更多 \|PP†t\|。
+
+之後（若 A-2 無改善）：K，用同樣量法看 Kanamori 粗網格 P†D D_PV⁻¹P 需要的 D D_PV⁻¹ 低模。
