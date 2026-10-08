@@ -217,7 +217,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let max_n = 32;
-    let all = filter(&random(max_n, 11), degree);
+    // Filtered a few vectors at a time: the filter keeps several fields of the size of its
+    // input, and 32 vectors at once do not fit into 7 GB on 12^4. Each vector is filtered
+    // by itself either way, so the result is that of `mdwf_coherence`.
+    let all = {
+        let start = random(max_n, 11);
+        let mut all = start.zeros_like();
+        for chunk in (0..max_n).collect::<Vec<_>>().chunks(8) {
+            all.assign(chunk, &filter(&start.select(chunk), degree));
+        }
+        all
+    };
     let errors = [
         ("t1", filter(&random(1, 302), 2 * degree)),
         ("t2", filter(&random(1, 303), 3 * degree)),
