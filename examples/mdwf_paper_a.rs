@@ -9,8 +9,10 @@
 //!   m = M_PV.
 //!
 //! ```text
-//! cargo run --release --example mdwf_paper_a -- CONFIG L M5 MASS [LS] [BLOCK] [library|paper]
+//! cargo run --release --example mdwf_paper_a -- CONFIG L M5 MASS [LS] [BLOCK] [library|paper|plain]
 //! ```
+//!
+//! `plain` compares only BiCGStab without a preconditioner, for five right-hand sides.
 //!
 //! For both: BiCGStab without a preconditioner to tolerances 1e-10, 1e-14, 1e-18 of its own
 //! system, with |D x - b|^2/|b|^2; what GMRES(4) and two-grid cycles leave of a random and
@@ -32,7 +34,7 @@ use ruttice::{fit, random_spinor, Boundary, Field, Lattice, LinearFn, Spinor, Ve
 use std::error::Error;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: mdwf_paper_a CONFIG L M5 MASS [LS] [BLOCK] [library|paper]";
+const USAGE: &str = "usage: mdwf_paper_a CONFIG L M5 MASS [LS] [BLOCK] [library|paper|plain]";
 
 type V = Field<f64, Spinor>;
 
@@ -125,6 +127,55 @@ fn main() -> Result<(), Box<dyn Error>> {
         v.norm_sqr(&mut n);
         v.scale(&[1.0 / n[0].sqrt()]);
     };
+    // `plain`: both operators without a preconditioner, for several right-hand sides.
+    if args.get(6).map(String::as_str) == Some("plain") {
+        println!("BiCGStab without a preconditioner; iterations and |D x - b|^2/|b|^2");
+        println!("  seed     tol   library A              paper A'");
+        for seed in [91, 92, 93, 94, 95] {
+            let b = random(1, seed);
+            let physical = |x: &V| {
+                let mut r = b.zeros_like();
+                op.mult(&mut op.work(), &mut r, x, Variant::D);
+                r.aypx(&[C64::new(-1.0, 0.0)], &b);
+                let (mut left, mut size) = ([0.0], [0.0]);
+                r.norm_sqr(&mut left);
+                b.norm_sqr(&mut size);
+                left[0] / size[0]
+            };
+            for tol in [1e-14, 1e-18] {
+                let mut line = format!("  {seed:4}  {tol:.0e}");
+                for which in [Which::Library, Which::Paper] {
+                    let (mut r, mut y) = (b.zeros_like(), b.zeros_like());
+                    let result = match which {
+                        Which::Library => {
+                            let mut a = PvPreconditioned::new(&op, &b);
+                            a.precondition(&mut r, &b);
+                            BiCgStab::new(Stop::simple(tol, 4000)).solve(&mut a, None, &mut y, &r)
+                        }
+                        Which::Paper => {
+                            let mut a = PaperA::new(&op, &b);
+                            a.x_dagger(&mut r, &b);
+                            BiCgStab::new(Stop::simple(tol, 4000)).solve(&mut a, None, &mut y, &r)
+                        }
+                    };
+                    let mut x = y.zeros_like();
+                    match which {
+                        Which::Library => x.copy_from(&y),
+                        Which::Paper => op.mult_site_inv(&mut x, &y, mass, false),
+                    }
+                    let iterations = match result {
+                        Ok(i) => format!("{:4}", i.iterations),
+                        Err(SolveError::NotConverged(i)) => format!("{:4}*", i.iterations),
+                        Err(e) => format!("failed: {e}"),
+                    };
+                    line += &format!("   {iterations}  {:8.1e}", physical(&x));
+                }
+                println!("{line}");
+            }
+        }
+        return Ok(());
+    }
+
     let b = random(1, 91);
     let physical = |x: &V| {
         let mut r = b.zeros_like();
