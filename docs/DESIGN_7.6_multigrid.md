@@ -122,6 +122,7 @@ Boyle（arXiv:2409.03904）用 Chebyshev 低通濾波或 Lanczos 特徵向量，
 S_Y = 1 − D_eo C_o⁻¹ D_oe C_e⁻¹（Y = D C⁻¹ 的 Schur 補，S_D = S_Y C_e），S_X 同理於 D_PV。解 Ã y = S_X† b′_e、x_e = C_e⁻¹ y、x_o = C_o⁻¹(b_o − D_oe x_e)。
 12⁴ M5 = 1.0：Ã 正定（隨機 +1.15、低模 +0.018），BiCGStab 不加預處理到物理殘差 4e-17 用 399 sweeps，**與 even-odd CGNE（391 sweeps、7e-17）打平**；全格子 A′ 約 1000。
 16⁴ β = 6.0：Ã 約 1180 sweeps（內插到 CGNE 的物理殘差 6e-17）對 CGNE 1108，慢約 6%。
+Chebyshev 多項式預處理 Ã：ratio 30–100 最好（300 太大）；sweeps 不變（12⁴ 約 400、16⁴ 約 1210），迭代數降 5–17 倍（16⁴：9 步、ratio 100，32 次對 CGNE 約 560 次）。
 之後的多重網格應建在 Ã 上。
 
 凍結的 MR 多項式（`Polynomial`）放進 Krylov 會停滯（4 次 × 2 單獨當預處理器也停滯）；GMRES(m) 每次是不同的映射，BiCGStab 的迭代數因此在 45–119 跳動。
