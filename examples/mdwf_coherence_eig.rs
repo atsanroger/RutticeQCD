@@ -456,14 +456,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut lo = hi / 1000.0;
     let mut theta = vec![0.0; m];
     for iteration in 0..iters {
+        // The filter separates λ below lo from [lo, hi] by T_d(1 + 2 (lo − λ)/(hi − lo)),
+        // which grows like exp(2 d √((lo − λ)/hi)): with lo near the low modes a fixed
+        // degree stops separating them, so the degree follows √(hi/lo).
+        let d = ((1.5 * (hi / lo).sqrt()).ceil() as usize).clamp(degree, 1000);
         in_chunks(&mut x, |c| {
-            let mut f = ChebyshevFilter::new(
-                Normal::new(PvPreconditioned::new(&op, c), c),
-                degree,
-                lo,
-                hi,
-                c,
-            );
+            let mut f =
+                ChebyshevFilter::new(Normal::new(PvPreconditioned::new(&op, c), c), d, lo, hi, c);
             let mut y = c.zeros_like();
             f.mult(&mut y, c);
             y
@@ -474,6 +473,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (values, c) = eigh(gram(&x, &w), m);
         rotate(&mut x, &c);
         rotate(&mut w, &c);
+        let change = (0..k)
+            .map(|j| ((values[j] - theta[j]) / values[j]).abs())
+            .fold(0.0, f64::max);
         theta = values;
         // |H v_j − θ_j v_j| / θ_j.
         let scale: Vec<C64> = theta.iter().map(|t| C64::new(-t, 0.0)).collect();
@@ -482,7 +484,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let worst = res[..k].iter().cloned().fold(0.0, f64::max);
         lo = theta[m - 1];
         println!(
-            "iteration {iteration:2}: σ_0 {:.4e}, σ_{} {:.4e}, σ_{} {:.4e}; worst relative residual of the lowest {k}: {worst:.1e} ({:.0} s)",
+            "iteration {iteration:2}, degree {d}: σ_0 {:.4e}, σ_{} {:.4e}, σ_{} {:.4e}; lowest {k}: worst relative residual {worst:.1e}, largest change of θ {change:.1e} ({:.0} s)",
             theta[0].sqrt(),
             k - 1,
             theta[k - 1].sqrt(),
@@ -490,7 +492,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             theta[m - 1].sqrt(),
             elapsed()
         );
-        if worst < 1e-2 {
+        // Converged vectors, or a subspace that no longer moves: the test averages over the
+        // span of the lowest K, which matters more than each vector by itself.
+        if worst < 1e-2 || change < 1e-3 {
             break;
         }
     }
