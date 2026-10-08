@@ -16,14 +16,17 @@
 //! Printed for 8 and 16 test vectors: |P P† s| / |s| (the error the coarse space can
 //! represent), |Q Q† r| / |r| (the residual the restriction sees), and what the coarse
 //! correction P (Q† A P)^-1 Q† A leaves of an error e: e = P c (zero up to the couplings
-//! probing leaves out) and e = s. The coarse system is solved to 1e-20.
+//! probing leaves out) and e = s, with the coarse operator probed and cut down to nearest
+//! neighbours as the multigrid builds it, and applied exactly through the fine lattice.
+//! The coarse system is solved to 1e-20. The floor for s, sqrt(1 - |PP†s|^2/|s|^2), is
+//! what a correction that removed the whole represented part would leave.
 
 use ruttice::fermion::{FermionOp, HopTerms, Mdwf, MdwfParams, PvPreconditioned};
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
 use ruttice::solver::{BiCgStab, Fgmres, Solver, Stop};
 use ruttice::{
-    random_spinor, Adjoint, Boundary, Field, Lattice, LinearFn, Spinor, Vector, C64, ND,
+    random_spinor, Adjoint, Boundary, Coarse, Field, Lattice, LinearFn, Spinor, Vector, C64, ND,
 };
 use std::error::Error;
 use std::path::PathBuf;
@@ -38,6 +41,24 @@ fn norm(v: &V) -> f64 {
     n.iter().sum::<f64>().sqrt()
 }
 
+/// The coarse operator Q† A P applied exactly, through the fine lattice: no coupling is
+/// left out.
+struct Exact<'a, 'b> {
+    a: PvPreconditioned<'a, f64>,
+    p: &'b Basis<f64>,
+    q: &'b Basis<f64>,
+    fine: V,
+    a_fine: V,
+}
+
+impl LinearFn<Field<f64, Coarse>> for Exact<'_, '_> {
+    fn mult(&mut self, out: &mut Field<f64, Coarse>, inp: &Field<f64, Coarse>) {
+        self.p.prolong(&mut self.fine, inp);
+        self.a.mult(&mut self.a_fine, &self.fine);
+        self.q.restrict(out, &self.a_fine);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if !(4..=6).contains(&args.len()) {
@@ -47,8 +68,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let block: usize = args.get(5).map_or(Ok(3), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let block: usize = args
+        .get(5)
+        .map_or(Ok(3), |s| s.parse())
+        .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -116,8 +143,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 b.prolong(&mut back, &c);
                 norm(&back) / norm(v)
             };
-            let mut coarse = CoarseOp::probe(&mut a, &p, restriction, false)?;
-            let mut leaves = |e: &V, a: &mut PvPreconditioned<'_, f64>| {
+            let mut probed = CoarseOp::probe(&mut a, &p, restriction, false)?;
+            let mut exact = Exact {
+                a: PvPreconditioned::new(&op, &like),
+                p: &p,
+                q: restriction,
+                fine: like.zeros_like(),
+                a_fine: like.zeros_like(),
+            };
+            let leaves = |e: &V,
+                          coarse: &mut dyn LinearFn<Field<f64, Coarse>>,
+                          a: &mut PvPreconditioned<'_, f64>| {
                 let mut r = e.zeros_like();
                 a.mult(&mut r, e);
                 let mut rc = restriction.coarse_field(1);
@@ -128,7 +164,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     max_iterations: 100,
                     max_restarts: 50,
                 })
-                .solve(&mut coarse, None, &mut y, &rc);
+                .solve(coarse, None, &mut y, &rc);
                 let mut back = e.zeros_like();
                 p.prolong(&mut back, &y);
                 back.aypx(&[C64::new(-1.0, 0.0)], e);
@@ -140,14 +176,24 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             let mut inside = like.zeros_like();
             p.prolong(&mut inside, &c);
-            let on_inside = leaves(&inside, &mut a);
-            let on_smooth = leaves(&smooth, &mut a);
+            let in_space = seen(&p, &smooth);
             println!(
-                "{nvec:2} vectors, {name:<28} |PP†s|/|s| {:.3}  |QQ†r|/|r| {:.3}  \
-                 left of P c {on_inside:.3}  left of s {on_smooth:.3}",
-                seen(&p, &smooth),
-                seen(restriction, &residual)
+                "{nvec:2} vectors, {name:<28} |PP†s|/|s| {in_space:.3}  |QQ†r|/|r| {:.3}  \
+                 floor for s {:.3}",
+                seen(restriction, &residual),
+                (1.0 - in_space * in_space).sqrt()
             );
+            for (which, coarse) in [
+                (
+                    "probed (nearest neighbours)",
+                    &mut probed as &mut dyn LinearFn<Field<f64, Coarse>>,
+                ),
+                ("exact (P†A P every time)", &mut exact),
+            ] {
+                let on_inside = leaves(&inside, coarse, &mut a);
+                let on_smooth = leaves(&smooth, coarse, &mut a);
+                println!("      coarse operator {which:<28} left of P c {on_inside:.3}  left of s {on_smooth:.3}");
+            }
         }
     }
     Ok(())

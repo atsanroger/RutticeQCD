@@ -6,7 +6,7 @@
 //! cargo run --release --example mdwf_smoother -- CONFIG L M5 MASS [LS] [BLOCK]
 //! ```
 //!
-//! Two vectors: a random one, and a smooth one, the solution of A x = P b for a random b,
+//! Two vectors: a random one, and a smooth one, the solution of A y = X† b for a random b,
 //! normalised, which is dominated by the low modes of A.
 
 use ruttice::fermion::{FermionOp, Mdwf, MdwfParams, PvPreconditioned};
@@ -32,8 +32,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let block: usize = args.get(5).map_or(Ok(3), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let block: usize = args
+        .get(5)
+        .map_or(Ok(3), |s| s.parse())
+        .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -72,7 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let b = random(302);
         let mut rhs = b.zeros_like();
         let mut a = PvPreconditioned::new(&op, &b);
-        a.precondition(&mut rhs, &b);
+        a.right_hand_side(&mut rhs, &b);
         let _ = BiCgStab::new(Stop::simple(1e-12, 2000)).solve(&mut a, None, &mut smooth, &rhs);
         normalise(&mut smooth);
     }
@@ -114,7 +120,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         measure(&format!("GMRES({m})"), &mut gmres);
     }
     let smoothers = [
-        ("polynomial 4", MdwfSmoother::Polynomial { degree: 4, passes: 1 }),
+        (
+            "polynomial 4",
+            MdwfSmoother::Polynomial {
+                degree: 4,
+                passes: 1,
+            },
+        ),
         ("GMRES(4)", MdwfSmoother::Gmres(Stop::simple(1e-6, 4))),
     ];
     for (name, smoother) in smoothers {

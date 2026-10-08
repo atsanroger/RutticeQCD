@@ -51,7 +51,16 @@
 | 1e-14 | 217 次，2.2e-12 | 196 次，2.0e-12 |
 | 1e-18 | 361 次，1.9e-16 | 279 次，1.1e-16 |
 
-- **待確認**：5 個右手邊、12⁴ 與 16⁴（`mdwf_paper_a ... plain`，跑的時候還沒結束，結果見本檔最後）。確認後要把 `PvPreconditioned` 改成 A′，先寫 DESIGN 再改。
+- **更正：上表的 seed 91 剛好有利，換 5 個右手邊差距小很多**（`mdwf_paper_a ... plain`）：
+
+| 12⁴，seed 91–95 合計 | 函式庫 A | 論文 A′ |
+|---|---|---|
+| A 系統停在 1e-14 | 1005 次 | 995 次（−1%） |
+| A 系統停在 1e-18 | 1587 次 | 1517 次（−4%） |
+
+  seed 92 反而是 A′ 慢（339 對 268）。16⁴ β = 6.0 只跑了 seed 91：1e-14 是 824 對 746、1e-18 是 1274 對 1202（−6%），
+  其餘 4 個右手邊使用者決定不跑。物理殘差 A′ 稍好。**結論：A′ 稍好或持平，在 BiCGStab 的雜訊範圍內**；改用 A′ 的理由是它是論文的定義、結構上 m → M_PV 時是 X†X，不是速度。
+- 改用 A′ 已寫進 DESIGN.md §7.6.5（草稿，待使用者確認）。
 - A′ 對粗網格修正沒有幫助（見 4）。
 
 ### 3. 基準（物理殘差對迭代數）
@@ -104,16 +113,41 @@ cycle 的全部效果來自 smoother（cycle 和「兩次平滑」在三位數�
 - 改用 Chebyshev：同意。
 - 授權：問過 GPL；建議 GPL-3.0-or-later，**尚未決定、尚未加 LICENSE**。
 
-## 下一步
+## 計畫（2026-10-08 定）
 
-1. 看完 A vs A′ 的 5 個右手邊（12⁴、16⁴）→ 若一致，DESIGN 寫「A 改成論文的 A′」，使用者確認後改 `PvPreconditioned`。
-2. 用精確 P†AP 分開「斜投影」與「2-hop 截斷」。
-3. Chebyshev 設計寫進 DESIGN.md §7.6，確認後再寫程式：
-   - **測試向量**：對厄米正定的 A†A 做低通濾波（Bridge++ `AFopr_Chebyshev`：`degree_of_polynomial`、`threshold_value`、`upper_bound`；Grid `Chebyshev::InitLowPass`）。上限用 power iteration 估。
-   - **smoother**：A 不是厄米，參考實作沒有；用非厄米 Chebyshev 迭代（Manteuffel 1977；Saad §12.1），橢圓參數由幾步 Arnoldi 的極端 Ritz 值估。固定線性映射 → BiCGStab 可穩定使用。
-4. 成功標準：BiCGStab + MG 在相同物理殘差下，細網格算子總作用次數少於 even-odd CGNE 的 sweeps。
+設計細節在 DESIGN.md §7.6.5。每一步完成後更新本檔。
+
+| 步 | 內容 | 狀態 | 估計 |
+|---|---|---|---|
+| 0 | 量測與診斷（上面 1–5） | 完成 | — |
+| 1 | 精確 P†AP（`mdwf_coarse_check`）：分開「2-hop 截斷」與「斜投影」 | **完成（8 個向量）：截斷不是原因**，見下 | — |
+| 2 | **A 改成論文的 A′**（§7.6.5 (a)，已確認）：`PvPreconditioned` 換成 A′ = X†Y、`right_hand_side`（X†b，原 `precondition`）、`solution`（x = C⁻¹y）；tests、`mdwf_multigrid` 文件、examples 一起改；粗網格建法先不動 | **完成，未 commit**；`stage3_mdwf` 13 個測試通過（含 Bridge++ 組態：`RUTTICE_BRIDGE_TESTS=/home/chen/test/RUQCD/bridge_ref`）；clippy、fmt 乾淨 | — |
+| 3 | Chebyshev 測試向量（§7.6.5 (b)）：對 H = A′†A′ 低通濾波，`ChebyshevFilter` 放 `src/solver/` | 待使用者確認 (b) | 半天（與 4 合計） |
+| 4 | Chebyshev smoother（§7.6.5 (c)）：非厄米 Chebyshev 迭代，`MdwfSmoother::Chebyshev` | 待使用者確認 (c) | 同上 |
+| 5 | 粗網格算符（§7.6.5 (d)）：步驟 1 說不是截斷 → 「保留 81 點」不會有用；要查的是投影本身（見下的推測），或考慮 Kanamori 2023 結構（cycle 作用在 D） | 待決定 | 不確定（研究問題） |
+| 6 | 驗收：12⁴、16⁴，M5 = 1.0，5 個右手邊，物理殘差 ≈ 1e-16，BiCGStab + MG 的細網格 sweep 總數 < even-odd CGNE（12⁴ 約 400） | — | 1–2 小時 |
+
+成功標準：BiCGStab（不是 FGMRES）+ 多重網格，粗網格修正真的有作用（FGMRES 的外層數明顯低於「只做平滑」的 43、平滑誤差的修正接近 √(1-|PP†s|²)），且細網格 sweep 總數贏 CGNE。
+
+## 步驟 1 的結果：精確 P†AP（12⁴，舊 A；A 與 A′ 在粗網格上表現相同）
+
+| 8 個向量，反迭代 1e-6，Galerkin | e = P c 修正後剩 | e = s 修正後剩 | 理論下限 |
+|---|---|---|---|
+| 探測（截到 8 個最近鄰） | 0.033 | 0.995 | 0.926 |
+| **精確 P†AP（不截斷）** | **0.000** | **0.995** | 0.926 |
+
+不截斷時 span(P) 裡的誤差完全修掉，平滑誤差卻一樣沒動 → **不是截斷**。
+推測（未驗證）：s 落在 span(P) 的 38% 是逐區塊投影的 PP†s，在區塊邊界不連續、帶大量高模，A(PP†s) 不小，
+Galerkin 修正因此不指向 s。對厄米算符這靠 smoother 或 smoothed aggregation（先平滑 P）補救；
+但 cycle 加平滑也沒有改善（平滑誤差都剩約 0.707）。下一步可以試：
+(1) 量 |A PP†s| 對 |A s|，確認上面的推測；(2) smoothed aggregation：P ← (1 − ωA) P 或 S P；
+(3) Kanamori 2023 的結構。Petrov-Galerkin（Q 來自 A† 反迭代）讓粗網格算符本身壞掉（e = P c 剩 0.996），不是解法。
+
+步驟 2 附帶的兩個數字（Bridge++ 4³×8 組態，`stage3_mdwf`）：BiCGStab 解 A′ 496 次（舊 A 443 次，**慢 12%**，
+與 12⁴ 的 −4% 方向相反 → 速度不是改用 A′ 的理由）；BiCGStab + cycle（Ls 4、m 0.1）62–71 次（舊 A 356–488 次），
+原因未確認，可能只是 BiCGStab 配變動預處理器的跳動。
 
 ## 尚未跑完（寫這份時）
 
-- `mdwf_paper_a ... plain`：12⁴ 與 16⁴、5 個右手邊。
-- `mdwf_coarse_check` 的「16 個向量、Petrov-Galerkin」那一列。
+- `mdwf_coarse_check` 的 16 個向量兩列（輸出在 as13 的 `/tmp/claude-25116/-home-chen-test/f082ac9a-b2e3-41dd-8bad-d9b0129a9044/tasks/b5mrfmw39.output`，暫存檔，可能會被清掉；要重跑：`./target/release/examples/mdwf_coarse_check /home/chen/test/RUQCD/bench/hmc12/conf_quench_12x12x12x12.txt 12 1.0 0.005 8 3`，約 1 小時）。
+- Chebyshev 與 A′ 的設計草稿在 DESIGN.md §7.6.5，等使用者確認才實作。

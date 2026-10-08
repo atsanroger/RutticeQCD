@@ -6,7 +6,7 @@
 //! ```
 //!
 //! CONFIG is a plain-text configuration on an L^4 lattice. Möbius b = 1.5, c = 0.5,
-//! boundary conditions (1, 1, 1, -1), LS = 8 unless given. BiCGStab solves A x = P b
+//! boundary conditions (1, 1, 1, -1), LS = 8 unless given. BiCGStab solves A y = X† b (x = C^-1 y)
 //! without a preconditioner and without restarts, to |r|^2/|b|^2 < TOL (1e-10, the
 //! single-precision target of the reference spectrum test). Each line: precision, source,
 //! the outcome, iterations, the solver's own residual and |D x - b|^2/|b|^2 of the
@@ -35,7 +35,7 @@ fn source(lat: &Arc<Lattice>, ls: usize, point: bool) -> Field<f64, Spinor> {
     b
 }
 
-/// Solve A x = P b in precision T; the solution comes back in double precision.
+/// Solve A y = X† b in precision T and return x = C^-1 y in double precision.
 fn solve<T: Storage>(
     lat: &Arc<Lattice>,
     params: MdwfParams,
@@ -49,15 +49,11 @@ fn solve<T: Storage>(
     for (to, from) in b.as_mut_slice().iter_mut().zip(b64.as_slice()) {
         *to = T::store(T::Compute::from_f64(*from));
     }
+    let mut a = PvPreconditioned::new(&op, &b);
     let mut rhs = b.zeros_like();
-    PvPreconditioned::new(&op, &b).precondition(&mut rhs, &b);
-    let mut x = b.zeros_like();
-    let outcome = match BiCgStab::new(stop).solve(
-        &mut PvPreconditioned::new(&op, &b),
-        None,
-        &mut x,
-        &rhs,
-    ) {
+    a.right_hand_side(&mut rhs, &b);
+    let mut y = b.zeros_like();
+    let outcome = match BiCgStab::new(stop).solve(&mut a, None, &mut y, &rhs) {
         Ok(info) => format!(
             "converged      {:5}  own {:8.1e}",
             info.iterations, info.residual_sqr[0]
@@ -71,6 +67,8 @@ fn solve<T: Storage>(
         }
         Err(e) => format!("failed: {e}"),
     };
+    let mut x = y.zeros_like();
+    a.solution(&mut x, &y);
     let mut x64 = b64.zeros_like();
     for (to, from) in x64.as_mut_slice().iter_mut().zip(x.as_slice()) {
         *to = from.load().to_f64();
@@ -87,8 +85,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let tol: f64 = args.get(5).map_or(Ok(1e-10), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let tol: f64 = args
+        .get(5)
+        .map_or(Ok(1e-10), |s| s.parse())
+        .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;

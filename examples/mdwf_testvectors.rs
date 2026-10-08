@@ -10,15 +10,15 @@
 //! For each source of test vectors and each coarse operator: the residual the cycle
 //! leaves on a random and on a smooth vector, |v - A M v| (with no coarse correction, two
 //! GMRES(4) smoothings leave 0.079 and 0.246 on the 12^4 test), and BiCGStab and
-//! FGMRES(20) preconditioned by the cycle, to |r|^2/|b|^2 < 1e-16 of A x = P b, with
+//! FGMRES(20) preconditioned by the cycle, to |r|^2/|b|^2 < 1e-16 of A y = X† b, with
 //! |D x - b|^2/|b|^2.
 
-use ruttice::fermion::{FermionOp, Mdwf, MdwfAt, MdwfParams, PvPreconditioned, SiteInverse, Variant};
-use ruttice::io::read_bridge_text;
-use ruttice::solver::preconditioner::multigrid::{
-    Aggregation, CycleParts, Multigrid, SetupHooks,
+use ruttice::fermion::{
+    FermionOp, Mdwf, MdwfAt, MdwfParams, PvPreconditioned, SiteInverse, Variant,
 };
-use ruttice::solver::{BiCgStab, Fgmres, SolveError, Solve, Solver, Stop};
+use ruttice::io::read_bridge_text;
+use ruttice::solver::preconditioner::multigrid::{Aggregation, CycleParts, Multigrid, SetupHooks};
+use ruttice::solver::{BiCgStab, Fgmres, Solve, SolveError, Solver, Stop};
 use ruttice::{random_spinor, Boundary, Field, Lattice, LinearFn, Spinor, Vector, C64, ND};
 use std::error::Error;
 use std::path::PathBuf;
@@ -37,9 +37,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let block: usize = args.get(5).map_or(Ok(3), |s| s.parse()).map_err(|_| USAGE)?;
-    let nvec: usize = args.get(6).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let block: usize = args
+        .get(5)
+        .map_or(Ok(3), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let nvec: usize = args
+        .get(6)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -74,7 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let b = random(1, 91);
     let mut rhs = b.zeros_like();
-    PvPreconditioned::new(&op, &b).precondition(&mut rhs, &b);
+    PvPreconditioned::new(&op, &b).right_hand_side(&mut rhs, &b);
     let mut rough = random(1, 301);
     normalise(&mut rough);
     let mut smooth = rough.zeros_like();
@@ -105,7 +114,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let t = Instant::now();
                 let mut a = PvPreconditioned::new(&op, &start);
                 let mut x = start.zeros_like();
-                let info = BiCgStab::new(Stop::simple(tol, 2000)).solve(&mut a, None, &mut x, &start);
+                let info =
+                    BiCgStab::new(Stop::simple(tol, 2000)).solve(&mut a, None, &mut x, &start);
                 let iterations = match info {
                     Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
                     Err(e) => return Err(e.to_string().into()),
@@ -178,9 +188,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 max_restarts: 1,
             };
             let mut outer = |solver: &mut dyn Solver<V>| {
-                let mut x = b.zeros_like();
+                let (mut y, mut x) = (b.zeros_like(), b.zeros_like());
                 let mut a = PvPreconditioned::new(&op, &b);
-                let it = match solver.solve(&mut a, Some(&mut mg), &mut x, &rhs) {
+                let result = solver.solve(&mut a, Some(&mut mg), &mut y, &rhs);
+                a.solution(&mut x, &y);
+                let it = match result {
                     Ok(i) => format!("{}", i.iterations),
                     Err(SolveError::NotConverged(i)) => format!("{} (not converged)", i.iterations),
                     Err(e) => format!("failed: {e}"),

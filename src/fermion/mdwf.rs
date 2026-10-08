@@ -31,13 +31,19 @@
 //!
 //! `PvPreconditioned` is the operator
 //!
-//!   A = (D_PV C_PV^-1)† C^-1 D,
+//!   A = (D_PV C_PV^-1)† D C^-1 = X† Y,    X = D_PV C_PV^-1,  Y = D C^-1,
 //!
 //! with D_PV and C_PV the same at m = 1 (Pauli-Villars). D alone has eigenvalues on both
 //! sides of the imaginary axis and Krylov solvers for general matrices stall on it; the
 //! factor in front turns the spectrum into the right half plane (Brower, Clark, Howarth,
-//! Weinberg; Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414). Since A = P D with
-//! P = (D_PV C_PV^-1)† C^-1 non-singular, solving A x = P b gives the solution of D x = b.
+//! Weinberg; Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414, whose Fig. 4 is this A). C^-1
+//! is a right preconditioner: solving A y = X† b and setting x = C^-1 y gives the solution
+//! of D x = b. X and Y have the same form, so at m = 1 A is the Hermitian X† X.
+//!
+//! An earlier version had C^-1 on the left, A = X† C^-1 D, as the CUDA implementation and
+//! the working note `pvprec_amg` do; that is not the paper's operator. On a 12^4 quenched
+//! configuration (Ls = 8, M5 = 1, m = 0.005) BiCGStab needs about the same number of
+//! iterations on both (4 % fewer on this one over five right-hand sides).
 //!
 //! A site of the field holds its Ls spinors next to each other (`Field::ls`), so the
 //! four-dimensional part is the Wilson sweep over Ls times as many spinors per site, with
@@ -45,7 +51,8 @@
 //! operator is put together from three passes (the combination before W, the Wilson sweep,
 //! the combination after it); a sweep that does all three at a site is not written yet.
 //!
-//! Solvers: BiCGStab or FGMRES on `PvPreconditioned`; CG on the normal equations of D.
+//! Solvers: BiCGStab or FGMRES on `PvPreconditioned` (no breakdown, in double or single
+//! precision); CG on the normal equations of D.
 //! Tools needed: none beyond what is here.
 //!
 //! The normalisation and the placement of the mass term follow Bridge++
@@ -313,9 +320,10 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     }
 }
 
-/// The Pauli-Villars preconditioned operator `A = (D_PV C_PV^-1)† C^-1 D` of an `Mdwf`,
-/// and the left preconditioner `P = (D_PV C_PV^-1)† C^-1` that goes with it: the solution
-/// of `A x = P b` solves `D x = b`. See the top of the file.
+/// The Pauli-Villars preconditioned operator `A = (D_PV C_PV^-1)† D C^-1` of an `Mdwf`,
+/// with what goes with it: the right-hand side `X† b`, `X = D_PV C_PV^-1`, and the
+/// solution `x = C^-1 y` of `D x = b` from the solution y of `A y = X† b`. See the top of
+/// the file.
 ///
 /// One application is two sweeps of the Wilson kernel (through D and through D_PV†) and
 /// two exact site-local inverses.
@@ -337,9 +345,24 @@ impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
         }
     }
 
-    /// `out = P inp = C_PV†^-1 D_PV† C^-1 inp`: what the right-hand side of `D x = b` is
-    /// multiplied by before `A` is solved.
-    pub fn precondition(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+    /// `out = X† inp = C_PV†^-1 D_PV† inp`: the right-hand side of `A y = X† b` for
+    /// `D x = b`.
+    pub fn right_hand_side(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        fit(&mut self.first, inp);
+        self.op
+            .mult_at(&mut self.work, &mut self.first, inp, Variant::Dagger, 1.0);
+        self.op.mult_site_inv(out, &self.first, 1.0, true);
+    }
+
+    /// `x = C^-1 y`: the solution of `D x = b` from that of `A y = X† b`.
+    pub fn solution(&self, x: &mut Field<T, Spinor>, y: &Field<T, Spinor>) {
+        self.op.mult_site_inv(x, y, self.op.params.mass, false);
+    }
+}
+
+impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
+    /// `out = A inp = C_PV†^-1 D_PV† D C^-1 inp`.
+    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
@@ -348,23 +371,9 @@ impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
             &mut self.work,
             &mut self.second,
             &self.first,
-            Variant::Dagger,
-            1.0,
+            Variant::D,
+            mass,
         );
-        self.op.mult_site_inv(out, &self.second, 1.0, true);
-    }
-}
-
-impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
-    /// `out = A inp = P D inp`.
-    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
-        let mass = self.op.params.mass;
-        fit(&mut self.first, inp);
-        fit(&mut self.second, inp);
-        self.op
-            .mult_at(&mut self.work, &mut self.first, inp, Variant::D, mass);
-        self.op
-            .mult_site_inv(&mut self.second, &self.first, mass, false);
         self.op.mult_at(
             &mut self.work,
             &mut self.first,
@@ -377,7 +386,7 @@ impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<
 }
 
 impl<T: Storage, G: GammaRepre> LinearOp<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
-    /// `out = A† inp = D† C†^-1 D_PV C_PV^-1 inp`.
+    /// `out = A† inp = C†^-1 D† D_PV C_PV^-1 inp`.
     fn mult_dag(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
@@ -390,10 +399,14 @@ impl<T: Storage, G: GammaRepre> LinearOp<Field<T, Spinor>> for PvPreconditioned<
             Variant::D,
             1.0,
         );
-        self.op
-            .mult_site_inv(&mut self.first, &self.second, mass, true);
-        self.op
-            .mult_at(&mut self.work, out, &self.first, Variant::Dagger, mass);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.first,
+            &self.second,
+            Variant::Dagger,
+            mass,
+        );
+        self.op.mult_site_inv(out, &self.first, mass, true);
     }
 }
 

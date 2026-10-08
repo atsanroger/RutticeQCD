@@ -2,7 +2,7 @@
 //! the members of the Pauli-Villars preconditioned method (Kanamori, Chen, Matsufuru,
 //! PoS(LATTICE2024)414; the working note `pvprec_amg` of Chen, Kanamori, Matsufuru).
 //!
-//! - The cycle approximates the inverse of `A = (D_PV C_PV^-1)† C^-1 D`
+//! - The cycle approximates the inverse of `A = (D_PV C_PV^-1)† D C^-1`
 //!   (`PvPreconditioned`), so it is the preconditioner of a flexible solver on A.
 //! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start, or
 //!   a polynomial of A fitted once (`MdwfSmoother`).
@@ -11,7 +11,10 @@
 //! - Test vectors: random vectors, smoothed, then multiplied by D_PV.
 //! - Coarse operator: `P† D C_PV^-1 P`, built from the parts of D with the exact
 //!   site-local `C_PV^-1` as a right factor, so that it reaches the eight neighbouring
-//!   aggregates only; preconditioned by the inverse of its diagonal blocks.
+//!   aggregates only; preconditioned by the inverse of its diagonal blocks. This is the
+//!   reference's choice for its A = (D_PV C_PV^-1)† C^-1 D, kept for now with the paper's A:
+//!   on a 12^4 configuration neither this nor the Galerkin projection of A, for either A,
+//!   reduces a smooth error (DESIGN.md §7.6.5 (d)).
 //! - Coarse solver: GMRES(m), restarted a few times, to a loose tolerance.
 
 use super::cycle::random_vectors;
@@ -93,7 +96,7 @@ impl MdwfMultigridParams {
 }
 
 /// The multigrid preconditioner for `PvPreconditioned::new(op, ..)`: pass it as `m` to
-/// BiCGStab or FGMRES solving `A x = P b`.
+/// BiCGStab or FGMRES solving `A y = X† b` (then x = C^-1 y; `PvPreconditioned::solution`).
 pub fn mdwf_multigrid<'a, T, G>(
     op: &'a Mdwf<T, G>,
     lat: &Arc<Lattice>,
