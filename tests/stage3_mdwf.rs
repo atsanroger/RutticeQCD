@@ -229,9 +229,11 @@ fn preconditioned_operator_has_its_adjoint() {
     );
 }
 
-/// Solving A x = P b with BiCGStab gives the solution of D x = b, checked with D itself;
-/// and it takes fewer applications of the Wilson kernel than CG on the normal equations
-/// of D. On the Bridge++ test configuration.
+/// Solving A y = X† b with BiCGStab and x = C^-1 y gives the solution of D x = b, checked
+/// with D itself. On the Bridge++ test configuration. Prints the iterations against CG on
+/// the normal equations of D (not asserted: here BiCGStab takes 496 iterations, 1984
+/// sweeps of the Wilson kernel, and CG 452 iterations, 904 sweeps; with the earlier
+/// A = (D_PV C_PV^-1)† C^-1 D BiCGStab took 443).
 #[test]
 fn bicgstab_on_the_preconditioned_operator_solves_d() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
@@ -264,11 +266,12 @@ fn bicgstab_on_the_preconditioned_operator_solves_d() {
     };
     let mut a = PvPreconditioned::new(&op, &b);
     let mut rhs = b.zeros_like();
-    a.precondition(&mut rhs, &b);
-    let mut x = b.zeros_like();
+    a.right_hand_side(&mut rhs, &b);
+    let (mut y, mut x) = (b.zeros_like(), b.zeros_like());
     let info = BiCgStab::new(stop)
-        .solve(&mut a, None, &mut x, &rhs)
+        .solve(&mut a, None, &mut y, &rhs)
         .unwrap();
+    a.solution(&mut x, &y);
     let physical = residual(&x);
     assert!(physical < 1e-16, "|D x - b|^2 / |b|^2 = {physical:e}");
 
@@ -319,10 +322,13 @@ fn parts_add_up_to_the_operator() {
 /// The multigrid cycle as the preconditioner of BiCGStab on A: the solver converges and
 /// the solution solves D x = b. On the Bridge++ test configuration.
 ///
-/// On this problem (4x4x4x8, aggregates of 2^4) the cycle does not yet pay: BiCGStab takes
-/// 443 iterations without it and between 356 and 488 with it, for either coarse operator
-/// and with or without D_PV on the test vectors. The test checks that the pieces work
-/// together, not that they help.
+/// On this problem (4x4x4x8, Ls = 4, m = 0.1, aggregates of 2^4) BiCGStab with the cycle
+/// takes 71 (`RightPreconditioned`) and 62 (`Galerkin`) iterations; with the earlier
+/// A = (D_PV C_PV^-1)† C^-1 D it took between 356 and 488. Whether the cycle helps is not
+/// established by this: BiCGStab with a preconditioner that changes from one application
+/// to the next varies widely in its iteration count, and on a 12^4 configuration the
+/// coarse correction does not reduce a smooth error (docs/MDWF_MULTIGRID_LOG.md). The test
+/// checks that the pieces work together, not that they help.
 #[test]
 fn multigrid_cycle_runs_as_a_preconditioner() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
@@ -348,7 +354,7 @@ fn multigrid_cycle_runs_as_a_preconditioner() {
     };
     let mut a = PvPreconditioned::new(&op, &b);
     let mut rhs = b.zeros_like();
-    a.precondition(&mut rhs, &b);
+    a.right_hand_side(&mut rhs, &b);
     for coarse_operator in [MdwfCoarse::RightPreconditioned, MdwfCoarse::Galerkin] {
         let choice = MdwfMultigridParams {
             coarse_operator,
@@ -356,10 +362,11 @@ fn multigrid_cycle_runs_as_a_preconditioner() {
             ..MdwfMultigridParams::note([2, 2, 2, 2])
         };
         let mut mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
-        let mut x = b.zeros_like();
+        let (mut y, mut x) = (b.zeros_like(), b.zeros_like());
         let info = BiCgStab::new(stop)
-            .solve(&mut a, Some(&mut mg), &mut x, &rhs)
+            .solve(&mut a, Some(&mut mg), &mut y, &rhs)
             .unwrap();
+        a.solution(&mut x, &y);
         let mut r = mult(&op, &x, Variant::D);
         r.scale(&[-1.0]);
         r.axpy(&[C64::new(1.0, 0.0)], &b);
@@ -529,7 +536,8 @@ fn frozen_polynomial_smoother() {
 
     let b = random(&lat, params.ls, 1, 91);
     let mut rhs = b.zeros_like();
-    PvPreconditioned::new(&op, &b).precondition(&mut rhs, &b);
+    let mut a = PvPreconditioned::new(&op, &b);
+    a.right_hand_side(&mut rhs, &b);
     let choice = MdwfMultigridParams {
         num_test_vectors: 4,
         smoother: MdwfSmoother::Polynomial { degree, passes: 1 },
@@ -541,15 +549,11 @@ fn frozen_polynomial_smoother() {
         max_iterations: 2000,
         max_restarts: 5,
     };
-    let mut x = b.zeros_like();
+    let (mut y, mut x) = (b.zeros_like(), b.zeros_like());
     let info = BiCgStab::new(stop)
-        .solve(
-            &mut PvPreconditioned::new(&op, &b),
-            Some(&mut mg),
-            &mut x,
-            &rhs,
-        )
+        .solve(&mut a, Some(&mut mg), &mut y, &rhs)
         .unwrap();
+    a.solution(&mut x, &y);
     let mut r = mult(&op, &x, Variant::D);
     r.scale(&[-1.0]);
     r.axpy(&[C64::new(1.0, 0.0)], &b);

@@ -1,15 +1,14 @@
-//! The Pauli-Villars preconditioned operator as the paper defines it against the one the
-//! library implements.
+//! The Pauli-Villars preconditioned operator as the paper defines it, which the library now
+//! implements, against the one the library had before (2026-10-08).
 //!
-//! - Library (`PvPreconditioned`): A = (D_PV C_PV^-1)† C^-1 D; solve A x = P b with
-//!   P = (D_PV C_PV^-1)† C^-1.
-//! - Paper (Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414, Fig. 4 left):
-//!   A' = (D_PV C_PV^-1)† D C^-1, C^-1 a right preconditioner; solve A' y = (D_PV C_PV^-1)† b,
-//!   then x = C^-1 y. With X = D_PV C_PV^-1 and Y = D C^-1 it is X† Y, which is X† X at
-//!   m = M_PV.
+//! - Old (this file, `OldA`; the CUDA implementation): A = (D_PV C_PV^-1)† C^-1 D; solve
+//!   A x = X† C^-1 b with X = D_PV C_PV^-1.
+//! - Paper (Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414, Fig. 4 left; `PvPreconditioned`):
+//!   A' = (D_PV C_PV^-1)† D C^-1, C^-1 a right preconditioner; solve A' y = X† b, then
+//!   x = C^-1 y. With Y = D C^-1 it is X† Y, which is X† X at m = M_PV.
 //!
 //! ```text
-//! cargo run --release --example mdwf_paper_a -- CONFIG L M5 MASS [LS] [BLOCK] [library|paper|plain]
+//! cargo run --release --example mdwf_paper_a -- CONFIG L M5 MASS [LS] [BLOCK] [old|paper|plain]
 //! ```
 //!
 //! `plain` compares only BiCGStab without a preconditioner, for five right-hand sides.
@@ -19,34 +18,33 @@
 //! a smooth vector, |v - A M v|; and BiCGStab and FGMRES(20) preconditioned by the cycles
 //! to 1e-16 of the own system. The cycles smooth with GMRES(4) on the operator and take
 //! 8 random test vectors; the coarse operator is either built from the parts of D with a
-//! site-local right factor (C_PV^-1 for the library's A, as the reference does; C^-1 for
+//! site-local right factor (C_PV^-1 for the old A, as the reference does; C^-1 for
 //! A') or the probed Galerkin projection of the operator.
 
 use ruttice::fermion::{
     FermionOp, Mdwf, MdwfAt, MdwfParams, PvPreconditioned, SiteInverse, Variant,
 };
 use ruttice::io::read_bridge_text;
-use ruttice::solver::preconditioner::multigrid::{
-    Aggregation, CycleParts, Multigrid, SetupHooks,
-};
+use ruttice::solver::preconditioner::multigrid::{Aggregation, CycleParts, Multigrid, SetupHooks};
 use ruttice::solver::{BiCgStab, Fgmres, Solve, SolveError, Solver, Stop};
 use ruttice::{fit, random_spinor, Boundary, Field, Lattice, LinearFn, Spinor, Vector, C64, ND};
 use std::error::Error;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: mdwf_paper_a CONFIG L M5 MASS [LS] [BLOCK] [library|paper|plain]";
+const USAGE: &str = "usage: mdwf_paper_a CONFIG L M5 MASS [LS] [BLOCK] [old|paper|plain]";
 
 type V = Field<f64, Spinor>;
 
-/// The paper's A' = (D_PV C_PV^-1)† D C^-1 = C_PV†^-1 D_PV† D C^-1.
-struct PaperA<'a> {
+/// The previous library operator, A = (D_PV C_PV^-1)† C^-1 D = C_PV†^-1 D_PV† C^-1 D
+/// (C^-1 on the left, as the CUDA implementation has it): solve A x = X† C^-1 b.
+struct OldA<'a> {
     op: &'a Mdwf<f64>,
     work: ruttice::fermion::MdwfWork<f64>,
     first: V,
     second: V,
 }
 
-impl<'a> PaperA<'a> {
+impl<'a> OldA<'a> {
     fn new(op: &'a Mdwf<f64>, like: &V) -> Self {
         Self {
             op,
@@ -56,32 +54,46 @@ impl<'a> PaperA<'a> {
         }
     }
 
-    /// `out = (D_PV C_PV^-1)† inp`: the right-hand side of A' y = X† b.
-    fn x_dagger(&mut self, out: &mut V, inp: &V) {
+    /// `out = (D_PV C_PV^-1)† C^-1 inp`: the right-hand side of A x = X† C^-1 b.
+    fn right_hand_side(&mut self, out: &mut V, inp: &V) {
         fit(&mut self.first, inp);
-        self.op
-            .mult_at(&mut self.work, &mut self.first, inp, Variant::Dagger, 1.0);
+        fit(&mut self.second, inp);
+        let mass = self.op.params().mass;
+        self.op.mult_site_inv(&mut self.second, inp, mass, false);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.first,
+            &self.second,
+            Variant::Dagger,
+            1.0,
+        );
         self.op.mult_site_inv(out, &self.first, 1.0, true);
     }
 }
 
-impl LinearFn<V> for PaperA<'_> {
+impl LinearFn<V> for OldA<'_> {
     fn mult(&mut self, out: &mut V, inp: &V) {
         let mass = self.op.params().mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
-        self.op.mult_site_inv(&mut self.second, inp, mass, false);
         self.op
-            .mult_at(&mut self.work, &mut self.first, &self.second, Variant::D, mass);
+            .mult_at(&mut self.work, &mut self.first, inp, Variant::D, mass);
         self.op
-            .mult_at(&mut self.work, &mut self.second, &self.first, Variant::Dagger, 1.0);
-        self.op.mult_site_inv(out, &self.second, 1.0, true);
+            .mult_site_inv(&mut self.second, &self.first, mass, false);
+        self.op.mult_at(
+            &mut self.work,
+            &mut self.first,
+            &self.second,
+            Variant::Dagger,
+            1.0,
+        );
+        self.op.mult_site_inv(out, &self.first, 1.0, true);
     }
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum Which {
-    Library,
+    Old,
     Paper,
 }
 
@@ -94,8 +106,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let block: usize = args.get(5).map_or(Ok(3), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let block: usize = args
+        .get(5)
+        .map_or(Ok(3), |s| s.parse())
+        .map_err(|_| USAGE)?;
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -130,7 +148,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // `plain`: both operators without a preconditioner, for several right-hand sides.
     if args.get(6).map(String::as_str) == Some("plain") {
         println!("BiCGStab without a preconditioner; iterations and |D x - b|^2/|b|^2");
-        println!("  seed     tol   library A              paper A'");
+        println!("  seed     tol   old A                  paper A'");
         for seed in [91, 92, 93, 94, 95] {
             let b = random(1, seed);
             let physical = |x: &V| {
@@ -144,23 +162,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
             for tol in [1e-14, 1e-18] {
                 let mut line = format!("  {seed:4}  {tol:.0e}");
-                for which in [Which::Library, Which::Paper] {
+                for which in [Which::Old, Which::Paper] {
                     let (mut r, mut y) = (b.zeros_like(), b.zeros_like());
                     let result = match which {
-                        Which::Library => {
-                            let mut a = PvPreconditioned::new(&op, &b);
-                            a.precondition(&mut r, &b);
+                        Which::Old => {
+                            let mut a = OldA::new(&op, &b);
+                            a.right_hand_side(&mut r, &b);
                             BiCgStab::new(Stop::simple(tol, 4000)).solve(&mut a, None, &mut y, &r)
                         }
                         Which::Paper => {
-                            let mut a = PaperA::new(&op, &b);
-                            a.x_dagger(&mut r, &b);
+                            let mut a = PvPreconditioned::new(&op, &b);
+                            a.right_hand_side(&mut r, &b);
                             BiCgStab::new(Stop::simple(tol, 4000)).solve(&mut a, None, &mut y, &r)
                         }
                     };
                     let mut x = y.zeros_like();
                     match which {
-                        Which::Library => x.copy_from(&y),
+                        Which::Old => x.copy_from(&y),
                         Which::Paper => op.mult_site_inv(&mut x, &y, mass, false),
                     }
                     let iterations = match result {
@@ -188,23 +206,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let operator = |which: Which| -> Box<dyn LinearFn<V> + '_> {
         match which {
-            Which::Library => Box::new(PvPreconditioned::new(&op, &b)),
-            Which::Paper => Box::new(PaperA::new(&op, &b)),
+            Which::Old => Box::new(OldA::new(&op, &b)),
+            Which::Paper => Box::new(PvPreconditioned::new(&op, &b)),
         }
     };
     // The right-hand side of the system and the map from its solution to x.
     let rhs = |which: Which| {
         let mut r = b.zeros_like();
         match which {
-            Which::Library => PvPreconditioned::new(&op, &b).precondition(&mut r, &b),
-            Which::Paper => PaperA::new(&op, &b).x_dagger(&mut r, &b),
+            Which::Old => OldA::new(&op, &b).right_hand_side(&mut r, &b),
+            Which::Paper => PvPreconditioned::new(&op, &b).right_hand_side(&mut r, &b),
         }
         r
     };
     let solution = |which: Which, y: &V| {
         let mut x = y.zeros_like();
         match which {
-            Which::Library => x.copy_from(y),
+            Which::Old => x.copy_from(y),
             Which::Paper => op.mult_site_inv(&mut x, y, mass, false),
         }
         x
@@ -216,16 +234,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let only = args.get(6).map(String::as_str);
-    for which in [Which::Library, Which::Paper] {
+    for which in [Which::Old, Which::Paper] {
         let skip = match which {
-            Which::Library => only == Some("paper"),
-            Which::Paper => only == Some("library"),
+            Which::Old => only == Some("paper"),
+            Which::Paper => only == Some("old"),
         };
         if skip {
             continue;
         }
         let name = match which {
-            Which::Library => "library A = (D_PV C_PV^-1)† C^-1 D",
+            Which::Old => "old     A = (D_PV C_PV^-1)† C^-1 D",
             Which::Paper => "paper   A' = (D_PV C_PV^-1)† D C^-1",
         };
         println!("{name}");
@@ -267,7 +285,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             out
         };
         let gmres4 = || -> Box<dyn LinearFn<V> + '_> {
-            Box::new(Solve::new(Fgmres::new(Stop::simple(1e-6, 4)), Boxed(operator(which))))
+            Box::new(Solve::new(
+                Fgmres::new(Stop::simple(1e-6, 4)),
+                Boxed(operator(which)),
+            ))
         };
         println!("  |v-AMv| on a random and a smooth vector:");
         println!("    none        {}", leaves(&mut Identity));
@@ -295,7 +316,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // The reference multiplies the test vectors of its A by D_PV; for A' the
                 // natural right factor is C^-1 at the quark mass.
                 let factor_mass = match which {
-                    Which::Library => {
+                    Which::Old => {
                         hooks.after_smoothing = Some(Box::new(MdwfAt::new(&op, Variant::D, 1.0)));
                         1.0
                     }

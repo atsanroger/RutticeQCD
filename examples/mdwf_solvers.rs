@@ -18,7 +18,8 @@
 //! final residual and |D x - b|^2/|b|^2. A ladder stops at the first rung that does not
 //! converge.
 //!
-//! - BiCGStab and FGMRES(20) solve A x = P b with A = (D_PV C_PV^-1)† C^-1 D, without a
+//! - BiCGStab and FGMRES(20) solve A y = X† b, x = C^-1 y, with A = (D_PV C_PV^-1)† D C^-1
+//!   and X = D_PV C_PV^-1, without a
 //!   preconditioner, with the frozen polynomial of A alone (two passes: what a cycle
 //!   does without its coarse correction), and with the multigrid cycle smoothing with
 //!   GMRES(4) or with the polynomial.
@@ -47,6 +48,10 @@ const LADDER: [f64; 7] = [1e-10, 1e-12, 1e-14, 1e-16, 1e-18, 1e-20, 1e-22];
 
 type V = Field<f64, Spinor>;
 
+/// One solve of a ladder: the stopping rule and a zero `x` in; the result and the sweeps of
+/// the Wilson kernel out.
+type Run<'a> = dyn FnMut(Stop, &mut V) -> (Result<SolveInfo, SolveError>, usize) + 'a;
+
 /// Counts the applications of the operator it wraps.
 struct Counted<'a, A> {
     a: &'a mut A,
@@ -69,8 +74,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let l: usize = args[1].parse().map_err(|_| USAGE)?;
     let m5: f64 = args[2].parse().map_err(|_| USAGE)?;
     let mass: f64 = args[3].parse().map_err(|_| USAGE)?;
-    let ls: usize = args.get(4).map_or(Ok(8), |s| s.parse()).map_err(|_| USAGE)?;
-    let block: usize = args.get(5).map_or(Ok(3), |s| s.parse()).map_err(|_| USAGE)?;
+    let ls: usize = args
+        .get(4)
+        .map_or(Ok(8), |s| s.parse())
+        .map_err(|_| USAGE)?;
+    let block: usize = args
+        .get(5)
+        .map_or(Ok(3), |s| s.parse())
+        .map_err(|_| USAGE)?;
     let only = args.get(6).cloned().unwrap_or_default();
     let wanted = |name: &str| name.contains(only.as_str());
 
@@ -110,7 +121,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     // One ladder: `run` solves to the given stopping rule into a zero `x` and returns the
     // result and the Wilson sweeps of the outer operator.
-    let ladder = |name: &str, run: &mut dyn FnMut(Stop, &mut V) -> (Result<SolveInfo, SolveError>, usize)| {
+    let ladder = |name: &str, run: &mut Run<'_>| {
         println!("{name}");
         println!("    tol    iter   sweeps        s    own res  |Dx-b|^2/|b|^2");
         for tol in LADDER {
@@ -145,25 +156,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut rhs = b.zeros_like();
-    PvPreconditioned::new(&op, &b).precondition(&mut rhs, &b);
+    PvPreconditioned::new(&op, &b).right_hand_side(&mut rhs, &b);
     let sample = {
         let mut s = b.zeros_like();
         s.as_mut_slice()
             .copy_from_slice(random_spinor(&lat, ls, 7).as_slice());
         s
     };
-    // A applies D and D_PV†: two Wilson sweeps.
-    let on_a = |solver: &mut dyn Solver<V>,
-                m: Option<&mut dyn LinearFn<V>>,
-                x: &mut V| {
+    // A applies D and D_PV†: two Wilson sweeps. Solves A y = X† b, then x = C^-1 y.
+    let on_a = |solver: &mut dyn Solver<V>, m: Option<&mut dyn LinearFn<V>>, x: &mut V| {
         let mut a = PvPreconditioned::new(&op, &b);
-        let mut counted = Counted { a: &mut a, count: 0 };
-        let result = solver.solve(&mut counted, m, x, &rhs);
-        (result, 2 * counted.count)
+        let mut y = b.zeros_like();
+        let (result, count) = {
+            let mut counted = Counted {
+                a: &mut a,
+                count: 0,
+            };
+            let result = solver.solve(&mut counted, m, &mut y, &rhs);
+            (result, counted.count)
+        };
+        a.solution(x, &y);
+        (result, 2 * count)
     };
 
     if wanted("BiCGStab, A") {
-        ladder("BiCGStab, A", &mut |stop, x| on_a(&mut BiCgStab::new(stop), None, x));
+        ladder("BiCGStab, A", &mut |stop, x| {
+            on_a(&mut BiCgStab::new(stop), None, x)
+        });
     }
     for degree in [4, 8] {
         let name = format!("BiCGStab, polynomial {degree} x 2");
@@ -172,11 +191,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         let mut p = Polynomial::fit(PvPreconditioned::new(&op, &b), &sample, degree, 2)
             .map_err(|_| "the powers of A are dependent")?;
-        ladder(&name, &mut |stop, x| on_a(&mut BiCgStab::new(stop), Some(&mut p), x));
+        ladder(&name, &mut |stop, x| {
+            on_a(&mut BiCgStab::new(stop), Some(&mut p), x)
+        });
     }
     let smoothers = [
-        ("polynomial 4", MdwfSmoother::Polynomial { degree: 4, passes: 1 }),
-        ("polynomial 8", MdwfSmoother::Polynomial { degree: 8, passes: 1 }),
+        (
+            "polynomial 4",
+            MdwfSmoother::Polynomial {
+                degree: 4,
+                passes: 1,
+            },
+        ),
+        (
+            "polynomial 8",
+            MdwfSmoother::Polynomial {
+                degree: 8,
+                passes: 1,
+            },
+        ),
         ("GMRES(4)", MdwfSmoother::Gmres(Stop::simple(1e-6, 4))),
     ];
     for (smoother_name, smoother) in smoothers {
@@ -191,7 +224,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         let start = Instant::now();
         let mut mg = mdwf_multigrid(&op, &lat, &choice)?;
-        println!("setup, smoother {smoother_name}: {:.2} s", start.elapsed().as_secs_f64());
+        println!(
+            "setup, smoother {smoother_name}: {:.2} s",
+            start.elapsed().as_secs_f64()
+        );
         if wanted(&bicgstab) {
             ladder(&bicgstab, &mut |stop, x| {
                 on_a(&mut BiCgStab::new(stop), Some(&mut mg), x)
@@ -214,9 +250,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // An iteration applies the Schur complement and its adjoint, each two half-lattice
         // hops: two Wilson sweeps.
         ladder(name, &mut |stop, x| {
-            let result = solve_even_odd(&op, op.even_odd_index().unwrap(), x, &b, |schur, x_e, r| {
-                solve_cgne(&mut Cg::new(stop), schur, x_e, r)
-            });
+            let result =
+                solve_even_odd(&op, op.even_odd_index().unwrap(), x, &b, |schur, x_e, r| {
+                    solve_cgne(&mut Cg::new(stop), schur, x_e, r)
+                });
             let sweeps = match &result {
                 Ok(info) | Err(SolveError::NotConverged(info)) => 2 * info.iterations,
                 Err(_) => 0,
