@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{name}: |A t|/|t| {:.4}", low(&mut a, t));
     }
 
-    let blocks: Vec<usize> = [2, 3, 4, 6].into_iter().filter(|b| l % b == 0).collect();
+    let blocks: Vec<usize> = [2, 3, 4, 6].into_iter().filter(|b| l.is_multiple_of(*b)).collect();
     println!("  block  n  aggregate dim   |PP†t1|/|t1|  |PP†t2|/|t2|");
     for b in blocks {
         let agg = Aggregation::new(&lat, [b; ND]);
