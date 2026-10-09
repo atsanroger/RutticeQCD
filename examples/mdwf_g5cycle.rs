@@ -398,7 +398,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_restarts: 1,
     };
     for smoother_name in smoothers {
-        for with_coarse in [false, true] {
+        // `noalone`: skip the smoother-alone baselines (they do not depend on P).
+        let skip_alone = args.get(12).is_some_and(|s| s == "noalone");
+        for with_coarse in [false, true].into_iter().filter(|w| *w || !skip_alone) {
             let mut line = format!(
                 "  {smoother_name:<15} {:<15}",
                 if with_coarse { "+ Γ5 coarse" } else { "alone" }
