@@ -112,7 +112,7 @@ cycle 的全部效果來自 smoother（cycle 和「兩次平滑」在三位數�
 - M5 = 1.0 為主。
 - 測試向量改善品質：同意。
 - 改用 Chebyshev：同意。
-- 授權：問過 GPL；建議 GPL-3.0-or-later，**尚未決定、尚未加 LICENSE**。
+- 授權：~~問過 GPL；建議 GPL-3.0-or-later，尚未決定、尚未加 LICENSE~~ **已決定 GPL-3.0-or-later**（2026-10-10，`main` 的 `292ae3e`：LICENSE、README、Cargo.toml）。
 
 ## 計畫（2026-10-08 定）
 
