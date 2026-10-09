@@ -112,8 +112,86 @@ struct Cycle<'a, 'b> {
     /// The factorized coarse correction: (P†D_PV†P)(P†DP) c = P† C_PV† r, with this P†D_PV P.
     pv_coarse: Option<&'b mut CoarseOp<f64>>,
     coarse_tol: f64,
+    /// Conjugate residuals on the Γ5-Hermitian coarse factors instead of FGMRES.
+    cr: bool,
     r: V,
     e: V,
+}
+
+/// Γ5 on the coarse lattice: +1 on the first half of the components of every vector
+/// (positive chirality), −1 on the second.
+fn coarse_gamma5(v: &mut C) {
+    let nv = v.num_vectors();
+    let per_vector = v.site_len() / nv;
+    for x in v.as_mut_slice().chunks_mut(per_vector) {
+        for r in x[per_vector / 2..].iter_mut() {
+            *r = -*r;
+        }
+    }
+}
+
+/// Γ5 A_c (or Γ5 A_c† with `adjoint`) for a coarse operator A_c with Γ5 A_c Γ5 = A_c†: a
+/// Hermitian, indefinite map.
+struct Gamma5Coarse<'a> {
+    a: &'a mut CoarseOp<f64>,
+    adjoint: bool,
+}
+
+impl LinearFn<C> for Gamma5Coarse<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        if self.adjoint {
+            self.a.mult_dag(out, inp);
+        } else {
+            self.a.mult(out, inp);
+        }
+        coarse_gamma5(out);
+    }
+}
+
+/// Conjugate residuals for a Hermitian (indefinite) map: five vectors, short recurrences,
+/// the residual minimised over the Krylov space. Solves A_c x = b as (Γ5 A_c) x = Γ5 b.
+fn conjugate_residual(h: &mut Gamma5Coarse<'_>, x: &mut C, b: &C, tol_sqr: f64, max_it: usize) -> usize {
+    let nv = b.num_vectors();
+    let mut rhs = b.zeros_like();
+    rhs.copy_from(b);
+    coarse_gamma5(&mut rhs);
+    x.scale(&vec![0.0; nv]);
+    let mut r = rhs.zeros_like();
+    r.copy_from(&rhs);
+    let mut p = r.zeros_like();
+    p.copy_from(&r);
+    let mut hr = r.zeros_like();
+    h.mult(&mut hr, &r);
+    let mut hp = hr.zeros_like();
+    hp.copy_from(&hr);
+    let mut bb = vec![0.0; nv];
+    rhs.norm_sqr(&mut bb);
+    let mut rhr = vec![C64::ZERO; nv];
+    r.dot(&hr, &mut rhr);
+    let (mut hphp, mut rr) = (vec![0.0; nv], vec![0.0; nv]);
+    for it in 0..max_it {
+        hp.norm_sqr(&mut hphp);
+        let alpha: Vec<C64> = (0..nv)
+            .map(|j| C64::new(rhr[j].re / hphp[j].max(1e-300), 0.0))
+            .collect();
+        x.axpy(&alpha, &p);
+        let minus: Vec<C64> = alpha.iter().map(|a| C64::new(-a.re, 0.0)).collect();
+        r.axpy(&minus, &hp);
+        r.norm_sqr(&mut rr);
+        if (0..nv).all(|j| rr[j] <= tol_sqr * bb[j]) {
+            return it + 1;
+        }
+        h.mult(&mut hr, &r);
+        let mut rhr_new = vec![C64::ZERO; nv];
+        r.dot(&hr, &mut rhr_new);
+        let beta: Vec<C64> = (0..nv)
+            .map(|j| C64::new(rhr_new[j].re / rhr[j].re, 0.0))
+            .collect();
+        p.aypx(&beta, &r);
+        hp.aypx(&beta, &hr);
+        rhr = rhr_new;
+    }
+    max_it
 }
 
 /// The adjoint of a coarse operator as a linear map.
@@ -151,14 +229,41 @@ impl LinearFn<V> for Cycle<'_, '_> {
                 let mut g = p.coarse_field(nv);
                 p.restrict(&mut g, &z);
                 let mut w = g.zeros_like();
-                let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(
-                    &mut Adjoint(cpv),
-                    None,
-                    &mut w,
-                    &g,
-                );
                 let mut c = w.zeros_like();
-                let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(coarse, None, &mut c, &w);
+                if self.cr {
+                    // Both factors are Γ5-Hermitian: conjugate residuals on Γ5 A_c, five
+                    // coarse vectors instead of the 80 of FGMRES(40).
+                    let it1 = conjugate_residual(
+                        &mut Gamma5Coarse {
+                            a: cpv,
+                            adjoint: true,
+                        },
+                        &mut w,
+                        &g,
+                        self.coarse_tol,
+                        2000,
+                    );
+                    let it2 = conjugate_residual(
+                        &mut Gamma5Coarse {
+                            a: &mut *coarse.a,
+                            adjoint: false,
+                        },
+                        &mut c,
+                        &w,
+                        self.coarse_tol,
+                        2000,
+                    );
+                    coarse.n.set(coarse.n.get() + it1 + it2);
+                } else {
+                    let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(
+                        &mut Adjoint(cpv),
+                        None,
+                        &mut w,
+                        &g,
+                    );
+                    let _ =
+                        Fgmres::new(fact_stop(self.coarse_tol)).solve(coarse, None, &mut c, &w);
+                }
                 let mut pc = self.r.zeros_like();
                 p.prolong(&mut pc, &c);
                 self.op.mult_site(&mut self.e, &pc, self.mass, false);
@@ -254,6 +359,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .get(13)
         .map_or(Ok(1e-8), |s| s.parse())
         .map_err(|_| USAGE)?;
+    // `cr`: conjugate residuals on Γ5 times each coarse factor (argument 14).
+    let cr = args.get(14).is_some_and(|s| s == "cr");
     let smoothers: Vec<&str> = match args.get(10).map(String::as_str) {
         Some("cheb") => vec!["Chebyshev 9/100"],
         Some("gmres") => vec!["GMRES(4)"],
@@ -444,6 +551,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.get(10).map(String::as_str) == Some("diag") {
         return Ok(());
     }
+    // Check conjugate residuals on both coarse factors: solve, then the true residual.
+    if cr {
+        let mut g = p.coarse_field(1);
+        p.restrict(&mut g, &random(1, 31));
+        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let a: &mut CoarseOp<f64> = if adjoint { &mut pv_coarse } else { &mut coarse };
+            let mut x = g.zeros_like();
+            let it = conjugate_residual(&mut Gamma5Coarse { a, adjoint }, &mut x, &g, 1e-16, 5000);
+            let mut ax = g.zeros_like();
+            let a: &mut CoarseOp<f64> = if adjoint { &mut pv_coarse } else { &mut coarse };
+            if adjoint {
+                a.mult_dag(&mut ax, &x);
+            } else {
+                a.mult(&mut ax, &x);
+            }
+            ax.axpy(&[C64::new(-1.0, 0.0)], &g);
+            let (mut r, mut b) = (vec![0.0; 1], vec![0.0; 1]);
+            ax.norm_sqr(&mut r);
+            g.norm_sqr(&mut b);
+            println!(
+                "  check: conjugate residuals on Γ5 {name}: {it} iterations, |A x − b|/|b| = {:.1e}",
+                (r[0] / b[0]).sqrt()
+            );
+        }
+    }
 
     let b = random(1, 91);
     let mut rhs = b.zeros_like();
@@ -523,6 +655,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         None
                     },
                     coarse_tol,
+                    cr,
                     r: like.zeros_like(),
                     e: like.zeros_like(),
                 };
