@@ -268,6 +268,48 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    // Spurious small singular values of the coarse operator? The lowest of P†DP by inverse
+    // iteration on its normal operator (CG solves, cheap on the coarse lattice), against
+    // |D s|/|s| for the x-space low modes s = C⁻¹ v the basis was built from.
+    {
+        let mut c = p.coarse_field(1);
+        p.restrict(&mut c, &random(1, 55));
+        let mut sigma = 0.0;
+        for _ in 0..30 {
+            let mut nn = vec![0.0; 1];
+            c.norm_sqr(&mut nn);
+            c.scale(&[1.0 / nn[0].sqrt()]);
+            let mut y = c.zeros_like();
+            let _ = Cg::new(Stop {
+                tolerance_sqr: 1e-20,
+                max_iterations: 20000,
+                max_restarts: 0,
+            })
+            .solve(&mut Normal::new(&mut coarse, &c), None, &mut y, &c);
+            let mut ny = vec![0.0; 1];
+            y.norm_sqr(&mut ny);
+            sigma = (1.0 / ny[0].sqrt()).sqrt();
+            c = y;
+        }
+        let ritz = load(&checkpoint, &like, n)?;
+        let mut s = ritz.zeros_like();
+        op.mult_site_inv(&mut s, &ritz, mass, false);
+        let mut ds = s.zeros_like();
+        MdwfAt::new(&op, Variant::D, mass).mult(&mut ds, &s);
+        let (mut ns, mut nds) = (vec![0.0; n], vec![0.0; n]);
+        s.norm_sqr(&mut ns);
+        ds.norm_sqr(&mut nds);
+        let fine: Vec<f64> = ns.iter().zip(&nds).map(|(a, b)| (b / a).sqrt()).collect();
+        println!(
+            "  lowest singular value of P†DP (per unit |P c|): {sigma:.3e};  |D s|/|s| of the basis modes: {:.3e} … {:.3e}",
+            fine.iter().cloned().fold(f64::INFINITY, f64::min),
+            fine.iter().cloned().fold(0.0, f64::max)
+        );
+    }
+    if args.get(10).map(String::as_str) == Some("diag") {
+        return Ok(());
+    }
+
     let b = random(1, 91);
     let mut rhs = b.zeros_like();
     PvPreconditioned::new(&op, &b).right_hand_side(&mut rhs, &b);
