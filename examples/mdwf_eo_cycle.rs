@@ -334,6 +334,207 @@ fn eigh(mut a: Vec<C64>, n: usize) -> (Vec<f64>, Vec<C64>) {
 struct BlockAbsInv {
     dim: usize,
     blocks: Vec<Vec<C64>>,
+    /// An additive second level, making the preconditioner B + Q |Q†HQ|⁻¹ Q†.
+    level: Option<AbsLevel>,
+}
+
+/// A second level for the absolute-value preconditioner of H (Vecharynski and Knyazev,
+/// SIAM J. Sci. Comput. 35 (2013) A696, use multigrid for |A|⁻¹ of indefinite A): Q
+/// aggregates test vectors of H on super-blocks of coarse sites, split by Γ5 as on the
+/// levels above; H_cc = Q†HQ is small and dense, and |H_cc|⁻¹ = V |Λ|⁻¹ V† is formed
+/// exactly. B + Q |H_cc|⁻¹ Q† is Hermitian positive definite, as MINRES needs.
+struct AbsLevel {
+    /// The coarse sites of every super-block.
+    sites: Vec<Vec<usize>>,
+    /// Per super-block, `nq` orthonormal local vectors, column after column.
+    q: Vec<Vec<C64>>,
+    nq: usize,
+    /// |H_cc|⁻¹, dense, row-major.
+    inv: Vec<C64>,
+}
+
+impl AbsLevel {
+    /// Returns the level and a line describing it.
+    fn build(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        vectors: &[C],
+        super_block: usize,
+    ) -> (Self, String) {
+        let start = Instant::now();
+        let lat = a.lattice().clone();
+        let dim = a.dim();
+        let ext = lat.local;
+        assert!(ext.iter().all(|e| e % super_block == 0));
+        let n_super: Vec<usize> = ext.iter().map(|e| e / super_block).collect();
+        let total: usize = n_super.iter().product();
+        let mut sites = vec![Vec::new(); total];
+        for x in 0..lat.num_sites() {
+            let c = lat.coords(x);
+            let mut s = 0;
+            for mu in (0..ND).rev() {
+                s = s * n_super[mu] + c[mu] / super_block;
+            }
+            sites[s].push(x);
+        }
+        let read = |v: &C, s: &[usize]| -> Vec<C64> {
+            let mut out = Vec::with_capacity(s.len() * dim);
+            for &x in s {
+                let f = v.site(0, x);
+                for i in 0..dim {
+                    out.push(C64::new(f[2 * i], f[2 * i + 1]));
+                }
+            }
+            out
+        };
+        // Local vectors: both chiralities of every test vector, orthonormalised.
+        let mut q = Vec::with_capacity(total);
+        let mut nq = usize::MAX;
+        for s in &sites {
+            let mut cols: Vec<Vec<C64>> = Vec::new();
+            for v in vectors {
+                let local = read(v, s);
+                for upper in [false, true] {
+                    let mut c: Vec<C64> = local
+                        .iter()
+                        .enumerate()
+                        .map(|(i, z)| {
+                            if ((i % dim) >= dim / 2) == upper {
+                                *z
+                            } else {
+                                C64::ZERO
+                            }
+                        })
+                        .collect();
+                    for _ in 0..2 {
+                        for b in &cols {
+                            let d: C64 = b
+                                .iter()
+                                .zip(&c)
+                                .map(|(x, y)| x.conj() * *y)
+                                .fold(C64::ZERO, |s, z| s + z);
+                            for (ci, bi) in c.iter_mut().zip(b) {
+                                *ci = *ci - d * *bi;
+                            }
+                        }
+                    }
+                    let n = c.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+                    if n > 1e-8 {
+                        cols.push(c.iter().map(|z| z.scale(1.0 / n)).collect());
+                    }
+                }
+            }
+            nq = nq.min(cols.len());
+            q.push(cols);
+        }
+        let q: Vec<Vec<C64>> = q
+            .into_iter()
+            .map(|cols| {
+                let len = cols[0].len();
+                let mut m = Vec::with_capacity(len * nq);
+                for c in cols.into_iter().take(nq) {
+                    m.extend(c);
+                }
+                m
+            })
+            .collect();
+        // H_cc, one column at a time.
+        let n = total * nq;
+        let mut h = vec![C64::ZERO; n * n];
+        let mut e = vectors[0].zeros_like();
+        let mut he = e.zeros_like();
+        for (s, sv) in sites.iter().enumerate() {
+            let len = sv.len() * dim;
+            for j in 0..nq {
+                e.as_mut_slice().fill(0.0);
+                for (k, &x) in sv.iter().enumerate() {
+                    let f = e.site_mut(0, x);
+                    for i in 0..dim {
+                        let z = q[s][j * len + k * dim + i];
+                        f[2 * i] = z.re;
+                        f[2 * i + 1] = z.im;
+                    }
+                }
+                h_mult(a, adjoint, &mut he, &e);
+                for (t, tv) in sites.iter().enumerate() {
+                    let local = read(&he, tv);
+                    let lt = local.len();
+                    for b in 0..nq {
+                        let d: C64 = (0..lt)
+                            .map(|i| q[t][b * lt + i].conj() * local[i])
+                            .fold(C64::ZERO, |s, z| s + z);
+                        h[(t * nq + b) * n + s * nq + j] = d;
+                    }
+                }
+            }
+        }
+        let h: Vec<C64> = (0..n * n)
+            .map(|ij| (h[ij] + h[(ij % n) * n + ij / n].conj()).scale(0.5))
+            .collect();
+        let (lam, v) = eigh(h, n);
+        let mut inv = vec![C64::ZERO; n * n];
+        for i in 0..n {
+            for k in 0..n {
+                let mut z = C64::ZERO;
+                for j in 0..n {
+                    z += v[i * n + j].scale(1.0 / lam[j].abs().max(1e-300)) * v[k * n + j].conj();
+                }
+                inv[i * n + k] = z;
+            }
+        }
+        let mut abs: Vec<f64> = lam.iter().map(|l| l.abs()).collect();
+        abs.sort_by(f64::total_cmp);
+        let line = format!(
+            "{total} super-blocks of {super_block}^4 × {nq} = {n}; |λ(H_cc)| {:.2e} … {:.2e} ({:.0} s, {} applications)",
+            abs[0],
+            abs[n - 1],
+            start.elapsed().as_secs_f64(),
+            total * nq
+        );
+        (Self { sites, q, nq, inv }, line)
+    }
+
+    /// out += Q |H_cc|⁻¹ Q† inp.
+    fn add(&self, out: &mut C, inp: &C) {
+        let nq = self.nq;
+        let n = self.sites.len() * nq;
+        let mut y = vec![C64::ZERO; n];
+        for (s, sv) in self.sites.iter().enumerate() {
+            let mut local = Vec::new();
+            for &x in sv {
+                let f = inp.site(0, x);
+                local.extend(f.chunks(2).map(|c| C64::new(c[0], c[1])));
+            }
+            let lt = local.len();
+            for b in 0..nq {
+                y[s * nq + b] = (0..lt)
+                    .map(|i| self.q[s][b * lt + i].conj() * local[i])
+                    .fold(C64::ZERO, |s, z| s + z);
+            }
+        }
+        let z: Vec<C64> = (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|k| self.inv[i * n + k] * y[k])
+                    .fold(C64::ZERO, |s, z| s + z)
+            })
+            .collect();
+        for (s, sv) in self.sites.iter().enumerate() {
+            let per = self.q[s].len() / nq / sv.len();
+            let lt = per * sv.len();
+            for (k, &x) in sv.iter().enumerate() {
+                let f = out.site_mut(0, x);
+                for i in 0..per {
+                    let mut add = C64::ZERO;
+                    for b in 0..nq {
+                        add += self.q[s][b * lt + k * per + i] * z[s * nq + b];
+                    }
+                    f[2 * i] += add.re;
+                    f[2 * i + 1] += add.im;
+                }
+            }
+        }
+    }
 }
 
 impl BlockAbsInv {
@@ -401,10 +602,65 @@ impl BlockAbsInv {
             }
             *b = m;
         }
-        Self { dim, blocks }
+        Self {
+            dim,
+            blocks,
+            level: None,
+        }
+    }
+
+    /// Test vectors for the second level: `passes` steps of inverse iteration x ← H⁻¹ x
+    /// from random x, by this preconditioner's MINRES to `tol_sqr`. Returns them, the
+    /// coarse applications and the median of |Hx|/|x|.
+    fn test_vectors(
+        &self,
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        like: &C,
+        k: usize,
+        tol_sqr: f64,
+        passes: usize,
+    ) -> (Vec<C>, usize, f64) {
+        let mut seed: u64 = 0x5851_f42d_4c95_7f2d;
+        let mut applications = 0;
+        let mut quotients = Vec::new();
+        let vectors = (0..k)
+            .map(|_| {
+                let mut x = like.zeros_with(1);
+                for v in x.as_mut_slice() {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    *v = (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+                }
+                for _ in 0..passes {
+                    // A_c y = Γ5 x is H y = x.
+                    let mut r = x.zeros_like();
+                    r.copy_from(&x);
+                    coarse_gamma5(&mut r);
+                    applications +=
+                        coarse_solve_minres(a, adjoint, Some(self), None, &mut x, &r, tol_sqr);
+                    x.scale(&[1.0 / norm(&x)]);
+                }
+                let mut hx = x.zeros_like();
+                h_mult(a, adjoint, &mut hx, &x);
+                quotients.push(norm(&hx) / norm(&x));
+                x
+            })
+            .collect();
+        quotients.sort_by(f64::total_cmp);
+        (vectors, applications, quotients[k / 2])
     }
 
     fn apply(&self, out: &mut C, inp: &C) {
+        self.apply_block(out, inp);
+        if let Some(level) = &self.level {
+            assert_eq!(inp.num_vectors(), 1);
+            level.add(out, inp);
+        }
+    }
+
+    fn apply_block(&self, out: &mut C, inp: &C) {
         let (dim, nv) = (self.dim, inp.num_vectors());
         for (x, m) in self.blocks.iter().enumerate() {
             let src: Vec<f64> = inp.site(0, x).to_vec();
@@ -491,6 +747,33 @@ fn tridiagonal_eigh(mut d: Vec<f64>, mut e: Vec<f64>) -> (Vec<f64>, Vec<f64>) {
     (d, z)
 }
 
+/// out = H inp, H = Γ5 A_c (Γ5 A_c† with `adjoint`).
+fn h_mult(a: &mut CoarseOp<f64>, adjoint: bool, out: &mut C, inp: &C) {
+    if adjoint {
+        a.mult_dag(out, inp);
+    } else {
+        a.mult(out, inp);
+    }
+    coarse_gamma5(out);
+}
+
+/// Modified Gram–Schmidt, twice.
+fn orthonormalise(u: &mut [C]) {
+    let mut d = [C64::ZERO];
+    for i in 0..u.len() {
+        let (done, rest) = u.split_at_mut(i);
+        let ui = &mut rest[0];
+        for _ in 0..2 {
+            for q in done.iter() {
+                q.dot(ui, &mut d);
+                ui.axpy(&[-d[0]], q);
+            }
+        }
+        let n = norm(ui);
+        ui.scale(&[1.0 / n]);
+    }
+}
+
 /// The eigenvectors of H = Γ5 A_c (Γ5 A_c† with `adjoint`) nearest zero, from Lanczos with
 /// full reorthogonalisation, refined by Rayleigh–Ritz on their span.
 struct Deflation {
@@ -557,7 +840,7 @@ impl Deflation {
         let mut order: Vec<usize> = (0..m).collect();
         order.sort_by(|&i, &j| ritz[i].abs().total_cmp(&ritz[j].abs()));
         let k = k.min(m);
-        let mut u: Vec<C> = order[..k]
+        let u: Vec<C> = order[..k]
             .iter()
             .map(|&i| {
                 let mut v = like.zeros_with(1);
@@ -568,12 +851,24 @@ impl Deflation {
             })
             .collect();
         drop(q);
-        // Rayleigh–Ritz on the span of u: T = U†HU = V Θ V†, U ← UV.
-        let mut hu: Vec<C> = u
+        drop(apply);
+        let d = Self::rayleigh_ritz(a, adjoint, u);
+        let line = format!(
+            "{m} Lanczos steps, {} ({:.0} s)",
+            d.describe(),
+            start.elapsed().as_secs_f64()
+        );
+        (d, line)
+    }
+
+    /// Rayleigh–Ritz on the span of the orthonormal u: T = U†HU = V Θ V†, U ← UV.
+    fn rayleigh_ritz(a: &mut CoarseOp<f64>, adjoint: bool, u: Vec<C>) -> Self {
+        let k = u.len();
+        let hu: Vec<C> = u
             .iter()
             .map(|v| {
                 let mut o = v.zeros_like();
-                apply(&mut o, v);
+                h_mult(a, adjoint, &mut o, v);
                 o
             })
             .collect();
@@ -592,7 +887,7 @@ impl Deflation {
         let rotate = |x: &[C]| -> Vec<C> {
             (0..k)
                 .map(|j| {
-                    let mut o = like.zeros_with(1);
+                    let mut o = x[0].zeros_like();
                     for i in 0..k {
                         o.axpy(&[v[i * k + j]], &x[i]);
                     }
@@ -600,26 +895,95 @@ impl Deflation {
                 })
                 .collect()
         };
-        u = rotate(&u);
-        hu = rotate(&hu);
-        let residual: Vec<f64> = (0..k)
+        Self {
+            u: rotate(&u),
+            w: rotate(&hu),
+            theta,
+        }
+    }
+
+    /// The range of |θ| and the relative residuals |Hu − θu|/|θ|.
+    fn describe(&self) -> String {
+        let k = self.u.len();
+        let mut residual: Vec<f64> = (0..k)
             .map(|i| {
-                let mut r = hu[i].zeros_like();
-                r.copy_from(&hu[i]);
-                r.axpy(&[C64::new(-theta[i], 0.0)], &u[i]);
-                norm(&r) / theta[i].abs()
+                let mut r = self.w[i].zeros_like();
+                r.copy_from(&self.w[i]);
+                r.axpy(&[C64::new(-self.theta[i], 0.0)], &self.u[i]);
+                norm(&r) / self.theta[i].abs()
             })
             .collect();
-        let worst = residual.iter().cloned().fold(0.0, f64::max);
-        let mut sorted = theta.clone();
+        residual.sort_by(f64::total_cmp);
+        let mut sorted = self.theta.clone();
         sorted.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
-        let line = format!(
-            "{m} Lanczos steps, {k} Ritz pairs: |θ| {:.2e} … {:.2e}, worst |Hu − θu|/|θ| {worst:.1e} ({:.0} s)",
+        format!(
+            "{k} Ritz pairs: |θ| {:.2e} … {:.2e}, |Hu − θu|/|θ| median {:.1e}, worst {:.1e}",
             sorted[0].abs(),
             sorted[k - 1].abs(),
+            residual[k / 2],
+            residual[k - 1]
+        )
+    }
+
+    /// The eigenvectors nearest zero by subspace iteration with H⁻¹ (block-|H| MINRES to
+    /// 1e-5) and Rayleigh–Ritz, from random vectors. Returns the deflation and a line.
+    fn build_inverse(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        m: &BlockAbsInv,
+        like: &C,
+        k: usize,
+        iterations: usize,
+    ) -> (Self, String) {
+        let start = Instant::now();
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut u: Vec<C> = (0..k)
+            .map(|_| {
+                let mut v = like.zeros_with(1);
+                for x in v.as_mut_slice() {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    *x = (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+                }
+                v
+            })
+            .collect();
+        let mut applications = 0;
+        let mut d = None;
+        for it in 0..iterations {
+            // u_i ← H⁻¹ u_i: A_c x = Γ5 u_i.
+            for ui in u.iter_mut() {
+                let mut g = ui.zeros_like();
+                g.copy_from(ui);
+                coarse_gamma5(&mut g);
+                applications += coarse_solve_minres(a, adjoint, Some(m), None, ui, &g, 1e-10);
+            }
+            orthonormalise(&mut u);
+            let r = Self::rayleigh_ritz(a, adjoint, u);
+            applications += k;
+            println!(
+                "    inverse iteration {it}: {} ({applications} applications, {:.0} s)",
+                r.describe(),
+                start.elapsed().as_secs_f64()
+            );
+            u =
+                r.u.iter()
+                    .map(|v| {
+                        let mut c = v.zeros_like();
+                        c.copy_from(v);
+                        c
+                    })
+                    .collect();
+            d = Some(r);
+        }
+        let d = d.expect("at least one iteration");
+        let line = format!(
+            "{iterations} inverse iterations, {} ({applications} coarse applications, {:.0} s)",
+            d.describe(),
             start.elapsed().as_secs_f64()
         );
-        (Self { u, w: hu, theta }, line)
+        (d, line)
     }
 
     /// v ← (1 − U U†) v.
@@ -1048,6 +1412,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut it = s.strip_prefix("defl:")?.split(':');
         Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
     });
+    // `idefl:K:ITERS`: the deflation from ITERS steps of subspace iteration with H⁻¹.
+    let inverse_deflate: Option<(usize, usize)> = args.iter().skip(11).find_map(|s| {
+        let mut it = s.strip_prefix("idefl:")?.split(':');
+        Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+    });
     // `post`: no smoothing before the coarse correction. `fgmres:K`: the cycle as the
     // preconditioner of FGMRES(K) (on the fine level) instead of BiCGStab.
     let post_only = args.iter().skip(11).any(|s| s == "post");
@@ -1149,17 +1518,79 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The block |H| preconditioners, and a check of the coarse solves with and without them.
     let like_c = p.coarse_field(1);
     let start = Instant::now();
-    let m_d = BlockAbsInv::build(&mut cd, false, &like_c);
-    let m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
+    let mut m_d = BlockAbsInv::build(&mut cd, false, &like_c);
+    let mut m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
     let built = start.elapsed().as_secs_f64();
-    let deflations = deflate.map(|(k, steps)| {
-        let (d_d, line_d) = Deflation::build(&mut cd, false, &like_c, steps, k);
-        println!("  deflation of P†DP: {line_d}");
-        let (d_pv, line_pv) = Deflation::build(&mut cpv, true, &like_c, steps, k);
-        println!("  deflation of P†D_PV†P: {line_pv}");
-        (d_d, d_pv)
+    // `abs2:K:SB:TOL:PASSES`: a second level of the absolute-value preconditioner, from K
+    // test vectors (PASSES steps of inverse iteration, MINRES to TOL) on SB^4 super-blocks.
+    let abs2 = args.iter().skip(11).find_map(|s| {
+        let mut it = s.strip_prefix("abs2:")?.split(':');
+        let k: usize = it.next()?.parse().ok()?;
+        let sb: usize = it.next()?.parse().ok()?;
+        let tol: f64 = it.next()?.parse().ok()?;
+        let passes: usize = it.next().and_then(|p| p.parse().ok()).unwrap_or(1);
+        Some((k, sb, tol, passes))
     });
+    if let Some((k, sb, tol, passes)) = abs2 {
+        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let (a, m) = if adjoint {
+                (&mut cpv, &mut m_pv)
+            } else {
+                (&mut cd, &mut m_d)
+            };
+            let (vectors, n, q) = m.test_vectors(a, adjoint, &like_c, k, tol, passes);
+            let (level, line) = AbsLevel::build(a, adjoint, &vectors, sb);
+            println!(
+                "  second level for {name}: {k} test vectors ({passes} passes, {n} applications, median |Hx|/|x| {q:.2e}), {line}"
+            );
+            m.level = Some(level);
+        }
+    }
+    // The cost of a coarse application against one of Ã, timed here.
     {
+        let mut x = p.coarse_field(1);
+        p.restrict(&mut x, &full(1, 41));
+        let mut y = x.zeros_like();
+        let t0 = Instant::now();
+        for _ in 0..20 {
+            cd.mult(&mut y, &x);
+        }
+        let coarse_time = t0.elapsed().as_secs_f64() / 20.0;
+        let xe = lift.even(&full(1, 43));
+        let mut ye = xe.zeros_like();
+        let mut a = HalfA::new(&op, &pv, &like, &nothing);
+        let t0 = Instant::now();
+        for _ in 0..10 {
+            a.mult(&mut ye, &xe);
+        }
+        let fine_time = t0.elapsed().as_secs_f64() / 10.0;
+        println!(
+            "  timing: coarse application {:.1} ms, Ã {:.1} ms: one coarse application = {:.3} Ã",
+            1e3 * coarse_time,
+            1e3 * fine_time,
+            coarse_time / fine_time
+        );
+    }
+    let deflations = match (deflate, inverse_deflate) {
+        (_, Some((k, iterations))) => {
+            let (d_d, line_d) =
+                Deflation::build_inverse(&mut cd, false, &m_d, &like_c, k, iterations);
+            println!("  deflation of P†DP: {line_d}");
+            let (d_pv, line_pv) =
+                Deflation::build_inverse(&mut cpv, true, &m_pv, &like_c, k, iterations);
+            println!("  deflation of P†D_PV†P: {line_pv}");
+            Some((d_d, d_pv))
+        }
+        (Some((k, steps)), None) => {
+            let (d_d, line_d) = Deflation::build(&mut cd, false, &like_c, steps, k);
+            println!("  deflation of P†DP: {line_d}");
+            let (d_pv, line_pv) = Deflation::build(&mut cpv, true, &like_c, steps, k);
+            println!("  deflation of P†D_PV†P: {line_pv}");
+            Some((d_d, d_pv))
+        }
+        (None, None) => None,
+    };
+    if !args.iter().skip(11).any(|s| s == "nocheck") {
         let mut g = p.coarse_field(1);
         p.restrict(&mut g, &full(1, 31));
         for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
@@ -1197,6 +1628,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("{line}");
         }
         println!("  (block |H| preconditioners built in {built:.1} s)");
+    }
+
+    if args.iter().skip(11).any(|s| s == "checkonly") {
+        return Ok(());
     }
 
     // The right-hand side and the solution, as in `mdwf_evenodd_a`.
