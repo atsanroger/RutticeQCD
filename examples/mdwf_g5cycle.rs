@@ -150,7 +150,13 @@ impl LinearFn<C> for Gamma5Coarse<'_> {
 
 /// Conjugate residuals for a Hermitian (indefinite) map: five vectors, short recurrences,
 /// the residual minimised over the Krylov space. Solves A_c x = b as (Γ5 A_c) x = Γ5 b.
-fn conjugate_residual(h: &mut Gamma5Coarse<'_>, x: &mut C, b: &C, tol_sqr: f64, max_it: usize) -> usize {
+fn conjugate_residual(
+    h: &mut Gamma5Coarse<'_>,
+    x: &mut C,
+    b: &C,
+    tol_sqr: f64,
+    max_it: usize,
+) -> usize {
     let nv = b.num_vectors();
     let mut rhs = b.zeros_like();
     rhs.copy_from(b);
@@ -261,8 +267,7 @@ impl LinearFn<V> for Cycle<'_, '_> {
                         &mut w,
                         &g,
                     );
-                    let _ =
-                        Fgmres::new(fact_stop(self.coarse_tol)).solve(coarse, None, &mut c, &w);
+                    let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(coarse, None, &mut c, &w);
                 }
                 let mut pc = self.r.zeros_like();
                 p.prolong(&mut pc, &c);

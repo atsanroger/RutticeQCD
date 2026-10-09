@@ -317,8 +317,13 @@ impl LinearFn<H> for Cycle<'_> {
             r.aypx(&minus, b);
             // g = P† ι C_PV,e† r.
             let mut z = r.zeros_like();
-            self.pv
-                .diag(&mut self.pv.even_odd_work(), &mut z, &r, Parity::Even, Dagger::Yes);
+            self.pv.diag(
+                &mut self.pv.even_odd_work(),
+                &mut z,
+                &r,
+                Parity::Even,
+                Dagger::Yes,
+            );
             let mut g = p.coarse_field(nv);
             p.restrict(&mut g, &self.lift.inject(&z));
             // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
@@ -333,8 +338,13 @@ impl LinearFn<H> for Cycle<'_> {
             // e = C_e π P c.
             p.prolong(&mut f, &c);
             let u = self.lift.even(&f);
-            self.op
-                .diag(&mut self.op.even_odd_work(), &mut e, &u, Parity::Even, Dagger::No);
+            self.op.diag(
+                &mut self.op.even_odd_work(),
+                &mut e,
+                &u,
+                Parity::Even,
+                Dagger::No,
+            );
             y.axpy(&one, &e);
         }
         self.a.mult(&mut r, y);
@@ -405,7 +415,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let mut op = Mdwf::<f64>::new(&lat, params);
     op.set_gauge(&u)?;
-    let mut pv = Mdwf::<f64>::new(&lat, MdwfParams { mass: 1.0, ..params });
+    let mut pv = Mdwf::<f64>::new(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    );
     pv.set_gauge(&u)?;
     let index: &EvenOddIndex = op.even_odd_index().ok_or("no even-odd decomposition")?;
     let lift = Lift {
