@@ -340,8 +340,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Spurious small singular values of the coarse operator? The lowest of P†DP by inverse
     // iteration on its normal operator (CG solves, cheap on the coarse lattice), against
-    // |D s|/|s| for the x-space low modes s = C⁻¹ v the basis was built from.
-    {
+    // |D s|/|s| for the x-space low modes s = C⁻¹ v the basis was built from. Only in the
+    // `diag` mode: on large coarse lattices the tight CG solves take hours.
+    if args.get(10).map(String::as_str) == Some("diag") {
         let mut c = p.coarse_field(1);
         p.restrict(&mut c, &random(1, 55));
         let mut sigma = 0.0;
