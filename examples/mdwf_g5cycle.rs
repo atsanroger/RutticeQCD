@@ -109,9 +109,27 @@ struct Cycle<'a, 'b> {
     pv_dag: Counted<MdwfAt<'a, f64>>,
     k: usize,
     cgnr: bool,
+    /// The factorized coarse correction: (P†D_PV†P)(P†DP) c = P† C_PV† r, with this P†D_PV P.
+    pv_coarse: Option<&'b mut CoarseOp<f64>>,
     r: V,
     e: V,
 }
+
+/// The adjoint of a coarse operator as a linear map.
+struct Adjoint<'a>(&'a mut CoarseOp<f64>);
+
+impl LinearFn<C> for Adjoint<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        self.0.mult_dag(out, inp);
+    }
+}
+
+/// The coarse solves of the factorized correction.
+const FACT_STOP: Stop = Stop {
+    tolerance_sqr: 1e-8,
+    max_iterations: 40,
+    max_restarts: 10,
+};
 
 impl LinearFn<V> for Cycle<'_, '_> {
     fn mult(&mut self, y: &mut V, b: &V) {
@@ -122,6 +140,26 @@ impl LinearFn<V> for Cycle<'_, '_> {
         if let Some((p, coarse)) = self.coarse.as_mut() {
             self.a.mult(&mut self.r, y);
             self.r.aypx(&minus, b);
+            if let Some(cpv) = self.pv_coarse.as_mut() {
+                // (P†D_PV†P) w = P† C_PV† r, then (P†DP) c = w; nothing on the fine lattice.
+                let mut z = self.r.zeros_like();
+                self.op.mult_site(&mut z, &self.r, 1.0, true);
+                let mut g = p.coarse_field(nv);
+                p.restrict(&mut g, &z);
+                let mut w = g.zeros_like();
+                let _ = Fgmres::new(FACT_STOP).solve(&mut Adjoint(cpv), None, &mut w, &g);
+                let mut c = w.zeros_like();
+                let _ = Fgmres::new(FACT_STOP).solve(coarse, None, &mut c, &w);
+                let mut pc = self.r.zeros_like();
+                p.prolong(&mut pc, &c);
+                self.op.mult_site(&mut self.e, &pc, self.mass, false);
+                y.axpy(&one, &self.e);
+                self.a.mult(&mut self.r, y);
+                self.r.aypx(&minus, b);
+                self.smoother.mult(&mut self.e, &self.r);
+                y.axpy(&one, &self.e);
+                return;
+            }
             // z = X⁻† r = D_PV⁻† C_PV† r.
             let mut z = self.r.zeros_like();
             if self.k == 0 {
@@ -199,6 +237,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_or(Ok(5), |s| s.parse())
         .map_err(|_| USAGE)?;
     let cgnr = args.get(9).is_some_and(|s| s == "cgnr");
+    // `fact`: the factorized coarse correction, no D_PV on the fine lattice.
+    let fact = args.get(9).is_some_and(|s| s == "fact");
+    // `sds`: the basis from s = C⁻¹v for the lowest N/2 and D s for the same N/2.
+    let sds = args.get(11).is_some_and(|s| s == "sds");
     let smoothers: Vec<&str> = match args.get(10).map(String::as_str) {
         Some("cheb") => vec!["Chebyshev 9/100"],
         Some("gmres") => vec!["GMRES(4)"],
@@ -229,19 +271,47 @@ fn main() -> Result<(), Box<dyn Error>> {
         v
     };
     let like = random(1, 1);
-    let ritz = load(&checkpoint, &like, n)?;
+    let ritz = load(&checkpoint, &like, if sds { n / 2 } else { n })?;
     let mut xs = ritz.zeros_like();
     op.mult_site_inv(&mut xs, &ritz, mass, false);
     drop(ritz);
+    if sds {
+        let half = xs.num_vectors();
+        let mut ds = xs.zeros_like();
+        MdwfAt::new(&op, Variant::D, mass).mult(&mut ds, &xs);
+        let mut both = xs.zeros_with(2 * half);
+        both.assign(&(0..half).collect::<Vec<_>>(), &xs);
+        both.assign(&(half..2 * half).collect::<Vec<_>>(), &ds);
+        xs = both;
+    }
+    let mut pv = Mdwf::<f64>::new(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    );
+    pv.set_gauge(&u)?;
     let mut g5 = xs.zeros_like();
     op.mult_gamma5(&mut op.work(), &mut g5, &xs);
     let agg = Aggregation::new(&lat, [block; ND]);
     let p = Basis::from_vectors(&agg, &xs, &g5)?;
     drop((xs, g5));
     let mut coarse = CoarseOp::build(&op, &mut op.work(), &p);
+    let mut pv_coarse = CoarseOp::build(&pv, &mut pv.work(), &p);
     println!(
-        "{l}^4, Ls = {ls}, M5 = {m5}, m = {mass}; P from C⁻¹ of the lowest {n} Ritz vectors on {block}^4 (coarse dimension {}); X⁻† by {k} BiCGStab iterations",
-        coarse.dim()
+        "{l}^4, Ls = {ls}, M5 = {m5}, m = {mass}; P from {} on {block}^4 (coarse dimension {}); {}",
+        if sds {
+            format!("s = C⁻¹v and Ds for the lowest {}", n / 2)
+        } else {
+            format!("s = C⁻¹v for the lowest {n}")
+        },
+        coarse.dim(),
+        if fact {
+            "factorized coarse correction (P†D_PV†P)(P†DP), no fine D_PV".to_string()
+        } else {
+            format!("X⁻† by {k} BiCGStab iterations")
+        }
     );
     // Check the nearest-neighbour P†DP against the one through the fine lattice.
     {
@@ -380,6 +450,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     },
                     k,
                     cgnr,
+                    pv_coarse: if fact && with_coarse {
+                        Some(&mut pv_coarse)
+                    } else {
+                        None
+                    },
                     r: like.zeros_like(),
                     e: like.zeros_like(),
                 };
