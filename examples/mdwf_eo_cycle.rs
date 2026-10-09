@@ -334,6 +334,8 @@ fn eigh(mut a: Vec<C64>, n: usize) -> (Vec<f64>, Vec<C64>) {
 struct BlockAbsInv {
     dim: usize,
     blocks: Vec<Vec<C64>>,
+    /// The signed inverses H_xx⁻¹ of the same blocks.
+    signed: Vec<Vec<C64>>,
     /// An additive second level, making the preconditioner B + Q |Q†HQ|⁻¹ Q†.
     level: Option<AbsLevel>,
 }
@@ -549,6 +551,7 @@ impl BlockAbsInv {
             .map(|x| lat.coords(x).iter().sum::<usize>() % 2)
             .collect();
         let mut blocks = vec![vec![C64::ZERO; dim * dim]; ns];
+        let mut signed = Vec::with_capacity(ns);
         for c in 0..2 {
             let mut e = like.zeros_with(dim);
             for x in 0..ns {
@@ -589,24 +592,38 @@ impl BlockAbsInv {
                 })
                 .collect();
             let (lam, v) = eigh(h, dim);
-            let mut m = vec![C64::ZERO; dim * dim];
-            for i in 0..dim {
-                for k in 0..dim {
-                    let mut z = C64::ZERO;
-                    for j in 0..dim {
-                        z += v[i * dim + j].scale(1.0 / lam[j].abs().max(1e-300))
-                            * v[k * dim + j].conj();
+            let compose = |f: &dyn Fn(f64) -> f64| {
+                let mut m = vec![C64::ZERO; dim * dim];
+                for i in 0..dim {
+                    for k in 0..dim {
+                        let mut z = C64::ZERO;
+                        for j in 0..dim {
+                            z += v[i * dim + j].scale(f(lam[j])) * v[k * dim + j].conj();
+                        }
+                        m[i * dim + k] = z;
                     }
-                    m[i * dim + k] = z;
                 }
-            }
-            *b = m;
+                m
+            };
+            signed.push(compose(&|l| {
+                1.0 / if l.abs() > 1e-300 { l } else { 1e-300 }
+            }));
+            *b = compose(&|l| 1.0 / l.abs().max(1e-300));
         }
         Self {
             dim,
             blocks,
+            signed,
             level: None,
         }
+    }
+
+    /// out = A_xx⁻¹ inp (A_xx†⁻¹ for an adjoint build), block by block: H_xx⁻¹ Γ5 inp.
+    fn apply_block_solve(&self, out: &mut C, inp: &C) {
+        let mut g = inp.zeros_like();
+        g.copy_from(inp);
+        coarse_gamma5(&mut g);
+        apply_blocks(&self.signed, self.dim, out, &g);
     }
 
     /// Test vectors for the second level: `passes` steps of inverse iteration x ← H⁻¹ x
@@ -661,22 +678,133 @@ impl BlockAbsInv {
     }
 
     fn apply_block(&self, out: &mut C, inp: &C) {
-        let (dim, nv) = (self.dim, inp.num_vectors());
-        for (x, m) in self.blocks.iter().enumerate() {
-            let src: Vec<f64> = inp.site(0, x).to_vec();
-            let dst = out.site_mut(0, x);
-            for v in 0..nv {
+        apply_blocks(&self.blocks, self.dim, out, inp);
+    }
+}
+
+/// out = M_x inp on every coarse site x, M_x dense dim × dim row-major.
+fn apply_blocks(blocks: &[Vec<C64>], dim: usize, out: &mut C, inp: &C) {
+    let nv = inp.num_vectors();
+    for (x, m) in blocks.iter().enumerate() {
+        let src: Vec<f64> = inp.site(0, x).to_vec();
+        let dst = out.site_mut(0, x);
+        for v in 0..nv {
+            for i in 0..dim {
+                let mut z = C64::ZERO;
+                for k in 0..dim {
+                    let r = v * 2 * dim + 2 * k;
+                    z += m[i * dim + k] * C64::new(src[r], src[r + 1]);
+                }
+                dst[v * 2 * dim + 2 * i] = z.re;
+                dst[v * 2 * dim + 2 * i + 1] = z.im;
+            }
+        }
+    }
+}
+
+/// E = P† ι π P, block-diagonal on the coarse lattice (ιπ keeps the even sites), and its
+/// inverse, by probing every column on all sites at once.
+struct EvenGram {
+    dim: usize,
+    e: Vec<Vec<C64>>,
+    inv: Vec<Vec<C64>>,
+}
+
+impl EvenGram {
+    fn build(p: &Basis<f64>, lift: &Lift) -> (Self, String) {
+        let dim = p.coarse_dim();
+        let ns = p.coarse_field(1).as_slice().len() / (2 * dim);
+        let mut e = vec![vec![C64::ZERO; dim * dim]; ns];
+        let mut unit = p.coarse_field(1);
+        let mut f = p.fine_field(1);
+        let mut out = p.coarse_field(1);
+        for k in 0..dim {
+            unit.as_mut_slice().fill(0.0);
+            for x in 0..ns {
+                unit.site_mut(0, x)[2 * k] = 1.0;
+            }
+            p.prolong(&mut f, &unit);
+            p.restrict(&mut out, &lift.inject(&lift.even(&f)));
+            for (x, ex) in e.iter_mut().enumerate() {
+                let s = out.site(0, x);
                 for i in 0..dim {
-                    let mut z = C64::ZERO;
-                    for k in 0..dim {
-                        let r = v * 2 * dim + 2 * k;
-                        z += m[i * dim + k] * C64::new(src[r], src[r + 1]);
-                    }
-                    dst[v * 2 * dim + 2 * i] = z.re;
-                    dst[v * 2 * dim + 2 * i + 1] = z.im;
+                    ex[i * dim + k] = C64::new(s[2 * i], s[2 * i + 1]);
                 }
             }
         }
+        let mut lo = f64::INFINITY;
+        let mut hi: f64 = 0.0;
+        let inv = e
+            .iter()
+            .map(|b| {
+                let h: Vec<C64> = (0..dim * dim)
+                    .map(|ik| {
+                        let (i, k) = (ik / dim, ik % dim);
+                        (b[i * dim + k] + b[k * dim + i].conj()).scale(0.5)
+                    })
+                    .collect();
+                let (lam, v) = eigh(h, dim);
+                for l in &lam {
+                    lo = lo.min(*l);
+                    hi = hi.max(*l);
+                }
+                let mut m = vec![C64::ZERO; dim * dim];
+                for i in 0..dim {
+                    for k in 0..dim {
+                        let mut z = C64::ZERO;
+                        for j in 0..dim {
+                            z += v[i * dim + j].scale(1.0 / lam[j].max(1e-12))
+                                * v[k * dim + j].conj();
+                        }
+                        m[i * dim + k] = z;
+                    }
+                }
+                m
+            })
+            .collect();
+        (
+            Self { dim, e, inv },
+            format!("E = P†ιπP: eigenvalues {lo:.2e} … {hi:.2e}"),
+        )
+    }
+}
+
+/// The factorized coarse correction as one operator: c = (P†DP)⁻¹ E (P†D_PV†P)⁻¹ g is
+/// K c = g with K = (P†D_PV†P) E⁻¹ (P†DP), two nearest-neighbour coarse operators and a
+/// block-diagonal one. K keeps the conditioning of the product, which the separate factor
+/// solves lose; it is neither Hermitian nor Γ5-Hermitian, so BiCGStab, with the block
+/// inverses (A_d,xx)⁻¹ E (A_pv,xx†)⁻¹ as right preconditioner.
+struct CoarseK<'a> {
+    cd: &'a mut CoarseOp<f64>,
+    cpv: &'a mut CoarseOp<f64>,
+    gram: &'a EvenGram,
+    n: Count,
+}
+
+impl LinearFn<C> for CoarseK<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        self.n.set(self.n.get() + 2 * inp.num_vectors());
+        let mut t = inp.zeros_like();
+        self.cd.mult(&mut t, inp);
+        let mut u = inp.zeros_like();
+        apply_blocks(&self.gram.inv, self.gram.dim, &mut u, &t);
+        self.cpv.mult_dag(out, &u);
+    }
+}
+
+struct CoarseKPrec<'a> {
+    md: &'a BlockAbsInv,
+    mpv: &'a BlockAbsInv,
+    gram: &'a EvenGram,
+}
+
+impl LinearFn<C> for CoarseKPrec<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        let mut t = inp.zeros_like();
+        self.mpv.apply_block_solve(&mut t, inp);
+        let mut u = inp.zeros_like();
+        apply_blocks(&self.gram.e, self.gram.dim, &mut u, &t);
+        self.md.apply_block_solve(out, &u);
     }
 }
 
@@ -1179,12 +1307,15 @@ enum CoarseSolver<'a> {
         Option<(&'a BlockAbsInv, &'a BlockAbsInv)>,
         Option<(&'a Deflation, &'a Deflation)>,
     ),
+    /// The two factors as one operator K (see `CoarseK`), by BiCGStab.
+    K(&'a EvenGram, &'a BlockAbsInv, &'a BlockAbsInv),
 }
 
 impl CoarseSolver<'_> {
     /// Solves the coarse D factor (`pv` false) or the coarse D_PV† factor (`pv` true).
     fn solve(self, a: &mut CoarseOp<f64>, pv: bool, x: &mut C, b: &C, tol: f64) -> usize {
         match self {
+            CoarseSolver::K(..) => unreachable!("K solves both factors at once"),
             CoarseSolver::Cr => coarse_solve(a, pv, x, b, tol),
             CoarseSolver::Minres(m, d) => coarse_solve_minres(
                 a,
@@ -1327,6 +1458,25 @@ impl LinearFn<H> for Cycle<'_> {
                     })
                     .solve(pg, None, &mut c, &g);
                 }
+                None if matches!(self.solver, CoarseSolver::K(..)) => {
+                    let CoarseSolver::K(gram, md, mpv) = self.solver else {
+                        unreachable!()
+                    };
+                    // K c = g in one BiCGStab, K = (P†D_PV†P) E⁻¹ (P†DP).
+                    let mut k = CoarseK {
+                        cd,
+                        cpv,
+                        gram,
+                        n: self.nc.clone(),
+                    };
+                    let mut prec = CoarseKPrec { md, mpv, gram };
+                    let _ = BiCgStab::new(Stop {
+                        tolerance_sqr: self.coarse_tol,
+                        max_iterations: 5000,
+                        max_restarts: 0,
+                    })
+                    .solve(&mut k, Some(&mut prec), &mut c, &g);
+                }
                 None => {
                     // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
                     let mut w = g.zeros_like();
@@ -1403,7 +1553,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let solver_name = args
         .iter()
         .skip(11)
-        .find(|s| ["cr", "minres", "pminres"].contains(&s.as_str()))
+        .find(|s| ["cr", "minres", "pminres", "kbicg"].contains(&s.as_str()))
         .cloned()
         .unwrap_or_else(|| "cr".to_string());
     // `defl:K:STEPS`: deflate the MINRES coarse solves by the K Ritz vectors nearest zero
@@ -1504,6 +1654,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
     let agg = Aggregation::new(&lat, [block; ND]);
     let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+    // The basis vectors on the coarse lattice, P† s and P† D s: test vectors for the second
+    // level of the coarse preconditioner that cost nothing (`abs2f`).
+    let restricted: Vec<C> = (0..vectors.num_vectors())
+        .map(|j| {
+            let mut c = p.coarse_field(1);
+            p.restrict(&mut c, &vectors.select(&[j]));
+            c
+        })
+        .collect();
     drop((vectors, g5));
     let mut cd = CoarseOp::build(&op, &mut op.work(), &p);
     let mut cpv = CoarseOp::build(&pv, &mut pv.work(), &p);
@@ -1517,6 +1676,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  check: |odd part of D s| / |D s| = {odd_part:.1e} (D s lives on the even sites)");
     // The block |H| preconditioners, and a check of the coarse solves with and without them.
     let like_c = p.coarse_field(1);
+    let (gram, gram_line) = EvenGram::build(&p, &lift);
+    println!("  {gram_line}");
     let start = Instant::now();
     let mut m_d = BlockAbsInv::build(&mut cd, false, &like_c);
     let mut m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
@@ -1531,6 +1692,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         let passes: usize = it.next().and_then(|p| p.parse().ok()).unwrap_or(1);
         Some((k, sb, tol, passes))
     });
+    // `abs2f:SB`: the second level from the restricted basis vectors instead.
+    let abs2f: Option<usize> = args
+        .iter()
+        .skip(11)
+        .find_map(|s| s.strip_prefix("abs2f:")?.parse().ok());
+    if let Some(sb) = abs2f {
+        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let (a, m) = if adjoint {
+                (&mut cpv, &mut m_pv)
+            } else {
+                (&mut cd, &mut m_d)
+            };
+            let mut quotients: Vec<f64> = restricted
+                .iter()
+                .map(|x| {
+                    let mut hx = x.zeros_like();
+                    h_mult(a, adjoint, &mut hx, x);
+                    norm(&hx) / norm(x)
+                })
+                .collect();
+            quotients.sort_by(f64::total_cmp);
+            let (level, line) = AbsLevel::build(a, adjoint, &restricted, sb);
+            println!(
+                "  second level for {name}: the {} restricted basis vectors (|Hx|/|x| {:.2e} … {:.2e}), {line}",
+                restricted.len(),
+                quotients[0],
+                quotients[quotients.len() - 1]
+            );
+            m.level = Some(level);
+        }
+    }
     if let Some((k, sb, tol, passes)) = abs2 {
         for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
             let (a, m) = if adjoint {
@@ -1627,6 +1819,39 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             println!("{line}");
         }
+        // The two factors as one operator K, to the same tolerance.
+        let nk = Count::default();
+        let mut k = CoarseK {
+            cd: &mut cd,
+            cpv: &mut cpv,
+            gram: &gram,
+            n: nk.clone(),
+        };
+        let mut c = g.zeros_like();
+        let mut prec = CoarseKPrec {
+            md: &m_d,
+            mpv: &m_pv,
+            gram: &gram,
+        };
+        let result = BiCgStab::new(Stop {
+            tolerance_sqr: 1e-12,
+            max_iterations: 5000,
+            max_restarts: 0,
+        })
+        .solve(&mut k, Some(&mut prec), &mut c, &g);
+        let mut kc = g.zeros_like();
+        k.mult(&mut kc, &c);
+        kc.axpy(&[C64::new(-1.0, 0.0)], &g);
+        println!(
+            "  check: K = (P†D_PV†P) E⁻¹ (P†DP) to 1e-12 by BiCGStab: {} iterations, {} coarse applications (|Kc−g|/|g| {:.0e})",
+            match result {
+                Ok(i) => format!("{}", i.iterations),
+                Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
+                Err(e) => format!("failed: {e}"),
+            },
+            nk.get(),
+            norm(&kc) / norm(&g)
+        );
         println!("  (block |H| preconditioners built in {built:.1} s)");
     }
 
@@ -1715,6 +1940,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     solver: match solver_name.as_str() {
                         "minres" => CoarseSolver::Minres(None, defl),
                         "pminres" => CoarseSolver::Minres(Some((&m_d, &m_pv)), defl),
+                        "kbicg" => CoarseSolver::K(&gram, &m_d, &m_pv),
                         _ => CoarseSolver::Cr,
                     },
                     pre: !post_only,
