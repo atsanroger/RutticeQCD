@@ -610,6 +610,9 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
 - **由此的新構造：因子化的 Galerkin（測試中，`mdwf_factorized`）。** D_PV 與 D 都 Γ5-厄米、C 與 C_PV 都在 site 內，所以
   A′ e = r ⇔ D_PV† D (C⁻¹ e) = C_PV† r，兩個因子各自 Galerkin 投影：**(P†D_PV†P)(P†DP) c = P†C_PV† r，e = C P c**。
   每個粗網格因子都是厄米不定的 Γ5·(…) 的壓縮（與 Wilson 同樣受保護），都是最近鄰、便宜，**完全不需要細格子上的 X⁻†**；D 與 X 的小同時在粗網格上處理。
+  **更正（2026-10-09）：這個結構不是新的。** Kanamori 2023 筆記 p. 3 記載 Brower–Clark–Howarth–Weinberg 2020（PRD 102, 094517）用 D_PV† 預處理、
+  以 (D_PV†)_coarse (D_DW)_coarse 當粗網格算子——核心相同。此前寫的「據我所知沒人做過」是錯的。這裡的差別只在：外層是 BiCGStab 解論文的 A′
+  （多了 site 內的 C、C_PV），基底必須含 D·s 方向，以及一路量出來的理由（區塊邊界垃圾、Γ5-厄米的保護、低模同時來自 D 與 X）。
   比三種 P：s（N = 8、16）、s 加上 Ds（8 + 8）。
 - **★ 因子化 Galerkin 有效，且不需要任何細格子 X⁻†**（`mdwf_factorized`，3⁴，t = v_8…v_11，修正 + 平滑後的低模成分）：
 
