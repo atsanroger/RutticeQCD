@@ -3,8 +3,12 @@
 //! lattice and entered and left on the even sites.
 //!
 //! ```text
-//! cargo run --release --example mdwf_eo_cycle -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [STEPS] [RATIO] [COARSE_TOL] [noalone]
+//! cargo run --release --example mdwf_eo_cycle -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [STEPS] [RATIO] [COARSE_TOL] [noalone] [cr|minres|pminres] [defl:K:STEPS]
 //! ```
+//!
+//! The coarse solver is conjugate residuals (`cr`), MINRES, or MINRES preconditioned by the
+//! block |H| (`pminres`); `defl:K:STEPS` deflates MINRES by the K eigenvectors nearest zero
+//! of each Γ5-Hermitian coarse factor, from STEPS Lanczos steps.
 //!
 //! Ã = C_PV,e†⁻¹ S_PV† S_D C_e⁻¹ (S_D = D_ee − D_eo D_oo⁻¹ D_oe, the Schur complement of D on
 //! the even sites, and S_PV that of D_PV), so Ã e = r is S_PV† S_D (C_e⁻¹ e) = C_PV,e† r, and
@@ -30,7 +34,7 @@
 use ruttice::fermion::{Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
-use ruttice::solver::{largest_magnitude, BiCgStab, Chebyshev, SolveError, Solver, Stop};
+use ruttice::solver::{largest_magnitude, BiCgStab, Chebyshev, Fgmres, SolveError, Solver, Stop};
 use ruttice::{
     extract_parity, insert_parity, random_spinor, Boundary, Coarse, EvenOddIndex, Field, Half,
     Lattice, LinearFn, LinearOp, Parity, Spinor, Vector, C64, ND,
@@ -43,7 +47,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_eo_cycle CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [STEPS] [RATIO] [COARSE_TOL] [noalone]";
+const USAGE: &str = "usage: mdwf_eo_cycle CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [STEPS] [RATIO] [COARSE_TOL] [noalone] [cr|minres|pminres] [defl:K:STEPS]";
 
 type V = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
@@ -420,69 +424,415 @@ impl BlockAbsInv {
     }
 }
 
-/// Preconditioned conjugate residuals for H = Γ5 A_c (Γ5 A_c† with `adjoint`) with the
-/// Hermitian positive definite M: solves A_c x = b; returns the coarse applications.
-fn coarse_solve_pcr(
+/// Eigenvalues and eigenvectors (columns of the row-major n × n `z`) of the real symmetric
+/// tridiagonal matrix with diagonal `d` and off-diagonal `e` (e[i] couples i and i + 1;
+/// e[n − 1] is ignored), by the implicit QL method (`tqli` of Numerical Recipes).
+fn tridiagonal_eigh(mut d: Vec<f64>, mut e: Vec<f64>) -> (Vec<f64>, Vec<f64>) {
+    let n = d.len();
+    e.resize(n, 0.0);
+    e[n - 1] = 0.0;
+    let mut z = vec![0.0; n * n];
+    for i in 0..n {
+        z[i * n + i] = 1.0;
+    }
+    for l in 0..n {
+        let mut iter = 0;
+        loop {
+            let mut m = l;
+            while m + 1 < n {
+                let dd = d[m].abs() + d[m + 1].abs();
+                if e[m].abs() <= f64::EPSILON * dd {
+                    break;
+                }
+                m += 1;
+            }
+            if m == l {
+                break;
+            }
+            iter += 1;
+            assert!(iter < 100, "tridiagonal QL did not converge");
+            let mut g = (d[l + 1] - d[l]) / (2.0 * e[l]);
+            let mut r = g.hypot(1.0);
+            g = d[m] - d[l] + e[l] / (g + if g >= 0.0 { r } else { -r });
+            let (mut s, mut c, mut p) = (1.0, 1.0, 0.0);
+            let mut deflated = false;
+            for i in (l..m).rev() {
+                let f = s * e[i];
+                let b = c * e[i];
+                r = f.hypot(g);
+                e[i + 1] = r;
+                if r == 0.0 {
+                    d[i + 1] -= p;
+                    e[m] = 0.0;
+                    deflated = true;
+                    break;
+                }
+                s = f / r;
+                c = g / r;
+                g = d[i + 1] - p;
+                r = (d[i] - g) * s + 2.0 * c * b;
+                p = s * r;
+                d[i + 1] = g + p;
+                g = c * r - b;
+                for k in 0..n {
+                    let f = z[k * n + i + 1];
+                    z[k * n + i + 1] = s * z[k * n + i] + c * f;
+                    z[k * n + i] = c * z[k * n + i] - s * f;
+                }
+            }
+            if deflated {
+                continue;
+            }
+            d[l] -= p;
+            e[l] = g;
+            e[m] = 0.0;
+        }
+    }
+    (d, z)
+}
+
+/// The eigenvectors of H = Γ5 A_c (Γ5 A_c† with `adjoint`) nearest zero, from Lanczos with
+/// full reorthogonalisation, refined by Rayleigh–Ritz on their span.
+struct Deflation {
+    u: Vec<C>,
+    /// H u_i.
+    w: Vec<C>,
+    theta: Vec<f64>,
+}
+
+impl Deflation {
+    /// Returns the deflation and a line describing it.
+    fn build(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        like: &C,
+        steps: usize,
+        k: usize,
+    ) -> (Self, String) {
+        let mut apply = |out: &mut C, inp: &C| {
+            if adjoint {
+                a.mult_dag(out, inp);
+            } else {
+                a.mult(out, inp);
+            }
+            coarse_gamma5(out);
+        };
+        let start = Instant::now();
+        let mut q0 = like.zeros_with(1);
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        for v in q0.as_mut_slice() {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            *v = (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+        }
+        q0.scale(&[1.0 / norm(&q0)]);
+        let mut q = vec![q0];
+        let (mut alpha, mut beta) = (Vec::new(), Vec::new());
+        let mut w = like.zeros_with(1);
+        for j in 0..steps {
+            apply(&mut w, &q[j]);
+            let mut d = [C64::ZERO];
+            q[j].dot(&w, &mut d);
+            alpha.push(d[0].re);
+            // Full reorthogonalisation, twice.
+            for _ in 0..2 {
+                for qi in q.iter() {
+                    qi.dot(&w, &mut d);
+                    w.axpy(&[-d[0]], qi);
+                }
+            }
+            let b = norm(&w);
+            if j + 1 == steps || b < 1e-12 {
+                break;
+            }
+            beta.push(b);
+            let mut next = w.zeros_like();
+            next.copy_from(&w);
+            next.scale(&[1.0 / b]);
+            q.push(next);
+        }
+        let m = alpha.len();
+        let (ritz, z) = tridiagonal_eigh(alpha, beta);
+        let mut order: Vec<usize> = (0..m).collect();
+        order.sort_by(|&i, &j| ritz[i].abs().total_cmp(&ritz[j].abs()));
+        let k = k.min(m);
+        let mut u: Vec<C> = order[..k]
+            .iter()
+            .map(|&i| {
+                let mut v = like.zeros_with(1);
+                for (j, qj) in q.iter().enumerate() {
+                    v.axpy(&[C64::new(z[j * m + i], 0.0)], qj);
+                }
+                v
+            })
+            .collect();
+        drop(q);
+        // Rayleigh–Ritz on the span of u: T = U†HU = V Θ V†, U ← UV.
+        let mut hu: Vec<C> = u
+            .iter()
+            .map(|v| {
+                let mut o = v.zeros_like();
+                apply(&mut o, v);
+                o
+            })
+            .collect();
+        let mut t = vec![C64::ZERO; k * k];
+        for i in 0..k {
+            for j in 0..k {
+                let mut d = [C64::ZERO];
+                u[i].dot(&hu[j], &mut d);
+                t[i * k + j] = d[0];
+            }
+        }
+        let t: Vec<C64> = (0..k * k)
+            .map(|ij| (t[ij] + t[(ij % k) * k + ij / k].conj()).scale(0.5))
+            .collect();
+        let (theta, v) = eigh(t, k);
+        let rotate = |x: &[C]| -> Vec<C> {
+            (0..k)
+                .map(|j| {
+                    let mut o = like.zeros_with(1);
+                    for i in 0..k {
+                        o.axpy(&[v[i * k + j]], &x[i]);
+                    }
+                    o
+                })
+                .collect()
+        };
+        u = rotate(&u);
+        hu = rotate(&hu);
+        let residual: Vec<f64> = (0..k)
+            .map(|i| {
+                let mut r = hu[i].zeros_like();
+                r.copy_from(&hu[i]);
+                r.axpy(&[C64::new(-theta[i], 0.0)], &u[i]);
+                norm(&r) / theta[i].abs()
+            })
+            .collect();
+        let worst = residual.iter().cloned().fold(0.0, f64::max);
+        let mut sorted = theta.clone();
+        sorted.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+        let line = format!(
+            "{m} Lanczos steps, {k} Ritz pairs: |θ| {:.2e} … {:.2e}, worst |Hu − θu|/|θ| {worst:.1e} ({:.0} s)",
+            sorted[0].abs(),
+            sorted[k - 1].abs(),
+            start.elapsed().as_secs_f64()
+        );
+        (Self { u, w: hu, theta }, line)
+    }
+
+    /// v ← (1 − U U†) v.
+    fn project(&self, v: &mut C) {
+        let mut d = [C64::ZERO];
+        for ui in &self.u {
+            ui.dot(v, &mut d);
+            v.axpy(&[-d[0]], ui);
+        }
+    }
+
+    /// For the solution y of the projected system, x = y + Σ_i u_i (u_i†h − w_i†y)/θ_i
+    /// solves H x = h with U†(h − Hx) = 0.
+    fn correct(&self, x: &mut C, h: &C) {
+        let (mut uh, mut wy) = ([C64::ZERO], [C64::ZERO]);
+        let coefficients: Vec<C64> = (0..self.u.len())
+            .map(|i| {
+                self.u[i].dot(h, &mut uh);
+                self.w[i].dot(x, &mut wy);
+                (uh[0] - wy[0]).scale(1.0 / self.theta[i])
+            })
+            .collect();
+        for (c, ui) in coefficients.iter().zip(&self.u) {
+            x.axpy(&[*c], ui);
+        }
+    }
+}
+
+/// Solves A_c x = b (A_c† with `adjoint`) by MINRES on H = Γ5 A_c, optionally preconditioned
+/// by the Hermitian positive definite M and deflated by eigenvectors of H nearest zero;
+/// returns the coarse applications. Conjugate residuals with the preconditioner stalled on
+/// P†DP (5000 steps, residual 1.6e-2), as CR can on an indefinite matrix: it divides by
+/// ⟨z, H z⟩. With deflation, MINRES solves (1 − UU†) H (1 − UU†) y = (1 − UU†) Γ5 b and
+/// `Deflation::correct` adds the part in the span of U.
+fn coarse_solve_minres(
     a: &mut CoarseOp<f64>,
     adjoint: bool,
-    m: &BlockAbsInv,
+    m: Option<&BlockAbsInv>,
+    deflation: Option<&Deflation>,
     x: &mut C,
     b: &C,
     tol_sqr: f64,
 ) -> usize {
+    let mut h = b.zeros_like();
+    h.copy_from(b);
+    coarse_gamma5(&mut h);
     let mut apply = |out: &mut C, inp: &C| {
+        let projected;
+        let inp = match deflation {
+            Some(d) => {
+                let mut t = inp.zeros_like();
+                t.copy_from(inp);
+                d.project(&mut t);
+                projected = t;
+                &projected
+            }
+            None => inp,
+        };
         if adjoint {
             a.mult_dag(out, inp);
         } else {
             a.mult(out, inp);
         }
         coarse_gamma5(out);
-    };
-    let nv = b.num_vectors();
-    let mut r = b.zeros_like();
-    r.copy_from(b);
-    coarse_gamma5(&mut r);
-    let mut bb = vec![0.0; nv];
-    r.norm_sqr(&mut bb);
-    x.scale(&vec![0.0; nv]);
-    let mut z = r.zeros_like();
-    m.apply(&mut z, &r);
-    let mut p = z.zeros_like();
-    p.copy_from(&z);
-    let mut w = z.zeros_like();
-    apply(&mut w, &z);
-    let mut q = w.zeros_like();
-    q.copy_from(&w);
-    let mut mq = q.zeros_like();
-    let mut zw = vec![C64::ZERO; nv];
-    z.dot(&w, &mut zw);
-    let mut rr = vec![0.0; nv];
-    for it in 0..5000 {
-        m.apply(&mut mq, &q);
-        let mut qmq = vec![C64::ZERO; nv];
-        q.dot(&mq, &mut qmq);
-        let alpha: Vec<C64> = (0..nv)
-            .map(|j| C64::new(zw[j].re / qmq[j].re.max(1e-300), 0.0))
-            .collect();
-        let minus: Vec<C64> = alpha.iter().map(|a| C64::new(-a.re, 0.0)).collect();
-        x.axpy(&alpha, &p);
-        r.axpy(&minus, &q);
-        z.axpy(&minus, &mq);
-        r.norm_sqr(&mut rr);
-        if (0..nv).all(|j| rr[j] <= tol_sqr * bb[j]) {
-            return it + 2;
+        if let Some(d) = deflation {
+            d.project(out);
         }
-        apply(&mut w, &z);
-        let mut zw_new = vec![C64::ZERO; nv];
-        z.dot(&w, &mut zw_new);
-        let beta: Vec<C64> = (0..nv)
-            .map(|j| C64::new(zw_new[j].re / zw[j].re, 0.0))
-            .collect();
-        p.aypx(&beta, &z);
-        q.aypx(&beta, &w);
-        zw = zw_new;
+    };
+    let precondition = |out: &mut C, inp: &C| match m {
+        Some(m) => m.apply(out, inp),
+        None => out.copy_from(inp),
+    };
+    match deflation {
+        None => minres(&mut apply, &precondition, x, &h, tol_sqr),
+        Some(d) => {
+            let mut rhs = h.zeros_like();
+            rhs.copy_from(&h);
+            d.project(&mut rhs);
+            let n = minres(&mut apply, &precondition, x, &rhs, tol_sqr);
+            d.correct(x, &h);
+            n
+        }
     }
-    5001
+}
+
+/// Preconditioned MINRES for the Hermitian (indefinite) `apply`: x with apply(x) = rhs.
+fn minres(
+    apply: &mut dyn FnMut(&mut C, &C),
+    precondition: &dyn Fn(&mut C, &C),
+    x: &mut C,
+    rhs: &C,
+    tol_sqr: f64,
+) -> usize {
+    // Elman, Silvester and Wathen, algorithm 2.4: Lanczos with the M-inner product and
+    // Givens rotations, so it cannot break down on an indefinite matrix as conjugate
+    // residuals can. M must be Hermitian positive definite. Stops when the M⁻¹-norm of the
+    // residual, which MINRES minimises, has fallen by √tol_sqr.
+    let b = rhs;
+    let nv = b.num_vectors();
+    let re_dot = |u: &C, v: &C| -> Vec<f64> {
+        let mut d = vec![C64::ZERO; nv];
+        u.dot(v, &mut d);
+        d.iter().map(|z| z.re).collect()
+    };
+    let lin = |out: &mut C, terms: &[(&[f64], &C)]| {
+        out.scale(&vec![0.0; nv]);
+        for (coef, v) in terms {
+            let c: Vec<C64> = coef.iter().map(|c| C64::new(*c, 0.0)).collect();
+            out.axpy(&c, v);
+        }
+    };
+    x.scale(&vec![0.0; nv]);
+    let mut v = b.zeros_like();
+    v.copy_from(b);
+    let mut v_prev = v.zeros_like();
+    let mut z = v.zeros_like();
+    precondition(&mut z, &v);
+    let mut gamma: Vec<f64> = re_dot(&z, &v).iter().map(|g| g.max(0.0).sqrt()).collect();
+    let mut gamma_prev = vec![1.0; nv];
+    let eta0 = gamma.clone();
+    let mut eta = gamma.clone();
+    let (mut c, mut c_prev, mut s, mut s_prev) =
+        (vec![1.0; nv], vec![1.0; nv], vec![0.0; nv], vec![0.0; nv]);
+    let (mut w, mut w_prev) = (v.zeros_like(), v.zeros_like());
+    let (mut az, mut v_new, mut z_new, mut w_new) = (
+        v.zeros_like(),
+        v.zeros_like(),
+        v.zeros_like(),
+        v.zeros_like(),
+    );
+    for it in 0..5000 {
+        z.scale(
+            &gamma
+                .iter()
+                .map(|g| 1.0 / g.max(1e-300))
+                .collect::<Vec<_>>(),
+        );
+        apply(&mut az, &z);
+        let delta = re_dot(&az, &z);
+        let k1: Vec<f64> = (0..nv).map(|j| -delta[j] / gamma[j]).collect();
+        let k2: Vec<f64> = (0..nv).map(|j| -gamma[j] / gamma_prev[j]).collect();
+        let one = vec![1.0; nv];
+        lin(&mut v_new, &[(&one, &az), (&k1, &v), (&k2, &v_prev)]);
+        precondition(&mut z_new, &v_new);
+        let gamma_new: Vec<f64> = re_dot(&z_new, &v_new)
+            .iter()
+            .map(|g| g.max(0.0).sqrt())
+            .collect();
+        let (mut a2, mut a3, mut a1) = (vec![0.0; nv], vec![0.0; nv], vec![0.0; nv]);
+        let (mut c_new, mut s_new) = (vec![0.0; nv], vec![0.0; nv]);
+        for j in 0..nv {
+            let a0 = c[j] * delta[j] - c_prev[j] * s[j] * gamma[j];
+            a1[j] = (a0 * a0 + gamma_new[j] * gamma_new[j]).sqrt().max(1e-300);
+            a2[j] = s[j] * delta[j] + c_prev[j] * c[j] * gamma[j];
+            a3[j] = s_prev[j] * gamma[j];
+            c_new[j] = a0 / a1[j];
+            s_new[j] = gamma_new[j] / a1[j];
+        }
+        let inv_a1: Vec<f64> = a1.iter().map(|v| 1.0 / v).collect();
+        let m3: Vec<f64> = (0..nv).map(|j| -a3[j] * inv_a1[j]).collect();
+        let m2: Vec<f64> = (0..nv).map(|j| -a2[j] * inv_a1[j]).collect();
+        lin(&mut w_new, &[(&inv_a1, &z), (&m3, &w_prev), (&m2, &w)]);
+        let step: Vec<f64> = (0..nv).map(|j| c_new[j] * eta[j]).collect();
+        let step_c: Vec<C64> = step.iter().map(|v| C64::new(*v, 0.0)).collect();
+        x.axpy(&step_c, &w_new);
+        for j in 0..nv {
+            eta[j] *= -s_new[j];
+        }
+        if (0..nv).all(|j| eta[j] * eta[j] <= tol_sqr * eta0[j] * eta0[j]) {
+            return it + 1;
+        }
+        std::mem::swap(&mut v_prev, &mut v);
+        std::mem::swap(&mut v, &mut v_new);
+        std::mem::swap(&mut z, &mut z_new);
+        std::mem::swap(&mut w_prev, &mut w);
+        std::mem::swap(&mut w, &mut w_new);
+        gamma_prev = gamma;
+        gamma = gamma_new;
+        c_prev = c;
+        c = c_new;
+        s_prev = s;
+        s = s_new;
+    }
+    5000
+}
+
+/// Conjugate residuals, or MINRES with optional block-|H| preconditioners and deflations of
+/// (P†DP, P†D_PV†P).
+#[derive(Clone, Copy)]
+enum CoarseSolver<'a> {
+    Cr,
+    Minres(
+        Option<(&'a BlockAbsInv, &'a BlockAbsInv)>,
+        Option<(&'a Deflation, &'a Deflation)>,
+    ),
+}
+
+impl CoarseSolver<'_> {
+    /// Solves the coarse D factor (`pv` false) or the coarse D_PV† factor (`pv` true).
+    fn solve(self, a: &mut CoarseOp<f64>, pv: bool, x: &mut C, b: &C, tol: f64) -> usize {
+        match self {
+            CoarseSolver::Cr => coarse_solve(a, pv, x, b, tol),
+            CoarseSolver::Minres(m, d) => coarse_solve_minres(
+                a,
+                pv,
+                m.map(|(md, mp)| if pv { mp } else { md }),
+                d.map(|(dd, dp)| if pv { dp } else { dd }),
+                x,
+                b,
+                tol,
+            ),
+        }
+    }
 }
 
 /// What moves between the even sites and the full lattice.
@@ -512,8 +862,50 @@ impl Lift<'_> {
     }
 }
 
+/// The Galerkin coarse operator of the even-site product F = S_PV† S_D = C_PV,e† Ã C_e,
+/// G = (πP)† F (πP), applied matrix-free (one Ã per application, counted by its HalfA):
+/// the product Galerkin of Boyle's PV†M-MG, here on the even sites, to compare with the
+/// factorized correction on the same P.
+struct ProductGalerkin<'a> {
+    a: HalfA<'a>,
+    op: &'a Mdwf<f64>,
+    pv: &'a Mdwf<f64>,
+    p: &'a Basis<f64>,
+    lift: &'a Lift<'a>,
+}
+
+impl LinearFn<C> for ProductGalerkin<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        let nv = inp.num_vectors();
+        let mut f = V::with_shape(self.lift.lat, 24, self.lift.ls, nv, 1);
+        self.p.prolong(&mut f, inp);
+        let u = self.lift.even(&f);
+        let mut t = u.zeros_like();
+        self.op.diag(
+            &mut self.op.even_odd_work(),
+            &mut t,
+            &u,
+            Parity::Even,
+            Dagger::No,
+        );
+        let mut s = u.zeros_like();
+        self.a.mult(&mut s, &t);
+        self.pv.diag(
+            &mut self.pv.even_odd_work(),
+            &mut t,
+            &s,
+            Parity::Even,
+            Dagger::Yes,
+        );
+        self.p.restrict(out, &self.lift.inject(&t));
+    }
+}
+
 /// The cycle.
 struct Cycle<'a> {
+    /// Instead of the factorized coarse correction: the product Galerkin one, solved by
+    /// GMRES(40) to `coarse_tol`.
+    product: Option<ProductGalerkin<'a>>,
     a: HalfA<'a>,
     op: &'a Mdwf<f64>,
     pv: &'a Mdwf<f64>,
@@ -521,8 +913,11 @@ struct Cycle<'a> {
     coarse: Option<(&'a Basis<f64>, &'a mut CoarseOp<f64>, &'a mut CoarseOp<f64>)>,
     lift: &'a Lift<'a>,
     coarse_tol: f64,
-    /// Block |H| preconditioners for (P†DP, P†D_PV†P): preconditioned conjugate residuals.
-    prec: Option<(&'a BlockAbsInv, &'a BlockAbsInv)>,
+    /// The coarse solver: conjugate residuals, MINRES, or MINRES preconditioned by the block
+    /// |H| of (P†DP, P†D_PV†P).
+    solver: CoarseSolver<'a>,
+    /// Smooth before the coarse correction as well as after it.
+    pre: bool,
     nc: Count,
 }
 
@@ -531,12 +926,20 @@ impl LinearFn<H> for Cycle<'_> {
         let nv = b.num_vectors();
         let minus = vec![C64::new(-1.0, 0.0); nv];
         let one = vec![C64::new(1.0, 0.0); nv];
-        self.smoother.mult(y, b);
         let mut r = b.zeros_like();
         let mut e = b.zeros_like();
+        if self.pre {
+            self.smoother.mult(y, b);
+        } else {
+            y.scale(&vec![0.0; nv]);
+        }
         if let Some((p, cd, cpv)) = self.coarse.as_mut() {
-            self.a.mult(&mut r, y);
-            r.aypx(&minus, b);
+            if self.pre {
+                self.a.mult(&mut r, y);
+                r.aypx(&minus, b);
+            } else {
+                r.copy_from(b);
+            }
             // g = P† ι C_PV,e† r.
             let mut z = r.zeros_like();
             self.pv.diag(
@@ -548,21 +951,28 @@ impl LinearFn<H> for Cycle<'_> {
             );
             let mut g = p.coarse_field(nv);
             p.restrict(&mut g, &self.lift.inject(&z));
-            // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
-            let mut w = g.zeros_like();
-            let mut n = match self.prec {
-                Some((_, mpv)) => coarse_solve_pcr(cpv, true, mpv, &mut w, &g, self.coarse_tol),
-                None => coarse_solve(cpv, true, &mut w, &g, self.coarse_tol),
-            };
             let mut f = V::with_shape(self.lift.lat, 24, self.lift.ls, nv, 1);
-            p.prolong(&mut f, &w);
-            p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
-            let mut c = w.zeros_like();
-            n += match self.prec {
-                Some((md, _)) => coarse_solve_pcr(cd, false, md, &mut c, &w, self.coarse_tol),
-                None => coarse_solve(cd, false, &mut c, &w, self.coarse_tol),
-            };
-            self.nc.set(self.nc.get() + n);
+            let mut c = g.zeros_like();
+            match self.product.as_mut() {
+                Some(pg) => {
+                    // c = ((πP)† F (πP))⁻¹ g; the Ã inside are counted by pg.a.
+                    let _ = Fgmres::new(Stop {
+                        tolerance_sqr: self.coarse_tol,
+                        max_iterations: 40,
+                        max_restarts: 200,
+                    })
+                    .solve(pg, None, &mut c, &g);
+                }
+                None => {
+                    // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
+                    let mut w = g.zeros_like();
+                    let mut n = self.solver.solve(cpv, true, &mut w, &g, self.coarse_tol);
+                    p.prolong(&mut f, &w);
+                    p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
+                    n += self.solver.solve(cd, false, &mut c, &w, self.coarse_tol);
+                    self.nc.set(self.nc.get() + n);
+                }
+            }
             // e = C_e π P c.
             p.prolong(&mut f, &c);
             let u = self.lift.even(&f);
@@ -625,7 +1035,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ratio: f64 = arg(9, "30").parse().map_err(|_| USAGE)?;
     let coarse_tol: f64 = arg(10, "1e-8").parse().map_err(|_| USAGE)?;
     let skip_alone = args.iter().skip(11).any(|s| s == "noalone");
-    let use_pcr = args.iter().skip(11).any(|s| s == "pcr");
+    // The coarse solver: `cr` (default), `minres`, `pminres` (block-|H| preconditioned).
+    let solver_name = args
+        .iter()
+        .skip(11)
+        .find(|s| ["cr", "minres", "pminres"].contains(&s.as_str()))
+        .cloned()
+        .unwrap_or_else(|| "cr".to_string());
+    // `defl:K:STEPS`: deflate the MINRES coarse solves by the K Ritz vectors nearest zero
+    // from STEPS Lanczos steps on each coarse factor.
+    let deflate: Option<(usize, usize)> = args.iter().skip(11).find_map(|s| {
+        let mut it = s.strip_prefix("defl:")?.split(':');
+        Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+    });
+    // `post`: no smoothing before the coarse correction. `fgmres:K`: the cycle as the
+    // preconditioner of FGMRES(K) (on the fine level) instead of BiCGStab.
+    let post_only = args.iter().skip(11).any(|s| s == "post");
+    // `product`: the product Galerkin coarse correction (matrix-free, GMRES), its Ã
+    // applications reported as the coarse count.
+    let product = args.iter().skip(11).any(|s| s == "product");
+    let outer: Option<usize> = args
+        .iter()
+        .skip(11)
+        .find_map(|s| s.strip_prefix("fgmres:")?.parse().ok());
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -720,6 +1152,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let m_d = BlockAbsInv::build(&mut cd, false, &like_c);
     let m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
     let built = start.elapsed().as_secs_f64();
+    let deflations = deflate.map(|(k, steps)| {
+        let (d_d, line_d) = Deflation::build(&mut cd, false, &like_c, steps, k);
+        println!("  deflation of P†DP: {line_d}");
+        let (d_pv, line_pv) = Deflation::build(&mut cpv, true, &like_c, steps, k);
+        println!("  deflation of P†D_PV†P: {line_pv}");
+        (d_d, d_pv)
+    });
     {
         let mut g = p.coarse_field(1);
         p.restrict(&mut g, &full(1, 31));
@@ -729,21 +1168,33 @@ fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 (&mut cd, &m_d)
             };
-            let mut x1 = g.zeros_like();
-            let n1 = coarse_solve(a, adjoint, &mut x1, &g, 1e-12);
-            let mut x2 = g.zeros_like();
-            let n2 = coarse_solve_pcr(a, adjoint, m, &mut x2, &g, 1e-12);
-            let mut ax = g.zeros_like();
-            if adjoint {
-                a.mult_dag(&mut ax, &x2);
-            } else {
-                a.mult(&mut ax, &x2);
+            let d = deflations
+                .as_ref()
+                .map(|(dd, dp)| if adjoint { dp } else { dd });
+            let mut line = format!("  check: {name} to 1e-12:");
+            let mut variants = vec![("CR", 0), ("MINRES", 1), ("block-|H| MINRES", 2)];
+            if d.is_some() {
+                variants.extend([("deflated MINRES", 3), ("deflated block-|H| MINRES", 4)]);
             }
-            ax.axpy(&[C64::new(-1.0, 0.0)], &g);
-            println!(
-                "  check: {name} to 1e-12: CR {n1} applications, block-|H| PCR {n2}; PCR |A x − b|/|b| = {:.1e}",
-                norm(&ax) / norm(&g)
-            );
+            for (label, which) in variants {
+                let mut x = g.zeros_like();
+                let n = match which {
+                    0 => coarse_solve(a, adjoint, &mut x, &g, 1e-12),
+                    1 => coarse_solve_minres(a, adjoint, None, None, &mut x, &g, 1e-12),
+                    2 => coarse_solve_minres(a, adjoint, Some(m), None, &mut x, &g, 1e-12),
+                    3 => coarse_solve_minres(a, adjoint, None, d, &mut x, &g, 1e-12),
+                    _ => coarse_solve_minres(a, adjoint, Some(m), d, &mut x, &g, 1e-12),
+                };
+                let mut ax = g.zeros_like();
+                if adjoint {
+                    a.mult_dag(&mut ax, &x);
+                } else {
+                    a.mult(&mut ax, &x);
+                }
+                ax.axpy(&[C64::new(-1.0, 0.0)], &g);
+                line += &format!("  {label} {n} (|Ax−b|/|b| {:.0e})", norm(&ax) / norm(&g));
+            }
+            println!("{line}");
         }
         println!("  (block |H| preconditioners built in {built:.1} s)");
     }
@@ -781,6 +1232,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_restarts: 1,
     };
 
+    let defl = deflations.as_ref().map(|(dd, dp)| (dd, dp));
     let modes: Vec<&str> = if skip_alone {
         vec!["cycle"]
     } else {
@@ -805,6 +1257,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             _ => {
                 let mut cycle = Cycle {
+                    product: product.then(|| ProductGalerkin {
+                        a: HalfA::new(&op, &pv, &like, &nc),
+                        op: &op,
+                        pv: &pv,
+                        p: &p,
+                        lift: &lift,
+                    }),
                     a: HalfA::new(&op, &pv, &like, &na),
                     op: &op,
                     pv: &pv,
@@ -818,10 +1277,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                     coarse: Some((&p, &mut cd, &mut cpv)),
                     lift: &lift,
                     coarse_tol,
-                    prec: if use_pcr { Some((&m_d, &m_pv)) } else { None },
+                    solver: match solver_name.as_str() {
+                        "minres" => CoarseSolver::Minres(None, defl),
+                        "pminres" => CoarseSolver::Minres(Some((&m_d, &m_pv)), defl),
+                        _ => CoarseSolver::Cr,
+                    },
+                    pre: !post_only,
                     nc: nc.clone(),
                 };
-                BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs)
+                match outer {
+                    Some(k) => Fgmres::new(Stop {
+                        max_iterations: k,
+                        max_restarts: 100,
+                        ..stop
+                    })
+                    .solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
+                    None => BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
+                }
             }
         };
         let it = match result {
