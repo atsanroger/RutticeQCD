@@ -509,6 +509,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             e.aypx(&[C64::new(-1.0, 0.0)], &t);
             let smoothed_only = smooth(&mut d_op, &t);
             let after = smooth(&mut d_op, &e);
+            // Rayleigh quotients of D and of the Hermitian γ5 D on t, PP†t and w = PP†t − t.
+            let mut w = held.zeros_like();
+            w.copy_from(&held);
+            w.axpy(&[C64::new(-1.0, 0.0)], &t);
+            let mut rq = |v: &V| -> (C64, C64) {
+                let mut dv = v.zeros_like();
+                d_op.mult(&mut dv, v);
+                let mut g = dv.zeros_like();
+                op.mult_gamma5(&mut op.work(), &mut g, &dv);
+                let (mut a, mut b) = (vec![C64::ZERO; 1], vec![C64::ZERO; 1]);
+                v.dot(&dv, &mut a);
+                v.dot(&g, &mut b);
+                let s = 1.0 / norm(v).powi(2);
+                (a[0].scale(s), b[0].scale(s))
+            };
+            let f = |z: C64| format!("{:+.2e}{:+.2e}i", z.re, z.im);
+            let ((dt, gt), (dh, gh), (dw, gw)) = (rq(&t), rq(&held), rq(&w));
+            println!(
+                "    j = {j}: q_D t {} PP†t {} w {};  q_γ5D t {:+.2e} PP†t {:+.2e} w {:+.2e}",
+                f(dt),
+                f(dh),
+                f(dw),
+                gt.re,
+                gh.re,
+                gw.re
+            );
             println!(
                 "    j = {j}: floor {floor:.3}; coarse residual ratio {coarse_ratio:.1}; smoothing alone {:.3}; Galerkin {:.3}{} → with smoothing {:.3}",
                 low(&smoothed_only),
