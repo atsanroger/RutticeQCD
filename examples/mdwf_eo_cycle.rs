@@ -265,6 +265,226 @@ fn coarse_solve(a: &mut CoarseOp<f64>, adjoint: bool, x: &mut C, b: &C, tol_sqr:
     5001
 }
 
+/// Eigenvalues and eigenvectors (columns) of a Hermitian n × n matrix by cyclic complex
+/// Jacobi (tested in `mdwf_coherence_eig`).
+fn eigh(mut a: Vec<C64>, n: usize) -> (Vec<f64>, Vec<C64>) {
+    let mut v = vec![C64::ZERO; n * n];
+    for i in 0..n {
+        v[i * n + i] = C64::new(1.0, 0.0);
+    }
+    let total: f64 = a.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+    for _ in 0..100 {
+        let mut off = 0.0;
+        for p in 0..n {
+            for q in p + 1..n {
+                off += a[p * n + q].norm_sqr();
+            }
+        }
+        if off.sqrt() <= 1e-15 * total {
+            break;
+        }
+        for p in 0..n {
+            for q in p + 1..n {
+                let g = a[p * n + q].norm_sqr().sqrt();
+                if g <= 1e-300 {
+                    continue;
+                }
+                let d = a[p * n + q].conj().scale(1.0 / g);
+                for k in 0..n {
+                    a[k * n + q] = a[k * n + q] * d;
+                    v[k * n + q] = v[k * n + q] * d;
+                }
+                for k in 0..n {
+                    a[q * n + k] = a[q * n + k] * d.conj();
+                }
+                let theta = (a[q * n + q].re - a[p * n + p].re) / (2.0 * g);
+                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let c = 1.0 / (t * t + 1.0).sqrt();
+                let s = t * c;
+                for k in 0..n {
+                    let (kp, kq) = (a[k * n + p], a[k * n + q]);
+                    a[k * n + p] = kp.scale(c) - kq.scale(s);
+                    a[k * n + q] = kp.scale(s) + kq.scale(c);
+                    let (kp, kq) = (v[k * n + p], v[k * n + q]);
+                    v[k * n + p] = kp.scale(c) - kq.scale(s);
+                    v[k * n + q] = kp.scale(s) + kq.scale(c);
+                }
+                for k in 0..n {
+                    let (pk, qk) = (a[p * n + k], a[q * n + k]);
+                    a[p * n + k] = pk.scale(c) - qk.scale(s);
+                    a[q * n + k] = pk.scale(s) + qk.scale(c);
+                }
+                a[p * n + q] = C64::ZERO;
+                a[q * n + p] = C64::ZERO;
+            }
+        }
+    }
+    let values = (0..n).map(|i| a[i * n + i].re).collect();
+    (values, v)
+}
+
+/// The block-diagonal preconditioner |H_xx|⁻¹ for H = Γ5 A_c (or Γ5 A_c†): on every coarse
+/// site the inverse absolute value V |Λ|⁻¹ V† of the Hermitian diagonal block. It is
+/// Hermitian positive definite, as preconditioned conjugate residuals need, unlike the
+/// indefinite diagonal block itself.
+struct BlockAbsInv {
+    dim: usize,
+    blocks: Vec<Vec<C64>>,
+}
+
+impl BlockAbsInv {
+    /// The diagonal blocks by probing: the coarse operator connects nearest neighbours
+    /// only, so with the sites coloured by parity, unit vectors on one colour return the
+    /// diagonal blocks of that colour. 2 × dim coarse applications in all.
+    fn build(a: &mut CoarseOp<f64>, adjoint: bool, like: &C) -> Self {
+        let lat = a.lattice().clone();
+        let dim = a.dim();
+        let ns = lat.num_sites();
+        let colour: Vec<usize> = (0..ns)
+            .map(|x| lat.coords(x).iter().sum::<usize>() % 2)
+            .collect();
+        let mut blocks = vec![vec![C64::ZERO; dim * dim]; ns];
+        for c in 0..2 {
+            let mut e = like.zeros_with(dim);
+            for x in 0..ns {
+                if colour[x] != c {
+                    continue;
+                }
+                let s = e.site_mut(0, x);
+                for k in 0..dim {
+                    s[k * 2 * dim + 2 * k] = 1.0;
+                }
+            }
+            let mut out = e.zeros_like();
+            if adjoint {
+                a.mult_dag(&mut out, &e);
+            } else {
+                a.mult(&mut out, &e);
+            }
+            coarse_gamma5(&mut out);
+            for x in 0..ns {
+                if colour[x] != c {
+                    continue;
+                }
+                let s = out.site(0, x);
+                for k in 0..dim {
+                    for i in 0..dim {
+                        blocks[x][i * dim + k] =
+                            C64::new(s[k * 2 * dim + 2 * i], s[k * 2 * dim + 2 * i + 1]);
+                    }
+                }
+            }
+        }
+        for b in blocks.iter_mut() {
+            // Symmetrise against rounding, then V |Λ|⁻¹ V†.
+            let h: Vec<C64> = (0..dim * dim)
+                .map(|ik| {
+                    let (i, k) = (ik / dim, ik % dim);
+                    (b[i * dim + k] + b[k * dim + i].conj()).scale(0.5)
+                })
+                .collect();
+            let (lam, v) = eigh(h, dim);
+            let mut m = vec![C64::ZERO; dim * dim];
+            for i in 0..dim {
+                for k in 0..dim {
+                    let mut z = C64::ZERO;
+                    for j in 0..dim {
+                        z += v[i * dim + j].scale(1.0 / lam[j].abs().max(1e-300))
+                            * v[k * dim + j].conj();
+                    }
+                    m[i * dim + k] = z;
+                }
+            }
+            *b = m;
+        }
+        Self { dim, blocks }
+    }
+
+    fn apply(&self, out: &mut C, inp: &C) {
+        let (dim, nv) = (self.dim, inp.num_vectors());
+        for (x, m) in self.blocks.iter().enumerate() {
+            let src: Vec<f64> = inp.site(0, x).to_vec();
+            let dst = out.site_mut(0, x);
+            for v in 0..nv {
+                for i in 0..dim {
+                    let mut z = C64::ZERO;
+                    for k in 0..dim {
+                        let r = v * 2 * dim + 2 * k;
+                        z += m[i * dim + k] * C64::new(src[r], src[r + 1]);
+                    }
+                    dst[v * 2 * dim + 2 * i] = z.re;
+                    dst[v * 2 * dim + 2 * i + 1] = z.im;
+                }
+            }
+        }
+    }
+}
+
+/// Preconditioned conjugate residuals for H = Γ5 A_c (Γ5 A_c† with `adjoint`) with the
+/// Hermitian positive definite M: solves A_c x = b; returns the coarse applications.
+fn coarse_solve_pcr(
+    a: &mut CoarseOp<f64>,
+    adjoint: bool,
+    m: &BlockAbsInv,
+    x: &mut C,
+    b: &C,
+    tol_sqr: f64,
+) -> usize {
+    let mut apply = |out: &mut C, inp: &C| {
+        if adjoint {
+            a.mult_dag(out, inp);
+        } else {
+            a.mult(out, inp);
+        }
+        coarse_gamma5(out);
+    };
+    let nv = b.num_vectors();
+    let mut r = b.zeros_like();
+    r.copy_from(b);
+    coarse_gamma5(&mut r);
+    let mut bb = vec![0.0; nv];
+    r.norm_sqr(&mut bb);
+    x.scale(&vec![0.0; nv]);
+    let mut z = r.zeros_like();
+    m.apply(&mut z, &r);
+    let mut p = z.zeros_like();
+    p.copy_from(&z);
+    let mut w = z.zeros_like();
+    apply(&mut w, &z);
+    let mut q = w.zeros_like();
+    q.copy_from(&w);
+    let mut mq = q.zeros_like();
+    let mut zw = vec![C64::ZERO; nv];
+    z.dot(&w, &mut zw);
+    let mut rr = vec![0.0; nv];
+    for it in 0..5000 {
+        m.apply(&mut mq, &q);
+        let mut qmq = vec![C64::ZERO; nv];
+        q.dot(&mq, &mut qmq);
+        let alpha: Vec<C64> = (0..nv)
+            .map(|j| C64::new(zw[j].re / qmq[j].re.max(1e-300), 0.0))
+            .collect();
+        let minus: Vec<C64> = alpha.iter().map(|a| C64::new(-a.re, 0.0)).collect();
+        x.axpy(&alpha, &p);
+        r.axpy(&minus, &q);
+        z.axpy(&minus, &mq);
+        r.norm_sqr(&mut rr);
+        if (0..nv).all(|j| rr[j] <= tol_sqr * bb[j]) {
+            return it + 2;
+        }
+        apply(&mut w, &z);
+        let mut zw_new = vec![C64::ZERO; nv];
+        z.dot(&w, &mut zw_new);
+        let beta: Vec<C64> = (0..nv)
+            .map(|j| C64::new(zw_new[j].re / zw[j].re, 0.0))
+            .collect();
+        p.aypx(&beta, &z);
+        q.aypx(&beta, &w);
+        zw = zw_new;
+    }
+    5001
+}
+
 /// What moves between the even sites and the full lattice.
 struct Lift<'a> {
     lat: &'a Arc<Lattice>,
@@ -301,6 +521,8 @@ struct Cycle<'a> {
     coarse: Option<(&'a Basis<f64>, &'a mut CoarseOp<f64>, &'a mut CoarseOp<f64>)>,
     lift: &'a Lift<'a>,
     coarse_tol: f64,
+    /// Block |H| preconditioners for (P†DP, P†D_PV†P): preconditioned conjugate residuals.
+    prec: Option<(&'a BlockAbsInv, &'a BlockAbsInv)>,
     nc: Count,
 }
 
@@ -328,12 +550,18 @@ impl LinearFn<H> for Cycle<'_> {
             p.restrict(&mut g, &self.lift.inject(&z));
             // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
             let mut w = g.zeros_like();
-            let mut n = coarse_solve(cpv, true, &mut w, &g, self.coarse_tol);
+            let mut n = match self.prec {
+                Some((_, mpv)) => coarse_solve_pcr(cpv, true, mpv, &mut w, &g, self.coarse_tol),
+                None => coarse_solve(cpv, true, &mut w, &g, self.coarse_tol),
+            };
             let mut f = V::with_shape(self.lift.lat, 24, self.lift.ls, nv, 1);
             p.prolong(&mut f, &w);
             p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
             let mut c = w.zeros_like();
-            n += coarse_solve(cd, false, &mut c, &w, self.coarse_tol);
+            n += match self.prec {
+                Some((md, _)) => coarse_solve_pcr(cd, false, md, &mut c, &w, self.coarse_tol),
+                None => coarse_solve(cd, false, &mut c, &w, self.coarse_tol),
+            };
             self.nc.set(self.nc.get() + n);
             // e = C_e π P c.
             p.prolong(&mut f, &c);
@@ -396,7 +624,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let steps: usize = arg(8, "5").parse().map_err(|_| USAGE)?;
     let ratio: f64 = arg(9, "30").parse().map_err(|_| USAGE)?;
     let coarse_tol: f64 = arg(10, "1e-8").parse().map_err(|_| USAGE)?;
-    let skip_alone = args.get(11).is_some_and(|s| s == "noalone");
+    let skip_alone = args.iter().skip(11).any(|s| s == "noalone");
+    let use_pcr = args.iter().skip(11).any(|s| s == "pcr");
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -485,6 +714,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         cd.dim()
     );
     println!("  check: |odd part of D s| / |D s| = {odd_part:.1e} (D s lives on the even sites)");
+    // The block |H| preconditioners, and a check of the coarse solves with and without them.
+    let like_c = p.coarse_field(1);
+    let start = Instant::now();
+    let m_d = BlockAbsInv::build(&mut cd, false, &like_c);
+    let m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
+    let built = start.elapsed().as_secs_f64();
+    {
+        let mut g = p.coarse_field(1);
+        p.restrict(&mut g, &full(1, 31));
+        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let (a, m): (&mut CoarseOp<f64>, &BlockAbsInv) = if adjoint {
+                (&mut cpv, &m_pv)
+            } else {
+                (&mut cd, &m_d)
+            };
+            let mut x1 = g.zeros_like();
+            let n1 = coarse_solve(a, adjoint, &mut x1, &g, 1e-12);
+            let mut x2 = g.zeros_like();
+            let n2 = coarse_solve_pcr(a, adjoint, m, &mut x2, &g, 1e-12);
+            let mut ax = g.zeros_like();
+            if adjoint {
+                a.mult_dag(&mut ax, &x2);
+            } else {
+                a.mult(&mut ax, &x2);
+            }
+            ax.axpy(&[C64::new(-1.0, 0.0)], &g);
+            println!(
+                "  check: {name} to 1e-12: CR {n1} applications, block-|H| PCR {n2}; PCR |A x − b|/|b| = {:.1e}",
+                norm(&ax) / norm(&g)
+            );
+        }
+        println!("  (block |H| preconditioners built in {built:.1} s)");
+    }
 
     // The right-hand side and the solution, as in `mdwf_evenodd_a`.
     let b = full(1, 91);
@@ -556,6 +818,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     coarse: Some((&p, &mut cd, &mut cpv)),
                     lift: &lift,
                     coarse_tol,
+                    prec: if use_pcr { Some((&m_d, &m_pv)) } else { None },
                     nc: nc.clone(),
                 };
                 BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs)
