@@ -352,4 +352,8 @@ No timing in this repository should be read as a performance figure.
 
 ## License
 
-No license has been chosen yet.
+RutticeQCD is free software: you can redistribute it and/or modify it under the terms of
+the GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version
+(SPDX: `GPL-3.0-or-later`). It is distributed in the hope that it will be useful, but
+without any warranty; see the file [LICENSE](LICENSE) for the full text.
