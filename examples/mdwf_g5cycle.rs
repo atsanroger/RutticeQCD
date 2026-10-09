@@ -111,6 +111,7 @@ struct Cycle<'a, 'b> {
     cgnr: bool,
     /// The factorized coarse correction: (P†D_PV†P)(P†DP) c = P† C_PV† r, with this P†D_PV P.
     pv_coarse: Option<&'b mut CoarseOp<f64>>,
+    coarse_tol: f64,
     r: V,
     e: V,
 }
@@ -124,12 +125,15 @@ impl LinearFn<C> for Adjoint<'_> {
     }
 }
 
-/// The coarse solves of the factorized correction.
-const FACT_STOP: Stop = Stop {
-    tolerance_sqr: 1e-8,
-    max_iterations: 40,
-    max_restarts: 10,
-};
+/// The coarse solves of the factorized correction, to `tolerance_sqr` (argument 13,
+/// default 1e-8).
+fn fact_stop(tolerance_sqr: f64) -> Stop {
+    Stop {
+        tolerance_sqr,
+        max_iterations: 40,
+        max_restarts: 10,
+    }
+}
 
 impl LinearFn<V> for Cycle<'_, '_> {
     fn mult(&mut self, y: &mut V, b: &V) {
@@ -147,9 +151,14 @@ impl LinearFn<V> for Cycle<'_, '_> {
                 let mut g = p.coarse_field(nv);
                 p.restrict(&mut g, &z);
                 let mut w = g.zeros_like();
-                let _ = Fgmres::new(FACT_STOP).solve(&mut Adjoint(cpv), None, &mut w, &g);
+                let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(
+                    &mut Adjoint(cpv),
+                    None,
+                    &mut w,
+                    &g,
+                );
                 let mut c = w.zeros_like();
-                let _ = Fgmres::new(FACT_STOP).solve(coarse, None, &mut c, &w);
+                let _ = Fgmres::new(fact_stop(self.coarse_tol)).solve(coarse, None, &mut c, &w);
                 let mut pc = self.r.zeros_like();
                 p.prolong(&mut pc, &c);
                 self.op.mult_site(&mut self.e, &pc, self.mass, false);
@@ -241,6 +250,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let fact = args.get(9).is_some_and(|s| s == "fact");
     // `sds`: the basis from s = C⁻¹v for the lowest N/2 and D s for the same N/2.
     let sds = args.get(11).is_some_and(|s| s == "sds");
+    let coarse_tol: f64 = args
+        .get(13)
+        .map_or(Ok(1e-8), |s| s.parse())
+        .map_err(|_| USAGE)?;
     let smoothers: Vec<&str> = match args.get(10).map(String::as_str) {
         Some("cheb") => vec!["Chebyshev 9/100"],
         Some("gmres") => vec!["GMRES(4)"],
@@ -271,7 +284,58 @@ fn main() -> Result<(), Box<dyn Error>> {
         v
     };
     let like = random(1, 1);
-    let ritz = load(&checkpoint, &like, if sds { n / 2 } else { n })?;
+    // The test vectors: the Ritz vectors of the checkpoint, or (CHECKPOINT `setup:PASSES:TOL`)
+    // a realistic setup: random vectors through PASSES inverse iterations x ← A′⁻¹ x, each a
+    // BiCGStab solve of all vectors together, preconditioned by the Chebyshev polynomial, to
+    // |r|²/|b|² < TOL. Its Wilson sweeps are printed.
+    let count = if sds { n / 2 } else { n };
+    let setup = args[4].strip_prefix("setup:").map(|s| {
+        let mut it = s.split(':');
+        let passes: usize = it.next().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let tol: f64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(1e-2);
+        (passes, tol)
+    });
+    let ritz = if let Some((passes, tol)) = setup {
+        let mut x = random(count, 4242);
+        let na = Count::default();
+        let start = Instant::now();
+        for _ in 0..passes {
+            let mut nx = vec![0.0; count];
+            x.norm_sqr(&mut nx);
+            x.scale(&nx.iter().map(|v| 1.0 / v.sqrt()).collect::<Vec<_>>());
+            let mut y = x.zeros_like();
+            let mut a = Counted {
+                a: PvPreconditioned::new(&op, &x),
+                n: na.clone(),
+            };
+            let mut cheb = Chebyshev::new(
+                Counted {
+                    a: PvPreconditioned::new(&op, &x),
+                    n: na.clone(),
+                },
+                9,
+                4.905 / 100.0,
+                4.905,
+                &x,
+            );
+            let _ = BiCgStab::new(Stop {
+                tolerance_sqr: tol,
+                max_iterations: 200,
+                max_restarts: 0,
+            })
+            .solve(&mut a, Some(&mut cheb), &mut y, &x);
+            x = y;
+        }
+        println!(
+            "  setup: {count} random vectors, {passes} inverse iterations to {tol:e}: {} A′ = {} sweeps, {:.0} s",
+            na.get(),
+            2 * na.get(),
+            start.elapsed().as_secs_f64()
+        );
+        x
+    } else {
+        load(&checkpoint, &like, count)?
+    };
     let mut xs = ritz.zeros_like();
     op.mult_site_inv(&mut xs, &ritz, mass, false);
     drop(ritz);
@@ -458,6 +522,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     } else {
                         None
                     },
+                    coarse_tol,
                     r: like.zeros_like(),
                     e: like.zeros_like(),
                 };
