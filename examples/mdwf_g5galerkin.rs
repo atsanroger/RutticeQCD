@@ -148,19 +148,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         a.mult(&mut w, v);
         w
     };
-    // X⁻† r = D_PV⁻† (C_PV† r).
-    let x_inv_dag = |r: &V| -> V {
+    // X⁻† r = D_PV⁻† (C_PV† r): exactly (iterations 0), with a fixed number of BiCGStab
+    // iterations, or as the identity (D_PV ≈ C_PV, iterations usize::MAX).
+    let x_inv_dag = |r: &V, iterations: usize| -> V {
+        if iterations == usize::MAX {
+            let mut z = r.zeros_like();
+            z.copy_from(r);
+            return z;
+        }
         let mut w = r.zeros_like();
         op.mult_site(&mut w, r, 1.0, true);
         let mut z = r.zeros_like();
         let mut pv_dag = MdwfAt::new(&op, Variant::Dagger, 1.0);
-        BiCgStab::new(Stop {
-            tolerance_sqr: 1e-24,
-            max_iterations: 3000,
-            max_restarts: 3,
-        })
-        .solve(&mut pv_dag, None, &mut z, &w)
-        .expect("the D_PV† solve");
+        let stop = if iterations == 0 {
+            Stop {
+                tolerance_sqr: 1e-24,
+                max_iterations: 3000,
+                max_restarts: 3,
+            }
+        } else {
+            Stop::simple(1e-30, iterations)
+        };
+        let _ = BiCgStab::new(stop).solve(&mut pv_dag, None, &mut z, &w);
         z
     };
     // ⟨v, Γ5 D v⟩/|v|², real for the Γ5-Hermitian D.
@@ -198,7 +207,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let t = ritz.select(&[j]);
         let r = apply(&mut a, &t);
         // Check: X⁻† A′ t = D C⁻¹ t.
-        let z = x_inv_dag(&r);
+        let z = x_inv_dag(&r, 0);
         let s = c_inv(&t);
         let mut check = apply(&mut d, &s);
         check.axpy(&[C64::new(-1.0, 0.0)], &z);
@@ -212,27 +221,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         w.axpy(&[C64::new(-1.0, 0.0)], &s);
         let floor = (1.0 - (norm(&held) / norm(&s)).powi(2)).max(0.0).sqrt();
         let (qs, qh, qw) = (q_g5d(&mut d, &s), q_g5d(&mut d, &held), q_g5d(&mut d, &w));
-        // The correction e = t − C P (P†DP)⁻¹ P† z.
-        let mut rc = p.coarse_field(1);
-        p.restrict(&mut rc, &z);
-        let mut y = rc.zeros_like();
-        let mut gal = Galerkin {
-            d: MdwfAt::new(&op, Variant::D, mass),
-            p: &p,
-            f: like.zeros_like(),
-            g: like.zeros_like(),
+        // The correction e = t − C P (P†DP)⁻¹ P† z, for z from X⁻† r exactly or approximated.
+        let correct = |z: &V| -> (V, bool) {
+            let mut rc = p.coarse_field(1);
+            p.restrict(&mut rc, z);
+            let mut y = rc.zeros_like();
+            let mut gal = Galerkin {
+                d: MdwfAt::new(&op, Variant::D, mass),
+                p: &p,
+                f: like.zeros_like(),
+                g: like.zeros_like(),
+            };
+            let solved = Fgmres::new(Stop {
+                tolerance_sqr: 1e-14,
+                max_iterations: 100,
+                max_restarts: 20,
+            })
+            .solve(&mut gal, None, &mut y, &rc);
+            let mut pc = like.zeros_like();
+            p.prolong(&mut pc, &y);
+            let mut e = t.zeros_like();
+            e.copy_from(&t);
+            e.axpy(&[C64::new(-1.0, 0.0)], &c_of(&pc));
+            (e, solved.is_ok())
         };
-        let solved = Fgmres::new(Stop {
-            tolerance_sqr: 1e-14,
-            max_iterations: 100,
-            max_restarts: 20,
-        })
-        .solve(&mut gal, None, &mut y, &rc);
-        let mut pc = like.zeros_like();
-        p.prolong(&mut pc, &y);
-        let mut e = t.zeros_like();
-        e.copy_from(&t);
-        e.axpy(&[C64::new(-1.0, 0.0)], &c_of(&pc));
+        let (e, ok) = correct(&z);
+        let solved: Result<(), ()> = if ok { Ok(()) } else { Err(()) };
         let mut smooth = |e: &V| -> V {
             let ae = apply(&mut a, e);
             let mut se = e.zeros_like();
@@ -256,6 +270,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             if solved.is_err() { "*" } else { "" },
             low(&after)
         );
+        // X⁻† approximated: the identity (D_PV ≈ C_PV), or k BiCGStab iterations on D_PV†.
+        let mut line = String::from("      X⁻† approximated, Γ5-Galerkin → with smoothing:");
+        for (name, k) in [("1", usize::MAX), ("k=2", 2), ("k=5", 5), ("k=10", 10)] {
+            let zk = x_inv_dag(&r, k);
+            let mut dz = zk.zeros_like();
+            dz.copy_from(&zk);
+            dz.axpy(&[C64::new(-1.0, 0.0)], &z);
+            let (ek, _) = correct(&zk);
+            let after_k = smooth(&ek);
+            line += &format!(
+                "  {name} (|Δz|/|z| {:.1e}): {:.3} → {:.3}",
+                norm(&dz) / norm(&z),
+                low(&ek),
+                low(&after_k)
+            );
+        }
+        println!("{line}");
     }
     Ok(())
 }
