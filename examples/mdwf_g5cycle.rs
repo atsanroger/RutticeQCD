@@ -23,8 +23,11 @@
 use ruttice::fermion::{FermionOp, HopTerms, Mdwf, MdwfAt, MdwfParams, PvPreconditioned, Variant};
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
-use ruttice::solver::{BiCgStab, Chebyshev, Fgmres, Solve, SolveError, Solver, Stop};
-use ruttice::{random_spinor, Boundary, Coarse, Field, Lattice, LinearFn, Spinor, Vector, C64, ND};
+use ruttice::solver::{BiCgStab, Cg, Chebyshev, Fgmres, Solve, SolveError, Solver, Stop};
+use ruttice::{
+    random_spinor, Boundary, Coarse, Field, Lattice, LinearFn, LinearOp, Normal, Spinor, Vector,
+    C64, ND,
+};
 use std::cell::Cell;
 use std::error::Error;
 use std::io::Read;
@@ -105,6 +108,7 @@ struct Cycle<'a, 'b> {
     coarse: Option<(&'b Basis<f64>, Counted<&'b mut CoarseOp<f64>>)>,
     pv_dag: Counted<MdwfAt<'a, f64>>,
     k: usize,
+    cgnr: bool,
     r: V,
     e: V,
 }
@@ -135,12 +139,27 @@ impl LinearFn<V> for Cycle<'_, '_> {
             let mut rc = p.coarse_field(nv);
             p.restrict(&mut rc, &z);
             let mut c = rc.zeros_like();
-            let _ = Fgmres::new(Stop {
-                tolerance_sqr: 1e-4,
-                max_iterations: 40,
-                max_restarts: 0,
-            })
-            .solve(coarse, None, &mut c, &rc);
+            if self.cgnr {
+                // The normal equations of the coarse D: its spectrum has negative real
+                // parts, as D's has, which GMRES(40) does not get through.
+                let mut nrhs = rc.zeros_like();
+                coarse.a.mult_dag(&mut nrhs, &rc);
+                coarse.n.set(coarse.n.get() + nv);
+                let mut normal = Normal::new(&mut *coarse.a, &rc);
+                let _ = Cg::new(Stop {
+                    tolerance_sqr: 1e-8,
+                    max_iterations: 2000,
+                    max_restarts: 0,
+                })
+                .solve(&mut normal, None, &mut c, &nrhs);
+            } else {
+                let _ = Fgmres::new(Stop {
+                    tolerance_sqr: 1e-4,
+                    max_iterations: 40,
+                    max_restarts: 0,
+                })
+                .solve(coarse, None, &mut c, &rc);
+            }
             let mut pc = self.r.zeros_like();
             p.prolong(&mut pc, &c);
             self.op.mult_site(&mut self.e, &pc, self.mass, false);
@@ -179,6 +198,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .get(8)
         .map_or(Ok(5), |s| s.parse())
         .map_err(|_| USAGE)?;
+    let cgnr = args.get(9).is_some_and(|s| s == "cgnr");
+    let smoothers: Vec<&str> = match args.get(10).map(String::as_str) {
+        Some("cheb") => vec!["Chebyshev 9/100"],
+        Some("gmres") => vec!["GMRES(4)"],
+        _ => vec!["GMRES(4)", "Chebyshev 9/100"],
+    };
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -260,7 +285,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_iterations: 1000,
         max_restarts: 1,
     };
-    for smoother_name in ["GMRES(4)", "Chebyshev 9/100"] {
+    for smoother_name in smoothers {
         for with_coarse in [false, true] {
             let mut line = format!(
                 "  {smoother_name:<15} {:<15}",
@@ -312,6 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         n: npv.clone(),
                     },
                     k,
+                    cgnr,
                     r: like.zeros_like(),
                     e: like.zeros_like(),
                 };
