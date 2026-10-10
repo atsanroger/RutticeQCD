@@ -861,6 +861,14 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
   s、t̂ 都在 P 的範圍內（\|PP†v − v\|/\|v\| ≈ 2e-14）。
   修正：`exactpv` 選項用細格子探測（`CoarseOp::probe`，D_PV† 是最近鄰所以精確）直接建 P†D_PV†P（跑中）。
   以後的說法：粗網格因子「近似 Γ5-厄米」（Möbius）／「Γ5-厄米」（Shamir，c = 0）。
+  - 文獻：Brower, Neff, Orginos, "The Möbius Domain Wall Fermion Algorithm"（使用者提供的 mdwf.pdf）式 (2.22)：
+    Möbius 的廣義 γ5-厄米性是 Γ5 D_DW = D_DW† Γ5，**Γ5 = γ5 R D₋⁻¹**，D₋ = 1 − c D_W（第五維對角、四維是 Wilson 型），
+    H_DW = γ5 R D₋⁻¹ D_DW 厄米。c = 0 時 D₋ = 1。D₋⁻¹ 在四維非局部；c = 0.5、M5 = 1 時 D₋ = 1 − 1.5 Dw，譜跨過 0，求逆很病態——嚴格厄米的代價太高。
+  - **`exactpv` 結果**（12⁴ β = 6.0、{s, t̂}、4⁴、N = 32、FGMRES(16)、1e-2）：探測得到的 P†D_PV†P 與 Galerkin 一致到 1.0e-15；
+    修正對基底向量的誤差 **1.1e-7 / 2.7e-7**（Γ5 伴隨時 6.6e-2 / 1.2e-1）——{s, t̂} 的精確性理論確認。
+    但 **cycle 仍是 24**（267 Ã、粗網格 4669）：Γ5 伴隨的 8.7% 誤差對收斂幾乎沒影響；探測要 2162 s（81 色 × 64 次 D_PV†），不划算。
+    → 預設仍用 Γ5 伴隨；若需要精確，改在粗網格上直接取塊的共軛轉置（便宜），而不是細格子探測。
+  - 待做：量粗網格 H = Γ5 P†DP 的非厄米度 \|H − H†\|/\|H\|；Shamir（c = 0）對照，看精確厄米時 MINRES 與絕對值預處理好多少。
 - β = 5.7 收斂基底、4⁴、N = 32、1e-2：{s, t̂} 18 / 201 / 1831，{s, Ds} 18 / 201 / 1601——**基底準時兩者相同，基底粗糙時才看出差別**（而實際 setup 一定粗糙）。
 - 磁碟：WSL 虛擬磁碟（251 GB 上限）滿了，16⁴ setup 第二次失敗（StorageFull）。已把舊的全格子 A′ 特徵向量 checkpoint（5.3 GB）
   與 `/tmp` 的舊大檔（5.3 GB）搬到 C 槽（`C:\Users\atsan\ruttice_ckpt`、`C:\Users\atsan\wsl_offload\tmp`），WSL 剩 11 GB；16⁴ 單獨重跑中。
