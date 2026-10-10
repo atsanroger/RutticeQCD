@@ -20,10 +20,6 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
     (3, Direction::Backward),
 ];
 
-/// The largest coarse dimension the application keeps on the stack (complex numbers per
-/// coarse site, `2 n` for `n` test vectors).
-const MAX_COARSE_DIM: usize = 512;
-
 /// The Galerkin coarse operator `P† D P` for a nearest-neighbour fine operator D.
 ///
 /// It is itself a nearest-neighbour operator on the coarse lattice:
@@ -389,10 +385,6 @@ impl<T: Storage> CoarseOp<T> {
         assert_eq!(out.as_slice().len(), inp.as_slice().len());
         let n_coarse = self.lat.num_sites();
         let site_len = inp.site_len();
-        assert!(
-            dim <= MAX_COARSE_DIM,
-            "coarse dimension {dim} above {MAX_COARSE_DIM}"
-        );
         let half = dim / 2;
 
         for_sites(out.slab_mut(0), site_len, |x, out| {
@@ -407,40 +399,47 @@ impl<T: Storage> CoarseOp<T> {
                 terms[d + 1] = (&self.links[at..at + matrix], site);
             }
 
-            // Per vector: the sums of the nine terms in the compute type, kept apart as real
-            // and imaginary parts, the input loaded once per term with Γ5 already applied,
-            // so that the inner loop is a plain multiply-add the compiler can vectorise.
-            for (v_index, out) in out.chunks_exact_mut(2 * dim).enumerate() {
-                let mut acc_re = [T::Compute::ZERO; MAX_COARSE_DIM];
-                let mut acc_im = [T::Compute::ZERO; MAX_COARSE_DIM];
-                let mut in_re = [T::Compute::ZERO; MAX_COARSE_DIM];
-                let mut in_im = [T::Compute::ZERO; MAX_COARSE_DIM];
-                for (m, neighbour) in terms {
-                    let v = &inp.site(0, neighbour)[v_index * 2 * dim..(v_index + 1) * 2 * dim];
-                    for col in 0..dim {
-                        let (re, im) = (v[2 * col].load(), v[2 * col + 1].load());
-                        let negate = gamma5 && col >= half;
-                        in_re[col] = if negate { -re } else { re };
-                        in_im[col] = if negate { -im } else { im };
-                    }
-                    for row in 0..dim {
-                        let m_row = &m[2 * dim * row..2 * dim * (row + 1)];
-                        let (mut s_re, mut s_im) = (T::Compute::ZERO, T::Compute::ZERO);
-                        for col in 0..dim {
-                            let (a, b) = (m_row[2 * col].load(), m_row[2 * col + 1].load());
-                            s_re = s_re + a * in_re[col] - b * in_im[col];
-                            s_im = s_im + a * in_im[col] + b * in_re[col];
-                        }
-                        acc_re[row] = acc_re[row] + s_re;
-                        acc_im[row] = acc_im[row] + s_im;
-                    }
+            // The sums of the nine terms for every vector, in the compute type, real and
+            // imaginary parts apart; the inputs are loaded once per term with Γ5 already
+            // applied, so the inner loop is a plain multiply-add the compiler can vectorise.
+            // Each row of a block is read once and used for all the vectors: the operator is
+            // limited by memory bandwidth (8 flops per stored element and vector), so several
+            // right-hand sides at once raise the arithmetic intensity in proportion.
+            let nv = out.len() / (2 * dim);
+            let zero = T::Compute::ZERO;
+            let (mut acc_re, mut acc_im) = (vec![zero; nv * dim], vec![zero; nv * dim]);
+            let (mut in_re, mut in_im) = (vec![zero; nv * dim], vec![zero; nv * dim]);
+            for (m, neighbour) in terms {
+                let v = inp.site(0, neighbour);
+                for j in 0..nv * dim {
+                    let (re, im) = (v[2 * j].load(), v[2 * j + 1].load());
+                    let negate = gamma5 && j % dim >= half;
+                    in_re[j] = if negate { -re } else { re };
+                    in_im[j] = if negate { -im } else { im };
                 }
                 for row in 0..dim {
-                    let negate = gamma5 && row >= half;
-                    let (re, im) = (acc_re[row], acc_im[row]);
-                    out[2 * row] = T::store(if negate { -re } else { re });
-                    out[2 * row + 1] = T::store(if negate { -im } else { im });
+                    let m_row = &m[2 * dim * row..2 * dim * (row + 1)];
+                    for k in 0..nv {
+                        let (x_re, x_im) = (
+                            &in_re[k * dim..(k + 1) * dim],
+                            &in_im[k * dim..(k + 1) * dim],
+                        );
+                        let (mut s_re, mut s_im) = (zero, zero);
+                        for col in 0..dim {
+                            let (a, b) = (m_row[2 * col].load(), m_row[2 * col + 1].load());
+                            s_re = s_re + a * x_re[col] - b * x_im[col];
+                            s_im = s_im + a * x_im[col] + b * x_re[col];
+                        }
+                        acc_re[k * dim + row] += s_re;
+                        acc_im[k * dim + row] += s_im;
+                    }
                 }
+            }
+            for j in 0..nv * dim {
+                let negate = gamma5 && j % dim >= half;
+                let (re, im) = (acc_re[j], acc_im[j]);
+                out[2 * j] = T::store(if negate { -re } else { re });
+                out[2 * j + 1] = T::store(if negate { -im } else { im });
             }
         });
     }
