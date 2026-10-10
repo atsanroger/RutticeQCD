@@ -3021,8 +3021,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    // `seeds:A-B`: right-hand sides from the seeds A..=B, one after the other on the same
+    // setup (default 91). `withproduct`: also the product Galerkin cycle, as mode `product`.
+    let (seed_lo, seed_hi): (u64, u64) = args
+        .iter()
+        .skip(11)
+        .find_map(|s| {
+            let (a, b) = s.strip_prefix("seeds:")?.split_once('-')?;
+            Some((a.parse().ok()?, b.parse().ok()?))
+        })
+        .unwrap_or((91, 91));
+    let with_product = args.iter().skip(11).any(|s| s == "withproduct");
+    for seed in seed_lo..=seed_hi {
+    println!("  right-hand side seed {seed}");
     // The right-hand side and the solution, as in `mdwf_evenodd_a`.
-    let b = full(1, 91);
+    let b = full(1, seed);
     let (mut b_e, mut b_o) = (lift.half(Parity::Even, 1), lift.half(Parity::Odd, 1));
     extract_parity(&mut b_e, &b, index, Parity::Even);
     extract_parity(&mut b_o, &b, index, Parity::Odd);
@@ -3055,11 +3068,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let defl = deflations.as_ref().map(|(dd, dp)| (dd, dp));
-    let modes: Vec<&str> = if skip_alone {
+    let mut modes: Vec<&str> = if skip_alone {
         vec!["cycle"]
     } else {
         vec!["none", "polynomial", "cycle"]
     };
+    if with_product {
+        modes.push("product");
+    }
     for mode in modes {
         let (na, nc) = (Count::default(), Count::default());
         let mut a = HalfA::new(&op, &pv, &like, &na);
@@ -3079,7 +3095,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             _ => {
                 let mut cycle = Cycle {
-                    product: product.then(|| ProductGalerkin {
+                    product: (product || mode == "product").then(|| ProductGalerkin {
                         a: HalfA::new(&op, &pv, &like, &nc),
                         op: &op,
                         pv: &pv,
@@ -3136,6 +3152,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             physical(&y_sol),
             start.elapsed().as_secs_f64()
         );
+    }
     }
     Ok(())
 }

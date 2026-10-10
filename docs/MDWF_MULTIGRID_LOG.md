@@ -63,7 +63,26 @@
 3. 第三個體積點（20⁴ 或 24⁴，先省記憶體）；M5 = 1.8、更輕質量、Ls。
 4. 原型搬進 `src/`、多右手邊、平行化粗網格；之後 MPI、GPU。
 
-### 0.5 日期索引（歷史部分）
+### 0.5 讀過的 DWF 多重網格方法對照（2026-10-11 整理；細節見歷史部分「文獻對照」與「Boyle 投影片」）
+
+| 方法（文獻） | 細格子外層解的算子 | 粗化（第五維、Γ5） | 粗網格算子 | 粗網格解法 | 層數 | 備註／結果 |
+|---|---|---|---|---|---|---|
+| Cohen, Brower, Clark, Osborn（arXiv:1205.2933，Lattice 2011） | 平方的 DWF 算子（與 CG on D†D 比），GCR 外層 | 區塊涵蓋整個第五維 → 四維粗格子；適應式近零向量（鬆弛 Ax = 0） | Galerkin | 迭代（V-cycle 可遞迴） | 2 | 2D U(1) 與 4D 測試；消除臨界慢化、體積依賴小（論文集） |
+| HDCG（Boyle；引自 2103.05034、2409.03904） | 紅黑預處理的平方算子（HPD），CG | — | 平方算子的 Galerkin，81 點 | 偏轉的 CG | 2 | 粗網格大（81 點）、偏轉成本 ∝ 細 × 粗體積 |
+| MG-PV（Brower, Clark, Howarth, Weinberg，arXiv:2004.07732） | D_PV⁻¹ D（PV 預處理，有效的 overlap） | 粗化四維 Wilson 核心，每個第五維切片各自 Galerkin | **兩個因子分別 Galerkin**（DW 因子與 PV 因子），粗網格仍是五維 DWF 形式 | 迭代 | 多層（設計上） | 只在 2D Schwinger（Shamir）測過；接近理想的 MG 縮放 |
+| Boyle & Yamaguchi（arXiv:2103.05034）比較 | HDCR：Γ5 D_DW（厄米不定），pGCR；MG-PV：pGCR(M_PV†M)；MG-M†M | HDCR：**五維 Γ5 相容聚合**（消除粗網格近零模）；MG-PV：四維 DW 粗化 | HDCR：P†Γ5DP（最近鄰）；MG-PV（Alg. C/D）：P†M_PV†P · P†MP（五維，Ls 倍貴）；MG-M†M：平方 | HDCR：CR/GCR；MG-PV：BiCGStab；M†M：偏轉 CG | 2（大體積多層、紅黑較有用） | 遞迴 Chebyshev setup；HDCR 在 Summit、物理質量下 setup + 兩次解 比一次紅黑 CG 快；粗網格偏轉在 48³ 需要的向量太多 |
+| mrhs-HDCG（Boyle，arXiv:2409.03904） | 紅黑平方算子，**多右手邊**區塊 CG | — | 81 點 | 偏轉 + 固定 Chebyshev（120 階） | 2 | 粗網格變成次要成本；Frontier、物理質量最多快 20 倍（對紅黑 CG） |
+| PV†M-MG（Boyle & Oare，Lattice 2026 投影片） | F = D_PV† D，mrhs GCR | 區塊涵蓋整個第五維 | **乘積的 Galerkin** P†FP（33 點、非正規） | GCR；粗網格佔 90% 時間；偏轉、平方、3–5 層遞迴都失敗 | 3（最上層 7 萬維稠密、精確求逆） | 48³×96 物理質量：578 次細格子作用（HDCG 1100、紅黑 CG 26500） |
+| 金森 2023 筆記（`dwf_multigrid.pdf`，Bridge++ CUDA） | SAP + 區塊截斷的 PV | — | — | — | — | LATTICE2024 指出區塊截斷 PV 給出負實部（之前讀過，這次沒重讀） |
+| **我們（Ruttice，`mdwf_eo_cycle`）** | **EO 的 Ã**（A′ 的 even-odd 版，含格點內 C⁻¹），BiCGStab 或 FGMRES | **五維 Γ5 相容聚合**（區塊涵蓋整個 Ls，Γ5 = γ5R 拆半）→ 四維粗格子 | **兩個因子分別 Galerkin**（9 點 × 2），中間 E；基底 **{s, t̂}** 使修正對基底向量精確 | D 因子：BiCGStab + 帶號乘法式第二層；PV 因子：MINRES + \|H\|⁻¹ 第二層 | 2–3（多層帶號 V-cycle 測試中） | 16⁴ β = 6.0：28 cycle、Ã 為 Chebyshev 的一半、粗估總成本便宜約 30%；1 組態 1 右手邊 |
+
+與文獻的關係（誠實版）：**因子化的粗網格修正**是 MG-PV（Brower 2020；Boyle–Yamaguchi 的 Alg. C/D）的結構；**五維 Γ5 相容聚合**是 HDCR 的；
+**Chebyshev 濾波 setup** 精神上同 Boyle–Yamaguchi。可能新的部分（新穎性尚未查證）：
+(1) 外層用 A′ 的 EO 版 Ã，粗網格修正從偶格點進出；(2) 基底 {s, t̂}（PV 提升）讓因子化修正對基底向量精確——**這是因子化在粗糙 setup 下仍可用的關鍵**；
+(3) 粗網格因子的帶號乘法式第二層（BiCGStab）與絕對值第二層（MINRES）；(4) 體積縮放上（12⁴ → 16⁴）優於我們自己實作的乘積 Galerkin。
+沒有直接和任何文獻的實作或數字在同參數下比過。
+
+### 0.6 日期索引（歷史部分）
 
 | 日期 | 節 |
 |---|---|
