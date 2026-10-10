@@ -20,6 +20,10 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
     (3, Direction::Backward),
 ];
 
+/// The largest coarse dimension the application keeps on the stack (complex numbers per
+/// coarse site, `2 n` for `n` test vectors).
+const MAX_COARSE_DIM: usize = 512;
+
 /// The Galerkin coarse operator `P† D P` for a nearest-neighbour fine operator D.
 ///
 /// It is itself a nearest-neighbour operator on the coarse lattice:
@@ -73,7 +77,7 @@ impl<T: Storage> CoarseOp<T> {
     /// the coarse unit vector of one component on every coarse site at once, apply the
     /// diagonal block and each hopping term, sort what comes out by whether the hop
     /// stayed inside the block, and restrict.
-    pub fn build<F>(op: &F, work: &mut F::Work, basis: &Basis<T>) -> Self
+    pub fn build<F, S: Storage>(op: &F, work: &mut F::Work, basis: &Basis<T, S>) -> Self
     where
         F: HopTerms<Field<T, Spinor>>,
     {
@@ -90,10 +94,10 @@ impl<T: Storage> CoarseOp<T> {
     /// - `precondition_diagonal`: the operator becomes A^{-1} D_c, where A is the diagonal
     ///   block of D_c at every coarse site. A coarse solve then needs its right-hand side
     ///   multiplied by A^{-1} first (`apply_diagonal_inverse`).
-    pub fn build_with<F>(
+    pub fn build_with<F, S: Storage>(
         op: &F,
         work: &mut F::Work,
-        basis: &Basis<T>,
+        basis: &Basis<T, S>,
         mut right: Option<&mut dyn LinearFn<Field<T, Spinor>>>,
         precondition_diagonal: bool,
     ) -> Result<Self, MultigridError>
@@ -210,10 +214,10 @@ impl<T: Storage> CoarseOp<T> {
     ///
     /// The adjoint of such an operator is not available (`mult_dag` panics): it does not
     /// follow from Γ5 as it does for `build`.
-    pub fn probe(
+    pub fn probe<S: Storage, R: Storage>(
         a: &mut dyn LinearFn<Field<T, Spinor>>,
-        basis: &Basis<T>,
-        restriction: &Basis<T>,
+        basis: &Basis<T, S>,
+        restriction: &Basis<T, R>,
         precondition_diagonal: bool,
     ) -> Result<Self, MultigridError> {
         assert_eq!(basis.coarse_dim(), restriction.coarse_dim());
@@ -385,16 +389,13 @@ impl<T: Storage> CoarseOp<T> {
         assert_eq!(out.as_slice().len(), inp.as_slice().len());
         let n_coarse = self.lat.num_sites();
         let site_len = inp.site_len();
-        let sign = |row: usize| -> T::Compute {
-            if gamma5 && row >= dim / 2 {
-                -T::Compute::ONE
-            } else {
-                T::Compute::ONE
-            }
-        };
+        assert!(
+            dim <= MAX_COARSE_DIM,
+            "coarse dimension {dim} above {MAX_COARSE_DIM}"
+        );
+        let half = dim / 2;
 
         for_sites(out.slab_mut(0), site_len, |x, out| {
-            out.fill(T::default());
             // (matrix, the coarse site it multiplies)
             let mut terms: [(&[T], usize); 2 * ND + 1] =
                 [(&self.diag[x * matrix..(x + 1) * matrix], x); 2 * ND + 1];
@@ -406,24 +407,39 @@ impl<T: Storage> CoarseOp<T> {
                 terms[d + 1] = (&self.links[at..at + matrix], site);
             }
 
-            for (m, neighbour) in terms {
-                let neighbour = inp.site(0, neighbour);
-                for (out, v) in out
-                    .chunks_exact_mut(2 * dim)
-                    .zip(neighbour.chunks_exact(2 * dim))
-                {
-                    for row in 0..dim {
-                        let mut s = Cplx::ZERO;
-                        for col in 0..dim {
-                            let k = 2 * (dim * row + col);
-                            let z = Cplx::new(v[2 * col].load(), v[2 * col + 1].load())
-                                .scale(sign(col));
-                            s += Cplx::new(m[k].load(), m[k + 1].load()) * z;
-                        }
-                        let s = s.scale(sign(row));
-                        out[2 * row] = T::store(out[2 * row].load() + s.re);
-                        out[2 * row + 1] = T::store(out[2 * row + 1].load() + s.im);
+            // Per vector: the sums of the nine terms in the compute type, kept apart as real
+            // and imaginary parts, the input loaded once per term with Γ5 already applied,
+            // so that the inner loop is a plain multiply-add the compiler can vectorise.
+            for (v_index, out) in out.chunks_exact_mut(2 * dim).enumerate() {
+                let mut acc_re = [T::Compute::ZERO; MAX_COARSE_DIM];
+                let mut acc_im = [T::Compute::ZERO; MAX_COARSE_DIM];
+                let mut in_re = [T::Compute::ZERO; MAX_COARSE_DIM];
+                let mut in_im = [T::Compute::ZERO; MAX_COARSE_DIM];
+                for (m, neighbour) in terms {
+                    let v = &inp.site(0, neighbour)[v_index * 2 * dim..(v_index + 1) * 2 * dim];
+                    for col in 0..dim {
+                        let (re, im) = (v[2 * col].load(), v[2 * col + 1].load());
+                        let negate = gamma5 && col >= half;
+                        in_re[col] = if negate { -re } else { re };
+                        in_im[col] = if negate { -im } else { im };
                     }
+                    for row in 0..dim {
+                        let m_row = &m[2 * dim * row..2 * dim * (row + 1)];
+                        let (mut s_re, mut s_im) = (T::Compute::ZERO, T::Compute::ZERO);
+                        for col in 0..dim {
+                            let (a, b) = (m_row[2 * col].load(), m_row[2 * col + 1].load());
+                            s_re = s_re + a * in_re[col] - b * in_im[col];
+                            s_im = s_im + a * in_im[col] + b * in_re[col];
+                        }
+                        acc_re[row] = acc_re[row] + s_re;
+                        acc_im[row] = acc_im[row] + s_im;
+                    }
+                }
+                for row in 0..dim {
+                    let negate = gamma5 && row >= half;
+                    let (re, im) = (acc_re[row], acc_im[row]);
+                    out[2 * row] = T::store(if negate { -re } else { re });
+                    out[2 * row + 1] = T::store(if negate { -im } else { im });
                 }
             }
         });

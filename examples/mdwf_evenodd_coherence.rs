@@ -624,7 +624,11 @@ impl Measure<'_> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `noreport`: only the setup (the vectors and their checkpoint), without the coherence
+    // measurements, which build bases for several block sizes and dominate the memory.
+    let report = !args.iter().any(|s| s == "noreport");
+    args.retain(|s| s != "noreport");
     if !(4..=8).contains(&args.len()) {
         return Err(USAGE.into());
     }
@@ -757,7 +761,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             start.elapsed().as_secs_f64()
         );
         let last = worst < 1e-2 || change < 1e-3 || iteration + 1 == iters;
-        if iteration >= 3 || last {
+        if report && (iteration >= 3 || last) {
             measure.report(&x);
             println!("({:.0} s)", start.elapsed().as_secs_f64());
         }
