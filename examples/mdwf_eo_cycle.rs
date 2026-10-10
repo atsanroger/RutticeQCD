@@ -2606,6 +2606,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // `bootfg`: the bootstrap rounds use K steps of FGMRES with the cycle instead of K
     // applications of the cycle.
     let boot_fgmres = args.iter().skip(11).any(|s| s == "bootfg");
+    // `bootrich`: K steps of Richardson with the cycle (least memory).
+    let boot_richardson = args.iter().skip(11).any(|s| s == "bootrich");
+    // `bootbatch:B`: the bootstrap takes the test vectors B at a time (memory).
+    let boot_batch: Option<usize> = args
+        .iter()
+        .skip(11)
+        .find_map(|s| s.strip_prefix("bootbatch:")?.parse().ok());
     let quotient = |y: &H| -> (f64, f64) {
         let mut a = HalfA::new(&op, &pv, &like, &nothing);
         let mut ay = y.zeros_like();
@@ -2651,25 +2658,59 @@ fn main() -> Result<(), Box<dyn Error>> {
                 pv_adj: true,
                 nc: nc.clone(),
             };
-            if boot_fgmres {
-                // y ← (K steps of FGMRES on Ã x = y with the cycle): a better approximate
-                // inverse than K applications of the cycle alone.
-                let mut x = y.zeros_like();
-                let mut a = HalfA::new(&op, &pv, &like, &na);
-                let _ = Fgmres::new(Stop {
-                    tolerance_sqr: 1e-30,
-                    max_iterations: k,
-                    max_restarts: 0,
-                })
-                .solve(&mut a, Some(&mut cycle), &mut x, &y);
-                y = x;
-            } else {
-                for _ in 0..k {
-                    let mut z = y.zeros_like();
-                    cycle.mult(&mut z, &y);
-                    y = z;
-                }
+            // The test vectors in batches of `boot_batch`: every work field of the cycle and
+            // the solver is as large as the batch, so this sets the memory of the bootstrap.
+            let nv = y.num_vectors();
+            let batch = boot_batch.unwrap_or(nv).max(1);
+            let mut new_y = y.zeros_like();
+            for first in (0..nv).step_by(batch) {
+                let idx: Vec<usize> = (first..(first + batch).min(nv)).collect();
+                let yc = y.select(&idx);
+                let result = if boot_richardson {
+                    // K steps of x ← x + M (y − Ã x) from x = 0: three vectors per test
+                    // vector instead of FGMRES's 2(K + 1).
+                    let mut x = yc.zeros_like();
+                    let mut ax = yc.zeros_like();
+                    let mut r = yc.zeros_like();
+                    let mut a = HalfA::new(&op, &pv, &like, &na);
+                    let one = vec![C64::new(1.0, 0.0); idx.len()];
+                    let minus = vec![C64::new(-1.0, 0.0); idx.len()];
+                    for step in 0..k {
+                        if step == 0 {
+                            r.copy_from(&yc);
+                        } else {
+                            a.mult(&mut ax, &x);
+                            r.copy_from(&yc);
+                            r.axpy(&minus, &ax);
+                        }
+                        cycle.mult(&mut ax, &r);
+                        x.axpy(&one, &ax);
+                    }
+                    x
+                } else if boot_fgmres {
+                    // K steps of FGMRES on Ã x = y with the cycle: a better approximate
+                    // inverse than K applications of the cycle alone.
+                    let mut x = yc.zeros_like();
+                    let mut a = HalfA::new(&op, &pv, &like, &na);
+                    let _ = Fgmres::new(Stop {
+                        tolerance_sqr: 1e-30,
+                        max_iterations: k,
+                        max_restarts: 0,
+                    })
+                    .solve(&mut a, Some(&mut cycle), &mut x, &yc);
+                    x
+                } else {
+                    let mut z = yc;
+                    for _ in 0..k {
+                        let mut w = z.zeros_like();
+                        cycle.mult(&mut w, &z);
+                        z = w;
+                    }
+                    z
+                };
+                new_y.assign(&idx, &result);
             }
+            y = new_y;
             orthonormalise_h(&mut y);
             let (q0, qm) = quotient(&y);
             println!(
