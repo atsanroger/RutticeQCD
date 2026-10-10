@@ -1,4 +1,77 @@
-# MDWF 多重網格：工作紀錄（2026-10-08）
+# MDWF 多重網格：工作紀錄（2026-10-08 起）
+
+## 0. 先讀這裡：現況、記號、目前最好的設定（2026-10-11 更新；這一節隨時改寫）
+
+**這份文件的結構。** 第 0 節是「現在的狀態」，會被改寫；第 1 節之後是**按寫入順序**累積的歷史紀錄，不改寫、只更正（更正會標「更正」）。
+歷史部分有兩處不按日期：「Boyle, Lattice 2026 投影片」一節（2026-10-10 讀）後半夾著 2026-10-09 的全格子因子化結果；
+最後一節「給在 `main` 上工作的 session」是 2026-10-09 的分工。日期索引見本節末。
+
+### 0.1 記號
+
+- **D**：Möbius DWF（b = 1.5、c = 0.5，Bridge++ 的正規化，`src/fermion/mdwf.rs`）；**D_PV**：同一個算子、m = 1。
+  D = C + 跳躍項，**C** 是同一個四維格點內的部分（第五維 Ls × Ls，可精確求逆）；偶／奇格點部分 C_e、C_o。
+- **A′** = (D_PV C_PV⁻¹)† D C⁻¹（LATTICE2024 論文的算子）。**Ã** = 它的 even-odd 版，只在偶格點上：
+  Ã = C_PV,e†⁻¹ S_PV† S_D C_e⁻¹，S_D = C_e − D_eo C_o⁻¹ D_oe（D 的 Schur 補），S_PV 同理。**所有細格子求解都是解 Ã**（BiCGStab 或 FGMRES）。
+- **ι**：偶格點場放進全格子（奇格點補 0）；**π**：取全格子場的偶格點部分。
+- **Γ5** = γ5 R（R：s → Ls−1−s）。**更正（2026-10-10）**：c ≠ 0 時 Γ5 D **不是**厄米的（Brower–Neff–Orginos 式 (2.22)：
+  Möbius 的是 Γ5 = γ5 R D₋⁻¹，D₋ = 1 − cW，在我們的參數下求不起）。下面「Γ5-厄米」對 Möbius 都只是近似。
+- **y**：Ã 的近似低模（偶格點；Chebyshev 濾波子空間迭代的 Ritz 向量，`mdwf_evenodd_coherence` 的 checkpoint）。
+- **s** = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)：y 用 **D** 的方式提升到全格子，使 **D s 只在偶格點**（D s = ι S_D C_e⁻¹ y）。
+- **t̂** = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s)：同一個 π D s 用 **D_PV†** 的方式提升，使 **D_PV† t̂ 只在偶格點**（= ι S_PV† π D s）。
+- **P**（prolongation）：每個 BLOCK⁴ 聚合（含整個第五維）上，把測試向量按 Γ5 的兩個本徵空間拆開、正交化。
+  測試向量 N 個：**{s, t̂}** 各 N/2（`st` 選項；**目前的標準**），或舊的 {s, Ds}。每個粗網格格點 2N 維。
+- **因子化的粗網格修正**（EO）：e = C_e π P (P†DP)⁻¹ E (P†D_PV†P)⁻¹ P† ι C_PV,e† r，**E** = P† ι π P。
+  {s, t̂} 時這個修正對建 P 的低模 y 是精確的（r = Ã y ⇒ e = y；數值確認到 1e-7，需精確的 P†D_PV†P）；{s, Ds} 時不是（誤差 1.7–4.1）。
+- **乘積 Galerkin**（Boyle PV†M-MG 的 EO 版，只當標竿）：e = C_e π P G⁻¹ P† ι C_PV,e† r，G = (πP)† S_PV† S_D (πP)。
+- **cycle**：y = S r；y += e(r − Ãy)；y += S(r − Ãy)，S 是 Ã 的 Chebyshev 多項式（STEPS 步、[hi/RATIO, hi]）。
+- **粗網格因子** A_c = P†DP 或 P†D_PV†P；**H** = Γ5 A_c（Möbius 時近厄米：低模方向偏 35%、隨機方向 4–5%）。
+
+### 0.2 粗網格解法與選項（`examples/mdwf_eo_cycle.rs`）
+
+| 選項 | 意思 |
+|---|---|
+| `cr` / `minres` / `pminres` | 粗網格因子用 CR／MINRES／區塊 \|H\|⁻¹ 預處理的 MINRES（解 H） |
+| `bicg` / `dbicg` | BiCGStab 解 A_c 本身、右預處理用精確區塊逆；`dbicg`：只有 D 因子用 BiCGStab、PV 因子仍 MINRES |
+| `abs2f:SB` | 第二層，用基底向量的粗網格表示 P†s、P†t̂ 當測試向量（免費）、SB⁴ 個粗網格格點一個超區塊；MINRES 用 \|·\|⁻¹ 版，BiCGStab 用帶號、乘法式版 |
+| `absm:SB2,SB3,…` | 多層的 \|H\|⁻¹ 版（加法式，MINRES 用） |
+| `sm:SB2,SB3,…` | 多層的帶號 V-cycle（BiCGStab 用；每層稀疏的最近鄰區塊算子 + 區塊 Jacobi，最底層稠密 LU） |
+| `st` | 基底 {s, t̂}（否則 {s, Ds}） |
+| `fgmres:K` | 細格子外層改 FGMRES(K)（否則 BiCGStab） |
+| `product` | 改用乘積 Galerkin（matrix-free，標竿） |
+| `exactpv` | P†D_PV†P 用細格子探測（精確但很貴）；否則用 Γ5 取 P†D_PV P 的伴隨（Möbius 時差約 9%，對收斂幾乎無影響） |
+| `boot:R:K:TOL` | bootstrap setup（{s, t̂} 之後不需要） |
+| `herm` / `checkonly` / `nocheck` / `exacttol:X` | 診斷 |
+
+### 0.3 目前的結論與最好的設定（β = 6.0、實際 setup：K = 16、濾波 4 次；N = 32、4⁴、Chebyshev 5/30、FGMRES(16)、粗網格到 1e-2）
+
+| | 12⁴ | 16⁴ |
+|---|---|---|
+| Chebyshev 單獨（BiCGStab 迭代 / Ã） | 49 / 492 | 62 / 622 |
+| 乘積 Galerkin（cycle / Ã） | 20 / 223 | 38 / 422 |
+| 因子化 {s, Ds} | 54 / 599 | 50 / 555 |
+| **因子化 {s, t̂}**（cycle / Ã / 粗網格作用） | 24 / 267 / 4311 | 29 / 322 / 3043 |
+| **{s, t̂} + `dbicg` + 帶號第二層** | 23 / 256 / 1814（`abs2f:3`） | 28 / 311 / **1315**（`abs2f:2`） |
+
+- 16⁴ 最好的組合粗估總成本約 440 Ã 當量，比 Chebyshev 單獨（622）便宜約 30%（粗網格作用以約 0.1 Ã 計，負載下量的，待用 flop 校正）。
+- {s, t̂} 隨體積只增 21%（乘積 +90%、Chebyshev +27%）。
+- **限制**：每組只有 1 個組態、1 個右手邊（seed 91）；setup 成本（數千 Ã）還沒算進比較。
+
+### 0.4 接下來
+
+1. 多層帶號 V-cycle（`sm:2,2`）在 16⁴：第二層要隨體積長大。
+2. 多組態、多右手邊；setup 成本計入；flop 校正的總成本。
+3. 第三個體積點（20⁴ 或 24⁴，先省記憶體）；M5 = 1.8、更輕質量、Ls。
+4. 原型搬進 `src/`、多右手邊、平行化粗網格；之後 MPI、GPU。
+
+### 0.5 日期索引（歷史部分）
+
+| 日期 | 節 |
+|---|---|
+| 10-08 | 目標、組態、量測程式、結論 1–5、決定事項、計畫、步驟 1、之後的量測、Chebyshev smoother、even-odd 的 Ã |
+| 10-08 晚–10-09 | A-2（沿 s 切開）、3(b)、`mdwf_eigmg`、區塊邊界／Wilson 對照、文獻對照；「Boyle 投影片」節後半的全格子因子化結果；給 `main` 的分工 |
+| 10-10 | 改以 EO 為主、EO 測量方案、EO 第一批（MINRES、CR 的問題）、EO 第二批（收斂低模、smoother、偏轉失敗、絕對值預處理、乘積對因子化、體積縮放、{s, t̂}、c ≠ 0、BiCGStab 粗網格、16⁴） |
+
+---
 
 給下一個 session 的交接。目標、量到的數字、結論、還沒做的事都在這裡；設計本身在
 `/home/chen/test/RUQCD/docs/DESIGN.md` §7.6（不在 git 裡），副本是同目錄的 `DESIGN_7.6_multigrid.md`，
