@@ -732,6 +732,25 @@ impl AbsMulti {
         vectors: &[C],
         super_blocks: &[usize],
     ) -> (Self, String) {
+        Self::build_inner(a, adjoint, vectors, super_blocks, true)
+    }
+
+    /// Only the local vectors of every level (for `SignedMulti`), no blocks of |H|.
+    fn build_vectors_only(
+        a: &mut CoarseOp<f64>,
+        vectors: &[C],
+        super_blocks: &[usize],
+    ) -> (Self, String) {
+        Self::build_inner(a, false, vectors, super_blocks, false)
+    }
+
+    fn build_inner(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        vectors: &[C],
+        super_blocks: &[usize],
+        with_blocks: bool,
+    ) -> (Self, String) {
         let start = Instant::now();
         let lat = a.lattice().clone();
         let dim = a.dim();
@@ -839,7 +858,9 @@ impl AbsMulti {
                 w
             };
             let n = total * nq;
-            if level.dense {
+            if !with_blocks {
+                // Only the local vectors are wanted.
+            } else if level.dense {
                 let mut hd = vec![C64::ZERO; n * n];
                 for j in 0..n {
                     let mut e = vec![C64::ZERO; n];
@@ -945,6 +966,290 @@ impl AbsAdd for AbsMulti {
         let mut v = to_vec(out);
         first.prolong_add(&z, &mut v);
         from_vec(out, &v);
+    }
+}
+
+// --- The signed multilevel preconditioner for BiCGStab on A_c. ---
+
+fn site_coords(s: usize, ext: &[usize; ND]) -> [usize; ND] {
+    let mut c = [0; ND];
+    let mut r = s;
+    for mu in 0..ND {
+        c[mu] = r % ext[mu];
+        r /= ext[mu];
+    }
+    c
+}
+
+fn site_index(c: &[usize; ND], ext: &[usize; ND]) -> usize {
+    let mut s = 0;
+    for mu in (0..ND).rev() {
+        s = s * ext[mu] + c[mu];
+    }
+    s
+}
+
+/// A nearest-neighbour block operator on a level's lattice: for every site the diagonal
+/// block and one block per direction (0..4 forward, 4..8 backward), nq × nq row-major.
+/// With an extent of 2 both neighbours are one site and its coupling is in the forward
+/// block; with an extent of 1 everything is in the diagonal block.
+struct LevelOp {
+    nq: usize,
+    nbr: Vec<[usize; 2 * ND]>,
+    blocks: Vec<Vec<Vec<C64>>>,
+    diag_inv: Vec<Vec<C64>>,
+}
+
+impl LevelOp {
+    fn mult(&self, v: &[C64]) -> Vec<C64> {
+        let nq = self.nq;
+        let mut out = vec![C64::ZERO; v.len()];
+        for (t, b) in self.blocks.iter().enumerate() {
+            let mut acc = mat_vec(&b[0], nq, &v[t * nq..(t + 1) * nq]);
+            for d in 0..2 * ND {
+                if b[1 + d].is_empty() {
+                    continue;
+                }
+                let s = self.nbr[t][d];
+                let z = mat_vec(&b[1 + d], nq, &v[s * nq..(s + 1) * nq]);
+                for (a, z) in acc.iter_mut().zip(z) {
+                    *a += z;
+                }
+            }
+            out[t * nq..(t + 1) * nq].copy_from_slice(&acc);
+        }
+        out
+    }
+
+    /// The level operator of `level`'s lattice from the operator above, by probing: sources
+    /// c_μ apart (the smallest divisor of the extent from 3 up, or the extent) never share
+    /// a neighbour.
+    fn probe(
+        level: &AbsMLevel,
+        ext: [usize; ND],
+        parent_len: usize,
+        apply: &mut dyn FnMut(&[C64]) -> Vec<C64>,
+    ) -> (Self, usize) {
+        let nq = level.nq;
+        let total: usize = ext.iter().product();
+        let nbr: Vec<[usize; 2 * ND]> = (0..total)
+            .map(|s| {
+                let c = site_coords(s, &ext);
+                let mut n = [0; 2 * ND];
+                for mu in 0..ND {
+                    let mut f = c;
+                    f[mu] = (c[mu] + 1) % ext[mu];
+                    let mut b = c;
+                    b[mu] = (c[mu] + ext[mu] - 1) % ext[mu];
+                    n[mu] = site_index(&f, &ext);
+                    n[ND + mu] = site_index(&b, &ext);
+                }
+                n
+            })
+            .collect();
+        let used = |d: usize| -> bool {
+            let e = ext[d % ND];
+            !(e == 1 || (e == 2 && d >= ND))
+        };
+        let mut blocks: Vec<Vec<Vec<C64>>> = (0..total)
+            .map(|_| {
+                (0..=2 * ND)
+                    .map(|k| {
+                        if k == 0 || used(k - 1) {
+                            vec![C64::ZERO; nq * nq]
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let colours: [usize; ND] = ext.map(|e| (3..=e).find(|k| e % k == 0).unwrap_or(e).max(1));
+        let n_colours: usize = colours.iter().product();
+        let mut applications = 0;
+        for colour in 0..n_colours {
+            let mut rest = colour;
+            let want = colours.map(|k| {
+                let w = rest % k;
+                rest /= k;
+                w
+            });
+            let sources: Vec<usize> = (0..total)
+                .filter(|&s| {
+                    let c = site_coords(s, &ext);
+                    (0..ND).all(|mu| c[mu] % colours[mu] == want[mu])
+                })
+                .collect();
+            for j in 0..nq {
+                let mut e = vec![C64::ZERO; total * nq];
+                for &s in &sources {
+                    e[s * nq + j] = C64::new(1.0, 0.0);
+                }
+                let mut p = vec![C64::ZERO; parent_len];
+                level.prolong_add(&e, &mut p);
+                let r = level.restrict(&apply(&p));
+                applications += 1;
+                for &s in &sources {
+                    for i in 0..nq {
+                        blocks[s][0][i * nq + j] = r[s * nq + i];
+                    }
+                    // A(t, s) with s = t + dir: stored at t = s − dir in direction dir.
+                    for d in 0..2 * ND {
+                        if !used(d) {
+                            continue;
+                        }
+                        let opposite = if d < ND { d + ND } else { d - ND };
+                        let t = nbr[s][opposite];
+                        for i in 0..nq {
+                            blocks[t][1 + d][i * nq + j] = r[t * nq + i];
+                        }
+                    }
+                }
+            }
+        }
+        let diag_inv = blocks
+            .iter()
+            .map(|b| {
+                let mut a: Vec<f64> = b[0].iter().flat_map(|z| [z.re, z.im]).collect();
+                let mut inv = vec![0.0; 2 * nq * nq];
+                match ruttice::numerics::invert_complex(nq, &mut a, &mut inv) {
+                    Ok(()) => inv.chunks(2).map(|c| C64::new(c[0], c[1])).collect(),
+                    Err(_) => vec![C64::ZERO; nq * nq],
+                }
+            })
+            .collect();
+        (
+            Self {
+                nq,
+                nbr,
+                blocks,
+                diag_inv,
+            },
+            applications,
+        )
+    }
+}
+
+/// The levels ℓ = 2 … L below the coarse lattice as a V-cycle for A_c, without Hermiticity:
+/// M_ℓ r = z₁ + D_ℓ⁻¹ (r − A_ℓ z₁), z₁ = Q_ℓ+1 M_ℓ+1 Q_ℓ+1† r, A_ℓ = Q_ℓ† A_ℓ−1 Q_ℓ kept as a
+/// sparse block operator, D_ℓ its block diagonal, and the coarsest M_L = A_L⁻¹ dense. The
+/// local vectors and test vectors are those of `AbsMulti`.
+struct SignedMulti {
+    levels: Vec<AbsMLevel>,
+    ops: Vec<LevelOp>,
+    coarsest_inv: Vec<C64>,
+}
+
+impl SignedMulti {
+    fn build(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        vectors: &[C],
+        super_blocks: &[usize],
+    ) -> (Self, String) {
+        let start = Instant::now();
+        // The local vectors of every level, as for the absolute-value version.
+        let (multi, _) = AbsMulti::build_vectors_only(a, vectors, super_blocks);
+        let lat = a.lattice().clone();
+        let like = vectors[0].zeros_like();
+        let mut ops: Vec<LevelOp> = Vec::new();
+        let mut applications = 0;
+        let mut ext = lat.local;
+        let mut parent_len = like.as_slice().len() / 2;
+        for (l, level) in multi.levels.iter().enumerate() {
+            ext = ext.map(|e| e / super_blocks[l]);
+            let (op, n) = if l == 0 {
+                let mut apply = |v: &[C64]| -> Vec<C64> {
+                    let mut f = like.zeros_like();
+                    from_vec(&mut f, v);
+                    let mut out = like.zeros_like();
+                    if adjoint {
+                        a.mult_dag(&mut out, &f);
+                    } else {
+                        a.mult(&mut out, &f);
+                    }
+                    to_vec(&out)
+                };
+                LevelOp::probe(level, ext, parent_len, &mut apply)
+            } else {
+                let above = &ops[l - 1];
+                let mut apply = |v: &[C64]| above.mult(v);
+                LevelOp::probe(level, ext, parent_len, &mut apply)
+            };
+            applications += if l == 0 { n } else { 0 };
+            parent_len = level.sites.len() * level.nq;
+            ops.push(op);
+        }
+        // The coarsest level dense, from its sparse operator.
+        let last = ops.last().expect("at least one level");
+        let n = parent_len;
+        let mut dense = vec![0.0; 2 * n * n];
+        for j in 0..n {
+            let mut e = vec![C64::ZERO; n];
+            e[j] = C64::new(1.0, 0.0);
+            let col = last.mult(&e);
+            for i in 0..n {
+                dense[2 * (i * n + j)] = col[i].re;
+                dense[2 * (i * n + j) + 1] = col[i].im;
+            }
+        }
+        let mut inv = vec![0.0; 2 * n * n];
+        let coarsest_inv = match ruttice::numerics::invert_complex(n, &mut dense, &mut inv) {
+            Ok(()) => inv.chunks(2).map(|c| C64::new(c[0], c[1])).collect(),
+            Err(_) => vec![C64::ZERO; n * n],
+        };
+        let sizes: Vec<String> = multi
+            .levels
+            .iter()
+            .map(|l| format!("{} × {}", l.sites.len(), l.nq))
+            .collect();
+        let line = format!(
+            "signed levels {} (coarsest dense {n}; {applications} coarse applications, {:.0} s)",
+            sizes.join(" → "),
+            start.elapsed().as_secs_f64()
+        );
+        (
+            Self {
+                levels: multi.levels,
+                ops,
+                coarsest_inv,
+            },
+            line,
+        )
+    }
+
+    fn vcycle(&self, l: usize, r: &[C64]) -> Vec<C64> {
+        if l + 1 == self.levels.len() {
+            return mat_vec(&self.coarsest_inv, r.len(), r);
+        }
+        let below = &self.levels[l + 1];
+        let zc = self.vcycle(l + 1, &below.restrict(r));
+        let mut z = vec![C64::ZERO; r.len()];
+        below.prolong_add(&zc, &mut z);
+        let az = self.ops[l].mult(&z);
+        let nq = self.ops[l].nq;
+        for (t, dinv) in self.ops[l].diag_inv.iter().enumerate() {
+            let r2: Vec<C64> = (0..nq).map(|i| r[t * nq + i] - az[t * nq + i]).collect();
+            let c = mat_vec(dinv, nq, &r2);
+            for i in 0..nq {
+                z[t * nq + i] += c[i];
+            }
+        }
+        z
+    }
+}
+
+impl AbsAdd for SignedMulti {
+    /// Not an absolute-value preconditioner: nothing for MINRES.
+    fn add(&self, _out: &mut C, _inp: &C) {}
+
+    fn add_signed(&self, out: &mut C, inp: &C) -> bool {
+        let first = &self.levels[0];
+        let z = self.vcycle(0, &first.restrict(&to_vec(inp)));
+        let mut v = to_vec(out);
+        first.prolong_add(&z, &mut v);
+        from_vec(out, &v);
+        true
     }
 }
 
@@ -2534,6 +2839,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                 quotients[quotients.len() - 1]
             );
             m.level = Some(Box::new(level));
+        }
+    }
+    // `sm:SB2,SB3,…`: the signed multilevel V-cycle for BiCGStab (`bicg`, `dbicg`), from
+    // the restricted basis vectors, with these super-block sizes; the last level is dense.
+    let sm: Option<Vec<usize>> = args.iter().skip(11).find_map(|s| {
+        s.strip_prefix("sm:")?
+            .split(',')
+            .map(|x| x.parse().ok())
+            .collect()
+    });
+    if let Some(sbs) = &sm {
+        for (name, is_pv) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let adjoint = is_pv && pv_adj;
+            let (a, m) = if is_pv {
+                (&mut cpv, &mut m_pv)
+            } else {
+                (&mut cd, &mut m_d)
+            };
+            let (multi, line) = SignedMulti::build(a, adjoint, &restricted, sbs);
+            println!("  signed multilevel for {name}: {line}");
+            m.level = Some(Box::new(multi));
         }
     }
     // `absm:SB2,SB3,…`: the multilevel version from the restricted basis vectors, with
