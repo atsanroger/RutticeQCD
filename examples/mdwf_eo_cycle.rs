@@ -1866,6 +1866,76 @@ impl LinearFn<H> for Cycle<'_> {
     }
 }
 
+/// The prolongation, the restricted basis vectors and the odd-part check.
+type Built = (Basis<f64>, Vec<C>, f64);
+
+/// P from s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y) and D s for the vectors y on the even sites,
+/// split by Γ5 on the aggregates; also P† s and P† D s (test vectors for the levels below
+/// the coarse lattice, free) and |odd part of D s|/|D s| (zero: a check).
+fn basis_from(
+    op: &Mdwf<f64>,
+    lift: &Lift,
+    index: &EvenOddIndex,
+    agg: &Arc<Aggregation>,
+    y: &H,
+) -> Result<Built, Box<dyn Error>> {
+    let half_n = y.num_vectors();
+    let mut work = op.even_odd_work();
+    let mut xe = y.zeros_like();
+    op.diag_inv(&mut work, &mut xe, y, Parity::Even, Dagger::No);
+    let mut t = lift.half(Parity::Odd, half_n);
+    op.hop(&mut work, &mut t, &xe, Parity::Odd, Dagger::No);
+    let mut xo = lift.half(Parity::Odd, half_n);
+    op.diag_inv(&mut work, &mut xo, &t, Parity::Odd, Dagger::No);
+    xo.scale(&vec![-1.0; half_n]);
+    let mut s = lift.inject(&xe);
+    insert_parity(&mut s, &xo, index);
+    let mut ds = s.zeros_like();
+    op.mult(&mut op.work(), &mut ds, &s, Variant::D);
+    let odd_part = {
+        let mut o = lift.half(Parity::Odd, half_n);
+        extract_parity(&mut o, &ds, index, Parity::Odd);
+        norm(&o) / norm(&ds)
+    };
+    let mut vectors = s.zeros_with(2 * half_n);
+    vectors.assign(&(0..half_n).collect::<Vec<_>>(), &s);
+    vectors.assign(&(half_n..2 * half_n).collect::<Vec<_>>(), &ds);
+    drop((s, ds, xe, xo, t));
+    let mut g5 = vectors.zeros_like();
+    op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
+    let p = Basis::from_vectors(agg, &vectors, &g5)?;
+    let restricted: Vec<C> = (0..vectors.num_vectors())
+        .map(|j| {
+            let mut c = p.coarse_field(1);
+            p.restrict(&mut c, &vectors.select(&[j]));
+            c
+        })
+        .collect();
+    Ok((p, restricted, odd_part))
+}
+
+/// Gram–Schmidt (twice) over the vectors of a multi-vector field.
+fn orthonormalise_h(y: &mut H) {
+    let nv = y.num_vectors();
+    let mut vs: Vec<H> = (0..nv).map(|j| y.select(&[j])).collect();
+    let mut d = [C64::ZERO];
+    for i in 0..nv {
+        let (done, rest) = vs.split_at_mut(i);
+        let v = &mut rest[0];
+        for _ in 0..2 {
+            for q in done.iter() {
+                q.dot(v, &mut d);
+                v.axpy(&[-d[0]], q);
+            }
+        }
+        let n = norm(v);
+        v.scale(&[1.0 / n]);
+    }
+    for (j, v) in vs.iter().enumerate() {
+        y.assign(&[j], v);
+    }
+}
+
 fn load(path: &PathBuf, like: &H, count: usize) -> Result<(H, Vec<f64>), Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
@@ -1986,44 +2056,80 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // The basis: s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y) for the lowest N/2 Ritz vectors y of Ã,
     // and D s.
-    let (y, theta) = load(&checkpoint, &like, n / 2)?;
+    let (mut y, theta) = load(&checkpoint, &like, n / 2)?;
+    let agg = Aggregation::new(&lat, [block; ND]);
+    // `boot:R:K:TOL`: R rounds of bootstrap setup, y ← M^K y with the current cycle M
+    // (coarse solves to TOL), orthonormalised, and P rebuilt: inverse subspace iteration
+    // with the multigrid as the approximate inverse.
+    let boot: Option<(usize, usize, f64)> = args.iter().skip(11).find_map(|s| {
+        let mut it = s.strip_prefix("boot:")?.split(':');
+        Some((
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+        ))
+    });
+    let quotient = |y: &H| -> (f64, f64) {
+        let mut a = HalfA::new(&op, &pv, &like, &nothing);
+        let mut ay = y.zeros_like();
+        a.mult(&mut ay, y);
+        let nv = y.num_vectors();
+        let (mut num, mut den) = (vec![0.0; nv], vec![0.0; nv]);
+        ay.norm_sqr(&mut num);
+        y.norm_sqr(&mut den);
+        let mut q: Vec<f64> = (0..nv).map(|j| (num[j] / den[j]).sqrt()).collect();
+        q.sort_by(f64::total_cmp);
+        (q[0], q[nv / 2])
+    };
+    if let Some((rounds, k, tol)) = boot {
+        let (q0, qm) = quotient(&y);
+        println!("  bootstrap: start |Ãy|/|y| lowest {q0:.2e}, median {qm:.2e}");
+        for round in 0..rounds {
+            let start = Instant::now();
+            let (pb, _, _) = basis_from(&op, &lift, index, &agg, &y)?;
+            let mut cdb = CoarseOp::build(&op, &mut op.work(), &pb);
+            let mut cpvb = CoarseOp::build(&pv, &mut pv.work(), &pb);
+            let like_cb = pb.coarse_field(1);
+            let mdb = BlockAbsInv::build(&mut cdb, false, &like_cb);
+            let mpvb = BlockAbsInv::build(&mut cpvb, true, &like_cb);
+            let (na, nc) = (Count::default(), Count::default());
+            let mut cycle = Cycle {
+                product: None,
+                a: HalfA::new(&op, &pv, &like, &na),
+                op: &op,
+                pv: &pv,
+                smoother: Chebyshev::new(
+                    HalfA::new(&op, &pv, &like, &na),
+                    steps,
+                    hi / ratio,
+                    hi,
+                    &like,
+                ),
+                coarse: Some((&pb, &mut cdb, &mut cpvb)),
+                lift: &lift,
+                coarse_tol: tol,
+                solver: CoarseSolver::Minres(Some((&mdb, &mpvb)), None),
+                pre: true,
+                nc: nc.clone(),
+            };
+            for _ in 0..k {
+                let mut z = y.zeros_like();
+                cycle.mult(&mut z, &y);
+                y = z;
+            }
+            orthonormalise_h(&mut y);
+            let (q0, qm) = quotient(&y);
+            println!(
+                "  bootstrap round {round}: |Ãy|/|y| lowest {q0:.2e}, median {qm:.2e}; {} Ã, {} coarse ({:.0} s)",
+                na.get(),
+                nc.get(),
+                start.elapsed().as_secs_f64()
+            );
+        }
+    }
     let half_n = y.num_vectors();
     let mut work = op.even_odd_work();
-    let mut xe = y.zeros_like();
-    op.diag_inv(&mut work, &mut xe, &y, Parity::Even, Dagger::No);
-    let mut t = lift.half(Parity::Odd, half_n);
-    op.hop(&mut work, &mut t, &xe, Parity::Odd, Dagger::No);
-    let mut xo = lift.half(Parity::Odd, half_n);
-    op.diag_inv(&mut work, &mut xo, &t, Parity::Odd, Dagger::No);
-    xo.scale(&vec![-1.0; half_n]);
-    let mut s = lift.inject(&xe);
-    insert_parity(&mut s, &xo, index);
-    let mut ds = s.zeros_like();
-    op.mult(&mut op.work(), &mut ds, &s, Variant::D);
-    // D s lives on the even sites: a check of the reconstruction.
-    let odd_part = {
-        let mut o = lift.half(Parity::Odd, half_n);
-        extract_parity(&mut o, &ds, index, Parity::Odd);
-        norm(&o) / norm(&ds)
-    };
-    let mut vectors = s.zeros_with(2 * half_n);
-    vectors.assign(&(0..half_n).collect::<Vec<_>>(), &s);
-    vectors.assign(&(half_n..2 * half_n).collect::<Vec<_>>(), &ds);
-    drop((s, ds, xe, xo, t));
-    let mut g5 = vectors.zeros_like();
-    op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-    let agg = Aggregation::new(&lat, [block; ND]);
-    let p = Basis::from_vectors(&agg, &vectors, &g5)?;
-    // The basis vectors on the coarse lattice, P† s and P† D s: test vectors for the second
-    // level of the coarse preconditioner that cost nothing (`abs2f`).
-    let restricted: Vec<C> = (0..vectors.num_vectors())
-        .map(|j| {
-            let mut c = p.coarse_field(1);
-            p.restrict(&mut c, &vectors.select(&[j]));
-            c
-        })
-        .collect();
-    drop((vectors, g5));
+    let (p, restricted, odd_part) = basis_from(&op, &lift, index, &agg, &y)?;
     let mut cd = CoarseOp::build(&op, &mut op.work(), &p);
     let mut cpv = CoarseOp::build(&pv, &mut pv.work(), &p);
     println!(
