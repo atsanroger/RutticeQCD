@@ -1,5 +1,5 @@
 use super::{Aggregation, MultigridError};
-use crate::kernel::{Cplx, Number};
+use crate::kernel::{Cplx, Number, Real};
 use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
 use std::sync::Arc;
 
@@ -32,67 +32,13 @@ impl<T: Storage> Basis<T> {
         x: &Field<f64, Spinor>,
         g5x: &Field<f64, Spinor>,
     ) -> Result<Self, MultigridError> {
-        let fine = agg.fine_lattice();
-        assert_eq!(x.num_sites(), fine.num_sites());
         assert!(x.outer() == 1 && x.same_shape(g5x));
         let n = x.num_vectors();
-        let reals = x.site_len() / n;
-        let volume = agg.block_volume();
-        // Complex numbers of one vector on one aggregate (both chiralities stored).
-        let dim = volume * reals / 2;
-        assert!(
-            n <= dim / 2,
-            "{n} test vectors do not fit into aggregates of dimension {}",
-            dim / 2
-        );
-
-        let mut data = vec![T::default(); fine.num_sites() * n * 2 * reals];
-        // w[chirality][vector][site in block * reals/2 + component]
-        let mut w = [vec![C64::ZERO; n * dim], vec![C64::ZERO; n * dim]];
-
-        for coarse_site in 0..agg.coarse_lattice().num_sites() {
-            let sites = agg.fine_sites(coarse_site);
-            for (k, site) in sites.iter().enumerate() {
-                let (xs, gs) = (x.site(0, *site as usize), g5x.site(0, *site as usize));
-                for i in 0..n {
-                    let at = i * dim + k * reals / 2;
-                    for d in 0..reals / 2 {
-                        let v = C64::new(xs[i * reals + 2 * d], xs[i * reals + 2 * d + 1]);
-                        let g = C64::new(gs[i * reals + 2 * d], gs[i * reals + 2 * d + 1]);
-                        w[0][at + d] = (v + g).scale(0.5);
-                        w[1][at + d] = (v - g).scale(0.5);
-                    }
-                }
-            }
-
-            for chirality in w.iter_mut() {
-                orthonormalise(chirality, n, dim).map_err(|vector| {
-                    MultigridError::DependentTestVectors {
-                        coarse_site,
-                        vector,
-                    }
-                })?;
-            }
-
-            for (k, site) in sites.iter().enumerate() {
-                for i in 0..n {
-                    for (c, chirality) in w.iter().enumerate() {
-                        let base = ((*site as usize * n + i) * 2 + c) * reals;
-                        for d in 0..reals / 2 {
-                            let z = chirality[i * dim + k * reals / 2 + d];
-                            data[base + 2 * d] = T::store(Number::from_f64(z.re));
-                            data[base + 2 * d + 1] = T::store(Number::from_f64(z.im));
-                        }
-                    }
-                }
-            }
+        let mut builder = BasisBuilder::new(agg, n);
+        for i in 0..n {
+            builder.add(i, &x.select(&[i]), &g5x.select(&[i]));
         }
-        Ok(Self {
-            agg: agg.clone(),
-            n,
-            reals,
-            data,
-        })
+        builder.finish()
     }
 
     pub fn aggregation(&self) -> &Arc<Aggregation> {
@@ -209,6 +155,125 @@ impl<T: Storage> Basis<T> {
                 }
             }
         });
+    }
+}
+
+/// Builds a [`Basis`] from test vectors given one at a time, so that a caller never needs
+/// all of them, or all their Γ5 images, at once: the chirality parts (1 ± Γ5) v_i / 2 go
+/// straight into the basis storage and are orthonormalised aggregate by aggregate in
+/// [`finish`](Self::finish). The peak memory is then the basis itself plus one vector and
+/// its image, instead of that plus all 2n vectors (`from_vectors` needs both fields whole).
+pub struct BasisBuilder<T: Storage> {
+    agg: Arc<Aggregation>,
+    n: usize,
+    /// Reals of one vector at one site, known from the first vector.
+    reals: usize,
+    data: Vec<T>,
+    added: Vec<bool>,
+}
+
+impl<T: Storage> BasisBuilder<T> {
+    /// A builder for `n` test vectors on the aggregation `agg`.
+    pub fn new(agg: &Arc<Aggregation>, n: usize) -> Self {
+        Self {
+            agg: agg.clone(),
+            n,
+            reals: 0,
+            data: Vec::new(),
+            added: vec![false; n],
+        }
+    }
+
+    /// Test vector `i`: `x` holds one vector and `g5x` = Γ5 x, the operator's Γ5 applied
+    /// to it.
+    pub fn add(&mut self, i: usize, x: &Field<f64, Spinor>, g5x: &Field<f64, Spinor>) {
+        let fine = self.agg.fine_lattice();
+        assert_eq!(x.num_sites(), fine.num_sites());
+        assert!(x.outer() == 1 && x.same_shape(g5x) && x.num_vectors() == 1);
+        assert!(
+            i < self.n && !self.added[i],
+            "test vector {i} given twice or out of range"
+        );
+        let reals = x.site_len();
+        if self.data.is_empty() {
+            self.reals = reals;
+            self.data = vec![T::default(); fine.num_sites() * self.n * 2 * reals];
+        }
+        assert_eq!(reals, self.reals, "test vectors of different shapes");
+        let n = self.n;
+        for site in 0..fine.num_sites() {
+            let (xs, gs) = (x.site(0, site), g5x.site(0, site));
+            for c in 0..2 {
+                let sign = if c == 0 { 1.0 } else { -1.0 };
+                let base = ((site * n + i) * 2 + c) * reals;
+                for (d, (v, g)) in xs.iter().zip(gs).enumerate() {
+                    self.data[base + d] = T::store(Number::from_f64(0.5 * (v + sign * g)));
+                }
+            }
+        }
+        self.added[i] = true;
+    }
+
+    /// Orthonormalise every chirality part over every aggregate and return P.
+    pub fn finish(mut self) -> Result<Basis<T>, MultigridError> {
+        assert!(
+            self.added.iter().all(|a| *a),
+            "not every test vector was given"
+        );
+        let (n, reals) = (self.n, self.reals);
+        let volume = self.agg.block_volume();
+        // Complex numbers of one vector on one aggregate (both chiralities stored).
+        let dim = volume * reals / 2;
+        assert!(
+            n <= dim / 2,
+            "{n} test vectors do not fit into aggregates of dimension {}",
+            dim / 2
+        );
+        // w[chirality][vector][site in block * reals/2 + component]
+        let mut w = [vec![C64::ZERO; n * dim], vec![C64::ZERO; n * dim]];
+        for coarse_site in 0..self.agg.coarse_lattice().num_sites() {
+            let sites = self.agg.fine_sites(coarse_site);
+            for (k, site) in sites.iter().enumerate() {
+                for i in 0..n {
+                    for (c, chirality) in w.iter_mut().enumerate() {
+                        let base = ((*site as usize * n + i) * 2 + c) * reals;
+                        let at = i * dim + k * reals / 2;
+                        for d in 0..reals / 2 {
+                            chirality[at + d] = C64::new(
+                                self.data[base + 2 * d].load().to_f64(),
+                                self.data[base + 2 * d + 1].load().to_f64(),
+                            );
+                        }
+                    }
+                }
+            }
+            for chirality in w.iter_mut() {
+                orthonormalise(chirality, n, dim).map_err(|vector| {
+                    MultigridError::DependentTestVectors {
+                        coarse_site,
+                        vector,
+                    }
+                })?;
+            }
+            for (k, site) in sites.iter().enumerate() {
+                for i in 0..n {
+                    for (c, chirality) in w.iter().enumerate() {
+                        let base = ((*site as usize * n + i) * 2 + c) * reals;
+                        for d in 0..reals / 2 {
+                            let z = chirality[i * dim + k * reals / 2 + d];
+                            self.data[base + 2 * d] = T::store(Number::from_f64(z.re));
+                            self.data[base + 2 * d + 1] = T::store(Number::from_f64(z.im));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Basis {
+            agg: self.agg,
+            n,
+            reals,
+            data: self.data,
+        })
     }
 }
 

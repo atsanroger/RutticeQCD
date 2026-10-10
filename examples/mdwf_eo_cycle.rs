@@ -3033,118 +3033,120 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or((91, 91));
     let with_product = args.iter().skip(11).any(|s| s == "withproduct");
     for seed in seed_lo..=seed_hi {
-    println!("  right-hand side seed {seed}");
-    // The right-hand side and the solution, as in `mdwf_evenodd_a`.
-    let b = full(1, seed);
-    let (mut b_e, mut b_o) = (lift.half(Parity::Even, 1), lift.half(Parity::Odd, 1));
-    extract_parity(&mut b_e, &b, index, Parity::Even);
-    extract_parity(&mut b_o, &b, index, Parity::Odd);
-    let (mut t_o, mut t_e) = (lift.half(Parity::Odd, 1), lift.half(Parity::Even, 1));
-    op.diag_inv(&mut work, &mut t_o, &b_o, Parity::Odd, Dagger::No);
-    op.hop(&mut work, &mut t_e, &t_o, Parity::Even, Dagger::No);
-    t_e.aypx(&[C64::new(-1.0, 0.0)], &b_e);
-    let mut rhs = lift.half(Parity::Even, 1);
-    HalfA::new(&op, &pv, &like, &nothing).x_dagger(&mut rhs, &t_e);
-    let physical = |y: &H| {
-        let mut work = op.even_odd_work();
-        let mut x_e = lift.half(Parity::Even, 1);
-        op.diag_inv(&mut work, &mut x_e, y, Parity::Even, Dagger::No);
-        let mut t_o = lift.half(Parity::Odd, 1);
-        op.hop(&mut work, &mut t_o, &x_e, Parity::Odd, Dagger::No);
-        t_o.aypx(&[C64::new(-1.0, 0.0)], &b_o);
-        let mut x_o = lift.half(Parity::Odd, 1);
-        op.diag_inv(&mut work, &mut x_o, &t_o, Parity::Odd, Dagger::No);
-        let mut x = lift.inject(&x_e);
-        insert_parity(&mut x, &x_o, index);
-        let mut r = b.zeros_like();
-        op.mult(&mut op.work(), &mut r, &x, Variant::D);
-        r.aypx(&[C64::new(-1.0, 0.0)], &b);
-        (norm(&r) / norm(&b)).powi(2)
-    };
-    let stop = Stop {
-        tolerance_sqr: 1e-18,
-        max_iterations: 2000,
-        max_restarts: 1,
-    };
+        println!("  right-hand side seed {seed}");
+        // The right-hand side and the solution, as in `mdwf_evenodd_a`.
+        let b = full(1, seed);
+        let (mut b_e, mut b_o) = (lift.half(Parity::Even, 1), lift.half(Parity::Odd, 1));
+        extract_parity(&mut b_e, &b, index, Parity::Even);
+        extract_parity(&mut b_o, &b, index, Parity::Odd);
+        let (mut t_o, mut t_e) = (lift.half(Parity::Odd, 1), lift.half(Parity::Even, 1));
+        op.diag_inv(&mut work, &mut t_o, &b_o, Parity::Odd, Dagger::No);
+        op.hop(&mut work, &mut t_e, &t_o, Parity::Even, Dagger::No);
+        t_e.aypx(&[C64::new(-1.0, 0.0)], &b_e);
+        let mut rhs = lift.half(Parity::Even, 1);
+        HalfA::new(&op, &pv, &like, &nothing).x_dagger(&mut rhs, &t_e);
+        let physical = |y: &H| {
+            let mut work = op.even_odd_work();
+            let mut x_e = lift.half(Parity::Even, 1);
+            op.diag_inv(&mut work, &mut x_e, y, Parity::Even, Dagger::No);
+            let mut t_o = lift.half(Parity::Odd, 1);
+            op.hop(&mut work, &mut t_o, &x_e, Parity::Odd, Dagger::No);
+            t_o.aypx(&[C64::new(-1.0, 0.0)], &b_o);
+            let mut x_o = lift.half(Parity::Odd, 1);
+            op.diag_inv(&mut work, &mut x_o, &t_o, Parity::Odd, Dagger::No);
+            let mut x = lift.inject(&x_e);
+            insert_parity(&mut x, &x_o, index);
+            let mut r = b.zeros_like();
+            op.mult(&mut op.work(), &mut r, &x, Variant::D);
+            r.aypx(&[C64::new(-1.0, 0.0)], &b);
+            (norm(&r) / norm(&b)).powi(2)
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-18,
+            max_iterations: 2000,
+            max_restarts: 1,
+        };
 
-    let defl = deflations.as_ref().map(|(dd, dp)| (dd, dp));
-    let mut modes: Vec<&str> = if skip_alone {
-        vec!["cycle"]
-    } else {
-        vec!["none", "polynomial", "cycle"]
-    };
-    if with_product {
-        modes.push("product");
-    }
-    for mode in modes {
-        let (na, nc) = (Count::default(), Count::default());
-        let mut a = HalfA::new(&op, &pv, &like, &na);
-        let mut y_sol = like.zeros_like();
-        let start = Instant::now();
-        let result = match mode {
-            "none" => BiCgStab::new(stop).solve(&mut a, None, &mut y_sol, &rhs),
-            "polynomial" => {
-                let mut cheb = Chebyshev::new(
-                    HalfA::new(&op, &pv, &like, &na),
-                    steps,
-                    hi / ratio,
-                    hi,
-                    &like,
-                );
-                BiCgStab::new(stop).solve(&mut a, Some(&mut cheb), &mut y_sol, &rhs)
-            }
-            _ => {
-                let mut cycle = Cycle {
-                    product: (product || mode == "product").then(|| ProductGalerkin {
-                        a: HalfA::new(&op, &pv, &like, &nc),
-                        op: &op,
-                        pv: &pv,
-                        p: &p,
-                        lift: &lift,
-                    }),
-                    a: HalfA::new(&op, &pv, &like, &na),
-                    op: &op,
-                    pv: &pv,
-                    smoother: Chebyshev::new(
+        let defl = deflations.as_ref().map(|(dd, dp)| (dd, dp));
+        let mut modes: Vec<&str> = if skip_alone {
+            vec!["cycle"]
+        } else {
+            vec!["none", "polynomial", "cycle"]
+        };
+        if with_product {
+            modes.push("product");
+        }
+        for mode in modes {
+            let (na, nc) = (Count::default(), Count::default());
+            let mut a = HalfA::new(&op, &pv, &like, &na);
+            let mut y_sol = like.zeros_like();
+            let start = Instant::now();
+            let result = match mode {
+                "none" => BiCgStab::new(stop).solve(&mut a, None, &mut y_sol, &rhs),
+                "polynomial" => {
+                    let mut cheb = Chebyshev::new(
                         HalfA::new(&op, &pv, &like, &na),
                         steps,
                         hi / ratio,
                         hi,
                         &like,
-                    ),
-                    coarse: Some((&p, &mut cd, &mut cpv)),
-                    lift: &lift,
-                    coarse_tol,
-                    solver: match solver_name.as_str() {
-                        "minres" => CoarseSolver::Minres(None, defl),
-                        "pminres" => CoarseSolver::Minres(Some((&m_d, &m_pv)), defl),
-                        "kbicg" => CoarseSolver::K(&gram, &m_d, &m_pv),
-                        "bicg" => CoarseSolver::BiCg((&m_d, &m_pv), false),
-                        "dbicg" => CoarseSolver::BiCg((&m_d, &m_pv), true),
-                        _ => CoarseSolver::Cr,
-                    },
-                    pre: !post_only,
-                    post: true,
-                    pv_adj,
-                    nc: nc.clone(),
-                };
-                match outer {
-                    Some(k) => Fgmres::new(Stop {
-                        max_iterations: k,
-                        max_restarts: 100,
-                        ..stop
-                    })
-                    .solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
-                    None => BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
+                    );
+                    BiCgStab::new(stop).solve(&mut a, Some(&mut cheb), &mut y_sol, &rhs)
                 }
-            }
-        };
-        let it = match result {
-            Ok(i) => format!("{}", i.iterations),
-            Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
-            Err(e) => format!("failed: {e}"),
-        };
-        println!(
+                _ => {
+                    let mut cycle = Cycle {
+                        product: (product || mode == "product").then(|| ProductGalerkin {
+                            a: HalfA::new(&op, &pv, &like, &nc),
+                            op: &op,
+                            pv: &pv,
+                            p: &p,
+                            lift: &lift,
+                        }),
+                        a: HalfA::new(&op, &pv, &like, &na),
+                        op: &op,
+                        pv: &pv,
+                        smoother: Chebyshev::new(
+                            HalfA::new(&op, &pv, &like, &na),
+                            steps,
+                            hi / ratio,
+                            hi,
+                            &like,
+                        ),
+                        coarse: Some((&p, &mut cd, &mut cpv)),
+                        lift: &lift,
+                        coarse_tol,
+                        solver: match solver_name.as_str() {
+                            "minres" => CoarseSolver::Minres(None, defl),
+                            "pminres" => CoarseSolver::Minres(Some((&m_d, &m_pv)), defl),
+                            "kbicg" => CoarseSolver::K(&gram, &m_d, &m_pv),
+                            "bicg" => CoarseSolver::BiCg((&m_d, &m_pv), false),
+                            "dbicg" => CoarseSolver::BiCg((&m_d, &m_pv), true),
+                            _ => CoarseSolver::Cr,
+                        },
+                        pre: !post_only,
+                        post: true,
+                        pv_adj,
+                        nc: nc.clone(),
+                    };
+                    match outer {
+                        Some(k) => Fgmres::new(Stop {
+                            max_iterations: k,
+                            max_restarts: 100,
+                            ..stop
+                        })
+                        .solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
+                        None => {
+                            BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs)
+                        }
+                    }
+                }
+            };
+            let it = match result {
+                Ok(i) => format!("{}", i.iterations),
+                Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
+                Err(e) => format!("failed: {e}"),
+            };
+            println!(
             "  BiCGStab, {mode:<11} {it:>5} iterations: {:>6} Ã = {:>6} sweeps, {:>6} coarse, |Dx−b|² {:.0e}, {:.0} s",
             na.get(),
             2 * na.get(),
@@ -3152,7 +3154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             physical(&y_sol),
             start.elapsed().as_secs_f64()
         );
-    }
+        }
     }
     Ok(())
 }
