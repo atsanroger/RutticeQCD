@@ -1,6 +1,7 @@
 use super::{Aggregation, MultigridError};
 use crate::kernel::{Cplx, Number, Real};
 use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// The prolongation P between a coarse lattice and the fine one, and the restriction P†.
@@ -14,16 +15,31 @@ use std::sync::Arc;
 /// may act on all components of a site, including a fifth dimension (`ls > 1`): the
 /// aggregate holds every s. This is how Bridge++ (`MultiGrid_Clover`) and the CUDA
 /// domain-wall multigrid (`MultiGrid_Domainwall`) do it (DESIGN.md §7.6.1).
-pub struct Basis<T: Storage> {
+///
+/// `T` is the storage of the fields P acts between, `S` that of P itself (by default the
+/// same). A single-precision P with double-precision fields (`Basis<f64, f32>`) halves the
+/// memory of P, which holds two fine-lattice vectors per test vector, while restriction and
+/// prolongation still compute in `T`.
+pub struct Basis<T: Storage, S: Storage = T> {
     agg: Arc<Aggregation>,
     n: usize,
     /// Reals of one vector at one site: `24 * ls`.
     reals: usize,
     /// `[fine site][vector][chirality][reals]`, orthonormal over every aggregate.
-    data: Vec<T>,
+    data: Vec<S>,
+    fields: PhantomData<T>,
 }
 
-impl<T: Storage> Basis<T> {
+/// A stored value of P in the arithmetic of the fields.
+#[inline(always)]
+fn widen<S: Storage, T: Storage>(x: S) -> T::Compute {
+    Number::from_f64(x.load().to_f64())
+}
+
+/// The largest `12 * ls` the prolongation keeps on the stack (Ls up to 64).
+const MAX_HALF_REALS: usize = 12 * 64;
+
+impl<T: Storage, S: Storage> Basis<T, S> {
     /// Build P from test vectors `x` (one field holding `n` vectors) and `g5x` = Γ5 x, the
     /// operator's Γ5 applied to them. Works in double precision and stores the result as
     /// `T`.
@@ -34,7 +50,7 @@ impl<T: Storage> Basis<T> {
     ) -> Result<Self, MultigridError> {
         assert!(x.outer() == 1 && x.same_shape(g5x));
         let n = x.num_vectors();
-        let mut builder = BasisBuilder::new(agg, n);
+        let mut builder = BasisBuilder::<T, S>::new(agg, n);
         for i in 0..n {
             builder.add(i, &x.select(&[i]), &g5x.select(&[i]));
         }
@@ -74,7 +90,7 @@ impl<T: Storage> Basis<T> {
 
     /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`.
     #[inline(always)]
-    fn part(&self, x: usize, i: usize, c: usize) -> &[T] {
+    fn part(&self, x: usize, i: usize, c: usize) -> &[S] {
         let base = ((x * self.n + i) * 2 + c) * self.reals;
         &self.data[base..base + self.reals]
     }
@@ -116,7 +132,7 @@ impl<T: Storage> Basis<T> {
                                 .iter()
                                 .zip(f.as_chunks::<2>().0)
                             {
-                                let b = Cplx::new(b[0].load(), b[1].load());
+                                let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
                                 z += b.conj() * Cplx::new(f[0].load(), f[1].load());
                             }
                             let k = 2 * (c * n + i);
@@ -133,23 +149,29 @@ impl<T: Storage> Basis<T> {
         self.check(coarse, fine);
         let (n, dim, reals) = (self.n, self.coarse_dim(), self.reals);
         let site_len = fine.site_len();
+        assert!(
+            reals / 2 <= MAX_HALF_REALS,
+            "Ls too large for the prolongation"
+        );
         for_sites(fine.slab_mut(0), site_len, |x, out| {
             let coarse_site = coarse.site(0, self.agg.coarse_site(x));
             for (out, c) in out
                 .chunks_exact_mut(reals)
                 .zip(coarse_site.chunks_exact(2 * dim))
             {
-                let mut acc = vec![Cplx::<T::Compute>::ZERO; reals / 2];
+                // On the stack: this runs once per fine site and vector.
+                let mut acc_store = [Cplx::<T::Compute>::ZERO; MAX_HALF_REALS];
+                let acc = &mut acc_store[..reals / 2];
                 for i in 0..n {
                     for ch in 0..2 {
                         let k = 2 * (ch * n + i);
                         let coef = Cplx::new(c[k].load(), c[k + 1].load());
                         for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
-                            *a += coef * Cplx::new(b[0].load(), b[1].load());
+                            *a += coef * Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
                         }
                     }
                 }
-                for (o, a) in out.as_chunks_mut::<2>().0.iter_mut().zip(acc) {
+                for (o, a) in out.as_chunks_mut::<2>().0.iter_mut().zip(acc.iter()) {
                     o[0] = T::store(a.re);
                     o[1] = T::store(a.im);
                 }
@@ -163,16 +185,17 @@ impl<T: Storage> Basis<T> {
 /// straight into the basis storage and are orthonormalised aggregate by aggregate in
 /// [`finish`](Self::finish). The peak memory is then the basis itself plus one vector and
 /// its image, instead of that plus all 2n vectors (`from_vectors` needs both fields whole).
-pub struct BasisBuilder<T: Storage> {
+pub struct BasisBuilder<T: Storage, S: Storage = T> {
     agg: Arc<Aggregation>,
     n: usize,
     /// Reals of one vector at one site, known from the first vector.
     reals: usize,
-    data: Vec<T>,
+    data: Vec<S>,
     added: Vec<bool>,
+    fields: PhantomData<T>,
 }
 
-impl<T: Storage> BasisBuilder<T> {
+impl<T: Storage, S: Storage> BasisBuilder<T, S> {
     /// A builder for `n` test vectors on the aggregation `agg`.
     pub fn new(agg: &Arc<Aggregation>, n: usize) -> Self {
         Self {
@@ -181,6 +204,7 @@ impl<T: Storage> BasisBuilder<T> {
             reals: 0,
             data: Vec::new(),
             added: vec![false; n],
+            fields: PhantomData,
         }
     }
 
@@ -197,7 +221,7 @@ impl<T: Storage> BasisBuilder<T> {
         let reals = x.site_len();
         if self.data.is_empty() {
             self.reals = reals;
-            self.data = vec![T::default(); fine.num_sites() * self.n * 2 * reals];
+            self.data = vec![S::default(); fine.num_sites() * self.n * 2 * reals];
         }
         assert_eq!(reals, self.reals, "test vectors of different shapes");
         let n = self.n;
@@ -207,7 +231,7 @@ impl<T: Storage> BasisBuilder<T> {
                 let sign = if c == 0 { 1.0 } else { -1.0 };
                 let base = ((site * n + i) * 2 + c) * reals;
                 for (d, (v, g)) in xs.iter().zip(gs).enumerate() {
-                    self.data[base + d] = T::store(Number::from_f64(0.5 * (v + sign * g)));
+                    self.data[base + d] = S::store(Number::from_f64(0.5 * (v + sign * g)));
                 }
             }
         }
@@ -215,7 +239,7 @@ impl<T: Storage> BasisBuilder<T> {
     }
 
     /// Orthonormalise every chirality part over every aggregate and return P.
-    pub fn finish(mut self) -> Result<Basis<T>, MultigridError> {
+    pub fn finish(mut self) -> Result<Basis<T, S>, MultigridError> {
         assert!(
             self.added.iter().all(|a| *a),
             "not every test vector was given"
@@ -261,8 +285,8 @@ impl<T: Storage> BasisBuilder<T> {
                         let base = ((*site as usize * n + i) * 2 + c) * reals;
                         for d in 0..reals / 2 {
                             let z = chirality[i * dim + k * reals / 2 + d];
-                            self.data[base + 2 * d] = T::store(Number::from_f64(z.re));
-                            self.data[base + 2 * d + 1] = T::store(Number::from_f64(z.im));
+                            self.data[base + 2 * d] = S::store(Number::from_f64(z.re));
+                            self.data[base + 2 * d + 1] = S::store(Number::from_f64(z.im));
                         }
                     }
                 }
@@ -273,6 +297,7 @@ impl<T: Storage> BasisBuilder<T> {
             n,
             reals,
             data: self.data,
+            fields: PhantomData,
         })
     }
 }
