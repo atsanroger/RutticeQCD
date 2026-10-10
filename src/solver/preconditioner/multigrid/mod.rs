@@ -17,7 +17,7 @@ mod mdwf;
 mod sap;
 
 pub use aggregation::Aggregation;
-pub use basis::Basis;
+pub use basis::{Basis, BasisBuilder};
 pub use coarse::CoarseOp;
 pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
