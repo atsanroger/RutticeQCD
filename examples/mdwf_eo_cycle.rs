@@ -353,6 +353,9 @@ struct AbsLevel {
     nq: usize,
     /// |H_cc|⁻¹, dense, row-major.
     inv: Vec<C64>,
+    /// (Q†A_cQ)⁻¹ = (Γ5 H_cc)⁻¹, dense, row-major: the signed level for BiCGStab, which
+    /// needs neither Hermiticity nor a positive preconditioner.
+    signed_inv: Vec<C64>,
 }
 
 impl AbsLevel {
@@ -391,9 +394,11 @@ impl AbsLevel {
         };
         // Local vectors: both chiralities of every test vector, orthonormalised.
         let mut q = Vec::with_capacity(total);
+        let mut chir: Vec<Vec<bool>> = Vec::with_capacity(total);
         let mut nq = usize::MAX;
         for s in &sites {
             let mut cols: Vec<Vec<C64>> = Vec::new();
+            let mut upper_of: Vec<bool> = Vec::new();
             for v in vectors {
                 let local = read(v, s);
                 for upper in [false, true] {
@@ -423,11 +428,13 @@ impl AbsLevel {
                     let n = c.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
                     if n > 1e-8 {
                         cols.push(c.iter().map(|z| z.scale(1.0 / n)).collect());
+                        upper_of.push(upper);
                     }
                 }
             }
             nq = nq.min(cols.len());
             q.push(cols);
+            chir.push(upper_of);
         }
         let q: Vec<Vec<C64>> = q
             .into_iter()
@@ -470,6 +477,22 @@ impl AbsLevel {
                 }
             }
         }
+        // The signed level: Q†A_cQ = Γ5 Q†HQ, Γ5 = +1 on the lower chirality.
+        let mut a_cc = vec![0.0; 2 * n * n];
+        for i in 0..n {
+            let (t, b) = (i / nq, i % nq);
+            let sign = if chir[t][b] { -1.0 } else { 1.0 };
+            for k in 0..n {
+                a_cc[2 * (i * n + k)] = sign * h[i * n + k].re;
+                a_cc[2 * (i * n + k) + 1] = sign * h[i * n + k].im;
+            }
+        }
+        let mut a_inv = vec![0.0; 2 * n * n];
+        let signed_inv: Vec<C64> = match ruttice::numerics::invert_complex(n, &mut a_cc, &mut a_inv)
+        {
+            Ok(()) => a_inv.chunks(2).map(|c| C64::new(c[0], c[1])).collect(),
+            Err(_) => vec![C64::ZERO; n * n],
+        };
         let h: Vec<C64> = (0..n * n)
             .map(|ij| (h[ij] + h[(ij % n) * n + ij / n].conj()).scale(0.5))
             .collect();
@@ -493,7 +516,16 @@ impl AbsLevel {
             start.elapsed().as_secs_f64(),
             total * nq
         );
-        (Self { sites, q, nq, inv }, line)
+        (
+            Self {
+                sites,
+                q,
+                nq,
+                inv,
+                signed_inv,
+            },
+            line,
+        )
     }
 }
 
@@ -501,11 +533,28 @@ impl AbsLevel {
 trait AbsAdd {
     /// out += (the levels below) inp.
     fn add(&self, out: &mut C, inp: &C);
+    /// out += the signed version, for BiCGStab on A_c; false if there is none.
+    fn add_signed(&self, _out: &mut C, _inp: &C) -> bool {
+        false
+    }
 }
 
 impl AbsAdd for AbsLevel {
     /// out += Q |H_cc|⁻¹ Q† inp.
     fn add(&self, out: &mut C, inp: &C) {
+        self.add_with(&self.inv, out, inp);
+    }
+
+    /// out += Q (Q†A_cQ)⁻¹ Q† inp.
+    fn add_signed(&self, out: &mut C, inp: &C) -> bool {
+        self.add_with(&self.signed_inv, out, inp);
+        true
+    }
+}
+
+impl AbsLevel {
+    /// out += Q m Q† inp for a dense m on the level.
+    fn add_with(&self, m: &[C64], out: &mut C, inp: &C) {
         let nq = self.nq;
         let n = self.sites.len() * nq;
         let mut y = vec![C64::ZERO; n];
@@ -525,7 +574,7 @@ impl AbsAdd for AbsLevel {
         let z: Vec<C64> = (0..n)
             .map(|i| {
                 (0..n)
-                    .map(|k| self.inv[i * n + k] * y[k])
+                    .map(|k| m[i * n + k] * y[k])
                     .fold(C64::ZERO, |s, z| s + z)
             })
             .collect();
@@ -1675,9 +1724,21 @@ enum CoarseSolver<'a> {
     BiCg((&'a BlockAbsInv, &'a BlockAbsInv), bool),
 }
 
+/// A coarse operator shared by the Krylov solver and its preconditioner.
+type SharedOp<'a> = Rc<std::cell::RefCell<&'a mut CoarseOp<f64>>>;
+
+fn shared_apply(a: &SharedOp, adjoint: bool, out: &mut C, inp: &C) {
+    let mut a = a.borrow_mut();
+    if adjoint {
+        a.mult_dag(out, inp);
+    } else {
+        a.mult(out, inp);
+    }
+}
+
 /// A_c (A_c† with `adjoint`) as a linear map, counting its applications.
 struct CoarseLin<'a> {
-    a: &'a mut CoarseOp<f64>,
+    a: SharedOp<'a>,
     adjoint: bool,
     n: Count,
 }
@@ -1685,20 +1746,38 @@ struct CoarseLin<'a> {
 impl LinearFn<C> for CoarseLin<'_> {
     fn mult(&mut self, out: &mut C, inp: &C) {
         self.n.set(self.n.get() + inp.num_vectors());
-        if self.adjoint {
-            self.a.mult_dag(out, inp);
-        } else {
-            self.a.mult(out, inp);
-        }
+        shared_apply(&self.a, self.adjoint, out, inp);
     }
 }
 
-/// The exact block inverses A_c,xx⁻¹ as a linear map.
-struct BlockSolve<'a>(&'a BlockAbsInv);
+/// The exact block inverses A_c,xx⁻¹ as a linear map. With a signed second level it is
+/// multiplicative: z₁ = Q (Q†A_cQ)⁻¹ Q† r, then z = z₁ + B⁻¹ (r − A_c z₁) (one more
+/// application of A_c, counted); an additive combination made BiCGStab worse (9301
+/// coarse applications against 3612 without the level).
+struct BlockSolve<'a> {
+    m: &'a BlockAbsInv,
+    a: SharedOp<'a>,
+    adjoint: bool,
+    n: Count,
+}
 
 impl LinearFn<C> for BlockSolve<'_> {
     fn mult(&mut self, out: &mut C, inp: &C) {
-        self.0.apply_block_solve(out, inp);
+        let Some(level) = &self.m.level else {
+            self.m.apply_block_solve(out, inp);
+            return;
+        };
+        let mut z1 = inp.zeros_like();
+        if !level.add_signed(&mut z1, inp) {
+            self.m.apply_block_solve(out, inp);
+            return;
+        }
+        let mut r2 = inp.zeros_like();
+        shared_apply(&self.a, self.adjoint, &mut r2, &z1);
+        self.n.set(self.n.get() + inp.num_vectors());
+        r2.aypx(&[C64::new(-1.0, 0.0)], inp);
+        self.m.apply_block_solve(out, &r2);
+        out.axpy(&[C64::new(1.0, 0.0)], &z1);
     }
 }
 
@@ -1732,8 +1811,15 @@ impl CoarseSolver<'_> {
                     return coarse_solve_minres(a, adjoint, Some(m), None, x, b, tol);
                 }
                 let n = Count::default();
+                let shared: SharedOp = Rc::new(std::cell::RefCell::new(a));
                 let mut lin = CoarseLin {
-                    a,
+                    a: shared.clone(),
+                    adjoint,
+                    n: n.clone(),
+                };
+                let mut prec = BlockSolve {
+                    m,
+                    a: shared,
                     adjoint,
                     n: n.clone(),
                 };
@@ -1743,7 +1829,7 @@ impl CoarseSolver<'_> {
                     max_iterations: 5000,
                     max_restarts: 0,
                 })
-                .solve(&mut lin, Some(&mut BlockSolve(m)), x, b);
+                .solve(&mut lin, Some(&mut prec), x, b);
                 n.get()
             }
         }
