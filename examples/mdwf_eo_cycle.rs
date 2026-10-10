@@ -2603,6 +2603,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     // `st`: the basis s and t̂ (see `basis_from`) instead of s and D s.
     let pv_lift = args.iter().skip(11).any(|s| s == "st");
+    // `bootfg`: the bootstrap rounds use K steps of FGMRES with the cycle instead of K
+    // applications of the cycle.
+    let boot_fgmres = args.iter().skip(11).any(|s| s == "bootfg");
     let quotient = |y: &H| -> (f64, f64) {
         let mut a = HalfA::new(&op, &pv, &like, &nothing);
         let mut ay = y.zeros_like();
@@ -2648,10 +2651,24 @@ fn main() -> Result<(), Box<dyn Error>> {
                 pv_adj: true,
                 nc: nc.clone(),
             };
-            for _ in 0..k {
-                let mut z = y.zeros_like();
-                cycle.mult(&mut z, &y);
-                y = z;
+            if boot_fgmres {
+                // y ← (K steps of FGMRES on Ã x = y with the cycle): a better approximate
+                // inverse than K applications of the cycle alone.
+                let mut x = y.zeros_like();
+                let mut a = HalfA::new(&op, &pv, &like, &na);
+                let _ = Fgmres::new(Stop {
+                    tolerance_sqr: 1e-30,
+                    max_iterations: k,
+                    max_restarts: 0,
+                })
+                .solve(&mut a, Some(&mut cycle), &mut x, &y);
+                y = x;
+            } else {
+                for _ in 0..k {
+                    let mut z = y.zeros_like();
+                    cycle.mult(&mut z, &y);
+                    y = z;
+                }
             }
             orthonormalise_h(&mut y);
             let (q0, qm) = quotient(&y);
