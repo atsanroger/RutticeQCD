@@ -33,7 +33,7 @@
 
 use ruttice::fermion::{Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
-use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
+use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, BasisBuilder, CoarseOp};
 use ruttice::solver::{largest_magnitude, BiCgStab, Chebyshev, Fgmres, SolveError, Solver, Stop};
 use ruttice::{
     extract_parity, insert_parity, random_spinor, Boundary, Coarse, EvenOddIndex, Field, Half,
@@ -52,6 +52,8 @@ const USAGE: &str = "usage: mdwf_eo_cycle CONFIG L M5 MASS CHECKPOINT [LS] [N] [
 type V = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
 type C = Field<f64, Coarse>;
+/// P: double-precision fields, single-precision storage (half the memory of P).
+type Pb = Basis<f64, f32>;
 type Count = Rc<Cell<usize>>;
 
 fn norm<W: Vector>(v: &W) -> f64 {
@@ -1425,7 +1427,7 @@ struct EvenGram {
 }
 
 impl EvenGram {
-    fn build(p: &Basis<f64>, lift: &Lift) -> (Self, String) {
+    fn build(p: &Pb, lift: &Lift) -> (Self, String) {
         let dim = p.coarse_dim();
         let ns = p.coarse_field(1).as_slice().len() / (2 * dim);
         let mut e = vec![vec![C64::ZERO; dim * dim]; ns];
@@ -2176,7 +2178,7 @@ struct ProductGalerkin<'a> {
     a: HalfA<'a>,
     op: &'a Mdwf<f64>,
     pv: &'a Mdwf<f64>,
-    p: &'a Basis<f64>,
+    p: &'a Pb,
     lift: &'a Lift<'a>,
 }
 
@@ -2227,7 +2229,7 @@ struct Cycle<'a> {
     op: &'a Mdwf<f64>,
     pv: &'a Mdwf<f64>,
     smoother: Chebyshev<HalfA<'a>, H>,
-    coarse: Option<(&'a Basis<f64>, &'a mut CoarseOp<f64>, &'a mut CoarseOp<f64>)>,
+    coarse: Option<(&'a Pb, &'a mut CoarseOp<f64>, &'a mut CoarseOp<f64>)>,
     lift: &'a Lift<'a>,
     coarse_tol: f64,
     /// The coarse solver: conjugate residuals, MINRES, or MINRES preconditioned by the block
@@ -2340,7 +2342,7 @@ impl LinearFn<H> for Cycle<'_> {
 }
 
 /// The prolongation, the restricted basis vectors and the odd-part check.
-type Built = (Basis<f64>, Vec<C>, f64);
+type Built = (Pb, Vec<C>, f64);
 
 /// P from s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y) and D s for the vectors y on the even sites,
 /// split by Γ5 on the aggregates; also P† s and P† D s (test vectors for the levels below
@@ -2360,67 +2362,74 @@ fn basis_from(
     agg: &Arc<Aggregation>,
     y: &H,
 ) -> Result<Built, Box<dyn Error>> {
+    // One y at a time, so that at most a few full-lattice vectors are alive besides P:
+    // s_j and its partner (D s_j, or t̂_j), with the odd-part check of D s or D_PV† t̂.
     let half_n = y.num_vectors();
-    let mut work = op.even_odd_work();
-    let mut xe = y.zeros_like();
-    op.diag_inv(&mut work, &mut xe, y, Parity::Even, Dagger::No);
-    let mut t = lift.half(Parity::Odd, half_n);
-    op.hop(&mut work, &mut t, &xe, Parity::Odd, Dagger::No);
-    let mut xo = lift.half(Parity::Odd, half_n);
-    op.diag_inv(&mut work, &mut xo, &t, Parity::Odd, Dagger::No);
-    xo.scale(&vec![-1.0; half_n]);
-    let mut s = lift.inject(&xe);
-    insert_parity(&mut s, &xo, index);
-    let mut ds = s.zeros_like();
-    op.mult(&mut op.work(), &mut ds, &s, Variant::D);
-    let mut odd_part = {
-        let mut o = lift.half(Parity::Odd, half_n);
-        extract_parity(&mut o, &ds, index, Parity::Odd);
-        norm(&o) / norm(&ds)
-    };
-    if pv_lift {
+    let pair = |j: usize| -> (V, V, f64) {
+        let mut work = op.even_odd_work();
+        let yj = y.select(&[j]);
+        let mut xe = yj.zeros_like();
+        op.diag_inv(&mut work, &mut xe, &yj, Parity::Even, Dagger::No);
+        let mut t = lift.half(Parity::Odd, 1);
+        op.hop(&mut work, &mut t, &xe, Parity::Odd, Dagger::No);
+        let mut xo = lift.half(Parity::Odd, 1);
+        op.diag_inv(&mut work, &mut xo, &t, Parity::Odd, Dagger::No);
+        xo.scale(&[-1.0]);
+        let mut s = lift.inject(&xe);
+        insert_parity(&mut s, &xo, index);
+        let mut ds = s.zeros_like();
+        op.mult(&mut op.work(), &mut ds, &s, Variant::D);
+        let odd = |f: &V| {
+            let mut o = lift.half(Parity::Odd, 1);
+            extract_parity(&mut o, f, index, Parity::Odd);
+            norm(&o) / norm(f)
+        };
+        if !pv_lift {
+            let check = odd(&ds);
+            return (s, ds, check);
+        }
         let mut wpv = pv.even_odd_work();
-        let mut a = lift.half(Parity::Even, half_n);
-        extract_parity(&mut a, &ds, index, Parity::Even);
-        let mut to = lift.half(Parity::Odd, half_n);
+        let a = lift.even(&ds);
+        let mut to = lift.half(Parity::Odd, 1);
         pv.hop(&mut wpv, &mut to, &a, Parity::Odd, Dagger::Yes);
-        let mut tod = lift.half(Parity::Odd, half_n);
+        let mut tod = lift.half(Parity::Odd, 1);
         pv.diag_inv(&mut wpv, &mut tod, &to, Parity::Odd, Dagger::Yes);
-        tod.scale(&vec![-1.0; half_n]);
-        let mut t = lift.inject(&a);
-        insert_parity(&mut t, &tod, index);
-        let mut dt = t.zeros_like();
-        pv.mult(&mut pv.work(), &mut dt, &t, Variant::Dagger);
-        let mut o = lift.half(Parity::Odd, half_n);
-        extract_parity(&mut o, &dt, index, Parity::Odd);
-        odd_part = norm(&o) / norm(&dt);
-        ds = t;
+        tod.scale(&[-1.0]);
+        let mut t_hat = lift.inject(&a);
+        insert_parity(&mut t_hat, &tod, index);
+        let mut dt = t_hat.zeros_like();
+        pv.mult(&mut pv.work(), &mut dt, &t_hat, Variant::Dagger);
+        let check = odd(&dt);
+        (s, t_hat, check)
+    };
+    let mut builder = BasisBuilder::<f64, f32>::new(agg, 2 * half_n);
+    let mut odd_part: f64 = 0.0;
+    for j in 0..half_n {
+        let (s, partner, check) = pair(j);
+        odd_part = odd_part.max(check);
+        for (i, v) in [(j, &s), (half_n + j, &partner)] {
+            let mut g5 = v.zeros_like();
+            op.mult_gamma5(&mut op.work(), &mut g5, v);
+            builder.add(i, v, &g5);
+        }
     }
-    let mut vectors = s.zeros_with(2 * half_n);
-    vectors.assign(&(0..half_n).collect::<Vec<_>>(), &s);
-    vectors.assign(&(half_n..2 * half_n).collect::<Vec<_>>(), &ds);
-    drop((s, ds, xe, xo, t));
-    let mut g5 = vectors.zeros_like();
-    op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-    let p = Basis::from_vectors(agg, &vectors, &g5)?;
-    let restricted: Vec<C> = (0..vectors.num_vectors())
-        .map(|j| {
-            let mut c = p.coarse_field(1);
-            p.restrict(&mut c, &vectors.select(&[j]));
-            c
-        })
-        .collect();
-    // Are the vectors in the range of P? |P P† v − v| / |v| for the first of either half.
-    let in_range: Vec<f64> = [0, half_n]
-        .iter()
-        .map(|&j| {
-            let v = vectors.select(&[j]);
-            let mut back = v.zeros_like();
-            p.prolong(&mut back, &restricted[j]);
-            back.axpy(&[C64::new(-1.0, 0.0)], &v);
-            norm(&back) / norm(&v)
-        })
-        .collect();
+    let p = builder.finish()?;
+    // The vectors on the coarse lattice (recomputed: cheap), and whether they are in the
+    // range of P: |P P† v − v| / |v| for the first of either half.
+    let mut restricted: Vec<C> = (0..2 * half_n).map(|_| p.coarse_field(1)).collect();
+    let mut in_range = [0.0; 2];
+    for j in 0..half_n {
+        let (s, partner, _) = pair(j);
+        for (k, (i, v)) in [(j, &s), (half_n + j, &partner)].into_iter().enumerate() {
+            p.restrict(&mut restricted[i], v);
+            if j == 0 {
+                let mut back = v.zeros_like();
+                p.prolong(&mut back, &restricted[i]);
+                back.axpy(&[C64::new(-1.0, 0.0)], v);
+                in_range[k] = norm(&back) / norm(v);
+            }
+        }
+    }
     println!(
         "  check: |PP†v − v|/|v| = {:.1e} (first s), {:.1e} (first of the second half)",
         in_range[0], in_range[1]
@@ -2460,19 +2469,28 @@ fn load(path: &PathBuf, like: &H, count: usize) -> Result<(H, Vec<f64>), Box<dyn
     let _ = next(&mut f)?;
     let m = u64::from_le_bytes(next(&mut f)?) as usize;
     let len = u64::from_le_bytes(next(&mut f)?) as usize;
-    let mut x = like.zeros_with(m);
-    if x.as_slice().len() != len {
+    // Only the first `count` vectors are kept: the file is read site by site (all m vectors
+    // of a site are stored together), so the other vectors are never held.
+    let c = count.min(m);
+    let mut x = like.zeros_with(c);
+    let sites = x.num_sites();
+    let reals = like.site_len() / like.num_vectors();
+    if sites * m * reals != len {
         return Err("checkpoint for another shape".into());
     }
     let mut theta = vec![0.0; m];
     for t in theta.iter_mut() {
         *t = f64::from_le_bytes(next(&mut f)?);
     }
-    for v in x.as_mut_slice() {
-        *v = f64::from_le_bytes(next(&mut f)?);
+    let mut buf = vec![0u8; 8 * m * reals];
+    for site in 0..sites {
+        f.read_exact(&mut buf)?;
+        let dst = x.site_mut(0, site);
+        for (k, v) in dst.iter_mut().enumerate() {
+            *v = f64::from_le_bytes(buf[8 * k..8 * k + 8].try_into().expect("8 bytes"));
+        }
     }
-    let c = count.min(m);
-    Ok((x.select(&(0..c).collect::<Vec<_>>()), theta[..c].to_vec()))
+    Ok((x, theta[..c].to_vec()))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
