@@ -1773,6 +1773,8 @@ struct Cycle<'a> {
     solver: CoarseSolver<'a>,
     /// Smooth before the coarse correction as well as after it.
     pre: bool,
+    /// Smooth after it (off only to look at the coarse correction alone).
+    post: bool,
     nc: Count,
 }
 
@@ -1859,10 +1861,12 @@ impl LinearFn<H> for Cycle<'_> {
             );
             y.axpy(&one, &e);
         }
-        self.a.mult(&mut r, y);
-        r.aypx(&minus, b);
-        self.smoother.mult(&mut e, &r);
-        y.axpy(&one, &e);
+        if self.post {
+            self.a.mult(&mut r, y);
+            r.aypx(&minus, b);
+            self.smoother.mult(&mut e, &r);
+            y.axpy(&one, &e);
+        }
     }
 }
 
@@ -1872,8 +1876,16 @@ type Built = (Basis<f64>, Vec<C>, f64);
 /// P from s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y) and D s for the vectors y on the even sites,
 /// split by Γ5 on the aggregates; also P† s and P† D s (test vectors for the levels below
 /// the coarse lattice, free) and |odd part of D s|/|D s| (zero: a check).
+///
+/// With `pv_lift` the second half is t̂ = (πDs, −(D_PV†)_oo⁻¹ (D_PV†)_oe πDs) instead of D s:
+/// D_PV† t̂ = ι S_PV† πDs lives on the even sites, so both coarse factor solves are exact
+/// on the basis vectors (the PV factor's Galerkin inverse returns t̂ from D_PV† t̂, π t̂ =
+/// πDs, and the D factor's returns s from D s); with D s itself the PV step is not. The
+/// check returned is then |odd part of D_PV† t̂| / |D_PV† t̂|.
 fn basis_from(
     op: &Mdwf<f64>,
+    pv: &Mdwf<f64>,
+    pv_lift: bool,
     lift: &Lift,
     index: &EvenOddIndex,
     agg: &Arc<Aggregation>,
@@ -1892,11 +1904,29 @@ fn basis_from(
     insert_parity(&mut s, &xo, index);
     let mut ds = s.zeros_like();
     op.mult(&mut op.work(), &mut ds, &s, Variant::D);
-    let odd_part = {
+    let mut odd_part = {
         let mut o = lift.half(Parity::Odd, half_n);
         extract_parity(&mut o, &ds, index, Parity::Odd);
         norm(&o) / norm(&ds)
     };
+    if pv_lift {
+        let mut wpv = pv.even_odd_work();
+        let mut a = lift.half(Parity::Even, half_n);
+        extract_parity(&mut a, &ds, index, Parity::Even);
+        let mut to = lift.half(Parity::Odd, half_n);
+        pv.hop(&mut wpv, &mut to, &a, Parity::Odd, Dagger::Yes);
+        let mut tod = lift.half(Parity::Odd, half_n);
+        pv.diag_inv(&mut wpv, &mut tod, &to, Parity::Odd, Dagger::Yes);
+        tod.scale(&vec![-1.0; half_n]);
+        let mut t = lift.inject(&a);
+        insert_parity(&mut t, &tod, index);
+        let mut dt = t.zeros_like();
+        pv.mult(&mut pv.work(), &mut dt, &t, Variant::Dagger);
+        let mut o = lift.half(Parity::Odd, half_n);
+        extract_parity(&mut o, &dt, index, Parity::Odd);
+        odd_part = norm(&o) / norm(&dt);
+        ds = t;
+    }
     let mut vectors = s.zeros_with(2 * half_n);
     vectors.assign(&(0..half_n).collect::<Vec<_>>(), &s);
     vectors.assign(&(half_n..2 * half_n).collect::<Vec<_>>(), &ds);
@@ -2069,6 +2099,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             it.next()?.parse().ok()?,
         ))
     });
+    // `st`: the basis s and t̂ (see `basis_from`) instead of s and D s.
+    let pv_lift = args.iter().skip(11).any(|s| s == "st");
     let quotient = |y: &H| -> (f64, f64) {
         let mut a = HalfA::new(&op, &pv, &like, &nothing);
         let mut ay = y.zeros_like();
@@ -2086,7 +2118,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("  bootstrap: start |Ãy|/|y| lowest {q0:.2e}, median {qm:.2e}");
         for round in 0..rounds {
             let start = Instant::now();
-            let (pb, _, _) = basis_from(&op, &lift, index, &agg, &y)?;
+            let (pb, _, _) = basis_from(&op, &pv, pv_lift, &lift, index, &agg, &y)?;
             let mut cdb = CoarseOp::build(&op, &mut op.work(), &pb);
             let mut cpvb = CoarseOp::build(&pv, &mut pv.work(), &pb);
             let like_cb = pb.coarse_field(1);
@@ -2110,6 +2142,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 coarse_tol: tol,
                 solver: CoarseSolver::Minres(Some((&mdb, &mpvb)), None),
                 pre: true,
+                post: true,
                 nc: nc.clone(),
             };
             for _ in 0..k {
@@ -2129,7 +2162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let half_n = y.num_vectors();
     let mut work = op.even_odd_work();
-    let (p, restricted, odd_part) = basis_from(&op, &lift, index, &agg, &y)?;
+    let (p, restricted, odd_part) = basis_from(&op, &pv, pv_lift, &lift, index, &agg, &y)?;
     let mut cd = CoarseOp::build(&op, &mut op.work(), &p);
     let mut cpv = CoarseOp::build(&pv, &mut pv.work(), &p);
     println!(
@@ -2139,7 +2172,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         theta[half_n - 1].sqrt(),
         cd.dim()
     );
-    println!("  check: |odd part of D s| / |D s| = {odd_part:.1e} (D s lives on the even sites)");
+    if pv_lift {
+        println!("  basis s and t̂ = PV lift of πDs; check: |odd part of D_PV† t̂| / |D_PV† t̂| = {odd_part:.1e}");
+    } else {
+        println!(
+            "  check: |odd part of D s| / |D s| = {odd_part:.1e} (D s lives on the even sites)"
+        );
+    }
     // The block |H| preconditioners, and a check of the coarse solves with and without them.
     let like_c = p.coarse_field(1);
     let (gram, gram_line) = EvenGram::build(&p, &lift);
@@ -2148,6 +2187,45 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut m_d = BlockAbsInv::build(&mut cd, false, &like_c);
     let mut m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
     let built = start.elapsed().as_secs_f64();
+    // Is the coarse correction alone exact on the vectors P was built from? r = Ã y_j for
+    // the first and the last y, e = (coarse correction) r, |e − y| / |y|.
+    {
+        let nc = Count::default();
+        let mut alone = Cycle {
+            product: None,
+            a: HalfA::new(&op, &pv, &like, &nothing),
+            op: &op,
+            pv: &pv,
+            smoother: Chebyshev::new(
+                HalfA::new(&op, &pv, &like, &nothing),
+                1,
+                hi / ratio,
+                hi,
+                &like,
+            ),
+            coarse: Some((&p, &mut cd, &mut cpv)),
+            lift: &lift,
+            coarse_tol: 1e-20,
+            solver: CoarseSolver::Minres(Some((&m_d, &m_pv)), None),
+            pre: false,
+            post: false,
+            nc: nc.clone(),
+        };
+        let mut errors = Vec::new();
+        for j in [0, half_n - 1] {
+            let yj = y.select(&[j]);
+            let mut r = yj.zeros_like();
+            HalfA::new(&op, &pv, &like, &nothing).mult(&mut r, &yj);
+            let mut e = yj.zeros_like();
+            alone.mult(&mut e, &r);
+            e.axpy(&[C64::new(-1.0, 0.0)], &yj);
+            errors.push(norm(&e) / norm(&yj));
+        }
+        println!(
+            "  check: coarse correction alone on r = Ã y_j: |e − y_j|/|y_j| = {:.1e} (first), {:.1e} (last)",
+            errors[0], errors[1]
+        );
+    }
     // `abs2:K:SB:TOL:PASSES`: a second level of the absolute-value preconditioner, from K
     // test vectors (PASSES steps of inverse iteration, MINRES to TOL) on SB^4 super-blocks.
     let abs2 = args.iter().skip(11).find_map(|s| {
@@ -2430,6 +2508,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         _ => CoarseSolver::Cr,
                     },
                     pre: !post_only,
+                    post: true,
                     nc: nc.clone(),
                 };
                 match outer {
