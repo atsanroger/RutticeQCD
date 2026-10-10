@@ -2,8 +2,10 @@
 //! on its own: GFlop/s of `mult` and `mult_dag` for a given coarse lattice and dimension.
 //!
 //! ```text
-//! cargo run --release --example coarse_bench -- [L] [BLOCK] [N] [REPS]
+//! cargo run --release --example coarse_bench -- [L] [BLOCK] [N] [REPS] [RHS]
 //! ```
+//!
+//! RHS (default 1) right-hand sides are applied at once.
 //!
 //! A Wilson operator on a random gauge field of L⁴ (default 16), aggregates of BLOCK⁴
 //! (default 4), N random test vectors (default 32, coarse dimension 2N). One application
@@ -20,6 +22,8 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let arg = |i: usize, d: usize| args.get(i).and_then(|s| s.parse().ok()).unwrap_or(d);
     let (l, block, n, reps) = (arg(0, 16), arg(1, 4), arg(2, 32), arg(3, 20));
+    // Right-hand sides applied at once (each block is read once for all of them).
+    let rhs = arg(4, 1);
     let lat = Lattice::single_node([l; ND]);
     let u = random_gauge(&lat, 7);
     let mut op = Wilson::<f64>::new(
@@ -38,12 +42,12 @@ fn main() {
     let mut c = CoarseOp::build(&op, &mut op.work(), &basis);
     let dim = c.dim();
     let sites = c.lattice().num_sites();
-    let mut x = basis.coarse_field(1);
+    let mut x = basis.coarse_field(rhs);
     for (k, a) in x.as_mut_slice().iter_mut().enumerate() {
         *a = ((k * 7 + 3) as f64 * 0.37).sin();
     }
     let mut y = x.zeros_like();
-    let flops = (sites * 9 * dim * dim * 8) as f64;
+    let flops = (rhs * sites * 9 * dim * dim * 8) as f64;
     for (name, dagger) in [("mult", false), ("mult_dag", true)] {
         // One warm-up application, then the timed ones.
         if dagger {
@@ -60,10 +64,10 @@ fn main() {
             }
         }
         let t = start.elapsed().as_secs_f64() / reps as f64;
-        let mut norm = [0.0];
+        let mut norm = vec![0.0; rhs];
         y.norm_sqr(&mut norm);
         println!(
-            "{l}^4 / {block}^4 = {sites} coarse sites, dim {dim}: {name:<8} {:8.3} ms, {:6.2} GFlop/s, |y|² = {:.12e}",
+            "{l}^4 / {block}^4 = {sites} coarse sites, dim {dim}, {rhs} rhs: {name:<8} {:8.3} ms, {:6.2} GFlop/s, |y_0|² = {:.12e}",
             1e3 * t,
             flops / t / 1e9,
             norm[0]
