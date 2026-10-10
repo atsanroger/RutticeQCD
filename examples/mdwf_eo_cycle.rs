@@ -1756,6 +1756,17 @@ impl LinearFn<C> for ProductGalerkin<'_> {
     }
 }
 
+/// D_PV† on the fine lattice, for probing P†D_PV†P.
+struct PvDagger<'a> {
+    pv: &'a Mdwf<f64>,
+}
+
+impl LinearFn<V> for PvDagger<'_> {
+    fn mult(&mut self, out: &mut V, inp: &V) {
+        self.pv.mult(&mut self.pv.work(), out, inp, Variant::Dagger);
+    }
+}
+
 /// The cycle.
 struct Cycle<'a> {
     /// Instead of the factorized coarse correction: the product Galerkin one, solved by
@@ -1775,6 +1786,9 @@ struct Cycle<'a> {
     pre: bool,
     /// Smooth after it (off only to look at the coarse correction alone).
     post: bool,
+    /// The PV coarse operator holds P†D_PV P and is applied as its adjoint (true), or holds
+    /// P†D_PV†P itself (false, `exactpv`).
+    pv_adj: bool,
     nc: Count,
 }
 
@@ -1842,7 +1856,9 @@ impl LinearFn<H> for Cycle<'_> {
                 None => {
                     // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
                     let mut w = g.zeros_like();
-                    let mut n = self.solver.solve(cpv, true, &mut w, &g, self.coarse_tol);
+                    let mut n = self
+                        .solver
+                        .solve(cpv, self.pv_adj, &mut w, &g, self.coarse_tol);
                     p.prolong(&mut f, &w);
                     p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
                     n += self.solver.solve(cd, false, &mut c, &w, self.coarse_tol);
@@ -1941,6 +1957,21 @@ fn basis_from(
             c
         })
         .collect();
+    // Are the vectors in the range of P? |P P† v − v| / |v| for the first of either half.
+    let in_range: Vec<f64> = [0, half_n]
+        .iter()
+        .map(|&j| {
+            let v = vectors.select(&[j]);
+            let mut back = v.zeros_like();
+            p.prolong(&mut back, &restricted[j]);
+            back.axpy(&[C64::new(-1.0, 0.0)], &v);
+            norm(&back) / norm(&v)
+        })
+        .collect();
+    println!(
+        "  check: |PP†v − v|/|v| = {:.1e} (first s), {:.1e} (first of the second half)",
+        in_range[0], in_range[1]
+    );
     Ok((p, restricted, odd_part))
 }
 
@@ -2143,6 +2174,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 solver: CoarseSolver::Minres(Some((&mdb, &mpvb)), None),
                 pre: true,
                 post: true,
+                pv_adj: true,
                 nc: nc.clone(),
             };
             for _ in 0..k {
@@ -2164,7 +2196,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut work = op.even_odd_work();
     let (p, restricted, odd_part) = basis_from(&op, &pv, pv_lift, &lift, index, &agg, &y)?;
     let mut cd = CoarseOp::build(&op, &mut op.work(), &p);
-    let mut cpv = CoarseOp::build(&pv, &mut pv.work(), &p);
+    // `exactpv`: P†D_PV†P probed from D_PV† on the fine lattice. Otherwise it is the adjoint
+    // of P†D_PV P by Γ5 (`mult_dag`), which for Möbius (c ≠ 0) is not exact: Γ5 D is not
+    // Hermitian there.
+    let pv_adj = !args.iter().skip(11).any(|s| s == "exactpv");
+    let mut cpv = if pv_adj {
+        CoarseOp::build(&pv, &mut pv.work(), &p)
+    } else {
+        let start = Instant::now();
+        let mut d = PvDagger { pv: &pv };
+        let c = CoarseOp::probe(&mut d, &p, &p, false)?;
+        println!(
+            "  P†D_PV†P probed on the fine lattice ({:.0} s)",
+            start.elapsed().as_secs_f64()
+        );
+        c
+    };
     println!(
         "{l}^4, Ls = {ls}, M5 = {m5}, m = {mass}; Ã on the even sites, |λ_max(Ã)| ≈ {:.3}; P from s and D s for the lowest {half_n} Ritz vectors of Ã (σ {:.2e} … {:.2e}) on {block}^4, coarse dimension {}; Chebyshev {steps}/{ratio}; coarse CR to {coarse_tol:e}",
         hi / 1.1,
@@ -2185,8 +2232,41 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  {gram_line}");
     let start = Instant::now();
     let mut m_d = BlockAbsInv::build(&mut cd, false, &like_c);
-    let mut m_pv = BlockAbsInv::build(&mut cpv, true, &like_c);
+    let mut m_pv = BlockAbsInv::build(&mut cpv, pv_adj, &like_c);
     let built = start.elapsed().as_secs_f64();
+    // Are the coarse operators the Galerkin ones? |A_c x − P† A P x| / |P† A P x| for x the
+    // first restricted basis vector, A = D (P†DP) and A = D_PV† (P†D_PV†P).
+    {
+        let x = &restricted[0];
+        let mut px = p.fine_field(1);
+        p.prolong(&mut px, x);
+        let mut errs = Vec::new();
+        for (a, adjoint) in [(&op, false), (&pv, true)] {
+            let mut apx = px.zeros_like();
+            a.mult(
+                &mut a.work(),
+                &mut apx,
+                &px,
+                if adjoint { Variant::Dagger } else { Variant::D },
+            );
+            let mut want = p.coarse_field(1);
+            p.restrict(&mut want, &apx);
+            let mut got = want.zeros_like();
+            if !adjoint {
+                cd.mult(&mut got, x);
+            } else if pv_adj {
+                cpv.mult_dag(&mut got, x);
+            } else {
+                cpv.mult(&mut got, x);
+            }
+            got.axpy(&[C64::new(-1.0, 0.0)], &want);
+            errs.push(norm(&got) / norm(&want));
+        }
+        println!(
+            "  check: coarse operators against P†AP: P†DP {:.1e}, P†D_PV†P {:.1e}",
+            errs[0], errs[1]
+        );
+    }
     // Is the coarse correction alone exact on the vectors P was built from? r = Ã y_j for
     // the first and the last y, e = (coarse correction) r, |e − y| / |y|.
     {
@@ -2213,6 +2293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             solver: CoarseSolver::Minres(Some((&m_d, &m_pv)), None),
             pre: false,
             post: false,
+            pv_adj,
             nc: nc.clone(),
         };
         let mut errors = Vec::new();
@@ -2248,8 +2329,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .skip(11)
         .find_map(|s| s.strip_prefix("abs2f:")?.parse().ok());
     if let Some(sb) = abs2f {
-        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
-            let (a, m) = if adjoint {
+        for (name, is_pv) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let adjoint = is_pv && pv_adj;
+            let (a, m) = if is_pv {
                 (&mut cpv, &mut m_pv)
             } else {
                 (&mut cd, &mut m_d)
@@ -2282,8 +2364,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect()
     });
     if let Some(sbs) = &absm {
-        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
-            let (a, m) = if adjoint {
+        for (name, is_pv) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let adjoint = is_pv && pv_adj;
+            let (a, m) = if is_pv {
                 (&mut cpv, &mut m_pv)
             } else {
                 (&mut cd, &mut m_d)
@@ -2294,8 +2377,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     if let Some((k, sb, tol, passes)) = abs2 {
-        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
-            let (a, m) = if adjoint {
+        for (name, is_pv) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let adjoint = is_pv && pv_adj;
+            let (a, m) = if is_pv {
                 (&mut cpv, &mut m_pv)
             } else {
                 (&mut cd, &mut m_d)
@@ -2339,14 +2423,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Deflation::build_inverse(&mut cd, false, &m_d, &like_c, k, iterations);
             println!("  deflation of P†DP: {line_d}");
             let (d_pv, line_pv) =
-                Deflation::build_inverse(&mut cpv, true, &m_pv, &like_c, k, iterations);
+                Deflation::build_inverse(&mut cpv, pv_adj, &m_pv, &like_c, k, iterations);
             println!("  deflation of P†D_PV†P: {line_pv}");
             Some((d_d, d_pv))
         }
         (Some((k, steps)), None) => {
             let (d_d, line_d) = Deflation::build(&mut cd, false, &like_c, steps, k);
             println!("  deflation of P†DP: {line_d}");
-            let (d_pv, line_pv) = Deflation::build(&mut cpv, true, &like_c, steps, k);
+            let (d_pv, line_pv) = Deflation::build(&mut cpv, pv_adj, &like_c, steps, k);
             println!("  deflation of P†D_PV†P: {line_pv}");
             Some((d_d, d_pv))
         }
@@ -2355,8 +2439,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !args.iter().skip(11).any(|s| s == "nocheck") {
         let mut g = p.coarse_field(1);
         p.restrict(&mut g, &full(1, 31));
-        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
-            let (a, m): (&mut CoarseOp<f64>, &BlockAbsInv) = if adjoint {
+        for (name, is_pv) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let adjoint = is_pv && pv_adj;
+            let (a, m): (&mut CoarseOp<f64>, &BlockAbsInv) = if is_pv {
                 (&mut cpv, &m_pv)
             } else {
                 (&mut cd, &m_d)
@@ -2515,6 +2600,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     },
                     pre: !post_only,
                     post: true,
+                    pv_adj,
                     nc: nc.clone(),
                 };
                 match outer {
