@@ -1669,23 +1669,83 @@ enum CoarseSolver<'a> {
     ),
     /// The two factors as one operator K (see `CoarseK`), by BiCGStab.
     K(&'a EvenGram, &'a BlockAbsInv, &'a BlockAbsInv),
+    /// BiCGStab on A_c itself, right-preconditioned by the exact block inverses A_c,xx⁻¹:
+    /// no Hermiticity needed (for Möbius, c ≠ 0, Γ5 A_c is not Hermitian). `.1`: BiCGStab
+    /// for the D factor only, block-|H| MINRES for the PV factor.
+    BiCg((&'a BlockAbsInv, &'a BlockAbsInv), bool),
+}
+
+/// A_c (A_c† with `adjoint`) as a linear map, counting its applications.
+struct CoarseLin<'a> {
+    a: &'a mut CoarseOp<f64>,
+    adjoint: bool,
+    n: Count,
+}
+
+impl LinearFn<C> for CoarseLin<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        if self.adjoint {
+            self.a.mult_dag(out, inp);
+        } else {
+            self.a.mult(out, inp);
+        }
+    }
+}
+
+/// The exact block inverses A_c,xx⁻¹ as a linear map.
+struct BlockSolve<'a>(&'a BlockAbsInv);
+
+impl LinearFn<C> for BlockSolve<'_> {
+    fn mult(&mut self, out: &mut C, inp: &C) {
+        self.0.apply_block_solve(out, inp);
+    }
 }
 
 impl CoarseSolver<'_> {
-    /// Solves the coarse D factor (`pv` false) or the coarse D_PV† factor (`pv` true).
-    fn solve(self, a: &mut CoarseOp<f64>, pv: bool, x: &mut C, b: &C, tol: f64) -> usize {
+    /// Solves the coarse D factor (`pv` false) or the coarse D_PV† factor (`pv` true);
+    /// `adjoint`: the operator holds P†D_PV P and is applied as its adjoint.
+    fn solve(
+        self,
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        pv: bool,
+        x: &mut C,
+        b: &C,
+        tol: f64,
+    ) -> usize {
         match self {
             CoarseSolver::K(..) => unreachable!("K solves both factors at once"),
-            CoarseSolver::Cr => coarse_solve(a, pv, x, b, tol),
+            CoarseSolver::Cr => coarse_solve(a, adjoint, x, b, tol),
             CoarseSolver::Minres(m, d) => coarse_solve_minres(
                 a,
-                pv,
+                adjoint,
                 m.map(|(md, mp)| if pv { mp } else { md }),
                 d.map(|(dd, dp)| if pv { dp } else { dd }),
                 x,
                 b,
                 tol,
             ),
+            CoarseSolver::BiCg((md, mp), d_only) => {
+                let m = if pv { mp } else { md };
+                if pv && d_only {
+                    return coarse_solve_minres(a, adjoint, Some(m), None, x, b, tol);
+                }
+                let n = Count::default();
+                let mut lin = CoarseLin {
+                    a,
+                    adjoint,
+                    n: n.clone(),
+                };
+                x.scale(&vec![0.0; b.num_vectors()]);
+                let _ = BiCgStab::new(Stop {
+                    tolerance_sqr: tol,
+                    max_iterations: 5000,
+                    max_restarts: 0,
+                })
+                .solve(&mut lin, Some(&mut BlockSolve(m)), x, b);
+                n.get()
+            }
         }
     }
 }
@@ -1856,12 +1916,14 @@ impl LinearFn<H> for Cycle<'_> {
                 None => {
                     // w = (P†D_PV†P)⁻¹ g; w ← E w; c = (P†DP)⁻¹ w.
                     let mut w = g.zeros_like();
-                    let mut n = self
-                        .solver
-                        .solve(cpv, self.pv_adj, &mut w, &g, self.coarse_tol);
+                    let mut n =
+                        self.solver
+                            .solve(cpv, self.pv_adj, true, &mut w, &g, self.coarse_tol);
                     p.prolong(&mut f, &w);
                     p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
-                    n += self.solver.solve(cd, false, &mut c, &w, self.coarse_tol);
+                    n += self
+                        .solver
+                        .solve(cd, false, false, &mut c, &w, self.coarse_tol);
                     self.nc.set(self.nc.get() + n);
                 }
             }
@@ -2044,7 +2106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let solver_name = args
         .iter()
         .skip(11)
-        .find(|s| ["cr", "minres", "pminres", "kbicg"].contains(&s.as_str()))
+        .find(|s| ["cr", "minres", "pminres", "kbicg", "bicg", "dbicg"].contains(&s.as_str()))
         .cloned()
         .unwrap_or_else(|| "cr".to_string());
     // `defl:K:STEPS`: deflate the MINRES coarse solves by the K Ritz vectors nearest zero
@@ -2266,6 +2328,39 @@ fn main() -> Result<(), Box<dyn Error>> {
             "  check: coarse operators against P†AP: P†DP {:.1e}, P†D_PV†P {:.1e}",
             errs[0], errs[1]
         );
+    }
+    // How far from Hermitian are H = Γ5 P†DP and H = Γ5 P†D_PV†P (exactly Hermitian only for
+    // c = 0)? |Hv − H†v| / |Hv| with H† v = P† A† P Γ5 v from the fine lattice, for a random
+    // v and for the first restricted basis vector (a low mode).
+    if args.iter().skip(11).any(|s| s == "herm") {
+        let mut rnd = p.coarse_field(1);
+        p.restrict(&mut rnd, &full(1, 77));
+        for (name, a, dagger) in [("Γ5 P†DP", &op, false), ("Γ5 P†D_PV†P", &pv, true)] {
+            let mut line = format!("  check: non-Hermiticity of {name}:");
+            for (label, v) in [("random", &rnd), ("low mode", &restricted[0])] {
+                // H v = Γ5 P† A P v, A = D or D_PV†.
+                let mut f = p.fine_field(1);
+                p.prolong(&mut f, v);
+                let mut af = f.zeros_like();
+                let variant = if dagger { Variant::Dagger } else { Variant::D };
+                a.mult(&mut a.work(), &mut af, &f, variant);
+                let mut hv = p.coarse_field(1);
+                p.restrict(&mut hv, &af);
+                coarse_gamma5(&mut hv);
+                // H† v = P† A† P Γ5 v.
+                let mut g = v.zeros_like();
+                g.copy_from(v);
+                coarse_gamma5(&mut g);
+                p.prolong(&mut f, &g);
+                let variant = if dagger { Variant::D } else { Variant::Dagger };
+                a.mult(&mut a.work(), &mut af, &f, variant);
+                let mut hdv = p.coarse_field(1);
+                p.restrict(&mut hdv, &af);
+                hdv.axpy(&[C64::new(-1.0, 0.0)], &hv);
+                line += &format!(" {label} {:.1e}", norm(&hdv) / norm(&hv));
+            }
+            println!("{line}");
+        }
     }
     // Is the coarse correction alone exact on the vectors P was built from? r = Ã y_j for
     // the first and the last y, e = (coarse correction) r, |e − y| / |y|.
@@ -2596,6 +2691,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         "minres" => CoarseSolver::Minres(None, defl),
                         "pminres" => CoarseSolver::Minres(Some((&m_d, &m_pv)), defl),
                         "kbicg" => CoarseSolver::K(&gram, &m_d, &m_pv),
+                        "bicg" => CoarseSolver::BiCg((&m_d, &m_pv), false),
+                        "dbicg" => CoarseSolver::BiCg((&m_d, &m_pv), true),
                         _ => CoarseSolver::Cr,
                     },
                     pre: !post_only,
