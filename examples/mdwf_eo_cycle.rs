@@ -337,7 +337,7 @@ struct BlockAbsInv {
     /// The signed inverses H_xx⁻¹ of the same blocks.
     signed: Vec<Vec<C64>>,
     /// An additive second level, making the preconditioner B + Q |Q†HQ|⁻¹ Q†.
-    level: Option<AbsLevel>,
+    level: Option<Box<dyn AbsAdd>>,
 }
 
 /// A second level for the absolute-value preconditioner of H (Vecharynski and Knyazev,
@@ -495,7 +495,15 @@ impl AbsLevel {
         );
         (Self { sites, q, nq, inv }, line)
     }
+}
 
+/// What the levels below the block |H|⁻¹ add to the absolute-value preconditioner.
+trait AbsAdd {
+    /// out += (the levels below) inp.
+    fn add(&self, out: &mut C, inp: &C);
+}
+
+impl AbsAdd for AbsLevel {
     /// out += Q |H_cc|⁻¹ Q† inp.
     fn add(&self, out: &mut C, inp: &C) {
         let nq = self.nq;
@@ -536,6 +544,358 @@ impl AbsLevel {
                 }
             }
         }
+    }
+}
+
+// --- The multilevel absolute-value preconditioner. ---
+
+/// The pseudo-inverse absolute value V |Λ|⁺ V† of a Hermitian n × n matrix (row-major,
+/// symmetrised here): eigenvalues below 1e-10 of the largest in magnitude, which come from
+/// degenerate local vectors, are left out.
+fn abs_pinv(h: &[C64], n: usize) -> Vec<C64> {
+    let h: Vec<C64> = (0..n * n)
+        .map(|ij| (h[ij] + h[(ij % n) * n + ij / n].conj()).scale(0.5))
+        .collect();
+    let (lam, v) = eigh(h, n);
+    let top = lam.iter().fold(0.0f64, |m, l| m.max(l.abs()));
+    let inv: Vec<f64> = lam
+        .iter()
+        .map(|l| {
+            if l.abs() > 1e-10 * top {
+                1.0 / l.abs()
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let mut m = vec![C64::ZERO; n * n];
+    for i in 0..n {
+        for k in 0..n {
+            let mut z = C64::ZERO;
+            for j in 0..n {
+                z += v[i * n + j].scale(inv[j]) * v[k * n + j].conj();
+            }
+            m[i * n + k] = z;
+        }
+    }
+    m
+}
+
+fn mat_vec(m: &[C64], n: usize, x: &[C64]) -> Vec<C64> {
+    (0..n)
+        .map(|i| (0..n).fold(C64::ZERO, |s, k| s + m[i * n + k] * x[k]))
+        .collect()
+}
+
+/// A coarse-lattice field as a plain vector, site after site, `dim` components each.
+fn to_vec(f: &C) -> Vec<C64> {
+    f.as_slice()
+        .chunks(2)
+        .map(|c| C64::new(c[0], c[1]))
+        .collect()
+}
+
+fn from_vec(f: &mut C, v: &[C64]) {
+    for (c, z) in f.as_mut_slice().chunks_mut(2).zip(v) {
+        c[0] = z.re;
+        c[1] = z.im;
+    }
+}
+
+/// One level ℓ ≥ 2 of the multilevel absolute-value preconditioner: the sites of the level
+/// above are grouped into super-blocks; on each, `nq` local vectors (half of them of
+/// either chirality, so that Γ5 stays diagonal: components a < nq/2 are +1).
+struct AbsMLevel {
+    parent_dim: usize,
+    sites: Vec<Vec<usize>>,
+    q: Vec<Vec<C64>>,
+    nq: usize,
+    /// |H_ℓ,xx|⁺ per site, or, at the coarsest level, |H_ℓ|⁺ dense in `blocks[0]`.
+    blocks: Vec<Vec<C64>>,
+    dense: bool,
+}
+
+impl AbsMLevel {
+    fn restrict(&self, v: &[C64]) -> Vec<C64> {
+        let (nq, pd) = (self.nq, self.parent_dim);
+        let mut out = vec![C64::ZERO; self.sites.len() * nq];
+        for (s, sv) in self.sites.iter().enumerate() {
+            let lt = sv.len() * pd;
+            for b in 0..nq {
+                let col = &self.q[s][b * lt..(b + 1) * lt];
+                let mut z = C64::ZERO;
+                for (k, &x) in sv.iter().enumerate() {
+                    for i in 0..pd {
+                        z += col[k * pd + i].conj() * v[x * pd + i];
+                    }
+                }
+                out[s * nq + b] = z;
+            }
+        }
+        out
+    }
+
+    fn prolong_add(&self, y: &[C64], v: &mut [C64]) {
+        let (nq, pd) = (self.nq, self.parent_dim);
+        for (s, sv) in self.sites.iter().enumerate() {
+            let lt = sv.len() * pd;
+            for b in 0..nq {
+                let c = y[s * nq + b];
+                let col = &self.q[s][b * lt..(b + 1) * lt];
+                for (k, &x) in sv.iter().enumerate() {
+                    for i in 0..pd {
+                        v[x * pd + i] += col[k * pd + i] * c;
+                    }
+                }
+            }
+        }
+    }
+
+    /// This level's preconditioner on its own vector, without the levels below.
+    fn own(&self, y: &[C64]) -> Vec<C64> {
+        let nq = self.nq;
+        if self.dense {
+            return mat_vec(&self.blocks[0], y.len(), y);
+        }
+        let mut out = vec![C64::ZERO; y.len()];
+        for (s, b) in self.blocks.iter().enumerate() {
+            let z = mat_vec(b, nq, &y[s * nq..(s + 1) * nq]);
+            out[s * nq..(s + 1) * nq].copy_from_slice(&z);
+        }
+        out
+    }
+}
+
+/// The levels ℓ = 2 … L below the block |H|⁻¹ of the coarse lattice:
+/// M_ℓ = B_ℓ + Q_ℓ+1 M_ℓ+1 Q_ℓ+1†, with B_ℓ the block |H_ℓ,xx|⁺ of H_ℓ = Q_ℓ† H_ℓ−1 Q_ℓ and
+/// the coarsest M_L = |H_L|⁺ dense. Additive, so Hermitian positive (semi)definite, and
+/// applying it needs no application of H at all; H is used only to set it up.
+struct AbsMulti {
+    levels: Vec<AbsMLevel>,
+}
+
+impl AbsMulti {
+    /// `vectors` on the coarse lattice (restricted further for every level) and the
+    /// super-block size of every level; the last level is dense.
+    fn build(
+        a: &mut CoarseOp<f64>,
+        adjoint: bool,
+        vectors: &[C],
+        super_blocks: &[usize],
+    ) -> (Self, String) {
+        let start = Instant::now();
+        let lat = a.lattice().clone();
+        let dim = a.dim();
+        let like = vectors[0].zeros_like();
+        let mut applications = 0usize;
+        // H_1 on plain vectors.
+        let mut h1 = |v: &[C64]| -> Vec<C64> {
+            let mut f = like.zeros_like();
+            from_vec(&mut f, v);
+            let mut out = like.zeros_like();
+            h_mult(a, adjoint, &mut out, &f);
+            to_vec(&out)
+        };
+        let mut levels: Vec<AbsMLevel> = Vec::new();
+        let mut parent_ext = lat.local;
+        let mut parent_dim = dim;
+        let mut parent_coords: Box<dyn Fn(usize) -> [usize; ND]> = {
+            let lat = lat.clone();
+            Box::new(move |x| lat.coords(x))
+        };
+        let mut parent_upper: Box<dyn Fn(usize) -> bool> = Box::new(move |i| i >= dim / 2);
+        let mut tests: Vec<Vec<C64>> = vectors.iter().map(to_vec).collect();
+        let k = tests.len();
+        let mut lines = Vec::new();
+        for (depth, &sb) in super_blocks.iter().enumerate() {
+            assert!(parent_ext.iter().all(|e| e % sb == 0));
+            let ext: [usize; ND] = parent_ext.map(|e| e / sb);
+            let total: usize = ext.iter().product();
+            let n_parent: usize = parent_ext.iter().product();
+            let mut sites = vec![Vec::new(); total];
+            for x in 0..n_parent {
+                let c = parent_coords(x);
+                let mut s = 0;
+                for mu in (0..ND).rev() {
+                    s = s * ext[mu] + c[mu] / sb;
+                }
+                sites[s].push(x);
+            }
+            // Local vectors: the lower chirality of every test vector, orthonormalised,
+            // then the upper; a dependent one is left as zero.
+            let nq = 2 * k;
+            let q: Vec<Vec<C64>> = sites
+                .iter()
+                .map(|sv| {
+                    let lt = sv.len() * parent_dim;
+                    let mut cols: Vec<Vec<C64>> = Vec::with_capacity(nq);
+                    for upper in [false, true] {
+                        let first = cols.len();
+                        for t in &tests {
+                            let mut c: Vec<C64> = (0..lt)
+                                .map(|j| {
+                                    let (kk, i) = (j / parent_dim, j % parent_dim);
+                                    if parent_upper(i) == upper {
+                                        t[sv[kk] * parent_dim + i]
+                                    } else {
+                                        C64::ZERO
+                                    }
+                                })
+                                .collect();
+                            for _ in 0..2 {
+                                for b in &cols[first..] {
+                                    let d = b
+                                        .iter()
+                                        .zip(&c)
+                                        .fold(C64::ZERO, |s, (x, y)| s + x.conj() * *y);
+                                    for (ci, bi) in c.iter_mut().zip(b) {
+                                        *ci = *ci - d * *bi;
+                                    }
+                                }
+                            }
+                            let n = c.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+                            let scale = if n > 1e-8 { 1.0 / n } else { 0.0 };
+                            cols.push(c.iter().map(|z| z.scale(scale)).collect());
+                        }
+                    }
+                    cols.concat()
+                })
+                .collect();
+            let mut level = AbsMLevel {
+                parent_dim,
+                sites,
+                q,
+                nq,
+                blocks: Vec::new(),
+                dense: depth + 1 == super_blocks.len(),
+            };
+            // H_ℓ v = Q_ℓ† H_ℓ−1 Q_ℓ v, down through the levels above.
+            let h_level = |v: &[C64],
+                           h1: &mut dyn FnMut(&[C64]) -> Vec<C64>,
+                           levels: &[AbsMLevel],
+                           this: &AbsMLevel|
+             -> Vec<C64> {
+                let mut chain: Vec<Vec<C64>> = vec![v.to_vec()];
+                for l in std::iter::once(this).chain(levels.iter().rev()) {
+                    let parent_len: usize =
+                        l.sites.iter().map(|s| s.len()).sum::<usize>() * l.parent_dim;
+                    let mut p = vec![C64::ZERO; parent_len];
+                    l.prolong_add(chain.last().unwrap(), &mut p);
+                    chain.push(p);
+                }
+                let mut w = h1(chain.last().unwrap());
+                for l in levels.iter().chain(std::iter::once(this)) {
+                    w = l.restrict(&w);
+                }
+                w
+            };
+            let n = total * nq;
+            if level.dense {
+                let mut hd = vec![C64::ZERO; n * n];
+                for j in 0..n {
+                    let mut e = vec![C64::ZERO; n];
+                    e[j] = C64::new(1.0, 0.0);
+                    let col = h_level(&e, &mut h1, &levels, &level);
+                    applications += 1;
+                    for i in 0..n {
+                        hd[i * n + j] = col[i];
+                    }
+                }
+                level.blocks = vec![abs_pinv(&hd, n)];
+            } else {
+                // Diagonal blocks by probing: sites whose coordinates agree modulo c_μ
+                // (2 for an even extent, the extent itself for an odd one) are never
+                // neighbours.
+                let colours: [usize; ND] = ext.map(|e| if e % 2 == 0 { 2 } else { e });
+                let n_colours: usize = colours.iter().product();
+                let coords = |s: usize| -> [usize; ND] {
+                    let mut c = [0; ND];
+                    let mut r = s;
+                    for mu in 0..ND {
+                        c[mu] = r % ext[mu];
+                        r /= ext[mu];
+                    }
+                    c
+                };
+                let colour_of = |s: usize| -> usize {
+                    let c = coords(s);
+                    let mut col = 0;
+                    for mu in (0..ND).rev() {
+                        col = col * colours[mu] + c[mu] % colours[mu];
+                    }
+                    col
+                };
+                let mut diag = vec![vec![C64::ZERO; nq * nq]; total];
+                for colour in 0..n_colours {
+                    for j in 0..nq {
+                        let mut e = vec![C64::ZERO; n];
+                        for s in 0..total {
+                            if colour_of(s) == colour {
+                                e[s * nq + j] = C64::new(1.0, 0.0);
+                            }
+                        }
+                        let col = h_level(&e, &mut h1, &levels, &level);
+                        applications += 1;
+                        for s in 0..total {
+                            if colour_of(s) == colour {
+                                for i in 0..nq {
+                                    diag[s][i * nq + j] = col[s * nq + i];
+                                }
+                            }
+                        }
+                    }
+                }
+                level.blocks = diag.iter().map(|b| abs_pinv(b, nq)).collect();
+            }
+            lines.push(format!(
+                "{}^4 sites × {nq}{}",
+                ext[0],
+                if level.dense { " (dense)" } else { "" }
+            ));
+            // The test vectors for the next level.
+            tests = tests.iter().map(|t| level.restrict(t)).collect();
+            parent_ext = ext;
+            parent_dim = nq;
+            parent_coords = Box::new(move |s| {
+                let mut c = [0; ND];
+                let mut r = s;
+                for mu in 0..ND {
+                    c[mu] = r % ext[mu];
+                    r /= ext[mu];
+                }
+                c
+            });
+            parent_upper = Box::new(move |i| i >= nq / 2);
+            levels.push(level);
+        }
+        let line = format!(
+            "levels {} ({applications} coarse applications, {:.0} s)",
+            lines.join(" → "),
+            start.elapsed().as_secs_f64()
+        );
+        (Self { levels }, line)
+    }
+
+    /// M_ℓ y for level ℓ = 2 + i.
+    fn apply_level(&self, i: usize, y: &[C64]) -> Vec<C64> {
+        let l = &self.levels[i];
+        let mut out = l.own(y);
+        if i + 1 < self.levels.len() {
+            let below = &self.levels[i + 1];
+            let z = self.apply_level(i + 1, &below.restrict(y));
+            below.prolong_add(&z, &mut out);
+        }
+        out
+    }
+}
+
+impl AbsAdd for AbsMulti {
+    fn add(&self, out: &mut C, inp: &C) {
+        let first = &self.levels[0];
+        let z = self.apply_level(0, &first.restrict(&to_vec(inp)));
+        let mut v = to_vec(out);
+        first.prolong_add(&z, &mut v);
+        from_vec(out, &v);
     }
 }
 
@@ -1720,7 +2080,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                 quotients[0],
                 quotients[quotients.len() - 1]
             );
-            m.level = Some(level);
+            m.level = Some(Box::new(level));
+        }
+    }
+    // `absm:SB2,SB3,…`: the multilevel version from the restricted basis vectors, with
+    // these super-block sizes; the last level is dense.
+    let absm: Option<Vec<usize>> = args.iter().skip(11).find_map(|s| {
+        s.strip_prefix("absm:")?
+            .split(',')
+            .map(|x| x.parse().ok())
+            .collect()
+    });
+    if let Some(sbs) = &absm {
+        for (name, adjoint) in [("P†DP", false), ("P†D_PV†P", true)] {
+            let (a, m) = if adjoint {
+                (&mut cpv, &mut m_pv)
+            } else {
+                (&mut cd, &mut m_d)
+            };
+            let (multi, line) = AbsMulti::build(a, adjoint, &restricted, sbs);
+            println!("  multilevel for {name}: {line}");
+            m.level = Some(Box::new(multi));
         }
     }
     if let Some((k, sb, tol, passes)) = abs2 {
@@ -1735,7 +2115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!(
                 "  second level for {name}: {k} test vectors ({passes} passes, {n} applications, median |Hx|/|x| {q:.2e}), {line}"
             );
-            m.level = Some(level);
+            m.level = Some(Box::new(level));
         }
     }
     // The cost of a coarse application against one of Ã, timed here.
