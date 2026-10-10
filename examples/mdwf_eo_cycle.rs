@@ -2205,7 +2205,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
             coarse: Some((&p, &mut cd, &mut cpv)),
             lift: &lift,
-            coarse_tol: 1e-20,
+            coarse_tol: args
+                .iter()
+                .skip(11)
+                .find_map(|s| s.strip_prefix("exacttol:")?.parse().ok())
+                .unwrap_or(1e-20),
             solver: CoarseSolver::Minres(Some((&m_d, &m_pv)), None),
             pre: false,
             post: false,
@@ -2222,8 +2226,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             errors.push(norm(&e) / norm(&yj));
         }
         println!(
-            "  check: coarse correction alone on r = Ã y_j: |e − y_j|/|y_j| = {:.1e} (first), {:.1e} (last)",
-            errors[0], errors[1]
+            "  check: coarse correction alone on r = Ã y_j: |e − y_j|/|y_j| = {:.1e} (first), {:.1e} (last); {} coarse applications",
+            errors[0],
+            errors[1],
+            nc.get()
         );
     }
     // `abs2:K:SB:TOL:PASSES`: a second level of the absolute-value preconditioner, from K
