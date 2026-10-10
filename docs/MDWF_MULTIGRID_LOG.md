@@ -889,10 +889,16 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
     | **D 因子 BiCGStab、PV 因子 MINRES（`dbicg`）** | 24 | 267 | **3612**（−16%） |
     | 兩個因子都 BiCGStab（`bicg`） | 24 | 267 | 3712 |
 
+    | **D 因子 BiCGStab + 乘法式帶號第二層（`dbicg abs2f:3`）** | **23** | **256** | **1814** |
+
+    帶號第二層：Q (Q†A_cQ)⁻¹ Q†（Q†A_cQ = Γ5 Q†HQ，用 `numerics::invert_complex` 求逆）與區塊逆 B⁻¹ **乘法式**組合：
+    z₁ = Q (Q†A_cQ)⁻¹ Q† r，z = z₁ + B⁻¹ (r − A_c z₁)（多一次 A_c，已計入）。加法式 B⁻¹ + Q(…)⁻¹Q† 看起來讓 BiCGStab 變差
+    （量到 9301，但那次兩個腳本寫同一個 log、輸出交錯，數字歸屬不完全確定，待重跑）。
+    **目前最好的粗網格組合是 1814 次（相對 CR 起點的 35756、同基底 MINRES 的 4311）**；對照 MINRES + \|H\| 第二層 2058。
     **c ≠ 0 的非厄米性在 MINRES 上只多花約 16% 的粗網格作用**；外層不受影響。D 因子（低模方向非厄米 35%）改 BiCGStab 略划算，PV 因子（8.7%）用 MINRES 即可。
   - `exactpv` 加 {s, Ds}：53 個 cycle（Γ5 伴隨時 54）——舊基底的問題確實在基底，不在 PV 伴隨的誤差。
   - （修正一個 bug：`exactpv` 時 PV 因子的 MINRES 誤用了 D 因子的區塊 \|H\| 預處理器；不影響正確性，只影響最佳性。已把「伴隨與否」與「哪個因子」分開。）
-  - 待做：量粗網格 H = Γ5 P†DP 的非厄米度 \|H − H†\|/\|H\|；Shamir（c = 0）對照，看精確厄米時 MINRES 與絕對值預處理好多少。
+  - 待做：Shamir（c = 0）對照只當參考（實際用 Möbius）；把第二層推廣到 BiCGStab（帶號的兩層：區塊逆 + Q (Q†A_cQ)⁻¹ Q†）。
 - β = 5.7 收斂基底、4⁴、N = 32、1e-2：{s, t̂} 18 / 201 / 1831，{s, Ds} 18 / 201 / 1601——**基底準時兩者相同，基底粗糙時才看出差別**（而實際 setup 一定粗糙）。
 - 磁碟：WSL 虛擬磁碟（251 GB 上限）滿了，16⁴ setup 第二次失敗（StorageFull）。已把舊的全格子 A′ 特徵向量 checkpoint（5.3 GB）
   與 `/tmp` 的舊大檔（5.3 GB）搬到 C 槽（`C:\Users\atsan\ruttice_ckpt`、`C:\Users\atsan\wsl_offload\tmp`），WSL 剩 11 GB；16⁴ 單獨重跑中。
