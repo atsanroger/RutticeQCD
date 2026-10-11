@@ -18,7 +18,10 @@ mod integrator;
 mod links;
 mod mseries;
 
-pub use fermion::{clover_derivative, force_from, hop_derivative, smeared_force, TwoFlavor};
+pub use fermion::{
+    clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force, ForceOp,
+    TwoFlavor, TwoFlavorRatio,
+};
 pub use gauge_force::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
     RectangleAction, Step,
@@ -503,6 +506,68 @@ mod tests {
                 1e-7,
             );
         }
+    }
+
+    /// The forces of Möbius domain-wall fermions: two flavours, and two over two
+    /// Pauli-Villars flavours, on stout links.
+    #[test]
+    fn domain_wall_forces_are_the_derivatives() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::gauge::smear::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 23);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 2000,
+            max_restarts: 10,
+        };
+        let smearing = Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        });
+        let links = [(0, 9), (2, 77), (3, 250)];
+        let mut two = TwoFlavor::new(Mdwf::<f64>::new(&lat, params), smearing, stop, stop);
+        let cache = SmearingCache::new();
+        two.langevin(&Links::new(&u, &cache), &mut Mseries::new(7));
+        let f = two.force(&Links::new(&u, &cache));
+        check_force(
+            &u,
+            &f,
+            &links,
+            |w| two.hamiltonian(&Links::new(w, &SmearingCache::new())),
+            1e-7,
+        );
+        let mut ratio = TwoFlavorRatio::new(
+            Mdwf::<f64>::new(&lat, params),
+            Mdwf::<f64>::new(&lat, params.pauli_villars()),
+            smearing,
+            stop,
+            stop,
+        );
+        ratio.langevin(&Links::new(&u, &cache), &mut Mseries::new(8));
+        let f = ratio.force(&Links::new(&u, &cache));
+        check_force(
+            &u,
+            &f,
+            &links,
+            |w| ratio.hamiltonian(&Links::new(w, &SmearingCache::new())),
+            1e-7,
+        );
     }
 
     #[test]

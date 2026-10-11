@@ -241,3 +241,120 @@ fn bridge_test_clover_nf2_stout() {
         Some(1.0),
     );
 }
+
+/// Bridge++'s domain-wall HMC tests on conf_04040408: Shamir's operator (b = 1, c = 0),
+/// M0 = 1.6, m = 0.1, Ls = 8, on links smeared twice (stout, ρ = 0.1), with the rectangle
+/// gauge action. `pv`: the ratio over Pauli-Villars fields (`Action_F_Ratio_lex`) on the
+/// outer level of two of Omelyan with 5 and 4 steps, the gauge action inside; otherwise two
+/// flavours on one level of leapfrog with 5 steps.
+fn bridge_domain_wall(expected: f64, pv: bool) {
+    use ruttice::fermion::{Mdwf, MdwfParams};
+    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorRatio};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
+    let params = MdwfParams {
+        ls: 8,
+        m5: 1.6,
+        mass: 0.1,
+        b: 1.0,
+        c: 0.0,
+        boundary: [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ],
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 4000,
+        max_restarts: 40,
+    };
+    let smearing = Some(GaugeSmearing {
+        smear: Smear::Stout(Stout::uniform(0.1)),
+        steps: 2,
+    });
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = if pv {
+        let fermions = TwoFlavorRatio::new(
+            Mdwf::<f64>::new(&lat, params),
+            Mdwf::<f64>::new(&lat, params.pauli_villars()),
+            smearing,
+            stop,
+            stop,
+        );
+        Hmc::new(
+            vec![
+                Term {
+                    level: 0,
+                    action: Box::new(fermions),
+                },
+                Term {
+                    level: 1,
+                    action: Box::new(gauge),
+                },
+            ],
+            Scheme::Omelyan {
+                lambda: 0.1931833275,
+            },
+            vec![5, 4],
+            8,
+            0.1,
+        )
+    } else {
+        let fermions = TwoFlavor::new(Mdwf::<f64>::new(&lat, params), smearing, stop, stop);
+        Hmc::new(
+            vec![
+                Term {
+                    level: 0,
+                    action: Box::new(fermions),
+                },
+                Term {
+                    level: 0,
+                    action: Box::new(gauge),
+                },
+            ],
+            Scheme::Leapfrog,
+            vec![5],
+            8,
+            0.1,
+        )
+    };
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}");
+    // Bridge++'s own criterion (`Test::verify`): a relative difference of 1e-11. Its solves
+    // (BiCGStab(L) to |r|² < 1e-28) and ours (CG, the same) differ in the last digits, and
+    // the domain-wall operator amplifies that more than the Wilson one.
+    assert!(
+        ((t.plaquette - expected) / expected).abs() < 1e-11,
+        "plaquette {:.15} against {expected}",
+        t.plaquette
+    );
+}
+
+/// `test_HMC_Domainwall_Nf2`.
+#[test]
+fn bridge_test_domain_wall_nf2() {
+    bridge_domain_wall(0.62862305031787, false);
+}
+
+/// `test_HMC_Domainwall_Nf2_PV`.
+#[test]
+fn bridge_test_domain_wall_nf2_pv() {
+    bridge_domain_wall(0.62754640357188, true);
+}

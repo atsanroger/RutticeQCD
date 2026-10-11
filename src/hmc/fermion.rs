@@ -23,18 +23,22 @@ use std::rc::Rc;
 /// A spinor field of one vector.
 type Psi = Field<f64, Spinor>;
 
-/// Σ_spin a(x) b(x)†, a colour matrix per site, accumulated into `m` times `k`.
+/// Σ_spin a(x) b(x)†, a colour matrix per site, accumulated into `m` times `k`; with
+/// several spinors per site (a fifth dimension), summed over them too.
 fn add_outer(m: &mut [f64], a: &Psi, b: &Psi, k: f64) {
     let (sa, sb) = (a.slab(0), b.slab(0));
+    let per = sa.len() / (m.len() / 18);
     for_sites(m, 18, |x, out| {
-        let (va, vb) = (&sa[24 * x..24 * (x + 1)], &sb[24 * x..24 * (x + 1)]);
+        let (va, vb) = (&sa[per * x..per * (x + 1)], &sb[per * x..per * (x + 1)]);
         let mut acc = ColorMatrix::from_reals(out);
-        for s in 0..NS {
-            for i in 0..NC {
-                let ai = Cplx::new(va[2 * (i + NC * s)], va[2 * (i + NC * s) + 1]);
-                for j in 0..NC {
-                    let bj = Cplx::new(vb[2 * (j + NC * s)], -vb[2 * (j + NC * s) + 1]);
-                    acc.0[i][j] += (ai * bj).scale(k);
+        for (va, vb) in va.as_chunks::<24>().0.iter().zip(vb.as_chunks::<24>().0) {
+            for s in 0..NS {
+                for i in 0..NC {
+                    let ai = Cplx::new(va[2 * (i + NC * s)], va[2 * (i + NC * s) + 1]);
+                    for j in 0..NC {
+                        let bj = Cplx::new(vb[2 * (j + NC * s)], -vb[2 * (j + NC * s) + 1]);
+                        acc.0[i][j] += (ai * bj).scale(k);
+                    }
                 }
             }
         }
@@ -44,10 +48,24 @@ fn add_outer(m: &mut [f64], a: &Psi, b: &Psi, k: f64) {
 
 /// M_μ(x) of the module documentation for the operator `op` (its links): Re tr X M is the
 /// change of S = −2 Re ζ† δD η … per unit of X, i.e. dS for δU = X U.
-pub fn hop_derivative<O: HopTerms<Psi>>(op: &O, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
+pub fn hop_derivative<O: HopTerms<Psi> + ?Sized>(
+    op: &O,
+    zeta: &Psi,
+    eta: &Psi,
+) -> Field<f64, Gauge> {
+    kernel_derivative(op, op.hop_coefficient(), zeta, eta)
+}
+
+/// `hop_derivative` for an operator whose hops are those of the Wilson kernel `op` (γ5 its
+/// four-dimensional one) with coefficient `c`, acting on `eta`.
+pub fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
+    op: &O,
+    c: f64,
+    zeta: &Psi,
+    eta: &Psi,
+) -> Field<f64, Gauge> {
     let mut work = op.work();
     let lat = eta.lattice();
-    let c = op.hop_coefficient();
     let mut g5_eta = eta.zeros_like();
     let mut g5_zeta = eta.zeros_like();
     op.mult_gamma5(&mut work, &mut g5_eta, eta);
@@ -160,6 +178,48 @@ pub fn clover_derivative(
     m
 }
 
+/// What the pseudofermion actions need of an operator besides applying it.
+pub trait ForceOp: HopTerms<Psi> + Sized {
+    /// M of −2 Re ζ† δD η (dS = Re tr X M for δU = X U).
+    fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
+        hop_derivative(self, zeta, eta)
+    }
+    /// A zero field of the shape the operator acts on (one vector).
+    fn new_field(&self, lat: &std::sync::Arc<crate::Lattice>) -> Psi {
+        Psi::spinor(lat, 1)
+    }
+}
+
+impl<G: crate::kernel::GammaRepre, D: crate::fermion::DiagTerm<f64>> ForceOp
+    for crate::fermion::WilsonOp<f64, G, D>
+{
+}
+
+/// Domain-wall fermions: the hops are those of the Wilson kernel acting on b η − c Y η.
+impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
+    fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
+        kernel_derivative(
+            self.kernel(),
+            self.hop_coefficient(),
+            zeta,
+            &self.kernel_input(eta),
+        )
+    }
+    fn new_field(&self, lat: &std::sync::Arc<crate::Lattice>) -> Psi {
+        Field::with_shape(lat, 24, self.params().ls, 1, 1)
+    }
+}
+
+/// Gaussian numbers of variance ½ for every real of `xi`, drawn as Bridge++ draws them for a
+/// field with the spinors of a site's fifth dimension in its outer index.
+fn draw(xi: &mut Psi, rng: &mut Mseries) {
+    let lat = xi.lattice().clone();
+    let ls = xi.slab(0).len() / (24 * lat.num_sites());
+    rng.gauss_lex_global(&lat, 24, ls, |s, x, h| {
+        xi.site_mut(0, x)[24 * s..24 * (s + 1)].copy_from_slice(h);
+    });
+}
+
 /// F = TA(M) for every link.
 pub fn force_from(m: &Field<f64, Gauge>) -> Field<f64, Gauge> {
     let mut f = Field::<f64, Gauge>::gauge(m.lattice());
@@ -216,7 +276,7 @@ pub struct TwoFlavor<O> {
     clover: Option<f64>,
 }
 
-impl<O: HopTerms<Psi>> TwoFlavor<O> {
+impl<O: ForceOp> TwoFlavor<O> {
     pub fn new(op: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
         Self {
             op,
@@ -260,11 +320,8 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
     /// order; returns |ξ|², the action of φ.
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         self.set_links(links);
-        let lat = links.thin.lattice().clone();
-        let mut xi = Psi::spinor(&lat, 1);
-        rng.gauss_lex_global(&lat, 24, 1, |_, x, h| {
-            xi.site_mut(0, x).copy_from_slice(h);
-        });
+        let mut xi = self.op.new_field(links.thin.lattice());
+        draw(&mut xi, rng);
         let mut phi = xi.zeros_like();
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut phi, &xi, Variant::Dagger);
@@ -293,13 +350,113 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
         let mut zeta = eta.zeros_like();
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut zeta, &eta, Variant::D);
-        let mut m = hop_derivative(&self.op, &zeta, &eta);
+        let mut m = self.op.derivative(&zeta, &eta);
         if let Some(kc) = self.clover {
             let v = levels.last().unwrap_or(links.thin);
             let c = clover_derivative(v, kc, &zeta, &eta);
             for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
                 *a += b;
             }
+        }
+        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+    }
+}
+
+/// Two flavours over two Pauli-Villars flavours, det(D†D)/det(D_PV†D_PV), as Bridge++'s
+/// `Action_F_Ratio_lex` writes it with H = Γ5 D: S = φ† H_PV (H†H)⁻¹ H_PV† φ, φ drawn as
+/// H_PV (H_PV†H_PV)⁻¹ H† ξ so that S = |ξ|² at the start.
+pub struct TwoFlavorRatio<O> {
+    pub op: O,
+    pub pv: O,
+    pub smearing: Option<GaugeSmearing>,
+    pub stop_md: Stop,
+    pub stop_h: Stop,
+    phi: Option<Psi>,
+}
+
+impl<O: ForceOp> TwoFlavorRatio<O> {
+    pub fn new(op: O, pv: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
+        Self {
+            op,
+            pv,
+            smearing,
+            stop_md,
+            stop_h,
+            phi: None,
+        }
+    }
+
+    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+        let levels = links.levels(self.smearing.as_ref());
+        let v = levels.last().unwrap_or(links.thin);
+        self.op.set_gauge(v).expect("the links suit the operator");
+        self.pv.set_gauge(v).expect("the links suit the operator");
+        levels
+    }
+
+    /// (D†D)⁻¹ b for the operator `op`.
+    fn solve(op: &O, b: &Psi, stop: Stop) -> Psi {
+        let mut x = b.zeros_like();
+        let mut d = Bound::new(op, Variant::D);
+        let mut normal = Normal::new(&mut d, b);
+        Cg::new(stop)
+            .solve(&mut normal, None, &mut x, b)
+            .expect("the solve converges");
+        x
+    }
+
+    fn apply(op: &O, v: &Psi, variant: Variant) -> Psi {
+        let mut out = v.zeros_like();
+        op.mult(&mut op.work(), &mut out, v, variant);
+        out
+    }
+
+    /// Γ5 of the operator (γ5 R for domain-wall fermions).
+    fn gamma5(op: &O, v: &Psi) -> Psi {
+        let mut out = v.zeros_like();
+        op.mult_gamma5(&mut op.work(), &mut out, v);
+        out
+    }
+
+    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        self.set_links(links);
+        let mut xi = self.op.new_field(links.thin.lattice());
+        draw(&mut xi, rng);
+        // H† ξ = D† Γ5 ξ.
+        let v2 = Self::apply(&self.op, &Self::gamma5(&self.op, &xi), Variant::Dagger);
+        let v1 = Self::solve(&self.pv, &v2, self.stop_h);
+        self.phi = Some(Self::apply(&self.pv, &v1, Variant::Gamma5D));
+        let mut n = [0.0];
+        xi.norm_sqr(&mut n);
+        n[0]
+    }
+
+    /// H_PV† φ = D_PV† Γ5 φ.
+    fn v1(&self) -> Psi {
+        let phi = self.phi.as_ref().expect("pseudofermions drawn");
+        Self::apply(&self.pv, &Self::gamma5(&self.pv, phi), Variant::Dagger)
+    }
+
+    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.set_links(links);
+        let v1 = self.v1();
+        let v2 = Self::solve(&self.op, &v1, self.stop_h);
+        let mut d = [C64::ZERO];
+        v1.dot(&v2, &mut d);
+        d[0].re
+    }
+
+    /// dS = −2 Re (D v2)† δD v2 + 2 Re (Γ5 φ)† δD_PV v2, v2 = (D†D)⁻¹ H_PV† φ.
+    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        let levels = self.set_links(links);
+        let v1 = self.v1();
+        let v2 = Self::solve(&self.op, &v1, self.stop_md);
+        let dv2 = Self::apply(&self.op, &v2, Variant::D);
+        let mut m = self.op.derivative(&dv2, &v2);
+        let g5phi = Self::gamma5(&self.pv, self.phi.as_ref().expect("drawn"));
+        let m_pv = self.pv.derivative(&g5phi, &v2);
+        for (a, b) in m.as_mut_slice().iter_mut().zip(m_pv.as_slice()) {
+            *a -= b;
         }
         smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }

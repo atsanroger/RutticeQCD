@@ -206,6 +206,23 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
     }
 }
 
+impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+    /// The Wilson kernel whose hops make up D: D ψ = C ψ + `hop_coefficient` Σ hops(w), with
+    /// w = `kernel_input(ψ)`. What the force of HMC differentiates.
+    pub fn kernel(&self) -> &WilsonOp<T, G, UnitDiag> {
+        &self.wilson
+    }
+
+    /// w = b ψ − c Y ψ (of Q ψ with Neff's α), the field the kernel's hops act on in D ψ.
+    pub fn kernel_input(&self, inp: &Field<T, Spinor>) -> Field<T, Spinor> {
+        let mut fields = None;
+        let w = self.before_kernel(&mut fields, inp);
+        let mut out = inp.zeros_like();
+        out.copy_from(w);
+        out
+    }
+}
+
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `b ψ - c Y ψ`, what the Wilson kernel is applied to, in a scratch field.
     fn before_kernel<'w>(
