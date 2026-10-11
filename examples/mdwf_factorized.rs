@@ -173,7 +173,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (name, vectors) in &bases {
         let mut g5 = vectors.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5, vectors);
-        let p = Basis::from_vectors(&agg, vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, vectors, &g5)?;
         let mut cd = CoarseOp::build(&op, &mut op.work(), &p);
         let mut cpv = CoarseOp::build(&pv, &mut pv.work(), &p);
         println!("  P from {name} (coarse dimension {}):", cd.dim());

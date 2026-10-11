@@ -313,14 +313,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let agg = Aggregation::new(&lat, [b0; ND]);
         let mut g5 = vectors.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
         let mut u = apply(&mut a, &vectors);
         let mut un = vec![0.0; n];
         u.norm_sqr(&mut un);
         u.scale(&un.iter().map(|x| 1.0 / x.sqrt()).collect::<Vec<_>>());
         let mut g5u = u.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5u, &u);
-        let q = Basis::from_vectors(&agg, &u, &g5u)?;
+        let q = Basis::<f64>::from_vectors(&agg, &u, &g5u)?;
         let t = &ts[0];
         let mut c = p.coarse_field(1);
         p.restrict(&mut c, t);

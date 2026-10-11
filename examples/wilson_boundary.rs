@@ -392,7 +392,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  N = {n}: |D PP†t| / |D t| for t = v_8..v_11, and the share of |D PP†t|² at distance d (share of sites):");
     for b in [2, 3, 4, 6].into_iter().filter(|b| l.is_multiple_of(*b)) {
         let agg = Aggregation::new(&lat, [b; ND]);
-        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
         let dist = |site: usize| {
             lat.coords(site)
                 .iter()
@@ -452,7 +452,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         let agg = Aggregation::new(&lat, [3; ND]);
-        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
         let mut smoother = Solve::new(
             Fgmres::new(Stop::simple(1e-6, 4)),
             Bound::new(&op, Variant::D),

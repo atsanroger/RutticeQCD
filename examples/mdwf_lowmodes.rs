@@ -189,7 +189,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let made = start.elapsed().as_secs_f64();
         let mut g5 = vectors.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
 
         // How much of t the coarse space holds, and what the exact correction leaves.
         let mut c = p.coarse_field(1);

@@ -539,7 +539,7 @@ impl Measure<'_> {
         };
         for &b in &blocks {
             let agg = Aggregation::new(self.lat, [b; ND]);
-            let p = Basis::from_vectors(&agg, &vectors, &g5).expect("the basis");
+            let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5).expect("the basis");
             println!("  N = {n}, {b}^4, t = v_8..v_11:");
             for j in n..n + 4 {
                 let th = x.select(&[j]);

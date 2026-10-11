@@ -186,7 +186,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut g5 = xs.zeros_like();
     op.mult_gamma5(&mut op.work(), &mut g5, &xs);
     let agg = Aggregation::new(&lat, [block; ND]);
-    let p = Basis::from_vectors(&agg, &xs, &g5)?;
+    let p = Basis::<f64>::from_vectors(&agg, &xs, &g5)?;
 
     let mut a = PvPreconditioned::new(&op, &like);
     let mut smoother = Solve::new(

@@ -471,7 +471,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut g5 = xs.zeros_like();
     op.mult_gamma5(&mut op.work(), &mut g5, &xs);
     let agg = Aggregation::new(&lat, [block; ND]);
-    let p = Basis::from_vectors(&agg, &xs, &g5)?;
+    let p = Basis::<f64>::from_vectors(&agg, &xs, &g5)?;
     drop((xs, g5));
     let mut coarse = CoarseOp::build(&op, &mut op.work(), &p);
     let mut pv_coarse = CoarseOp::build(&pv, &mut pv.work(), &p);

@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let vectors = all.select(&(0..n).collect::<Vec<_>>());
             let mut g5 = vectors.zeros_like();
             op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-            let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+            let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
             let mut line = format!("  {b}^4  {n:2}  {n:3} / {dim:6}");
             for (_, t) in &errors {
                 let mut c = p.coarse_field(1);

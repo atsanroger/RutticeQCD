@@ -383,7 +383,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let vectors = ritz.select(&(0..n).collect::<Vec<_>>());
         let mut g5 = vectors.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-        let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+        let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
         println!(
             "N = {n} (σ_0 … σ_{} = {:.2e} … {:.2e}), coarse dimension {} per aggregate:",
             n - 1,
@@ -400,7 +400,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         u.scale(&un.iter().map(|x| 1.0 / x.sqrt()).collect::<Vec<_>>());
         let mut g5u = u.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5u, &u);
-        let q = Basis::from_vectors(&agg, &u, &g5u)?;
+        let q = Basis::<f64>::from_vectors(&agg, &u, &g5u)?;
 
         // The exact coarse correction on the next eight Ritz vectors: what it leaves of the
         // error t and of the residual A t, against the floor √(1 − |PP†t|²) of the error.
