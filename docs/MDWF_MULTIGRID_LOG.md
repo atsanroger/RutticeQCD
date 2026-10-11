@@ -47,7 +47,18 @@ clover MG 在偶格點（`OnParity`）：FGMRES 135 → 14（全格子 MG 14）�
 上面那張 GCR(2) 表的 `[2, 2]` 2246 也是 bootstrap 基底。原因：`[2, 2]` 的最底層是**整個粗格子一個聚合**（64 維），等於拿測試向量的粗網格表示當全域的緊縮空間；
 checkpoint 的向量是 Ã 的近似本徵向量，張出的就是低模空間，所以一個聚合也夠；bootstrap 的向量只在區塊內光滑、不是本徵向量，全域張成的空間抓不住低模，
 最底層的修正弱，粗網格 BiCGStab 每次多做約 40% 的作用（每 cycle 83 對 59）。`[2]` 有 16 個聚合，局部性夠，兩種基底差不多。
-**待做**：bootstrap 基底下讓第三層有用——在第二層上對粗網格算子做幾輪反迭代（第二層的 bootstrap）再聚合，而不是直接用 P†s、P†t̂。
+**已做（同日）：第二層的 bootstrap。** 第二層格子上的測試向量在建第三層之前先做反迭代：t ← A₂⁻¹ t 的近似（以第二層 V-cycle 預處理的 GCR，`bootstrap_iterations` 步），
+正規化後重建下面各層，`bootstrap_rounds` 輪（`MultiGrid_LevelN` 的鍵；只動粗網格以下的小向量，不用 A_c，setup 多幾秒）。16⁴、`flv16_22`（checkpoint 16 個 Ritz 向量＋2 輪 bootstrap）：
+
+| `[2, 2]` | 外層 / Ã / 粗網格 | 解 |
+|---|---|---|
+| 不細化 | 26 / 289 / 2164 | 112.5 s |
+| 1 輪 × 4 步 | 26 / 289 / **1728** | **88.9 s** |
+| 2 輪 × 8 步 | 26 / 289 / 1725 | 88.8 s |
+| （對照）`[2]` | 26 / 289 / 1547 | 96.0 s |
+
+1 輪就飽和；`[2, 2]` 現在比 `[2]` 快（最底層 64 維，比 1024 維便宜），粗網格作用多 12%。預設改成 1 輪 × 4 步。
+（更正：上表「bootstrap 基底」是 checkpoint `_16`（16 個 Ritz 向量）加 2 輪 bootstrap 補到 32 個測試向量；「checkpoint 基底」是 `_26`、不做 bootstrap。）
 src 的基準 2589 比原型的 2047 多：src 用 bootstrap 基底、原型的數字是 checkpoint＋另一組參數，不直接可比。
 
 **SIMD 在這台機器沒有加速**（12⁴，Ls = 8，cpu／simd 4／simd 8：每右手邊 38 s，6.1 GFlop/s 左右，全部相同）。`mdwf_layout_bench`（ms／次，一個向量）：
@@ -62,7 +73,7 @@ src 的基準 2589 比原型的 2047 多：src 用 bootstrap 基底、原型的�
 每個 kernel 都被記憶體頻寬限制（12⁴/2 × Ls 8 的一次 hop 搬約 32 MB），SIMD 省的指令數看不出來。**要快得靠少搬資料**：
 把 b − cY 併進 Wilson kernel 的輸入（每次 D hop 少讀寫一個 5D 場，約 1/3 的流量）、Schur 因子的 aypx 併入最後一步；SIMD 的效果要在目標機器（頻寬／核心比不同）上量。
 
-**還沒做**：GPU（使用者：不急）；Wilson/clover MG 的 bootstrap 仍是 Bridge++ 的反迭代（setup_iterations）；bootstrap 基底下 `[2, 2]` 的第三層（見上）。
+**還沒做**：GPU（使用者：不急）；Wilson/clover MG 的 bootstrap 仍是 Bridge++ 的反迭代（setup_iterations）；`[2]` 對原型多 2–4% 粗網格作用的原因（外層完全相同）。
 
 ### 0.1 記號
 

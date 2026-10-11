@@ -455,8 +455,9 @@ impl MultigridBlock {
 pub struct SubLevelBlock {
     pub super_block_size: usize,
     /// Before the next level is built from the test vectors on this level's lattice, they
-    /// are refined by inverse iteration with this level's operator: this many rounds of ...
-    #[serde(default)]
+    /// are refined by inverse iteration with this level's operator: this many rounds (1 by
+    /// default; it costs seconds and no coarse applications) of ...
+    #[serde(default = "one")]
     pub bootstrap_rounds: usize,
     /// ... this many GCR steps preconditioned by the level's V-cycle. With the bootstrap
     /// basis the vectors are smooth only within blocks; a level of few super-blocks below
