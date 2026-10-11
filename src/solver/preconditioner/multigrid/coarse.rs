@@ -391,6 +391,51 @@ impl<T: Storage> CoarseOp<T> {
         }
     }
 
+    /// `out = D_c† inp` exactly, the conjugate transpose of the stored matrix:
+    /// `(D_c† ψ)(X) = A(X)† ψ(X) + Σ_dir B_-dir(X + dir)† ψ(X + dir)`. For a Galerkin operator
+    /// this is P† D† P, whether or not D† = γ5 D γ5 (`mult_dag` assumes it: for Möbius
+    /// domain-wall fermions with c ≠ 0 it holds only approximately). Not for an operator
+    /// preconditioned by its diagonal blocks.
+    pub fn mult_adjoint(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        assert!(
+            self.diag_inv.is_none(),
+            "the exact adjoint of a diagonally preconditioned coarse operator"
+        );
+        let (dim, matrix) = (self.dim, 2 * self.dim * self.dim);
+        let n_coarse = self.lat.num_sites();
+        let site_len = inp.site_len();
+        for_sites(out.slab_mut(0), site_len, |x, out| {
+            out.fill(T::default());
+            // (the block applied as its conjugate transpose, the site it multiplies)
+            let mut terms: [(&[T], usize); 2 * ND + 1] =
+                [(&self.diag[x * matrix..(x + 1) * matrix], x); 2 * ND + 1];
+            for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+                let Source::Local { site, .. } = self.stencil.source(x, mu, dir) else {
+                    unreachable!("the coarse stencil is periodic and on one process");
+                };
+                let back = (d + ND) % (2 * ND);
+                let at = (back * n_coarse + site) * matrix;
+                terms[d + 1] = (&self.links[at..at + matrix], site);
+            }
+            for (m, neighbour) in terms {
+                let v = inp.site(0, neighbour);
+                for (out, v) in out.chunks_exact_mut(2 * dim).zip(v.chunks_exact(2 * dim)) {
+                    for row in 0..dim {
+                        // (M†)_{row, col} = conj(M_{col, row})
+                        let mut s = Cplx::<T::Compute>::ZERO;
+                        for col in 0..dim {
+                            let k = 2 * (dim * col + row);
+                            s += Cplx::new(m[k].load(), -m[k + 1].load())
+                                * Cplx::new(v[2 * col].load(), v[2 * col + 1].load());
+                        }
+                        out[2 * row] = T::store(out[2 * row].load() + s.re);
+                        out[2 * row + 1] = T::store(out[2 * row + 1].load() + s.im);
+                    }
+                }
+            }
+        });
+    }
+
     /// The diagonal block of D_c at coarse site `x` (of the operator as built, before any
     /// diagonal preconditioning), row-major `dim × dim`.
     pub fn diagonal_block(&self, x: usize) -> Vec<C64> {
