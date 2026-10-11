@@ -1,88 +1,282 @@
-//! Products of links along paths, site by site, on one process: a table of the neighbours of
-//! every site (periodic), and a walk along a path that multiplies the links it meets. One
-//! parallel pass over the sites computes any sum of paths without shifting whole fields,
-//! which is what staples, smearing and the gauge forces are made of. On several processes
-//! the neighbours of the sites on a face are elsewhere: `Neighbors::new` gives `None` and the
-//! callers use shifts.
+//! Products of links along paths, site by site: the links of this process with a halo of
+//! `depth` sites on every side, corners included (an extended field), and walks along paths
+//! that multiply the links they meet. Any sum of short paths (staples, rectangles, the terms
+//! of the stout chain rule) is then one parallel pass over the sites, the same on one process
+//! and on several: a single exchange per direction fills the halo, instead of shifting whole
+//! fields for every step of every path.
+//!
+//! The halo is filled direction by direction; the slab sent in direction μ includes the halo
+//! already filled in the directions before μ, which fills the corners. Periodic boundary
+//! conditions.
 
-use super::link;
 use crate::kernel::ColorMatrix;
-use crate::{Boundary, Direction, Field, Gauge, Lattice, Source, Stencil, ND};
-use std::sync::Arc;
+use crate::{opposite_face, Direction, Field, Gauge, Stencil, ND};
+use rayon::prelude::*;
 
 /// A step of a path of links: direction μ, forward (to x + μ̂, through U_μ(x)) or backward
 /// (to x − μ̂, through U_μ(x − μ̂)†).
 pub type Step = (usize, bool);
 
-/// The neighbours of every site of a lattice on one process, periodic in every direction.
-pub struct Neighbors {
-    fwd: Vec<[u32; ND]>,
-    bwd: Vec<[u32; ND]>,
+const LINK: usize = 18;
+const SITE: usize = ND * LINK;
+
+/// The links of a gauge field (or any field of one colour matrix per site and direction) on
+/// this process and a halo `depth` sites deep around it.
+pub struct Extended {
+    depth: usize,
+    ext: [usize; ND],
+    stride: [usize; ND],
+    data: Vec<f64>,
+    /// The extended index of every local site.
+    inner: Vec<u32>,
 }
 
-impl Neighbors {
-    /// `None` when a neighbour is on another process.
-    pub fn new(lat: &Arc<Lattice>) -> Option<Self> {
-        if lat.comm.size() != 1 {
-            return None;
+impl Extended {
+    pub fn new(u: &Field<f64, Gauge>, depth: usize) -> Self {
+        let lat = u.lattice();
+        let local = lat.local;
+        assert!(
+            local.iter().all(|l| *l >= depth),
+            "a local extent {local:?} smaller than the halo depth {depth}"
+        );
+        let ext: [usize; ND] = core::array::from_fn(|mu| local[mu] + 2 * depth);
+        let mut stride = [1; ND];
+        for mu in 1..ND {
+            stride[mu] = stride[mu - 1] * ext[mu - 1];
         }
-        let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
-        let n = lat.num_sites();
-        let table = |dir: Direction| -> Option<Vec<[u32; ND]>> {
-            (0..n)
-                .map(|x| {
-                    let mut row = [0u32; ND];
-                    for (mu, r) in row.iter_mut().enumerate() {
-                        match st.source(x, mu, dir) {
-                            Source::Local { site, .. } => *r = site as u32,
-                            _ => return None,
-                        }
-                    }
-                    Some(row)
-                })
-                .collect()
+        let index = |c: [usize; ND]| (0..ND).map(|mu| c[mu] * stride[mu]).sum::<usize>();
+        let inner: Vec<u32> = (0..lat.num_sites())
+            .map(|x| {
+                let c = lat.coords(x);
+                index(core::array::from_fn(|mu| c[mu] + depth)) as u32
+            })
+            .collect();
+        let mut data = vec![0.0; ext.iter().product::<usize>() * SITE];
+        {
+            // The interior, in parallel over the sites.
+            let slabs: [&[f64]; ND] = core::array::from_fn(|mu| u.slab(mu));
+            let ptr = SyncPtr(data.as_mut_ptr());
+            inner.par_iter().enumerate().for_each(|(x, &e)| {
+                let ptr = &ptr;
+                for (mu, slab) in slabs.iter().enumerate() {
+                    let dst = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            ptr.0.add(e as usize * SITE + mu * LINK),
+                            LINK,
+                        )
+                    };
+                    dst.copy_from_slice(&slab[x * LINK..(x + 1) * LINK]);
+                }
+            });
+        }
+        let mut me = Self {
+            depth,
+            ext,
+            stride,
+            data,
+            inner,
         };
-        Some(Self {
-            fwd: table(Direction::Forward)?,
-            bwd: table(Direction::Backward)?,
-        })
+        if depth > 0 {
+            for mu in 0..ND {
+                me.fill(u, mu);
+            }
+        }
+        me
+    }
+
+    /// The extended indices of the sites with coordinate μ in `range` and, in the other
+    /// directions, the full extent (directions before μ, already filled) or the interior.
+    fn slab(&self, local: [usize; ND], mu: usize, range: std::ops::Range<usize>) -> Vec<usize> {
+        let d = self.depth;
+        let ranges: [std::ops::Range<usize>; ND] = core::array::from_fn(|nu| {
+            if nu == mu {
+                range.clone()
+            } else if nu < mu {
+                0..self.ext[nu]
+            } else {
+                d..d + local[nu]
+            }
+        });
+        let mut out = Vec::new();
+        for t in ranges[3].clone() {
+            for z in ranges[2].clone() {
+                for y in ranges[1].clone() {
+                    for x in ranges[0].clone() {
+                        out.push(
+                            x * self.stride[0]
+                                + y * self.stride[1]
+                                + z * self.stride[2]
+                                + t * self.stride[3],
+                        );
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The halo in direction μ, both sides.
+    fn fill(&mut self, u: &Field<f64, Gauge>, mu: usize) {
+        let lat = u.lattice();
+        let (d, l) = (self.depth, lat.local[mu]);
+        // What the neighbours need from this process: its first and its last d layers.
+        let first = self.slab(lat.local, mu, d..2 * d);
+        let last = self.slab(lat.local, mu, l..l + d);
+        let low = self.slab(lat.local, mu, 0..d);
+        let high = self.slab(lat.local, mu, l + d..l + 2 * d);
+        let copy = |data: &mut Vec<f64>, to: &[usize], from: &[f64]| {
+            for (k, &e) in to.iter().enumerate() {
+                data[e * SITE..(e + 1) * SITE].copy_from_slice(&from[k * SITE..(k + 1) * SITE]);
+            }
+        };
+        let gather = |data: &Vec<f64>, from: &[usize]| -> Vec<f64> {
+            let mut v = Vec::with_capacity(from.len() * SITE);
+            for &e in from {
+                v.extend_from_slice(&data[e * SITE..(e + 1) * SITE]);
+            }
+            v
+        };
+        if lat.grid[mu] == 1 {
+            let (a, b) = (gather(&self.data, &last), gather(&self.data, &first));
+            copy(&mut self.data, &low, &a);
+            copy(&mut self.data, &high, &b);
+            return;
+        }
+        let (fwd, bwd) = (
+            Stencil::leg(mu, Direction::Forward),
+            Stencil::leg(mu, Direction::Backward),
+        );
+        let st = Stencil::nearest(lat, [crate::Boundary::Periodic; ND]);
+        let mut spec = st.halo_spec(SITE);
+        for f in 0..spec.len.len() {
+            spec.len[f] = if f == fwd || f == bwd {
+                first.len() * SITE
+            } else {
+                0
+            };
+        }
+        debug_assert_eq!(opposite_face(fwd), bwd);
+        let mut ex = lat.comm.halo_f64(&spec);
+        // The first layers go to the neighbour behind (its high halo), the last ones to the
+        // neighbour ahead (its low halo).
+        ex.send_buffer(bwd)
+            .copy_from_slice(&gather(&self.data, &first));
+        ex.send_buffer(fwd)
+            .copy_from_slice(&gather(&self.data, &last));
+        ex.start();
+        ex.wait();
+        let (from_ahead, from_behind) =
+            (ex.recv_buffer(fwd).to_vec(), ex.recv_buffer(bwd).to_vec());
+        copy(&mut self.data, &high, &from_ahead);
+        copy(&mut self.data, &low, &from_behind);
+    }
+
+    /// The extended index of local site `x`.
+    #[inline]
+    pub fn at(&self, x: usize) -> usize {
+        self.inner[x] as usize
     }
 
     #[inline]
-    pub fn up(&self, x: usize, mu: usize) -> usize {
-        self.fwd[x][mu] as usize
+    pub fn up(&self, e: usize, mu: usize) -> usize {
+        e + self.stride[mu]
     }
 
     #[inline]
-    pub fn down(&self, x: usize, mu: usize) -> usize {
-        self.bwd[x][mu] as usize
+    pub fn down(&self, e: usize, mu: usize) -> usize {
+        e - self.stride[mu]
     }
 
-    /// The link of a step from `x` and the site it leads to.
+    /// The link U_μ at extended index `e`.
     #[inline]
-    pub fn step(
-        &self,
-        u: &Field<f64, Gauge>,
-        x: usize,
-        (mu, forward): Step,
-    ) -> (ColorMatrix<f64>, usize) {
+    pub fn link(&self, mu: usize, e: usize) -> ColorMatrix<f64> {
+        let o = e * SITE + mu * LINK;
+        ColorMatrix::from_reals(&self.data[o..o + LINK])
+    }
+
+    /// The link of a step from `e` and the index it leads to.
+    #[inline]
+    pub fn step(&self, e: usize, (mu, forward): Step) -> (ColorMatrix<f64>, usize) {
         if forward {
-            (link(u, mu, x), self.up(x, mu))
+            (self.link(mu, e), self.up(e, mu))
         } else {
-            let y = self.down(x, mu);
-            (link(u, mu, y).adj(), y)
+            let y = self.down(e, mu);
+            (self.link(mu, y).adj(), y)
         }
     }
 
-    /// The product of the links along `path` from `x`.
+    /// The product of the links along `path` from extended index `e` (at most `depth` steps
+    /// away from the local sites in every direction).
     #[inline]
-    pub fn walk(&self, u: &Field<f64, Gauge>, x: usize, path: &[Step]) -> ColorMatrix<f64> {
-        let (mut m, mut y) = self.step(u, x, path[0]);
+    pub fn walk(&self, e: usize, path: &[Step]) -> ColorMatrix<f64> {
+        let (mut m, mut y) = self.step(e, path[0]);
         for &s in &path[1..] {
-            let (l, z) = self.step(u, y, s);
+            let (l, z) = self.step(y, s);
             m = m.mul(&l);
             y = z;
         }
         m
+    }
+}
+
+struct SyncPtr(*mut f64);
+unsafe impl Sync for SyncPtr {}
+unsafe impl Send for SyncPtr {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gauge::{link, random_gauge};
+    use crate::{assemble, local_part, Lattice, LocalComm};
+
+    /// Every link of the halo is the link of the neighbouring site, on one process and on
+    /// several, corners included.
+    #[test]
+    fn the_halo_holds_the_neighbours() {
+        let global = [4, 6, 4, 4];
+        let whole = random_gauge(&Lattice::single_node(global), 3);
+        let check = |u: &Field<f64, Gauge>, whole: &Field<f64, Gauge>| {
+            let lat = u.lattice();
+            let ext = Extended::new(u, 2);
+            let wl = whole.lattice();
+            for x in 0..lat.num_sites() {
+                let g = lat.global_coords(x);
+                for off in [
+                    [1, 0, 0, 0],
+                    [0, 2, 0, 0],
+                    [-1, -2, 0, 0],
+                    [2, -1, 1, -2],
+                    [0, 0, -1, 1],
+                ] {
+                    let mut e = ext.at(x);
+                    let mut c = g;
+                    for mu in 0..ND {
+                        let o: i64 = off[mu];
+                        for _ in 0..o.unsigned_abs() {
+                            e = if o > 0 {
+                                ext.up(e, mu)
+                            } else {
+                                ext.down(e, mu)
+                            };
+                        }
+                        c[mu] = ((g[mu] as i64 + o).rem_euclid(global[mu] as i64)) as usize;
+                    }
+                    let site = wl.site(c);
+                    for mu in 0..ND {
+                        assert_eq!(ext.link(mu, e), link(whole, mu, site), "{g:?} + {off:?}");
+                    }
+                }
+            }
+        };
+        check(&whole, &whole);
+        for grid in [[2, 1, 1, 1], [1, 3, 2, 1], [2, 2, 2, 2]] {
+            let parts = LocalComm::run(global, grid, |lat| {
+                let u = local_part(&whole, &lat);
+                check(&u, &whole);
+                u
+            });
+            let back = assemble(whole.lattice(), &parts);
+            assert_eq!(back.as_slice(), whole.as_slice());
+        }
     }
 }
