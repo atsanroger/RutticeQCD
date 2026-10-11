@@ -1,7 +1,7 @@
 //! Neff's form D^(α) = D Q (arXiv:2602.14454) on the even sites, without multigrid.
 //!
 //! ```text
-//! cargo run --release --example mdwf_alpha -- CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne]
+//! cargo run --release --example mdwf_alpha -- CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne|nocgne]
 //! ```
 //!
 //! Q is diagonal in the fifth dimension (Q_0 = P- + α P+, Q_s = α, Q_(Ls-1) = P+ + α P-)
@@ -22,7 +22,8 @@
 //! the worst |D x - b|^2/|b|^2 checked with D itself. The right-preconditioned Ã of the
 //! multigrid runs once for comparison. `plainpv` keeps α = 1 in the Pauli-Villars
 //! operator; `cheb` adds BiCGStab with a Chebyshev polynomial (17 steps, ratio 300; cut off
-//! at 300 iterations: on 12⁴ the polynomial for Ã did not suit Ã_L); `cgne` runs only CGNE.
+//! at 300 iterations: on 12⁴ the polynomial for Ã did not suit Ã_L); `cgne` runs only CGNE,
+//! `nocgne` everything but CGNE.
 
 use ruttice::fermion::{solve_even_odd, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
@@ -37,7 +38,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_alpha CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne]";
+const USAGE: &str =
+    "usage: mdwf_alpha CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne|nocgne]";
 
 type V = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
@@ -187,7 +189,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let plain_pv = args.iter().any(|a| a == "plainpv");
     let with_chebyshev = args.iter().any(|a| a == "cheb");
     let only_cgne = args.iter().any(|a| a == "cgne");
-    args.retain(|a| a != "plainpv" && a != "cheb" && a != "cgne");
+    let no_cgne = args.iter().any(|a| a == "nocgne");
+    args.retain(|a| !["plainpv", "cheb", "cgne", "nocgne"].contains(&a.as_str()));
     if !(4..=6).contains(&args.len()) {
         return Err(USAGE.into());
     }
@@ -394,7 +397,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Even-odd CGNE on S^(α) = S Q_e: its normal equations Q_e S† S Q_e do see α.
-    for &alpha in &alphas {
+    for &alpha in alphas.iter().filter(|_| !no_cgne) {
         let mut op = Mdwf::<f64>::new(&lat, params);
         op.set_gauge(&u)?;
         op.set_alpha(alpha);
