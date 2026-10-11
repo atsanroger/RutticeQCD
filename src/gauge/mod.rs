@@ -6,6 +6,7 @@ use crate::{
 };
 
 mod fixing;
+pub mod paths;
 mod random;
 pub mod smear;
 
