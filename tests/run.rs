@@ -460,3 +460,43 @@ fn a_file_in_the_style_of_bridge_runs_clover_fermions() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The HMC example file: one trajectory of Bridge++'s test_HMC_Domainwall_Nf2_PV, through the
+/// program; also its file is recognised as an HMC file.
+#[test]
+fn the_hmc_example_repeats_bridge() {
+    use ruttice::app::hmc::{is_hmc_file, run_on, HmcConfig};
+    let Some(conf) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let dir = scratch("hmc");
+    std::fs::copy(&conf, dir.join("conf_04040408.txt")).unwrap();
+    let file = dir.join("hmc.yaml");
+    std::fs::write(&file, include_str!("../examples/hmc_domainwall_pv.yaml")).unwrap();
+    assert!(is_hmc_file(&file).unwrap());
+    let config = HmcConfig::load(&file).unwrap();
+    let mut out = Vec::new();
+    let report = run_on(
+        &config,
+        &dir,
+        &mut out,
+        std::sync::Arc::new(ruttice::SingleComm),
+    )
+    .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    eprintln!("{text}");
+    let (n, _, _, plaq) = report.trajectories[0];
+    assert_eq!(n, 200001);
+    assert!(
+        ((plaq - 0.62754640357188) / 0.62754640357188).abs() < 1e-11,
+        "{plaq}"
+    );
+    // "smearing" alone is refused here too.
+    let bad =
+        include_str!("../examples/hmc_domainwall_pv.yaml").replace("gauge_smearing:", "smearing:");
+    assert!(matches!(
+        HmcConfig::from_yaml(&bad),
+        Err(CliError::Invalid(_))
+    ));
+}
