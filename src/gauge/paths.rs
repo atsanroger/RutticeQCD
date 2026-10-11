@@ -124,22 +124,22 @@ impl Extended {
         let last = self.slab(lat.local, mu, l..l + d);
         let low = self.slab(lat.local, mu, 0..d);
         let high = self.slab(lat.local, mu, l + d..l + 2 * d);
-        let copy = |data: &mut Vec<f64>, to: &[usize], from: &[f64]| {
-            for (k, &e) in to.iter().enumerate() {
-                data[e * SITE..(e + 1) * SITE].copy_from_slice(&from[k * SITE..(k + 1) * SITE]);
-            }
-        };
-        let gather = |data: &Vec<f64>, from: &[usize]| -> Vec<f64> {
-            let mut v = Vec::with_capacity(from.len() * SITE);
-            for &e in from {
-                v.extend_from_slice(&data[e * SITE..(e + 1) * SITE]);
-            }
-            v
-        };
+        let ptr = SyncPtr(self.data.as_mut_ptr());
         if lat.grid[mu] == 1 {
-            let (a, b) = (gather(&self.data, &last), gather(&self.data, &first));
-            copy(&mut self.data, &low, &a);
-            copy(&mut self.data, &high, &b);
+            // Periodic copies within this process; sources and destinations do not overlap.
+            low.par_iter()
+                .zip(last.par_iter())
+                .chain(high.par_iter().zip(first.par_iter()))
+                .for_each(|(&to, &from)| {
+                    let ptr = &ptr;
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            ptr.0.add(from * SITE),
+                            ptr.0.add(to * SITE),
+                            SITE,
+                        );
+                    }
+                });
             return;
         }
         let (fwd, bwd) = (
@@ -157,20 +157,28 @@ impl Extended {
         }
         debug_assert_eq!(opposite_face(fwd), bwd);
         let mut ex = lat.comm.halo_f64(&spec);
+        let data = &self.data;
+        let gather = |buf: &mut [f64], from: &[usize]| {
+            buf.par_chunks_mut(SITE)
+                .zip(from.par_iter())
+                .for_each(|(b, &e)| b.copy_from_slice(&data[e * SITE..(e + 1) * SITE]));
+        };
         // The first layers go to the neighbour behind (its high halo), the last ones to the
         // neighbour ahead (its low halo).
-        ex.send_buffer(bwd)
-            .copy_from_slice(&gather(&self.data, &first));
-        ex.send_buffer(fwd)
-            .copy_from_slice(&gather(&self.data, &last));
+        gather(ex.send_buffer(bwd), &first);
+        gather(ex.send_buffer(fwd), &last);
         ex.start();
         ex.wait();
-        let (from_ahead, from_behind) =
-            (ex.recv_buffer(fwd).to_vec(), ex.recv_buffer(bwd).to_vec());
-        copy(&mut self.data, &high, &from_ahead);
-        copy(&mut self.data, &low, &from_behind);
+        for (face, to) in [(fwd, &high), (bwd, &low)] {
+            let buf = ex.recv_buffer(face);
+            buf.par_chunks(SITE).zip(to.par_iter()).for_each(|(b, &e)| {
+                let ptr = &ptr;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(b.as_ptr(), ptr.0.add(e * SITE), SITE);
+                }
+            });
+        }
     }
-
     /// The extended index of local site `x`.
     #[inline]
     pub fn at(&self, x: usize) -> usize {
