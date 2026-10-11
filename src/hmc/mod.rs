@@ -13,7 +13,10 @@
 mod gauge_force;
 mod mseries;
 
-pub use gauge_force::{force_statistics, staples, traceless_antihermitian, PlaquetteAction};
+pub use gauge_force::{
+    force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
+    RectangleAction, Step,
+};
 pub use mseries::Mseries;
 
 use crate::gauge::{plaquette, set_link};
@@ -255,6 +258,62 @@ mod tests {
             "dS/dt {derivative} against −F·X {}",
             -fx
         );
+    }
+
+    /// The rectangle action and force: the plaquette action for c_rect = 0, and its force the
+    /// derivative of the action for Iwasaki's coefficients.
+    #[test]
+    fn rectangle_action_and_force() {
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 11);
+        let plain = RectangleAction {
+            beta: 5.5,
+            c_plaq: 1.0,
+            c_rect: 0.0,
+        };
+        let plaq = PlaquetteAction { beta: 5.5 };
+        assert!((plain.action(&u) - plaq.action(&u)).abs() < 1e-9 * plaq.action(&u));
+        let (a, b) = (plain.force(&u), plaq.force(&u));
+        let d = a
+            .as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+        assert!(d < 1e-12, "{d}");
+        let iwasaki = RectangleAction {
+            beta: 2.3,
+            c_plaq: 3.648,
+            c_rect: -0.331,
+        };
+        let f = iwasaki.force(&u);
+        let x_field = draw_momenta(&lat, &mut Mseries::new(9));
+        for (mu, site) in [(0, 5), (3, 200)] {
+            let x = link(&x_field, mu, site);
+            let s_at = |t: f64| {
+                let mut v = Field::<f64, Gauge>::gauge(&lat);
+                v.as_mut_slice().copy_from_slice(u.as_slice());
+                let (mut e, mut term) = (ColorMatrix::identity(), ColorMatrix::identity());
+                for k in 1..20 {
+                    term = x.mul(&term).scale(t / k as f64);
+                    e = e.add(&term);
+                }
+                set_link(&mut v, mu, site, &e.mul(&link(&u, mu, site)));
+                iwasaki.action(&v)
+            };
+            let h = 1e-5;
+            let derivative = (s_at(h) - s_at(-h)) / (2.0 * h);
+            let fx: f64 = link(&f, mu, site)
+                .0
+                .iter()
+                .flatten()
+                .zip(x.0.iter().flatten())
+                .map(|(a, b)| a.re * b.re + a.im * b.im)
+                .sum();
+            assert!(
+                (derivative + fx).abs() < 1e-6 * fx.abs().max(1.0),
+                "{derivative} {fx}"
+            );
+        }
     }
 
     #[test]
