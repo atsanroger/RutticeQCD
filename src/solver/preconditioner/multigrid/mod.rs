@@ -26,7 +26,7 @@ pub use cycle::{
 pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use pv_eo::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, BootstrapParams, CoarseKrylov, LowModeParams,
-    PvEoBasis, PvEoCycle, PvEoParams,
+    PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
 pub use sap::Sap;
 

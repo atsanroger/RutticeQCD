@@ -25,6 +25,7 @@ use ruttice::measure::{
 };
 use ruttice::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, PvEoBasis, PvEoCycle,
+    SharedOperator,
 };
 use ruttice::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
@@ -247,7 +248,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         memory_line()
     );
 
-    let mut a = PvEvenOdd::new(&op_a, pv_a, form, &like);
+    // With the multigrid the outer solver uses the cycle's own operator: one set of its
+    // work fields for both.
+    let mut a = match &mut pre {
+        Preconditioner::Single(c) => c.operator(),
+        Preconditioner::Double(c) => c.operator(),
+        _ => SharedOperator::new(PvEvenOdd::new(&op_a, pv_a, form, &like)),
+    };
     let fine_flops = 2.0 * (op.flops_per_site() * lat.num_sites()) as f64;
     let stop: Stop = s.stop();
     let k = s.number_of_kept_directions;
