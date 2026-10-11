@@ -287,39 +287,38 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
         dagger: Dagger,
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
-        let MdwfParams { m5, b, c, mass, .. } = self.params;
+        let MdwfParams {
+            ls, m5, b, c, mass, ..
+        } = self.params;
         let height = 4.0 - m5;
+        // B = (4 - M5)(b - c Y) goes into the sweep of the Wilson kernel: on its input for
+        // D_pq = M_pq B, on its output for (D†)_pq = B† M†_pq.
+        let fifth = Fifth {
+            ls,
+            a: height * b,
+            y: -height * c,
+            mass,
+            dagger: dagger == Dagger::Yes,
+        };
         match dagger {
             Dagger::No => {
                 // (D Q)_pq = D_pq Q_q.
-                let q_inp;
-                let inp = if self.has_alpha() {
-                    let mut t = inp.zeros_like();
-                    self.mult_q(&mut t, inp, false);
-                    q_inp = t;
-                    &q_inp
+                if self.has_alpha() {
+                    let q = half_scratch(&mut work.fields, inp);
+                    self.mult_q(q, inp, false);
+                    L::hop_fifth(&self.wilson, &mut work.wilson, out, q, to, dagger, fifth);
                 } else {
-                    inp
-                };
-                let w = half_scratch(&mut work.fields, inp);
-                self.combine(w, &[(inp, height * b, -height * c)], (false, false), mass);
-                L::hop(&self.wilson, &mut work.wilson, out, w, to, dagger);
+                    L::hop_fifth(&self.wilson, &mut work.wilson, out, inp, to, dagger, fifth);
+                }
             }
             Dagger::Yes => {
                 // ((D Q)†)_pq = Q_p (D†)_pq.
-                let v = half_scratch(&mut work.fields, out);
-                L::hop(&self.wilson, &mut work.wilson, v, inp, to, dagger);
                 if self.has_alpha() {
-                    let mut t = out.zeros_like();
-                    self.combine(
-                        &mut t,
-                        &[(&*v, height * b, -height * c)],
-                        (true, false),
-                        mass,
-                    );
-                    self.mult_q(out, &t, false);
+                    let v = half_scratch(&mut work.fields, out);
+                    L::hop_fifth(&self.wilson, &mut work.wilson, v, inp, to, dagger, fifth);
+                    self.mult_q(out, v, false);
                 } else {
-                    self.combine(out, &[(&*v, height * b, -height * c)], (true, false), mass);
+                    L::hop_fifth(&self.wilson, &mut work.wilson, out, inp, to, dagger, fifth);
                 }
             }
         }

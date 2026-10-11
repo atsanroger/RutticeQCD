@@ -81,8 +81,8 @@
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
 use super::{
-    Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, UnitDiag, Variant, Wilson, WilsonLayout,
-    WilsonOp, WilsonParams, WilsonWork,
+    fifth_hop, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag, Variant, Wilson,
+    WilsonLayout, WilsonOp, WilsonParams, WilsonWork,
 };
 use crate::kernel::{
     Cplx, Dirac, GammaRepre, Lane, LaneOf, Number, Spinor as SiteSpinor, NC, NS, SPINOR_REALS,
@@ -115,7 +115,7 @@ impl MdwfParams {
     }
 }
 
-/// Largest fifth dimension: the spinors of a site are gathered on the stack.
+/// Largest fifth dimension.
 pub const MAX_LS: usize = 64;
 
 /// The Möbius domain-wall operator on fields with `ls` spinors per site, in the layout `L`:
@@ -169,6 +169,18 @@ pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
         to: Parity,
         dagger: Dagger,
     );
+    /// The hop with the factor in the fifth dimension in the same sweep
+    /// (`WilsonOp::even_odd_hop_fifth`).
+    #[allow(clippy::too_many_arguments)]
+    fn hop_fifth<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half, Self>,
+        inp: &Field<T, Spinor, Half, Self>,
+        to: Parity,
+        dagger: Dagger,
+        fifth: Fifth,
+    );
 }
 
 impl<T: Storage> MdwfLayout<T> for Aos {
@@ -219,6 +231,17 @@ impl<T: Storage> MdwfLayout<T> for Aos {
         dagger: Dagger,
     ) {
         EvenOdd::hop(w, work, out, inp, to, dagger);
+    }
+    fn hop_fifth<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        to: Parity,
+        dagger: Dagger,
+        fifth: Fifth,
+    ) {
+        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth);
     }
 }
 
@@ -289,6 +312,17 @@ where
         dagger: Dagger,
     ) {
         EvenOdd::hop(w, work, out, inp, to, dagger);
+    }
+    fn hop_fifth<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half, Self>,
+        inp: &Field<T, Spinor, Half, Self>,
+        to: Parity,
+        dagger: Dagger,
+        fifth: Fifth,
+    ) {
+        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth);
     }
 }
 

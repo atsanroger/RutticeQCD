@@ -196,14 +196,14 @@ fn block_spinors<T: Storage, S: Sites, const W: usize>(
     f.slab(0).as_chunks::<W>().0.as_chunks().0
 }
 
-/// Reads spinor `r` of the blocks of an input field, with γ5 applied first if `pre` is set.
-/// A struct with a method, not a closure, so that the read is expanded in place.
+/// Reads spinor `r` of the blocks of an input field, transformed by `pre`. A struct with a
+/// method, not a closure, so that the read is expanded in place.
 struct BlockInput<'a, T: Storage, G: GammaRepre, const W: usize> {
     spinors: &'a [BlockSpinor<T, W>],
     r: usize,
     /// Spinors per site.
     copies: usize,
-    pre: bool,
+    pre: Pre,
     _gamma: PhantomData<G>,
 }
 
@@ -213,12 +213,10 @@ where
 {
     #[inline(always)]
     fn at(&self, block: usize) -> SiteSpinor<LaneType<T, W>> {
-        let psi = load_block_spinor::<T, W>(&self.spinors[block * self.copies + self.r]);
-        if self.pre {
-            G::GAMMA5.apply(&psi)
-        } else {
-            psi
-        }
+        let base = block * self.copies;
+        self.pre.spinor::<LaneType<T, W>, G>(self.r, |k| {
+            load_block_spinor::<T, W>(&self.spinors[base + k])
+        })
     }
 
     /// `h` with the lanes that come from the neighbouring process replaced by what
@@ -354,6 +352,31 @@ where
         &self.params
     }
 
+    /// `even_odd_hop_fifth` for fields in blocks.
+    pub fn even_odd_hop_fifth(
+        &self,
+        work: &mut WilsonWork<T>,
+        out: &mut BlockField<T, Half, W>,
+        inp: &BlockField<T, Half, W>,
+        to: Parity,
+        dagger: Dagger,
+        fifth: Fifth,
+    ) {
+        assert_eq!(out.parity(), to, "output field has the wrong parity");
+        assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
+        assert_eq!(
+            inp.copies() % fifth.ls,
+            0,
+            "the fields hold ls spinors per vector"
+        );
+        let ends = match dagger {
+            Dagger::No => (Pre::Fifth(fifth), Post::Plain),
+            Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
+        };
+        let geo = self.parity_geometry(to);
+        self.block_sweep(work, geo, out, inp, Diagonal::Absent, ends);
+    }
+
     /// The even-odd numbering this operator uses, if the lattice allows one. It numbers
     /// blocks, not sites: it is the one to hand to `solve_even_odd`, `extract_parity` and
     /// `insert_parity` together with fields in blocks.
@@ -473,7 +496,7 @@ where
         work: &'w mut WilsonWork<T>,
         geo: &BlockGeometry<W>,
         inp: &BlockField<T, SI, W>,
-        pre: bool,
+        pre: Pre,
     ) -> Option<&'w mut dyn HaloExchange<T>> {
         let stencil = &geo.stencil;
         if !stencil.has_buffers() {
@@ -516,10 +539,9 @@ where
                     };
                     let o = o.as_chunks_mut::<HALF_SPINOR_REALS>().0;
                     for (r, o) in o.iter_mut().enumerate() {
-                        let mut psi = lane_spinor::<T, W>(&spinors[block * copies + r], lane);
-                        if pre {
-                            psi = G::GAMMA5.apply(&psi);
-                        }
+                        let psi = pre.spinor::<T::Compute, G>(r, |k| {
+                            lane_spinor::<T, W>(&spinors[block * copies + k], lane)
+                        });
                         let h = match &link {
                             Some(link) => {
                                 transport(&G::GAMMA[mu], sign, &psi, link, link_use, phase)
@@ -535,8 +557,8 @@ where
         Some(exchange)
     }
 
-    /// `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`, block by block:
-    /// `sweep` for fields in blocks.
+    /// `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`, block by block: `sweep`
+    /// for fields in blocks.
     fn block_sweep<SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
@@ -544,7 +566,7 @@ where
         out: &mut BlockField<T, SO, W>,
         inp: &BlockField<T, SI, W>,
         diagonal: Diagonal,
-        (pre, post): (bool, bool),
+        (pre, post): (Pre, Post),
     ) {
         let stencil = &geo.stencil;
         assert_eq!(
@@ -567,7 +589,8 @@ where
         let spinors = block_spinors(inp);
         let exchange = self.start_block_exchange(work, geo, inp, pre);
         let (out, block_len) = (out.slab_mut(0), copies * SPINOR_REALS * W);
-        let stream = streams(out, block_len);
+        // A factor over the spinors of a block reads them back: they stay in the cache.
+        let stream = streams(out, block_len) && !matches!(post, Post::Gamma5Fifth(_));
         let fence = || {
             if stream {
                 stream_fence();
@@ -598,7 +621,7 @@ where
                         Diagonal::Absent => SiteSpinor::zero(),
                     };
                     let mut result = diag.sub_scaled(kappa, &hops);
-                    if post {
+                    if post.gamma5_first() {
                         result = G::GAMMA5.apply(&result);
                     }
                     if stream {
@@ -608,6 +631,13 @@ where
                     } else {
                         store_block_spinor::<T, W>(&result, o);
                     }
+                }
+                if let Post::Gamma5Fifth(f) = post {
+                    f.apply_in_place::<LaneType<T, W>, G, BlockSpinor<T, W>>(
+                        o,
+                        |x| load_block_spinor::<T, W>(x),
+                        |p, x| store_block_spinor::<T, W>(p, x),
+                    );
                 }
             };
             match part {
@@ -697,9 +727,9 @@ where
         variant: Variant,
     ) {
         let gamma5 = match variant {
-            Variant::D => (false, false),
-            Variant::Gamma5D => (false, true),
-            Variant::Dagger => (true, true),
+            Variant::D => (Pre::Plain, Post::Plain),
+            Variant::Gamma5D => (Pre::Plain, Post::Gamma5),
+            Variant::Dagger => (Pre::Gamma5, Post::Gamma5),
         };
         self.block_sweep(work, &self.state.full, out, inp, Diagonal::Present, gamma5);
     }
@@ -735,7 +765,7 @@ where
             out,
             inp,
             Diagonal::Absent,
-            (g5, g5),
+            (Pre::gamma5(g5), Post::gamma5(g5)),
         );
     }
 

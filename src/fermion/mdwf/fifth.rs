@@ -61,22 +61,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         dagger: bool,
         mass: f64,
     ) -> SiteSpinor<L::Num> {
-        let number = <L::Num as Number>::from_f64;
-        // The coefficient of the projected neighbour: -1, or +m across the walls.
-        let across = |wall: bool| number(0.5 * if wall { mass } else { -1.0 });
-        // Y takes P- from above and P+ from below; Y† the other way round.
-        let (above, below) = if dagger { (1.0, -1.0) } else { (-1.0, 1.0) };
-        let projected = |from: usize, sign: f64, k: L::Num| {
-            // k (1 + sign γ5) φ
-            let p = phi(from);
-            let both = p.sub_scaled(number(-sign), &G::GAMMA5.apply(&p));
-            SiteSpinor::zero().sub_scaled(-k, &both)
-        };
-        projected((s + 1) % ls, above, across(s == ls - 1)).add(&projected(
-            (s + ls - 1) % ls,
-            below,
-            across(s == 0),
-        ))
+        let (above, below) = (phi((s + 1) % ls), phi((s + ls - 1) % ls));
+        fifth_hop::<L::Num, G>(s, ls, dagger, mass, &above, &below)
     }
 
     /// `out_s = Σ_k a_k x_k,s + Σ_k y_k (Y x_k)_s` for the spinors of every site and vector:
