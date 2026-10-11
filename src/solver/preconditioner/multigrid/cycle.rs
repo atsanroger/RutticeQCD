@@ -1,8 +1,10 @@
-use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap};
+use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
+use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap, SignedMultilevel};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::kernel::Number;
 use crate::solver::{BiCgStab, Fgmres, Solve, Solver, Stop};
 use crate::{Coarse, ConvertFrom, Field, Lattice, LinearFn, Spinor, Storage, Vector, C64, ND};
+use std::cell::{Cell, Ref, RefCell};
 use std::sync::Arc;
 
 /// Parameters of the two-level multigrid preconditioner.
@@ -29,6 +31,9 @@ pub struct MultigridParams {
     pub precondition_coarse_diagonal: bool,
     /// Seed of the random initial test vectors.
     pub seed: u64,
+    /// Levels below the coarse lattice (`Multigrid::add_levels`): the super-block size of
+    /// each, 0 for none.
+    pub levels: [usize; 3],
 }
 
 /// The smoother of the cycle (DESIGN.md §7.6.0).
@@ -70,6 +75,7 @@ impl MultigridParams {
             pre_smoothing: false,
             precondition_coarse_diagonal: false,
             seed: 1,
+            levels: [0; 3],
         }
     }
 }
@@ -154,7 +160,14 @@ pub struct Multigrid<'a, F: HopTerms<Fine<T>>, T: Storage> {
     basis: Basis<T>,
     /// The basis of the restriction when it is not that of the prolongation.
     restriction: Option<Basis<T>>,
-    coarse: CoarseOp<T>,
+    /// Shared by the coarse solver and the levels below, which apply it too.
+    coarse: RefCell<CoarseOp<T>>,
+    /// The test vectors of the last setup round restricted to the coarse lattice, one per
+    /// field: test vectors for levels below it.
+    coarse_tests: Vec<Field<f64, Coarse>>,
+    /// Levels below the coarse lattice, and the inverses of the diagonal blocks of the
+    /// coarse operator they are combined with.
+    levels: Option<(SignedMultilevel, Option<BlockMap>)>,
     parts: CycleParts<'a, T>,
     hooks: SetupHooks<'a, T>,
     scratch: Option<Scratch<T>>,
@@ -213,7 +226,12 @@ where
             ..SetupHooks::default()
         };
         let initial = random_vectors::<T>(lat, 1, params.num_test_vectors, params.seed);
-        Self::with_parts(op, &agg, initial, params.setup_iterations, parts, hooks)
+        let mut mg = Self::with_parts(op, &agg, initial, params.setup_iterations, parts, hooks)?;
+        let levels: Vec<usize> = params.levels.into_iter().take_while(|s| *s > 0).collect();
+        if !levels.is_empty() {
+            mg.add_levels(&levels)?;
+        }
+        Ok(mg)
     }
 
     /// Multigrid from any members and setup hooks. `initial` holds the initial test
@@ -250,7 +268,9 @@ where
             agg: agg.clone(),
             basis,
             restriction,
-            coarse,
+            coarse: RefCell::new(coarse),
+            coarse_tests: Vec::new(),
+            levels: None,
             parts,
             hooks,
             scratch: None,
@@ -259,9 +279,41 @@ where
             let v = mg.test_vectors();
             mg.mult(&mut x, &v);
             mg.basis = basis_after_smoothing(mg.op, &mut mg.work, &mg.agg, &mut mg.hooks, &x)?;
-            mg.coarse = build_coarse(mg.op, &mut mg.work, &mg.basis, None, &mut mg.hooks)?;
+            let coarse = build_coarse(mg.op, &mut mg.work, &mg.basis, None, &mut mg.hooks)?;
+            mg.coarse = RefCell::new(coarse);
         }
+        // The smoothed test vectors on the coarse lattice: P† x, which varies from block to
+        // block with the near-null space (P† of the orthonormalised vectors would not).
+        let mut restricted = mg.basis.coarse_field(x.num_vectors());
+        mg.basis.restrict(&mut restricted, &x);
+        mg.coarse_tests = (0..x.num_vectors())
+            .map(|i| {
+                let one = restricted.select(&[i]);
+                let mut v =
+                    Field::<f64, Coarse>::with_shape(one.lattice(), one.internal_dof(), 1, 1, 1);
+                v.convert_from(&one);
+                v
+            })
+            .collect();
         Ok(mg)
+    }
+
+    /// Add levels below the coarse lattice to the coarse solves: a V-cycle on super-blocks
+    /// of `super_blocks[ℓ]` coarse sites per direction on level ℓ + 2 (the last solved
+    /// exactly), from the test vectors of the setup restricted to the coarse lattice,
+    /// combined multiplicatively with the inverses of the diagonal blocks of the coarse
+    /// operator (`multigrid::levels`). Returns the coarse applications its setup took.
+    pub fn add_levels(&mut self, super_blocks: &[usize]) -> Result<usize, MultigridError> {
+        let coarse = self.coarse.get_mut();
+        let blocks = if coarse.is_diagonal_preconditioned() {
+            None
+        } else {
+            Some(BlockMap::inverse_diagonal(coarse)?)
+        };
+        let levels = SignedMultilevel::build(coarse, &self.coarse_tests, super_blocks)?;
+        let applications = levels.setup_applications;
+        self.levels = Some((levels, blocks));
+        Ok(applications)
     }
 }
 
@@ -270,8 +322,8 @@ impl<F: HopTerms<Fine<T>>, T: Storage> Multigrid<'_, F, T> {
         &self.basis
     }
 
-    pub fn coarse_operator(&self) -> &CoarseOp<T> {
-        &self.coarse
+    pub fn coarse_operator(&self) -> Ref<'_, CoarseOp<T>> {
+        self.coarse.borrow()
     }
 
     /// The current test vectors, orthonormalised on every aggregate, as one fine field:
@@ -420,17 +472,38 @@ impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T>
             .as_ref()
             .unwrap_or(&self.basis)
             .restrict(coarse_r, r);
-        let rhs = if self.coarse.is_diagonal_preconditioned() {
-            self.coarse.apply_diagonal_inverse(coarse_rhs, coarse_r);
+        let rhs = if self.coarse.borrow().is_diagonal_preconditioned() {
+            self.coarse
+                .borrow()
+                .apply_diagonal_inverse(coarse_rhs, coarse_r);
             &*coarse_rhs
         } else {
             &*coarse_r
         };
         coarse_e.set_zero();
         // An inexact coarse solve is expected; whatever it reached is used.
-        let _ = parts
-            .coarse_solver
-            .solve(&mut self.coarse, None, coarse_e, rhs);
+        let _ = match self.levels.as_mut() {
+            None => parts
+                .coarse_solver
+                .solve(self.coarse.get_mut(), None, coarse_e, rhs),
+            Some((levels, blocks)) => {
+                let n = Cell::new(0);
+                parts.coarse_solver.solve(
+                    &mut CountedShared {
+                        a: &self.coarse,
+                        n: &n,
+                    },
+                    Some(&mut LevelsAndBlocks {
+                        blocks: blocks.as_mut(),
+                        levels: Some(levels),
+                        a: &self.coarse,
+                        n: &n,
+                    }),
+                    coarse_e,
+                    rhs,
+                )
+            }
+        };
         self.basis.prolong(e, coarse_e);
         x.axpy(&one, e);
 

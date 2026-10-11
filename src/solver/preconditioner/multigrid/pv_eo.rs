@@ -33,6 +33,7 @@
 //! as its Γ5-adjoint, by MINRES on H = Γ5 (P†D_PV P)† with the block |H_xx|⁻¹. The cycle:
 //! y = S b, y += e(b − Ã y), y += S(b − Ã y), S a Chebyshev polynomial in the operator.
 
+use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
 use super::{
     Aggregation, Basis, BasisBuilder, CoarseOp, MultigridError, Reflection, SignedMultilevel,
 };
@@ -40,8 +41,8 @@ use crate::fermion::{
     Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, MdwfLayout, PvEvenOdd,
     Variant,
 };
-use crate::kernel::{Dirac, GammaRepre, LaneOf, Number, Real};
-use crate::numerics::{hermitian_eigen, invert_complex};
+use crate::kernel::{Dirac, GammaRepre, LaneOf};
+use crate::numerics::hermitian_eigen;
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
     extract_parity, insert_parity, random_spinor, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex,
@@ -154,105 +155,6 @@ pub fn pv_eo_coarse_vectors<G: GammaRepre>(
         .collect()
 }
 
-/// Dense matrices on the coarse sites, applied site by site.
-struct BlockMap {
-    dim: usize,
-    /// Per coarse site, row-major.
-    blocks: Vec<Vec<C64>>,
-}
-
-impl BlockMap {
-    /// The exact inverses of the diagonal blocks of `a`.
-    fn inverse_diagonal(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
-        let dim = a.dim();
-        let blocks = (0..a.lattice().num_sites())
-            .map(|x| {
-                let mut m: Vec<f64> = a
-                    .diagonal_block(x)
-                    .iter()
-                    .flat_map(|z| [z.re, z.im])
-                    .collect();
-                let mut inv = vec![0.0; 2 * dim * dim];
-                invert_complex(dim, &mut m, &mut inv)
-                    .map_err(|_| MultigridError::SingularCoarseDiagonal { coarse_site: x })?;
-                Ok(inv
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|z| C64::new(z[0], z[1]))
-                    .collect())
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(Self { dim, blocks })
-    }
-
-    /// The inverses of the diagonal blocks of the exact adjoint of `a`: (A_xx†)⁻¹ = (A_xx⁻¹)†.
-    fn inverse_diagonal_adjoint(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
-        let mut m = Self::inverse_diagonal(a)?;
-        let dim = m.dim;
-        for b in m.blocks.iter_mut() {
-            *b = (0..dim * dim)
-                .map(|ik| b[(ik % dim) * dim + ik / dim].conj())
-                .collect();
-        }
-        Ok(m)
-    }
-
-    /// |H_xx|⁻¹ = V |Λ|⁻¹ V† for H = Γ5 (Γ5 A Γ5) = A Γ5, the operator MINRES works on
-    /// when `a` holds P†D_PV P and is applied as its Γ5-adjoint (Γ5 = +1 on the first half
-    /// of the components). Hermitian positive definite, as MINRES needs of a preconditioner.
-    fn abs_inverse_of_a_gamma5(a: &CoarseOp<f64>) -> Self {
-        let dim = a.dim();
-        let blocks = (0..a.lattice().num_sites())
-            .map(|x| {
-                let mut h = a.diagonal_block(x);
-                for row in 0..dim {
-                    for col in dim / 2..dim {
-                        h[row * dim + col] = -h[row * dim + col];
-                    }
-                }
-                let (lam, v) = hermitian_eigen(dim, &h);
-                let mut m = vec![C64::ZERO; dim * dim];
-                for i in 0..dim {
-                    for k in 0..dim {
-                        let mut z = C64::ZERO;
-                        for (j, l) in lam.iter().enumerate() {
-                            z += v[i * dim + j].scale(1.0 / l.abs().max(1e-300))
-                                * v[k * dim + j].conj();
-                        }
-                        m[i * dim + k] = z;
-                    }
-                }
-                m
-            })
-            .collect();
-        Self { dim, blocks }
-    }
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for BlockMap {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        let dim = self.dim;
-        let site_len = inp.site_len();
-        crate::for_sites(out.slab_mut(0), site_len, |x, dst| {
-            let m = &self.blocks[x];
-            let src = inp.site(0, x);
-            for (dst, src) in dst.chunks_exact_mut(2 * dim).zip(src.chunks_exact(2 * dim)) {
-                for i in 0..dim {
-                    let mut z = C64::ZERO;
-                    for k in 0..dim {
-                        let v =
-                            C64::new(src[2 * k].load().to_f64(), src[2 * k + 1].load().to_f64());
-                        z += m[i * dim + k] * v;
-                    }
-                    dst[2 * i] = T::store(Number::from_f64(z.re));
-                    dst[2 * i + 1] = T::store(Number::from_f64(z.im));
-                }
-            }
-        });
-    }
-}
-
 /// Γ5 on a coarse field: −1 on the second half of the components.
 fn coarse_gamma5<T: Storage>(v: &mut Field<T, Coarse>) {
     let dim = v.internal_dof() / 2;
@@ -323,47 +225,6 @@ fn coarse_solve<T: Storage>(
         CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, Some(m), x, b),
         CoarseKrylov::Minres => Minres::new(stop).solve(a, Some(m), x, b),
     };
-}
-
-/// The quark factor, shared between its solver and its preconditioner.
-struct CountedShared<'a, T: Storage> {
-    a: &'a RefCell<CoarseOp<T>>,
-    n: &'a Cell<usize>,
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedShared<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        self.n.set(self.n.get() + inp.num_vectors());
-        self.a.borrow_mut().mult(out, inp);
-    }
-}
-
-/// The preconditioner of the quark factor: the inverses of its diagonal blocks B, or with
-/// levels below the coarse lattice multiplicatively z₁ = Q M Q† r, z = z₁ + B⁻¹ (r − A z₁)
-/// (one more application of A, counted); an additive combination made BiCGStab worse.
-struct LevelsAndBlocks<'a, T: Storage> {
-    blocks: &'a mut BlockMap,
-    levels: Option<&'a SignedMultilevel>,
-    a: &'a RefCell<CoarseOp<T>>,
-    n: &'a Cell<usize>,
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for LevelsAndBlocks<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        let Some(levels) = self.levels else {
-            self.blocks.mult(out, inp);
-            return;
-        };
-        let nv = inp.num_vectors();
-        let mut z1 = inp.zeros_like();
-        levels.apply(&mut z1, inp);
-        let mut r = inp.zeros_like();
-        self.a.borrow_mut().mult(&mut r, &z1);
-        self.n.set(self.n.get() + nv);
-        r.aypx(&vec![C64::new(-1.0, 0.0); nv], inp);
-        self.blocks.mult(out, &r);
-        out.axpy(&vec![C64::new(1.0, 0.0); nv], &z1);
-    }
 }
 
 /// Settings of the cycle.
@@ -820,7 +681,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
                 n,
             },
             &mut LevelsAndBlocks {
-                blocks: &mut self.blocks_d,
+                blocks: Some(&mut self.blocks_d),
                 levels: self.levels_d.as_ref(),
                 a: &self.coarse_d,
                 n,

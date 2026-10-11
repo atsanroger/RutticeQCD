@@ -1030,10 +1030,28 @@ impl Params {
                     "MultiGrid.MultiGrid_Level1.Coarse_Solver_PV is for domain-wall fermions; not used for {name}"
                 ));
             }
-            if !mg.super_blocks().is_empty() {
+            if mg.level4.is_some() {
                 return Err(invalid(format!(
-                    "MultiGrid: levels below the coarse lattice (MultiGrid_Level2 ...) are not implemented for {name} fermions yet"
+                    "MultiGrid.MultiGrid_Level4: {name} fermions take levels down to MultiGrid_Level3"
                 )));
+            }
+            if mg.level3.is_some() && mg.level2.is_none() {
+                return Err(invalid(
+                    "MultiGrid: MultiGrid_Level3 needs MultiGrid_Level2".into(),
+                ));
+            }
+            let mut ext: Vec<usize> = (0..ND)
+                .map(|mu| self.main.lattice_size[mu] / mg.level1.block_size[mu].max(1))
+                .collect();
+            for (k, sb) in mg.super_blocks().into_iter().enumerate() {
+                if sb == 0 || ext.iter().any(|e| e % sb != 0) {
+                    return Err(invalid(format!(
+                        "MultiGrid.MultiGrid_Level{}: super_block_size {sb} does not divide the extent {ext:?} of level {}",
+                        k + 2,
+                        k + 1
+                    )));
+                }
+                ext.iter_mut().for_each(|e| *e /= sb);
             }
         }
         Ok(())
@@ -1092,6 +1110,8 @@ impl Params {
                         PrecisionType::Double => Precision::Double,
                     },
                     seed: mg.setup.seed,
+                    level2_super_block: mg.level2.map(|l| l.super_block_size),
+                    level3_super_block: mg.level3.map(|l| l.super_block_size),
                 }
             });
         let src = self.source.expect("checked");
