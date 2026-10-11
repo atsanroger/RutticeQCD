@@ -6,6 +6,50 @@
 歷史部分有兩處不按日期：「Boyle, Lattice 2026 投影片」一節（2026-10-10 讀）後半夾著 2026-10-09 的全格子因子化結果；
 最後一節「給在 `main` 上工作的 session」是 2026-10-09 的分工。日期索引見本節末。
 
+### 0.0 2026-10-11 夜～10-12：三種費米子的功能補齊、資料夾拆分（使用者睡覺時的任務）
+
+使用者交代：「把 Wilson/clover/mdwf 的功能完整，完整之後把資料夾拆分完整」，32⁴ 除外、GPU 不急。commit 依序：
+
+| commit | 內容 |
+|---|---|
+| `c750f6e` | MDWF MG：粗網格下的多層帶號 V-cycle（`levels.rs`、`MultiGrid_Level2..4`）；MG 多 process；`Mdwf` 對排列泛型（`Aosoa<W>`，`Mdwf::in_blocks`）；`PvEoCycle` 外層／smoother 可在區塊排列；`Main.backend: simd` |
+| `28e0e82` | Wilson/clover MG：even-odd（`OnParity`：(M⁻¹)_ee = S⁻¹）、多 process、SIMD（MG 在一般排列，`Convert` 轉換） |
+| `823a0ce` | `src/fermion` 拆成 `wilson/`（mod、sites、blocks）、`clover/`（mod、diag）、`mdwf/`（mod、fifth、full、even_odd、measure），只搬不改 |
+| `c66941b` `3ead7b9` | 一種 Bridge++ 風格參數檔給所有費米子：`Params` 讀 Wilson/clover（`hopping_parameter`、`clover_coefficient`、`Even_odd`/`Full`、SAP/GMRES smoother），`ruttice FILE` 兩種格式都跑；MDWF 的執行流程移到 `app::mdwf` |
+| `3d3a2d5` | MDWF 執行流程多 process（`ruttice-mpi` 可跑 DWF 參數檔） |
+| `17d63f4` | Wilson/clover MG 也有粗網格下的多層（`MultiGrid_Level2/3`），測試向量 = setup 最後一輪平滑後向量的 P†x |
+| `789c3d2` | 第五維去掉每格點 64 個 spinor 的緩衝；`examples/mdwf_layout_bench` |
+
+**驗證（全部是測試）**：多 process（LocalComm，2/4/8 rank）——MDWF 粗網格算子與精確伴隨和單 process 逐位元相同、cycle 與解差 1e-12；
+clover MG 的 cycle 與解差 1e-14、迭代數相同；DWF 參數檔在 1/2/4 rank 印出的 C_PS 差 1e-15。SIMD——`Mdwf` 在 W = 2/4/8 的 D、D†、Γ5D（有無 α）、
+Ã 兩種形式與一般排列差 < 1e-12，GCR 同 67 步；MG cycle 在區塊排列與一般排列同 8 步。`ruttice` 跑 Bridge++ DWF 測試檔：C_PS(0) = 0.4342049393778643（Bridge++ 0.434204939377926）。
+clover MG 在偶格點（`OnParity`）：FGMRES 135 → 14（全格子 MG 14）。
+
+**粗網格下的層，16⁴（β = 6.0，m = 0.005，bootstrap 2 輪，GCR(2)，每組 2 個右手邊；cycle / Ã / 每右手邊粗網格作用 / 解時間）**：
+
+| | seed 91 | seed 92 |
+|---|---|---|
+| 無 | 28 / 310 / 2589 / 102 s | 28 / 310 / 2579 / 100 s |
+| **`[2]`（16 個 2⁴ 超區塊、1024 維稠密）** | **27 / 299 / 1522 / 89 s** | **28 / 310 / 1603 / 92 s** |
+| `[2, 2]`（→ 1 × 64 稠密） | 28 / 310 / 2246 /（140 s，與編譯搶 CPU，不準） | 28 / 310 / 2277 |
+
+`[2]` 省 40% 粗網格作用、解快 12%，setup 多 31 s；`[2, 2]` 只省 12%（原型 `sm:2,2` 1615 對 `sm:2` 1504，src 的退化較大，原因未查）。
+src 的基準 2589 比原型的 2047 多：src 用 bootstrap 基底、原型的數字是 checkpoint＋另一組參數，不直接可比。
+
+**SIMD 在這台機器沒有加速**（12⁴，Ls = 8，cpu／simd 4／simd 8：每右手邊 38 s，6.1 GFlop/s 左右，全部相同）。`mdwf_layout_bench`（ms／次，一個向量）：
+
+| 排列 | Wilson hop | D hop | C | C⁻¹ | Ã |
+|---|---|---|---|---|---|
+| sites | 4.42 | 7.13 | 2.00 | 2.02 | 55.2 |
+| blocks 2 | 3.96 | 6.85 | 2.17 | 2.22 | 53.9 |
+| blocks 4 | 4.23 | 7.49 | 2.38 | 2.55 | 53.2 |
+| blocks 8 | 4.54 | 7.66 | 2.55 | 2.50 | 55.0 |
+
+每個 kernel 都被記憶體頻寬限制（12⁴/2 × Ls 8 的一次 hop 搬約 32 MB），SIMD 省的指令數看不出來。**要快得靠少搬資料**：
+把 b − cY 併進 Wilson kernel 的輸入（每次 D hop 少讀寫一個 5D 場，約 1/3 的流量）、Schur 因子的 aypx 併入最後一步；SIMD 的效果要在目標機器（頻寬／核心比不同）上量。
+
+**還沒做**：GPU（使用者：不急）；Wilson/clover MG 的 bootstrap 仍是 Bridge++ 的反迭代（setup_iterations）；kernel 融合；`[2, 2]` 為何比原型差。
+
 ### 0.1 記號
 
 - **D**：Möbius DWF（b = 1.5、c = 0.5，Bridge++ 的正規化，`src/fermion/mdwf/`）；**D_PV**：同一個算子、m = 1。
