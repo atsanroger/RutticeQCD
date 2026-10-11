@@ -18,8 +18,10 @@
 //! Written from the formulas of the paper and the structure of the Bridge++ code.
 
 use super::link;
+use super::paths::Neighbors;
 use crate::kernel::{ColorMatrix, Cplx};
 use crate::{for_sites, shift, Boundary, Direction, Field, Gauge, Stencil, ND};
+use rayon::prelude::*;
 
 /// ρ_μν: the weight of the staples in the μν plane in the new U_μ (ρ_μμ is used by APE only).
 pub type Weights = [[f64; ND]; ND];
@@ -131,6 +133,25 @@ fn shifted(f: &Field<f64, Gauge>, st: &Stencil, mu: usize, dir: Direction) -> Fi
 /// plaquettes through U_μ. Periodic boundary conditions.
 pub fn weighted_staples(u: &Field<f64, Gauge>, rho: &Weights) -> Field<f64, Gauge> {
     let lat = u.lattice();
+    if let Some(nb) = Neighbors::new(lat) {
+        let mut sum = Field::<f64, Gauge>::gauge(lat);
+        for mu in 0..ND {
+            for_sites(sum.slab_mut(mu), 18, |x, out| {
+                let mut c = ColorMatrix::zero();
+                for nu in (0..ND).filter(|nu| *nu != mu) {
+                    let r = rho[mu][nu];
+                    if r == 0.0 {
+                        continue;
+                    }
+                    let upper = nb.walk(u, x, &[(nu, true), (mu, true), (nu, false)]);
+                    let lower = nb.walk(u, x, &[(nu, false), (mu, true), (nu, true)]);
+                    c = c.add(&upper.add(&lower).scale(r));
+                }
+                c.write_reals(out);
+            });
+        }
+        return sum;
+    }
     let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
     // u at x + mu for every mu.
     let up: [Field<f64, Gauge>; ND] =
@@ -394,8 +415,8 @@ impl Stout {
             let t = itheta.slab_mut(mu);
             s.as_chunks_mut::<18>()
                 .0
-                .iter_mut()
-                .zip(t.as_chunks_mut::<18>().0.iter_mut())
+                .par_iter_mut()
+                .zip(t.as_chunks_mut::<18>().0.par_iter_mut())
                 .enumerate()
                 .for_each(|(x, (s, t))| {
                     let (cx, ux, sx) = (link(&c, mu, x), link(u, mu, x), link(sigma_prime, mu, x));
@@ -406,6 +427,38 @@ impl Stout {
                 });
         }
         // The terms from the links whose staples contain U_μ(x).
+        if let Some(nb) = Neighbors::new(lat) {
+            let th = &itheta;
+            for mu in 0..ND {
+                for_sites(sigma.slab_mut(mu), 18, |x, out| {
+                    let mut acc = ColorMatrix::from_reals(out);
+                    for nu in (0..ND).filter(|nu| *nu != mu) {
+                        let r = self.rho[mu][nu];
+                        if r == 0.0 {
+                            continue;
+                        }
+                        let (xm, xn, y) = (nb.up(x, mu), nb.up(x, nu), nb.down(x, nu));
+                        let ym = nb.up(y, mu);
+                        let vnu_xm = link(u, nu, xm);
+                        let vmu_xn_d = link(u, mu, xn).adj();
+                        let vnu_d = link(u, nu, x).adj();
+                        let vnu_ym_d = link(u, nu, ym).adj();
+                        let (vmu_y_d, vnu_y) = (link(u, mu, y).adj(), link(u, nu, y));
+                        let each = vnu_xm
+                            .mul(&vmu_xn_d)
+                            .mul(&link(th, nu, x).adj())
+                            .add(&vnu_ym_d.mul(&link(th, mu, y).adj()).mul(&vnu_y))
+                            .add(&vnu_ym_d.mul(&vmu_y_d).mul(&link(th, nu, y)))
+                            .add(&link(th, nu, ym).adj().mul(&vmu_y_d).mul(&vnu_y))
+                            .add(&link(th, nu, xm).mul(&vmu_xn_d).mul(&vnu_d))
+                            .add(&vnu_xm.mul(&link(th, mu, xn).adj()).mul(&vnu_d));
+                        acc = acc.add(&each.scale(r));
+                    }
+                    acc.write_reals(out);
+                });
+            }
+            return sigma;
+        }
         let up: [Field<f64, Gauge>; ND] =
             core::array::from_fn(|d| shifted(u, &st, d, Direction::Forward));
         let tup: [Field<f64, Gauge>; ND] =
@@ -487,18 +540,21 @@ impl Ape {
         let mut g = vec![ColorMatrix::identity(); a.len()];
         let total = (3 * lat.num_global_sites()) as f64;
         for _ in 0..self.max_iterations {
-            let mut retr = 0.0;
-            for (ax, gx) in a.iter_mut().zip(g.iter_mut()) {
-                let mut delta = ColorMatrix::identity();
-                for i1 in 0..3 {
-                    let i2 = (i1 + 1) % 3;
-                    let v = su2_max(ax, i1, i2);
-                    *ax = ax.mul(&v);
-                    *gx = gx.mul(&v);
-                    delta = delta.mul(&v);
-                }
-                retr += delta.trace().re;
-            }
+            let retr: f64 = a
+                .par_iter_mut()
+                .zip(g.par_iter_mut())
+                .map(|(ax, gx)| {
+                    let mut delta = ColorMatrix::identity();
+                    for i1 in 0..3 {
+                        let i2 = (i1 + 1) % 3;
+                        let v = su2_max(ax, i1, i2);
+                        *ax = ax.mul(&v);
+                        *gx = gx.mul(&v);
+                        delta = delta.mul(&v);
+                    }
+                    delta.trace().re
+                })
+                .sum();
             let mut sum = [retr];
             lat.comm.sum(&mut sum);
             if 1.0 - sum[0] / total < self.tolerance {
