@@ -1454,8 +1454,15 @@ fn bridge_spectrum_domainwall_pion_and_residual_mass() {
         assert!((j1[t] - j2[t]).abs() < 1e-8 * j1[t] + 1e-20, "C_J5q({t})");
     }
     eprintln!(
-        "Möbius b = 1.5, c = 0.5: C_PS(0) = {:.10e}, m_res(4) = {:.4e}, the same with α = 0.6",
+        "Möbius b = 1.5, c = 0.5: C_PS(0) = {:.13}, Bridge++ = {BRIDGE_MOBIUS_PION_T0:.13}; m_res(4) = {:.4e}, the same with α = 0.6",
         p1[0],
         j1[4] / p1[4]
     );
+    let relative = (p1[0] - BRIDGE_MOBIUS_PION_T0).abs() / BRIDGE_MOBIUS_PION_T0;
+    assert!(relative < 1e-10, "Möbius: relative difference {relative:e}");
 }
+
+/// The same with Möbius coefficients b = 1.5, c = 0.5 (the 5D source then carries
+/// D₋ = 1 - c W): C_PS(0) from Bridge++ 2.0.0 `sample_Spectrum` (Fopr_Domainwall, CGNR to
+/// 1e-28, no smearing) on conf_04040408.txt.
+const BRIDGE_MOBIUS_PION_T0: f64 = 0.4350524283957;
