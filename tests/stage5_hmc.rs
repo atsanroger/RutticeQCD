@@ -117,3 +117,87 @@ fn bridge_test_quenched_leapfrog() {
         t.plaquette
     );
 }
+
+/// The tests of Bridge++'s `HMC_General` on conf_04040408 (4³ × 8): the rectangle (Iwasaki)
+/// gauge action at β = 2.3, one level of leapfrog with 5 steps over a trajectory of 0.1,
+/// exp(iP) to order 8, the M-series numbers of trajectory 200000; the plaquette after one
+/// trajectory against `expected_result` of its parameter file.
+fn bridge_general(expected: f64, fermions: Option<Option<ruttice::gauge::GaugeSmearing>>) {
+    use ruttice::fermion::{Wilson, WilsonParams};
+    use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavor};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut terms: Vec<Term> = Vec::new();
+    if let Some(smearing) = fermions {
+        let params = WilsonParams {
+            kappa: 0.12,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-28,
+            max_iterations: 1000,
+            max_restarts: 40,
+        };
+        terms.push(Term {
+            level: 0,
+            action: Box::new(TwoFlavor::new(
+                Wilson::<f64>::new(&lat, params),
+                smearing,
+                stop,
+                stop,
+            )),
+        });
+    }
+    terms.push(Term {
+        level: 0,
+        action: Box::new(gauge),
+    });
+    let mut hmc = Hmc::new(terms, Scheme::Leapfrog, vec![5], 8, 0.1);
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}");
+    assert!(
+        (t.plaquette - expected).abs() < 1e-12,
+        "plaquette {:.15} against {expected}",
+        t.plaquette
+    );
+}
+
+/// `test_HMC_Quenched`.
+#[test]
+fn bridge_test_quenched_rectangle() {
+    bridge_general(0.627477459735022, None);
+}
+
+/// `test_HMC_Wilson_Nf2`: two flavours of Wilson fermions (κ = 0.12, antiperiodic in time,
+/// Dirac γ matrices) on links smeared once by stout smearing with ρ = 0.1.
+#[test]
+fn bridge_test_wilson_nf2_stout() {
+    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    bridge_general(
+        0.62763964820533,
+        Some(Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        })),
+    );
+}

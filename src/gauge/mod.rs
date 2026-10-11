@@ -7,11 +7,13 @@ use crate::{
 
 mod fixing;
 mod random;
+pub mod smear;
 
 pub use fixing::{
     coulomb_violation, fix_coulomb, gauge_transform, CoulombParams, GaugeFixError, GaugeFixReport,
 };
 pub use random::{random_gauge, random_su3};
+pub use smear::{weighted_staples, GaugeSmearing, Smear};
 
 /// The link U_mu(site), converted to the compute type.
 #[inline]

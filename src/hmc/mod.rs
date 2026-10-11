@@ -8,15 +8,21 @@
 //! Taylor series to order `exp_order`, then made unitary again row by row; and the Metropolis
 //! test with the next number of the same generator.
 //!
-//! So far: the plaquette gauge action (quenched HMC).
+//! Actions: the plaquette and rectangle (Iwasaki, DBW2, …) gauge actions; two flavours of
+//! Wilson-type fermions, on links that may be stout smeared (ermion). Several time scales
+//! with leapfrog or Omelyan (integrator).
 
+mod fermion;
 mod gauge_force;
+mod integrator;
 mod mseries;
 
+pub use fermion::{force_from, hop_derivative, smeared_force, TwoFlavor};
 pub use gauge_force::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
     RectangleAction, Step,
 };
+pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
 pub use mseries::Mseries;
 
 use crate::gauge::{plaquette, set_link};
@@ -82,6 +88,23 @@ pub fn reunitarize(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
     ColorMatrix([r0, r1, r2])
 }
 
+/// U ← exp(ε iP) U: u ← U + ε/(n − k) iP u for k = 0 … n − 1 (the Taylor series to order n,
+/// nested), then made unitary again (Bridge++'s `mult_exp_Field_G`).
+pub fn exp_update(eps: f64, p: &Field<f64, Gauge>, u: &mut Field<f64, Gauge>, n: usize) {
+    for mu in 0..ND {
+        let pm = p.slab(mu);
+        for_sites(u.slab_mut(mu), 18, |x, out| {
+            let u0 = ColorMatrix::from_reals(out);
+            let h = ColorMatrix::from_reals(&pm[18 * x..18 * (x + 1)]);
+            let mut u1 = u0;
+            for k in 0..n {
+                u1 = h.mul(&u1).scale(eps / (n - k) as f64).add(&u0);
+            }
+            reunitarize(&u1).write_reals(out);
+        });
+    }
+}
+
 /// The leapfrog integrator with the gauge field updated by exp(ε iP) to order `exp_order`.
 #[derive(Clone, Copy, Debug)]
 pub struct Leapfrog {
@@ -95,19 +118,7 @@ impl Leapfrog {
     /// U ← exp(ε iP) U: u ← U + ε/(n − k) iP u for k = 0 … n − 1 (the Taylor series to order
     /// n, nested), then made unitary again.
     pub fn update_u(&self, eps: f64, p: &Field<f64, Gauge>, u: &mut Field<f64, Gauge>) {
-        let n = self.exp_order;
-        for mu in 0..ND {
-            let pm = p.slab(mu);
-            for_sites(u.slab_mut(mu), 18, |x, out| {
-                let u0 = ColorMatrix::from_reals(out);
-                let h = ColorMatrix::from_reals(&pm[18 * x..18 * (x + 1)]);
-                let mut u1 = u0;
-                for k in 0..n {
-                    u1 = h.mul(&u1).scale(eps / (n - k) as f64).add(&u0);
-                }
-                reunitarize(&u1).write_reals(out);
-            });
-        }
+        exp_update(eps, p, u, self.exp_order);
     }
 
     /// P ← P + ε F(U).
@@ -312,6 +323,130 @@ mod tests {
             assert!(
                 (derivative + fx).abs() < 1e-6 * fx.abs().max(1.0),
                 "{derivative} {fx}"
+            );
+        }
+    }
+
+    /// d/dt S(e^(tX) U) at t = 0 by a central difference, and −F·X: they must agree.
+    fn check_force(
+        u: &Field<f64, Gauge>,
+        f: &Field<f64, Gauge>,
+        links: &[(usize, usize)],
+        mut s: impl FnMut(&Field<f64, Gauge>) -> f64,
+        tol: f64,
+    ) {
+        let lat = u.lattice().clone();
+        let x_field = draw_momenta(&lat, &mut Mseries::new(21));
+        for &(mu, site) in links {
+            let x = link(&x_field, mu, site);
+            let mut s_at = |t: f64| {
+                let mut v = Field::<f64, Gauge>::gauge(&lat);
+                v.as_mut_slice().copy_from_slice(u.as_slice());
+                let (mut e, mut term) = (ColorMatrix::identity(), ColorMatrix::identity());
+                for k in 1..20 {
+                    term = x.mul(&term).scale(t / k as f64);
+                    e = e.add(&term);
+                }
+                set_link(&mut v, mu, site, &e.mul(&link(u, mu, site)));
+                s(&v)
+            };
+            // Fourth order in h; a larger h keeps the rounding of S (a solve for the fermions)
+            // small against the difference.
+            let h = 1e-3;
+            let derivative =
+                (8.0 * (s_at(h) - s_at(-h)) - (s_at(2.0 * h) - s_at(-2.0 * h))) / (12.0 * h);
+            let fx: f64 = link(f, mu, site)
+                .0
+                .iter()
+                .flatten()
+                .zip(x.0.iter().flatten())
+                .map(|(a, b)| a.re * b.re + a.im * b.im)
+                .sum();
+            assert!(
+                (derivative + fx).abs() < tol * fx.abs().max(1.0),
+                "link ({mu}, {site}): dS/dt {derivative} against −F·X {}",
+                -fx
+            );
+        }
+    }
+
+    /// The chain rule of stout smearing: the plaquette action of the links smeared twice,
+    /// differentiated with respect to the links before smearing.
+    #[test]
+    fn stout_chain_rule_is_the_derivative() {
+        use crate::gauge::smear::{spatial, Stout};
+        use crate::gauge::{GaugeSmearing, Smear};
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 13);
+        let action = PlaquetteAction { beta: 5.0 };
+        for rho in [crate::gauge::smear::uniform(0.1), spatial(0.15)] {
+            let smearing = GaugeSmearing {
+                smear: Smear::Stout(Stout { rho }),
+                steps: 2,
+            };
+            let levels = smearing.levels(&u);
+            let v = levels.last().unwrap();
+            // dS = Re tr X M for δV = X V: M = −(β/3) V Σ(V)†.
+            let sigma = staples(v);
+            let mut m = Field::<f64, Gauge>::gauge(&lat);
+            for mu in 0..ND {
+                for_sites(m.slab_mut(mu), 18, |x, out| {
+                    link(v, mu, x)
+                        .mul(&link(&sigma, mu, x).adj())
+                        .scale(-action.beta / 3.0)
+                        .write_reals(out);
+                });
+            }
+            let f = smeared_force(&m, &u, Some(&smearing), &levels);
+            check_force(
+                &u,
+                &f,
+                &[(0, 3), (2, 100), (3, 255)],
+                |w| action.action(&smearing.apply(w)),
+                1e-7,
+            );
+        }
+    }
+
+    /// The force of two flavours of Wilson fermions, on the links and on stout links.
+    #[test]
+    fn wilson_force_is_the_derivative() {
+        use crate::fermion::{Wilson, WilsonParams};
+        use crate::gauge::smear::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 17);
+        let params = WilsonParams {
+            kappa: 0.12,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 1000,
+            max_restarts: 10,
+        };
+        for smearing in [
+            None,
+            Some(GaugeSmearing {
+                smear: Smear::Stout(Stout::uniform(0.1)),
+                steps: 1,
+            }),
+        ] {
+            let mut action = TwoFlavor::new(Wilson::<f64>::new(&lat, params), smearing, stop, stop);
+            action.langevin(&u, &mut Mseries::new(3));
+            let f = action.force(&u);
+            check_force(
+                &u,
+                &f,
+                &[(0, 7), (3, 64), (3, 200)],
+                |w| action.hamiltonian(w),
+                1e-7,
             );
         }
     }
