@@ -152,6 +152,98 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         self.alpha
     }
 
+    /// The five-dimensional right-hand side for a four-dimensional source η (`eta`, Ls = 1,
+    /// any number of vectors): `out = D₋ b`, b = P+ η at s = 0 and P- η at s = Ls-1, zero
+    /// in between, D₋ = 1 - c W. With D = D₋ K, K of the form of Shamir's operator, the
+    /// solution ψ of D ψ = out has the four-dimensional quark field
+    /// q = P- ψ_0 + P+ ψ_(Ls-1) (`propagator_4d`) of the source η: the fields
+    /// q̄ = ψ̄_(Ls-1) P- + ψ̄_0 P+ (Furman and Shamir) put η on these walls.
+    pub fn source_5d(
+        &self,
+        work: &mut MdwfWork<T>,
+        out: &mut Field<T, Spinor>,
+        eta: &Field<T, Spinor>,
+    ) {
+        let ls = self.params.ls;
+        assert!(eta.ls() == 1 && out.ls() == ls && out.num_vectors() == eta.num_vectors());
+        let [b, v, _, _] = scratch(&mut work.fields, out);
+        let site_len = b.site_len();
+        let half = <T::Compute as Number>::from_f64(0.5);
+        for_sites(b.slab_mut(0), site_len, |x, o| {
+            o.fill(T::default());
+            let from = eta.site(0, x);
+            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
+                let p = load::<T>(&from[v * SPINOR_REALS..(v + 1) * SPINOR_REALS]);
+                let g = G::GAMMA5.apply(&p);
+                // P± η = (η ± γ5 η) / 2
+                let plus = SiteSpinor::zero()
+                    .sub_scaled(-half, &p)
+                    .sub_scaled(-half, &g);
+                let minus = SiteSpinor::zero()
+                    .sub_scaled(-half, &p)
+                    .sub_scaled(half, &g);
+                store::<T>(&plus, &mut o[..SPINOR_REALS]);
+                store::<T>(&minus, &mut o[(ls - 1) * SPINOR_REALS..]);
+            }
+        });
+        // out = b - c W b, W = (4 - M5) Dw.
+        self.wilson.mult(&mut work.wilson, v, b, Variant::D);
+        let MdwfParams { m5, c, .. } = self.params;
+        self.combine(
+            out,
+            &[(b, 1.0, 0.0), (v, -c * (4.0 - m5), 0.0)],
+            (false, false),
+            self.params.mass,
+        );
+    }
+
+    /// The four-dimensional quark field q = P- ψ_0 + P+ ψ_(Ls-1) of a five-dimensional
+    /// solution ψ (of the plain operator: x = Q x^(α) for D^(α)), into `out` (Ls = 1).
+    pub fn propagator_4d(&self, out: &mut Field<T, Spinor>, psi: &Field<T, Spinor>) {
+        let ls = self.params.ls;
+        self.walls_to_4d(out, psi, (0, ls - 1));
+    }
+
+    /// The field at the middle of the fifth dimension, q_mid = P- ψ_(Ls/2) + P+ ψ_(Ls/2-1),
+    /// of the pseudoscalar density J5q whose correlator gives the residual mass.
+    pub fn midpoint_4d(&self, out: &mut Field<T, Spinor>, psi: &Field<T, Spinor>) {
+        let ls = self.params.ls;
+        assert!(ls.is_multiple_of(2), "the midpoint needs an even Ls");
+        self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
+    }
+
+    /// `out = P- ψ_(minus) + P+ ψ_(plus)`.
+    fn walls_to_4d(
+        &self,
+        out: &mut Field<T, Spinor>,
+        psi: &Field<T, Spinor>,
+        (minus, plus): (usize, usize),
+    ) {
+        let ls = self.params.ls;
+        assert!(psi.ls() == ls && out.ls() == 1 && out.num_vectors() == psi.num_vectors());
+        let half = <T::Compute as Number>::from_f64(0.5);
+        let site_len = out.site_len();
+        for_sites(out.slab_mut(0), site_len, |x, o| {
+            let from = psi.site(0, x);
+            for (v, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
+                let base = v * ls * SPINOR_REALS;
+                let at = |s: usize| {
+                    load::<T>(&from[base + s * SPINOR_REALS..base + (s + 1) * SPINOR_REALS])
+                };
+                let (m, p) = (at(minus), at(plus));
+                // P- m + P+ p = (m + p)/2 + γ5 (p - m)/2
+                let sum = SiteSpinor::zero()
+                    .sub_scaled(-half, &m)
+                    .sub_scaled(-half, &p);
+                let diff = SiteSpinor::zero()
+                    .sub_scaled(-half, &p)
+                    .sub_scaled(half, &m);
+                let q = sum.add(&G::GAMMA5.apply(&diff));
+                store::<T>(&q, o);
+            }
+        });
+    }
+
     /// `out = Q inp`, or `Q⁻¹ inp` with `inverse`: Q_0 = P- + α P+, Q_s = α inside,
     /// Q_(Ls-1) = P+ + α P-. Q is Hermitian. The solution of D x = b is x = Q x^(α) for
     /// D^(α) x^(α) = b.

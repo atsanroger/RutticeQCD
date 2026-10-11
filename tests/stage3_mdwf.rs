@@ -10,6 +10,7 @@ use ruttice::fermion::{
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
+use ruttice::measure::{meson_correlator, pion_correlator, point_source, NUM_SOURCES};
 use ruttice::solver::preconditioner::multigrid::{
     mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, Basis,
     BasisBuilder, BootstrapParams, CoarseKrylov, CoarseOp, LowModeParams, MdwfCoarse,
@@ -1235,4 +1236,226 @@ fn cgne_with_alpha_and_the_multigrid() {
         assert!(left[0] < 1e-14 * size[0]);
         assert!(info.iterations < cg.iterations);
     }
+}
+
+/// The four-dimensional propagator S η = P- ψ_0 + P+ ψ_(Ls-1) of D ψ = source_5d(η) is
+/// γ5-Hermitian, <χ, S η> = <γ5 S γ5 χ, η>, for Möbius and for Shamir (it is the inverse of
+/// an overlap-type operator, up to a contact term), which the wrong pairing of walls and
+/// chiralities is not; and it and the midpoint field do not depend on Neff's α.
+#[test]
+fn four_dimensional_propagator_is_gamma5_hermitian_and_alpha_free() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let u = random_gauge(&lat, 191);
+    let four = |seed: u64| {
+        let mut f = V::with_shape(&lat, 24, 1, 1, 1);
+        f.as_mut_slice()
+            .copy_from_slice(random_spinor(&lat, 1, seed).as_slice());
+        f
+    };
+    let gamma5 = |f: &V| {
+        let mut g = f.zeros_like();
+        for site in 0..lat.num_sites() {
+            let p = ruttice::kernel::Spinor::<f64>::from_reals(f.site(0, site));
+            Dirac::GAMMA5.apply(&p).write_reals(g.site_mut(0, site));
+        }
+        g
+    };
+    let mut even = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    even.set_parity(Parity::Even);
+    for (params, alpha) in [
+        (MOBIUS, 1.0),
+        (MOBIUS, 0.6),
+        (
+            MdwfParams {
+                b: 1.0,
+                c: 0.0,
+                ..MOBIUS
+            },
+            1.0,
+        ),
+    ] {
+        let plain = operator(&lat, params, &u);
+        let mut op = operator(&lat, params, &u);
+        op.set_alpha(alpha);
+        let pv = operator(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+            &u,
+        );
+        let form = if alpha == 1.0 {
+            EoForm::Right
+        } else {
+            EoForm::Left
+        };
+        // ψ for the source η, with the operator carrying α; returns (S η, q_mid).
+        let solve = |eta: &V| {
+            let mut b = V::with_shape(&lat, 24, params.ls, 1, 1);
+            plain.source_5d(&mut plain.work(), &mut b, eta);
+            let mut a = PvEvenOdd::new(&op, &pv, form, &even);
+            let mut rhs = even.zeros_like();
+            a.right_hand_side(&mut rhs, &b);
+            let mut y = even.zeros_like();
+            BiCgStab::new(Stop::simple(1e-28, 4000))
+                .solve(&mut a, None, &mut y, &rhs)
+                .unwrap();
+            let mut psi = b.zeros_like();
+            a.solution(&mut psi, &y, &b);
+            let (mut s, mut mid) = (eta.zeros_like(), eta.zeros_like());
+            plain.propagator_4d(&mut s, &psi);
+            plain.midpoint_4d(&mut mid, &psi);
+            (s, mid)
+        };
+        let (eta, chi) = (four(192), four(193));
+        let (s_eta, mid_eta) = solve(&eta);
+        let (s_g5chi, _) = solve(&gamma5(&chi));
+        let (lhs, rhs) = (dot(&chi, &s_eta), dot(&gamma5(&s_g5chi), &eta));
+        let scale = dot(&s_eta, &s_eta).re.sqrt() * dot(&chi, &chi).re.sqrt();
+        eprintln!(
+            "b = {}, c = {}, α = {alpha}: |<χ, S η> − <γ5 S γ5 χ, η>| / |S η||χ| = {:.2e}",
+            params.b,
+            params.c,
+            (lhs - rhs).norm_sqr().sqrt() / scale
+        );
+        assert!(
+            (lhs - rhs).norm_sqr().sqrt() < 1e-10 * scale,
+            "{lhs:?} vs {rhs:?}"
+        );
+        if alpha != 1.0 {
+            // The same as with the plain operator.
+            let pv_plain = operator(
+                &lat,
+                MdwfParams {
+                    mass: 1.0,
+                    ..params
+                },
+                &u,
+            );
+            let mut b = V::with_shape(&lat, 24, params.ls, 1, 1);
+            plain.source_5d(&mut plain.work(), &mut b, &eta);
+            let mut a = PvEvenOdd::new(&plain, &pv_plain, EoForm::Right, &even);
+            let mut rhs = even.zeros_like();
+            a.right_hand_side(&mut rhs, &b);
+            let mut y = even.zeros_like();
+            BiCgStab::new(Stop::simple(1e-28, 4000))
+                .solve(&mut a, None, &mut y, &rhs)
+                .unwrap();
+            let mut psi = b.zeros_like();
+            a.solution(&mut psi, &y, &b);
+            let (mut s, mut mid) = (eta.zeros_like(), eta.zeros_like());
+            plain.propagator_4d(&mut s, &psi);
+            plain.midpoint_4d(&mut mid, &psi);
+            assert!(max_diff(&s, &s_eta) < 1e-10, "S depends on α");
+            assert!(max_diff(&mid, &mid_eta) < 1e-10, "q_mid depends on α");
+        }
+    }
+}
+
+/// `expected_result` of the Bridge++ test `Spectrum_Domainwall_Hadron2ptFunction`
+/// (tests/ParameterFiles/Spectrum/test_Spectrum_Domainwall_Hadron2ptFunction.yaml): the real
+/// part of the pseudoscalar correlator at t = 0 for a point source at the origin, Shamir's
+/// operator (b = 1, c = 0), M0 = 1.6, m = 0.1, Ls = 8, antiperiodic in time. The source is
+/// D₋ (P+ η at s = 0, P- η at s = Ls-1), the propagator P- ψ_0 + P+ ψ_(Ls-1), as there.
+const BRIDGE_DW_PION_T0: f64 = 0.434204939377926;
+
+#[test]
+fn bridge_spectrum_domainwall_pion_and_residual_mass() {
+    let Some(path) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = read_bridge_text(&path, &lat).unwrap();
+    let params = MdwfParams {
+        ls: 8,
+        m5: 1.6,
+        mass: 0.1,
+        b: 1.0,
+        c: 0.0,
+        boundary: BOUNDARY,
+    };
+    let eta = point_source::<f64>(&lat, [0, 0, 0, 0]);
+    let mut even = Field::<f64, Spinor, Half>::with_shape(&lat, 24, params.ls, NUM_SOURCES, 1);
+    even.set_parity(Parity::Even);
+    // The four-dimensional propagator and the midpoint field, with α in the quark operator.
+    let propagate = |params: MdwfParams, alpha: f64| {
+        let plain = operator(&lat, params, &u);
+        let mut op = operator(&lat, params, &u);
+        op.set_alpha(alpha);
+        let pv = operator(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+            &u,
+        );
+        let form = if alpha == 1.0 {
+            EoForm::Right
+        } else {
+            EoForm::Left
+        };
+        let mut b = V::with_shape(&lat, 24, params.ls, NUM_SOURCES, 1);
+        plain.source_5d(&mut plain.work(), &mut b, &eta);
+        let mut a = PvEvenOdd::new(&op, &pv, form, &even);
+        let mut rhs = even.zeros_like();
+        a.right_hand_side(&mut rhs, &b);
+        let mut y = even.zeros_like();
+        BiCgStab::new(Stop::simple(1e-28, 4000))
+            .solve(&mut a, None, &mut y, &rhs)
+            .unwrap();
+        let mut psi = b.zeros_like();
+        a.solution(&mut psi, &y, &b);
+        let mut r = mult(&plain, &psi, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0); NUM_SOURCES], &b);
+        let (mut rr, mut bb) = ([0.0; NUM_SOURCES], [0.0; NUM_SOURCES]);
+        r.norm_sqr(&mut rr);
+        b.norm_sqr(&mut bb);
+        let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
+        let (mut s, mut mid) = (eta.zeros_like(), eta.zeros_like());
+        plain.propagator_4d(&mut s, &psi);
+        plain.midpoint_4d(&mut mid, &psi);
+        (s, mid, worst)
+    };
+    let (s, mid, worst) = propagate(params, 1.0);
+    let pion = pion_correlator(&s);
+    let j5q = pion_correlator(&mid);
+    let general = meson_correlator(&s, &s, &Dirac::GAMMA5, &Dirac::GAMMA5, &Dirac::GAMMA5);
+    eprintln!("worst |D ψ - b|^2/|b|^2 over the 12 columns: {worst:e}");
+    for (t, (c, j)) in pion.iter().zip(&j5q).enumerate() {
+        eprintln!(
+            "  t = {t}  C_PS(t) = {c:.12e}  C_J5q(t) = {j:.6e}  m_res(t) = {:.6e}",
+            j / c
+        );
+    }
+    eprintln!(
+        "C_PS(0) = {:.13}, Bridge++ = {BRIDGE_DW_PION_T0:.13}",
+        pion[0]
+    );
+    assert!(worst < 1e-24);
+    let relative = (pion[0] - BRIDGE_DW_PION_T0).abs() / BRIDGE_DW_PION_T0;
+    assert!(relative < 1e-10, "relative difference {relative:e}");
+    assert!((general[0].re - pion[0]).abs() < 1e-11 && general[0].im.abs() < 1e-11);
+
+    // Möbius with Neff's α (left form) against Möbius without: the same correlators.
+    let mobius = MdwfParams {
+        b: 1.5,
+        c: 0.5,
+        ..params
+    };
+    let (s1, mid1, _) = propagate(mobius, 1.0);
+    let (s2, mid2, _) = propagate(mobius, 0.6);
+    let (p1, p2) = (pion_correlator(&s1), pion_correlator(&s2));
+    let (j1, j2) = (pion_correlator(&mid1), pion_correlator(&mid2));
+    for t in 0..p1.len() {
+        assert!((p1[t] - p2[t]).abs() < 1e-10 * p1[t], "C_PS({t})");
+        assert!((j1[t] - j2[t]).abs() < 1e-8 * j1[t] + 1e-20, "C_J5q({t})");
+    }
+    eprintln!(
+        "Möbius b = 1.5, c = 0.5: C_PS(0) = {:.10e}, m_res(4) = {:.4e}, the same with α = 0.6",
+        p1[0],
+        j1[4] / p1[4]
+    );
 }
