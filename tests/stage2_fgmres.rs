@@ -6,7 +6,7 @@ use common::max_abs_diff;
 use ruttice::fermion::{Bound, Clover, CloverParams, FermionOp, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;
 use ruttice::random_spinor;
-use ruttice::solver::{BiCgStab, Cg, Convert, Fgmres, Solve, SolveError, Solver, Stop};
+use ruttice::solver::{BiCgStab, Cg, Convert, Fgmres, Gcr, Solve, SolveError, Solver, Stop};
 use ruttice::{
     Boundary, ConvertFrom, Field, Gauge, Lattice, LinearFn, Normal, Spinor, Vector, C64, ND,
 };
@@ -193,4 +193,48 @@ fn an_inner_solver_as_preconditioner() {
     let mut check = like32.zeros_like();
     check.convert_from(&x);
     assert!(check.as_slice().iter().any(|v| *v != 0.0));
+}
+
+/// Flexible GCR(k): three right-hand sides, one zero, with restarts and k = 1 and 2; and
+/// with a preconditioner that changes from one application to the next (a few FGMRES
+/// steps on D).
+#[test]
+fn truncated_gcr_solves_d() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 311));
+    let mut b = random_spinor(&lat, 3, 312);
+    for site in 0..lat.num_sites() {
+        b.site_mut(0, site)[24..48].fill(0.0);
+    }
+    let mut a = Bound::new(&op, Variant::D);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 20,
+        max_restarts: 40,
+    };
+    for k in [1, 2] {
+        let mut x = b.zeros_like();
+        let info = Gcr::new(stop, k).solve(&mut a, None, &mut x, &b).unwrap();
+        let r = residual_sqr(&mut a, &x, &b);
+        assert!(r[0] <= 1.1e-24 && r[2] <= 1.1e-24, "k = {k}: {r:?}");
+        assert_eq!(r[1], 0.0);
+        eprintln!(
+            "GCR({k}): {} iterations, {} restarts",
+            info.iterations, info.restarts
+        );
+    }
+    let mut inner = Solve::new(
+        Fgmres::new(Stop::simple(1e-2, 4)),
+        Bound::new(&op, Variant::D),
+    );
+    let mut x = b.zeros_like();
+    let info = Gcr::new(stop, 2)
+        .solve(&mut a, Some(&mut inner), &mut x, &b)
+        .unwrap();
+    let r = residual_sqr(&mut a, &x, &b);
+    assert!(r[0] <= 1.1e-24 && r[2] <= 1.1e-24, "preconditioned: {r:?}");
+    eprintln!(
+        "GCR(2) with FGMRES(4) inside: {} iterations",
+        info.iterations
+    );
 }
