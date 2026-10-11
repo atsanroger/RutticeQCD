@@ -18,9 +18,9 @@
 //! Written from the formulas of the paper and the structure of the Bridge++ code.
 
 use super::link;
-use super::paths::Neighbors;
+use super::paths::Extended;
 use crate::kernel::{ColorMatrix, Cplx};
-use crate::{for_sites, shift, Boundary, Direction, Field, Gauge, Stencil, ND};
+use crate::{for_sites, Field, Gauge, ND};
 use rayon::prelude::*;
 
 /// ρ_μν: the weight of the staples in the μν plane in the new U_μ (ρ_μμ is used by APE only).
@@ -122,69 +122,38 @@ fn copy(u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
     v
 }
 
-fn shifted(f: &Field<f64, Gauge>, st: &Stencil, mu: usize, dir: Direction) -> Field<f64, Gauge> {
-    let mut out = Field::<f64, Gauge>::gauge(f.lattice());
-    shift(&mut out, f, st, mu, dir);
-    out
-}
-
 /// C_μ = Σ_(ν≠μ) ρ_μν [U_ν(x) U_μ(x+ν) U_ν(x+μ)† + U_ν(x−ν)† U_μ(x−ν) U_ν(x−ν+μ)], the
 /// weighted sum of the staples of every link; with all weights 1, U_μ C_μ† is the sum of the
 /// plaquettes through U_μ. Periodic boundary conditions.
 pub fn weighted_staples(u: &Field<f64, Gauge>, rho: &Weights) -> Field<f64, Gauge> {
-    let lat = u.lattice();
-    if let Some(nb) = Neighbors::new(lat) {
-        let mut sum = Field::<f64, Gauge>::gauge(lat);
-        for mu in 0..ND {
-            for_sites(sum.slab_mut(mu), 18, |x, out| {
-                let mut c = ColorMatrix::zero();
-                for nu in (0..ND).filter(|nu| *nu != mu) {
-                    let r = rho[mu][nu];
-                    if r == 0.0 {
-                        continue;
-                    }
-                    let upper = nb.walk(u, x, &[(nu, true), (mu, true), (nu, false)]);
-                    let lower = nb.walk(u, x, &[(nu, false), (mu, true), (nu, true)]);
-                    c = c.add(&upper.add(&lower).scale(r));
-                }
-                c.write_reals(out);
-            });
-        }
-        return sum;
-    }
-    let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
-    // u at x + mu for every mu.
-    let up: [Field<f64, Gauge>; ND] =
-        core::array::from_fn(|mu| shifted(u, &st, mu, Direction::Forward));
+    staples_of(&Extended::new(u, 1), u.lattice(), rho)
+}
+
+/// `weighted_staples` from the extended links.
+fn staples_of(
+    ext: &Extended,
+    lat: &std::sync::Arc<crate::Lattice>,
+    rho: &Weights,
+) -> Field<f64, Gauge> {
     let mut sum = Field::<f64, Gauge>::gauge(lat);
     for mu in 0..ND {
-        for nu in (0..ND).filter(|nu| *nu != mu) {
-            let r = rho[mu][nu];
-            if r == 0.0 {
-                continue;
+        for_sites(sum.slab_mut(mu), 18, |x, out| {
+            let e = ext.at(x);
+            let mut c = ColorMatrix::zero();
+            for nu in (0..ND).filter(|nu| *nu != mu) {
+                let r = rho[mu][nu];
+                if r == 0.0 {
+                    continue;
+                }
+                let upper = ext.walk(e, &[(nu, true), (mu, true), (nu, false)]);
+                let lower = ext.walk(e, &[(nu, false), (mu, true), (nu, true)]);
+                c = c.add(&upper.add(&lower).scale(r));
             }
-            // The lower staple at x − ν, built at x and shifted back: U_ν(x)† U_μ(x) U_ν(x+μ).
-            let mut lower = Field::<f64, Gauge>::gauge(lat);
-            for_sites(lower.slab_mut(mu), 18, |x, out| {
-                link(u, nu, x)
-                    .adj()
-                    .mul(&link(u, mu, x).mul(&link(&up[mu], nu, x)))
-                    .write_reals(out);
-            });
-            let lower = shifted(&lower, &st, nu, Direction::Backward);
-            let (up_nu, up_mu) = (&up[nu], &up[mu]);
-            for_sites(sum.slab_mut(mu), 18, |x, out| {
-                let upper = link(u, nu, x).mul(&link(up_nu, mu, x).mul(&link(up_mu, nu, x).adj()));
-                let total = ColorMatrix::from_reals(out)
-                    .add(&upper.scale(r))
-                    .add(&link(&lower, mu, x).scale(r));
-                total.write_reals(out);
-            });
-        }
+            c.write_reals(out);
+        });
     }
     sum
 }
-
 /// The traceless anti-Hermitian part of a matrix, (M − M†)/2 − tr(M − M†)/(2 N_c).
 pub fn traceless_antihermitian(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
     let mut a = m.sub(&m.adj()).scale(0.5);
@@ -405,9 +374,9 @@ impl Stout {
         u: &Field<f64, Gauge>,
     ) -> Field<f64, Gauge> {
         let lat = u.lattice();
-        let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
-        let c = weighted_staples(u, &self.rho);
-        // Σ' exp(iQ) + C† iΛ, and iΛ U.
+        let eu = Extended::new(u, 1);
+        let c = staples_of(&eu, lat, &self.rho);
+        // Σ' exp(iQ) + C† iΛ, and iΘ = iΛ U.
         let mut sigma = Field::<f64, Gauge>::gauge(lat);
         let mut itheta = Field::<f64, Gauge>::gauge(lat);
         for mu in 0..ND {
@@ -427,85 +396,39 @@ impl Stout {
                 });
         }
         // The terms from the links whose staples contain U_μ(x).
-        if let Some(nb) = Neighbors::new(lat) {
-            let th = &itheta;
-            for mu in 0..ND {
-                for_sites(sigma.slab_mut(mu), 18, |x, out| {
-                    let mut acc = ColorMatrix::from_reals(out);
-                    for nu in (0..ND).filter(|nu| *nu != mu) {
-                        let r = self.rho[mu][nu];
-                        if r == 0.0 {
-                            continue;
-                        }
-                        let (xm, xn, y) = (nb.up(x, mu), nb.up(x, nu), nb.down(x, nu));
-                        let ym = nb.up(y, mu);
-                        let vnu_xm = link(u, nu, xm);
-                        let vmu_xn_d = link(u, mu, xn).adj();
-                        let vnu_d = link(u, nu, x).adj();
-                        let vnu_ym_d = link(u, nu, ym).adj();
-                        let (vmu_y_d, vnu_y) = (link(u, mu, y).adj(), link(u, nu, y));
-                        let each = vnu_xm
-                            .mul(&vmu_xn_d)
-                            .mul(&link(th, nu, x).adj())
-                            .add(&vnu_ym_d.mul(&link(th, mu, y).adj()).mul(&vnu_y))
-                            .add(&vnu_ym_d.mul(&vmu_y_d).mul(&link(th, nu, y)))
-                            .add(&link(th, nu, ym).adj().mul(&vmu_y_d).mul(&vnu_y))
-                            .add(&link(th, nu, xm).mul(&vmu_xn_d).mul(&vnu_d))
-                            .add(&vnu_xm.mul(&link(th, mu, xn).adj()).mul(&vnu_d));
-                        acc = acc.add(&each.scale(r));
-                    }
-                    acc.write_reals(out);
-                });
-            }
-            return sigma;
-        }
-        let up: [Field<f64, Gauge>; ND] =
-            core::array::from_fn(|d| shifted(u, &st, d, Direction::Forward));
-        let tup: [Field<f64, Gauge>; ND] =
-            core::array::from_fn(|d| shifted(&itheta, &st, d, Direction::Forward));
+        let et = Extended::new(&itheta, 1);
         for mu in 0..ND {
-            for nu in (0..ND).filter(|nu| *nu != mu) {
-                let r = self.rho[mu][nu];
-                if r == 0.0 {
-                    continue;
+            for_sites(sigma.slab_mut(mu), 18, |x, out| {
+                let mut acc = ColorMatrix::from_reals(out);
+                let e = eu.at(x);
+                for nu in (0..ND).filter(|nu| *nu != mu) {
+                    let r = self.rho[mu][nu];
+                    if r == 0.0 {
+                        continue;
+                    }
+                    let (xm, xn, y) = (eu.up(e, mu), eu.up(e, nu), eu.down(e, nu));
+                    let ym = eu.up(y, mu);
+                    let vnu_xm = eu.link(nu, xm);
+                    let vmu_xn_d = eu.link(mu, xn).adj();
+                    let vnu_d = eu.link(nu, e).adj();
+                    let vnu_ym_d = eu.link(nu, ym).adj();
+                    let (vmu_y_d, vnu_y) = (eu.link(mu, y).adj(), eu.link(nu, y));
+                    let each = vnu_xm
+                        .mul(&vmu_xn_d)
+                        .mul(&et.link(nu, e).adj())
+                        .add(&vnu_ym_d.mul(&et.link(mu, y).adj()).mul(&vnu_y))
+                        .add(&vnu_ym_d.mul(&vmu_y_d).mul(&et.link(nu, y)))
+                        .add(&et.link(nu, ym).adj().mul(&vmu_y_d).mul(&vnu_y))
+                        .add(&et.link(nu, xm).mul(&vmu_xn_d).mul(&vnu_d))
+                        .add(&vnu_xm.mul(&et.link(mu, xn).adj()).mul(&vnu_d));
+                    acc = acc.add(&each.scale(r));
                 }
-                // The three terms that are built at x − ν.
-                let mut low = Field::<f64, Gauge>::gauge(lat);
-                for_sites(low.slab_mut(0), 18, |y, out| {
-                    let vnu_mu = link(&up[mu], nu, y).adj(); // V_ν(y+μ)†
-                    let (vmu, vnu) = (link(u, mu, y), link(u, nu, y));
-                    let (tmu, tnu) = (link(&itheta, mu, y), link(&itheta, nu, y));
-                    let tnu_mu = link(&tup[mu], nu, y); // iΘ_ν(y+μ)
-                    let g = vnu_mu
-                        .mul(&tmu.adj().mul(&vnu))
-                        .add(&vnu_mu.mul(&vmu.adj().mul(&tnu)))
-                        .add(&tnu_mu.adj().mul(&vmu.adj()).mul(&vnu));
-                    g.write_reals(out);
-                });
-                let low = shifted(&low, &st, nu, Direction::Backward);
-                for_sites(sigma.slab_mut(mu), 18, |x, out| {
-                    let vnu_mu = link(&up[mu], nu, x); // V_ν(x+μ)
-                    let vmu_nu = link(&up[nu], mu, x); // V_μ(x+ν)
-                    let vnu = link(u, nu, x);
-                    let tnu = link(&itheta, nu, x);
-                    let tnu_mu = link(&tup[mu], nu, x); // iΘ_ν(x+μ)
-                    let tmu_nu = link(&tup[nu], mu, x); // iΘ_μ(x+ν)
-                    let each = vnu_mu
-                        .mul(&vmu_nu.adj())
-                        .mul(&tnu.adj())
-                        .add(&link(&low, 0, x))
-                        .add(&tnu_mu.mul(&vmu_nu.adj()).mul(&vnu.adj()))
-                        .add(&vnu_mu.mul(&tmu_nu.adj()).mul(&vnu.adj()));
-                    ColorMatrix::from_reals(out)
-                        .add(&each.scale(r))
-                        .write_reals(out);
-                });
-            }
+                acc.write_reals(out);
+            });
         }
         sigma
     }
 }
-
 impl Ape {
     pub fn uniform(rho: f64, tolerance: f64, max_iterations: usize) -> Self {
         Self {
@@ -589,7 +512,7 @@ fn su2_max(a: &ColorMatrix<f64>, i1: usize, i2: usize) -> ColorMatrix<f64> {
 mod tests {
     use super::*;
     use crate::gauge::{plaquette, random_gauge};
-    use crate::Lattice;
+    use crate::{assemble, local_part, Boundary, Lattice, LocalComm, Stencil};
 
     fn is_su3(m: &ColorMatrix<f64>) -> bool {
         let d = m.mul(&m.adj()).sub(&ColorMatrix::identity());
@@ -659,5 +582,48 @@ mod tests {
         // Spatial weights leave the time links alone.
         let v = Stout { rho: spatial(0.1) }.apply(&w);
         assert_eq!(v.slab(ND - 1), w.slab(ND - 1));
+    }
+
+    /// Smearing and its chain rule give the same links on several processes as on one.
+    #[test]
+    fn smearing_is_the_same_on_several_processes() {
+        let global = [4, 4, 4, 8];
+        let whole = random_gauge(&Lattice::single_node(global), 9);
+        let sigma = random_gauge(whole.lattice(), 4);
+        let stout = GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.12)),
+            steps: 2,
+        };
+        let ape = GaugeSmearing {
+            smear: Smear::Ape(Ape::uniform(0.3, 1e-14, 100)),
+            steps: 1,
+        };
+        let levels = stout.levels(&whole);
+        let expect = [
+            copy(levels.last().unwrap()),
+            stout.chain(copy(&sigma), &whole, &levels),
+            ape.apply(&whole),
+        ];
+        for grid in [[2, 1, 1, 1], [1, 2, 2, 2], [2, 2, 1, 4]] {
+            let parts = LocalComm::run(global, grid, |lat| {
+                let u = local_part(&whole, &lat);
+                let lv = stout.levels(&u);
+                [
+                    copy(lv.last().unwrap()),
+                    stout.chain(local_part(&sigma, &lat), &u, &lv),
+                    ape.apply(&u),
+                ]
+            });
+            for (k, want) in expect.iter().enumerate() {
+                let pieces: Vec<Field<f64, Gauge>> = parts.iter().map(|p| copy(&p[k])).collect();
+                let got = assemble(whole.lattice(), &pieces);
+                let d = got
+                    .as_slice()
+                    .iter()
+                    .zip(want.as_slice())
+                    .fold(0.0_f64, |m, (a, b)| m.max((a - b).abs()));
+                assert!(d < 1e-13, "grid {grid:?}, quantity {k}: {d}");
+            }
+        }
     }
 }

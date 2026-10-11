@@ -1,9 +1,11 @@
 //! The Wilson plaquette action of the gauge field and its force.
 
+use crate::gauge::paths::Extended;
 use crate::gauge::smear::uniform;
 use crate::gauge::{link, plaquette, weighted_staples};
 use crate::kernel::ColorMatrix;
-use crate::{for_sites, shift, Boundary, Direction, Field, Gauge, Stencil, ND};
+use crate::{for_sites, Boundary, Field, Gauge, Stencil, ND};
+use rayon::prelude::*;
 
 /// The plaquette action S_G = β Σ_P (1 − Re tr U_P / 3), with the normalisation of Bridge++
 /// (`Action_G_Plaq`): β (1 − ⟨plaquette⟩) times the number of plaquettes.
@@ -66,49 +68,25 @@ pub fn force_statistics(f: &Field<f64, Gauge>) -> (f64, f64, f64) {
     (ave, max, (sums[1] / n - ave * ave).sqrt())
 }
 
-/// A step of a path of links: direction μ, forward (to x + μ̂, through U_μ(x)) or backward
-/// (to x − μ̂, through U_μ(x − μ̂)†).
-pub type Step = (usize, bool);
+pub use crate::gauge::paths::Step;
 
 /// The product of the links along the path `steps` from every site, as one colour matrix per
 /// site (in the first slab of a gauge field). Periodic boundary conditions.
 pub fn path_product(u: &Field<f64, Gauge>, steps: &[Step]) -> Field<f64, Gauge> {
-    let lat = u.lattice();
-    let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
-    // U at x − μ̂, for the backward steps.
-    let downs: [Field<f64, Gauge>; ND] = core::array::from_fn(|mu| {
-        let mut d = Field::<f64, Gauge>::gauge(lat);
-        shift(&mut d, u, &st, mu, Direction::Backward);
-        d
-    });
-    let at = |x: usize, (mu, forward): Step| {
-        if forward {
-            link(u, mu, x)
-        } else {
-            link(&downs[mu], mu, x).adj()
-        }
-    };
-    let (&last, rest) = steps.split_last().expect("a path has steps");
-    let mut p = Field::<f64, Gauge>::gauge(lat);
-    for_sites(p.slab_mut(0), 18, |x, out| at(x, last).write_reals(out));
-    for &(mu, forward) in rest.iter().rev() {
-        // The rest of the path, from the site this step leads to.
-        let mut moved = Field::<f64, Gauge>::gauge(lat);
-        let dir = if forward {
-            Direction::Forward
-        } else {
-            Direction::Backward
-        };
-        shift(&mut moved, &p, &st, mu, dir);
-        for_sites(p.slab_mut(0), 18, |x, out| {
-            at(x, (mu, forward))
-                .mul(&link(&moved, 0, x))
-                .write_reals(out);
-        });
+    // The halo must reach as far as the path goes in any direction.
+    let mut depth = 0i64;
+    let mut pos = [0i64; ND];
+    for &(mu, f) in steps {
+        pos[mu] += if f { 1 } else { -1 };
+        depth = depth.max(pos[mu].abs());
     }
+    let ext = Extended::new(u, depth.max(1) as usize);
+    let mut p = Field::<f64, Gauge>::gauge(u.lattice());
+    for_sites(p.slab_mut(0), 18, |x, out| {
+        ext.walk(ext.at(x), steps).write_reals(out)
+    });
     p
 }
-
 /// The improved gauge action of plaquettes and 1 × 2 rectangles,
 /// S_G = β [c_plaq Σ_P (1 − Re tr U_P / 3) + c_rect Σ_R (1 − Re tr U_R / 3)], over the 6 V
 /// plaquettes and the 12 V rectangles (Bridge++'s `Action_G_Rectangle`; c_plaq = 1, c_rect
@@ -140,25 +118,33 @@ impl RectangleAction {
     /// S_G (summed over all processes).
     pub fn action(&self, u: &Field<f64, Gauge>) -> f64 {
         let lat = u.lattice();
-        let (mut plaq, mut rect) = (0.0, 0.0);
+        let ext = Extended::new(u, 2);
         let (f, b) = (true, false);
-        for mu in 0..ND {
-            for nu in (0..ND).filter(|nu| *nu != mu) {
-                if mu < nu {
-                    let p = path_product(u, &[(mu, f), (nu, f), (mu, b), (nu, b)]);
-                    plaq += (0..u.num_sites())
-                        .map(|x| link(&p, 0, x).trace().re)
-                        .sum::<f64>();
+        let with_rect = self.c_rect != 0.0;
+        let (plaq, rect) = (0..u.num_sites())
+            .into_par_iter()
+            .map(|x| {
+                let e = ext.at(x);
+                let (mut p, mut r) = (0.0, 0.0);
+                for mu in 0..ND {
+                    for nu in (0..ND).filter(|nu| *nu != mu) {
+                        if mu < nu {
+                            p += ext
+                                .walk(e, &[(mu, f), (nu, f), (mu, b), (nu, b)])
+                                .trace()
+                                .re;
+                        }
+                        if with_rect {
+                            r += ext
+                                .walk(e, &[(mu, f), (mu, f), (nu, f), (mu, b), (mu, b), (nu, b)])
+                                .trace()
+                                .re;
+                        }
+                    }
                 }
-                if self.c_rect != 0.0 {
-                    let r =
-                        path_product(u, &[(mu, f), (mu, f), (nu, f), (mu, b), (mu, b), (nu, b)]);
-                    rect += (0..u.num_sites())
-                        .map(|x| link(&r, 0, x).trace().re)
-                        .sum::<f64>();
-                }
-            }
-        }
+                (p, r)
+            })
+            .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
         let mut sums = [plaq, rect];
         lat.comm.sum(&mut sums);
         let v = lat.num_global_sites() as f64;
@@ -169,26 +155,27 @@ impl RectangleAction {
     /// F_μ(x) = −(β/3) TA[U_μ(x) Σ_μ(x)†] with Σ the staples weighted by c_plaq and c_rect.
     pub fn force(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
         let lat = u.lattice();
+        let ext = Extended::new(u, 2);
         let mut f = Field::<f64, Gauge>::gauge(lat);
         let k = -self.beta / 3.0;
         for mu in 0..ND {
-            let mut sigma = Field::<f64, Gauge>::gauge(lat);
-            for nu in (0..ND).filter(|nu| *nu != mu) {
-                for (i, path) in staple_paths(mu, nu).iter().enumerate() {
-                    let c = if i < 2 { self.c_plaq } else { self.c_rect };
-                    if c == 0.0 {
-                        continue;
-                    }
-                    let p = path_product(u, path);
-                    for_sites(sigma.slab_mut(0), 18, |x, out| {
-                        ColorMatrix::from_reals(out)
-                            .add(&link(&p, 0, x).scale(c))
-                            .write_reals(out);
-                    });
-                }
-            }
+            let paths: Vec<(f64, Vec<Step>)> = (0..ND)
+                .filter(|nu| *nu != mu)
+                .flat_map(|nu| {
+                    staple_paths(mu, nu)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, p)| (if i < 2 { self.c_plaq } else { self.c_rect }, p))
+                })
+                .filter(|(c, _)| *c != 0.0)
+                .collect();
             for_sites(f.slab_mut(mu), 18, |x, out| {
-                let m = link(u, mu, x).mul(&link(&sigma, 0, x).adj());
+                let e = ext.at(x);
+                let mut sigma = ColorMatrix::zero();
+                for (c, p) in &paths {
+                    sigma = sigma.add(&ext.walk(e, p).scale(*c));
+                }
+                let m = ext.link(mu, e).mul(&sigma.adj());
                 traceless_antihermitian(&m).scale(k).write_reals(out);
             });
         }
