@@ -6,9 +6,9 @@
 //! The multigrid is a section of its own, `MultiGrid`, next to `Solver`, which uses it with
 //! `preconditioner_type: MG` and may keep it when it does not (switching is one keyword).
 //! It can also come from a file of its own (`MultiGrid_file`), to share one multigrid among
-//! many parameter files. Its levels are `MultiGrid_Level1`, `MultiGrid_Level2`, ... (only the
-//! first is implemented so far); each names a solver for each coarse factor, with the keys
-//! of `Solver`.
+//! many parameter files. `MultiGrid_Level1` is the coarse lattice; it names a solver for each
+//! coarse factor, with the keys of `Solver`. `MultiGrid_Level2` to `MultiGrid_Level4`, if
+//! given, are levels below it (`super_block_size`) in the solves of the quark factor.
 //!
 //! ```yaml
 //! Main:
@@ -317,6 +317,33 @@ pub struct MultigridBlock {
     pub smoother: SmootherBlock,
     #[serde(rename = "MultiGrid_Level1")]
     pub level1: LevelBlock,
+    /// Levels below the coarse lattice, for the solves of the quark factor P†DP.
+    #[serde(rename = "MultiGrid_Level2")]
+    pub level2: Option<SubLevelBlock>,
+    #[serde(rename = "MultiGrid_Level3")]
+    pub level3: Option<SubLevelBlock>,
+    #[serde(rename = "MultiGrid_Level4")]
+    pub level4: Option<SubLevelBlock>,
+}
+
+impl MultigridBlock {
+    /// The super-block sizes of the levels below the coarse lattice, in order.
+    pub fn super_blocks(&self) -> Vec<usize> {
+        [&self.level2, &self.level3, &self.level4]
+            .into_iter()
+            .map_while(|l| l.as_ref().map(|l| l.super_block_size))
+            .collect()
+    }
+}
+
+/// A level below the coarse lattice: super-blocks of `super_block_size` sites of the level
+/// above in every direction, with block-Jacobi smoothing; the last level is solved exactly
+/// (densely, so it has to be small: two test vectors per test vector of level 1 and
+/// chirality on each of its sites).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubLevelBlock {
+    pub super_block_size: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -628,9 +655,17 @@ impl Params {
         match self.main.backend {
             Backend::Cpu => {}
             Backend::Simd => {
-                return Err(invalid(
-                    "Main.backend: simd has no domain-wall operator yet; use cpu".into(),
-                ))
+                let lanes = self.main.simd_lanes;
+                if ![2, 4, 8].contains(&lanes) {
+                    return Err(invalid(format!("Main.simd_lanes: 2, 4 or 8, not {lanes}")));
+                }
+                let cut = crate::Blocks::new(self.main.lattice_size, lanes);
+                if cut.as_ref().and_then(|b| b.even_odd_index()).is_none() {
+                    return Err(invalid(format!(
+                        "Main.simd_lanes: the lattice {:?} cannot be cut into {lanes} sub-lattices whose lattice of blocks has even extents (needed for even-odd); use fewer lanes",
+                        self.main.lattice_size
+                    )));
+                }
             }
             Backend::Gpu => {
                 return Err(invalid(
@@ -715,6 +750,29 @@ impl Params {
                 return Err(invalid(
                     "MultiGrid.MultiGrid_Level1: number_of_test_vectors must be even and at most twice Setup.filter_number_of_vectors".into(),
                 ));
+            }
+            let levels = mg.super_blocks();
+            let given = [&mg.level2, &mg.level3, &mg.level4]
+                .iter()
+                .filter(|l| l.is_some())
+                .count();
+            if given != levels.len() {
+                return Err(invalid(
+                    "MultiGrid: MultiGrid_Level3 needs MultiGrid_Level2, and MultiGrid_Level4 needs MultiGrid_Level3".into(),
+                ));
+            }
+            let mut ext: Vec<usize> = (0..ND)
+                .map(|mu| self.main.lattice_size[mu] / level.block_size[mu])
+                .collect();
+            for (k, &sb) in levels.iter().enumerate() {
+                if sb == 0 || ext.iter().any(|e| e % sb != 0) {
+                    return Err(invalid(format!(
+                        "MultiGrid.MultiGrid_Level{}: super_block_size {sb} does not divide the extent {ext:?} of level {}",
+                        k + 2,
+                        k + 1
+                    )));
+                }
+                ext.iter_mut().for_each(|e| *e /= sb);
             }
         }
         Ok(())
@@ -841,7 +899,15 @@ impl fmt::Display for Params {
                     mg.coarse_precision,
                     mg.smoother.number_of_steps,
                     mg.smoother.interval_ratio
-                )
+                )?;
+                let levels = mg.super_blocks();
+                if !levels.is_empty() {
+                    write!(
+                        f,
+                        "\nlevels below the coarse lattice for P†DP: super-blocks {levels:?} (V-cycle, the last solved exactly)"
+                    )?;
+                }
+                Ok(())
             }
             (PreconditionerType::Chebyshev, _) => {
                 let c = s.chebyshev_settings();
@@ -927,6 +993,30 @@ Solver:
         assert_eq!(low.vectors, 16);
         assert_eq!(boot.rounds, 2);
         assert_eq!(p.form(), (EoForm::Left, false));
+        assert!(p.multigrid.as_ref().unwrap().super_blocks().is_empty());
+    }
+
+    #[test]
+    fn levels_below_the_coarse_lattice() {
+        let solver = "  solver_type : gcr\n  preconditioner_type : MG\n";
+        // 12⁴ in blocks of 4⁴ is 3⁴ coarse sites; 16⁴ is 4⁴.
+        let sixteen = |levels: &str| {
+            with(solver, true).replace("[12, 12, 12, 12]", "[16, 16, 16, 16]") + levels
+        };
+        let p = parse(&sixteen(
+            "  MultiGrid_Level2:\n    super_block_size : 2\n  MultiGrid_Level3:\n    super_block_size : 2\n",
+        ))
+        .unwrap();
+        assert_eq!(p.multigrid.as_ref().unwrap().super_blocks(), vec![2, 2]);
+        assert!(p.to_string().contains("super-blocks [2, 2]"), "{p}");
+        let e = parse(&(with(solver, true) + "  MultiGrid_Level2:\n    super_block_size : 2\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("does not divide the extent [3, 3, 3, 3]"), "{e}");
+        let e = parse(&sixteen("  MultiGrid_Level3:\n    super_block_size : 2\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("Level3 needs MultiGrid_Level2"), "{e}");
     }
 
     #[test]

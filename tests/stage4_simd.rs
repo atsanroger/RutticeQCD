@@ -5,15 +5,17 @@ mod common;
 
 use common::max_abs_diff;
 use ruttice::fermion::{
-    solve_even_odd, Bound, Clover, CloverParams, CloverSimd, Dagger, DiagTerm, EvenOdd, FermionOp,
-    Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
+    solve_even_odd, Bound, Clover, CloverParams, CloverSimd, Dagger, DiagTerm, EoForm, EvenOdd,
+    FermionOp, Mdwf, MdwfParams, PvEvenOdd, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, LaneOf};
-use ruttice::solver::{solve_cgne, BiCgStab, Cg, Solver, Stop};
+use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation, PvEoCycle, PvEoParams};
+use ruttice::solver::{solve_cgne, BiCgStab, Cg, Gcr, Solver, Stop};
 use ruttice::{
     assemble, extract_parity, insert_parity, local_part, random_spinor, Aosoa, Boundary,
-    ConvertFrom, Field, Gauge, Half, Lattice, LocalComm, Parity, Spinor, Storage, Vector, C64, ND,
+    ConvertFrom, Field, Gauge, Half, Lattice, LinearFn, LocalComm, Parity, Spinor, Storage, Vector,
+    C64, ND,
 };
 use std::sync::Arc;
 
@@ -763,4 +765,256 @@ fn even_odd_solve_runs_on_blocks_on_several_processes() {
     r.norm_sqr(&mut rr);
     b.norm_sqr(&mut bb);
     assert!(rr[0] / bb[0] < 1e-22, "{:e}", rr[0] / bb[0]);
+}
+
+/// A random field with `ls` spinors per site in each of `nv` vectors.
+fn random_5d(lat: &Arc<Lattice>, ls: usize, nv: usize, seed: u64) -> V {
+    let flat = random_spinor(lat, ls * nv, seed);
+    let mut v = V::with_shape(lat, 24, ls, nv, 1);
+    v.as_mut_slice().copy_from_slice(flat.as_slice());
+    v
+}
+
+fn to_blocks_5d<const W: usize>(a: &V) -> B<W> {
+    let mut b = B::<W>::with_shape(a.lattice(), 24, a.ls(), a.num_vectors(), 1);
+    b.convert_from(a);
+    b
+}
+
+fn to_sites_5d<const W: usize>(b: &B<W>) -> V {
+    let mut a = V::with_shape(b.lattice(), 24, b.ls(), b.num_vectors(), 1);
+    a.convert_from(b);
+    a
+}
+
+const MOBIUS: MdwfParams = MdwfParams {
+    ls: 6,
+    m5: 1.4,
+    mass: 0.03,
+    b: 1.5,
+    c: 0.5,
+    boundary: [
+        Boundary::Periodic,
+        Boundary::Periodic,
+        Boundary::Periodic,
+        Boundary::Antiperiodic,
+    ],
+};
+
+/// Möbius domain-wall fermions on fields in blocks of W sites, against the usual layout:
+/// D, D† and Γ5 D, with and without Neff's α; the even-odd Pauli-Villars operator Ã in both
+/// forms; and the solution of D x = b through it. The fifth dimension is the same code on
+/// numbers of W lanes, so the results agree to rounding.
+#[test]
+fn mdwf_on_blocks_is_identical() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 991);
+    let psi = random_5d(&lat, MOBIUS.ls, 2, 992);
+    let b = random_5d(&lat, MOBIUS.ls, 1, 993);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    fn check<const W: usize>(
+        lat: &Arc<Lattice>,
+        u: &Field<f64, Gauge>,
+        psi: &V,
+        b: &V,
+        pv_params: MdwfParams,
+    ) where
+        f64: LaneOf<W>,
+    {
+        let tol = 1e-12;
+        let sites = |p: MdwfParams| {
+            let mut op = Mdwf::<f64>::new(lat, p);
+            op.set_gauge(u).unwrap();
+            op
+        };
+        let blocks = |p: MdwfParams| {
+            let mut op = Mdwf::<f64, Dirac, Aosoa<W>>::in_blocks(lat, p).unwrap();
+            op.set_gauge(u).unwrap();
+            op
+        };
+        let (mut op_s, mut op_b) = (sites(MOBIUS), blocks(MOBIUS));
+        let (pv_s, pv_b) = (sites(pv_params), blocks(pv_params));
+        let psi_b = to_blocks_5d::<W>(psi);
+        for alpha in [1.0, 0.6] {
+            op_s.set_alpha(alpha);
+            op_b.set_alpha(alpha);
+            for variant in [Variant::D, Variant::Dagger, Variant::Gamma5D] {
+                let (mut out_s, mut out_b) = (psi.zeros_like(), psi_b.zeros_like());
+                op_s.mult(&mut op_s.work(), &mut out_s, psi, variant);
+                op_b.mult(&mut op_b.work(), &mut out_b, &psi_b, variant);
+                let d = max_abs_diff(&to_sites_5d(&out_b), &out_s);
+                assert!(d < tol, "W = {W}, α = {alpha}, {variant:?}: {d:e}");
+            }
+            // Ã in both forms on one vector of the even sites.
+            let (index_s, index_b) = (
+                op_s.even_odd_index().unwrap().clone(),
+                op_b.even_odd_index().unwrap().clone(),
+            );
+            let mut even_s = Field::<f64, Spinor, Half>::with_shape(lat, 24, MOBIUS.ls, 2, 1);
+            let mut even_b =
+                Field::<f64, Spinor, Half, Aosoa<W>>::with_shape(lat, 24, MOBIUS.ls, 2, 1);
+            extract_parity(&mut even_s, psi, &index_s, Parity::Even);
+            extract_parity(&mut even_b, &psi_b, &index_b, Parity::Even);
+            for form in [EoForm::Right, EoForm::Left] {
+                let mut a_s = PvEvenOdd::new(&op_s, &pv_s, form, &even_s);
+                let mut a_b = PvEvenOdd::new(&op_b, &pv_b, form, &even_b);
+                let (mut out_s, mut out_b) = (even_s.zeros_like(), even_b.zeros_like());
+                a_s.mult(&mut out_s, &even_s);
+                a_b.mult(&mut out_b, &even_b);
+                let (mut whole_s, mut whole_b) = (psi.zeros_like(), psi_b.zeros_like());
+                insert_parity(&mut whole_s, &out_s, &index_s);
+                insert_parity(&mut whole_b, &out_b, &index_b);
+                let d = max_abs_diff(&to_sites_5d(&whole_b), &whole_s);
+                assert!(d < tol, "W = {W}, α = {alpha}, Ã {form:?}: {d:e}");
+            }
+        }
+        // D x = b through Ã with GCR(4): the same solution in the same number of steps.
+        let mut like_b = Field::<f64, Spinor, Half, Aosoa<W>>::with_shape(lat, 24, MOBIUS.ls, 1, 1);
+        like_b.set_parity(Parity::Even);
+        let mut like_s = Field::<f64, Spinor, Half>::with_shape(lat, 24, MOBIUS.ls, 1, 1);
+        like_s.set_parity(Parity::Even);
+        let b_b = to_blocks_5d::<W>(b);
+        let stop = Stop::simple(1e-20, 400);
+        let mut a_s = PvEvenOdd::new(&op_s, &pv_s, EoForm::Right, &like_s);
+        let mut a_b = PvEvenOdd::new(&op_b, &pv_b, EoForm::Right, &like_b);
+        let (mut rhs_s, mut rhs_b) = (like_s.zeros_like(), like_b.zeros_like());
+        a_s.right_hand_side(&mut rhs_s, b);
+        a_b.right_hand_side(&mut rhs_b, &b_b);
+        let (mut y_s, mut y_b) = (like_s.zeros_like(), like_b.zeros_like());
+        let info_s = Gcr::new(stop, 4)
+            .solve(&mut a_s, None, &mut y_s, &rhs_s)
+            .unwrap();
+        let info_b = Gcr::new(stop, 4)
+            .solve(&mut a_b, None, &mut y_b, &rhs_b)
+            .unwrap();
+        let (mut x_s, mut x_b) = (b.zeros_like(), b_b.zeros_like());
+        a_s.solution(&mut x_s, &y_s, b);
+        a_b.solution(&mut x_b, &y_b, &b_b);
+        let d = max_abs_diff(&to_sites_5d(&x_b), &x_s);
+        eprintln!(
+            "W = {W}: GCR(4) {} steps on sites, {} on blocks; solutions differ by {d:e}",
+            info_s.iterations, info_b.iterations
+        );
+        assert!(info_s.iterations.abs_diff(info_b.iterations) <= 1);
+        assert!(d < 1e-8, "W = {W}: {d:e}");
+    }
+    check::<2>(&lat, &u, &psi, &b, pv_params);
+    check::<4>(&lat, &u, &psi, &b, pv_params);
+    check::<8>(&lat, &u, &psi, &b, pv_params);
+}
+
+/// The even-odd Pauli-Villars multigrid with the operator and the smoother in blocks of W
+/// sites (the coarse correction in the usual layout): GCR(2) with it takes as many steps as
+/// with the cycle in the usual layout, and gives the same solution.
+#[test]
+fn mdwf_multigrid_on_blocks_agrees() {
+    let lat = lattice();
+    let u = random_gauge(&lat, 995);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let make = |p: MdwfParams| {
+        let mut op = Mdwf::<f64>::new(&lat, p);
+        op.set_gauge(&u).unwrap();
+        op
+    };
+    let (op, pv) = (make(MOBIUS), make(pv_params));
+    let index = op.even_odd_index().unwrap().clone();
+    let mut y = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 4, 1);
+    extract_parity(
+        &mut y,
+        &random_5d(&lat, MOBIUS.ls, 4, 996),
+        &index,
+        Parity::Even,
+    );
+    let basis = pv_eo_basis(&op, &pv, &Aggregation::new(&lat, [2, 2, 2, 2]), &y).unwrap();
+    let b = random_5d(&lat, MOBIUS.ls, 1, 997);
+    let stop = Stop::simple(1e-20, 200);
+
+    let mut like = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    like.set_parity(Parity::Even);
+    let mut cycle = PvEoCycle::new(
+        &op,
+        &pv,
+        (&op, &pv, EoForm::Right),
+        &basis,
+        PvEoParams::default(),
+    )
+    .unwrap();
+    let mut a = cycle.operator();
+    let mut rhs = like.zeros_like();
+    a.right_hand_side(&mut rhs, &b);
+    let mut sol = like.zeros_like();
+    let info = Gcr::new(stop, 2)
+        .solve(&mut a, Some(&mut cycle), &mut sol, &rhs)
+        .unwrap();
+    let mut x = b.zeros_like();
+    a.solution(&mut x, &sol, &b);
+
+    fn in_blocks<const W: usize>(
+        lat: &Arc<Lattice>,
+        u: &Field<f64, Gauge>,
+        (op, pv, pv_params): (&Mdwf<f64>, &Mdwf<f64>, MdwfParams),
+        basis: &ruttice::solver::preconditioner::multigrid::PvEoBasis,
+        b: &V,
+        stop: Stop,
+    ) -> (usize, V)
+    where
+        f64: LaneOf<W>,
+    {
+        let make = |p: MdwfParams| {
+            let mut op = Mdwf::<f64, Dirac, Aosoa<W>>::in_blocks(lat, p).unwrap();
+            op.set_gauge(u).unwrap();
+            op
+        };
+        let (op_b, pv_b) = (make(MOBIUS), make(pv_params));
+        let mut cycle = PvEoCycle::<Dirac, f32, Aosoa<W>>::in_blocks(
+            op,
+            pv,
+            (op, pv, EoForm::Right),
+            (&op_b, &pv_b),
+            basis,
+            PvEoParams::default(),
+        )
+        .unwrap();
+        let mut a = cycle.operator();
+        let mut like = Field::<f64, Spinor, Half, Aosoa<W>>::with_shape(lat, 24, MOBIUS.ls, 1, 1);
+        like.set_parity(Parity::Even);
+        let b_b = to_blocks_5d::<W>(b);
+        let mut rhs = like.zeros_like();
+        a.right_hand_side(&mut rhs, &b_b);
+        let mut sol = like.zeros_like();
+        let info = Gcr::new(stop, 2)
+            .solve(&mut a, Some(&mut cycle), &mut sol, &rhs)
+            .unwrap();
+        let mut x = b_b.zeros_like();
+        a.solution(&mut x, &sol, &b_b);
+        (info.iterations, to_sites_5d(&x))
+    }
+    for (w, (steps, x_b)) in [
+        (
+            2,
+            in_blocks::<2>(&lat, &u, (&op, &pv, pv_params), &basis, &b, stop),
+        ),
+        (
+            4,
+            in_blocks::<4>(&lat, &u, (&op, &pv, pv_params), &basis, &b, stop),
+        ),
+        (
+            8,
+            in_blocks::<8>(&lat, &u, (&op, &pv, pv_params), &basis, &b, stop),
+        ),
+    ] {
+        let d = max_abs_diff(&x_b, &x);
+        eprintln!(
+            "W = {w}: {steps} steps in blocks, {} in the usual layout; solutions differ by {d:e}",
+            info.iterations
+        );
+        assert!(steps.abs_diff(info.iterations) <= 1);
+        assert!(d < 1e-8, "W = {w}: {d:e}");
+    }
 }

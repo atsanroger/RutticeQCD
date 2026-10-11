@@ -15,21 +15,23 @@ pub struct Aggregation {
 }
 
 impl Aggregation {
-    /// Every extent of the lattice must be a multiple of the block size in that direction.
+    /// Every extent of the lattice on one process must be a multiple of the block size in
+    /// that direction, so that no block is split between processes. The coarse lattice is
+    /// split over the same process grid as the fine one.
     pub fn new(fine: &Arc<Lattice>, block: [usize; ND]) -> Arc<Self> {
         for mu in 0..ND {
             assert!(
                 block[mu] > 0 && fine.local[mu].is_multiple_of(block[mu]),
-                "block size {:?} does not divide the lattice {:?}",
+                "block size {:?} does not divide the lattice {:?} on one process",
                 block,
                 fine.local
             );
         }
-        assert_eq!(
-            fine.local, fine.global,
-            "aggregation on more than one process is not implemented"
+        let coarse = Lattice::new(
+            core::array::from_fn(|mu| fine.global[mu] / block[mu]),
+            fine.grid,
+            fine.comm.clone(),
         );
-        let coarse = Lattice::single_node(core::array::from_fn(|mu| fine.local[mu] / block[mu]));
         let block_volume: usize = block.iter().product();
         let n = fine.num_sites();
         assert!(n <= u32::MAX as usize);

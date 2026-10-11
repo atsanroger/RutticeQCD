@@ -3,12 +3,13 @@ use crate::fermion::HopTerms;
 use crate::kernel::{Cplx, Number, Real};
 use crate::numerics::invert_complex;
 use crate::{
-    for_sites, Boundary, Coarse, Direction, Field, Lattice, LinearFn, LinearOp, Source, Spinor,
-    Stencil, Storage, Vector, C64, ND,
+    for_sites, Boundary, Coarse, Direction, Field, HaloExchange, Lattice, LinearFn, LinearOp,
+    Source, Spinor, Stencil, Storage, Vector, C64, FACES, ND,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
-/// The eight hopping directions, in the order the coarse links are stored.
+/// The eight hopping directions, in the order the coarse links are stored (the order of the
+/// faces and legs of `Stencil`: forward 0..4, backward 4..8).
 const DIRECTIONS: [(usize, Direction); 2 * ND] = [
     (0, Direction::Forward),
     (1, Direction::Forward),
@@ -26,6 +27,10 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 /// `(D_c ψ)(X) = A(X) ψ(X) + Σ_dir B_dir(X) ψ(X + dir)`, with dense matrices A and B_dir at
 /// every coarse site. A collects the fine couplings inside a block, B_dir those that cross
 /// into the neighbouring block.
+///
+/// On several processes the coarse lattice is split like the fine one; the neighbours on
+/// other processes arrive by a halo exchange, and for the exact adjoint so do, once, the
+/// links of those neighbours.
 pub struct CoarseOp<T: Storage> {
     lat: Arc<Lattice>,
     stencil: Stencil,
@@ -42,7 +47,15 @@ pub struct CoarseOp<T: Storage> {
     /// Whether `D_c† = Γ5 D_c Γ5`: true for an operator built from the parts of a fine
     /// operator with that property, not for a probed one.
     adjoint_from_gamma5: bool,
+    /// The buffers of the halo exchange, for fields of this many reals per site.
+    exchange: Mutex<Option<Exchange<T>>>,
+    /// The links B_dir(Y) of the neighbours Y on other processes, by the face they arrive
+    /// on (the hop from here to Y), for `mult_adjoint`.
+    ghost_links: OnceLock<[Vec<T>; FACES]>,
 }
+
+/// Halo buffers for fields of this many reals per site.
+type Exchange<T> = (usize, Box<dyn HaloExchange<T>>);
 
 /// The inverses of the diagonal blocks of a coarse operator.
 fn invert_blocks<T: Storage>(
@@ -190,6 +203,8 @@ impl<T: Storage> CoarseOp<T> {
             diag_inv,
             scratch: None,
             adjoint_from_gamma5: true,
+            exchange: Mutex::new(None),
+            ghost_links: OnceLock::new(),
         })
     }
 
@@ -219,6 +234,10 @@ impl<T: Storage> CoarseOp<T> {
         assert_eq!(basis.coarse_dim(), restriction.coarse_dim());
         let agg = basis.aggregation();
         let lat = agg.coarse_lattice().clone();
+        assert_eq!(
+            lat.grid, [1; ND],
+            "probing a coarse operator on more than one process is not implemented"
+        );
         let stencil = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
         let dim = basis.coarse_dim();
         let n_coarse = lat.num_sites();
@@ -287,7 +306,7 @@ impl<T: Storage> CoarseOp<T> {
                         };
                         let Source::Local { site: x, .. } = stencil.source(*source, mu, back)
                         else {
-                            unreachable!("the coarse stencil is periodic and on one process");
+                            unreachable!("probing is on one process");
                         };
                         let range = d * n_coarse * matrix..(d + 1) * n_coarse * matrix;
                         column_of(&mut links[range], x, column, restricted.site(0, x));
@@ -310,6 +329,8 @@ impl<T: Storage> CoarseOp<T> {
             diag_inv,
             scratch: None,
             adjoint_from_gamma5: false,
+            exchange: Mutex::new(None),
+            ghost_links: OnceLock::new(),
         })
     }
 
@@ -371,6 +392,51 @@ impl<T: Storage> CoarseOp<T> {
         &self.lat
     }
 
+    /// The neighbours of `inp` on other processes, by the face they arrive on, `site_len`
+    /// reals each in the order of `Source::Buffer`; empty on one process.
+    fn halo(&self, inp: &Field<T, Coarse>) -> [Vec<T>; FACES] {
+        if !self.stencil.has_buffers() {
+            return Default::default();
+        }
+        let site_len = inp.site_len();
+        let mut slot = self.exchange.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.as_ref().is_none_or(|(len, _)| *len != site_len) {
+            let spec = self.stencil.halo_spec(site_len);
+            *slot = Some((site_len, T::halo(&*self.lat.comm, &spec)));
+        }
+        let ex = &mut slot.as_mut().expect("just set").1;
+        for (face, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+            let buffer = ex.send_buffer(face);
+            for (k, s) in self.stencil.send_sites(mu, dir).iter().enumerate() {
+                buffer[k * site_len..(k + 1) * site_len].copy_from_slice(inp.site(0, *s as usize));
+            }
+        }
+        ex.start();
+        ex.wait();
+        core::array::from_fn(|face| ex.recv_buffer(face).to_vec())
+    }
+
+    /// The links of the neighbours on other processes that `mult_adjoint` needs: for the
+    /// hop from X to Y = X + dir, B_-dir(Y). Every process sends, through each face, the
+    /// links in the direction of that face of the sites on it.
+    fn exchange_links(&self) -> [Vec<T>; FACES] {
+        if !self.stencil.has_buffers() {
+            return Default::default();
+        }
+        let (matrix, n_coarse) = (2 * self.dim * self.dim, self.lat.num_sites());
+        let mut ex = T::halo(&*self.lat.comm, &self.stencil.halo_spec(matrix));
+        for (face, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+            let buffer = ex.send_buffer(face);
+            for (k, s) in self.stencil.send_sites(mu, dir).iter().enumerate() {
+                let at = (face * n_coarse + *s as usize) * matrix;
+                buffer[k * matrix..(k + 1) * matrix].copy_from_slice(&self.links[at..at + matrix]);
+            }
+        }
+        ex.start();
+        ex.wait();
+        core::array::from_fn(|face| ex.recv_buffer(face).to_vec())
+    }
+
     /// The same operator stored as `U`, for example single precision: the coarse operator
     /// is limited by memory bandwidth, so half the bytes is nearly twice the speed.
     pub fn to_storage<U: Storage>(&self) -> CoarseOp<U> {
@@ -388,6 +454,8 @@ impl<T: Storage> CoarseOp<T> {
             diag_inv: self.diag_inv.as_deref().map(convert),
             scratch: None,
             adjoint_from_gamma5: self.adjoint_from_gamma5,
+            exchange: Mutex::new(None),
+            ghost_links: OnceLock::new(),
         }
     }
 
@@ -404,21 +472,28 @@ impl<T: Storage> CoarseOp<T> {
         let (dim, matrix) = (self.dim, 2 * self.dim * self.dim);
         let n_coarse = self.lat.num_sites();
         let site_len = inp.site_len();
+        let ghost = self.halo(inp);
+        let ghost_links = self.ghost_links.get_or_init(|| self.exchange_links());
         for_sites(out.slab_mut(0), site_len, |x, out| {
             out.fill(T::default());
-            // (the block applied as its conjugate transpose, the site it multiplies)
-            let mut terms: [(&[T], usize); 2 * ND + 1] =
-                [(&self.diag[x * matrix..(x + 1) * matrix], x); 2 * ND + 1];
+            // (the block applied as its conjugate transpose, the field it multiplies)
+            let mut terms: [(&[T], &[T]); 2 * ND + 1] =
+                [(&self.diag[x * matrix..(x + 1) * matrix], inp.site(0, x)); 2 * ND + 1];
             for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
-                let Source::Local { site, .. } = self.stencil.source(x, mu, dir) else {
-                    unreachable!("the coarse stencil is periodic and on one process");
-                };
                 let back = (d + ND) % (2 * ND);
-                let at = (back * n_coarse + site) * matrix;
-                terms[d + 1] = (&self.links[at..at + matrix], site);
+                terms[d + 1] = match self.stencil.source(x, mu, dir) {
+                    Source::Local { site, .. } => {
+                        let at = (back * n_coarse + site) * matrix;
+                        (&self.links[at..at + matrix], inp.site(0, site))
+                    }
+                    Source::Buffer { index, .. } => (
+                        &ghost_links[d][index * matrix..(index + 1) * matrix],
+                        &ghost[d][index * site_len..(index + 1) * site_len],
+                    ),
+                    Source::Zero => unreachable!("the coarse stencil is periodic"),
+                };
             }
-            for (m, neighbour) in terms {
-                let v = inp.site(0, neighbour);
+            for (m, v) in terms {
                 for (out, v) in out.chunks_exact_mut(2 * dim).zip(v.chunks_exact(2 * dim)) {
                     for row in 0..dim {
                         // (M†)_{row, col} = conj(M_{col, row})
@@ -464,16 +539,22 @@ impl<T: Storage> CoarseOp<T> {
         let site_len = inp.site_len();
         let half = dim / 2;
 
+        let ghost = self.halo(inp);
+
         for_sites(out.slab_mut(0), site_len, |x, out| {
-            // (matrix, the coarse site it multiplies)
-            let mut terms: [(&[T], usize); 2 * ND + 1] =
-                [(&self.diag[x * matrix..(x + 1) * matrix], x); 2 * ND + 1];
+            // (matrix, the field it multiplies)
+            let mut terms: [(&[T], &[T]); 2 * ND + 1] =
+                [(&self.diag[x * matrix..(x + 1) * matrix], inp.site(0, x)); 2 * ND + 1];
             for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
-                let Source::Local { site, .. } = self.stencil.source(x, mu, dir) else {
-                    unreachable!("the coarse stencil is periodic and on one process");
-                };
                 let at = (d * n_coarse + x) * matrix;
-                terms[d + 1] = (&self.links[at..at + matrix], site);
+                let v = match self.stencil.source(x, mu, dir) {
+                    Source::Local { site, .. } => inp.site(0, site),
+                    Source::Buffer { index, .. } => {
+                        &ghost[d][index * site_len..(index + 1) * site_len]
+                    }
+                    Source::Zero => unreachable!("the coarse stencil is periodic"),
+                };
+                terms[d + 1] = (&self.links[at..at + matrix], v);
             }
 
             // The sums of the nine terms for every vector, in the compute type, real and
@@ -486,8 +567,7 @@ impl<T: Storage> CoarseOp<T> {
             let zero = T::Compute::ZERO;
             let (mut acc_re, mut acc_im) = (vec![zero; nv * dim], vec![zero; nv * dim]);
             let (mut in_re, mut in_im) = (vec![zero; nv * dim], vec![zero; nv * dim]);
-            for (m, neighbour) in terms {
-                let v = inp.site(0, neighbour);
+            for (m, v) in terms {
                 for j in 0..nv * dim {
                     let (re, im) = (v[2 * j].load(), v[2 * j + 1].load());
                     let negate = gamma5 && j % dim >= half;

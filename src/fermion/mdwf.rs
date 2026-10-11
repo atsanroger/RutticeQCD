@@ -74,12 +74,16 @@
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
 use super::{
-    Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant, Wilson, WilsonParams, WilsonWork,
+    Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, UnitDiag, Variant, Wilson, WilsonLayout,
+    WilsonOp, WilsonParams, WilsonWork,
 };
-use crate::kernel::{Dirac, GammaRepre, Number, Spinor as SiteSpinor, NC, SPINOR_REALS};
+use crate::kernel::{
+    Cplx, Dirac, GammaRepre, Lane, LaneOf, Number, Spinor as SiteSpinor, NC, NS, SPINOR_REALS,
+};
 use crate::{
-    extract_parity, fit, for_sites, insert_parity, Boundary, EvenOddIndex, Field, Gauge, Half,
-    Lattice, LinearFn, LinearOp, Parity, Sites, Spinor, Storage, Vector, C64, ND,
+    extract_parity, fit, for_sites, insert_parity, Aos, Aosoa, Boundary, EvenOddIndex, Field, Full,
+    Gauge, Half, Lattice, Layout, LinearFn, LinearOp, Parity, Sites, Spinor, Storage, Vector, C64,
+    ND,
 };
 use std::sync::Arc;
 
@@ -107,22 +111,213 @@ impl MdwfParams {
 /// Largest fifth dimension: the spinors of a site are gathered on the stack.
 pub const MAX_LS: usize = 64;
 
-/// The Möbius domain-wall operator on fields with `ls` spinors per site.
-pub struct Mdwf<T: Storage, G: GammaRepre = Dirac> {
+/// The Möbius domain-wall operator on fields with `ls` spinors per site, in the layout `L`:
+/// the usual one (`new`), or blocks of `W` sites for SIMD (`Aosoa<W>`, `in_blocks`), in which
+/// the same code runs on the `W` sites of a block at once.
+pub struct Mdwf<T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
     params: MdwfParams,
-    wilson: Wilson<T, G>,
+    wilson: WilsonOp<T, G, UnitDiag, L>,
     /// Neff's α (1: the plain operator).
     alpha: f64,
 }
 
 /// Scratch space of `Mdwf`: that of the Wilson kernel and four fields, made on first use.
-pub struct MdwfWork<T: Storage> {
+pub struct MdwfWork<T: Storage, L: Layout = Aos> {
     wilson: WilsonWork<T>,
-    fields: Option<[Field<T, Spinor>; 4]>,
+    fields: Option<[Field<T, Spinor, Full, L>; 4]>,
+}
+
+/// A layout `Mdwf` works in: the Wilson kernel has a sweep for it, and the reals of one
+/// spinor (of one site, or of the `W` sites of a block) load into a spinor of `Num`, the
+/// compute type or `W` lanes of it, on which the fifth dimension is the same code.
+pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
+    type Num: Number;
+    fn load(reals: &[T]) -> SiteSpinor<Self::Num>;
+    fn store(p: &SiteSpinor<Self::Num>, reals: &mut [T]);
+    /// The Wilson kernel in this layout, if the lattice allows it.
+    fn kernel<G: GammaRepre>(
+        lat: &Arc<Lattice>,
+        params: WilsonParams,
+    ) -> Option<WilsonOp<T, G, UnitDiag, Self>>;
+    fn even_odd_index<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+    ) -> Option<&Arc<EvenOddIndex>>;
+    fn work_of<G: GammaRepre>(w: &WilsonOp<T, G, UnitDiag, Self>) -> WilsonWork<T>;
+    fn set_gauge<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError>;
+    fn mult<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Full, Self>,
+        inp: &Field<T, Spinor, Full, Self>,
+        variant: Variant,
+    );
+    fn hop<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half, Self>,
+        inp: &Field<T, Spinor, Half, Self>,
+        to: Parity,
+        dagger: Dagger,
+    );
+}
+
+impl<T: Storage> MdwfLayout<T> for Aos {
+    type Num = T::Compute;
+    #[inline(always)]
+    fn load(reals: &[T]) -> SiteSpinor<T::Compute> {
+        load::<T>(reals)
+    }
+    #[inline(always)]
+    fn store(p: &SiteSpinor<T::Compute>, reals: &mut [T]) {
+        store::<T>(p, reals);
+    }
+    fn kernel<G: GammaRepre>(
+        lat: &Arc<Lattice>,
+        params: WilsonParams,
+    ) -> Option<WilsonOp<T, G, UnitDiag, Self>> {
+        Some(Wilson::new(lat, params))
+    }
+    fn even_odd_index<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+    ) -> Option<&Arc<EvenOddIndex>> {
+        w.even_odd_index()
+    }
+    fn work_of<G: GammaRepre>(w: &WilsonOp<T, G, UnitDiag, Self>) -> WilsonWork<T> {
+        FermionOp::<Field<T, Spinor>>::work(w)
+    }
+    fn set_gauge<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError> {
+        FermionOp::<Field<T, Spinor>>::set_gauge(w, u)
+    }
+    fn mult<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        variant: Variant,
+    ) {
+        FermionOp::mult(w, work, out, inp, variant);
+    }
+    fn hop<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        EvenOdd::hop(w, work, out, inp, to, dagger);
+    }
+}
+
+impl<T: Storage, const W: usize> MdwfLayout<T> for Aosoa<W>
+where
+    T::Compute: LaneOf<W>,
+{
+    type Num = <T::Compute as LaneOf<W>>::Lane;
+    #[inline(always)]
+    fn load(reals: &[T]) -> SiteSpinor<Self::Num> {
+        let lanes = reals.as_chunks::<W>().0;
+        let at = |k: usize| Lane::from_array(lanes[k].map(Storage::load));
+        let mut p = SiteSpinor::zero();
+        for a in 0..NS {
+            for c in 0..NC {
+                let k = 2 * (c + NC * a);
+                p.0[a][c] = Cplx::new(at(k), at(k + 1));
+            }
+        }
+        p
+    }
+    #[inline(always)]
+    fn store(p: &SiteSpinor<Self::Num>, reals: &mut [T]) {
+        let lanes = reals.as_chunks_mut::<W>().0;
+        for a in 0..NS {
+            for c in 0..NC {
+                let k = 2 * (c + NC * a);
+                lanes[k] = p.0[a][c].re.to_array().map(T::store);
+                lanes[k + 1] = p.0[a][c].im.to_array().map(T::store);
+            }
+        }
+    }
+    fn kernel<G: GammaRepre>(
+        lat: &Arc<Lattice>,
+        params: WilsonParams,
+    ) -> Option<WilsonOp<T, G, UnitDiag, Self>> {
+        WilsonOp::<T, G, UnitDiag, Self>::new(lat, params)
+    }
+    fn even_odd_index<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+    ) -> Option<&Arc<EvenOddIndex>> {
+        w.even_odd_index()
+    }
+    fn work_of<G: GammaRepre>(w: &WilsonOp<T, G, UnitDiag, Self>) -> WilsonWork<T> {
+        FermionOp::<Field<T, Spinor, Full, Self>>::work(w)
+    }
+    fn set_gauge<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError> {
+        FermionOp::<Field<T, Spinor, Full, Self>>::set_gauge(w, u)
+    }
+    fn mult<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Full, Self>,
+        inp: &Field<T, Spinor, Full, Self>,
+        variant: Variant,
+    ) {
+        FermionOp::mult(w, work, out, inp, variant);
+    }
+    fn hop<G: GammaRepre>(
+        w: &WilsonOp<T, G, UnitDiag, Self>,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half, Self>,
+        inp: &Field<T, Spinor, Half, Self>,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        EvenOdd::hop(w, work, out, inp, to, dagger);
+    }
+}
+
+/// A term of `Mdwf::combine`: a field, its coefficient and that of its hop in the fifth
+/// dimension.
+type Term<'f, T, S, L> = (&'f Field<T, Spinor, S, L>, f64, f64);
+
+/// The reals of block (or site, in the usual layout) `x` of a field, all its vectors.
+#[inline(always)]
+fn block<T: Storage, S: Sites, L: Layout>(f: &Field<T, Spinor, S, L>, x: usize) -> &[T] {
+    let n = f.block_len();
+    &f.slab(0)[x * n..(x + 1) * n]
 }
 
 impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Self {
+        Self::in_layout(lat, params).expect("every lattice has the usual layout")
+    }
+}
+
+impl<T: Storage, G: GammaRepre, const W: usize> Mdwf<T, G, Aosoa<W>>
+where
+    T::Compute: LaneOf<W>,
+{
+    /// The operator on fields in blocks of `W` sites, the SIMD layout (one process, as the
+    /// Wilson kernel in blocks). `None` if the lattice cannot be cut into `W` sub-lattices
+    /// of equal shape.
+    pub fn in_blocks(lat: &Arc<Lattice>, params: MdwfParams) -> Option<Self> {
+        Self::in_layout(lat, params)
+    }
+}
+
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
+    /// The operator in the layout `L`; `None` if the lattice does not allow it (see
+    /// `in_blocks`).
+    pub fn in_layout(lat: &Arc<Lattice>, params: MdwfParams) -> Option<Self> {
         assert!(
             (2..=MAX_LS).contains(&params.ls),
             "the fifth dimension must have between 2 and {MAX_LS} sites"
@@ -131,11 +326,11 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
             kappa: 1.0 / (8.0 - 2.0 * params.m5),
             boundary: params.boundary,
         };
-        Self {
+        Some(Self {
             params,
-            wilson: Wilson::new(lat, kernel),
+            wilson: L::kernel(lat, kernel)?,
             alpha: 1.0,
-        }
+        })
     }
 
     pub fn params(&self) -> &MdwfParams {
@@ -160,20 +355,20 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// q̄ = ψ̄_(Ls-1) P- + ψ̄_0 P+ (Furman and Shamir) put η on these walls.
     pub fn source_5d(
         &self,
-        work: &mut MdwfWork<T>,
-        out: &mut Field<T, Spinor>,
-        eta: &Field<T, Spinor>,
+        work: &mut MdwfWork<T, L>,
+        out: &mut Field<T, Spinor, Full, L>,
+        eta: &Field<T, Spinor, Full, L>,
     ) {
-        let ls = self.params.ls;
+        let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         assert!(eta.ls() == 1 && out.ls() == ls && out.num_vectors() == eta.num_vectors());
         let [b, v, _, _] = scratch(&mut work.fields, out);
-        let site_len = b.site_len();
-        let half = <T::Compute as Number>::from_f64(0.5);
+        let site_len = b.block_len();
+        let half = <L::Num as Number>::from_f64(0.5);
         for_sites(b.slab_mut(0), site_len, |x, o| {
             o.fill(T::default());
-            let from = eta.site(0, x);
-            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
-                let p = load::<T>(&from[v * SPINOR_REALS..(v + 1) * SPINOR_REALS]);
+            let from = block(eta, x);
+            for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
+                let p = L::load(&from[v * sp..(v + 1) * sp]);
                 let g = G::GAMMA5.apply(&p);
                 // P± η = (η ± γ5 η) / 2
                 let plus = SiteSpinor::zero()
@@ -182,12 +377,12 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                 let minus = SiteSpinor::zero()
                     .sub_scaled(-half, &p)
                     .sub_scaled(half, &g);
-                store::<T>(&plus, &mut o[..SPINOR_REALS]);
-                store::<T>(&minus, &mut o[(ls - 1) * SPINOR_REALS..]);
+                L::store(&plus, &mut o[..sp]);
+                L::store(&minus, &mut o[(ls - 1) * sp..]);
             }
         });
         // out = b - c W b, W = (4 - M5) Dw.
-        self.wilson.mult(&mut work.wilson, v, b, Variant::D);
+        L::mult(&self.wilson, &mut work.wilson, v, b, Variant::D);
         let MdwfParams { m5, c, .. } = self.params;
         self.combine(
             out,
@@ -199,14 +394,22 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 
     /// The four-dimensional quark field q = P- ψ_0 + P+ ψ_(Ls-1) of a five-dimensional
     /// solution ψ (of the plain operator: x = Q x^(α) for D^(α)), into `out` (Ls = 1).
-    pub fn propagator_4d(&self, out: &mut Field<T, Spinor>, psi: &Field<T, Spinor>) {
+    pub fn propagator_4d(
+        &self,
+        out: &mut Field<T, Spinor, Full, L>,
+        psi: &Field<T, Spinor, Full, L>,
+    ) {
         let ls = self.params.ls;
         self.walls_to_4d(out, psi, (0, ls - 1));
     }
 
     /// The field at the middle of the fifth dimension, q_mid = P- ψ_(Ls/2) + P+ ψ_(Ls/2-1),
     /// of the pseudoscalar density J5q whose correlator gives the residual mass.
-    pub fn midpoint_4d(&self, out: &mut Field<T, Spinor>, psi: &Field<T, Spinor>) {
+    pub fn midpoint_4d(
+        &self,
+        out: &mut Field<T, Spinor, Full, L>,
+        psi: &Field<T, Spinor, Full, L>,
+    ) {
         let ls = self.params.ls;
         assert!(ls.is_multiple_of(2), "the midpoint needs an even Ls");
         self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
@@ -215,21 +418,19 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// `out = P- ψ_(minus) + P+ ψ_(plus)`.
     fn walls_to_4d(
         &self,
-        out: &mut Field<T, Spinor>,
-        psi: &Field<T, Spinor>,
+        out: &mut Field<T, Spinor, Full, L>,
+        psi: &Field<T, Spinor, Full, L>,
         (minus, plus): (usize, usize),
     ) {
-        let ls = self.params.ls;
+        let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         assert!(psi.ls() == ls && out.ls() == 1 && out.num_vectors() == psi.num_vectors());
-        let half = <T::Compute as Number>::from_f64(0.5);
-        let site_len = out.site_len();
+        let half = <L::Num as Number>::from_f64(0.5);
+        let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
-            let from = psi.site(0, x);
-            for (v, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
-                let base = v * ls * SPINOR_REALS;
-                let at = |s: usize| {
-                    load::<T>(&from[base + s * SPINOR_REALS..base + (s + 1) * SPINOR_REALS])
-                };
+            let from = block(psi, x);
+            for (v, o) in o.chunks_exact_mut(sp).enumerate() {
+                let base = v * ls * sp;
+                let at = |s: usize| L::load(&from[base + s * sp..base + (s + 1) * sp]);
                 let (m, p) = (at(minus), at(plus));
                 // P- m + P+ p = (m + p)/2 + γ5 (p - m)/2
                 let sum = SiteSpinor::zero()
@@ -239,7 +440,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                     .sub_scaled(-half, &p)
                     .sub_scaled(half, &m);
                 let q = sum.add(&G::GAMMA5.apply(&diff));
-                store::<T>(&q, o);
+                L::store(&q, o);
             }
         });
     }
@@ -249,33 +450,31 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// D^(α) x^(α) = b.
     pub fn mult_q<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor, S>,
-        inp: &Field<T, Spinor, S>,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
         inverse: bool,
     ) {
         assert!(inp.ls() == self.params.ls && out.same_shape(inp));
-        let ls = self.params.ls;
+        let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let a = if inverse {
             1.0 / self.alpha
         } else {
             self.alpha
         };
-        let number = <T::Compute as Number>::from_f64;
+        let number = <L::Num as Number>::from_f64;
         // P- + a P+ = (1 + a)/2 + (a - 1)/2 γ5; P+ + a P- = (1 + a)/2 + (1 - a)/2 γ5.
         let (even, odd) = (number(0.5 * (1.0 + a)), number(0.5 * (a - 1.0)));
         let inside = number(a);
-        let site_len = out.site_len();
+        let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
-            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
-                let from = &inp.site(0, x)[v * ls * SPINOR_REALS..(v + 1) * ls * SPINOR_REALS];
+            for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
+                let from = &block(inp, x)[v * ls * sp..(v + 1) * ls * sp];
                 for (s, (out_reals, in_reals)) in o
-                    .as_chunks_mut::<SPINOR_REALS>()
-                    .0
-                    .iter_mut()
-                    .zip(from.as_chunks::<SPINOR_REALS>().0)
+                    .chunks_exact_mut(sp)
+                    .zip(from.chunks_exact(sp))
                     .enumerate()
                 {
-                    let p = load::<T>(in_reals);
+                    let p = L::load(in_reals);
                     let q = if s == 0 || s == ls - 1 {
                         let g = G::GAMMA5.apply(&p);
                         let k = if s == 0 { odd } else { -odd };
@@ -283,7 +482,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                     } else {
                         SiteSpinor::zero().sub_scaled(-inside, &p)
                     };
-                    store::<T>(&q, out_reals);
+                    L::store(&q, out_reals);
                 }
             }
         });
@@ -295,19 +494,14 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 
     /// `(Y φ)_s`, or `(Y† φ)_s`, at mass `mass`, from the `ls` spinors of one site.
     #[inline(always)]
-    fn fifth(
-        phi: &[SiteSpinor<T::Compute>],
-        s: usize,
-        dagger: bool,
-        mass: f64,
-    ) -> SiteSpinor<T::Compute> {
+    fn fifth(phi: &[SiteSpinor<L::Num>], s: usize, dagger: bool, mass: f64) -> SiteSpinor<L::Num> {
         let ls = phi.len();
-        let number = <T::Compute as Number>::from_f64;
+        let number = <L::Num as Number>::from_f64;
         // The coefficient of the projected neighbour: -1, or +m across the walls.
         let across = |wall: bool| number(0.5 * if wall { mass } else { -1.0 });
         // Y takes P- from above and P+ from below; Y† the other way round.
         let (above, below) = if dagger { (1.0, -1.0) } else { (-1.0, 1.0) };
-        let projected = |from: usize, sign: f64, k: T::Compute| {
+        let projected = |from: usize, sign: f64, k: L::Num| {
             // k (1 + sign γ5) φ
             let p = &phi[from];
             let both = p.sub_scaled(number(-sign), &G::GAMMA5.apply(p));
@@ -326,24 +520,23 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// γ5 times what would be at Ls-1-s: Γ5 applied last. Y is taken at mass `mass`.
     fn combine<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor, S>,
-        terms: &[(&Field<T, Spinor, S>, f64, f64)],
+        out: &mut Field<T, Spinor, S, L>,
+        terms: &[Term<'_, T, S, L>],
         (dagger, reflect): (bool, bool),
         mass: f64,
     ) {
-        let ls = self.params.ls;
-        let number = <T::Compute as Number>::from_f64;
-        let site_len = out.site_len();
+        let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
+        let number = <L::Num as Number>::from_f64;
+        let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
             // One vector at a time: its `ls` spinors are next to each other.
-            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
-                let mut result = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+            for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
+                let mut result = [SiteSpinor::<L::Num>::zero(); MAX_LS];
                 for (field, a, y) in terms {
-                    let from =
-                        &field.site(0, x)[v * ls * SPINOR_REALS..(v + 1) * ls * SPINOR_REALS];
-                    let mut phi = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
-                    for (p, reals) in phi.iter_mut().zip(from.as_chunks::<SPINOR_REALS>().0) {
-                        *p = load::<T>(reals);
+                    let from = &block(field, x)[v * ls * sp..(v + 1) * ls * sp];
+                    let mut phi = [SiteSpinor::<L::Num>::zero(); MAX_LS];
+                    for (p, reals) in phi.iter_mut().zip(from.chunks_exact(sp)) {
+                        *p = L::load(reals);
                     }
                     for s in 0..ls {
                         let mut term = SiteSpinor::zero().sub_scaled(number(-*a), &phi[s]);
@@ -354,11 +547,11 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                         result[s] = result[s].add(&term);
                     }
                 }
-                for (s, reals) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
+                for (s, reals) in o.chunks_exact_mut(sp).enumerate() {
                     if reflect {
-                        store::<T>(&G::GAMMA5.apply(&result[ls - 1 - s]), reals);
+                        L::store(&G::GAMMA5.apply(&result[ls - 1 - s]), reals);
                     } else {
-                        store::<T>(&result[s], reals);
+                        L::store(&result[s], reals);
                     }
                 }
             }
@@ -366,7 +559,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     }
 }
 
-impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// The coefficients (d+, d-) of the site-local part C = d+ + d- Y.
     fn site_coefficients(&self) -> (f64, f64) {
         let height = 4.0 - self.params.m5;
@@ -377,8 +570,8 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// four-dimensional site. The fields may be on the whole lattice or on one parity.
     pub fn mult_site<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor, S>,
-        inp: &Field<T, Spinor, S>,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
         mass: f64,
         dagger: bool,
     ) {
@@ -407,8 +600,8 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// that one. P+ runs upward in s and P- downward; for C† they change places.
     pub fn mult_site_inv<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor, S>,
-        inp: &Field<T, Spinor, S>,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
         mass: f64,
         dagger: bool,
     ) {
@@ -431,13 +624,13 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// C⁻¹ or C†⁻¹ of the plain operator (α = 1).
     fn site_inv_plain<S: Sites>(
         &self,
-        out: &mut Field<T, Spinor, S>,
-        inp: &Field<T, Spinor, S>,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
         mass: f64,
         dagger: bool,
     ) {
-        let ls = self.params.ls;
-        let number = <T::Compute as Number>::from_f64;
+        let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
+        let number = <L::Num as Number>::from_f64;
         let (d_plus, d_minus) = self.site_coefficients();
         let q = d_minus / d_plus;
         // x at the first row of the substitution, from the corner row:
@@ -447,26 +640,25 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                 + mass * d_minus * q.powi(i32::try_from(ls - 1).expect("Ls is at most MAX_LS"))),
         );
         let (to_last, per_step) = (number(-mass * d_minus), number(1.0 / d_plus));
-        let scaled =
-            |k: T::Compute, x: &SiteSpinor<T::Compute>| SiteSpinor::zero().sub_scaled(-k, x);
-        let site_len = out.site_len();
+        let scaled = |k: L::Num, x: &SiteSpinor<L::Num>| SiteSpinor::zero().sub_scaled(-k, x);
+        let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
-            for (v, o) in o.chunks_exact_mut(ls * SPINOR_REALS).enumerate() {
-                let from = &inp.site(0, x)[v * ls * SPINOR_REALS..(v + 1) * ls * SPINOR_REALS];
-                let mut result = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+            for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
+                let from = &block(inp, x)[v * ls * sp..(v + 1) * ls * sp];
+                let mut result = [SiteSpinor::<L::Num>::zero(); MAX_LS];
                 // The two chiralities, P+ first. `up`: the substitution runs from s = 0.
                 for (sign, up) in [(1.0, !dagger), (-1.0, dagger)] {
                     let at = |i: usize| if up { i } else { ls - 1 - i };
-                    let mut r = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+                    let mut r = [SiteSpinor::<L::Num>::zero(); MAX_LS];
                     for i in 0..ls {
-                        let reals = &from[at(i) * SPINOR_REALS..(at(i) + 1) * SPINOR_REALS];
-                        let phi = load::<T>(reals);
+                        let reals = &from[at(i) * sp..(at(i) + 1) * sp];
+                        let phi = L::load(reals);
                         // (1 + sign γ5) / 2
                         let both = phi.sub_scaled(number(-sign), &G::GAMMA5.apply(&phi));
                         r[i] = scaled(number(0.5), &both);
                     }
                     // p_0 = 0, p_i = (r_i + d- p_(i-1)) / d+
-                    let mut part = [SiteSpinor::<T::Compute>::zero(); MAX_LS];
+                    let mut part = [SiteSpinor::<L::Num>::zero(); MAX_LS];
                     for i in 1..ls {
                         let sum = r[i].sub_scaled(number(-d_minus), &part[i - 1]);
                         part[i] = scaled(per_step, &sum);
@@ -479,8 +671,8 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
                         power *= q;
                     }
                 }
-                for (s, reals) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
-                    store::<T>(&result[s], reals);
+                for (s, reals) in o.chunks_exact_mut(sp).enumerate() {
+                    L::store(&result[s], reals);
                 }
             }
         });
@@ -489,9 +681,9 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     /// `mult` at another mass: the Pauli-Villars operator is this at `mass = 1`.
     pub fn mult_at(
         &self,
-        work: &mut MdwfWork<T>,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
+        work: &mut MdwfWork<T, L>,
+        out: &mut Field<T, Spinor, Full, L>,
+        inp: &Field<T, Spinor, Full, L>,
         variant: Variant,
         mass: f64,
     ) {
@@ -499,7 +691,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         assert!(out.same_shape(inp));
         let [w, v, d, qf] = scratch(&mut work.fields, inp);
         // D^(α) ψ = D (Q ψ); D^(α)† ψ = Q (D† ψ), Q applied at the end below.
-        let inp: &Field<T, Spinor> = if self.has_alpha() && variant != Variant::Dagger {
+        let inp: &Field<T, Spinor, Full, L> = if self.has_alpha() && variant != Variant::Dagger {
             self.mult_q(qf, inp, false);
             qf
         } else {
@@ -512,7 +704,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
             // D ψ = ψ + Y ψ + W (b ψ - c Y ψ)
             Variant::D | Variant::Gamma5D => {
                 self.combine(w, &[(inp, b, -c)], plain, mass);
-                self.wilson.mult(&mut work.wilson, v, w, Variant::D);
+                L::mult(&self.wilson, &mut work.wilson, v, w, Variant::D);
                 let reflect = variant == Variant::Gamma5D;
                 // Γ5 goes on last, so it needs D ψ whole before it is reflected.
                 let to = if reflect { &mut *d } else { &mut *out };
@@ -523,7 +715,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
             }
             // D† ψ = ψ + Y† ψ + (b - c Y†) W† ψ
             Variant::Dagger => {
-                self.wilson.mult(&mut work.wilson, v, inp, Variant::Dagger);
+                L::mult(&self.wilson, &mut work.wilson, v, inp, Variant::Dagger);
                 let terms = [(inp, 1.0, 1.0), (&*v, height * b, -height * c)];
                 if self.has_alpha() {
                     self.combine(d, &terms, (true, false), mass);
@@ -543,16 +735,16 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 ///
 /// One application is two sweeps of the Wilson kernel (through D and through D_PV†) and
 /// two exact site-local inverses.
-pub struct PvPreconditioned<'a, T: Storage, G: GammaRepre = Dirac> {
-    op: &'a Mdwf<T, G>,
-    work: MdwfWork<T>,
-    first: Field<T, Spinor>,
-    second: Field<T, Spinor>,
+pub struct PvPreconditioned<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
+    op: &'a Mdwf<T, G, L>,
+    work: MdwfWork<T, L>,
+    first: Field<T, Spinor, Full, L>,
+    second: Field<T, Spinor, Full, L>,
 }
 
-impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
+impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvPreconditioned<'a, T, G, L> {
     /// `like` only provides the shape of the intermediate fields.
-    pub fn new(op: &'a Mdwf<T, G>, like: &Field<T, Spinor>) -> Self {
+    pub fn new(op: &'a Mdwf<T, G, L>, like: &Field<T, Spinor, Full, L>) -> Self {
         Self {
             op,
             work: op.work(),
@@ -563,7 +755,11 @@ impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
 
     /// `out = X† inp = C_PV†^-1 D_PV† inp`: the right-hand side of `A y = X† b` for
     /// `D x = b`.
-    pub fn right_hand_side(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+    pub fn right_hand_side(
+        &mut self,
+        out: &mut Field<T, Spinor, Full, L>,
+        inp: &Field<T, Spinor, Full, L>,
+    ) {
         fit(&mut self.first, inp);
         self.op
             .mult_at(&mut self.work, &mut self.first, inp, Variant::Dagger, 1.0);
@@ -571,14 +767,16 @@ impl<'a, T: Storage, G: GammaRepre> PvPreconditioned<'a, T, G> {
     }
 
     /// `x = C^-1 y`: the solution of `D x = b` from that of `A y = X† b`.
-    pub fn solution(&self, x: &mut Field<T, Spinor>, y: &Field<T, Spinor>) {
+    pub fn solution(&self, x: &mut Field<T, Spinor, Full, L>, y: &Field<T, Spinor, Full, L>) {
         self.op.mult_site_inv(x, y, self.op.params.mass, false);
     }
 }
 
-impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+    for PvPreconditioned<'_, T, G, L>
+{
     /// `out = A inp = C_PV†^-1 D_PV† D C^-1 inp`.
-    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
@@ -601,9 +799,11 @@ impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for PvPreconditioned<
     }
 }
 
-impl<T: Storage, G: GammaRepre> LinearOp<Field<T, Spinor>> for PvPreconditioned<'_, T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<Field<T, Spinor, Full, L>>
+    for PvPreconditioned<'_, T, G, L>
+{
     /// `out = A† inp = C†^-1 D† D_PV C_PV^-1 inp`.
-    fn mult_dag(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+    fn mult_dag(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
@@ -637,7 +837,7 @@ pub enum EoForm {
     Left,
 }
 
-type HalfSpinorField<T> = Field<T, Spinor, Half>;
+type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
 
 /// The Pauli-Villars preconditioned operator on the even sites, in the form `form`, of a
 /// quark operator and a Pauli-Villars operator (normally the same at mass 1), each with
@@ -646,23 +846,23 @@ type HalfSpinorField<T> = Field<T, Spinor, Half>;
 /// operator carries α.
 ///
 /// One application is four half-lattice hops, two Wilson sweeps, as for the full-lattice A.
-pub struct PvEvenOdd<'a, T: Storage, G: GammaRepre = Dirac> {
-    op: &'a Mdwf<T, G>,
-    pv: &'a Mdwf<T, G>,
+pub struct PvEvenOdd<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
+    op: &'a Mdwf<T, G, L>,
+    pv: &'a Mdwf<T, G, L>,
     form: EoForm,
-    work: MdwfHalfWork<T>,
-    work_pv: MdwfHalfWork<T>,
-    odd: [HalfSpinorField<T>; 2],
-    even: [HalfSpinorField<T>; 2],
+    work: MdwfHalfWork<T, L>,
+    work_pv: MdwfHalfWork<T, L>,
+    odd: [HalfSpinorField<T, L>; 2],
+    even: [HalfSpinorField<T, L>; 2],
 }
 
-impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
+impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
     /// `like`: a field on the even sites, for the shape of the intermediate fields.
     pub fn new(
-        op: &'a Mdwf<T, G>,
-        pv: &'a Mdwf<T, G>,
+        op: &'a Mdwf<T, G, L>,
+        pv: &'a Mdwf<T, G, L>,
         form: EoForm,
-        like: &HalfSpinorField<T>,
+        like: &HalfSpinorField<T, L>,
     ) -> Self {
         assert_eq!(op.params.ls, pv.params.ls, "the two operators differ in Ls");
         let mut odd = like.zeros_like();
@@ -684,7 +884,7 @@ impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
         self.form
     }
 
-    fn fit_all(&mut self, like: &HalfSpinorField<T>) {
+    fn fit_all(&mut self, like: &HalfSpinorField<T, L>) {
         for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
             fit(f, like);
         }
@@ -694,8 +894,8 @@ impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
     /// the form of this operator, or its adjoint.
     fn factor(
         &mut self,
-        out: &mut HalfSpinorField<T>,
-        inp: &HalfSpinorField<T>,
+        out: &mut HalfSpinorField<T, L>,
+        inp: &HalfSpinorField<T, L>,
         pv: bool,
         dagger: Dagger,
     ) {
@@ -718,7 +918,11 @@ impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
     /// The right-hand side of `Ã y = rhs` for `D x = b`: with b′_e = b_e − D_eo C_o⁻¹ b_o
     /// (which does not depend on α), `(S_PV C_PV,e⁻¹)† b′_e` for the right form and
     /// `(C_PV,e⁻¹ S_PV)† C_e⁻¹ b′_e` for the left one.
-    pub fn right_hand_side(&mut self, rhs: &mut HalfSpinorField<T>, b: &Field<T, Spinor>) {
+    pub fn right_hand_side(
+        &mut self,
+        rhs: &mut HalfSpinorField<T, L>,
+        b: &Field<T, Spinor, Full, L>,
+    ) {
         let index = self.op.even_odd_index().expect("an even-odd decomposition");
         let mut b_e = rhs.zeros_like();
         b_e.set_parity(Parity::Even);
@@ -747,9 +951,9 @@ impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
     /// (right form) or y (left form), x_o^(α) = C_o⁻¹ (b_o − D_oe x_e^(α)), x = Q x^(α).
     pub fn solution(
         &mut self,
-        x: &mut Field<T, Spinor>,
-        y: &HalfSpinorField<T>,
-        b: &Field<T, Spinor>,
+        x: &mut Field<T, Spinor, Full, L>,
+        y: &HalfSpinorField<T, L>,
+        b: &Field<T, Spinor, Full, L>,
     ) {
         let index = self.op.even_odd_index().expect("an even-odd decomposition");
         let x_e = match self.form {
@@ -785,13 +989,13 @@ impl<'a, T: Storage, G: GammaRepre> PvEvenOdd<'a, T, G> {
 
 /// The Schur factor `1 − D_eo C_o⁻¹ D_oe C_e⁻¹` (right form) or `1 − C_e⁻¹ D_eo C_o⁻¹ D_oe`
 /// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one.
-fn schur_factor<T: Storage, G: GammaRepre>(
-    op: &Mdwf<T, G>,
-    work: &mut MdwfHalfWork<T>,
+fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
+    op: &Mdwf<T, G, L>,
+    work: &mut MdwfHalfWork<T, L>,
     form: EoForm,
-    scratch: (&mut [HalfSpinorField<T>; 2], &mut HalfSpinorField<T>),
-    out: &mut HalfSpinorField<T>,
-    inp: &HalfSpinorField<T>,
+    scratch: (&mut [HalfSpinorField<T, L>; 2], &mut HalfSpinorField<T, L>),
+    out: &mut HalfSpinorField<T, L>,
+    inp: &HalfSpinorField<T, L>,
     dagger: Dagger,
 ) {
     let ([o1, o2], e) = scratch;
@@ -812,13 +1016,13 @@ fn schur_factor<T: Storage, G: GammaRepre>(
     out.aypx(&minus, inp);
 }
 
-impl<T: Storage, G: GammaRepre> PvEvenOdd<'_, T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'_, T, G, L> {
     /// `out = second(first(inp))`, the factors given as (Pauli-Villars?, dagger), through
     /// `even[1]`.
     fn product(
         &mut self,
-        out: &mut HalfSpinorField<T>,
-        inp: &HalfSpinorField<T>,
+        out: &mut HalfSpinorField<T, L>,
+        inp: &HalfSpinorField<T, L>,
         first: (bool, Dagger),
         second: (bool, Dagger),
     ) {
@@ -835,16 +1039,20 @@ impl<T: Storage, G: GammaRepre> PvEvenOdd<'_, T, G> {
     }
 }
 
-impl<T: Storage, G: GammaRepre> LinearFn<HalfSpinorField<T>> for PvEvenOdd<'_, T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<HalfSpinorField<T, L>>
+    for PvEvenOdd<'_, T, G, L>
+{
     /// `out = Ã inp`: the quark factor, then the adjoint of the Pauli-Villars one.
-    fn mult(&mut self, out: &mut HalfSpinorField<T>, inp: &HalfSpinorField<T>) {
+    fn mult(&mut self, out: &mut HalfSpinorField<T, L>, inp: &HalfSpinorField<T, L>) {
         self.product(out, inp, (false, Dagger::No), (true, Dagger::Yes));
     }
 }
 
-impl<T: Storage, G: GammaRepre> LinearOp<HalfSpinorField<T>> for PvEvenOdd<'_, T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<HalfSpinorField<T, L>>
+    for PvEvenOdd<'_, T, G, L>
+{
     /// `out = Ã† inp`.
-    fn mult_dag(&mut self, out: &mut HalfSpinorField<T>, inp: &HalfSpinorField<T>) {
+    fn mult_dag(&mut self, out: &mut HalfSpinorField<T, L>, inp: &HalfSpinorField<T, L>) {
         self.product(out, inp, (true, Dagger::No), (false, Dagger::Yes));
     }
 }
@@ -905,16 +1113,16 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
 
 /// Scratch space of the even-odd blocks of `Mdwf`: one field on each parity, made on first
 /// use.
-pub struct MdwfHalfWork<T: Storage> {
+pub struct MdwfHalfWork<T: Storage, L: Layout = Aos> {
     wilson: WilsonWork<T>,
-    fields: [Option<Field<T, Spinor, Half>>; 2],
+    fields: [Option<Field<T, Spinor, Half, L>>; 2],
 }
 
 /// The scratch field on the parity of `like`, in its shape.
-fn half_scratch<'w, T: Storage>(
-    fields: &'w mut [Option<Field<T, Spinor, Half>>; 2],
-    like: &Field<T, Spinor, Half>,
-) -> &'w mut Field<T, Spinor, Half> {
+fn half_scratch<'w, T: Storage, L: Layout>(
+    fields: &'w mut [Option<Field<T, Spinor, Half, L>>; 2],
+    like: &Field<T, Spinor, Half, L>,
+) -> &'w mut Field<T, Spinor, Half, L> {
     let slot = &mut fields[like.parity().index()];
     if !slot.as_ref().is_some_and(|f| f.same_shape(like)) {
         *slot = Some(like.zeros_like());
@@ -922,10 +1130,10 @@ fn half_scratch<'w, T: Storage>(
     slot.as_mut().expect("the field was just made")
 }
 
-impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// The even-odd numbering this operator uses, if the lattice allows one.
     pub fn even_odd_index(&self) -> Option<&Arc<EvenOddIndex>> {
-        self.wilson.even_odd_index()
+        L::even_odd_index(&self.wilson)
     }
 }
 
@@ -936,21 +1144,23 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 ///
 /// so the diagonal blocks are the site-local part C, whose inverse is exact, and
 /// `(D†)_pq = B† (4 - M5) (M†)_pq`.
-impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
-    type Work = MdwfHalfWork<T>;
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half, L>>
+    for Mdwf<T, G, L>
+{
+    type Work = MdwfHalfWork<T, L>;
 
-    fn even_odd_work(&self) -> MdwfHalfWork<T> {
+    fn even_odd_work(&self) -> MdwfHalfWork<T, L> {
         MdwfHalfWork {
-            wilson: self.wilson.even_odd_work(),
+            wilson: L::work_of(&self.wilson),
             fields: [None, None],
         }
     }
 
     fn hop(
         &self,
-        work: &mut MdwfHalfWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
+        work: &mut MdwfHalfWork<T, L>,
+        out: &mut Field<T, Spinor, Half, L>,
+        inp: &Field<T, Spinor, Half, L>,
         to: Parity,
         dagger: Dagger,
     ) {
@@ -971,12 +1181,12 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
                 };
                 let w = half_scratch(&mut work.fields, inp);
                 self.combine(w, &[(inp, height * b, -height * c)], (false, false), mass);
-                self.wilson.hop(&mut work.wilson, out, w, to, dagger);
+                L::hop(&self.wilson, &mut work.wilson, out, w, to, dagger);
             }
             Dagger::Yes => {
                 // ((D Q)†)_pq = Q_p (D†)_pq.
                 let v = half_scratch(&mut work.fields, out);
-                self.wilson.hop(&mut work.wilson, v, inp, to, dagger);
+                L::hop(&self.wilson, &mut work.wilson, v, inp, to, dagger);
                 if self.has_alpha() {
                     let mut t = out.zeros_like();
                     self.combine(
@@ -995,9 +1205,9 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
 
     fn diag(
         &self,
-        _work: &mut MdwfHalfWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
+        _work: &mut MdwfHalfWork<T, L>,
+        out: &mut Field<T, Spinor, Half, L>,
+        inp: &Field<T, Spinor, Half, L>,
         parity: Parity,
         dagger: Dagger,
     ) {
@@ -1007,9 +1217,9 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
 
     fn diag_inv(
         &self,
-        _work: &mut MdwfHalfWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
+        _work: &mut MdwfHalfWork<T, L>,
+        out: &mut Field<T, Spinor, Half, L>,
+        inp: &Field<T, Spinor, Half, L>,
         parity: Parity,
         dagger: Dagger,
     ) {
@@ -1019,10 +1229,10 @@ impl<T: Storage, G: GammaRepre> EvenOdd<Field<T, Spinor, Half>> for Mdwf<T, G> {
 }
 
 /// The four scratch fields of a work object, in the shape of `like`.
-fn scratch<'w, T: Storage>(
-    fields: &'w mut Option<[Field<T, Spinor>; 4]>,
-    like: &Field<T, Spinor>,
-) -> &'w mut [Field<T, Spinor>; 4] {
+fn scratch<'w, T: Storage, L: Layout>(
+    fields: &'w mut Option<[Field<T, Spinor, Full, L>; 4]>,
+    like: &Field<T, Spinor, Full, L>,
+) -> &'w mut [Field<T, Spinor, Full, L>; 4] {
     if !fields.as_ref().is_some_and(|f| f[0].same_shape(like)) {
         *fields = Some([
             like.zeros_like(),
@@ -1034,13 +1244,13 @@ fn scratch<'w, T: Storage>(
     fields.as_mut().expect("the fields were just made")
 }
 
-impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `b ψ - c Y ψ`, what the Wilson kernel is applied to, in a scratch field.
     fn before_kernel<'w>(
         &self,
-        fields: &'w mut Option<[Field<T, Spinor>; 4]>,
-        inp: &Field<T, Spinor>,
-    ) -> &'w Field<T, Spinor> {
+        fields: &'w mut Option<[Field<T, Spinor, Full, L>; 4]>,
+        inp: &Field<T, Spinor, Full, L>,
+    ) -> &'w Field<T, Spinor, Full, L> {
         let [w, _, _, qf] = scratch(fields, inp);
         let MdwfParams { b, c, mass, .. } = self.params;
         // The hops of D^(α) = D Q act on Q ψ.
@@ -1056,15 +1266,15 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 
 /// D, D† or Γ5 D of an `Mdwf` at a chosen mass, as a linear map: the Pauli-Villars
 /// operator is this at mass 1.
-pub struct MdwfAt<'a, T: Storage, G: GammaRepre = Dirac> {
-    op: &'a Mdwf<T, G>,
-    work: MdwfWork<T>,
+pub struct MdwfAt<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
+    op: &'a Mdwf<T, G, L>,
+    work: MdwfWork<T, L>,
     variant: Variant,
     mass: f64,
 }
 
-impl<'a, T: Storage, G: GammaRepre> MdwfAt<'a, T, G> {
-    pub fn new(op: &'a Mdwf<T, G>, variant: Variant, mass: f64) -> Self {
+impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> MdwfAt<'a, T, G, L> {
+    pub fn new(op: &'a Mdwf<T, G, L>, variant: Variant, mass: f64) -> Self {
         Self {
             op,
             work: op.work(),
@@ -1074,8 +1284,10 @@ impl<'a, T: Storage, G: GammaRepre> MdwfAt<'a, T, G> {
     }
 }
 
-impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for MdwfAt<'_, T, G> {
-    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+    for MdwfAt<'_, T, G, L>
+{
+    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
         self.op
             .mult_at(&mut self.work, out, inp, self.variant, self.mass);
     }
@@ -1083,14 +1295,16 @@ impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for MdwfAt<'_, T, G> 
 
 /// The inverse of the site-local part of an `Mdwf` at a chosen mass, `C^-1` or `C†^-1`, as
 /// a linear map.
-pub struct SiteInverse<'a, T: Storage, G: GammaRepre = Dirac> {
-    pub op: &'a Mdwf<T, G>,
+pub struct SiteInverse<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
+    pub op: &'a Mdwf<T, G, L>,
     pub mass: f64,
     pub dagger: bool,
 }
 
-impl<T: Storage, G: GammaRepre> LinearFn<Field<T, Spinor>> for SiteInverse<'_, T, G> {
-    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+    for SiteInverse<'_, T, G, L>
+{
+    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
         self.op.mult_site_inv(out, inp, self.mass, self.dagger);
     }
 }
@@ -1118,18 +1332,20 @@ fn store<T: Storage>(p: &SiteSpinor<T::Compute>, reals: &mut [T]) {
     }
 }
 
-impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Mdwf<T, G> {
-    type Work = MdwfWork<T>;
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Full, L>>
+    for Mdwf<T, G, L>
+{
+    type Work = MdwfWork<T, L>;
 
-    fn work(&self) -> MdwfWork<T> {
+    fn work(&self) -> MdwfWork<T, L> {
         MdwfWork {
-            wilson: self.wilson.work(),
+            wilson: L::work_of(&self.wilson),
             fields: None,
         }
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        self.wilson.set_gauge(u)
+        L::set_gauge(&mut self.wilson, u)
     }
 
     /// The count Bridge++ uses for its domain-wall operator, `(464 Nc + 240) Ls`.
@@ -1139,9 +1355,9 @@ impl<T: Storage, G: GammaRepre> FermionOp<Field<T, Spinor>> for Mdwf<T, G> {
 
     fn mult(
         &self,
-        work: &mut MdwfWork<T>,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
+        work: &mut MdwfWork<T, L>,
+        out: &mut Field<T, Spinor, Full, L>,
+        inp: &Field<T, Spinor, Full, L>,
         variant: Variant,
     ) {
         self.mult_at(work, out, inp, variant, self.params.mass);

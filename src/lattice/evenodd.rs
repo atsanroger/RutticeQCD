@@ -1,7 +1,9 @@
 //! Even-odd (checkerboard) decomposition of a lattice.
 
 use crate::field::storage::Storage;
-use crate::field::{Cpu, Field, Full, Half, Kind, Layout};
+use crate::field::{Aos, Aosoa, Cpu, Field, Full, Half, Kind, Layout};
+use crate::kernel::{Number, Real};
+use crate::lattice::blocks::Blocks;
 use crate::lattice::Lattice;
 
 /// Parity of a site: whether x + y + z + t is even or odd.
@@ -148,6 +150,84 @@ pub fn insert_parity<T: Storage, K: Kind, L: Layout>(
     }
 }
 
+/// Fields on one parity in the usual layout and in blocks of `W` sites (the SIMD layout)
+/// number their sites differently: the usual one by `EvenOddIndex::new`, the blocks by the
+/// even-odd decomposition of the lattice of blocks, in which every lane of a block has the
+/// parity of the block. This holds, for each parity, the site in the usual numbering of
+/// every lane of every block, to convert between the two without a full field.
+pub struct ParityBlocks<const W: usize> {
+    /// `[parity][block * W + lane]`: the site on that parity in the usual numbering.
+    site_of: [Vec<u32>; 2],
+}
+
+impl<const W: usize> ParityBlocks<W> {
+    /// `None` if the lattice cannot be cut into `W` sub-lattices whose lattice of blocks has
+    /// even extents (what the operators in blocks need for even-odd too).
+    pub fn new(lat: &Lattice) -> Option<Self> {
+        let blocks = Blocks::new(lat.local, W)?;
+        let block_index = blocks.even_odd_index()?;
+        let index = EvenOddIndex::new(lat);
+        let site_of = [Parity::Even, Parity::Odd].map(|parity| {
+            let mut v = Vec::with_capacity(block_index.num_half_sites() * W);
+            for block in block_index.full_sites(parity) {
+                for lane in 0..W {
+                    let (p, half) = index.half_site(blocks.site(*block as usize, lane));
+                    assert_eq!(p, parity, "the lanes of a block have its parity");
+                    v.push(half as u32);
+                }
+            }
+            v
+        });
+        Some(Self { site_of })
+    }
+
+    /// `out` (in blocks) = `inp` (usual layout), on the parity of `inp`, converting the
+    /// precision if they differ.
+    pub fn to_blocks<T: Storage, U: Storage, K: Kind>(
+        &self,
+        out: &mut Field<T, K, Half, Aosoa<W>, Cpu>,
+        inp: &Field<U, K, Half, Aos, Cpu>,
+    ) {
+        assert_eq!((out.site_len(), out.outer()), (inp.site_len(), inp.outer()));
+        out.set_parity(inp.parity());
+        let site_of = &self.site_of[inp.parity().index()];
+        let (n, block_len) = (inp.site_len(), out.block_len());
+        for o in 0..inp.outer() {
+            let from = inp.slab(o);
+            crate::for_light_sites(out.slab_mut(o), block_len, |block, d| {
+                for lane in 0..W {
+                    let s = site_of[block * W + lane] as usize;
+                    for (c, x) in from[s * n..(s + 1) * n].iter().enumerate() {
+                        d[lane + W * c] = T::store(Number::from_f64(x.load().to_f64()));
+                    }
+                }
+            });
+        }
+    }
+
+    /// `out` (usual layout) = `inp` (in blocks), on the parity of `inp`.
+    pub fn to_sites<T: Storage, U: Storage, K: Kind>(
+        &self,
+        out: &mut Field<T, K, Half, Aos, Cpu>,
+        inp: &Field<U, K, Half, Aosoa<W>, Cpu>,
+    ) {
+        assert_eq!((out.site_len(), out.outer()), (inp.site_len(), inp.outer()));
+        out.set_parity(inp.parity());
+        let site_of = &self.site_of[inp.parity().index()];
+        let (n, block_len) = (out.site_len(), inp.block_len());
+        for o in 0..inp.outer() {
+            let (to, from) = (out.slab_mut(o), inp.slab(o));
+            for (block, b) in from.chunks_exact(block_len).enumerate() {
+                for lane in 0..W {
+                    let s = site_of[block * W + lane] as usize;
+                    for (c, x) in to[s * n..(s + 1) * n].iter_mut().enumerate() {
+                        *x = T::store(Number::from_f64(b[lane + W * c].load().to_f64()));
+                    }
+                }
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
