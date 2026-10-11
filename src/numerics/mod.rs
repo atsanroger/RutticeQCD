@@ -4,6 +4,7 @@ mod lsq;
 
 pub use lsq::HessenbergLsq;
 
+use crate::C64;
 use std::fmt;
 
 /// The matrix has no inverse to working precision.
@@ -93,9 +94,109 @@ pub fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Si
     Ok(())
 }
 
+/// Eigenvalues and eigenvectors of a Hermitian `n × n` matrix (row-major, only its
+/// Hermitian part is used) by the cyclic complex Jacobi method: returns λ and V, the
+/// eigenvectors in the columns of the row-major V, with A = V diag(λ) V†. Meant for the
+/// small blocks of a coarse operator (n up to a few hundred).
+pub fn hermitian_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
+    assert_eq!(a.len(), n * n);
+    let mut a: Vec<C64> = (0..n * n)
+        .map(|ik| (a[ik] + a[(ik % n) * n + ik / n].conj()).scale(0.5))
+        .collect();
+    let mut v = vec![C64::ZERO; n * n];
+    for i in 0..n {
+        v[i * n + i] = C64::new(1.0, 0.0);
+    }
+    let total: f64 = a.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+    for _ in 0..100 {
+        let mut off = 0.0;
+        for p in 0..n {
+            for q in p + 1..n {
+                off += a[p * n + q].norm_sqr();
+            }
+        }
+        if off.sqrt() <= 1e-15 * total {
+            break;
+        }
+        for p in 0..n {
+            for q in p + 1..n {
+                let g = a[p * n + q].norm_sqr().sqrt();
+                if g <= 1e-300 {
+                    continue;
+                }
+                // Make a_pq real with a phase on column and row q, then rotate in (p, q).
+                let d = a[p * n + q].conj().scale(1.0 / g);
+                for k in 0..n {
+                    a[k * n + q] = a[k * n + q] * d;
+                    v[k * n + q] = v[k * n + q] * d;
+                }
+                for k in 0..n {
+                    a[q * n + k] = a[q * n + k] * d.conj();
+                }
+                let theta = (a[q * n + q].re - a[p * n + p].re) / (2.0 * g);
+                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let c = 1.0 / (t * t + 1.0).sqrt();
+                let s = t * c;
+                for k in 0..n {
+                    let (kp, kq) = (a[k * n + p], a[k * n + q]);
+                    a[k * n + p] = kp.scale(c) - kq.scale(s);
+                    a[k * n + q] = kp.scale(s) + kq.scale(c);
+                    let (kp, kq) = (v[k * n + p], v[k * n + q]);
+                    v[k * n + p] = kp.scale(c) - kq.scale(s);
+                    v[k * n + q] = kp.scale(s) + kq.scale(c);
+                }
+                for k in 0..n {
+                    let (pk, qk) = (a[p * n + k], a[q * n + k]);
+                    a[p * n + k] = pk.scale(c) - qk.scale(s);
+                    a[q * n + k] = pk.scale(s) + qk.scale(c);
+                }
+                a[p * n + q] = C64::ZERO;
+                a[q * n + p] = C64::ZERO;
+            }
+        }
+    }
+    ((0..n).map(|i| a[i * n + i].re).collect(), v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hermitian_eigen_reconstructs_the_matrix() {
+        for n in [1, 5, 24] {
+            // A Hermitian indefinite matrix.
+            let mut a = vec![C64::ZERO; n * n];
+            for i in 0..n {
+                for k in i..n {
+                    let z = C64::new(
+                        ((i * 13 + k * 7 + 3) % 17) as f64 - 8.0,
+                        if i == k {
+                            0.0
+                        } else {
+                            ((i * 5 + k * 11) % 13) as f64 - 6.0
+                        },
+                    );
+                    a[i * n + k] = z;
+                    a[k * n + i] = z.conj();
+                }
+            }
+            let (lam, v) = hermitian_eigen(n, &a);
+            assert!(lam.iter().any(|l| *l < 0.0) || n == 1);
+            for i in 0..n {
+                for k in 0..n {
+                    let (mut back, mut unit) = (C64::ZERO, C64::ZERO);
+                    for j in 0..n {
+                        back += v[i * n + j].scale(lam[j]) * v[k * n + j].conj();
+                        unit += v[j * n + i].conj() * v[j * n + k];
+                    }
+                    assert!((back - a[i * n + k]).norm_sqr().sqrt() < 1e-11 * n as f64);
+                    let want = if i == k { 1.0 } else { 0.0 };
+                    assert!((unit - C64::new(want, 0.0)).norm_sqr().sqrt() < 1e-12);
+                }
+            }
+        }
+    }
 
     fn multiply(n: usize, a: &[f64], b: &[f64]) -> Vec<f64> {
         let mut c = vec![0.0; 2 * n * n];

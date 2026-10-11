@@ -76,7 +76,18 @@ keyword_enum! {
 keyword_enum! {
     pub enum FermionType {
         /// Möbius domain-wall fermions with a Wilson kernel (b = 1, c = 0: Shamir).
-        DomainWall => ["Domainwall_5din", "Domainwall", "Mobius", "MDWF"],
+        DomainWall => [
+            "Domainwall_5din",
+            "Domainwall",
+            "Domain_wall",
+            "DWF",
+            "MDWF",
+            "Mobius",
+            "Mobius_DWF",
+            "Mobius_domainwall",
+            "Mobius_domain_wall",
+            "Domainwall_Mobius",
+        ],
     }
 }
 
@@ -131,6 +142,13 @@ keyword_enum! {
 }
 
 keyword_enum! {
+    pub enum SourceType {
+        /// A unit source at one site, twelve columns (colour × spin).
+        Local => ["Local", "Point"],
+    }
+}
+
+keyword_enum! {
     pub enum SmootherType {
         Chebyshev => ["Chebyshev"],
     }
@@ -157,6 +175,10 @@ pub struct Params {
     /// A `MultiGrid` block in this file takes precedence.
     #[serde(rename = "MultiGrid_file")]
     pub multigrid_file: Option<PathBuf>,
+    /// With a source, the propagator is solved for and the meson correlators and the
+    /// residual mass are printed; without one, random right-hand sides are solved.
+    #[serde(rename = "Source")]
+    pub source: Option<SourceBlock>,
     /// Filled when the file is read and checked: blocks given but not used.
     #[serde(skip)]
     notes: Vec<String>,
@@ -248,6 +270,21 @@ pub struct SolverBlock {
 struct MultigridFile {
     #[serde(rename = "MultiGrid")]
     multigrid: MultigridBlock,
+}
+
+/// The source of the propagator.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceBlock {
+    #[serde(default = "local")]
+    pub source_type: SourceType,
+    /// [x, y, z, t]
+    #[serde(default)]
+    pub source_position: [usize; ND],
+    /// Columns of the propagator solved at once (1 to 12): more share the coarse
+    /// operator reads, fewer need less memory.
+    #[serde(default = "one")]
+    pub number_of_rhs_per_solve: usize,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -352,6 +389,12 @@ pub struct LevelBlock {
     pub coarse_pv: SolverBlock,
 }
 
+fn local() -> SourceType {
+    SourceType::Local
+}
+fn one() -> usize {
+    1
+}
 fn one_grid() -> [usize; ND] {
     [1; ND]
 }
@@ -605,6 +648,25 @@ impl Params {
                 "Fopr.gamma_matrix_type: only Dirac is implemented for domain-wall fermions".into(),
             ));
         }
+        if let Some(src) = &self.source {
+            let n = src.number_of_rhs_per_solve;
+            if !(1..=12).contains(&n) {
+                return Err(invalid(format!(
+                    "Source.number_of_rhs_per_solve: 1 to 12, not {n}"
+                )));
+            }
+            if src
+                .source_position
+                .iter()
+                .zip(&self.main.lattice_size)
+                .any(|(x, l)| x >= l)
+            {
+                return Err(invalid(format!(
+                    "Source.source_position {:?} is outside the lattice {:?}",
+                    src.source_position, self.main.lattice_size
+                )));
+            }
+        }
         if let Some(b) = self.fopr.boundary_condition.iter().find(|b| b.abs() != 1) {
             return Err(invalid(format!(
                 "Fopr.boundary_condition: 1 (periodic) or -1 (antiperiodic), not {b}"
@@ -791,6 +853,13 @@ impl fmt::Display for Params {
             }
             _ => write!(f, "\nno preconditioner"),
         }?;
+        if let Some(src) = &self.source {
+            write!(
+                f,
+                "\n{} source at {:?}, {} columns per solve: meson correlators and the residual mass",
+                src.source_type, src.source_position, src.number_of_rhs_per_solve
+            )?;
+        }
         for note in &self.notes {
             write!(f, "\nnote: {note}")?;
         }
