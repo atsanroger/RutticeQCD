@@ -916,3 +916,46 @@ fn even_odd_pv_operator_solves_d_in_every_form() {
         assert!(left.iter().zip(&size).all(|(l, s)| l < &(1e-16 * s)));
     }
 }
+
+/// P† ι and π P on the sites of one parity give what restricting the field put onto the
+/// whole lattice and taking the sites of the prolongation give, folded or not.
+#[test]
+fn restriction_and_prolongation_on_one_parity() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
+    let index = op.even_odd_index().unwrap();
+    for fold in [None, Some(Dirac::GAMMA5)] {
+        let basis = folded_and_full(&op, &lat, fold);
+        for parity in [Parity::Even, Parity::Odd] {
+            let full = random(&lat, MOBIUS.ls, 2, 150);
+            let mut half = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+            half.set_parity(parity);
+            extract_parity(&mut half, &full, index, parity);
+            let mut injected = full.zeros_like();
+            insert_parity(&mut injected, &half, index);
+
+            let (mut a, mut b) = (basis.coarse_field(2), basis.coarse_field(2));
+            basis.restrict(&mut a, &injected);
+            basis.restrict_half(&mut b, &half, index);
+            let diff = a
+                .as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(diff < 1e-13, "{fold:?} {parity:?} restriction: {diff:e}");
+
+            let mut prolonged = full.zeros_like();
+            basis.prolong(&mut prolonged, &a);
+            let mut want = half.zeros_like();
+            extract_parity(&mut want, &prolonged, index, parity);
+            let mut got = half.zeros_like();
+            basis.prolong_half(&mut got, &a, index);
+            let diff = want
+                .as_slice()
+                .iter()
+                .zip(got.as_slice())
+                .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(diff < 1e-13, "{fold:?} {parity:?} prolongation: {diff:e}");
+        }
+    }
+}
