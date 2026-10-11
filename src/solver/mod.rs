@@ -8,6 +8,7 @@ mod cg;
 mod chebyshev;
 mod fgmres;
 mod gcr;
+mod minres;
 mod mixed;
 mod polynomial;
 pub mod preconditioner;
@@ -17,6 +18,7 @@ pub use cg::Cg;
 pub use chebyshev::{largest_magnitude, Chebyshev, ChebyshevFilter};
 pub use fgmres::Fgmres;
 pub use gcr::Gcr;
+pub use minres::Minres;
 pub use mixed::{Convert, Refine, Solve};
 pub use polynomial::Polynomial;
 
