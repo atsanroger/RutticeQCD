@@ -2522,6 +2522,23 @@ fn gcr(
     }))
 }
 
+/// The resident memory and its peak so far (Linux: VmRSS and VmHWM), for the memory budget.
+fn memory() -> String {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix(name))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+            .map_or(f64::NAN, |kb| kb / 1048576.0)
+    };
+    format!(
+        "memory {:.2} GB, peak {:.2} GB",
+        field("VmRSS:"),
+        field("VmHWM:")
+    )
+}
+
 fn load(path: &PathBuf, like: &H, count: usize) -> Result<(H, Vec<f64>), Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
@@ -2658,6 +2675,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The basis: s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y) for the lowest N/2 Ritz vectors y of Ã,
     // and D s.
     let (mut y, theta) = load(&checkpoint, &like, n / 2)?;
+    println!("  {} (gauge, operators, the {} y)", memory(), n / 2);
     let agg = Aggregation::new(&lat, [block; ND]);
     // `boot:R:K:TOL`: R rounds of bootstrap setup, y ← M^K y with the current cycle M
     // (coarse solves to TOL), orthonormalised, and P rebuilt: inverse subspace iteration
@@ -2705,6 +2723,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             let like_cb = pb.coarse_field(1);
             let mdb = BlockAbsInv::build(&mut cdb, false, &like_cb);
             let mpvb = BlockAbsInv::build(&mut cpvb, true, &like_cb);
+            println!(
+                "  bootstrap round {round}: {} (P and the coarse factors)",
+                memory()
+            );
             let (na, nc) = (Count::default(), Count::default());
             let mut cycle = Cycle {
                 product: None,
@@ -2778,6 +2800,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     z
                 };
                 new_y.assign(&idx, &result);
+                if first == 0 {
+                    println!(
+                        "  bootstrap round {round}: {} (after the first batch of {})",
+                        memory(),
+                        idx.len()
+                    );
+                }
             }
             y = new_y;
             orthonormalise_h(&mut y);
@@ -2799,7 +2828,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Hermitian there.
     let pv_adj = !args.iter().skip(11).any(|s| s == "exactpv");
     let mut cpv = if pv_adj {
-        CoarseOp::build(&pv, &mut pv.work(), &p)
+        let c = CoarseOp::build(&pv, &mut pv.work(), &p);
+        println!("  {} (the final P and the coarse factors)", memory());
+        c
     } else {
         let start = Instant::now();
         let mut d = PvDagger { pv: &pv };
@@ -3293,12 +3324,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(e) => format!("failed: {e}"),
             };
             println!(
-            "  BiCGStab, {mode:<11} {it:>5} iterations: {:>6} Ã = {:>6} sweeps, {:>6} coarse, |Dx−b|² {:.0e}, {:.0} s",
+            "  BiCGStab, {mode:<11} {it:>5} iterations: {:>6} Ã = {:>6} sweeps, {:>6} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
             na.get(),
             2 * na.get(),
             nc.get(),
             physical(&y_sol),
-            start.elapsed().as_secs_f64()
+            start.elapsed().as_secs_f64(),
+            memory()
         );
         }
     }
