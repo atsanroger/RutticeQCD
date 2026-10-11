@@ -3,6 +3,7 @@
 
 mod bench;
 mod config;
+pub mod hmc;
 pub mod keyword;
 pub mod mdwf;
 pub mod params;
@@ -816,6 +817,13 @@ pub fn run_file_on(
         path: PathBuf::from("<stdout>"),
         source: e,
     };
+    if hmc::is_hmc_file(path)? {
+        let config = hmc::HmcConfig::load(path)?;
+        let base = path.parent().unwrap_or(Path::new("."));
+        let mut sink = std::io::sink();
+        let out: &mut dyn Write = if root { stdout } else { &mut sink };
+        return hmc::run_on(&config, base, out, comm).map(|_| ());
+    }
     if !params::is_bridge_style(path)? {
         return run_config(&Config::load(path)?, path, stdout, comm);
     }

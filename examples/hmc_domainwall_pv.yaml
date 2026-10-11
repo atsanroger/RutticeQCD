@@ -1,0 +1,40 @@
+# HMC with two flavours of domain-wall fermions over two Pauli-Villars flavours, on stout
+# links, with the Iwasaki gauge action: Bridge++'s test_HMC_Domainwall_Nf2_PV. One trajectory
+# from conf_04040408.txt ends at the plaquette 0.62754640357188 (Bridge++).
+#
+#   cargo run --release --bin ruttice -- examples/hmc_domainwall_pv.yaml
+#
+# Relative paths are taken from the directory of this file.
+
+lattice: [4, 4, 4, 8]
+start: {type: file, file: conf_04040408.txt, format: bridge_text}
+
+# Gauge smearing: the fermion operators are made of these links (not the smearing of
+# sources, which is a source type in the propagator files).
+gauge_smearing: {type: stout, rho: 0.1, steps: 2}
+
+hmc:
+  trajectories: 1
+  first_trajectory: 200000      # the M-series random numbers of Bridge++ for this number
+  trajectory_length: 0.1
+  integrator:
+    scheme: omelyan             # leapfrog | omelyan
+    steps: [5, 4]               # the outer level (fermions) first
+    exp_order: 8
+
+actions:
+  - type: two_flavor_ratio      # det(D†D) / det(D_PV†D_PV)
+    fermion:
+      type: domain_wall
+      ls: 8
+      m5: 1.6
+      mass: 0.1
+      b: 1.0                    # b = 1, c = 0: Shamir's operator
+      c: 0.0
+      boundary: [periodic, periodic, periodic, antiperiodic]
+    level: 0
+    smeared: true
+    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
+  - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 1}
+
+# output: {save_every: 10, file: "conf_{n}.txt", format: bridge_text}
