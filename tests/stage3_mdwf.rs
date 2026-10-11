@@ -4,8 +4,8 @@ mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
 use ruttice::fermion::{
-    solve_even_odd, Bound, Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams,
-    PvPreconditioned, Variant,
+    solve_even_odd, Bound, Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams,
+    PvEvenOdd, PvPreconditioned, Variant,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
@@ -832,4 +832,87 @@ fn folding_with_the_wrong_reflection_is_refused() {
         val: [Unit::MinusOne; 4],
     };
     folded_and_full(&op, &lat, Some(minus));
+}
+
+/// The even-odd Pauli-Villars operator, right and left forms, with Neff's α in the quark
+/// operator alone or in both: its adjoint is its adjoint, and BiCGStab on it with its
+/// right-hand side and solution solves D x = b (checked with the plain D).
+#[test]
+fn even_odd_pv_operator_solves_d_in_every_form() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 141);
+    let plain = operator(&lat, MOBIUS, &u);
+    let index = plain.even_odd_index().unwrap();
+    let b = random(&lat, MOBIUS.ls, 2, 142);
+    let mut even = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+    even.set_parity(Parity::Even);
+    for (form, alpha, alpha_pv) in [
+        (EoForm::Right, 1.0, 1.0),
+        (EoForm::Left, 1.0, 1.0),
+        (EoForm::Left, 0.6, 0.6),
+        (EoForm::Left, 0.6, 1.0),
+        (EoForm::Right, 0.6, 0.6),
+    ] {
+        let mut op = operator(&lat, MOBIUS, &u);
+        op.set_alpha(alpha);
+        let mut pv = operator(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..MOBIUS
+            },
+            &u,
+        );
+        pv.set_alpha(alpha_pv);
+        let mut a = PvEvenOdd::new(&op, &pv, form, &even);
+
+        let mut x = even.zeros_like();
+        let mut y = even.zeros_like();
+        extract_parity(
+            &mut x,
+            &random(&lat, MOBIUS.ls, 2, 143),
+            index,
+            Parity::Even,
+        );
+        extract_parity(
+            &mut y,
+            &random(&lat, MOBIUS.ls, 2, 144),
+            index,
+            Parity::Even,
+        );
+        let (mut ay, mut adag_x) = (even.zeros_like(), even.zeros_like());
+        a.mult(&mut ay, &y);
+        a.mult_dag(&mut adag_x, &x);
+        let (mut lhs, mut rhs) = ([C64::ZERO; 2], [C64::ZERO; 2]);
+        x.dot(&ay, &mut lhs);
+        adag_x.dot(&y, &mut rhs);
+        let mut scale = [0.0; 2];
+        x.norm_sqr(&mut scale);
+        assert!(
+            (lhs[0] - rhs[0]).norm_sqr().sqrt() < 1e-12 * scale[0],
+            "{form:?} α {alpha}/{alpha_pv}: {:?} vs {:?}",
+            lhs[0],
+            rhs[0]
+        );
+
+        let mut rhs = even.zeros_like();
+        a.right_hand_side(&mut rhs, &b);
+        let mut sol = even.zeros_like();
+        let info = BiCgStab::new(Stop::simple(1e-26, 4000))
+            .solve(&mut a, None, &mut sol, &rhs)
+            .unwrap();
+        let mut x = b.zeros_like();
+        a.solution(&mut x, &sol, &b);
+        let mut r = mult(&plain, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0); 2], &b);
+        let (mut left, mut size) = ([0.0; 2], [0.0; 2]);
+        r.norm_sqr(&mut left);
+        b.norm_sqr(&mut size);
+        eprintln!(
+            "{form:?}, α {alpha} (PV {alpha_pv}): {} iterations, |D x - b|^2/|b|^2 = {:e}",
+            info.iterations,
+            left[0] / size[0]
+        );
+        assert!(left.iter().zip(&size).all(|(l, s)| l < &(1e-16 * s)));
+    }
 }
