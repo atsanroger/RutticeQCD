@@ -11,9 +11,8 @@ use super::{
     draw_momenta, exp_update, kinetic_energy, Links, Mseries, PlaquetteAction, RectangleAction,
     SmearingCache,
 };
-use crate::fermion::HopTerms;
 use crate::gauge::plaquette;
-use crate::{Boundary, Field, Gauge, Spinor, Stencil, ND};
+use crate::{Boundary, Field, Gauge, Stencil, ND};
 
 /// An action in the molecular dynamics.
 pub trait MdAction {
@@ -50,7 +49,7 @@ impl MdAction for RectangleAction {
     }
 }
 
-impl<O: HopTerms<Field<f64, Spinor>>> MdAction for super::TwoFlavor<O> {
+impl<O: super::ForceOp> MdAction for super::TwoFlavor<O> {
     fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         super::TwoFlavor::langevin(self, links, rng)
     }
@@ -252,5 +251,17 @@ impl<'a> Hmc<'a> {
             plaquette_trial,
             plaquette: plaquette(u, &st),
         }
+    }
+}
+
+impl<O: super::ForceOp> MdAction for super::TwoFlavorRatio<O> {
+    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        super::TwoFlavorRatio::langevin(self, links, rng)
+    }
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        super::TwoFlavorRatio::hamiltonian(self, links)
+    }
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        super::TwoFlavorRatio::force(self, links)
     }
 }
