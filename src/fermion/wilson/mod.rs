@@ -313,8 +313,155 @@ enum Hop<'a, T: Storage, R: LinkRepr> {
     Transported { index: usize },
 }
 
-/// Reads spinor `r` of the sites of an input field, with γ5 applied first if `pre` is set.
-/// A struct with methods rather than closures, so that the reads are expanded in place.
+/// A factor that acts within a site and tridiagonally in the fifth dimension:
+/// `a φ_s + y (Y φ)_s`, or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per
+/// site and vector. (Y φ)_s = −P− φ_(s+1) − P+ φ_(s−1), and a term that crosses a wall comes
+/// back times −m (see `fermion::mdwf`). Domain-wall fermions put (4 − M5)(b − c Y) before the
+/// Wilson kernel, and its adjoint after the kernel of D†; a sweep can apply it on the way
+/// (`even_odd_hop_fifth`) instead of in a pass over the field of its own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fifth {
+    pub ls: usize,
+    pub a: f64,
+    pub y: f64,
+    pub mass: f64,
+    pub dagger: bool,
+}
+
+/// (Y φ)_s, or (Y† φ)_s, at mass `mass`, from φ_(s+1) (`above`) and φ_(s−1) (`below`), the
+/// indices taken around the fifth dimension of extent `ls`.
+#[inline(always)]
+pub fn fifth_hop<N: Number, G: GammaRepre>(
+    s: usize,
+    ls: usize,
+    dagger: bool,
+    mass: f64,
+    above: &SiteSpinor<N>,
+    below: &SiteSpinor<N>,
+) -> SiteSpinor<N> {
+    let number = <N as Number>::from_f64;
+    // The coefficient of the projected neighbour: -1, or +m across the walls.
+    let across = |wall: bool| number(0.5 * if wall { mass } else { -1.0 });
+    // Y takes P- from above and P+ from below; Y† the other way round.
+    let (up, down) = if dagger { (1.0, -1.0) } else { (-1.0, 1.0) };
+    let projected = |p: &SiteSpinor<N>, sign: f64, k: N| {
+        // k (1 + sign γ5) φ
+        let both = p.sub_scaled(number(-sign), &G::GAMMA5.apply(p));
+        SiteSpinor::zero().sub_scaled(-k, &both)
+    };
+    projected(above, up, across(s == ls - 1)).add(&projected(below, down, across(s == 0)))
+}
+
+impl Fifth {
+    /// The factor at s from the spinors at s − 1, s and s + 1 (around the fifth dimension).
+    #[inline(always)]
+    pub fn apply<N: Number, G: GammaRepre>(
+        &self,
+        s: usize,
+        below: &SiteSpinor<N>,
+        here: &SiteSpinor<N>,
+        above: &SiteSpinor<N>,
+    ) -> SiteSpinor<N> {
+        let number = <N as Number>::from_f64;
+        let result = SiteSpinor::zero().sub_scaled(number(-self.a), here);
+        if self.y == 0.0 {
+            return result;
+        }
+        let hop = fifth_hop::<N, G>(s, self.ls, self.dagger, self.mass, above, below);
+        result.sub_scaled(number(-self.y), &hop)
+    }
+
+    /// The factor applied in place to the spinors of one site, `ls` per vector, each read
+    /// and written through `load` and `store`. A spinor is read before it is overwritten:
+    /// the first and the last of a vector are kept for the wrap-around.
+    #[inline(always)]
+    fn apply_in_place<N: Number, G: GammaRepre, X>(
+        &self,
+        spinors: &mut [X],
+        load: impl Fn(&X) -> SiteSpinor<N>,
+        store: impl Fn(&SiteSpinor<N>, &mut X),
+    ) {
+        let ls = self.ls;
+        for v in spinors.chunks_exact_mut(ls) {
+            let (first, mut below) = (load(&v[0]), load(&v[ls - 1]));
+            for s in 0..ls {
+                let here = load(&v[s]);
+                let above = if s + 1 < ls { load(&v[s + 1]) } else { first };
+                store(&self.apply::<N, G>(s, &below, &here, &above), &mut v[s]);
+                below = here;
+            }
+        }
+    }
+}
+
+/// What a sweep does to every spinor of its input before the hops.
+#[derive(Clone, Copy)]
+enum Pre {
+    Plain,
+    Gamma5,
+    /// The factor, from the spinors s − 1, s, s + 1 of the same site.
+    Fifth(Fifth),
+}
+
+impl Pre {
+    fn gamma5(on: bool) -> Self {
+        if on {
+            Pre::Gamma5
+        } else {
+            Pre::Plain
+        }
+    }
+
+    /// Spinor `r` of a site, `at(k)` reading spinor k of that site.
+    #[inline(always)]
+    fn spinor<N: Number, G: GammaRepre>(
+        self,
+        r: usize,
+        at: impl Fn(usize) -> SiteSpinor<N>,
+    ) -> SiteSpinor<N> {
+        match self {
+            Pre::Plain => at(r),
+            Pre::Gamma5 => G::GAMMA5.apply(&at(r)),
+            Pre::Fifth(f) => {
+                let ls = f.ls;
+                let s = r % ls;
+                let base = r - s;
+                f.apply::<N, G>(
+                    s,
+                    &at(base + (s + ls - 1) % ls),
+                    &at(r),
+                    &at(base + (s + 1) % ls),
+                )
+            }
+        }
+    }
+}
+
+/// What a sweep does to its result.
+#[derive(Clone, Copy)]
+enum Post {
+    Plain,
+    Gamma5,
+    /// γ5, then the factor over the spinors of each site (once all of them are there).
+    Gamma5Fifth(Fifth),
+}
+
+impl Post {
+    fn gamma5(on: bool) -> Self {
+        if on {
+            Post::Gamma5
+        } else {
+            Post::Plain
+        }
+    }
+
+    fn gamma5_first(self) -> bool {
+        !matches!(self, Post::Plain)
+    }
+}
+
+/// Reads spinor `r` of the sites of an input field, transformed by `pre`. A struct with
+/// methods rather than closures, so that the reads are expanded in place.
 ///
 /// The field is held as a slice of stored spinors, `copies` of them per site, for the same
 /// reason as the links in `Fixed`.
@@ -323,19 +470,16 @@ struct Input<'a, T: Storage, G: GammaRepre> {
     r: usize,
     /// Spinors per site.
     copies: usize,
-    pre: bool,
+    pre: Pre,
     _gamma: PhantomData<G>,
 }
 
 impl<T: Storage, G: GammaRepre> Input<'_, T, G> {
     #[inline(always)]
     fn local(&self, site: usize) -> SiteSpinor<T::Compute> {
-        let psi = load_spinor::<T>(&self.spinors[site * self.copies + self.r]);
-        if self.pre {
-            G::GAMMA5.apply(&psi)
-        } else {
-            psi
-        }
+        let base = site * self.copies;
+        self.pre
+            .spinor::<T::Compute, G>(self.r, |k| load_spinor::<T>(&self.spinors[base + k]))
     }
 
     /// Position in a face buffer of spinor `r` of received site `index`.

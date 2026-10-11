@@ -36,6 +36,37 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         &self.params
     }
 
+    /// The even-odd hop with a factor in the fifth dimension in the same sweep: `out =
+    /// M_(to, other) f(inp)`, or with `Dagger::Yes` `out = f(M†_(to, other) inp)`, where f is
+    /// `fifth` (with its own `dagger` set to match). One pass over the field instead of two.
+    pub fn even_odd_hop_fifth(
+        &self,
+        work: &mut WilsonWork<T>,
+        out: &mut Field<T, Spinor, Half>,
+        inp: &Field<T, Spinor, Half>,
+        to: Parity,
+        dagger: Dagger,
+        fifth: Fifth,
+    ) {
+        let eo = self
+            .state
+            .even_odd
+            .as_ref()
+            .expect("Wilson: even-odd blocks need a lattice with even extents");
+        assert_eq!(out.parity(), to, "output field has the wrong parity");
+        assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
+        assert_eq!(
+            inp.copies() % fifth.ls,
+            0,
+            "the fields hold ls spinors per vector"
+        );
+        let ends = match dagger {
+            Dagger::No => (Pre::Fifth(fifth), Post::Plain),
+            Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
+        };
+        self.sweep(work, &eo.to[to.index()], out, inp, Diagonal::Absent, ends);
+    }
+
     /// The even-odd numbering this operator uses, if the lattice allows one.
     pub fn even_odd_index(&self) -> Option<&Arc<EvenOddIndex>> {
         self.state.even_odd.as_ref().map(|eo| &eo.index)
@@ -177,7 +208,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         work: &'w mut WilsonWork<T>,
         geo: &Geometry,
         inp: &Field<T, Spinor, SI>,
-        pre: bool,
+        pre: Pre,
         only: Option<(usize, Direction)>,
     ) -> [&'w [T]; FACES] {
         match self.start_exchange::<R, SI>(work, geo, inp, pre, only) {
@@ -199,7 +230,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         work: &'w mut WilsonWork<T>,
         geo: &Geometry,
         inp: &Field<T, Spinor, SI>,
-        pre: bool,
+        pre: Pre,
         only: Option<(usize, Direction)>,
     ) -> Option<&'w mut dyn HaloExchange<T>> {
         if !geo.stencil.has_buffers() {
@@ -253,22 +284,20 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         Some(exchange)
     }
 
-    /// Spinor `r` at one site of the input, with γ5 applied if `pre` is set.
+    /// Spinor `r` at one site of the input, transformed by `pre`.
     #[inline(always)]
     fn input<SI: Sites>(
         inp: &Field<T, Spinor, SI>,
         site: usize,
         r: usize,
-        pre: bool,
+        pre: Pre,
     ) -> SiteSpinor<T::Compute> {
-        let psi = load_spinor::<T>(stored_spinor(
-            &inp.site(0, site)[r * SPINOR_REALS..(r + 1) * SPINOR_REALS],
-        ));
-        if pre {
-            G::GAMMA5.apply(&psi)
-        } else {
-            psi
-        }
+        let all = inp.site(0, site);
+        pre.spinor::<T::Compute, G>(r, |k| {
+            load_spinor::<T>(stored_spinor(
+                &all[k * SPINOR_REALS..(k + 1) * SPINOR_REALS],
+            ))
+        })
     }
 
     /// The link U_mu at a full-lattice site.
@@ -325,8 +354,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         });
     }
 
-    /// One fused sweep: `out = γ5^post ( diagonal φ - κ Σ hops φ )` with `φ = γ5^pre inp`.
-    /// The full operator and the even-odd hopping blocks are both this, on different
+    /// One fused sweep: `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`. The
+    /// full operator and the even-odd hopping blocks are both this, on different
     /// geometries. The last argument is (pre, post).
     fn sweep<SO: Sites, SI: Sites>(
         &self,
@@ -335,7 +364,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor, SO>,
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
-        gamma5: (bool, bool),
+        gamma5: (Pre, Post),
     ) {
         match self.state.links {
             LinkStore::Full(_) => {
@@ -356,7 +385,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor, SO>,
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
-        (pre, post): (bool, bool),
+        (pre, post): (Pre, Post),
     ) {
         self.check(geo, out, inp);
         let kappa: T::Compute = Number::from_f64(self.params.kappa);
@@ -366,7 +395,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
         let (out, site_len) = (out.slab_mut(0), copies * SPINOR_REALS);
-        let stream = streams(out, site_len);
+        // A factor over the spinors of a site reads them back: they stay in the cache.
+        let stream = streams(out, site_len) && !matches!(post, Post::Gamma5Fifth(_));
         let fence = || {
             if stream {
                 stream_fence();
@@ -403,7 +433,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                         Diagonal::Absent => SiteSpinor::zero(),
                     };
                     let mut result = diag.sub_scaled(kappa, &hops);
-                    if post {
+                    if post.gamma5_first() {
                         result = G::GAMMA5.apply(&result);
                     }
                     if stream {
@@ -413,6 +443,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     } else {
                         store_spinor::<T>(&result, o);
                     }
+                }
+                if let Post::Gamma5Fifth(f) = post {
+                    f.apply_in_place::<T::Compute, G, [T; SPINOR_REALS]>(
+                        o.as_chunks_mut::<SPINOR_REALS>().0,
+                        |x| load_spinor::<T>(x),
+                        |p, x| store_spinor::<T>(p, x),
+                    );
                 }
             };
             match part {
@@ -451,7 +488,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         self.check(geo, out, inp);
         let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
-        let received = self.exchange::<R, crate::Full>(work, geo, inp, false, Some((mu, dir)));
+        let received = self.exchange::<R, crate::Full>(work, geo, inp, Pre::Plain, Some((mu, dir)));
         let fixed = self.fixed::<R>();
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let face = received[Stencil::leg(mu, dir)];
@@ -462,7 +499,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     spinors,
                     r,
                     copies,
-                    pre: false,
+                    pre: Pre::Plain,
                     _gamma: PhantomData::<G>,
                 };
                 if let Some(h) = Self::arrive(&hop, mu, dir, &input, face) {
@@ -540,9 +577,9 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
     ) {
         // γ5 applied to the input (pre) and to the result (post) of the same sweep.
         let (pre, post) = match variant {
-            Variant::D => (false, false),
-            Variant::Gamma5D => (false, true),
-            Variant::Dagger => (true, true),
+            Variant::D => (Pre::Plain, Post::Plain),
+            Variant::Gamma5D => (Pre::Plain, Post::Gamma5),
+            Variant::Dagger => (Pre::Gamma5, Post::Gamma5),
         };
         self.sweep(
             work,
@@ -646,7 +683,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
             out,
             inp,
             Diagonal::Absent,
-            (g5, g5),
+            (Pre::gamma5(g5), Post::gamma5(g5)),
         );
     }
 
