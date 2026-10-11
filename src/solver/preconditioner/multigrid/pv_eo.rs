@@ -37,12 +37,12 @@ use super::{Aggregation, Basis, BasisBuilder, CoarseOp, MultigridError, Reflecti
 use crate::fermion::{
     Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, PvEvenOdd, Variant,
 };
-use crate::kernel::{Dirac, GammaRepre};
+use crate::kernel::{Dirac, GammaRepre, Number, Real};
 use crate::numerics::{hermitian_eigen, invert_complex};
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
-    extract_parity, insert_parity, random_spinor, Coarse, EvenOddIndex, Field, Half, Lattice,
-    LinearFn, LinearOp, Parity, Spinor, Vector, C64,
+    extract_parity, insert_parity, random_spinor, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
+    Lattice, LinearFn, LinearOp, Parity, Spinor, Storage, Vector, C64,
 };
 use std::cell::Cell;
 use std::sync::Arc;
@@ -179,46 +179,49 @@ impl BlockMap {
     }
 }
 
-impl LinearFn<CoarseField> for BlockMap {
-    fn mult(&mut self, out: &mut CoarseField, inp: &CoarseField) {
+impl<T: Storage> LinearFn<Field<T, Coarse>> for BlockMap {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         let dim = self.dim;
-        for (x, m) in self.blocks.iter().enumerate() {
-            let src = inp.site(0, x).to_vec();
-            let dst = out.site_mut(0, x);
+        let site_len = inp.site_len();
+        crate::for_sites(out.slab_mut(0), site_len, |x, dst| {
+            let m = &self.blocks[x];
+            let src = inp.site(0, x);
             for (dst, src) in dst.chunks_exact_mut(2 * dim).zip(src.chunks_exact(2 * dim)) {
                 for i in 0..dim {
                     let mut z = C64::ZERO;
                     for k in 0..dim {
-                        z += m[i * dim + k] * C64::new(src[2 * k], src[2 * k + 1]);
+                        let v =
+                            C64::new(src[2 * k].load().to_f64(), src[2 * k + 1].load().to_f64());
+                        z += m[i * dim + k] * v;
                     }
-                    dst[2 * i] = z.re;
-                    dst[2 * i + 1] = z.im;
+                    dst[2 * i] = T::store(Number::from_f64(z.re));
+                    dst[2 * i + 1] = T::store(Number::from_f64(z.im));
                 }
             }
-        }
+        });
     }
 }
 
 /// Γ5 on a coarse field: −1 on the second half of the components.
-fn coarse_gamma5(v: &mut CoarseField) {
+fn coarse_gamma5<T: Storage>(v: &mut Field<T, Coarse>) {
     let dim = v.internal_dof() / 2;
     for site in v.as_mut_slice().chunks_exact_mut(2 * dim) {
         for r in &mut site[dim..] {
-            *r = -*r;
+            *r = T::store(-r.load());
         }
     }
 }
 
 /// A coarse factor as a linear map counting its applications: D_c, or H = Γ5 D_c† for
 /// the Pauli-Villars factor (`adjoint`).
-struct Counted<'a> {
-    a: &'a mut CoarseOp<f64>,
+struct Counted<'a, T: Storage> {
+    a: &'a mut CoarseOp<T>,
     adjoint: bool,
     n: &'a Cell<usize>,
 }
 
-impl LinearFn<CoarseField> for Counted<'_> {
-    fn mult(&mut self, out: &mut CoarseField, inp: &CoarseField) {
+impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         self.n.set(self.n.get() + inp.num_vectors());
         if self.adjoint {
             self.a.mult_dag(out, inp);
@@ -260,8 +263,10 @@ impl Default for PvEoParams {
 /// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of
 /// a flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator. `op` and `pv`
 /// are the plain operators (α = 1) the basis and the coarse factors are built from;
-/// `op_a` and `pv_a` may carry Neff's α (it matters only in the left form).
-pub struct PvEoCycle<'a, G: GammaRepre = Dirac> {
+/// `op_a` and `pv_a` may carry Neff's α (it matters only in the left form). The coarse
+/// operators and solves are stored as `CT`: single precision by default, enough for
+/// solves to 1e-2 and half the memory traffic of the bandwidth-limited coarse operator.
+pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32> {
     op: &'a Mdwf<f64, G>,
     pv: &'a Mdwf<f64, G>,
     op_a: &'a Mdwf<f64, G>,
@@ -269,26 +274,53 @@ pub struct PvEoCycle<'a, G: GammaRepre = Dirac> {
     form: EoForm,
     index: Arc<EvenOddIndex>,
     basis: &'a PvEoBasis,
-    coarse_d: CoarseOp<f64>,
-    coarse_pv: CoarseOp<f64>,
+    coarse_d: CoarseOp<CT>,
+    coarse_pv: CoarseOp<CT>,
     blocks_d: BlockMap,
     blocks_pv: BlockMap,
     smoother: Chebyshev<PvEvenOdd<'a, f64, G>, HalfField>,
     params: PvEoParams,
     hi: f64,
     work: [MdwfHalfWork<f64>; 2],
-    /// Scratch on the even sites (taken out while the cycle runs) and on the coarse lattice.
+    /// Scratch on the even sites (taken out while the cycle runs) and on the coarse lattice:
+    /// `g` in the precision of P, the others in that of the coarse solves.
     r: Option<HalfField>,
     e: Option<HalfField>,
     h: HalfField,
     g: CoarseField,
-    w: CoarseField,
-    c: CoarseField,
+    gc: Field<CT, Coarse>,
+    w: Field<CT, Coarse>,
+    c: Field<CT, Coarse>,
     coarse_applications: Cell<usize>,
 }
 
-impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
+/// A zero field on the coarse lattice of `basis`, stored as `T`.
+fn coarse_field<T: Storage>(basis: &PvEoBasis, num_vectors: usize) -> Field<T, Coarse> {
+    Field::with_shape(
+        basis.aggregation().coarse_lattice(),
+        2 * basis.coarse_dim(),
+        1,
+        num_vectors,
+        1,
+    )
+}
+
+impl<'a, G: GammaRepre> PvEoCycle<'a, G, f32> {
+    /// The cycle with single-precision coarse solves.
     pub fn new(
+        op: &'a Mdwf<f64, G>,
+        pv: &'a Mdwf<f64, G>,
+        outer: (&'a Mdwf<f64, G>, &'a Mdwf<f64, G>, EoForm),
+        basis: &'a PvEoBasis,
+        params: PvEoParams,
+    ) -> Result<Self, MultigridError> {
+        Self::with_coarse_storage(op, pv, outer, basis, params)
+    }
+}
+
+impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
+    /// The cycle with the coarse solves stored as `CT`.
+    pub fn with_coarse_storage(
         op: &'a Mdwf<f64, G>,
         pv: &'a Mdwf<f64, G>,
         (op_a, pv_a, form): (&'a Mdwf<f64, G>, &'a Mdwf<f64, G>, EoForm),
@@ -307,6 +339,7 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
         let coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis);
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
         let blocks_pv = BlockMap::abs_inverse_of_a_gamma5(&coarse_pv);
+        let (coarse_d, coarse_pv) = (coarse_d.to_storage(), coarse_pv.to_storage());
         let mut start = like.zeros_like();
         extract_parity(
             &mut start,
@@ -336,8 +369,9 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
             index,
             basis,
             g: basis.coarse_field(1),
-            w: basis.coarse_field(1),
-            c: basis.coarse_field(1),
+            gc: coarse_field(basis, 1),
+            w: coarse_field(basis, 1),
+            c: coarse_field(basis, 1),
             coarse_d,
             coarse_pv,
             blocks_d,
@@ -366,9 +400,12 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
     /// e = the coarse correction of r (see the top of the file).
     fn coarse_correction(&mut self, e: &mut HalfField, r: &HalfField) {
         let nv = r.num_vectors();
-        for f in [&mut self.g, &mut self.w, &mut self.c] {
+        if self.g.num_vectors() != nv {
+            self.g = self.basis.coarse_field(nv);
+        }
+        for f in [&mut self.gc, &mut self.w, &mut self.c] {
             if f.num_vectors() != nv {
-                *f = self.basis.coarse_field(nv);
+                *f = coarse_field(self.basis, nv);
             }
         }
         crate::fit(&mut self.h, r);
@@ -381,10 +418,11 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
             EoForm::Left => self.pv_a.mult_q(&mut self.h, r, true),
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
+        self.gc.convert_from(&self.g);
         let stop = Stop::simple(self.params.coarse_tolerance_sqr, 5000);
         let n = &self.coarse_applications;
         // w = (P†D_PV†P)⁻¹ g: MINRES on H = Γ5 (P†D_PV P)† with H w = Γ5 g.
-        coarse_gamma5(&mut self.g);
+        coarse_gamma5(&mut self.gc);
         self.w.set_zero();
         let _ = Minres::new(stop).solve(
             &mut Counted {
@@ -394,10 +432,11 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
             },
             Some(&mut self.blocks_pv),
             &mut self.w,
-            &self.g,
+            &self.gc,
         );
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
-        self.basis.prolong_half(&mut self.h, &self.w, &self.index);
+        self.g.convert_from(&self.w);
+        self.basis.prolong_half(&mut self.h, &self.g, &self.index);
         if self.form == EoForm::Left {
             self.pv_a
                 .diag(work_a, e, &self.h, Parity::Even, Dagger::Yes);
@@ -405,6 +444,7 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
                 .diag(work_a, &mut self.h, e, Parity::Even, Dagger::No);
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
+        self.gc.convert_from(&self.g);
         // c = (P†DP)⁻¹ g: BiCGStab right-preconditioned by the block inverses.
         self.c.set_zero();
         let _ = BiCgStab::new(stop).solve(
@@ -415,10 +455,11 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
             },
             Some(&mut self.blocks_d),
             &mut self.c,
-            &self.g,
+            &self.gc,
         );
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
-        self.basis.prolong_half(&mut self.h, &self.c, &self.index);
+        self.g.convert_from(&self.c);
+        self.basis.prolong_half(&mut self.h, &self.g, &self.index);
         match self.form {
             EoForm::Right => self.op.diag(work, e, &self.h, Parity::Even, Dagger::No),
             EoForm::Left => self.op_a.mult_q(e, &self.h, true),
@@ -426,7 +467,7 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G> {
     }
 }
 
-impl<G: GammaRepre> LinearFn<HalfField> for PvEoCycle<'_, G> {
+impl<G: GammaRepre, CT: Storage> LinearFn<HalfField> for PvEoCycle<'_, G, CT> {
     /// y = S b; y += e(b − Ã y); y += S(b − Ã y).
     fn mult(&mut self, y: &mut HalfField, b: &HalfField) {
         let nv = b.num_vectors();

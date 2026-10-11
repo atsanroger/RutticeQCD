@@ -371,6 +371,26 @@ impl<T: Storage> CoarseOp<T> {
         &self.lat
     }
 
+    /// The same operator stored as `U`, for example single precision: the coarse operator
+    /// is limited by memory bandwidth, so half the bytes is nearly twice the speed.
+    pub fn to_storage<U: Storage>(&self) -> CoarseOp<U> {
+        let convert = |v: &[T]| -> Vec<U> {
+            v.iter()
+                .map(|x| U::store(Number::from_f64(x.load().to_f64())))
+                .collect()
+        };
+        CoarseOp {
+            stencil: Stencil::nearest(&self.lat, [Boundary::Periodic; ND]),
+            lat: self.lat.clone(),
+            dim: self.dim,
+            diag: convert(&self.diag),
+            links: convert(&self.links),
+            diag_inv: self.diag_inv.as_deref().map(convert),
+            scratch: None,
+            adjoint_from_gamma5: self.adjoint_from_gamma5,
+        }
+    }
+
     /// The diagonal block of D_c at coarse site `x` (of the operator as built, before any
     /// diagonal preconditioning), row-major `dim × dim`.
     pub fn diagonal_block(&self, x: usize) -> Vec<C64> {
