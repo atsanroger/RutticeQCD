@@ -312,13 +312,18 @@ where
                 let levels_start = Instant::now();
                 let vectors = pv_eo_coarse_vectors(&op, pv, basis, y);
                 let applications = match &mut cycle {
-                    Preconditioner::Single(c) => c.add_levels(&vectors, &super_blocks)?,
-                    Preconditioner::Double(c) => c.add_levels(&vectors, &super_blocks)?,
+                    Preconditioner::Single(c) => {
+                        c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
+                    }
+                    Preconditioner::Double(c) => {
+                        c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
+                    }
                     _ => unreachable!(),
                 };
                 writeln!(
             out,
-                    "  levels below the coarse lattice {super_blocks:?}: {applications} coarse applications ({:.0} s)",
+                    "  levels below the coarse lattice {super_blocks:?} (refinement {:?}): {applications} coarse applications ({:.0} s)",
+                    mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
                     levels_start.elapsed().as_secs_f64()
                 )?;
             }

@@ -35,7 +35,8 @@
 
 use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
 use super::{
-    Aggregation, Basis, BasisBuilder, CoarseOp, MultigridError, Reflection, SignedMultilevel,
+    Aggregation, Basis, BasisBuilder, CoarseOp, LevelBootstrap, MultigridError, Reflection,
+    SignedMultilevel,
 };
 use crate::fermion::{
     Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, MdwfLayout, PvEvenOdd,
@@ -573,7 +574,22 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         vectors: &[CoarseField],
         super_blocks: &[usize],
     ) -> Result<usize, MultigridError> {
-        let levels = SignedMultilevel::build(self.coarse_d.get_mut(), vectors, super_blocks)?;
+        self.add_levels_with(vectors, super_blocks, &[])
+    }
+
+    /// `add_levels` with the test vectors of the levels refined (`LevelBootstrap`).
+    pub fn add_levels_with(
+        &mut self,
+        vectors: &[CoarseField],
+        super_blocks: &[usize],
+        bootstrap: &[LevelBootstrap],
+    ) -> Result<usize, MultigridError> {
+        let levels = SignedMultilevel::build_with(
+            self.coarse_d.get_mut(),
+            vectors,
+            super_blocks,
+            bootstrap,
+        )?;
         let applications = levels.setup_applications;
         self.levels_d = Some(levels);
         Ok(applications)

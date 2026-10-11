@@ -12,12 +12,13 @@
 //! With smeared links V(U) the derivative is taken for V, Σ' = V† M (dS = Re tr Σ' δV), and
 //! carried back to U by the chain rule of the smearing (`GaugeSmearing::chain`).
 
-use super::{traceless_antihermitian, Mseries};
+use super::{traceless_antihermitian, Links, Mseries};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::gauge::{link, GaugeSmearing};
 use crate::kernel::{ColorMatrix, Cplx, NC, NS};
 use crate::solver::{Cg, SolveError, Solver, Stop};
 use crate::{for_sites, Field, Gauge, Normal, Spinor, Vector, C64, ND};
+use std::rc::Rc;
 
 /// A spinor field of one vector.
 type Psi = Field<f64, Spinor>;
@@ -130,14 +131,11 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
         }
     }
 
-    /// The operator on the (smeared) links of `u`; the smeared levels, for the force.
-    fn set_links(&mut self, u: &Field<f64, Gauge>) -> Vec<Field<f64, Gauge>> {
-        let levels = match &self.smearing {
-            Some(s) => s.levels(u),
-            None => Vec::new(),
-        };
+    /// The operator on the (smeared) links; the smeared levels, for the force.
+    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+        let levels = links.levels(self.smearing.as_ref());
         self.op
-            .set_gauge(levels.last().unwrap_or(u))
+            .set_gauge(levels.last().unwrap_or(links.thin))
             .expect("the links suit the operator");
         levels
     }
@@ -156,9 +154,9 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
 
     /// The heat bath: φ = D† ξ, ξ Gaussian (variance ½ per real component) drawn in Bridge++'s
     /// order; returns |ξ|², the action of φ.
-    pub fn langevin(&mut self, u: &Field<f64, Gauge>, rng: &mut Mseries) -> f64 {
-        self.set_links(u);
-        let lat = u.lattice().clone();
+    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        self.set_links(links);
+        let lat = links.thin.lattice().clone();
         let mut xi = Psi::spinor(&lat, 1);
         rng.gauss_lex_global(&lat, 24, 1, |_, x, h| {
             xi.site_mut(0, x).copy_from_slice(h);
@@ -173,8 +171,8 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
     }
 
     /// S = φ† (D†D)⁻¹ φ.
-    pub fn hamiltonian(&mut self, u: &Field<f64, Gauge>) -> f64 {
-        self.set_links(u);
+    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.set_links(links);
         let v = self
             .solve(self.stop_h)
             .expect("the solve for the energy converges");
@@ -183,8 +181,8 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
         d[0].re
     }
 
-    pub fn force(&mut self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-        let levels = self.set_links(u);
+    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        let levels = self.set_links(links);
         let eta = self
             .solve(self.stop_md)
             .expect("the solve for the force converges");
@@ -192,6 +190,6 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut zeta, &eta, Variant::D);
         let m = hop_derivative(&self.op, &zeta, &eta);
-        smeared_force(&m, u, self.smearing.as_ref(), &levels)
+        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
