@@ -3472,8 +3472,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
                 Err(e) => format!("failed: {e}"),
             };
+            // The outer solver actually used: without a preconditioner, and with the
+            // polynomial, it is BiCGStab; with the cycle, `gcr:K`, `fgmres:K` or BiCGStab.
+            let solver = match (mode, outer, gcr_k) {
+                ("none" | "polynomial", _, _) => "BiCGStab".to_string(),
+                (_, _, Some(k)) => format!("GCR({k})"),
+                (_, Some(k), None) => format!("FGMRES({k})"),
+                (_, None, None) => "BiCGStab".to_string(),
+            };
             println!(
-            "  BiCGStab, {mode:<11} {it:>5} iterations: {:>6} Ã = {:>6} sweeps, {:>6} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
+            "  {solver}, {mode:<11} {it:>5} iterations: {:>6} Ã = {:>6} sweeps, {:>6} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
             na.get(),
             2 * na.get(),
             nc.get(),
