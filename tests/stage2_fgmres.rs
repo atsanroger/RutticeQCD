@@ -6,7 +6,9 @@ use common::max_abs_diff;
 use ruttice::fermion::{Bound, Clover, CloverParams, FermionOp, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;
 use ruttice::random_spinor;
-use ruttice::solver::{BiCgStab, Cg, Convert, Fgmres, Gcr, Solve, SolveError, Solver, Stop};
+use ruttice::solver::{
+    BiCgStab, Cg, Convert, Fgmres, Gcr, Minres, Solve, SolveError, Solver, Stop,
+};
 use ruttice::{
     Boundary, ConvertFrom, Field, Gauge, Lattice, LinearFn, Normal, Spinor, Vector, C64, ND,
 };
@@ -237,4 +239,47 @@ fn truncated_gcr_solves_d() {
         "GCR(2) with FGMRES(4) inside: {} iterations",
         info.iterations
     );
+}
+
+/// MINRES on γ5 D, Hermitian and indefinite: three right-hand sides, one zero, with
+/// restarts; and with a fixed positive preconditioner (a multiple of the identity).
+#[test]
+fn minres_solves_gamma5_d() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 321));
+    let mut b = random_spinor(&lat, 3, 322);
+    for site in 0..lat.num_sites() {
+        b.site_mut(0, site)[24..48].fill(0.0);
+    }
+    let mut a = Bound::new(&op, Variant::Gamma5D);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 60,
+        max_restarts: 20,
+    };
+    let mut x = b.zeros_like();
+    let info = Minres::new(stop).solve(&mut a, None, &mut x, &b).unwrap();
+    let r = residual_sqr(&mut a, &x, &b);
+    assert!(r[0] <= 1e-22 && r[2] <= 1e-22, "{r:?}");
+    assert_eq!(r[1], 0.0);
+    assert!(info.restarts >= 1, "meant to restart: {info:?}");
+    eprintln!(
+        "MINRES: {} iterations, {} restarts",
+        info.iterations, info.restarts
+    );
+
+    struct Half;
+    impl LinearFn<V64> for Half {
+        fn mult(&mut self, out: &mut V64, inp: &V64) {
+            out.copy_from(inp);
+            out.scale(&vec![0.5; inp.num_vectors()]);
+        }
+    }
+    let mut x = b.zeros_like();
+    let info = Minres::new(stop)
+        .solve(&mut a, Some(&mut Half), &mut x, &b)
+        .unwrap();
+    let r = residual_sqr(&mut a, &x, &b);
+    assert!(r[0] <= 1e-22 && r[2] <= 1e-22, "preconditioned: {r:?}");
+    eprintln!("MINRES, M = 1/2: {} iterations", info.iterations);
 }
