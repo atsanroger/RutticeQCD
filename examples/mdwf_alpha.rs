@@ -1,7 +1,7 @@
 //! Neff's form D^(α) = D Q (arXiv:2602.14454) on the even sites, without multigrid.
 //!
 //! ```text
-//! cargo run --release --example mdwf_alpha -- CONFIG L M5 MASS [LS] [ALPHAS] [plainpv]
+//! cargo run --release --example mdwf_alpha -- CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne]
 //! ```
 //!
 //! Q is diagonal in the fifth dimension (Q_0 = P- + α P+, Q_s = α, Q_(Ls-1) = P+ + α P-)
@@ -15,12 +15,14 @@
 //!
 //! does: with the same α in the Pauli-Villars operator Ã_L is similar to
 //! (C_PV,e^-1 S_PV)† Q_e^-2 (C_e^-1 S). Printed for each α (default 1,0.8,0.6,0.5,0.4)
-//! and three right-hand sides: BiCGStab on Ã_L without a preconditioner and with a
-//! Chebyshev polynomial (17 steps, ratio 300), to |r|^2/|b|^2 < 1e-16 of its own system,
-//! and even-odd CGNE on S^(α) to the physical residual 1e-16; the iterations, the Wilson
-//! sweeps (Ã_L is two, CGNE two per iteration) and the worst |D x - b|^2/|b|^2 checked
-//! with D itself. The right-preconditioned Ã of the multigrid runs once for comparison.
-//! `plainpv` keeps α = 1 in the Pauli-Villars operator.
+//! and three right-hand sides: BiCGStab on Ã_L without a preconditioner, to
+//! |r|^2/|b|^2 < 1e-16 of its own system, and even-odd CGNE on S^(α) (normal equations
+//! Q S† S Q) and on L^(α) (Q L† Q^-2 L Q, the form of 2602.14454), each to 1e-16 of its
+//! own system; the iterations, the Wilson sweeps (Ã_L is two, CGNE two per iteration) and
+//! the worst |D x - b|^2/|b|^2 checked with D itself. The right-preconditioned Ã of the
+//! multigrid runs once for comparison. `plainpv` keeps α = 1 in the Pauli-Villars
+//! operator; `cheb` adds BiCGStab with a Chebyshev polynomial (17 steps, ratio 300; cut off
+//! at 300 iterations: on 12⁴ the polynomial for Ã did not suit Ã_L); `cgne` runs only CGNE.
 
 use ruttice::fermion::{solve_even_odd, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
@@ -35,7 +37,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_alpha CONFIG L M5 MASS [LS] [ALPHAS] [plainpv]";
+const USAGE: &str = "usage: mdwf_alpha CONFIG L M5 MASS [LS] [ALPHAS] [plainpv] [cheb] [cgne]";
 
 type V = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
@@ -151,6 +153,22 @@ impl LinearOp<H> for HalfA<'_> {
     }
 }
 
+/// The left-preconditioned Schur complement L = 1 - C_e^-1 D_eo C_o^-1 D_oe of the quark
+/// operator alone (the form of 2602.14454), for CGNE.
+struct Left<'a>(HalfA<'a>);
+
+impl LinearFn<H> for Left<'_> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        self.0.apply(out, inp, false, Dagger::No);
+    }
+}
+
+impl LinearOp<H> for Left<'_> {
+    fn mult_dag(&mut self, out: &mut H, inp: &H) {
+        self.0.apply(out, inp, false, Dagger::Yes);
+    }
+}
+
 /// Counts the applications of the operator it wraps.
 struct Counted<'a, A> {
     a: &'a mut A,
@@ -168,7 +186,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let plain_pv = args.iter().any(|a| a == "plainpv");
     let with_chebyshev = args.iter().any(|a| a == "cheb");
-    args.retain(|a| a != "plainpv" && a != "cheb");
+    let only_cgne = args.iter().any(|a| a == "cgne");
+    args.retain(|a| a != "plainpv" && a != "cheb" && a != "cgne");
     if !(4..=6).contains(&args.len()) {
         return Err(USAGE.into());
     }
@@ -252,8 +271,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let seeds = 91..=93;
     println!("α     method                         iterations      sweeps (mean)  worst |Dx-b|^2  |λ_max|  s");
 
-    let mut cases: Vec<Case> = vec![(1.0, true, None)];
-    for &alpha in &alphas {
+    let mut cases: Vec<Case> = if only_cgne {
+        Vec::new()
+    } else {
+        vec![(1.0, true, None)]
+    };
+    for &alpha in alphas.iter().filter(|_| !only_cgne) {
         cases.push((alpha, false, None));
         if with_chebyshev {
             cases.push((alpha, false, Some((17, 300.0))));
@@ -393,7 +416,56 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         println!(
             "{alpha:<6}{:<31}{:<16}{:>8}       {worst:.0e}                 {:.0}",
-            "CGNE, even-odd",
+            "CGNE, S = C_e - D_eo C_o^-1 D_oe",
+            counts.join(" "),
+            sweeps / 3,
+            start.elapsed().as_secs_f64()
+        );
+
+        // CGNE on L^(α) = Q_e^-1 L Q_e (2602.14454): normal equations Q L† Q^-2 L Q.
+        let pv = Mdwf::<f64>::new(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+        );
+        let start = Instant::now();
+        let (mut counts, mut sweeps, mut worst) = (Vec::new(), 0usize, 0.0_f64);
+        for seed in seeds.clone() {
+            let b = full(seed);
+            let (mut b_e, mut b_o) = (half(Parity::Even), half(Parity::Odd));
+            extract_parity(&mut b_e, &b, index, Parity::Even);
+            extract_parity(&mut b_o, &b, index, Parity::Odd);
+            let mut work = op.even_odd_work();
+            let (mut t_o, mut t_e) = (half(Parity::Odd), half(Parity::Even));
+            op.diag_inv(&mut work, &mut t_o, &b_o, Parity::Odd, Dagger::No);
+            op.hop(&mut work, &mut t_e, &t_o, Parity::Even, Dagger::No);
+            t_e.aypx(&[C64::new(-1.0, 0.0)], &b_e);
+            // L x_e = C_e^-1 b'_e
+            let mut rhs = half(Parity::Even);
+            op.diag_inv(&mut work, &mut rhs, &t_e, Parity::Even, Dagger::No);
+            let mut left = Left(HalfA::new(&op, &pv, false, &even, &odd));
+            let mut x_e = half(Parity::Even);
+            let result = solve_cgne(&mut Cg::new(stop), &mut left, &mut x_e, &rhs);
+            if let Ok(i) | Err(SolveError::NotConverged(i)) = &result {
+                sweeps += 2 * i.iterations;
+            }
+            op.hop(&mut work, &mut t_o, &x_e, Parity::Odd, Dagger::No);
+            t_o.aypx(&[C64::new(-1.0, 0.0)], &b_o);
+            let mut x_o = half(Parity::Odd);
+            op.diag_inv(&mut work, &mut x_o, &t_o, Parity::Odd, Dagger::No);
+            let mut x_alpha = b.zeros_like();
+            insert_parity(&mut x_alpha, &x_e, index);
+            insert_parity(&mut x_alpha, &x_o, index);
+            let mut x = b.zeros_like();
+            op.mult_q(&mut x, &x_alpha, false);
+            counts.push(outcome(&result));
+            worst = worst.max(physical(&x, &b));
+        }
+        println!(
+            "{alpha:<6}{:<31}{:<16}{:>8}       {worst:.0e}                 {:.0}",
+            "CGNE, L = C_e^-1 S",
             counts.join(" "),
             sweeps / 3,
             start.elapsed().as_secs_f64()
