@@ -1,6 +1,6 @@
 use super::{Aggregation, MultigridError};
 use crate::kernel::{Cplx, Gamma, Number, Real, NC, NS, SPINOR_REALS};
-use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
+use crate::{for_sites, Coarse, EvenOddIndex, Field, Half, Sites, Spinor, Storage, Vector, C64};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -129,8 +129,11 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         &self.data[base..base + self.kept]
     }
 
-    fn check(&self, coarse: &Field<T, Coarse>, fine: &Field<T, Spinor>) {
-        assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
+    fn check<X: Sites>(&self, coarse: &Field<T, Coarse>, fine: &Field<T, Spinor, X>) {
+        assert!(
+            self.reals / 2 <= MAX_HALF_REALS,
+            "Ls too large for restriction and prolongation"
+        );
         assert_eq!(coarse.num_sites(), self.agg.coarse_lattice().num_sites());
         assert_eq!(coarse.internal_dof(), 2 * self.coarse_dim());
         assert_eq!(coarse.ls(), 1);
@@ -145,137 +148,208 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     /// `coarse = P† fine`.
     pub fn restrict(&self, coarse: &mut Field<T, Coarse>, fine: &Field<T, Spinor>) {
         self.check(coarse, fine);
-        let (n, dim, reals, kept) = (self.n, self.coarse_dim(), self.reals, self.kept);
+        assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
+        let (dim, reals) = (self.coarse_dim(), self.reals);
         let site_len = coarse.site_len();
-        assert!(
-            kept <= 2 * MAX_HALF_REALS,
-            "Ls too large for the restriction"
-        );
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
             out.fill(T::default());
-            // When folded: f_s ± g f_(Ls−1−s) for s < Ls/2, one for either chirality.
             let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
-                let fine_site = fine.site(0, x);
                 for (out, f) in out
                     .chunks_exact_mut(2 * dim)
-                    .zip(fine_site.chunks_exact(reals))
+                    .zip(fine.site(0, x).chunks_exact(reals))
                 {
-                    if let Some(g) = &self.fold {
-                        let ls = reals / SPINOR_REALS;
-                        let mut gf = [T::Compute::ZERO; SPINOR_REALS];
-                        let mut far = [T::Compute::ZERO; SPINOR_REALS];
-                        for s in 0..ls / 2 {
-                            let mirror = (ls - 1 - s) * SPINOR_REALS;
-                            for (d, v) in far.iter_mut().zip(&f[mirror..mirror + SPINOR_REALS]) {
-                                *d = v.load();
-                            }
-                            spin_apply(g, &far, &mut gf);
-                            let near = &f[s * SPINOR_REALS..(s + 1) * SPINOR_REALS];
-                            for (k, (v, w)) in near.iter().zip(&gf).enumerate() {
-                                let at = s * SPINOR_REALS + k;
-                                folded[0][at] = v.load() + *w;
-                                folded[1][at] = v.load() - *w;
-                            }
-                        }
-                    }
-                    for i in 0..n {
-                        for c in 0..2 {
-                            let mut z = Cplx::<T::Compute>::ZERO;
-                            let b = self.part(x, i, c).as_chunks::<2>().0;
-                            if self.fold.is_some() {
-                                for (b, f) in b.iter().zip(folded[c][..kept].as_chunks::<2>().0) {
-                                    let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
-                                    z += b.conj() * Cplx::new(f[0], f[1]);
-                                }
-                            } else {
-                                for (b, f) in b.iter().zip(f.as_chunks::<2>().0) {
-                                    let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
-                                    z += b.conj() * Cplx::new(f[0].load(), f[1].load());
-                                }
-                            }
-                            let k = 2 * (c * n + i);
-                            add(&mut out[k..k + 2], z);
-                        }
-                    }
+                    self.restrict_site(x, f, out, &mut folded);
                 }
             }
         });
     }
 
+    /// `coarse = P† ι half`, ι putting a field on the sites of one parity onto the whole
+    /// lattice (zero on the others): only the fine sites of that parity contribute.
+    /// `index` is the even-odd decomposition of the fine lattice.
+    pub fn restrict_half(
+        &self,
+        coarse: &mut Field<T, Coarse>,
+        half: &Field<T, Spinor, Half>,
+        index: &EvenOddIndex,
+    ) {
+        self.check(coarse, half);
+        assert_eq!(half.num_sites(), index.num_half_sites());
+        let (dim, reals, parity) = (self.coarse_dim(), self.reals, half.parity());
+        let site_len = coarse.site_len();
+        for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
+            out.fill(T::default());
+            let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
+            for x in self.agg.fine_sites(coarse_site) {
+                let x = *x as usize;
+                let (p, h) = index.half_site(x);
+                if p != parity {
+                    continue;
+                }
+                for (out, f) in out
+                    .chunks_exact_mut(2 * dim)
+                    .zip(half.site(0, h).chunks_exact(reals))
+                {
+                    self.restrict_site(x, f, out, &mut folded);
+                }
+            }
+        });
+    }
+
+    /// Add P† restricted to fine site `x` of one vector `f` to `out` (that vector's part of
+    /// the coarse site); `folded` is scratch.
+    #[inline(always)]
+    fn restrict_site(
+        &self,
+        x: usize,
+        f: &[T],
+        out: &mut [T],
+        folded: &mut [[T::Compute; 2 * MAX_HALF_REALS]; 2],
+    ) {
+        let (n, reals, kept) = (self.n, self.reals, self.kept);
+        // When folded: f_s ± g f_(Ls−1−s) for s < Ls/2, one for either chirality.
+        if let Some(g) = &self.fold {
+            let ls = reals / SPINOR_REALS;
+            let mut gf = [T::Compute::ZERO; SPINOR_REALS];
+            let mut far = [T::Compute::ZERO; SPINOR_REALS];
+            for s in 0..ls / 2 {
+                let mirror = (ls - 1 - s) * SPINOR_REALS;
+                for (d, v) in far.iter_mut().zip(&f[mirror..mirror + SPINOR_REALS]) {
+                    *d = v.load();
+                }
+                spin_apply(g, &far, &mut gf);
+                let near = &f[s * SPINOR_REALS..(s + 1) * SPINOR_REALS];
+                for (k, (v, w)) in near.iter().zip(&gf).enumerate() {
+                    let at = s * SPINOR_REALS + k;
+                    folded[0][at] = v.load() + *w;
+                    folded[1][at] = v.load() - *w;
+                }
+            }
+        }
+        for i in 0..n {
+            for c in 0..2 {
+                let mut z = Cplx::<T::Compute>::ZERO;
+                let b = self.part(x, i, c).as_chunks::<2>().0;
+                if self.fold.is_some() {
+                    for (b, f) in b.iter().zip(folded[c][..kept].as_chunks::<2>().0) {
+                        let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                        z += b.conj() * Cplx::new(f[0], f[1]);
+                    }
+                } else {
+                    for (b, f) in b.iter().zip(f.as_chunks::<2>().0) {
+                        let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                        z += b.conj() * Cplx::new(f[0].load(), f[1].load());
+                    }
+                }
+                let k = 2 * (c * n + i);
+                add(&mut out[k..k + 2], z);
+            }
+        }
+    }
+
     /// `fine = P coarse`.
     pub fn prolong(&self, fine: &mut Field<T, Spinor>, coarse: &Field<T, Coarse>) {
         self.check(coarse, fine);
-        let (n, dim, reals) = (self.n, self.coarse_dim(), self.reals);
+        assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
+        let (dim, reals) = (self.coarse_dim(), self.reals);
         let site_len = fine.site_len();
-        assert!(
-            reals / 2 <= MAX_HALF_REALS,
-            "Ls too large for the prolongation"
-        );
         for_sites(fine.slab_mut(0), site_len, |x, out| {
             let coarse_site = coarse.site(0, self.agg.coarse_site(x));
             for (out, c) in out
                 .chunks_exact_mut(reals)
                 .zip(coarse_site.chunks_exact(2 * dim))
             {
-                // On the stack: this runs once per fine site and vector. Unfolded, one sum
-                // over both chiralities; folded, a₊ and a₋ over half the fifth dimension.
-                let mut acc_store = [Cplx::<T::Compute>::ZERO; MAX_HALF_REALS];
-                let half = self.kept / 2;
-                for i in 0..n {
-                    for ch in 0..2 {
-                        let k = 2 * (ch * n + i);
-                        let coef = Cplx::new(c[k].load(), c[k + 1].load());
-                        let acc = match self.fold {
-                            Some(_) => &mut acc_store[ch * half..(ch + 1) * half],
-                            None => &mut acc_store[..half],
-                        };
-                        for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
-                            *a += coef * Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
-                        }
-                    }
-                }
-                let store = |o: &mut [T], a: Cplx<T::Compute>| {
-                    o[0] = T::store(a.re);
-                    o[1] = T::store(a.im);
+                self.prolong_site(x, c, out);
+            }
+        });
+    }
+
+    /// `half = π P coarse`, π taking the sites of the parity of `half`. `index` is the
+    /// even-odd decomposition of the fine lattice.
+    pub fn prolong_half(
+        &self,
+        half: &mut Field<T, Spinor, Half>,
+        coarse: &Field<T, Coarse>,
+        index: &EvenOddIndex,
+    ) {
+        self.check(coarse, half);
+        assert_eq!(half.num_sites(), index.num_half_sites());
+        let (dim, reals, parity) = (self.coarse_dim(), self.reals, half.parity());
+        let site_len = half.site_len();
+        for_sites(half.slab_mut(0), site_len, |h, out| {
+            let x = index.full_site(parity, h);
+            let coarse_site = coarse.site(0, self.agg.coarse_site(x));
+            for (out, c) in out
+                .chunks_exact_mut(reals)
+                .zip(coarse_site.chunks_exact(2 * dim))
+            {
+                self.prolong_site(x, c, out);
+            }
+        });
+    }
+
+    /// P at fine site `x` for one vector: `out` from that vector's part `c` of the coarse
+    /// site.
+    #[inline(always)]
+    fn prolong_site(&self, x: usize, c: &[T], out: &mut [T]) {
+        let (n, reals) = (self.n, self.reals);
+        // On the stack: this runs once per fine site and vector. Unfolded, one sum over
+        // both chiralities; folded, a₊ and a₋ over half the fifth dimension.
+        let mut acc_store = [Cplx::<T::Compute>::ZERO; MAX_HALF_REALS];
+        let half = self.kept / 2;
+        for i in 0..n {
+            for ch in 0..2 {
+                let k = 2 * (ch * n + i);
+                let coef = Cplx::new(c[k].load(), c[k + 1].load());
+                let acc = match self.fold {
+                    Some(_) => &mut acc_store[ch * half..(ch + 1) * half],
+                    None => &mut acc_store[..half],
                 };
-                match &self.fold {
-                    None => {
-                        for (o, a) in out
-                            .as_chunks_mut::<2>()
-                            .0
-                            .iter_mut()
-                            .zip(&acc_store[..half])
-                        {
-                            store(o, *a);
-                        }
+                for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
+                    *a += coef * Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                }
+            }
+        }
+        let store = |o: &mut [T], a: Cplx<T::Compute>| {
+            o[0] = T::store(a.re);
+            o[1] = T::store(a.im);
+        };
+        match &self.fold {
+            None => {
+                for (o, a) in out
+                    .as_chunks_mut::<2>()
+                    .0
+                    .iter_mut()
+                    .zip(&acc_store[..half])
+                {
+                    store(o, *a);
+                }
+            }
+            Some(g) => {
+                let ls = reals / SPINOR_REALS;
+                let (plus, minus) = acc_store[..2 * half].split_at(half);
+                let per_slice = SPINOR_REALS / 2;
+                for s in 0..ls / 2 {
+                    let mut diff = [T::Compute::ZERO; SPINOR_REALS];
+                    for d in 0..per_slice {
+                        let (p, m) = (plus[s * per_slice + d], minus[s * per_slice + d]);
+                        let at = s * SPINOR_REALS + 2 * d;
+                        store(&mut out[at..at + 2], p + m);
+                        let q = p - m;
+                        diff[2 * d] = q.re;
+                        diff[2 * d + 1] = q.im;
                     }
-                    Some(g) => {
-                        let ls = reals / SPINOR_REALS;
-                        let (plus, minus) = acc_store[..2 * half].split_at(half);
-                        let per_slice = SPINOR_REALS / 2;
-                        for s in 0..ls / 2 {
-                            let mut diff = [T::Compute::ZERO; SPINOR_REALS];
-                            for d in 0..per_slice {
-                                let (p, m) = (plus[s * per_slice + d], minus[s * per_slice + d]);
-                                let at = s * SPINOR_REALS + 2 * d;
-                                store(&mut out[at..at + 2], p + m);
-                                let q = p - m;
-                                diff[2 * d] = q.re;
-                                diff[2 * d + 1] = q.im;
-                            }
-                            let mut mirrored = [T::Compute::ZERO; SPINOR_REALS];
-                            spin_apply(g, &diff, &mut mirrored);
-                            let at = (ls - 1 - s) * SPINOR_REALS;
-                            for (o, v) in out[at..at + SPINOR_REALS].iter_mut().zip(&mirrored) {
-                                *o = T::store(*v);
-                            }
-                        }
+                    let mut mirrored = [T::Compute::ZERO; SPINOR_REALS];
+                    spin_apply(g, &diff, &mut mirrored);
+                    let at = (ls - 1 - s) * SPINOR_REALS;
+                    for (o, v) in out[at..at + SPINOR_REALS].iter_mut().zip(&mirrored) {
+                        *o = T::store(*v);
                     }
                 }
             }
-        });
+        }
     }
 }
 
