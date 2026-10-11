@@ -120,7 +120,8 @@ fn impossible_requests_are_rejected_before_any_work() {
         "[gauge]\nfixing = { type = \"coulomb\", overrelaxation = 0.0 }\n",
     ));
     assert!(m.contains("overrelaxation"), "{m}");
-    // Multigrid needs FGMRES on the whole lattice and blocks that divide it.
+    // Multigrid needs a flexible solver (FGMRES, BiCGStab) and blocks that divide the
+    // lattice.
     let with_multigrid = |block: &str| {
         WILSON_TOML.replace(
             "max_restarts = 3 ",
@@ -130,13 +131,11 @@ fn impossible_requests_are_rejected_before_any_work() {
     let m = invalid(with_multigrid("[2, 2, 2, 2]"));
     assert!(m.contains("fgmres"), "{m}");
     let fgmres = |text: String| text.replace("\"cg_normal\"", "\"fgmres\"");
-    let m = invalid(fgmres(with_multigrid("[2, 2, 2, 2]")));
-    assert!(m.contains("even_odd"), "{m}");
     let whole = |text: String| text.replace("even_odd = true", "even_odd = false");
     let m = invalid(whole(fgmres(with_multigrid("[3, 2, 2, 2]"))));
     assert!(m.contains("block"), "{m}");
     // Blocks of sites: a width there is an operator for, a lattice that can be cut, parts
-    // with even extents for even-odd, and no multigrid.
+    // with even extents for even-odd.
     let simd = |lanes: usize| WILSON_TOML.replace("simd = 1 ", &format!("simd = {lanes} "));
     let m = invalid(simd(3));
     assert!(m.contains("solver.simd must be"), "{m}");
@@ -146,9 +145,6 @@ fn impossible_requests_are_rejected_before_any_work() {
         simd(4).replace("lattice = [4, 4, 4, 8]", "lattice = [3, 3, 3, 6]"),
     ));
     assert!(m.contains("cannot be halved"), "{m}");
-    let m =
-        invalid(whole(fgmres(with_multigrid("[2, 2, 2, 2]"))).replace("simd = 1 ", "simd = 4 "));
-    assert!(m.contains("solver.simd = 1"), "{m}");
 }
 
 #[test]
@@ -205,6 +201,12 @@ fn every_solver_choice_gives_the_same_correlator() {
         multigrid("double"),
         // BiCGStab is flexible with a preconditioner.
         multigrid("single").replace("\"fgmres\"", "\"bicgstab\""),
+        // The multigrid under a solver on the even sites, and with the fields in blocks.
+        multigrid("single").replace("even_odd = false", "even_odd = true"),
+        multigrid("double").replace("simd = 1 ", "simd = 4 "),
+        multigrid("single")
+            .replace("even_odd = false", "even_odd = true")
+            .replace("simd = 1 ", "simd = 2 "),
         // Fields in blocks of sites.
         base.replace("simd = 1 ", "simd = 2 "),
         base.replace("simd = 1 ", "simd = 8 "),
