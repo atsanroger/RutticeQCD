@@ -26,6 +26,12 @@
 //! Chebyshev polynomial in Ã of STEPS steps (default 5) on [hi/RATIO, hi] (RATIO 30,
 //! hi = 1.1 |λ_max(Ã)|).
 //!
+//! `left` solves with the left-preconditioned Ã_L = L_PV† L, L = C_e⁻¹ S, instead, and
+//! `alpha:A` puts Neff's α into it (D^(α) = D Q, in D and D_PV; `plainpv`: in D only). Then
+//! Ã_L⁻¹ = Q_e⁻¹ S⁻¹ (C_e Q_e^k C_PV,e†) S_PV†⁻¹ O_R (k = 2, O_R = Q_e⁻¹; D only: k = 1,
+//! O_R = 1), and the coarse correction is the same with these site-local factors in place
+//! of C_e, E and C_PV,e†: P, the coarse factors and the setup are those of Ã at α = 1.
+//!
 //! Printed for BiCGStab on Ã y = S_X† b′_e (seed 91) to 1e-18: the iterations, the
 //! applications of Ã (two Wilson sweeps each, as in `mdwf_evenodd_a`), the coarse
 //! applications, |Dx − b|²/|b|² and the time; without a preconditioner, with the
@@ -96,9 +102,41 @@ fn schur(
     out.aypx(&vec![C64::new(-1.0, 0.0); inp.num_vectors()], inp);
 }
 
+/// The left-preconditioned Schur complement L = 1 − C_e⁻¹ D_eo C_o⁻¹ D_oe = C_e⁻¹ S, or its
+/// adjoint 1 − (D†)_eo C_o†⁻¹ (D†)_oe C_e†⁻¹. With Neff's α in `op` (C^(α) = C Q, D^(α) =
+/// D Q) it is L^(α) = Q_e⁻¹ L Q_e.
+fn schur_left(
+    op: &Mdwf<f64>,
+    work: &mut <Mdwf<f64> as EvenOdd<H>>::Work,
+    odd: (&mut H, &mut H),
+    even: &mut H,
+    out: &mut H,
+    inp: &H,
+    dagger: Dagger,
+) {
+    let (o1, o2) = odd;
+    match dagger {
+        Dagger::No => {
+            op.hop(work, o1, inp, Parity::Odd, Dagger::No);
+            op.diag_inv(work, o2, o1, Parity::Odd, Dagger::No);
+            op.hop(work, even, o2, Parity::Even, Dagger::No);
+            op.diag_inv(work, out, even, Parity::Even, Dagger::No);
+        }
+        Dagger::Yes => {
+            op.diag_inv(work, even, inp, Parity::Even, Dagger::Yes);
+            op.hop(work, o1, even, Parity::Odd, Dagger::Yes);
+            op.diag_inv(work, o2, o1, Parity::Odd, Dagger::Yes);
+            op.hop(work, out, o2, Parity::Even, Dagger::Yes);
+        }
+    }
+    out.aypx(&vec![C64::new(-1.0, 0.0); inp.num_vectors()], inp);
+}
+
+/// Ã = S_X† S_Y (right-preconditioned, `left` false) or Ã_L = L_PV† L (`left`).
 struct HalfA<'a> {
     op: &'a Mdwf<f64>,
     pv: &'a Mdwf<f64>,
+    left: bool,
     work: <Mdwf<f64> as EvenOdd<H>>::Work,
     work_pv: <Mdwf<f64> as EvenOdd<H>>::Work,
     o1: H,
@@ -117,11 +155,17 @@ fn fit(w: &mut H, like: &H, parity: Parity) {
 
 impl<'a> HalfA<'a> {
     fn new(op: &'a Mdwf<f64>, pv: &'a Mdwf<f64>, like: &H, n: &Count) -> Self {
+        Self::with_form(op, pv, false, like, n)
+    }
+
+    /// `left`: Ã_L = L_PV† L instead of Ã.
+    fn with_form(op: &'a Mdwf<f64>, pv: &'a Mdwf<f64>, left: bool, like: &H, n: &Count) -> Self {
         let mut odd = like.zeros_like();
         odd.set_parity(Parity::Odd);
         Self {
             op,
             pv,
+            left,
             work: op.even_odd_work(),
             work_pv: pv.even_odd_work(),
             o1: odd.zeros_like(),
@@ -141,18 +185,30 @@ impl<'a> HalfA<'a> {
         }
     }
 
-    /// `out = S_X† inp`.
-    fn x_dagger(&mut self, out: &mut H, inp: &H) {
-        self.fit_all(inp);
-        schur(
-            self.pv,
-            &mut self.work_pv,
+    /// The Schur factor of the quark operator (`pv` false) or of the Pauli-Villars one, in
+    /// the form of this operator, or its adjoint.
+    fn factor(&mut self, out: &mut H, inp: &H, pv: bool, dagger: Dagger) {
+        let (op, work) = if pv {
+            (self.pv, &mut self.work_pv)
+        } else {
+            (self.op, &mut self.work)
+        };
+        let form = if self.left { schur_left } else { schur };
+        form(
+            op,
+            work,
             (&mut self.o1, &mut self.o2),
             &mut self.e1,
             out,
             inp,
-            Dagger::Yes,
+            dagger,
         );
+    }
+
+    /// `out = S_X† inp` (`L_PV† inp` for Ã_L).
+    fn x_dagger(&mut self, out: &mut H, inp: &H) {
+        self.fit_all(inp);
+        self.factor(out, inp, true, Dagger::Yes);
     }
 }
 
@@ -161,24 +217,8 @@ impl LinearFn<H> for HalfA<'_> {
         self.n.set(self.n.get() + inp.num_vectors());
         self.fit_all(inp);
         let mut y = std::mem::replace(&mut self.e2, inp.zeros_like());
-        schur(
-            self.op,
-            &mut self.work,
-            (&mut self.o1, &mut self.o2),
-            &mut self.e1,
-            &mut y,
-            inp,
-            Dagger::No,
-        );
-        schur(
-            self.pv,
-            &mut self.work_pv,
-            (&mut self.o1, &mut self.o2),
-            &mut self.e1,
-            out,
-            &y,
-            Dagger::Yes,
-        );
+        self.factor(&mut y, inp, false, Dagger::No);
+        self.factor(out, &y, true, Dagger::Yes);
         self.e2 = y;
     }
 }
@@ -188,24 +228,8 @@ impl LinearOp<H> for HalfA<'_> {
         self.n.set(self.n.get() + inp.num_vectors());
         self.fit_all(inp);
         let mut y = std::mem::replace(&mut self.e2, inp.zeros_like());
-        schur(
-            self.pv,
-            &mut self.work_pv,
-            (&mut self.o1, &mut self.o2),
-            &mut self.e1,
-            &mut y,
-            inp,
-            Dagger::No,
-        );
-        schur(
-            self.op,
-            &mut self.work,
-            (&mut self.o1, &mut self.o2),
-            &mut self.e1,
-            out,
-            &y,
-            Dagger::Yes,
-        );
+        self.factor(&mut y, inp, true, Dagger::No);
+        self.factor(out, &y, false, Dagger::Yes);
         self.e2 = y;
     }
 }
@@ -2248,6 +2272,27 @@ struct Cycle<'a> {
     /// P†D_PV†P itself (false, `exactpv`).
     pv_adj: bool,
     nc: Count,
+    /// The coarse correction for Ã_L(α) instead of Ã (`None`); `op` and `pv` stay the plain
+    /// operators, Q comes from here.
+    left: Option<LeftAlpha<'a>>,
+}
+
+/// Ã_L(α)⁻¹ = O_L S⁻¹ M S_PV†⁻¹ O_R with M = C_e Q_e^k C_PV,e† and O_L = Q_e⁻¹; O_R = Q_e⁻¹
+/// with α in the Pauli-Villars operator too (k = 2), 1 without (k = 1). The coarse factors
+/// and P are those of α = 1: α enters only site-local pieces.
+#[derive(Clone, Copy)]
+struct LeftAlpha<'a> {
+    /// An operator carrying α, for Q.
+    q: &'a Mdwf<f64>,
+    pv_alpha: bool,
+}
+
+impl LeftAlpha<'_> {
+    fn q_inv(&self, x: &H) -> H {
+        let mut out = x.zeros_like();
+        self.q.mult_q(&mut out, x, true);
+        out
+    }
 }
 
 impl LinearFn<H> for Cycle<'_> {
@@ -2269,15 +2314,19 @@ impl LinearFn<H> for Cycle<'_> {
             } else {
                 r.copy_from(b);
             }
-            // g = P† ι C_PV,e† r.
+            // g = P† ι O_R r: O_R = C_PV,e† for Ã; Q_e⁻¹ or 1 for Ã_L(α).
             let mut z = r.zeros_like();
-            self.pv.diag(
-                &mut self.pv.even_odd_work(),
-                &mut z,
-                &r,
-                Parity::Even,
-                Dagger::Yes,
-            );
+            match &self.left {
+                None => self.pv.diag(
+                    &mut self.pv.even_odd_work(),
+                    &mut z,
+                    &r,
+                    Parity::Even,
+                    Dagger::Yes,
+                ),
+                Some(l) if l.pv_alpha => z = l.q_inv(&r),
+                Some(_) => z.copy_from(&r),
+            }
             let mut g = p.coarse_field(nv);
             p.restrict(&mut g, &self.lift.inject(&z));
             let mut f = V::with_shape(self.lift.lat, 24, self.lift.ls, nv, 1);
@@ -2318,23 +2367,49 @@ impl LinearFn<H> for Cycle<'_> {
                         self.solver
                             .solve(cpv, self.pv_adj, true, &mut w, &g, self.coarse_tol);
                     p.prolong(&mut f, &w);
-                    p.restrict(&mut w, &self.lift.inject(&self.lift.even(&f)));
+                    // The middle: E = P†ιπP for Ã; P†ι M πP, M = C_e Q_e^k C_PV,e†, for Ã_L(α).
+                    let mut h = self.lift.even(&f);
+                    if let Some(l) = &self.left {
+                        let mut t = h.zeros_like();
+                        self.pv.diag(
+                            &mut self.pv.even_odd_work(),
+                            &mut t,
+                            &h,
+                            Parity::Even,
+                            Dagger::Yes,
+                        );
+                        for _ in 0..(if l.pv_alpha { 2 } else { 1 }) {
+                            l.q.mult_q(&mut h, &t, false);
+                            t.copy_from(&h);
+                        }
+                        self.op.diag(
+                            &mut self.op.even_odd_work(),
+                            &mut h,
+                            &t,
+                            Parity::Even,
+                            Dagger::No,
+                        );
+                    }
+                    p.restrict(&mut w, &self.lift.inject(&h));
                     n += self
                         .solver
                         .solve(cd, false, false, &mut c, &w, self.coarse_tol);
                     self.nc.set(self.nc.get() + n);
                 }
             }
-            // e = C_e π P c.
+            // e = O_L π P c: O_L = C_e for Ã, Q_e⁻¹ for Ã_L(α).
             p.prolong(&mut f, &c);
             let u = self.lift.even(&f);
-            self.op.diag(
-                &mut self.op.even_odd_work(),
-                &mut e,
-                &u,
-                Parity::Even,
-                Dagger::No,
-            );
+            match &self.left {
+                None => self.op.diag(
+                    &mut self.op.even_odd_work(),
+                    &mut e,
+                    &u,
+                    Parity::Even,
+                    Dagger::No,
+                ),
+                Some(l) => e = l.q_inv(&u),
+            }
             y.axpy(&one, &e);
         }
         if self.post {
@@ -2757,6 +2832,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 post: true,
                 pv_adj: true,
                 nc: nc.clone(),
+                left: None,
             };
             // The test vectors in batches of `boot_batch`: every work field of the cycle and
             // the solver is as large as the batch, so this sets the memory of the bootstrap.
@@ -2966,6 +3042,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             post: false,
             pv_adj,
             nc: nc.clone(),
+            left: None,
         };
         let mut errors = Vec::new();
         for j in [0, half_n - 1] {
@@ -3217,6 +3294,54 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .unwrap_or((91, 91));
     let with_product = args.iter().skip(11).any(|s| s == "withproduct");
+    // `left`: solve with Ã_L = L_PV† L instead of Ã; `alpha:A`: Neff's α in it, in D and
+    // D_PV (`plainpv`: in D only). The setup above is that of Ã at α = 1 either way: P and
+    // the coarse factors do not depend on α (see `LeftAlpha`).
+    let left = args.iter().skip(11).any(|s| s == "left");
+    let alpha: f64 = args
+        .iter()
+        .skip(11)
+        .find_map(|s| s.strip_prefix("alpha:")?.parse().ok())
+        .unwrap_or(1.0);
+    let plain_pv = args.iter().skip(11).any(|s| s == "plainpv");
+    if (alpha != 1.0 && !left) || (left && (product || with_product)) {
+        return Err("α needs `left` (it cancels in Ã); `left` has no product mode".into());
+    }
+    let mut op_a = Mdwf::<f64>::new(&lat, params);
+    op_a.set_gauge(&u)?;
+    op_a.set_alpha(alpha);
+    let mut pv_a = Mdwf::<f64>::new(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    );
+    pv_a.set_gauge(&u)?;
+    if !plain_pv {
+        pv_a.set_alpha(alpha);
+    }
+    let (oa, pa) = if left { (&op_a, &pv_a) } else { (&op, &pv) };
+    let hi_s = if left {
+        1.1 * largest_magnitude(
+            &mut HalfA::with_form(oa, pa, true, &like, &nothing),
+            &mut lift.even(&full(1, 5)),
+            50,
+        )
+    } else {
+        hi
+    };
+    let left_alpha = left.then_some(LeftAlpha {
+        q: &op_a,
+        pv_alpha: !plain_pv,
+    });
+    if left {
+        println!(
+            "  solving with Ã_L(α), α = {alpha} in {}, |λ_max| ≈ {:.3}",
+            if plain_pv { "D only" } else { "D and D_PV" },
+            hi_s / 1.1
+        );
+    }
     for seed in seed_lo..=seed_hi {
         println!("  right-hand side seed {seed}");
         // The right-hand side and the solution, as in `mdwf_evenodd_a`.
@@ -3228,19 +3353,33 @@ fn main() -> Result<(), Box<dyn Error>> {
         op.diag_inv(&mut work, &mut t_o, &b_o, Parity::Odd, Dagger::No);
         op.hop(&mut work, &mut t_e, &t_o, Parity::Even, Dagger::No);
         t_e.aypx(&[C64::new(-1.0, 0.0)], &b_e);
+        // Ã y = S_X† b′_e with x_e = C_e⁻¹ y; Ã_L(α) x_e = L_PV† C_e^(α)⁻¹ b′_e for x^(α),
+        // x = Q x^(α) (b′_e = b_e − D_eo C_o⁻¹ b_o does not depend on α).
         let mut rhs = lift.half(Parity::Even, 1);
-        HalfA::new(&op, &pv, &like, &nothing).x_dagger(&mut rhs, &t_e);
+        if left {
+            let mut c = lift.half(Parity::Even, 1);
+            oa.diag_inv(&mut work, &mut c, &t_e, Parity::Even, Dagger::No);
+            HalfA::with_form(oa, pa, true, &like, &nothing).x_dagger(&mut rhs, &c);
+        } else {
+            HalfA::new(&op, &pv, &like, &nothing).x_dagger(&mut rhs, &t_e);
+        }
         let physical = |y: &H| {
-            let mut work = op.even_odd_work();
+            let mut work = oa.even_odd_work();
             let mut x_e = lift.half(Parity::Even, 1);
-            op.diag_inv(&mut work, &mut x_e, y, Parity::Even, Dagger::No);
+            if left {
+                x_e.copy_from(y);
+            } else {
+                oa.diag_inv(&mut work, &mut x_e, y, Parity::Even, Dagger::No);
+            }
             let mut t_o = lift.half(Parity::Odd, 1);
-            op.hop(&mut work, &mut t_o, &x_e, Parity::Odd, Dagger::No);
+            oa.hop(&mut work, &mut t_o, &x_e, Parity::Odd, Dagger::No);
             t_o.aypx(&[C64::new(-1.0, 0.0)], &b_o);
             let mut x_o = lift.half(Parity::Odd, 1);
-            op.diag_inv(&mut work, &mut x_o, &t_o, Parity::Odd, Dagger::No);
-            let mut x = lift.inject(&x_e);
-            insert_parity(&mut x, &x_o, index);
+            oa.diag_inv(&mut work, &mut x_o, &t_o, Parity::Odd, Dagger::No);
+            let mut x_alpha = lift.inject(&x_e);
+            insert_parity(&mut x_alpha, &x_o, index);
+            let mut x = x_alpha.zeros_like();
+            oa.mult_q(&mut x, &x_alpha, false);
             let mut r = b.zeros_like();
             op.mult(&mut op.work(), &mut r, &x, Variant::D);
             r.aypx(&[C64::new(-1.0, 0.0)], &b);
@@ -3263,17 +3402,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         for mode in modes {
             let (na, nc) = (Count::default(), Count::default());
-            let mut a = HalfA::new(&op, &pv, &like, &na);
+            let mut a = HalfA::with_form(oa, pa, left, &like, &na);
             let mut y_sol = like.zeros_like();
             let start = Instant::now();
             let result = match mode {
                 "none" => BiCgStab::new(stop).solve(&mut a, None, &mut y_sol, &rhs),
                 "polynomial" => {
                     let mut cheb = Chebyshev::new(
-                        HalfA::new(&op, &pv, &like, &na),
+                        HalfA::with_form(oa, pa, left, &like, &na),
                         steps,
-                        hi / ratio,
-                        hi,
+                        hi_s / ratio,
+                        hi_s,
                         &like,
                     );
                     BiCgStab::new(stop).solve(&mut a, Some(&mut cheb), &mut y_sol, &rhs)
@@ -3287,14 +3426,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                             p: &p,
                             lift: &lift,
                         }),
-                        a: HalfA::new(&op, &pv, &like, &na),
+                        a: HalfA::with_form(oa, pa, left, &like, &na),
                         op: &op,
                         pv: &pv,
                         smoother: Chebyshev::new(
-                            HalfA::new(&op, &pv, &like, &na),
+                            HalfA::with_form(oa, pa, left, &like, &na),
                             steps,
-                            hi / ratio,
-                            hi,
+                            hi_s / ratio,
+                            hi_s,
                             &like,
                         ),
                         coarse: Some((&p, &mut cd, &mut cpv)),
@@ -3312,6 +3451,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         post: true,
                         pv_adj,
                         nc: nc.clone(),
+                        left: left_alpha,
                     };
                     match (outer, gcr_k) {
                         (_, Some(k)) => gcr(&mut a, &mut cycle, &mut y_sol, &rhs, k, stop),
