@@ -24,7 +24,10 @@ pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };
 pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
-pub use pv_eo::{pv_eo_basis, PvEoBasis, PvEoCycle, PvEoParams};
+pub use pv_eo::{
+    pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, BootstrapParams, LowModeParams, PvEoBasis,
+    PvEoCycle, PvEoParams,
+};
 pub use sap::Sap;
 
 use std::fmt;

@@ -41,8 +41,8 @@ use crate::kernel::{Dirac, GammaRepre};
 use crate::numerics::{hermitian_eigen, invert_complex};
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
-    extract_parity, insert_parity, random_spinor, Coarse, EvenOddIndex, Field, Half, LinearFn,
-    LinearOp, Parity, Spinor, Vector, C64,
+    extract_parity, insert_parity, random_spinor, Coarse, EvenOddIndex, Field, Half, Lattice,
+    LinearFn, LinearOp, Parity, Spinor, Vector, C64,
 };
 use std::cell::Cell;
 use std::sync::Arc;
@@ -448,4 +448,216 @@ impl<G: GammaRepre> LinearFn<HalfField> for PvEoCycle<'_, G> {
         self.r = Some(r);
         self.e = Some(e);
     }
+}
+
+/// Settings of the Chebyshev-filtered subspace iteration for the test vectors.
+#[derive(Clone, Copy, Debug)]
+pub struct LowModeParams {
+    /// Vectors iterated (M).
+    pub vectors: usize,
+    /// Rounds of filtering and Rayleigh-Ritz.
+    pub rounds: usize,
+    /// Vectors filtered at a time (memory: the work fields of Ã are this large).
+    pub chunk: usize,
+    pub seed: u64,
+}
+
+impl Default for LowModeParams {
+    /// The cheap setup of the log: M = 16, two rounds (with a bootstrap after them).
+    fn default() -> Self {
+        Self {
+            vectors: 16,
+            rounds: 2,
+            chunk: 4,
+            seed: 21,
+        }
+    }
+}
+
+/// `out = Σ_i x_i c[i n + j]` for every j, in place, site by site (no copy of x).
+fn rotate(x: &mut HalfField, c: &[C64]) {
+    let n = x.num_vectors();
+    let site_len = x.site_len();
+    let reals = site_len / n;
+    crate::for_sites(x.slab_mut(0), site_len, |_, s| {
+        let old: Vec<C64> = s
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|z| C64::new(z[0], z[1]))
+            .collect();
+        for j in 0..n {
+            for d in 0..reals / 2 {
+                let mut z = C64::ZERO;
+                for i in 0..n {
+                    z += old[i * reals / 2 + d] * c[i * n + j];
+                }
+                s[j * reals + 2 * d] = z.re;
+                s[j * reals + 2 * d + 1] = z.im;
+            }
+        }
+    });
+}
+
+/// ⟨x_i, y_j⟩ for all i, j (row-major, x rows), one pair of vectors at a time.
+fn gram(x: &HalfField, y: &HalfField) -> Vec<C64> {
+    let (nx, ny) = (x.num_vectors(), y.num_vectors());
+    let mut g = vec![C64::ZERO; nx * ny];
+    let mut d = [C64::ZERO];
+    for j in 0..ny {
+        let yj = y.select(&[j]);
+        for i in 0..nx {
+            x.select(&[i]).dot(&yj, &mut d);
+            g[i * ny + j] = d[0];
+        }
+    }
+    g
+}
+
+/// Eigenvalues ascending, with the eigenvectors (columns) in the same order.
+fn sorted_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
+    let (values, v) = hermitian_eigen(n, a);
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|i, j| values[*i].total_cmp(&values[*j]));
+    let mut vectors = vec![C64::ZERO; n * n];
+    for (j, o) in order.iter().enumerate() {
+        for i in 0..n {
+            vectors[i * n + j] = v[i * n + o];
+        }
+    }
+    (order.iter().map(|o| values[*o]).collect(), vectors)
+}
+
+/// Orthonormalise the vectors of x through their Gram matrix (Löwdin, x ← x G^-1/2 V).
+fn orthonormalise_all(x: &mut HalfField) {
+    let n = x.num_vectors();
+    let (values, mut c) = sorted_eigen(n, &gram(x, x));
+    for (j, l) in values.iter().enumerate() {
+        assert!(*l > 1e-13 * values[n - 1], "the subspace lost rank");
+        for i in 0..n {
+            c[i * n + j] = c[i * n + j].scale(1.0 / l.sqrt());
+        }
+    }
+    rotate(x, &c);
+}
+
+/// Approximate low modes of Ã (the right singular vectors of its smallest singular
+/// values, eigenvectors of Ã†Ã) for the basis: Chebyshev-filtered subspace iteration with
+/// Rayleigh-Ritz on `params.vectors` random vectors on the even sites, the degree following
+/// √(hi/lo) (at least 40), lo the largest Ritz value of the round before (hi/1000 at
+/// first). Returns the Ritz vectors, lowest first, and the Ritz values of Ã†Ã. One round
+/// costs 2 × degree applications of Ã per vector, plus two for the Rayleigh-Ritz step.
+pub fn pv_eo_low_modes<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    lat: &Arc<Lattice>,
+    params: LowModeParams,
+) -> (HalfField, Vec<f64>) {
+    let index = op
+        .even_odd_index()
+        .expect("an even-odd decomposition")
+        .clone();
+    let (ls, m) = (op.params().ls, params.vectors);
+    let mut x = HalfField::with_shape(lat, 24, ls, m, 1);
+    x.set_parity(Parity::Even);
+    extract_parity(
+        &mut x,
+        &random_spinor(lat, ls * m, params.seed),
+        &index,
+        Parity::Even,
+    );
+    let like = x.select(&[0]);
+    let normal = |c: &HalfField| crate::Normal::new(PvEvenOdd::new(op, pv, EoForm::Right, c), c);
+    let mut start = like.zeros_like();
+    start.copy_from(&x.select(&[0]));
+    let hi = 1.1 * largest_magnitude(&mut normal(&like), &mut start, 50);
+    let mut lo = hi / 1000.0;
+    let mut theta = vec![0.0; m];
+    let chunks: Vec<Vec<usize>> = (0..m)
+        .collect::<Vec<_>>()
+        .chunks(params.chunk.max(1))
+        .map(<[usize]>::to_vec)
+        .collect();
+    for _ in 0..params.rounds {
+        let degree = ((1.5 * (hi / lo).sqrt()).ceil() as usize).clamp(40, 1000);
+        for c in &chunks {
+            let xc = x.select(c);
+            let mut y = xc.zeros_like();
+            crate::solver::ChebyshevFilter::new(normal(&xc), degree, lo, hi, &xc).mult(&mut y, &xc);
+            x.assign(c, &y);
+        }
+        orthonormalise_all(&mut x);
+        // G = X† Ã†Ã X, a chunk of columns at a time.
+        let mut g = vec![C64::ZERO; m * m];
+        for c in &chunks {
+            let xc = x.select(c);
+            let mut w = xc.zeros_like();
+            normal(&xc).mult(&mut w, &xc);
+            let part = gram(&x, &w);
+            for i in 0..m {
+                for (k, j) in c.iter().enumerate() {
+                    g[i * m + j] = part[i * c.len() + k];
+                }
+            }
+        }
+        let (values, v) = sorted_eigen(m, &g);
+        rotate(&mut x, &v);
+        theta = values;
+        lo = theta[m - 1];
+    }
+    (x, theta)
+}
+
+/// Settings of the multigrid-accelerated improvement of the test vectors.
+#[derive(Clone, Copy, Debug)]
+pub struct BootstrapParams {
+    pub rounds: usize,
+    /// Steps of FGMRES on Ã x = y with the cycle, per vector and round.
+    pub steps: usize,
+    /// Settings of the cycle used (its coarse tolerance, smoother).
+    pub cycle: PvEoParams,
+}
+
+impl Default for BootstrapParams {
+    /// Two rounds of four steps (the log: as good as two more filter rounds, cheaper).
+    fn default() -> Self {
+        Self {
+            rounds: 2,
+            steps: 4,
+            cycle: PvEoParams::default(),
+        }
+    }
+}
+
+/// Improve the test vectors y with the multigrid built on them: every round, the basis and
+/// the cycle (right form) from the current y, then y_j ← (`steps` steps of FGMRES on
+/// Ã x = y_j preconditioned by the cycle), one vector at a time, and y orthonormalised.
+/// Inverse subspace iteration with the multigrid as the approximate inverse. Returns the
+/// basis built from the final y.
+pub fn pv_eo_bootstrap<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    agg: &Arc<Aggregation>,
+    y: &mut HalfField,
+    params: BootstrapParams,
+) -> Result<PvEoBasis, MultigridError> {
+    let like = y.select(&[0]);
+    for _ in 0..params.rounds {
+        let basis = pv_eo_basis(op, pv, agg, y)?;
+        let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
+        let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
+        let mut fgmres = crate::solver::Fgmres::new(Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: params.steps,
+            max_restarts: 0,
+        });
+        for j in 0..y.num_vectors() {
+            let yj = y.select(&[j]);
+            let mut x = yj.zeros_like();
+            let _ = fgmres.solve(&mut a, Some(&mut cycle), &mut x, &yj);
+            y.assign(&[j], &x);
+        }
+        orthonormalise_all(y);
+    }
+    pv_eo_basis(op, pv, agg, y)
 }
