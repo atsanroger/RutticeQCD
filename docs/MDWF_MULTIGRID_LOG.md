@@ -159,6 +159,24 @@
    - 粗網格作用變少，是因為 D 因子改用精確的區塊逆 A_xx⁻¹，不再用厄米化的近似。
    - 求解時的工作集從約 0.5 GB 降到 0.21 GB（約 13 個半格子向量；原型約 33 個）。
    - 粗網格約佔總成本的三分之一（2900 × 約 0.06 Ã），所以第二層是下一個重點。
+
+   **之後（2026-10-11 晚）**：
+   - **粗網格改單精度**（`CoarseOp::to_storage`，預設 f32）：步數與粗網格作用次數和雙精度相同。
+   - **16⁴ 的 `src/` 版本**：28 步／310 Ã／2540 次粗網格作用（沒有第二層），峰值 4.50 GB（原型新版 5.32、舊版 10.4）。
+   - **完全從頭的 `src/` setup**（濾波 2 輪＋bootstrap 2 輪，12⁴ 共 762 s）：A′＋α=0.6 是 24 / 24 / 24 步，和收斂基底 checkpoint 一樣好；整個流程峰值 1.40 GB。
+   - **外層解法**（12⁴，3 seeds）：GCR(2) 299 Ã，BiCGStab 332–354 Ã。
+   - **CGNE＋α 配 MG**：粗網格第二因子是 P†D†P，用 `CoarseOp::mult_adjoint` 精確伴隨加 BiCGStab。4⁴×8 上 11 步（CG 87 步），但 12⁴ 上一個 seed 跑超過 30 分鐘還沒完成，已停掉。
+     使用者本來就沒打算讓 CGNE 上 MG（正規方程是平方，粗網格因子也是兩個近似相乘）。
+   - **粗網格兩個因子的解法可選**（`CoarseKrylov`：BiCGStab／GCR(k)／MINRES），各自有停止條件；外層有 `solver::Gcr`、`solver::Minres`。
+   - **參數檔（`app::params`，Bridge++ 風格，YAML／TOML）**：
+     - 區塊：`Main`（含 `backend`：cpu／simd／gpu，後兩者尚未支援 MDWF）、`Gauge`、`Fopr`（含 `neff_alpha`）、`Solver`（含 `operator_type`：PV_right／PV_left／Normal_left）。
+     - 頂層的 `MultiGrid` 區塊，或用 `MultiGrid_file` 共用；`MultiGrid_Level1` 裡放各因子的 Coarse_Solver。
+     - `Source` 區塊。
+     - 選項值不分大小寫和 `_`（`keyword_enum!`）；用不到的區塊只印提示；開頭印出實際會執行的設定。
+   - **4D 傳播子與 m_res**：`Mdwf::source_5d`（D₋·(s=0 放 P₊η、s=Ls−1 放 P₋η)，和 Bridge++ 相同）、`propagator_4d`（P₋ψ₀＋P₊ψ_{Ls−1}）、`midpoint_4d`（J5q）。
+     - γ5-厄米性測試誤差約 1e-16；Möbius＋α 的 4D 傳播子和中點場與不加 α 時相同。
+     - **與 Bridge++ `Spectrum_Domainwall_Hadron2ptFunction` 一致**：C_PS(0) = 0.4342049393779（參考值 0.434204939377926），單元測試和參數檔兩條路徑都對上。
+   - 求解報告和 benchmark 都加上峰值記憶體（`app::memory_usage`）。
    **外層 FGMRES(8)**：25 / 280 / 2092——幾乎與 FGMRES(16) 相同，記憶體減半（每個右手邊 18 個向量）。
    **CG 等級記憶體的外層：截斷的 flexible GCR(k)**（`gcr:K`，只留最近 K 個方向，每個右手邊 4 + 2K 個向量；12⁴ β = 6.0、收斂基底、`dbicg st abs2f:3`、粗網格 1e-2）：
 
