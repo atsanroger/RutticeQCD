@@ -812,11 +812,6 @@ impl Params {
                 ))
             }
         }
-        if self.main.grid_size != [1; ND] {
-            return Err(invalid(
-                "Main.grid_size: the domain-wall multigrid runs on one process so far".into(),
-            ));
-        }
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
         let operator = s.operator();
