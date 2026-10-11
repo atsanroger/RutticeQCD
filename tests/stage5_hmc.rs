@@ -10,6 +10,8 @@ use ruttice::hmc::{
 };
 use ruttice::{Lattice, LocalComm, ND};
 
+mod common;
+
 fn hmc() -> QuenchedHmc {
     QuenchedHmc {
         action: PlaquetteAction { beta: 6.0 },
@@ -81,4 +83,37 @@ fn first_trajectories_are_those_of_bridge() {
     let h = kinetic_energy(&p);
     eprintln!("second trajectory: H_kin {h:.8} (Bridge++ 331541.78146248)");
     assert!(close(h, 331541.78146248, 2e-7));
+}
+
+/// The Bridge++ test `test_HMC_Quenched_Leapfrog` (its configuration `conf_04040408.txt`,
+/// plaquette action β = 6.0, 10 leapfrog steps of 0.01, M-series numbers from trajectory
+/// number 200000, one trajectory): the plaquette after it, 0.623852461953823. Skipped
+/// without the configuration.
+#[test]
+fn bridge_test_quenched_leapfrog() {
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
+    let hmc = QuenchedHmc {
+        action: PlaquetteAction { beta: 6.0 },
+        integrator: Leapfrog {
+            step: 0.01,
+            steps: 10,
+            exp_order: 8,
+        },
+        metropolis: true,
+    };
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}");
+    assert!(
+        (t.plaquette - 0.623852461953823).abs() < 1e-13,
+        "plaquette {:.15} against 0.623852461953823",
+        t.plaquette
+    );
 }
