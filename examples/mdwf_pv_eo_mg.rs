@@ -2,10 +2,11 @@
 //! vectors from a `mdwf_evenodd_coherence` checkpoint.
 //!
 //! ```text
-//! cargo run --release --example mdwf_pv_eo_mg -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [seeds:A-B]
+//! cargo run --release --example mdwf_pv_eo_mg -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [seeds:A-B]
 //! ```
 //!
-//! N test vectors (N/2 Ritz vectors y of Ã, default 32) on BLOCK⁴ aggregates (default 4).
+//! N test vectors (N/2 Ritz vectors y of Ã, default 32) on BLOCK⁴ aggregates (default 4),
+//! improved by R rounds of the multigrid bootstrap first with `boot:R`.
 //! `left` solves with Ã_L instead of Ã, `alpha:A` puts Neff's α into D (`pvalpha`: into
 //! D_PV as well). Printed per right-hand side (seeds 91..91 by default): GCR(K) steps
 //! (default K = 2), applications of the operator (outer and inside the cycle), coarse
@@ -13,7 +14,10 @@
 
 use ruttice::fermion::{EoForm, FermionOp, Mdwf, MdwfParams, PvEvenOdd, Variant};
 use ruttice::io::read_bridge_text;
-use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation, PvEoCycle, PvEoParams};
+use ruttice::kernel::Dirac;
+use ruttice::solver::preconditioner::multigrid::{
+    pv_eo_basis, pv_eo_bootstrap, Aggregation, BootstrapParams, PvEoCycle, PvEoParams,
+};
 use ruttice::solver::{Gcr, SolveError, Solver, Stop};
 use ruttice::{
     random_spinor, Boundary, Field, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64, ND,
@@ -24,7 +28,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_pv_eo_mg CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [seeds:A-B]";
+const USAGE: &str = "usage: mdwf_pv_eo_mg CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [seeds:A-B]";
 
 type H = Field<f64, Spinor, Half>;
 
@@ -76,6 +80,37 @@ fn load(path: &PathBuf, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     Ok(x)
 }
 
+/// The cycle with single- or double-precision coarse solves.
+enum Cycle<'a> {
+    Single(PvEoCycle<'a, Dirac, f32>),
+    Double(PvEoCycle<'a, Dirac, f64>),
+}
+
+impl Cycle<'_> {
+    fn top(&self) -> f64 {
+        match self {
+            Cycle::Single(c) => c.top(),
+            Cycle::Double(c) => c.top(),
+        }
+    }
+
+    fn coarse_applications(&self) -> usize {
+        match self {
+            Cycle::Single(c) => c.coarse_applications(),
+            Cycle::Double(c) => c.coarse_applications(),
+        }
+    }
+}
+
+impl LinearFn<H> for Cycle<'_> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        match self {
+            Cycle::Single(c) => c.mult(out, inp),
+            Cycle::Double(c) => c.mult(out, inp),
+        }
+    }
+}
+
 /// Counts the applications of the operator it wraps.
 struct Counted<'a, A> {
     a: &'a mut A,
@@ -94,8 +129,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 5 {
         return Err(USAGE.into());
     }
-    let is_flag =
-        |a: &str| ["left", "pvalpha"].contains(&a) || (a.contains(':') && !a.contains('/'));
+    let is_flag = |a: &str| {
+        ["left", "pvalpha", "coarse64"].contains(&a) || (a.contains(':') && !a.contains('/'))
+    };
     let positional: Vec<&String> = args.iter().filter(|a| !is_flag(a)).collect();
     let flag = |name: &str| args.iter().any(|a| a == name);
     let value = |prefix: &str| args.iter().find_map(|a| a.strip_prefix(prefix));
@@ -152,7 +188,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut like = H::with_shape(&lat, 24, ls, 1, 1);
     like.set_parity(Parity::Even);
 
-    let y = load(&checkpoint, &like, n / 2)?;
+    let mut y = load(&checkpoint, &like, n / 2)?;
     println!(
         "{l}^4, Ls = {ls}, M5 = {m5}, m = {mass}; {form:?}, α = {alpha} ({}); N = {n} on {block}^4; {}",
         if flag("pvalpha") { "D and D_PV" } else { "D only" },
@@ -160,15 +196,42 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let start = Instant::now();
     let agg = Aggregation::new(&lat, [block; ND]);
-    let basis = pv_eo_basis(&op, &pv, &agg, &y)?;
+    // `boot:R`: R rounds of the multigrid bootstrap on the vectors first.
+    let rounds: usize = value("boot:").map_or(Ok(0), str::parse)?;
+    let basis = if rounds > 0 {
+        pv_eo_bootstrap(
+            &op,
+            &pv,
+            &agg,
+            &mut y,
+            BootstrapParams {
+                rounds,
+                ..BootstrapParams::default()
+            },
+        )?
+    } else {
+        pv_eo_basis(&op, &pv, &agg, &y)?
+    };
     drop(y);
-    let mut cycle = PvEoCycle::new(
-        &op,
-        &pv,
-        (&op_a, &pv_a, form),
-        &basis,
-        PvEoParams::default(),
-    )?;
+    // `coarse64`: the coarse solves in double precision (single by default).
+    let outer_ops = (&op_a, &pv_a, form);
+    let mut cycle = if flag("coarse64") {
+        Cycle::Double(PvEoCycle::with_coarse_storage(
+            &op,
+            &pv,
+            outer_ops,
+            &basis,
+            PvEoParams::default(),
+        )?)
+    } else {
+        Cycle::Single(PvEoCycle::new(
+            &op,
+            &pv,
+            outer_ops,
+            &basis,
+            PvEoParams::default(),
+        )?)
+    };
     println!(
         "  basis and cycle: {:.0} s, |λ_max| ≈ {:.3}; {}",
         start.elapsed().as_secs_f64(),
