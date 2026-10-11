@@ -4,6 +4,7 @@
 mod bench;
 mod config;
 pub mod keyword;
+pub mod mdwf;
 pub mod params;
 
 pub use bench::wilson_benchmark;
@@ -67,6 +68,8 @@ pub enum CliError {
         quark: usize,
         source: MultigridError,
     },
+    /// A domain-wall run failed.
+    Run(String),
 }
 
 impl fmt::Display for CliError {
@@ -83,6 +86,7 @@ impl fmt::Display for CliError {
             CliError::Multigrid { quark, source } => {
                 write!(f, "quark {quark}: multigrid setup: {source}")
             }
+            CliError::Run(m) => write!(f, "{m}"),
         }
     }
 }
@@ -773,15 +777,51 @@ pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
 }
 
 /// `run_file` on the processes of `comm`. Only rank 0 prints and writes.
+///
+/// A parameter file in the style of Bridge++ (`params::Params`, with a `Main` section) is
+/// run as well: a domain-wall one by `mdwf::run` (one process), a Wilson or clover one as
+/// the `Config` it describes, after a summary in comment lines.
 pub fn run_file_on(
     path: &Path,
     stdout: &mut dyn Write,
     comm: Arc<dyn Comm>,
 ) -> Result<(), CliError> {
-    let config = Config::load(path)?;
+    let root = comm.rank() == 0;
+    let io_error = |e| CliError::Io {
+        path: PathBuf::from("<stdout>"),
+        source: e,
+    };
+    if !params::is_bridge_style(path)? {
+        return run_config(&Config::load(path)?, path, stdout, comm);
+    }
+    let p = params::Params::load(path)?;
+    if p.fopr.fermion_type.is_domain_wall() {
+        if comm.size() != 1 {
+            return Err(CliError::Grid(
+                "domain-wall runs are on one process so far".to_string(),
+            ));
+        }
+        writeln!(stdout, "{p}").map_err(io_error)?;
+        return mdwf::run(&p, path, (91, 91), stdout).map_err(|e| CliError::Run(e.to_string()));
+    }
+    if root {
+        for line in p.to_string().lines() {
+            writeln!(stdout, "# {line}").map_err(io_error)?;
+        }
+    }
+    run_config(&p.to_config(), path, stdout, comm)
+}
+
+/// Run a `Config`, print the report and write the output file it names.
+fn run_config(
+    config: &Config,
+    path: &Path,
+    stdout: &mut dyn Write,
+    comm: Arc<dyn Comm>,
+) -> Result<(), CliError> {
     let base = path.parent().unwrap_or(Path::new("."));
     let root = comm.rank() == 0;
-    let report = run_on(&config, base, comm)?;
+    let report = run_on(config, base, comm)?;
     if !root {
         return Ok(());
     }
@@ -789,7 +829,7 @@ pub fn run_file_on(
         let p = p.to_path_buf();
         move |e| CliError::Io { path: p, source: e }
     };
-    match write_report(&report, &config, stdout) {
+    match write_report(&report, config, stdout) {
         // The reader went away (`ruttice ... | head`): not an error.
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
         other => other.map_err(io_error(Path::new("<stdout>")))?,
@@ -797,7 +837,7 @@ pub fn run_file_on(
     if let Some(file) = &config.output.file {
         let target = base.join(file);
         let mut f = std::fs::File::create(&target).map_err(io_error(&target))?;
-        write_report(&report, &config, &mut f).map_err(io_error(&target))?;
+        write_report(&report, config, &mut f).map_err(io_error(&target))?;
     }
     Ok(())
 }

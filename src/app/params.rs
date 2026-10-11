@@ -33,6 +33,11 @@
 //!     block_size : [4, 4, 4, 4]
 //! ```
 
+use super::config::{
+    BoundaryConfig, CoarseSolverKind, Config, FermionConfig, GaugeConfig, GaugeFormat,
+    MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig, SmootherKind,
+    SolverConfig, SolverKind, SourceConfig,
+};
 use super::CliError;
 use crate::fermion::{EoForm, MdwfParams};
 use crate::keyword_enum;
@@ -88,6 +93,16 @@ keyword_enum! {
             "Mobius_domain_wall",
             "Domainwall_Mobius",
         ],
+        /// Wilson fermions (`hopping_parameter`).
+        Wilson => ["Wilson"],
+        /// Wilson fermions with the clover term (`hopping_parameter`, `clover_coefficient`).
+        Clover => ["Clover", "Wilson_clover", "Clover_Wilson"],
+    }
+}
+
+impl FermionType {
+    pub fn is_domain_wall(self) -> bool {
+        self == FermionType::DomainWall
     }
 }
 
@@ -107,6 +122,11 @@ keyword_enum! {
         PvLeft => ["PV_left", "left"],
         /// The normal equations L† L of the left Schur complement: CGNE, which sees α.
         NormalLeft => ["Normal_left", "Normal", "CGNE"],
+        /// Wilson and clover fermions: the Schur complement on the even sites (CG: its
+        /// normal equations).
+        EvenOdd => ["Even_odd", "eo", "Standard_eo", "Schur"],
+        /// Wilson and clover fermions: D on the whole lattice (CG: its normal equations).
+        Full => ["Full", "Standard", "Whole"],
     }
 }
 
@@ -150,7 +170,12 @@ keyword_enum! {
 
 keyword_enum! {
     pub enum SmootherType {
+        /// A Chebyshev polynomial of Ã (domain-wall).
         Chebyshev => ["Chebyshev"],
+        /// The Schwarz alternating procedure on the blocks (Wilson, clover).
+        Sap => ["SAP", "Schwarz"],
+        /// GMRES(m) on D (Wilson, clover).
+        Gmres => ["GMRES"],
     }
 }
 
@@ -214,15 +239,21 @@ pub struct FoprBlock {
     pub fermion_type: FermionType,
     #[serde(default = "dirac")]
     pub gamma_matrix_type: GammaType,
-    pub quark_mass: f64,
+    /// Wilson and clover: κ.
+    pub hopping_parameter: Option<f64>,
+    /// Clover: c_SW.
+    pub clover_coefficient: Option<f64>,
+    /// Domain-wall: the quark mass, the height of the wall and Ls (the keys after it are
+    /// domain-wall only too).
+    pub quark_mass: Option<f64>,
     #[serde(
         default = "unit",
         rename = "quark_mass_PauliVillars",
         alias = "quark_mass_pauli_villars"
     )]
     pub quark_mass_pauli_villars: f64,
-    pub domain_wall_height: f64,
-    pub extent_of_5th_dimension: usize,
+    pub domain_wall_height: Option<f64>,
+    pub extent_of_5th_dimension: Option<usize>,
     #[serde(default = "mobius_b")]
     pub coefficient_b: f64,
     #[serde(default = "mobius_c")]
@@ -356,9 +387,9 @@ pub struct SetupBlock {
     pub filter_number_of_rounds: usize,
     #[serde(default = "four")]
     pub filter_number_in_block: usize,
-    /// The multigrid bootstrap after it: rounds, FGMRES steps per vector and round.
-    #[serde(default = "two")]
-    pub bootstrap_number_of_rounds: usize,
+    /// The multigrid bootstrap after it: rounds, FGMRES steps per vector and round (2 by
+    /// default). Wilson and clover: the setup iterations of Bridge++ (4 by default).
+    pub bootstrap_number_of_rounds: Option<usize>,
     #[serde(default = "four")]
     pub bootstrap_number_of_steps: usize,
     #[serde(default = "setup_seed")]
@@ -373,7 +404,7 @@ impl Default for SetupBlock {
             filter_number_of_vectors: filter_vectors(),
             filter_number_of_rounds: two(),
             filter_number_in_block: four(),
-            bootstrap_number_of_rounds: two(),
+            bootstrap_number_of_rounds: None,
             bootstrap_number_of_steps: four(),
             seed: setup_seed(),
             checkpoint: None,
@@ -381,23 +412,30 @@ impl Default for SetupBlock {
     }
 }
 
+/// The smoother. Its type defaults to Chebyshev for domain-wall fermions and to SAP for
+/// Wilson and clover; `number_of_steps` is the degree of the polynomial, the
+/// minimal-residual steps per block of SAP, or the m of GMRES(m).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SmootherBlock {
-    #[serde(default = "chebyshev_smoother")]
-    pub smoother_type: SmootherType,
-    #[serde(default = "cheb_steps")]
-    pub number_of_steps: usize,
+    pub smoother_type: Option<SmootherType>,
+    pub number_of_steps: Option<usize>,
     #[serde(default = "cheb_ratio")]
     pub interval_ratio: f64,
+    /// SAP: cycles.
+    pub number_of_cycles: Option<usize>,
+    /// GMRES: an earlier stop at this |r|²/|b|².
+    pub convergence_criterion_squared: Option<f64>,
 }
 
 impl Default for SmootherBlock {
     fn default() -> Self {
         Self {
-            smoother_type: SmootherType::Chebyshev,
-            number_of_steps: cheb_steps(),
+            smoother_type: None,
+            number_of_steps: None,
             interval_ratio: cheb_ratio(),
+            number_of_cycles: None,
+            convergence_criterion_squared: None,
         }
     }
 }
@@ -406,14 +444,71 @@ impl Default for SmootherBlock {
 #[serde(deny_unknown_fields)]
 pub struct LevelBlock {
     pub block_size: [usize; ND],
-    #[serde(default = "test_vectors")]
-    pub number_of_test_vectors: usize,
-    /// The quark factor P†DP.
-    #[serde(rename = "Coarse_Solver_D", default = "coarse_d")]
-    pub coarse_d: SolverBlock,
-    /// The second factor: P†D_PV†P, or P†D†P with `operator_type: Normal_left`.
-    #[serde(rename = "Coarse_Solver_PV", default = "coarse_pv")]
-    pub coarse_pv: SolverBlock,
+    /// 32 by default for domain-wall fermions, 16 (Bridge++) for Wilson and clover.
+    pub number_of_test_vectors: Option<usize>,
+    /// The quark factor P†DP (Wilson, clover: the coarse operator).
+    #[serde(rename = "Coarse_Solver_D")]
+    pub coarse_d: Option<SolverBlock>,
+    /// Domain-wall: the second factor P†D_PV†P, or P†D†P with `operator_type: Normal_left`.
+    #[serde(rename = "Coarse_Solver_PV")]
+    pub coarse_pv: Option<SolverBlock>,
+}
+
+impl LevelBlock {
+    pub fn test_vectors(&self, domain_wall: bool) -> usize {
+        self.number_of_test_vectors
+            .unwrap_or(if domain_wall { test_vectors() } else { 16 })
+    }
+
+    /// The coarse solver of the quark factor; the defaults are those of the domain-wall
+    /// log, or of the Bridge++ clover multigrid (BiCGStab to 2e-3, at most 200 iterations).
+    pub fn solver_d(&self, domain_wall: bool) -> SolverBlock {
+        self.coarse_d.clone().unwrap_or_else(|| {
+            if domain_wall {
+                coarse_d()
+            } else {
+                SolverBlock {
+                    convergence_criterion_squared: 2e-3,
+                    maximum_number_of_iteration: 200,
+                    ..coarse_d()
+                }
+            }
+        })
+    }
+
+    pub fn solver_pv(&self) -> SolverBlock {
+        self.coarse_pv.clone().unwrap_or_else(coarse_pv)
+    }
+}
+
+impl SetupBlock {
+    pub fn rounds(&self, domain_wall: bool) -> usize {
+        self.bootstrap_number_of_rounds
+            .unwrap_or(if domain_wall { 2 } else { 4 })
+    }
+}
+
+impl FoprBlock {
+    /// The domain-wall quark mass (checked to be there when the file is read).
+    pub fn mass(&self) -> f64 {
+        self.quark_mass.expect("checked for domain-wall fermions")
+    }
+
+    /// Ls.
+    pub fn ls(&self) -> usize {
+        self.extent_of_5th_dimension
+            .expect("checked for domain-wall fermions")
+    }
+
+    fn boundary(&self) -> [Boundary; ND] {
+        self.boundary_condition.map(|b| {
+            if b < 0 {
+                Boundary::Antiperiodic
+            } else {
+                Boundary::Periodic
+            }
+        })
+    }
 }
 
 fn local() -> SourceType {
@@ -463,9 +558,6 @@ fn no_preconditioner() -> PreconditionerType {
 }
 fn single() -> PrecisionType {
     PrecisionType::Single
-}
-fn chebyshev_smoother() -> SmootherType {
-    SmootherType::Chebyshev
 }
 fn cheb_steps() -> usize {
     PvEoParams::default().chebyshev_steps
@@ -594,6 +686,24 @@ impl SolverBlock {
     }
 }
 
+/// Whether a parameter file is in the style of Bridge++ (a `Main` section at the top),
+/// rather than in the format of `Config`.
+pub fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
+    let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    Ok(match path.extension().and_then(|e| e.to_str()) {
+        Some("toml") => text
+            .parse::<toml::Table>()
+            .is_ok_and(|t| t.contains_key("Main")),
+        _ => serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&text)
+            .ok()
+            .and_then(|v| v.as_mapping().map(|m| m.contains_key("Main")))
+            .unwrap_or(false),
+    })
+}
+
 impl Params {
     /// Read a parameter file; the format is chosen by the file extension.
     pub fn load(path: &Path) -> Result<Self, CliError> {
@@ -652,6 +762,35 @@ impl Params {
     }
 
     fn check(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
+        self.check_common()?;
+        if !self.fopr.fermion_type.is_domain_wall() {
+            return self.check_wilson(notes);
+        }
+        let f = &self.fopr;
+        for (key, missing) in [
+            ("quark_mass", f.quark_mass.is_none()),
+            ("domain_wall_height", f.domain_wall_height.is_none()),
+            (
+                "extent_of_5th_dimension",
+                f.extent_of_5th_dimension.is_none(),
+            ),
+        ] {
+            if missing {
+                return Err(invalid(format!(
+                    "Fopr.{key} is needed for domain-wall fermions"
+                )));
+            }
+        }
+        for (key, given) in [
+            ("hopping_parameter", f.hopping_parameter.is_some()),
+            ("clover_coefficient", f.clover_coefficient.is_some()),
+        ] {
+            if given {
+                notes.push(format!(
+                    "Fopr.{key} is for Wilson and clover fermions; not used"
+                ));
+            }
+        }
         match self.main.backend {
             Backend::Cpu => {}
             Backend::Simd => {
@@ -678,38 +817,14 @@ impl Params {
                 "Main.grid_size: the domain-wall multigrid runs on one process so far".into(),
             ));
         }
-        if self.fopr.gamma_matrix_type != GammaType::Dirac {
-            return Err(invalid(
-                "Fopr.gamma_matrix_type: only Dirac is implemented for domain-wall fermions".into(),
-            ));
-        }
-        if let Some(src) = &self.source {
-            let n = src.number_of_rhs_per_solve;
-            if !(1..=12).contains(&n) {
-                return Err(invalid(format!(
-                    "Source.number_of_rhs_per_solve: 1 to 12, not {n}"
-                )));
-            }
-            if src
-                .source_position
-                .iter()
-                .zip(&self.main.lattice_size)
-                .any(|(x, l)| x >= l)
-            {
-                return Err(invalid(format!(
-                    "Source.source_position {:?} is outside the lattice {:?}",
-                    src.source_position, self.main.lattice_size
-                )));
-            }
-        }
-        if let Some(b) = self.fopr.boundary_condition.iter().find(|b| b.abs() != 1) {
-            return Err(invalid(format!(
-                "Fopr.boundary_condition: 1 (periodic) or -1 (antiperiodic), not {b}"
-            )));
-        }
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
         let operator = s.operator();
+        if matches!(operator, OperatorType::EvenOdd | OperatorType::Full) {
+            return Err(invalid(format!(
+                "Solver.operator_type {operator} is for Wilson and clover fermions; use PV_right, PV_left or Normal_left"
+            )));
+        }
         match (s.solver_type, operator) {
             (SolverType::Cg, OperatorType::PvRight | OperatorType::PvLeft) => {
                 return Err(invalid(format!(
@@ -735,17 +850,26 @@ impl Params {
         {
             let normal = operator == OperatorType::NormalLeft;
             let level = &mg.level1;
-            level.coarse_d.check_coarse(
+            if let Some(t) = mg
+                .smoother
+                .smoother_type
+                .filter(|t| *t != SmootherType::Chebyshev)
+            {
+                return Err(invalid(format!(
+                    "MultiGrid.Smoother: {t} is for Wilson and clover fermions; the domain-wall smoother is Chebyshev"
+                )));
+            }
+            level.solver_d(true).check_coarse(
                 "MultiGrid.MultiGrid_Level1.Coarse_Solver_D",
                 false,
                 normal,
             )?;
-            level.coarse_pv.check_coarse(
+            level.solver_pv().check_coarse(
                 "MultiGrid.MultiGrid_Level1.Coarse_Solver_PV",
                 true,
                 normal,
             )?;
-            let n = level.number_of_test_vectors;
+            let n = level.test_vectors(true);
             if !n.is_multiple_of(2) || n / 2 > mg.setup.filter_number_of_vectors {
                 return Err(invalid(
                     "MultiGrid.MultiGrid_Level1: number_of_test_vectors must be even and at most twice Setup.filter_number_of_vectors".into(),
@@ -778,19 +902,261 @@ impl Params {
         Ok(())
     }
 
+    /// What every fermion needs: the gamma matrices, the boundary, the source.
+    fn check_common(&self) -> Result<(), CliError> {
+        if self.fopr.gamma_matrix_type != GammaType::Dirac {
+            return Err(invalid(
+                "Fopr.gamma_matrix_type: only Dirac is implemented".into(),
+            ));
+        }
+        if let Some(b) = self.fopr.boundary_condition.iter().find(|b| b.abs() != 1) {
+            return Err(invalid(format!(
+                "Fopr.boundary_condition: 1 (periodic) or -1 (antiperiodic), not {b}"
+            )));
+        }
+        if self.main.backend == Backend::Gpu {
+            return Err(invalid(
+                "Main.backend: gpu is not implemented yet; use cpu".into(),
+            ));
+        }
+        if let Some(src) = &self.source {
+            let n = src.number_of_rhs_per_solve;
+            if !(1..=12).contains(&n) {
+                return Err(invalid(format!(
+                    "Source.number_of_rhs_per_solve: 1 to 12, not {n}"
+                )));
+            }
+            if src
+                .source_position
+                .iter()
+                .zip(&self.main.lattice_size)
+                .any(|(x, l)| x >= l)
+            {
+                return Err(invalid(format!(
+                    "Source.source_position {:?} is outside the lattice {:?}",
+                    src.source_position, self.main.lattice_size
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Wilson and clover fermions: what the program of `ruttice::app::run` needs, which
+    /// is then checked again there (lattice, blocks, SIMD widths, processes).
+    fn check_wilson(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
+        let f = &self.fopr;
+        let name = f.fermion_type;
+        if f.hopping_parameter.is_none() {
+            return Err(invalid(format!(
+                "Fopr.hopping_parameter is needed for {name} fermions"
+            )));
+        }
+        match (name, f.clover_coefficient.is_some()) {
+            (FermionType::Clover, false) => {
+                return Err(invalid(
+                    "Fopr.clover_coefficient is needed for clover fermions".into(),
+                ))
+            }
+            (FermionType::Wilson, true) => notes.push(
+                "Fopr.clover_coefficient is not used by Wilson fermions (fermion_type: Clover uses it)"
+                    .into(),
+            ),
+            _ => {}
+        }
+        for (key, given) in [
+            ("quark_mass", f.quark_mass.is_some()),
+            ("domain_wall_height", f.domain_wall_height.is_some()),
+            (
+                "extent_of_5th_dimension",
+                f.extent_of_5th_dimension.is_some(),
+            ),
+            ("neff_alpha", f.neff_alpha != 1.0),
+        ] {
+            if given {
+                notes.push(format!("Fopr.{key} is for domain-wall fermions; not used"));
+            }
+        }
+        if self.source.is_none() {
+            return Err(invalid(format!(
+                "Source: {name} runs solve for the propagator of a source; add a Source block"
+            )));
+        }
+        let s = &self.solver;
+        s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
+        match s.solver_type {
+            SolverType::Cg | SolverType::BiCgStab | SolverType::Fgmres => {}
+            other => {
+                return Err(invalid(format!(
+                    "Solver: {other} is not available for {name} fermions; use CG (on the normal equations), BiCGStab or FGMRES"
+                )))
+            }
+        }
+        if let Some(o) = s
+            .operator_type
+            .filter(|o| !matches!(o, OperatorType::EvenOdd | OperatorType::Full))
+        {
+            return Err(invalid(format!(
+                "Solver.operator_type {o} is for domain-wall fermions; use Even_odd or Full"
+            )));
+        }
+        match s.preconditioner_type {
+            PreconditionerType::Chebyshev => {
+                return Err(invalid(format!(
+                    "Solver: the Chebyshev preconditioner is for domain-wall fermions; use MG or None for {name}"
+                )))
+            }
+            PreconditionerType::Multigrid if s.solver_type == SolverType::Cg => {
+                return Err(invalid(
+                    "Solver: the multigrid needs a flexible solver: BiCGStab or FGMRES".into(),
+                ))
+            }
+            _ => {}
+        }
+        if let Some(mg) = self
+            .multigrid
+            .as_ref()
+            .filter(|_| s.preconditioner_type == PreconditionerType::Multigrid)
+        {
+            if mg.smoother.smoother_type == Some(SmootherType::Chebyshev) {
+                return Err(invalid(format!(
+                    "MultiGrid.Smoother: Chebyshev is the domain-wall smoother; use SAP or GMRES for {name}"
+                )));
+            }
+            match mg.level1.solver_d(false).solver_type {
+                SolverType::BiCgStab | SolverType::Fgmres => {}
+                other => {
+                    return Err(invalid(format!(
+                        "MultiGrid.MultiGrid_Level1.Coarse_Solver_D: {other} is not available for {name}; use BiCGStab or GMRES"
+                    )))
+                }
+            }
+            if mg.level1.coarse_pv.is_some() {
+                notes.push(format!(
+                    "MultiGrid.MultiGrid_Level1.Coarse_Solver_PV is for domain-wall fermions; not used for {name}"
+                ));
+            }
+            if !mg.super_blocks().is_empty() {
+                return Err(invalid(format!(
+                    "MultiGrid: levels below the coarse lattice (MultiGrid_Level2 ...) are not implemented for {name} fermions yet"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Wilson and clover fermions: the parameter file of `ruttice::app::run` this one
+    /// describes (the propagator of the source, all meson channels).
+    pub fn to_config(&self) -> Config {
+        let f = &self.fopr;
+        let boundary = f.boundary().map(|b| match b {
+            Boundary::Antiperiodic => BoundaryConfig::Antiperiodic,
+            _ => BoundaryConfig::Periodic,
+        });
+        let kappa = f.hopping_parameter.expect("checked");
+        let fermion = match f.fermion_type {
+            FermionType::Wilson => FermionConfig::Wilson { kappa, boundary },
+            FermionType::Clover => FermionConfig::Clover {
+                kappa,
+                csw: f.clover_coefficient.expect("checked"),
+                boundary,
+            },
+            FermionType::DomainWall => unreachable!("domain-wall runs do not go through Config"),
+        };
+        let s = &self.solver;
+        let multigrid = self
+            .multigrid
+            .as_ref()
+            .filter(|_| s.preconditioner_type == PreconditionerType::Multigrid)
+            .map(|mg| {
+                let (l, sm) = (&mg.level1, &mg.smoother);
+                let coarse = l.solver_d(false);
+                let gmres = sm.smoother_type == Some(SmootherType::Gmres);
+                MultigridConfig {
+                    block: l.block_size,
+                    test_vectors: l.test_vectors(false),
+                    setup_iterations: mg.setup.rounds(false),
+                    coarse_solver: match coarse.solver_type {
+                        SolverType::Fgmres => CoarseSolverKind::Gmres,
+                        _ => CoarseSolverKind::Bicgstab,
+                    },
+                    coarse_tolerance_squared: coarse.convergence_criterion_squared,
+                    coarse_max_iterations: coarse.maximum_number_of_iteration,
+                    precondition_coarse_diagonal: false,
+                    smoother: if gmres {
+                        SmootherKind::Gmres
+                    } else {
+                        SmootherKind::Sap
+                    },
+                    pre_smoothing: false,
+                    smoother_cycles: sm.number_of_cycles.unwrap_or(4),
+                    smoother_block_steps: sm.number_of_steps.unwrap_or(6),
+                    smoother_iterations: sm.number_of_steps.unwrap_or(4),
+                    smoother_tolerance_squared: sm.convergence_criterion_squared.unwrap_or(1e-3),
+                    precision: match mg.coarse_precision {
+                        PrecisionType::Single => Precision::Single,
+                        PrecisionType::Double => Precision::Double,
+                    },
+                    seed: mg.setup.seed,
+                }
+            });
+        let src = self.source.expect("checked");
+        Config {
+            lattice: self.main.lattice_size,
+            process_grid: (self.main.grid_size != [1; ND]).then_some(self.main.grid_size),
+            gauge: GaugeConfig {
+                file: self.gauge.config_filename_input.clone(),
+                format: match self.gauge.gauge_config_type_input {
+                    GaugeType::Text => GaugeFormat::BridgeText,
+                    GaugeType::Ildg => GaugeFormat::Ildg,
+                },
+                fixing: None,
+            },
+            solver: SolverConfig {
+                kind: match s.solver_type {
+                    SolverType::Cg => SolverKind::CgNormal,
+                    SolverType::BiCgStab => SolverKind::Bicgstab,
+                    _ => SolverKind::Fgmres,
+                },
+                even_odd: s.operator_type != Some(OperatorType::Full),
+                tolerance_squared: s.convergence_criterion_squared,
+                // FGMRES keeps its Krylov space of number_of_kept_directions vectors and
+                // restarts until maximum_number_of_iteration iterations are done.
+                max_iterations: if s.solver_type == SolverType::Fgmres {
+                    s.number_of_kept_directions
+                } else {
+                    s.maximum_number_of_iteration
+                },
+                max_restarts: if s.solver_type == SolverType::Fgmres {
+                    (s.maximum_number_of_iteration / s.number_of_kept_directions.max(1)).max(1)
+                } else {
+                    s.maximum_number_of_restart.max(1)
+                },
+                simd: match self.main.backend {
+                    Backend::Simd => self.main.simd_lanes,
+                    _ => 1,
+                },
+                multigrid,
+            },
+            quark: vec![QuarkConfig {
+                fermion,
+                source: SourceConfig::Point {
+                    position: src.source_position,
+                },
+            }],
+            measure: MeasureConfig::default(),
+            output: OutputConfig::default(),
+        }
+    }
+
     /// The domain-wall operator of `Fopr` (α = 1; set α with `Mdwf::set_alpha`).
     pub fn mdwf_params(&self, mass: f64) -> MdwfParams {
         let f = &self.fopr;
-        let boundary = f.boundary_condition.map(|b| {
-            if b < 0 {
-                Boundary::Antiperiodic
-            } else {
-                Boundary::Periodic
-            }
-        });
+        let boundary = f.boundary();
         MdwfParams {
-            ls: f.extent_of_5th_dimension,
-            m5: f.domain_wall_height,
+            ls: f.ls(),
+            m5: f
+                .domain_wall_height
+                .expect("checked for domain-wall fermions"),
             mass,
             b: f.coefficient_b,
             c: f.coefficient_c,
@@ -798,12 +1164,24 @@ impl Params {
         }
     }
 
-    /// The even-odd form of the operator, and whether D_PV is replaced by D (CGNE).
+    /// The operator the outer solver works on: by default `Normal_left` for CG and
+    /// `PV_right` otherwise for domain-wall fermions, `Even_odd` for Wilson and clover.
+    pub fn operator(&self) -> OperatorType {
+        if self.fopr.fermion_type.is_domain_wall() {
+            self.solver.operator()
+        } else {
+            self.solver.operator_type.unwrap_or(OperatorType::EvenOdd)
+        }
+    }
+
+    /// The even-odd form of the domain-wall operator, and whether D_PV is replaced by D
+    /// (CGNE).
     pub fn form(&self) -> (EoForm, bool) {
         match self.solver.operator() {
             OperatorType::PvRight => (EoForm::Right, false),
             OperatorType::PvLeft => (EoForm::Left, false),
             OperatorType::NormalLeft => (EoForm::Left, true),
+            other => unreachable!("{other} was refused for domain-wall fermions"),
         }
     }
 
@@ -815,15 +1193,16 @@ impl Params {
         }
         let mg = self.multigrid.as_ref()?;
         let level = &mg.level1;
+        let (coarse_d, coarse_pv) = (level.solver_d(true), level.solver_pv());
         let cycle = PvEoParams {
-            chebyshev_steps: mg.smoother.number_of_steps,
+            chebyshev_steps: mg.smoother.number_of_steps.unwrap_or(cheb_steps()),
             chebyshev_ratio: mg.smoother.interval_ratio,
-            coarse_tolerance_sqr: level.coarse_d.convergence_criterion_squared,
-            coarse_max_iterations: level.coarse_d.maximum_number_of_iteration,
-            pv_tolerance_sqr: level.coarse_pv.convergence_criterion_squared,
-            pv_max_iterations: level.coarse_pv.maximum_number_of_iteration,
-            d_solver: level.coarse_d.krylov(),
-            pv_solver: level.coarse_pv.krylov(),
+            coarse_tolerance_sqr: coarse_d.convergence_criterion_squared,
+            coarse_max_iterations: coarse_d.maximum_number_of_iteration,
+            pv_tolerance_sqr: coarse_pv.convergence_criterion_squared,
+            pv_max_iterations: coarse_pv.maximum_number_of_iteration,
+            d_solver: coarse_d.krylov(),
+            pv_solver: coarse_pv.krylov(),
             ..PvEoParams::default()
         };
         let low = LowModeParams {
@@ -833,7 +1212,7 @@ impl Params {
             seed: mg.setup.seed,
         };
         let boot = BootstrapParams {
-            rounds: mg.setup.bootstrap_number_of_rounds,
+            rounds: mg.setup.rounds(true),
             steps: mg.setup.bootstrap_number_of_steps,
             cycle,
         };
@@ -857,20 +1236,38 @@ impl fmt::Display for Params {
                 String::new()
             }
         )?;
-        writeln!(
-            f,
-            "{}: Ls = {}, M5 = {}, m = {}, m_PV = {}, b = {}, c = {}, α = {} (D_PV: {})",
-            fo.fermion_type,
-            fo.extent_of_5th_dimension,
-            fo.domain_wall_height,
-            fo.quark_mass,
-            fo.quark_mass_pauli_villars,
-            fo.coefficient_b,
-            fo.coefficient_c,
-            fo.neff_alpha,
-            fo.neff_alpha_pauli_villars
-        )?;
-        let operator = s.operator();
+        let shown = |x: Option<f64>| x.map_or("?".to_string(), |x| x.to_string());
+        match fo.fermion_type {
+            FermionType::DomainWall => writeln!(
+                f,
+                "{}: Ls = {}, M5 = {}, m = {}, m_PV = {}, b = {}, c = {}, α = {} (D_PV: {})",
+                fo.fermion_type,
+                fo.extent_of_5th_dimension
+                    .map_or("?".to_string(), |l| l.to_string()),
+                shown(fo.domain_wall_height),
+                shown(fo.quark_mass),
+                fo.quark_mass_pauli_villars,
+                fo.coefficient_b,
+                fo.coefficient_c,
+                fo.neff_alpha,
+                fo.neff_alpha_pauli_villars
+            )?,
+            FermionType::Wilson => writeln!(
+                f,
+                "{}: κ = {}",
+                fo.fermion_type,
+                shown(fo.hopping_parameter)
+            )?,
+            FermionType::Clover => writeln!(
+                f,
+                "{}: κ = {}, c_SW = {}",
+                fo.fermion_type,
+                shown(fo.hopping_parameter),
+                shown(fo.clover_coefficient)
+            )?,
+        }
+        let operator = self.operator();
+        let cg = s.solver_type == SolverType::Cg;
         write!(
             f,
             "{} on {}{}, to |r|²/|b|² < {:e}",
@@ -880,24 +1277,52 @@ impl fmt::Display for Params {
                 OperatorType::PvRight => " (A′, α cancels)",
                 OperatorType::PvLeft => " (left-preconditioned A′)",
                 OperatorType::NormalLeft => " (CGNE)",
+                OperatorType::EvenOdd if cg => " (the Schur complement on the even sites, CGNE)",
+                OperatorType::EvenOdd => " (the Schur complement on the even sites)",
+                OperatorType::Full if cg => " (D on the whole lattice, CGNE)",
+                OperatorType::Full => " (D on the whole lattice)",
             },
             s.convergence_criterion_squared
         )?;
         match (s.preconditioner_type, &self.multigrid) {
+            (PreconditionerType::Multigrid, Some(mg)) if !fo.fermion_type.is_domain_wall() => {
+                let (l, sm) = (&mg.level1, &mg.smoother);
+                let coarse = l.solver_d(false);
+                let smoother = match sm.smoother_type {
+                    Some(SmootherType::Gmres) => {
+                        format!("GMRES({})", sm.number_of_steps.unwrap_or(4))
+                    }
+                    _ => format!(
+                        "SAP {} cycles × {} steps",
+                        sm.number_of_cycles.unwrap_or(4),
+                        sm.number_of_steps.unwrap_or(6)
+                    ),
+                };
+                write!(
+                    f,
+                    "\npreconditioned by the multigrid of the whole lattice: {:?} blocks, {} test vectors, {} setup iterations; coarse {} to {:e} in {}; smoother {smoother}",
+                    l.block_size,
+                    l.test_vectors(false),
+                    mg.setup.rounds(false),
+                    coarse.solver_type,
+                    coarse.convergence_criterion_squared,
+                    mg.coarse_precision,
+                )
+            }
             (PreconditionerType::Multigrid, Some(mg)) => {
                 let l = &mg.level1;
                 write!(
                     f,
                     "\npreconditioned by the multigrid: {:?} blocks, {} test vectors; coarse {} (P†DP) to {:e} and {} ({}) to {:e} in {}; smoother Chebyshev {}/{}",
                     l.block_size,
-                    l.number_of_test_vectors,
-                    l.coarse_d.solver_type,
-                    l.coarse_d.convergence_criterion_squared,
-                    l.coarse_pv.solver_type,
+                    l.test_vectors(true),
+                    l.solver_d(true).solver_type,
+                    l.solver_d(true).convergence_criterion_squared,
+                    l.solver_pv().solver_type,
                     if operator == OperatorType::NormalLeft { "P†D†P" } else { "P†D_PV†P" },
-                    l.coarse_pv.convergence_criterion_squared,
+                    l.solver_pv().convergence_criterion_squared,
                     mg.coarse_precision,
-                    mg.smoother.number_of_steps,
+                    mg.smoother.number_of_steps.unwrap_or(cheb_steps()),
                     mg.smoother.interval_ratio
                 )?;
                 let levels = mg.super_blocks();
@@ -1100,5 +1525,93 @@ convergence_criterion_squared = 1e-18
             assert_eq!(mg.level1.block_size, [2; ND], "{name}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn wilson_and_clover_files() {
+        let p = parse(include_str!("../../examples/clover_mg.yaml")).unwrap();
+        assert_eq!(p.operator(), OperatorType::EvenOdd);
+        let c = p.to_config();
+        assert_eq!(
+            c.quark[0].fermion,
+            FermionConfig::Clover {
+                kappa: 0.12,
+                csw: 1.0,
+                boundary: [
+                    BoundaryConfig::Periodic,
+                    BoundaryConfig::Periodic,
+                    BoundaryConfig::Periodic,
+                    BoundaryConfig::Antiperiodic
+                ]
+            }
+        );
+        assert!(c.solver.even_odd);
+        assert_eq!(c.solver.kind, SolverKind::Fgmres);
+        assert_eq!((c.solver.max_iterations, c.solver.max_restarts), (30, 100));
+        let mg = c.solver.multigrid.unwrap();
+        assert_eq!(
+            (mg.block, mg.test_vectors, mg.setup_iterations),
+            ([2; ND], 8, 4)
+        );
+        assert_eq!(
+            (mg.smoother, mg.smoother_cycles, mg.smoother_block_steps),
+            (SmootherKind::Sap, 4, 6)
+        );
+        assert_eq!(
+            (mg.coarse_tolerance_squared, mg.coarse_max_iterations),
+            (2e-3, 200)
+        );
+
+        let wilson = "Main:\n  lattice_size : [4, 4, 4, 8]\nGauge:\n  config_filename_input : c.txt\nFopr:\n  fermion_type : wilson\n  hopping_parameter : 0.13\nSolver:\n  solver_type : cg\n  convergence_criterion_squared : 1.0e-20\nSource:\n  source_position : [0, 0, 0, 0]\n";
+        let p = parse(wilson).unwrap();
+        let c = p.to_config();
+        assert_eq!(c.solver.kind, SolverKind::CgNormal);
+        assert!(p.to_string().contains("Wilson: κ = 0.13"), "{p}");
+        assert!(p.to_string().contains("CGNE"), "{p}");
+        // The Bridge++ defaults of the multigrid when the block names only the blocks.
+        let p = parse(
+            &(wilson.replace(
+                "solver_type : cg",
+                "solver_type : bicgstab\n  preconditioner_type : MG",
+            ) + "MultiGrid:\n  MultiGrid_Level1:\n    block_size : [2, 2, 2, 2]\n"),
+        )
+        .unwrap();
+        let mg = p.to_config().solver.multigrid.unwrap();
+        assert_eq!(
+            (
+                mg.test_vectors,
+                mg.setup_iterations,
+                mg.coarse_max_iterations
+            ),
+            (16, 4, 200)
+        );
+
+        let err = |text: String| parse(&text).unwrap_err().to_string();
+        let e = err(wilson.replace("  hopping_parameter : 0.13\n", ""));
+        assert!(e.contains("hopping_parameter is needed"), "{e}");
+        let e = err(wilson.replace("fermion_type : wilson", "fermion_type : clover"));
+        assert!(e.contains("clover_coefficient is needed"), "{e}");
+        let e = err(wilson.replace("solver_type : cg", "solver_type : gcr"));
+        assert!(e.contains("not available for Wilson"), "{e}");
+        let e = err(wilson.replace(
+            "solver_type : cg",
+            "solver_type : cg\n  operator_type : PV_right",
+        ));
+        assert!(e.contains("for domain-wall fermions"), "{e}");
+        let e = err(wilson.replace("Source:\n  source_position : [0, 0, 0, 0]\n", ""));
+        assert!(e.contains("add a Source block"), "{e}");
+        let p = parse(&wilson.replace(
+            "hopping_parameter : 0.13",
+            "hopping_parameter : 0.13\n  quark_mass : 0.1",
+        ))
+        .unwrap();
+        assert!(
+            p.notes()[0].contains("quark_mass is for domain-wall"),
+            "{:?}",
+            p.notes()
+        );
+        // And the other way round.
+        let e = err(MINIMAL.replace("  quark_mass              : 0.005\n", ""));
+        assert!(e.contains("quark_mass is needed for domain-wall"), "{e}");
     }
 }
