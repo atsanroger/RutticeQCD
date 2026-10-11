@@ -7,6 +7,7 @@ mod bicgstab;
 mod cg;
 mod chebyshev;
 mod fgmres;
+mod gcr;
 mod mixed;
 mod polynomial;
 pub mod preconditioner;
@@ -15,6 +16,7 @@ pub use bicgstab::BiCgStab;
 pub use cg::Cg;
 pub use chebyshev::{largest_magnitude, Chebyshev, ChebyshevFilter};
 pub use fgmres::Fgmres;
+pub use gcr::Gcr;
 pub use mixed::{Convert, Refine, Solve};
 pub use polynomial::Polynomial;
 
