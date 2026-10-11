@@ -4,7 +4,7 @@ use crate::kernel::{Cplx, Number, Real};
 use crate::numerics::invert_complex;
 use crate::{
     for_sites, Boundary, Coarse, Direction, Field, Lattice, LinearFn, LinearOp, Source, Spinor,
-    Stencil, Storage, Vector, ND,
+    Stencil, Storage, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -369,6 +369,18 @@ impl<T: Storage> CoarseOp<T> {
 
     pub fn lattice(&self) -> &Arc<Lattice> {
         &self.lat
+    }
+
+    /// The diagonal block of D_c at coarse site `x` (of the operator as built, before any
+    /// diagonal preconditioning), row-major `dim × dim`.
+    pub fn diagonal_block(&self, x: usize) -> Vec<C64> {
+        let matrix = 2 * self.dim * self.dim;
+        self.diag[x * matrix..(x + 1) * matrix]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|z| C64::new(z[0].load().to_f64(), z[1].load().to_f64()))
+            .collect()
     }
 
     /// Complex numbers per coarse site.

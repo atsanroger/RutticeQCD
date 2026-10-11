@@ -14,6 +14,7 @@ mod basis;
 mod coarse;
 mod cycle;
 mod mdwf;
+mod pv_eo;
 mod sap;
 
 pub use aggregation::Aggregation;
@@ -23,6 +24,7 @@ pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };
 pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
+pub use pv_eo::{pv_eo_basis, PvEoBasis, PvEoCycle, PvEoParams};
 pub use sap::Sap;
 
 use std::fmt;

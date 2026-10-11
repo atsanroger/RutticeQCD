@@ -11,13 +11,16 @@ use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
 use ruttice::solver::preconditioner::multigrid::{
-    mdwf_multigrid, Aggregation, Basis, BasisBuilder, CoarseOp, MdwfCoarse, MdwfMultigridParams,
-    MdwfSmoother, Reflection,
+    mdwf_multigrid, pv_eo_basis, Aggregation, Basis, BasisBuilder, CoarseOp, MdwfCoarse,
+    MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
 };
-use ruttice::solver::{solve_cgne, BiCgStab, Cg, Fgmres, Polynomial, Solve, Solver, Stop};
+use ruttice::solver::{
+    largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Fgmres, Gcr, Polynomial, Solve,
+    Solver, Stop,
+};
 use ruttice::{
     assemble, extract_parity, insert_parity, local_part, random_spinor, Boundary, Field, Gauge,
-    Half, Lattice, LinearFn, LinearOp, LocalComm, Parity, Spinor, Vector, C64, ND,
+    Half, Lattice, LinearFn, LinearOp, LocalComm, Normal, Parity, Spinor, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -957,5 +960,104 @@ fn restriction_and_prolongation_on_one_parity() {
                 .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
             assert!(diff < 1e-13, "{fold:?} {parity:?} prolongation: {diff:e}");
         }
+    }
+}
+
+/// The even-odd Pauli-Villars multigrid: test vectors from a Chebyshev filter on Ã†Ã,
+/// the folded basis, the cycle; GCR(2) with the cycle solves D x = b in the right form, in
+/// the left form, and in the left form with Neff's α in D, each in fewer steps than
+/// BiCGStab without a preconditioner needs.
+#[test]
+fn even_odd_pv_multigrid_solves_d() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 161);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+    let index = op.even_odd_index().unwrap();
+    let even_random = |n: usize, seed: u64| {
+        let mut h = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, n, 1);
+        h.set_parity(Parity::Even);
+        extract_parity(
+            &mut h,
+            &random(&lat, MOBIUS.ls, n, seed),
+            index,
+            Parity::Even,
+        );
+        h
+    };
+    let like = even_random(1, 1);
+
+    // Four approximate low modes of Ã, orthonormalised.
+    let mut a = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);
+    let hi = 1.1 * largest_magnitude(&mut a, &mut even_random(1, 162), 50);
+    let mut filter = ChebyshevFilter::new(
+        Normal::new(PvEvenOdd::new(&op, &pv, EoForm::Right, &like), &like),
+        40,
+        hi * hi / 100.0,
+        hi * hi,
+        &like,
+    );
+    let start = even_random(4, 163);
+    let mut y = start.zeros_like();
+    filter.mult(&mut y, &start);
+    for i in 0..4 {
+        let mut v = y.select(&[i]);
+        for j in 0..i {
+            let q = y.select(&[j]);
+            let mut d = [C64::ZERO];
+            q.dot(&v, &mut d);
+            v.axpy(&[-d[0]], &q);
+        }
+        let mut n = [0.0];
+        v.norm_sqr(&mut n);
+        v.scale(&[1.0 / n[0].sqrt()]);
+        y.assign(&[i], &v);
+    }
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+    assert!(basis.is_folded());
+
+    let b = random(&lat, MOBIUS.ls, 1, 164);
+    let stop = Stop::simple(1e-24, 500);
+    let mut op_alpha = operator(&lat, MOBIUS, &u);
+    op_alpha.set_alpha(0.6);
+    for (op_a, form) in [
+        (&op, EoForm::Right),
+        (&op, EoForm::Left),
+        (&op_alpha, EoForm::Left),
+    ] {
+        let mut a = PvEvenOdd::new(op_a, &pv, form, &like);
+        let mut rhs = like.zeros_like();
+        a.right_hand_side(&mut rhs, &b);
+        let mut plain = like.zeros_like();
+        let unpreconditioned = BiCgStab::new(stop)
+            .solve(&mut a, None, &mut plain, &rhs)
+            .unwrap();
+        let mut cycle =
+            PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
+        let mut sol = like.zeros_like();
+        let info = Gcr::new(stop, 2)
+            .solve(&mut a, Some(&mut cycle), &mut sol, &rhs)
+            .unwrap();
+        let mut x = b.zeros_like();
+        a.solution(&mut x, &sol, &b);
+        let mut r = mult(&op, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        let (mut left, mut size) = ([0.0], [0.0]);
+        r.norm_sqr(&mut left);
+        b.norm_sqr(&mut size);
+        eprintln!(
+            "{form:?}, α {}: GCR(2) with the cycle {} steps ({} coarse applications), BiCGStab alone {}; |D x - b|^2/|b|^2 = {:e}",
+            op_a.alpha(),
+            info.iterations,
+            cycle.coarse_applications(),
+            unpreconditioned.iterations,
+            left[0] / size[0]
+        );
+        assert!(left[0] < 1e-16 * size[0]);
+        assert!(info.iterations < unpreconditioned.iterations);
     }
 }

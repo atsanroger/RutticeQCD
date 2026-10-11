@@ -118,6 +118,12 @@ impl<A: LinearFn<V>, V: Vector> Chebyshev<A, V> {
             ad: like.zeros_like(),
         }
     }
+
+    /// The operator, for a caller that needs it besides the polynomial (a multigrid cycle
+    /// computing residuals) without keeping a second copy of its work fields.
+    pub fn operator(&mut self) -> &mut A {
+        &mut self.a
+    }
 }
 
 impl<A: LinearFn<V>, V: Vector> LinearFn<V> for Chebyshev<A, V> {
