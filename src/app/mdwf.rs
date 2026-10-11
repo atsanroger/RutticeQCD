@@ -29,8 +29,8 @@ use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
 };
 use crate::{
-    extract_parity, random_spinor, Aos, Aosoa, ConvertFrom, Field, Full, Gauge, Half, Lattice,
-    LinearFn, Parity, Spinor, Vector, C64,
+    extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, Field, Full, Gauge, Half,
+    Lattice, LinearFn, Parity, SingleComm, Spinor, Vector, C64, ND,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -133,8 +133,25 @@ pub fn run(
     seeds: (u64, u64),
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
+    run_on(params, file, seeds, out, Arc::new(SingleComm))
+}
+
+/// `run` on the processes of `comm`, split as `Main.grid_size` asks (or as chosen here when
+/// it is left at one process). Every process makes this call; give the others a sink for
+/// `out`. The random right-hand sides are drawn on every process for its own sites, so
+/// they differ from those of a run on another number of processes.
+pub fn run_on(
+    params: &Params,
+    file: &Path,
+    seeds: (u64, u64),
+    out: &mut dyn Write,
+    comm: Arc<dyn Comm>,
+) -> Result<(), Box<dyn Error>> {
     let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
-    let lat = Lattice::single_node(params.main.lattice_size);
+    let size = params.main.lattice_size;
+    let requested = (params.main.grid_size != [1; ND]).then_some(params.main.grid_size);
+    let grid = super::grid_for(size, requested, comm.size())?;
+    let lat = Lattice::new(size, grid, comm);
     let u = read_bridge_text(&relative(&params.gauge.config_filename_input), &lat)?;
     match (params.main.backend, params.main.simd_lanes) {
         (Backend::Simd, 2) => run_in::<Aosoa<2>>(params, file, &lat, &u, seeds, out),
@@ -215,6 +232,9 @@ where
         (Some((_, low, boot)), Some(mg)) => {
             let keep = mg.level1.test_vectors(true) / 2;
             let mut y = match &mg.setup.checkpoint {
+                Some(_) if lat.comm.size() > 1 => {
+                    return Err("MultiGrid.Setup.checkpoint is read on one process only".into())
+                }
                 Some(path) => load(&relative(path), &like, keep)?,
                 None => {
                     let (x, theta) = pv_eo_low_modes(&op, pv, &lat, *low);

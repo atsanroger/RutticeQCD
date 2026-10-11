@@ -178,11 +178,20 @@ fn choose_grid(lattice: [usize; ND], processes: usize) -> Option<[usize; ND]> {
 
 /// The process grid to use: the one asked for if it fits, otherwise one chosen here.
 fn process_grid(config: &Config, processes: usize) -> Result<[usize; ND], CliError> {
-    let lattice = config.lattice;
+    grid_for(config.lattice, config.process_grid, processes)
+}
+
+/// The process grid for `lattice` on `processes` processes: `requested` if it fits,
+/// otherwise one chosen here.
+pub(crate) fn grid_for(
+    lattice: [usize; ND],
+    requested: Option<[usize; ND]>,
+    processes: usize,
+) -> Result<[usize; ND], CliError> {
     if lattice.contains(&0) {
         return invalid(format!("lattice extents must be positive, got {lattice:?}"));
     }
-    match config.process_grid {
+    match requested {
         Some(grid) => {
             let fits = (0..ND).all(|mu| grid[mu] > 0 && lattice[mu].is_multiple_of(grid[mu]));
             let needed: usize = grid.iter().product();
@@ -796,13 +805,12 @@ pub fn run_file_on(
     }
     let p = params::Params::load(path)?;
     if p.fopr.fermion_type.is_domain_wall() {
-        if comm.size() != 1 {
-            return Err(CliError::Grid(
-                "domain-wall runs are on one process so far".to_string(),
-            ));
-        }
-        writeln!(stdout, "{p}").map_err(io_error)?;
-        return mdwf::run(&p, path, (91, 91), stdout).map_err(|e| CliError::Run(e.to_string()));
+        // Only rank 0 prints.
+        let mut sink = std::io::sink();
+        let out: &mut dyn Write = if root { stdout } else { &mut sink };
+        writeln!(out, "{p}").map_err(io_error)?;
+        return mdwf::run_on(&p, path, (91, 91), out, comm)
+            .map_err(|e| CliError::Run(e.to_string()));
     }
     if root {
         for line in p.to_string().lines() {

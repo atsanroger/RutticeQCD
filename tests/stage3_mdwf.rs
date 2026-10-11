@@ -1614,3 +1614,58 @@ fn bridge_spectrum_domainwall_pion_and_residual_mass() {
 /// D₋ = 1 - c W): C_PS(0) from Bridge++ 2.0.0 `sample_Spectrum` (Fopr_Domainwall, CGNR to
 /// 1e-28, no smearing) on conf_04040408.txt.
 const BRIDGE_MOBIUS_PION_T0: f64 = 0.4350524283957;
+
+/// The pion correlator printed by a domain-wall run (`app::mdwf::run_on`), from its output.
+fn printed_pion(text: &str) -> Vec<f64> {
+    text.lines()
+        .skip_while(|l| l.trim() != "PS:")
+        .skip(1)
+        .take_while(|l| l.starts_with("    "))
+        .map(|l| l.split_whitespace().nth(1).unwrap().parse().unwrap())
+        .collect()
+}
+
+/// A domain-wall parameter file run on several processes (threads standing in for them)
+/// prints the pion correlator of the run on one process: without a preconditioner, and
+/// with the multigrid.
+#[test]
+fn a_domain_wall_run_on_several_processes() {
+    let dir = std::env::temp_dir().join(format!("ruttice_mdwf_ranks_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let whole = Lattice::single_node([4, 4, 4, 8]);
+    ruttice::io::write_bridge_text(&dir.join("conf.txt"), &random_gauge(&whole, 191)).unwrap();
+    let base = "Main:\n  lattice_size : [4, 4, 4, 8]\nGauge:\n  config_filename_input : conf.txt\nFopr:\n  fermion_type : Mobius\n  quark_mass : 0.1\n  domain_wall_height : 1.4\n  extent_of_5th_dimension : 4\nSolver:\n  solver_type : BiCGStab\n  convergence_criterion_squared : 1.0e-24\n  maximum_number_of_iteration : 4000\nSource:\n  source_position : [0, 0, 0, 0]\n  number_of_rhs_per_solve : 12\n";
+    let multigrid = base.replace("solver_type : BiCGStab", "solver_type : GCR\n  preconditioner_type : MG")
+        + "MultiGrid:\n  Setup:\n    filter_number_of_vectors : 4\n    filter_number_of_rounds : 1\n    bootstrap_number_of_rounds : 0\n  MultiGrid_Level1:\n    block_size : [2, 2, 2, 2]\n    number_of_test_vectors : 8\n";
+    for (name, text) in [("plain", base.to_string()), ("multigrid", multigrid)] {
+        let file = dir.join(format!("{name}.yaml"));
+        std::fs::write(&file, &text).unwrap();
+        let params = ruttice::app::params::Params::load(&file).unwrap();
+        let mut one = Vec::new();
+        ruttice::app::mdwf::run(&params, &file, (91, 91), &mut one).unwrap();
+        let want = printed_pion(&String::from_utf8(one).unwrap());
+        assert_eq!(want.len(), 8, "{name}");
+        for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+            let printed = LocalComm::run([4, 4, 4, 8], grid, |lat| {
+                let mut out = Vec::new();
+                let mut p = params.clone();
+                p.main.grid_size = grid;
+                ruttice::app::mdwf::run_on(&p, &file, (91, 91), &mut out, lat.comm.clone())
+                    .unwrap();
+                String::from_utf8(out).unwrap()
+            });
+            let got = printed_pion(&printed[0]);
+            for (a, b) in got.iter().zip(&want) {
+                assert!(
+                    (a - b).abs() < 1e-9 * b.abs(),
+                    "{name}, grid {grid:?}: {a} vs {b}"
+                );
+            }
+            eprintln!(
+                "{name}, grid {grid:?}: C_PS(0) {} (one process {})",
+                got[0], want[0]
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
