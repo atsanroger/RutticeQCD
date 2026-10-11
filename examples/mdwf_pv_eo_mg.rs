@@ -19,7 +19,10 @@ use ruttice::app::memory_line;
 use ruttice::app::params::{Params, PrecisionType, PreconditionerType, SolverType};
 use ruttice::fermion::{FermionOp, Mdwf, PvEvenOdd, Variant};
 use ruttice::io::read_bridge_text;
-use ruttice::kernel::Dirac;
+use ruttice::kernel::{Dirac, GammaRepre};
+use ruttice::measure::{
+    channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
+};
 use ruttice::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, PvEoBasis, PvEoCycle,
 };
@@ -248,16 +251,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let fine_flops = 2.0 * (op.flops_per_site() * lat.num_sites()) as f64;
     let stop: Stop = s.stop();
     let k = s.number_of_kept_directions;
-    for seed in seed_lo..=seed_hi {
-        let mut b = Field::<f64, Spinor>::with_shape(&lat, 24, ls, 1, 1);
-        b.as_mut_slice()
-            .copy_from_slice(random_spinor(&lat, ls, seed).as_slice());
-        let mut rhs = like.zeros_like();
-        a.right_hand_side(&mut rhs, &b);
+    // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
+    let mut solve = |b: &Field<f64, Spinor>, label: &str| -> Field<f64, Spinor> {
+        let nv = b.num_vectors();
+        let mut rhs = like.zeros_with(nv);
+        a.right_hand_side(&mut rhs, b);
         let (outer, applied) = (Cell::new(0), Cell::new(0));
         let coarse_before = pre.coarse_applications();
         let inner_per = pre.inner_applications(steps);
-        let mut sol = like.zeros_like();
+        let mut sol = rhs.zeros_like();
         let start = Instant::now();
         let result: Result<SolveInfo, SolveError> = {
             let mut counted_a = Counted {
@@ -287,25 +289,84 @@ fn main() -> Result<(), Box<dyn Error>> {
             Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
             Err(e) => format!("failed: {e}"),
         };
-        let applications = outer.get() + applied.get() * inner_per;
-        let coarse = pre.coarse_applications() - coarse_before;
-        let gflops =
-            (applications as f64 * fine_flops + coarse as f64 * coarse_flops) / seconds * 1e-9;
+        // Applications of the operator, per right-hand side.
+        let applications = (outer.get() + applied.get() * inner_per) / nv;
+        let coarse = (pre.coarse_applications() - coarse_before) / nv;
+        let gflops = (applications as f64 * fine_flops + coarse as f64 * coarse_flops) * nv as f64
+            / seconds
+            * 1e-9;
         let mut x = b.zeros_like();
-        a.solution(&mut x, &sol, &b);
+        a.solution(&mut x, &sol, b);
         let mut r = b.zeros_like();
         op.mult(&mut op.work(), &mut r, &x, Variant::D);
-        r.aypx(&[C64::new(-1.0, 0.0)], &b);
-        let (mut rr, mut bb) = ([0.0], [0.0]);
+        r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+        let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
         r.norm_sqr(&mut rr);
         b.norm_sqr(&mut bb);
+        let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         println!(
-            "  seed {seed}: {} {iterations} iterations, {} preconditioner applications; {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; |Dx−b|² {:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
+            "  {label}: {} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
             s.solver_type,
-            applied.get(),
+            applied.get() / nv,
             2 * applications,
-            rr[0] / bb[0],
             memory_line()
+        );
+        x
+    };
+
+    let Some(src) = &params.source else {
+        for seed in seed_lo..=seed_hi {
+            let mut b = Field::<f64, Spinor>::with_shape(&lat, 24, ls, 1, 1);
+            b.as_mut_slice()
+                .copy_from_slice(random_spinor(&lat, ls, seed).as_slice());
+            solve(&b, &format!("seed {seed}"));
+        }
+        return Ok(());
+    };
+
+    // The propagator from the point source, `number_of_rhs_per_solve` columns at a time:
+    // the four-dimensional quark field and the midpoint field of every column.
+    let eta = point_source::<f64>(&lat, src.source_position);
+    let (mut prop, mut mid) = (eta.zeros_like(), eta.zeros_like());
+    let columns: Vec<usize> = (0..NUM_SOURCES).collect();
+    for chunk in columns.chunks(src.number_of_rhs_per_solve) {
+        let eta_c = eta.select(chunk);
+        let mut b = Field::<f64, Spinor>::with_shape(&lat, 24, ls, chunk.len(), 1);
+        op.source_5d(&mut op.work(), &mut b, &eta_c);
+        let psi = solve(&b, &format!("columns {chunk:?}"));
+        let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
+        op.propagator_4d(&mut q, &psi);
+        op.midpoint_4d(&mut m, &psi);
+        prop.assign(chunk, &q);
+        mid.assign(chunk, &m);
+    }
+    // Bridge++'s layout of the output: one block per channel, t from the source.
+    let t0 = src.source_position[3];
+    let nt = params.main.lattice_size[3];
+    let shift = |c: &[C64]| -> Vec<C64> { (0..nt).map(|t| c[(t + t0) % nt]).collect() };
+    for name in CHANNELS {
+        let (sink, source) = channel::<Dirac>(name).expect("a channel of the list");
+        let c = shift(&meson_correlator(
+            &prop,
+            &prop,
+            &sink,
+            &source,
+            &Dirac::GAMMA5,
+        ));
+        println!("  {name}:");
+        for (t, z) in c.iter().enumerate() {
+            println!("    {t:3}  {:+.15e}  {:+.15e}", z.re, z.im);
+        }
+    }
+    let (pp, j5q) = (pion_correlator(&prop), pion_correlator(&mid));
+    println!("  residual mass m_res(t) = C_J5q(t) / C_PS(t):");
+    for t in 0..nt {
+        let at = (t + t0) % nt;
+        println!(
+            "    {t:3}  {:.6e}   (C_J5q {:.6e}, C_PS {:.6e})",
+            j5q[at] / pp[at],
+            j5q[at],
+            pp[at]
         );
     }
     Ok(())
