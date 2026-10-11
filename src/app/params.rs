@@ -35,8 +35,8 @@
 
 use super::config::{
     BoundaryConfig, CoarseSolverKind, Config, FermionConfig, GaugeConfig, GaugeFormat,
-    MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig, SmootherKind,
-    SolverConfig, SolverKind, SourceConfig,
+    GaugeSmearingConfig, MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig,
+    SmootherKind, SolverConfig, SolverKind, SourceConfig,
 };
 use super::CliError;
 use crate::fermion::{EoForm, MdwfParams};
@@ -204,6 +204,18 @@ pub struct Params {
     /// residual mass are printed; without one, random right-hand sides are solved.
     #[serde(rename = "Source")]
     pub source: Option<SourceBlock>,
+    /// Gauge smearing: the fermion operator is made of smeared links. (The smearing of
+    /// sources, operator smearing, is a `Source.source_type`.)
+    #[serde(rename = "GaugeSmearing")]
+    pub gauge_smearing: Option<GaugeSmearingBlock>,
+    /// Bridge++'s blocks for gauge smearing, refused because `Smear` does not say what is
+    /// smeared; see `GaugeSmearing`.
+    #[serde(rename = "Smear", default)]
+    bridge_smear: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "Director_Smear", default)]
+    bridge_director_smear: Option<serde::de::IgnoredAny>,
+    #[serde(rename = "Projection", default)]
+    bridge_projection: Option<serde::de::IgnoredAny>,
     /// Filled when the file is read and checked: blocks given but not used.
     #[serde(skip)]
     notes: Vec<String>,
@@ -301,6 +313,59 @@ pub struct SolverBlock {
 struct MultigridFile {
     #[serde(rename = "MultiGrid")]
     multigrid: MultigridBlock,
+}
+
+keyword_enum! {
+    pub enum GaugeSmearType {
+        /// Stout smearing (Bridge++: `Smear_APE` with `Projection_Stout_SU3`).
+        Stout => ["Stout", "Stout_SU3"],
+        /// APE smearing projected to SU(3) by maximising the trace (Bridge++: `Smear_APE` with
+        /// `Projection_Maximum_SU_N`).
+        Ape => ["APE"],
+    }
+}
+
+/// Gauge smearing: `number_of_smearing` steps of `smear_type` with weight `rho_uniform` in
+/// every plane (or in the spatial planes only).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GaugeSmearingBlock {
+    pub smear_type: GaugeSmearType,
+    pub rho_uniform: f64,
+    pub number_of_smearing: usize,
+    #[serde(default)]
+    pub spatial_only: bool,
+    /// APE: the projection to SU(3) (Bridge++'s `Projection_Maximum_SU_N` keys).
+    #[serde(default = "ape_criterion")]
+    pub convergence_criterion: f64,
+    #[serde(default = "ape_iterations")]
+    pub maximum_number_of_iteration: usize,
+}
+
+fn ape_criterion() -> f64 {
+    1.0e-15
+}
+fn ape_iterations() -> usize {
+    100
+}
+
+impl GaugeSmearingBlock {
+    pub fn to_config(&self) -> GaugeSmearingConfig {
+        match self.smear_type {
+            GaugeSmearType::Stout => GaugeSmearingConfig::Stout {
+                rho: self.rho_uniform,
+                steps: self.number_of_smearing,
+                spatial_only: self.spatial_only,
+            },
+            GaugeSmearType::Ape => GaugeSmearingConfig::Ape {
+                rho: self.rho_uniform,
+                steps: self.number_of_smearing,
+                spatial_only: self.spatial_only,
+                tolerance: self.convergence_criterion,
+                max_iterations: self.maximum_number_of_iteration,
+            },
+        }
+    }
 }
 
 /// The source of the propagator.
@@ -762,6 +827,14 @@ impl Params {
     }
 
     fn check(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
+        if self.bridge_smear.is_some()
+            || self.bridge_director_smear.is_some()
+            || self.bridge_projection.is_some()
+        {
+            return Err(invalid(
+                "Smear / Director_Smear / Projection: \"smear\" alone does not say what is smeared; gauge (link) smearing is the block GaugeSmearing (smear_type: Stout or APE, rho_uniform, number_of_smearing); the smearing of sources (operator smearing) is Source.source_type".into(),
+            ));
+        }
         self.check_common()?;
         if !self.fopr.fermion_type.is_domain_wall() {
             return self.check_wilson(notes);
@@ -1125,7 +1198,11 @@ impl Params {
                     GaugeType::Ildg => GaugeFormat::Ildg,
                 },
                 fixing: None,
+                smearing: None,
             },
+            gauge_smearing: self.gauge_smearing.map(|g| g.to_config()),
+            smearing: None,
+            smear: None,
             solver: SolverConfig {
                 kind: match s.solver_type {
                     SolverType::Cg => SolverKind::CgNormal,
@@ -1578,6 +1655,30 @@ convergence_criterion_squared = 1e-18
         );
 
         let wilson = "Main:\n  lattice_size : [4, 4, 4, 8]\nGauge:\n  config_filename_input : c.txt\nFopr:\n  fermion_type : wilson\n  hopping_parameter : 0.13\nSolver:\n  solver_type : cg\n  convergence_criterion_squared : 1.0e-20\nSource:\n  source_position : [0, 0, 0, 0]\n";
+        // Gauge smearing is the block GaugeSmearing; Bridge++'s Smear blocks are refused.
+        let p = parse(&format!(
+            "{wilson}GaugeSmearing:\n  smear_type : stout\n  rho_uniform : 0.1\n  number_of_smearing : 3\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            p.to_config().gauge_smearing,
+            Some(GaugeSmearingConfig::Stout {
+                rho: 0.1,
+                steps: 3,
+                spatial_only: false
+            })
+        );
+        for block in [
+            "Smear:\n  smear_type : APE\n",
+            "Director_Smear:\n  number_of_smearing : 1\n",
+            "Projection:\n  projection_type : Stout_SU3\n",
+        ] {
+            let e = parse(&format!("{wilson}{block}")).unwrap_err().to_string();
+            assert!(
+                e.contains("GaugeSmearing") && e.contains("Source.source_type"),
+                "{e}"
+            );
+        }
         let p = parse(wilson).unwrap();
         let c = p.to_config();
         assert_eq!(c.solver.kind, SolverKind::CgNormal);

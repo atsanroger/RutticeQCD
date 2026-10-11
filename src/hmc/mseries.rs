@@ -1,8 +1,9 @@
 //! The M-series random numbers of Bridge++ (`RandomNumbers_Mseries`): a lagged-Fibonacci
-//! generator x_n = x_(n−521) XOR x_(n−32) of 31-bit words (Makino, Parallel Computing 20
-//! (1994) 1357; the Fortran version of Makino and Miyamura, as in QCDMPI). The same numbers
-//! as Bridge++ for the same seed, so that its runs can be repeated here; written from the
-//! description of the algorithm.
+//! generator x_n = x_(n−521) XOR x_(n−32) of 31-bit words (J. Makino, Parallel Computing 20
+//! (1994) 1357). Bridge++'s class is a C++ version of the Fortran code of Makino and Miyamura,
+//! whose public version came with S. Hioki's QCDMPI; Bridge++ does not use QCDMPI itself.
+//! The same numbers as Bridge++ for the same seed, so that its runs can be repeated here;
+//! written from the description of the algorithm, not from either code.
 
 use crate::{Lattice, ND};
 

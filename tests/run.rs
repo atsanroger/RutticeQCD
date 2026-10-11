@@ -59,6 +59,80 @@ fn the_example_files_parse() {
     );
 }
 
+/// Gauge smearing is `gauge_smearing`; a key that says only "smearing" is refused, in either
+/// place one might write it, because it does not say whether links or sources are smeared.
+#[test]
+fn gauge_smearing_has_its_own_name() {
+    use ruttice::app::GaugeSmearingConfig;
+    // A table goes at the end (keys after it would belong to it), a key at the start.
+    let with = |extra: &str| {
+        if extra.starts_with('[') {
+            format!("{WILSON_TOML}\n{extra}\n")
+        } else {
+            format!("{extra}\n{WILSON_TOML}")
+        }
+    };
+    let c = Config::from_toml(&with(
+        "[gauge_smearing]\ntype = \"stout\"\nrho = 0.1\nsteps = 3",
+    ))
+    .unwrap();
+    assert_eq!(
+        c.gauge_smearing,
+        Some(GaugeSmearingConfig::Stout {
+            rho: 0.1,
+            steps: 3,
+            spatial_only: false
+        })
+    );
+    let c = Config::from_toml(&with(
+        "[gauge_smearing]\ntype = \"ape\"\nrho = 0.5\nsteps = 2\nspatial_only = true",
+    ))
+    .unwrap();
+    assert!(matches!(
+        c.gauge_smearing,
+        Some(GaugeSmearingConfig::Ape {
+            spatial_only: true,
+            max_iterations: 100,
+            ..
+        })
+    ));
+    for bad in ["[smearing]\ntype = \"stout\"", "smear = 3"] {
+        match Config::from_toml(&with(bad)) {
+            Err(CliError::Invalid(e)) => {
+                assert!(e.contains("gauge_smearing") && e.contains("source"), "{e}")
+            }
+            other => panic!("{bad}: {other:?}"),
+        }
+    }
+    let inside = WILSON_TOML.replacen("[gauge]\n", "[gauge]\nsmearing = 1\n", 1);
+    assert!(inside != WILSON_TOML, "the example has a [gauge] table");
+    assert!(matches!(
+        Config::from_toml(&inside),
+        Err(CliError::Invalid(_))
+    ));
+}
+
+/// A run on gauge-smeared links reports the plaquette before and after the smearing.
+#[test]
+fn a_run_on_smeared_links() {
+    let dir = scratch("smeared");
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 5)).unwrap();
+    let mut c = Config::from_toml(&format!(
+        "{WILSON_TOML}\n[gauge_smearing]\ntype = \"stout\"\nrho = 0.1\nsteps = 2\n"
+    ))
+    .unwrap();
+    c.output.file = None;
+    let r = run(&c, &dir).unwrap();
+    let smeared = r.plaquette_smeared.unwrap();
+    assert!(smeared > r.plaquette + 0.05, "{} → {smeared}", r.plaquette);
+    let mut text = Vec::new();
+    ruttice::app::write_report(&r, &c, &mut text).unwrap();
+    assert!(String::from_utf8(text)
+        .unwrap()
+        .contains("after gauge smearing"));
+}
+
 /// The same parameters written in TOML and in YAML give the same configuration.
 #[test]
 fn toml_and_yaml_are_equivalent() {

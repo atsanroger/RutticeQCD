@@ -22,6 +22,16 @@ pub struct Config {
     #[serde(default)]
     pub process_grid: Option<[usize; ND]>,
     pub gauge: GaugeConfig,
+    /// Gauge smearing: the fermion operators are made of smeared links (stout or APE).
+    /// Not to be confused with the smearing of quark sources (operator smearing), which is
+    /// `quark.source`; a key called just `smearing` or `smear` is refused for that reason.
+    #[serde(default)]
+    pub gauge_smearing: Option<GaugeSmearingConfig>,
+    /// Refused names (see `gauge_smearing`).
+    #[serde(default)]
+    pub(crate) smearing: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    pub(crate) smear: Option<serde::de::IgnoredAny>,
     pub solver: SolverConfig,
     /// One entry per quark flavour. Correlators are computed for every pair (i, j), i <= j.
     pub quark: Vec<QuarkConfig>,
@@ -40,7 +50,88 @@ pub struct GaugeConfig {
     pub format: GaugeFormat,
     /// Fix the gauge of the configuration before anything else; no fixing when absent.
     pub fixing: Option<GaugeFixingConfig>,
+    /// Refused: gauge smearing is the top-level `gauge_smearing`.
+    #[serde(default)]
+    pub(crate) smearing: Option<serde::de::IgnoredAny>,
 }
+
+/// Gauge smearing, applied `steps` times to the links (after gauge fixing) before the
+/// fermion operators are made of them. ρ is the weight of the staples of every plane, or of
+/// the spatial planes only (`spatial_only`: the time links are kept).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum GaugeSmearingConfig {
+    /// V = exp(iQ) U, iQ the traceless anti-Hermitian part of ρ (staples) U†.
+    Stout {
+        rho: f64,
+        steps: usize,
+        #[serde(default)]
+        spatial_only: bool,
+    },
+    /// V = the SU(3) matrix closest to (1 − ρ) U + ρ (staples), found by SU(2) subgroups.
+    Ape {
+        rho: f64,
+        steps: usize,
+        #[serde(default)]
+        spatial_only: bool,
+        /// The projection to SU(3) stops when a sweep over the subgroups changes the links
+        /// by less than this (1 − ⟨Re tr ΔG⟩/3) ...
+        #[serde(default = "ape_tolerance")]
+        tolerance: f64,
+        /// ... and fails after this many sweeps.
+        #[serde(default = "ape_max_iterations")]
+        max_iterations: usize,
+    },
+}
+
+fn ape_tolerance() -> f64 {
+    1.0e-15
+}
+fn ape_max_iterations() -> usize {
+    100
+}
+
+impl GaugeSmearingConfig {
+    pub fn smearing(&self) -> crate::gauge::GaugeSmearing {
+        use crate::gauge::smear::{spatial, uniform, Ape, Smear, Stout};
+        let weights = |rho: f64, spatial_only: bool| {
+            if spatial_only {
+                spatial(rho)
+            } else {
+                uniform(rho)
+            }
+        };
+        match *self {
+            GaugeSmearingConfig::Stout {
+                rho,
+                steps,
+                spatial_only,
+            } => crate::gauge::GaugeSmearing {
+                smear: Smear::Stout(Stout {
+                    rho: weights(rho, spatial_only),
+                }),
+                steps,
+            },
+            GaugeSmearingConfig::Ape {
+                rho,
+                steps,
+                spatial_only,
+                tolerance,
+                max_iterations,
+            } => crate::gauge::GaugeSmearing {
+                smear: Smear::Ape(Ape {
+                    rho: weights(rho, spatial_only),
+                    tolerance,
+                    max_iterations,
+                }),
+                steps,
+            },
+        }
+    }
+}
+
+/// The message for a key that says "smearing" without saying of what.
+pub(crate) const AMBIGUOUS_SMEARING: &str = "\"smearing\" alone is ambiguous: gauge (link) smearing is `gauge_smearing` (type stout or ape); the smearing of quark sources (operator smearing) is the source type of each quark (`quark.source`, e.g. exponential)";
 
 /// Gauge fixing. The defaults are those of the Bridge++ test `Spectrum_Clover_Hadron2ptFunction`.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -175,7 +266,8 @@ impl From<BoundaryConfig> for Boundary {
 pub enum SourceConfig {
     /// Unit sources at one site.
     Point { position: [usize; ND] },
-    /// Smeared sources on the time slice of `position`: exp(-slope * r^power), normalised.
+    /// Smeared sources (source smearing, not gauge smearing) on the time slice of
+    /// `position`: the wave function exp(-slope * r^power), normalised.
     /// Gauge dependent; see `gauge.fixing`.
     Exponential {
         position: [usize; ND],
@@ -454,10 +546,20 @@ impl Config {
     }
 
     pub fn from_toml(text: &str) -> Result<Self, CliError> {
-        toml::from_str(text).map_err(|e| CliError::Parse(e.to_string()))
+        let c: Self = toml::from_str(text).map_err(|e| CliError::Parse(e.to_string()))?;
+        c.check_names()
     }
 
     pub fn from_yaml(text: &str) -> Result<Self, CliError> {
-        serde_yaml_ng::from_str(text).map_err(|e| CliError::Parse(e.to_string()))
+        let c: Self = serde_yaml_ng::from_str(text).map_err(|e| CliError::Parse(e.to_string()))?;
+        c.check_names()
+    }
+
+    /// Refuse the keys that do not say what is smeared.
+    fn check_names(self) -> Result<Self, CliError> {
+        if self.smearing.is_some() || self.smear.is_some() || self.gauge.smearing.is_some() {
+            return Err(CliError::Invalid(AMBIGUOUS_SMEARING.into()));
+        }
+        Ok(self)
     }
 }
