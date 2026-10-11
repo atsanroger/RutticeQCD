@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 const WILSON_TOML: &str = include_str!("../examples/wilson_pion.toml");
 const CLOVER_YAML: &str = include_str!("../examples/clover_two_flavours.yaml");
+const CLOVER_MG_YAML: &str = include_str!("../examples/clover_mg.yaml");
 
 /// A fresh directory under the system temporary directory.
 fn scratch(name: &str) -> PathBuf {
@@ -339,4 +340,49 @@ fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
         &report,
         include_str!("data/bridge_spectrum_clover_coulomb.txt"),
     );
+}
+
+/// A parameter file in the style of Bridge++ for clover fermions (FGMRES on the even sites
+/// with the multigrid) runs through `run_file`, says what it runs in comment lines, and gives
+/// the pion correlator of CG on the same operator from a file of the other format.
+#[test]
+fn a_file_in_the_style_of_bridge_runs_clover_fermions() {
+    let dir = scratch("bridge_style");
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 600)).unwrap();
+    let file = dir.join("clover_mg.yaml");
+    std::fs::write(&file, CLOVER_MG_YAML).unwrap();
+    let mut printed = Vec::new();
+    ruttice::app::run_file(&file, &mut printed).unwrap();
+    let printed = String::from_utf8(printed).unwrap();
+    assert!(
+        printed.contains("# Clover: κ = 0.12, c_SW = 1"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("# preconditioned by the multigrid of the whole lattice: [2, 2, 2, 2] blocks, 8 test vectors, 4 setup iterations"),
+        "{printed}"
+    );
+    let pion: Vec<f64> = printed
+        .lines()
+        .filter(|l| l.starts_with("11 PS "))
+        .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(pion.len(), 8);
+
+    let reference = WILSON_TOML
+        .replace(
+            "fermion = { type = \"wilson\", kappa = 0.12, boundary = [\"antiperiodic\", \"antiperiodic\", \"antiperiodic\", \"antiperiodic\"] }",
+            "fermion = { type = \"clover\", kappa = 0.12, csw = 1.0, boundary = [\"periodic\", \"periodic\", \"periodic\", \"antiperiodic\"] }",
+        )
+        .replace("file = \"wilson_pion.out\"", "");
+    let report = run(&Config::from_toml(&reference).unwrap(), &dir).unwrap();
+    for (a, b) in pion.iter().zip(&report.correlators[0].values) {
+        assert!(
+            (a - b.re).abs() < 1e-10 * b.re.abs().max(1e-30),
+            "{a} vs {}",
+            b.re
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
