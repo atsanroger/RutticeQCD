@@ -356,9 +356,64 @@ impl LevelOp {
 pub struct SignedMultilevel {
     levels: Vec<Level>,
     ops: Vec<LevelOp>,
+    /// The lattice of each level's operator.
+    exts: Vec<[usize; ND]>,
     coarsest_inv: Vec<C64>,
     /// Applications of A_c to build it.
     pub setup_applications: usize,
+}
+
+/// Refinement of the test vectors on the lattice of one level before the level below it is
+/// built from them: `rounds` times, every vector t is replaced by an approximation of
+/// A_ℓ⁻¹ t (`iterations` steps of GCR on the level's operator, preconditioned by its V-cycle
+/// with the levels built so far), normalised, and the levels below are built again. Inverse
+/// iteration: the vectors turn towards the low modes of A_ℓ, which is what a level with few
+/// super-blocks (one, at the bottom) needs; vectors that are only smooth within blocks are
+/// not enough there. Costs no applications of A_c.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LevelBootstrap {
+    pub rounds: usize,
+    pub iterations: usize,
+}
+
+fn cdot(a: &[C64], b: &[C64]) -> C64 {
+    a.iter()
+        .zip(b)
+        .fold(C64::ZERO, |s, (x, y)| s + x.conj() * *y)
+}
+
+/// `iterations` steps of GCR on A x = b, preconditioned by `m`, from x = 0.
+fn gcr(a: &LevelOp, m: &dyn Fn(&[C64]) -> Vec<C64>, b: &[C64], iterations: usize) -> Vec<C64> {
+    let mut x = vec![C64::ZERO; b.len()];
+    let mut r = b.to_vec();
+    let (mut ps, mut aps): (Vec<Vec<C64>>, Vec<Vec<C64>>) = (Vec::new(), Vec::new());
+    for _ in 0..iterations {
+        let mut z = m(&r);
+        let mut az = a.mult(&z);
+        for (p, ap) in ps.iter().zip(&aps) {
+            let c = cdot(ap, &az);
+            for ((zi, pi), (azi, api)) in z.iter_mut().zip(p).zip(az.iter_mut().zip(ap)) {
+                *zi = *zi - c * *pi;
+                *azi = *azi - c * *api;
+            }
+        }
+        let n = cdot(&az, &az).re.sqrt();
+        if n == 0.0 {
+            break;
+        }
+        for (zi, azi) in z.iter_mut().zip(az.iter_mut()) {
+            *zi = zi.scale(1.0 / n);
+            *azi = azi.scale(1.0 / n);
+        }
+        let beta = cdot(&az, &r);
+        for ((xi, zi), (ri, azi)) in x.iter_mut().zip(&z).zip(r.iter_mut().zip(&az)) {
+            *xi += beta * *zi;
+            *ri = *ri - beta * *azi;
+        }
+        ps.push(z);
+        aps.push(az);
+    }
+    x
 }
 
 impl SignedMultilevel {
@@ -370,44 +425,106 @@ impl SignedMultilevel {
         vectors: &[Field<f64, Coarse>],
         super_blocks: &[usize],
     ) -> Result<Self, MultigridError> {
+        Self::build_with(a, vectors, super_blocks, &[])
+    }
+
+    /// `build`, with the test vectors on the lattice of level ℓ + 2 refined by
+    /// `bootstrap[ℓ]` (missing entries: none) before level ℓ + 3 is built from them.
+    pub fn build_with<T: Storage>(
+        a: &mut CoarseOp<T>,
+        vectors: &[Field<f64, Coarse>],
+        super_blocks: &[usize],
+        bootstrap: &[LevelBootstrap],
+    ) -> Result<Self, MultigridError> {
         assert!(!super_blocks.is_empty() && !vectors.is_empty());
         let lat = a.lattice().clone();
         let dim = a.dim();
         let like_t: Field<T, Coarse> = Field::with_shape(&lat, 2 * dim, 1, 1, 1);
-        let mut tests: Vec<Vec<C64>> = vectors.iter().map(|v| get_vector(v, 0)).collect();
-        let (mut levels, mut ops) = (Vec::new(), Vec::<LevelOp>::new());
-        let mut ext = lat.global;
-        let mut parent_dim = dim;
-        let mut applications = 0;
-        for &sb in super_blocks {
+        let tests: Vec<Vec<C64>> = vectors.iter().map(|v| get_vector(v, 0)).collect();
+        // The first level: its operator from A_c by probing.
+        let (level, ext) = Level::build(lat.global, dim, super_blocks[0], &tests);
+        let parent_len = lat.global.iter().product::<usize>() * dim;
+        let mut apply = |v: &[C64]| -> Vec<C64> {
+            let (mut f, mut out) = (like_t.zeros_like(), like_t.zeros_like());
+            set_vector(&mut f, 0, v);
+            a.mult(&mut out, &f);
+            get_vector(&out, 0)
+        };
+        let (op, applications) = LevelOp::probe(&level, ext, parent_len, &mut apply)?;
+        let below: Vec<Vec<C64>> = tests.iter().map(|t| level.restrict(t)).collect();
+        let mut me = Self {
+            levels: vec![level],
+            ops: vec![op],
+            exts: vec![ext],
+            coarsest_inv: Vec::new(),
+            setup_applications: applications,
+        };
+        me.rebuild(1, &below, super_blocks)?;
+        me.extend(1, below, super_blocks, bootstrap)?;
+        Ok(me)
+    }
+
+    /// Refine the test vectors `tests` on the lattice of level `from` − 1's operator, from
+    /// which levels `from`.. have been built, as `bootstrap[from − 1]` says, building those
+    /// levels again after every round; then the same further down.
+    fn extend(
+        &mut self,
+        from: usize,
+        mut tests: Vec<Vec<C64>>,
+        super_blocks: &[usize],
+        bootstrap: &[LevelBootstrap],
+    ) -> Result<(), MultigridError> {
+        if from >= super_blocks.len() {
+            return Ok(());
+        }
+        let boot = bootstrap.get(from - 1).copied().unwrap_or_default();
+        for _ in 0..boot.rounds {
+            let op = &self.ops[from - 1];
+            let m = |r: &[C64]| self.vcycle(from - 1, r);
+            tests = tests
+                .iter()
+                .map(|t| {
+                    let x = gcr(op, &m, t, boot.iterations.max(1));
+                    let n = cdot(&x, &x).re.sqrt();
+                    x.iter().map(|z| z.scale(1.0 / n)).collect()
+                })
+                .collect();
+            self.rebuild(from, &tests, super_blocks)?;
+        }
+        // The levels further down, from these vectors, refined in turn.
+        let level = &self.levels[from];
+        let below: Vec<Vec<C64>> = tests.iter().map(|t| level.restrict(t)).collect();
+        self.extend(from + 1, below, super_blocks, bootstrap)
+    }
+
+    /// Levels `from`.. built again from `tests` (on the lattice of level `from` − 1's
+    /// operator), without refinement; the coarsest inverse again.
+    fn rebuild(
+        &mut self,
+        from: usize,
+        tests: &[Vec<C64>],
+        super_blocks: &[usize],
+    ) -> Result<(), MultigridError> {
+        self.levels.truncate(from);
+        self.ops.truncate(from);
+        self.exts.truncate(from);
+        let mut tests = tests.to_vec();
+        for &sb in &super_blocks[from..] {
+            let ext = *self.exts.last().expect("a level above");
+            let parent_dim = self.ops.last().expect("a level above").nq;
             let (level, level_ext) = Level::build(ext, parent_dim, sb, &tests);
             let parent_len = ext.iter().product::<usize>() * parent_dim;
-            let (op, n) = match ops.last() {
-                None => {
-                    let mut apply = |v: &[C64]| -> Vec<C64> {
-                        let (mut f, mut out) = (like_t.zeros_like(), like_t.zeros_like());
-                        set_vector(&mut f, 0, v);
-                        a.mult(&mut out, &f);
-                        get_vector(&out, 0)
-                    };
-                    LevelOp::probe(&level, level_ext, parent_len, &mut apply)?
-                }
-                Some(above) => {
-                    let mut apply = |v: &[C64]| above.mult(v);
-                    let (op, _) = LevelOp::probe(&level, level_ext, parent_len, &mut apply)?;
-                    (op, 0)
-                }
-            };
-            applications += n;
+            let above = self.ops.last().expect("a level above");
+            let mut apply = |v: &[C64]| above.mult(v);
+            let (op, _) = LevelOp::probe(&level, level_ext, parent_len, &mut apply)?;
             tests = tests.iter().map(|t| level.restrict(t)).collect();
-            ext = level_ext;
-            parent_dim = level.nq;
-            levels.push(level);
-            ops.push(op);
+            self.levels.push(level);
+            self.ops.push(op);
+            self.exts.push(level_ext);
         }
         // The coarsest level dense.
-        let last = ops.last().expect("at least one level");
-        let n = ext.iter().product::<usize>() * parent_dim;
+        let last = self.ops.last().expect("at least one level");
+        let n = self.exts.last().unwrap().iter().product::<usize>() * last.nq;
         let mut dense = vec![C64::ZERO; n * n];
         for j in 0..n {
             let mut e = vec![C64::ZERO; n];
@@ -416,14 +533,9 @@ impl SignedMultilevel {
                 dense[i * n + j] = z;
             }
         }
-        Ok(Self {
-            coarsest_inv: inverse(&dense, n)?,
-            levels,
-            ops,
-            setup_applications: applications,
-        })
+        self.coarsest_inv = inverse(&dense, n)?;
+        Ok(())
     }
-
     /// Complex components of the coarsest level, solved densely.
     pub fn coarsest_dim(&self) -> usize {
         (self.coarsest_inv.len() as f64).sqrt() as usize

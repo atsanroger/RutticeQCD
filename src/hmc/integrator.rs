@@ -7,55 +7,58 @@
 //! links themselves: U ← exp(ε iP) U). Level 0 runs over the trajectory length. The force of a
 //! level is kept until the links change, as Bridge++ does (two half steps in a row cost one).
 
-use super::{draw_momenta, exp_update, kinetic_energy, Mseries, PlaquetteAction, RectangleAction};
+use super::{
+    draw_momenta, exp_update, kinetic_energy, Links, Mseries, PlaquetteAction, RectangleAction,
+    SmearingCache,
+};
 use crate::fermion::HopTerms;
 use crate::gauge::plaquette;
 use crate::{Boundary, Field, Gauge, Spinor, Stencil, ND};
 
 /// An action in the molecular dynamics.
 pub trait MdAction {
-    /// The start of a trajectory: draw what the action draws (pseudofermions) for the links
-    /// `u`; returns its energy.
-    fn langevin(&mut self, u: &Field<f64, Gauge>, rng: &mut Mseries) -> f64;
-    /// The energy at the links `u`.
-    fn hamiltonian(&mut self, u: &Field<f64, Gauge>) -> f64;
+    /// The start of a trajectory: draw what the action draws (pseudofermions) for the
+    /// links; returns its energy.
+    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64;
+    /// The energy at the links.
+    fn hamiltonian(&mut self, links: &Links) -> f64;
     /// The force on the momenta.
-    fn force(&mut self, u: &Field<f64, Gauge>) -> Field<f64, Gauge>;
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge>;
 }
 
 impl MdAction for PlaquetteAction {
-    fn langevin(&mut self, u: &Field<f64, Gauge>, _rng: &mut Mseries) -> f64 {
-        self.action(u)
+    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
+        self.action(links.thin)
     }
-    fn hamiltonian(&mut self, u: &Field<f64, Gauge>) -> f64 {
-        self.action(u)
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.action(links.thin)
     }
-    fn force(&mut self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-        PlaquetteAction::force(self, u)
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        PlaquetteAction::force(self, links.thin)
     }
 }
 
 impl MdAction for RectangleAction {
-    fn langevin(&mut self, u: &Field<f64, Gauge>, _rng: &mut Mseries) -> f64 {
-        self.action(u)
+    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
+        self.action(links.thin)
     }
-    fn hamiltonian(&mut self, u: &Field<f64, Gauge>) -> f64 {
-        self.action(u)
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.action(links.thin)
     }
-    fn force(&mut self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-        RectangleAction::force(self, u)
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        RectangleAction::force(self, links.thin)
     }
 }
 
 impl<O: HopTerms<Field<f64, Spinor>>> MdAction for super::TwoFlavor<O> {
-    fn langevin(&mut self, u: &Field<f64, Gauge>, rng: &mut Mseries) -> f64 {
-        super::TwoFlavor::langevin(self, u, rng)
+    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        super::TwoFlavor::langevin(self, links, rng)
     }
-    fn hamiltonian(&mut self, u: &Field<f64, Gauge>) -> f64 {
-        super::TwoFlavor::hamiltonian(self, u)
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        super::TwoFlavor::hamiltonian(self, links)
     }
-    fn force(&mut self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-        super::TwoFlavor::force(self, u)
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        super::TwoFlavor::force(self, links)
     }
 }
 
@@ -87,6 +90,8 @@ pub struct Hmc<'a> {
     pub metropolis: bool,
     /// The force of each level at the current links.
     cache: Vec<Option<Field<f64, Gauge>>>,
+    /// The smearings of the current links, shared by the actions.
+    smeared: SmearingCache,
 }
 
 /// What one trajectory did.
@@ -126,11 +131,13 @@ impl<'a> Hmc<'a> {
             trajectory_length,
             metropolis: true,
             cache: (0..levels).map(|_| None).collect(),
+            smeared: SmearingCache::new(),
         }
     }
 
     fn invalidate(&mut self) {
         self.cache.iter_mut().for_each(|c| *c = None);
+        self.smeared.clear();
     }
 
     /// P ← P + ε F_ℓ(U).
@@ -143,8 +150,9 @@ impl<'a> Hmc<'a> {
     ) {
         if self.cache[level].is_none() {
             let mut sum = Field::<f64, Gauge>::gauge(u.lattice());
+            let links = Links::new(u, &self.smeared);
             for t in self.terms.iter_mut().filter(|t| t.level == level) {
-                let f = t.action.force(u);
+                let f = t.action.force(&links);
                 for (s, v) in sum.as_mut_slice().iter_mut().zip(f.as_slice()) {
                     *s += v;
                 }
@@ -210,18 +218,22 @@ impl<'a> Hmc<'a> {
         self.invalidate();
         let mut p = draw_momenta(&lat, rng);
         let k0 = kinetic_energy(&p);
-        let a0: Vec<f64> = self
-            .terms
-            .iter_mut()
-            .map(|t| t.action.langevin(&trial, rng))
-            .collect();
+        let a0: Vec<f64> = {
+            let links = Links::new(&trial, &self.smeared);
+            self.terms
+                .iter_mut()
+                .map(|t| t.action.langevin(&links, rng))
+                .collect()
+        };
         self.evolve(0, self.trajectory_length, &mut p, &mut trial);
         let k1 = kinetic_energy(&p);
-        let a1: Vec<f64> = self
-            .terms
-            .iter_mut()
-            .map(|t| t.action.hamiltonian(&trial))
-            .collect();
+        let a1: Vec<f64> = {
+            let links = Links::new(&trial, &self.smeared);
+            self.terms
+                .iter_mut()
+                .map(|t| t.action.hamiltonian(&links))
+                .collect()
+        };
         let h0 = k0 + a0.iter().sum::<f64>();
         let h1 = k1 + a1.iter().sum::<f64>();
         let delta_h = h1 - h0;

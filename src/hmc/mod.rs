@@ -15,6 +15,7 @@
 mod fermion;
 mod gauge_force;
 mod integrator;
+mod links;
 mod mseries;
 
 pub use fermion::{force_from, hop_derivative, smeared_force, TwoFlavor};
@@ -23,6 +24,7 @@ pub use gauge_force::{
     RectangleAction, Step,
 };
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
+pub use links::{Links, SmearingCache};
 pub use mseries::Mseries;
 
 use crate::gauge::{plaquette, set_link};
@@ -439,13 +441,19 @@ mod tests {
             }),
         ] {
             let mut action = TwoFlavor::new(Wilson::<f64>::new(&lat, params), smearing, stop, stop);
-            action.langevin(&u, &mut Mseries::new(3));
-            let f = action.force(&u);
+            let cache = SmearingCache::new();
+            action.langevin(&Links::new(&u, &cache), &mut Mseries::new(3));
+            let f = action.force(&Links::new(&u, &cache));
+            assert_eq!(
+                cache.len(),
+                usize::from(smearing.is_some()),
+                "smeared once, kept"
+            );
             check_force(
                 &u,
                 &f,
                 &[(0, 7), (3, 64), (3, 200)],
-                |w| action.hamiltonian(w),
+                |w| action.hamiltonian(&Links::new(w, &SmearingCache::new())),
                 1e-7,
             );
         }

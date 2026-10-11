@@ -42,7 +42,7 @@ use super::CliError;
 use crate::fermion::{EoForm, MdwfParams};
 use crate::keyword_enum;
 use crate::solver::preconditioner::multigrid::{
-    BootstrapParams, CoarseKrylov, LowModeParams, PvEoParams,
+    BootstrapParams, CoarseKrylov, LevelBootstrap, LowModeParams, PvEoParams,
 };
 use crate::solver::Stop;
 use crate::{Boundary, ND};
@@ -430,6 +430,20 @@ impl MultigridBlock {
             .map_while(|l| l.as_ref().map(|l| l.super_block_size))
             .collect()
     }
+
+    /// The refinement of the test vectors on the lattice of each level below the coarse
+    /// one, in the same order.
+    pub fn level_bootstrap(&self) -> Vec<LevelBootstrap> {
+        [&self.level2, &self.level3, &self.level4]
+            .into_iter()
+            .map_while(|l| {
+                l.as_ref().map(|l| LevelBootstrap {
+                    rounds: l.bootstrap_rounds,
+                    iterations: l.bootstrap_iterations,
+                })
+            })
+            .collect()
+    }
 }
 
 /// A level below the coarse lattice: super-blocks of `super_block_size` sites of the level
@@ -440,6 +454,15 @@ impl MultigridBlock {
 #[serde(deny_unknown_fields)]
 pub struct SubLevelBlock {
     pub super_block_size: usize,
+    /// Before the next level is built from the test vectors on this level's lattice, they
+    /// are refined by inverse iteration with this level's operator: this many rounds of ...
+    #[serde(default)]
+    pub bootstrap_rounds: usize,
+    /// ... this many GCR steps preconditioned by the level's V-cycle. With the bootstrap
+    /// basis the vectors are smooth only within blocks; a level of few super-blocks below
+    /// needs them closer to the low modes.
+    #[serde(default = "four")]
+    pub bootstrap_iterations: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
