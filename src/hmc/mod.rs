@@ -18,7 +18,7 @@ mod integrator;
 mod links;
 mod mseries;
 
-pub use fermion::{force_from, hop_derivative, smeared_force, TwoFlavor};
+pub use fermion::{clover_derivative, force_from, hop_derivative, smeared_force, TwoFlavor};
 pub use gauge_force::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
     RectangleAction, Step,
@@ -453,6 +453,52 @@ mod tests {
                 &u,
                 &f,
                 &[(0, 7), (3, 64), (3, 200)],
+                |w| action.hamiltonian(&Links::new(w, &SmearingCache::new())),
+                1e-7,
+            );
+        }
+    }
+
+    /// The force of two flavours of clover fermions, on the links and on stout links.
+    #[test]
+    fn clover_force_is_the_derivative() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::gauge::smear::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 19);
+        let params = CloverParams {
+            kappa: 0.12,
+            csw: 1.7,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 1000,
+            max_restarts: 10,
+        };
+        for smearing in [
+            None,
+            Some(GaugeSmearing {
+                smear: Smear::Stout(Stout::uniform(0.1)),
+                steps: 1,
+            }),
+        ] {
+            let mut action = TwoFlavor::new(Clover::<f64>::new(&lat, params), smearing, stop, stop)
+                .with_clover(params.kappa * params.csw);
+            let cache = SmearingCache::new();
+            action.langevin(&Links::new(&u, &cache), &mut Mseries::new(5));
+            let f = action.force(&Links::new(&u, &cache));
+            check_force(
+                &u,
+                &f,
+                &[(0, 9), (1, 70), (3, 201)],
                 |w| action.hamiltonian(&Links::new(w, &SmearingCache::new())),
                 1e-7,
             );
