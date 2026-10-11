@@ -1,7 +1,8 @@
 //! The Wilson plaquette action of the gauge field and its force.
 
-use crate::gauge::{link, plaquette};
-use crate::kernel::{ColorMatrix, Cplx};
+use crate::gauge::smear::uniform;
+use crate::gauge::{link, plaquette, weighted_staples};
+use crate::kernel::ColorMatrix;
 use crate::{for_sites, shift, Boundary, Direction, Field, Gauge, Stencil, ND};
 
 /// The plaquette action S_G = β Σ_P (1 − Re tr U_P / 3), with the normalisation of Bridge++
@@ -11,54 +12,14 @@ pub struct PlaquetteAction {
     pub beta: f64,
 }
 
-/// The traceless anti-Hermitian part of a matrix, (M − M†)/2 − tr(M − M†)/(2 N_c).
-pub fn traceless_antihermitian(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
-    let mut a = m.sub(&m.adj()).scale(0.5);
-    let shift = a.trace().im / 3.0;
-    for c in 0..3 {
-        a.0[c][c] = Cplx::new(0.0, a.0[c][c].im - shift);
-    }
-    a
-}
+pub use crate::gauge::smear::traceless_antihermitian;
 
 /// The sum of the six staples of every link: for U_μ(x), Σ_(ν ≠ μ) of U_ν(x) U_μ(x+ν) U_ν(x+μ)†
 /// and U_ν(x−ν)† U_μ(x−ν) U_ν(x−ν+μ), so that U_μ(x) Σ_μ(x)† is the sum of the plaquettes
 /// through the link. Periodic boundary conditions.
 pub fn staples(u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-    let lat = u.lattice();
-    let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
-    let shifted = |f: &Field<f64, Gauge>, mu: usize, dir: Direction| {
-        let mut out = Field::<f64, Gauge>::gauge(f.lattice());
-        shift(&mut out, f, &st, mu, dir);
-        out
-    };
-    // u at x + mu for every mu.
-    let up: [Field<f64, Gauge>; ND] = core::array::from_fn(|mu| shifted(u, mu, Direction::Forward));
-    let mut sum = Field::<f64, Gauge>::gauge(lat);
-    for mu in 0..ND {
-        for nu in (0..ND).filter(|nu| *nu != mu) {
-            // The lower staple at x − ν, built at x and shifted back: U_ν(x)† U_μ(x) U_ν(x+μ).
-            let mut lower = Field::<f64, Gauge>::gauge(lat);
-            for_sites(lower.slab_mut(mu), 18, |x, out| {
-                link(u, nu, x)
-                    .adj()
-                    .mul(&link(u, mu, x).mul(&link(&up[mu], nu, x)))
-                    .write_reals(out);
-            });
-            let lower = shifted(&lower, nu, Direction::Backward);
-            let (up_nu, up_mu) = (&up[nu], &up[mu]);
-            for_sites(sum.slab_mut(mu), 18, |x, out| {
-                let upper = link(u, nu, x).mul(&link(up_nu, mu, x).mul(&link(up_mu, nu, x).adj()));
-                let total = ColorMatrix::from_reals(out)
-                    .add(&upper)
-                    .add(&link(&lower, mu, x));
-                total.write_reals(out);
-            });
-        }
-    }
-    sum
+    weighted_staples(u, &uniform(1.0))
 }
-
 impl PlaquetteAction {
     /// S_G (summed over all processes).
     pub fn action(&self, u: &Field<f64, Gauge>) -> f64 {
