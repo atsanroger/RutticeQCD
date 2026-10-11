@@ -34,7 +34,9 @@
 use ruttice::fermion::{Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, BasisBuilder, CoarseOp};
-use ruttice::solver::{largest_magnitude, BiCgStab, Chebyshev, Fgmres, SolveError, Solver, Stop};
+use ruttice::solver::{
+    largest_magnitude, BiCgStab, Chebyshev, Fgmres, SolveError, SolveInfo, Solver, Stop,
+};
 use ruttice::{
     extract_parity, insert_parity, random_spinor, Boundary, Coarse, EvenOddIndex, Field, Half,
     Lattice, LinearFn, LinearOp, Parity, Spinor, Vector, C64, ND,
@@ -2459,6 +2461,67 @@ fn orthonormalise_h(y: &mut H) {
     }
 }
 
+/// Flexible GCR keeping the last `k` directions (truncated GCR, Orthomin(k)): every step
+/// applies the preconditioner once, makes the new A-direction orthogonal to the kept ones
+/// and minimises the residual along it. Memory: x, r, the new z = M r and A z, and k kept
+/// pairs, 4 + 2k vectors per right-hand side, against 2(k + 1) for FGMRES(k).
+fn gcr(
+    a: &mut dyn LinearFn<H>,
+    m: &mut dyn LinearFn<H>,
+    x: &mut H,
+    b: &H,
+    k: usize,
+    stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    let nv = b.num_vectors();
+    let (mut bb, mut rr) = (vec![0.0; nv], vec![0.0; nv]);
+    b.norm_sqr(&mut bb);
+    let mut r = b.zeros_like();
+    a.mult(&mut r, x);
+    r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+    let mut kept: std::collections::VecDeque<(H, H)> = std::collections::VecDeque::new();
+    let mut dots = vec![C64::ZERO; nv];
+    for it in 0..stop.max_iterations {
+        r.norm_sqr(&mut rr);
+        if (0..nv).all(|j| rr[j] <= stop.tolerance_sqr * bb[j]) {
+            return Ok(SolveInfo {
+                iterations: it,
+                restarts: 0,
+                residual_sqr: (0..nv).map(|j| rr[j] / bb[j]).collect(),
+            });
+        }
+        let mut z = r.zeros_like();
+        m.mult(&mut z, &r);
+        let mut q = r.zeros_like();
+        a.mult(&mut q, &z);
+        for (zi, qi) in &kept {
+            qi.dot(&q, &mut dots);
+            let minus: Vec<C64> = dots.iter().map(|d| -*d).collect();
+            q.axpy(&minus, qi);
+            z.axpy(&minus, zi);
+        }
+        let mut nq = vec![0.0; nv];
+        q.norm_sqr(&mut nq);
+        let scale: Vec<f64> = nq.iter().map(|n| 1.0 / n.sqrt().max(1e-300)).collect();
+        q.scale(&scale);
+        z.scale(&scale);
+        q.dot(&r, &mut dots);
+        x.axpy(&dots, &z);
+        let minus: Vec<C64> = dots.iter().map(|d| -*d).collect();
+        r.axpy(&minus, &q);
+        kept.push_back((z, q));
+        if kept.len() > k {
+            kept.pop_front();
+        }
+    }
+    r.norm_sqr(&mut rr);
+    Err(SolveError::NotConverged(SolveInfo {
+        iterations: stop.max_iterations,
+        restarts: 0,
+        residual_sqr: (0..nv).map(|j| rr[j] / bb[j]).collect(),
+    }))
+}
+
 fn load(path: &PathBuf, like: &H, count: usize) -> Result<(H, Vec<f64>), Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
@@ -2539,6 +2602,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .skip(11)
         .find_map(|s| s.strip_prefix("fgmres:")?.parse().ok());
+    // `gcr:K`: the outer solver is flexible GCR keeping the last K directions (4 + 2K
+    // vectors per right-hand side, against 2(K + 1) for FGMRES(K)).
+    let gcr_k: Option<usize> = args
+        .iter()
+        .skip(11)
+        .find_map(|s| s.strip_prefix("gcr:")?.parse().ok());
 
     let lat = Lattice::single_node([l; ND]);
     let u = read_bridge_text(&path, &lat)?;
@@ -3204,14 +3273,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                         pv_adj,
                         nc: nc.clone(),
                     };
-                    match outer {
-                        Some(k) => Fgmres::new(Stop {
+                    match (outer, gcr_k) {
+                        (_, Some(k)) => gcr(&mut a, &mut cycle, &mut y_sol, &rhs, k, stop),
+                        (Some(k), None) => Fgmres::new(Stop {
                             max_iterations: k,
                             max_restarts: 100,
                             ..stop
                         })
                         .solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs),
-                        None => {
+                        (None, None) => {
                             BiCgStab::new(stop).solve(&mut a, Some(&mut cycle), &mut y_sol, &rhs)
                         }
                     }
