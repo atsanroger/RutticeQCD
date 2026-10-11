@@ -379,11 +379,20 @@ fn multigrid_cycle_runs_as_a_preconditioner() {
     }
 }
 
-/// The even-odd blocks put together are D, and those of the adjoint are D†.
+/// The even-odd blocks put together are D, and those of the adjoint are D†; also in
+/// Neff's form D^(α).
 #[test]
 fn even_odd_blocks_add_up_to_the_operator() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
-    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 31));
+    let mut op = operator(&lat, MOBIUS, &random_gauge(&lat, 31));
+    for alpha in [1.0, 0.5] {
+        op.set_alpha(alpha);
+        even_odd_blocks_of(&lat, &op);
+    }
+}
+
+fn even_odd_blocks_of(lat: &Arc<Lattice>, op: &Mdwf<f64>) {
+    let lat = lat.clone();
     let index = op.even_odd_index().unwrap();
     let x = random(&lat, MOBIUS.ls, 2, 32);
     let half = |parity: Parity| {
@@ -418,10 +427,92 @@ fn even_odd_blocks_add_up_to_the_operator() {
                 left[0] / size[0]
             );
         }
-        let whole = mult(&op, &x, variant);
+        let whole = mult(op, &x, variant);
         let diff = max_diff(&blocks, &whole);
+        assert!(diff < 1e-13, "α = {}, {variant:?}: {diff:e}", op.alpha());
+    }
+}
+
+/// Neff's form D^(α) = D Q (arXiv:2602.14454): it is D applied after Q, its adjoint is
+/// Q D†, Γ5 D^(α) = Γ5 D Q, and its site-local part C Q has the inverse Q⁻¹ C⁻¹. Q leaves
+/// the components the mass term sees (P- ψ_0 and P+ ψ_(Ls-1)) alone, so the 4D quark field
+/// of the solution is that of x = Q x^(α); checked without a γ5 convention through the
+/// mass dependence: D^(α)(m1) - D^(α)(m2) = D(m1) - D(m2).
+#[test]
+fn neff_alpha_form() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let u = random_gauge(&lat, 91);
+    let plain = operator(&lat, MOBIUS, &u);
+    let mut op = operator(&lat, MOBIUS, &u);
+    let alpha = 0.5;
+    op.set_alpha(alpha);
+    let (x, y) = (
+        random(&lat, MOBIUS.ls, 2, 92),
+        random(&lat, MOBIUS.ls, 2, 93),
+    );
+    let q = |inp: &V, inverse: bool| {
+        let mut out = inp.zeros_like();
+        op.mult_q(&mut out, inp, inverse);
+        out
+    };
+    assert!(max_diff(&q(&q(&x, false), true), &x) < 1e-14);
+    assert!(max_diff(&q(&x, false), &x) > 0.1);
+    // Q is Hermitian.
+    let (lhs, rhs) = (dot(&y, &q(&x, false)), dot(&q(&y, false), &x));
+    assert!((lhs - rhs).norm_sqr().sqrt() < 1e-13 * dot(&x, &x).re);
+
+    let qx = q(&x, false);
+    for (variant, want) in [
+        (Variant::D, mult(&plain, &qx, Variant::D)),
+        (Variant::Gamma5D, mult(&plain, &qx, Variant::Gamma5D)),
+        (
+            Variant::Dagger,
+            q(&mult(&plain, &x, Variant::Dagger), false),
+        ),
+    ] {
+        let diff = max_diff(&mult(&op, &x, variant), &want);
         assert!(diff < 1e-13, "{variant:?}: {diff:e}");
     }
+    let scale = dot(&x, &x).re;
+    let (lhs, rhs) = (
+        dot(&y, &mult(&op, &x, Variant::D)),
+        dot(&mult(&op, &y, Variant::Dagger), &x),
+    );
+    assert!((lhs - rhs).norm_sqr().sqrt() < 1e-13 * scale);
+
+    for mass in [MOBIUS.mass, 1.0] {
+        for dagger in [false, true] {
+            let (mut c, mut back, mut want) = (x.zeros_like(), x.zeros_like(), x.zeros_like());
+            op.mult_site(&mut c, &x, mass, dagger);
+            if dagger {
+                plain.mult_site(&mut want, &x, mass, true);
+                want = q(&want, false);
+            } else {
+                plain.mult_site(&mut want, &qx, mass, false);
+            }
+            assert!(max_diff(&c, &want) < 1e-13, "mass {mass}, dagger {dagger}");
+            op.mult_site_inv(&mut back, &c, mass, dagger);
+            let diff = max_diff(&back, &x);
+            assert!(diff < 1e-13, "mass {mass}, dagger {dagger}: {diff:e}");
+        }
+    }
+
+    let heavy = MdwfParams {
+        mass: 0.4,
+        ..MOBIUS
+    };
+    let mut op_heavy = operator(&lat, heavy, &u);
+    op_heavy.set_alpha(alpha);
+    let plain_heavy = operator(&lat, heavy, &u);
+    let difference = |a: &Mdwf<f64>, b: &Mdwf<f64>| {
+        let mut d = mult(a, &x, Variant::D);
+        d.axpy(&[C64::new(-1.0, 0.0); 2], &mult(b, &x, Variant::D));
+        d
+    };
+    let (with, without) = (difference(&op, &op_heavy), difference(&plain, &plain_heavy));
+    let diff = max_diff(&with, &without);
+    assert!(diff < 1e-13, "the mass term sees Q: {diff:e}");
+    assert!(max_diff(&without, &x.zeros_like()) > 0.01);
 }
 
 /// CG on the normal equations of the Schur complement solves D x = b, in fewer iterations
