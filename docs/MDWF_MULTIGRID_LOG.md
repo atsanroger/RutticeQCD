@@ -100,6 +100,22 @@
    **16⁴ 驗證（2026-10-11）**：便宜的 setup（M = K = 16、2 輪）860 s、峰值 4.1 GB。但 `bootbatch:4` 的 bootstrap 在 16⁴ 超過這台的 12 GB
    （RSS 10 GB、虛擬 15.7 GB，大量 swap，整台機器卡住），所以中止。12⁴ 的 5.17 GB 乘上體積比 3.16 正好約 16 GB——
    **bootstrap 的記憶體大頭是隨體積縮放的固定部分（不只是批次大小）**，要逐項拆開看（測試向量、s／t̂、P、cycle 的工作場）。先用 `bootbatch:1` 重跑。
+   **逐項拆開（2026-10-11，`mdwf_eo_cycle` 各階段印 VmRSS／VmHWM；12⁴ β = 6.0、M = K = 16 兩輪、`boot:2:4:1e-2 bootfg bootbatch:1 gcr:2 dbicg st abs2f:3`）**：
+   - 讀入 16 個 y、gauge、算子：0.37 GB。
+   - **P 本身 1.02 GB**：`BasisBuilder` 對 2N = 32 個測試向量各存兩個手性部分、每個都是完整長度的 f32 場（等於 64 個全格子 f32 場；32⁴ 會到 51 GB）。
+   - **暫時峰值 1.4 GB**：診斷用的 \|Ãy\|/\|y\|（`quotient`）一次把 16 個 y 丟進 Ã，所有工作場都變成 16 個向量大；第 0 輪結束時它和 cycle 的工作場同時存在 → 峰值 4.13 GB。
+   - 一個向量的 bootstrap 批次：+0.86 GB（`new_y` 0.25 GB，其餘是 cycle／FGMRES 的工作場）。`orthonormalise_h` 也會複製整個 y。
+
+   **改法**：
+   - (1) **P 摺疊**（`src/`：`Reflection`、`BasisBuilder::folded`）：Γ5 = γ5 R 時，手性部分滿足 p_{Ls−1−s} = ±γ5 p_s，所以只存 s < Ls/2。
+     restrict 先摺 f_s ± γ5 f_{Ls−1−s}，prolong 展開 a₊ ± a₋。P 的記憶體和 restrict／prolong 的 flop 都減半；`add` 時會檢查 Γ5 真的是 R⊗g 的形式。
+     新測試 `folded_basis_acts_as_the_full_one`（與不摺疊的逐項相同到 1e-12、P†P = 1）、`folding_with_the_wrong_reflection_is_refused`。
+   - (2) `quotient` 逐向量算。
+   - (3) bootstrap 的結果直接寫回 y。
+   - (4) `orthonormalise_h` 就地做。
+
+   **結果：迭代數完全相同（26 / 287 / 2150、\|Ãy\|/\|y\| 各輪相同），整個流程的峰值 4.13 → 1.65 GB（−60%），求解階段 1.89 → 1.41 GB。** \|PP†v − v\| 仍是 3.6e-8。
+   `nofold` 可以關掉摺疊。
    **外層 FGMRES(8)**：25 / 280 / 2092——幾乎與 FGMRES(16) 相同，記憶體減半（每個右手邊 18 個向量）。
    **CG 等級記憶體的外層：截斷的 flexible GCR(k)**（`gcr:K`，只留最近 K 個方向，每個右手邊 4 + 2K 個向量；12⁴ β = 6.0、收斂基底、`dbicg st abs2f:3`、粗網格 1e-2）：
 

@@ -9,8 +9,10 @@ use ruttice::fermion::{
 };
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
+use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
 use ruttice::solver::preconditioner::multigrid::{
-    mdwf_multigrid, CoarseOp, MdwfCoarse, MdwfMultigridParams, MdwfSmoother,
+    mdwf_multigrid, Aggregation, Basis, BasisBuilder, CoarseOp, MdwfCoarse, MdwfMultigridParams,
+    MdwfSmoother, Reflection,
 };
 use ruttice::solver::{solve_cgne, BiCgStab, Cg, Fgmres, Polynomial, Solve, Solver, Stop};
 use ruttice::{
@@ -762,4 +764,72 @@ fn chebyshev_smoother_in_the_cycle() {
         info.iterations
     );
     assert!(physical < 1e-15, "{physical:e}");
+}
+
+/// The basis of four random test vectors on 2⁴ blocks, folded with `fold` if given.
+fn folded_and_full(op: &Mdwf<f64>, lat: &Arc<Lattice>, fold: Option<Gamma>) -> Basis<f64> {
+    let agg = Aggregation::new(lat, [2, 2, 2, 2]);
+    let n = 4;
+    let mut builder = BasisBuilder::<f64>::new(&agg, n);
+    if let Some(g) = fold {
+        builder = builder.folded(Reflection(g));
+    }
+    for i in 0..n {
+        let x = random(lat, MOBIUS.ls, 1, 120 + i as u64);
+        let mut g5x = x.zeros_like();
+        op.mult_gamma5(&mut op.work(), &mut g5x, &x);
+        builder.add(i, &x, &g5x);
+    }
+    builder.finish().unwrap()
+}
+
+/// A basis folded on the fifth dimension (Γ5 = γ5 R, only s < Ls/2 kept) restricts and
+/// prolongs as the full one does, in half the memory.
+#[test]
+fn folded_basis_acts_as_the_full_one() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
+    let full = folded_and_full(&op, &lat, None);
+    let folded = folded_and_full(&op, &lat, Some(Dirac::GAMMA5));
+    assert!(folded.is_folded() && !full.is_folded());
+
+    let f = random(&lat, MOBIUS.ls, 2, 130);
+    let (mut a, mut b) = (full.coarse_field(2), full.coarse_field(2));
+    full.restrict(&mut a, &f);
+    folded.restrict(&mut b, &f);
+    let scale = a.as_slice().iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let diff = a
+        .as_slice()
+        .iter()
+        .zip(b.as_slice())
+        .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+    assert!(diff < 1e-12 * scale, "restriction: {diff:e}");
+
+    let (mut pa, mut pb) = (f.zeros_like(), f.zeros_like());
+    full.prolong(&mut pa, &a);
+    folded.prolong(&mut pb, &a);
+    let diff = max_diff(&pa, &pb);
+    assert!(diff < 1e-12, "prolongation: {diff:e}");
+    // P† P = 1 for the folded basis.
+    let mut back = a.zeros_like();
+    folded.restrict(&mut back, &pb);
+    let diff = back
+        .as_slice()
+        .iter()
+        .zip(a.as_slice())
+        .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+    assert!(diff < 1e-12 * scale, "P† P: {diff:e}");
+}
+
+/// With a wrong reflection (here -γ5) the builder refuses the test vectors.
+#[test]
+#[should_panic(expected = "Γ5 is not R ⊗ g")]
+fn folding_with_the_wrong_reflection_is_refused() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
+    let minus = Gamma {
+        col: Dirac::GAMMA5.col,
+        val: [Unit::MinusOne; 4],
+    };
+    folded_and_full(&op, &lat, Some(minus));
 }
