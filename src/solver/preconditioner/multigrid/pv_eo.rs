@@ -147,6 +147,18 @@ impl BlockMap {
         Ok(Self { dim, blocks })
     }
 
+    /// The inverses of the diagonal blocks of the exact adjoint of `a`: (A_xx†)⁻¹ = (A_xx⁻¹)†.
+    fn inverse_diagonal_adjoint(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
+        let mut m = Self::inverse_diagonal(a)?;
+        let dim = m.dim;
+        for b in m.blocks.iter_mut() {
+            *b = (0..dim * dim)
+                .map(|ik| b[(ik % dim) * dim + ik / dim].conj())
+                .collect();
+        }
+        Ok(m)
+    }
+
     /// |H_xx|⁻¹ = V |Λ|⁻¹ V† for H = Γ5 (Γ5 A Γ5) = A Γ5, the operator MINRES works on
     /// when `a` holds P†D_PV P and is applied as its Γ5-adjoint (Γ5 = +1 on the first half
     /// of the components). Hermitian positive definite, as MINRES needs of a preconditioner.
@@ -212,22 +224,34 @@ fn coarse_gamma5<T: Storage>(v: &mut Field<T, Coarse>) {
     }
 }
 
-/// A coarse factor as a linear map counting its applications: D_c, or H = Γ5 D_c† for
-/// the Pauli-Villars factor (`adjoint`).
+/// How a coarse factor is applied.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Apply {
+    /// D_c.
+    Plain,
+    /// H = Γ5 (Γ5 D_c Γ5) = D_c Γ5, the Γ5-adjoint (for MINRES).
+    Gamma5Adjoint,
+    /// D_c† exactly.
+    Adjoint,
+}
+
+/// A coarse factor as a linear map counting its applications.
 struct Counted<'a, T: Storage> {
     a: &'a mut CoarseOp<T>,
-    adjoint: bool,
+    apply: Apply,
     n: &'a Cell<usize>,
 }
 
 impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
     fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         self.n.set(self.n.get() + inp.num_vectors());
-        if self.adjoint {
-            self.a.mult_dag(out, inp);
-            coarse_gamma5(out);
-        } else {
-            self.a.mult(out, inp);
+        match self.apply {
+            Apply::Plain => self.a.mult(out, inp),
+            Apply::Gamma5Adjoint => {
+                self.a.mult_dag(out, inp);
+                coarse_gamma5(out);
+            }
+            Apply::Adjoint => self.a.mult_adjoint(out, inp),
         }
     }
 }
@@ -244,6 +268,10 @@ pub struct PvEoParams {
     /// Steps of the power iteration for |λ_max|, from a random vector with this seed.
     pub power_steps: usize,
     pub seed: u64,
+    /// The second coarse factor (P†D_PV†P, or P†D†P for the normal equations) by BiCGStab
+    /// on the exact adjoint of the stored matrix with the adjoint block inverses, instead of
+    /// MINRES on its Γ5-adjoint (exact only where D† = Γ5 D Γ5, approximately so for Möbius).
+    pub exact_adjoint: bool,
 }
 
 impl Default for PvEoParams {
@@ -256,6 +284,7 @@ impl Default for PvEoParams {
             coarse_tolerance_sqr: 1e-2,
             power_steps: 50,
             seed: 5,
+            exact_adjoint: false,
         }
     }
 }
@@ -338,7 +367,11 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         let coarse_d = CoarseOp::build(op, &mut op.work(), basis);
         let coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis);
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
-        let blocks_pv = BlockMap::abs_inverse_of_a_gamma5(&coarse_pv);
+        let blocks_pv = if params.exact_adjoint {
+            BlockMap::inverse_diagonal_adjoint(&coarse_pv)?
+        } else {
+            BlockMap::abs_inverse_of_a_gamma5(&coarse_pv)
+        };
         let (coarse_d, coarse_pv) = (coarse_d.to_storage(), coarse_pv.to_storage());
         let mut start = like.zeros_like();
         extract_parity(
@@ -421,19 +454,33 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         self.gc.convert_from(&self.g);
         let stop = Stop::simple(self.params.coarse_tolerance_sqr, 5000);
         let n = &self.coarse_applications;
-        // w = (P†D_PV†P)⁻¹ g: MINRES on H = Γ5 (P†D_PV P)† with H w = Γ5 g.
-        coarse_gamma5(&mut self.gc);
+        // w = (P†D_PV†P)⁻¹ g: BiCGStab on the exact adjoint, or MINRES on
+        // H = Γ5 (Γ5 P†D_PV P Γ5) with H w = Γ5 g.
         self.w.set_zero();
-        let _ = Minres::new(stop).solve(
-            &mut Counted {
-                a: &mut self.coarse_pv,
-                adjoint: true,
-                n,
-            },
-            Some(&mut self.blocks_pv),
-            &mut self.w,
-            &self.gc,
-        );
+        if self.params.exact_adjoint {
+            let _ = BiCgStab::new(stop).solve(
+                &mut Counted {
+                    a: &mut self.coarse_pv,
+                    apply: Apply::Adjoint,
+                    n,
+                },
+                Some(&mut self.blocks_pv),
+                &mut self.w,
+                &self.gc,
+            );
+        } else {
+            coarse_gamma5(&mut self.gc);
+            let _ = Minres::new(stop).solve(
+                &mut Counted {
+                    a: &mut self.coarse_pv,
+                    apply: Apply::Gamma5Adjoint,
+                    n,
+                },
+                Some(&mut self.blocks_pv),
+                &mut self.w,
+                &self.gc,
+            );
+        }
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
         self.g.convert_from(&self.w);
         self.basis.prolong_half(&mut self.h, &self.g, &self.index);
@@ -450,7 +497,7 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         let _ = BiCgStab::new(stop).solve(
             &mut Counted {
                 a: &mut self.coarse_d,
-                adjoint: false,
+                apply: Apply::Plain,
                 n,
             },
             Some(&mut self.blocks_d),

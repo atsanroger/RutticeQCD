@@ -1132,3 +1132,107 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
     );
     assert!(left[0] < 1e-16 * size[0]);
 }
+
+/// The exact adjoint of a coarse operator: <x, D_c y> = <D_c† x, y>; and it differs from
+/// the Γ5-adjoint for Möbius (c ≠ 0), where D† = Γ5 D Γ5 holds only approximately.
+#[test]
+fn coarse_operator_exact_adjoint() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
+    let basis = folded_and_full(&op, &lat, Some(Dirac::GAMMA5));
+    let mut coarse = CoarseOp::build(&op, &mut op.work(), &basis);
+    let fill = |seed: usize| {
+        let mut c = basis.coarse_field(1);
+        for (i, v) in c.as_mut_slice().iter_mut().enumerate() {
+            *v = ((i * 7 + seed) as f64 * 0.37).sin();
+        }
+        c
+    };
+    let (x, y) = (fill(3), fill(11));
+    let (mut dy, mut dag_x, mut g5_x) = (y.zeros_like(), x.zeros_like(), x.zeros_like());
+    coarse.mult(&mut dy, &y);
+    coarse.mult_adjoint(&mut dag_x, &x);
+    coarse.mult_dag(&mut g5_x, &x);
+    let dot = |a: &Field<f64, ruttice::Coarse>, b: &Field<f64, ruttice::Coarse>| {
+        let mut d = [C64::ZERO];
+        a.dot(b, &mut d);
+        d[0]
+    };
+    let (lhs, rhs) = (dot(&x, &dy), dot(&dag_x, &y));
+    let scale = dot(&x, &x).re.sqrt() * dot(&dy, &dy).re.sqrt();
+    assert!(
+        (lhs - rhs).norm_sqr().sqrt() < 1e-12 * scale,
+        "{lhs:?} vs {rhs:?}"
+    );
+    let mut diff = dag_x.zeros_like();
+    diff.copy_from(&dag_x);
+    diff.axpy(&[C64::new(-1.0, 0.0)], &g5_x);
+    eprintln!(
+        "|D_c† x − Γ5 D_c Γ5 x| / |D_c† x| = {:.2e}",
+        (dot(&diff, &diff).re / dot(&dag_x, &dag_x).re).sqrt()
+    );
+}
+
+/// CGNE with Neff's α and the multigrid: the operator is the normal operator
+/// N = L^(α)† L^(α) of the left-preconditioned Schur complement (`PvEvenOdd` with the quark
+/// operator in place of the Pauli-Villars one), whose inverse the cycle approximates with
+/// the second coarse factor P†D†P solved on the exact adjoint. GCR(2) with the cycle
+/// solves D x = b in fewer steps than CG without it.
+#[test]
+fn cgne_with_alpha_and_the_multigrid() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 181);
+    let op = operator(&lat, MOBIUS, &u);
+    let (y, _) = pv_eo_low_modes(
+        &op,
+        &op,
+        &lat,
+        LowModeParams {
+            vectors: 6,
+            rounds: 2,
+            chunk: 3,
+            seed: 182,
+        },
+    );
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let basis = pv_eo_basis(&op, &op, &agg, &y).unwrap();
+    let mut like = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    like.set_parity(Parity::Even);
+    let b = random(&lat, MOBIUS.ls, 1, 183);
+    for alpha in [1.0, 0.6] {
+        let mut op_a = operator(&lat, MOBIUS, &u);
+        op_a.set_alpha(alpha);
+        let mut n = PvEvenOdd::new(&op_a, &op_a, EoForm::Left, &like);
+        let mut rhs = like.zeros_like();
+        n.right_hand_side(&mut rhs, &b);
+        let stop = Stop::simple(1e-24, 2000);
+        let mut plain = like.zeros_like();
+        let cg = Cg::new(stop).solve(&mut n, None, &mut plain, &rhs).unwrap();
+        let params = PvEoParams {
+            exact_adjoint: true,
+            ..PvEoParams::default()
+        };
+        let mut cycle =
+            PvEoCycle::new(&op, &op, (&op_a, &op_a, EoForm::Left), &basis, params).unwrap();
+        let mut sol = like.zeros_like();
+        let info = Gcr::new(stop, 2)
+            .solve(&mut n, Some(&mut cycle), &mut sol, &rhs)
+            .unwrap();
+        let mut x = b.zeros_like();
+        n.solution(&mut x, &sol, &b);
+        let mut r = mult(&op, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        let (mut left, mut size) = ([0.0], [0.0]);
+        r.norm_sqr(&mut left);
+        b.norm_sqr(&mut size);
+        eprintln!(
+            "α {alpha}: GCR(2) with the cycle {} steps ({} coarse), CG alone {}; |D x - b|^2/|b|^2 = {:e}",
+            info.iterations,
+            cycle.coarse_applications(),
+            cg.iterations,
+            left[0] / size[0]
+        );
+        assert!(left[0] < 1e-14 * size[0]);
+        assert!(info.iterations < cg.iterations);
+    }
+}
