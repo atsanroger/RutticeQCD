@@ -33,56 +33,55 @@
 //! as its Γ5-adjoint, by MINRES on H = Γ5 (P†D_PV P)† with the block |H_xx|⁻¹. The cycle:
 //! y = S b, y += e(b − Ã y), y += S(b − Ã y), S a Chebyshev polynomial in the operator.
 
-use super::{Aggregation, Basis, BasisBuilder, CoarseOp, MultigridError, Reflection};
-use crate::fermion::{
-    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, PvEvenOdd, Variant,
+use super::{
+    Aggregation, Basis, BasisBuilder, CoarseOp, MultigridError, Reflection, SignedMultilevel,
 };
-use crate::kernel::{Dirac, GammaRepre, Number, Real};
+use crate::fermion::{
+    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, MdwfLayout, PvEvenOdd,
+    Variant,
+};
+use crate::kernel::{Dirac, GammaRepre, LaneOf, Number, Real};
 use crate::numerics::{hermitian_eigen, invert_complex};
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
-    extract_parity, insert_parity, random_spinor, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
-    Lattice, LinearFn, LinearOp, Parity, Spinor, Storage, Vector, C64,
+    extract_parity, insert_parity, random_spinor, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex,
+    Field, Full, Half, Lattice, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage, Vector,
+    C64,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-type HalfField = Field<f64, Spinor, Half>;
+type HalfField<L = Aos> = Field<f64, Spinor, Half, L>;
 type CoarseField = Field<f64, Coarse>;
 
 /// P: double-precision fields, single-precision storage, folded on the fifth dimension.
 pub type PvEoBasis = Basis<f64, f32>;
 
-/// The prolongation from vectors `y` on the even sites (see the top of the file): 2 n
-/// test vectors for n vectors in `y`, on the aggregates `agg`.
-pub fn pv_eo_basis<G: GammaRepre>(
+/// The full-lattice vectors s_j and t̂_j of the vectors y_j on the even sites (see the top
+/// of the file), one j at a time: `visit(i, v)` gets s_j as i = j and t̂_j as i = n + j.
+/// At most a few full-lattice fields are alive at a time.
+fn lifted_vectors<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
-    agg: &Arc<Aggregation>,
+    lat: &Arc<crate::Lattice>,
     y: &HalfField,
-) -> Result<PvEoBasis, MultigridError> {
+    mut visit: impl FnMut(usize, &Field<f64, Spinor>),
+) {
     let index = op
         .even_odd_index()
         .expect("an even-odd decomposition")
         .clone();
     let n = y.num_vectors();
-    let lat = agg.fine_lattice().clone();
     let ls = op.params().ls;
-    let full = || Field::<f64, Spinor>::with_shape(&lat, 24, ls, 1, 1);
+    let full = || Field::<f64, Spinor>::with_shape(lat, 24, ls, 1, 1);
     let half = |parity: Parity| {
-        let mut h = HalfField::with_shape(&lat, 24, ls, 1, 1);
+        let mut h = HalfField::with_shape(lat, 24, ls, 1, 1);
         h.set_parity(parity);
         h
     };
     let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
     let mut full_work = op.work();
-    let mut builder = BasisBuilder::<f64, f32>::new(agg, 2 * n).folded(Reflection(G::GAMMA5));
-    let mut g5 = full();
-    let mut add = |i: usize, v: &Field<f64, Spinor>, work: &mut _| {
-        op.mult_gamma5(work, &mut g5, v);
-        builder.add(i, v, &g5);
-    };
     for j in 0..n {
         let yj = y.select(&[j]);
         // s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
@@ -99,7 +98,7 @@ pub fn pv_eo_basis<G: GammaRepre>(
         // t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s)
         let mut ds = full();
         op.mult(&mut full_work, &mut ds, &s, Variant::D);
-        add(j, &s, &mut full_work);
+        visit(j, &s);
         drop(s);
         let mut a = half(Parity::Even);
         extract_parity(&mut a, &ds, &index, Parity::Even);
@@ -110,10 +109,49 @@ pub fn pv_eo_basis<G: GammaRepre>(
         let mut t_hat = full();
         insert_parity(&mut t_hat, &a, &index);
         insert_parity(&mut t_hat, &x_o, &index);
-        add(n + j, &t_hat, &mut full_work);
+        visit(n + j, &t_hat);
     }
-    drop(add);
+}
+
+/// The prolongation from vectors `y` on the even sites (see the top of the file): 2 n
+/// test vectors for n vectors in `y`, on the aggregates `agg`.
+pub fn pv_eo_basis<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    agg: &Arc<Aggregation>,
+    y: &HalfField,
+) -> Result<PvEoBasis, MultigridError> {
+    let lat = agg.fine_lattice().clone();
+    let mut builder =
+        BasisBuilder::<f64, f32>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
+    let mut work = op.work();
+    let mut g5 = Field::<f64, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
+    lifted_vectors(op, pv, &lat, y, |i, v| {
+        op.mult_gamma5(&mut work, &mut g5, v);
+        builder.add(i, v, &g5);
+    });
     builder.finish()
+}
+
+/// The vectors s_j and t̂_j the basis was built from, restricted to the coarse lattice
+/// (P† s_j, P† t̂_j): the test vectors of the levels below it (`PvEoCycle::add_levels`).
+pub fn pv_eo_coarse_vectors<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    basis: &PvEoBasis,
+    y: &HalfField,
+) -> Vec<CoarseField> {
+    let lat = basis.aggregation().fine_lattice().clone();
+    let mut restricted: Vec<Option<CoarseField>> = (0..2 * y.num_vectors()).map(|_| None).collect();
+    lifted_vectors(op, pv, &lat, y, |i, v| {
+        let mut c = basis.coarse_field(1);
+        basis.restrict(&mut c, v);
+        restricted[i] = Some(c);
+    });
+    restricted
+        .into_iter()
+        .map(|c| c.expect("every vector visited"))
+        .collect()
 }
 
 /// Dense matrices on the coarse sites, applied site by site.
@@ -225,11 +263,9 @@ fn coarse_gamma5<T: Storage>(v: &mut Field<T, Coarse>) {
     }
 }
 
-/// How a coarse factor is applied.
+/// How the PV factor is applied.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Apply {
-    /// D_c.
-    Plain,
     /// H = Γ5 (Γ5 D_c Γ5) = D_c Γ5, the Γ5-adjoint (for MINRES).
     Gamma5Adjoint,
     /// D_c† exactly.
@@ -247,7 +283,6 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
     fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         self.n.set(self.n.get() + inp.num_vectors());
         match self.apply {
-            Apply::Plain => self.a.mult(out, inp),
             Apply::Gamma5Adjoint => {
                 self.a.mult_dag(out, inp);
                 coarse_gamma5(out);
@@ -279,7 +314,7 @@ fn coarse_solve<T: Storage>(
     kind: CoarseKrylov,
     stop: Stop,
     a: &mut dyn LinearFn<Field<T, Coarse>>,
-    m: &mut BlockMap,
+    m: &mut dyn LinearFn<Field<T, Coarse>>,
     x: &mut Field<T, Coarse>,
     b: &Field<T, Coarse>,
 ) {
@@ -288,6 +323,47 @@ fn coarse_solve<T: Storage>(
         CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, Some(m), x, b),
         CoarseKrylov::Minres => Minres::new(stop).solve(a, Some(m), x, b),
     };
+}
+
+/// The quark factor, shared between its solver and its preconditioner.
+struct CountedShared<'a, T: Storage> {
+    a: &'a RefCell<CoarseOp<T>>,
+    n: &'a Cell<usize>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedShared<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        self.a.borrow_mut().mult(out, inp);
+    }
+}
+
+/// The preconditioner of the quark factor: the inverses of its diagonal blocks B, or with
+/// levels below the coarse lattice multiplicatively z₁ = Q M Q† r, z = z₁ + B⁻¹ (r − A z₁)
+/// (one more application of A, counted); an additive combination made BiCGStab worse.
+struct LevelsAndBlocks<'a, T: Storage> {
+    blocks: &'a mut BlockMap,
+    levels: Option<&'a SignedMultilevel>,
+    a: &'a RefCell<CoarseOp<T>>,
+    n: &'a Cell<usize>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for LevelsAndBlocks<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        let Some(levels) = self.levels else {
+            self.blocks.mult(out, inp);
+            return;
+        };
+        let nv = inp.num_vectors();
+        let mut z1 = inp.zeros_like();
+        levels.apply(&mut z1, inp);
+        let mut r = inp.zeros_like();
+        self.a.borrow_mut().mult(&mut r, &z1);
+        self.n.set(self.n.get() + nv);
+        r.aypx(&vec![C64::new(-1.0, 0.0); nv], inp);
+        self.blocks.mult(out, &r);
+        out.axpy(&vec![C64::new(1.0, 0.0); nv], &z1);
+    }
 }
 
 /// Settings of the cycle.
@@ -336,39 +412,102 @@ impl Default for PvEoParams {
 /// preconditions, so that the two do not each hold its work fields. The solver and the
 /// cycle apply it one after the other, never inside each other, which the `RefCell`
 /// checks.
-pub struct SharedOperator<'a, G: GammaRepre = Dirac>(Rc<RefCell<PvEvenOdd<'a, f64, G>>>);
+pub struct SharedOperator<'a, G: GammaRepre = Dirac, L: MdwfLayout<f64> = Aos>(
+    Rc<RefCell<PvEvenOdd<'a, f64, G, L>>>,
+);
 
-impl<G: GammaRepre> Clone for SharedOperator<'_, G> {
+impl<G: GammaRepre, L: MdwfLayout<f64>> Clone for SharedOperator<'_, G, L> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<'a, G: GammaRepre> SharedOperator<'a, G> {
-    pub fn new(a: PvEvenOdd<'a, f64, G>) -> Self {
+impl<'a, G: GammaRepre, L: MdwfLayout<f64>> SharedOperator<'a, G, L> {
+    pub fn new(a: PvEvenOdd<'a, f64, G, L>) -> Self {
         Self(Rc::new(RefCell::new(a)))
     }
 
     /// See `PvEvenOdd::right_hand_side`.
-    pub fn right_hand_side(&self, rhs: &mut HalfField, b: &Field<f64, Spinor>) {
+    pub fn right_hand_side(&self, rhs: &mut HalfField<L>, b: &Field<f64, Spinor, Full, L>) {
         self.0.borrow_mut().right_hand_side(rhs, b);
     }
 
     /// See `PvEvenOdd::solution`.
-    pub fn solution(&self, x: &mut Field<f64, Spinor>, y: &HalfField, b: &Field<f64, Spinor>) {
+    pub fn solution(
+        &self,
+        x: &mut Field<f64, Spinor, Full, L>,
+        y: &HalfField<L>,
+        b: &Field<f64, Spinor, Full, L>,
+    ) {
         self.0.borrow_mut().solution(x, y, b);
     }
 }
 
-impl<G: GammaRepre> LinearFn<HalfField> for SharedOperator<'_, G> {
-    fn mult(&mut self, out: &mut HalfField, inp: &HalfField) {
+impl<G: GammaRepre, L: MdwfLayout<f64>> LinearFn<HalfField<L>> for SharedOperator<'_, G, L> {
+    fn mult(&mut self, out: &mut HalfField<L>, inp: &HalfField<L>) {
         self.0.borrow_mut().mult(out, inp);
     }
 }
 
-impl<G: GammaRepre> LinearOp<HalfField> for SharedOperator<'_, G> {
-    fn mult_dag(&mut self, out: &mut HalfField, inp: &HalfField) {
+impl<G: GammaRepre, L: MdwfLayout<f64>> LinearOp<HalfField<L>> for SharedOperator<'_, G, L> {
+    fn mult_dag(&mut self, out: &mut HalfField<L>, inp: &HalfField<L>) {
         self.0.borrow_mut().mult_dag(out, inp);
+    }
+}
+
+/// The layout of the operator a cycle preconditions: the usual one, or blocks of W sites
+/// (SIMD). The coarse correction works in the usual layout (P, the coarse operators), so in
+/// blocks the residual is converted before it and the correction after it.
+pub trait CycleLayout: MdwfLayout<f64> {
+    /// What the conversion needs (`ParityBlocks`; nothing for the usual layout).
+    type Map;
+    /// `None` if the lattice cannot be put into this layout with even-odd.
+    fn map(lat: &Lattice) -> Option<Self::Map>;
+    /// The field itself when it is in the usual layout.
+    fn as_sites(f: &HalfField<Self>) -> Option<&HalfField>;
+    fn as_sites_mut(f: &mut HalfField<Self>) -> Option<&mut HalfField>;
+    fn to_sites(map: &Self::Map, out: &mut HalfField, inp: &HalfField<Self>);
+    fn from_sites(map: &Self::Map, out: &mut HalfField<Self>, inp: &HalfField);
+}
+
+impl CycleLayout for Aos {
+    type Map = ();
+    fn map(_: &Lattice) -> Option<()> {
+        Some(())
+    }
+    fn as_sites(f: &HalfField) -> Option<&HalfField> {
+        Some(f)
+    }
+    fn as_sites_mut(f: &mut HalfField) -> Option<&mut HalfField> {
+        Some(f)
+    }
+    fn to_sites(_: &(), out: &mut HalfField, inp: &HalfField) {
+        out.copy_from(inp);
+    }
+    fn from_sites(_: &(), out: &mut HalfField, inp: &HalfField) {
+        out.copy_from(inp);
+    }
+}
+
+impl<const W: usize> CycleLayout for Aosoa<W>
+where
+    f64: LaneOf<W>,
+{
+    type Map = ParityBlocks<W>;
+    fn map(lat: &Lattice) -> Option<ParityBlocks<W>> {
+        ParityBlocks::new(lat)
+    }
+    fn as_sites(_: &HalfField<Self>) -> Option<&HalfField> {
+        None
+    }
+    fn as_sites_mut(_: &mut HalfField<Self>) -> Option<&mut HalfField> {
+        None
+    }
+    fn to_sites(map: &ParityBlocks<W>, out: &mut HalfField, inp: &HalfField<Self>) {
+        map.to_sites(out, inp);
+    }
+    fn from_sites(map: &ParityBlocks<W>, out: &mut HalfField<Self>, inp: &HalfField) {
+        map.to_blocks(out, inp);
     }
 }
 
@@ -378,7 +517,10 @@ impl<G: GammaRepre> LinearOp<HalfField> for SharedOperator<'_, G> {
 /// `op_a` and `pv_a` may carry Neff's α (it matters only in the left form). The coarse
 /// operators and solves are stored as `CT`: single precision by default, enough for
 /// solves to 1e-2 and half the memory traffic of the bandwidth-limited coarse operator.
-pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32> {
+/// The operator and the smoother may be in blocks of W sites (`L = Aosoa<W>`, SIMD;
+/// `in_blocks`), with the same operators in that layout; the coarse correction stays in
+/// the usual one.
+pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32, L: CycleLayout = Aos> {
     op: &'a Mdwf<f64, G>,
     pv: &'a Mdwf<f64, G>,
     op_a: &'a Mdwf<f64, G>,
@@ -386,18 +528,24 @@ pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32> {
     form: EoForm,
     index: Arc<EvenOddIndex>,
     basis: &'a PvEoBasis,
-    coarse_d: CoarseOp<CT>,
+    /// Shared by the coarse solver and its preconditioner (which applies it with levels).
+    coarse_d: RefCell<CoarseOp<CT>>,
     coarse_pv: CoarseOp<CT>,
     blocks_d: BlockMap,
+    /// Levels below the coarse lattice for the quark factor (`add_levels`).
+    levels_d: Option<SignedMultilevel>,
     blocks_pv: BlockMap,
-    smoother: Chebyshev<SharedOperator<'a, G>, HalfField>,
+    smoother: Chebyshev<SharedOperator<'a, G, L>, HalfField<L>>,
     params: PvEoParams,
     hi: f64,
     work: [MdwfHalfWork<f64>; 2],
     /// Scratch on the even sites (taken out while the cycle runs) and on the coarse lattice:
     /// `g` in the precision of P, the others in that of the coarse solves.
-    r: Option<HalfField>,
-    e: Option<HalfField>,
+    r: Option<HalfField<L>>,
+    e: Option<HalfField<L>>,
+    /// The residual and the correction in the usual layout, when `L` is another one.
+    sites: Option<[HalfField; 2]>,
+    map: L::Map,
     h: HalfField,
     g: CoarseField,
     gc: Field<CT, Coarse>,
@@ -417,7 +565,7 @@ fn coarse_field<T: Storage>(basis: &PvEoBasis, num_vectors: usize) -> Field<T, C
     )
 }
 
-impl<'a, G: GammaRepre> PvEoCycle<'a, G, f32> {
+impl<'a, G: GammaRepre> PvEoCycle<'a, G, f32, Aos> {
     /// The cycle with single-precision coarse solves.
     pub fn new(
         op: &'a Mdwf<f64, G>,
@@ -430,12 +578,48 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G, f32> {
     }
 }
 
-impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
+impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT, Aos> {
     /// The cycle with the coarse solves stored as `CT`.
     pub fn with_coarse_storage(
         op: &'a Mdwf<f64, G>,
         pv: &'a Mdwf<f64, G>,
+        outer: (&'a Mdwf<f64, G>, &'a Mdwf<f64, G>, EoForm),
+        basis: &'a PvEoBasis,
+        params: PvEoParams,
+    ) -> Result<Self, MultigridError> {
+        Self::with_layout(op, pv, outer, (outer.0, outer.1), (), basis, params)
+    }
+}
+
+impl<'a, G: GammaRepre, CT: Storage, const W: usize> PvEoCycle<'a, G, CT, Aosoa<W>>
+where
+    f64: LaneOf<W>,
+{
+    /// The cycle for the operator in blocks of `W` sites: `outer` in the usual layout
+    /// (for the coarse correction) and `in_blocks` the same two operators in blocks.
+    pub fn in_blocks(
+        op: &'a Mdwf<f64, G>,
+        pv: &'a Mdwf<f64, G>,
+        outer: (&'a Mdwf<f64, G>, &'a Mdwf<f64, G>, EoForm),
+        in_blocks: (&'a Mdwf<f64, G, Aosoa<W>>, &'a Mdwf<f64, G, Aosoa<W>>),
+        basis: &'a PvEoBasis,
+        params: PvEoParams,
+    ) -> Result<Self, MultigridError> {
+        let map = ParityBlocks::new(basis.aggregation().fine_lattice())
+            .expect("the operators in blocks exist, so the lattice can be cut");
+        Self::with_layout(op, pv, outer, in_blocks, map, basis, params)
+    }
+}
+
+impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
+    /// The cycle for the operator `outer_l` (the operators of `outer` in the layout
+    /// `L`), with `map = L::map(lattice)`.
+    pub fn with_layout(
+        op: &'a Mdwf<f64, G>,
+        pv: &'a Mdwf<f64, G>,
         (op_a, pv_a, form): (&'a Mdwf<f64, G>, &'a Mdwf<f64, G>, EoForm),
+        (op_l, pv_l): (&'a Mdwf<f64, G, L>, &'a Mdwf<f64, G, L>),
+        map: L::Map,
         basis: &'a PvEoBasis,
         params: PvEoParams,
     ) -> Result<Self, MultigridError> {
@@ -459,25 +643,29 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
             _ => BlockMap::inverse_diagonal_adjoint(&coarse_pv)?,
         };
         let (coarse_d, coarse_pv) = (coarse_d.to_storage(), coarse_pv.to_storage());
-        let mut start = like.zeros_like();
+        let mut start_sites = like.zeros_like();
         extract_parity(
-            &mut start,
+            &mut start_sites,
             &random_spinor(&lat, ls, params.seed),
             &index,
             Parity::Even,
         );
+        let mut like_l = HalfField::<L>::with_shape(&lat, 24, ls, 1, 1);
+        like_l.set_parity(Parity::Even);
+        let mut start = like_l.zeros_like();
+        L::from_sites(&map, &mut start, &start_sites);
         let hi = 1.1
             * largest_magnitude(
-                &mut PvEvenOdd::new(op_a, pv_a, form, &like),
+                &mut PvEvenOdd::new(op_l, pv_l, form, &like_l),
                 &mut start,
                 params.power_steps,
             );
         let smoother = Chebyshev::new(
-            SharedOperator::new(PvEvenOdd::new(op_a, pv_a, form, &like)),
+            SharedOperator::new(PvEvenOdd::new(op_l, pv_l, form, &like_l)),
             params.chebyshev_steps,
             hi / params.chebyshev_ratio,
             hi,
-            &like,
+            &like_l,
         );
         Ok(Self {
             op,
@@ -491,16 +679,19 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
             gc: coarse_field(basis, 1),
             w: coarse_field(basis, 1),
             c: coarse_field(basis, 1),
-            coarse_d,
+            coarse_d: RefCell::new(coarse_d),
             coarse_pv,
             blocks_d,
+            levels_d: None,
             blocks_pv,
             smoother,
             params,
             hi,
             work: [op.even_odd_work(), op_a.even_odd_work()],
-            r: Some(like.zeros_like()),
-            e: Some(like.zeros_like()),
+            r: Some(like_l.zeros_like()),
+            e: Some(like_l.zeros_like()),
+            sites: None,
+            map,
             h: like,
             coarse_applications: Cell::new(0),
         })
@@ -508,8 +699,23 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
 
     /// The operator the cycle approximates the inverse of, to be used by the solver it
     /// preconditions (one copy of its work fields for both).
-    pub fn operator(&mut self) -> SharedOperator<'a, G> {
+    pub fn operator(&mut self) -> SharedOperator<'a, G, L> {
         self.smoother.operator().clone()
+    }
+
+    /// Add levels below the coarse lattice to the solves of the quark factor P†DP: a
+    /// V-cycle on super-blocks of `super_blocks[ℓ]` coarse sites per direction on level
+    /// ℓ + 2 (the last solved exactly), from test vectors on the coarse lattice
+    /// (`pv_eo_coarse_vectors`). Returns the coarse applications its setup took.
+    pub fn add_levels(
+        &mut self,
+        vectors: &[CoarseField],
+        super_blocks: &[usize],
+    ) -> Result<usize, MultigridError> {
+        let levels = SignedMultilevel::build(self.coarse_d.get_mut(), vectors, super_blocks)?;
+        let applications = levels.setup_applications;
+        self.levels_d = Some(levels);
+        Ok(applications)
     }
 
     /// 1.1 |λ_max| of the operator, the top of the smoother's interval.
@@ -520,6 +726,27 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
     pub fn coarse_applications(&self) -> usize {
         self.coarse_applications.get()
+    }
+
+    /// `coarse_correction` in the layout of the operator.
+    fn correct(&mut self, e: &mut HalfField<L>, r: &HalfField<L>) {
+        if let (Some(r), Some(e)) = (L::as_sites(r), L::as_sites_mut(e)) {
+            self.coarse_correction(e, r);
+            return;
+        }
+        let [mut r_s, mut e_s] = match self.sites.take() {
+            Some(f) if f[0].num_vectors() == r.num_vectors() => f,
+            _ => {
+                let lat = self.basis.aggregation().fine_lattice();
+                let mut f = HalfField::with_shape(lat, 24, r.ls(), r.num_vectors(), 1);
+                f.set_parity(Parity::Even);
+                [f.zeros_like(), f]
+            }
+        };
+        L::to_sites(&self.map, &mut r_s, r);
+        self.coarse_correction(&mut e_s, &r_s);
+        L::from_sites(&self.map, e, &e_s);
+        self.sites = Some([r_s, e_s]);
     }
 
     /// e = the coarse correction of r (see the top of the file).
@@ -582,17 +809,22 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
         self.gc.convert_from(&self.g);
-        // c = (P†DP)⁻¹ g, right-preconditioned by the block inverses.
+        // c = (P†DP)⁻¹ g, right-preconditioned by the block inverses (with the levels
+        // below, multiplicatively).
         self.c.set_zero();
         coarse_solve(
             self.params.d_solver,
             stop,
-            &mut Counted {
-                a: &mut self.coarse_d,
-                apply: Apply::Plain,
+            &mut CountedShared {
+                a: &self.coarse_d,
                 n,
             },
-            &mut self.blocks_d,
+            &mut LevelsAndBlocks {
+                blocks: &mut self.blocks_d,
+                levels: self.levels_d.as_ref(),
+                a: &self.coarse_d,
+                n,
+            },
             &mut self.c,
             &self.gc,
         );
@@ -606,9 +838,11 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
     }
 }
 
-impl<G: GammaRepre, CT: Storage> LinearFn<HalfField> for PvEoCycle<'_, G, CT> {
+impl<G: GammaRepre, CT: Storage, L: CycleLayout> LinearFn<HalfField<L>>
+    for PvEoCycle<'_, G, CT, L>
+{
     /// y = S b; y += e(b − Ã y); y += S(b − Ã y).
-    fn mult(&mut self, y: &mut HalfField, b: &HalfField) {
+    fn mult(&mut self, y: &mut HalfField<L>, b: &HalfField<L>) {
         let nv = b.num_vectors();
         let one = vec![C64::new(1.0, 0.0); nv];
         let minus = vec![C64::new(-1.0, 0.0); nv];
@@ -620,7 +854,7 @@ impl<G: GammaRepre, CT: Storage> LinearFn<HalfField> for PvEoCycle<'_, G, CT> {
         crate::fit(&mut e, b);
         self.smoother.mult(y, b);
         self.smoother.operator().mult_xpay(&mut r, y, &minus, b);
-        self.coarse_correction(&mut e, &r);
+        self.correct(&mut e, &r);
         y.axpy(&one, &e);
         self.smoother.operator().mult_xpay(&mut r, y, &minus, b);
         self.smoother.mult(&mut e, &r);

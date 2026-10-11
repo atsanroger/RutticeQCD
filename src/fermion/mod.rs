@@ -10,8 +10,8 @@ pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
 
 pub use mdwf::{
-    EoForm, Mdwf, MdwfAt, MdwfHalfWork, MdwfParams, MdwfWork, PvEvenOdd, PvPreconditioned,
-    SiteInverse, MAX_LS,
+    EoForm, Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd,
+    PvPreconditioned, SiteInverse, MAX_LS,
 };
 
 pub use wilson::{

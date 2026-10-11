@@ -13,6 +13,7 @@ mod aggregation;
 mod basis;
 mod coarse;
 mod cycle;
+mod levels;
 mod mdwf;
 mod pv_eo;
 mod sap;
@@ -23,10 +24,11 @@ pub use coarse::CoarseOp;
 pub use cycle::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };
+pub use levels::SignedMultilevel;
 pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use pv_eo::{
-    pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, BootstrapParams, CoarseKrylov, LowModeParams,
-    PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
+    pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, BootstrapParams,
+    CoarseKrylov, CycleLayout, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
 pub use sap::Sap;
 

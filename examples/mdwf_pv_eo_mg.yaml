@@ -82,3 +82,11 @@ MultiGrid:
       solver_type                   : MINRES
       maximum_number_of_iteration   : 2000
       convergence_criterion_squared : 1.0e-2
+  ## Levels below the coarse lattice for the solves of P^dag D P (optional, up to
+  ## MultiGrid_Level4): super-blocks of super_block_size sites of the level above per
+  ## direction; the last level is solved exactly, so keep it small. On 16^4 in blocks of
+  ## 4^4 (4^4 coarse sites), Level2 + Level3 of 2 end in one site.
+  # MultiGrid_Level2:
+  #   super_block_size : 2
+  # MultiGrid_Level3:
+  #   super_block_size : 2

@@ -12,9 +12,9 @@ use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
 use ruttice::measure::{meson_correlator, pion_correlator, point_source, NUM_SOURCES};
 use ruttice::solver::preconditioner::multigrid::{
-    mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, Basis,
-    BasisBuilder, BootstrapParams, CoarseKrylov, CoarseOp, LowModeParams, MdwfCoarse,
-    MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
+    mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes,
+    Aggregation, Basis, BasisBuilder, BootstrapParams, CoarseKrylov, CoarseOp, LowModeParams,
+    MdwfCoarse, MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
 };
 use ruttice::solver::{
     largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Fgmres, Gcr, Polynomial, Solve,
@@ -1061,6 +1061,154 @@ fn even_odd_pv_multigrid_solves_d() {
         );
         assert!(left[0] < 1e-16 * size[0]);
         assert!(info.iterations < unpreconditioned.iterations);
+
+        // A level below the coarse lattice (super-blocks of 2⁴ coarse sites, the
+        // 1 × 1 × 1 × 2 of them solved exactly) under the solves of the quark factor: the same
+        // solution in as many outer steps. (The coarse lattice here has 32 sites, too few
+        // for the levels to save coarse applications; on 16⁴ they save a quarter.)
+        let mut two =
+            PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
+        let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y);
+        let setup = two.add_levels(&vectors, &[2]).unwrap();
+        let mut sol = like.zeros_like();
+        let two_info = Gcr::new(stop, 2)
+            .solve(&mut a, Some(&mut two), &mut sol, &rhs)
+            .unwrap();
+        a.solution(&mut x, &sol, &b);
+        let mut r = mult(&op, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        r.norm_sqr(&mut left);
+        eprintln!(
+            "  with a level below: {} steps ({} coarse applications, {setup} to set it up); |D x - b|^2/|b|^2 = {:e}",
+            two_info.iterations,
+            two.coarse_applications(),
+            left[0] / size[0]
+        );
+        assert!(left[0] < 1e-16 * size[0]);
+        assert!(two_info.iterations <= info.iterations + 1);
+    }
+}
+
+/// The even-odd Pauli-Villars multigrid split over processes (threads standing in for
+/// them): the coarse operator and its exact adjoint agree with the ones on one process,
+/// and GCR(2) with the cycle, with and without a level below the coarse lattice, gives the
+/// same solution in as many steps. The grids leave one or two coarse sites per process in
+/// the split directions, so every coarse hop there crosses to another process.
+#[test]
+fn even_odd_pv_multigrid_on_several_processes() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 181);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let start = random(&whole, MOBIUS.ls, 4, 182);
+    let b = random(&whole, MOBIUS.ls, 1, 183);
+
+    // On every process: D_c v and D_c† v for a coarse v, and the solutions without and
+    // with the level below.
+    let run = |lat: Arc<Lattice>, coarse_v: Option<&Field<f64, ruttice::Coarse>>| {
+        let u = local_part(&u, &lat);
+        let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+        let index = op.even_odd_index().unwrap().clone();
+        let mut y = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 4, 1);
+        y.set_parity(Parity::Even);
+        extract_parity(&mut y, &local_part(&start, &lat), &index, Parity::Even);
+        let like = y.select(&[0]);
+        let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+        let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+
+        let mut coarse = CoarseOp::build(&op, &mut op.work(), &basis);
+        let v = match coarse_v {
+            Some(v) => local_part(v, agg.coarse_lattice()),
+            None => {
+                let mut v = basis.coarse_field(2);
+                for (i, x) in v.as_mut_slice().iter_mut().enumerate() {
+                    *x = ((i * 7919) % 1000) as f64 / 500.0 - 1.0;
+                }
+                v
+            }
+        };
+        let (mut dv, mut ddv) = (v.zeros_like(), v.zeros_like());
+        coarse.mult(&mut dv, &v);
+        coarse.mult_adjoint(&mut ddv, &v);
+
+        let b = local_part(&b, &lat);
+        let mut a = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);
+        let mut rhs = like.zeros_like();
+        a.right_hand_side(&mut rhs, &b);
+        let mut solutions = Vec::new();
+        for levels in [false, true] {
+            let mut cycle = PvEoCycle::new(
+                &op,
+                &pv,
+                (&op, &pv, EoForm::Right),
+                &basis,
+                PvEoParams::default(),
+            )
+            .unwrap();
+            if levels {
+                let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y);
+                cycle.add_levels(&vectors, &[2]).unwrap();
+            }
+            let mut sol = like.zeros_like();
+            let info = Gcr::new(Stop::simple(1e-22, 200), 2)
+                .solve(&mut a, Some(&mut cycle), &mut sol, &rhs)
+                .unwrap();
+            let mut x = b.zeros_like();
+            a.solution(&mut x, &sol, &b);
+            solutions.push((info.iterations, x));
+        }
+        (v, dv, ddv, solutions)
+    };
+
+    let (v, dv, ddv, one) = run(whole.clone(), None);
+    let coarse_whole = v.lattice().clone();
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = LocalComm::run(global, grid, |lat| run(lat, Some(&v)));
+        let rel = |want: &V, got: V| {
+            let mut d = got;
+            d.aypx(&vec![C64::new(-1.0, 0.0); want.num_vectors()], want);
+            let (mut e, mut n) = (vec![0.0; want.num_vectors()], vec![0.0; want.num_vectors()]);
+            d.norm_sqr(&mut e);
+            want.norm_sqr(&mut n);
+            e.iter()
+                .zip(&n)
+                .fold(0.0_f64, |m, (e, n)| m.max((e / n).sqrt()))
+        };
+        let coarse_diff = |want: &Field<f64, ruttice::Coarse>,
+                           got: &[Field<f64, ruttice::Coarse>]| {
+            let got = assemble(&coarse_whole, got);
+            want.as_slice()
+                .iter()
+                .zip(got.as_slice())
+                .fold(0.0_f64, |m, (a, b)| m.max((a - b).abs()))
+        };
+        let (mut dvs, mut ddvs) = (Vec::new(), Vec::new());
+        let (mut xs, mut split_steps) = ([Vec::new(), Vec::new()], [0; 2]);
+        for (_, dv, ddv, solutions) in parts {
+            dvs.push(dv);
+            ddvs.push(ddv);
+            for (k, (steps, x)) in solutions.into_iter().enumerate() {
+                split_steps[k] = steps;
+                xs[k].push(x);
+            }
+        }
+        let d_diff = coarse_diff(&dv, &dvs);
+        let dd_diff = coarse_diff(&ddv, &ddvs);
+        eprintln!("grid {grid:?}: |D_c v| differs by {d_diff:e}, |D_c† v| by {dd_diff:e}");
+        assert!(d_diff < 1e-12 && dd_diff < 1e-12, "grid {grid:?}");
+        for (k, (iterations, x)) in one.iter().enumerate() {
+            let split_iterations = split_steps[k];
+            let diff = rel(x, assemble(&whole, &xs[k]));
+            eprintln!(
+                "  {}: {iterations} steps on one process, {split_iterations} split; solutions differ by {diff:e}",
+                if k == 0 { "two levels" } else { "with a level below" }
+            );
+            assert!(split_iterations.abs_diff(*iterations) <= 1);
+            assert!(diff < 1e-8, "grid {grid:?}");
+        }
     }
 }
 
