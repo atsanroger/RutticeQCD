@@ -3,6 +3,8 @@
 
 mod bench;
 mod config;
+pub mod keyword;
+pub mod params;
 
 pub use bench::wilson_benchmark;
 
@@ -97,6 +99,29 @@ pub struct SolveReport {
     /// Worst |D S - b|^2 / |b|^2 over the twelve right-hand sides, from the full operator.
     pub worst_residual_sqr: f64,
     pub seconds: f64,
+    /// The peak memory of the process so far, in GB (where the system reports it).
+    pub peak_memory_gb: Option<f64>,
+}
+
+/// The memory of this process in GB: (now, peak so far), from `/proc/self/status`
+/// (VmRSS, VmHWM) on Linux; `None` elsewhere.
+pub fn memory_usage() -> Option<(f64, f64)> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix(name))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+            .map(|kb| kb / 1048576.0)
+    };
+    Some((field("VmRSS:")?, field("VmHWM:")?))
+}
+
+/// `memory 1.23 GB, peak 2.34 GB`, or nothing where the system does not say.
+pub fn memory_line() -> String {
+    memory_usage().map_or(String::new(), |(now, peak)| {
+        format!("memory {now:.2} GB, peak {peak:.2} GB")
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -642,6 +667,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
             restarts: info.restarts,
             worst_residual_sqr,
             seconds: start.elapsed().as_secs_f64(),
+            peak_memory_gb: memory_usage().map(|(_, peak)| peak),
         });
         props.push(s);
     }
@@ -682,8 +708,14 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
     for s in &report.solves {
         writeln!(
             out,
-            "# quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s",
-            s.quark, s.iterations, s.restarts, s.worst_residual_sqr, s.seconds
+            "# quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s{}",
+            s.quark,
+            s.iterations,
+            s.restarts,
+            s.worst_residual_sqr,
+            s.seconds,
+            s.peak_memory_gb
+                .map_or(String::new(), |p| format!(", peak memory {p:.2} GB"))
         )?;
     }
     writeln!(out, "# quarks channel t re im")?;

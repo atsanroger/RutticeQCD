@@ -1,0 +1,84 @@
+# Parameters of `cargo run --release --example mdwf_pv_eo_mg -- examples/mdwf_pv_eo_mg.yaml`,
+# in the style of Bridge++. Keywords (values of choices) may be written in any case and
+# with or without `_`: CGNE, cgne and Cg_Ne are the same. Keys are spelt as below.
+# Every key with a default is shown with it.
+
+Main:
+  lattice_size  : [12, 12, 12, 12]
+  grid_size     : [1, 1, 1, 1]
+  ## backend = {cpu, simd, gpu}: domain-wall fermions run on cpu so far
+  backend       : cpu
+  simd_lanes    : 4
+  ## verbose_level = {Crucial, General, Detailed, Paranoiac}
+  verbose_level : General
+
+Gauge:
+  gauge_config_type_input : Text
+  ## relative paths are taken from this file's directory
+  config_filename_input   : /home/wlchenhome/Bridge/runs/hmc_12_b6.0/conf_quench_12x12x12x12_b6.0.txt-000200
+
+Fopr:
+  ## fermion_type = {Domainwall_5din (Mobius)}
+  fermion_type             : Domainwall_5din
+  gamma_matrix_type        : Dirac
+  quark_mass               : 0.005
+  quark_mass_PauliVillars  : 1.0
+  domain_wall_height       : 1.0
+  extent_of_5th_dimension  : 8
+  coefficient_b            : 1.5
+  coefficient_c            : 0.5
+  boundary_condition       : [1, 1, 1, -1]
+  ## Neff's alpha, D^(alpha) = D Q. It cancels with operator_type PV_right; with PV_left put it
+  ## into D alone (alpha in 0.5-0.7 saves about 10% of the multigrid cycles on 12^4).
+  neff_alpha               : 0.6
+  neff_alpha_PauliVillars  : 1.0
+
+Solver:
+  ## solver_type = {GCR, BiCGStab, FGMRES, CG (= CGNE)}
+  solver_type                   : GCR
+  ## operator_type = {PV_right (A'), PV_left (A' with alpha), Normal_left (CGNE)};
+  ## by default Normal_left for CG and PV_right otherwise
+  operator_type                 : PV_left
+  ## GCR: directions kept (memory 2k + 4 vectors); FGMRES: size of the Krylov space
+  number_of_kept_directions     : 2
+  maximum_number_of_iteration   : 2000
+  maximum_number_of_restart     : 0
+  convergence_criterion_squared : 1.0e-18
+  ## preconditioner_type = {None, Chebyshev, MG}; the MultiGrid section may stay when it is
+  ## not used (a note is printed)
+  preconditioner_type           : MG
+
+## The multigrid, used with preconditioner_type MG. It may instead come from a file of its
+## own, shared by several parameter files: `MultiGrid_file : mg.yaml` (holding a MultiGrid
+## section like this one).
+MultiGrid:
+  ## coarse_precision = {single, double}: the coarse operators and solves
+  coarse_precision : single
+  Setup:
+    ## Chebyshev-filtered subspace iteration on A^dag A, then the multigrid bootstrap
+    filter_number_of_vectors   : 16
+    filter_number_of_rounds    : 2
+    filter_number_in_block     : 4
+    bootstrap_number_of_rounds : 2
+    bootstrap_number_of_steps  : 4
+    seed                       : 21
+    ## low modes from a mdwf_evenodd_coherence checkpoint instead of the filter:
+    # checkpoint : ../run/eoeig_ckpt_12_1_0.005_8_16_26.bin
+  Smoother:
+    smoother_type   : Chebyshev
+    number_of_steps : 5
+    interval_ratio  : 30
+  MultiGrid_Level1:
+    block_size             : [4, 4, 4, 4]
+    number_of_test_vectors : 32
+    ## the quark factor P^dag D P: {BiCGStab, GCR}
+    Coarse_Solver_D:
+      solver_type                   : BiCGStab
+      maximum_number_of_iteration   : 2000
+      convergence_criterion_squared : 1.0e-2
+    ## the second factor P^dag D_PV^dag P (P^dag D^dag P with Normal_left):
+    ## {MINRES (not with Normal_left), BiCGStab, GCR}
+    Coarse_Solver_PV:
+      solver_type                   : MINRES
+      maximum_number_of_iteration   : 2000
+      convergence_criterion_squared : 1.0e-2

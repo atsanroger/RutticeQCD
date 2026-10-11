@@ -12,8 +12,8 @@ use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
 use ruttice::solver::preconditioner::multigrid::{
     mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, Basis,
-    BasisBuilder, BootstrapParams, CoarseOp, LowModeParams, MdwfCoarse, MdwfMultigridParams,
-    MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
+    BasisBuilder, BootstrapParams, CoarseKrylov, CoarseOp, LowModeParams, MdwfCoarse,
+    MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
 };
 use ruttice::solver::{
     largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Fgmres, Gcr, Polynomial, Solve,
@@ -1209,7 +1209,7 @@ fn cgne_with_alpha_and_the_multigrid() {
         let mut plain = like.zeros_like();
         let cg = Cg::new(stop).solve(&mut n, None, &mut plain, &rhs).unwrap();
         let params = PvEoParams {
-            exact_adjoint: true,
+            pv_solver: CoarseKrylov::BiCgStab,
             ..PvEoParams::default()
         };
         let mut cycle =
