@@ -33,7 +33,10 @@
 
 use ruttice::fermion::{Dagger, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams, Variant};
 use ruttice::io::read_bridge_text;
-use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, BasisBuilder, CoarseOp};
+use ruttice::kernel::{Dirac, GammaRepre};
+use ruttice::solver::preconditioner::multigrid::{
+    Aggregation, Basis, BasisBuilder, CoarseOp, Reflection,
+};
 use ruttice::solver::{
     largest_magnitude, BiCgStab, Chebyshev, Fgmres, SolveError, SolveInfo, Solver, Stop,
 };
@@ -2404,7 +2407,11 @@ fn basis_from(
         let check = odd(&dt);
         (s, t_hat, check)
     };
+    // Γ5 = γ5 R: P keeps only s < Ls/2 (half the memory); `nofold` keeps all of it.
     let mut builder = BasisBuilder::<f64, f32>::new(agg, 2 * half_n);
+    if !std::env::args().any(|a| a == "nofold") {
+        builder = builder.folded(Reflection(Dirac::GAMMA5));
+    }
     let mut odd_part: f64 = 0.0;
     for j in 0..half_n {
         let (s, partner, check) = pair(j);
@@ -2439,25 +2446,23 @@ fn basis_from(
     Ok((p, restricted, odd_part))
 }
 
-/// Gram–Schmidt (twice) over the vectors of a multi-vector field.
+/// Gram–Schmidt (twice) over the vectors of a multi-vector field, in place: besides y only
+/// the vector being orthogonalised and one earlier vector are held.
 fn orthonormalise_h(y: &mut H) {
     let nv = y.num_vectors();
-    let mut vs: Vec<H> = (0..nv).map(|j| y.select(&[j])).collect();
     let mut d = [C64::ZERO];
     for i in 0..nv {
-        let (done, rest) = vs.split_at_mut(i);
-        let v = &mut rest[0];
+        let mut v = y.select(&[i]);
         for _ in 0..2 {
-            for q in done.iter() {
-                q.dot(v, &mut d);
-                v.axpy(&[-d[0]], q);
+            for j in 0..i {
+                let q = y.select(&[j]);
+                q.dot(&v, &mut d);
+                v.axpy(&[-d[0]], &q);
             }
         }
-        let n = norm(v);
+        let n = norm(&v);
         v.scale(&[1.0 / n]);
-    }
-    for (j, v) in vs.iter().enumerate() {
-        y.assign(&[j], v);
+        y.assign(&[i], &v);
     }
 }
 
@@ -2700,15 +2705,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .skip(11)
         .find_map(|s| s.strip_prefix("bootbatch:")?.parse().ok());
+    // One vector at a time: with all of y at once every work field of Ã is as large as y
+    // (1.4 GB on 12⁴, the peak of the setup before this).
     let quotient = |y: &H| -> (f64, f64) {
         let mut a = HalfA::new(&op, &pv, &like, &nothing);
-        let mut ay = y.zeros_like();
-        a.mult(&mut ay, y);
         let nv = y.num_vectors();
-        let (mut num, mut den) = (vec![0.0; nv], vec![0.0; nv]);
-        ay.norm_sqr(&mut num);
-        y.norm_sqr(&mut den);
-        let mut q: Vec<f64> = (0..nv).map(|j| (num[j] / den[j]).sqrt()).collect();
+        let mut q: Vec<f64> = (0..nv)
+            .map(|j| {
+                let yj = y.select(&[j]);
+                let mut ay = yj.zeros_like();
+                a.mult(&mut ay, &yj);
+                norm(&ay) / norm(&yj)
+            })
+            .collect();
         q.sort_by(f64::total_cmp);
         (q[0], q[nv / 2])
     };
@@ -2753,7 +2762,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             // the solver is as large as the batch, so this sets the memory of the bootstrap.
             let nv = y.num_vectors();
             let batch = boot_batch.unwrap_or(nv).max(1);
-            let mut new_y = y.zeros_like();
+            // The results go straight back into y: P is already built, and a batch of y is
+            // not needed once it is copied out.
             for first in (0..nv).step_by(batch) {
                 let idx: Vec<usize> = (first..(first + batch).min(nv)).collect();
                 let yc = y.select(&idx);
@@ -2799,7 +2809,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                     z
                 };
-                new_y.assign(&idx, &result);
+                y.assign(&idx, &result);
                 if first == 0 {
                     println!(
                         "  bootstrap round {round}: {} (after the first batch of {})",
@@ -2808,7 +2818,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
                 }
             }
-            y = new_y;
             orthonormalise_h(&mut y);
             let (q0, qm) = quotient(&y);
             println!(

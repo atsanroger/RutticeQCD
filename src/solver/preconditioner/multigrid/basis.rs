@@ -1,5 +1,5 @@
 use super::{Aggregation, MultigridError};
-use crate::kernel::{Cplx, Number, Real};
+use crate::kernel::{Cplx, Gamma, Number, Real, NC, NS, SPINOR_REALS};
 use crate::{for_sites, Coarse, Field, Spinor, Storage, Vector, C64};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -19,15 +19,43 @@ use std::sync::Arc;
 /// `T` is the storage of the fields P acts between, `S` that of P itself (by default the
 /// same). A single-precision P with double-precision fields (`Basis<f64, f32>`) halves the
 /// memory of P, which holds two fine-lattice vectors per test vector, while restriction and
-/// prolongation still compute in `T`.
+/// prolongation still compute in `T`. With a [`Reflection`] Γ5 (the domain-wall Γ5 = γ5 R,
+/// given to [`BasisBuilder::folded`]) P keeps only half of the fifth dimension: half the
+/// memory again, and half the work in restriction and prolongation.
 pub struct Basis<T: Storage, S: Storage = T> {
     agg: Arc<Aggregation>,
     n: usize,
     /// Reals of one vector at one site: `24 * ls`.
     reals: usize,
-    /// `[fine site][vector][chirality][reals]`, orthonormal over every aggregate.
+    /// Reals kept of one chirality part at one site: `reals`, or `reals / 2` when folded.
+    kept: usize,
+    fold: Option<Gamma>,
+    /// `[fine site][vector][chirality][kept]`, orthonormal over every aggregate.
     data: Vec<S>,
     fields: PhantomData<T>,
+}
+
+/// Γ5 = R ⊗ g for fields with a fifth dimension of even extent: R reverses it,
+/// s → Ls − 1 − s, and g is a spin matrix with g² = 1 (γ5 of the representation), the
+/// colour untouched. The domain-wall Γ5 = γ5 R is of this form. The ± chirality part p of a
+/// test vector then has p_(Ls−1−s) = ± g p_s, so P needs only s < Ls/2: for a field f,
+/// ⟨p, f⟩ = Σ_(s<Ls/2) ⟨p_s, f_s ± g f_(Ls−1−s)⟩ (g is unitary and Hermitian), and P c is
+/// a₊ + a₋ on s < Ls/2 and g (a₊ − a₋) on the mirror slice, a± the half-length sums.
+#[derive(Clone, Copy, Debug)]
+pub struct Reflection(pub Gamma);
+
+/// `out = g inp` on one spinor (24 reals, the layout of [`crate::kernel::Spinor`]).
+#[inline(always)]
+fn spin_apply<C: Number>(g: &Gamma, inp: &[C], out: &mut [C]) {
+    for a in 0..NS {
+        for c in 0..NC {
+            let k = 2 * (c + NC * g.col[a]);
+            let z = g.val[a].times(Cplx::new(inp[k], inp[k + 1]));
+            let o = 2 * (c + NC * a);
+            out[o] = z.re;
+            out[o + 1] = z.im;
+        }
+    }
 }
 
 /// A stored value of P in the arithmetic of the fields.
@@ -88,11 +116,17 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         Field::with_shape(self.agg.fine_lattice(), 24, self.reals / 24, num_vectors, 1)
     }
 
-    /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`.
+    /// Whether P keeps only half of the fifth dimension (see [`Reflection`]).
+    pub fn is_folded(&self) -> bool {
+        self.fold.is_some()
+    }
+
+    /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`:
+    /// all of them, or those of s < Ls/2 when folded.
     #[inline(always)]
     fn part(&self, x: usize, i: usize, c: usize) -> &[S] {
-        let base = ((x * self.n + i) * 2 + c) * self.reals;
-        &self.data[base..base + self.reals]
+        let base = ((x * self.n + i) * 2 + c) * self.kept;
+        &self.data[base..base + self.kept]
     }
 
     fn check(&self, coarse: &Field<T, Coarse>, fine: &Field<T, Spinor>) {
@@ -111,10 +145,16 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     /// `coarse = P† fine`.
     pub fn restrict(&self, coarse: &mut Field<T, Coarse>, fine: &Field<T, Spinor>) {
         self.check(coarse, fine);
-        let (n, dim, reals) = (self.n, self.coarse_dim(), self.reals);
+        let (n, dim, reals, kept) = (self.n, self.coarse_dim(), self.reals, self.kept);
         let site_len = coarse.site_len();
+        assert!(
+            kept <= 2 * MAX_HALF_REALS,
+            "Ls too large for the restriction"
+        );
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
             out.fill(T::default());
+            // When folded: f_s ± g f_(Ls−1−s) for s < Ls/2, one for either chirality.
+            let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
                 let fine_site = fine.site(0, x);
@@ -122,18 +162,38 @@ impl<T: Storage, S: Storage> Basis<T, S> {
                     .chunks_exact_mut(2 * dim)
                     .zip(fine_site.chunks_exact(reals))
                 {
+                    if let Some(g) = &self.fold {
+                        let ls = reals / SPINOR_REALS;
+                        let mut gf = [T::Compute::ZERO; SPINOR_REALS];
+                        let mut far = [T::Compute::ZERO; SPINOR_REALS];
+                        for s in 0..ls / 2 {
+                            let mirror = (ls - 1 - s) * SPINOR_REALS;
+                            for (d, v) in far.iter_mut().zip(&f[mirror..mirror + SPINOR_REALS]) {
+                                *d = v.load();
+                            }
+                            spin_apply(g, &far, &mut gf);
+                            let near = &f[s * SPINOR_REALS..(s + 1) * SPINOR_REALS];
+                            for (k, (v, w)) in near.iter().zip(&gf).enumerate() {
+                                let at = s * SPINOR_REALS + k;
+                                folded[0][at] = v.load() + *w;
+                                folded[1][at] = v.load() - *w;
+                            }
+                        }
+                    }
                     for i in 0..n {
                         for c in 0..2 {
                             let mut z = Cplx::<T::Compute>::ZERO;
-                            for (b, f) in self
-                                .part(x, i, c)
-                                .as_chunks::<2>()
-                                .0
-                                .iter()
-                                .zip(f.as_chunks::<2>().0)
-                            {
-                                let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
-                                z += b.conj() * Cplx::new(f[0].load(), f[1].load());
+                            let b = self.part(x, i, c).as_chunks::<2>().0;
+                            if self.fold.is_some() {
+                                for (b, f) in b.iter().zip(folded[c][..kept].as_chunks::<2>().0) {
+                                    let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                                    z += b.conj() * Cplx::new(f[0], f[1]);
+                                }
+                            } else {
+                                for (b, f) in b.iter().zip(f.as_chunks::<2>().0) {
+                                    let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                                    z += b.conj() * Cplx::new(f[0].load(), f[1].load());
+                                }
                             }
                             let k = 2 * (c * n + i);
                             add(&mut out[k..k + 2], z);
@@ -159,21 +219,60 @@ impl<T: Storage, S: Storage> Basis<T, S> {
                 .chunks_exact_mut(reals)
                 .zip(coarse_site.chunks_exact(2 * dim))
             {
-                // On the stack: this runs once per fine site and vector.
+                // On the stack: this runs once per fine site and vector. Unfolded, one sum
+                // over both chiralities; folded, a₊ and a₋ over half the fifth dimension.
                 let mut acc_store = [Cplx::<T::Compute>::ZERO; MAX_HALF_REALS];
-                let acc = &mut acc_store[..reals / 2];
+                let half = self.kept / 2;
                 for i in 0..n {
                     for ch in 0..2 {
                         let k = 2 * (ch * n + i);
                         let coef = Cplx::new(c[k].load(), c[k + 1].load());
+                        let acc = match self.fold {
+                            Some(_) => &mut acc_store[ch * half..(ch + 1) * half],
+                            None => &mut acc_store[..half],
+                        };
                         for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
                             *a += coef * Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
                         }
                     }
                 }
-                for (o, a) in out.as_chunks_mut::<2>().0.iter_mut().zip(acc.iter()) {
+                let store = |o: &mut [T], a: Cplx<T::Compute>| {
                     o[0] = T::store(a.re);
                     o[1] = T::store(a.im);
+                };
+                match &self.fold {
+                    None => {
+                        for (o, a) in out
+                            .as_chunks_mut::<2>()
+                            .0
+                            .iter_mut()
+                            .zip(&acc_store[..half])
+                        {
+                            store(o, *a);
+                        }
+                    }
+                    Some(g) => {
+                        let ls = reals / SPINOR_REALS;
+                        let (plus, minus) = acc_store[..2 * half].split_at(half);
+                        let per_slice = SPINOR_REALS / 2;
+                        for s in 0..ls / 2 {
+                            let mut diff = [T::Compute::ZERO; SPINOR_REALS];
+                            for d in 0..per_slice {
+                                let (p, m) = (plus[s * per_slice + d], minus[s * per_slice + d]);
+                                let at = s * SPINOR_REALS + 2 * d;
+                                store(&mut out[at..at + 2], p + m);
+                                let q = p - m;
+                                diff[2 * d] = q.re;
+                                diff[2 * d + 1] = q.im;
+                            }
+                            let mut mirrored = [T::Compute::ZERO; SPINOR_REALS];
+                            spin_apply(g, &diff, &mut mirrored);
+                            let at = (ls - 1 - s) * SPINOR_REALS;
+                            for (o, v) in out[at..at + SPINOR_REALS].iter_mut().zip(&mirrored) {
+                                *o = T::store(*v);
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -190,6 +289,9 @@ pub struct BasisBuilder<T: Storage, S: Storage = T> {
     n: usize,
     /// Reals of one vector at one site, known from the first vector.
     reals: usize,
+    /// Reals kept of a chirality part at one site (`reals`, or `reals / 2` folded).
+    kept: usize,
+    fold: Option<Gamma>,
     data: Vec<S>,
     added: Vec<bool>,
     fields: PhantomData<T>,
@@ -202,10 +304,20 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
             agg: agg.clone(),
             n,
             reals: 0,
+            kept: 0,
+            fold: None,
             data: Vec::new(),
             added: vec![false; n],
             fields: PhantomData,
         }
+    }
+
+    /// Keep only half of the fifth dimension: Γ5 is of the form of `reflection`, which
+    /// [`add`](Self::add) checks on every test vector.
+    pub fn folded(mut self, reflection: Reflection) -> Self {
+        assert!(self.data.is_empty(), "fold before the first test vector");
+        self.fold = Some(reflection.0);
+        self
     }
 
     /// Test vector `i`: `x` holds one vector and `g5x` = Γ5 x, the operator's Γ5 applied
@@ -221,20 +333,54 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
         let reals = x.site_len();
         if self.data.is_empty() {
             self.reals = reals;
-            self.data = vec![S::default(); fine.num_sites() * self.n * 2 * reals];
+            self.kept = match self.fold {
+                Some(_) => {
+                    let ls = reals / SPINOR_REALS;
+                    assert!(
+                        ls * SPINOR_REALS == reals && ls.is_multiple_of(2),
+                        "folding needs spinors with an even fifth dimension"
+                    );
+                    reals / 2
+                }
+                None => reals,
+            };
+            self.data = vec![S::default(); fine.num_sites() * self.n * 2 * self.kept];
         }
         assert_eq!(reals, self.reals, "test vectors of different shapes");
-        let n = self.n;
+        let (n, kept) = (self.n, self.kept);
+        // Folded: the far half must be ± g times the near one, (x ± Γ5 x)_(Ls−1−s) =
+        // ± g (x ± Γ5 x)_s; the largest deviation against the size of x.
+        let (mut deviation, mut size) = (0.0_f64, 0.0_f64);
         for site in 0..fine.num_sites() {
             let (xs, gs) = (x.site(0, site), g5x.site(0, site));
             for c in 0..2 {
                 let sign = if c == 0 { 1.0 } else { -1.0 };
-                let base = ((site * n + i) * 2 + c) * reals;
-                for (d, (v, g)) in xs.iter().zip(gs).enumerate() {
+                let base = ((site * n + i) * 2 + c) * kept;
+                for (d, (v, g)) in xs.iter().zip(gs).take(kept).enumerate() {
                     self.data[base + d] = S::store(Number::from_f64(0.5 * (v + sign * g)));
                 }
+                if let Some(gamma) = &self.fold {
+                    let ls = reals / SPINOR_REALS;
+                    for s in 0..ls / 2 {
+                        let part = |slice: usize| -> [f64; SPINOR_REALS] {
+                            let at = slice * SPINOR_REALS;
+                            core::array::from_fn(|k| 0.5 * (xs[at + k] + sign * gs[at + k]))
+                        };
+                        let (near, far) = (part(s), part(ls - 1 - s));
+                        let mut mirrored = [0.0; SPINOR_REALS];
+                        spin_apply(gamma, &near, &mut mirrored);
+                        for (m, f) in mirrored.iter().zip(&far) {
+                            deviation = deviation.max((sign * m - f).abs());
+                        }
+                    }
+                }
             }
+            size = xs.iter().fold(size, |m, v| m.max(v.abs()));
         }
+        assert!(
+            deviation <= 1e-10 * size,
+            "Γ5 is not R ⊗ g for the folding given: deviation {deviation:e} against {size:e}"
+        );
         self.added[i] = true;
     }
 
@@ -244,14 +390,21 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
             self.added.iter().all(|a| *a),
             "not every test vector was given"
         );
-        let (n, reals) = (self.n, self.reals);
+        let (n, reals) = (self.n, self.kept);
         let volume = self.agg.block_volume();
         // Complex numbers of one vector on one aggregate (both chiralities stored).
         let dim = volume * reals / 2;
+        // Folded, the stored half carries half of every inner product (|g v| = |v|): the
+        // parts are orthonormalised on it and scaled by 1/√2 to be orthonormal on all of
+        // the fifth dimension. A folded part is free on its half, so up to `dim` of them
+        // fit, against `dim / 2` unfolded (half of a full part is fixed by its chirality).
+        let (fit, scale) = match self.fold {
+            Some(_) => (dim, core::f64::consts::FRAC_1_SQRT_2),
+            None => (dim / 2, 1.0),
+        };
         assert!(
-            n <= dim / 2,
-            "{n} test vectors do not fit into aggregates of dimension {}",
-            dim / 2
+            n <= fit,
+            "{n} test vectors do not fit into aggregates of dimension {fit}"
         );
         // w[chirality][vector][site in block * reals/2 + component]
         let mut w = [vec![C64::ZERO; n * dim], vec![C64::ZERO; n * dim]];
@@ -284,7 +437,7 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
                     for (c, chirality) in w.iter().enumerate() {
                         let base = ((*site as usize * n + i) * 2 + c) * reals;
                         for d in 0..reals / 2 {
-                            let z = chirality[i * dim + k * reals / 2 + d];
+                            let z = chirality[i * dim + k * reals / 2 + d].scale(scale);
                             self.data[base + 2 * d] = S::store(Number::from_f64(z.re));
                             self.data[base + 2 * d + 1] = S::store(Number::from_f64(z.im));
                         }
@@ -295,7 +448,9 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
         Ok(Basis {
             agg: self.agg,
             n,
-            reals,
+            reals: self.reals,
+            kept: self.kept,
+            fold: self.fold,
             data: self.data,
             fields: PhantomData,
         })
