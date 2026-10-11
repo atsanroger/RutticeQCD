@@ -8,7 +8,7 @@
 
 ### 0.1 記號
 
-- **D**：Möbius DWF（b = 1.5、c = 0.5，Bridge++ 的正規化，`src/fermion/mdwf.rs`）；**D_PV**：同一個算子、m = 1。
+- **D**：Möbius DWF（b = 1.5、c = 0.5，Bridge++ 的正規化，`src/fermion/mdwf/`）；**D_PV**：同一個算子、m = 1。
   D = C + 跳躍項，**C** 是同一個四維格點內的部分（第五維 Ls × Ls，可精確求逆）；偶／奇格點部分 C_e、C_o。
 - **A′** = (D_PV C_PV⁻¹)† D C⁻¹（LATTICE2024 論文的算子）。**Ã** = 它的 even-odd 版，只在偶格點上：
   Ã = C_PV,e†⁻¹ S_PV† S_D C_e⁻¹，S_D = C_e − D_eo C_o⁻¹ D_oe（D 的 Schur 補），S_PV 同理。**所有細格子求解都是解 Ã**（BiCGStab 或 FGMRES）。
@@ -283,7 +283,7 @@ CGNE＋α（MG 預處理 α 形式的正規方程）是使用者之前論文的�
   - **限制**：一個組態。
   - CGNE＋α 的 MG（A₂ = P†D†P）還沒做。P†D†P 用 Γ5 取伴隨在 Möbius 時不精確（低模方向 35%），要用探測的。
 - 另一個候選是 α 加權的轉移算子：用 D^(α) 的近零向量 Q⁻¹y 建 P，換回 x 變數等於第五維加權的 Petrov–Galerkin 限制。
-- **算符層已完成**（`src/fermion/mdwf.rs`）：`set_alpha`、`mult_q`（Q_0 = P₋ + αP₊、中間 α、Q_{Ls−1} = P₊ + αP₋），D、D†、Γ5D、C、C⁻¹、EO 的 diag／hop 都含 Q；
+- **算符層已完成**（`src/fermion/mdwf/`）：`set_alpha`、`mult_q`（Q_0 = P₋ + αP₊、中間 α、Q_{Ls−1} = P₊ + αP₋），D、D†、Γ5D、C、C⁻¹、EO 的 diag／hop 都含 Q；
   預設 α = 1 時完全跳過，既有結果逐位不變。測試 `neff_alpha_form`（D^(α) = DQ、伴隨是 QD†、site 局部的逆、Q 厄米，
   以及 D^(α)(m1) − D^(α)(m2) = D(m1) − D(m2)，也就是質量項只看 Q 不動的 P₋ψ_0、P₊ψ_{Ls−1}，與 γ5 表示無關）、
   α = 0.5 的 EO 區塊測試；stage3_mdwf 15 個全過。`examples/mdwf_alpha.rs` 可以掃 α（Ã_L、右預處理的 Ã、EO CGNE）。
@@ -1194,7 +1194,7 @@ x_e = C_e⁻¹ y，x_o = C_o⁻¹(b_o − D_oe x_e)。作用一次 = 4 次半格
   **16⁴ 上 {s, t̂} 已勝過乘積 Galerkin（29 對 38），Ã 是 Chebyshev 的一半；體積放大 3.2 倍迭代只增 21%，是幾種裡增加最少的。**
   乘積 Galerkin 隨體積變差最快（同樣 16 個低模在大體積只佔低模的更小比例，乘積更依賴它們——推測，待驗證）。
   16⁴ 的 {s, t̂}：修正對基底向量的誤差 0.070 / 0.090；粗網格作用 3043。
-- **★ 更正：Möbius（b = 1.5、c = 0.5）時 Γ5 D 不是厄米的。** `src/fermion/mdwf.rs` 開頭就寫了：Γ5 = γ5R 只在 c = 0（Shamir）時讓 Γ5D 厄米；
+- **★ 更正：Möbius（b = 1.5、c = 0.5）時 Γ5 D 不是厄米的。** `src/fermion/mdwf/` 開頭就寫了：Γ5 = γ5R 只在 c = 0（Shamir）時讓 Γ5D 厄米；
   c ≠ 0 時 Γ5 D Γ5 = 1 + Y† + W†B†，D† = 1 + Y† + B†W†，W 與 B = b − cY（含 P±）不對易。所以：
   (1) **先前多處「每個粗網格因子 Γ5-厄米」只是近似**——MINRES 與絕對值預處理在實測上都收斂（非厄米部分不大），但沒有理論保證；
   (2) **`CoarseOp::mult_dag` 用 Γ5 取伴隨，對 Möbius 不精確**：檢查 \|A_c x − P†AP x\|/\|P†APx\|：P†DP（`mult`）4.9e-15，
