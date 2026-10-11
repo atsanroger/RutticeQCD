@@ -11,8 +11,9 @@ use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, Gamma, GammaRepre, Unit};
 use ruttice::solver::preconditioner::multigrid::{
-    mdwf_multigrid, pv_eo_basis, Aggregation, Basis, BasisBuilder, CoarseOp, MdwfCoarse,
-    MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
+    mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, Basis,
+    BasisBuilder, BootstrapParams, CoarseOp, LowModeParams, MdwfCoarse, MdwfMultigridParams,
+    MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
 };
 use ruttice::solver::{
     largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Fgmres, Gcr, Polynomial, Solve,
@@ -1060,4 +1061,74 @@ fn even_odd_pv_multigrid_solves_d() {
         assert!(left[0] < 1e-16 * size[0]);
         assert!(info.iterations < unpreconditioned.iterations);
     }
+}
+
+/// The setup of the even-odd Pauli-Villars multigrid from scratch: filtered low modes,
+/// one bootstrap round, then GCR(2) with the cycle solves D x = b.
+#[test]
+fn even_odd_pv_multigrid_setup_from_scratch() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 171);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+    let (mut y, theta) = pv_eo_low_modes(
+        &op,
+        &pv,
+        &lat,
+        LowModeParams {
+            vectors: 6,
+            rounds: 2,
+            chunk: 3,
+            seed: 172,
+        },
+    );
+    assert!(theta.windows(2).all(|w| w[0] <= w[1]), "{theta:?}");
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let basis = pv_eo_bootstrap(
+        &op,
+        &pv,
+        &agg,
+        &mut y,
+        BootstrapParams {
+            rounds: 1,
+            ..BootstrapParams::default()
+        },
+    )
+    .unwrap();
+    let mut like = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    like.set_parity(Parity::Even);
+    let mut a = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);
+    let mut cycle = PvEoCycle::new(
+        &op,
+        &pv,
+        (&op, &pv, EoForm::Right),
+        &basis,
+        PvEoParams::default(),
+    )
+    .unwrap();
+    let b = random(&lat, MOBIUS.ls, 1, 173);
+    let mut rhs = like.zeros_like();
+    a.right_hand_side(&mut rhs, &b);
+    let mut sol = like.zeros_like();
+    let info = Gcr::new(Stop::simple(1e-24, 200), 2)
+        .solve(&mut a, Some(&mut cycle), &mut sol, &rhs)
+        .unwrap();
+    let mut x = b.zeros_like();
+    a.solution(&mut x, &sol, &b);
+    let mut r = mult(&op, &x, Variant::D);
+    r.aypx(&[C64::new(-1.0, 0.0)], &b);
+    let (mut left, mut size) = ([0.0], [0.0]);
+    r.norm_sqr(&mut left);
+    b.norm_sqr(&mut size);
+    eprintln!(
+        "Ritz values of Ã†Ã {:.3e} .. {:.3e}; GCR(2) {} steps; |D x - b|^2/|b|^2 = {:e}",
+        theta[0],
+        theta[theta.len() - 1],
+        info.iterations,
+        left[0] / size[0]
+    );
+    assert!(left[0] < 1e-16 * size[0]);
 }
