@@ -7,7 +7,8 @@ mod common;
 
 use common::max_abs_diff;
 use ruttice::fermion::{
-    Bound, Clover, CloverParams, FermionOp, HopTerms, Variant, Wilson, WilsonParams,
+    solve_even_odd, Bound, Clover, CloverParams, FermionOp, HopTerms, OnParity, Variant, Wilson,
+    WilsonParams,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, GammaRepre, Spinor as SiteSpinor, SPINOR_REALS};
@@ -16,7 +17,7 @@ use ruttice::solver::preconditioner::multigrid::{
     SetupHooks,
 };
 use ruttice::solver::{BiCgStab, Convert, Fgmres, Solve, Solver, Stop};
-use ruttice::{random_spinor, TestRng};
+use ruttice::{assemble, local_part, random_spinor, LocalComm, TestRng};
 use ruttice::{
     Boundary, Coarse, ConvertFrom, Field, Gauge, Lattice, LinearFn, LinearOp, Spinor, Storage,
     Vector, C64, ND,
@@ -639,4 +640,112 @@ fn exchangeable_members_and_outer_solvers() {
         );
         assert!(info.iterations * 5 < plain, "{name}");
     }
+}
+
+/// The clover multigrid split over processes (threads standing in for them) is the same
+/// cycle as on one process: with a fixed number of coarse iterations and SAP steps, one
+/// application and a whole FGMRES solve agree to rounding, in as many iterations.
+#[test]
+fn multigrid_on_several_processes() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 571);
+    let initial = random_spinor(&whole, 8, 572);
+    let b = random_spinor(&whole, 2, 573);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let run = |lat: Arc<Lattice>| {
+        let op = clover_at::<f64>(&lat, &local_part(&u, &lat), 0.2);
+        let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+        let parts = CycleParts {
+            operator: Box::new(Bound::new(&op, Variant::D)),
+            pre_smoother: None,
+            post_smoother: Box::new(Sap::new(&op, &agg, 4, 6)),
+            // Always 20 iterations: the cycle is then the same map on any split.
+            coarse_solver: Box::new(BiCgStab::<C64Field>::new(Stop::simple(1e-40, 20))),
+        };
+        let mut mg = Multigrid::with_parts(
+            &op,
+            &agg,
+            local_part(&initial, &lat),
+            2,
+            parts,
+            SetupHooks::default(),
+        )
+        .unwrap();
+        let b = local_part(&b, &lat);
+        let mut once = b.zeros_like();
+        mg.mult(&mut once, &b);
+        let mut x = b.zeros_like();
+        let info = Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), Some(&mut mg), &mut x, &b)
+            .unwrap();
+        (once, x, info.iterations)
+    };
+    let (once, x, iterations) = run(whole.clone());
+    for grid in [[1, 1, 1, 2], [2, 1, 2, 1], [2, 2, 1, 2]] {
+        let parts = LocalComm::run(global, grid, run);
+        let (mut ones, mut xs) = (Vec::new(), Vec::new());
+        let mut split_iterations = Vec::new();
+        for (o, x, i) in parts {
+            ones.push(o);
+            xs.push(x);
+            split_iterations.push(i);
+        }
+        let (d_once, d_x) = (
+            max_abs_diff(&assemble(&whole, &ones), &once),
+            max_abs_diff(&assemble(&whole, &xs), &x),
+        );
+        eprintln!(
+            "grid {grid:?}: one cycle differs by {d_once:e}, the solution by {d_x:e}; {:?} iterations against {iterations}",
+            split_iterations
+        );
+        assert!(d_once < 1e-10 && d_x < 1e-10, "grid {grid:?}");
+        assert!(split_iterations.iter().all(|i| i.abs_diff(iterations) <= 1));
+    }
+}
+
+/// The multigrid of the whole lattice under a solver on the even sites (`OnParity`): the
+/// even block of an approximate inverse of D approximates the inverse of the Schur
+/// complement, so FGMRES on the Schur complement needs about as many iterations as on D,
+/// and far fewer than without it.
+#[test]
+fn multigrid_under_an_even_odd_solver() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 581), 0.2);
+    let b = random_spinor(&lat, 1, 582);
+    let index = op.even_odd_index().unwrap().clone();
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let mut mg = Multigrid::new(&op, &lat, &MultigridParams::bridge([2, 2, 2, 2])).unwrap();
+    let whole = {
+        let mut x = b.zeros_like();
+        Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), Some(&mut mg), &mut x, &b)
+            .unwrap()
+            .iterations
+    };
+    let even_odd = |m: Option<&mut dyn LinearFn<V64>>| {
+        let mut x = b.zeros_like();
+        let info = solve_even_odd(&op, &index, &mut x, &b, |schur, x_e, rhs| {
+            let mut on_even = m.map(|m| OnParity::new(m, &index, &b));
+            let m = on_even
+                .as_mut()
+                .map(|m| m as &mut dyn LinearFn<Field<f64, Spinor, ruttice::Half>>);
+            Fgmres::new(stop).solve(schur, m, x_e, rhs)
+        })
+        .unwrap();
+        assert!(residual_sqr(&op, &x, &b)[0] < 1e-22);
+        info.iterations
+    };
+    let plain = even_odd(None);
+    let with_mg = even_odd(Some(&mut mg));
+    eprintln!("FGMRES iterations: on D with the multigrid {whole}; on the even sites {plain} alone, {with_mg} with it");
+    assert!(with_mg <= whole + 2 && with_mg * 3 < plain);
 }

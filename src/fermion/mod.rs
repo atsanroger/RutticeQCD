@@ -7,7 +7,7 @@ mod wilson;
 
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
-pub use evenodd::{solve_even_odd, Dagger, EvenOdd, Schur};
+pub use evenodd::{solve_even_odd, Dagger, EvenOdd, OnParity, Schur};
 
 pub use mdwf::{
     EoForm, Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd,

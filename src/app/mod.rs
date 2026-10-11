@@ -16,7 +16,7 @@ pub use config::{
 
 use crate::fermion::{
     solve_even_odd, Bound, Clover, CloverParams, CloverSimd, DiagTerm, EvenOdd, FermionOp,
-    GaugeError, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
+    GaugeError, OnParity, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
 };
 use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
 use crate::io::{BridgeText, GaugeFile, Ildg, IoError, Scidac};
@@ -306,11 +306,6 @@ fn validate_simd(config: &Config, grid: [usize; ND], local: [usize; ND]) -> Resu
             "solver.simd must be 1 or one of {SIMD_WIDTHS:?}, not {lanes}"
         ));
     }
-    if config.solver.multigrid.is_some() {
-        return invalid(
-            "solver.multigrid works on fields in the usual layout; set solver.simd = 1".to_string(),
-        );
-    }
     // On several processes it is the part of the lattice on one process that is cut.
     let on_one = if grid == [1; ND] {
         String::new()
@@ -341,7 +336,8 @@ type Spinors<L> = Field<f64, Spinor, Full, L>;
 
 /// Solve D S = b for the twelve right-hand sides of `b`, the way the parameter file asks.
 /// The fields may be in any layout the operator works on; `index` is the operator's
-/// even-odd numbering.
+/// even-odd numbering. A preconditioner `m` of the whole operator (the multigrid) is put
+/// under the solver on the even sites through `OnParity`.
 fn propagator<L, F>(
     op: &F,
     index: Option<&EvenOddIndex>,
@@ -362,10 +358,14 @@ where
     let info = match (solver.even_odd, solver.kind) {
         (true, kind) => {
             let index = index.expect("even extents were checked when the file was read");
+            let mut on_even = m.map(|m| OnParity::new(m, index, b));
+            let m = on_even
+                .as_mut()
+                .map(|m| m as &mut dyn LinearFn<Field<f64, Spinor, Half, L>>);
             solve_even_odd(op, index, &mut s, b, |schur, x_e, rhs| match kind {
                 SolverKind::CgNormal => solve_cgne(&mut Cg::new(stop), schur, x_e, rhs),
-                SolverKind::Bicgstab => BiCgStab::new(stop).solve(schur, None, x_e, rhs),
-                SolverKind::Fgmres => Fgmres::new(stop).solve(schur, None, x_e, rhs),
+                SolverKind::Bicgstab => BiCgStab::new(stop).solve(schur, m, x_e, rhs),
+                SolverKind::Fgmres => Fgmres::new(stop).solve(schur, m, x_e, rhs),
             })?
         }
         (false, SolverKind::CgNormal) => solve_cgne(
@@ -442,20 +442,12 @@ fn validate_multigrid(
                 .to_string(),
         );
     }
-    if config.solver.even_odd {
-        return invalid(
-            "solver.multigrid works on the whole lattice; set solver.even_odd = false".to_string(),
-        );
-    }
-    if grid != [1; ND] {
-        return Err(CliError::Grid(
-            "multigrid runs on one process only so far".to_string(),
-        ));
-    }
-    if (0..ND).any(|mu| mg.block[mu] == 0 || !config.lattice[mu].is_multiple_of(mg.block[mu])) {
+    // A block may not be split between processes.
+    let local: [usize; ND] = core::array::from_fn(|mu| config.lattice[mu] / grid[mu]);
+    if (0..ND).any(|mu| mg.block[mu] == 0 || !local[mu].is_multiple_of(mg.block[mu])) {
         return invalid(format!(
-            "solver.multigrid.block {:?} must divide the lattice {:?}",
-            mg.block, config.lattice
+            "solver.multigrid.block {:?} must divide the lattice {local:?} on one process",
+            mg.block
         ));
     }
     // Six complex components per chirality and site.
@@ -485,9 +477,13 @@ fn validate_multigrid(
 
 /// `solve_quark` with the fields in blocks of `W` sites (`solver.simd`). The source is
 /// rearranged into blocks, the solvers and the operator work on blocks throughout, and the
-/// solution is rearranged back.
-fn solve_quark_simd<D: DiagTerm<f64>, const W: usize>(
+/// solution is rearranged back. The multigrid works in the usual layout, on the operator
+/// `sites` (or `single`) builds; its input and output are rearranged.
+#[allow(clippy::too_many_arguments)]
+fn solve_quark_simd<D: DiagTerm<f64>, D32: DiagTerm<f32>, const W: usize>(
     op: Option<WilsonOp<f64, Dirac, D, Aosoa<W>>>,
+    sites: impl FnOnce() -> Result<WilsonOp<f64, Dirac, D>, GaugeError>,
+    single: impl FnOnce() -> Result<WilsonOp<f32, Dirac, D32>, GaugeError>,
     u: &Field<f64, Gauge>,
     b: &V,
     solver: &SolverConfig,
@@ -499,11 +495,34 @@ where
     let mut op = op.expect("that the lattice can be cut was checked when the file was read");
     op.set_gauge(u)
         .map_err(|e| CliError::Operator { quark, source: e })?;
-    let mut rhs = Spinors::<Aosoa<W>>::with_shape(b.lattice(), SPINOR_REALS, 1, NUM_SOURCES, 1);
+    let lat = b.lattice();
+    let mut rhs = Spinors::<Aosoa<W>>::with_shape(lat, SPINOR_REALS, 1, NUM_SOURCES, 1);
     rhs.convert_from(b);
     let index = op.even_odd_index().map(|index| &**index);
-    let (blocks, info) = propagator(&op, index, &rhs, solver, None)
-        .map_err(|e| CliError::Solve { quark, source: e })?;
+    let setup_failed = |e| CliError::Multigrid { quark, source: e };
+    let operator_failed = |e| CliError::Operator { quark, source: e };
+    let solved = match &solver.multigrid {
+        None => propagator(&op, index, &rhs, solver, None),
+        Some(mg) => match mg.precision {
+            Precision::Double => {
+                let op_sites = sites().map_err(operator_failed)?;
+                let m = Multigrid::new(&op_sites, lat, &mg.params()).map_err(setup_failed)?;
+                let mut m = Convert::new(m, &V::spinor(lat, NUM_SOURCES));
+                #[allow(clippy::let_and_return)]
+                let solved = propagator(&op, index, &rhs, solver, Some(&mut m));
+                solved
+            }
+            Precision::Single => {
+                let op32 = single().map_err(operator_failed)?;
+                let m = Multigrid::new(&op32, lat, &mg.params()).map_err(setup_failed)?;
+                let mut m = Convert::new(m, &Field::<f32, Spinor>::spinor(lat, NUM_SOURCES));
+                #[allow(clippy::let_and_return)]
+                let solved = propagator(&op, index, &rhs, solver, Some(&mut m));
+                solved
+            }
+        },
+    };
+    let (blocks, info) = solved.map_err(|e| CliError::Solve { quark, source: e })?;
     let mut s = b.zeros_like();
     s.convert_from(&blocks);
     Ok((worst_residual(&op, &blocks, &rhs), s, info))
@@ -574,11 +593,23 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
         let start = Instant::now();
         // The number of sites per block is part of the type of the operator: one call for
         // each value `solver.simd` may have.
+        // The multigrid in blocks works on the operator in the usual layout: `sites` names
+        // it.
         macro_rules! in_blocks {
-            ($operator:ident, $params:expr) => {
+            ($operator:ident, $sites:ident, $params:expr) => {{
+                let make = || {
+                    let mut op = $sites::<f64>::new(&lat, $params);
+                    op.set_gauge(&u).map(|()| op)
+                };
+                let single = || {
+                    let mut op = $sites::<f32>::new(&lat, $params);
+                    op.set_gauge(&u).map(|()| op)
+                };
                 match config.solver.simd {
                     2 => solve_quark_simd(
                         $operator::<f64, 2>::new(&lat, $params),
+                        make,
+                        single,
                         &u,
                         &b,
                         &config.solver,
@@ -586,6 +617,8 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                     )?,
                     4 => solve_quark_simd(
                         $operator::<f64, 4>::new(&lat, $params),
+                        make,
+                        single,
                         &u,
                         &b,
                         &config.solver,
@@ -593,6 +626,8 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                     )?,
                     8 => solve_quark_simd(
                         $operator::<f64, 8>::new(&lat, $params),
+                        make,
+                        single,
                         &u,
                         &b,
                         &config.solver,
@@ -600,7 +635,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                     )?,
                     lanes => unreachable!("solver.simd = {lanes} was refused by validate"),
                 }
-            };
+            }};
         }
         // The two fermion types differ only in the operator that is built; everything after
         // that is the same generic code.
@@ -610,7 +645,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                     kappa,
                     boundary: boundary.map(Into::into),
                 };
-                in_blocks!(WilsonSimd, params)
+                in_blocks!(WilsonSimd, Wilson, params)
             }
             FermionConfig::Clover {
                 kappa,
@@ -622,7 +657,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                     csw,
                     boundary: boundary.map(Into::into),
                 };
-                in_blocks!(CloverSimd, params)
+                in_blocks!(CloverSimd, Clover, params)
             }
             FermionConfig::Wilson { kappa, boundary } => {
                 let mut op = Wilson::<f64>::new(

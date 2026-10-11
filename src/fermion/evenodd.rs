@@ -161,3 +161,45 @@ where
     insert_parity(x, &x_o, index);
     Ok(result)
 }
+
+/// An approximate inverse of the Schur complement S on one parity from one of the whole
+/// operator: the block of M⁻¹ on that parity is exactly S⁻¹, so with an approximate inverse
+/// `inner` of M, `[inner (r ⊕ 0)]_p` approximates S⁻¹ r as well as `inner` approximates
+/// M⁻¹. This puts a preconditioner of the whole lattice (a multigrid cycle) under a solver
+/// on one parity (`solve_even_odd`).
+pub struct OnParity<'m, T: Storage, K: Kind, L: Layout> {
+    inner: &'m mut dyn LinearFn<Field<T, K, crate::Full, L>>,
+    index: &'m EvenOddIndex,
+    inp: Field<T, K, crate::Full, L>,
+    out: Field<T, K, crate::Full, L>,
+}
+
+impl<'m, T: Storage, K: Kind, L: Layout> OnParity<'m, T, K, L> {
+    /// `like` gives the shape of the whole fields; `index` is the operator's decomposition.
+    pub fn new(
+        inner: &'m mut dyn LinearFn<Field<T, K, crate::Full, L>>,
+        index: &'m EvenOddIndex,
+        like: &Field<T, K, crate::Full, L>,
+    ) -> Self {
+        Self {
+            inner,
+            index,
+            inp: like.zeros_like(),
+            out: like.zeros_like(),
+        }
+    }
+}
+
+impl<T: Storage, K: Kind, L: Layout> LinearFn<HalfField<T, K, L>> for OnParity<'_, T, K, L> {
+    fn mult(&mut self, out: &mut HalfField<T, K, L>, inp: &HalfField<T, K, L>) {
+        let n = Field::num_vectors(inp);
+        if Field::num_vectors(&self.inp) != n {
+            self.inp = self.inp.zeros_with(n);
+            self.out = self.out.zeros_with(n);
+        }
+        self.inp.set_zero();
+        insert_parity(&mut self.inp, inp, self.index);
+        self.inner.mult(&mut self.out, &self.inp);
+        extract_parity(out, &self.out, self.index, inp.parity());
+    }
+}

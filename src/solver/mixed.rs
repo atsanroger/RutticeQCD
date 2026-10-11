@@ -94,6 +94,12 @@ where
     M2: LinearFn<V2>,
 {
     fn mult(&mut self, out: &mut V, inp: &V) {
+        // Solvers go on with fewer vectors once some have converged.
+        let n = inp.num_vectors();
+        if self.inp.num_vectors() != n {
+            self.inp = self.inp.zeros_with(n);
+            self.out = self.out.zeros_with(n);
+        }
         self.inp.convert_from(inp);
         self.inner.mult(&mut self.out, &self.inp);
         out.convert_from(&self.out);
