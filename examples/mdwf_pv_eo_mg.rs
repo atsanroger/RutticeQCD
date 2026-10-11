@@ -2,13 +2,15 @@
 //! vectors from a `mdwf_evenodd_coherence` checkpoint.
 //!
 //! ```text
-//! cargo run --release --example mdwf_pv_eo_mg -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [seeds:A-B]
+//! cargo run --release --example mdwf_pv_eo_mg -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [cgne] [exact] [bicgstab] [seeds:A-B]
 //! ```
 //!
 //! N test vectors (N/2 Ritz vectors y of Ã, default 32) on BLOCK⁴ aggregates (default 4),
 //! improved by R rounds of the multigrid bootstrap first with `boot:R`.
 //! `left` solves with Ã_L instead of Ã, `alpha:A` puts Neff's α into D (`pvalpha`: into
-//! D_PV as well). Printed per right-hand side (seeds 91..91 by default): GCR(K) steps
+//! D_PV as well). `cgne` solves the normal equations of the left Schur complement with the
+//! multigrid instead (CGNE with α), `exact` takes the second coarse factor on its exact
+//! adjoint, `bicgstab` uses flexible BiCGStab outside instead of GCR. Printed per right-hand side (seeds 91..91 by default): GCR(K) steps
 //! (default K = 2), applications of the operator (outer and inside the cycle), coarse
 //! applications, |D x − b|²/|b|² with the plain D, time, and the memory in use.
 
@@ -18,7 +20,7 @@ use ruttice::kernel::Dirac;
 use ruttice::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, Aggregation, BootstrapParams, PvEoCycle, PvEoParams,
 };
-use ruttice::solver::{Gcr, SolveError, Solver, Stop};
+use ruttice::solver::{BiCgStab, Gcr, SolveError, Solver, Stop};
 use ruttice::{
     random_spinor, Boundary, Field, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64, ND,
 };
@@ -28,7 +30,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_pv_eo_mg CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [seeds:A-B]";
+const USAGE: &str = "usage: mdwf_pv_eo_mg CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [cgne] [exact] [bicgstab] [seeds:A-B]";
 
 type H = Field<f64, Spinor, Half>;
 
@@ -130,7 +132,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(USAGE.into());
     }
     let is_flag = |a: &str| {
-        ["left", "pvalpha", "coarse64"].contains(&a) || (a.contains(':') && !a.contains('/'))
+        ["left", "pvalpha", "coarse64", "cgne", "exact", "bicgstab"].contains(&a)
+            || (a.contains(':') && !a.contains('/'))
     };
     let positional: Vec<&String> = args.iter().filter(|a| !is_flag(a)).collect();
     let flag = |name: &str| args.iter().any(|a| a == name);
@@ -184,7 +187,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (op, pv) = (make(params, 1.0)?, make(pv_params, 1.0)?);
     let op_a = make(params, alpha)?;
     let pv_a = make(pv_params, if flag("pvalpha") { alpha } else { 1.0 })?;
-    let form = if left { EoForm::Left } else { EoForm::Right };
+    // `cgne`: the normal equations of the left Schur complement, N = L^(α)† L^(α), which is
+    // the operator with D in place of D_PV; the second coarse factor is then P†D†P.
+    let cgne = flag("cgne");
+    let (pv, pv_a) = if cgne { (&op, &op_a) } else { (&pv, &pv_a) };
+    let cycle_params = PvEoParams {
+        exact_adjoint: cgne || flag("exact"),
+        ..PvEoParams::default()
+    };
+    let form = if left || cgne {
+        EoForm::Left
+    } else {
+        EoForm::Right
+    };
     let mut like = H::with_shape(&lat, 24, ls, 1, 1);
     like.set_parity(Parity::Even);
 
@@ -201,7 +216,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let basis = if rounds > 0 {
         pv_eo_bootstrap(
             &op,
-            &pv,
+            pv,
             &agg,
             &mut y,
             BootstrapParams {
@@ -210,27 +225,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             },
         )?
     } else {
-        pv_eo_basis(&op, &pv, &agg, &y)?
+        pv_eo_basis(&op, pv, &agg, &y)?
     };
     drop(y);
     // `coarse64`: the coarse solves in double precision (single by default).
-    let outer_ops = (&op_a, &pv_a, form);
+    let outer_ops = (&op_a, pv_a, form);
     let mut cycle = if flag("coarse64") {
         Cycle::Double(PvEoCycle::with_coarse_storage(
             &op,
-            &pv,
+            pv,
             outer_ops,
             &basis,
-            PvEoParams::default(),
+            cycle_params,
         )?)
     } else {
-        Cycle::Single(PvEoCycle::new(
-            &op,
-            &pv,
-            outer_ops,
-            &basis,
-            PvEoParams::default(),
-        )?)
+        Cycle::Single(PvEoCycle::new(&op, pv, outer_ops, &basis, cycle_params)?)
     };
     println!(
         "  basis and cycle: {:.0} s, |λ_max| ≈ {:.3}; {}",
@@ -239,7 +248,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         memory()
     );
 
-    let mut a = PvEvenOdd::new(&op_a, &pv_a, form, &like);
+    let mut a = PvEvenOdd::new(&op_a, pv_a, form, &like);
     let steps = PvEoParams::default().chebyshev_steps;
     for seed in seed_lo..=seed_hi {
         let mut b = Field::<f64, Spinor>::with_shape(&lat, 24, ls, 1, 1);
@@ -250,26 +259,40 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (outer, coarse_before) = (Cell::new(0), cycle.coarse_applications());
         let mut sol = like.zeros_like();
         let start = Instant::now();
-        let result = Gcr::new(Stop::simple(1e-18, 2000), gcr_k).solve(
-            &mut Counted {
-                a: &mut a,
-                n: &outer,
-            },
-            Some(&mut cycle),
-            &mut sol,
-            &rhs,
-        );
+        let cycles = Cell::new(0);
+        let stop = Stop::simple(1e-18, 2000);
+        let mut counted_a = Counted {
+            a: &mut a,
+            n: &outer,
+        };
+        let mut counted_cycle = Counted {
+            a: &mut cycle,
+            n: &cycles,
+        };
+        // `bicgstab`: flexible BiCGStab outside (two cycles per iteration) instead of GCR.
+        let (result, solver) = if flag("bicgstab") {
+            (
+                BiCgStab::new(stop).solve(&mut counted_a, Some(&mut counted_cycle), &mut sol, &rhs),
+                "BiCGStab".to_string(),
+            )
+        } else {
+            (
+                Gcr::new(stop, gcr_k).solve(
+                    &mut counted_a,
+                    Some(&mut counted_cycle),
+                    &mut sol,
+                    &rhs,
+                ),
+                format!("GCR({gcr_k})"),
+            )
+        };
         let iterations = match &result {
             Ok(i) => format!("{}", i.iterations),
             Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
             Err(e) => format!("failed: {e}"),
         };
-        let cycles = match &result {
-            Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
-            _ => 0,
-        };
         // Inside a cycle: two smoother applications of steps − 1 each, two residuals.
-        let inner = cycles * (2 * (steps - 1) + 2);
+        let inner = cycles.get() * (2 * (steps - 1) + 2);
         let mut x = b.zeros_like();
         a.solution(&mut x, &sol, &b);
         let mut r = b.zeros_like();
@@ -279,7 +302,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         r.norm_sqr(&mut rr);
         b.norm_sqr(&mut bb);
         println!(
-            "  seed {seed}: GCR({gcr_k}) {iterations} steps: {} Ã = {} sweeps, {} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
+            "  seed {seed}: {solver} {iterations} iterations, {} cycles: {} Ã = {} sweeps, {} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
+            cycles.get(),
             outer.get() + inner,
             2 * (outer.get() + inner),
             cycle.coarse_applications() - coarse_before,
