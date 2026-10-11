@@ -255,6 +255,10 @@ pub struct MultigridConfig {
     /// Seed of the random initial test vectors.
     #[serde(default = "mg_seed")]
     pub seed: u64,
+    /// Levels below the coarse lattice for the coarse solves: the super-block sizes of
+    /// the second and the third level (coarse sites per direction).
+    pub level2_super_block: Option<usize>,
+    pub level3_super_block: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -307,6 +311,13 @@ impl MultigridConfig {
             pre_smoothing: self.pre_smoothing,
             precondition_coarse_diagonal: self.precondition_coarse_diagonal,
             seed: self.seed,
+            levels: [
+                self.level2_super_block.unwrap_or(0),
+                self.level2_super_block
+                    .and(self.level3_super_block)
+                    .unwrap_or(0),
+                0,
+            ],
         }
     }
 }

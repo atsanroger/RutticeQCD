@@ -16,8 +16,9 @@
 
 use super::{CoarseOp, MultigridError};
 use crate::kernel::{Number, Real};
-use crate::numerics::invert_complex;
+use crate::numerics::{hermitian_eigen, invert_complex};
 use crate::{Coarse, Field, LinearFn, Storage, Vector, C64, ND};
+use std::cell::{Cell, RefCell};
 
 /// `out = m v` for a dense row-major n × n m.
 fn mat_vec(m: &[C64], n: usize, v: &[C64]) -> Vec<C64> {
@@ -458,5 +459,154 @@ impl SignedMultilevel {
             first.prolong_add(&z, &mut v);
             set_vector(out, j, &v);
         }
+    }
+}
+
+/// Dense matrices on the coarse sites, applied site by site.
+pub(super) struct BlockMap {
+    dim: usize,
+    /// Per coarse site, row-major.
+    blocks: Vec<Vec<C64>>,
+}
+
+impl BlockMap {
+    /// The exact inverses of the diagonal blocks of `a`.
+    pub(super) fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
+        let dim = a.dim();
+        let blocks = (0..a.lattice().num_sites())
+            .map(|x| {
+                let mut m: Vec<f64> = a
+                    .diagonal_block(x)
+                    .iter()
+                    .flat_map(|z| [z.re, z.im])
+                    .collect();
+                let mut inv = vec![0.0; 2 * dim * dim];
+                invert_complex(dim, &mut m, &mut inv)
+                    .map_err(|_| MultigridError::SingularCoarseDiagonal { coarse_site: x })?;
+                Ok(inv
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|z| C64::new(z[0], z[1]))
+                    .collect())
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self { dim, blocks })
+    }
+
+    /// The inverses of the diagonal blocks of the exact adjoint of `a`: (A_xx†)⁻¹ = (A_xx⁻¹)†.
+    pub(super) fn inverse_diagonal_adjoint(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
+        let mut m = Self::inverse_diagonal(a)?;
+        let dim = m.dim;
+        for b in m.blocks.iter_mut() {
+            *b = (0..dim * dim)
+                .map(|ik| b[(ik % dim) * dim + ik / dim].conj())
+                .collect();
+        }
+        Ok(m)
+    }
+
+    /// |H_xx|⁻¹ = V |Λ|⁻¹ V† for H = Γ5 (Γ5 A Γ5) = A Γ5, the operator MINRES works on
+    /// when `a` holds P†D_PV P and is applied as its Γ5-adjoint (Γ5 = +1 on the first half
+    /// of the components). Hermitian positive definite, as MINRES needs of a preconditioner.
+    pub(super) fn abs_inverse_of_a_gamma5(a: &CoarseOp<f64>) -> Self {
+        let dim = a.dim();
+        let blocks = (0..a.lattice().num_sites())
+            .map(|x| {
+                let mut h = a.diagonal_block(x);
+                for row in 0..dim {
+                    for col in dim / 2..dim {
+                        h[row * dim + col] = -h[row * dim + col];
+                    }
+                }
+                let (lam, v) = hermitian_eigen(dim, &h);
+                let mut m = vec![C64::ZERO; dim * dim];
+                for i in 0..dim {
+                    for k in 0..dim {
+                        let mut z = C64::ZERO;
+                        for (j, l) in lam.iter().enumerate() {
+                            z += v[i * dim + j].scale(1.0 / l.abs().max(1e-300))
+                                * v[k * dim + j].conj();
+                        }
+                        m[i * dim + k] = z;
+                    }
+                }
+                m
+            })
+            .collect();
+        Self { dim, blocks }
+    }
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for BlockMap {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        let dim = self.dim;
+        let site_len = inp.site_len();
+        crate::for_sites(out.slab_mut(0), site_len, |x, dst| {
+            let m = &self.blocks[x];
+            let src = inp.site(0, x);
+            for (dst, src) in dst.chunks_exact_mut(2 * dim).zip(src.chunks_exact(2 * dim)) {
+                for i in 0..dim {
+                    let mut z = C64::ZERO;
+                    for k in 0..dim {
+                        let v =
+                            C64::new(src[2 * k].load().to_f64(), src[2 * k + 1].load().to_f64());
+                        z += m[i * dim + k] * v;
+                    }
+                    dst[2 * i] = T::store(Number::from_f64(z.re));
+                    dst[2 * i + 1] = T::store(Number::from_f64(z.im));
+                }
+            }
+        });
+    }
+}
+
+/// A coarse operator shared between its solver and its preconditioner, counting its
+/// applications.
+pub(super) struct CountedShared<'a, T: Storage> {
+    pub(super) a: &'a RefCell<CoarseOp<T>>,
+    pub(super) n: &'a Cell<usize>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedShared<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        self.a.borrow_mut().mult(out, inp);
+    }
+}
+
+/// The preconditioner of the quark factor: the inverses of its diagonal blocks B, or with
+/// levels below the coarse lattice multiplicatively z₁ = Q M Q† r, z = z₁ + B⁻¹ (r − A z₁)
+/// (one more application of A, counted); an additive combination made BiCGStab worse.
+pub(super) struct LevelsAndBlocks<'a, T: Storage> {
+    /// The inverses of the diagonal blocks; none for an operator preconditioned by them,
+    /// whose diagonal blocks are the identity.
+    pub(super) blocks: Option<&'a mut BlockMap>,
+    pub(super) levels: Option<&'a SignedMultilevel>,
+    pub(super) a: &'a RefCell<CoarseOp<T>>,
+    pub(super) n: &'a Cell<usize>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for LevelsAndBlocks<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        let Some(levels) = self.levels else {
+            match self.blocks.as_mut() {
+                Some(b) => b.mult(out, inp),
+                None => out.copy_from(inp),
+            }
+            return;
+        };
+        let nv = inp.num_vectors();
+        let mut z1 = inp.zeros_like();
+        levels.apply(&mut z1, inp);
+        let mut r = inp.zeros_like();
+        self.a.borrow_mut().mult(&mut r, &z1);
+        self.n.set(self.n.get() + nv);
+        r.aypx(&vec![C64::new(-1.0, 0.0); nv], inp);
+        match self.blocks.as_mut() {
+            Some(b) => b.mult(out, &r),
+            None => out.copy_from(&r),
+        }
+        out.axpy(&vec![C64::new(1.0, 0.0); nv], &z1);
     }
 }

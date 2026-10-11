@@ -749,3 +749,36 @@ fn multigrid_under_an_even_odd_solver() {
     eprintln!("FGMRES iterations: on D with the multigrid {whole}; on the even sites {plain} alone, {with_mg} with it");
     assert!(with_mg <= whole + 2 && with_mg * 3 < plain);
 }
+
+/// A level below the coarse lattice (super-blocks of 2^4 coarse sites, solved exactly)
+/// under the coarse solves of the clover multigrid, from the setup's test vectors on the
+/// coarse lattice: FGMRES still converges, in about as many iterations.
+#[test]
+fn multigrid_with_a_level_below_the_coarse_lattice() {
+    let lat = lattice();
+    let op = clover_at::<f64>(&lat, &random_gauge(&lat, 591), 0.2);
+    let b = random_spinor(&lat, 1, 592);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 30,
+        max_restarts: 30,
+    };
+    let solve = |params: MultigridParams| {
+        let mut mg = Multigrid::new(&op, &lat, &params).unwrap();
+        let mut x = b.zeros_like();
+        let info = Fgmres::new(stop)
+            .solve(&mut Bound::new(&op, Variant::D), Some(&mut mg), &mut x, &b)
+            .unwrap();
+        assert!(residual_sqr(&op, &x, &b)[0] < 1e-24);
+        info.iterations
+    };
+    let two = solve(MultigridParams::bridge([2, 2, 2, 2]));
+    let three = solve(MultigridParams {
+        levels: [2, 0, 0],
+        ..MultigridParams::bridge([2, 2, 2, 2])
+    });
+    eprintln!(
+        "FGMRES iterations: {two} with two levels, {three} with a level below the coarse lattice"
+    );
+    assert!(three <= two + 2);
+}
