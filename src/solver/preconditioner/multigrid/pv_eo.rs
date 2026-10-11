@@ -44,7 +44,8 @@ use crate::{
     extract_parity, insert_parity, random_spinor, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
     Lattice, LinearFn, LinearOp, Parity, Spinor, Storage, Vector, C64,
 };
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 use std::sync::Arc;
 
 type HalfField = Field<f64, Spinor, Half>;
@@ -331,6 +332,46 @@ impl Default for PvEoParams {
     }
 }
 
+/// The operator of a cycle (`PvEoCycle::operator`), shared with the solver the cycle
+/// preconditions, so that the two do not each hold its work fields. The solver and the
+/// cycle apply it one after the other, never inside each other, which the `RefCell`
+/// checks.
+pub struct SharedOperator<'a, G: GammaRepre = Dirac>(Rc<RefCell<PvEvenOdd<'a, f64, G>>>);
+
+impl<G: GammaRepre> Clone for SharedOperator<'_, G> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<'a, G: GammaRepre> SharedOperator<'a, G> {
+    pub fn new(a: PvEvenOdd<'a, f64, G>) -> Self {
+        Self(Rc::new(RefCell::new(a)))
+    }
+
+    /// See `PvEvenOdd::right_hand_side`.
+    pub fn right_hand_side(&self, rhs: &mut HalfField, b: &Field<f64, Spinor>) {
+        self.0.borrow_mut().right_hand_side(rhs, b);
+    }
+
+    /// See `PvEvenOdd::solution`.
+    pub fn solution(&self, x: &mut Field<f64, Spinor>, y: &HalfField, b: &Field<f64, Spinor>) {
+        self.0.borrow_mut().solution(x, y, b);
+    }
+}
+
+impl<G: GammaRepre> LinearFn<HalfField> for SharedOperator<'_, G> {
+    fn mult(&mut self, out: &mut HalfField, inp: &HalfField) {
+        self.0.borrow_mut().mult(out, inp);
+    }
+}
+
+impl<G: GammaRepre> LinearOp<HalfField> for SharedOperator<'_, G> {
+    fn mult_dag(&mut self, out: &mut HalfField, inp: &HalfField) {
+        self.0.borrow_mut().mult_dag(out, inp);
+    }
+}
+
 /// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of
 /// a flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator. `op` and `pv`
 /// are the plain operators (α = 1) the basis and the coarse factors are built from;
@@ -349,7 +390,7 @@ pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32> {
     coarse_pv: CoarseOp<CT>,
     blocks_d: BlockMap,
     blocks_pv: BlockMap,
-    smoother: Chebyshev<PvEvenOdd<'a, f64, G>, HalfField>,
+    smoother: Chebyshev<SharedOperator<'a, G>, HalfField>,
     params: PvEoParams,
     hi: f64,
     work: [MdwfHalfWork<f64>; 2],
@@ -432,7 +473,7 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
                 params.power_steps,
             );
         let smoother = Chebyshev::new(
-            PvEvenOdd::new(op_a, pv_a, form, &like),
+            SharedOperator::new(PvEvenOdd::new(op_a, pv_a, form, &like)),
             params.chebyshev_steps,
             hi / params.chebyshev_ratio,
             hi,
@@ -463,6 +504,12 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
             h: like,
             coarse_applications: Cell::new(0),
         })
+    }
+
+    /// The operator the cycle approximates the inverse of, to be used by the solver it
+    /// preconditions (one copy of its work fields for both).
+    pub fn operator(&mut self) -> SharedOperator<'a, G> {
+        self.smoother.operator().clone()
     }
 
     /// 1.1 |λ_max| of the operator, the top of the smoother's interval.
