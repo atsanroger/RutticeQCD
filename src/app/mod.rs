@@ -11,8 +11,8 @@ pub use bench::wilson_benchmark;
 
 pub use config::{
     BoundaryConfig, ChannelsConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig,
-    GaugeFormat, MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig,
-    SolverConfig, SolverKind, SourceConfig,
+    GaugeFormat, GaugeSmearingConfig, MeasureConfig, MultigridConfig, OutputConfig, Precision,
+    QuarkConfig, SolverConfig, SolverKind, SourceConfig,
 };
 
 use crate::fermion::{
@@ -142,6 +142,8 @@ pub struct Report {
     /// Processes per direction.
     pub grid: [usize; ND],
     pub plaquette: f64,
+    /// The plaquette of the gauge-smeared links the operators are made of, if smeared.
+    pub plaquette_smeared: Option<f64>,
     /// Sweeps the gauge fixing took, if the parameter file asked for it.
     pub gauge_fixing_sweeps: Option<usize>,
     pub solves: Vec<SolveReport>,
@@ -590,6 +592,16 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                 .iterations,
         ),
     };
+    // The links of the operators: gauge smearing after the fixing (it commutes with gauge
+    // transformations).
+    let (u, plaquette_smeared) = match &config.gauge_smearing {
+        None => (u, None),
+        Some(g) => {
+            let v = g.smearing().apply(&u);
+            let p = plaquette(&v, &Stencil::nearest(&lat, [Boundary::Periodic; ND]));
+            (v, Some(p))
+        }
+    };
 
     let mut solves = Vec::new();
     let mut props: Vec<V> = Vec::new();
@@ -736,6 +748,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
     Ok(Report {
         grid,
         plaquette: plaq,
+        plaquette_smeared,
         gauge_fixing_sweeps,
         solves,
         correlators,
@@ -750,6 +763,9 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
         writeln!(out, "# processes  {:?}", report.grid)?;
     }
     writeln!(out, "# plaquette  {:.15}", report.plaquette)?;
+    if let (Some(p), Some(g)) = (report.plaquette_smeared, &config.gauge_smearing) {
+        writeln!(out, "# plaquette  {p:.15} after gauge smearing {g:?}")?;
+    }
     if let Some(sweeps) = report.gauge_fixing_sweeps {
         writeln!(out, "# gauge      Coulomb gauge after {sweeps} sweeps")?;
     }

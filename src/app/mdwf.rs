@@ -153,6 +153,22 @@ pub fn run_on(
     let grid = super::grid_for(size, requested, comm.size())?;
     let lat = Lattice::new(size, grid, comm);
     let u = read_bridge_text(&relative(&params.gauge.config_filename_input), &lat)?;
+    // Gauge smearing: the operators are made of the smeared links.
+    let u = match &params.gauge_smearing {
+        None => u,
+        Some(g) => {
+            let st = crate::Stencil::nearest(&lat, [crate::Boundary::Periodic; ND]);
+            let v = g.to_config().smearing().apply(&u);
+            writeln!(
+                out,
+                "gauge smearing {:?}: plaquette {:.15} → {:.15}",
+                g.to_config(),
+                crate::gauge::plaquette(&u, &st),
+                crate::gauge::plaquette(&v, &st)
+            )?;
+            v
+        }
+    };
     match (params.main.backend, params.main.simd_lanes) {
         (Backend::Simd, 2) => run_in::<Aosoa<2>>(params, file, &lat, &u, seeds, out),
         (Backend::Simd, 4) => run_in::<Aosoa<4>>(params, file, &lat, &u, seeds, out),
