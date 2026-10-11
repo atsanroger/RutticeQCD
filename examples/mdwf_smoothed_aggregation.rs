@@ -161,7 +161,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let vectors = inverse(&random(nvec, 11), 1e-6);
     let mut g5 = vectors.zeros_like();
     op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-    let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+    let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
 
     // 1. How rough is the represented part of s?
     let applied = |a: &mut PvPreconditioned<'_, f64>, v: &V| {

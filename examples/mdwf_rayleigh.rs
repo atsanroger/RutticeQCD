@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let vectors = ritz.select(&(0..n).collect::<Vec<_>>());
     let mut g5 = vectors.zeros_like();
     op.mult_gamma5(&mut op.work(), &mut g5, &vectors);
-    let p = Basis::from_vectors(&agg, &vectors, &g5)?;
+    let p = Basis::<f64>::from_vectors(&agg, &vectors, &g5)?;
     let mut a = PvPreconditioned::new(&op, &like);
     let mut q = |v: &V| -> C64 {
         let mut av = v.zeros_like();

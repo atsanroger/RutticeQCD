@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let basis = |x: &V| -> Result<Basis<f64>, Box<dyn Error>> {
         let mut g5x = x.zeros_like();
         op.mult_gamma5(&mut op.work(), &mut g5x, x);
-        Ok(Basis::from_vectors(&agg, x, &g5x)?)
+        Ok(Basis::<f64>::from_vectors(&agg, x, &g5x)?)
     };
 
     for nvec in [8, 16] {
