@@ -1,0 +1,270 @@
+//! Hybrid Monte Carlo: gauge configurations from the momenta, the actions and their forces,
+//! a molecular-dynamics integrator and the Metropolis test.
+//!
+//! The conventions are those of Bridge++, so that its runs can be repeated here and checked
+//! number by number (`tests/stage5_hmc.rs`): the momenta iP = i Σ_a 2 h_a T^a with h_a
+//! Gaussian of variance 1/2 drawn by the M-series generator (`Mseries`) in Bridge++'s order,
+//! H = ½ |iP|² + S; the leapfrog P(ε/2) [U(ε) P(ε)]… U(ε) P(ε/2); U ← exp(ε iP) U by the
+//! Taylor series to order `exp_order`, then made unitary again row by row; and the Metropolis
+//! test with the next number of the same generator.
+//!
+//! So far: the plaquette gauge action (quenched HMC).
+
+mod gauge_force;
+mod mseries;
+
+pub use gauge_force::{force_statistics, staples, traceless_antihermitian, PlaquetteAction};
+pub use mseries::Mseries;
+
+use crate::gauge::{plaquette, set_link};
+use crate::kernel::{ColorMatrix, Cplx};
+use crate::{for_sites, Boundary, Field, Gauge, Lattice, Stencil, ND};
+use std::sync::Arc;
+
+/// Conjugate momenta for every link: iP = i Σ_a 2 h_a T^a, with T^a = λ^a/2 the generators of
+/// su(3) (Gell-Mann λ^a) and h_a Gaussian of variance 1/2 from `rng`, eight per link, drawn
+/// for direction μ, then site after site of the global lattice (Bridge++'s `set_iP`).
+pub fn draw_momenta(lat: &Arc<Lattice>, rng: &mut Mseries) -> Field<f64, Gauge> {
+    let mut p = Field::<f64, Gauge>::gauge(lat);
+    let r = 1.0 / 3.0_f64.sqrt();
+    rng.gauss_lex_global(lat, 8, ND, |mu, x, h| {
+        // P = Σ h_a λ^a; iP is stored.
+        let p_mat = [
+            [
+                Cplx::new(h[2] + h[7] * r, 0.0),
+                Cplx::new(h[0], -h[1]),
+                Cplx::new(h[3], -h[4]),
+            ],
+            [
+                Cplx::new(h[0], h[1]),
+                Cplx::new(-h[2] + h[7] * r, 0.0),
+                Cplx::new(h[5], -h[6]),
+            ],
+            [
+                Cplx::new(h[3], h[4]),
+                Cplx::new(h[5], h[6]),
+                Cplx::new(-2.0 * h[7] * r, 0.0),
+            ],
+        ];
+        let ip = ColorMatrix(p_mat.map(|row| row.map(|z| Cplx::new(-z.im, z.re))));
+        set_link(&mut p, mu, x, &ip);
+    });
+    p
+}
+
+/// ½ |iP|², summed over all processes.
+pub fn kinetic_energy(p: &Field<f64, Gauge>) -> f64 {
+    let mut s = [p.as_slice().iter().map(|v| v * v).sum::<f64>()];
+    p.lattice().comm.sum(&mut s);
+    0.5 * s[0]
+}
+
+/// U made unitary again as Bridge++ does it for SU(3) (`reunit_SU3`): the first row
+/// normalised, the second made orthogonal to it and normalised, the third the complex
+/// conjugate of their cross product.
+pub fn reunitarize(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
+    let [r0, r1, _] = m.0;
+    let norm = |r: &[Cplx<f64>; 3]| 1.0 / r.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+    let n0 = norm(&r0);
+    let r0 = r0.map(|z| z.scale(n0));
+    let dot = r0[0].conj() * r1[0] + r0[1].conj() * r1[1] + r0[2].conj() * r1[2];
+    let r1: [Cplx<f64>; 3] = core::array::from_fn(|k| r1[k] - dot * r0[k]);
+    let n1 = norm(&r1);
+    let r1 = r1.map(|z| z.scale(n1));
+    let r2 = [
+        (r0[1] * r1[2] - r0[2] * r1[1]).conj(),
+        (r0[2] * r1[0] - r0[0] * r1[2]).conj(),
+        (r0[0] * r1[1] - r0[1] * r1[0]).conj(),
+    ];
+    ColorMatrix([r0, r1, r2])
+}
+
+/// The leapfrog integrator with the gauge field updated by exp(ε iP) to order `exp_order`.
+#[derive(Clone, Copy, Debug)]
+pub struct Leapfrog {
+    /// ε.
+    pub step: f64,
+    pub steps: usize,
+    pub exp_order: usize,
+}
+
+impl Leapfrog {
+    /// U ← exp(ε iP) U: u ← U + ε/(n − k) iP u for k = 0 … n − 1 (the Taylor series to order
+    /// n, nested), then made unitary again.
+    pub fn update_u(&self, eps: f64, p: &Field<f64, Gauge>, u: &mut Field<f64, Gauge>) {
+        let n = self.exp_order;
+        for mu in 0..ND {
+            let pm = p.slab(mu);
+            for_sites(u.slab_mut(mu), 18, |x, out| {
+                let u0 = ColorMatrix::from_reals(out);
+                let h = ColorMatrix::from_reals(&pm[18 * x..18 * (x + 1)]);
+                let mut u1 = u0;
+                for k in 0..n {
+                    u1 = h.mul(&u1).scale(eps / (n - k) as f64).add(&u0);
+                }
+                reunitarize(&u1).write_reals(out);
+            });
+        }
+    }
+
+    /// P ← P + ε F(U).
+    pub fn update_p(
+        &self,
+        eps: f64,
+        action: &PlaquetteAction,
+        u: &Field<f64, Gauge>,
+        p: &mut Field<f64, Gauge>,
+    ) {
+        let f = action.force(u);
+        for (pv, fv) in p.as_mut_slice().iter_mut().zip(f.as_slice()) {
+            *pv += eps * fv;
+        }
+    }
+
+    /// One trajectory of the molecular dynamics: P(ε/2), then U(ε) and P(ε) (P(ε/2) the last
+    /// time) `steps` times.
+    pub fn integrate(
+        &self,
+        action: &PlaquetteAction,
+        p: &mut Field<f64, Gauge>,
+        u: &mut Field<f64, Gauge>,
+    ) {
+        if self.steps == 0 {
+            return;
+        }
+        let eps = self.step;
+        self.update_p(0.5 * eps, action, u, p);
+        for i in 1..=self.steps {
+            self.update_u(eps, p, u);
+            let last = i == self.steps;
+            self.update_p(if last { 0.5 * eps } else { eps }, action, u, p);
+        }
+    }
+}
+
+/// What one trajectory did.
+#[derive(Clone, Copy, Debug)]
+pub struct Trajectory {
+    /// Kinetic and gauge energy at the start and at the end.
+    pub kinetic: [f64; 2],
+    pub gauge: [f64; 2],
+    /// H(end) − H(start).
+    pub delta_h: f64,
+    /// The number the Metropolis test compared exp(−ΔH) with (−1 without the test).
+    pub random: f64,
+    pub accepted: bool,
+    /// The plaquette at the end of the trajectory and after the test.
+    pub plaquette_trial: f64,
+    pub plaquette: f64,
+}
+
+/// Quenched HMC with the plaquette action.
+#[derive(Clone, Copy, Debug)]
+pub struct QuenchedHmc {
+    pub action: PlaquetteAction,
+    pub integrator: Leapfrog,
+    pub metropolis: bool,
+}
+
+impl QuenchedHmc {
+    /// One trajectory from `u`, which becomes the new configuration if it is accepted.
+    pub fn trajectory(&self, u: &mut Field<f64, Gauge>, rng: &mut Mseries) -> Trajectory {
+        let lat = u.lattice().clone();
+        let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
+        let mut p = draw_momenta(&lat, rng);
+        let (k0, g0) = (kinetic_energy(&p), self.action.action(u));
+        let mut trial = Field::<f64, Gauge>::gauge(&lat);
+        trial.as_mut_slice().copy_from_slice(u.as_slice());
+        self.integrator.integrate(&self.action, &mut p, &mut trial);
+        let (k1, g1) = (kinetic_energy(&p), self.action.action(&trial));
+        let delta_h = (k1 + g1) - (k0 + g0);
+        let random = if self.metropolis { rng.uniform() } else { -1.0 };
+        let accepted = random <= (-delta_h).exp();
+        let plaquette_trial = plaquette(&trial, &st);
+        if accepted {
+            u.as_mut_slice().copy_from_slice(trial.as_slice());
+        }
+        Trajectory {
+            kinetic: [k0, k1],
+            gauge: [g0, g1],
+            delta_h,
+            random,
+            accepted,
+            plaquette_trial,
+            plaquette: plaquette(u, &st),
+        }
+    }
+}
+
+/// The unit gauge field (a cold start).
+pub fn cold_start(lat: &Arc<Lattice>) -> Field<f64, Gauge> {
+    let mut u = Field::<f64, Gauge>::gauge(lat);
+    let one = ColorMatrix::identity();
+    for mu in 0..ND {
+        for x in 0..lat.num_sites() {
+            set_link(&mut u, mu, x, &one);
+        }
+    }
+    u
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gauge::{link, random_gauge};
+
+    /// The force is minus the derivative of the action: along a direction X of the Lie
+    /// algebra at one link, d/dt S(e^(tX) U) at t = 0 is −F·X, the dot product of their reals
+    /// (by a central difference).
+    #[test]
+    fn force_is_the_derivative_of_the_action() {
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 3);
+        let action = PlaquetteAction { beta: 5.5 };
+        let f = action.force(&u);
+        let mut rng = Mseries::new(7);
+        let x_field = draw_momenta(&lat, &mut rng);
+        let (mu, site) = (2, 37);
+        let x = link(&x_field, mu, site);
+        let s_at = |t: f64| {
+            let mut v = Field::<f64, Gauge>::gauge(&lat);
+            v.as_mut_slice().copy_from_slice(u.as_slice());
+            // e^(tX) by its series, far beyond what t needs.
+            let mut e = ColorMatrix::identity();
+            let mut term = ColorMatrix::identity();
+            for k in 1..20 {
+                term = x.mul(&term).scale(t / k as f64);
+                e = e.add(&term);
+            }
+            set_link(&mut v, mu, site, &e.mul(&link(&u, mu, site)));
+            action.action(&v)
+        };
+        let h = 1e-5;
+        let derivative = (s_at(h) - s_at(-h)) / (2.0 * h);
+        // dS/dt = −Σ reals F · X: the momenta move as dP/dt = F, dU/dt = P U, and H is
+        // conserved, so d(½|P|²)/dt = ⟨P, F⟩ = −dS/dt with P = X.
+        let fx: f64 = link(&f, mu, site)
+            .0
+            .iter()
+            .flatten()
+            .zip(x.0.iter().flatten())
+            .map(|(a, b)| a.re * b.re + a.im * b.im)
+            .sum();
+        assert!(
+            (derivative + fx).abs() < 1e-6 * fx.abs().max(1.0),
+            "dS/dt {derivative} against −F·X {}",
+            -fx
+        );
+    }
+
+    #[test]
+    fn reunitarize_keeps_su3() {
+        let lat = Lattice::single_node([2, 2, 2, 2]);
+        let u = random_gauge(&lat, 5);
+        let m = link(&u, 1, 3);
+        let back = reunitarize(&m);
+        for (a, b) in back.0.iter().flatten().zip(m.0.iter().flatten()) {
+            assert!((*a - *b).norm_sqr() < 1e-24);
+        }
+    }
+}

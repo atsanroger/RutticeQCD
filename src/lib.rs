@@ -25,6 +25,7 @@ pub mod backend;
 pub mod comm;
 pub mod fermion;
 pub mod gauge;
+pub mod hmc;
 pub mod io;
 pub mod kernel;
 pub mod measure;
