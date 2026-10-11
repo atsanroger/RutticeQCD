@@ -65,6 +65,101 @@ pub fn hop_derivative<O: HopTerms<Psi>>(op: &O, zeta: &Psi, eta: &Psi) -> Field<
     m
 }
 
+/// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for
+/// the links `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s
+/// convention). With A_μν(x) = Σ_spin γ_μγ_ν η(x) ζ(x)† and B = κ c_SW (A − A†)/4, a change of
+/// the links changes S by Σ_x Σ_(μ<ν) Re tr δQ_μν(x) B_μν(x). A leaf through the link U_ρ(y)
+/// contributes the leaf turned to start at y with B inserted where the leaf starts: the
+/// product of its links from y round to y, plus for a forward step and minus for a backward
+/// one.
+pub fn clover_derivative(
+    u: &Field<f64, Gauge>,
+    kappa_csw: f64,
+    zeta: &Psi,
+    eta: &Psi,
+) -> Field<f64, Gauge> {
+    use crate::gauge::paths::{Extended, Step};
+    use crate::gauge::PLANES;
+    use crate::kernel::{Dirac, GammaRepre};
+    let lat = u.lattice();
+    // B for the six planes, in two fields of four matrices per site.
+    let mut b = [
+        Field::<f64, Gauge>::gauge(lat),
+        Field::<f64, Gauge>::gauge(lat),
+    ];
+    let (sz, se) = (zeta.slab(0), eta.slab(0));
+    for (plane, &(mu, nu)) in PLANES.iter().enumerate() {
+        let g = Dirac::GAMMA[mu].mul(&Dirac::GAMMA[nu]);
+        for_sites(b[plane / ND].slab_mut(plane % ND), 18, |x, out| {
+            let (z, e) = (&sz[24 * x..24 * (x + 1)], &se[24 * x..24 * (x + 1)]);
+            let mut a = ColorMatrix::zero();
+            for s in 0..NS {
+                let t = g.col[s];
+                for i in 0..NC {
+                    let gi =
+                        g.val[s].times(Cplx::new(e[2 * (i + NC * t)], e[2 * (i + NC * t) + 1]));
+                    for j in 0..NC {
+                        let zj = Cplx::new(z[2 * (j + NC * s)], -z[2 * (j + NC * s) + 1]);
+                        a.0[i][j] += gi * zj;
+                    }
+                }
+            }
+            a.sub(&a.adj()).scale(kappa_csw / 4.0).write_reals(out);
+        });
+    }
+    let eu = Extended::new(u, 2);
+    // The same depth as the links: the indices are the same.
+    let eb = [Extended::new(&b[0], 2), Extended::new(&b[1], 2)];
+    let (f, bk) = (true, false);
+    let walk = |e: usize, path: &[Step]| -> (ColorMatrix<f64>, usize) {
+        let mut m = ColorMatrix::identity();
+        let mut y = e;
+        for &s in path {
+            let (l, z) = eu.step(y, s);
+            m = m.mul(&l);
+            y = z;
+        }
+        (m, y)
+    };
+    let mut m = Field::<f64, Gauge>::gauge(lat);
+    for rho in 0..ND {
+        for_sites(m.slab_mut(rho), 18, |y, out| {
+            let e = eu.at(y);
+            let mut acc = ColorMatrix::zero();
+            for (plane, &(mu, nu)) in PLANES.iter().enumerate() {
+                if rho != mu && rho != nu {
+                    continue;
+                }
+                let leaves: [[Step; 4]; 4] = [
+                    [(mu, f), (nu, f), (mu, bk), (nu, bk)],
+                    [(nu, f), (mu, bk), (nu, bk), (mu, f)],
+                    [(mu, bk), (nu, bk), (mu, f), (nu, f)],
+                    [(nu, bk), (mu, f), (nu, f), (mu, bk)],
+                ];
+                for leaf in &leaves {
+                    for (k, &(d, forward)) in leaf.iter().enumerate() {
+                        if d != rho {
+                            continue;
+                        }
+                        let cut = if forward { k } else { k + 1 };
+                        let (w1, ex) = walk(e, &leaf[cut..]);
+                        let bx = eb[plane / ND].link(plane % ND, ex);
+                        let (w2, _) = walk(ex, &leaf[..cut]);
+                        let term = w1.mul(&bx).mul(&w2);
+                        acc = if forward {
+                            acc.add(&term)
+                        } else {
+                            acc.sub(&term)
+                        };
+                    }
+                }
+            }
+            acc.write_reals(out);
+        });
+    }
+    m
+}
+
 /// F = TA(M) for every link.
 pub fn force_from(m: &Field<f64, Gauge>) -> Field<f64, Gauge> {
     let mut f = Field::<f64, Gauge>::gauge(m.lattice());
@@ -117,6 +212,8 @@ pub struct TwoFlavor<O> {
     phi: Option<Psi>,
     /// CG iterations of the last solve.
     pub last_iterations: usize,
+    /// κ c_SW when the operator has a clover term (`with_clover`).
+    clover: Option<f64>,
 }
 
 impl<O: HopTerms<Psi>> TwoFlavor<O> {
@@ -128,7 +225,14 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
             stop_h,
             phi: None,
             last_iterations: 0,
+            clover: None,
         }
+    }
+
+    /// The operator has the clover term with coefficient κ c_SW: its force is added.
+    pub fn with_clover(mut self, kappa_csw: f64) -> Self {
+        self.clover = Some(kappa_csw);
+        self
     }
 
     /// The operator on the (smeared) links; the smeared levels, for the force.
@@ -189,7 +293,14 @@ impl<O: HopTerms<Psi>> TwoFlavor<O> {
         let mut zeta = eta.zeros_like();
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut zeta, &eta, Variant::D);
-        let m = hop_derivative(&self.op, &zeta, &eta);
+        let mut m = hop_derivative(&self.op, &zeta, &eta);
+        if let Some(kc) = self.clover {
+            let v = levels.last().unwrap_or(links.thin);
+            let c = clover_derivative(v, kc, &zeta, &eta);
+            for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
+                *a += b;
+            }
+        }
         smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }

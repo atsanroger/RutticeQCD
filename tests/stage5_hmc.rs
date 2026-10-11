@@ -123,7 +123,16 @@ fn bridge_test_quenched_leapfrog() {
 /// exp(iP) to order 8, the M-series numbers of trajectory 200000; the plaquette after one
 /// trajectory against `expected_result` of its parameter file.
 fn bridge_general(expected: f64, fermions: Option<Option<ruttice::gauge::GaugeSmearing>>) {
-    use ruttice::fermion::{Wilson, WilsonParams};
+    bridge_general_with(expected, fermions, None)
+}
+
+/// `bridge_general` with clover fermions of this c_SW in place of Wilson fermions.
+fn bridge_general_with(
+    expected: f64,
+    fermions: Option<Option<ruttice::gauge::GaugeSmearing>>,
+    csw: Option<f64>,
+) {
+    use ruttice::fermion::{Clover, CloverParams, Wilson, WilsonParams};
     use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavor};
     use ruttice::solver::Stop;
     use ruttice::Boundary;
@@ -157,15 +166,31 @@ fn bridge_general(expected: f64, fermions: Option<Option<ruttice::gauge::GaugeSm
             max_iterations: 1000,
             max_restarts: 40,
         };
-        terms.push(Term {
-            level: 0,
-            action: Box::new(TwoFlavor::new(
+        let action: Box<dyn ruttice::hmc::MdAction> = match csw {
+            None => Box::new(TwoFlavor::new(
                 Wilson::<f64>::new(&lat, params),
                 smearing,
                 stop,
                 stop,
             )),
-        });
+            Some(csw) => Box::new(
+                TwoFlavor::new(
+                    Clover::<f64>::new(
+                        &lat,
+                        CloverParams {
+                            kappa: params.kappa,
+                            csw,
+                            boundary: params.boundary,
+                        },
+                    ),
+                    smearing,
+                    stop,
+                    stop,
+                )
+                .with_clover(params.kappa * csw),
+            ),
+        };
+        terms.push(Term { level: 0, action });
     }
     terms.push(Term {
         level: 0,
@@ -199,5 +224,20 @@ fn bridge_test_wilson_nf2_stout() {
             smear: Smear::Stout(Stout::uniform(0.1)),
             steps: 1,
         })),
+    );
+}
+
+/// `test_HMC_Clover_Nf2`: as `test_HMC_Wilson_Nf2` with clover fermions, c_SW = 1.
+#[test]
+fn bridge_test_clover_nf2_stout() {
+    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    bridge_general_with(
+        0.627753790313323,
+        Some(Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        })),
+        Some(1.0),
     );
 }
