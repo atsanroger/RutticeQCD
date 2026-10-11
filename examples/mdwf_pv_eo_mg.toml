@@ -1,0 +1,25 @@
+# The same run as examples/mdwf_pv_eo_mg.yaml, in TOML, with the multigrid from a file of
+# its own (examples/mg_pv_eo.yaml), which other parameter files can share. Keys left out
+# take their defaults.
+
+MultiGrid_file = "mg_pv_eo.yaml"
+
+[Main]
+lattice_size = [12, 12, 12, 12]
+backend = "cpu"
+
+[Gauge]
+config_filename_input = "/home/wlchenhome/Bridge/runs/hmc_12_b6.0/conf_quench_12x12x12x12_b6.0.txt-000200"
+
+[Fopr]
+fermion_type = "Mobius"
+quark_mass = 0.005
+domain_wall_height = 1.0
+extent_of_5th_dimension = 8
+neff_alpha = 0.6
+
+[Solver]
+solver_type = "gcr"
+operator_type = "pv_left"
+convergence_criterion_squared = 1e-18
+preconditioner_type = "mg"

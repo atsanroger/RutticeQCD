@@ -256,6 +256,39 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
     }
 }
 
+/// The Krylov solver of a coarse factor, right-preconditioned by the inverses of its
+/// diagonal blocks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoarseKrylov {
+    BiCgStab,
+    /// Flexible GCR keeping the last `k` directions.
+    Gcr {
+        k: usize,
+    },
+    /// MINRES on the Γ5-Hermitian form H = Γ5 (Γ5 A Γ5) with the block |H_xx|⁻¹: only for
+    /// the second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for
+    /// Möbius domain-wall fermions holds approximately. The other solvers take that factor
+    /// on the exact adjoint of the stored matrix.
+    Minres,
+}
+
+/// x = A⁻¹ b approximately by kind, preconditioned by m; not reaching the tolerance
+/// is not an error.
+fn coarse_solve<T: Storage>(
+    kind: CoarseKrylov,
+    stop: Stop,
+    a: &mut dyn LinearFn<Field<T, Coarse>>,
+    m: &mut BlockMap,
+    x: &mut Field<T, Coarse>,
+    b: &Field<T, Coarse>,
+) {
+    let _ = match kind {
+        CoarseKrylov::BiCgStab => BiCgStab::new(stop).solve(a, Some(m), x, b),
+        CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, Some(m), x, b),
+        CoarseKrylov::Minres => Minres::new(stop).solve(a, Some(m), x, b),
+    };
+}
+
 /// Settings of the cycle.
 #[derive(Clone, Copy, Debug)]
 pub struct PvEoParams {
@@ -263,28 +296,37 @@ pub struct PvEoParams {
     pub chebyshev_steps: usize,
     /// The smoother acts on [hi/ratio, hi], hi = 1.1 |λ_max|.
     pub chebyshev_ratio: f64,
-    /// The coarse solves stop at |r|²/|b|² below this (MINRES: in its own norm).
+    /// The solve of the quark factor stops at |r|²/|b|² below this ...
     pub coarse_tolerance_sqr: f64,
+    /// ... or after this many iterations;
+    pub coarse_max_iterations: usize,
+    /// that of the second factor likewise (MINRES: in its own norm).
+    pub pv_tolerance_sqr: f64,
+    pub pv_max_iterations: usize,
+    /// The solver of the quark factor P†DP (not `Minres`) ...
+    pub d_solver: CoarseKrylov,
+    /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
+    pub pv_solver: CoarseKrylov,
     /// Steps of the power iteration for |λ_max|, from a random vector with this seed.
     pub power_steps: usize,
     pub seed: u64,
-    /// The second coarse factor (P†D_PV†P, or P†D†P for the normal equations) by BiCGStab
-    /// on the exact adjoint of the stored matrix with the adjoint block inverses, instead of
-    /// MINRES on its Γ5-adjoint (exact only where D† = Γ5 D Γ5, approximately so for Möbius).
-    pub exact_adjoint: bool,
 }
 
 impl Default for PvEoParams {
     /// The settings of the 12⁴ and 16⁴ runs in the log: Chebyshev 5 steps on [hi/30, hi],
-    /// coarse solves to 1e-2.
+    /// coarse solves to 1e-2, the quark factor by BiCGStab, the Pauli-Villars one by MINRES.
     fn default() -> Self {
         Self {
             chebyshev_steps: 5,
             chebyshev_ratio: 30.0,
             coarse_tolerance_sqr: 1e-2,
+            coarse_max_iterations: 2000,
+            pv_tolerance_sqr: 1e-2,
+            pv_max_iterations: 2000,
+            d_solver: CoarseKrylov::BiCgStab,
+            pv_solver: CoarseKrylov::Minres,
             power_steps: 50,
             seed: 5,
-            exact_adjoint: false,
         }
     }
 }
@@ -367,10 +409,13 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         let coarse_d = CoarseOp::build(op, &mut op.work(), basis);
         let coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis);
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
-        let blocks_pv = if params.exact_adjoint {
-            BlockMap::inverse_diagonal_adjoint(&coarse_pv)?
-        } else {
-            BlockMap::abs_inverse_of_a_gamma5(&coarse_pv)
+        assert!(
+            params.d_solver != CoarseKrylov::Minres,
+            "MINRES needs a Hermitian operator: not for the quark factor"
+        );
+        let blocks_pv = match params.pv_solver {
+            CoarseKrylov::Minres => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
+            _ => BlockMap::inverse_diagonal_adjoint(&coarse_pv)?,
         };
         let (coarse_d, coarse_pv) = (coarse_d.to_storage(), coarse_pv.to_storage());
         let mut start = like.zeros_like();
@@ -452,35 +497,33 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
         self.gc.convert_from(&self.g);
-        let stop = Stop::simple(self.params.coarse_tolerance_sqr, 5000);
+        let stop = Stop::simple(
+            self.params.coarse_tolerance_sqr,
+            self.params.coarse_max_iterations,
+        );
+        let pv_stop = Stop::simple(self.params.pv_tolerance_sqr, self.params.pv_max_iterations);
         let n = &self.coarse_applications;
-        // w = (P†D_PV†P)⁻¹ g: BiCGStab on the exact adjoint, or MINRES on
+        // w = (P†D_PV†P)⁻¹ g: on the exact adjoint, or by MINRES on
         // H = Γ5 (Γ5 P†D_PV P Γ5) with H w = Γ5 g.
         self.w.set_zero();
-        if self.params.exact_adjoint {
-            let _ = BiCgStab::new(stop).solve(
-                &mut Counted {
-                    a: &mut self.coarse_pv,
-                    apply: Apply::Adjoint,
-                    n,
-                },
-                Some(&mut self.blocks_pv),
-                &mut self.w,
-                &self.gc,
-            );
-        } else {
+        let apply = if self.params.pv_solver == CoarseKrylov::Minres {
             coarse_gamma5(&mut self.gc);
-            let _ = Minres::new(stop).solve(
-                &mut Counted {
-                    a: &mut self.coarse_pv,
-                    apply: Apply::Gamma5Adjoint,
-                    n,
-                },
-                Some(&mut self.blocks_pv),
-                &mut self.w,
-                &self.gc,
-            );
-        }
+            Apply::Gamma5Adjoint
+        } else {
+            Apply::Adjoint
+        };
+        coarse_solve(
+            self.params.pv_solver,
+            pv_stop,
+            &mut Counted {
+                a: &mut self.coarse_pv,
+                apply,
+                n,
+            },
+            &mut self.blocks_pv,
+            &mut self.w,
+            &self.gc,
+        );
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
         self.g.convert_from(&self.w);
         self.basis.prolong_half(&mut self.h, &self.g, &self.index);
@@ -492,15 +535,17 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT> {
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
         self.gc.convert_from(&self.g);
-        // c = (P†DP)⁻¹ g: BiCGStab right-preconditioned by the block inverses.
+        // c = (P†DP)⁻¹ g, right-preconditioned by the block inverses.
         self.c.set_zero();
-        let _ = BiCgStab::new(stop).solve(
+        coarse_solve(
+            self.params.d_solver,
+            stop,
             &mut Counted {
                 a: &mut self.coarse_d,
                 apply: Apply::Plain,
                 n,
             },
-            Some(&mut self.blocks_d),
+            &mut self.blocks_d,
             &mut self.c,
             &self.gc,
         );

@@ -239,6 +239,7 @@ pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Writ
             t.norm_sqr
         ));
     }
+    line(format!("peak memory: {}", super::memory_line()));
 
     // The solvers, on one right-hand side: what an iteration costs beyond its two
     // applications of the operator is the work on the vectors.

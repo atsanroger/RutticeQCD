@@ -1,58 +1,46 @@
-//! The even-odd Pauli-Villars multigrid of `src/` (`pv_eo`) on a configuration, with test
-//! vectors from a `mdwf_evenodd_coherence` checkpoint.
+//! Möbius domain-wall solves on the even sites, with or without the even-odd
+//! Pauli-Villars multigrid of `src/` (`pv_eo`), from a parameter file in the style of
+//! Bridge++ (`ruttice::app::params`, YAML or TOML).
 //!
 //! ```text
-//! cargo run --release --example mdwf_pv_eo_mg -- CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [cgne] [exact] [bicgstab] [seeds:A-B]
+//! cargo run --release --example mdwf_pv_eo_mg -- examples/mdwf_pv_eo_mg.yaml [seeds:A-B]
 //! ```
 //!
-//! N test vectors (N/2 Ritz vectors y of Ã, default 32) on BLOCK⁴ aggregates (default 4),
-//! improved by R rounds of the multigrid bootstrap first with `boot:R`.
-//! `left` solves with Ã_L instead of Ã, `alpha:A` puts Neff's α into D (`pvalpha`: into
-//! D_PV as well). `cgne` solves the normal equations of the left Schur complement with the
-//! multigrid instead (CGNE with α), `exact` takes the second coarse factor on its exact
-//! adjoint, `bicgstab` uses flexible BiCGStab outside instead of GCR. Printed per right-hand side (seeds 91..91 by default): GCR(K) steps
-//! (default K = 2), applications of the operator (outer and inside the cycle), coarse
-//! applications, |D x − b|²/|b|² with the plain D, time, and the memory in use.
+//! What will run is printed first (operator, solver, preconditioner, α, and the blocks of
+//! the file that are not used). Per right-hand side (random, seeds A..B, 91 by default):
+//! iterations, preconditioner applications, applications of the operator (outer and inside
+//! the preconditioner), coarse applications, |D x − b|²/|b|² with the plain D, time, nominal
+//! GFlop/s (Bridge++'s count for the domain-wall operator, two per application of the
+//! even-odd operator, and 72 dim² per coarse site for a coarse application), and the memory
+//! now and at its peak. A `Setup.checkpoint` in the MultiGrid block takes the low modes from
+//! a `mdwf_evenodd_coherence` checkpoint instead of the filter.
 
-use ruttice::fermion::{EoForm, FermionOp, Mdwf, MdwfParams, PvEvenOdd, Variant};
+use ruttice::app::memory_line;
+use ruttice::app::params::{Params, PrecisionType, PreconditionerType, SolverType};
+use ruttice::fermion::{FermionOp, Mdwf, PvEvenOdd, Variant};
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::Dirac;
 use ruttice::solver::preconditioner::multigrid::{
-    pv_eo_basis, pv_eo_bootstrap, Aggregation, BootstrapParams, PvEoCycle, PvEoParams,
+    pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, PvEoBasis, PvEoCycle,
 };
-use ruttice::solver::{BiCgStab, Gcr, SolveError, Solver, Stop};
+use ruttice::solver::{
+    largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
+};
 use ruttice::{
-    random_spinor, Boundary, Field, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64, ND,
+    extract_parity, random_spinor, Field, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
 };
 use std::cell::Cell;
 use std::error::Error;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-const USAGE: &str = "usage: mdwf_pv_eo_mg CONFIG L M5 MASS CHECKPOINT [LS] [N] [BLOCK] [left] [alpha:A] [pvalpha] [gcr:K] [boot:R] [coarse64] [cgne] [exact] [bicgstab] [seeds:A-B]";
+const USAGE: &str = "usage: mdwf_pv_eo_mg PARAMS.yaml|PARAMS.toml [seeds:A-B]";
 
 type H = Field<f64, Spinor, Half>;
 
-/// The resident memory and its peak so far (Linux: VmRSS and VmHWM).
-fn memory() -> String {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-    let field = |name: &str| {
-        status
-            .lines()
-            .find_map(|l| l.strip_prefix(name))
-            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
-            .map_or(f64::NAN, |kb| kb / 1048576.0)
-    };
-    format!(
-        "memory {:.2} GB, peak {:.2} GB",
-        field("VmRSS:"),
-        field("VmHWM:")
-    )
-}
-
 /// The first `count` vectors of a `mdwf_evenodd_coherence` checkpoint, read site by site.
-fn load(path: &PathBuf, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
+fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
     let mut next = |f: &mut std::io::BufReader<std::fs::File>| -> std::io::Result<u64> {
@@ -82,44 +70,50 @@ fn load(path: &PathBuf, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     Ok(x)
 }
 
-/// The cycle with single- or double-precision coarse solves.
-enum Cycle<'a> {
-    Single(PvEoCycle<'a, Dirac, f32>),
-    Double(PvEoCycle<'a, Dirac, f64>),
+/// The preconditioner of the outer solver.
+enum Preconditioner<'a> {
+    None,
+    Chebyshev(Box<Chebyshev<PvEvenOdd<'a, f64, Dirac>, H>>),
+    Single(Box<PvEoCycle<'a, Dirac, f32>>),
+    Double(Box<PvEoCycle<'a, Dirac, f64>>),
 }
 
-impl Cycle<'_> {
-    fn top(&self) -> f64 {
-        match self {
-            Cycle::Single(c) => c.top(),
-            Cycle::Double(c) => c.top(),
-        }
-    }
-
+impl Preconditioner<'_> {
     fn coarse_applications(&self) -> usize {
         match self {
-            Cycle::Single(c) => c.coarse_applications(),
-            Cycle::Double(c) => c.coarse_applications(),
+            Preconditioner::Single(c) => c.coarse_applications(),
+            Preconditioner::Double(c) => c.coarse_applications(),
+            _ => 0,
         }
     }
-}
 
-impl LinearFn<H> for Cycle<'_> {
-    fn mult(&mut self, out: &mut H, inp: &H) {
+    /// Applications of the operator inside one application of the preconditioner.
+    fn inner_applications(&self, steps: usize) -> usize {
         match self {
-            Cycle::Single(c) => c.mult(out, inp),
-            Cycle::Double(c) => c.mult(out, inp),
+            Preconditioner::None => 0,
+            Preconditioner::Chebyshev(_) => steps - 1,
+            // Two smoother applications of steps − 1 each, two residuals.
+            _ => 2 * (steps - 1) + 2,
+        }
+    }
+
+    fn as_fn(&mut self) -> Option<&mut dyn LinearFn<H>> {
+        match self {
+            Preconditioner::None => None,
+            Preconditioner::Chebyshev(c) => Some(c.as_mut()),
+            Preconditioner::Single(c) => Some(c.as_mut()),
+            Preconditioner::Double(c) => Some(c.as_mut()),
         }
     }
 }
 
-/// Counts the applications of the operator it wraps.
-struct Counted<'a, A> {
-    a: &'a mut A,
+/// Counts the applications of the map it wraps.
+struct Counted<'a> {
+    a: &'a mut dyn LinearFn<H>,
     n: &'a Cell<usize>,
 }
 
-impl<A: LinearFn<H>> LinearFn<H> for Counted<'_, A> {
+impl LinearFn<H> for Counted<'_> {
     fn mult(&mut self, out: &mut H, inp: &H) {
         self.n.set(self.n.get() + inp.num_vectors());
         self.a.mult(out, inp);
@@ -128,171 +122,175 @@ impl<A: LinearFn<H>> LinearFn<H> for Counted<'_, A> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.len() < 5 {
-        return Err(USAGE.into());
-    }
-    let is_flag = |a: &str| {
-        ["left", "pvalpha", "coarse64", "cgne", "exact", "bicgstab"].contains(&a)
-            || (a.contains(':') && !a.contains('/'))
-    };
-    let positional: Vec<&String> = args.iter().filter(|a| !is_flag(a)).collect();
-    let flag = |name: &str| args.iter().any(|a| a == name);
-    let value = |prefix: &str| args.iter().find_map(|a| a.strip_prefix(prefix));
-    let path = PathBuf::from(positional[0]);
-    let l: usize = positional[1].parse().map_err(|_| USAGE)?;
-    let m5: f64 = positional[2].parse().map_err(|_| USAGE)?;
-    let mass: f64 = positional[3].parse().map_err(|_| USAGE)?;
-    let checkpoint = PathBuf::from(positional[4]);
-    let number = |i: usize, d: usize| -> Result<usize, Box<dyn Error>> {
-        Ok(positional
-            .get(i)
-            .filter(|s| s.parse::<usize>().is_ok())
-            .map_or(Ok(d), |s| s.parse())?)
-    };
-    let (ls, n, block) = (number(5, 8)?, number(6, 32)?, number(7, 4)?);
-    let left = flag("left");
-    let alpha: f64 = value("alpha:").map_or(Ok(1.0), str::parse)?;
-    let gcr_k: usize = value("gcr:").map_or(Ok(2), str::parse)?;
-    let (seed_lo, seed_hi): (u64, u64) = value("seeds:")
-        .and_then(|s| s.split_once('-'))
+    let file = PathBuf::from(args.first().ok_or(USAGE)?);
+    let (seed_lo, seed_hi): (u64, u64) = args
+        .iter()
+        .find_map(|a| a.strip_prefix("seeds:")?.split_once('-'))
         .map_or(Ok((91, 91)), |(a, b)| -> Result<_, Box<dyn Error>> {
             Ok((a.parse()?, b.parse()?))
         })?;
+    let params = Params::load(&file)?;
+    println!("{params}");
+    let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
 
-    let lat = Lattice::single_node([l; ND]);
-    let u = read_bridge_text(&path, &lat)?;
-    let params = MdwfParams {
-        ls,
-        m5,
-        mass,
-        b: 1.5,
-        c: 0.5,
-        boundary: [
-            Boundary::Periodic,
-            Boundary::Periodic,
-            Boundary::Periodic,
-            Boundary::Antiperiodic,
-        ],
-    };
-    let pv_params = MdwfParams {
-        mass: 1.0,
-        ..params
-    };
-    let make = |p: MdwfParams, a: f64| -> Result<Mdwf<f64>, Box<dyn Error>> {
-        let mut op = Mdwf::<f64>::new(&lat, p);
+    let lat = Lattice::single_node(params.main.lattice_size);
+    let u = read_bridge_text(&relative(&params.gauge.config_filename_input), &lat)?;
+    let fo = &params.fopr;
+    let make = |mass: f64, alpha: f64| -> Result<Mdwf<f64>, Box<dyn Error>> {
+        let mut op = Mdwf::<f64>::new(&lat, params.mdwf_params(mass));
         op.set_gauge(&u)?;
-        op.set_alpha(a);
+        op.set_alpha(alpha);
         Ok(op)
     };
-    let (op, pv) = (make(params, 1.0)?, make(pv_params, 1.0)?);
-    let op_a = make(params, alpha)?;
-    let pv_a = make(pv_params, if flag("pvalpha") { alpha } else { 1.0 })?;
-    // `cgne`: the normal equations of the left Schur complement, N = L^(α)† L^(α), which is
-    // the operator with D in place of D_PV; the second coarse factor is then P†D†P.
-    let cgne = flag("cgne");
-    let (pv, pv_a) = if cgne { (&op, &op_a) } else { (&pv, &pv_a) };
-    let cycle_params = PvEoParams {
-        exact_adjoint: cgne || flag("exact"),
-        ..PvEoParams::default()
-    };
-    let form = if left || cgne {
-        EoForm::Left
+    let op = make(fo.quark_mass, 1.0)?;
+    let pv_plain = make(fo.quark_mass_pauli_villars, 1.0)?;
+    let op_a = make(fo.quark_mass, fo.neff_alpha)?;
+    let pv_alpha = make(fo.quark_mass_pauli_villars, fo.neff_alpha_pauli_villars)?;
+    // The normal equations are the operator with D in place of D_PV.
+    let (form, normal) = params.form();
+    let (pv, pv_a) = if normal {
+        (&op, &op_a)
     } else {
-        EoForm::Right
+        (&pv_plain, &pv_alpha)
     };
+    let ls = fo.extent_of_5th_dimension;
     let mut like = H::with_shape(&lat, 24, ls, 1, 1);
     like.set_parity(Parity::Even);
+    let index = op
+        .even_odd_index()
+        .ok_or("no even-odd decomposition")?
+        .clone();
 
-    let mut y = load(&checkpoint, &like, n / 2)?;
-    println!(
-        "{l}^4, Ls = {ls}, M5 = {m5}, m = {mass}; {form:?}, α = {alpha} ({}); N = {n} on {block}^4; {}",
-        if flag("pvalpha") { "D and D_PV" } else { "D only" },
-        memory()
-    );
+    // The multigrid basis lives as long as the cycle that borrows it.
     let start = Instant::now();
-    let agg = Aggregation::new(&lat, [block; ND]);
-    // `boot:R`: R rounds of the multigrid bootstrap on the vectors first.
-    let rounds: usize = value("boot:").map_or(Ok(0), str::parse)?;
-    let basis = if rounds > 0 {
-        pv_eo_bootstrap(
-            &op,
-            pv,
-            &agg,
-            &mut y,
-            BootstrapParams {
-                rounds,
-                ..BootstrapParams::default()
-            },
-        )?
-    } else {
-        pv_eo_basis(&op, pv, &agg, &y)?
+    let s = &params.solver;
+    let mg_settings = params.multigrid();
+    let basis: Option<PvEoBasis> = match (&mg_settings, &params.multigrid) {
+        (Some((_, low, boot)), Some(mg)) => {
+            let keep = mg.level1.number_of_test_vectors / 2;
+            let mut y = match &mg.setup.checkpoint {
+                Some(path) => load(&relative(path), &like, keep)?,
+                None => {
+                    let (x, theta) = pv_eo_low_modes(&op, pv, &lat, *low);
+                    println!(
+                        "  filter: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
+                        theta[0],
+                        theta[theta.len() - 1],
+                        start.elapsed().as_secs_f64()
+                    );
+                    x.select(&(0..keep).collect::<Vec<_>>())
+                }
+            };
+            let agg = Aggregation::new(&lat, mg.level1.block_size);
+            Some(if boot.rounds > 0 {
+                pv_eo_bootstrap(&op, pv, &agg, &mut y, *boot)?
+            } else {
+                pv_eo_basis(&op, pv, &agg, &y)?
+            })
+        }
+        _ => None,
     };
-    drop(y);
-    // `coarse64`: the coarse solves in double precision (single by default).
-    let outer_ops = (&op_a, pv_a, form);
-    let mut cycle = if flag("coarse64") {
-        Cycle::Double(PvEoCycle::with_coarse_storage(
-            &op,
-            pv,
-            outer_ops,
-            &basis,
-            cycle_params,
-        )?)
-    } else {
-        Cycle::Single(PvEoCycle::new(&op, pv, outer_ops, &basis, cycle_params)?)
+    let mut coarse_flops = 0.0;
+    let (mut pre, steps) = match (s.preconditioner_type, &mg_settings, &basis) {
+        (PreconditionerType::Multigrid, Some((cycle_params, _, _)), Some(basis)) => {
+            let mg = params.multigrid.as_ref().expect("multigrid() found it");
+            let dim = basis.coarse_dim() as f64;
+            let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
+            coarse_flops = 72.0 * dim * dim * coarse_sites;
+            let outer = (&op_a, pv_a, form);
+            let cycle = match mg.coarse_precision {
+                PrecisionType::Single => Preconditioner::Single(Box::new(PvEoCycle::new(
+                    &op,
+                    pv,
+                    outer,
+                    basis,
+                    *cycle_params,
+                )?)),
+                PrecisionType::Double => Preconditioner::Double(Box::new(
+                    PvEoCycle::with_coarse_storage(&op, pv, outer, basis, *cycle_params)?,
+                )),
+            };
+            (cycle, cycle_params.chebyshev_steps)
+        }
+        (PreconditionerType::Chebyshev, _, _) => {
+            let c = s.chebyshev_settings();
+            let mut start_vector = like.zeros_like();
+            extract_parity(
+                &mut start_vector,
+                &random_spinor(&lat, ls, 5),
+                &index,
+                Parity::Even,
+            );
+            let hi = 1.1
+                * largest_magnitude(
+                    &mut PvEvenOdd::new(&op_a, pv_a, form, &like),
+                    &mut start_vector,
+                    50,
+                );
+            let cheb = Chebyshev::new(
+                PvEvenOdd::new(&op_a, pv_a, form, &like),
+                c.number_of_steps,
+                hi / c.interval_ratio,
+                hi,
+                &like,
+            );
+            (Preconditioner::Chebyshev(Box::new(cheb)), c.number_of_steps)
+        }
+        _ => (Preconditioner::None, 1),
     };
     println!(
-        "  basis and cycle: {:.0} s, |λ_max| ≈ {:.3}; {}",
+        "  setup: {:.0} s; {}",
         start.elapsed().as_secs_f64(),
-        cycle.top() / 1.1,
-        memory()
+        memory_line()
     );
 
     let mut a = PvEvenOdd::new(&op_a, pv_a, form, &like);
-    let steps = PvEoParams::default().chebyshev_steps;
+    let fine_flops = 2.0 * (op.flops_per_site() * lat.num_sites()) as f64;
+    let stop: Stop = s.stop();
+    let k = s.number_of_kept_directions;
     for seed in seed_lo..=seed_hi {
         let mut b = Field::<f64, Spinor>::with_shape(&lat, 24, ls, 1, 1);
         b.as_mut_slice()
             .copy_from_slice(random_spinor(&lat, ls, seed).as_slice());
         let mut rhs = like.zeros_like();
         a.right_hand_side(&mut rhs, &b);
-        let (outer, coarse_before) = (Cell::new(0), cycle.coarse_applications());
+        let (outer, applied) = (Cell::new(0), Cell::new(0));
+        let coarse_before = pre.coarse_applications();
+        let inner_per = pre.inner_applications(steps);
         let mut sol = like.zeros_like();
         let start = Instant::now();
-        let cycles = Cell::new(0);
-        let stop = Stop::simple(1e-18, 2000);
-        let mut counted_a = Counted {
-            a: &mut a,
-            n: &outer,
+        let result: Result<SolveInfo, SolveError> = {
+            let mut counted_a = Counted {
+                a: &mut a,
+                n: &outer,
+            };
+            let mut counted_pre = pre.as_fn().map(|m| Counted { a: m, n: &applied });
+            let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H>);
+            match s.solver_type {
+                SolverType::Gcr => Gcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs),
+                SolverType::BiCgStab => {
+                    BiCgStab::new(stop).solve(&mut counted_a, m, &mut sol, &rhs)
+                }
+                SolverType::Fgmres => Fgmres::new(Stop {
+                    max_iterations: k,
+                    max_restarts: stop.max_iterations / k.max(1),
+                    ..stop
+                })
+                .solve(&mut counted_a, m, &mut sol, &rhs),
+                SolverType::Cg => Cg::new(stop).solve(&mut counted_a, m, &mut sol, &rhs),
+                SolverType::Minres => unreachable!("refused when the file is read"),
+            }
         };
-        let mut counted_cycle = Counted {
-            a: &mut cycle,
-            n: &cycles,
-        };
-        // `bicgstab`: flexible BiCGStab outside (two cycles per iteration) instead of GCR.
-        let (result, solver) = if flag("bicgstab") {
-            (
-                BiCgStab::new(stop).solve(&mut counted_a, Some(&mut counted_cycle), &mut sol, &rhs),
-                "BiCGStab".to_string(),
-            )
-        } else {
-            (
-                Gcr::new(stop, gcr_k).solve(
-                    &mut counted_a,
-                    Some(&mut counted_cycle),
-                    &mut sol,
-                    &rhs,
-                ),
-                format!("GCR({gcr_k})"),
-            )
-        };
+        let seconds = start.elapsed().as_secs_f64();
         let iterations = match &result {
             Ok(i) => format!("{}", i.iterations),
             Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
             Err(e) => format!("failed: {e}"),
         };
-        // Inside a cycle: two smoother applications of steps − 1 each, two residuals.
-        let inner = cycles.get() * (2 * (steps - 1) + 2);
+        let applications = outer.get() + applied.get() * inner_per;
+        let coarse = pre.coarse_applications() - coarse_before;
+        let gflops =
+            (applications as f64 * fine_flops + coarse as f64 * coarse_flops) / seconds * 1e-9;
         let mut x = b.zeros_like();
         a.solution(&mut x, &sol, &b);
         let mut r = b.zeros_like();
@@ -302,14 +300,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         r.norm_sqr(&mut rr);
         b.norm_sqr(&mut bb);
         println!(
-            "  seed {seed}: {solver} {iterations} iterations, {} cycles: {} Ã = {} sweeps, {} coarse, |Dx−b|² {:.0e}, {:.0} s; {}",
-            cycles.get(),
-            outer.get() + inner,
-            2 * (outer.get() + inner),
-            cycle.coarse_applications() - coarse_before,
+            "  seed {seed}: {} {iterations} iterations, {} preconditioner applications; {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; |Dx−b|² {:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
+            s.solver_type,
+            applied.get(),
+            2 * applications,
             rr[0] / bb[0],
-            start.elapsed().as_secs_f64(),
-            memory()
+            memory_line()
         );
     }
     Ok(())

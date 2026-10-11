@@ -1,0 +1,9 @@
+# A multigrid section of its own, for `MultiGrid_file : mg_pv_eo.yaml` in parameter files
+# (see examples/mdwf_pv_eo_mg.toml). Keys left out take their defaults
+# (examples/mdwf_pv_eo_mg.yaml shows them all).
+
+MultiGrid:
+  coarse_precision : single
+  MultiGrid_Level1:
+    block_size             : [4, 4, 4, 4]
+    number_of_test_vectors : 32
