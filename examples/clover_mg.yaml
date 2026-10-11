@@ -1,0 +1,46 @@
+# Clover fermions with the multigrid, in the style of Bridge++ (keys as in its parameter
+# files; keywords in any case, with or without "_"):
+#
+#   cargo run --release --bin ruttice -- examples/clover_mg.yaml
+#
+# Relative paths are taken from the directory of this file. The same keys describe Wilson
+# fermions (fermion_type: Wilson, no clover_coefficient) and domain-wall fermions
+# (examples/mdwf_pv_eo_mg.yaml).
+
+Main:
+  lattice_size : [4, 4, 4, 8]
+  ## grid_size : [1, 1, 2, 2]     # processes in x, y, z, t for ruttice-mpi
+  ## backend   : simd             # cpu (default) | simd, with simd_lanes : 2 | 4 | 8
+Gauge:
+  gauge_config_type_input : Text  # Text | ILDG
+  config_filename_input   : conf_04040408.txt
+Fopr:
+  fermion_type       : Clover     # Wilson | Clover | Mobius (domain-wall)
+  hopping_parameter  : 0.12
+  clover_coefficient : 1.0
+  boundary_condition : [1, 1, 1, -1]
+Solver:
+  solver_type                   : FGMRES   # CG (on the normal equations) | BiCGStab | FGMRES
+  operator_type                 : Even_odd # Even_odd (default) | Full
+  number_of_kept_directions     : 30       # FGMRES: the Krylov space before a restart
+  maximum_number_of_iteration   : 3000
+  convergence_criterion_squared : 1.0e-26
+  preconditioner_type           : MG       # None | MG (BiCGStab or FGMRES)
+MultiGrid:
+  coarse_precision : single
+  Setup:
+    bootstrap_number_of_rounds : 4         # the setup iterations of Bridge++
+  Smoother:
+    smoother_type    : SAP                 # SAP (default) | GMRES
+    number_of_cycles : 4                   # SAP cycles ...
+    number_of_steps  : 6                   # ... and minimal-residual steps per block
+  MultiGrid_Level1:
+    block_size             : [2, 2, 2, 2]
+    number_of_test_vectors : 8             # 16 by default
+    Coarse_Solver_D:
+      solver_type                   : BiCGStab  # BiCGStab | GMRES
+      maximum_number_of_iteration   : 200
+      convergence_criterion_squared : 2.0e-3
+Source:
+  source_type     : Local
+  source_position : [0, 0, 0, 0]
