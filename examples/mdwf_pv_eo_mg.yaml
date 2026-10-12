@@ -1,12 +1,16 @@
-# Parameters of `cargo run --release --example mdwf_pv_eo_mg -- examples/mdwf_pv_eo_mg.yaml`,
-# in the style of Bridge++. Keywords (values of choices) may be written in any case and
+# Möbius domain-wall fermions on the even sites with the multigrid:
+#
+#   cargo run --release --bin ruttice -- examples/mdwf_pv_eo_mg.yaml
+#
+# on a 12^4 configuration (not part of the repository) next to this file. The sections and
+# keys are those of Bridge++. Keywords (values of choices) may be written in any case and
 # with or without `_`: CGNE, cgne and Cg_Ne are the same. Keys are spelt as below.
 # Every key with a default is shown with it.
 
 Main:
   lattice_size  : [12, 12, 12, 12]
   grid_size     : [1, 1, 1, 1]
-  ## backend = {cpu, simd, gpu}: domain-wall fermions run on cpu so far
+  ## backend = {cpu, simd}: simd keeps simd_lanes sites (2, 4 or 8) in one SIMD register
   backend       : cpu
   simd_lanes    : 4
   ## verbose_level = {Crucial, General, Detailed, Paranoiac}
@@ -15,7 +19,7 @@ Main:
 Gauge:
   gauge_config_type_input : Text
   ## relative paths are taken from this file's directory
-  config_filename_input   : /home/wlchenhome/Bridge/runs/hmc_12_b6.0/conf_quench_12x12x12x12_b6.0.txt-000200
+  config_filename_input   : conf_12x12x12x12.txt
 
 Fopr:
   ## fermion_type = {Domainwall_5din (Mobius)}

@@ -3,6 +3,7 @@
 mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
+use ruttice::app::params::Params;
 use ruttice::app::{
     run, BoundaryConfig, ChannelsConfig, CliError, Config, FermionConfig, SolverKind, SourceConfig,
 };
@@ -11,7 +12,7 @@ use ruttice::io::write_bridge_text;
 use ruttice::Lattice;
 use std::path::{Path, PathBuf};
 
-const WILSON_TOML: &str = include_str!("../examples/wilson_pion.toml");
+const WILSON_YAML: &str = include_str!("../examples/wilson_pion.yaml");
 const CLOVER_YAML: &str = include_str!("../examples/clover_two_flavours.yaml");
 const CLOVER_MG_YAML: &str = include_str!("../examples/clover_mg.yaml");
 
@@ -22,12 +23,27 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+/// The run a parameter file describes.
+fn config(text: &str) -> Config {
+    Params::from_yaml(text).unwrap().to_config()
+}
+
+/// `text` with `old` replaced by `new`; `old` must be there, so that a variant of a file is
+/// the variant it is meant to be.
+fn with(text: &str, old: &str, new: &str) -> String {
+    assert!(text.contains(old), "{old:?} is not in the file");
+    text.replace(old, new)
+}
+
 #[test]
 fn the_example_files_parse() {
-    let wilson = Config::from_toml(WILSON_TOML).unwrap();
+    let wilson = config(WILSON_YAML);
     assert_eq!(wilson.lattice, [4, 4, 4, 8]);
+    assert_eq!(wilson.process_grid, None);
     assert_eq!(wilson.solver.kind, SolverKind::CgNormal);
     assert!(wilson.solver.even_odd);
+    assert_eq!(wilson.solver.simd, 1, "simd_lanes is for backend simd");
+    assert_eq!(wilson.solver.max_restarts, 3);
     assert_eq!(wilson.quark.len(), 1);
     assert_eq!(
         wilson.quark[0].fermion,
@@ -40,14 +56,31 @@ fn the_example_files_parse() {
         wilson.measure.channels,
         ChannelsConfig::List(vec!["PS".to_string()])
     );
+    assert_eq!(wilson.output.file, Some(PathBuf::from("wilson_pion.out")));
 
-    let clover = Config::from_yaml(CLOVER_YAML).unwrap();
+    let clover = config(CLOVER_YAML);
     assert_eq!(clover.quark.len(), 2);
-    assert_eq!(clover.solver.max_restarts, 3, "default");
+    assert!(
+        clover.solver.even_odd,
+        "Even_odd when operator_type is absent"
+    );
     assert_eq!(
         clover.measure.channels,
         ChannelsConfig::All,
         "all channels when absent"
+    );
+    assert_eq!(
+        clover.quark[1].fermion,
+        FermionConfig::Clover {
+            kappa: 0.115,
+            csw: 1.0,
+            boundary: [
+                BoundaryConfig::Periodic,
+                BoundaryConfig::Periodic,
+                BoundaryConfig::Periodic,
+                BoundaryConfig::Antiperiodic
+            ]
+        }
     );
     assert_eq!(
         clover.quark[1].source,
@@ -57,25 +90,17 @@ fn the_example_files_parse() {
             power: 2.0
         }
     );
+    assert!(clover.gauge.fixing.is_none());
 }
 
-/// Gauge smearing is `gauge_smearing`; a key that says only "smearing" is refused, in either
-/// place one might write it, because it does not say whether links or sources are smeared.
+/// Gauge smearing is the block `GaugeSmearing`; Bridge++'s `Smear` and its companions are
+/// refused, because "smear" alone does not say whether links or sources are smeared.
 #[test]
 fn gauge_smearing_has_its_own_name() {
     use ruttice::app::GaugeSmearingConfig;
-    // A table goes at the end (keys after it would belong to it), a key at the start.
-    let with = |extra: &str| {
-        if extra.starts_with('[') {
-            format!("{WILSON_TOML}\n{extra}\n")
-        } else {
-            format!("{extra}\n{WILSON_TOML}")
-        }
-    };
-    let c = Config::from_toml(&with(
-        "[gauge_smearing]\ntype = \"stout\"\nrho = 0.1\nsteps = 3",
-    ))
-    .unwrap();
+    let c = config(&format!(
+        "{WILSON_YAML}GaugeSmearing:\n  smear_type : Stout\n  rho_uniform : 0.1\n  number_of_smearing : 3\n"
+    ));
     assert_eq!(
         c.gauge_smearing,
         Some(GaugeSmearingConfig::Stout {
@@ -84,10 +109,9 @@ fn gauge_smearing_has_its_own_name() {
             spatial_only: false
         })
     );
-    let c = Config::from_toml(&with(
-        "[gauge_smearing]\ntype = \"ape\"\nrho = 0.5\nsteps = 2\nspatial_only = true",
-    ))
-    .unwrap();
+    let c = config(&format!(
+        "{WILSON_YAML}GaugeSmearing:\n  smear_type : APE\n  rho_uniform : 0.5\n  number_of_smearing : 2\n  spatial_only : true\n"
+    ));
     assert!(matches!(
         c.gauge_smearing,
         Some(GaugeSmearingConfig::Ape {
@@ -96,20 +120,18 @@ fn gauge_smearing_has_its_own_name() {
             ..
         })
     ));
-    for bad in ["[smearing]\ntype = \"stout\"", "smear = 3"] {
-        match Config::from_toml(&with(bad)) {
+    for bad in [
+        "Smear:\n  rho_uniform : 0.1\n",
+        "Director_Smear:\n  number_of_smearing : 3\n",
+        "Projection:\n  projection_type : Stout_SU3\n",
+    ] {
+        match Params::from_yaml(&format!("{WILSON_YAML}{bad}")) {
             Err(CliError::Invalid(e)) => {
-                assert!(e.contains("gauge_smearing") && e.contains("source"), "{e}")
+                assert!(e.contains("GaugeSmearing") && e.contains("Source"), "{e}")
             }
-            other => panic!("{bad}: {other:?}"),
+            other => panic!("{bad}: {:?}", other.map(|_| ())),
         }
     }
-    let inside = WILSON_TOML.replacen("[gauge]\n", "[gauge]\nsmearing = 1\n", 1);
-    assert!(inside != WILSON_TOML, "the example has a [gauge] table");
-    assert!(matches!(
-        Config::from_toml(&inside),
-        Err(CliError::Invalid(_))
-    ));
 }
 
 /// A run on gauge-smeared links reports the plaquette before and after the smearing.
@@ -118,10 +140,9 @@ fn a_run_on_smeared_links() {
     let dir = scratch("smeared");
     let lat = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 5)).unwrap();
-    let mut c = Config::from_toml(&format!(
-        "{WILSON_TOML}\n[gauge_smearing]\ntype = \"stout\"\nrho = 0.1\nsteps = 2\n"
-    ))
-    .unwrap();
+    let mut c = config(&format!(
+        "{WILSON_YAML}GaugeSmearing:\n  smear_type : Stout\n  rho_uniform : 0.1\n  number_of_smearing : 2\n"
+    ));
     c.output.file = None;
     let r = run(&c, &dir).unwrap();
     let smeared = r.plaquette_smeared.unwrap();
@@ -133,100 +154,172 @@ fn a_run_on_smeared_links() {
         .contains("after gauge smearing"));
 }
 
-/// The same parameters written in TOML and in YAML give the same configuration.
+/// The same parameters written in TOML and in YAML describe the same run, and keywords are
+/// read in any case, with or without `_`.
 #[test]
 fn toml_and_yaml_are_equivalent() {
-    let yaml = "
-lattice: [4, 4, 4, 8]
-gauge: {file: conf_04040408.txt, format: bridge_text}
-solver: {type: cg_normal, even_odd: true, tolerance_squared: 1.0e-28, max_iterations: 2000, max_restarts: 3}
-quark:
-  - fermion: {type: wilson, kappa: 0.12, boundary: [antiperiodic, antiperiodic, antiperiodic, antiperiodic]}
-    source: {type: point, position: [0, 0, 0, 0]}
-measure: {channels: [PS]}
-output: {file: wilson_pion.out}
-";
+    let toml = r#"
+[Main]
+lattice_size = [4, 4, 4, 8]
+[Gauge]
+gauge_config_type_input = "text"
+config_filename_input = "conf_04040408.txt"
+[Fopr]
+fermion_type = "WILSON"
+hopping_parameter = 0.12
+boundary_condition = [-1, -1, -1, -1]
+[Solver]
+solver_type = "cg"
+operator_type = "evenodd"
+convergence_criterion_squared = 1.0e-28
+maximum_number_of_iteration = 2000
+maximum_number_of_restart = 3
+[Source]
+source_type = "point"
+source_position = [0, 0, 0, 0]
+[Measure]
+channels = ["PS"]
+[Output]
+file = "wilson_pion.out"
+"#;
     assert_eq!(
-        Config::from_yaml(yaml).unwrap(),
-        Config::from_toml(WILSON_TOML).unwrap()
+        Params::from_toml(toml).unwrap().to_config(),
+        config(WILSON_YAML)
     );
 }
 
 #[test]
 fn mistakes_in_the_file_are_reported() {
-    let message = |text: String| match Config::from_toml(&text) {
+    let message = |text: String| match Params::from_yaml(&text) {
         Err(CliError::Parse(m)) => m,
-        other => panic!("expected a parse error, got {other:?}"),
+        other => panic!("expected a parse error, got {:?}", other.map(|_| ())),
     };
     // A misspelt key is an error, not silently ignored.
-    let m = message(WILSON_TOML.replace("max_iterations", "max_iteration"));
-    assert!(m.contains("max_iteration"), "{m}");
+    let m = message(with(
+        WILSON_YAML,
+        "maximum_number_of_iteration ",
+        "maximum_number_of_iterations",
+    ));
+    assert!(m.contains("maximum_number_of_iterations"), "{m}");
     // An unknown fermion type names the alternatives.
-    let m = message(WILSON_TOML.replace("\"wilson\"", "\"wilsonn\""));
-    assert!(m.contains("wilsonn") && m.contains("clover"), "{m}");
-    // A key that belongs to another fermion type.
-    let m = message(WILSON_TOML.replace("kappa = 0.12,", "kappa = 0.12, csw = 1.0,"));
-    assert!(m.contains("csw"), "{m}");
+    let m = message(with(WILSON_YAML, ": Wilson\n", ": Wilsonn\n"));
+    assert!(m.contains("Wilsonn") && m.contains("Clover"), "{m}");
     // A misspelt gauge-fixing parameter.
-    let m = message(WILSON_TOML.replace(
-        "[gauge]\n",
-        "[gauge]\nfixing = { type = \"coulomb\", overrelax = 1.6 }\n",
+    let m = message(format!(
+        "{WILSON_YAML}GaugeFixing:\n  gauge_fixing_type : Coulomb\n  overrelax : 1.6\n"
     ));
     assert!(m.contains("overrelax"), "{m}");
+    // A key that belongs to another fermion type is read and said not to be used.
+    let p = Params::from_yaml(&with(
+        WILSON_YAML,
+        "  hopping_parameter  : 0.12\n",
+        "  hopping_parameter  : 0.12\n  clover_coefficient : 1.0\n",
+    ))
+    .unwrap();
+    assert!(
+        p.notes().iter().any(|n| n.contains("clover_coefficient")),
+        "{:?}",
+        p.notes()
+    );
+    // A file without a Main section is not a parameter file.
+    let dir = scratch("no_main");
+    let file = dir.join("old.yaml");
+    std::fs::write(&file, "lattice: [4, 4, 4, 8]\n").unwrap();
+    match ruttice::app::run_file(&file, &mut Vec::new()) {
+        Err(CliError::Invalid(m)) => assert!(m.contains("Main"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn impossible_requests_are_rejected_before_any_work() {
-    let invalid = |text: String| match run(&Config::from_toml(&text).unwrap(), Path::new(".")) {
-        Err(CliError::Invalid(m)) => m,
-        other => panic!(
-            "expected an invalid-parameter error, got {:?}",
-            other.map(|_| ())
-        ),
+    // Refused when the file is read, or when the run is set up, before the gauge
+    // configuration is looked for.
+    let invalid = |text: String| {
+        let refused = Params::from_yaml(&text).and_then(|p| run(&p.to_config(), Path::new(".")));
+        match refused {
+            Err(CliError::Invalid(m)) => m,
+            other => panic!(
+                "expected an invalid-parameter error, got {:?}",
+                other.map(|_| ())
+            ),
+        }
     };
-    let m = invalid(WILSON_TOML.replace("channels = [\"PS\"]", "channels = [\"PION\"]"));
+    let m = invalid(with(WILSON_YAML, "channels : [PS]", "channels : [PION]"));
     assert!(m.contains("PION") && m.contains("A4_PS"), "{m}");
-    let m = invalid(WILSON_TOML.replace("lattice = [4, 4, 4, 8]", "lattice = [4, 3, 4, 8]"));
+    let odd = |text: &str| {
+        with(
+            text,
+            "lattice_size : [4, 4, 4, 8]",
+            "lattice_size : [4, 3, 4, 8]",
+        )
+    };
+    let m = invalid(odd(WILSON_YAML));
     assert!(m.contains("even"), "{m}");
-    let m = invalid(WILSON_TOML.replace("position = [0, 0, 0, 0]", "position = [0, 0, 0, 8]"));
+    let m = invalid(with(
+        WILSON_YAML,
+        "source_position : [0, 0, 0, 0]",
+        "source_position : [0, 0, 0, 8]",
+    ));
     assert!(m.contains("outside"), "{m}");
-    let m = invalid(WILSON_TOML.replace(
-        "[gauge]\n",
-        "[gauge]\nfixing = { type = \"coulomb\", overrelaxation = 0.0 }\n",
+    let m = invalid(format!(
+        "{WILSON_YAML}GaugeFixing:\n  gauge_fixing_type : Coulomb\n  overrelaxation_parameter : 0.0\n"
     ));
     assert!(m.contains("overrelaxation"), "{m}");
     // Multigrid needs a flexible solver (FGMRES, BiCGStab) and blocks that divide the
     // lattice.
     let with_multigrid = |block: &str| {
-        WILSON_TOML.replace(
-            "max_restarts = 3 ",
-            &format!("multigrid = {{ block = {block} }}\nmax_restarts = 3 "),
-        )
+        with(
+            WILSON_YAML,
+            "  maximum_number_of_restart     : 3\n",
+            "  maximum_number_of_restart     : 3\n  preconditioner_type : MG\n",
+        ) + &format!("MultiGrid:\n  MultiGrid_Level1:\n    block_size : {block}\n")
     };
     let m = invalid(with_multigrid("[2, 2, 2, 2]"));
-    assert!(m.contains("fgmres"), "{m}");
-    let fgmres = |text: String| text.replace("\"cg_normal\"", "\"fgmres\"");
-    let whole = |text: String| text.replace("even_odd = true", "even_odd = false");
+    assert!(m.contains("FGMRES"), "{m}");
+    let fgmres = |text: String| with(&text, ": CG  ", ": FGMRES");
+    let whole = |text: String| with(&text, ": Even_odd", ": Lexical ");
     let m = invalid(whole(fgmres(with_multigrid("[3, 2, 2, 2]"))));
     assert!(m.contains("block"), "{m}");
-    // Blocks of sites: a width there is an operator for, a lattice that can be cut, parts
-    // with even extents for even-odd.
-    let simd = |lanes: usize| WILSON_TOML.replace("simd = 1 ", &format!("simd = {lanes} "));
+    // Blocks of sites: a number of lanes there is an operator for, a lattice that can be
+    // cut, parts with even extents for even-odd.
+    let simd = |lanes: usize| {
+        with(
+            &with(WILSON_YAML, "backend    : cpu ", "backend    : simd"),
+            "simd_lanes : 4",
+            &format!("simd_lanes : {lanes}"),
+        )
+    };
     let m = invalid(simd(3));
-    assert!(m.contains("solver.simd must be"), "{m}");
-    let m = invalid(simd(8).replace("lattice = [4, 4, 4, 8]", "lattice = [4, 4, 2, 8]"));
-    assert!(m.contains("which must all be even"), "{m}");
-    let m = invalid(whole(
-        simd(4).replace("lattice = [4, 4, 4, 8]", "lattice = [3, 3, 3, 6]"),
+    assert!(m.contains("Main.simd_lanes must be"), "{m}");
+    let m = invalid(with(
+        &simd(8),
+        "lattice_size : [4, 4, 4, 8]",
+        "lattice_size : [4, 4, 2, 8]",
     ));
+    assert!(m.contains("which must all be even"), "{m}");
+    let m = invalid(whole(with(
+        &simd(4),
+        "lattice_size : [4, 4, 4, 8]",
+        "lattice_size : [3, 3, 3, 6]",
+    )));
     assert!(m.contains("cannot be halved"), "{m}");
+    // More quarks: in order, and of the kind this run is for.
+    let m = invalid(format!(
+        "{WILSON_YAML}Quark_3:\n  Fopr: {{fermion_type: Wilson, hopping_parameter: 0.1}}\n  Source: {{source_type: Local}}\n"
+    ));
+    assert!(m.contains("Quark_3 needs Quark_2"), "{m}");
+    let m = invalid(format!(
+        "{WILSON_YAML}Quark_2:\n  Fopr: {{fermion_type: Wilson, hopping_parameter: 0.1}}\n  Source: {{source_type: Exponential}}\n"
+    ));
+    assert!(m.contains("slope"), "{m}");
 }
 
 #[test]
 fn a_missing_gauge_file_is_an_error_not_a_panic() {
-    let config = Config::from_toml(WILSON_TOML).unwrap();
     assert!(matches!(
-        run(&config, &scratch("missing")),
+        run(&config(WILSON_YAML), &scratch("missing")),
         Err(CliError::Gauge(_))
     ));
 }
@@ -240,7 +333,7 @@ fn every_solver_choice_gives_the_same_correlator() {
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 500)).unwrap();
 
     let correlator = |text: String| {
-        let report = run(&Config::from_toml(&text).unwrap(), &dir).unwrap();
+        let report = run(&config(&text), &dir).unwrap();
         assert!(
             report.solves[0].worst_residual_sqr < 1e-24,
             "{:?}",
@@ -249,52 +342,68 @@ fn every_solver_choice_gives_the_same_correlator() {
         assert_eq!(report.correlators.len(), 1);
         report.correlators[0].values.clone()
     };
-    let base = WILSON_TOML.replace("tolerance_squared = 1.0e-28", "tolerance_squared = 1.0e-26");
+    let base = with(
+        WILSON_YAML,
+        "convergence_criterion_squared : 1.0e-28",
+        "convergence_criterion_squared : 1.0e-26",
+    );
     let reference = correlator(base.clone());
     assert_eq!(reference.len(), 8);
     assert!(reference[0].re > reference[1].re && reference[1].re > 0.0);
 
+    let lexical = |text: &str| with(text, ": Even_odd", ": Lexical ");
+    let bicgstab = |text: &str| with(text, ": CG  ", ": BiCGStab");
+    let lanes = |text: &str, n: usize| {
+        with(
+            &with(text, "backend    : cpu ", "backend    : simd"),
+            "simd_lanes : 4",
+            &format!("simd_lanes : {n}"),
+        )
+    };
     // FGMRES keeps its whole Krylov space, so it gets a small one and restarts.
-    let fgmres = base
-        .replace("\"cg_normal\"", "\"fgmres\"")
-        .replace("max_iterations = 2000", "max_iterations = 30")
-        .replace("max_restarts = 3 ", "max_restarts = 100 ");
-    let multigrid = |precision: &str| {
-        fgmres.replace("even_odd = true", "even_odd = false").replace(
-            "max_restarts = 100 ",
-            &format!("multigrid = {{ block = [2, 2, 2, 2], test_vectors = 8, precision = \"{precision}\" }}\nmax_restarts = 100 "),
+    let fgmres = with(
+        &with(&base, ": CG  ", ": FGMRES"),
+        "  maximum_number_of_iteration   : 2000",
+        "  number_of_kept_directions     : 30\n  maximum_number_of_iteration   : 3000",
+    );
+    // The multigrid of the whole lattice (`lexical`), or of the even sites.
+    let multigrid = |precision: &str, more: &str| {
+        with(
+            &fgmres,
+            "  maximum_number_of_restart     : 3\n",
+            "  maximum_number_of_restart     : 3\n  preconditioner_type : MG\n",
+        ) + &format!(
+            "MultiGrid:\n  coarse_precision : {precision}\n  MultiGrid_Level1:\n    block_size : [2, 2, 2, 2]\n    number_of_test_vectors : 8\n{more}"
         )
     };
     for variant in [
-        base.replace("even_odd = true", "even_odd = false"),
-        base.replace("\"cg_normal\"", "\"bicgstab\""),
-        base.replace("\"cg_normal\"", "\"bicgstab\"")
-            .replace("even_odd = true", "even_odd = false"),
+        lexical(&base),
+        bicgstab(&base),
+        lexical(&bicgstab(&base)),
         fgmres.clone(),
-        fgmres.replace("even_odd = true", "even_odd = false"),
-        multigrid("single"),
-        multigrid("double"),
+        lexical(&fgmres),
+        lexical(&multigrid("single", "")),
+        lexical(&multigrid("double", "")),
         // BiCGStab is flexible with a preconditioner.
-        multigrid("single").replace("\"fgmres\"", "\"bicgstab\""),
-        // The multigrid under a solver on the even sites, and with the fields in blocks.
-        multigrid("single").replace("even_odd = false", "even_odd = true"),
-        multigrid("double").replace("simd = 1 ", "simd = 4 "),
-        multigrid("single")
-            .replace("even_odd = false", "even_odd = true")
-            .replace("simd = 1 ", "simd = 2 "),
+        with(&lexical(&multigrid("single", "")), ": FGMRES", ": BiCGStab"),
+        // The multigrid under a solver on the even sites (the coarse system on the even
+        // coarse sites too), and with the fields in blocks.
+        multigrid("single", ""),
+        lanes(&lexical(&multigrid("double", "")), 4),
+        lanes(&multigrid("single", ""), 2),
         // Fields in blocks of sites.
-        base.replace("simd = 1 ", "simd = 2 "),
-        base.replace("simd = 1 ", "simd = 8 "),
-        base.replace("simd = 1 ", "simd = 4 ")
-            .replace("even_odd = true", "even_odd = false"),
-        fgmres.replace("simd = 1 ", "simd = 4 "),
-        base.replace("simd = 1 ", "simd = 4 ")
-            .replace("\"cg_normal\"", "\"bicgstab\""),
-        // The choices of the CUDA domain-wall multigrid.
-        multigrid("single").replace(
-            "precision = \"single\"",
-            "precision = \"single\", smoother = \"gmres\", pre_smoothing = true, coarse_solver = \"gmres\", coarse_max_iterations = 5, coarse_tolerance_squared = 1.0e-2, precondition_coarse_diagonal = true",
-        ),
+        lanes(&base, 2),
+        lanes(&base, 8),
+        lanes(&lexical(&base), 4),
+        lanes(&fgmres, 4),
+        lanes(&bicgstab(&base), 4),
+        // The choices of the CUDA domain-wall multigrid: GMRES smoothing before and after,
+        // GMRES(5) on the coarse lattice, the coarse operator preconditioned by its
+        // diagonal blocks.
+        lexical(&multigrid(
+            "single",
+            "    precondition_diagonal : true\n    Coarse_Solver_D:\n      solver_type : GMRES\n      maximum_number_of_iteration : 5\n      convergence_criterion_squared : 1.0e-2\n  Smoother:\n    smoother_type : GMRES\n    pre_smoothing : true\n",
+        )),
     ] {
         for (a, b) in correlator(variant).iter().zip(&reference) {
             assert!(
@@ -304,13 +413,15 @@ fn every_solver_choice_gives_the_same_correlator() {
         }
     }
 
-    let file = dir.join("wilson_pion.toml");
+    let file = dir.join("wilson_pion.yaml");
     std::fs::write(&file, &base).unwrap();
     let mut printed = Vec::new();
     ruttice::app::run_file(&file, &mut printed).unwrap();
     let printed = String::from_utf8(printed).unwrap();
     assert!(
-        printed.contains("# plaquette") && printed.contains("\n11 PS 0 "),
+        printed.contains("# Wilson: κ = 0.12")
+            && printed.contains("# plaquette")
+            && printed.contains("\n11 PS 0 "),
         "{printed}"
     );
     let written = std::fs::read_to_string(dir.join("wilson_pion.out")).unwrap();
@@ -351,19 +462,15 @@ fn compare_with_table(report: &ruttice::app::Report, table: &str) {
     assert!((report.plaquette - 0.625129946974942).abs() < 1e-13);
 }
 
-/// The YAML example, run on the Bridge++ test configuration, reproduces the reference
-/// table produced with Bridge++ (tests/data).
+/// The two-flavour example, run on the Bridge++ test configuration, reproduces the
+/// reference table produced with Bridge++ (tests/data).
 #[test]
 fn clover_example_reproduces_the_reference_table() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
     };
-    let report = run(
-        &Config::from_yaml(CLOVER_YAML).unwrap(),
-        conf.parent().unwrap(),
-    )
-    .unwrap();
+    let report = run(&config(CLOVER_YAML), conf.parent().unwrap()).unwrap();
     assert_eq!(report.gauge_fixing_sweeps, None);
     compare_with_table(
         &report,
@@ -378,14 +485,12 @@ fn clover_example_in_blocks_reproduces_the_reference_table() {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
     };
-    let text = CLOVER_YAML.replace(
-        "  type: cg_normal
-",
-        "  type: cg_normal
-  simd: 8
-",
+    let text = with(
+        CLOVER_YAML,
+        "  lattice_size : [4, 4, 4, 8]\n",
+        "  lattice_size : [4, 4, 4, 8]\n  backend : simd\n  simd_lanes : 8\n",
     );
-    let config = Config::from_yaml(&text).unwrap();
+    let config = config(&text);
     assert_eq!(config.solver.simd, 8);
     let report = run(&config, conf.parent().unwrap()).unwrap();
     compare_with_table(
@@ -402,11 +507,9 @@ fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
     };
-    let text = CLOVER_YAML.replace(
-        "  file: conf_04040408.txt\n",
-        "  file: conf_04040408.txt\n  fixing:\n    type: coulomb\n",
-    );
-    let config = Config::from_yaml(&text).unwrap();
+    let config = config(&format!(
+        "{CLOVER_YAML}GaugeFixing:\n  gauge_fixing_type : Coulomb\n"
+    ));
     assert!(config.gauge.fixing.is_some());
     let report = run(&config, conf.parent().unwrap()).unwrap();
     assert_eq!(report.gauge_fixing_sweeps, Some(120));
@@ -416,11 +519,11 @@ fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
     );
 }
 
-/// A parameter file in the style of Bridge++ for clover fermions (FGMRES on the even sites
-/// with the multigrid) runs through `run_file`, says what it runs in comment lines, and gives
-/// the pion correlator of CG on the same operator from a file of the other format.
+/// The multigrid example for clover fermions (FGMRES on the even sites with the multigrid)
+/// runs through `run_file`, says what it runs in comment lines, and gives the pion correlator
+/// of CG on the same operator.
 #[test]
-fn a_file_in_the_style_of_bridge_runs_clover_fermions() {
+fn the_multigrid_example_runs_clover_fermions() {
     let dir = scratch("bridge_style");
     let lat = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 600)).unwrap();
@@ -444,13 +547,15 @@ fn a_file_in_the_style_of_bridge_runs_clover_fermions() {
         .collect();
     assert_eq!(pion.len(), 8);
 
-    let reference = WILSON_TOML
-        .replace(
-            "fermion = { type = \"wilson\", kappa = 0.12, boundary = [\"antiperiodic\", \"antiperiodic\", \"antiperiodic\", \"antiperiodic\"] }",
-            "fermion = { type = \"clover\", kappa = 0.12, csw = 1.0, boundary = [\"periodic\", \"periodic\", \"periodic\", \"antiperiodic\"] }",
-        )
-        .replace("file = \"wilson_pion.out\"", "");
-    let report = run(&Config::from_toml(&reference).unwrap(), &dir).unwrap();
+    let reference = "
+Main: {lattice_size: [4, 4, 4, 8]}
+Gauge: {config_filename_input: conf_04040408.txt}
+Fopr: {fermion_type: Clover, hopping_parameter: 0.12, clover_coefficient: 1.0, boundary_condition: [1, 1, 1, -1]}
+Solver: {solver_type: CG, convergence_criterion_squared: 1.0e-28, maximum_number_of_iteration: 2000, maximum_number_of_restart: 3}
+Source: {source_type: Local, source_position: [0, 0, 0, 0]}
+Measure: {channels: [PS]}
+";
+    let report = run(&config(reference), &dir).unwrap();
     for (a, b) in pion.iter().zip(&report.correlators[0].values) {
         assert!(
             (a - b.re).abs() < 1e-10 * b.re.abs().max(1e-30),

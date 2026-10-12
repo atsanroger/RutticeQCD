@@ -34,12 +34,13 @@
 //! ```
 
 use super::config::{
-    BoundaryConfig, CoarseSolverKind, Config, FermionConfig, GaugeConfig, GaugeFormat,
-    GaugeSmearingConfig, MeasureConfig, MultigridConfig, OutputConfig, Precision, QuarkConfig,
-    SmootherKind, SolverConfig, SolverKind, SourceConfig,
+    BoundaryConfig, CoarseSolverKind, Config, FermionConfig, GaugeConfig, GaugeFixingConfig,
+    GaugeFormat, GaugeSmearingConfig, MeasureConfig, MultigridConfig, OutputConfig, Precision,
+    QuarkConfig, SmootherKind, SolverConfig, SolverKind, SourceConfig,
 };
 use super::CliError;
 use crate::fermion::{EoForm, MdwfParams};
+use crate::gauge::CoulombParams;
 use crate::keyword_enum;
 use crate::solver::preconditioner::multigrid::{
     BootstrapParams, CoarseKrylov, LevelBootstrap, LowModeParams, PvEoParams,
@@ -75,6 +76,10 @@ keyword_enum! {
         /// One real per line, the Bridge++ text format.
         Text => ["Text", "Bridge_text", "Text_4x4x4x8"],
         Ildg => ["ILDG"],
+        /// A lattice-colour-matrix record of the SciDAC QIO library, in a LIME container.
+        Scidac => ["SciDAC", "QIO"],
+        /// The dataset `gauge` of an HDF5 file (a program built with the feature `hdf5`).
+        Hdf5 => ["HDF5"],
     }
 }
 
@@ -167,6 +172,16 @@ keyword_enum! {
     pub enum SourceType {
         /// A unit source at one site, twelve columns (colour × spin).
         Local => ["Local", "Point"],
+        /// Wilson and clover: smeared sources on the time slice of `source_position`, the
+        /// wave function exp(−slope r^power), normalised (`slope`, `power`). Gauge dependent:
+        /// see `GaugeFixing`.
+        Exponential => ["Exponential"],
+    }
+}
+
+keyword_enum! {
+    pub enum GaugeFixingType {
+        Coulomb => ["Coulomb"],
     }
 }
 
@@ -206,6 +221,25 @@ pub struct Params {
     /// residual mass are printed; without one, random right-hand sides are solved.
     #[serde(rename = "Source")]
     pub source: Option<SourceBlock>,
+    /// Wilson and clover: further quarks, each with its own `Fopr` and `Source` (`Fopr` and
+    /// `Source` at the top are the first quark). The solver is the same for all of them;
+    /// correlators are printed for every pair (i, j), i ≤ j.
+    #[serde(rename = "Quark_2")]
+    pub quark_2: Option<QuarkBlock>,
+    #[serde(rename = "Quark_3")]
+    pub quark_3: Option<QuarkBlock>,
+    #[serde(rename = "Quark_4")]
+    pub quark_4: Option<QuarkBlock>,
+    /// Wilson and clover: fix the gauge of the configuration before anything else.
+    #[serde(rename = "GaugeFixing")]
+    pub gauge_fixing: Option<GaugeFixingBlock>,
+    /// Wilson and clover: the meson channels to print (`channels: all`, the default, or a
+    /// list of names).
+    #[serde(rename = "Measure", default)]
+    pub measure: MeasureConfig,
+    /// Wilson and clover: also write the table to `file`.
+    #[serde(rename = "Output", default)]
+    pub output: OutputConfig,
     /// Gauge smearing: the fermion operator is made of smeared links. (The smearing of
     /// sources, operator smearing, is a `Source.source_type`.)
     #[serde(rename = "GaugeSmearing")]
@@ -272,7 +306,7 @@ pub struct FoprBlock {
     pub coefficient_b: f64,
     #[serde(default = "mobius_c")]
     pub coefficient_c: f64,
-    /// [x, y, z, t]: 1 periodic, −1 antiperiodic.
+    /// [x, y, z, t]: 1 periodic, −1 antiperiodic, 0 Dirichlet (Wilson and clover).
     #[serde(default = "antiperiodic_time")]
     pub boundary_condition: [i32; ND],
     /// Neff's α (1: the plain operator). It cancels in `operator_type: PV_right`.
@@ -286,6 +320,79 @@ pub struct FoprBlock {
         alias = "neff_alpha_pauli_villars"
     )]
     pub neff_alpha_pauli_villars: f64,
+}
+
+/// A further quark of a Wilson or clover run.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuarkBlock {
+    #[serde(rename = "Fopr")]
+    pub fopr: FoprBlock,
+    #[serde(rename = "Source")]
+    pub source: SourceBlock,
+}
+
+/// Gauge fixing, with the keys of Bridge++; the defaults are those of its test
+/// `Spectrum_Clover_Hadron2ptFunction`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GaugeFixingBlock {
+    pub gauge_fixing_type: GaugeFixingType,
+    #[serde(default = "fixing_iterations")]
+    pub maximum_number_of_iteration: usize,
+    /// Sweeps without overrelaxation at the start and after every reset.
+    #[serde(default = "fixing_naive")]
+    pub number_of_naive_iteration: usize,
+    /// The violation is measured every this many sweeps.
+    #[serde(default = "fixing_interval")]
+    pub interval_of_measurement: usize,
+    /// Time slices not converged after this many sweeps get a random gauge transformation.
+    #[serde(default = "fixing_reset")]
+    pub iteration_to_reset: usize,
+    /// Stop when the violation is below this on every time slice.
+    #[serde(default = "fixing_criterion")]
+    pub convergence_criterion_squared: f64,
+    #[serde(default = "fixing_overrelaxation")]
+    pub overrelaxation_parameter: f64,
+    /// Seed of the random gauge transformations of a reset.
+    #[serde(default = "fixing_seed")]
+    pub seed: u64,
+}
+
+fn fixing_iterations() -> usize {
+    CoulombParams::default().max_iterations
+}
+fn fixing_naive() -> usize {
+    CoulombParams::default().naive_iterations
+}
+fn fixing_interval() -> usize {
+    CoulombParams::default().measure_interval
+}
+fn fixing_reset() -> usize {
+    CoulombParams::default().reset_interval
+}
+fn fixing_criterion() -> f64 {
+    CoulombParams::default().tolerance_sqr
+}
+fn fixing_overrelaxation() -> f64 {
+    CoulombParams::default().overrelaxation
+}
+fn fixing_seed() -> u64 {
+    CoulombParams::default().seed
+}
+
+impl GaugeFixingBlock {
+    pub fn to_config(&self) -> GaugeFixingConfig {
+        GaugeFixingConfig::Coulomb {
+            tolerance_squared: self.convergence_criterion_squared,
+            max_iterations: self.maximum_number_of_iteration,
+            naive_iterations: self.number_of_naive_iteration,
+            measure_interval: self.interval_of_measurement,
+            reset_interval: self.iteration_to_reset,
+            overrelaxation: self.overrelaxation_parameter,
+            seed: self.seed,
+        }
+    }
 }
 
 /// A solver: the outer one, or that of a coarse factor of a multigrid level.
@@ -379,6 +486,9 @@ pub struct SourceBlock {
     /// [x, y, z, t]
     #[serde(default)]
     pub source_position: [usize; ND],
+    /// `Exponential`: the wave function exp(−slope r^power).
+    pub slope: Option<f64>,
+    pub power: Option<f64>,
     /// Columns of the propagator solved at once (1 to 12): more share the coarse
     /// operator reads, fewer need less memory.
     #[serde(default = "one")]
@@ -517,6 +627,10 @@ pub struct SmootherBlock {
     pub number_of_cycles: Option<usize>,
     /// GMRES: an earlier stop at this |r|²/|b|².
     pub convergence_criterion_squared: Option<f64>,
+    /// Wilson and clover: smooth before the coarse correction too, instead of starting the
+    /// cycle from x = b.
+    #[serde(default)]
+    pub pre_smoothing: bool,
 }
 
 impl Default for SmootherBlock {
@@ -527,6 +641,7 @@ impl Default for SmootherBlock {
             interval_ratio: cheb_ratio(),
             number_of_cycles: None,
             convergence_criterion_squared: None,
+            pre_smoothing: false,
         }
     }
 }
@@ -537,6 +652,10 @@ pub struct LevelBlock {
     pub block_size: [usize; ND],
     /// 32 by default for domain-wall fermions, 16 (Bridge++) for Wilson and clover.
     pub number_of_test_vectors: Option<usize>,
+    /// Wilson and clover: the coarse operator multiplied by the inverses of its diagonal
+    /// blocks (then solved on the whole coarse lattice).
+    #[serde(default)]
+    pub precondition_diagonal: bool,
     /// The quark factor P†DP (Wilson, clover: the coarse operator).
     #[serde(rename = "Coarse_Solver_D")]
     pub coarse_d: Option<SolverBlock>,
@@ -592,12 +711,10 @@ impl FoprBlock {
     }
 
     fn boundary(&self) -> [Boundary; ND] {
-        self.boundary_condition.map(|b| {
-            if b < 0 {
-                Boundary::Antiperiodic
-            } else {
-                Boundary::Periodic
-            }
+        self.boundary_condition.map(|b| match b {
+            0 => Boundary::Dirichlet,
+            b if b < 0 => Boundary::Antiperiodic,
+            _ => Boundary::Periodic,
         })
     }
 }
@@ -777,8 +894,7 @@ impl SolverBlock {
     }
 }
 
-/// Whether a parameter file is in the style of Bridge++ (a `Main` section at the top),
-/// rather than in the format of `Config`.
+/// Whether a file is a parameter file in the style of Bridge++: one with a `Main` section.
 pub fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
     let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
         path: path.to_path_buf(),
@@ -796,6 +912,31 @@ pub fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
 }
 
 impl Params {
+    /// The parameters written as YAML. A `MultiGrid_file` is not read: that needs the
+    /// directory of the file (`load`).
+    pub fn from_yaml(text: &str) -> Result<Self, CliError> {
+        let params = serde_yaml_ng::from_str(text).map_err(|e| CliError::Parse(e.to_string()))?;
+        Self::checked(params)
+    }
+
+    /// The parameters written as TOML; see `from_yaml`.
+    pub fn from_toml(text: &str) -> Result<Self, CliError> {
+        let params = toml::from_str(text).map_err(|e| CliError::Parse(e.to_string()))?;
+        Self::checked(params)
+    }
+
+    fn checked(mut params: Self) -> Result<Self, CliError> {
+        if params.multigrid.is_none() {
+            if let Some(file) = &params.multigrid_file {
+                return Err(invalid(format!(
+                    "MultiGrid_file {file:?} is read relative to the parameter file: load the file itself"
+                )));
+            }
+        }
+        params.validate()?;
+        Ok(params)
+    }
+
     /// Read a parameter file; the format is chosen by the file extension.
     pub fn load(path: &Path) -> Result<Self, CliError> {
         let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
@@ -1003,10 +1144,35 @@ impl Params {
                 "Fopr.gamma_matrix_type: only Dirac is implemented".into(),
             ));
         }
-        if let Some(b) = self.fopr.boundary_condition.iter().find(|b| b.abs() != 1) {
+        let domain_wall = self.fopr.fermion_type.is_domain_wall();
+        if let Some(b) = self
+            .fopr
+            .boundary_condition
+            .iter()
+            .find(|b| b.abs() > 1 || (domain_wall && **b == 0))
+        {
             return Err(invalid(format!(
-                "Fopr.boundary_condition: 1 (periodic) or -1 (antiperiodic), not {b}"
+                "Fopr.boundary_condition: 1 (periodic) or -1 (antiperiodic){}, not {b}",
+                if domain_wall { "" } else { " or 0 (Dirichlet)" }
             )));
+        }
+        if domain_wall {
+            if self.quark_2.is_some() || self.quark_3.is_some() || self.quark_4.is_some() {
+                return Err(invalid(
+                    "Quark_2 … Quark_4 are for Wilson and clover runs; a domain-wall run has one quark".into(),
+                ));
+            }
+            if self.gauge_fixing.is_some() {
+                return Err(invalid("GaugeFixing is for Wilson and clover runs".into()));
+            }
+            if self
+                .source
+                .is_some_and(|s| s.source_type != SourceType::Local)
+            {
+                return Err(invalid(
+                    "Source.source_type: domain-wall runs take a Local source".into(),
+                ));
+            }
         }
         if self.main.backend == Backend::Gpu {
             return Err(invalid(
@@ -1014,47 +1180,72 @@ impl Params {
             ));
         }
         if let Some(src) = &self.source {
-            let n = src.number_of_rhs_per_solve;
-            if !(1..=12).contains(&n) {
-                return Err(invalid(format!(
-                    "Source.number_of_rhs_per_solve: 1 to 12, not {n}"
-                )));
-            }
-            if src
-                .source_position
-                .iter()
-                .zip(&self.main.lattice_size)
-                .any(|(x, l)| x >= l)
-            {
-                return Err(invalid(format!(
-                    "Source.source_position {:?} is outside the lattice {:?}",
-                    src.source_position, self.main.lattice_size
-                )));
-            }
+            self.check_source(src, "Source")?;
         }
         Ok(())
     }
 
-    /// Wilson and clover fermions: what the program of `ruttice::app::run` needs, which
-    /// is then checked again there (lattice, blocks, SIMD widths, processes).
-    fn check_wilson(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
-        let f = &self.fopr;
+    /// A source: inside the lattice, with what its type needs.
+    fn check_source(&self, src: &SourceBlock, name: &str) -> Result<(), CliError> {
+        let n = src.number_of_rhs_per_solve;
+        if !(1..=12).contains(&n) {
+            return Err(invalid(format!(
+                "{name}.number_of_rhs_per_solve: 1 to 12, not {n}"
+            )));
+        }
+        if src
+            .source_position
+            .iter()
+            .zip(&self.main.lattice_size)
+            .any(|(x, l)| x >= l)
+        {
+            return Err(invalid(format!(
+                "{name}.source_position {:?} is outside the lattice {:?}",
+                src.source_position, self.main.lattice_size
+            )));
+        }
+        if src.source_type == SourceType::Exponential
+            && (src.slope.is_none() || src.power.is_none())
+        {
+            return Err(invalid(format!(
+                "{name}: an Exponential source needs slope and power (exp(-slope r^power))"
+            )));
+        }
+        Ok(())
+    }
+
+    /// What a Wilson or clover quark needs of its `Fopr`.
+    fn check_wilson_fopr(f: &FoprBlock, at: &str, notes: &mut Vec<String>) -> Result<(), CliError> {
         let name = f.fermion_type;
+        if name.is_domain_wall() {
+            return Err(invalid(format!(
+                "{at}.fermion_type: the quarks of one run are Wilson or clover fermions, not {name}"
+            )));
+        }
+        if f.gamma_matrix_type != GammaType::Dirac {
+            return Err(invalid(format!(
+                "{at}.gamma_matrix_type: only Dirac is implemented"
+            )));
+        }
+        if let Some(b) = f.boundary_condition.iter().find(|b| b.abs() > 1) {
+            return Err(invalid(format!(
+                "{at}.boundary_condition: 1 (periodic), -1 (antiperiodic) or 0 (Dirichlet), not {b}"
+            )));
+        }
         if f.hopping_parameter.is_none() {
             return Err(invalid(format!(
-                "Fopr.hopping_parameter is needed for {name} fermions"
+                "{at}.hopping_parameter is needed for {name} fermions"
             )));
         }
         match (name, f.clover_coefficient.is_some()) {
             (FermionType::Clover, false) => {
-                return Err(invalid(
-                    "Fopr.clover_coefficient is needed for clover fermions".into(),
-                ))
+                return Err(invalid(format!(
+                    "{at}.clover_coefficient is needed for clover fermions"
+                )))
             }
-            (FermionType::Wilson, true) => notes.push(
-                "Fopr.clover_coefficient is not used by Wilson fermions (fermion_type: Clover uses it)"
-                    .into(),
-            ),
+            (FermionType::Wilson, true) => notes.push(format!(
+                "{at}.clover_coefficient is not used by Wilson fermions (fermion_type: Clover uses it)"
+            )),
             _ => {}
         }
         for (key, given) in [
@@ -1067,8 +1258,28 @@ impl Params {
             ("neff_alpha", f.neff_alpha != 1.0),
         ] {
             if given {
-                notes.push(format!("Fopr.{key} is for domain-wall fermions; not used"));
+                notes.push(format!("{at}.{key} is for domain-wall fermions; not used"));
             }
+        }
+        Ok(())
+    }
+
+    /// Wilson and clover fermions: what the program of `ruttice::app::run` needs, which
+    /// is then checked again there (lattice, blocks, SIMD widths, processes).
+    fn check_wilson(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
+        let name = self.fopr.fermion_type;
+        Self::check_wilson_fopr(&self.fopr, "Fopr", notes)?;
+        if (self.quark_3.is_some() && self.quark_2.is_none())
+            || (self.quark_4.is_some() && self.quark_3.is_none())
+        {
+            return Err(invalid(
+                "Quark_3 needs Quark_2, and Quark_4 needs Quark_3".into(),
+            ));
+        }
+        for (k, q) in self.more_quarks().into_iter().enumerate() {
+            let at = format!("Quark_{}", k + 2);
+            Self::check_wilson_fopr(&q.fopr, &format!("{at}.Fopr"), notes)?;
+            self.check_source(&q.source, &format!("{at}.Source"))?;
         }
         if self.source.is_none() {
             return Err(invalid(format!(
@@ -1159,20 +1370,35 @@ impl Params {
     /// Wilson and clover fermions: the parameter file of `ruttice::app::run` this one
     /// describes (the propagator of the source, all meson channels).
     pub fn to_config(&self) -> Config {
-        let f = &self.fopr;
-        let boundary = f.boundary().map(|b| match b {
-            Boundary::Antiperiodic => BoundaryConfig::Antiperiodic,
-            _ => BoundaryConfig::Periodic,
-        });
-        let kappa = f.hopping_parameter.expect("checked");
-        let fermion = match f.fermion_type {
-            FermionType::Wilson => FermionConfig::Wilson { kappa, boundary },
-            FermionType::Clover => FermionConfig::Clover {
-                kappa,
-                csw: f.clover_coefficient.expect("checked"),
-                boundary,
-            },
-            FermionType::DomainWall => unreachable!("domain-wall runs do not go through Config"),
+        let quark = |f: &FoprBlock, src: &SourceBlock| {
+            let boundary = f.boundary().map(|b| match b {
+                Boundary::Antiperiodic => BoundaryConfig::Antiperiodic,
+                Boundary::Dirichlet => BoundaryConfig::Dirichlet,
+                _ => BoundaryConfig::Periodic,
+            });
+            let kappa = f.hopping_parameter.expect("checked");
+            let position = src.source_position;
+            QuarkConfig {
+                fermion: match f.fermion_type {
+                    FermionType::Wilson => FermionConfig::Wilson { kappa, boundary },
+                    FermionType::Clover => FermionConfig::Clover {
+                        kappa,
+                        csw: f.clover_coefficient.expect("checked"),
+                        boundary,
+                    },
+                    FermionType::DomainWall => {
+                        unreachable!("domain-wall runs do not go through Config")
+                    }
+                },
+                source: match src.source_type {
+                    SourceType::Local => SourceConfig::Point { position },
+                    SourceType::Exponential => SourceConfig::Exponential {
+                        position,
+                        slope: src.slope.expect("checked"),
+                        power: src.power.expect("checked"),
+                    },
+                },
+            }
         };
         let s = &self.solver;
         let multigrid = self
@@ -1193,13 +1419,13 @@ impl Params {
                     },
                     coarse_tolerance_squared: coarse.convergence_criterion_squared,
                     coarse_max_iterations: coarse.maximum_number_of_iteration,
-                    precondition_coarse_diagonal: false,
+                    precondition_coarse_diagonal: l.precondition_diagonal,
                     smoother: if gmres {
                         SmootherKind::Gmres
                     } else {
                         SmootherKind::Sap
                     },
-                    pre_smoothing: false,
+                    pre_smoothing: sm.pre_smoothing,
                     smoother_cycles: sm.number_of_cycles.unwrap_or(4),
                     smoother_block_steps: sm.number_of_steps.unwrap_or(6),
                     smoother_iterations: sm.number_of_steps.unwrap_or(4),
@@ -1213,7 +1439,11 @@ impl Params {
                     level3_super_block: mg.level3.map(|l| l.super_block_size),
                 }
             });
-        let src = self.source.expect("checked");
+        let first = quark(&self.fopr, self.source.as_ref().expect("checked"));
+        let more = self
+            .more_quarks()
+            .into_iter()
+            .map(|q| quark(&q.fopr, &q.source));
         Config {
             lattice: self.main.lattice_size,
             process_grid: (self.main.grid_size != [1; ND]).then_some(self.main.grid_size),
@@ -1222,13 +1452,12 @@ impl Params {
                 format: match self.gauge.gauge_config_type_input {
                     GaugeType::Text => GaugeFormat::BridgeText,
                     GaugeType::Ildg => GaugeFormat::Ildg,
+                    GaugeType::Scidac => GaugeFormat::Scidac,
+                    GaugeType::Hdf5 => GaugeFormat::Hdf5,
                 },
-                fixing: None,
-                smearing: None,
+                fixing: self.gauge_fixing.map(|g| g.to_config()),
             },
             gauge_smearing: self.gauge_smearing.map(|g| g.to_config()),
-            smearing: None,
-            smear: None,
             solver: SolverConfig {
                 kind: match s.solver_type {
                     SolverType::Cg => SolverKind::CgNormal,
@@ -1255,15 +1484,18 @@ impl Params {
                 },
                 multigrid,
             },
-            quark: vec![QuarkConfig {
-                fermion,
-                source: SourceConfig::Point {
-                    position: src.source_position,
-                },
-            }],
-            measure: MeasureConfig::default(),
-            output: OutputConfig::default(),
+            quark: std::iter::once(first).chain(more).collect(),
+            measure: self.measure.clone(),
+            output: self.output.clone(),
         }
+    }
+
+    /// The quarks after the first (`Quark_2` …), in order.
+    pub fn more_quarks(&self) -> Vec<&QuarkBlock> {
+        [&self.quark_2, &self.quark_3, &self.quark_4]
+            .into_iter()
+            .map_while(|q| q.as_ref())
+            .collect()
     }
 
     /// The domain-wall operator of `Fopr` (α = 1; set α with `Mdwf::set_alpha`).
@@ -1384,6 +1616,27 @@ impl fmt::Display for Params {
                 shown(fo.clover_coefficient)
             )?,
         }
+        for (k, q) in self.more_quarks().into_iter().enumerate() {
+            writeln!(
+                f,
+                "quark {}: {}, κ = {}{}; {} source at {:?}",
+                k + 2,
+                q.fopr.fermion_type,
+                shown(q.fopr.hopping_parameter),
+                q.fopr
+                    .clover_coefficient
+                    .map_or(String::new(), |c| format!(", c_SW = {c}")),
+                q.source.source_type,
+                q.source.source_position
+            )?;
+        }
+        if let Some(g) = &self.gauge_fixing {
+            writeln!(
+                f,
+                "{} gauge fixing to {:e}",
+                g.gauge_fixing_type, g.convergence_criterion_squared
+            )?;
+        }
         let operator = self.operator();
         let cg = s.solver_type == SolverType::Cg;
         write!(
@@ -1465,8 +1718,15 @@ impl fmt::Display for Params {
         if let Some(src) = &self.source {
             write!(
                 f,
-                "\n{} source at {:?}, {} columns per solve: meson correlators and the residual mass",
-                src.source_type, src.source_position, src.number_of_rhs_per_solve
+                "\n{} source at {:?}, {} columns per solve: meson correlators{}",
+                src.source_type,
+                src.source_position,
+                src.number_of_rhs_per_solve,
+                if fo.fermion_type.is_domain_wall() {
+                    " and the residual mass"
+                } else {
+                    ""
+                }
             )?;
         }
         for note in &self.notes {
