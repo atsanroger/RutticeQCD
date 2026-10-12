@@ -422,12 +422,14 @@ where
         None => propagator(op, index, b, solver, None),
         Some(mg) => match mg.precision {
             Precision::Double => {
-                let mut m = Multigrid::new(op, lat, &mg.params()).map_err(setup_failed)?;
+                let mut m =
+                    Multigrid::new(op, lat, &mg.params(solver.even_odd)).map_err(setup_failed)?;
                 propagator(op, index, b, solver, Some(&mut m))
             }
             Precision::Single => {
                 let op32 = single().map_err(|e| CliError::Operator { quark, source: e })?;
-                let m32 = Multigrid::new(&op32, lat, &mg.params()).map_err(setup_failed)?;
+                let m32 = Multigrid::new(&op32, lat, &mg.params(solver.even_odd))
+                    .map_err(setup_failed)?;
                 let like = Field::<f32, Spinor>::spinor(lat, b.num_vectors());
                 let mut m = Convert::new(m32, &like);
                 // Bound to a name so that the preconditioner, which borrows op32, is dropped
@@ -522,7 +524,8 @@ where
         Some(mg) => match mg.precision {
             Precision::Double => {
                 let op_sites = sites().map_err(operator_failed)?;
-                let m = Multigrid::new(&op_sites, lat, &mg.params()).map_err(setup_failed)?;
+                let m = Multigrid::new(&op_sites, lat, &mg.params(solver.even_odd))
+                    .map_err(setup_failed)?;
                 let mut m = Convert::new(m, &V::spinor(lat, NUM_SOURCES));
                 #[allow(clippy::let_and_return)]
                 let solved = propagator(&op, index, &rhs, solver, Some(&mut m));
@@ -530,7 +533,8 @@ where
             }
             Precision::Single => {
                 let op32 = single().map_err(operator_failed)?;
-                let m = Multigrid::new(&op32, lat, &mg.params()).map_err(setup_failed)?;
+                let m = Multigrid::new(&op32, lat, &mg.params(solver.even_odd))
+                    .map_err(setup_failed)?;
                 let mut m = Convert::new(m, &Field::<f32, Spinor>::spinor(lat, NUM_SOURCES));
                 #[allow(clippy::let_and_return)]
                 let solved = propagator(&op, index, &rhs, solver, Some(&mut m));

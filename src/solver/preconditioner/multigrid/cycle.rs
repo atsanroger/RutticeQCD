@@ -1,3 +1,4 @@
+use super::coarse::{CountedSchur, EvenBlocks};
 use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap, SignedMultilevel};
 use crate::fermion::{Bound, HopTerms, Variant};
@@ -29,6 +30,10 @@ pub struct MultigridParams {
     pub pre_smoothing: bool,
     /// Precondition the coarse operator by its diagonal blocks.
     pub precondition_coarse_diagonal: bool,
+    /// Solve the coarse system on the even coarse sites (the Schur complement, see
+    /// `CoarseOp`), where the coarse lattice allows it and there are neither levels below it
+    /// nor `precondition_coarse_diagonal`.
+    pub coarse_even_odd: bool,
     /// Seed of the random initial test vectors.
     pub seed: u64,
     /// Levels below the coarse lattice (`Multigrid::add_levels`): the super-block size of
@@ -74,6 +79,7 @@ impl MultigridParams {
             },
             pre_smoothing: false,
             precondition_coarse_diagonal: false,
+            coarse_even_odd: false,
             seed: 1,
             levels: [0; 3],
         }
@@ -104,6 +110,9 @@ pub struct SetupHooks<'a, T: Storage> {
     pub coarse_right: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
     /// Precondition the coarse operator by its diagonal blocks.
     pub precondition_coarse_diagonal: bool,
+    /// Prepare the coarse operator for solves on the even coarse sites
+    /// (`MultigridParams::coarse_even_odd`).
+    pub coarse_even_odd: bool,
     /// Build the coarse operator as the Galerkin projection `P† A P` of this map, cut down
     /// to nearest neighbours (`CoarseOp::probe`), instead of from the parts of the fine
     /// operator; `coarse_right` is then not used.
@@ -126,6 +135,7 @@ impl<T: Storage> Default for SetupHooks<'_, T> {
             after_smoothing: None,
             coarse_right: None,
             precondition_coarse_diagonal: false,
+            coarse_even_odd: false,
             galerkin_of: None,
             adjoint_smoother: None,
         }
@@ -223,6 +233,7 @@ where
         };
         let hooks = SetupHooks {
             precondition_coarse_diagonal: params.precondition_coarse_diagonal,
+            coarse_even_odd: params.coarse_even_odd,
             ..SetupHooks::default()
         };
         let initial = random_vectors::<T>(lat, 1, params.num_test_vectors, params.seed);
@@ -261,7 +272,10 @@ where
             }
             None => None,
         };
-        let coarse = build_coarse(op, &mut work, &basis, restriction.as_ref(), &mut hooks)?;
+        let mut coarse = build_coarse(op, &mut work, &basis, restriction.as_ref(), &mut hooks)?;
+        if hooks.coarse_even_odd {
+            coarse.prepare_even_odd()?;
+        }
         let mut mg = Self {
             op,
             work,
@@ -483,6 +497,26 @@ impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T>
         coarse_e.set_zero();
         // An inexact coarse solve is expected; whatever it reached is used.
         let _ = match self.levels.as_mut() {
+            // On the even coarse sites, with the inverses of the diagonal blocks there.
+            None if self.coarse.borrow().has_even_odd() => {
+                let (mut source, mut odd) = (rhs.zeros_like(), rhs.zeros_like());
+                self.coarse
+                    .borrow()
+                    .schur_source(&mut source, rhs, &mut odd);
+                let n = Cell::new(0);
+                let reached = parts.coarse_solver.solve(
+                    &mut CountedSchur {
+                        a: &self.coarse,
+                        n: &n,
+                        odd: rhs.zeros_like(),
+                    },
+                    Some(&mut EvenBlocks(&self.coarse)),
+                    coarse_e,
+                    &source,
+                );
+                self.coarse.borrow().schur_solution(coarse_e, rhs, &mut odd);
+                reached
+            }
             None => parts
                 .coarse_solver
                 .solve(self.coarse.get_mut(), None, coarse_e, rhs),

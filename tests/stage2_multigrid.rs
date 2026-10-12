@@ -320,6 +320,75 @@ fn coarse_operator_with_a_right_factor() {
     assert!(max_abs_diff_coarse(&got, &want) < 1e-12);
 }
 
+/// The Schur complement of a coarse operator on its even sites, as a solver takes it.
+struct CoarseSchur<'a>(&'a CoarseOp<f64>, C64Field);
+
+impl LinearFn<C64Field> for CoarseSchur<'_> {
+    fn mult(&mut self, out: &mut C64Field, inp: &C64Field) {
+        self.0.schur(out, inp, &mut self.1);
+    }
+}
+
+/// The even-odd form of the coarse operator: solving the Schur complement on the even coarse
+/// sites and filling in the odd ones solves D_c c = g, and the Schur complement stays on the
+/// even sites. (The iterations printed are those of a coarse operator from random vectors,
+/// which is well conditioned: no measure of what the even-odd form saves.)
+#[test]
+fn coarse_even_odd_solves_the_coarse_system() {
+    let lat = lattice();
+    let op = clover::<f64>(&lat, &random_gauge(&lat, 471));
+    for block in [[2, 2, 2, 2], [2, 2, 2, 4]] {
+        let agg = Aggregation::new(&lat, block);
+        let basis = basis64(&agg, &random_spinor(&lat, 4, 472)).unwrap();
+        let mut a = CoarseOp::build(&op, &mut op.work(), &basis);
+        assert!(a.prepare_even_odd().unwrap() && a.has_even_odd());
+        let g = random_coarse(&basis, 2, 473);
+        let (mut source, mut odd) = (basis.coarse_field(2), basis.coarse_field(2));
+        a.schur_source(&mut source, &g, &mut odd);
+
+        // S of a field on the even sites is on the even sites: adding anything on the odd
+        // sites of the input changes nothing, and S x has no odd part to give A_oo⁻¹.
+        let mut s_source = basis.coarse_field(2);
+        a.schur(&mut s_source, &source, &mut odd);
+        let mut back = basis.coarse_field(2);
+        a.schur_source(&mut back, &s_source, &mut odd);
+        assert!(max_abs_diff_coarse(&back, &s_source) < 1e-13, "{block:?}");
+
+        let stop = Stop::simple(1e-26, 2000);
+        let mut c = basis.coarse_field(2);
+        let schur = BiCgStab::new(stop)
+            .solve(
+                &mut CoarseSchur(&a, basis.coarse_field(2)),
+                None,
+                &mut c,
+                &source,
+            )
+            .unwrap();
+        a.schur_solution(&mut c, &g, &mut odd);
+        let mut d_c = basis.coarse_field(2);
+        a.mult(&mut d_c, &c);
+        let diff = max_abs_diff_coarse(&d_c, &g);
+        assert!(diff < 1e-10, "{block:?}: {diff:e}");
+
+        let mut direct = basis.coarse_field(2);
+        let whole = BiCgStab::new(stop)
+            .solve(&mut a, None, &mut direct, &g)
+            .unwrap();
+        assert!(max_abs_diff_coarse(&direct, &c) < 1e-9, "{block:?}");
+        eprintln!(
+            "{block:?}: {} iterations on the even sites, {} on all",
+            schur.iterations, whole.iterations
+        );
+    }
+    // A coarse lattice with an odd extent has no even-odd form.
+    let odd_lat = Lattice::single_node([6, 4, 4, 4]);
+    let op = wilson::<f64>(&odd_lat, &random_gauge(&odd_lat, 474));
+    let agg = Aggregation::new(&odd_lat, [2, 2, 2, 2]);
+    let basis = basis64(&agg, &random_spinor(&odd_lat, 4, 475)).unwrap();
+    let mut a = CoarseOp::build(&op, &mut op.work(), &basis);
+    assert!(!a.prepare_even_odd().unwrap() && !a.has_even_odd());
+}
+
 /// Preconditioned by its diagonal blocks the coarse operator is A^{-1} D_c, and its
 /// adjoint is still the adjoint.
 #[test]
@@ -510,8 +579,17 @@ fn multigrid_preconditioned_fgmres_converges() {
     let mg32 = Multigrid::new(&op32, &lat, &params).unwrap();
     let mut mixed = Convert::new(mg32, &Field::<f32, Spinor>::spinor(&lat, 1));
     let with_mg32 = solve(Some(&mut mixed));
-    eprintln!("FGMRES iterations: {plain} plain, {with_mg} with multigrid, {with_mg32} with single-precision multigrid");
+    // The coarse system solved on the even coarse sites: the same cycle to the accuracy of
+    // the coarse solves, so about the same number of outer iterations.
+    let even_odd = MultigridParams {
+        coarse_even_odd: true,
+        ..params
+    };
+    let mut mg_eo = Multigrid::new(&op, &lat, &even_odd).unwrap();
+    let with_eo = solve(Some(&mut mg_eo));
+    eprintln!("FGMRES iterations: {plain} plain, {with_mg} with multigrid, {with_mg32} with single-precision multigrid, {with_eo} with the coarse solves on the even coarse sites");
     assert!(with_mg * 5 < plain && with_mg32 * 5 < plain);
+    assert!(with_eo <= with_mg + 2, "{with_eo} against {with_mg}");
 }
 
 /// The single-precision preconditioner really works in single precision: every component

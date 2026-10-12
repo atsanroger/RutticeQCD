@@ -33,6 +33,7 @@
 //! as its Γ5-adjoint, by MINRES on H = Γ5 (P†D_PV P)† with the block |H_xx|⁻¹. The cycle:
 //! y = S b, y += e(b − Ã y), y += S(b − Ã y), S a Chebyshev polynomial in the operator.
 
+use super::coarse::{CountedSchur, EvenBlocks};
 use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
 use super::{
     Aggregation, Basis, BasisBuilder, CoarseOp, LevelBootstrap, MultigridError, Reflection,
@@ -195,6 +196,26 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
     }
 }
 
+/// The Schur complement on the even coarse sites of H = D_c Γ5, the Γ5-Hermitian form MINRES
+/// works on: it is S Γ5, with S that of D_c (`CoarseOp::schur`), since Γ5 acts within a
+/// site. Counts its applications.
+struct CountedSchurGamma5<'a, T: Storage> {
+    a: &'a CoarseOp<T>,
+    n: &'a Cell<usize>,
+    odd: Field<T, Coarse>,
+    turned: Field<T, Coarse>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedSchurGamma5<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        crate::fit(&mut self.turned, inp);
+        self.turned.copy_from(inp);
+        coarse_gamma5(&mut self.turned);
+        self.a.schur(out, &self.turned, &mut self.odd);
+    }
+}
+
 /// The Krylov solver of a coarse factor, right-preconditioned by the inverses of its
 /// diagonal blocks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -243,6 +264,10 @@ pub struct PvEoParams {
     /// that of the second factor likewise (MINRES: in its own norm).
     pub pv_tolerance_sqr: f64,
     pub pv_max_iterations: usize,
+    /// The coarse factors are solved on the even coarse sites (the Schur complement, see
+    /// `CoarseOp`) where the coarse lattice allows it: the quark factor when no levels are
+    /// below it, the second factor when it is solved by MINRES.
+    pub coarse_even_odd: bool,
     /// The solver of the quark factor P†DP (not `Minres`) ...
     pub d_solver: CoarseKrylov,
     /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
@@ -263,6 +288,7 @@ impl Default for PvEoParams {
             coarse_max_iterations: 2000,
             pv_tolerance_sqr: 1e-2,
             pv_max_iterations: 2000,
+            coarse_even_odd: true,
             d_solver: CoarseKrylov::BiCgStab,
             pv_solver: CoarseKrylov::Minres,
             power_steps: 50,
@@ -494,8 +520,14 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         let ls = op.params().ls;
         let mut like = HalfField::with_shape(&lat, 24, ls, 1, 1);
         like.set_parity(Parity::Even);
-        let coarse_d = CoarseOp::build(op, &mut op.work(), basis);
-        let coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis);
+        let mut coarse_d = CoarseOp::build(op, &mut op.work(), basis);
+        if params.coarse_even_odd {
+            coarse_d.prepare_even_odd()?;
+        }
+        let mut coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis);
+        if params.coarse_even_odd && params.pv_solver == CoarseKrylov::Minres {
+            coarse_pv.prepare_even_odd()?;
+        }
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
         assert!(
             params.d_solver != CoarseKrylov::Minres,
@@ -664,18 +696,45 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         } else {
             Apply::Adjoint
         };
-        coarse_solve(
-            self.params.pv_solver,
-            pv_stop,
-            &mut Counted {
-                a: &mut self.coarse_pv,
-                apply,
-                n,
-            },
-            &mut self.blocks_pv,
-            &mut self.w,
-            &self.gc,
-        );
+        if apply == Apply::Gamma5Adjoint && self.coarse_pv.has_even_odd() {
+            // H w = gc on the even coarse sites: H = D_c Γ5 for the stored D_c (taken as its
+            // own Γ5-adjoint), so u = Γ5 w solves D_c u = gc. The blocks |H_xx|⁻¹ act within
+            // a site and keep a field on the even sites there.
+            let (mut source, mut odd) = (self.gc.zeros_like(), self.gc.zeros_like());
+            self.coarse_pv.schur_source(&mut source, &self.gc, &mut odd);
+            coarse_solve(
+                self.params.pv_solver,
+                pv_stop,
+                &mut CountedSchurGamma5 {
+                    a: &self.coarse_pv,
+                    n,
+                    odd: self.gc.zeros_like(),
+                    turned: self.gc.zeros_like(),
+                },
+                &mut self.blocks_pv,
+                &mut self.w,
+                &source,
+            );
+            coarse_gamma5(&mut self.w);
+            self.coarse_pv
+                .schur_solution(&mut self.w, &self.gc, &mut odd);
+            coarse_gamma5(&mut self.w);
+            // The source and the odd sites of the solution: one application's work.
+            n.set(n.get() + nv);
+        } else {
+            coarse_solve(
+                self.params.pv_solver,
+                pv_stop,
+                &mut Counted {
+                    a: &mut self.coarse_pv,
+                    apply,
+                    n,
+                },
+                &mut self.blocks_pv,
+                &mut self.w,
+                &self.gc,
+            );
+        }
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
         self.g.convert_from(&self.w);
         self.basis.prolong_half(&mut self.h, &self.g, &self.index);
@@ -687,25 +746,50 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         }
         self.basis.restrict_half(&mut self.g, &self.h, &self.index);
         self.gc.convert_from(&self.g);
-        // c = (P†DP)⁻¹ g, right-preconditioned by the block inverses (with the levels
-        // below, multiplicatively).
+        // c = (P†DP)⁻¹ g: on the even coarse sites where that is possible, ...
         self.c.set_zero();
-        coarse_solve(
-            self.params.d_solver,
-            stop,
-            &mut CountedShared {
-                a: &self.coarse_d,
-                n,
-            },
-            &mut LevelsAndBlocks {
-                blocks: Some(&mut self.blocks_d),
-                levels: self.levels_d.as_ref(),
-                a: &self.coarse_d,
-                n,
-            },
-            &mut self.c,
-            &self.gc,
-        );
+        if self.levels_d.is_none() && self.coarse_d.borrow().has_even_odd() {
+            let (mut source, mut odd) = (self.gc.zeros_like(), self.gc.zeros_like());
+            self.coarse_d
+                .borrow()
+                .schur_source(&mut source, &self.gc, &mut odd);
+            coarse_solve(
+                self.params.d_solver,
+                stop,
+                &mut CountedSchur {
+                    a: &self.coarse_d,
+                    n,
+                    odd: self.gc.zeros_like(),
+                },
+                &mut EvenBlocks(&self.coarse_d),
+                &mut self.c,
+                &source,
+            );
+            self.coarse_d
+                .borrow()
+                .schur_solution(&mut self.c, &self.gc, &mut odd);
+            // The source and the odd sites of the solution: one application's work.
+            n.set(n.get() + nv);
+        } else {
+            // ... or on all of them, right-preconditioned by the block inverses (with the
+            // levels below, multiplicatively).
+            coarse_solve(
+                self.params.d_solver,
+                stop,
+                &mut CountedShared {
+                    a: &self.coarse_d,
+                    n,
+                },
+                &mut LevelsAndBlocks {
+                    blocks: Some(&mut self.blocks_d),
+                    levels: self.levels_d.as_ref(),
+                    a: &self.coarse_d,
+                    n,
+                },
+                &mut self.c,
+                &self.gc,
+            );
+        }
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
         self.g.convert_from(&self.c);
         self.basis.prolong_half(&mut self.h, &self.g, &self.index);
