@@ -1,6 +1,6 @@
 //! Krylov solvers and preconditioners.
 //!
-//! One file per Krylov solver here (`bicgstab`, `cg`, `fgmres`, `gcr`, `minres`), and `mixed`
+//! One file per Krylov solver here (`bicgstab`, `cg`, `fgmres`, `gcr`, `minres`, and `multishift` for CG on several shifts at once), and `mixed`
 //! for solves in another precision; what a solver takes as its preconditioner is in
 //! `preconditioner`. The Krylov solvers know only `Vector` and `LinearFn`; nothing outside
 //! `preconditioner::multigrid` may refer to fermions or to the lattice.
@@ -11,6 +11,7 @@ mod fgmres;
 mod gcr;
 mod minres;
 mod mixed;
+mod multishift;
 pub mod preconditioner;
 
 pub use bicgstab::BiCgStab;
@@ -19,6 +20,7 @@ pub use fgmres::Fgmres;
 pub use gcr::Gcr;
 pub use minres::Minres;
 pub use mixed::{Convert, Refine, Solve};
+pub use multishift::MultiShiftCg;
 pub use preconditioner::{largest_magnitude, Chebyshev, ChebyshevFilter, Polynomial};
 
 use crate::{Adjoint, LinearFn, LinearOp, Normal, Vector};
