@@ -598,16 +598,25 @@ where
         let spinors = block_spinors(inp);
         let exchange = self.start_block_exchange(work, geo, inp, pre);
         let (out, block_len) = (out.slab_mut(0), copies * SPINOR_REALS * W);
-        // What is done to a block after the sweep reads it back: it stays in the cache.
-        let stream = streams(out, block_len) && after.is_none();
+        // A large output is written past the cache: spinor by spinor, or with something to
+        // do to a block afterwards, the whole block from a buffer once that is done (if it
+        // fits; otherwise it is written and read back in place).
+        let large = streams(out, block_len);
+        let stream = large && after.is_none();
+        let buffered = large && after.is_some() && block_len <= SITE_BUFFER;
         let fence = || {
-            if stream {
+            if stream || buffered {
                 stream_fence();
             }
         };
 
         overlapped(exchange, geo.parts.as_ref(), |received, part| {
-            let block = |block: usize, values: &mut [T]| {
+            let block = |block: usize, out: &mut [T]| {
+                let mut buffer = buffered.then(|| [T::default(); SITE_BUFFER]);
+                let values: &mut [T] = match buffer.as_mut() {
+                    Some(b) => &mut b[..block_len],
+                    None => &mut *out,
+                };
                 let o: &mut [BlockSpinor<T, W>] = values.as_chunks_mut::<W>().0.as_chunks_mut().0;
                 for (r, o) in o.iter_mut().enumerate() {
                     let input = BlockInput {
@@ -643,6 +652,9 @@ where
                 }
                 if let Some(after) = after {
                     after(block, values);
+                }
+                if let Some(b) = buffer.as_ref() {
+                    T::stream(out, &b[..block_len]);
                 }
             };
             match part {
