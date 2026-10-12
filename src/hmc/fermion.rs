@@ -12,7 +12,7 @@
 //! With smeared links V(U) the derivative is taken for V, Σ' = V† M (dS = Re tr Σ' δV), and
 //! carried back to U by the chain rule of the smearing (`GaugeSmearing::chain`).
 
-use super::{traceless_antihermitian, Links, MdAction, Mseries};
+use super::{traceless_antihermitian, Chrono, Links, MdAction, Mseries};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::gauge::{link, GaugeSmearing};
 use crate::kernel::{ColorMatrix, Cplx, NC, NS};
@@ -96,35 +96,66 @@ pub fn clover_derivative(
     zeta: &Psi,
     eta: &Psi,
 ) -> Field<f64, Gauge> {
-    use crate::gauge::paths::{Extended, Step};
-    use crate::gauge::PLANES;
-    use crate::kernel::{Dirac, GammaRepre};
-    let lat = u.lattice();
-    // B for the six planes, in two fields of four matrices per site.
-    let mut b = [
-        Field::<f64, Gauge>::gauge(lat),
-        Field::<f64, Gauge>::gauge(lat),
-    ];
-    let (sz, se) = (zeta.slab(0), eta.slab(0));
-    for (plane, &(mu, nu)) in PLANES.iter().enumerate() {
-        let g = Dirac::GAMMA[mu].mul(&Dirac::GAMMA[nu]);
-        for_sites(b[plane / ND].slab_mut(plane % ND), 18, |x, out| {
-            let (z, e) = (&sz[24 * x..24 * (x + 1)], &se[24 * x..24 * (x + 1)]);
-            let mut a = ColorMatrix::zero();
-            for s in 0..NS {
-                let t = g.col[s];
-                for i in 0..NC {
-                    let gi =
-                        g.val[s].times(Cplx::new(e[2 * (i + NC * t)], e[2 * (i + NC * t) + 1]));
-                    for j in 0..NC {
-                        let zj = Cplx::new(z[2 * (j + NC * s)], -z[2 * (j + NC * s) + 1]);
-                        a.0[i][j] += gi * zj;
+    let mut b = CloverInsertion::new(u.lattice());
+    b.add(kappa_csw, zeta, eta);
+    b.leaves(u)
+}
+
+/// B_μν(x) of `clover_derivative` for the six planes, in two fields of four matrices per
+/// site, summed over any number of pairs (ζ, η) before the leaves are walked once.
+pub struct CloverInsertion {
+    b: [Field<f64, Gauge>; 2],
+}
+
+impl CloverInsertion {
+    pub fn new(lat: &std::sync::Arc<crate::Lattice>) -> Self {
+        Self {
+            b: [
+                Field::<f64, Gauge>::gauge(lat),
+                Field::<f64, Gauge>::gauge(lat),
+            ],
+        }
+    }
+
+    /// B += κ c_SW (A − A†)/4 with A_μν(x) = Σ_spin γ_μγ_ν η(x) ζ(x)†.
+    pub fn add(&mut self, kappa_csw: f64, zeta: &Psi, eta: &Psi) {
+        use crate::gauge::PLANES;
+        use crate::kernel::{Dirac, GammaRepre};
+        let (sz, se) = (zeta.slab(0), eta.slab(0));
+        for (plane, &(mu, nu)) in PLANES.iter().enumerate() {
+            let g = Dirac::GAMMA[mu].mul(&Dirac::GAMMA[nu]);
+            for_sites(self.b[plane / ND].slab_mut(plane % ND), 18, |x, out| {
+                let (z, e) = (&sz[24 * x..24 * (x + 1)], &se[24 * x..24 * (x + 1)]);
+                let mut a = ColorMatrix::zero();
+                for s in 0..NS {
+                    let t = g.col[s];
+                    for i in 0..NC {
+                        let gi =
+                            g.val[s].times(Cplx::new(e[2 * (i + NC * t)], e[2 * (i + NC * t) + 1]));
+                        for j in 0..NC {
+                            let zj = Cplx::new(z[2 * (j + NC * s)], -z[2 * (j + NC * s) + 1]);
+                            a.0[i][j] += gi * zj;
+                        }
                     }
                 }
-            }
-            a.sub(&a.adj()).scale(kappa_csw / 4.0).write_reals(out);
-        });
+                ColorMatrix::from_reals(out)
+                    .add(&a.sub(&a.adj()).scale(kappa_csw / 4.0))
+                    .write_reals(out);
+            });
+        }
     }
+
+    /// M of the leaves through each link of `u` with B inserted.
+    pub fn leaves(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
+        clover_leaves(u, &self.b)
+    }
+}
+
+/// The leaf walk of `clover_derivative` for the insertions `b`.
+fn clover_leaves(u: &Field<f64, Gauge>, b: &[Field<f64, Gauge>; 2]) -> Field<f64, Gauge> {
+    use crate::gauge::paths::{Extended, Step};
+    use crate::gauge::PLANES;
+    let lat = u.lattice();
     let eu = Extended::new(u, 2);
     // The same depth as the links: the indices are the same.
     let eb = [Extended::new(&b[0], 2), Extended::new(&b[1], 2)];
@@ -291,8 +322,12 @@ pub struct TwoFlavor<O> {
     phi: Option<Psi>,
     /// CG iterations of the last solve.
     pub last_iterations: usize,
+    /// CG iterations of all force solves so far.
+    pub md_iterations: usize,
     /// κ c_SW when the operator has a clover term (`with_clover`).
     clover: Option<f64>,
+    /// The initial guess of the force solves (none by default).
+    pub guess: Chrono<Psi>,
 }
 
 impl<O: ForceOp> TwoFlavor<O> {
@@ -304,13 +339,22 @@ impl<O: ForceOp> TwoFlavor<O> {
             stop_h,
             phi: None,
             last_iterations: 0,
+            md_iterations: 0,
             clover: None,
+            guess: Chrono::new(0),
         }
     }
 
     /// The operator has the clover term with coefficient κ c_SW: its force is added.
     pub fn with_clover(mut self, kappa_csw: f64) -> Self {
         self.clover = Some(kappa_csw);
+        self
+    }
+
+    /// Start the force solves from the best combination of the last `depth` solutions
+    /// (`Chrono`); 0: from zero.
+    pub fn with_guess(mut self, depth: usize) -> Self {
+        self.guess = Chrono::new(depth);
         self
     }
 
@@ -323,15 +367,22 @@ impl<O: ForceOp> TwoFlavor<O> {
         levels
     }
 
-    /// (D†D)⁻¹ φ.
-    fn solve(&mut self, stop: Stop) -> Result<Psi, SolveError> {
+    /// (D†D)⁻¹ φ; for the force (`md`) from the guess.
+    fn solve(&mut self, stop: Stop, md: bool) -> Result<Psi, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let mut x = phi.zeros_like();
         let mut cg = Cg::new(stop);
         let mut d = Bound::new(&self.op, Variant::D);
         let mut normal = Normal::new(&mut d, phi);
+        if md {
+            self.guess.guess(&mut normal, phi, &mut x);
+        }
         let info = cg.solve(&mut normal, None, &mut x, phi)?;
         self.last_iterations = info.iterations;
+        if md {
+            self.md_iterations += info.iterations;
+            self.guess.record(&x);
+        }
         Ok(x)
     }
 
@@ -345,6 +396,7 @@ impl<O: ForceOp> TwoFlavor<O> {
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut phi, &xi, Variant::Dagger);
         self.phi = Some(phi);
+        self.guess.clear();
         let mut n = [0.0];
         xi.norm_sqr(&mut n);
         n[0]
@@ -354,7 +406,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
         self.set_links(links);
         let v = self
-            .solve(self.stop_h)
+            .solve(self.stop_h, false)
             .expect("the solve for the energy converges");
         let mut d = [C64::ZERO];
         v.dot(self.phi.as_ref().expect("drawn"), &mut d);
@@ -364,7 +416,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
         let levels = self.set_links(links);
         let eta = self
-            .solve(self.stop_md)
+            .solve(self.stop_md, true)
             .expect("the solve for the force converges");
         let mut zeta = eta.zeros_like();
         let mut work = self.op.work();

@@ -666,3 +666,119 @@ actions:
     assert!((plaq_file - plaq).abs() < 1e-13 && (dh_file - dh).abs() < 1e-9);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `even_odd` and `initial_guess` of a two-flavour action in the HMC file: one trajectory of
+/// even-odd clover fermions through the program is the trajectory of `TwoFlavorEo` built by
+/// hand, number by number; with the guess the same to the precision of the solves; and a
+/// guess on a ratio action is refused.
+#[test]
+fn hmc_file_even_odd_and_initial_guess() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    use ruttice::fermion::{Clover, CloverParams};
+    use ruttice::hmc::{Hmc, Mseries, RectangleAction, Scheme, Term, TwoFlavorEo};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let yaml = |guess: usize| {
+        format!(
+            "lattice: [4, 4, 4, 4]
+start: {{type: hot, seed: 7}}
+gauge_smearing: {{type: stout, rho: 0.1, steps: 1}}
+hmc:
+  trajectories: 1
+  first_trajectory: 5
+  trajectory_length: 0.2
+  integrator: {{scheme: leapfrog, steps: [4]}}
+actions:
+  - {{type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 0}}
+  - type: two_flavor
+    fermion: {{type: clover, kappa: 0.12, csw: 1.5, boundary: [periodic, periodic, periodic, antiperiodic]}}
+    even_odd: true
+    solver: {{tolerance_squared: 1.0e-26, energy_tolerance_squared: 1.0e-26, initial_guess: {guess}}}
+    level: 0
+"
+        )
+    };
+    let dir = scratch("hmc_eo");
+    let run = |text: &str| {
+        let config = HmcConfig::from_yaml(text).unwrap();
+        let mut out = Vec::new();
+        let report = run_on(
+            &config,
+            &dir,
+            &mut out,
+            std::sync::Arc::new(ruttice::SingleComm),
+        )
+        .unwrap();
+        eprintln!("{}", String::from_utf8(out).unwrap());
+        report.trajectories[0]
+    };
+    let (_, dh, _, plaq) = run(&yaml(0));
+    let (_, dh_g, _, plaq_g) = run(&yaml(3));
+
+    let lat = Lattice::single_node([4; 4]);
+    let mut u = random_gauge(&lat, 7);
+    let params = CloverParams {
+        kappa: 0.12,
+        csw: 1.5,
+        boundary: [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ],
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-26,
+        max_iterations: 10000,
+        max_restarts: 10,
+    };
+    let smearing = ruttice::gauge::GaugeSmearing {
+        smear: ruttice::gauge::Smear::Stout(ruttice::gauge::smear::Stout::uniform(0.1)),
+        steps: 1,
+    };
+    let fermions = TwoFlavorEo::new(Clover::<f64>::new(&lat, params), Some(smearing), stop, stop)
+        .with_clover(0.12 * 1.5);
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = Hmc::new(
+        vec![
+            Term {
+                level: 0,
+                action: Box::new(gauge),
+            },
+            Term {
+                level: 0,
+                action: Box::new(fermions),
+            },
+        ],
+        Scheme::Leapfrog,
+        vec![4],
+        8,
+        0.2,
+    );
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(5));
+    assert_eq!(plaq, t.plaquette);
+    assert_eq!(dh, t.delta_h);
+    assert!(
+        (plaq_g - plaq).abs() < 1e-11 && (dh_g - dh).abs() < 1e-7,
+        "{plaq_g} {dh_g}"
+    );
+
+    let bad = "lattice: [4, 4, 4, 4]
+start: {type: cold}
+hmc: {trajectories: 1, trajectory_length: 0.1, integrator: {scheme: leapfrog, steps: [2]}}
+actions:
+  - type: two_flavor_ratio
+    fermion: {type: domain_wall, ls: 4, m5: 1.6, mass: 0.1, boundary: [periodic, periodic, periodic, antiperiodic]}
+    solver: {initial_guess: 2}
+    level: 0
+";
+    assert!(matches!(
+        HmcConfig::from_yaml(bad),
+        Err(CliError::Invalid(_))
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
