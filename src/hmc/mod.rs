@@ -10,7 +10,8 @@
 //!
 //! Actions: the plaquette and rectangle (Iwasaki, DBW2, …) gauge actions; two flavours of
 //! Wilson-type or domain-wall fermions, and their ratio to Pauli-Villars fermions, on links
-//! that may be stout smeared (`fermion`). Several time scales with leapfrog or Omelyan
+//! that may be stout smeared (`fermion`); fractional powers of the determinant, one flavour,
+//! by rational approximation (`rational`). Several time scales with leapfrog or Omelyan
 //! (`integrator`). An action is in the file of its kind, with what makes it an `MdAction`.
 
 mod fermion;
@@ -18,6 +19,9 @@ mod gauge_force;
 mod integrator;
 mod links;
 mod mseries;
+mod rational;
+
+pub use rational::Rational;
 
 pub use fermion::{
     clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force, ForceOp,
@@ -457,6 +461,90 @@ mod tests {
             stop,
         );
         ratio.langevin(&Links::new(&u, &cache), &mut Mseries::new(8));
+        let f = ratio.force(&Links::new(&u, &cache));
+        check_force(
+            &u,
+            &f,
+            &links,
+            |w| ratio.hamiltonian(&Links::new(w, &SmearingCache::new())),
+            1e-7,
+        );
+    }
+
+    /// One flavour of clover fermions by rational approximation (RHMC), on stout links: the
+    /// force, and the heat bath (S = |ξ|² at the start, to the error of the approximations);
+    /// and the ratio of two clover operators, which the 2 + 1 flavours need too.
+    #[test]
+    fn rational_and_clover_ratio_forces_are_the_derivatives() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::gauge::smear::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::numerics::{RationalApprox, RationalSpec};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 29);
+        let params = |kappa| CloverParams {
+            kappa,
+            csw: 1.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 2000,
+            max_restarts: 10,
+        };
+        let smearing = Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        });
+        // D†D of κ = 0.12 on these links lies in [1e-4, 16] (λ_max of D at most 1 + 8κ plus
+        // the clover term).
+        let spec = RationalSpec {
+            poles: 16,
+            p: -1,
+            q: 2,
+            x_min: 1e-4,
+            x_max: 16.0,
+        };
+        let md = RationalApprox::minimax(&spec).unwrap();
+        let hb = RationalApprox::minimax(&spec.with_power(1, 4)).unwrap();
+        let links = [(0, 11), (2, 80), (3, 251)];
+        let mut one = Rational::new(
+            Clover::<f64>::new(&lat, params(0.12)),
+            smearing,
+            md,
+            hb,
+            stop,
+            stop,
+        )
+        .with_clover(0.12 * 1.5);
+        let cache = SmearingCache::new();
+        let xi2 = one.langevin(&Links::new(&u, &cache), &mut Mseries::new(9));
+        let s0 = one.hamiltonian(&Links::new(&u, &cache));
+        eprintln!("|xi|^2 {xi2}, S {s0}");
+        assert!(((s0 - xi2) / xi2).abs() < 1e-8, "{s0} against {xi2}");
+        let f = one.force(&Links::new(&u, &cache));
+        check_force(
+            &u,
+            &f,
+            &links,
+            |w| one.hamiltonian(&Links::new(w, &SmearingCache::new())),
+            1e-7,
+        );
+        let mut ratio = TwoFlavorRatio::new(
+            Clover::<f64>::new(&lat, params(0.12)),
+            Clover::<f64>::new(&lat, params(0.10)),
+            smearing,
+            stop,
+            stop,
+        )
+        .with_clover(0.12 * 1.5, 0.10 * 1.5);
+        ratio.langevin(&Links::new(&u, &cache), &mut Mseries::new(10));
         let f = ratio.force(&Links::new(&u, &cache));
         check_force(
             &u,
