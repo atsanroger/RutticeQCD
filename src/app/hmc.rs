@@ -66,6 +66,9 @@ pub struct HmcConfig {
     pub lattice: [usize; ND],
     #[serde(default)]
     pub process_grid: Option<[usize; ND]>,
+    /// Threads of each process; without it `RAYON_NUM_THREADS`, or every core.
+    #[serde(default)]
+    pub cpu_thread: Option<usize>,
     pub start: StartConfig,
     /// The smearing of the links of the fermion actions that ask for it (`smeared`).
     #[serde(default)]

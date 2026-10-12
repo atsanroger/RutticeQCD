@@ -272,6 +272,9 @@ pub struct MainBlock {
     pub simd_lanes: usize,
     #[serde(default = "general")]
     pub verbose_level: VerboseLevel,
+    /// Threads of each process; without it `RAYON_NUM_THREADS`, or every core.
+    #[serde(default)]
+    pub cpu_thread: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
