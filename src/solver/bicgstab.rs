@@ -28,6 +28,11 @@ use crate::{LinearFn, Vector, C64};
 pub struct BiCgStab<V> {
     pub stop: Stop,
     pub omega_tolerance: f64,
+    /// An inner solve (`inner`): x is zero on entry, so the first residual is b and needs no
+    /// application of A; and the end does not recompute the residual (`residual_sqr` is the
+    /// recurrence's). Two applications of A fewer per solve, which for the coarse solves of a
+    /// multigrid cycle, a few iterations each, is a large part of their cost.
+    pub inner: bool,
     work: Option<Work<V>>,
 }
 
@@ -47,7 +52,16 @@ impl<V: Vector> BiCgStab<V> {
         Self {
             stop,
             omega_tolerance: 0.7,
+            inner: false,
             work: None,
+        }
+    }
+
+    /// `new` for an inner solve (see `inner`): x must be zero on entry.
+    pub fn inner(stop: Stop) -> Self {
+        Self {
+            inner: true,
+            ..Self::new(stop)
         }
     }
 }
@@ -141,7 +155,11 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
             let mut b_norm = b_norm.clone();
             let mut narrowed: Option<Narrowed<V>> = None;
 
-            a.mult_xpay(r, x, &minus_one, b);
+            if self.inner && cycles == 0 {
+                r.copy_from(b);
+            } else {
+                a.mult_xpay(r, x, &minus_one, b);
+            }
             r0.copy_from(r);
             p.copy_from(r);
             r.norm_sqr(&mut rr);
@@ -258,6 +276,28 @@ impl<V: Vector> Solver<V> for BiCgStab<V> {
                 x.assign(&last.of, &last.x);
             }
             crate::fit(r, b);
+            if self.inner && rr.len() == nv && broke_down.is_none() {
+                // The recurrence's residual, relative to |b|².
+                for j in 0..nv {
+                    residual[j] = if all_b_norm[j] > 0.0 {
+                        rr[j] / all_b_norm[j]
+                    } else {
+                        rr[j]
+                    };
+                }
+                if residual.iter().all(|r| *r <= tol) || self.stop.max_restarts == 0 {
+                    let info = SolveInfo {
+                        iterations,
+                        restarts: cycles,
+                        residual_sqr: residual.clone(),
+                    };
+                    return if residual.iter().all(|r| *r <= tol) {
+                        Ok(info)
+                    } else {
+                        Err(SolveError::NotConverged(info))
+                    };
+                }
+            }
             true_residual(a, x, b, &all_b_norm, r, &minus_one, &mut residual);
             let info = SolveInfo {
                 iterations,
