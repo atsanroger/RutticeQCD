@@ -321,7 +321,7 @@ source is gauge dependent: the first value is 81.28 here and 15.24 without gauge
 What it does not validate: the random gauge transformations after `reset_interval`
 sweeps, which this run never reached. They use RutticeQCD's own random numbers, so a run
 that needs them will not follow Bridge++ sweep for sweep. Independent checks
-(`stage2_gauge_fixing.rs`): convergence from a random configuration, the plaquette being
+(`gauge_fixing.rs`): convergence from a random configuration, the plaquette being
 unchanged, the same configuration on every process grid with and without resets, and the
 gauge transformation against a separate reference implementation.
 
@@ -344,7 +344,7 @@ What this validates: the normalisation of the Wilson kernel inside the operator
 dimension, and the mass term across the walls.
 
 What it does not validate: the Möbius coefficients (c = 0 here), D†, and Γ5 D. Those have
-only checks that need no reference (`stage3_mdwf.rs`): D† is the adjoint of D for
+only checks that need no reference (`mdwf.rs`): D† is the adjoint of D for
 (b, c) = (1.5, 0.5); Γ5 D is Hermitian for c = 0 and is not for c ≠ 0; two vectors in one
 field are independent; several processes give the bits of one.
 

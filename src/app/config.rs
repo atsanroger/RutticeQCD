@@ -93,7 +93,7 @@ fn ape_max_iterations() -> usize {
 
 impl GaugeSmearingConfig {
     pub fn smearing(&self) -> crate::gauge::GaugeSmearing {
-        use crate::gauge::smear::{spatial, uniform, Ape, Smear, Stout};
+        use crate::gauge::smearing::{spatial, uniform, Ape, Smear, Stout};
         let weights = |rho: f64, spatial_only: bool| {
             if spatial_only {
                 spatial(rho)

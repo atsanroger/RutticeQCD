@@ -2,7 +2,7 @@
 //! a molecular-dynamics integrator and the Metropolis test.
 //!
 //! The conventions are those of Bridge++, so that its runs can be repeated here and checked
-//! number by number (`tests/stage5_hmc.rs`): the momenta iP = i Σ_a 2 h_a T^a with h_a
+//! number by number (`tests/hmc.rs`): the momenta iP = i Σ_a 2 h_a T^a with h_a
 //! Gaussian of variance 1/2 drawn by the M-series generator (`Mseries`) in Bridge++'s order,
 //! H = ½ |iP|² + S; the leapfrog P(ε/2) [U(ε) P(ε)]… U(ε) P(ε/2); U ← exp(ε iP) U by the
 //! Taylor series to order `exp_order`, then made unitary again row by row; and the Metropolis
@@ -10,13 +10,14 @@
 //!
 //! Actions: the plaquette and rectangle (Iwasaki, DBW2, …) gauge actions; two flavours of
 //! Wilson-type or domain-wall fermions, and their ratio to Pauli-Villars fermions, on links
-//! that may be stout smeared (`fermion`); fractional powers of the determinant, one flavour,
-//! by rational approximation (`rational`). Several time scales with leapfrog or Omelyan
+//! that may be stout smeared (`fermion_action`; on the even sites, `even_odd`); fractional powers
+//! of the determinant, one flavour, by rational approximation (`rational`); the gauge actions
+//! (`gauge_action`); initial guesses for the solves from the solutions before (`guess`). Several time scales with leapfrog or Omelyan
 //! (`integrator`). An action is in the file of its kind, with what makes it an `MdAction`.
 
 mod even_odd;
-mod fermion;
-mod gauge_force;
+mod fermion_action;
+mod gauge_action;
 mod guess;
 mod integrator;
 mod links;
@@ -26,11 +27,11 @@ mod rational;
 pub use rational::Rational;
 
 pub use even_odd::{log_det_diag, EvenOddForceOp, HalfPsi, TwoFlavorEo};
-pub use fermion::{
+pub use fermion_action::{
     clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
     CloverInsertion, ForceOp, TwoFlavor, TwoFlavorRatio,
 };
-pub use gauge_force::{
+pub use gauge_action::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
     RectangleAction, Step,
 };
@@ -284,12 +285,12 @@ mod tests {
     /// differentiated with respect to the links before smearing.
     #[test]
     fn stout_chain_rule_is_the_derivative() {
-        use crate::gauge::smear::{spatial, Stout};
+        use crate::gauge::smearing::{spatial, Stout};
         use crate::gauge::{GaugeSmearing, Smear};
         let lat = Lattice::single_node([4, 4, 4, 4]);
         let u = random_gauge(&lat, 13);
         let action = PlaquetteAction { beta: 5.0 };
-        for rho in [crate::gauge::smear::uniform(0.1), spatial(0.15)] {
+        for rho in [crate::gauge::smearing::uniform(0.1), spatial(0.15)] {
             let smearing = GaugeSmearing {
                 smear: Smear::Stout(Stout { rho }),
                 steps: 2,
@@ -322,7 +323,7 @@ mod tests {
     #[test]
     fn wilson_force_is_the_derivative() {
         use crate::fermion::{Wilson, WilsonParams};
-        use crate::gauge::smear::Stout;
+        use crate::gauge::smearing::Stout;
         use crate::gauge::{GaugeSmearing, Smear};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 4]);
@@ -371,7 +372,7 @@ mod tests {
     #[test]
     fn clover_force_is_the_derivative() {
         use crate::fermion::{Clover, CloverParams};
-        use crate::gauge::smear::Stout;
+        use crate::gauge::smearing::Stout;
         use crate::gauge::{GaugeSmearing, Smear};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 4]);
@@ -419,7 +420,7 @@ mod tests {
     #[test]
     fn even_odd_forces_are_the_derivatives() {
         use crate::fermion::{Clover, CloverParams, Wilson, WilsonParams};
-        use crate::gauge::smear::Stout;
+        use crate::gauge::smearing::Stout;
         use crate::gauge::{GaugeSmearing, Smear};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 4]);
@@ -566,7 +567,7 @@ mod tests {
     #[test]
     fn domain_wall_forces_are_the_derivatives() {
         use crate::fermion::{Mdwf, MdwfParams};
-        use crate::gauge::smear::Stout;
+        use crate::gauge::smearing::Stout;
         use crate::gauge::{GaugeSmearing, Smear};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 4]);
@@ -640,7 +641,7 @@ mod tests {
     #[test]
     fn rational_and_clover_ratio_forces_are_the_derivatives() {
         use crate::fermion::{Clover, CloverParams};
-        use crate::gauge::smear::Stout;
+        use crate::gauge::smearing::Stout;
         use crate::gauge::{GaugeSmearing, Smear};
         use crate::numerics::{RationalApprox, RationalSpec};
         use crate::solver::Stop;

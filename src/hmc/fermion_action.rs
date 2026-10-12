@@ -7,7 +7,7 @@
 //! M_μ(x) = −2c Σ_spin [h_μ(η)(x) ζ(x)† − γ5 η(x) h_μ(γ5 ζ)(x)†],
 //! h_μ(ψ)(x) = (1 − γ_μ) U_μ(x) ψ(x+μ) the forward hopping term (`HopTerms::hop_forward`,
 //! boundary phases included); the backward hop is turned into a forward one with γ5. The
-//! force on the momenta is then F = TA(M) (`gauge_force`'s convention).
+//! force on the momenta is then F = TA(M) (`gauge_action`'s convention).
 //!
 //! With smeared links V(U) the derivative is taken for V, Σ' = V† M (dS = Re tr Σ' δV), and
 //! carried back to U by the chain rule of the smearing (`GaugeSmearing::chain`).

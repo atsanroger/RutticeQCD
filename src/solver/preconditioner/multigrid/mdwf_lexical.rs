@@ -18,7 +18,7 @@
 //!   reduces a smooth error (DESIGN.md §7.6.5 (d)).
 //! - Coarse solver: GMRES(m), restarted a few times, to a loose tolerance.
 
-use super::cycle::random_vectors;
+use super::wilson::random_vectors;
 use super::{Aggregation, CycleParts, Multigrid, MultigridError, SetupHooks};
 use crate::fermion::{Mdwf, MdwfAt, PvPreconditioned, SiteInverse, Variant};
 use crate::kernel::GammaRepre;

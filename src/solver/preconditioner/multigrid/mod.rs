@@ -8,29 +8,36 @@
 //!
 //! Keeping the two chiralities apart makes P commute with γ5, so the coarse operator
 //! inherits γ5-hermiticity from the fine one.
+//!
+//! Files: what every multigrid here is made of (`aggregation`, `basis` for P, `coarse` for
+//! the coarse operator and its even-odd form, `levels` below the coarse lattice, `sap` the
+//! domain-decomposition smoother), and one file per kind of operator: `wilson` the two-level
+//! cycle for operators of Wilson type (Wilson, clover); `mdwf_even_odd` the multigrid for
+//! domain-wall fermions on the even sites (the one in use); `mdwf_lexical` the earlier one
+//! on the whole lattice.
 
 mod aggregation;
 mod basis;
 mod coarse;
-mod cycle;
 mod levels;
-mod mdwf;
-mod pv_eo;
+mod mdwf_even_odd;
+mod mdwf_lexical;
 mod sap;
+mod wilson;
 
 pub use aggregation::Aggregation;
 pub use basis::{Basis, BasisBuilder, Reflection};
 pub use coarse::CoarseOp;
-pub use cycle::{
-    CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
-};
 pub use levels::{LevelBootstrap, SignedMultilevel};
-pub use mdwf::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
-pub use pv_eo::{
+pub use mdwf_even_odd::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, BootstrapParams,
     CoarseKrylov, CycleLayout, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
+pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::Sap;
+pub use wilson::{
+    CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
+};
 
 use std::fmt;
 
