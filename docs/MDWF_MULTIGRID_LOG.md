@@ -165,7 +165,7 @@ N = 32 個測試向量、4⁴ 區塊、Chebyshev 5/30、粗網格到 1e-2、Ã �
 | 10-09 | 給在 `main` 上工作的 session（分工；不按日期，在 Boyle 投影片之後） |
 | 10-11 | 「2026-10-11：當時的結論與最好的設定」；「2026-10-11：接下來、多層 V-cycle、記憶體、setup 成本、外層解法、搬進 `src/`、α」（原第 0.3、0.4 節） |
 | 10-11 夜–10-12 | 「三種費米子的功能補齊、資料夾拆分」（原第 0.0 節：粗網格下的層、`[2, 2]` 與 bootstrap 基底、`inner`、SIMD） |
-| 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」 |
+| 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」、「`fermion/` 的檔名統一」 |
 
 ---
 
@@ -1644,3 +1644,19 @@ Wilson/clover：`Solver.operator_type : Even_odd`（預設）或 `Full`（別名
 
 **測試。** `coarse_even_odd_solves_the_coarse_system`（Schur 補的解補回奇格點後滿足 D_c c = g；S 的結果留在偶格點；奇數邊長的粗格子沒有這個形式）；
 Wilson/clover 的 cycle 開了之後外層 15 步（不開 15 步）；MDWF 的多 process 測試（cycle 與單 process 差 1e-14）走的就是這條路。
+
+## 2026-10-12（晚）：`fermion/` 的檔名統一
+
+使用者：效能滿意，架構不滿意——三個費米子資料夾各用各的檔名。規則（寫在 `fermion/mod.rs`）：同一個角色用同一個檔名。
+
+| 角色 | 檔名 | wilson | clover | mdwf |
+|---|---|---|---|---|
+| 算子、參數、說明 | `mod.rs` | ✓ | ✓ | ✓ |
+| 格點內的部分 | `site.rs` | 格點項的介面、單位項 | clover 項（原 `diag.rs`） | 第五維 C、C⁻¹、Q（原 `fifth.rs`） |
+| 整個格子上的算子 | `full.rs` | ✓（從 sweep 的檔案抽出） | 用 Wilson 的 | ✓ |
+| even-odd 區塊 | `even_odd.rs` | ✓（從 sweep 的檔案抽出） | 用 Wilson 的 | ✓ |
+| 只有它有的 | | `sweep.rs`、`sweep_sites.rs`、`sweep_blocks.rs`（hopping 的 sweep，另外兩個建在它上面） | | `quark_4d.rs`（五維場的四維夸克場與源；原 `measure.rs`） |
+
+`fermion/evenodd.rs` → `even_odd.rs`。clover 沒有 `full.rs`／`even_odd.rs`：它是 Wilson 算子換一個格點項，那兩份實作對格點項泛型。
+Wilson 沒有 `quark_4d.rs`：它的解本來就是四維的，量測在 `crate::measure`，domain-wall 轉成四維後用的也是那一份。
+只搬不改，對外名稱不變；232 個測試通過，`mdwf_layout_bench`、`ruttice-bench` 前後相同。其他資料夾的命名還沒動（等使用者決定）。
