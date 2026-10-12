@@ -440,6 +440,12 @@ impl Post {
 /// (domain-wall fermions: C⁻¹, and the difference with another field).
 pub type After<'a, T> = Option<&'a (dyn Fn(usize, &mut [T]) + Sync)>;
 
+/// Largest site (or block), in reals, that a sweep with an `After` computes in a buffer on
+/// the stack before it writes it past the cache (`Storage::stream`): 64 spinors. The values
+/// `After` reads back are then in the buffer, and the output is written once without being
+/// read first. A larger site is written and read back in place.
+const SITE_BUFFER: usize = 64 * SPINOR_REALS;
+
 /// Reads spinor `r` of the sites of an input field, transformed by `pre`. A struct with
 /// methods rather than closures, so that the reads are expanded in place.
 ///

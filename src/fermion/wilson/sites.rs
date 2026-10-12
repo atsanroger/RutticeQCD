@@ -416,10 +416,14 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
         let (out, site_len) = (out.slab_mut(0), copies * SPINOR_REALS);
-        // What is done to a site after the sweep reads it back: it stays in the cache.
-        let stream = streams(out, site_len) && after.is_none();
+        // A large output is written past the cache: spinor by spinor, or with something to
+        // do to a site afterwards, the whole site from a buffer once that is done (if it
+        // fits; otherwise it is written and read back in place).
+        let large = streams(out, site_len);
+        let stream = large && after.is_none();
+        let buffered = large && after.is_some() && site_len <= SITE_BUFFER;
         let fence = || {
-            if stream {
+            if stream || buffered {
                 stream_fence();
             }
         };
@@ -433,7 +437,17 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     core::array::from_fn(|mu| Self::resolve(geo, &fixed, x, mu, bwd));
                 let x_full = geo.out_site(x);
 
-                for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
+                let mut buffer = buffered.then(|| [T::default(); SITE_BUFFER]);
+                let values: &mut [T] = match buffer.as_mut() {
+                    Some(b) => &mut b[..site_len],
+                    None => &mut *o,
+                };
+                for (r, o) in values
+                    .as_chunks_mut::<SPINOR_REALS>()
+                    .0
+                    .iter_mut()
+                    .enumerate()
+                {
                     let input = Input {
                         spinors,
                         r,
@@ -466,7 +480,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     }
                 }
                 if let Some(after) = after {
-                    after(x, o);
+                    after(x, values);
+                }
+                if let Some(b) = buffer.as_ref() {
+                    T::stream(o, &b[..site_len]);
                 }
             };
             match part {
