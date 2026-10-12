@@ -1,8 +1,8 @@
 pub(crate) mod blocks;
-pub(crate) mod evenodd;
+pub(crate) mod even_odd;
+pub(crate) mod for_sites;
 pub(crate) mod parts;
 pub(crate) mod pool;
-pub(crate) mod sites;
 pub(crate) mod stencil;
 use crate::comm::{Comm, SingleComm};
 use crate::lattice::stencil::Direction;

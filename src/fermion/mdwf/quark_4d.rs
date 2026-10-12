@@ -13,8 +13,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     pub fn source_5d(
         &self,
         work: &mut MdwfWork<T, L>,
-        out: &mut Field<T, Spinor, Full, L>,
-        eta: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        eta: &Field<T, Spinor, Lexical, L>,
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         assert!(eta.ls() == 1 && out.ls() == ls && out.num_vectors() == eta.num_vectors());
@@ -53,8 +53,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// solution ψ (of the plain operator: x = Q x^(α) for D^(α)), into `out` (Ls = 1).
     pub fn propagator_4d(
         &self,
-        out: &mut Field<T, Spinor, Full, L>,
-        psi: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        psi: &Field<T, Spinor, Lexical, L>,
     ) {
         let ls = self.params.ls;
         self.walls_to_4d(out, psi, (0, ls - 1));
@@ -64,8 +64,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// of the pseudoscalar density J5q whose correlator gives the residual mass.
     pub fn midpoint_4d(
         &self,
-        out: &mut Field<T, Spinor, Full, L>,
-        psi: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        psi: &Field<T, Spinor, Lexical, L>,
     ) {
         let ls = self.params.ls;
         assert!(ls.is_multiple_of(2), "the midpoint needs an even Ls");
@@ -75,8 +75,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `out = P- ψ_(minus) + P+ ψ_(plus)`.
     fn walls_to_4d(
         &self,
-        out: &mut Field<T, Spinor, Full, L>,
-        psi: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        psi: &Field<T, Spinor, Lexical, L>,
         (minus, plus): (usize, usize),
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);

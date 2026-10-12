@@ -1,7 +1,7 @@
 //! Even-odd (checkerboard) decomposition of a lattice.
 
 use crate::field::storage::Storage;
-use crate::field::{Aos, Aosoa, Cpu, Field, Full, Half, Kind, Layout};
+use crate::field::{Aos, Aosoa, Cpu, Field, Half, Kind, Layout, Lexical};
 use crate::kernel::{Number, Real};
 use crate::lattice::blocks::Blocks;
 use crate::lattice::Lattice;
@@ -113,7 +113,7 @@ impl EvenOddIndex {
 /// for the SIMD layout, where all lanes of a block have the parity of the block.
 pub fn extract_parity<T: Storage, K: Kind, L: Layout>(
     half: &mut Field<T, K, Half, L, Cpu>,
-    full: &Field<T, K, Full, L, Cpu>,
+    full: &Field<T, K, Lexical, L, Cpu>,
     index: &EvenOddIndex,
     parity: Parity,
 ) {
@@ -133,7 +133,7 @@ pub fn extract_parity<T: Storage, K: Kind, L: Layout>(
 
 /// Copy a half field into the sites of its parity in a full field; other sites are untouched.
 pub fn insert_parity<T: Storage, K: Kind, L: Layout>(
-    full: &mut Field<T, K, Full, L, Cpu>,
+    full: &mut Field<T, K, Lexical, L, Cpu>,
     half: &Field<T, K, Half, L, Cpu>,
     index: &EvenOddIndex,
 ) {

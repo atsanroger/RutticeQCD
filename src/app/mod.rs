@@ -31,8 +31,8 @@ use crate::solver::{
     solve_cgne, BiCgStab, Cg, Convert, Fgmres, SolveError, SolveInfo, Solver, Stop,
 };
 use crate::{
-    Aosoa, Blocks, Boundary, Comm, ConvertFrom, EvenOddIndex, Field, Full, Gauge, Half, Lattice,
-    Layout, LinearFn, SingleComm, Spinor, Stencil, Vector, C64, ND,
+    Aosoa, Blocks, Boundary, Comm, ConvertFrom, EvenOddIndex, Field, Gauge, Half, Lattice, Layout,
+    Lexical, LinearFn, SingleComm, Spinor, Stencil, Vector, C64, ND,
 };
 use std::fmt;
 use std::io::Write;
@@ -348,7 +348,7 @@ fn validate_simd(config: &Config, grid: [usize; ND], local: [usize; ND]) -> Resu
 /// The values of `solver.simd` above 1 that `run_on` has an operator for.
 const SIMD_WIDTHS: [usize; 3] = [2, 4, 8];
 
-type Spinors<L> = Field<f64, Spinor, Full, L>;
+type Spinors<L> = Field<f64, Spinor, Lexical, L>;
 
 /// Solve D S = b for the twelve right-hand sides of `b`, the way the parameter file asks.
 /// The fields may be in any layout the operator works on; `index` is the operator's

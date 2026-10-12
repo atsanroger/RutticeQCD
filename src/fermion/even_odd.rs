@@ -106,8 +106,8 @@ type HalfField<T, K, L> = Field<T, K, Half, L, Cpu>;
 pub fn solve_even_odd<T, K, L, F, R, E>(
     op: &F,
     index: &EvenOddIndex,
-    x: &mut Field<T, K, crate::Full, L>,
-    b: &Field<T, K, crate::Full, L>,
+    x: &mut Field<T, K, crate::Lexical, L>,
+    b: &Field<T, K, crate::Lexical, L>,
     solve: impl FnOnce(
         &mut Schur<'_, F, HalfField<T, K, L>>,
         &mut HalfField<T, K, L>,
@@ -168,18 +168,18 @@ where
 /// M⁻¹. This puts a preconditioner of the whole lattice (a multigrid cycle) under a solver
 /// on one parity (`solve_even_odd`).
 pub struct OnParity<'m, T: Storage, K: Kind, L: Layout> {
-    inner: &'m mut dyn LinearFn<Field<T, K, crate::Full, L>>,
+    inner: &'m mut dyn LinearFn<Field<T, K, crate::Lexical, L>>,
     index: &'m EvenOddIndex,
-    inp: Field<T, K, crate::Full, L>,
-    out: Field<T, K, crate::Full, L>,
+    inp: Field<T, K, crate::Lexical, L>,
+    out: Field<T, K, crate::Lexical, L>,
 }
 
 impl<'m, T: Storage, K: Kind, L: Layout> OnParity<'m, T, K, L> {
     /// `like` gives the shape of the whole fields; `index` is the operator's decomposition.
     pub fn new(
-        inner: &'m mut dyn LinearFn<Field<T, K, crate::Full, L>>,
+        inner: &'m mut dyn LinearFn<Field<T, K, crate::Lexical, L>>,
         index: &'m EvenOddIndex,
-        like: &Field<T, K, crate::Full, L>,
+        like: &Field<T, K, crate::Lexical, L>,
     ) -> Self {
         Self {
             inner,

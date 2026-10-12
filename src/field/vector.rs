@@ -1,10 +1,10 @@
 //! The only interface solvers need from a vector.
 
 use crate::field::storage::Storage;
-use crate::field::{Aos, Aosoa, Cpu, Field, Full, Kind, Layout, Sites};
+use crate::field::{Aos, Aosoa, Cpu, Field, Kind, Layout, Lexical, Sites};
 use crate::kernel::{Cplx, Number, Real};
 use crate::lattice::blocks::Blocks;
-use crate::lattice::sites::{for_light_sites, reduce_sites_dyn, reduce_sites_mut};
+use crate::lattice::for_sites::{for_light_sites, reduce_sites_dyn, reduce_sites_mut};
 
 /// Coefficients and reduction results are always double precision, whatever the field stores.
 pub type C64 = Cplx<f64>;
@@ -534,14 +534,14 @@ fn blocks_of<const W: usize>(lat: &crate::Lattice) -> Blocks {
 }
 
 /// From the usual layout to blocks of `W` sites, changing the precision if asked to.
-impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Full, Aos, Cpu>>
-    for Field<T, K, Full, Aosoa<W>, Cpu>
+impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Lexical, Aos, Cpu>>
+    for Field<T, K, Lexical, Aosoa<W>, Cpu>
 where
     T: Storage,
     U: Storage,
     K: Kind,
 {
-    fn convert_from(&mut self, src: &Field<U, K, Full, Aos, Cpu>) {
+    fn convert_from(&mut self, src: &Field<U, K, Lexical, Aos, Cpu>) {
         assert_eq!(self.as_slice().len(), src.as_slice().len());
         assert_eq!(
             (self.site_len(), self.outer()),
@@ -563,14 +563,14 @@ where
 }
 
 /// From blocks of `W` sites back to the usual layout.
-impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Full, Aosoa<W>, Cpu>>
-    for Field<T, K, Full, Aos, Cpu>
+impl<T, U, K, const W: usize> ConvertFrom<Field<U, K, Lexical, Aosoa<W>, Cpu>>
+    for Field<T, K, Lexical, Aos, Cpu>
 where
     T: Storage,
     U: Storage,
     K: Kind,
 {
-    fn convert_from(&mut self, src: &Field<U, K, Full, Aosoa<W>, Cpu>) {
+    fn convert_from(&mut self, src: &Field<U, K, Lexical, Aosoa<W>, Cpu>) {
         assert_eq!(self.as_slice().len(), src.as_slice().len());
         assert_eq!(
             (self.site_len(), self.outer()),

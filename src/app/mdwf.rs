@@ -29,8 +29,8 @@ use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
 };
 use crate::{
-    extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, Field, Full, Gauge, Half,
-    Lattice, LinearFn, Parity, SingleComm, Spinor, Vector, C64, ND,
+    extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, Field, Gauge, Half, Lattice,
+    Lexical, LinearFn, Parity, SingleComm, Spinor, Vector, C64, ND,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 type H<L = Aos> = Field<f64, Spinor, Half, L>;
-type F<L = Aos> = Field<f64, Spinor, Full, L>;
+type F<L = Aos> = Field<f64, Spinor, Lexical, L>;
 
 /// The first `count` vectors of a `mdwf_evenodd_coherence` checkpoint, read site by site.
 fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {

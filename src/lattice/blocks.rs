@@ -7,7 +7,7 @@
 //! the lanes in the same order, so a stencil loads it as one vector. Only when the hop
 //! leaves the sub-lattice do the lanes have to be rotated (`BlockStencil`).
 
-use super::evenodd::{EvenOddIndex, Parity};
+use super::even_odd::{EvenOddIndex, Parity};
 use super::stencil::{Boundary, Direction, Stencil};
 use super::{Lattice, ND};
 use crate::comm::{HaloSpec, FACES};

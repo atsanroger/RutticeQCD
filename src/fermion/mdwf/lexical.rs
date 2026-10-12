@@ -8,8 +8,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     pub fn mult_at(
         &self,
         work: &mut MdwfWork<T, L>,
-        out: &mut Field<T, Spinor, Full, L>,
-        inp: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        inp: &Field<T, Spinor, Lexical, L>,
         variant: Variant,
         mass: f64,
     ) {
@@ -17,7 +17,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         assert!(out.same_shape(inp));
         let [w, v, d, qf] = scratch(&mut work.fields, inp);
         // D^(α) ψ = D (Q ψ); D^(α)† ψ = Q (D† ψ), Q applied at the end below.
-        let inp: &Field<T, Spinor, Full, L> = if self.has_alpha() && variant != Variant::Dagger {
+        let inp: &Field<T, Spinor, Lexical, L> = if self.has_alpha() && variant != Variant::Dagger {
             self.mult_q(qf, inp, false);
             qf
         } else {
@@ -64,13 +64,13 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
 pub struct PvPreconditioned<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
     op: &'a Mdwf<T, G, L>,
     work: MdwfWork<T, L>,
-    first: Field<T, Spinor, Full, L>,
-    second: Field<T, Spinor, Full, L>,
+    first: Field<T, Spinor, Lexical, L>,
+    second: Field<T, Spinor, Lexical, L>,
 }
 
 impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvPreconditioned<'a, T, G, L> {
     /// `like` only provides the shape of the intermediate fields.
-    pub fn new(op: &'a Mdwf<T, G, L>, like: &Field<T, Spinor, Full, L>) -> Self {
+    pub fn new(op: &'a Mdwf<T, G, L>, like: &Field<T, Spinor, Lexical, L>) -> Self {
         Self {
             op,
             work: op.work(),
@@ -83,8 +83,8 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvPreconditioned<'a, T, G,
     /// `D x = b`.
     pub fn right_hand_side(
         &mut self,
-        out: &mut Field<T, Spinor, Full, L>,
-        inp: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        inp: &Field<T, Spinor, Lexical, L>,
     ) {
         fit(&mut self.first, inp);
         self.op
@@ -93,16 +93,16 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvPreconditioned<'a, T, G,
     }
 
     /// `x = C^-1 y`: the solution of `D x = b` from that of `A y = X† b`.
-    pub fn solution(&self, x: &mut Field<T, Spinor, Full, L>, y: &Field<T, Spinor, Full, L>) {
+    pub fn solution(&self, x: &mut Field<T, Spinor, Lexical, L>, y: &Field<T, Spinor, Lexical, L>) {
         self.op.mult_site_inv(x, y, self.op.params.mass, false);
     }
 }
 
-impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Lexical, L>>
     for PvPreconditioned<'_, T, G, L>
 {
     /// `out = A inp = C_PV†^-1 D_PV† D C^-1 inp`.
-    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
+    fn mult(&mut self, out: &mut Field<T, Spinor, Lexical, L>, inp: &Field<T, Spinor, Lexical, L>) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
@@ -125,11 +125,15 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full
     }
 }
 
-impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<Field<T, Spinor, Full, L>>
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<Field<T, Spinor, Lexical, L>>
     for PvPreconditioned<'_, T, G, L>
 {
     /// `out = A† inp = C†^-1 D† D_PV C_PV^-1 inp`.
-    fn mult_dag(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
+    fn mult_dag(
+        &mut self,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        inp: &Field<T, Spinor, Lexical, L>,
+    ) {
         let mass = self.op.params.mass;
         fit(&mut self.first, inp);
         fit(&mut self.second, inp);
@@ -227,9 +231,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `b ψ - c Y ψ`, what the Wilson kernel is applied to, in a scratch field.
     fn before_kernel<'w>(
         &self,
-        fields: &'w mut Option<[Field<T, Spinor, Full, L>; 4]>,
-        inp: &Field<T, Spinor, Full, L>,
-    ) -> &'w Field<T, Spinor, Full, L> {
+        fields: &'w mut Option<[Field<T, Spinor, Lexical, L>; 4]>,
+        inp: &Field<T, Spinor, Lexical, L>,
+    ) -> &'w Field<T, Spinor, Lexical, L> {
         let [w, _, _, qf] = scratch(fields, inp);
         let MdwfParams { b, c, mass, .. } = self.params;
         // The hops of D^(α) = D Q act on Q ψ.
@@ -263,10 +267,10 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> MdwfAt<'a, T, G, L> {
     }
 }
 
-impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Lexical, L>>
     for MdwfAt<'_, T, G, L>
 {
-    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
+    fn mult(&mut self, out: &mut Field<T, Spinor, Lexical, L>, inp: &Field<T, Spinor, Lexical, L>) {
         self.op
             .mult_at(&mut self.work, out, inp, self.variant, self.mass);
     }
@@ -280,15 +284,15 @@ pub struct SiteInverse<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> =
     pub dagger: bool,
 }
 
-impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Full, L>>
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<Field<T, Spinor, Lexical, L>>
     for SiteInverse<'_, T, G, L>
 {
-    fn mult(&mut self, out: &mut Field<T, Spinor, Full, L>, inp: &Field<T, Spinor, Full, L>) {
+    fn mult(&mut self, out: &mut Field<T, Spinor, Lexical, L>, inp: &Field<T, Spinor, Lexical, L>) {
         self.op.mult_site_inv(out, inp, self.mass, self.dagger);
     }
 }
 
-impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Full, L>>
+impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Lexical, L>>
     for Mdwf<T, G, L>
 {
     type Work = MdwfWork<T, L>;
@@ -312,8 +316,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Ful
     fn mult(
         &self,
         work: &mut MdwfWork<T, L>,
-        out: &mut Field<T, Spinor, Full, L>,
-        inp: &Field<T, Spinor, Full, L>,
+        out: &mut Field<T, Spinor, Lexical, L>,
+        inp: &Field<T, Spinor, Lexical, L>,
         variant: Variant,
     ) {
         self.mult_at(work, out, inp, variant, self.params.mass);

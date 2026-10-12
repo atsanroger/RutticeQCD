@@ -522,7 +522,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         self.check(geo, out, inp);
         let (sign, _) = leg_kind(dir);
         let copies = inp.copies();
-        let received = self.exchange::<R, crate::Full>(work, geo, inp, Pre::Plain, Some((mu, dir)));
+        let received =
+            self.exchange::<R, crate::Lexical>(work, geo, inp, Pre::Plain, Some((mu, dir)));
         let fixed = self.fixed::<R>();
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let face = received[Stencil::leg(mu, dir)];

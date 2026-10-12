@@ -4,7 +4,7 @@ pub(crate) mod random;
 pub(crate) mod storage;
 pub(crate) mod vector;
 use crate::field::storage::Storage;
-use crate::lattice::evenodd::Parity;
+use crate::lattice::even_odd::Parity;
 use crate::lattice::Lattice;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -40,8 +40,10 @@ pub trait Sites: 'static {
     fn num_sites(lat: &Lattice) -> usize;
 }
 
-pub struct Full;
-impl Sites for Full {
+/// Every site of the lattice, in lexical order: x fastest, then y, z, t (`Lattice::site`).
+/// The other choice is `Half`, the sites of one parity.
+pub struct Lexical;
+impl Sites for Lexical {
     fn num_sites(lat: &Lattice) -> usize {
         lat.num_sites()
     }
@@ -190,7 +192,7 @@ type Marker<K, S, L> = PhantomData<fn() -> (K, S, L)>;
 ///
 /// Each site holds `ls * num_vectors` copies of `internal_dof` reals. `outer` is an index
 /// outside the site (the four directions of a gauge field); each outer slab is laid out by `L`.
-pub struct Field<T: Storage, K: Kind, S: Sites = Full, L: Layout = Aos, B: Backend = Cpu> {
+pub struct Field<T: Storage, K: Kind, S: Sites = Lexical, L: Layout = Aos, B: Backend = Cpu> {
     lat: Arc<Lattice>,
     buf: B::Buf<T>,
     internal_dof: usize,
@@ -198,7 +200,7 @@ pub struct Field<T: Storage, K: Kind, S: Sites = Full, L: Layout = Aos, B: Backe
     num_vectors: usize,
     outer: usize,
     num_sites: usize,
-    /// Which parity a `Half` field lives on. Always `Even` for `Full` fields.
+    /// Which parity a `Half` field lives on. Always `Even` for `Lexical` fields.
     parity: Parity,
     _marker: Marker<K, S, L>,
 }

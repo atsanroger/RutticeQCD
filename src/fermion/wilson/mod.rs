@@ -40,9 +40,9 @@ use crate::kernel::{
 };
 use crate::{
     for_site_runs, for_sites, for_sites_as, for_sites_then, stream_fence, streams, Aos, Aosoa,
-    BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Full, Gauge, Half, HaloExchange,
-    HaloSpec, Lattice, Layout, Parity, SiteRuns, Sites, Source, Spinor, Stencil, Storage, Vector,
-    FACES, ND, NOT_RECEIVED,
+    BlockStencil, Boundary, Direction, Edge, EvenOddIndex, Field, Gauge, Half, HaloExchange,
+    HaloSpec, Lattice, Layout, Lexical, Parity, SiteRuns, Sites, Source, Spinor, Stencil, Storage,
+    Vector, FACES, ND, NOT_RECEIVED,
 };
 use rayon::prelude::*;
 use std::marker::PhantomData;

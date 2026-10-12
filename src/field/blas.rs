@@ -4,7 +4,7 @@
 use crate::field::storage::Storage;
 use crate::field::{Aos, Cpu, Field, Kind, Sites};
 use crate::kernel::Real;
-use crate::lattice::sites::reduce_sites_n;
+use crate::lattice::for_sites::reduce_sites_n;
 
 /// Sum of squares of every real in the field, over all processes.
 pub fn norm_sqr<T, K, S>(a: &Field<T, K, S, Aos, Cpu>) -> f64

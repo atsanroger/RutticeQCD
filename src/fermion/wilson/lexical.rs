@@ -143,7 +143,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
     }
 }
 
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> FermionOp<BlockField<T, Full, W>>
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> FermionOp<BlockField<T, Lexical, W>>
     for WilsonOp<T, G, D, Aosoa<W>>
 where
     T::Compute: LaneOf<W>,
@@ -188,8 +188,8 @@ where
     fn mult(
         &self,
         work: &mut WilsonWork<T>,
-        out: &mut BlockField<T, Full, W>,
-        inp: &BlockField<T, Full, W>,
+        out: &mut BlockField<T, Lexical, W>,
+        inp: &BlockField<T, Lexical, W>,
         variant: Variant,
     ) {
         let gamma5 = match variant {

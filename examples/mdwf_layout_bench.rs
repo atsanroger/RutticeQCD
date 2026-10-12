@@ -14,8 +14,8 @@ use ruttice::fermion::{
 use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, LaneOf};
 use ruttice::{
-    extract_parity, random_spinor, Aos, Aosoa, Boundary, ConvertFrom, Field, Full, Gauge, Half,
-    Lattice, Layout, LinearFn, Parity, Spinor, Vector, ND,
+    extract_parity, random_spinor, Aos, Aosoa, Boundary, ConvertFrom, Field, Gauge, Half, Lattice,
+    Layout, Lexical, LinearFn, Parity, Spinor, Vector, ND,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -54,7 +54,7 @@ fn params(mass: f64, ls: usize) -> MdwfParams {
 fn run<L: MdwfLayout<f64>>(
     lat: &Arc<Lattice>,
     u: &Field<f64, Gauge>,
-    psi: &Field<f64, Spinor, Full, L>,
+    psi: &Field<f64, Spinor, Lexical, L>,
     wilson: impl FnOnce(&Field<f64, Spinor, Half, L>, &mut Field<f64, Spinor, Half, L>) -> f64,
     reps: usize,
 ) -> [f64; 5] {
@@ -104,8 +104,13 @@ fn blocks<const W: usize>(
 where
     f64: LaneOf<W>,
 {
-    let mut b =
-        Field::<f64, Spinor, Full, Aosoa<W>>::with_shape(lat, 24, psi.ls(), psi.num_vectors(), 1);
+    let mut b = Field::<f64, Spinor, Lexical, Aosoa<W>>::with_shape(
+        lat,
+        24,
+        psi.ls(),
+        psi.num_vectors(),
+        1,
+    );
     b.convert_from(psi);
     let kernel = WilsonParams {
         kappa: 0.25,

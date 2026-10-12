@@ -20,7 +20,7 @@ use ruttice::{
 use std::sync::Arc;
 
 type V = Field<f64, Spinor>;
-type B<const W: usize> = Field<f64, Spinor, ruttice::Full, Aosoa<W>>;
+type B<const W: usize> = Field<f64, Spinor, ruttice::Lexical, Aosoa<W>>;
 
 fn lattice() -> Arc<Lattice> {
     Lattice::single_node([4, 4, 4, 8])
@@ -112,7 +112,8 @@ fn vector_operations_agree_with_the_usual_layout() {
 fn conversion_can_change_the_precision() {
     let lat = lattice();
     let a = random_spinor(&lat, 1, 921);
-    let mut single = Field::<f32, Spinor, ruttice::Full, Aosoa<8>>::with_shape(&lat, 24, 1, 1, 1);
+    let mut single =
+        Field::<f32, Spinor, ruttice::Lexical, Aosoa<8>>::with_shape(&lat, 24, 1, 1, 1);
     single.convert_from(&a);
     let mut back = V::spinor(&lat, 1);
     back.convert_from(&single);
@@ -197,7 +198,8 @@ fn wilson_on_blocks_is_identical_in_single_precision() {
     {
         let lat = psi.lattice();
         let op = simd::<f32, W>(lat, u);
-        let mut inp = Field::<f32, Spinor, ruttice::Full, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
+        let mut inp =
+            Field::<f32, Spinor, ruttice::Lexical, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
         inp.convert_from(psi);
         let mut out = inp.zeros_like();
         op.mult(&mut op.work(), &mut out, &inp, Variant::Dagger);
