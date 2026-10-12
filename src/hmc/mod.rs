@@ -9,8 +9,10 @@ mod integrator;
 mod links;
 mod mseries;
 mod rational;
+mod solve;
 
 pub use rational::Rational;
+pub use solve::{NormalSolver, OwnedMultigrid, Pre, Preconditioner, SetupOnLinks};
 
 pub use even_odd::{log_det_diag, EvenOddForceOp, HalfPsi, TwoFlavorEo};
 pub use fermion_action::{
@@ -508,6 +510,231 @@ mod tests {
 
     /// The initial guess changes the start of the force solves, not their solutions: the force
     /// with a guess from earlier solves is the force without one, in fewer iterations.
+    /// Every solver gives the action and the force of CG, on all sites and even-odd; the RHMC
+    /// pole by pole gives those of the multi-shift solver.
+    #[test]
+    fn the_solvers_agree() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::numerics::{RationalApprox, RationalSpec};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 41);
+        let boundary = [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ];
+        let stop = Stop {
+            tolerance_sqr: 1e-26,
+            max_iterations: 2000,
+            max_restarts: 10,
+        };
+        let op = || {
+            Clover::<f64>::new(
+                &lat,
+                CloverParams {
+                    kappa: 0.12,
+                    csw: 1.0,
+                    boundary,
+                },
+            )
+        };
+        let close = |a: &Field<f64, Gauge>, b: &Field<f64, Gauge>| {
+            let worst = a
+                .as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(worst < 1e-9, "forces differ by {worst:e}");
+        };
+        let solvers = [
+            NormalSolver::BiCgStab,
+            NormalSolver::Fgmres(32),
+            NormalSolver::Gcr(16),
+        ];
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+
+        let run = |solver| {
+            let mut a = TwoFlavor::new(op(), None, stop, stop)
+                .with_clover(0.12)
+                .with_solver(solver);
+            a.langevin(&links, &mut Mseries::new(43));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        let (h0, f0) = run(NormalSolver::Cg);
+        for solver in solvers {
+            let (h, f) = run(solver);
+            assert!((h - h0).abs() < 1e-9 * h0.abs(), "{solver:?}: {h} {h0}");
+            close(&f, &f0);
+        }
+
+        let run = |solver| {
+            let mut a = TwoFlavorEo::new(op(), None, stop, stop)
+                .with_clover(0.12)
+                .with_solver(solver);
+            a.langevin(&links, &mut Mseries::new(43));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        let (h0, f0) = run(NormalSolver::Cg);
+        for solver in solvers {
+            let (h, f) = run(solver);
+            assert!((h - h0).abs() < 1e-9 * h0.abs(), "{solver:?}: {h} {h0}");
+            close(&f, &f0);
+        }
+
+        let run = |solver| {
+            let mut a = TwoFlavorRatio::new(op(), op_heavy(&lat, boundary), None, stop, stop)
+                .with_clover(0.12, 0.10)
+                .with_solver(solver);
+            a.langevin(&links, &mut Mseries::new(43));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        let (h0, f0) = run(NormalSolver::Cg);
+        for solver in solvers {
+            let (h, f) = run(solver);
+            assert!((h - h0).abs() < 1e-9 * h0.abs(), "{solver:?}: {h} {h0}");
+            close(&f, &f0);
+        }
+
+        let spec = RationalSpec {
+            poles: 10,
+            p: -1,
+            q: 2,
+            x_min: 1e-3,
+            x_max: 10.0,
+        };
+        let (md, hb) = (
+            RationalApprox::minimax(&spec).unwrap(),
+            RationalApprox::minimax(&spec.with_power(1, 4)).unwrap(),
+        );
+        let run = |by_pole| {
+            let mut a = Rational::new(op(), None, md.clone(), hb.clone(), stop, stop)
+                .with_clover(0.12)
+                .with_pole_by_pole(by_pole);
+            a.langevin(&links, &mut Mseries::new(43));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        let (h0, f0) = run(false);
+        let (h, f) = run(true);
+        assert!((h - h0).abs() < 1e-9 * h0.abs(), "pole by pole: {h} {h0}");
+        close(&f, &f0);
+    }
+
+    /// The preconditioned solves give the action and the force of plain CG: Chebyshev with CG
+    /// (all sites and even-odd), the multigrid with BiCGStab and FGMRES.
+    #[test]
+    fn preconditioners_change_the_solve_not_the_action() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::solver::preconditioner::multigrid::MultigridParams;
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 53);
+        let boundary = [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ];
+        let stop = Stop {
+            tolerance_sqr: 1e-26,
+            max_iterations: 2000,
+            max_restarts: 10,
+        };
+        let op = {
+            let lat = lat.clone();
+            move || {
+                Clover::<f64>::new(
+                    &lat,
+                    CloverParams {
+                        kappa: 0.12,
+                        csw: 1.0,
+                        boundary,
+                    },
+                )
+            }
+        };
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+        let same = |name: &str, a: &(f64, Field<f64, Gauge>), b: &(f64, Field<f64, Gauge>)| {
+            assert!(
+                (a.0 - b.0).abs() < 1e-9 * a.0.abs(),
+                "{name}: {} {}",
+                a.0,
+                b.0
+            );
+            let worst =
+                a.1.as_slice()
+                    .iter()
+                    .zip(b.1.as_slice())
+                    .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(worst < 1e-9, "{name}: forces differ by {worst:e}");
+        };
+
+        let run = |solver, pre: Preconditioner| {
+            let mut a = TwoFlavor::new(op(), None, stop, stop)
+                .with_clover(0.12)
+                .with_solver(solver)
+                .with_preconditioner(pre);
+            a.langevin(&links, &mut Mseries::new(59));
+            let h = a.hamiltonian(&links);
+            (h, a.force(&links), a.last_iterations)
+        };
+        let plain = run(NormalSolver::Cg, Preconditioner::None);
+        let reference = (plain.0, plain.1);
+        let cheb = run(NormalSolver::Cg, Preconditioner::chebyshev(6, 30.0));
+        assert!(
+            cheb.2 < plain.2,
+            "Chebyshev: {} against {}",
+            cheb.2,
+            plain.2
+        );
+        same("Chebyshev", &reference, &(cheb.0, cheb.1));
+        let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+        params.num_test_vectors = 8;
+        params.setup_iterations = 2;
+        for solver in [NormalSolver::BiCgStab, NormalSolver::Fgmres(16)] {
+            let plain = run(solver, Preconditioner::None);
+            let mg = run(
+                solver,
+                Preconditioner::multigrid(OwnedMultigrid::new(op.clone(), params), 0),
+            );
+            assert!(
+                mg.2 < plain.2,
+                "{solver:?} with the multigrid: {} against {}",
+                mg.2,
+                plain.2
+            );
+            same("multigrid", &reference, &(mg.0, mg.1));
+        }
+
+        let run = |pre: Preconditioner| {
+            let mut a = TwoFlavorEo::new(op(), None, stop, stop)
+                .with_clover(0.12)
+                .with_preconditioner(pre);
+            a.langevin(&links, &mut Mseries::new(59));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        same(
+            "Chebyshev, even-odd",
+            &run(Preconditioner::None),
+            &run(Preconditioner::chebyshev(6, 30.0)),
+        );
+    }
+
+    #[cfg(test)]
+    fn op_heavy(lat: &Arc<Lattice>, boundary: [Boundary; ND]) -> crate::fermion::Clover<f64> {
+        crate::fermion::Clover::<f64>::new(
+            lat,
+            crate::fermion::CloverParams {
+                kappa: 0.10,
+                csw: 1.0,
+                boundary,
+            },
+        )
+    }
+
     #[test]
     fn chronological_guess_saves_iterations() {
         use crate::fermion::{Wilson, WilsonParams};
@@ -550,6 +777,88 @@ mod tests {
 
     /// The forces of Möbius domain-wall fermions: two flavours (on the whole lattice and
     /// even-odd), and two over two Pauli-Villars flavours, on stout links.
+    /// Solving with Neff's D Q changes neither the action nor the force, on all sites,
+    /// even-odd and for the ratio to Pauli-Villars.
+    #[test]
+    fn neff_alpha_changes_the_solve_not_the_action() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 23);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-28,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let op = |p: MdwfParams, alpha: f64| {
+            let mut op = Mdwf::<f64>::new(&lat, p);
+            op.set_alpha(alpha);
+            op
+        };
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+        let same =
+            |name: &str, plain: (f64, Field<f64, Gauge>), alpha: (f64, Field<f64, Gauge>)| {
+                assert!(
+                    (plain.0 - alpha.0).abs() < 1e-9 * plain.0.abs(),
+                    "{name}: {} {}",
+                    plain.0,
+                    alpha.0
+                );
+                let worst = plain
+                    .1
+                    .as_slice()
+                    .iter()
+                    .zip(alpha.1.as_slice())
+                    .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+                assert!(worst < 1e-9, "{name}: forces differ by {worst:e}");
+            };
+
+        let run = |alpha: Option<f64>| {
+            let mut a = TwoFlavor::new(op(params, 1.0), None, stop, stop);
+            if let Some(alpha) = alpha {
+                a = a.with_conditioned(op(params, alpha));
+            }
+            a.langevin(&links, &mut Mseries::new(7));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        same("all sites", run(None), run(Some(0.6)));
+
+        let run = |alpha: Option<f64>| {
+            let mut a = TwoFlavorEo::new(op(params, 1.0), None, stop, stop);
+            if let Some(alpha) = alpha {
+                a = a.with_conditioned(op(params, alpha));
+            }
+            a.langevin(&links, &mut Mseries::new(7));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        same("even-odd", run(None), run(Some(0.6)));
+
+        let run = |alpha: Option<f64>| {
+            let pv = op(params.pauli_villars(), 1.0);
+            let mut a = TwoFlavorRatio::new(op(params, 1.0), pv, None, stop, stop);
+            if let Some(alpha) = alpha {
+                a = a.with_conditioned(op(params, alpha));
+            }
+            a.langevin(&links, &mut Mseries::new(7));
+            (a.hamiltonian(&links), a.force(&links))
+        };
+        same("ratio", run(None), run(Some(0.6)));
+    }
+
     #[test]
     fn domain_wall_forces_are_the_derivatives() {
         use crate::fermion::{Mdwf, MdwfParams};

@@ -8,11 +8,12 @@
 //! reproduces to the last digit.
 
 use super::fermion_action::{draw, full_derivative, Psi};
+use super::solve::Shifted;
 use super::{smeared_force, ForceOp, Links, Mseries};
 use crate::fermion::{Bound, Variant};
 use crate::gauge::GaugeSmearing;
 use crate::numerics::RationalApprox;
-use crate::solver::{MultiShiftCg, SolveError, Stop};
+use crate::solver::{Cg, MultiShiftCg, SolveError, Solver, Stop};
 use crate::{Field, Gauge, Normal, Vector, C64};
 use std::rc::Rc;
 
@@ -27,6 +28,8 @@ pub struct Rational<O> {
     /// The multi-shift solves for the force, and for the heat bath and the energy.
     pub stop_md: Stop,
     pub stop_h: Stop,
+    /// One CG solve per pole instead of the multi-shift solver.
+    pub pole_by_pole: bool,
     phi: Option<Psi>,
     /// κ c_SW when the operator has a clover term.
     clover: Option<f64>,
@@ -50,10 +53,17 @@ impl<O: ForceOp> Rational<O> {
             heat_bath,
             stop_md,
             stop_h,
+            pole_by_pole: false,
             phi: None,
             clover: None,
             last_iterations: 0,
         }
+    }
+
+    /// Solve for every pole with a CG of its own (each to the tolerance on its own residual).
+    pub fn with_pole_by_pole(mut self, on: bool) -> Self {
+        self.pole_by_pole = on;
+        self
     }
 
     /// The operator has the clover term with coefficient κ c_SW: its force is added.
@@ -75,6 +85,20 @@ impl<O: ForceOp> Rational<O> {
         let mut d = Bound::new(&self.op, Variant::D);
         let mut normal = Normal::new(&mut d, b);
         let mut xs = Vec::new();
+        if self.pole_by_pole {
+            self.last_iterations = 0;
+            for pole in &r.poles {
+                let mut x = b.zeros_like();
+                let mut shifted = Shifted {
+                    a: &mut normal,
+                    shift: *pole,
+                };
+                let info = Cg::new(stop).solve(&mut shifted, None, &mut x, b)?;
+                self.last_iterations += info.iterations;
+                xs.push(x);
+            }
+            return Ok(xs);
+        }
         let info = MultiShiftCg::new(stop).solve(&mut normal, &r.poles, &mut xs, b)?;
         self.last_iterations = info.iterations;
         Ok(xs)

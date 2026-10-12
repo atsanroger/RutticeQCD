@@ -107,14 +107,20 @@ mpirun -np 4 target/release/ruttice-mpi run/wilson_pion.yaml
 | Wilson, clover | CG, BiCGStab, FGMRES; on all sites (`Lexical`) or on the even sites (`Even_odd`) | multigrid |
 | Möbius domain-wall | GCR, BiCGStab, FGMRES, CG; always on the even sites | multigrid, Chebyshev polynomial |
 
-What to choose:
+What to choose for propagators. The lattices tried so far go up to 16⁴ on one machine; the
+rows marked *expected* have not been measured:
 
-| Fermions | Lattice | Fastest |
+| Fermions | Lattice | Choice |
 |---|---|---|
 | Wilson, clover | small | `CG` on `Even_odd` |
-| Wilson, clover | large | `FGMRES` or `BiCGStab` with the multigrid |
+| Wilson, clover | large | `FGMRES` or `BiCGStab` with the multigrid (*expected*) |
 | Domain-wall | up to 12⁴ | `CG` on `Normal_left` with `neff_alpha : 0.6` |
-| Domain-wall | 16⁴ and larger | `GCR` or `FGMRES` with the multigrid |
+| Domain-wall | 16⁴ | `GCR` or `FGMRES` with the multigrid |
+| Domain-wall | larger | the multigrid (*expected*) |
+
+In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. Wilson and
+clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
+take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
 
 ### The domain-wall multigrid
 

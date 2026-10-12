@@ -35,6 +35,8 @@ actions:
       boundary: [periodic, periodic, periodic, antiperiodic]
     level: 0
     smeared: true
+    # Domain-wall fermions are solved by CG; neff_alpha: 0.6 solves with Neff's D Q, and
+    # preconditioner: chebyshev adds a polynomial preconditioner.
     solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
   - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 1}
 

@@ -121,6 +121,22 @@ the coefficients computed by the program. The links the fermions see can be stou
 The integrator is leapfrog or Omelyan on several time scales; the force solves can start
 from the solutions before them.
 
+The `solver` of a fermion action says how its forces and energies are solved:
+
+| `solver` key | Values |
+|---|---|
+| `type` | `cg` (the default): CG on D†D. `bicgstab`, `fgmres`, `gcr`: D† y = φ and then D x = y; Wilson and clover fermions only. A `rational` action takes `multishift_cg` (the default) or `cg`, one solve per pole |
+| `preconditioner` | `chebyshev`, with `cg`, for any fermions (`chebyshev: {steps: 8, ratio: 30}`). `multigrid`, with `bicgstab`, `fgmres` or `gcr`, for Wilson and clover fermions in `two_flavor` without `even_odd` and in `two_flavor_ratio` (`multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`) |
+| `neff_alpha` | domain-wall fermions: solve with Neff's D Q at this α |
+| `initial_guess` | `two_flavor`: start the force solves from the last n solutions |
+| `restart` | the cycle of FGMRES, the directions GCR keeps (32) |
+| `tolerance_squared`, `energy_tolerance_squared`, `max_iterations` | the stopping rule of the force solves and of the energy solves |
+
+The multigrid is set up when a trajectory starts and again after every `refresh_every` force
+solves; in between it is the cycle of the links of its last setup, which the outer solver
+corrects. Domain-wall fermions have no multigrid in HMC, and no solver but CG: BiCGStab and
+GMRES do not converge on D itself.
+
 The momenta, the pseudofermions and the Metropolis test use the random numbers of
 Bridge++, in its order, so a run of Bridge++'s `HMC_General` can be repeated number by
 number.

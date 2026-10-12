@@ -36,6 +36,17 @@
 //!     level: 0
 //! ```
 //!
+//! `solver.type` chooses how (D†D)⁻¹ is computed: `cg` (the default), or `bicgstab`, `fgmres`,
+//! `gcr` (D† y = φ, then D x = y; `restart: 32` is the cycle of FGMRES and the directions GCR
+//! keeps; Wilson and clover fermions only). A `rational` action takes `multishift_cg` (the default) or
+//! `cg` (one solve per pole).
+//!
+//! `solver.neff_alpha: 0.6` solves domain-wall fermions with Neff's D Q. `solver.preconditioner`
+//! is `chebyshev` (with `cg`; `chebyshev: {steps: 8, ratio: 30}`) or `multigrid` (with the
+//! two-step solvers, Wilson and clover fermions on all sites;
+//! `multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`),
+//! which is set up when a trajectory starts and again after `refresh_every` force solves.
+//!
 //! The conventions are those of Bridge++'s `HMC_General` (momenta, pseudofermions and the
 //! Metropolis test from one M-series generator; the integrator levels of its
 //! `Builder_Integrator`), so a run can be repeated there. The gauge smearing of the fermion
@@ -47,11 +58,13 @@ use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, Hmc, MdAction, Mseries, PlaquetteAction, Rational, RectangleAction, Scheme, Term,
-    TwoFlavor, TwoFlavorEo, TwoFlavorRatio,
+    cold_start, ForceOp, Hmc, MdAction, Mseries, NormalSolver, OwnedMultigrid, PlaquetteAction,
+    Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorEo,
+    TwoFlavorRatio,
 };
 use crate::io::{Binary, BridgeText, GaugeFile, Ildg, Scidac};
 use crate::numerics::{RationalApprox, RationalSpec};
+use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
 use serde::Deserialize;
@@ -221,10 +234,90 @@ pub enum HmcFermion {
     },
 }
 
-/// CG on D†D for the forces and the energies.
+/// The solver of an action's forces and energies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HmcSolverKind {
+    /// CG on D†D: the default of the two-flavour actions.
+    #[serde(alias = "CG")]
+    Cg,
+    /// D† y = φ and then D x = y, by BiCGStab.
+    #[serde(alias = "BiCGStab")]
+    Bicgstab,
+    /// The same by FGMRES restarted after `restart` steps.
+    #[serde(alias = "FGMRES")]
+    Fgmres,
+    /// The same by GCR truncated to `restart` directions.
+    #[serde(alias = "GCR")]
+    Gcr,
+    /// Multi-shift CG: the default of `rational`, which with `cg` solves pole by pole.
+    #[serde(alias = "MultiShift_CG")]
+    MultishiftCg,
+}
+
+/// The preconditioner of an action's solves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HmcPreconditioner {
+    None,
+    /// A Chebyshev polynomial of D†D (`chebyshev`), with `cg`; any fermions.
+    Chebyshev,
+    /// The multigrid (`multigrid`), with `bicgstab`, `fgmres` or `gcr`; Wilson and clover
+    /// fermions, `two_flavor` on all sites and `two_flavor_ratio`.
+    Multigrid,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HmcChebyshev {
+    /// Steps of the Chebyshev iteration: a polynomial of degree `steps` − 1.
+    #[serde(default = "chebyshev_steps")]
+    pub steps: usize,
+    /// The interval is [hi/ratio, hi], hi the largest eigenvalue of D†D.
+    #[serde(default = "chebyshev_ratio")]
+    pub ratio: f64,
+}
+
+impl Default for HmcChebyshev {
+    fn default() -> Self {
+        Self {
+            steps: chebyshev_steps(),
+            ratio: chebyshev_ratio(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HmcMultigrid {
+    /// The blocks of the coarse lattice; they must divide the lattice of a process.
+    pub block: [usize; ND],
+    #[serde(default = "mg_vectors")]
+    pub test_vectors: usize,
+    #[serde(default = "mg_setup")]
+    pub setup_iterations: usize,
+    /// Set up again after this many force solves; 0: only when a trajectory starts.
+    #[serde(default)]
+    pub refresh_every: usize,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HmcSolver {
+    #[serde(default)]
+    pub preconditioner: Option<HmcPreconditioner>,
+    #[serde(default)]
+    pub chebyshev: HmcChebyshev,
+    #[serde(default)]
+    pub multigrid: Option<HmcMultigrid>,
+    #[serde(default, rename = "type")]
+    pub kind: Option<HmcSolverKind>,
+    /// Domain-wall fermions: solve with Neff's better conditioned D Q at this α (1: D itself).
+    #[serde(default = "one_f")]
+    pub neff_alpha: f64,
+    /// Steps of FGMRES before a restart; directions GCR keeps.
+    #[serde(default = "restart")]
+    pub restart: usize,
     #[serde(default = "md_tolerance")]
     pub tolerance_squared: f64,
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
@@ -239,9 +332,112 @@ pub struct HmcSolver {
     pub initial_guess: usize,
 }
 
+impl HmcSolver {
+    /// The solver of a two-flavour action.
+    fn normal(&self) -> NormalSolver {
+        match self.kind {
+            None | Some(HmcSolverKind::Cg) => NormalSolver::Cg,
+            Some(HmcSolverKind::Bicgstab) => NormalSolver::BiCgStab,
+            Some(HmcSolverKind::Fgmres) => NormalSolver::Fgmres(self.restart),
+            Some(HmcSolverKind::Gcr) => NormalSolver::Gcr(self.restart),
+            Some(HmcSolverKind::MultishiftCg) => unreachable!("checked when the file is read"),
+        }
+    }
+}
+
+impl HmcSolver {
+    fn asks_for(&self, p: HmcPreconditioner) -> bool {
+        self.preconditioner == Some(p)
+    }
+
+    /// The Chebyshev preconditioner if the file asks for it, none otherwise.
+    fn chebyshev(&self) -> Preconditioner {
+        if self.asks_for(HmcPreconditioner::Chebyshev) {
+            Preconditioner::chebyshev(self.chebyshev.steps, self.chebyshev.ratio)
+        } else {
+            Preconditioner::None
+        }
+    }
+
+    /// The preconditioner of an action on all sites; `make` gives its operator again, for
+    /// the multigrid.
+    fn preconditioner<O: ForceOp + 'static>(&self, make: impl Fn() -> O + 'static) -> Preconditioner
+    where
+        O::Work: 'static,
+    {
+        match (self.preconditioner, self.multigrid) {
+            (Some(HmcPreconditioner::Multigrid), Some(mg)) => {
+                let params = MultigridParams {
+                    num_test_vectors: mg.test_vectors,
+                    setup_iterations: mg.setup_iterations,
+                    ..MultigridParams::bridge(mg.block)
+                };
+                Preconditioner::multigrid(OwnedMultigrid::new(make, params), mg.refresh_every)
+            }
+            _ => self.chebyshev(),
+        }
+    }
+
+    /// What is wrong with the preconditioner asked for, for an action of the given kind.
+    fn check_preconditioner(
+        &self,
+        lattice: [usize; ND],
+        wilson_like: bool,
+        all_sites: bool,
+    ) -> Result<(), String> {
+        match self.preconditioner {
+            None | Some(HmcPreconditioner::None) => Ok(()),
+            Some(HmcPreconditioner::Chebyshev) => {
+                if !matches!(self.kind, None | Some(HmcSolverKind::Cg)) {
+                    return Err("preconditioner chebyshev goes with type cg".into());
+                }
+                let c = self.chebyshev;
+                if c.steps < 2 || c.ratio.is_nan() || c.ratio <= 1.0 {
+                    return Err("chebyshev: steps at least 2 and ratio above 1".into());
+                }
+                Ok(())
+            }
+            Some(HmcPreconditioner::Multigrid) => {
+                if !matches!(
+                    self.kind,
+                    Some(HmcSolverKind::Bicgstab | HmcSolverKind::Fgmres | HmcSolverKind::Gcr)
+                ) {
+                    return Err(
+                        "preconditioner multigrid goes with type bicgstab, fgmres or gcr".into(),
+                    );
+                }
+                if !wilson_like || !all_sites {
+                    return Err("preconditioner multigrid: for Wilson and clover fermions, two_flavor without even_odd and two_flavor_ratio".into());
+                }
+                let Some(mg) = self.multigrid else {
+                    return Err("preconditioner multigrid needs multigrid: {block: [..]}".into());
+                };
+                if (0..ND).any(|mu| mg.block[mu] == 0 || !lattice[mu].is_multiple_of(mg.block[mu]))
+                {
+                    return Err(format!(
+                        "multigrid.block {:?} must divide the lattice {lattice:?}",
+                        mg.block
+                    ));
+                }
+                let most = 6 * mg.block.iter().product::<usize>();
+                if mg.test_vectors == 0 || mg.test_vectors > most {
+                    return Err(format!("multigrid.test_vectors: between 1 and {most}"));
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 impl Default for HmcSolver {
     fn default() -> Self {
         Self {
+            preconditioner: None,
+            chebyshev: HmcChebyshev::default(),
+            multigrid: None,
+            kind: None,
+            restart: restart(),
+            neff_alpha: 1.0,
             tolerance_squared: md_tolerance(),
             energy_tolerance_squared: md_tolerance(),
             max_iterations: md_iterations(),
@@ -278,6 +474,21 @@ fn omelyan_lambda() -> f64 {
 }
 fn exp_order() -> usize {
     8
+}
+fn chebyshev_steps() -> usize {
+    8
+}
+fn chebyshev_ratio() -> f64 {
+    30.0
+}
+fn mg_vectors() -> usize {
+    16
+}
+fn mg_setup() -> usize {
+    4
+}
+fn restart() -> usize {
+    32
 }
 fn md_tolerance() -> f64 {
     1e-24
@@ -389,6 +600,77 @@ impl HmcConfig {
                 ));
             }
             let _ = smeared;
+            match a {
+                ActionConfig::TwoFlavor { solver, .. }
+                | ActionConfig::TwoFlavorRatio { solver, .. } => {
+                    if solver.kind == Some(HmcSolverKind::MultishiftCg) {
+                        return invalid(format!(
+                            "actions[{i}].solver.type: cg, bicgstab, fgmres or gcr (multishift_cg is for rational)"
+                        ));
+                    }
+                    if solver.neff_alpha.is_nan() || solver.neff_alpha <= 0.0 {
+                        return invalid(format!("actions[{i}].solver.neff_alpha: positive"));
+                    }
+                    let (wilson_like, all_sites) = match a {
+                        ActionConfig::TwoFlavor {
+                            fermion, even_odd, ..
+                        } => (
+                            !matches!(fermion, HmcFermion::DomainWall { .. }),
+                            !*even_odd,
+                        ),
+                        ActionConfig::TwoFlavorRatio { fermion, .. } => {
+                            (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
+                        }
+                        _ => unreachable!(),
+                    };
+                    if let Err(e) =
+                        solver.check_preconditioner(self.lattice, wilson_like, all_sites)
+                    {
+                        return invalid(format!("actions[{i}].solver: {e}"));
+                    }
+                    if solver.restart == 0 {
+                        return invalid(format!("actions[{i}].solver.restart: at least 1"));
+                    }
+                    let domain_wall = matches!(
+                        a,
+                        ActionConfig::TwoFlavor {
+                            fermion: HmcFermion::DomainWall { .. },
+                            ..
+                        } | ActionConfig::TwoFlavorRatio {
+                            fermion: HmcFermion::DomainWall { .. },
+                            ..
+                        }
+                    );
+                    if !domain_wall && solver.neff_alpha != 1.0 {
+                        return invalid(format!(
+                            "actions[{i}].solver.neff_alpha: for domain-wall fermions"
+                        ));
+                    }
+                    if domain_wall && !matches!(solver.kind, None | Some(HmcSolverKind::Cg)) {
+                        return invalid(format!(
+                            "actions[{i}].solver.type: cg for domain-wall fermions (BiCGStab, FGMRES and GCR do not converge on D itself)"
+                        ));
+                    }
+                }
+                ActionConfig::Rational { solver, .. }
+                    if !matches!(
+                        solver.kind,
+                        None | Some(HmcSolverKind::MultishiftCg | HmcSolverKind::Cg)
+                    ) =>
+                {
+                    return invalid(format!(
+                        "actions[{i}].solver.type: multishift_cg or cg (pole by pole); the poles shift D†D, which the two-step solvers do not solve"
+                    ));
+                }
+                ActionConfig::Rational { solver, .. }
+                    if !matches!(solver.preconditioner, None | Some(HmcPreconditioner::None)) =>
+                {
+                    return invalid(format!(
+                        "actions[{i}].solver.preconditioner: not for rational"
+                    ));
+                }
+                _ => {}
+            }
             if let ActionConfig::TwoFlavorRatio { solver, .. } = a {
                 if solver.initial_guess > 0 {
                     return invalid(format!(
@@ -463,11 +745,15 @@ impl HmcConfig {
                         // The same operator in either action; the clover term adds its force
                         // (and, even-odd, its det term).
                         macro_rules! two_flavor {
-                            ($op:expr, $clover:expr) => {{
-                                let op = $op;
+                            ($make:expr, $clover:expr) => {{
+                                let make = $make;
+                                let op = make();
                                 let clover: Option<f64> = $clover;
                                 if *even_odd {
-                                    let a = TwoFlavorEo::new(op, sm, md, h).with_guess(g);
+                                    let a = TwoFlavorEo::new(op, sm, md, h)
+                                        .with_guess(g)
+                                        .with_solver(solver.normal())
+                                        .with_preconditioner(solver.chebyshev());
                                     match clover {
                                         Some(kc) => {
                                             Box::new(a.with_clover(kc)) as Box<dyn MdAction>
@@ -475,7 +761,10 @@ impl HmcConfig {
                                         None => Box::new(a),
                                     }
                                 } else {
-                                    let a = TwoFlavor::new(op, sm, md, h).with_guess(g);
+                                    let a = TwoFlavor::new(op, sm, md, h)
+                                        .with_guess(g)
+                                        .with_solver(solver.normal())
+                                        .with_preconditioner(solver.preconditioner(make));
                                     match clover {
                                         Some(kc) => {
                                             Box::new(a.with_clover(kc)) as Box<dyn MdAction>
@@ -487,13 +776,18 @@ impl HmcConfig {
                         }
                         let action: Box<dyn MdAction> = match *fermion {
                             HmcFermion::Wilson { kappa, boundary: b } => two_flavor!(
-                                Wilson::<f64>::new(
-                                    lat,
-                                    WilsonParams {
-                                        kappa,
-                                        boundary: boundary(&b),
-                                    },
-                                ),
+                                {
+                                    let lat = lat.clone();
+                                    move || {
+                                        Wilson::<f64>::new(
+                                            &lat,
+                                            WilsonParams {
+                                                kappa,
+                                                boundary: boundary(&b),
+                                            },
+                                        )
+                                    }
+                                },
                                 None
                             ),
                             HmcFermion::Clover {
@@ -501,18 +795,35 @@ impl HmcConfig {
                                 csw,
                                 boundary: b,
                             } => two_flavor!(
-                                Clover::<f64>::new(
-                                    lat,
-                                    CloverParams {
-                                        kappa,
-                                        csw,
-                                        boundary: boundary(&b),
-                                    },
-                                ),
+                                {
+                                    let lat = lat.clone();
+                                    move || clover(&lat, kappa, csw, &b)
+                                },
                                 Some(kappa * csw)
                             ),
                             HmcFermion::DomainWall { .. } => {
-                                two_flavor!(Mdwf::<f64>::new(lat, mdwf_params(fermion)), None)
+                                let p = mdwf_params(fermion);
+                                let alpha = with_alpha(lat, p, solver.neff_alpha);
+                                let op = Mdwf::<f64>::new(lat, p);
+                                if *even_odd {
+                                    let a = TwoFlavorEo::new(op, sm, md, h)
+                                        .with_guess(g)
+                                        .with_solver(solver.normal())
+                                        .with_preconditioner(solver.chebyshev());
+                                    match alpha {
+                                        Some(c) => Box::new(a.with_conditioned(c)),
+                                        None => Box::new(a),
+                                    }
+                                } else {
+                                    let a = TwoFlavor::new(op, sm, md, h)
+                                        .with_guess(g)
+                                        .with_solver(solver.normal())
+                                        .with_preconditioner(solver.chebyshev());
+                                    match alpha {
+                                        Some(c) => Box::new(a.with_conditioned(c)),
+                                        None => Box::new(a),
+                                    }
+                                }
                             }
                         };
                         (*level, action)
@@ -530,13 +841,19 @@ impl HmcConfig {
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
-                                Box::new(TwoFlavorRatio::new(
+                                let a = TwoFlavorRatio::new(
                                     Mdwf::<f64>::new(lat, p),
                                     Mdwf::<f64>::new(lat, pd),
                                     sm,
                                     md,
                                     h,
-                                ))
+                                )
+                                .with_solver(solver.normal())
+                                .with_preconditioner(solver.chebyshev());
+                                match with_alpha(lat, p, solver.neff_alpha) {
+                                    Some(c) => Box::new(a.with_conditioned(c)),
+                                    None => Box::new(a),
+                                }
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -554,7 +871,22 @@ impl HmcConfig {
                                         },
                                     )
                                 };
-                                Box::new(TwoFlavorRatio::new(w(kappa, &b), w(kd, &bd), sm, md, h))
+                                Box::new(
+                                    TwoFlavorRatio::new(w(kappa, &b), w(kd, &bd), sm, md, h)
+                                        .with_solver(solver.normal())
+                                        .with_preconditioner(solver.preconditioner({
+                                            let lat = lat.clone();
+                                            move || {
+                                                Wilson::<f64>::new(
+                                                    &lat,
+                                                    WilsonParams {
+                                                        kappa,
+                                                        boundary: boundary(&b),
+                                                    },
+                                                )
+                                            }
+                                        })),
+                                )
                             }
                             (
                                 HmcFermion::Clover {
@@ -575,7 +907,14 @@ impl HmcConfig {
                                     md,
                                     h,
                                 )
-                                .with_clover(kappa * csw, kd * cd),
+                                .with_clover(kappa * csw, kd * cd)
+                                .with_solver(solver.normal())
+                                .with_preconditioner(
+                                    solver.preconditioner({
+                                        let lat = lat.clone();
+                                        move || clover(&lat, kappa, csw, &b)
+                                    }),
+                                ),
                             ),
                             _ => unreachable!("checked when the file is read"),
                         };
@@ -610,21 +949,25 @@ impl HmcConfig {
                                 base,
                             )?,
                         );
+                        let by_pole = solver.kind == Some(HmcSolverKind::Cg);
                         let action: Box<dyn MdAction> = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => Box::new(Rational::new(
-                                Wilson::<f64>::new(
-                                    lat,
-                                    WilsonParams {
-                                        kappa,
-                                        boundary: boundary(&b),
-                                    },
-                                ),
-                                sm,
-                                md,
-                                hb,
-                                md_stop,
-                                h_stop,
-                            )),
+                            HmcFermion::Wilson { kappa, boundary: b } => Box::new(
+                                Rational::new(
+                                    Wilson::<f64>::new(
+                                        lat,
+                                        WilsonParams {
+                                            kappa,
+                                            boundary: boundary(&b),
+                                        },
+                                    ),
+                                    sm,
+                                    md,
+                                    hb,
+                                    md_stop,
+                                    h_stop,
+                                )
+                                .with_pole_by_pole(by_pole),
+                            ),
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
@@ -638,7 +981,8 @@ impl HmcConfig {
                                     md_stop,
                                     h_stop,
                                 )
-                                .with_clover(kappa * csw),
+                                .with_clover(kappa * csw)
+                                .with_pole_by_pole(by_pole),
                             ),
                             HmcFermion::DomainWall { .. } => {
                                 unreachable!("checked when the file is read")
@@ -662,6 +1006,15 @@ fn clover(lat: &Arc<Lattice>, kappa: f64, csw: f64, b: &[BoundaryConfig; ND]) ->
             boundary: boundary(b),
         },
     )
+}
+
+/// The domain-wall operator with Neff's α, for the solves; none at α = 1.
+fn with_alpha(lat: &Arc<Lattice>, p: MdwfParams, alpha: f64) -> Option<Mdwf<f64>> {
+    (alpha != 1.0).then(|| {
+        let mut op = Mdwf::<f64>::new(lat, p);
+        op.set_alpha(alpha);
+        op
+    })
 }
 
 fn gcd(a: i32, b: i32) -> i32 {

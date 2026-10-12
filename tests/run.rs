@@ -908,3 +908,75 @@ actions:
     ));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The solver keys of an HMC file: which solvers and preconditioners go with which action.
+#[test]
+fn hmc_solver_keys_are_checked() {
+    use ruttice::app::hmc::HmcConfig;
+    let file = |fermion: &str, kind: &str, solver: &str| {
+        format!(
+            "lattice: [4, 4, 4, 8]
+start: {{type: cold}}
+hmc: {{trajectories: 1, trajectory_length: 0.1, integrator: {{scheme: leapfrog, steps: [2]}}}}
+actions:
+  - type: {kind}
+    fermion: {fermion}
+    level: 0
+    solver: {{{solver}}}
+"
+        )
+    };
+    let bc = "boundary: [periodic, periodic, periodic, antiperiodic]";
+    let clover = format!("{{type: clover, kappa: 0.12, csw: 1.0, {bc}}}");
+    let wall = format!("{{type: domain_wall, ls: 4, m5: 1.6, mass: 0.1, {bc}}}");
+    let rational = format!("{clover}\n    poles: 8\n    bounds: [0.01, 3.2]");
+    let mg = "preconditioner: multigrid, multigrid: {block: [2, 2, 2, 2]}";
+    let ok = |fermion: &str, kind: &str, solver: &str| {
+        let parsed = HmcConfig::from_yaml(&file(fermion, kind, solver));
+        if let Err(e) = &parsed {
+            eprintln!("{solver}: {e}");
+        }
+        parsed.is_ok()
+    };
+    for solver in [
+        "",
+        "type: cg",
+        "type: bicgstab",
+        "type: fgmres, restart: 16",
+        "type: gcr",
+    ] {
+        assert!(ok(&clover, "two_flavor", solver), "{solver}");
+    }
+    assert!(ok(&clover, "two_flavor", "preconditioner: chebyshev"));
+    assert!(ok(&clover, "two_flavor", &format!("type: bicgstab, {mg}")));
+    assert!(ok(
+        &wall,
+        "two_flavor",
+        "neff_alpha: 0.6, preconditioner: chebyshev"
+    ));
+    assert!(ok(&rational, "rational", "type: cg"));
+    assert!(ok(&rational, "rational", "type: multishift_cg"));
+    // What does not go together.
+    assert!(!ok(&clover, "two_flavor", "type: multishift_cg"));
+    assert!(!ok(&clover, "two_flavor", &format!("type: cg, {mg}")));
+    assert!(!ok(
+        &clover,
+        "two_flavor",
+        "type: bicgstab, preconditioner: multigrid"
+    ));
+    assert!(!ok(
+        &clover,
+        "two_flavor",
+        "type: bicgstab, preconditioner: chebyshev"
+    ));
+    assert!(!ok(&clover, "two_flavor", "neff_alpha: 0.6"));
+    assert!(!ok(
+        &clover,
+        "two_flavor",
+        "type: bicgstab, preconditioner: multigrid, multigrid: {block: [3, 2, 2, 2]}"
+    ));
+    assert!(!ok(&wall, "two_flavor", "type: bicgstab"));
+    assert!(!ok(&wall, "two_flavor", &format!("type: bicgstab, {mg}")));
+    assert!(!ok(&rational, "rational", "type: bicgstab"));
+    assert!(!ok(&rational, "rational", "preconditioner: chebyshev"));
+}

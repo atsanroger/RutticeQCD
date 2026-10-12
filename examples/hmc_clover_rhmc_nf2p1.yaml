@@ -21,6 +21,8 @@ hmc:
     exp_order: 8
 
 actions:
+  # `solver` also takes type: cg (default) | bicgstab | fgmres | gcr, and preconditioner:
+  # chebyshev (with cg) | multigrid (with the others); docs/USAGE.md has the keys.
   # The light pair, Hasenbusch's way: det(D_0.13)² / det(D_0.11)² ...
   - type: two_flavor_ratio
     fermion: {type: clover, kappa: 0.13, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
