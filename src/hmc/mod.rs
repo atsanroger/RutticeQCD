@@ -9,8 +9,9 @@
 //! test with the next number of the same generator.
 //!
 //! Actions: the plaquette and rectangle (Iwasaki, DBW2, …) gauge actions; two flavours of
-//! Wilson-type fermions, on links that may be stout smeared (ermion). Several time scales
-//! with leapfrog or Omelyan (integrator).
+//! Wilson-type or domain-wall fermions, and their ratio to Pauli-Villars fermions, on links
+//! that may be stout smeared (`fermion`). Several time scales with leapfrog or Omelyan
+//! (`integrator`). An action is in the file of its kind, with what makes it an `MdAction`.
 
 mod fermion;
 mod gauge_force;
@@ -30,9 +31,9 @@ pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
 pub use links::{Links, SmearingCache};
 pub use mseries::Mseries;
 
-use crate::gauge::{plaquette, set_link};
+use crate::gauge::set_link;
 use crate::kernel::{ColorMatrix, Cplx};
-use crate::{for_sites, Boundary, Field, Gauge, Lattice, Stencil, ND};
+use crate::{for_sites, Field, Gauge, Lattice, ND};
 use std::sync::Arc;
 
 /// Conjugate momenta for every link: iP = i Σ_a 2 h_a T^a, with T^a = λ^a/2 the generators of
@@ -110,111 +111,6 @@ pub fn exp_update(eps: f64, p: &Field<f64, Gauge>, u: &mut Field<f64, Gauge>, n:
     }
 }
 
-/// The leapfrog integrator with the gauge field updated by exp(ε iP) to order `exp_order`.
-#[derive(Clone, Copy, Debug)]
-pub struct Leapfrog {
-    /// ε.
-    pub step: f64,
-    pub steps: usize,
-    pub exp_order: usize,
-}
-
-impl Leapfrog {
-    /// U ← exp(ε iP) U: u ← U + ε/(n − k) iP u for k = 0 … n − 1 (the Taylor series to order
-    /// n, nested), then made unitary again.
-    pub fn update_u(&self, eps: f64, p: &Field<f64, Gauge>, u: &mut Field<f64, Gauge>) {
-        exp_update(eps, p, u, self.exp_order);
-    }
-
-    /// P ← P + ε F(U).
-    pub fn update_p(
-        &self,
-        eps: f64,
-        action: &PlaquetteAction,
-        u: &Field<f64, Gauge>,
-        p: &mut Field<f64, Gauge>,
-    ) {
-        let f = action.force(u);
-        for (pv, fv) in p.as_mut_slice().iter_mut().zip(f.as_slice()) {
-            *pv += eps * fv;
-        }
-    }
-
-    /// One trajectory of the molecular dynamics: P(ε/2), then U(ε) and P(ε) (P(ε/2) the last
-    /// time) `steps` times.
-    pub fn integrate(
-        &self,
-        action: &PlaquetteAction,
-        p: &mut Field<f64, Gauge>,
-        u: &mut Field<f64, Gauge>,
-    ) {
-        if self.steps == 0 {
-            return;
-        }
-        let eps = self.step;
-        self.update_p(0.5 * eps, action, u, p);
-        for i in 1..=self.steps {
-            self.update_u(eps, p, u);
-            let last = i == self.steps;
-            self.update_p(if last { 0.5 * eps } else { eps }, action, u, p);
-        }
-    }
-}
-
-/// What one trajectory did.
-#[derive(Clone, Copy, Debug)]
-pub struct Trajectory {
-    /// Kinetic and gauge energy at the start and at the end.
-    pub kinetic: [f64; 2],
-    pub gauge: [f64; 2],
-    /// H(end) − H(start).
-    pub delta_h: f64,
-    /// The number the Metropolis test compared exp(−ΔH) with (−1 without the test).
-    pub random: f64,
-    pub accepted: bool,
-    /// The plaquette at the end of the trajectory and after the test.
-    pub plaquette_trial: f64,
-    pub plaquette: f64,
-}
-
-/// Quenched HMC with the plaquette action.
-#[derive(Clone, Copy, Debug)]
-pub struct QuenchedHmc {
-    pub action: PlaquetteAction,
-    pub integrator: Leapfrog,
-    pub metropolis: bool,
-}
-
-impl QuenchedHmc {
-    /// One trajectory from `u`, which becomes the new configuration if it is accepted.
-    pub fn trajectory(&self, u: &mut Field<f64, Gauge>, rng: &mut Mseries) -> Trajectory {
-        let lat = u.lattice().clone();
-        let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
-        let mut p = draw_momenta(&lat, rng);
-        let (k0, g0) = (kinetic_energy(&p), self.action.action(u));
-        let mut trial = Field::<f64, Gauge>::gauge(&lat);
-        trial.as_mut_slice().copy_from_slice(u.as_slice());
-        self.integrator.integrate(&self.action, &mut p, &mut trial);
-        let (k1, g1) = (kinetic_energy(&p), self.action.action(&trial));
-        let delta_h = (k1 + g1) - (k0 + g0);
-        let random = if self.metropolis { rng.uniform() } else { -1.0 };
-        let accepted = random <= (-delta_h).exp();
-        let plaquette_trial = plaquette(&trial, &st);
-        if accepted {
-            u.as_mut_slice().copy_from_slice(trial.as_slice());
-        }
-        Trajectory {
-            kinetic: [k0, k1],
-            gauge: [g0, g1],
-            delta_h,
-            random,
-            accepted,
-            plaquette_trial,
-            plaquette: plaquette(u, &st),
-        }
-    }
-}
-
 /// The unit gauge field (a cold start).
 pub fn cold_start(lat: &Arc<Lattice>) -> Field<f64, Gauge> {
     let mut u = Field::<f64, Gauge>::gauge(lat);
@@ -231,6 +127,7 @@ pub fn cold_start(lat: &Arc<Lattice>) -> Field<f64, Gauge> {
 mod tests {
     use super::*;
     use crate::gauge::{link, random_gauge};
+    use crate::Boundary;
 
     /// The force is minus the derivative of the action: along a direction X of the Lie
     /// algebra at one link, d/dt S(e^(tX) U) at t = 0 is −F·X, the dot product of their reals

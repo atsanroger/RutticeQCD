@@ -10,7 +10,7 @@
 //! conditions.
 
 use crate::kernel::ColorMatrix;
-use crate::{opposite_face, Direction, Field, Gauge, Stencil, ND};
+use crate::{for_sites, opposite_face, Direction, Field, Gauge, Stencil, ND};
 use rayon::prelude::*;
 
 /// A step of a path of links: direction μ, forward (to x + μ̂, through U_μ(x)) or backward
@@ -230,6 +230,24 @@ impl Extended {
 struct SyncPtr(*mut f64);
 unsafe impl Sync for SyncPtr {}
 unsafe impl Send for SyncPtr {}
+
+/// The product of the links along the path `steps` from every site, as one colour matrix per
+/// site (in the first slab of a gauge field). Periodic boundary conditions.
+pub fn path_product(u: &Field<f64, Gauge>, steps: &[Step]) -> Field<f64, Gauge> {
+    // The halo must reach as far as the path goes in any direction.
+    let mut depth = 0i64;
+    let mut pos = [0i64; ND];
+    for &(mu, f) in steps {
+        pos[mu] += if f { 1 } else { -1 };
+        depth = depth.max(pos[mu].abs());
+    }
+    let ext = Extended::new(u, depth.max(1) as usize);
+    let mut p = Field::<f64, Gauge>::gauge(u.lattice());
+    for_sites(p.slab_mut(0), 18, |x, out| {
+        ext.walk(ext.at(x), steps).write_reals(out)
+    });
+    p
+}
 
 #[cfg(test)]
 mod tests {

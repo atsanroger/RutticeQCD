@@ -12,7 +12,7 @@
 //! With smeared links V(U) the derivative is taken for V, Σ' = V† M (dS = Re tr Σ' δV), and
 //! carried back to U by the chain rule of the smearing (`GaugeSmearing::chain`).
 
-use super::{traceless_antihermitian, Links, Mseries};
+use super::{traceless_antihermitian, Links, MdAction, Mseries};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::gauge::{link, GaugeSmearing};
 use crate::kernel::{ColorMatrix, Cplx, NC, NS};
@@ -459,5 +459,29 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             *a -= b;
         }
         smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+    }
+}
+
+impl<O: ForceOp> MdAction for TwoFlavor<O> {
+    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        TwoFlavor::langevin(self, links, rng)
+    }
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        TwoFlavor::hamiltonian(self, links)
+    }
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        TwoFlavor::force(self, links)
+    }
+}
+
+impl<O: ForceOp> MdAction for TwoFlavorRatio<O> {
+    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+        TwoFlavorRatio::langevin(self, links, rng)
+    }
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        TwoFlavorRatio::hamiltonian(self, links)
+    }
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        TwoFlavorRatio::force(self, links)
     }
 }

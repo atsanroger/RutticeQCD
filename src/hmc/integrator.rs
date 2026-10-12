@@ -7,10 +7,7 @@
 //! links themselves: U ← exp(ε iP) U). Level 0 runs over the trajectory length. The force of a
 //! level is kept until the links change, as Bridge++ does (two half steps in a row cost one).
 
-use super::{
-    draw_momenta, exp_update, kinetic_energy, Links, Mseries, PlaquetteAction, RectangleAction,
-    SmearingCache,
-};
+use super::{draw_momenta, exp_update, kinetic_energy, Links, Mseries, SmearingCache};
 use crate::gauge::plaquette;
 use crate::{Boundary, Field, Gauge, Stencil, ND};
 
@@ -23,42 +20,6 @@ pub trait MdAction {
     fn hamiltonian(&mut self, links: &Links) -> f64;
     /// The force on the momenta.
     fn force(&mut self, links: &Links) -> Field<f64, Gauge>;
-}
-
-impl MdAction for PlaquetteAction {
-    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
-        self.action(links.thin)
-    }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.action(links.thin)
-    }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        PlaquetteAction::force(self, links.thin)
-    }
-}
-
-impl MdAction for RectangleAction {
-    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
-        self.action(links.thin)
-    }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.action(links.thin)
-    }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        RectangleAction::force(self, links.thin)
-    }
-}
-
-impl<O: super::ForceOp> MdAction for super::TwoFlavor<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
-        super::TwoFlavor::langevin(self, links, rng)
-    }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        super::TwoFlavor::hamiltonian(self, links)
-    }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        super::TwoFlavor::force(self, links)
-    }
 }
 
 /// The scheme of every level.
@@ -251,17 +212,5 @@ impl<'a> Hmc<'a> {
             plaquette_trial,
             plaquette: plaquette(u, &st),
         }
-    }
-}
-
-impl<O: super::ForceOp> MdAction for super::TwoFlavorRatio<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
-        super::TwoFlavorRatio::langevin(self, links, rng)
-    }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        super::TwoFlavorRatio::hamiltonian(self, links)
-    }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        super::TwoFlavorRatio::force(self, links)
     }
 }
