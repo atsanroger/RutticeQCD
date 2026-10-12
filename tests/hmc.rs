@@ -219,7 +219,7 @@ fn bridge_test_quenched_rectangle() {
 /// Dirac γ matrices) on links smeared once by stout smearing with ρ = 0.1.
 #[test]
 fn bridge_test_wilson_nf2_stout() {
-    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     bridge_general(
         0.62763964820533,
@@ -233,7 +233,7 @@ fn bridge_test_wilson_nf2_stout() {
 /// `test_HMC_Clover_Nf2`: as `test_HMC_Wilson_Nf2` with clover fermions, c_SW = 1.
 #[test]
 fn bridge_test_clover_nf2_stout() {
-    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     bridge_general_with(
         0.627753790313323,
@@ -252,7 +252,7 @@ fn bridge_test_clover_nf2_stout() {
 /// flavours on one level of leapfrog with 5 steps.
 fn bridge_domain_wall(expected: f64, pv: bool) {
     use ruttice::fermion::{Mdwf, MdwfParams};
-    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorRatio};
     use ruttice::solver::Stop;
@@ -386,7 +386,7 @@ fn bridge_alt_wilson(
     guess: usize,
 ) -> Option<(usize, f64)> {
     use ruttice::fermion::{Wilson, WilsonParams};
-    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::hmc::{Hmc, Links, MdAction, RectangleAction, Scheme, Term};
     use ruttice::hmc::{TwoFlavor, TwoFlavorEo};
@@ -566,7 +566,7 @@ fn bridge_test_domain_wall_nf2_pv() {
 #[test]
 fn bridge_test_clover_rhmc_nf2p1() {
     use ruttice::fermion::{Clover, CloverParams};
-    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::hmc::{Hmc, Rational, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorRatio};
     use ruttice::numerics::{RationalApprox, RationalSpec};

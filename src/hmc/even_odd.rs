@@ -7,7 +7,7 @@
 //! even-odd solvers use). det D = det T_oo · det Ŝ, so e^(−S) integrated over φ_e is
 //! |det D|², the same distribution of links as `TwoFlavor`, from a field of half the size
 //! whose operator Ŝ†Ŝ is better conditioned: the CG solves of a trajectory take about a third
-//! of the operator applications of the full ones (`tests/stage5_hmc.rs` has the numbers).
+//! of the operator applications of the full ones (`tests/hmc.rs` has the numbers).
 //!
 //! The log det term is there only when T depends on the links: the clover term
 //! (`with_clover`). For Wilson fermions T = 1, for domain-wall fermions T is the
@@ -33,7 +33,7 @@
 //! gives it. The second is Σ_k −2 Re (T_oo⁻¹ e_k)† δT_oo e_k over the twelve unit vectors e_k
 //! of spin and colour on every odd site: the clover insertion of those pairs.
 
-use super::fermion::{draw, smeared_force, CloverInsertion, ForceOp};
+use super::fermion_action::{draw, smeared_force, CloverInsertion, ForceOp};
 use super::{Chrono, Links, MdAction, Mseries};
 use crate::fermion::{Dagger, EvenOdd, Schur};
 use crate::gauge::GaugeSmearing;

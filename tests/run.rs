@@ -733,7 +733,7 @@ actions:
         max_restarts: 10,
     };
     let smearing = ruttice::gauge::GaugeSmearing {
-        smear: ruttice::gauge::Smear::Stout(ruttice::gauge::smear::Stout::uniform(0.1)),
+        smear: ruttice::gauge::Smear::Stout(ruttice::gauge::smearing::Stout::uniform(0.1)),
         steps: 1,
     };
     let fermions = TwoFlavorEo::new(Clover::<f64>::new(&lat, params), Some(smearing), stop, stop)

@@ -17,7 +17,7 @@
 //! λ of |D| and reads its coefficients from AlgRemez's files, which `RationalApprox::minimax`
 //! reproduces to the last digit.
 
-use super::fermion::{draw, full_derivative, Psi};
+use super::fermion_action::{draw, full_derivative, Psi};
 use super::{smeared_force, ForceOp, Links, Mseries};
 use crate::fermion::{Bound, Variant};
 use crate::gauge::GaugeSmearing;

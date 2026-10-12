@@ -1,6 +1,6 @@
 //! Checks: gauge transformations and Coulomb gauge fixing. These hold for any
 //! configuration; the comparison with Bridge++ is `clover_two_flavours_coulomb_gauge` in
-//! `stage2_reference_runs.rs`.
+//! `reference_runs.rs`.
 
 mod common;
 

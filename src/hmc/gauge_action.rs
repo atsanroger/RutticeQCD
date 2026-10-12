@@ -3,14 +3,14 @@
 
 use super::{Links, MdAction, Mseries};
 use crate::gauge::paths::Extended;
-use crate::gauge::smear::uniform;
+use crate::gauge::smearing::uniform;
 use crate::gauge::{link, plaquette, weighted_staples};
 use crate::kernel::ColorMatrix;
 use crate::{for_sites, Boundary, Field, Gauge, Stencil, ND};
 use rayon::prelude::*;
 
 pub use crate::gauge::paths::{path_product, Step};
-pub use crate::gauge::smear::traceless_antihermitian;
+pub use crate::gauge::smearing::traceless_antihermitian;
 
 /// The plaquette action S_G = β Σ_P (1 − Re tr U_P / 3), with the normalisation of Bridge++
 /// (`Action_G_Plaq`): β (1 − ⟨plaquette⟩) times the number of plaquettes.

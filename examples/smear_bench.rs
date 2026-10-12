@@ -3,7 +3,7 @@
 //!
 //!   cargo run --release --example smear_bench -- [L] [steps]
 
-use ruttice::gauge::smear::{Ape, Stout};
+use ruttice::gauge::smearing::{Ape, Stout};
 use ruttice::gauge::{random_gauge, GaugeSmearing, Smear};
 use ruttice::{Field, Gauge, Lattice};
 use std::time::Instant;
@@ -52,7 +52,7 @@ fn main() {
             );
         }
         let t = Instant::now();
-        let _ = ruttice::gauge::weighted_staples(&u, &ruttice::gauge::smear::uniform(0.1));
+        let _ = ruttice::gauge::weighted_staples(&u, &ruttice::gauge::smearing::uniform(0.1));
         println!("staples: {:.1} ms", 1e3 * t.elapsed().as_secs_f64());
     }
     for (name, s) in [("stout", &stout), ("APE", &ape)] {
