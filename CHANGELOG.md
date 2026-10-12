@@ -22,7 +22,7 @@ The first tagged version.
   ratios to Pauli-Villars fermions; RHMC with rational approximations computed by a Remez
   iteration; leapfrog and Omelyan integrators on several time scales; initial guesses from
   earlier solutions; saving configurations on several processes.
-- **Input and output.** Gauge configurations as Bridge++ text, ILDG, SciDAC and HDF5.
+- **Input and output.** Gauge configurations as Bridge++ text and binary, ILDG, SciDAC and HDF5.
 - **Checked against Bridge++**: operators, solver iteration counts, correlators, and one
   trajectory of each of its HMC tests.
 

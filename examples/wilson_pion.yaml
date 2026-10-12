@@ -11,7 +11,7 @@ Main:
   backend    : cpu               # cpu (default) | simd: several sites in one SIMD register
   simd_lanes : 4                 # with backend simd: 2, 4 or 8 sites; see the README
 Gauge:
-  gauge_config_type_input : Text # Text (one real per line; the default) | ILDG | SciDAC | HDF5
+  gauge_config_type_input : Text # Text (one real per line; the default) | Binary | ILDG | SciDAC | HDF5
   config_filename_input   : conf_04040408.txt
 Fopr:
   fermion_type       : Wilson

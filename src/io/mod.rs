@@ -1,10 +1,12 @@
 //! Reading and writing gauge configurations.
 
+mod binary;
 mod bridge;
 #[cfg(feature = "hdf5")]
 mod hdf5;
 mod lime;
 
+pub use binary::{read_binary, write_binary};
 pub use bridge::{read_bridge_text, write_bridge_text};
 #[cfg(feature = "hdf5")]
 pub use hdf5::{read_hdf5, write_hdf5};
@@ -116,6 +118,19 @@ impl GaugeFile for BridgeText {
     }
     fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
         write_bridge_text(path, u)
+    }
+}
+
+/// Binary without a header: the binary format of Bridge++, big-endian double precision.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Binary;
+
+impl GaugeFile for Binary {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_binary(path, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_binary(path, u)
     }
 }
 
@@ -343,6 +358,11 @@ mod tests {
     #[test]
     fn bridge_text_on_several_processes() {
         same_file_on_every_grid("bridge", &BridgeText, true);
+    }
+
+    #[test]
+    fn binary_on_several_processes() {
+        same_file_on_every_grid("binary", &Binary, true);
     }
 
     #[test]

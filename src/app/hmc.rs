@@ -50,7 +50,7 @@ use crate::hmc::{
     cold_start, Hmc, MdAction, Mseries, PlaquetteAction, Rational, RectangleAction, Scheme, Term,
     TwoFlavor, TwoFlavorEo, TwoFlavorRatio,
 };
-use crate::io::{BridgeText, GaugeFile, Ildg, Scidac};
+use crate::io::{Binary, BridgeText, GaugeFile, Ildg, Scidac};
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
@@ -711,6 +711,7 @@ fn mdwf_params(f: &HmcFermion) -> MdwfParams {
 fn gauge_format(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
     Ok(match f {
         GaugeFormat::BridgeText => Box::new(BridgeText),
+        GaugeFormat::Binary => Box::new(Binary),
         GaugeFormat::Ildg => Box::new(Ildg::default()),
         GaugeFormat::Scidac => Box::new(Scidac::default()),
         #[cfg(feature = "hdf5")]

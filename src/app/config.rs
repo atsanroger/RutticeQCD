@@ -169,6 +169,9 @@ pub enum GaugeFormat {
     /// Plain text, one real per line (the Bridge++ text format).
     #[default]
     BridgeText,
+    /// Big-endian doubles without a header (the Bridge++ binary format).
+    #[serde(alias = "bridge_binary")]
+    Binary,
     /// The ILDG format: binary data in a LIME container.
     Ildg,
     /// A lattice-colour-matrix record written by the SciDAC QIO library, in a LIME

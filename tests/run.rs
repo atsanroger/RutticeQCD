@@ -8,7 +8,7 @@ use ruttice::app::{
     run, BoundaryConfig, ChannelsConfig, CliError, Config, FermionConfig, SolverKind, SourceConfig,
 };
 use ruttice::gauge::random_gauge;
-use ruttice::io::write_bridge_text;
+use ruttice::io::{read_binary, read_bridge_text, write_bridge_text};
 use ruttice::Lattice;
 use std::path::{Path, PathBuf};
 
@@ -460,6 +460,27 @@ fn compare_with_table(report: &ruttice::app::Report, table: &str) {
     }
     assert_eq!(compared, 312);
     assert!((report.plaquette - 0.625129946974942).abs() < 1e-13);
+}
+
+/// Bridge++'s binary file of its test configuration reads as its text file does.
+#[test]
+fn the_binary_file_of_bridge_is_its_text_file() {
+    let (Some(text), Some(binary)) = (
+        bridge_test_file("conf_04040408.txt"),
+        bridge_test_file("conf_binary.dat"),
+    ) else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_binary.dat");
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let from_text = read_bridge_text(&text, &lat).unwrap();
+    let from_binary = read_binary(&binary, &lat).unwrap();
+    let worst = from_text
+        .as_slice()
+        .iter()
+        .zip(from_binary.as_slice())
+        .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+    assert!(worst < 1e-14, "{worst:e}");
 }
 
 /// The two-flavour example, run on the Bridge++ test configuration, reproduces the
