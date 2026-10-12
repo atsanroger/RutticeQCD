@@ -1,4 +1,5 @@
-//! Gauge-field observables and operations: plaquette, field strength, gauge fixing.
+//! Gauge-field observables and operations: plaquette, field strength, gauge fixing,
+//! smearing (`smear`) and products of links along paths (`paths`).
 
 use crate::kernel::{ColorMatrix, Number, Real, NC};
 use crate::{

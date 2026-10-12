@@ -29,7 +29,10 @@
 
 **這台機器的限制。** 12 GB 記憶體；16⁴ 是能跑的上限，物理上要 32⁴ 才有意義。kernel 受記憶體頻寬限制，不受運算限制：
 12⁴ 的 Wilson hop 1 條執行緒 9.7 ms、24 條 5.4 ms；C（幾乎沒有運算）1 條 3.5 ms、24 條 3.6 ms。SIMD 因此沒有加速。
-WSL 的磁碟（251 GB）在 10-12 只剩約 2 GB，測試的 debug 編譯要關掉 debuginfo 才放得下（`CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0`）。
+WSL 的磁碟（251 GB）在 10-12 一度只剩約 0.4 GB（測試連結不起來）；清掉快取、舊版 HPC SDK（只留 25.11）和 profiling 報告後有 105 GB。
+
+**跑測試要注意。** 對 Bridge++ 的參考測試找不到 `conf_04040408.txt` 時會印 SKIPPED 然後算通過（預設找 `run/`）。
+要真的跑到：`RUTTICE_BRIDGE_TESTS=$HOME/Bridge/bridge-2.0.0-mod.34/build/tests cargo test`。
 
 ### 0.1 記號
 
@@ -1562,3 +1565,21 @@ Schur 因子從五趟（C⁻¹、hop、C⁻¹、hop、aypx）變成三趟（C⁻
 **驗證。** 新測試 `even_odd_pv_operator_is_made_of_the_blocks`：Ã、Ã†（右、左形式）與用 `diag_inv`／`hop` 逐趟組出來的差 < 1e-13
 （不是逐位元相同：就地的 C⁻¹ 捨入順序不同）。`stage3_mdwf` 28 個全過，含多 process 與 α 的測試。
 MG 的迭代數還沒有在 12⁴／16⁴ 重跑確認；粗網格作用對 Ã 的比例從 0.057 變成約 0.087（9.5 ms 對 109 ms），0.3 的「Ã 當量」要重算。
+
+
+## 2026-10-12：程式結構的整理（合併到 `main` 前後）
+
+分支在 `83e6957` fast-forward 合併到 `main`（128 個 commit）；之後的整理也合併了。都不改數值，全部測試（含 Bridge++ 參考）通過。
+
+- **Wilson kernel 只認得第五維的一件事**：輸入側的因子（`Pre::Fifth`；每條腿讀的是別的格點，只有 sweep 能做）。
+  輸出側的 `Post::Gamma5Fifth`、`Fifth::apply_in_place` 刪掉，改由 `mdwf/fifth.rs` 的 `factor_in_place` 經 `After` 做；`Mdwf::hop` 的四個分支收成 `hop_plain`。
+- **`solver/` 的分法**：上層只有 Krylov 解法和 `mixed`；所有傳給解法當 `m` 的東西在 `solver/preconditioner/`
+  （`chebyshev.rs`、`polynomial.rs` 從上層搬進來，`multigrid/` 原本就在）。對外名字不變（`solver::Chebyshev` 等）。
+  SAP 留在 `multigrid/`（它用 MG 的 `Aggregation` 切區塊）。
+- **Ã 上不加 MG 的 BiCGStab 與 Chebyshev 預處理都在 `src/app/mdwf.rs`**：參數檔 `solver_type: BiCGStab`，
+  `preconditioner_type` 不寫或寫 `Chebyshev`（可加 `Chebyshev` 區塊：`number_of_steps`、`interval_ratio`）。
+  `Chebyshev` 這條路徑原本沒有測試；`a_domain_wall_run_on_several_processes` 現在跑三種（無、Chebyshev、MG），並要求三者的 pion 關聯函數一致。
+- **HMC 只留一套驅動**：`Leapfrog`／`QuenchedHmc`／`Trajectory` 刪掉，quenched 的 Bridge++ 測試改用通用的 `Hmc`（數字不變）。
+  `MdAction` 的實作搬到各作用量自己的檔案；`path_product` 搬到 `gauge/paths.rs`。
+- **沒有做、留著的**：Wilson 的兩份 sweep（`sites.rs`、`blocks.rs`）沒有合一——使用者決定先不做；GPU 的第一版是包 Bridge++ CUDA 的整個求解，用不到 CPU sweep 的抽象。
+  MDWF 的 `HopTerms`（因此 HMC 的力）只有一般排列有。

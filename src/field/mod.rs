@@ -47,7 +47,7 @@ impl Sites for Full {
     }
 }
 
-/// One parity of an even-odd decomposition. Declared so types can name it; not usable yet.
+/// One parity of an even-odd decomposition.
 pub struct Half;
 impl Sites for Half {
     fn num_sites(lat: &Lattice) -> usize {
