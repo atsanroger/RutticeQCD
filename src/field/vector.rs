@@ -10,11 +10,6 @@ use crate::lattice::for_sites::{for_light_sites, reduce_sites_dyn, reduce_sites_
 pub type C64 = Cplx<f64>;
 
 /// A set of `num_vectors` vectors of equal length that are operated on together.
-///
-/// Coefficients and results are slices with one entry per vector, so a solver written
-/// for one right-hand side works unchanged for several: each vector gets its own
-/// coefficients. Operations between different vectors of the set (Gram matrices, block
-/// updates) are not here yet.
 pub trait Vector: Sized {
     fn num_vectors(&self) -> usize;
     /// A zero vector of the same shape.
@@ -38,11 +33,7 @@ pub trait Vector: Sized {
     fn dot(&self, x: &Self, out: &mut [C64]);
     /// `out_j = |self_j|^2`.
     fn norm_sqr(&self, out: &mut [f64]);
-    // The operations below are compositions of the ones above. A Krylov iteration on a
-    // large lattice is limited by how often it reads and writes its vectors, so an
-    // implementation should do each of them in one sweep over the memory; the defaults say
-    // what the result is. Fields do them in one sweep and give the same bits as the
-    // compositions.
+    // The operations below are compositions of the ones above.
 
     /// `self_j += a_j x_j`, then `out_j = |self_j|^2`.
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {

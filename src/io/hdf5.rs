@@ -1,15 +1,5 @@
 //! Gauge configurations in HDF5 files, through the `hdf5` crate. Built only with the
 //! feature `hdf5`, which needs the HDF5 library.
-//!
-//! A configuration is one dataset of double-precision reals with the shape
-//! `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`: the site with x running fastest, the direction, the row
-//! and the column of the link, and its real and imaginary part. Stored in the row-major
-//! order of HDF5 this is the order of the ILDG binary record. The layout is this program's
-//! own; HDF5 files of other programs arrange a gauge field in other ways.
-//!
-//! Reading takes from the file only the part of the lattice the calling process holds, as
-//! one hyperslab. The processes do not use parallel HDF5: each opens the file for itself.
-//! Writing goes through rank 0, which writes a hyperslab per time slice.
 
 use super::{write_on_root, IoError, LINK_REALS};
 use crate::{Field, Gauge, Lattice, ND};
@@ -72,9 +62,6 @@ pub fn read_hdf5(
 }
 
 /// Write a gauge configuration as the dataset `dataset` of a new HDF5 file.
-///
-/// With several processes, every process makes this call and rank 0 writes the file, one
-/// time slice (one hyperslab) at a time.
 pub fn write_hdf5(path: &Path, dataset: &str, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     let shape = shape(u.lattice().global);
     let mut one_slice = shape;

@@ -1,19 +1,5 @@
 //! Hybrid Monte Carlo: gauge configurations from the momenta, the actions and their forces,
 //! a molecular-dynamics integrator and the Metropolis test.
-//!
-//! The conventions are those of Bridge++, so that its runs can be repeated here and checked
-//! number by number (`tests/hmc.rs`): the momenta iP = i Σ_a 2 h_a T^a with h_a
-//! Gaussian of variance 1/2 drawn by the M-series generator (`Mseries`) in Bridge++'s order,
-//! H = ½ |iP|² + S; the leapfrog P(ε/2) [U(ε) P(ε)]… U(ε) P(ε/2); U ← exp(ε iP) U by the
-//! Taylor series to order `exp_order`, then made unitary again row by row; and the Metropolis
-//! test with the next number of the same generator.
-//!
-//! Actions: the plaquette and rectangle (Iwasaki, DBW2, …) gauge actions; two flavours of
-//! Wilson-type or domain-wall fermions, and their ratio to Pauli-Villars fermions, on links
-//! that may be stout smeared (`fermion_action`; on the even sites, `even_odd`); fractional powers
-//! of the determinant, one flavour, by rational approximation (`rational`); the gauge actions
-//! (`gauge_action`); initial guesses for the solves from the solutions before (`guess`). Several time scales with leapfrog or Omelyan
-//! (`integrator`). An action is in the file of its kind, with what makes it an `MdAction`.
 
 mod even_odd;
 mod fermion_action;

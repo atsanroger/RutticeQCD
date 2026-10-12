@@ -5,89 +5,28 @@
 //!
 //!   (Y ψ)_s = - P- ψ_{s+1} - P+ ψ_{s-1},
 //!
-//! in which a term that leaves the interval comes back from the other wall multiplied by
-//! -m: (Y ψ)_{Ls-1} has + m P- ψ_0 and (Y ψ)_0 has + m P+ ψ_{Ls-1},
-//!
 //! the operator is
 //!
 //!   D ψ = ψ + Y ψ + W (b ψ - c Y ψ),        W = (4 - M5) Dw,
 //!
-//! where Dw = 1 - κ Σ hops is the Wilson operator with κ = 1 / (8 - 2 M5), so that W is the
-//! Wilson operator with mass -M5 in the normalisation with unit hopping coefficient 1/2.
-//! Written out, D ψ_s = (b W + 1) ψ_s + (c W - 1) [P- ψ_{s+1} + P+ ψ_{s-1}]. b = 1, c = 0
-//! is the domain-wall operator of Shamir. The Pauli-Villars operator is D at m = 1.
-//!
-//! Provides: `mult` for D, D† and Γ5 D with Γ5 = γ5 R, R the reflection s -> Ls-1-s. For
-//! c = 0, Γ5 D is Hermitian; for c ≠ 0 it is not (W does not commute with P±).
+//! where Dw = 1 - κ Σ hops is the Wilson operator with κ = 1 / (8 - 2 M5), so that W is the Wilson
+//! operator with mass -M5 in the normalisation with unit hopping coefficient 1/2.
 //!
 //! The part of D that stays within a four-dimensional site is
 //!
 //!   C = d+ + d- Y,    d+ = 1 + b (4 - M5),    d- = 1 - c (4 - M5),
 //!
-//! an Ls x Ls matrix in the fifth dimension for each chirality: P+ ψ only sees its
-//! neighbour below and P- ψ its neighbour above, plus the mass term in one corner.
-//! `mult_site` applies C and `mult_site_inv` its inverse, by substitution along s with the
-//! corner taken out first, so the inverse is exact and costs a few operations per s.
-//!
 //! `PvPreconditioned` is the operator
 //!
 //!   A = (D_PV C_PV^-1)† D C^-1 = X† Y,    X = D_PV C_PV^-1,  Y = D C^-1,
 //!
-//! with D_PV and C_PV the same at m = 1 (Pauli-Villars). D alone has eigenvalues on both
-//! sides of the imaginary axis and Krylov solvers for general matrices stall on it; the
-//! factor in front turns the spectrum into the right half plane (Brower, Clark, Howarth,
-//! Weinberg; Kanamori, Chen, Matsufuru, PoS(LATTICE2024)414, whose Fig. 4 is this A). C^-1
-//! is a right preconditioner: solving A y = X† b and setting x = C^-1 y gives the solution
-//! of D x = b. X and Y have the same form, so at m = 1 A is the Hermitian X† X.
-//!
-//! An earlier version had C^-1 on the left, A = X† C^-1 D, as the CUDA implementation and
-//! the working note `pvprec_amg` do; that is not the paper's operator. On a 12^4 quenched
-//! configuration (Ls = 8, M5 = 1, m = 0.005) BiCGStab needs about the same number of
-//! iterations on both (4 % fewer on this one over five right-hand sides).
-//!
-//! A site of the field holds its Ls spinors next to each other (`Field::ls`), so the
-//! four-dimensional part is the Wilson sweep over Ls times as many spinors per site, with
-//! the links read once per site. The fifth dimension is local to a site. So far the
-//! operator is put together from three passes (the combination before W, the Wilson sweep,
-//! the combination after it); a sweep that does all three at a site is not written yet.
-//! The even-odd blocks do have it. The Wilson kernel knows one thing about the fifth
-//! dimension, the factor (4 − M5)(b − c Y) on the input of its sweep (`Fifth`); what follows
-//! the kernel within a site is done here, on each site the sweep has just written (`After`):
-//! the adjoint factor of D†, and for the Schur factors of `PvEvenOdd` also C⁻¹ and the
-//! difference with the input. A Schur factor is so two or three passes over the field. The
-//! kernels are limited by the memory they move, not by the arithmetic.
-//! The fields may be in the usual layout or in blocks of W sites (`MdwfLayout`); the fifth
-//! dimension is the same code on numbers of W lanes.
-//!
-//! Files: this one has the operator, its layouts and constructors; `site.rs` what acts
-//! within a four-dimensional site, the fifth dimension (Q, Y, C and C⁻¹); `lexical.rs` the
-//! operator on the whole lattice (D at any mass, the parts for the multigrid,
-//! `PvPreconditioned`); `even_odd.rs` the even-odd blocks and `PvEvenOdd`; `quark_4d.rs` the
-//! five-dimensional source of a four-dimensional one and the four-dimensional quark fields
-//! of a five-dimensional solution (what is measured is then measured as for any fermion,
-//! `crate::measure`).
-//!
-//! Solvers: BiCGStab or FGMRES on `PvPreconditioned` (no breakdown, in double or single
-//! precision); CG on the normal equations of D.
-//! Tools needed: none beyond what is here.
+//! with D_PV and C_PV the same at m = 1 (Pauli-Villars).
 //!
 //! Neff's better conditioned form (arXiv:1501.04950; Chen, Kanamori, Matsufuru, Neff,
-//! arXiv:2602.14454) is `set_alpha`: D^(α) = D Q with Q = P A P†, which works out diagonal
-//! in the fifth dimension and local to a site,
+//! arXiv:2602.14454) is `set_alpha`: D^(α) = D Q with Q = P A P†, which works out diagonal in the
+//! fifth dimension and local to a site,
 //!
 //!   Q_0 = P- + α P+,   Q_s = α (0 < s < Ls-1),   Q_(Ls-1) = P+ + α P-,
-//!
-//! so D^(α) has the blocks of eq. (13) of 2602.14454 (those of D multiplied by α except the
-//! four corners). The four-dimensional solution is unchanged: x = Q x^(α), and Q is the
-//! identity on P- x_0 and on P+ x_(Ls-1). With α = 1 (the default) Q is skipped. Every
-//! part of D below carries Q: C^(α) = C Q, the even-odd blocks, the hops of `HopTerms`.
-//! Right-preconditioned forms do not see α (D^(α) C^(α)⁻¹ = D C⁻¹, and the same for the
-//! Schur complements): it has to be used with left preconditioning to make a difference.
-//! (2602.14454 writes D (P A⁻¹ P†) once in its even-odd section; eq. (14), D^(α) P = D P A,
-//! and the blocks of eq. (13) give P A P†.)
-//!
-//! The normalisation and the placement of the mass term follow Bridge++
-//! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
 use super::{
     fifth_hop, After, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag, Variant,

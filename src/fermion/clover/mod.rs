@@ -1,26 +1,4 @@
 //! Clover (Sheikholeslami-Wohlert) fermions.
-//!
-//! D = D_Wilson - κ c_SW Σ_{mu<nu} F_mu_nu ⊗ γ_mu γ_nu
-//!
-//! where F_mu_nu = (Q - Q^†) / 8 is the clover-leaf field strength (`gauge`). The
-//! extra term acts within a site, so the operator is the Wilson sweep with a non-trivial
-//! site-diagonal block T(x) = 1 - κ c_SW Σ F ⊗ γγ, a Hermitian 12 × 12 matrix.
-//!
-//! T commutes with γ5, so in the basis of γ5 eigenvectors it splits into two Hermitian
-//! 6 × 6 blocks. Those are what is stored: 72 reals per site for T and 72 for its inverse,
-//! instead of 288 each for the dense matrices.
-//!
-//! Provides: everything `Wilson` provides; T and its inverse for the even-odd blocks.
-//!
-//! Files: this one has the parameters and the operator, which is the Wilson operator with
-//! another site term; `site.rs` that term, the clover term and its inverse. There is no
-//! `lexical.rs` and no `even_odd.rs` here: the operator on the whole lattice and its even-odd
-//! blocks are those of `wilson`, written for any site term.
-//! Solvers: as for Wilson. Tools needed: field strength (`gauge`), small dense
-//! inversion (`numerics`).
-//!
-//! The normalisation and sign conventions follow Bridge++ so that results can be compared.
-//! Written from the formula above.
 
 use super::wilson::{DiagTerm, WilsonOp, WilsonParams};
 use super::GaugeError;

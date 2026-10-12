@@ -117,15 +117,8 @@ pub struct SetupHooks<'a, T: Storage> {
     /// to nearest neighbours (`CoarseOp::probe`), instead of from the parts of the fine
     /// operator; `coarse_right` is then not used.
     pub galerkin_of: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
-    /// Makes test vectors for a restriction of its own from the initial vectors: a smoother
-    /// for the adjoint of the operator of the cycle. The restriction is then R = Q† with Q
-    /// built from these vectors like P from the others, and the coarse operator `R A P`
-    /// (with `galerkin_of`).
-    ///
-    /// What a smoother leaves of a residual lies along the vectors that the adjoint
-    /// operator nearly annihilates. For an operator with A† = Γ5 A Γ5 those are Γ5 times
-    /// the vectors A nearly annihilates, which the chiral halves of P contain, so P† does
-    /// as a restriction; for an operator without that property it does not.
+    /// Makes test vectors for a restriction of its own from the initial vectors: a smoother for the
+    /// adjoint of the operator of the cycle.
     pub adjoint_smoother: Option<Box<dyn LinearFn<Fine<T>> + 'a>>,
 }
 
@@ -145,24 +138,6 @@ impl<T: Storage> Default for SetupHooks<'_, T> {
 /// Two-level multigrid as a preconditioner: an approximate inverse of the cycle's operator
 /// A, to be passed as `m` to a flexible outer solver (FGMRES, or BiCGStab, which is the
 /// flexible form with a preconditioner).
-///
-/// One application, for a right-hand side b:
-///
-/// 1. x = S_pre(b) with a pre-smoother, otherwise x = b;
-/// 2. coarse-grid correction: x += P A_c^{-1} P† (b − A x), with A_c^{-1} an inexact solve
-///    on the coarse lattice (after multiplying by the inverse diagonal blocks when the
-///    coarse operator is preconditioned by them);
-/// 3. x += S_post(b − A x).
-///
-/// Without a pre-smoother this is the cycle of Bridge++ `APrecond_MG`; with one it is the
-/// cycle of the CUDA domain-wall `APrecond_MG_dw`.
-///
-/// The test vectors are found when the preconditioner is built: the initial vectors are
-/// smoothed by S_post (and passed through `after_smoothing`), then improved by
-/// `setup_iterations` rounds of v_i ← M v_i with the cycle M built from the current
-/// vectors. P and the coarse operator are rebuilt after each round.
-///
-/// Works on one process only, like the aggregation it is built on.
 pub struct Multigrid<'a, F: HopTerms<Fine<T>>, T: Storage> {
     op: &'a F,
     work: F::Work,
@@ -312,11 +287,10 @@ where
         Ok(mg)
     }
 
-    /// Add levels below the coarse lattice to the coarse solves: a V-cycle on super-blocks
-    /// of `super_blocks[ℓ]` coarse sites per direction on level ℓ + 2 (the last solved
-    /// exactly), from the test vectors of the setup restricted to the coarse lattice,
-    /// combined multiplicatively with the inverses of the diagonal blocks of the coarse
-    /// operator (`multigrid::levels`). Returns the coarse applications its setup took.
+    /// Add levels below the coarse lattice to the coarse solves: a V-cycle on super-blocks of
+    /// `super_blocks[ℓ]` coarse sites per direction on level ℓ + 2 (the last solved exactly), from
+    /// the test vectors of the setup restricted to the coarse lattice, combined multiplicatively
+    /// with the inverses of the diagonal blocks of the coarse operator (`multigrid::levels`).
     pub fn add_levels(&mut self, super_blocks: &[usize]) -> Result<usize, MultigridError> {
         let coarse = self.coarse.get_mut();
         let blocks = if coarse.is_diagonal_preconditioned() {

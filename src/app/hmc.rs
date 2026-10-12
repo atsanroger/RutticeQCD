@@ -154,9 +154,8 @@ pub enum ActionConfig {
         #[serde(default = "yes")]
         smeared: bool,
         /// Even-odd preconditioned: φ on the even sites, S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|
-        /// with Ŝ the Schur complement (`hmc::TwoFlavorEo`; Bridge++'s
-        /// `Action_F_alt_Standard_eo` for Wilson fermions). The same distribution of links,
-        /// about a third of the operator applications per trajectory. Off by default.
+        /// with Ŝ the Schur complement (`hmc::TwoFlavorEo`; Bridge++'s `Action_F_alt_Standard_eo`
+        /// for Wilson fermions).
         #[serde(default)]
         even_odd: bool,
         #[serde(default)]
@@ -174,12 +173,10 @@ pub enum ActionConfig {
         #[serde(default)]
         solver: HmcSolver,
     },
-    /// det(D†D)^(p/q) by rational approximation (RHMC), p/q = `power` (one flavour: [1, 2]):
-    /// S = φ† r(D†D) φ, r ≈ x^(−p/q), φ = r'(D†D) ξ, r' ≈ x^(p/2q), minimax with `poles`
-    /// poles on [lower², upper²], `bounds` = [lower, upper] those of the eigenvalues of
-    /// |D| = √(D†D), as Bridge++'s `lower_bound` and `upper_bound`. The coefficients are
-    /// computed (Remez), or read from Bridge++'s files `parameter_rational.*` in the
-    /// directory `coefficients` (relative to the parameter file's directory).
+    /// det(D†D)^(p/q) by rational approximation (RHMC), p/q = `power` (one flavour: [1, 2]): S = φ†
+    /// r(D†D) φ, r ≈ x^(−p/q), φ = r'(D†D) ξ, r' ≈ x^(p/2q), minimax with `poles` poles on [lower²,
+    /// upper²], `bounds` = [lower, upper] those of the eigenvalues of |D| = √(D†D), as Bridge++'s
+    /// `lower_bound` and `upper_bound`.
     Rational {
         fermion: HmcFermion,
         level: usize,

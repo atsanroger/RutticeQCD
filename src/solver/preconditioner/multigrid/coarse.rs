@@ -24,28 +24,14 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 
 /// The Galerkin coarse operator `P† D P` for a nearest-neighbour fine operator D.
 ///
-/// It is itself a nearest-neighbour operator on the coarse lattice:
-/// `(D_c ψ)(X) = A(X) ψ(X) + Σ_dir B_dir(X) ψ(X + dir)`, with dense matrices A and B_dir at
-/// every coarse site. A collects the fine couplings inside a block, B_dir those that cross
-/// into the neighbouring block.
-///
-/// On several processes the coarse lattice is split like the fine one; the neighbours on
-/// other processes arrive by a halo exchange, and for the exact adjoint so do, once, the
-/// links of those neighbours.
-///
-/// Even-odd preconditioning. The hops join coarse sites of opposite parity (when every
-/// extent of the coarse lattice is even), so with D_c = [[A_ee, B_eo], [B_oe, A_oo]] a solve
-/// of D_c c = g is one of the Schur complement on the even sites,
+/// The hops join coarse sites of opposite parity (when every extent of the coarse lattice is even),
+/// so with D_c = [[A_ee, B_eo], [B_oe, A_oo]] a solve of D_c c = g is one of the Schur complement
+/// on the even sites,
 ///
 ///   S c_e = g_e − B_eo A_oo⁻¹ g_o,    S = A_ee − B_eo A_oo⁻¹ B_oe,
 ///
-/// followed by c_o = A_oo⁻¹ (g_o − B_oe c_e) (`schur`, `schur_source`, `schur_solution`,
-/// after `prepare_even_odd`). One application of S is the work of one of D_c: the hops to
-/// the odd sites and the inverse there, then the diagonal block and the hops to the even
-/// sites. Its spectrum is that of the block-Jacobi preconditioned D_c folded once, 1 − (1 − λ)²,
-/// so a Krylov solver needs about half the iterations. The fields stay fields on the whole
-/// coarse lattice, zero on the odd sites: the vector operations are small beside the dense
-/// blocks. This is how Lüscher's deflation solves its little system (even-odd GCR).
+/// followed by c_o = A_oo⁻¹ (g_o − B_oe c_e) (`schur`, `schur_source`, `schur_solution`, after
+/// `prepare_even_odd`).
 pub struct CoarseOp<T: Storage> {
     lat: Arc<Lattice>,
     stencil: Stencil,
@@ -138,10 +124,9 @@ fn invert_blocks<T: Storage>(
 }
 
 impl<T: Storage> CoarseOp<T> {
-    /// Build `P† D P` from the parts of the fine operator, one column at a time: prolong
-    /// the coarse unit vector of one component on every coarse site at once, apply the
-    /// diagonal block and each hopping term, sort what comes out by whether the hop
-    /// stayed inside the block, and restrict.
+    /// Build `P† D P` from the parts of the fine operator, one column at a time: prolong the coarse
+    /// unit vector of one component on every coarse site at once, apply the diagonal block and each
+    /// hopping term, sort what comes out by whether the hop stayed inside the block, and restrict.
     pub fn build<F, S: Storage>(op: &F, work: &mut F::Work, basis: &Basis<T, S>) -> Self
     where
         F: HopTerms<Field<T, Spinor>>,
@@ -152,13 +137,6 @@ impl<T: Storage> CoarseOp<T> {
 
     /// `build` with the two options of the domain-wall multigrid (the design notes, §7.6.2, after
     /// `AFopr_Domainwall_coarse::generate_coarse_op` of the CUDA version):
-    ///
-    /// - `right`: a factor R applied before D, giving `P† D R P`. It must not couple
-    ///   different 4D sites (domain-wall: the exact C_PV^{-1}), so that the coarse operator
-    ///   still reaches only the 8 neighbours.
-    /// - `precondition_diagonal`: the operator becomes A^{-1} D_c, where A is the diagonal
-    ///   block of D_c at every coarse site. A coarse solve then needs its right-hand side
-    ///   multiplied by A^{-1} first (`apply_diagonal_inverse`).
     pub fn build_with<F, S: Storage>(
         op: &F,
         work: &mut F::Work,
@@ -265,20 +243,8 @@ impl<T: Storage> CoarseOp<T> {
         })
     }
 
-    /// The coarse operator `R A P` of any map A on the fine lattice, cut down to the
-    /// couplings of a coarse site with itself and its eight neighbours. P is the
-    /// prolongation of `basis` and R the restriction of `restriction`; with the same basis
-    /// for both this is the Galerkin operator `P† A P`.
-    ///
-    /// A is used as a black box: the coarse unit vectors of one component are prolonged,
-    /// A is applied, and the result is restricted. Sites that are far enough apart can be
-    /// probed together: with A reaching no further than the neighbouring aggregates, also
-    /// diagonally, sources three coarse sites apart in every direction do not disturb the
-    /// neighbours of one another. That is at most 81 applications of A per component (more
-    /// on a coarse lattice with an extent of four, where every position is probed by
-    /// itself). Couplings to diagonal neighbours are left out; for an A that is a product
-    /// of two nearest-neighbour operators they exist, and leaving them out is an
-    /// approximation.
+    /// The coarse operator `R A P` of any map A on the fine lattice, cut down to the couplings of a
+    /// coarse site with itself and its eight neighbours.
     ///
     /// The adjoint of such an operator is not available (`mult_dag` panics): it does not
     /// follow from Γ5 as it does for `build`.
@@ -348,11 +314,8 @@ impl<T: Storage> CoarseOp<T> {
                 for source in &sources {
                     column_of(&mut diag, *source, column, restricted.site(0, *source));
                     for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
-                        // The link in direction `dir` at X multiplies the field at
-                        // X + dir, so the source is X + dir. With an extent of one the
-                        // neighbour is the site itself, with two both neighbours are the
-                        // same site: then everything is in the diagonal block, or in the
-                        // forward link.
+                        // The link in direction `dir` at X multiplies the field at X + dir, so the
+                        // source is X + dir.
                         let extent = lat.local[mu];
                         if extent == 1 || (extent == 2 && dir == Direction::Backward) {
                             continue;
@@ -521,11 +484,10 @@ impl<T: Storage> CoarseOp<T> {
         }
     }
 
-    /// `out = D_c† inp` exactly, the conjugate transpose of the stored matrix:
-    /// `(D_c† ψ)(X) = A(X)† ψ(X) + Σ_dir B_-dir(X + dir)† ψ(X + dir)`. For a Galerkin operator
-    /// this is P† D† P, whether or not D† = γ5 D γ5 (`mult_dag` assumes it: for Möbius
-    /// domain-wall fermions with c ≠ 0 it holds only approximately). Not for an operator
-    /// preconditioned by its diagonal blocks.
+    /// `out = D_c† inp` exactly, the conjugate transpose of the stored matrix: `(D_c† ψ)(X) = A(X)†
+    /// ψ(X) + Σ_dir B_-dir(X + dir)† ψ(X + dir)`. For a Galerkin operator this is P† D† P, whether
+    /// or not D† = γ5 D γ5 (`mult_dag` assumes it: for Möbius domain-wall fermions with c ≠ 0 it
+    /// holds only approximately). Not for an operator preconditioned by its diagonal blocks.
     pub fn mult_adjoint(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         assert!(
             self.diag_inv.is_none(),
@@ -768,12 +730,9 @@ impl<T: Storage> CoarseOp<T> {
                 terms[d + 1] = (&self.links[at..at + matrix], v);
             }
 
-            // The sums of the nine terms for every vector, in the compute type, real and
-            // imaginary parts apart; the inputs are loaded once per term with Γ5 already
-            // applied, so the inner loop is a plain multiply-add the compiler can vectorise.
-            // Each row of a block is read once and used for all the vectors: the operator is
-            // limited by memory bandwidth (8 flops per stored element and vector), so several
-            // right-hand sides at once raise the arithmetic intensity in proportion.
+            // The sums of the nine terms for every vector, in the compute type, real and imaginary
+            // parts apart; the inputs are loaded once per term with Γ5 already applied, so the
+            // inner loop is a plain multiply-add the compiler can vectorise.
             let nv = out.len() / (2 * dim);
             let zero = T::Compute::ZERO;
             let (mut acc_re, mut acc_im) = (vec![zero; nv * dim], vec![zero; nv * dim]);

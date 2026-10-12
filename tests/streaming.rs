@@ -1,11 +1,9 @@
 //! Checks: writing the output of a sweep with stores that bypass the cache gives the same
 //! field as ordinary stores.
 //!
-//! Which stores a sweep uses depends on the size of its output, through a threshold that is
-//! read once per process. So the comparison is between two runs of the benchmark program,
-//! one with the threshold at zero and one with it out of reach: the norms it prints, for
-//! both precisions, both ways of keeping the links and the fields in blocks, must agree to
-//! every digit printed.
+//! So the comparison is between two runs of the benchmark program, one with the threshold at zero
+//! and one with it out of reach: the norms it prints, for both precisions, both ways of keeping the
+//! links and the fields in blocks, must agree to every digit printed.
 
 use std::process::Command;
 

@@ -31,11 +31,6 @@ pub fn point_source<T: Storage>(lat: &Arc<Lattice>, position: [usize; ND]) -> Fi
 
 /// Twelve smeared sources on one time slice: vector `k` has the same real profile in
 /// component `k` at every site of the time slice of `position`.
-///
-/// The profile at displacement d from `position` is `exp(-slope * |d|^power)`, summed over
-/// all displacements with each component in (-L, L) so that the tail is folded back into
-/// the periodic box, and normalised to unit 2-norm. This is not gauge invariant: results
-/// depend on the gauge the configuration is in.
 pub fn exponential_source<T: Storage>(
     lat: &Arc<Lattice>,
     position: [usize; ND],
@@ -90,14 +85,6 @@ pub const CHANNELS: [&str; 14] = [
 
 /// The (sink, source) gamma matrices of a named meson channel, to pass to
 /// `meson_correlator`:
-///
-/// - `PS`: γ5 at both ends; `S`: the identity; `V1`..`V3`: γ_k
-/// - `A4_PS`: γ4 γ5 at the sink, γ5 at the source; `PS_A4`: γ5 at the sink, γ5 γ4 at the source
-/// - `A4_A4`: the axial current at both ends, γ4 γ5 at the sink and γ5 γ4 at the source,
-///   which makes the correlator `Σ_x Tr[γ4 S γ4 S†]`
-/// - `G51`..`G53`: γ5 γ_k; `S12`, `S23`, `S31`: i γ2 γ1, i γ3 γ2, i γ1 γ3
-///
-/// The composite matrices are defined as in the Bridge++ gamma-matrix set.
 pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
     let g = G::GAMMA;
     let g5 = G::GAMMA5;
@@ -137,14 +124,6 @@ fn check_propagator<T: Storage>(prop: &Field<T, Spinor>) {
 }
 
 /// Zero-momentum meson two-point function, one value per time slice of the global lattice:
-///
-/// `C(t) = Σ_x Tr[ (γ5 Γ_sink) S1(x, t) (Γ_source γ5) S2(x, t)^† ]`
-///
-/// with the trace over spin and colour. `prop1` and `prop2` are the propagators of the two
-/// quarks from the same source; pass the same field twice for degenerate quarks. This uses
-/// γ5-hermiticity to express the backward propagator through the forward one. No further
-/// sign or normalisation factors are applied; the convention agrees with Bridge++ for all
-/// thirteen channels its spectrum test prints (docs/COMPARISON.md).
 pub fn meson_correlator<T: Storage>(
     prop1: &Field<T, Spinor>,
     prop2: &Field<T, Spinor>,

@@ -135,11 +135,9 @@ impl<A: LinearFn<V64>> LinearFn<V64> for Counted<'_, A> {
     }
 }
 
-/// Vectors that have converged leave the iteration: the solver goes on with a smaller set,
-/// the operator is applied to fewer vectors, and the vectors that go on get the bits they
-/// get when they are solved by themselves. Two right-hand sides are solved alone; then a
-/// set of four holds each of them twice, once starting from zero and once starting from
-/// the solution.
+/// Vectors that have converged leave the iteration: the solver goes on with a smaller set, the
+/// operator is applied to fewer vectors, and the vectors that go on get the bits they get when they
+/// are solved by themselves.
 #[test]
 fn converged_vectors_leave_the_iteration() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -312,10 +310,9 @@ fn nested_solves_across_gauge_updates() {
 
 // ---- Comparison with Bridge++ (skipped unless the test inputs are provided) ----
 
-/// `expected_result` of the Bridge++ test `Solver_Wilson_CGNE`: round(Nconv / 10), where
-/// Nconv is one plus the number of CG steps on D D† for a point source at the origin
-/// (spin 0, colour 0), starting from x = b, restarting every 100 steps, until
-/// |r|^2 / |b|^2 < 1e-28.
+/// `expected_result` of the Bridge++ test `Solver_Wilson_CGNE`: round(Nconv / 10), where Nconv is
+/// one plus the number of CG steps on D D† for a point source at the origin (spin 0, colour 0),
+/// starting from x = b, restarting every 100 steps, until |r|^2 / |b|^2 < 1e-28.
 const BRIDGE_CGNE_NCONV_OVER_10: f64 = 11.0;
 
 #[test]
@@ -494,12 +491,8 @@ fn chebyshev_on_the_wilson_normal_operator() {
     assert!(after < 0.5, "|b - H p(H) b|^2/|b|^2 = {after}");
 }
 
-/// A preconditioner that starts returning NaN after a few steps is reported as a
-/// breakdown, not as a solve that ran out of iterations with a NaN solution. The NaN comes
-/// in through the second application of an iteration (M s), which reaches the solution
-/// before the breakdown check on ω; a new cycle then starts from a NaN residual, every
-/// comparison with the tolerance is false, and without the check the vectors looked
-/// converged and the solve ended as "not converged".
+/// A preconditioner that starts returning NaN after a few steps is reported as a breakdown, not as
+/// a solve that ran out of iterations with a NaN solution.
 #[test]
 fn bicgstab_reports_a_non_finite_preconditioner() {
     struct Poisoned(usize);

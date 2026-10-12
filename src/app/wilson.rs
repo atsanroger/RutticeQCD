@@ -170,9 +170,6 @@ const SIMD_WIDTHS: [usize; 3] = [2, 4, 8];
 type Spinors<L> = Field<f64, Spinor, Lexical, L>;
 
 /// Solve D S = b for the twelve right-hand sides of `b`, the way the parameter file asks.
-/// The fields may be in any layout the operator works on; `index` is the operator's
-/// even-odd numbering. A preconditioner `m` of the whole operator (the multigrid) is put
-/// under the solver on the even sites through `OnParity`.
 fn propagator<L, F>(
     op: &F,
     index: Option<&EvenOddIndex>,
@@ -219,10 +216,8 @@ where
     Ok((s, info))
 }
 
-/// Solve for one quark with `op`, building the multigrid preconditioner first when the
-/// parameter file asks for one. `single` builds the single-precision copy of `op` that a
-/// single-precision preconditioner works with. Returns the worst residual, the solution
-/// and what the solver reported.
+/// Solve for one quark with `op`, building the multigrid preconditioner first when the parameter
+/// file asks for one.
 fn solve_quark<D, D32>(
     lat: &Arc<Lattice>,
     op: &WilsonOp<f64, Dirac, D>,
@@ -312,10 +307,7 @@ fn validate_multigrid(
     Ok(())
 }
 
-/// `solve_quark` with the fields in blocks of `W` sites (`Main.backend : simd`). The source is
-/// rearranged into blocks, the solvers and the operator work on blocks throughout, and the
-/// solution is rearranged back. The multigrid works in the usual layout, on the operator
-/// `sites` (or `single`) builds; its input and output are rearranged.
+/// `solve_quark` with the fields in blocks of `W` sites (`Main.backend : simd`).
 #[allow(clippy::too_many_arguments)]
 fn solve_quark_simd<D: DiagTerm<f64>, D32: DiagTerm<f32>, const W: usize>(
     op: Option<WilsonOp<f64, Dirac, D, Aosoa<W>>>,
@@ -440,10 +432,8 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
             } => exponential_source::<f64>(&lat, position, slope, power),
         };
         let start = Instant::now();
-        // The number of sites per block is part of the type of the operator: one call for
-        // each number of SIMD lanes.
-        // The multigrid in blocks works on the operator in the usual layout: `sites` names
-        // it.
+        // The number of sites per block is part of the type of the operator: one call for each
+        // number of SIMD lanes.
         macro_rules! in_blocks {
             ($operator:ident, $sites:ident, $params:expr) => {{
                 let make = || {

@@ -44,23 +44,6 @@ pub fn min_sites_per_task() -> usize {
 /// The number of sites up to which a loop over `num_sites` sites of `site_len` reals stays
 /// on the calling thread; a longer loop gives every thread of the pool one piece
 /// (`on_each_thread`).
-///
-/// History, because the first attempts cost time: loops used to be cut into tasks that the
-/// pool handed out and threads stole from each other, and the size of a task had to be
-/// chosen. A fixed 1024 sites was too coarse for loops of middling length (the Wilson
-/// operator on blocks of four sites on 16^3 x 8: eight tasks for twelve threads, 1.9 ms
-/// against 1.0 ms with smaller tasks); tasks of 72 spinors were far too fine (end-to-end
-/// tests on 4x4x4x8 with twelve right-hand sides, nine at once on 32 threads: 62 s against
-/// 4.7 s); a size that grew with the loop took the balancing away from the pool (10 %
-/// slower on 32^4 on two processes). A lattice loop does the same work at every site, so
-/// none of that choice is needed: one piece per thread.
-///
-/// What is left is whether a loop is worth entering the pool at all: it is not below
-/// twice `MIN_SPINORS_HEAVY` spinors of work (`MIN_SPINORS_LIGHT` for the updates of a
-/// vector). `site_len` measures the work at a site: the reals written or, where a site
-/// costs more than what it writes shows, the reals of the spinors it handles
-/// (`for_sites_as`). `RUTTICE_MIN_SITES_PER_TASK` replaces the threshold by a fixed number
-/// of sites, for measuring.
 fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
     let (scale, spinors) = match weight {
         Weight::Heavy => (1, MIN_SPINORS_HEAVY),
@@ -113,9 +96,7 @@ where
 }
 
 /// Smallest output, in bytes, that a sweep writes with stores that bypass the cache
-/// (`Storage::stream`). Such a store only pays when the data would not have stayed in the
-/// cache until it is read again; below this size an ordinary store is used. The
-/// environment variable `RUTTICE_STREAM_MIN_BYTES` overrides it, for measuring.
+/// (`Storage::stream`).
 pub fn stream_min_bytes() -> usize {
     static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
@@ -126,10 +107,8 @@ pub fn stream_min_bytes() -> usize {
     })
 }
 
-/// The default of `stream_min_bytes`: about the last-level cache of one processor of a
-/// current server. Timing the Wilson operator alone, streaming was no slower at any size
-/// tried, from one thread to a whole machine; the threshold is there for the solvers, which
-/// read the result of the operator straight away. That case has not been measured.
+/// The default of `stream_min_bytes`: about the last-level cache of one processor of a current
+/// server.
 const STREAM_MIN_BYTES: usize = 32 << 20;
 
 /// Whether a sweep that fills `out` in pieces of `piece_len` values should use
@@ -153,10 +132,8 @@ where
     for_sites_from(out, 0, site_len, grain, &f, &finish);
 }
 
-/// One piece of `out` per thread, for the static schedules: thread `k` gets the units from
-/// `cut(k)` to `cut(k + 1)`, as (first unit, piece). A unit is `unit` elements: a site, or
-/// a chunk of a reduction. Thread `k` always gets the same part of a field of a given
-/// size; `Cpu::alloc` cuts the same way, so a thread works on the memory it touched first.
+/// One piece of `out` per thread, for the static schedules: thread `k` gets the units from `cut(k)`
+/// to `cut(k + 1)`, as (first unit, piece).
 fn pieces<T>(
     out: &mut [T],
     unit: usize,
@@ -411,9 +388,6 @@ fn over_runs<T, F, E>(
 }
 
 /// Sum `f(site)` over all sites.
-///
-/// Sites are summed in fixed-size chunks and the chunk sums are added in order, so the
-/// result is the same on every run and for every thread count.
 pub fn reduce_sites<F>(num_sites: usize, f: F) -> f64
 where
     F: Fn(usize) -> f64 + Sync,
@@ -508,10 +482,8 @@ where
     total
 }
 
-/// `reduce_sites_dyn` for a sweep that also writes: `f(site, reals_of_that_site, acc)`
-/// updates the site of `out` and adds its contribution to the `n` sums. The partial sums
-/// are those of `reduce_sites_dyn`, so a sum made here has the bits of the same sum made
-/// there in a sweep of its own.
+/// `reduce_sites_dyn` for a sweep that also writes: `f(site, reals_of_that_site, acc)` updates the
+/// site of `out` and adds its contribution to the `n` sums.
 pub fn reduce_sites_mut<T, F>(out: &mut [T], site_len: usize, n: usize, f: F) -> Vec<f64>
 where
     T: Send,

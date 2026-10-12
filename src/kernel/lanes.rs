@@ -1,21 +1,4 @@
 //! Numbers in several lanes: the same arithmetic on W values at once.
-//!
-//! The kernel functions (`project`, `transport_half`, `sink_spinor`, the colour and spin
-//! algebra) are generic over `Number`. Used with a lane type they work on W lattice sites
-//! in one go, which is how the block layout (`Aosoa<W>`) gets its SIMD code without any
-//! kernel being written a second time.
-//!
-//! Two kinds of lane type:
-//!
-//! - `Lanes<T, W>`, a plain array with element-wise operations. Works everywhere. The
-//!   compiler turns its arithmetic into SIMD instructions, but an array lives in memory,
-//!   so intermediate values go through the stack.
-//! - `F64x4`, `F32x8`, `F64x8`, `F32x16`: wrappers of the processor's register types,
-//!   present when the build enables AVX2 or AVX-512 (`-C target-cpu=...`). These stay in
-//!   registers. In a prototype of the Wilson operator they were 10 % to 25 % faster than
-//!   the arrays.
-//!
-//! `LaneOf` picks, for a scalar type and a width, the best type the build has.
 
 use super::{Number, Real};
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};

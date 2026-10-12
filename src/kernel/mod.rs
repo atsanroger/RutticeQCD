@@ -1,9 +1,4 @@
 //! Arithmetic on small by-value objects: reals, complex numbers, 3x3 colour matrices.
-//!
-//! Uses only `core` (not the standard library), no allocation and no dynamic dispatch, so
-//! that this module can be moved into a `no_std` crate for a GPU code generator later.
-//!
-//! Written from the mathematics; not derived from any other code base.
 
 mod lanes;
 mod spin;

@@ -38,8 +38,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// The even-odd hop with what goes around it within a site in the same sweep: `out =
     /// after(M_(to, other) before(inp))`, or `after(M†_(to, other) inp)` with `Dagger::Yes`.
-    /// `before` is a factor in the fifth dimension on the input (for M only); `after` is
-    /// applied to every site of the result (see `After`). One pass over the field.
     #[allow(clippy::too_many_arguments)]
     pub fn even_odd_hop_fifth(
         &self,
@@ -106,10 +104,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     }
 
     /// The leg in direction (mu, dir) of output site `site`.
-    ///
-    /// Forward legs use the link at the output site. Backward legs use the link at the
-    /// neighbour; when the neighbour is on another process, that process applies it (and
-    /// the phase) before sending.
     #[inline(always)]
     fn resolve<'a, R: LinkRepr>(
         geo: &Geometry,
@@ -192,11 +186,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     }
 
     /// Add the forward and the backward leg of direction `MU` to `hops`.
-    ///
-    /// The direction is a compile-time constant so that the gamma matrix is one too: its
-    /// table of columns and phases then folds into straight-line code. With the direction
-    /// as a loop variable the compiler kept the loop and the table lookups (seen in the
-    /// generated code as indirect jumps on every component).
     #[inline(always)]
     fn add_legs<const MU: usize, R: LinkRepr>(
         hops: &mut SiteSpinor<T::Compute>,
@@ -235,12 +224,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// Fill the faces of `inp` that the neighbouring processes need and start sending
     /// them. `None` on a single process.
-    ///
-    /// Through a forward face goes what the neighbour's backward legs need: this side
-    /// holds the link, so the spinor is fully transported here. Through a backward face
-    /// goes the projection only; the neighbour holds the link of its forward legs.
-    ///
-    /// `only` restricts the packing to what the legs in one direction need.
     fn start_exchange<'w, R: LinkRepr, SI: Sites>(
         &self,
         work: &'w mut WilsonWork<T>,
@@ -370,10 +353,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         });
     }
 
-    /// One fused sweep: `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`. The
-    /// full operator and the even-odd hopping blocks are both this, on different
-    /// geometries. The last arguments are (pre, post) and what is done to each site of the
-    /// result after them.
+    /// One fused sweep: `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn sweep<SO: Sites, SI: Sites>(
         &self,

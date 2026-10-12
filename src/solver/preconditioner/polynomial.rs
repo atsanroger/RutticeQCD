@@ -6,17 +6,6 @@ use crate::{fit, LinearFn, Vector, C64};
 /// `out = p(A) inp` with a polynomial p whose coefficients were fitted once: the
 /// minimal-residual polynomial of a sample vector, `min |s - A p(A) s|` over the
 /// polynomials of degree `degree - 1`, frozen afterwards.
-///
-/// GMRES(m) from a zero start is the same with the polynomial fitted anew to every input.
-/// Freezing it gives up some strength and gains two things: no Krylov basis is kept (three
-/// work vectors whatever the degree), and the map is the same linear map every time it is
-/// applied, which a solver such as BiCGStab expects of its preconditioner.
-///
-/// With `passes > 1` the polynomial is applied as a stationary correction,
-/// `x += p(A) (b - A x)`: the error is multiplied by `(1 - p(A) A)` in every pass, so a low
-/// degree, whose fit is well conditioned, can still be made strong.
-///
-/// One application costs `passes * degree - 1` applications of A.
 pub struct Polynomial<A, V> {
     a: A,
     /// `p(z) = Σ_k coefficients[k] z^k`.
@@ -29,9 +18,6 @@ pub struct Polynomial<A, V> {
 
 impl<A: LinearFn<V>, V: Vector> Polynomial<A, V> {
     /// Fit the polynomial to `sample`; if it holds several vectors, to all of them at once.
-    ///
-    /// The powers `A^k s` turn towards the largest eigenvalues as k grows and become nearly
-    /// dependent, so the fit fails beyond a moderate degree (`Singular`).
     pub fn fit(mut a: A, sample: &V, degree: usize, passes: usize) -> Result<Self, Singular> {
         assert!(degree >= 1 && passes >= 1);
         let nv = sample.num_vectors();

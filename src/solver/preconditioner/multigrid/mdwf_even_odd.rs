@@ -225,10 +225,9 @@ pub enum CoarseKrylov {
     Gcr {
         k: usize,
     },
-    /// MINRES on the Γ5-Hermitian form H = Γ5 (Γ5 A Γ5) with the block |H_xx|⁻¹: only for
-    /// the second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for
-    /// Möbius domain-wall fermions holds approximately. The other solvers take that factor
-    /// on the exact adjoint of the stored matrix.
+    /// MINRES on the Γ5-Hermitian form H = Γ5 (Γ5 A Γ5) with the block |H_xx|⁻¹: only for the
+    /// second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for Möbius
+    /// domain-wall fermions holds approximately.
     Minres,
 }
 
@@ -297,10 +296,8 @@ impl Default for PvEoParams {
     }
 }
 
-/// The operator of a cycle (`PvEoCycle::operator`), shared with the solver the cycle
-/// preconditions, so that the two do not each hold its work fields. The solver and the
-/// cycle apply it one after the other, never inside each other, which the `RefCell`
-/// checks.
+/// The operator of a cycle (`PvEoCycle::operator`), shared with the solver the cycle preconditions,
+/// so that the two do not each hold its work fields.
 pub struct SharedOperator<'a, G: GammaRepre = Dirac, L: MdwfLayout<f64> = Aos>(
     Rc<RefCell<PvEvenOdd<'a, f64, G, L>>>,
 );
@@ -400,15 +397,8 @@ where
     }
 }
 
-/// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of
-/// a flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator. `op` and `pv`
-/// are the plain operators (α = 1) the basis and the coarse factors are built from;
-/// `op_a` and `pv_a` may carry Neff's α (it matters only in the left form). The coarse
-/// operators and solves are stored as `CT`: single precision by default, enough for
-/// solves to 1e-2 and half the memory traffic of the bandwidth-limited coarse operator.
-/// The operator and the smoother may be in blocks of W sites (`L = Aosoa<W>`, SIMD;
-/// `in_blocks`), with the same operators in that layout; the coarse correction stays in
-/// the usual one.
+/// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of a
+/// flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator.
 pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32, L: CycleLayout = Aos> {
     op: &'a Mdwf<f64, G>,
     pv: &'a Mdwf<f64, G>,
@@ -598,10 +588,9 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         self.smoother.operator().clone()
     }
 
-    /// Add levels below the coarse lattice to the solves of the quark factor P†DP: a
-    /// V-cycle on super-blocks of `super_blocks[ℓ]` coarse sites per direction on level
-    /// ℓ + 2 (the last solved exactly), from test vectors on the coarse lattice
-    /// (`pv_eo_coarse_vectors`). Returns the coarse applications its setup took.
+    /// Add levels below the coarse lattice to the solves of the quark factor P†DP: a V-cycle on
+    /// super-blocks of `super_blocks[ℓ]` coarse sites per direction on level ℓ + 2 (the last solved
+    /// exactly), from test vectors on the coarse lattice (`pv_eo_coarse_vectors`).
     pub fn add_levels(
         &mut self,
         vectors: &[CoarseField],
@@ -917,12 +906,10 @@ fn orthonormalise_all(x: &mut HalfField) {
     rotate(x, &c);
 }
 
-/// Approximate low modes of Ã (the right singular vectors of its smallest singular
-/// values, eigenvectors of Ã†Ã) for the basis: Chebyshev-filtered subspace iteration with
-/// Rayleigh-Ritz on `params.vectors` random vectors on the even sites, the degree following
-/// √(hi/lo) (at least 40), lo the largest Ritz value of the round before (hi/1000 at
-/// first). Returns the Ritz vectors, lowest first, and the Ritz values of Ã†Ã. One round
-/// costs 2 × degree applications of Ã per vector, plus two for the Rayleigh-Ritz step.
+/// Approximate low modes of Ã (the right singular vectors of its smallest singular values,
+/// eigenvectors of Ã†Ã) for the basis: Chebyshev-filtered subspace iteration with Rayleigh-Ritz on
+/// `params.vectors` random vectors on the even sites, the degree following √(hi/lo) (at least 40),
+/// lo the largest Ritz value of the round before (hi/1000 at first).
 pub fn pv_eo_low_modes<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
@@ -1005,11 +992,9 @@ impl Default for BootstrapParams {
     }
 }
 
-/// Improve the test vectors y with the multigrid built on them: every round, the basis and
-/// the cycle (right form) from the current y, then y_j ← (`steps` steps of FGMRES on
-/// Ã x = y_j preconditioned by the cycle), one vector at a time, and y orthonormalised.
-/// Inverse subspace iteration with the multigrid as the approximate inverse. Returns the
-/// basis built from the final y.
+/// Improve the test vectors y with the multigrid built on them: every round, the basis and the
+/// cycle (right form) from the current y, then y_j ← (`steps` steps of FGMRES on Ã x = y_j
+/// preconditioned by the cycle), one vector at a time, and y orthonormalised.
 pub fn pv_eo_bootstrap<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,

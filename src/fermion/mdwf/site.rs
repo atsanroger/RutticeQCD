@@ -65,10 +65,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         fifth_hop::<L::Num, G>(s, ls, dagger, mass, &above, &below)
     }
 
-    /// `out_s = Σ_k a_k x_k,s + Σ_k y_k (Y x_k)_s` for the spinors of every site and vector:
-    /// each `(field, a, y)` of `terms` contributes its spinor times `a` and its hop in the
-    /// fifth dimension (Y, or Y† if `dagger`) times `y`. With `reflect`, the result at s is
-    /// γ5 times what would be at Ls-1-s: Γ5 applied last. Y is taken at mass `mass`.
+    /// `out_s = Σ_k a_k x_k,s + Σ_k y_k (Y x_k)_s` for the spinors of every site and vector: each
+    /// `(field, a, y)` of `terms` contributes its spinor times `a` and its hop in the fifth
+    /// dimension (Y, or Y† if `dagger`) times `y`.
     pub(super) fn combine<S: Sites>(
         &self,
         out: &mut Field<T, Spinor, S, L>,
@@ -160,10 +159,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
 
     /// C⁻¹ (C†⁻¹ with `dagger`) of the plain operator on the `ls` spinors of one vector at
     /// one site, in place: for a result that is in the cache, in the pass that made it.
-    ///
-    /// One chirality at a time. Its part of each spinor is replaced by the solution as the
-    /// substitution reaches it and the other part is left where it is, so the second
-    /// chirality still finds its right-hand side.
     #[inline(always)]
     pub(super) fn site_inv_in_place(
         k: &Substitution<L::Num>,
@@ -239,11 +234,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     }
 
     /// `out = C^-1 inp`, or `C†^-1 inp`, exactly.
-    ///
-    /// For one chirality C is `d+` on the diagonal, `-d-` next to it on one side and
-    /// `m d-` in the far corner. Substitution along s gives every x_s as a known part plus
-    /// a multiple of the x at the wall the corner refers to; the corner row then fixes
-    /// that one. P+ runs upward in s and P- downward; for C† they change places.
     pub fn mult_site_inv<S: Sites>(
         &self,
         out: &mut Field<T, Spinor, S, L>,

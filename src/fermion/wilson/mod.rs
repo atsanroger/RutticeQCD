@@ -1,36 +1,9 @@
 //! Wilson fermions.
 //!
-//! D ψ(x) = ψ(x) - κ Σ_mu [ (1 - γ_mu) U_mu(x) ψ(x + mu) + (1 + γ_mu) U_mu(x - mu)^† ψ(x - mu) ]
-//!
-//! Provides: `mult` (fused, one sweep) for D, D† and γ5 D; the hopping terms one direction
-//! at a time; the even-odd blocks (the site-diagonal blocks are the identity).
-//!
-//! The sweep is generic over the site-diagonal block (`DiagTerm`), so fermions that differ
-//! from Wilson only within a site (clover) reuse everything here.
-//! With several processes, a sweep first exchanges the faces of the input: projected half
-//! spinors, with the link already applied on the side that holds it. While the exchange
-//! is under way the sweep computes the sites that need nothing from it, and the others
-//! after it has finished (`overlapped`). Two things make that worth doing: a thread of its
-//! own waits for the exchange, since nothing travels unless somebody is inside the
-//! communication library; and the two parts are lists of runs of sites (`SiteRuns`), not a
-//! flag tested in two passes over all sites, which was slower than not overlapping.
-//!
-//! For fields in blocks of W sites (`Aosoa<W>`, the SIMD layout) there is a second sweep,
-//! over blocks (`sweep_blocks.rs`; the sweep over sites is in `sweep_sites.rs`, what they
-//! share in `sweep.rs`): the same kernel functions with a lane type in place of a real number. It covers what the sweep over sites covers except the single hopping
-//! terms and the two-row links. On several processes it fills and reads the same face
-//! buffers, one site at a time.
-//!
-//! Files: this one has the operator and its layouts; `site.rs` the site-diagonal block;
-//! `lexical.rs` the operator on the whole lattice; `even_odd.rs` its even-odd blocks;
-//! `sweep*.rs` the sweep of the hopping term, which those are made of and which clover and
-//! domain-wall fermions are built on.
-//!
-//! Solvers: CG on the normal equations, BiCGStab on D, either with even-odd
-//! preconditioning. Tools needed: none.
-//!
-//! The normalisation (hopping parameter κ, unit diagonal) and the placement of the boundary
-//! phase follow Bridge++ so that results can be compared. Written from the formula above.
+//! Two things make that worth doing: a thread of its own waits for the exchange, since nothing
+//! travels unless somebody is inside the communication library; and the two parts are lists of runs
+//! of sites (`SiteRuns`), not a flag tested in two passes over all sites, which was slower than not
+//! overlapping.
 
 use super::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use crate::kernel::{
@@ -92,10 +65,6 @@ impl<T: Storage> WilsonWork<T> {
 
 /// An operator of Wilson type: the Wilson hopping term plus a site-diagonal block `D`.
 /// `Wilson` and `Clover` are this with different blocks.
-///
-/// `L` is the layout of the fields it acts on. The geometry and the operator's copy of the
-/// links depend on it and are kept in `state`; the arithmetic of a leg (`kernel::project`,
-/// `transport_half`, `sink_spinor`) is the same code for every layout.
 pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T> = Aos> {
     params: WilsonParams,
     lat: Arc<Lattice>,

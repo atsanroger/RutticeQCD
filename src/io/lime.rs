@@ -1,26 +1,5 @@
 //! Gauge configurations in a LIME container: the ILDG format and the lattice-colour-matrix
 //! records of the SciDAC QIO library.
-//!
-//! A LIME file is a sequence of records. Each has a header of 144 bytes (a magic number, a
-//! version, two flags that mark the first and the last record of a message, the length of
-//! the data as a 64-bit integer, and the name of the record type in 128 bytes), followed
-//! by the data, padded with zeros to a multiple of eight bytes. All integers are
-//! big-endian.
-//!
-//! The records used here:
-//!
-//! - `ildg-format`: XML with the field type, the precision (32 or 64) and the extents
-//! - `ildg-binary-data` or `scidac-binary-data`: the links as big-endian IEEE reals, the
-//!   site outermost with x running fastest, then the direction, then the matrix row by row
-//! - `scidac-private-file-xml`, `scidac-private-record-xml`: what QIO needs to read the
-//!   file back, among it the extents, the precision (F or D) and the size of a site
-//! - `scidac-checksum`: two 32-bit sums over the sites; for each site the CRC-32 of its
-//!   bytes, rotated left by the site's number modulo 29 for the first sum and modulo 31
-//!   for the second, combined with exclusive or
-//!
-//! Written from the descriptions of the formats (the ILDG file-format specification, the
-//! c-lime and QIO documentation). No file written by another program has been read with
-//! this yet, and no other program has read a file written here.
 
 use super::{write_on_root, FilePrecision, IoError, LINK_REALS};
 use crate::{Field, Gauge, Lattice, ND};
@@ -255,8 +234,6 @@ fn layout(file: &mut (impl Read + Seek), records: &[Record]) -> Result<Layout, I
 
 /// Read a gauge configuration from a LIME file: ILDG, or a lattice-colour-matrix record
 /// written by QIO. The checksum is verified if the file has one.
-///
-/// With several processes, each reads the lines of the lattice it holds a part of.
 pub fn read_lime(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
     let mut file = BufReader::new(File::open(path)?);
     let records = records(&mut file)?;

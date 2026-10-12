@@ -93,16 +93,6 @@ impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for Schur<'_, F, H> {
 type HalfField<T, K, L> = Field<T, K, Half, L, Cpu>;
 
 /// Solve `M x = b` on the full lattice through the Schur complement on the even sites:
-///
-/// 1. `b' = b_e - M_eo M_oo^{-1} b_o`
-/// 2. `S x_e = b'`, done by `solve`
-/// 3. `x_o = M_oo^{-1} (b_o - M_oe x_e)`
-///
-/// `solve` receives the Schur complement, the unknown (zero on entry) and the right-hand
-/// side, and may use any solver. Its result is passed through.
-///
-/// `index` is the decomposition the operator uses (its `even_odd_index`): of the lattice
-/// for the usual layout, of the lattice of blocks for the SIMD layout.
 pub fn solve_even_odd<T, K, L, F, R, E>(
     op: &F,
     index: &EvenOddIndex,
@@ -162,11 +152,9 @@ where
     Ok(result)
 }
 
-/// An approximate inverse of the Schur complement S on one parity from one of the whole
-/// operator: the block of M⁻¹ on that parity is exactly S⁻¹, so with an approximate inverse
-/// `inner` of M, `[inner (r ⊕ 0)]_p` approximates S⁻¹ r as well as `inner` approximates
-/// M⁻¹. This puts a preconditioner of the whole lattice (a multigrid cycle) under a solver
-/// on one parity (`solve_even_odd`).
+/// An approximate inverse of the Schur complement S on one parity from one of the whole operator:
+/// the block of M⁻¹ on that parity is exactly S⁻¹, so with an approximate inverse `inner` of M,
+/// `[inner (r ⊕ 0)]_p` approximates S⁻¹ r as well as `inner` approximates M⁻¹.
 pub struct OnParity<'m, T: Storage, K: Kind, L: Layout> {
     inner: &'m mut dyn LinearFn<Field<T, K, crate::Lexical, L>>,
     index: &'m EvenOddIndex,

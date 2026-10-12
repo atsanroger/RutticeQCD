@@ -1,9 +1,4 @@
 //! Krylov solvers and preconditioners.
-//!
-//! One file per Krylov solver here (`bicgstab`, `cg`, `fgmres`, `gcr`, `minres`, and
-//! `multishift` for CG on several shifts at once), and `mixed` for solves in another
-//! precision; what a solver takes as its preconditioner is in `preconditioner`. The Krylov solvers know only `Vector` and `LinearFn`; nothing outside
-//! `preconditioner::multigrid` may refer to fermions or to the lattice.
 
 mod bicgstab;
 mod cg;

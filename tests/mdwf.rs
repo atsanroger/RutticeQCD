@@ -236,11 +236,8 @@ fn preconditioned_operator_has_its_adjoint() {
     );
 }
 
-/// Solving A y = X† b with BiCGStab and x = C^-1 y gives the solution of D x = b, checked
-/// with D itself. On the Bridge++ test configuration. Prints the iterations against CG on
-/// the normal equations of D (not asserted: here BiCGStab takes 496 iterations, 1984
-/// sweeps of the Wilson kernel, and CG 452 iterations, 904 sweeps; with the earlier
-/// A = (D_PV C_PV^-1)† C^-1 D BiCGStab took 443).
+/// Solving A y = X† b with BiCGStab and x = C^-1 y gives the solution of D x = b, checked with D
+/// itself.
 #[test]
 fn bicgstab_on_the_preconditioned_operator_solves_d() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
@@ -328,14 +325,6 @@ fn parts_add_up_to_the_operator() {
 
 /// The multigrid cycle as the preconditioner of BiCGStab on A: the solver converges and
 /// the solution solves D x = b. On the Bridge++ test configuration.
-///
-/// On this problem (4x4x4x8, Ls = 4, m = 0.1, aggregates of 2^4) BiCGStab with the cycle
-/// takes 71 (`RightPreconditioned`) and 62 (`Galerkin`) iterations; with the earlier
-/// A = (D_PV C_PV^-1)† C^-1 D it took between 356 and 488. Whether the cycle helps is not
-/// established by this: BiCGStab with a preconditioner that changes from one application
-/// to the next varies widely in its iteration count, and on a 12^4 configuration the
-/// coarse correction does not reduce a smooth error (the working log (branch `notes`)). The test
-/// checks that the pieces work together, not that they help.
 #[test]
 fn multigrid_cycle_runs_as_a_preconditioner() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
@@ -440,11 +429,8 @@ fn even_odd_blocks_of(lat: &Arc<Lattice>, op: &Mdwf<f64>) {
     }
 }
 
-/// Neff's form D^(α) = D Q (arXiv:2602.14454): it is D applied after Q, its adjoint is
-/// Q D†, Γ5 D^(α) = Γ5 D Q, and its site-local part C Q has the inverse Q⁻¹ C⁻¹. Q leaves
-/// the components the mass term sees (P- ψ_0 and P+ ψ_(Ls-1)) alone, so the 4D quark field
-/// of the solution is that of x = Q x^(α); checked without a γ5 convention through the
-/// mass dependence: D^(α)(m1) - D^(α)(m2) = D(m1) - D(m2).
+/// Neff's form D^(α) = D Q (arXiv:2602.14454): it is D applied after Q, its adjoint is Q D†, Γ5
+/// D^(α) = Γ5 D Q, and its site-local part C Q has the inverse Q⁻¹ C⁻¹.
 #[test]
 fn neff_alpha_form() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
@@ -1130,10 +1116,9 @@ fn even_odd_pv_multigrid_solves_d() {
         assert!(left[0] < 1e-16 * size[0]);
         assert!(info.iterations < unpreconditioned.iterations);
 
-        // A level below the coarse lattice (super-blocks of 2⁴ coarse sites, the
-        // 1 × 1 × 1 × 2 of them solved exactly) under the solves of the quark factor: the same
-        // solution in as many outer steps. (The coarse lattice here has 32 sites, too few
-        // for the levels to save coarse applications; on 16⁴ they save a quarter.)
+        // A level below the coarse lattice (super-blocks of 2⁴ coarse sites, the 1 × 1 × 1 × 2 of
+        // them solved exactly) under the solves of the quark factor: the same solution in as many
+        // outer steps.
         let mut two =
             PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
         let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y);
@@ -1157,11 +1142,10 @@ fn even_odd_pv_multigrid_solves_d() {
     }
 }
 
-/// The even-odd Pauli-Villars multigrid split over processes (threads standing in for
-/// them): the coarse operator and its exact adjoint agree with the ones on one process,
-/// and GCR(2) with the cycle, with and without a level below the coarse lattice, gives the
-/// same solution in as many steps. The grids leave one or two coarse sites per process in
-/// the split directions, so every coarse hop there crosses to another process.
+/// The even-odd Pauli-Villars multigrid split over processes (threads standing in for them): the
+/// coarse operator and its exact adjoint agree with the ones on one process, and GCR(2) with the
+/// cycle, with and without a level below the coarse lattice, gives the same solution in as many
+/// steps.
 #[test]
 fn even_odd_pv_multigrid_on_several_processes() {
     let global = [4, 4, 4, 8];
@@ -1390,11 +1374,10 @@ fn coarse_operator_exact_adjoint() {
     );
 }
 
-/// CGNE with Neff's α and the multigrid: the operator is the normal operator
-/// N = L^(α)† L^(α) of the left-preconditioned Schur complement (`PvEvenOdd` with the quark
-/// operator in place of the Pauli-Villars one), whose inverse the cycle approximates with
-/// the second coarse factor P†D†P solved on the exact adjoint. GCR(2) with the cycle
-/// solves D x = b in fewer steps than CG without it.
+/// CGNE with Neff's α and the multigrid: the operator is the normal operator N = L^(α)† L^(α) of
+/// the left-preconditioned Schur complement (`PvEvenOdd` with the quark operator in place of the
+/// Pauli-Villars one), whose inverse the cycle approximates with the second coarse factor P†D†P
+/// solved on the exact adjoint.
 #[test]
 fn cgne_with_alpha_and_the_multigrid() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1570,10 +1553,9 @@ fn four_dimensional_propagator_is_gamma5_hermitian_and_alpha_free() {
 }
 
 /// `expected_result` of the Bridge++ test `Spectrum_Domainwall_Hadron2ptFunction`
-/// (tests/ParameterFiles/Spectrum/test_Spectrum_Domainwall_Hadron2ptFunction.yaml): the real
-/// part of the pseudoscalar correlator at t = 0 for a point source at the origin, Shamir's
-/// operator (b = 1, c = 0), M0 = 1.6, m = 0.1, Ls = 8, antiperiodic in time. The source is
-/// D₋ (P+ η at s = 0, P- η at s = Ls-1), the propagator P- ψ_0 + P+ ψ_(Ls-1), as there.
+/// (tests/ParameterFiles/Spectrum/test_Spectrum_Domainwall_Hadron2ptFunction.yaml): the real part
+/// of the pseudoscalar correlator at t = 0 for a point source at the origin, Shamir's operator (b =
+/// 1, c = 0), M0 = 1.6, m = 0.1, Ls = 8, antiperiodic in time.
 const BRIDGE_DW_PION_T0: f64 = 0.434204939377926;
 
 #[test]

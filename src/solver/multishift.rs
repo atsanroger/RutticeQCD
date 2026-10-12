@@ -2,16 +2,6 @@
 //! A and σ_i ≥ 0 (or at least A + σ_i positive), all from the Krylov space of the first
 //! system, at the cost of one CG and a few vector updates per shift. The algorithm and its
 //! stopping rules are those of Bridge++'s `Shiftsolver_CG` (Jegerlehner's multi-shift CG):
-//!
-//! CG on (A + σ_0) x_0 = b with α_k = |r_k|²/⟨p_k, (A + σ_0) p_k⟩, β_k = |r_(k+1)|²/|r_k|²;
-//! the residual of shift i is ζ_i r with ζ_i from the three-term recurrence
-//! ζ_(k+1) = 1 / [(h_k + (σ_i − σ_0) α_k)/ζ_k + (1 − h_k)/ζ_(k−1)], h_k = 1 + β_(k−1) α_k/α_(k−1),
-//! and x_i += α_k (ζ_(k+1)/ζ_k) p_i, p_i ← β_k (ζ_(k+1)/ζ_k)² p_i + ζ_(k+1) r_(k+1).
-//!
-//! The iteration stops when the first system has |r|²/|b|² below the tolerance; a shift
-//! stops being updated once |p_i|²/|b|² is, which happens first for the largest shifts (their
-//! ζ falls fastest). Like Bridge++, shifts are dropped from the end of the list only, so the
-//! list should be in increasing order with the smallest (the slowest) first.
 
 use super::{SolveError, SolveInfo, Stop};
 use crate::{LinearFn, Vector, C64};

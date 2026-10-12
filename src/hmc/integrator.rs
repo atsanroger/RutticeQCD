@@ -1,11 +1,5 @@
 //! HMC with any actions on several time scales: Bridge++'s `HMC_General` with the integrators
 //! of its `Builder_Integrator`.
-//!
-//! The integrator has levels 0 … n−1: level ℓ makes `steps[ℓ]` steps of leapfrog or Omelyan
-//! over the time it is given, updating the momenta with the forces of the actions on level ℓ;
-//! its update of the links is the whole of level ℓ + 1 over the step (below the last level, the
-//! links themselves: U ← exp(ε iP) U). Level 0 runs over the trajectory length. The force of a
-//! level is kept until the links change, as Bridge++ does (two half steps in a row cost one).
 
 use super::{draw_momenta, exp_update, kinetic_energy, Links, Mseries, SmearingCache};
 use crate::gauge::plaquette;

@@ -13,9 +13,6 @@ pub const ND: usize = 4;
 
 /// A structured lattice. Sites are numbered lexicographically with x fastest:
 /// `site = x + Lx * (y + Ly * (z + Lz * t))`.
-///
-/// With several processes, each holds one equal box of the global lattice. Processes are
-/// numbered the same way as sites, by their position in the process grid.
 pub struct Lattice {
     /// Size on this process.
     pub local: [usize; ND],

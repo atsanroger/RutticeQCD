@@ -2,16 +2,6 @@
 //! flavour of Wilson-type fermions is det(D†D)^(1/2), the strange quark of 2 + 1 flavours.
 //! Bridge++'s `Action_F_Rational` with `Fopr_Rational` and `Force_F_Rational`:
 //!
-//! - S = φ† r_md(D†D) φ with r_md(x) ≈ x^(−a) (a = 1/2 for one flavour);
-//! - the heat bath φ = r_hb(D†D) ξ with r_hb(x) ≈ x^(a/2), ξ Gaussian, so that S = |ξ|² up to
-//!   the errors of the approximations; its energy is |ξ|²;
-//! - r(x) = a0 + Σ_k res_k/(x + pole_k) is applied by one multi-shift CG, x_k = (D†D +
-//!   pole_k)⁻¹ φ, r φ = a0 φ + Σ_k res_k x_k;
-//! - the force: δ(D†D + c)⁻¹ = −(D†D + c)⁻¹ δ(D†D) (D†D + c)⁻¹, so dS = −Σ_k res_k
-//!   x_k† δ(D†D) x_k = Σ_k res_k (−2 Re (D x_k)† δD x_k): the two-flavour force of each x_k
-//!   (`ForceOp::derivative`, with the clover term's part), weighted by its residue, summed,
-//!   and carried back through the smearing once.
-//!
 //! The coefficients are those of the minimax relative approximation (`RationalApprox`), on
 //! an interval [λ_min², λ_max²] that must hold the spectrum of D†D; Bridge++ gives the bounds
 //! λ of |D| and reads its coefficients from AlgRemez's files, which `RationalApprox::minimax`

@@ -1,20 +1,4 @@
 //! Aggregation-based algebraic multigrid for operators of Wilson type.
-//!
-//! The construction is the standard one (Babich et al., Phys. Rev. Lett. 105 (2010)
-//! 201602; Frommer et al., SIAM J. Sci. Comput. 36 (2014) A1581): the lattice is cut into
-//! blocks, each block is split by chirality into two aggregates, and a set of test vectors
-//! restricted to each aggregate and orthonormalised there forms the columns of the
-//! prolongation P. Restriction is P†, and the coarse operator is P† D P.
-//!
-//! Keeping the two chiralities apart makes P commute with γ5, so the coarse operator
-//! inherits γ5-hermiticity from the fine one.
-//!
-//! Files: what every multigrid here is made of (`aggregation`, `basis` for P, `coarse` for
-//! the coarse operator and its even-odd form, `levels` below the coarse lattice, `sap` the
-//! domain-decomposition smoother), and one file per kind of operator: `wilson` the two-level
-//! cycle for operators of Wilson type (Wilson, clover); `mdwf_even_odd` the multigrid for
-//! domain-wall fermions on the even sites (the one in use); `mdwf_lexical` the earlier one
-//! on the whole lattice.
 
 mod aggregation;
 mod basis;

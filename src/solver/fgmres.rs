@@ -6,13 +6,6 @@ use crate::numerics::HessenbergLsq;
 use crate::{LinearFn, Vector, C64};
 
 /// Restarted flexible GMRES with right preconditioning.
-///
-/// `stop.max_iterations` is the size of the Krylov space built before a restart, and so
-/// also sets the memory: that many vectors plus one, and as many again when a
-/// preconditioner is used. `stop.max_restarts` is the number of restarts allowed.
-///
-/// Every vector of a multi-vector is an independent system with its own small
-/// least-squares problem; the Arnoldi process runs on all of them together.
 pub struct Fgmres<V> {
     pub stop: Stop,
     work: Option<Work<V>>,

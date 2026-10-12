@@ -1,24 +1,10 @@
 //! Chebyshev polynomials of an operator: a low-pass filter for making multigrid test
 //! vectors, and Chebyshev iteration as a fixed smoother (the design notes, §7.6.5 (b), (c)).
-//!
-//! Both are fixed polynomials of the operator, the same linear map on every application,
-//! which is what BiCGStab expects of a preconditioner. Both work on any `LinearFn` and
-//! know nothing about fermions.
 
 use crate::{fit, LinearFn, Vector, C64};
 
 /// `out = T_n(ℓ(H)) inp` with `ℓ(x) = (2x - (hi + lo)) / (hi - lo)`, for a Hermitian H whose
 /// spectrum lies in `[0, hi]`.
-///
-/// ℓ maps `[lo, hi]` onto `[-1, 1]`, where `|T_n| ≤ 1`; an eigenvalue `x < lo` has
-/// `|ℓ(x)| > 1` and is multiplied by `cosh(n acosh |ℓ(x)|)`. So the filter keeps the modes
-/// of H below `lo` and suppresses the rest: applied to random vectors it gives vectors
-/// rich in the low modes, the near-null space a multigrid coarse space needs.
-///
-/// The same filter as Bridge++ `AFopr_Chebyshev` (`degree_of_polynomial`,
-/// `threshold_value`, `upper_bound`) and Grid `Chebyshev`, by the three-term recurrence
-/// `T_{k+1} = 2 ℓ T_k - T_{k-1}`. One application costs `degree` applications of H.
-/// The output is not normalised; it grows like the amplification of the lowest mode.
 pub struct ChebyshevFilter<H, V> {
     h: H,
     degree: usize,
@@ -79,21 +65,9 @@ impl<H: LinearFn<V>, V: Vector> LinearFn<V> for ChebyshevFilter<H, V> {
 /// spectrum lies in an ellipse with real foci `lo` and `hi`, `0 < lo < hi`: a fixed
 /// polynomial approximation of `A^-1` that is best, in the minimax sense, on that ellipse.
 ///
-/// Manteuffel (1977); Saad, *Iterative Methods for Sparse Linear Systems*, Algorithm 12.1,
-/// with centre θ = (hi + lo)/2 and half focal distance δ = (hi - lo)/2:
-/// `σ = θ/δ`, `ρ_0 = 1/σ`, `d_0 = r_0/θ`; every step `x += d`, `r -= A d`,
-/// `ρ' = 1/(2σ - ρ)`, `d = ρ' ρ d + (2ρ'/δ) r`.
-///
-/// As a multigrid smoother `[lo, hi]` covers only the upper part of the spectrum, for
-/// example `[hi/ratio, hi]` with hi a little above `|λ_max|`: the polynomial is small there
-/// and does not try to resolve the low modes, which are the coarse grid's. For a
-/// non-Hermitian A with eigenvalues off the real axis the ellipse through `[lo, hi]` must
-/// still enclose the part of the spectrum to be damped; Bridge++ and Grid have only the
-/// Hermitian, real-interval version, so this one follows the textbook, not a reference
-/// code.
-///
-/// Keeps three work vectors besides the output; one application costs `steps`
-/// applications of A.
+/// For a non-Hermitian A with eigenvalues off the real axis the ellipse through `[lo, hi]` must
+/// still enclose the part of the spectrum to be damped; Bridge++ and Grid have only the Hermitian,
+/// real-interval version, so this one follows the textbook, not a reference code.
 pub struct Chebyshev<A, V> {
     a: A,
     steps: usize,

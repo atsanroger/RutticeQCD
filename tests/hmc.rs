@@ -96,10 +96,9 @@ fn first_trajectories_are_those_of_bridge() {
     assert!(close(h, 331541.78146248, 2e-7));
 }
 
-/// The Bridge++ test `test_HMC_Quenched_Leapfrog` (its configuration `conf_04040408.txt`,
-/// plaquette action β = 6.0, 10 leapfrog steps of 0.01, M-series numbers from trajectory
-/// number 200000, one trajectory): the plaquette after it, 0.623852461953823. Skipped
-/// without the configuration.
+/// The Bridge++ test `test_HMC_Quenched_Leapfrog` (its configuration `conf_04040408.txt`, plaquette
+/// action β = 6.0, 10 leapfrog steps of 0.01, M-series numbers from trajectory number 200000, one
+/// trajectory): the plaquette after it, 0.623852461953823.
 #[test]
 fn bridge_test_quenched_leapfrog() {
     let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
@@ -245,11 +244,8 @@ fn bridge_test_clover_nf2_stout() {
     );
 }
 
-/// Bridge++'s domain-wall HMC tests on conf_04040408: Shamir's operator (b = 1, c = 0),
-/// M0 = 1.6, m = 0.1, Ls = 8, on links smeared twice (stout, ρ = 0.1), with the rectangle
-/// gauge action. `pv`: the ratio over Pauli-Villars fields (`Action_F_Ratio_lex`) on the
-/// outer level of two of Omelyan with 5 and 4 steps, the gauge action inside; otherwise two
-/// flavours on one level of leapfrog with 5 steps.
+/// Bridge++'s domain-wall HMC tests on conf_04040408: Shamir's operator (b = 1, c = 0), M0 = 1.6, m
+/// = 0.1, Ls = 8, on links smeared twice (stout, ρ = 0.1), with the rectangle gauge action.
 fn bridge_domain_wall(expected: f64, pv: bool) {
     use ruttice::fermion::{Mdwf, MdwfParams};
     use ruttice::gauge::smearing::Stout;
@@ -369,15 +365,12 @@ fn tiled_8888(path: &std::path::Path) -> ruttice::Field<f64, ruttice::Gauge> {
 }
 
 /// Bridge++'s Wilson HMC tests of its alternative code (`test_alt_hmc`, the parameter files
-/// `test_HMC_Wilson_Nf2_alt*.yaml`) on conf_04040408 repeated over 8⁴: κ = 0.12, antiperiodic
-/// in time, the rectangle gauge action at β = 2.3, one level of leapfrog with 5 steps over
-/// 0.1, the M-series numbers of trajectory 200000, the fermion links smeared `steps` times
-/// (stout, ρ = 0.1). `even_odd`: `Action_F_alt_Standard_eo`, the pseudofermions on the even
-/// sites (`TwoFlavorEo`); otherwise `Action_F_alt_Standard_lex` (`TwoFlavor`). The plaquette
-/// after one trajectory against `expected_result`, to Bridge++'s relative 1e-11 (its solves
-/// are BiCGStab, ours CG, both to |r|²/|b|² < 1e-28); with the initial guess (`guess` > 0)
-/// the solves round differently, and the plaquette must agree to 1e-9. Returns the CG
-/// iterations of the force solves and the seconds of the trajectory.
+/// `test_HMC_Wilson_Nf2_alt*.yaml`) on conf_04040408 repeated over 8⁴: κ = 0.12, antiperiodic in
+/// time, the rectangle gauge action at β = 2.3, one level of leapfrog with 5 steps over 0.1, the
+/// M-series numbers of trajectory 200000, the fermion links smeared `steps` times (stout, ρ = 0.1).
+/// The plaquette after one trajectory against `expected_result`, to Bridge++'s relative 1e-11 (its
+/// solves are BiCGStab, ours CG, both to |r|²/|b|² < 1e-28); with the initial guess (`guess` > 0)
+/// the solves round differently, and the plaquette must agree to 1e-9.
 fn bridge_alt_wilson(
     expected: Option<f64>,
     steps: usize,
@@ -516,11 +509,9 @@ fn bridge_test_wilson_nf2_alt_eo_nosmr_8888() {
 }
 
 /// What even-odd preconditioning and the chronological guess save on one trajectory of
-/// `test_HMC_Wilson_Nf2_alt_eo` (8⁴, two stout steps; six force solves): the CG iterations
-/// of the force solves of the whole-lattice and of the even-odd action, each from zero and
-/// with the guess from the last four solutions. A CG iteration on the Schur complement costs
-/// about what one on the whole lattice does (two applications of D or of Ŝ, each of the
-/// latter two half-lattice hops).
+/// `test_HMC_Wilson_Nf2_alt_eo` (8⁴, two stout steps; six force solves): the CG iterations of the
+/// force solves of the whole-lattice and of the even-odd action, each from zero and with the guess
+/// from the last four solutions.
 #[test]
 fn even_odd_and_guess_save_iterations() {
     let e = Some(0.624921816342905);
@@ -551,18 +542,8 @@ fn bridge_test_domain_wall_nf2_pv() {
     bridge_domain_wall(0.62754640357188, true);
 }
 
-/// `test_HMC_Clover_RHMC_Nf2p1`: 2 + 1 flavours of clover fermions (c_SW = 1, Dirac γ
-/// matrices, antiperiodic in time) on links smeared twice (stout, ρ = 0.1), with the rectangle
-/// gauge action. The light pair is Hasenbusch's: det(D_0.13)²/det(D_0.11)² as the ratio
-/// (`Action_F_Ratio_lex`) on level 0, det(D_0.11)² as two flavours on level 1; the strange
-/// quark det(D†D_0.12)^(1/2) by RHMC on level 1: S = φ† r(D†D) φ, r ≈ x^(−1/2), φ = r'(D†D) ξ,
-/// r' ≈ x^(1/4), 16 poles on [0.01², 3.16227766²] (Bridge++'s `lower_bound`, `upper_bound`
-/// are those of |D|); the gauge action on level 2; leapfrog with [5, 2, 3] steps over 0.1.
-///
-/// The coefficients are read from Bridge++'s files when they are in the test directory, as
-/// Bridge++ does, and otherwise computed (`RationalApprox::minimax` gives the same numbers to
-/// 2e-16, `numerics::rational`'s tests). All solves to |r|²/|b|² < 1e-28: CG and multi-shift
-/// CG here, BiCGStab(L) and multi-shift CG in Bridge++.
+/// `test_HMC_Clover_RHMC_Nf2p1`: 2 + 1 flavours of clover fermions (c_SW = 1, Dirac γ matrices,
+/// antiperiodic in time) on links smeared twice (stout, ρ = 0.1), with the rectangle gauge action.
 #[test]
 fn bridge_test_clover_rhmc_nf2p1() {
     use ruttice::fermion::{Clover, CloverParams};

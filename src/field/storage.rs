@@ -12,12 +12,8 @@ pub trait Storage: Copy + Default + Send + Sync + 'static {
     /// `dst.copy_from_slice(src)` with stores that bypass the cache where the processor has
     /// them, an ordinary copy otherwise.
     ///
-    /// An ordinary store to memory that is not in the cache first reads the cache line it
-    /// writes to; a sweep that fills a large field so reads its whole output for nothing.
-    /// A store that bypasses the cache writes the line without reading it, and leaves it
-    /// out of the cache, so it only pays for data that is not read again soon. `dst`
-    /// should cover whole cache lines. After the last call of a task, `stream_fence` must
-    /// be called before other threads may read the data.
+    /// After the last call of a task, `stream_fence` must be called before other threads may read
+    /// the data.
     #[inline(always)]
     fn stream(dst: &mut [Self], src: &[Self]) {
         dst.copy_from_slice(src);

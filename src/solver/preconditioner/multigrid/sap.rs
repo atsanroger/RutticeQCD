@@ -18,20 +18,6 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 
 /// Schwarz alternating procedure: an approximate inverse of D built from the inverses of D
 /// restricted to blocks (Lüscher, Comput. Phys. Commun. 156 (2004) 209).
-///
-/// The blocks are coloured like a checkerboard by their position in the block lattice. One
-/// cycle solves the block systems of one colour against the current residual, updates the
-/// solution and the residual, then does the same for the other colour. The block systems
-/// are solved approximately by a fixed number of minimal-residual steps; D restricted to a
-/// block drops every hop that leaves the block.
-///
-/// The number of cycles and of block steps are fixed, but the minimal-residual
-/// coefficients depend on the residual, so the result is not a linear function of the
-/// right-hand side: use it inside flexible Krylov solvers (FGMRES) and as the smoother of a
-/// multigrid cycle. Starts from zero; `mult(x, b)` returns the approximation to D^{-1} b.
-/// Every vector of a multi-vector is treated independently.
-///
-/// The parameters follow the smoother of the Bridge++ multigrid solver (`ASolver_SAP`).
 pub struct Sap<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> {
     op: &'a F,
     work: F::Work,
