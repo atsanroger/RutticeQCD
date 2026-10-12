@@ -31,7 +31,7 @@ Everything it computes is checked number by number against
 
 ## Quick start
 
-You need a stable Rust toolchain and a gauge configuration.
+You need a stable Rust toolchain.
 
 ```bash
 git clone https://github.com/atsanroger/RutticeQCD.git
@@ -39,13 +39,11 @@ cd RutticeQCD
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-Put a configuration next to a parameter file and run it. `run/` is ignored by git:
+Run an example. It reads `examples/conf_04040408.txt`, the 4³ × 8 test configuration of
+Bridge++, which comes with the repository:
 
 ```bash
-mkdir -p run
-cp examples/wilson_pion.yaml run/
-cp /path/to/your_gauge_file run/
-target/release/ruttice run/wilson_pion.yaml
+target/release/ruttice examples/wilson_pion.yaml
 ```
 
 ```text
@@ -72,6 +70,9 @@ Start from an example; each one is commented.
 | [mdwf_pv_eo_mg.yaml](examples/mdwf_pv_eo_mg.yaml) | domain-wall fermions with the multigrid |
 | [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
 | [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavours of clover fermions (RHMC) |
+
+All of them run as they are on the configuration in `examples/`, except the domain-wall
+multigrid, which wants a 12⁴ configuration of your own (`Gauge.config_filename_input`).
 
 [docs/USAGE.md](docs/USAGE.md) has every section of the file.
 
