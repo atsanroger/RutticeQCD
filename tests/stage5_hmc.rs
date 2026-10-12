@@ -361,3 +361,117 @@ fn bridge_test_domain_wall_nf2() {
 fn bridge_test_domain_wall_nf2_pv() {
     bridge_domain_wall(0.62754640357188, true);
 }
+
+/// `test_HMC_Clover_RHMC_Nf2p1`: 2 + 1 flavours of clover fermions (c_SW = 1, Dirac γ
+/// matrices, antiperiodic in time) on links smeared twice (stout, ρ = 0.1), with the rectangle
+/// gauge action. The light pair is Hasenbusch's: det(D_0.13)²/det(D_0.11)² as the ratio
+/// (`Action_F_Ratio_lex`) on level 0, det(D_0.11)² as two flavours on level 1; the strange
+/// quark det(D†D_0.12)^(1/2) by RHMC on level 1: S = φ† r(D†D) φ, r ≈ x^(−1/2), φ = r'(D†D) ξ,
+/// r' ≈ x^(1/4), 16 poles on [0.01², 3.16227766²] (Bridge++'s `lower_bound`, `upper_bound`
+/// are those of |D|); the gauge action on level 2; leapfrog with [5, 2, 3] steps over 0.1.
+///
+/// The coefficients are read from Bridge++'s files when they are in the test directory, as
+/// Bridge++ does, and otherwise computed (`RationalApprox::minimax` gives the same numbers to
+/// 2e-16, `numerics::rational`'s tests). All solves to |r|²/|b|² < 1e-28: CG and multi-shift
+/// CG here, BiCGStab(L) and multi-shift CG in Bridge++.
+#[test]
+fn bridge_test_clover_rhmc_nf2p1() {
+    use ruttice::fermion::{Clover, CloverParams};
+    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    use ruttice::hmc::{Hmc, Rational, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorRatio};
+    use ruttice::numerics::{RationalApprox, RationalSpec};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
+    let clover = |kappa: f64| {
+        Clover::<f64>::new(
+            &lat,
+            CloverParams {
+                kappa,
+                csw: 1.0,
+                boundary: [
+                    Boundary::Periodic,
+                    Boundary::Periodic,
+                    Boundary::Periodic,
+                    Boundary::Antiperiodic,
+                ],
+            },
+        )
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 1000,
+        max_restarts: 40,
+    };
+    let smearing = Some(GaugeSmearing {
+        smear: Smear::Stout(Stout::uniform(0.1)),
+        steps: 2,
+    });
+    let spec = RationalSpec {
+        poles: 16,
+        p: -1,
+        q: 2,
+        x_min: 1.0e-2 * 1.0e-2,
+        x_max: 3.16227766 * 3.16227766,
+    };
+    let coefficients = |spec: RationalSpec| match common::bridge_test_file(&spec.bridge_file_name())
+    {
+        Some(file) => {
+            eprintln!("coefficients from {}", file.display());
+            RationalApprox::read_bridge(&file, &spec).unwrap()
+        }
+        None => RationalApprox::minimax(&spec).unwrap(),
+    };
+    let (md, hb) = (coefficients(spec), coefficients(spec.with_power(1, 4)));
+    let ratio = TwoFlavorRatio::new(clover(0.13), clover(0.11), smearing, stop, stop)
+        .with_clover(0.13, 0.11);
+    let light = TwoFlavor::new(clover(0.11), smearing, stop, stop).with_clover(0.11);
+    let strange = Rational::new(clover(0.12), smearing, md, hb, stop, stop).with_clover(0.12);
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = Hmc::new(
+        vec![
+            Term {
+                level: 0,
+                action: Box::new(ratio),
+            },
+            Term {
+                level: 1,
+                action: Box::new(light),
+            },
+            Term {
+                level: 1,
+                action: Box::new(strange),
+            },
+            Term {
+                level: 2,
+                action: Box::new(gauge),
+            },
+        ],
+        Scheme::Leapfrog,
+        vec![5, 2, 3],
+        8,
+        0.1,
+    );
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}");
+    let expected = 0.627668186553629;
+    // Bridge++'s criterion (`Test::verify`): a relative difference of 1e-11.
+    assert!(
+        ((t.plaquette - expected) / expected).abs() < 1e-11,
+        "plaquette {:.15} against {expected}",
+        t.plaquette
+    );
+}

@@ -21,7 +21,7 @@ use crate::{for_sites, Field, Gauge, Normal, Spinor, Vector, C64, ND};
 use std::rc::Rc;
 
 /// A spinor field of one vector.
-type Psi = Field<f64, Spinor>;
+pub(super) type Psi = Field<f64, Spinor>;
 
 /// Σ_spin a(x) b(x)†, a colour matrix per site, accumulated into `m` times `k`; with
 /// several spinors per site (a fifth dimension), summed over them too.
@@ -210,9 +210,28 @@ impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
     }
 }
 
+/// M of −2 Re ζ† δD η for `op` on the links `v`, with the clover term's part when the operator
+/// has one (κ c_SW given).
+pub(super) fn full_derivative<O: ForceOp>(
+    op: &O,
+    clover: Option<f64>,
+    v: &Field<f64, Gauge>,
+    zeta: &Psi,
+    eta: &Psi,
+) -> Field<f64, Gauge> {
+    let mut m = op.derivative(zeta, eta);
+    if let Some(kc) = clover {
+        let c = clover_derivative(v, kc, zeta, eta);
+        for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
+            *a += b;
+        }
+    }
+    m
+}
+
 /// Gaussian numbers of variance ½ for every real of `xi`, drawn as Bridge++ draws them for a
 /// field with the spinors of a site's fifth dimension in its outer index.
-fn draw(xi: &mut Psi, rng: &mut Mseries) {
+pub(super) fn draw(xi: &mut Psi, rng: &mut Mseries) {
     let lat = xi.lattice().clone();
     let ls = xi.slab(0).len() / (24 * lat.num_sites());
     rng.gauss_lex_global(&lat, 24, ls, |s, x, h| {
@@ -350,14 +369,8 @@ impl<O: ForceOp> TwoFlavor<O> {
         let mut zeta = eta.zeros_like();
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut zeta, &eta, Variant::D);
-        let mut m = self.op.derivative(&zeta, &eta);
-        if let Some(kc) = self.clover {
-            let v = levels.last().unwrap_or(links.thin);
-            let c = clover_derivative(v, kc, &zeta, &eta);
-            for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
-                *a += b;
-            }
-        }
+        let v = levels.last().unwrap_or(links.thin);
+        let m = full_derivative(&self.op, self.clover, v, &zeta, &eta);
         smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
@@ -372,6 +385,8 @@ pub struct TwoFlavorRatio<O> {
     pub stop_md: Stop,
     pub stop_h: Stop,
     phi: Option<Psi>,
+    /// κ c_SW of the operator and of the denominator when they have a clover term.
+    clover: Option<(f64, f64)>,
 }
 
 impl<O: ForceOp> TwoFlavorRatio<O> {
@@ -383,7 +398,14 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             stop_md,
             stop_h,
             phi: None,
+            clover: None,
         }
+    }
+
+    /// Both operators have the clover term, with coefficients κ c_SW `op` and `pv`.
+    pub fn with_clover(mut self, op: f64, pv: f64) -> Self {
+        self.clover = Some((op, pv));
+        self
     }
 
     fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
@@ -452,9 +474,10 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         let v1 = self.v1();
         let v2 = Self::solve(&self.op, &v1, self.stop_md);
         let dv2 = Self::apply(&self.op, &v2, Variant::D);
-        let mut m = self.op.derivative(&dv2, &v2);
+        let v = levels.last().unwrap_or(links.thin);
+        let mut m = full_derivative(&self.op, self.clover.map(|c| c.0), v, &dv2, &v2);
         let g5phi = Self::gamma5(&self.pv, self.phi.as_ref().expect("drawn"));
-        let m_pv = self.pv.derivative(&g5phi, &v2);
+        let m_pv = full_derivative(&self.pv, self.clover.map(|c| c.1), v, &g5phi, &v2);
         for (a, b) in m.as_mut_slice().iter_mut().zip(m_pv.as_slice()) {
             *a -= b;
         }
