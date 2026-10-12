@@ -27,7 +27,7 @@ The sections of a file that solves for propagators:
 | Section | What it holds |
 |---|---|
 | `Main` | `lattice_size`; `grid_size` (processes per direction); `backend` (`cpu` or `simd`) and `simd_lanes` |
-| `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `ILDG`, `SciDAC`, `HDF5`) |
+| `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `Binary`, `ILDG`, `SciDAC`, `HDF5`) |
 | `GaugeFixing` | optional: `gauge_fixing_type : Coulomb` and its parameters |
 | `GaugeSmearing` | optional: stout or APE smearing of the links the fermions see |
 | `Fopr` | the fermion: `fermion_type` (`Wilson`, `Clover`, `Mobius`) and its parameters |
@@ -122,17 +122,18 @@ number.
 | `gauge_config_type_input` | File |
 |---|---|
 | `Text` | plain text with one real number per line, the format Bridge++ calls `Text` |
+| `Binary` | big-endian double precision reals without a header, the format Bridge++ calls `Binary` |
 | `ILDG` | the ILDG format: a LIME container with the records `ildg-format` and `ildg-binary-data` |
 | `SciDAC` | a lattice-colour-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
 | `HDF5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library |
 
-All four keep the numbers in the same order, from the outermost loop to the innermost:
+All five keep the numbers in the same order, from the outermost loop to the innermost:
 
 1. site, with x running fastest: `site = x + Lx * (y + Ly * (z + Lz * t))`
 2. direction mu = x, y, z, t
 3. the 3×3 link matrix row by row, real part then imaginary part of each entry
 
-A file of the wrong length or for another lattice is rejected. The binary formats hold
+A file of the wrong length or for another lattice is rejected. The LIME formats hold
 big-endian reals in single or double precision; `ILDG` and `SciDAC` are read by the same
 code, which accepts either kind of binary record and verifies the SciDAC checksum when the
 file has one.

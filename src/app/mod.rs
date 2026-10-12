@@ -23,7 +23,7 @@ use crate::fermion::{
     GaugeError, OnParity, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
 };
 use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
-use crate::io::{BridgeText, GaugeFile, Ildg, IoError, Scidac};
+use crate::io::{Binary, BridgeText, GaugeFile, Ildg, IoError, Scidac};
 use crate::kernel::{Dirac, GammaRepre, LaneOf, SPINOR_REALS};
 use crate::measure::{
     channel, exponential_source, meson_correlator, point_source, CHANNELS, NUM_SOURCES,

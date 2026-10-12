@@ -75,6 +75,8 @@ keyword_enum! {
     pub enum GaugeType {
         /// One real per line, the Bridge++ text format.
         Text => ["Text", "Bridge_text", "Text_4x4x4x8"],
+        /// Big-endian doubles without a header, the Bridge++ binary format.
+        Binary => ["Binary"],
         Ildg => ["ILDG"],
         /// A lattice-colour-matrix record of the SciDAC QIO library, in a LIME container.
         Scidac => ["SciDAC", "QIO"],
@@ -1451,6 +1453,7 @@ impl Params {
                 file: self.gauge.config_filename_input.clone(),
                 format: match self.gauge.gauge_config_type_input {
                     GaugeType::Text => GaugeFormat::BridgeText,
+                    GaugeType::Binary => GaugeFormat::Binary,
                     GaugeType::Ildg => GaugeFormat::Ildg,
                     GaugeType::Scidac => GaugeFormat::Scidac,
                     GaugeType::Hdf5 => GaugeFormat::Hdf5,
