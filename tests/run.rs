@@ -500,3 +500,70 @@ fn the_hmc_example_repeats_bridge() {
         Err(CliError::Invalid(_))
     ));
 }
+
+/// The HMC runner saves configurations on several processes (threads standing in for them):
+/// the files of a run on [1, 1, 2, 2] are the bytes of those of a run on one process, in the
+/// text format and in ILDG (whose date of writing is left out of the comparison).
+#[test]
+fn hmc_saves_configurations_on_several_processes() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    use ruttice::LocalComm;
+    let without_date = |path: &Path| {
+        let mut bytes = std::fs::read(path).unwrap();
+        let find = |b: &[u8], what: &[u8]| b.windows(what.len()).position(|w| w == what);
+        if let Some(open) = find(&bytes, b"<date>") {
+            let close = open + find(&bytes[open..], b"</date>").unwrap();
+            bytes[open..close].fill(b'-');
+        }
+        bytes
+    };
+    for (format, name) in [("bridge_text", "conf_{n}.txt"), ("ildg", "conf_{n}.lime")] {
+        let yaml = |grid: &str| {
+            format!(
+                "lattice: [4, 4, 4, 8]\n\
+                 process_grid: {grid}\n\
+                 start: {{type: cold}}\n\
+                 hmc:\n  trajectories: 2\n  first_trajectory: 100\n  trajectory_length: 0.5\n  \
+                 integrator: {{scheme: omelyan, steps: [5]}}\n  metropolis: false\n\
+                 actions:\n  - {{type: plaquette, beta: 5.5, level: 0}}\n\
+                 output: {{save_every: 1, file: \"{name}\", format: {format}}}\n"
+            )
+        };
+        let one = scratch(&format!("hmc_save_{format}_1"));
+        let config = HmcConfig::from_yaml(&yaml("[1, 1, 1, 1]")).unwrap();
+        let alone = run_on(
+            &config,
+            &one,
+            &mut Vec::new(),
+            std::sync::Arc::new(ruttice::SingleComm),
+        )
+        .unwrap();
+        // Without the Metropolis test every trajectory is kept: the links move away from the
+        // cold start, so the files hold more than unit matrices.
+        assert!(
+            alone.trajectories.iter().all(|t| t.3 < 0.999),
+            "{:?}",
+            alone.trajectories
+        );
+
+        let four = scratch(&format!("hmc_save_{format}_4"));
+        let config = HmcConfig::from_yaml(&yaml("[1, 1, 2, 2]")).unwrap();
+        let split = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+            run_on(&config, &four, &mut Vec::new(), lat.comm.clone()).unwrap()
+        });
+        for report in &split {
+            for (a, b) in report.trajectories.iter().zip(&alone.trajectories) {
+                assert_eq!((a.0, a.2), (b.0, b.2), "the same trajectories accepted");
+            }
+        }
+        for n in [101, 102] {
+            let file = name.replace("{n}", &format!("{n:06}"));
+            assert!(
+                without_date(&four.join(&file)) == without_date(&one.join(&file)),
+                "{file}: written on [1, 1, 2, 2] it differs from the one of one process"
+            );
+        }
+        let _ = std::fs::remove_dir_all(one);
+        let _ = std::fs::remove_dir_all(four);
+    }
+}
