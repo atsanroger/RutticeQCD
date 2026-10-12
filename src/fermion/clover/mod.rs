@@ -14,7 +14,7 @@
 //!
 //! Files: this one has the parameters and the operator, which is the Wilson operator with
 //! another site term; `site.rs` that term, the clover term and its inverse. There is no
-//! `full.rs` and no `even_odd.rs` here: the operator on the whole lattice and its even-odd
+//! `lexical.rs` and no `even_odd.rs` here: the operator on the whole lattice and its even-odd
 //! blocks are those of `wilson`, written for any site term.
 //! Solvers: as for Wilson. Tools needed: field strength (`gauge`), small dense
 //! inversion (`numerics`).

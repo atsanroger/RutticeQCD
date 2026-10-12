@@ -60,7 +60,7 @@
 //! dimension is the same code on numbers of W lanes.
 //!
 //! Files: this one has the operator, its layouts and constructors; `site.rs` what acts
-//! within a four-dimensional site, the fifth dimension (Q, Y, C and C⁻¹); `full.rs` the
+//! within a four-dimensional site, the fifth dimension (Q, Y, C and C⁻¹); `lexical.rs` the
 //! operator on the whole lattice (D at any mass, the parts for the multigrid,
 //! `PvPreconditioned`); `even_odd.rs` the even-odd blocks and `PvEvenOdd`; `quark_4d.rs` the
 //! five-dimensional source of a four-dimensional one and the four-dimensional quark fields
@@ -443,9 +443,9 @@ fn scratch<'w, T: Storage, L: Layout>(
 }
 
 mod even_odd;
-mod full;
+mod lexical;
 mod quark_4d;
 mod site;
 
 pub use even_odd::{EoForm, MdwfHalfWork, PvEvenOdd};
-pub use full::{MdwfAt, PvPreconditioned, SiteInverse};
+pub use lexical::{MdwfAt, PvPreconditioned, SiteInverse};

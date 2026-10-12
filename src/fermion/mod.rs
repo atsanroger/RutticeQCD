@@ -5,12 +5,13 @@
 //!
 //! - `mod.rs`: the operator, its parameters, what it is
 //! - `site.rs`: the part that acts within a site (the clover term; the fifth dimension)
-//! - `full.rs`: the operator on the whole lattice
+//! - `lexical.rs`: the operator on the whole lattice, its sites in lexical order (as opposed
+//!   to `even_odd.rs`; the parameter files call the two `Lexical`, or `Full`, and `Even_odd`)
 //! - `even_odd.rs`: its even-odd blocks, and operators made of them
 //!
 //! `wilson` also has the sweep of the hopping term (`sweep*.rs`), which the other two are
 //! built on: clover fermions are the Wilson operator with another site term (so `clover`
-//! has no `full.rs` and `even_odd.rs` of its own), domain-wall fermions wrap it as the
+//! has no `lexical.rs` and `even_odd.rs` of its own), domain-wall fermions wrap it as the
 //! kernel of a five-dimensional operator and add `quark_4d.rs`, the four-dimensional quark
 //! fields of the five-dimensional ones.
 
