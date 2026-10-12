@@ -1,5 +1,5 @@
-//! The sweep over sites of the usual layout, and what goes with it: the operator in that
-//! layout, its single hopping terms and even-odd blocks.
+//! The sweep over sites of the usual layout: the hopping term with the site-diagonal block,
+//! and one hopping term at a time. `full.rs` and `even_odd.rs` are made of it.
 
 use super::*;
 
@@ -322,7 +322,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         &R::of(&self.state.links)[mu * self.lat.num_sites() + full_site]
     }
 
-    fn check<SO: Sites, SI: Sites>(
+    pub(super) fn check<SO: Sites, SI: Sites>(
         &self,
         geo: &Geometry,
         out: &Field<T, Spinor, SO>,
@@ -343,7 +343,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// `out = B inp` site by site, where B is the diagonal block or its inverse. `full_site`
     /// gives the full-lattice index of each site of the fields.
-    fn site_block<S: Sites>(
+    pub(super) fn site_block<S: Sites>(
         &self,
         out: &mut Field<T, Spinor, S>,
         inp: &Field<T, Spinor, S>,
@@ -375,7 +375,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// geometries. The last arguments are (pre, post) and what is done to each site of the
     /// result after them.
     #[allow(clippy::too_many_arguments)]
-    fn sweep<SO: Sites, SI: Sites>(
+    pub(super) fn sweep<SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
         geo: &Geometry,
@@ -494,7 +494,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     }
 
     /// Add one hopping term to `out`. Shared by `hop_forward` and `hop_backward`.
-    fn hop_term(
+    pub(super) fn hop_term(
         &self,
         work: &mut WilsonWork<T>,
         mu: usize,
@@ -543,229 +543,5 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                 }
             }
         });
-    }
-}
-
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for WilsonOp<T, G, D> {
-    type Work = WilsonWork<T>;
-
-    /// The hopping term and the unit diagonal are counted as Bridge++ counts its Wilson
-    /// operator in the Dirac representation: `Nc Nd (4 + 6 (4 Nc + 2) + 2 (4 Nc + 1))`,
-    /// 1368 for three colours. Six of the eight legs have an off-diagonal gamma matrix
-    /// and two a diagonal one, which needs no additions to project.
-    fn flops_per_site(&self) -> usize {
-        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
-    }
-
-    fn work(&self) -> WilsonWork<T> {
-        WilsonWork::new()
-    }
-
-    fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        if u.num_sites() != self.lat.num_sites() || u.lattice().local != self.lat.local {
-            return Err(GaugeError::LatticeMismatch);
-        }
-        // Every link in the operator's precision, `[mu][site]` as in the gauge field.
-        let convert = |x: &f64| T::store(Number::from_f64(*x));
-        let stored: &[[f64; FULL_LINK_REALS]] = u.as_slice().as_chunks().0;
-        let links = match self.link_format {
-            LinkFormat::Full => LinkStore::Full(
-                stored
-                    .par_iter()
-                    .with_min_len(LINKS_PER_TASK)
-                    .map(|link| core::array::from_fn(|k| convert(&link[k])))
-                    .collect(),
-            ),
-            LinkFormat::TwoRows => {
-                let n = self.lat.num_sites();
-                for (i, link) in stored.iter().enumerate() {
-                    let deviation = su3_deviation(&ColorMatrix::from_reals(link));
-                    if deviation.is_nan() || deviation > SU3_TOLERANCE {
-                        return Err(GaugeError::NotSpecialUnitary {
-                            mu: i / n,
-                            site: i % n,
-                            deviation,
-                        });
-                    }
-                }
-                LinkStore::TwoRows(
-                    stored
-                        .par_iter()
-                        .with_min_len(LINKS_PER_TASK)
-                        .map(|link| core::array::from_fn(|k| convert(&link[k])))
-                        .collect(),
-                )
-            }
-        };
-        self.diag.set_gauge(&self.lat, u)?;
-        self.state.links = links;
-        Ok(())
-    }
-
-    fn mult(
-        &self,
-        work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
-        variant: Variant,
-    ) {
-        // γ5 applied to the input (pre) and to the result (post) of the same sweep.
-        let (pre, post) = match variant {
-            Variant::D => (Pre::Plain, Post::Plain),
-            Variant::Gamma5D => (Pre::Plain, Post::Gamma5),
-            Variant::Dagger => (Pre::Gamma5, Post::Gamma5),
-        };
-        self.sweep(
-            work,
-            &self.state.full,
-            out,
-            inp,
-            Diagonal::Present,
-            (pre, post),
-            None,
-        );
-    }
-}
-
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for WilsonOp<T, G, D> {
-    fn hop_forward(
-        &self,
-        work: &mut WilsonWork<T>,
-        mu: usize,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
-    ) {
-        self.hop_term(work, mu, Direction::Forward, out, inp);
-    }
-
-    fn hop_backward(
-        &self,
-        work: &mut WilsonWork<T>,
-        mu: usize,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
-    ) {
-        self.hop_term(work, mu, Direction::Backward, out, inp);
-    }
-
-    fn mult_diag(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
-    ) {
-        self.check(&self.state.full, out, inp);
-        let copies = inp.copies();
-        for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
-            let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
-            let term = self
-                .diag
-                .apply(i / copies, &load_spinor::<T>(stored_spinor(s)));
-            let sum = load_spinor::<T>(stored_spinor(o)).add(&term);
-            store_spinor::<T>(&sum, o);
-        });
-    }
-
-    fn mult_gamma5(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor>,
-        inp: &Field<T, Spinor>,
-    ) {
-        self.check(&self.state.full, out, inp);
-        for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
-            let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
-            store_spinor::<T>(&G::GAMMA5.apply(&load_spinor::<T>(stored_spinor(s))), o);
-        });
-    }
-
-    fn hop_coefficient(&self) -> f64 {
-        -self.params.kappa
-    }
-}
-
-/// With M = [[T_ee, M_eo], [M_oe, T_oo]], T the site-diagonal block and
-/// M_eo = -κ (hops from odd to even sites). M† = γ5 M γ5 and γ5 is site-diagonal, so the
-/// blocks of M† are γ5 (block of M) γ5; T is Hermitian and commutes with γ5.
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
-    for WilsonOp<T, G, D>
-{
-    type Work = WilsonWork<T>;
-
-    fn even_odd_work(&self) -> WilsonWork<T> {
-        WilsonWork::new()
-    }
-
-    fn hop(
-        &self,
-        work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
-        to: Parity,
-        dagger: Dagger,
-    ) {
-        let eo = self
-            .state
-            .even_odd
-            .as_ref()
-            .expect("Wilson: even-odd blocks need a lattice with even extents");
-        assert_eq!(out.parity(), to, "output field has the wrong parity");
-        assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
-        let g5 = dagger == Dagger::Yes;
-        self.sweep(
-            work,
-            &eo.to[to.index()],
-            out,
-            inp,
-            Diagonal::Absent,
-            (Pre::gamma5(g5), Post::gamma5(g5)),
-            None,
-        );
-    }
-
-    fn diag(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
-        parity: Parity,
-        _dagger: Dagger,
-    ) {
-        assert_eq!(inp.parity(), parity);
-        assert_eq!(out.parity(), parity);
-        if D::IS_UNIT {
-            out.copy_from(inp);
-        } else {
-            let eo = self
-                .state
-                .even_odd
-                .as_ref()
-                .expect("Wilson: even-odd needs even extents");
-            let geo = &eo.to[parity.index()];
-            self.site_block(out, inp, |h| geo.out_site(h), false);
-        }
-    }
-
-    fn diag_inv(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor, Half>,
-        inp: &Field<T, Spinor, Half>,
-        parity: Parity,
-        _dagger: Dagger,
-    ) {
-        assert_eq!(inp.parity(), parity);
-        assert_eq!(out.parity(), parity);
-        if D::IS_UNIT {
-            out.copy_from(inp);
-        } else {
-            let eo = self
-                .state
-                .even_odd
-                .as_ref()
-                .expect("Wilson: even-odd needs even extents");
-            let geo = &eo.to[parity.index()];
-            self.site_block(out, inp, |h| geo.out_site(h), true);
-        }
     }
 }

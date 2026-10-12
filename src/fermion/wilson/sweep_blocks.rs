@@ -5,10 +5,10 @@ use super::*;
 
 /// Which blocks a sweep writes, where their neighbours are, and how both map to the
 /// numbering of all blocks, which the links use. The counterpart of `Geometry`.
-struct BlockGeometry<const W: usize> {
+pub(super) struct BlockGeometry<const W: usize> {
     /// Distinguishes the geometries of one operator.
     id: usize,
-    stencil: BlockStencil<W>,
+    pub(super) stencil: BlockStencil<W>,
     /// Number among all blocks of each output block; `None` when the output is all blocks.
     out_full: Option<Vec<u32>>,
     /// The same for the blocks of the input.
@@ -60,7 +60,7 @@ impl<const W: usize> BlockGeometry<W> {
     }
 
     #[inline(always)]
-    fn out_block(&self, i: usize) -> usize {
+    pub(super) fn out_block(&self, i: usize) -> usize {
         self.out_full.as_ref().map_or(i, |m| m[i] as usize)
     }
 
@@ -79,7 +79,7 @@ struct BlockEvenOdd<const W: usize> {
 
 /// What the operator keeps for fields in blocks of `W` sites.
 pub struct BlockState<T: Storage, const W: usize> {
-    full: BlockGeometry<W>,
+    pub(super) full: BlockGeometry<W>,
     /// Present when every extent of the lattice of blocks is even: then all lanes of a
     /// block have the same parity, and a field on one parity is a field on half the blocks.
     even_odd: Option<BlockEvenOdd<W>>,
@@ -88,18 +88,18 @@ pub struct BlockState<T: Storage, const W: usize> {
     sites: Vec<[u32; W]>,
     /// `[mu * num_blocks + block]`: the link of every lane of the block. Empty until the
     /// gauge field is set.
-    links: Vec<BlockLink<T, W>>,
+    pub(super) links: Vec<BlockLink<T, W>>,
 }
 
 /// The stored reals of one spinor, and of one link, for the `W` lanes of a block.
 type BlockSpinor<T, const W: usize> = [[T; W]; SPINOR_REALS];
-type BlockLink<T, const W: usize> = [[T; W]; FULL_LINK_REALS];
+pub(super) type BlockLink<T, const W: usize> = [[T; W]; FULL_LINK_REALS];
 
 /// The lane type the sweep computes with.
 type LaneType<T, const W: usize> = <<T as Storage>::Compute as LaneOf<W>>::Lane;
 
 /// A field of spinors in blocks of `W` sites.
-type BlockField<T, S, const W: usize> = Field<T, Spinor, S, Aosoa<W>>;
+pub(super) type BlockField<T, S, const W: usize> = Field<T, Spinor, S, Aosoa<W>>;
 
 #[inline(always)]
 fn load_lanes<T: Storage, const W: usize>(s: &[T; W]) -> LaneType<T, W>
@@ -567,7 +567,7 @@ where
     /// `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`, block by block: `sweep`
     /// for fields in blocks.
     #[allow(clippy::too_many_arguments)]
-    fn block_sweep<SO: Sites, SI: Sites>(
+    pub(super) fn block_sweep<SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
         geo: &BlockGeometry<W>,
@@ -666,7 +666,7 @@ where
 
     /// `out = B inp` block by block, where B is the diagonal term or its inverse.
     /// `full_block` gives the number among all blocks of each block of the fields.
-    fn block_diag<S: Sites>(
+    pub(super) fn block_diag<S: Sites>(
         &self,
         out: &mut BlockField<T, S, W>,
         inp: &BlockField<T, S, W>,
@@ -685,149 +685,11 @@ where
         });
     }
 
-    fn parity_geometry(&self, parity: Parity) -> &BlockGeometry<W> {
+    pub(super) fn parity_geometry(&self, parity: Parity) -> &BlockGeometry<W> {
         let eo = self.state.even_odd.as_ref().expect(
             "Wilson: even-odd blocks need a lattice of blocks with even extents; \
              check `even_odd_index` first",
         );
         &eo.to[parity.index()]
-    }
-}
-
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> FermionOp<BlockField<T, Full, W>>
-    for WilsonOp<T, G, D, Aosoa<W>>
-where
-    T::Compute: LaneOf<W>,
-{
-    type Work = WilsonWork<T>;
-
-    fn work(&self) -> WilsonWork<T> {
-        WilsonWork::new()
-    }
-
-    fn flops_per_site(&self) -> usize {
-        NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
-    }
-
-    fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        if u.num_sites() != self.lat.num_sites() || u.lattice().local != self.lat.local {
-            return Err(GaugeError::LatticeMismatch);
-        }
-        let blocks = self.state.full.stencil.blocks();
-        let num_blocks = blocks.num_blocks();
-        // Filled by the threads of the pool, like the fields (`Cpu::alloc`).
-        let links = (0..ND * num_blocks)
-            .into_par_iter()
-            .with_min_len(LINKS_PER_TASK)
-            .map(|i| {
-                let (mu, block) = (i / num_blocks, i % num_blocks);
-                let mut link = [[T::default(); W]; FULL_LINK_REALS];
-                for lane in 0..W {
-                    let from = u.site(mu, blocks.site(block, lane));
-                    for c in 0..FULL_LINK_REALS {
-                        link[c][lane] = T::store(Number::from_f64(from[c]));
-                    }
-                }
-                link
-            })
-            .collect();
-        self.diag.set_gauge(&self.lat, u)?;
-        self.state.links = links;
-        Ok(())
-    }
-
-    fn mult(
-        &self,
-        work: &mut WilsonWork<T>,
-        out: &mut BlockField<T, Full, W>,
-        inp: &BlockField<T, Full, W>,
-        variant: Variant,
-    ) {
-        let gamma5 = match variant {
-            Variant::D => (Pre::Plain, Post::Plain),
-            Variant::Gamma5D => (Pre::Plain, Post::Gamma5),
-            Variant::Dagger => (Pre::Gamma5, Post::Gamma5),
-        };
-        self.block_sweep(
-            work,
-            &self.state.full,
-            out,
-            inp,
-            Diagonal::Present,
-            gamma5,
-            None,
-        );
-    }
-}
-
-/// The even-odd blocks for fields in blocks of sites; see the implementation for the usual
-/// layout above. A half field holds the blocks of one parity of the lattice of blocks.
-impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, const W: usize> EvenOdd<BlockField<T, Half, W>>
-    for WilsonOp<T, G, D, Aosoa<W>>
-where
-    T::Compute: LaneOf<W>,
-{
-    type Work = WilsonWork<T>;
-
-    fn even_odd_work(&self) -> WilsonWork<T> {
-        WilsonWork::new()
-    }
-
-    fn hop(
-        &self,
-        work: &mut WilsonWork<T>,
-        out: &mut BlockField<T, Half, W>,
-        inp: &BlockField<T, Half, W>,
-        to: Parity,
-        dagger: Dagger,
-    ) {
-        assert_eq!(out.parity(), to, "output field has the wrong parity");
-        assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
-        let g5 = dagger == Dagger::Yes;
-        self.block_sweep(
-            work,
-            self.parity_geometry(to),
-            out,
-            inp,
-            Diagonal::Absent,
-            (Pre::gamma5(g5), Post::gamma5(g5)),
-            None,
-        );
-    }
-
-    fn diag(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut BlockField<T, Half, W>,
-        inp: &BlockField<T, Half, W>,
-        parity: Parity,
-        _dagger: Dagger,
-    ) {
-        assert_eq!(inp.parity(), parity);
-        assert_eq!(out.parity(), parity);
-        if D::IS_UNIT {
-            out.copy_from(inp);
-        } else {
-            let geo = self.parity_geometry(parity);
-            self.block_diag(out, inp, |h| geo.out_block(h), false);
-        }
-    }
-
-    fn diag_inv(
-        &self,
-        _work: &mut WilsonWork<T>,
-        out: &mut BlockField<T, Half, W>,
-        inp: &BlockField<T, Half, W>,
-        parity: Parity,
-        _dagger: Dagger,
-    ) {
-        assert_eq!(inp.parity(), parity);
-        assert_eq!(out.parity(), parity);
-        if D::IS_UNIT {
-            out.copy_from(inp);
-        } else {
-            let geo = self.parity_geometry(parity);
-            self.block_diag(out, inp, |h| geo.out_block(h), true);
-        }
     }
 }
