@@ -3,9 +3,10 @@ use crate::fermion::HopTerms;
 use crate::kernel::{Cplx, Number, Real};
 use crate::numerics::invert_complex;
 use crate::{
-    for_sites, Boundary, Coarse, Direction, Field, HaloExchange, Lattice, LinearFn, LinearOp,
+    fit, for_sites, Boundary, Coarse, Direction, Field, HaloExchange, Lattice, LinearFn, LinearOp,
     Source, Spinor, Stencil, Storage, Vector, C64, FACES, ND,
 };
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The eight hopping directions, in the order the coarse links are stored (the order of the
@@ -31,6 +32,20 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 /// On several processes the coarse lattice is split like the fine one; the neighbours on
 /// other processes arrive by a halo exchange, and for the exact adjoint so do, once, the
 /// links of those neighbours.
+///
+/// Even-odd preconditioning. The hops join coarse sites of opposite parity (when every
+/// extent of the coarse lattice is even), so with D_c = [[A_ee, B_eo], [B_oe, A_oo]] a solve
+/// of D_c c = g is one of the Schur complement on the even sites,
+///
+///   S c_e = g_e − B_eo A_oo⁻¹ g_o,    S = A_ee − B_eo A_oo⁻¹ B_oe,
+///
+/// followed by c_o = A_oo⁻¹ (g_o − B_oe c_e) (`schur`, `schur_source`, `schur_solution`,
+/// after `prepare_even_odd`). One application of S is the work of one of D_c: the hops to
+/// the odd sites and the inverse there, then the diagonal block and the hops to the even
+/// sites. Its spectrum is that of the block-Jacobi preconditioned D_c folded once, 1 − (1 − λ)²,
+/// so a Krylov solver needs about half the iterations. The fields stay fields on the whole
+/// coarse lattice, zero on the odd sites: the vector operations are small beside the dense
+/// blocks. This is how Lüscher's deflation solves its little system (even-odd GCR).
 pub struct CoarseOp<T: Storage> {
     lat: Arc<Lattice>,
     stencil: Stencil,
@@ -52,6 +67,47 @@ pub struct CoarseOp<T: Storage> {
     /// The links B_dir(Y) of the neighbours Y on other processes, by the face they arrive
     /// on (the hop from here to Y), for `mult_adjoint`.
     ghost_links: OnceLock<[Vec<T>; FACES]>,
+    /// What the even-odd form needs (`prepare_even_odd`).
+    even_odd: Option<EvenOdd<T>>,
+}
+
+/// What the even-odd form of a coarse operator needs besides the operator.
+struct EvenOdd<T> {
+    /// Whether each coarse site is odd, by its coordinates on the global coarse lattice.
+    odd: Vec<bool>,
+    /// The inverses of the diagonal blocks, `[coarse site][row][column]`.
+    inverse: Vec<T>,
+}
+
+/// `acc += M v` for every vector: `m` a dim × dim block (row-major, re and im), the vectors'
+/// components in `(in_re, in_im)`. A plain multiply-add the compiler can vectorise; each row
+/// of the block is read once and used for all the vectors.
+#[inline(always)]
+fn add_block<T: Storage>(
+    dim: usize,
+    m: &[T],
+    (in_re, in_im): (&[T::Compute], &[T::Compute]),
+    (acc_re, acc_im): (&mut [T::Compute], &mut [T::Compute]),
+) {
+    let nv = in_re.len() / dim;
+    let zero = T::Compute::ZERO;
+    for row in 0..dim {
+        let m_row = &m[2 * dim * row..2 * dim * (row + 1)];
+        for k in 0..nv {
+            let (x_re, x_im) = (
+                &in_re[k * dim..(k + 1) * dim],
+                &in_im[k * dim..(k + 1) * dim],
+            );
+            let (mut s_re, mut s_im) = (zero, zero);
+            for col in 0..dim {
+                let (a, b) = (m_row[2 * col].load(), m_row[2 * col + 1].load());
+                s_re = s_re + a * x_re[col] - b * x_im[col];
+                s_im = s_im + a * x_im[col] + b * x_re[col];
+            }
+            acc_re[k * dim + row] += s_re;
+            acc_im[k * dim + row] += s_im;
+        }
+    }
 }
 
 /// Halo buffers for fields of this many reals per site.
@@ -205,6 +261,7 @@ impl<T: Storage> CoarseOp<T> {
             adjoint_from_gamma5: true,
             exchange: Mutex::new(None),
             ghost_links: OnceLock::new(),
+            even_odd: None,
         })
     }
 
@@ -331,6 +388,7 @@ impl<T: Storage> CoarseOp<T> {
             adjoint_from_gamma5: false,
             exchange: Mutex::new(None),
             ghost_links: OnceLock::new(),
+            even_odd: None,
         })
     }
 
@@ -456,6 +514,10 @@ impl<T: Storage> CoarseOp<T> {
             adjoint_from_gamma5: self.adjoint_from_gamma5,
             exchange: Mutex::new(None),
             ghost_links: OnceLock::new(),
+            even_odd: self.even_odd.as_ref().map(|eo| EvenOdd {
+                odd: eo.odd.clone(),
+                inverse: convert(&eo.inverse),
+            }),
         }
     }
 
@@ -528,6 +590,155 @@ impl<T: Storage> CoarseOp<T> {
         self.dim
     }
 
+    /// Make the even-odd form available (see the type): the parity of the coarse sites and
+    /// the inverses of the diagonal blocks. `false`, and nothing done, where it does not
+    /// exist: a coarse lattice with an odd extent (its hops then join sites of the same
+    /// parity across the boundary), or an operator preconditioned by its diagonal blocks.
+    pub fn prepare_even_odd(&mut self) -> Result<bool, MultigridError> {
+        if self.diag_inv.is_some() || self.lat.global.iter().any(|l| l % 2 != 0) {
+            return Ok(false);
+        }
+        let n_coarse = self.lat.num_sites();
+        let odd = (0..n_coarse)
+            .map(|x| self.lat.global_coords(x).iter().sum::<usize>() % 2 == 1)
+            .collect();
+        let inverse = invert_blocks(&self.diag, self.dim, n_coarse)?;
+        self.even_odd = Some(EvenOdd { odd, inverse });
+        Ok(true)
+    }
+
+    /// Whether `prepare_even_odd` has made the even-odd form available.
+    pub fn has_even_odd(&self) -> bool {
+        self.even_odd.is_some()
+    }
+
+    /// One pass of the even-odd form, over the coarse sites of one parity (the others are
+    /// set to zero):
+    ///
+    ///   out(X) = [A(X)⁻¹] ( base(X) + A(X) d(X) ± Σ_dir B_dir(X) h(X + dir) ),
+    ///
+    /// every part optional: `diag_of` is d, `hops_of` is h and whether its sum is
+    /// subtracted, `inverse` the factor in front.
+    fn pass(
+        &self,
+        out: &mut Field<T, Coarse>,
+        odd: bool,
+        base: Option<&Field<T, Coarse>>,
+        diag_of: Option<&Field<T, Coarse>>,
+        hops_of: Option<(&Field<T, Coarse>, bool)>,
+        inverse: bool,
+    ) {
+        let eo = self
+            .even_odd
+            .as_ref()
+            .expect("prepare_even_odd comes first");
+        let (dim, matrix) = (self.dim, 2 * self.dim * self.dim);
+        let n_coarse = self.lat.num_sites();
+        let site_len = out.site_len();
+        let ghost = hops_of.map(|(h, _)| self.halo(h));
+        for_sites(out.slab_mut(0), site_len, |x, out| {
+            if eo.odd[x] != odd {
+                out.fill(T::default());
+                return;
+            }
+            let n = out.len() / 2;
+            let zero = T::Compute::ZERO;
+            let (mut acc_re, mut acc_im) = (vec![zero; n], vec![zero; n]);
+            let (mut in_re, mut in_im) = (vec![zero; n], vec![zero; n]);
+            let mut add = |m: &[T], v: &[T], minus: bool| {
+                for j in 0..n {
+                    let (re, im) = (v[2 * j].load(), v[2 * j + 1].load());
+                    in_re[j] = if minus { -re } else { re };
+                    in_im[j] = if minus { -im } else { im };
+                }
+                add_block::<T>(dim, m, (&in_re, &in_im), (&mut acc_re, &mut acc_im));
+            };
+            if let Some(d) = diag_of {
+                add(
+                    &self.diag[x * matrix..(x + 1) * matrix],
+                    d.site(0, x),
+                    false,
+                );
+            }
+            if let (Some((h, minus)), Some(ghost)) = (hops_of, ghost.as_ref()) {
+                for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+                    let v = match self.stencil.source(x, mu, dir) {
+                        Source::Local { site, .. } => h.site(0, site),
+                        Source::Buffer { index, .. } => {
+                            &ghost[d][index * site_len..(index + 1) * site_len]
+                        }
+                        Source::Zero => unreachable!("the coarse stencil is periodic"),
+                    };
+                    let at = (d * n_coarse + x) * matrix;
+                    add(&self.links[at..at + matrix], v, minus);
+                }
+            }
+            if let Some(b) = base {
+                let b = b.site(0, x);
+                for j in 0..n {
+                    acc_re[j] += b[2 * j].load();
+                    acc_im[j] += b[2 * j + 1].load();
+                }
+            }
+            if inverse {
+                in_re.copy_from_slice(&acc_re);
+                in_im.copy_from_slice(&acc_im);
+                acc_re.fill(zero);
+                acc_im.fill(zero);
+                let m = &eo.inverse[x * matrix..(x + 1) * matrix];
+                add_block::<T>(dim, m, (&in_re, &in_im), (&mut acc_re, &mut acc_im));
+            }
+            for j in 0..n {
+                out[2 * j] = T::store(acc_re[j]);
+                out[2 * j + 1] = T::store(acc_im[j]);
+            }
+        });
+    }
+
+    /// `out = S inp`, the Schur complement on the even coarse sites (see the type); `inp` is
+    /// zero on the odd sites and so is `out`. `odd` is scratch.
+    pub fn schur(
+        &self,
+        out: &mut Field<T, Coarse>,
+        inp: &Field<T, Coarse>,
+        odd: &mut Field<T, Coarse>,
+    ) {
+        fit(odd, inp);
+        self.pass(odd, true, None, None, Some((inp, false)), true);
+        self.pass(out, false, None, Some(inp), Some((odd, true)), false);
+    }
+
+    /// The right-hand side of the Schur system for `D_c c = g`: `out = g_e − B_eo A_oo⁻¹ g_o`.
+    pub fn schur_source(
+        &self,
+        out: &mut Field<T, Coarse>,
+        g: &Field<T, Coarse>,
+        odd: &mut Field<T, Coarse>,
+    ) {
+        fit(odd, g);
+        self.pass(odd, true, Some(g), None, None, true);
+        self.pass(out, false, Some(g), None, Some((odd, true)), false);
+    }
+
+    /// The solution of `D_c c = g` on all sites from that of the Schur system: `c` holds c_e
+    /// (zero on the odd sites) and gets `c_o = A_oo⁻¹ (g_o − B_oe c_e)` added.
+    pub fn schur_solution(
+        &self,
+        c: &mut Field<T, Coarse>,
+        g: &Field<T, Coarse>,
+        odd: &mut Field<T, Coarse>,
+    ) {
+        fit(odd, g);
+        self.pass(odd, true, Some(g), None, Some((c, true)), true);
+        c.axpy(&vec![C64::new(1.0, 0.0); c.num_vectors()], odd);
+    }
+
+    /// `out = A_ee⁻¹ inp` on the even sites, zero on the odd ones: the block-Jacobi
+    /// preconditioner of the Schur complement.
+    pub fn even_block_inverse(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.pass(out, false, Some(inp), None, None, true);
+    }
+
     /// `out = D_c inp`, or `Γ5 D_c Γ5 inp` when `gamma5` is set, where Γ5 is +1 on the first
     /// half of the components (positive chirality) and -1 on the second.
     fn apply(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>, gamma5: bool) {
@@ -574,23 +785,7 @@ impl<T: Storage> CoarseOp<T> {
                     in_re[j] = if negate { -re } else { re };
                     in_im[j] = if negate { -im } else { im };
                 }
-                for row in 0..dim {
-                    let m_row = &m[2 * dim * row..2 * dim * (row + 1)];
-                    for k in 0..nv {
-                        let (x_re, x_im) = (
-                            &in_re[k * dim..(k + 1) * dim],
-                            &in_im[k * dim..(k + 1) * dim],
-                        );
-                        let (mut s_re, mut s_im) = (zero, zero);
-                        for col in 0..dim {
-                            let (a, b) = (m_row[2 * col].load(), m_row[2 * col + 1].load());
-                            s_re = s_re + a * x_re[col] - b * x_im[col];
-                            s_im = s_im + a * x_im[col] + b * x_re[col];
-                        }
-                        acc_re[k * dim + row] += s_re;
-                        acc_im[k * dim + row] += s_im;
-                    }
-                }
+                add_block::<T>(dim, m, (&in_re, &in_im), (&mut acc_re, &mut acc_im));
             }
             for j in 0..nv * dim {
                 let negate = gamma5 && j % dim >= half;
@@ -637,5 +832,30 @@ impl<T: Storage> LinearOp<Field<T, Coarse>> for CoarseOp<T> {
         t.copy_from(out);
         self.apply(out, &t, true);
         self.scratch = Some(t);
+    }
+}
+
+/// The Schur complement of a shared coarse operator on its even sites, as the operator of
+/// a solver, counting its applications (each the work of one of the coarse operator).
+pub(super) struct CountedSchur<'a, T: Storage> {
+    pub(super) a: &'a RefCell<CoarseOp<T>>,
+    pub(super) n: &'a Cell<usize>,
+    pub(super) odd: Field<T, Coarse>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedSchur<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.n.set(self.n.get() + inp.num_vectors());
+        self.a.borrow().schur(out, inp, &mut self.odd);
+    }
+}
+
+/// The inverses of the diagonal blocks on the even sites: the preconditioner of
+/// `CountedSchur`.
+pub(super) struct EvenBlocks<'a, T: Storage>(pub(super) &'a RefCell<CoarseOp<T>>);
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for EvenBlocks<'_, T> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.0.borrow().even_block_inverse(out, inp);
     }
 }

@@ -281,7 +281,9 @@ pub enum SourceConfig {
 pub struct SolverConfig {
     #[serde(rename = "type")]
     pub kind: SolverKind,
-    /// Solve through the Schur complement on the even sites.
+    /// Solve through the Schur complement on the even sites. With the multigrid its coarse
+    /// system is then solved on the even coarse sites too (where the coarse lattice has
+    /// even extents); `false` is the whole lattice on both.
     #[serde(default = "yes")]
     pub even_odd: bool,
     /// Stop when |r|^2 / |b|^2 is below this for every right-hand side.
@@ -295,7 +297,7 @@ pub struct SolverConfig {
     /// and 8 a 512-bit one.
     #[serde(default = "one")]
     pub simd: usize,
-    /// Precondition with two-level multigrid; needs `type = fgmres` and `even_odd = false`.
+    /// Precondition with two-level multigrid.
     pub multigrid: Option<MultigridConfig>,
 }
 
@@ -380,7 +382,9 @@ pub enum Precision {
 }
 
 impl MultigridConfig {
-    pub fn params(&self) -> MultigridParams {
+    /// `even_odd`: that of the solver (`SolverConfig::even_odd`), which the coarse solves
+    /// follow.
+    pub fn params(&self, even_odd: bool) -> MultigridParams {
         MultigridParams {
             block: self.block,
             num_test_vectors: self.test_vectors,
@@ -402,6 +406,7 @@ impl MultigridConfig {
             },
             pre_smoothing: self.pre_smoothing,
             precondition_coarse_diagonal: self.precondition_coarse_diagonal,
+            coarse_even_odd: even_odd,
             seed: self.seed,
             levels: [
                 self.level2_super_block.unwrap_or(0),

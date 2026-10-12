@@ -123,10 +123,12 @@ keyword_enum! {
         /// The normal equations L† L of the left Schur complement: CGNE, which sees α.
         NormalLeft => ["Normal_left", "Normal", "CGNE"],
         /// Wilson and clover fermions: the Schur complement on the even sites (CG: its
-        /// normal equations).
+        /// normal equations). With the multigrid, the coarse system is solved on the even
+        /// coarse sites too.
         EvenOdd => ["Even_odd", "eo", "Standard_eo", "Schur"],
-        /// Wilson and clover fermions: D on the whole lattice (CG: its normal equations).
-        Full => ["Full", "Standard", "Whole"],
+        /// Wilson and clover fermions: D on the whole lattice (CG: its normal equations),
+        /// and with the multigrid the coarse system on the whole coarse lattice.
+        Full => ["Full", "Lexical", "Standard", "Whole"],
     }
 }
 

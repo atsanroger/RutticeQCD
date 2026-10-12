@@ -145,8 +145,12 @@ t first, then z, y, x; with `even_odd = true` the parts must have even extents, 
 each process that is cut. Not together with multigrid.
 
 Multigrid needs a solver that tolerates a preconditioner changing from one application to
-the next, `solver.type = "fgmres"` or `"bicgstab"`, and `solver.even_odd = false`; it runs on
-one process only so far. Only `block` is required; the defaults are those of the Bridge++
+the next, `solver.type = "fgmres"` or `"bicgstab"`. `solver.even_odd` holds for the fine and
+the coarse lattice alike: with `true` (the default) the solve is on the even sites and the
+coarse system of the multigrid is solved on the even coarse sites (where the coarse lattice
+has even extents); with `false` both are on the whole lattice. In the Bridge++-style
+parameter files this is `Solver.operator_type : Even_odd` or `Full` (`Lexical`); domain-wall
+solves are always on the even sites, of both lattices. Only `block` is required; the defaults are those of the Bridge++
 test `test_alt_Multigrid.yaml` (SAP smoother, BiCGStab on the coarse lattice). The other
 choices are those of the CUDA domain-wall multigrid (GMRES(m) smoother before and after,
 GMRES(m) on the coarse lattice, coarse operator preconditioned by its diagonal blocks):
