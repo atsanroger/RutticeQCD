@@ -23,6 +23,9 @@ The first tagged version.
   iteration; leapfrog and Omelyan integrators on several time scales; initial guesses from
   earlier solutions; saving configurations on several processes.
 - **Input and output.** Gauge configurations as Bridge++ text and binary, ILDG, SciDAC and HDF5.
+- **Solvers of HMC.** CG, BiCGStab, FGMRES and GCR for the two-flavour actions, multi-shift CG
+  or CG pole by pole for RHMC; Chebyshev and (Wilson, clover) multigrid preconditioners; Neff's
+  α for domain-wall fermions.
 - **Threads.** `cpu_thread` in a parameter file, or `RAYON_NUM_THREADS`.
 - **Checked against Bridge++**: operators, solver iteration counts, correlators, and one
   trajectory of each of its HMC tests.

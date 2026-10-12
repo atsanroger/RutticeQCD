@@ -12,11 +12,13 @@
 //!   X = (η, −T_oo⁻¹ M_oe η),   Y = (ζ, −T_oo⁻† (M_eo)† ζ),
 
 use super::fermion_action::{draw, smeared_force, CloverInsertion, ForceOp};
+use super::solve::{chebyshev_cg, Pre};
 use super::{Chrono, Links, MdAction, Mseries};
+use super::{NormalSolver, Preconditioner};
 use crate::fermion::{Dagger, EvenOdd, Schur};
 use crate::gauge::GaugeSmearing;
 use crate::kernel::Cplx;
-use crate::solver::{Cg, SolveError, Solver, Stop};
+use crate::solver::{SolveError, Stop};
 use crate::{
     extract_parity, insert_parity, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, LinearOp,
     Normal, Parity, Spinor, Vector, C64,
@@ -35,6 +37,10 @@ pub trait EvenOddForceOp: ForceOp + EvenOdd<HalfPsi> {
     /// A zero field on the sites of `parity` of the shape the operator acts on.
     fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
         HalfPsi::spinor_half(lat, 1, parity)
+    }
+    /// `ForceOp::right` on the sites of one parity.
+    fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        out.copy_from(inp);
     }
 }
 
@@ -56,6 +62,9 @@ impl<G: crate::kernel::GammaRepre> EvenOddForceOp for crate::fermion::Mdwf<f64, 
         let mut f = HalfPsi::with_shape(lat, 24, self.params().ls, 1, 1);
         f.set_parity(parity);
         f
+    }
+    fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        self.mult_q(out, inp, false);
     }
 }
 
@@ -147,6 +156,12 @@ pub struct TwoFlavorEo<O> {
     pub smearing: Option<GaugeSmearing>,
     pub stop_md: Stop,
     pub stop_h: Stop,
+    /// How (Ŝ†Ŝ)⁻¹ is computed (CG by default).
+    pub solver: NormalSolver,
+    /// Chebyshev, or none: the multigrid is for the action on all sites.
+    pub preconditioner: Preconditioner,
+    conditioned: Option<O>,
+    fresh: bool,
     phi: Option<HalfPsi>,
     /// CG iterations of the last solve, and of all force solves so far.
     pub last_iterations: usize,
@@ -164,12 +179,34 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
             smearing,
             stop_md,
             stop_h,
+            solver: NormalSolver::Cg,
+            preconditioner: Preconditioner::None,
+            conditioned: None,
+            fresh: true,
             phi: None,
             last_iterations: 0,
             md_iterations: 0,
             clover: None,
             guess: Chrono::new(0),
         }
+    }
+
+    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+        self.solver = solver;
+        self
+    }
+
+    /// The preconditioner of the solves; it must suit the solver (`Preconditioner`).
+    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+        self.preconditioner = preconditioner;
+        self
+    }
+
+    /// Solve with `op`, which applies D R for a Hermitian R within a site
+    /// (`TwoFlavor::with_conditioned`): its Schur complement is Ŝ R.
+    pub fn with_conditioned(mut self, op: O) -> Self {
+        self.conditioned = Some(op);
+        self
     }
 
     /// The operator has the clover term with coefficient κ c_SW: its force and the term
@@ -191,6 +228,10 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         self.op
             .set_gauge(levels.last().unwrap_or(links.thin))
             .expect("the links suit the operator");
+        if let Some(a) = self.conditioned.as_mut() {
+            a.set_gauge(levels.last().unwrap_or(links.thin))
+                .expect("the links suit the operator");
+        }
         levels
     }
 
@@ -213,19 +254,38 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
     /// (Ŝ†Ŝ)⁻¹ φ_e; for the force (`md`) from the guess.
     fn solve(&mut self, stop: Stop, md: bool) -> Result<HalfPsi, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
-        let odd = self.op.new_half(phi.lattice(), Parity::Odd);
-        let mut schur = Schur::new(&self.op, Parity::Even, phi, &odd);
-        let mut normal = Normal::new(&mut schur, phi);
-        let mut x = phi.zeros_like();
+        let a = self.conditioned.as_ref().unwrap_or(&self.op);
+        let odd = a.new_half(phi.lattice(), Parity::Odd);
+        let (mut b, mut z) = (phi.zeros_like(), phi.zeros_like());
+        a.right_half(&mut b, phi);
+        let mut schur = Schur::new(a, Parity::Even, phi, &odd);
         if md {
-            self.guess.guess(&mut normal, phi, &mut x);
+            self.guess
+                .guess(&mut Normal::new(&mut schur, &b), &b, &mut z);
         }
-        let info = Cg::new(stop).solve(&mut normal, None, &mut x, phi)?;
+        let fresh = std::mem::take(&mut self.fresh);
+        let info = match &mut self.preconditioner {
+            Preconditioner::None => self.solver.solve(&mut schur, Pre::None, &mut z, &b, stop)?,
+            Preconditioner::Chebyshev { steps, ratio, hi } => chebyshev_cg(
+                &mut schur,
+                Schur::new(a, Parity::Even, phi, &odd),
+                (*steps, *ratio, hi),
+                fresh,
+                &mut z,
+                &b,
+                stop,
+            )?,
+            Preconditioner::Multigrid { .. } => {
+                panic!("the multigrid is for the action on all sites")
+            }
+        };
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
-            self.guess.record(&x);
+            self.guess.record(&z);
         }
+        let mut x = phi.zeros_like();
+        a.right_half(&mut x, &z);
         Ok(x)
     }
 
@@ -244,6 +304,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
             Schur::new(&self.op, Parity::Even, &xi_e, &odd).mult_dag(&mut phi, &xi_e);
         }
         self.phi = Some(phi);
+        self.fresh = true;
         self.guess.clear();
         let mut n = [0.0];
         xi_e.norm_sqr(&mut n);
