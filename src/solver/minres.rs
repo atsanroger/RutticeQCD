@@ -14,12 +14,28 @@ use crate::{LinearFn, Vector, C64};
 /// solution. Every vector of a multi-vector has its own recurrence.
 pub struct Minres<V> {
     pub stop: Stop,
+    /// An inner solve: x is zero on entry (the first residual is b, no application of A),
+    /// and the residual is not recomputed at the end (`residual_sqr` is the recurrence's
+    /// estimate in the preconditioner's norm). See `BiCgStab::inner`.
+    pub inner: bool,
     work: Option<[V; 9]>,
 }
 
 impl<V: Vector> Minres<V> {
     pub fn new(stop: Stop) -> Self {
-        Self { stop, work: None }
+        Self {
+            stop,
+            inner: false,
+            work: None,
+        }
+    }
+
+    /// `new` for an inner solve: x must be zero on entry.
+    pub fn inner(stop: Stop) -> Self {
+        Self {
+            inner: true,
+            ..Self::new(stop)
+        }
     }
 }
 
@@ -61,7 +77,11 @@ impl<V: Vector> Solver<V> for Minres<V> {
         let (mut iterations, mut cycles) = (0, 0);
         loop {
             // The correction e with A e = r = b − A x, from zero.
-            a.mult_xpay(r, x, &minus_one, b);
+            if self.inner && cycles == 0 {
+                r.copy_from(b);
+            } else {
+                a.mult_xpay(r, x, &minus_one, b);
+            }
             v.copy_from(r);
             v_prev.scale(&vec![0.0; nv]);
             match m.as_mut() {
@@ -133,6 +153,21 @@ impl<V: Vector> Solver<V> for Minres<V> {
                 s = s_new;
                 iterations += 1;
                 in_cycle += 1;
+            }
+            if self.inner && (done(&eta) || self.stop.max_restarts == 0) {
+                let estimate: Vec<f64> = (0..nv)
+                    .map(|j| eta[j] * eta[j] / reference[j].max(1e-300))
+                    .collect();
+                let info = SolveInfo {
+                    iterations,
+                    restarts: cycles,
+                    residual_sqr: estimate,
+                };
+                return if done(&eta) {
+                    Ok(info)
+                } else {
+                    Err(SolveError::NotConverged(info))
+                };
             }
             true_residual(a, x, b, &b_norm, r, &minus_one, &mut residual);
             let info = SolveInfo {

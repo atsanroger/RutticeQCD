@@ -283,3 +283,53 @@ fn minres_solves_gamma5_d() {
     assert!(r[0] <= 1e-22 && r[2] <= 1e-22, "preconditioned: {r:?}");
     eprintln!("MINRES, M = 1/2: {} iterations", info.iterations);
 }
+
+/// Inner solves (`BiCgStab::inner`, `Minres::inner`): the same solution as the ordinary
+/// solve from x = 0 with two applications of A fewer (the first residual and the last).
+#[test]
+fn inner_solves_save_two_applications() {
+    use std::cell::Cell;
+    struct Counting<'a, A> {
+        a: A,
+        n: &'a Cell<usize>,
+    }
+    impl<A: LinearFn<V64>> LinearFn<V64> for Counting<'_, A> {
+        fn mult(&mut self, out: &mut V64, inp: &V64) {
+            self.n.set(self.n.get() + 1);
+            self.a.mult(out, inp);
+        }
+    }
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 331));
+    let b = random_spinor(&lat, 1, 332);
+    let stop = Stop::simple(1e-4, 200);
+    for variant in [Variant::D, Variant::Gamma5D] {
+        let mut runs = Vec::new();
+        for inner in [false, true] {
+            let n = Cell::new(0);
+            let mut a = Counting {
+                a: Bound::new(&op, variant),
+                n: &n,
+            };
+            let mut x = b.zeros_like();
+            let info = match (variant, inner) {
+                (Variant::D, false) => BiCgStab::new(stop).solve(&mut a, None, &mut x, &b),
+                (Variant::D, true) => BiCgStab::inner(stop).solve(&mut a, None, &mut x, &b),
+                (_, false) => Minres::new(stop).solve(&mut a, None, &mut x, &b),
+                (_, true) => Minres::inner(stop).solve(&mut a, None, &mut x, &b),
+            }
+            .unwrap();
+            runs.push((n.get(), info.iterations, x));
+        }
+        let (plain, inner) = (&runs[0], &runs[1]);
+        assert_eq!(plain.1, inner.1, "{variant:?}: the same iterations");
+        assert_eq!(plain.0, inner.0 + 2, "{variant:?}: two applications fewer");
+        let d = plain
+            .2
+            .as_slice()
+            .iter()
+            .zip(inner.2.as_slice())
+            .fold(0.0_f64, |m, (a, b)| m.max((a - b).abs()));
+        assert!(d < 1e-12, "{variant:?}: the same solution, {d}");
+    }
+}

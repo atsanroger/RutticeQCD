@@ -211,7 +211,8 @@ pub enum CoarseKrylov {
     Minres,
 }
 
-/// x = A⁻¹ b approximately by kind, preconditioned by m; not reaching the tolerance
+/// x = A⁻¹ b approximately by kind, preconditioned by m, from x = 0 (inner solves: no
+/// application of A for the first residual nor for a last one); not reaching the tolerance
 /// is not an error.
 fn coarse_solve<T: Storage>(
     kind: CoarseKrylov,
@@ -222,9 +223,9 @@ fn coarse_solve<T: Storage>(
     b: &Field<T, Coarse>,
 ) {
     let _ = match kind {
-        CoarseKrylov::BiCgStab => BiCgStab::new(stop).solve(a, Some(m), x, b),
+        CoarseKrylov::BiCgStab => BiCgStab::inner(stop).solve(a, Some(m), x, b),
         CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, Some(m), x, b),
-        CoarseKrylov::Minres => Minres::new(stop).solve(a, Some(m), x, b),
+        CoarseKrylov::Minres => Minres::inner(stop).solve(a, Some(m), x, b),
     };
 }
 
