@@ -1,5 +1,8 @@
 use crate::comm::{opposite_face, HaloSpec, FACES};
-use crate::lattice::evenodd::{EvenOddIndex, Parity};
+use crate::field::storage::Storage;
+use crate::field::{Aos, Cpu, Field, Kind, Sites};
+use crate::lattice::even_odd::{EvenOddIndex, Parity};
+use crate::lattice::for_sites::for_sites;
 use crate::lattice::{Lattice, ND};
 
 /// Boundary condition in one direction.
@@ -232,9 +235,65 @@ impl Stencil {
     }
 }
 
+/// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to
+/// the default value. No boundary phase is applied.
+///
+/// Meant to be simple and general, not fast: with several processes it sets up its own
+/// exchange on every call.
+pub fn shift<T, K, S>(
+    out: &mut Field<T, K, S, Aos, Cpu>,
+    inp: &Field<T, K, S, Aos, Cpu>,
+    st: &Stencil,
+    mu: usize,
+    dir: Direction,
+) where
+    T: Storage,
+    K: Kind,
+    S: Sites,
+{
+    assert_eq!(out.as_slice().len(), inp.as_slice().len());
+    assert_eq!(out.site_len(), inp.site_len());
+    assert_eq!(st.num_sites(), inp.num_sites());
+    let site_len = inp.site_len();
+    // What this process receives from direction `dir` is what the neighbour there sends
+    // through its opposite face; only that pair of faces carries data.
+    let (face, back) = (Stencil::leg(mu, dir), opposite_face(Stencil::leg(mu, dir)));
+    let back_dir = match dir {
+        Direction::Forward => Direction::Backward,
+        Direction::Backward => Direction::Forward,
+    };
+    let mut spec = st.halo_spec(site_len);
+    for f in (0..FACES).filter(|f| *f != face && *f != back) {
+        spec.len[f] = 0;
+    }
+    let mut exchange = T::halo(inp.lattice().comm.as_ref(), &spec);
+    for o in 0..inp.outer() {
+        let send = exchange.send_buffer(back);
+        for (v, site) in send
+            .chunks_exact_mut(site_len)
+            .zip(st.send_sites(mu, back_dir))
+        {
+            v.copy_from_slice(inp.site(o, *site as usize));
+        }
+        exchange.start();
+        exchange.wait();
+        let received = exchange.recv_buffer(face);
+        for_sites(out.slab_mut(o), site_len, |site, v| {
+            match st.source(site, mu, dir) {
+                Source::Local { site: n, .. } => v.copy_from_slice(inp.site(o, n)),
+                Source::Zero => v.fill(T::default()),
+                Source::Buffer { index, .. } => {
+                    v.copy_from_slice(&received[index * site_len..(index + 1) * site_len])
+                }
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field::Gauge;
 
     #[test]
     fn forward_then_backward_returns() {
@@ -310,6 +369,27 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn shift_moves_sites_and_round_trips() {
+        let lat = Lattice::single_node([4, 2, 6, 4]);
+        let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
+        let mut a = Field::<f64, Gauge>::gauge(&lat);
+        for (i, x) in a.as_mut_slice().iter_mut().enumerate() {
+            *x = i as f64;
+        }
+        let mut b = Field::<f64, Gauge>::gauge(&lat);
+        let mut c = Field::<f64, Gauge>::gauge(&lat);
+        for mu in 0..ND {
+            shift(&mut b, &a, &st, mu, Direction::Forward);
+            let x = [1, 1, 5, 3];
+            let mut y = x;
+            y[mu] = (x[mu] + 1) % lat.local[mu];
+            assert_eq!(b.site(2, lat.site(x)), a.site(2, lat.site(y)));
+            shift(&mut c, &b, &st, mu, Direction::Backward);
+            assert_eq!(c.as_slice(), a.as_slice());
         }
     }
 }

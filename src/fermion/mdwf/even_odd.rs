@@ -97,7 +97,7 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
     pub fn right_hand_side(
         &mut self,
         rhs: &mut HalfSpinorField<T, L>,
-        b: &Field<T, Spinor, Full, L>,
+        b: &Field<T, Spinor, Lexical, L>,
     ) {
         let index = self.op.even_odd_index().expect("an even-odd decomposition");
         let mut b_e = rhs.zeros_like();
@@ -127,9 +127,9 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
     /// (right form) or y (left form), x_o^(α) = C_o⁻¹ (b_o − D_oe x_e^(α)), x = Q x^(α).
     pub fn solution(
         &mut self,
-        x: &mut Field<T, Spinor, Full, L>,
+        x: &mut Field<T, Spinor, Lexical, L>,
         y: &HalfSpinorField<T, L>,
-        b: &Field<T, Spinor, Full, L>,
+        b: &Field<T, Spinor, Lexical, L>,
     ) {
         let index = self.op.even_odd_index().expect("an even-odd decomposition");
         let x_e = match self.form {

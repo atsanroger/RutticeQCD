@@ -21,7 +21,7 @@ Fopr:
   boundary_condition : [1, 1, 1, -1]
 Solver:
   solver_type                   : FGMRES   # CG (on the normal equations) | BiCGStab | FGMRES
-  operator_type                 : Even_odd # Even_odd (default) | Full (Lexical): the fine and the coarse lattice alike
+  operator_type                 : Even_odd # Even_odd (default) | Lexical (also: Full): the fine and the coarse lattice alike
   number_of_kept_directions     : 30       # FGMRES: the Krylov space before a restart
   maximum_number_of_iteration   : 3000
   convergence_criterion_squared : 1.0e-26

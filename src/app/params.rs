@@ -128,7 +128,7 @@ keyword_enum! {
         EvenOdd => ["Even_odd", "eo", "Standard_eo", "Schur"],
         /// Wilson and clover fermions: D on the whole lattice (CG: its normal equations),
         /// and with the multigrid the coarse system on the whole coarse lattice.
-        Full => ["Full", "Lexical", "Standard", "Whole"],
+        Lexical => ["Lexical", "Full", "Standard", "Whole"],
     }
 }
 
@@ -914,7 +914,7 @@ impl Params {
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
         let operator = s.operator();
-        if matches!(operator, OperatorType::EvenOdd | OperatorType::Full) {
+        if matches!(operator, OperatorType::EvenOdd | OperatorType::Lexical) {
             return Err(invalid(format!(
                 "Solver.operator_type {operator} is for Wilson and clover fermions; use PV_right, PV_left or Normal_left"
             )));
@@ -1087,10 +1087,10 @@ impl Params {
         }
         if let Some(o) = s
             .operator_type
-            .filter(|o| !matches!(o, OperatorType::EvenOdd | OperatorType::Full))
+            .filter(|o| !matches!(o, OperatorType::EvenOdd | OperatorType::Lexical))
         {
             return Err(invalid(format!(
-                "Solver.operator_type {o} is for domain-wall fermions; use Even_odd or Full"
+                "Solver.operator_type {o} is for domain-wall fermions; use Even_odd or Lexical"
             )));
         }
         match s.preconditioner_type {
@@ -1235,7 +1235,7 @@ impl Params {
                     SolverType::BiCgStab => SolverKind::Bicgstab,
                     _ => SolverKind::Fgmres,
                 },
-                even_odd: s.operator_type != Some(OperatorType::Full),
+                even_odd: s.operator_type != Some(OperatorType::Lexical),
                 tolerance_squared: s.convergence_criterion_squared,
                 // FGMRES keeps its Krylov space of number_of_kept_directions vectors and
                 // restarts until maximum_number_of_iteration iterations are done.
@@ -1397,8 +1397,8 @@ impl fmt::Display for Params {
                 OperatorType::NormalLeft => " (CGNE)",
                 OperatorType::EvenOdd if cg => " (the Schur complement on the even sites, CGNE)",
                 OperatorType::EvenOdd => " (the Schur complement on the even sites)",
-                OperatorType::Full if cg => " (D on the whole lattice, CGNE)",
-                OperatorType::Full => " (D on the whole lattice)",
+                OperatorType::Lexical if cg => " (D on the whole lattice, CGNE)",
+                OperatorType::Lexical => " (D on the whole lattice)",
             },
             s.convergence_criterion_squared
         )?;

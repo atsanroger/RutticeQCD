@@ -149,7 +149,7 @@ the next, `solver.type = "fgmres"` or `"bicgstab"`. `solver.even_odd` holds for 
 the coarse lattice alike: with `true` (the default) the solve is on the even sites and the
 coarse system of the multigrid is solved on the even coarse sites (where the coarse lattice
 has even extents); with `false` both are on the whole lattice. In the Bridge++-style
-parameter files this is `Solver.operator_type : Even_odd` or `Full` (`Lexical`); domain-wall
+parameter files this is `Solver.operator_type : Even_odd` or `Lexical` (also `Full`); domain-wall
 solves are always on the even sites, of both lattices. Only `block` is required; the defaults are those of the Bridge++
 test `test_alt_Multigrid.yaml` (SAP smoother, BiCGStab on the coarse lattice). The other
 choices are those of the CUDA domain-wall multigrid (GMRES(m) smoother before and after,

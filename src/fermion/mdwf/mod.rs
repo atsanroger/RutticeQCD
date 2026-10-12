@@ -97,9 +97,9 @@ use crate::kernel::{
     Cplx, Dirac, GammaRepre, Lane, LaneOf, Number, Spinor as SiteSpinor, NC, NS, SPINOR_REALS,
 };
 use crate::{
-    extract_parity, fit, for_sites, insert_parity, Aos, Aosoa, Boundary, EvenOddIndex, Field, Full,
-    Gauge, Half, Lattice, Layout, LinearFn, LinearOp, Parity, Sites, Spinor, Storage, Vector, C64,
-    ND,
+    extract_parity, fit, for_sites, insert_parity, Aos, Aosoa, Boundary, EvenOddIndex, Field,
+    Gauge, Half, Lattice, Layout, Lexical, LinearFn, LinearOp, Parity, Sites, Spinor, Storage,
+    Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -140,7 +140,7 @@ pub struct Mdwf<T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
 /// Scratch space of `Mdwf`: that of the Wilson kernel and four fields, made on first use.
 pub struct MdwfWork<T: Storage, L: Layout = Aos> {
     wilson: WilsonWork<T>,
-    fields: Option<[Field<T, Spinor, Full, L>; 4]>,
+    fields: Option<[Field<T, Spinor, Lexical, L>; 4]>,
 }
 
 /// A layout `Mdwf` works in: the Wilson kernel has a sweep for it, and the reals of one
@@ -166,8 +166,8 @@ pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
     fn mult<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor, Full, Self>,
-        inp: &Field<T, Spinor, Full, Self>,
+        out: &mut Field<T, Spinor, Lexical, Self>,
+        inp: &Field<T, Spinor, Lexical, Self>,
         variant: Variant,
     );
     fn hop<G: GammaRepre>(
@@ -298,19 +298,19 @@ where
         w.even_odd_index()
     }
     fn work_of<G: GammaRepre>(w: &WilsonOp<T, G, UnitDiag, Self>) -> WilsonWork<T> {
-        FermionOp::<Field<T, Spinor, Full, Self>>::work(w)
+        FermionOp::<Field<T, Spinor, Lexical, Self>>::work(w)
     }
     fn set_gauge<G: GammaRepre>(
         w: &mut WilsonOp<T, G, UnitDiag, Self>,
         u: &Field<f64, Gauge>,
     ) -> Result<(), GaugeError> {
-        FermionOp::<Field<T, Spinor, Full, Self>>::set_gauge(w, u)
+        FermionOp::<Field<T, Spinor, Lexical, Self>>::set_gauge(w, u)
     }
     fn mult<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
-        out: &mut Field<T, Spinor, Full, Self>,
-        inp: &Field<T, Spinor, Full, Self>,
+        out: &mut Field<T, Spinor, Lexical, Self>,
+        inp: &Field<T, Spinor, Lexical, Self>,
         variant: Variant,
     ) {
         FermionOp::mult(w, work, out, inp, variant);
@@ -428,9 +428,9 @@ fn store<T: Storage>(p: &SiteSpinor<T::Compute>, reals: &mut [T]) {
 
 /// The four scratch fields of a work object, in the shape of `like`.
 fn scratch<'w, T: Storage, L: Layout>(
-    fields: &'w mut Option<[Field<T, Spinor, Full, L>; 4]>,
-    like: &Field<T, Spinor, Full, L>,
-) -> &'w mut [Field<T, Spinor, Full, L>; 4] {
+    fields: &'w mut Option<[Field<T, Spinor, Lexical, L>; 4]>,
+    like: &Field<T, Spinor, Lexical, L>,
+) -> &'w mut [Field<T, Spinor, Lexical, L>; 4] {
     if !fields.as_ref().is_some_and(|f| f[0].same_shape(like)) {
         *fields = Some([
             like.zeros_like(),

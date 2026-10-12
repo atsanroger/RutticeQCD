@@ -14,8 +14,8 @@ use crate::gauge::random_gauge;
 use crate::kernel::LaneOf;
 use crate::solver::{solve_cgne, BiCgStab, Cg, SolveError, Solver, Stop};
 use crate::{
-    min_sites_per_task, norm_sqr, random_spinor, Aosoa, Boundary, Comm, ConvertFrom, Field, Full,
-    Lattice, Spinor, Storage, Vector, ND,
+    min_sites_per_task, norm_sqr, random_spinor, Aosoa, Boundary, Comm, ConvertFrom, Field,
+    Lattice, Lexical, Spinor, Storage, Vector, ND,
 };
 use std::io::Write;
 use std::sync::Arc;
@@ -99,7 +99,7 @@ where
     let rank = u64::try_from(lat.comm.rank()).expect("ranks fit in 64 bits");
     op.set_gauge(&random_gauge(lat, 1 + 2 * rank))
         .expect("the gauge field is on this lattice");
-    let mut a = Field::<T, Spinor, Full, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
+    let mut a = Field::<T, Spinor, Lexical, Aosoa<W>>::with_shape(lat, 24, 1, 1, 1);
     a.convert_from(&random_spinor(lat, 1, 2 + 2 * rank));
     let mut b = a.zeros_like();
     let mut work = op.work();
@@ -258,7 +258,7 @@ pub fn wilson_benchmark(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Writ
     let on_blocks = WilsonSimd::<f64, 4>::new(&lat, params).map(|mut op| {
         op.set_gauge(&u)
             .expect("the gauge field is on this lattice");
-        let mut blocks = Field::<f64, Spinor, Full, Aosoa<4>>::with_shape(&lat, 24, 1, 1, 1);
+        let mut blocks = Field::<f64, Spinor, Lexical, Aosoa<4>>::with_shape(&lat, 24, 1, 1, 1);
         blocks.convert_from(&b);
         time_solvers(&op, &blocks, iterations)
     });

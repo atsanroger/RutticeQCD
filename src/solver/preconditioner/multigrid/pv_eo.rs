@@ -48,8 +48,8 @@ use crate::numerics::hermitian_eigen;
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
     extract_parity, insert_parity, random_spinor, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex,
-    Field, Full, Half, Lattice, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage, Vector,
-    C64,
+    Field, Half, Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage,
+    Vector, C64,
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -317,16 +317,16 @@ impl<'a, G: GammaRepre, L: MdwfLayout<f64>> SharedOperator<'a, G, L> {
     }
 
     /// See `PvEvenOdd::right_hand_side`.
-    pub fn right_hand_side(&self, rhs: &mut HalfField<L>, b: &Field<f64, Spinor, Full, L>) {
+    pub fn right_hand_side(&self, rhs: &mut HalfField<L>, b: &Field<f64, Spinor, Lexical, L>) {
         self.0.borrow_mut().right_hand_side(rhs, b);
     }
 
     /// See `PvEvenOdd::solution`.
     pub fn solution(
         &self,
-        x: &mut Field<f64, Spinor, Full, L>,
+        x: &mut Field<f64, Spinor, Lexical, L>,
         y: &HalfField<L>,
-        b: &Field<f64, Spinor, Full, L>,
+        b: &Field<f64, Spinor, Lexical, L>,
     ) {
         self.0.borrow_mut().solution(x, y, b);
     }

@@ -1691,7 +1691,7 @@ impl Deflation {
             let mut d = [C64::ZERO];
             q[j].dot(&w, &mut d);
             alpha.push(d[0].re);
-            // Full reorthogonalisation, twice.
+            // Lexical reorthogonalisation, twice.
             for _ in 0..2 {
                 for qi in q.iter() {
                     qi.dot(&w, &mut d);
