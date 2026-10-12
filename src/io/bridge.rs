@@ -1,7 +1,9 @@
 //! The plain-text format of Bridge++: one real per line.
 
-use super::IoError;
+use super::{write_on_root, IoError};
 use crate::{Field, Gauge, Lattice, ND};
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -53,25 +55,20 @@ pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Ga
 
 /// Write a gauge configuration in the same plain-text format, one real per line, with
 /// enough digits that reading it back gives the same bits.
+///
+/// With several processes, every process makes this call and rank 0 writes the file.
 pub fn write_bridge_text(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
-    use std::fmt::Write;
-    let lat = u.lattice();
-    if lat.local != lat.global {
-        return Err(IoError::Unsupported(
-            "writing a configuration on more than one process",
-        ));
-    }
-    let num_sites = lat.num_sites();
-    let mut text = String::with_capacity(ND * num_sites * 18 * 25);
-    for site in 0..num_sites {
-        for mu in 0..ND {
-            for x in u.site(mu, site) {
-                // Writing to a String cannot fail.
-                let _ = writeln!(text, "{x:.16e}");
+    write_on_root(
+        u,
+        || Ok(BufWriter::new(File::create(path)?)),
+        |out, _, slice| {
+            for x in slice {
+                writeln!(out, "{x:.16e}")?;
             }
-        }
-    }
-    std::fs::write(path, text).map_err(IoError::Read)
+            Ok(())
+        },
+        |mut out| Ok(out.flush()?),
+    )
 }
 
 #[cfg(test)]

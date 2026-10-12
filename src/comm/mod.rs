@@ -1,8 +1,8 @@
 //! Communication between the processes that share a lattice.
 //!
 //! Kernels see two things: a global sum, and a non-blocking exchange of the eight faces of
-//! the local lattice with the neighbouring processes. Which library moves the data is
-//! hidden behind `Comm`.
+//! the local lattice with the neighbouring processes. Writing a file adds a third: a gather
+//! to rank 0, which writes it. Which library moves the data is hidden behind `Comm`.
 //!
 //! Implementations here: `SingleComm` (one process) and `LocalComm` (several ranks as
 //! threads of one process, for tests and for development without an MPI installation).
@@ -49,6 +49,10 @@ pub trait Comm: Send + Sync {
     /// Global reduction: replace each element with its sum over all processes. Every
     /// process gets the same bits.
     fn sum(&self, x: &mut [f64]);
+    /// Gather to rank 0: rank 0 gets what every process passed, in rank order, and the
+    /// others get nothing. The processes may pass different lengths, none at all too. The
+    /// values arrive with their bits unchanged.
+    fn gather(&self, x: &[f64]) -> Vec<Vec<f64>>;
     /// Buffers for a halo exchange of single-precision data.
     fn halo_f32(&self, spec: &HaloSpec) -> Box<dyn HaloExchange<f32>>;
     /// Buffers for a halo exchange of double-precision data.
@@ -89,6 +93,9 @@ impl Comm for SingleComm {
         1
     }
     fn sum(&self, _x: &mut [f64]) {}
+    fn gather(&self, x: &[f64]) -> Vec<Vec<f64>> {
+        vec![x.to_vec()]
+    }
     fn halo_f32(&self, spec: &HaloSpec) -> Box<dyn HaloExchange<f32>> {
         Box::new(no_exchange(spec))
     }
@@ -158,6 +165,8 @@ pub struct LocalComm {
 
 /// Tag of the messages `LocalComm::sum` sends; halo exchanges use the face number.
 const SUM_TAG: u32 = u32::MAX;
+/// Tag of the messages `LocalComm::gather` sends.
+const GATHER_TAG: u32 = u32::MAX - 1;
 
 /// Marks the run as failed when a rank's thread unwinds.
 struct FailureFlag(Arc<Shared>);
@@ -239,6 +248,24 @@ impl Comm for LocalComm {
                 *t += p;
             }
         }
+    }
+
+    /// The other ranks do not wait for rank 0: what they send queues up until it is taken.
+    fn gather(&self, x: &[f64]) -> Vec<Vec<f64>> {
+        let (me, shared) = (self.rank, &self.shared);
+        if me != 0 {
+            shared.f64.send(me, 0, GATHER_TAG, x.to_vec());
+            return Vec::new();
+        }
+        (0..shared.size)
+            .map(|from| {
+                if from == 0 {
+                    x.to_vec()
+                } else {
+                    shared.f64.recv(from, 0, GATHER_TAG, &shared.failed)
+                }
+            })
+            .collect()
     }
 
     fn halo_f32(&self, spec: &HaloSpec) -> Box<dyn HaloExchange<f32>> {
@@ -364,6 +391,27 @@ mod tests {
             me
         });
         assert_eq!(got, [0, 1]);
+    }
+
+    #[test]
+    fn gather_brings_every_rank_to_rank_0_in_order() {
+        let got = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+            let r = lat.comm.rank();
+            // Rank 2 passes nothing; -0.0 must keep its sign.
+            let x: Vec<f64> = (0..r % 2 + usize::from(r != 2))
+                .map(|i| if r == 3 { -0.0 } else { (10 * r + i) as f64 })
+                .collect();
+            (lat.comm.gather(&x), lat.comm.gather(&[r as f64]))
+        });
+        assert_eq!(
+            got[0].0,
+            [vec![0.0], vec![10.0, 11.0], vec![], vec![-0.0, -0.0]]
+        );
+        assert!(got[0].0[3].iter().all(|x| x.is_sign_negative()));
+        assert_eq!(got[0].1, [[0.0], [1.0], [2.0], [3.0]]);
+        for (first, second) in &got[1..] {
+            assert!(first.is_empty() && second.is_empty());
+        }
     }
 
     #[test]

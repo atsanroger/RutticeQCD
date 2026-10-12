@@ -9,11 +9,12 @@
 //!
 //! Reading takes from the file only the part of the lattice the calling process holds, as
 //! one hyperslab. The processes do not use parallel HDF5: each opens the file for itself.
+//! Writing goes through rank 0, which writes a hyperslab per time slice.
 
-use super::{on_one_process, IoError, LINK_REALS};
+use super::{write_on_root, IoError, LINK_REALS};
 use crate::{Field, Gauge, Lattice, ND};
 use ::hdf5::{File, Hyperslab, Selection, SliceOrIndex};
-use ndarray::{ArrayD, IxDyn};
+use ndarray::{ArrayD, ArrayViewD, IxDyn};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -71,23 +72,33 @@ pub fn read_hdf5(
 }
 
 /// Write a gauge configuration as the dataset `dataset` of a new HDF5 file.
+///
+/// With several processes, every process makes this call and rank 0 writes the file, one
+/// time slice (one hyperslab) at a time.
 pub fn write_hdf5(path: &Path, dataset: &str, u: &Field<f64, Gauge>) -> Result<(), IoError> {
-    let lat = u.lattice();
-    on_one_process(lat)?;
-    let shape = shape(lat.global);
-    let mut values = Vec::with_capacity(shape.iter().product());
-    for site in 0..lat.num_sites() {
-        for mu in 0..ND {
-            values.extend_from_slice(u.site(mu, site));
-        }
-    }
-    let values = ArrayD::from_shape_vec(IxDyn(&shape), values)
-        .expect("one value for every element of the shape");
-    let file = File::create(path).map_err(failed)?;
-    let data = file
-        .new_dataset::<f64>()
-        .shape(shape)
-        .create(dataset)
-        .map_err(failed)?;
-    data.write(&values).map_err(failed)
+    let shape = shape(u.lattice().global);
+    let mut one_slice = shape;
+    one_slice[0] = 1;
+    write_on_root(
+        u,
+        || {
+            let file = File::create(path).map_err(failed)?;
+            let data = file
+                .new_dataset::<f64>()
+                .shape(shape)
+                .create(dataset)
+                .map_err(failed)?;
+            // The file stays open as long as the dataset does.
+            Ok((file, data))
+        },
+        |(_, data), t, slice| {
+            let values = ArrayViewD::from_shape(IxDyn(&one_slice), slice)
+                .expect("one value for every element of a time slice");
+            let mut ranges = vec![SliceOrIndex::from(t..t + 1)];
+            ranges.extend(shape[1..].iter().map(|n| SliceOrIndex::from(0..*n)));
+            data.write_slice(values, Selection::from(Hyperslab::from(ranges)))
+                .map_err(failed)
+        },
+        |(file, _)| file.flush().map_err(failed),
+    )
 }
