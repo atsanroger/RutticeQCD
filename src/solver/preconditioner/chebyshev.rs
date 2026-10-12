@@ -1,5 +1,5 @@
 //! Chebyshev polynomials of an operator: a low-pass filter for making multigrid test
-//! vectors, and Chebyshev iteration as a fixed smoother (DESIGN.md §7.6.5 (b), (c)).
+//! vectors, and Chebyshev iteration as a fixed smoother (the design notes, §7.6.5 (b), (c)).
 //!
 //! Both are fixed polynomials of the operator, the same linear map on every application,
 //! which is what BiCGStab expects of a preconditioner. Both work on any `LinearFn` and

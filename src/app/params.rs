@@ -279,7 +279,7 @@ pub struct FoprBlock {
     #[serde(default = "unit")]
     pub neff_alpha: f64,
     /// α of the Pauli-Villars operator. 1 by default: on 12⁴ α in D alone is what helps the
-    /// multigrid (docs/MDWF_MULTIGRID_LOG.md).
+    /// multigrid (the working log (branch `notes`)).
     #[serde(
         default = "unit",
         rename = "neff_alpha_PauliVillars",
@@ -485,7 +485,7 @@ pub struct SetupBlock {
     pub bootstrap_number_of_steps: usize,
     #[serde(default = "setup_seed")]
     pub seed: u64,
-    /// Low modes of Ã from `mdwf_evenodd_coherence` instead of the filter.
+    /// Low modes of Ã from a checkpoint file instead of the filter (see `app::mdwf`).
     pub checkpoint: Option<PathBuf>,
 }
 

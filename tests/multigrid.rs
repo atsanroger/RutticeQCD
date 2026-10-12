@@ -613,7 +613,7 @@ fn single_precision_multigrid_returns_single_precision_values() {
 /// The Bridge++ test configuration with the operator of the Bridge++ multigrid test
 /// (`test_alt_Multigrid.yaml`: clover, κ = 0.13, c_SW = 1.1, periodic) and its multigrid
 /// parameters on 2^4 blocks. No reference iteration count: the Bridge++ multigrid test
-/// could not be built here (DESIGN.md §14). Skipped without the configuration.
+/// could not be built here (the design notes, §14). Skipped without the configuration.
 #[test]
 fn multigrid_on_the_bridge_configuration() {
     let Some(path) = common::bridge_test_file("conf_04040408.txt") else {

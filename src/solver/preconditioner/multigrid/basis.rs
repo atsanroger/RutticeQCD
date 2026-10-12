@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// of a block and chirality ± is spanned by (1 ± Γ5) v_i / 2 restricted to the block. Γ5
 /// may act on all components of a site, including a fifth dimension (`ls > 1`): the
 /// aggregate holds every s. This is how Bridge++ (`MultiGrid_Clover`) and the CUDA
-/// domain-wall multigrid (`MultiGrid_Domainwall`) do it (DESIGN.md §7.6.1).
+/// domain-wall multigrid (`MultiGrid_Domainwall`) do it (the design notes, §7.6.1).
 ///
 /// `T` is the storage of the fields P acts between, `S` that of P itself (by default the
 /// same). A single-precision P with double-precision fields (`Basis<f64, f32>`) halves the

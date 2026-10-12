@@ -41,7 +41,7 @@ pub struct MultigridParams {
     pub levels: [usize; 3],
 }
 
-/// The smoother of the cycle (DESIGN.md §7.6.0).
+/// The smoother of the cycle (the design notes, §7.6.0).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SmootherChoice {
     /// SAP: `cycles` cycles, `block_steps` minimal-residual steps per block.
@@ -54,7 +54,7 @@ pub enum SmootherChoice {
     },
 }
 
-/// The coarse-grid solver (DESIGN.md §7.6.0).
+/// The coarse-grid solver (the design notes, §7.6.0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoarseSolverChoice {
     BiCgStab,
@@ -88,7 +88,7 @@ impl MultigridParams {
 
 type Fine<T> = Field<T, Spinor>;
 
-/// The members of the cycle (DESIGN.md §7.6.3); each can be exchanged.
+/// The members of the cycle (the design notes, §7.6.3); each can be exchanged.
 pub struct CycleParts<'a, T: Storage> {
     /// The operator whose inverse the cycle approximates: D for clover, A for the
     /// domain-wall target operator.
@@ -198,7 +198,7 @@ where
     T: Storage + 'a,
 {
     /// A cycle on D from the choices in `params`, with random initial test vectors.
-    /// `MultigridParams::bridge` gives the clover multigrid of Bridge++ (DESIGN.md §7.6.2):
+    /// `MultigridParams::bridge` gives the clover multigrid of Bridge++ (the design notes, §7.6.2):
     /// no pre-smoothing, SAP after the coarse correction, BiCGStab on the coarse lattice.
     pub fn new(
         op: &'a F,

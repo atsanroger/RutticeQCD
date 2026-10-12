@@ -150,7 +150,7 @@ impl<T: Storage> CoarseOp<T> {
             .expect("nothing is inverted without diagonal preconditioning")
     }
 
-    /// `build` with the two options of the domain-wall multigrid (DESIGN.md §7.6.2, after
+    /// `build` with the two options of the domain-wall multigrid (the design notes, §7.6.2, after
     /// `AFopr_Domainwall_coarse::generate_coarse_op` of the CUDA version):
     ///
     /// - `right`: a factor R applied before D, giving `P† D R P`. It must not couple

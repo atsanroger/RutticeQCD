@@ -1,5 +1,5 @@
 //! Levels below the coarse lattice of a multigrid, as a preconditioner of a coarse
-//! operator A_c (docs/MDWF_MULTIGRID_LOG.md: the signed multilevel V-cycle, `sm:`).
+//! operator A_c (the working log (branch `notes`): the signed multilevel V-cycle, `sm:`).
 //!
 //! Level ℓ groups the sites of the level above into super-blocks; on each it keeps `nq`
 //! orthonormal local vectors, half from the lower chirality of the test vectors and half

@@ -62,7 +62,7 @@ MultiGrid:
     bootstrap_number_of_rounds : 2
     bootstrap_number_of_steps  : 4
     seed                       : 21
-    ## low modes from a mdwf_evenodd_coherence checkpoint instead of the filter:
+    ## low modes from a checkpoint file (study program mdwf_evenodd_coherence, tag mdwf-mg-studies) instead of the filter:
     # checkpoint : ../run/eoeig_ckpt_12_1_0.005_8_16_26.bin
   Smoother:
     smoother_type   : Chebyshev

@@ -15,7 +15,7 @@
 //!   aggregates only; preconditioned by the inverse of its diagonal blocks. This is the
 //!   reference's choice for its A = (D_PV C_PV^-1)† C^-1 D, kept for now with the paper's A:
 //!   on a 12^4 configuration neither this nor the Galerkin projection of A, for either A,
-//!   reduces a smooth error (DESIGN.md §7.6.5 (d)).
+//!   reduces a smooth error (the design notes, §7.6.5 (d)).
 //! - Coarse solver: GMRES(m), restarted a few times, to a loose tolerance.
 
 use super::wilson::random_vectors;
@@ -56,11 +56,11 @@ pub enum MdwfSmoother {
     /// `Polynomial`: a polynomial of A with `degree` coefficients, fitted to a random
     /// vector in the setup and applied `passes` times as a stationary correction. Keeps
     /// three vectors, and is the same linear map every time. In a Krylov solver it can
-    /// stall (degree 4 does on a 12^4 configuration; docs/MDWF_MULTIGRID_LOG.md).
+    /// stall (degree 4 does on a 12^4 configuration; the working log (branch `notes`)).
     Polynomial { degree: usize, passes: usize },
     /// `Chebyshev`: `steps` steps of Chebyshev iteration on A for the real interval
     /// `[hi/ratio, hi]`, hi = 1.1 |λ_max(A)| from 30 steps of the power iteration in the
-    /// setup (DESIGN.md §7.6.5 (c)). Keeps three vectors, and is the same linear map every
+    /// setup (the design notes, §7.6.5 (c)). Keeps three vectors, and is the same linear map every
     /// time.
     Chebyshev { steps: usize, ratio: f64 },
 }

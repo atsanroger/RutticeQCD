@@ -8,7 +8,8 @@
 //! the plain D, time, nominal GFlop/s (Bridge++'s count for the domain-wall operator, two
 //! per application of the even-odd operator, and 72 dim² per coarse site for a coarse
 //! application), and the memory now and at its peak. A `Setup.checkpoint` in the MultiGrid
-//! block takes the low modes from a `mdwf_evenodd_coherence` checkpoint instead of the
+//! block takes the low modes from a checkpoint (written by the study program
+//! `mdwf_evenodd_coherence`, kept under the tag `mdwf-mg-studies`) instead of the
 //! filter. With `Main.backend: simd` the fine fields are in blocks of `simd_lanes` sites:
 //! the operator, the smoother and the outer solver run there, the multigrid setup and the
 //! coarse correction in the usual layout.
@@ -42,7 +43,7 @@ use std::time::Instant;
 type H<L = Aos> = Field<f64, Spinor, Half, L>;
 type F<L = Aos> = Field<f64, Spinor, Lexical, L>;
 
-/// The first `count` vectors of a `mdwf_evenodd_coherence` checkpoint, read site by site.
+/// The first `count` vectors of a low-mode checkpoint, read site by site.
 fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];

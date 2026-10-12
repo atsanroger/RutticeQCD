@@ -1,5 +1,5 @@
 //! The multigrid for the even-odd Pauli-Villars operator of Möbius domain-wall fermions
-//! (`PvEvenOdd`; docs/MDWF_MULTIGRID_LOG.md, section 0, "factorized coarse correction").
+//! (`PvEvenOdd`; the working log (branch `notes`), section 0, "factorized coarse correction").
 //!
 //! With S the Schur complement of D on the even sites, S_PV that of D_PV, ι the injection
 //! of the even sites into the whole lattice and π its adjoint, S⁻¹ = π D⁻¹ ι and
