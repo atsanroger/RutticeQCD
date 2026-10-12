@@ -107,7 +107,86 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     }
 }
 
+/// The constants of the substitution along s for C⁻¹ at one mass (see `mult_site_inv`).
+pub(super) struct Substitution<N> {
+    /// x at the first row of the substitution, from the corner row:
+    /// d+ x_first + m d- (p_last + q^(Ls-1) x_first) = r_first.
+    corner: N,
+    to_last: N,
+    per_step: N,
+    d_minus: f64,
+    /// d- / d+
+    q: f64,
+}
+
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
+    pub(super) fn substitution(&self, mass: f64) -> Substitution<L::Num> {
+        let number = <L::Num as Number>::from_f64;
+        let ls = self.params.ls;
+        let (d_plus, d_minus) = self.site_coefficients();
+        let q = d_minus / d_plus;
+        Substitution {
+            corner: number(
+                1.0 / (d_plus
+                    + mass
+                        * d_minus
+                        * q.powi(i32::try_from(ls - 1).expect("Ls is at most MAX_LS"))),
+            ),
+            to_last: number(-mass * d_minus),
+            per_step: number(1.0 / d_plus),
+            d_minus,
+            q,
+        }
+    }
+
+    /// C⁻¹ (C†⁻¹ with `dagger`) of the plain operator on the `ls` spinors of one vector at
+    /// one site, in place: for a result that is in the cache, in the pass that made it.
+    ///
+    /// One chirality at a time. Its part of each spinor is replaced by the solution as the
+    /// substitution reaches it and the other part is left where it is, so the second
+    /// chirality still finds its right-hand side.
+    #[inline(always)]
+    pub(super) fn site_inv_in_place(
+        k: &Substitution<L::Num>,
+        v: &mut [T],
+        ls: usize,
+        dagger: bool,
+    ) {
+        let sp = SPINOR_REALS * L::LANES;
+        let number = <L::Num as Number>::from_f64;
+        let scaled = |c: L::Num, x: &SiteSpinor<L::Num>| SiteSpinor::zero().sub_scaled(-c, x);
+        for (sign, up) in [(1.0, !dagger), (-1.0, dagger)] {
+            let at = |i: usize| if up { i } else { ls - 1 - i };
+            // (1 + sign γ5) / 2 of a spinor
+            let project = |phi: &SiteSpinor<L::Num>| {
+                let both = phi.sub_scaled(number(-sign), &G::GAMMA5.apply(phi));
+                scaled(number(0.5), &both)
+            };
+            // p_0 = 0, p_i = (r_i + d- p_(i-1)) / d+
+            let step = |r: &SiteSpinor<L::Num>, p: &SiteSpinor<L::Num>| {
+                scaled(k.per_step, &r.sub_scaled(number(-k.d_minus), p))
+            };
+            let row = |v: &[T], i: usize| project(&L::load(&v[at(i) * sp..(at(i) + 1) * sp]));
+            let mut last = SiteSpinor::zero();
+            for i in 1..ls {
+                last = step(&row(v, i), &last);
+            }
+            let first = scaled(k.corner, &row(v, 0).sub_scaled(-k.to_last, &last));
+            let (mut p, mut power) = (SiteSpinor::zero(), 1.0);
+            for i in 0..ls {
+                let reals = &mut v[at(i) * sp..(at(i) + 1) * sp];
+                let phi = L::load(reals);
+                let r = project(&phi);
+                if i > 0 {
+                    p = step(&r, &p);
+                }
+                let x_i = p.sub_scaled(number(-power), &first);
+                L::store(&phi.sub_scaled(number(1.0), &r).add(&x_i), reals);
+                power *= k.q;
+            }
+        }
+    }
+
     /// The coefficients (d+, d-) of the site-local part C = d+ + d- Y.
     fn site_coefficients(&self) -> (f64, f64) {
         let height = 4.0 - self.params.m5;
@@ -179,15 +258,13 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let number = <L::Num as Number>::from_f64;
-        let (d_plus, d_minus) = self.site_coefficients();
-        let q = d_minus / d_plus;
-        // x at the first row of the substitution, from the corner row:
-        // d+ x_first + m d- (p_last + q^(Ls-1) x_first) = r_first.
-        let corner = number(
-            1.0 / (d_plus
-                + mass * d_minus * q.powi(i32::try_from(ls - 1).expect("Ls is at most MAX_LS"))),
-        );
-        let (to_last, per_step) = (number(-mass * d_minus), number(1.0 / d_plus));
+        let Substitution {
+            corner,
+            to_last,
+            per_step,
+            d_minus,
+            q,
+        } = self.substitution(mass);
         let scaled = |k: L::Num, x: &SiteSpinor<L::Num>| SiteSpinor::zero().sub_scaled(-k, x);
         let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {

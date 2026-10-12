@@ -352,7 +352,8 @@ where
         &self.params
     }
 
-    /// `even_odd_hop_fifth` for fields in blocks.
+    /// `even_odd_hop_fifth` for fields in blocks; `after` is called once per block.
+    #[allow(clippy::too_many_arguments)]
     pub fn even_odd_hop_fifth(
         &self,
         work: &mut WilsonWork<T>,
@@ -361,6 +362,7 @@ where
         to: Parity,
         dagger: Dagger,
         fifth: Fifth,
+        after: After<'_, T>,
     ) {
         assert_eq!(out.parity(), to, "output field has the wrong parity");
         assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
@@ -374,7 +376,7 @@ where
             Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
         };
         let geo = self.parity_geometry(to);
-        self.block_sweep(work, geo, out, inp, Diagonal::Absent, ends);
+        self.block_sweep(work, geo, out, inp, Diagonal::Absent, ends, after);
     }
 
     /// The even-odd numbering this operator uses, if the lattice allows one. It numbers
@@ -559,6 +561,7 @@ where
 
     /// `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`, block by block: `sweep`
     /// for fields in blocks.
+    #[allow(clippy::too_many_arguments)]
     fn block_sweep<SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
@@ -567,6 +570,7 @@ where
         inp: &BlockField<T, SI, W>,
         diagonal: Diagonal,
         (pre, post): (Pre, Post),
+        after: After<'_, T>,
     ) {
         let stencil = &geo.stencil;
         assert_eq!(
@@ -590,7 +594,8 @@ where
         let exchange = self.start_block_exchange(work, geo, inp, pre);
         let (out, block_len) = (out.slab_mut(0), copies * SPINOR_REALS * W);
         // A factor over the spinors of a block reads them back: they stay in the cache.
-        let stream = streams(out, block_len) && !matches!(post, Post::Gamma5Fifth(_));
+        let stream =
+            streams(out, block_len) && !matches!(post, Post::Gamma5Fifth(_)) && after.is_none();
         let fence = || {
             if stream {
                 stream_fence();
@@ -598,8 +603,8 @@ where
         };
 
         overlapped(exchange, geo.parts.as_ref(), |received, part| {
-            let block = |block: usize, o: &mut [T]| {
-                let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;
+            let block = |block: usize, values: &mut [T]| {
+                let o: &mut [BlockSpinor<T, W>] = values.as_chunks_mut::<W>().0.as_chunks_mut().0;
                 for (r, o) in o.iter_mut().enumerate() {
                     let input = BlockInput {
                         spinors,
@@ -638,6 +643,9 @@ where
                         |x| load_block_spinor::<T, W>(x),
                         |p, x| store_block_spinor::<T, W>(p, x),
                     );
+                }
+                if let Some(after) = after {
+                    after(block, values);
                 }
             };
             match part {
@@ -731,7 +739,15 @@ where
             Variant::Gamma5D => (Pre::Plain, Post::Gamma5),
             Variant::Dagger => (Pre::Gamma5, Post::Gamma5),
         };
-        self.block_sweep(work, &self.state.full, out, inp, Diagonal::Present, gamma5);
+        self.block_sweep(
+            work,
+            &self.state.full,
+            out,
+            inp,
+            Diagonal::Present,
+            gamma5,
+            None,
+        );
     }
 }
 
@@ -766,6 +782,7 @@ where
             inp,
             Diagonal::Absent,
             (Pre::gamma5(g5), Post::gamma5(g5)),
+            None,
         );
     }
 

@@ -39,6 +39,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// The even-odd hop with a factor in the fifth dimension in the same sweep: `out =
     /// M_(to, other) f(inp)`, or with `Dagger::Yes` `out = f(M†_(to, other) inp)`, where f is
     /// `fifth` (with its own `dagger` set to match). One pass over the field instead of two.
+    /// `after` is then applied to every site of the result (see `After`).
+    #[allow(clippy::too_many_arguments)]
     pub fn even_odd_hop_fifth(
         &self,
         work: &mut WilsonWork<T>,
@@ -47,6 +49,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         to: Parity,
         dagger: Dagger,
         fifth: Fifth,
+        after: After<'_, T>,
     ) {
         let eo = self
             .state
@@ -64,7 +67,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             Dagger::No => (Pre::Fifth(fifth), Post::Plain),
             Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
         };
-        self.sweep(work, &eo.to[to.index()], out, inp, Diagonal::Absent, ends);
+        self.sweep(
+            work,
+            &eo.to[to.index()],
+            out,
+            inp,
+            Diagonal::Absent,
+            ends,
+            after,
+        );
     }
 
     /// The even-odd numbering this operator uses, if the lattice allows one.
@@ -356,7 +367,9 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
 
     /// One fused sweep: `out = post( diagonal φ - κ Σ hops φ )` with `φ = pre(inp)`. The
     /// full operator and the even-odd hopping blocks are both this, on different
-    /// geometries. The last argument is (pre, post).
+    /// geometries. The last arguments are (pre, post) and what is done to each site of the
+    /// result after them.
+    #[allow(clippy::too_many_arguments)]
     fn sweep<SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
@@ -365,19 +378,21 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
         gamma5: (Pre, Post),
+        after: After<'_, T>,
     ) {
         match self.state.links {
             LinkStore::Full(_) => {
-                self.sweep_with::<FullLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5)
+                self.sweep_with::<FullLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5, after)
             }
             LinkStore::TwoRows(_) => {
-                self.sweep_with::<TwoRowLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5)
+                self.sweep_with::<TwoRowLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5, after)
             }
             LinkStore::Unset => panic!("set_gauge must be called before the operator is applied"),
         }
     }
 
     /// `sweep` for one representation of the links.
+    #[allow(clippy::too_many_arguments)]
     fn sweep_with<R: LinkRepr, SO: Sites, SI: Sites>(
         &self,
         work: &mut WilsonWork<T>,
@@ -386,6 +401,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         inp: &Field<T, Spinor, SI>,
         diagonal: Diagonal,
         (pre, post): (Pre, Post),
+        after: After<'_, T>,
     ) {
         self.check(geo, out, inp);
         let kappa: T::Compute = Number::from_f64(self.params.kappa);
@@ -396,7 +412,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
         let (out, site_len) = (out.slab_mut(0), copies * SPINOR_REALS);
         // A factor over the spinors of a site reads them back: they stay in the cache.
-        let stream = streams(out, site_len) && !matches!(post, Post::Gamma5Fifth(_));
+        let stream =
+            streams(out, site_len) && !matches!(post, Post::Gamma5Fifth(_)) && after.is_none();
         let fence = || {
             if stream {
                 stream_fence();
@@ -450,6 +467,9 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                         |x| load_spinor::<T>(x),
                         |p, x| store_spinor::<T>(p, x),
                     );
+                }
+                if let Some(after) = after {
+                    after(x, o);
                 }
             };
             match part {
@@ -588,6 +608,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
             inp,
             Diagonal::Present,
             (pre, post),
+            None,
         );
     }
 }
@@ -684,6 +705,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> EvenOdd<Field<T, Spinor, Half>>
             inp,
             Diagonal::Absent,
             (Pre::gamma5(g5), Post::gamma5(g5)),
+            None,
         );
     }
 

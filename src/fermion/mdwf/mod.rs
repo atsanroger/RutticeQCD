@@ -50,6 +50,10 @@
 //! the links read once per site. The fifth dimension is local to a site. So far the
 //! operator is put together from three passes (the combination before W, the Wilson sweep,
 //! the combination after it); a sweep that does all three at a site is not written yet.
+//! The even-odd blocks do have it: the hop takes (4 − M5)(b − c Y) into the sweep of the
+//! Wilson kernel, and the Schur factors of `PvEvenOdd` also what follows a hop within a
+//! site (C⁻¹, the difference with the input), so a factor is two or three passes over the
+//! field. The kernels are limited by the memory they move, not by the arithmetic.
 //! The fields may be in the usual layout or in blocks of W sites (`MdwfLayout`); the fifth
 //! dimension is the same code on numbers of W lanes.
 //!
@@ -81,8 +85,8 @@
 //! (`Fopr_Domainwall`), so that results can be compared. Written from the formulas above.
 
 use super::{
-    fifth_hop, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag, Variant, Wilson,
-    WilsonLayout, WilsonOp, WilsonParams, WilsonWork,
+    fifth_hop, After, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag, Variant,
+    Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonWork,
 };
 use crate::kernel::{
     Cplx, Dirac, GammaRepre, Lane, LaneOf, Number, Spinor as SiteSpinor, NC, NS, SPINOR_REALS,
@@ -169,8 +173,8 @@ pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
         to: Parity,
         dagger: Dagger,
     );
-    /// The hop with the factor in the fifth dimension in the same sweep
-    /// (`WilsonOp::even_odd_hop_fifth`).
+    /// The hop with the factor in the fifth dimension in the same sweep, and `after` on each
+    /// site (block) of the result (`WilsonOp::even_odd_hop_fifth`).
     #[allow(clippy::too_many_arguments)]
     fn hop_fifth<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
@@ -180,6 +184,7 @@ pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
         to: Parity,
         dagger: Dagger,
         fifth: Fifth,
+        after: After<'_, T>,
     );
 }
 
@@ -232,6 +237,7 @@ impl<T: Storage> MdwfLayout<T> for Aos {
     ) {
         EvenOdd::hop(w, work, out, inp, to, dagger);
     }
+    #[allow(clippy::too_many_arguments)]
     fn hop_fifth<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
@@ -240,8 +246,9 @@ impl<T: Storage> MdwfLayout<T> for Aos {
         to: Parity,
         dagger: Dagger,
         fifth: Fifth,
+        after: After<'_, T>,
     ) {
-        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth);
+        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth, after);
     }
 }
 
@@ -313,6 +320,7 @@ where
     ) {
         EvenOdd::hop(w, work, out, inp, to, dagger);
     }
+    #[allow(clippy::too_many_arguments)]
     fn hop_fifth<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
@@ -321,8 +329,9 @@ where
         to: Parity,
         dagger: Dagger,
         fifth: Fifth,
+        after: After<'_, T>,
     ) {
-        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth);
+        w.even_odd_hop_fifth(work, out, inp, to, dagger, fifth, after);
     }
 }
 
