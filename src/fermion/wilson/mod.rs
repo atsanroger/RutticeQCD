@@ -460,6 +460,12 @@ impl Post {
     }
 }
 
+/// The last step of a sweep at each output site (or block): called with its number among
+/// those of the output and its values, all spinors of the site, once they are written and
+/// still in the cache. For what follows a hop within a site, in the same pass over the field
+/// (domain-wall fermions: C⁻¹, and the difference with another field).
+pub type After<'a, T> = Option<&'a (dyn Fn(usize, &mut [T]) + Sync)>;
+
 /// Reads spinor `r` of the sites of an input field, transformed by `pre`. A struct with
 /// methods rather than closures, so that the reads are expanded in place.
 ///

@@ -922,6 +922,74 @@ fn even_odd_pv_operator_solves_d_in_every_form() {
     }
 }
 
+/// The Schur factors of `PvEvenOdd` do C⁻¹ and the difference with the input in the sweeps
+/// of the hops. Ã and Ã† are what the even-odd blocks give one pass at a time, in both forms.
+#[test]
+fn even_odd_pv_operator_is_made_of_the_blocks() {
+    type H = Field<f64, Spinor, Half>;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 151);
+    let op = operator(&lat, MOBIUS, &u);
+    let pv = operator(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..MOBIUS
+        },
+        &u,
+    );
+    let index = op.even_odd_index().unwrap();
+    let mut even = H::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+    even.set_parity(Parity::Even);
+    let mut x = even.zeros_like();
+    extract_parity(
+        &mut x,
+        &random(&lat, MOBIUS.ls, 2, 152),
+        index,
+        Parity::Even,
+    );
+    // 1 − D_eo C_o⁻¹ D_oe C_e⁻¹ (right form) or 1 − C_e⁻¹ D_eo C_o⁻¹ D_oe (left form), or
+    // the adjoint, which takes the steps in the opposite order.
+    let factor = |m: &Mdwf<f64>, form: EoForm, dagger: Dagger, inp: &H| {
+        let mut work = m.even_odd_work();
+        let (e, o) = (Parity::Even, Parity::Odd);
+        let mut o1 = inp.zeros_like();
+        o1.set_parity(o);
+        let mut o2 = o1.zeros_like();
+        let (mut t, mut out) = (inp.zeros_like(), inp.zeros_like());
+        if (form == EoForm::Right) == (dagger == Dagger::No) {
+            m.diag_inv(&mut work, &mut t, inp, e, dagger);
+            m.hop(&mut work, &mut o1, &t, o, dagger);
+            m.diag_inv(&mut work, &mut o2, &o1, o, dagger);
+            m.hop(&mut work, &mut out, &o2, e, dagger);
+        } else {
+            m.hop(&mut work, &mut o1, inp, o, dagger);
+            m.diag_inv(&mut work, &mut o2, &o1, o, dagger);
+            m.hop(&mut work, &mut t, &o2, e, dagger);
+            m.diag_inv(&mut work, &mut out, &t, e, dagger);
+        }
+        out.aypx(&[C64::new(-1.0, 0.0); 2], inp);
+        out
+    };
+    let diff = |a: &H, b: &H| {
+        a.as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+    };
+    for form in [EoForm::Right, EoForm::Left] {
+        let mut a = PvEvenOdd::new(&op, &pv, form, &even);
+        let (mut ax, mut adag_x) = (even.zeros_like(), even.zeros_like());
+        a.mult(&mut ax, &x);
+        a.mult_dag(&mut adag_x, &x);
+        let want = factor(&pv, form, Dagger::Yes, &factor(&op, form, Dagger::No, &x));
+        let want_dag = factor(&op, form, Dagger::Yes, &factor(&pv, form, Dagger::No, &x));
+        let (d, d_dag) = (diff(&ax, &want), diff(&adag_x, &want_dag));
+        assert!(diff(&ax, &x) > 0.1 && diff(&adag_x, &x) > 0.1);
+        assert!(d < 1e-13 && d_dag < 1e-13, "{form:?}: {d:e}, {d_dag:e}");
+    }
+}
+
 /// P† ι and π P on the sites of one parity give what restricting the field put onto the
 /// whole lattice and taking the sites of the prolongation give, folded or not.
 #[test]
