@@ -38,14 +38,15 @@
 //!
 //! `solver.type` chooses how (D†D)⁻¹ is computed: `cg` (the default), or `bicgstab`, `fgmres`,
 //! `gcr` (D† y = φ, then D x = y; `restart: 32` is the cycle of FGMRES and the directions GCR
-//! keeps; Wilson and clover fermions only). A `rational` action takes `multishift_cg` (the default) or
-//! `cg` (one solve per pole).
+//! keeps; Wilson and clover fermions only). A `rational` action takes `multishift_cg` (the
+//! default), `cg` (one solve per pole), or the two-step solvers pole by pole through γ5 D.
 //!
 //! `solver.neff_alpha: 0.6` solves domain-wall fermions with Neff's D Q. `solver.preconditioner`
 //! is `chebyshev` (with `cg`; `chebyshev: {steps: 8, ratio: 30}`) or `multigrid` (with the
-//! two-step solvers, Wilson and clover fermions on all sites;
+//! two-step solvers, Wilson and clover fermions;
 //! `multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`),
-//! which is set up when a trajectory starts and again after `refresh_every` force solves.
+//! which is set up when a trajectory starts and again after `refresh_every` force solves, from
+//! the test vectors of the setup before (`reuse_vectors: false`: from random vectors).
 //!
 //! The conventions are those of Bridge++'s `HMC_General` (momenta, pseudofermions and the
 //! Metropolis test from one M-series generator; the integrator levels of its
@@ -250,7 +251,8 @@ pub enum HmcSolverKind {
     /// The same by GCR truncated to `restart` directions.
     #[serde(alias = "GCR")]
     Gcr,
-    /// Multi-shift CG: the default of `rational`, which with `cg` solves pole by pole.
+    /// Multi-shift CG: the default of `rational`, which with `cg` solves pole by pole and with
+    /// the two-step solvers pole by pole through γ5 D (D ± i√pole γ5).
     #[serde(alias = "MultiShift_CG")]
     MultishiftCg,
 }
@@ -263,7 +265,7 @@ pub enum HmcPreconditioner {
     /// A Chebyshev polynomial of D†D (`chebyshev`), with `cg`; any fermions.
     Chebyshev,
     /// The multigrid (`multigrid`), with `bicgstab`, `fgmres` or `gcr`; Wilson and clover
-    /// fermions, `two_flavor` on all sites and `two_flavor_ratio`.
+    /// fermions.
     Multigrid,
 }
 
@@ -299,6 +301,12 @@ pub struct HmcMultigrid {
     /// Set up again after this many force solves; 0: only when a trajectory starts.
     #[serde(default)]
     pub refresh_every: usize,
+    /// Start every setup but the first from the test vectors of the one before (the links are
+    /// close), improved `reuse_iterations` times; false: always from random vectors.
+    #[serde(default = "yes")]
+    pub reuse_vectors: bool,
+    #[serde(default)]
+    pub reuse_iterations: usize,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -333,6 +341,15 @@ pub struct HmcSolver {
 }
 
 impl HmcSolver {
+    /// The two-step solver of a `rational` action, if it asks for one.
+    fn two_step(&self) -> Option<NormalSolver> {
+        matches!(
+            self.kind,
+            Some(HmcSolverKind::Bicgstab | HmcSolverKind::Fgmres | HmcSolverKind::Gcr)
+        )
+        .then(|| self.normal())
+    }
+
     /// The solver of a two-flavour action.
     fn normal(&self) -> NormalSolver {
         match self.kind {
@@ -372,7 +389,11 @@ impl HmcSolver {
                     setup_iterations: mg.setup_iterations,
                     ..MultigridParams::bridge(mg.block)
                 };
-                Preconditioner::multigrid(OwnedMultigrid::new(make, params), mg.refresh_every)
+                let mut cycle = OwnedMultigrid::new(make, params);
+                if mg.reuse_vectors {
+                    cycle = cycle.reusing_vectors(mg.reuse_iterations);
+                }
+                Preconditioner::multigrid(cycle, mg.refresh_every)
             }
             _ => self.chebyshev(),
         }
@@ -407,7 +428,7 @@ impl HmcSolver {
                     );
                 }
                 if !wilson_like || !all_sites {
-                    return Err("preconditioner multigrid: for Wilson and clover fermions, two_flavor without even_odd and two_flavor_ratio".into());
+                    return Err("preconditioner multigrid: for Wilson and clover fermions".into());
                 }
                 let Some(mg) = self.multigrid else {
                     return Err("preconditioner multigrid needs multigrid: {block: [..]}".into());
@@ -614,10 +635,10 @@ impl HmcConfig {
                     let (wilson_like, all_sites) = match a {
                         ActionConfig::TwoFlavor {
                             fermion, even_odd, ..
-                        } => (
-                            !matches!(fermion, HmcFermion::DomainWall { .. }),
-                            !*even_odd,
-                        ),
+                        } => {
+                            let _ = even_odd;
+                            (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
+                        }
                         ActionConfig::TwoFlavorRatio { fermion, .. } => {
                             (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
                         }
@@ -652,22 +673,18 @@ impl HmcConfig {
                         ));
                     }
                 }
-                ActionConfig::Rational { solver, .. }
-                    if !matches!(
-                        solver.kind,
-                        None | Some(HmcSolverKind::MultishiftCg | HmcSolverKind::Cg)
-                    ) =>
-                {
-                    return invalid(format!(
-                        "actions[{i}].solver.type: multishift_cg or cg (pole by pole); the poles shift D†D, which the two-step solvers do not solve"
-                    ));
-                }
-                ActionConfig::Rational { solver, .. }
-                    if !matches!(solver.preconditioner, None | Some(HmcPreconditioner::None)) =>
-                {
-                    return invalid(format!(
-                        "actions[{i}].solver.preconditioner: not for rational"
-                    ));
+                ActionConfig::Rational { solver, .. } => {
+                    if solver.asks_for(HmcPreconditioner::Chebyshev) {
+                        return invalid(format!(
+                            "actions[{i}].solver.preconditioner: multigrid (with bicgstab, fgmres or gcr) or none for rational"
+                        ));
+                    }
+                    if let Err(e) = solver.check_preconditioner(self.lattice, true, true) {
+                        return invalid(format!("actions[{i}].solver: {e}"));
+                    }
+                    if solver.restart == 0 {
+                        return invalid(format!("actions[{i}].solver.restart: at least 1"));
+                    }
                 }
                 _ => {}
             }
@@ -753,7 +770,7 @@ impl HmcConfig {
                                     let a = TwoFlavorEo::new(op, sm, md, h)
                                         .with_guess(g)
                                         .with_solver(solver.normal())
-                                        .with_preconditioner(solver.chebyshev());
+                                        .with_preconditioner(solver.preconditioner(make));
                                     match clover {
                                         Some(kc) => {
                                             Box::new(a.with_clover(kc)) as Box<dyn MdAction>
@@ -951,39 +968,47 @@ impl HmcConfig {
                         );
                         let by_pole = solver.kind == Some(HmcSolverKind::Cg);
                         let action: Box<dyn MdAction> = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => Box::new(
-                                Rational::new(
-                                    Wilson::<f64>::new(
-                                        lat,
-                                        WilsonParams {
-                                            kappa,
-                                            boundary: boundary(&b),
-                                        },
-                                    ),
-                                    sm,
-                                    md,
-                                    hb,
-                                    md_stop,
-                                    h_stop,
-                                )
-                                .with_pole_by_pole(by_pole),
-                            ),
+                            HmcFermion::Wilson { kappa, boundary: b } => {
+                                let make = {
+                                    let lat = lat.clone();
+                                    move || {
+                                        Wilson::<f64>::new(
+                                            &lat,
+                                            WilsonParams {
+                                                kappa,
+                                                boundary: boundary(&b),
+                                            },
+                                        )
+                                    }
+                                };
+                                let a = Rational::new(make(), sm, md, hb, md_stop, h_stop)
+                                    .with_pole_by_pole(by_pole);
+                                Box::new(match solver.two_step() {
+                                    Some(two) => a
+                                        .with_two_step(two)
+                                        .with_preconditioner(solver.preconditioner(make)),
+                                    None => a,
+                                })
+                            }
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
                                 boundary: b,
-                            } => Box::new(
-                                Rational::new(
-                                    clover(lat, kappa, csw, &b),
-                                    sm,
-                                    md,
-                                    hb,
-                                    md_stop,
-                                    h_stop,
-                                )
-                                .with_clover(kappa * csw)
-                                .with_pole_by_pole(by_pole),
-                            ),
+                            } => {
+                                let make = {
+                                    let lat = lat.clone();
+                                    move || clover(&lat, kappa, csw, &b)
+                                };
+                                let a = Rational::new(make(), sm, md, hb, md_stop, h_stop)
+                                    .with_clover(kappa * csw)
+                                    .with_pole_by_pole(by_pole);
+                                Box::new(match solver.two_step() {
+                                    Some(two) => a
+                                        .with_two_step(two)
+                                        .with_preconditioner(solver.preconditioner(make)),
+                                    None => a,
+                                })
+                            }
                             HmcFermion::DomainWall { .. } => {
                                 unreachable!("checked when the file is read")
                             }
@@ -1068,6 +1093,7 @@ fn gauge_format(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
     Ok(match f {
         GaugeFormat::BridgeText => Box::new(BridgeText),
         GaugeFormat::Binary => Box::new(Binary),
+        GaugeFormat::Nersc => Box::new(crate::io::Nersc),
         GaugeFormat::Ildg => Box::new(Ildg::default()),
         GaugeFormat::Scidac => Box::new(Scidac::default()),
         #[cfg(feature = "hdf5")]

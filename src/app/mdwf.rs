@@ -19,8 +19,8 @@ use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
 };
 use crate::{
-    extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, Field, Gauge, Half, Lattice,
-    Lexical, LinearFn, Parity, SingleComm, Spinor, Vector, C64, ND,
+    extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, EvenOddIndex, Field, Gauge, Half,
+    Lattice, Lexical, LinearFn, Parity, SingleComm, Spinor, Vector, C64, ND,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -32,7 +32,9 @@ use std::time::Instant;
 type H<L = Aos> = Field<f64, Spinor, Half, L>;
 type F<L = Aos> = Field<f64, Spinor, Lexical, L>;
 
-/// The first `count` vectors of a low-mode checkpoint, read site by site.
+/// The first `count` vectors of a low-mode checkpoint, read site by site. The file holds the
+/// even sites of the whole lattice in the order of one process; every process reads it and
+/// keeps its sites.
 fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
@@ -45,7 +47,12 @@ fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let len = next(&mut f)? as usize;
     let c = count.min(m);
     let mut x = like.zeros_with(c);
-    let sites = x.num_sites();
+    let lat = like.lattice().clone();
+    let (whole, mine) = (
+        EvenOddIndex::of_extents(lat.global),
+        EvenOddIndex::new(&lat),
+    );
+    let sites = whole.num_half_sites();
     let reals = like.site_len() / like.num_vectors();
     if sites * m * reals != len {
         return Err("checkpoint for another shape".into());
@@ -56,7 +63,18 @@ fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut buf = vec![0u8; 8 * m * reals];
     for site in 0..sites {
         f.read_exact(&mut buf)?;
-        for (k, v) in x.site_mut(0, site).iter_mut().enumerate() {
+        let mut rest = whole.full_site(Parity::Even, site);
+        let coords = lat.global.map(|l| {
+            let x = rest % l;
+            rest /= l;
+            x
+        });
+        let Some(local) = lat.local_site(coords) else {
+            continue;
+        };
+        let (parity, half) = mine.half_site(local);
+        debug_assert!(parity == Parity::Even);
+        for (k, v) in x.site_mut(0, half).iter_mut().enumerate() {
             *v = f64::from_le_bytes(buf[8 * k..8 * k + 8].try_into().expect("8 bytes"));
         }
     }
@@ -235,9 +253,6 @@ where
         (Some((_, low, boot)), Some(mg)) => {
             let keep = mg.level1.test_vectors(true) / 2;
             let mut y = match &mg.setup.checkpoint {
-                Some(_) if lat.comm.size() > 1 => {
-                    return Err("MultiGrid.Setup.checkpoint is read on one process only".into())
-                }
                 Some(path) => load(&relative(path), &like, keep)?,
                 None => {
                     let (x, theta) = pv_eo_low_modes(&op, pv, &lat, *low);
@@ -313,6 +328,24 @@ where
                     mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
                     levels_start.elapsed().as_secs_f64()
                 )?;
+                if mg.levels_for_pauli_villars {
+                    if cycle_params.pv_solver
+                        != crate::solver::preconditioner::multigrid::CoarseKrylov::Minres
+                    {
+                        return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
+                    }
+                    let levels_start = Instant::now();
+                    let applications = match &mut cycle {
+                        Preconditioner::Single(c) => c.add_pv_levels(&vectors, &super_blocks)?,
+                        Preconditioner::Double(c) => c.add_pv_levels(&vectors, &super_blocks)?,
+                        _ => unreachable!(),
+                    };
+                    writeln!(
+                        out,
+                        "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({:.0} s)",
+                        levels_start.elapsed().as_secs_f64()
+                    )?;
+                }
             }
             (cycle, cycle_params.chebyshev_steps)
         }
@@ -494,4 +527,59 @@ where
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{local_part, LocalComm};
+
+    /// A checkpoint written on one process is read on several: every process gets its sites.
+    #[test]
+    fn checkpoint_is_read_on_several_processes() {
+        let global = [4, 4, 4, 8];
+        let (ls, m, keep) = (2, 3, 2);
+        let whole_lat = Lattice::single_node(global);
+        let index = EvenOddIndex::new(&whole_lat);
+        // Vectors on all sites, so that the parts of the processes can be cut out of them.
+        let full = random_spinor(&whole_lat, ls * m, 77);
+        let mut like = H::with_shape(&whole_lat, 24, ls, 1, 1);
+        like.set_parity(Parity::Even);
+        let reals = 24 * ls;
+        let mut bytes = Vec::new();
+        for word in [0u64, m as u64, (index.num_half_sites() * m * reals) as u64] {
+            bytes.extend(word.to_le_bytes());
+        }
+        bytes.extend((0..m).flat_map(|_| 0u64.to_le_bytes()));
+        // The file: per even site, the m vectors one after the other.
+        for half in 0..index.num_half_sites() {
+            let site = full.site(0, index.full_site(Parity::Even, half));
+            bytes.extend(site.iter().flat_map(|v| v.to_le_bytes()));
+        }
+        let path = std::env::temp_dir().join(format!("ruttice_ckpt_{}.bin", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+
+        let one = load(&path, &like, keep).unwrap();
+        for grid in [[1, 1, 1, 2], [2, 1, 2, 2], [2, 2, 2, 2]] {
+            let worst = LocalComm::run(global, grid, |lat| {
+                let mut like = H::with_shape(&lat, 24, ls, 1, 1);
+                like.set_parity(Parity::Even);
+                let got = load(&path, &like, keep).unwrap();
+                // The same from the vectors on all sites: this process's part, its even sites.
+                let part = local_part(&full, &lat);
+                let mine = EvenOddIndex::new(&lat);
+                let mut worst = 0.0f64;
+                for half in 0..mine.num_half_sites() {
+                    let want = &part.site(0, mine.full_site(Parity::Even, half))[..keep * reals];
+                    for (a, b) in got.site(0, half).iter().zip(want) {
+                        worst = worst.max((a - b).abs());
+                    }
+                }
+                worst
+            });
+            assert!(worst.iter().all(|w| *w == 0.0), "{grid:?}: {worst:?}");
+        }
+        assert_eq!(one.num_vectors(), keep);
+        let _ = std::fs::remove_file(path);
+    }
 }

@@ -695,6 +695,11 @@ impl<T: Storage> CoarseOp<T> {
         c.axpy(&vec![C64::new(1.0, 0.0); c.num_vectors()], odd);
     }
 
+    /// `out = inp` on the even sites, zero on the odd ones.
+    pub fn even_part(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.pass(out, false, Some(inp), None, None, false);
+    }
+
     /// `out = A_ee⁻¹ inp` on the even sites, zero on the odd ones: the block-Jacobi
     /// preconditioner of the Schur complement.
     pub fn even_block_inverse(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {

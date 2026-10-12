@@ -27,7 +27,7 @@ The sections of a file that solves for propagators:
 | Section | What it holds |
 |---|---|
 | `Main` | `lattice_size`; `grid_size` (processes per direction); `backend` (`cpu` or `simd`) and `simd_lanes` |
-| `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `Binary`, `ILDG`, `SciDAC`, `HDF5`) |
+| `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `Binary`, `NERSC`, `ILDG`, `SciDAC`, `HDF5`) |
 | `GaugeFixing` | optional: `gauge_fixing_type : Coulomb` and its parameters |
 | `GaugeSmearing` | optional: stout or APE smearing of the links the fermions see |
 | `Fopr` | the fermion: `fermion_type` (`Wilson`, `Clover`, `Mobius`) and its parameters |
@@ -125,15 +125,16 @@ The `solver` of a fermion action says how its forces and energies are solved:
 
 | `solver` key | Values |
 |---|---|
-| `type` | `cg` (the default): CG on D†D. `bicgstab`, `fgmres`, `gcr`: D† y = φ and then D x = y; Wilson and clover fermions only. A `rational` action takes `multishift_cg` (the default) or `cg`, one solve per pole |
-| `preconditioner` | `chebyshev`, with `cg`, for any fermions (`chebyshev: {steps: 8, ratio: 30}`). `multigrid`, with `bicgstab`, `fgmres` or `gcr`, for Wilson and clover fermions in `two_flavor` without `even_odd` and in `two_flavor_ratio` (`multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`) |
+| `type` | `cg` (the default): CG on D†D. `bicgstab`, `fgmres`, `gcr`: D† y = φ and then D x = y; Wilson and clover fermions only. A `rational` action takes `multishift_cg` (the default), `cg` (one solve per pole), or the two-step solvers pole by pole through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
+| `preconditioner` | `chebyshev`, with `cg`, for any fermions (`chebyshev: {steps: 8, ratio: 30}`). `multigrid`, with `bicgstab`, `fgmres` or `gcr`, for Wilson and clover fermions (`multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`) |
 | `neff_alpha` | domain-wall fermions: solve with Neff's D Q at this α |
 | `initial_guess` | `two_flavor`: start the force solves from the last n solutions |
 | `restart` | the cycle of FGMRES, the directions GCR keeps (32) |
 | `tolerance_squared`, `energy_tolerance_squared`, `max_iterations` | the stopping rule of the force solves and of the energy solves |
 
 The multigrid is set up when a trajectory starts and again after every `refresh_every` force
-solves; in between it is the cycle of the links of its last setup, which the outer solver
+solves, from the test vectors of the setup before (`reuse_vectors: false`: from random
+vectors); in between it is the cycle of the links of its last setup, which the outer solver
 corrects. Domain-wall fermions have no multigrid in HMC, and no solver but CG: BiCGStab and
 GMRES do not converge on D itself.
 
@@ -147,11 +148,12 @@ number.
 |---|---|
 | `Text` | plain text with one real number per line, the format Bridge++ calls `Text` |
 | `Binary` | big-endian double precision reals without a header, the format Bridge++ calls `Binary` |
+| `NERSC` | the NERSC (Gauge Connection) format: a text header, then whole matrices (`4D_SU3_GAUGE_3x3`) or their first two rows (`4D_SU3_GAUGE`), single or double precision, either byte order; the checksum is verified. Written as whole matrices in big-endian double precision. Not yet checked against a file of another program |
 | `ILDG` | the ILDG format: a LIME container with the records `ildg-format` and `ildg-binary-data` |
 | `SciDAC` | a lattice-colour-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
 | `HDF5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library |
 
-All five keep the numbers in the same order, from the outermost loop to the innermost:
+All six keep the numbers in the same order, from the outermost loop to the innermost:
 
 1. site, with x running fastest: `site = x + Lx * (y + Ly * (z + Lz * t))`
 2. direction mu = x, y, z, t

@@ -180,6 +180,20 @@ where
         lat: &Arc<Lattice>,
         params: &MultigridParams,
     ) -> Result<Self, MultigridError> {
+        let initial = random_vectors::<T>(lat, 1, params.num_test_vectors, params.seed);
+        Self::from_vectors(op, lat, params, initial, params.setup_iterations)
+    }
+
+    /// `new` from given initial test vectors, improved `setup_iterations` times: those of an
+    /// earlier setup (`test_vectors`) for links nearby make a setup that costs one smoothing
+    /// of the vectors and the coarse operator.
+    pub fn from_vectors(
+        op: &'a F,
+        lat: &Arc<Lattice>,
+        params: &MultigridParams,
+        initial: Fine<T>,
+        setup_iterations: usize,
+    ) -> Result<Self, MultigridError> {
         let agg = Aggregation::new(lat, params.block);
         let smoother = || -> Box<dyn LinearFn<Fine<T>> + 'a> {
             match params.smoother {
@@ -211,8 +225,7 @@ where
             coarse_even_odd: params.coarse_even_odd,
             ..SetupHooks::default()
         };
-        let initial = random_vectors::<T>(lat, 1, params.num_test_vectors, params.seed);
-        let mut mg = Self::with_parts(op, &agg, initial, params.setup_iterations, parts, hooks)?;
+        let mut mg = Self::with_parts(op, &agg, initial, setup_iterations, parts, hooks)?;
         let levels: Vec<usize> = params.levels.into_iter().take_while(|s| *s > 0).collect();
         if !levels.is_empty() {
             mg.add_levels(&levels)?;

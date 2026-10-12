@@ -5,12 +5,14 @@ mod bridge;
 #[cfg(feature = "hdf5")]
 mod hdf5;
 mod lime;
+mod nersc;
 
 pub use binary::{read_binary, write_binary};
 pub use bridge::{read_bridge_text, write_bridge_text};
 #[cfg(feature = "hdf5")]
 pub use hdf5::{read_hdf5, write_hdf5};
 pub use lime::{read_lime, write_ildg, write_scidac};
+pub use nersc::{read_nersc, write_nersc};
 
 use crate::{Field, Gauge, Lattice, ND};
 use std::fmt;
@@ -131,6 +133,20 @@ impl GaugeFile for Binary {
     }
     fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
         write_binary(path, u)
+    }
+}
+
+/// The NERSC format: a text header, then the links (see `nersc`). Written as whole matrices
+/// in big-endian double precision.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Nersc;
+
+impl GaugeFile for Nersc {
+    fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
+        read_nersc(path, lat)
+    }
+    fn write(&self, path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
+        write_nersc(path, u)
     }
 }
 
@@ -363,6 +379,11 @@ mod tests {
     #[test]
     fn binary_on_several_processes() {
         same_file_on_every_grid("binary", &Binary, true);
+    }
+
+    #[test]
+    fn nersc_on_several_processes() {
+        same_file_on_every_grid("nersc", &Nersc, true);
     }
 
     #[test]

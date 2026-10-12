@@ -34,7 +34,9 @@
 //! y = S b, y += e(b − Ã y), y += S(b − Ã y), S a Chebyshev polynomial in the operator.
 
 use super::coarse::{CountedSchur, EvenBlocks};
-use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
+use super::levels::{
+    AbsMultilevel, BlockMap, BlocksPlusLevels, CountedShared, LevelsAndBlocks, OnEven, OnEvenOf,
+};
 use super::{
     Aggregation, Basis, BasisBuilder, CoarseOp, LevelBootstrap, MultigridError, Reflection,
     SignedMultilevel,
@@ -264,8 +266,8 @@ pub struct PvEoParams {
     pub pv_tolerance_sqr: f64,
     pub pv_max_iterations: usize,
     /// The coarse factors are solved on the even coarse sites (the Schur complement, see
-    /// `CoarseOp`) where the coarse lattice allows it: the quark factor when no levels are
-    /// below it, the second factor when it is solved by MINRES.
+    /// `CoarseOp`) where the coarse lattice allows it: the quark factor, with or without
+    /// levels below it, and the second factor when it is solved by MINRES.
     pub coarse_even_odd: bool,
     /// The solver of the quark factor P†DP (not `Minres`) ...
     pub d_solver: CoarseKrylov,
@@ -414,6 +416,8 @@ pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32, L: CycleLayou
     /// Levels below the coarse lattice for the quark factor (`add_levels`).
     levels_d: Option<SignedMultilevel>,
     blocks_pv: BlockMap,
+    /// Levels below the coarse lattice for the second factor (`add_pv_levels`).
+    levels_pv: Option<AbsMultilevel>,
     smoother: Chebyshev<SharedOperator<'a, G, L>, HalfField<L>>,
     params: PvEoParams,
     hi: f64,
@@ -569,6 +573,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             blocks_d,
             levels_d: None,
             blocks_pv,
+            levels_pv: None,
             smoother,
             params,
             hi,
@@ -614,6 +619,26 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         )?;
         let applications = levels.setup_applications;
         self.levels_d = Some(levels);
+        Ok(applications)
+    }
+
+    /// Add levels below the coarse lattice to the solves of the second factor P†D_PV†P as well:
+    /// the absolute-value preconditioner of its Hermitian form (`AbsMultilevel`), from the same
+    /// test vectors as `add_levels`, with the last level solved exactly. Only with MINRES for
+    /// that factor, which the preconditioner is made for; returns the applications of the
+    /// coarse operator the setup took.
+    pub fn add_pv_levels(
+        &mut self,
+        vectors: &[CoarseField],
+        super_blocks: &[usize],
+    ) -> Result<usize, MultigridError> {
+        assert!(
+            self.params.pv_solver == CoarseKrylov::Minres,
+            "levels for the second factor go with MINRES"
+        );
+        let levels = AbsMultilevel::build(&mut self.coarse_pv, vectors, super_blocks)?;
+        let applications = levels.setup_applications;
+        self.levels_pv = Some(levels);
         Ok(applications)
     }
 
@@ -691,6 +716,23 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             // a site and keep a field on the even sites there.
             let (mut source, mut odd) = (self.gc.zeros_like(), self.gc.zeros_like());
             self.coarse_pv.schur_source(&mut source, &self.gc, &mut odd);
+            // Preconditioned by the blocks, or with levels below by the even sites of blocks
+            // plus levels on the whole coarse lattice (Hermitian positive either way).
+            let mut with_levels;
+            let m: &mut dyn LinearFn<Field<CT, Coarse>> = match self.levels_pv.as_ref() {
+                None => &mut self.blocks_pv,
+                Some(levels) => {
+                    with_levels = OnEvenOf {
+                        inner: BlocksPlusLevels {
+                            blocks: &mut self.blocks_pv,
+                            levels: Some(levels),
+                        },
+                        a: &self.coarse_pv,
+                        whole: self.gc.zeros_like(),
+                    };
+                    &mut with_levels
+                }
+            };
             coarse_solve(
                 self.params.pv_solver,
                 pv_stop,
@@ -700,7 +742,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
                     odd: self.gc.zeros_like(),
                     turned: self.gc.zeros_like(),
                 },
-                &mut self.blocks_pv,
+                m,
                 &mut self.w,
                 &source,
             );
@@ -719,7 +761,10 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
                     apply,
                     n,
                 },
-                &mut self.blocks_pv,
+                &mut BlocksPlusLevels {
+                    blocks: &mut self.blocks_pv,
+                    levels: self.levels_pv.as_ref(),
+                },
                 &mut self.w,
                 &self.gc,
             );
@@ -737,11 +782,31 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         self.gc.convert_from(&self.g);
         // c = (P†DP)⁻¹ g: on the even coarse sites where that is possible, ...
         self.c.set_zero();
-        if self.levels_d.is_none() && self.coarse_d.borrow().has_even_odd() {
+        if self.coarse_d.borrow().has_even_odd() {
             let (mut source, mut odd) = (self.gc.zeros_like(), self.gc.zeros_like());
             self.coarse_d
                 .borrow()
                 .schur_source(&mut source, &self.gc, &mut odd);
+            // Preconditioned by the inverses of the even blocks, or with levels below by the
+            // even sites of their cycle on the whole coarse lattice.
+            let mut blocks = EvenBlocks(&self.coarse_d);
+            let mut with_levels;
+            let m: &mut dyn LinearFn<Field<CT, Coarse>> = match self.levels_d.as_ref() {
+                None => &mut blocks,
+                Some(levels) => {
+                    with_levels = OnEven {
+                        inner: LevelsAndBlocks {
+                            blocks: Some(&mut self.blocks_d),
+                            levels: Some(levels),
+                            a: &self.coarse_d,
+                            n,
+                        },
+                        a: &self.coarse_d,
+                        whole: self.gc.zeros_like(),
+                    };
+                    &mut with_levels
+                }
+            };
             coarse_solve(
                 self.params.d_solver,
                 stop,
@@ -750,7 +815,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
                     n,
                     odd: self.gc.zeros_like(),
                 },
-                &mut EvenBlocks(&self.coarse_d),
+                m,
                 &mut self.c,
                 &source,
             );

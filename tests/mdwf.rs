@@ -1139,6 +1139,28 @@ fn even_odd_pv_multigrid_solves_d() {
         );
         assert!(left[0] < 1e-16 * size[0]);
         assert!(two_info.iterations <= info.iterations + 1);
+
+        // The same level under the solves of the second (Pauli-Villars) factor as well.
+        let mut both =
+            PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
+        both.add_levels(&vectors, &[2]).unwrap();
+        let setup = both.add_pv_levels(&vectors, &[2]).unwrap();
+        let mut sol = like.zeros_like();
+        let both_info = Gcr::new(stop, 2)
+            .solve(&mut a, Some(&mut both), &mut sol, &rhs)
+            .unwrap();
+        a.solution(&mut x, &sol, &b);
+        let mut r = mult(&op, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        r.norm_sqr(&mut left);
+        eprintln!(
+            "  with the level below both factors: {} steps ({} coarse applications, {setup} more to set it up); |D x - b|^2/|b|^2 = {:e}",
+            both_info.iterations,
+            both.coarse_applications(),
+            left[0] / size[0]
+        );
+        assert!(left[0] < 1e-16 * size[0]);
+        assert!(both_info.iterations <= info.iterations + 1);
     }
 }
 

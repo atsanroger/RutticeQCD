@@ -388,6 +388,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
     let format: &dyn GaugeFile = match config.gauge.format {
         GaugeFormat::BridgeText => &BridgeText,
         GaugeFormat::Binary => &Binary,
+        GaugeFormat::Nersc => &Nersc,
         GaugeFormat::Ildg => &Ildg::default(),
         GaugeFormat::Scidac => &Scidac::default(),
         #[cfg(feature = "hdf5")]

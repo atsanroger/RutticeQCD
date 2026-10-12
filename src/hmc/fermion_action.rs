@@ -306,9 +306,9 @@ pub fn smeared_force(
 }
 
 /// γ5 of an operator as a map.
-struct Gamma5<'a, O: ForceOp> {
-    op: &'a O,
-    work: O::Work,
+pub(super) struct Gamma5<'a, O: ForceOp> {
+    pub(super) op: &'a O,
+    pub(super) work: O::Work,
 }
 
 impl<O: ForceOp> LinearFn<Psi> for Gamma5<'_, O> {
