@@ -1,11 +1,16 @@
-//! The Wilson plaquette action of the gauge field and its force.
+//! The gauge actions and their forces: the plaquette action, and the improved actions of
+//! plaquettes and rectangles. The staples and the products of links are those of `gauge`.
 
+use super::{Links, MdAction, Mseries};
 use crate::gauge::paths::Extended;
 use crate::gauge::smear::uniform;
 use crate::gauge::{link, plaquette, weighted_staples};
 use crate::kernel::ColorMatrix;
 use crate::{for_sites, Boundary, Field, Gauge, Stencil, ND};
 use rayon::prelude::*;
+
+pub use crate::gauge::paths::{path_product, Step};
+pub use crate::gauge::smear::traceless_antihermitian;
 
 /// The plaquette action S_G = β Σ_P (1 − Re tr U_P / 3), with the normalisation of Bridge++
 /// (`Action_G_Plaq`): β (1 − ⟨plaquette⟩) times the number of plaquettes.
@@ -14,14 +19,13 @@ pub struct PlaquetteAction {
     pub beta: f64,
 }
 
-pub use crate::gauge::smear::traceless_antihermitian;
-
 /// The sum of the six staples of every link: for U_μ(x), Σ_(ν ≠ μ) of U_ν(x) U_μ(x+ν) U_ν(x+μ)†
 /// and U_ν(x−ν)† U_μ(x−ν) U_ν(x−ν+μ), so that U_μ(x) Σ_μ(x)† is the sum of the plaquettes
 /// through the link. Periodic boundary conditions.
 pub fn staples(u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
     weighted_staples(u, &uniform(1.0))
 }
+
 impl PlaquetteAction {
     /// S_G (summed over all processes).
     pub fn action(&self, u: &Field<f64, Gauge>) -> f64 {
@@ -68,25 +72,6 @@ pub fn force_statistics(f: &Field<f64, Gauge>) -> (f64, f64, f64) {
     (ave, max, (sums[1] / n - ave * ave).sqrt())
 }
 
-pub use crate::gauge::paths::Step;
-
-/// The product of the links along the path `steps` from every site, as one colour matrix per
-/// site (in the first slab of a gauge field). Periodic boundary conditions.
-pub fn path_product(u: &Field<f64, Gauge>, steps: &[Step]) -> Field<f64, Gauge> {
-    // The halo must reach as far as the path goes in any direction.
-    let mut depth = 0i64;
-    let mut pos = [0i64; ND];
-    for &(mu, f) in steps {
-        pos[mu] += if f { 1 } else { -1 };
-        depth = depth.max(pos[mu].abs());
-    }
-    let ext = Extended::new(u, depth.max(1) as usize);
-    let mut p = Field::<f64, Gauge>::gauge(u.lattice());
-    for_sites(p.slab_mut(0), 18, |x, out| {
-        ext.walk(ext.at(x), steps).write_reals(out)
-    });
-    p
-}
 /// The improved gauge action of plaquettes and 1 × 2 rectangles,
 /// S_G = β [c_plaq Σ_P (1 − Re tr U_P / 3) + c_rect Σ_R (1 − Re tr U_R / 3)], over the 6 V
 /// plaquettes and the 12 V rectangles (Bridge++'s `Action_G_Rectangle`; c_plaq = 1, c_rect
@@ -180,5 +165,29 @@ impl RectangleAction {
             });
         }
         f
+    }
+}
+
+impl MdAction for PlaquetteAction {
+    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
+        self.action(links.thin)
+    }
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.action(links.thin)
+    }
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        PlaquetteAction::force(self, links.thin)
+    }
+}
+
+impl MdAction for RectangleAction {
+    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
+        self.action(links.thin)
+    }
+    fn hamiltonian(&mut self, links: &Links) -> f64 {
+        self.action(links.thin)
+    }
+    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+        RectangleAction::force(self, links.thin)
     }
 }

@@ -5,23 +5,29 @@
 //! the first two trajectories, and where the first one ends.
 
 use ruttice::hmc::{
-    cold_start, draw_momenta, force_statistics, kinetic_energy, Leapfrog, Mseries, PlaquetteAction,
-    QuenchedHmc,
+    cold_start, draw_momenta, exp_update, force_statistics, kinetic_energy, Hmc, Mseries,
+    PlaquetteAction, Scheme, Term,
 };
 use ruttice::{Lattice, LocalComm, ND};
 
 mod common;
 
-fn hmc() -> QuenchedHmc {
-    QuenchedHmc {
-        action: PlaquetteAction { beta: 6.0 },
-        integrator: Leapfrog {
-            step: 0.0015,
-            steps: 200,
-            exp_order: 8,
-        },
-        metropolis: true,
-    }
+const BETA: f64 = 6.0;
+
+/// Quenched HMC with the plaquette action: one level of `steps` leapfrog steps of `step`,
+/// exp(iP) to order 8, with the Metropolis test.
+fn quenched(step: f64, steps: usize) -> Hmc<'static> {
+    let gauge = Term {
+        level: 0,
+        action: Box::new(PlaquetteAction { beta: BETA }),
+    };
+    Hmc::new(
+        vec![gauge],
+        Scheme::Leapfrog,
+        vec![steps],
+        8,
+        step * steps as f64,
+    )
 }
 
 /// The momenta of the first trajectory: the generator and the order of the draws are those
@@ -50,15 +56,19 @@ fn first_trajectories_are_those_of_bridge() {
     let lat = Lattice::single_node([12; ND]);
     let mut u = cold_start(&lat);
     let mut rng = Mseries::new(0);
-    let hmc = hmc();
+    let step = 0.0015;
+    let mut hmc = quenched(step, 200);
     // The force after the first step of U, as Bridge++ prints it (imdc = 1).
     {
+        let action = PlaquetteAction { beta: BETA };
         let mut p = draw_momenta(&lat, &mut Mseries::new(0));
         let mut v = cold_start(&lat);
-        let lf = hmc.integrator;
-        lf.update_p(0.5 * lf.step, &hmc.action, &v, &mut p);
-        lf.update_u(lf.step, &p, &mut v);
-        let (ave, max, dev) = force_statistics(&hmc.action.force(&v));
+        let f = action.force(&v);
+        for (pv, fv) in p.as_mut_slice().iter_mut().zip(f.as_slice()) {
+            *pv += 0.5 * step * fv;
+        }
+        exp_update(step, &p, &mut v, 8);
+        let (ave, max, dev) = force_statistics(&action.force(&v));
         eprintln!("force after one step: Fave {ave:.6} Fmax {max:.6} Fdev {dev:.6} (Bridge++ 0.060466 0.147245 0.015320)");
         assert!((ave - 0.060466).abs() < 1e-6 && (max - 0.147245).abs() < 1e-6);
         assert!((dev - 0.015320).abs() < 1e-6);
@@ -67,13 +77,14 @@ fn first_trajectories_are_those_of_bridge() {
     eprintln!("{t:?}");
     let close = |a: f64, b: f64, tol: f64| (a - b).abs() < tol;
     assert!(close(t.kinetic[0], 331513.77780977, 2e-7));
-    assert!(close(t.gauge[0], 0.0, 1e-9));
+    let gauge = t.actions[0];
+    assert!(close(gauge[0], 0.0, 1e-9));
     assert!(
         close(t.kinetic[1], 145028.93961247, 1e-4),
         "{}",
         t.kinetic[1]
     );
-    assert!(close(t.gauge[1], 186486.69884699, 1e-4), "{}", t.gauge[1]);
+    assert!(close(gauge[1], 186486.69884699, 1e-4), "{}", gauge[1]);
     assert!(close(t.plaquette_trial, 0.75018393, 1e-8));
     assert!(close(t.delta_h, 1.860650, 1e-5), "{}", t.delta_h);
     assert!(close(t.random, 0.680828, 1e-6));
@@ -100,15 +111,7 @@ fn bridge_test_quenched_leapfrog() {
     };
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let mut u = ruttice::io::read_bridge_text(&path, &lat).unwrap();
-    let hmc = QuenchedHmc {
-        action: PlaquetteAction { beta: 6.0 },
-        integrator: Leapfrog {
-            step: 0.01,
-            steps: 10,
-            exp_order: 8,
-        },
-        metropolis: true,
-    };
+    let mut hmc = quenched(0.01, 10);
     let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
     eprintln!("{t:?}");
     assert!(
