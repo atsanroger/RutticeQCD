@@ -16,6 +16,11 @@
 //!     fermion: {type: domain_wall, ls: 8, m5: 1.6, mass: 0.1, b: 1.0, c: 0.0,
 //!               boundary: [periodic, periodic, periodic, antiperiodic]}
 //!     level: 0
+//!   - type: rational              # det(D†D)^(1/2): one flavour (the strange quark), RHMC
+//!     fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+//!     poles: 16
+//!     bounds: [1.0e-2, 3.16227766] # of |D|: D†D in [lower², upper²], Bridge++'s lower_bound, upper_bound
+//!     level: 1
 //! output: {save_every: 5, file: "conf_{n}.txt"}
 //! ```
 //!
@@ -30,10 +35,11 @@ use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, Hmc, MdAction, Mseries, PlaquetteAction, RectangleAction, Scheme, Term, TwoFlavor,
-    TwoFlavorRatio,
+    cold_start, Hmc, MdAction, Mseries, PlaquetteAction, Rational, RectangleAction, Scheme, Term,
+    TwoFlavor, TwoFlavorRatio,
 };
 use crate::io::{BridgeText, GaugeFile, Ildg, Scidac};
+use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
 use serde::Deserialize;
@@ -150,6 +156,26 @@ pub enum ActionConfig {
         #[serde(default)]
         solver: HmcSolver,
     },
+    /// det(D†D)^(p/q) by rational approximation (RHMC), p/q = `power` (one flavour: [1, 2]):
+    /// S = φ† r(D†D) φ, r ≈ x^(−p/q), φ = r'(D†D) ξ, r' ≈ x^(p/2q), minimax with `poles`
+    /// poles on [lower², upper²], `bounds` = [lower, upper] those of the eigenvalues of
+    /// |D| = √(D†D), as Bridge++'s `lower_bound` and `upper_bound`. The coefficients are
+    /// computed (Remez), or read from Bridge++'s files `parameter_rational.*` in the
+    /// directory `coefficients` (relative to the parameter file's directory).
+    Rational {
+        fermion: HmcFermion,
+        level: usize,
+        poles: usize,
+        bounds: [f64; 2],
+        #[serde(default = "one_flavor")]
+        power: [i32; 2],
+        #[serde(default)]
+        coefficients: Option<PathBuf>,
+        #[serde(default = "yes")]
+        smeared: bool,
+        #[serde(default)]
+        solver: HmcSolver,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -216,6 +242,9 @@ pub struct HmcOutput {
 
 fn yes() -> bool {
     true
+}
+fn one_flavor() -> [i32; 2] {
+    [1, 2]
 }
 fn one_f() -> f64 {
     1.0
@@ -295,6 +324,33 @@ impl HmcConfig {
                     (*level, false, None)
                 }
                 ActionConfig::TwoFlavor { level, smeared, .. } => (*level, *smeared, None),
+                ActionConfig::Rational {
+                    level,
+                    smeared,
+                    fermion,
+                    poles,
+                    bounds,
+                    power,
+                    ..
+                } => {
+                    if matches!(fermion, HmcFermion::DomainWall { .. }) {
+                        return invalid(format!(
+                            "actions[{i}]: rational: Wilson or clover fermions (domain-wall fermions need the ratio over Pauli-Villars fields)"
+                        ));
+                    }
+                    let [p, q] = *power;
+                    if !(p > 0 && q > p) {
+                        return invalid(format!(
+                            "actions[{i}]: rational: power [{p}, {q}] must be a fraction p/q in (0, 1)"
+                        ));
+                    }
+                    if *poles == 0 || !(bounds[0] > 0.0 && bounds[1] > bounds[0]) {
+                        return invalid(format!(
+                            "actions[{i}]: rational: poles > 0 and 0 < bounds[0] < bounds[1]"
+                        ));
+                    }
+                    (*level, *smeared, None)
+                }
                 ActionConfig::TwoFlavorRatio {
                     level,
                     smeared,
@@ -332,8 +388,8 @@ impl HmcConfig {
         Ok(())
     }
 
-    /// The actions on the lattice `lat`.
-    fn terms(&self, lat: &Arc<Lattice>) -> Vec<Term<'static>> {
+    /// The actions on the lattice `lat`; files named relative to `base`.
+    fn terms(&self, lat: &Arc<Lattice>, base: &Path) -> Result<Vec<Term<'static>>, CliError> {
         let smearing = self.gauge_smearing.map(|g| g.smearing());
         let stops = |s: &HmcSolver| {
             let stop = |t: f64| Stop {
@@ -345,7 +401,7 @@ impl HmcConfig {
         };
         self.actions
             .iter()
-            .map(|a| {
+            .map(|a| -> Result<Term<'static>, CliError> {
                 let (level, action): (usize, Box<dyn MdAction>) = match a {
                     ActionConfig::Plaquette { beta, level } => {
                         (*level, Box::new(PlaquetteAction { beta: *beta }))
@@ -452,16 +508,139 @@ impl HmcConfig {
                                 };
                                 Box::new(TwoFlavorRatio::new(w(kappa, &b), w(kd, &bd), sm, md, h))
                             }
+                            (
+                                HmcFermion::Clover {
+                                    kappa,
+                                    csw,
+                                    boundary: b,
+                                },
+                                Some(HmcFermion::Clover {
+                                    kappa: kd,
+                                    csw: cd,
+                                    boundary: bd,
+                                }),
+                            ) => Box::new(
+                                TwoFlavorRatio::new(
+                                    clover(lat, kappa, csw, &b),
+                                    clover(lat, kd, cd, &bd),
+                                    sm,
+                                    md,
+                                    h,
+                                )
+                                .with_clover(kappa * csw, kd * cd),
+                            ),
                             _ => unreachable!("checked when the file is read"),
                         };
                         (*level, action)
                     }
+                    ActionConfig::Rational {
+                        fermion,
+                        level,
+                        poles,
+                        bounds,
+                        power: [p, q],
+                        coefficients,
+                        smeared,
+                        solver,
+                    } => {
+                        let sm = smearing.filter(|_| *smeared);
+                        let (md_stop, h_stop) = stops(solver);
+                        // S = φ† (D†D)^(−p/q) φ, φ = (D†D)^(p/2q) ξ.
+                        let spec = RationalSpec {
+                            poles: *poles,
+                            p: -p,
+                            q: *q,
+                            x_min: bounds[0] * bounds[0],
+                            x_max: bounds[1] * bounds[1],
+                        };
+                        let g = gcd(*p, 2 * q);
+                        let (md, hb) = (
+                            approximation(&spec, coefficients.as_deref(), base)?,
+                            approximation(
+                                &spec.with_power(p / g, 2 * q / g),
+                                coefficients.as_deref(),
+                                base,
+                            )?,
+                        );
+                        let action: Box<dyn MdAction> = match *fermion {
+                            HmcFermion::Wilson { kappa, boundary: b } => Box::new(Rational::new(
+                                Wilson::<f64>::new(
+                                    lat,
+                                    WilsonParams {
+                                        kappa,
+                                        boundary: boundary(&b),
+                                    },
+                                ),
+                                sm,
+                                md,
+                                hb,
+                                md_stop,
+                                h_stop,
+                            )),
+                            HmcFermion::Clover {
+                                kappa,
+                                csw,
+                                boundary: b,
+                            } => Box::new(
+                                Rational::new(
+                                    clover(lat, kappa, csw, &b),
+                                    sm,
+                                    md,
+                                    hb,
+                                    md_stop,
+                                    h_stop,
+                                )
+                                .with_clover(kappa * csw),
+                            ),
+                            HmcFermion::DomainWall { .. } => {
+                                unreachable!("checked when the file is read")
+                            }
+                        };
+                        (*level, action)
+                    }
                 };
-                Term { level, action }
+                Ok(Term { level, action })
             })
             .collect()
     }
 }
+
+fn clover(lat: &Arc<Lattice>, kappa: f64, csw: f64, b: &[BoundaryConfig; ND]) -> Clover<f64> {
+    Clover::<f64>::new(
+        lat,
+        CloverParams {
+            kappa,
+            csw,
+            boundary: boundary(b),
+        },
+    )
+}
+
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 {
+        a.abs()
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+/// The rational approximation `spec`: read from Bridge++'s file in `dir` (relative to `base`)
+/// if a directory is given, computed otherwise.
+fn approximation(
+    spec: &RationalSpec,
+    dir: Option<&Path>,
+    base: &Path,
+) -> Result<RationalApprox, CliError> {
+    match dir {
+        Some(dir) => {
+            RationalApprox::read_bridge(&base.join(dir).join(spec.bridge_file_name()), spec)
+        }
+        None => RationalApprox::minimax(spec),
+    }
+    .map_err(|e| CliError::Invalid(format!("rational approximation: {e}")))
+}
+
+impl HmcConfig {}
 
 fn mdwf_params(f: &HmcFermion) -> MdwfParams {
     match *f {
@@ -536,7 +715,7 @@ pub fn run_on(
         SchemeConfig::Omelyan => Scheme::Omelyan { lambda: ig.lambda },
     };
     let mut hmc = Hmc::new(
-        config.terms(&lat),
+        config.terms(&lat, base)?,
         scheme,
         ig.steps.clone(),
         ig.exp_order,
