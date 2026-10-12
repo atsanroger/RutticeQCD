@@ -11,6 +11,11 @@
 //! instead of 288 each for the dense matrices.
 //!
 //! Provides: everything `Wilson` provides; T and its inverse for the even-odd blocks.
+//!
+//! Files: this one has the parameters and the operator, which is the Wilson operator with
+//! another site term; `site.rs` that term, the clover term and its inverse. There is no
+//! `full.rs` and no `even_odd.rs` here: the operator on the whole lattice and its even-odd
+//! blocks are those of `wilson`, written for any site term.
 //! Solvers: as for Wilson. Tools needed: field strength (`gauge`), small dense
 //! inversion (`numerics`).
 //!
@@ -37,9 +42,9 @@ pub struct CloverParams {
     pub boundary: [Boundary; ND],
 }
 
-mod diag;
+mod site;
 
-pub use diag::CloverDiag;
+pub use site::CloverDiag;
 
 /// The clover operator: the Wilson sweep with the clover term as its site-diagonal block.
 pub type Clover<T, G = Dirac> = WilsonOp<T, G, CloverDiag<T>>;

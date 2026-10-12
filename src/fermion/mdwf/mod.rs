@@ -59,10 +59,13 @@
 //! The fields may be in the usual layout or in blocks of W sites (`MdwfLayout`); the fifth
 //! dimension is the same code on numbers of W lanes.
 //!
-//! Files: this one has the operator, its layouts and constructors; `fifth.rs` the fifth
-//! dimension (Q, Y, C and C⁻¹); `full.rs` the operator on the whole lattice (D at any mass,
-//! the parts for the multigrid, `PvPreconditioned`); `even_odd.rs` the even-odd blocks and
-//! `PvEvenOdd`; `measure.rs` the five-dimensional source and the four-dimensional fields.
+//! Files: this one has the operator, its layouts and constructors; `site.rs` what acts
+//! within a four-dimensional site, the fifth dimension (Q, Y, C and C⁻¹); `full.rs` the
+//! operator on the whole lattice (D at any mass, the parts for the multigrid,
+//! `PvPreconditioned`); `even_odd.rs` the even-odd blocks and `PvEvenOdd`; `quark_4d.rs` the
+//! five-dimensional source of a four-dimensional one and the four-dimensional quark fields
+//! of a five-dimensional solution (what is measured is then measured as for any fermion,
+//! `crate::measure`).
 //!
 //! Solvers: BiCGStab or FGMRES on `PvPreconditioned` (no breakdown, in double or single
 //! precision); CG on the normal equations of D.
@@ -440,9 +443,9 @@ fn scratch<'w, T: Storage, L: Layout>(
 }
 
 mod even_odd;
-mod fifth;
 mod full;
-mod measure;
+mod quark_4d;
+mod site;
 
 pub use even_odd::{EoForm, MdwfHalfWork, PvEvenOdd};
 pub use full::{MdwfAt, PvPreconditioned, SiteInverse};

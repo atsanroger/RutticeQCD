@@ -1,14 +1,27 @@
-//! Fermion operators. One fermion per folder; even-odd preconditioning (`evenodd`) is
+//! Fermion operators. One fermion per folder; even-odd preconditioning (`even_odd`) is
 //! written once for all of them.
+//!
+//! The files of a fermion have the same names where they have the same role:
+//!
+//! - `mod.rs`: the operator, its parameters, what it is
+//! - `site.rs`: the part that acts within a site (the clover term; the fifth dimension)
+//! - `full.rs`: the operator on the whole lattice
+//! - `even_odd.rs`: its even-odd blocks, and operators made of them
+//!
+//! `wilson` also has the sweep of the hopping term (`sweep*.rs`), which the other two are
+//! built on: clover fermions are the Wilson operator with another site term (so `clover`
+//! has no `full.rs` and `even_odd.rs` of its own), domain-wall fermions wrap it as the
+//! kernel of a five-dimensional operator and add `quark_4d.rs`, the four-dimensional quark
+//! fields of the five-dimensional ones.
 
 mod clover;
-mod evenodd;
+mod even_odd;
 mod mdwf;
 mod wilson;
 
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
-pub use evenodd::{solve_even_odd, Dagger, EvenOdd, OnParity, Schur};
+pub use even_odd::{solve_even_odd, Dagger, EvenOdd, OnParity, Schur};
 
 pub use mdwf::{
     EoForm, Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd,
