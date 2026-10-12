@@ -55,6 +55,10 @@ WSL 的磁碟（251 GB）在 10-12 一度只剩約 0.4 GB（測試連結不起�
 **跑測試要注意。** 對 Bridge++ 的參考測試找不到 `conf_04040408.txt` 時會印 SKIPPED 然後算通過（預設找 `run/`）。
 要真的跑到：`RUTTICE_BRIDGE_TESTS=$HOME/Bridge/bridge-2.0.0-mod.34/build/tests cargo test`。
 
+**2026-10-13 的誠實盤點（v0.1.0 已撤回）。** tag `v0.1.0` 在 10-12 打了又刪：HMC 當時只有 CG，multigrid 沒有在有意義的體積上量過，
+README 卻寫得像都有。現況、量到的數字、研究等級的問題整理在檔案最後的「2026-10-13：誠實盤點、HMC 的 solver、研究等級的問題」。
+**重新打 tag 之前要使用者明確同意。**
+
 ### 0.1 記號
 
 - **D**：Möbius DWF（b = 1.5、c = 0.5，Bridge++ 的正規化，`src/fermion/mdwf/`）；**D_PV**：同一個算子、m = 1。
@@ -186,6 +190,7 @@ N = 32 個測試向量、4⁴ 區塊、Chebyshev 5/30、粗網格到 1e-2、Ã �
 | 10-09 | 給在 `main` 上工作的 session（分工；不按日期，在 Boyle 投影片之後） |
 | 10-11 | 「2026-10-11：當時的結論與最好的設定」；「2026-10-11：接下來、多層 V-cycle、記憶體、setup 成本、外層解法、搬進 `src/`、α」（原第 0.3、0.4 節） |
 | 10-11 夜–10-12 | 「三種費米子的功能補齊、資料夾拆分」（原第 0.0 節：粗網格下的層、`[2, 2]` 與 bootstrap 基底、`inner`、SIMD） |
+| 10-13 | 「誠實盤點、HMC 的 solver、研究等級的問題」 |
 | 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」、「`fermion/` 的檔名統一」、「v0.1.0 的準備」 |
 
 ---
@@ -1698,3 +1703,68 @@ Wilson 沒有 `quark_4d.rs`：它的解本來就是四維的，量測在 `crate:
 - **沒驗證的**：`--features mpi` 在這台機器編不起來（bindgen 找不到 libclang），所以 `tests/mpi_program.rs`、`tests/mpirun.rs` 沒跑；改過的 `mpi_program.rs` 只做了型別檢查。
   多 process 的正確性由 `LocalComm`（執行緒代替 process）的測試涵蓋。
 - **留著的本機檔**：`run/banner_line_emoji.txt`（LINE 繪文字的字元畫；有著作權，不放 repo）。
+
+## 2026-10-13：誠實盤點、HMC 的 solver、研究等級的問題
+
+### 起因
+
+10-12 晚打了 `v0.1.0`，使用者接著問 HMC 的 domain-wall 參數檔 solver 是不是固定 multigrid，才發現 **HMC 從頭到尾只有 CG**（RHMC 只有 multi-shift CG），
+multigrid 只接在量 propagator 那條路上。這個缺口沒有在發布前講清楚，README 的寫法還會讓人以為 HMC 也有 multigrid。使用者要求撤回 tag（已從 GitHub 和本機刪除）。
+**教訓：發布前要把「沒做的」和「沒量過的」明列給使用者，不能只列做了什麼。**
+
+### 同一晚做的其他事（都已在 main）
+
+- 註解精簡：4517 → 3450 行（規則自動刪，只抽查；程式碼行逐行相同）。
+- `examples/conf_04040408.txt`（Bridge++ 的 4³×8 測試組態）隨 repo 附上，quick start 一行可跑。
+- gauge 檔的 `Binary` 格式（Bridge++ 的無檔頭 big-endian double，順序與文字檔相同；對過 `conf_binary.dat`）。NERSC 沒做（沒有參考檔）。
+- `cpu_thread`（參數檔 `Main.cpu_thread`，HMC 檔在最上層）設定每個 process 的 thread 數；README 把 backend（cpu／simd／GPU）和平行化（thread／MPI）分開。
+
+### MG 的實際狀況（誠實版）
+
+- **Wilson／clover 的 MG**：只驗證過解是對的、4³×8 上迭代 157 → 8；時間上比 CG 慢很多（1.8 s 對 0.15 s）。**沒有在任何有意義的體積量過。**
+- **MDWF 的 MG**：全部數字來自一個組態、一個 seed、一個右手邊。16⁴ 每次求解約 418 Ã 當量，Chebyshev 單獨 622（約快 1.5 倍）；setup 最便宜約 4,300 Ã，約 20 個右手邊回本；
+  12⁴ 沒有贏過 CGNE＋α。物理上要 32⁴，這台機器做不到。
+- **thread**：MG 程式有平行迴圈，但 4³×8 的 clover MG 是 thread 越多越慢（1／2／4／8／24 條：1.8／1.6／2.9／5.6／8.5 s）。小格子上預設用全部核心是壞預設。
+  **12⁴／16⁴ 的 MG thread 加速還沒量**（當晚沒找到組態；路徑其實在本檔「測試組態」一節）。
+- **32⁴ 的記憶體估計**（由 12⁴ 的 1.4 GB、16⁴ 的 4.5 GB 按體積外推，不是量測）：峰值約 60–75 GB（P 約 26 GB、setup 向量 13–21 GB、求解工作場約 10 GB）；只跑 CG＋α 約 10 GB。
+- **使用者認定的大問題**：粗網格下有多層時不走 even-odd；PV 因子沒有多層；外層不支援多右手邊；setup checkpoint 只能單 process 讀。
+  32⁴ 的粗格子是 8⁴，一定要多層，所以前兩項決定這套 MG 能不能在物理體積上驗證。
+
+### HMC 的 solver（10-13 做的；`src/hmc/solve.rs`）
+
+| 參數檔 `solver` 的鍵 | 適用 | 做法 |
+|---|---|---|
+| `type: cg`（預設）／`bicgstab`／`fgmres`／`gcr` | Wilson、clover 的兩味（整格、even-odd、比值） | 非 CG：先解 A† y = r 再解 A e = y，對 A†A 的殘差反覆修正到容許值（`NormalSolver`） |
+| `type: multishift_cg`（預設）／`cg` | `rational` | `cg` 是逐極點各解一次 |
+| `neff_alpha` | domain-wall | (D†D)⁻¹ = Q [(DQ)†(DQ)]⁻¹ Q；even-odd 時 Ŝ_α = Ŝ Q_e，形式相同（`with_conditioned`） |
+| `preconditioner: chebyshev` | 配 `cg`，所有 fermion | A†A 的 Chebyshev 多項式當 CG 的前處理；上界在抽 pseudofermion 時用冪次法估 |
+| `preconditioner: multigrid` | 配兩步解法，Wilson／clover，整格兩味與比值 | A† = γ5 A γ5，所以 A†⁻¹ = γ5 A⁻¹ γ5 用同一個 cycle；cycle 自帶一份算子（`OwnedMultigrid`，有 `unsafe`），軌跡開始時 setup，`refresh_every` 次力求解後重做 |
+
+量到的（clover 2+1 味範例，4³×8，2 條 thread，一條軌跡；plaquette、dH 全部相同）：CG 6.1 s、CG＋Chebyshev 6.8、BiCGStab 6.7、FGMRES＋MG 15.8、GCR＋MG 18.4、BiCGStab＋MG 21.6。
+沒有前處理的 FGMRES(32) 179 s、GCR 400 s 內跑不完。domain-wall 範例（Shamir、m = 0.1）α = 1／0.8／0.6／0.5：8.3／8.7／9.7／10.9 s，CG＋Chebyshev 12.3 s。
+**結論：這個小格子上沒有任何新選項贏過 CG；功能正確，但沒有它們在大格子變快的證據。**
+
+限制：
+- **domain-wall 只能用 CG**：BiCGStab 直接解 D 不收斂（試過，會 panic），讀檔時擋下。HMC 用 CG 解 D†D 本來就是 Grid、CPS、Bridge++ 的標準做法。
+- **RHMC 不能用兩步解法**：極點是 D†D 上的位移。已知的工程做法是 Q = γ5 D 厄米，D†D + σ = (Q + i√σ)(Q − i√σ)，拆成兩次帶虛位移的解（twisted-mass 的做法）；沒做。
+- 沒做的工程項：even-odd 作用量配 MG；MG 只有雙精度；重新 setup 從頭做，沒有沿用上一次的測試向量；多 process 時 `multigrid.block` 只對整個格子檢查。
+
+### 把 MDWF 的 MG 放進 HMC 的困難
+
+1. **D† 那一半沒有解法。** HMC 要 D⁻¹ 和 D†⁻¹。我們的 MG 是為 Ã 設計的，只解 D x = b；Möbius（c ≠ 0）的 Γ5 D 不厄米，γ5 的招不能用。
+   D†⁻¹ 需要對偶的粗網格修正（基底、因子順序都反過來），{s, t̂}「對低模精確」在對偶系統是否成立要重新推導。
+2. **setup 太貴而 gauge 每步在變。** 最便宜的 setup 約 4,300 Ã，一次求解約 400。必須沿用並少量更新；沿用多久失效、怎麼便宜地更新低模，沒有現成答案。
+3. **可逆性。** 前處理器帶歷史；求解不夠緊就破壞 MD 的可逆性，要實際量。
+4. **作用量與 Ã 的銜接。** HMC 的作用量用整格的 D 或 Schur 補 Ŝ，MG 解 Ã；要改寫作用量或在兩者之間轉換右手邊與解。
+5. **規模。** 這台機器最大 16⁴，而 MG 在 12⁴ 贏不了 CG＋α；做出來也無法在這裡證明有用。
+
+### 研究等級的問題（使用者 10-13：先不急，記下來）
+
+- **A. MDWF 的 MG 用在 HMC**（上面 1–3）。文獻上 DWF 的 MG（HDCG、PV†M-MG）主要用於量測，HMC 仍是 CG。
+- **B. MDWF 的 MG 在物理體積上是否成立。** 32⁴ 的粗格子 8⁴ 要多層；現在多層和 even-odd 不能併用、PV 因子沒有多層。Boyle 2026 說 3–5 層遞迴都失敗、粗網格佔 90% 時間。
+  我們的因子化＋{s, t̂} 能不能避開，是這個專案最核心、最不確定的問題。前兩步（多層配 even-odd、PV 因子的多層）本身是工程，可以先在 16⁴ 做出來並量。
+- **C. {s, t̂} 基底的新穎性與理論**：還沒查文獻；D 與 PV 都加 α 時 cycle 數變兩倍的原因未查。
+- **D. 與 Boyle PV†M-MG 的公平比較**：大機器、同格子、同參數、忠實重寫對手。
+
+建議順序 B → A → D，C 在做 B 時順便釐清。**使用者還沒決定要不要做、什麼時候做。**
+
