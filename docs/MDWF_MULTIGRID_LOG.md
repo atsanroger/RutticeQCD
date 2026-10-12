@@ -1660,3 +1660,4 @@ Wilson/clover 的 cycle 開了之後外層 15 步（不開 15 步）；MDWF 的�
 `fermion/evenodd.rs` → `even_odd.rs`。clover 沒有 `full.rs`／`even_odd.rs`：它是 Wilson 算子換一個格點項，那兩份實作對格點項泛型。
 Wilson 沒有 `quark_4d.rs`：它的解本來就是四維的，量測在 `crate::measure`，domain-wall 轉成四維後用的也是那一份。
 只搬不改，對外名稱不變；232 個測試通過，`mdwf_layout_bench`、`ruttice-bench` 前後相同。其他資料夾的命名還沒動（等使用者決定）。
+（之後，使用者：`full.rs` 改叫 `lexical.rs`，和參數檔的 Lexical／Even_odd 對應。上表的 `full.rs` 現在是 `lexical.rs`。）

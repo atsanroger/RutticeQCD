@@ -22,7 +22,7 @@
 //! buffers, one site at a time.
 //!
 //! Files: this one has the operator and its layouts; `site.rs` the site-diagonal block;
-//! `full.rs` the operator on the whole lattice; `even_odd.rs` its even-odd blocks;
+//! `lexical.rs` the operator on the whole lattice; `even_odd.rs` its even-odd blocks;
 //! `sweep*.rs` the sweep of the hopping term, which those are made of and which clover and
 //! domain-wall fermions are built on.
 //!
@@ -135,7 +135,7 @@ pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 pub type WilsonSimd<T, const W: usize, G = Dirac> = WilsonOp<T, G, UnitDiag, Aosoa<W>>;
 
 mod even_odd;
-mod full;
+mod lexical;
 mod site;
 mod sweep;
 mod sweep_blocks;

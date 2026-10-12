@@ -1,5 +1,5 @@
 //! The sweep over sites of the usual layout: the hopping term with the site-diagonal block,
-//! and one hopping term at a time. `full.rs` and `even_odd.rs` are made of it.
+//! and one hopping term at a time. `lexical.rs` and `even_odd.rs` are made of it.
 
 use super::*;
 
