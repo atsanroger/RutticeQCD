@@ -117,6 +117,71 @@ impl Comm for MpiComm {
         check(code, "MPI_Allreduce");
     }
 
+    /// Two collective calls: the lengths go to rank 0, then the data (`MPI_Gatherv`).
+    fn gather(&self, x: &[f64]) -> Vec<Vec<f64>> {
+        // The lengths travel as 32-bit integers, which is what an int is here.
+        const _: () = assert!(std::mem::size_of::<c_int>() == 4);
+        let root = self.rank == 0;
+        let mine = count(x.len());
+        let mut counts: Vec<c_int> = vec![0; if root { self.size } else { 0 }];
+        let _serialised = self.world.lock();
+        // SAFETY: one int is sent from `mine`; on rank 0 `counts` has room for one int per
+        // process, and the other ranks' receive buffer is not used by MPI. The call blocks
+        // until the buffers are no longer needed.
+        let code = unsafe {
+            ffi::MPI_Gather(
+                (&mine as *const c_int).cast::<c_void>(),
+                1,
+                ffi::RSMPI_INT32_T,
+                counts.as_mut_ptr().cast::<c_void>(),
+                1,
+                ffi::RSMPI_INT32_T,
+                0,
+                self.world.raw,
+            )
+        };
+        check(code, "MPI_Gather");
+        let lengths: Vec<usize> = counts
+            .iter()
+            .map(|c| usize::try_from(*c).expect("lengths are not negative"))
+            .collect();
+        let mut offsets: Vec<c_int> = Vec::with_capacity(counts.len());
+        let mut total = 0usize;
+        for len in &lengths {
+            offsets.push(count(total));
+            total += len;
+        }
+        let mut all = vec![0.0f64; total];
+        // SAFETY: `x` holds `mine` doubles. On rank 0 `all` holds the sum of `counts`
+        // doubles and `offsets` places each process's data inside it; on the other ranks
+        // the receive arguments are not used. The call blocks until it is complete.
+        let code = unsafe {
+            ffi::MPI_Gatherv(
+                x.as_ptr().cast::<c_void>(),
+                mine,
+                ffi::RSMPI_DOUBLE,
+                all.as_mut_ptr().cast::<c_void>(),
+                counts.as_ptr(),
+                offsets.as_ptr(),
+                ffi::RSMPI_DOUBLE,
+                0,
+                self.world.raw,
+            )
+        };
+        check(code, "MPI_Gatherv");
+        if !root {
+            return Vec::new();
+        }
+        let mut start = 0;
+        lengths
+            .iter()
+            .map(|len| {
+                start += len;
+                all[start - len..start].to_vec()
+            })
+            .collect()
+    }
+
     fn halo_f32(&self, spec: &HaloSpec) -> Box<dyn HaloExchange<f32>> {
         // SAFETY: reading a constant handle of the MPI library.
         Box::new(MpiExchange::new(self, spec, unsafe { ffi::RSMPI_FLOAT }))

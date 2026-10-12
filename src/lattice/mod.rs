@@ -109,6 +109,12 @@ impl Lattice {
         core::array::from_fn(|mu| self.origin[mu] / self.local[mu])
     }
 
+    /// Global coordinates of local site 0 on the process `rank`.
+    pub fn origin_of(&self, rank: usize) -> [usize; ND] {
+        let position = grid_coords(self.grid, rank);
+        core::array::from_fn(|mu| position[mu] * self.local[mu])
+    }
+
     /// Rank of the process next to this one in direction (mu, dir), periodically.
     pub fn neighbour_rank(&self, mu: usize, dir: Direction) -> usize {
         let mut p = self.grid_position();

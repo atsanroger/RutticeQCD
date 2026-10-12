@@ -22,7 +22,7 @@
 //! c-lime and QIO documentation). No file written by another program has been read with
 //! this yet, and no other program has read a file written here.
 
-use super::{on_one_process, FilePrecision, IoError, LINK_REALS};
+use super::{write_on_root, FilePrecision, IoError, LINK_REALS};
 use crate::{Field, Gauge, Lattice, ND};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -421,20 +421,73 @@ fn write(
     flavour: Flavour,
 ) -> Result<(), IoError> {
     let lat = u.lattice();
-    on_one_process(lat)?;
-    let [lx, ly, lz, lt] = lat.global;
+    let [lx, ly, lz, _] = lat.global;
     let real = precision.bytes();
     let site_bytes = ND * LINK_REALS * real;
-    let mut out = BufWriter::new(File::create(path)?);
+    let len = (lat.num_global_sites() * site_bytes) as u64;
+    // Rank 0 writes the file and computes the checksum as the slices come by.
+    write_on_root(
+        u,
+        || {
+            let mut out = BufWriter::new(File::create(path)?);
+            begin(&mut out, lat.global, precision, flavour, len)?;
+            Ok((out, Checksum::default()))
+        },
+        |(out, sum), t, slice| {
+            let first = (t * lx * ly * lz) as u64;
+            let mut bytes = vec![0u8; site_bytes];
+            for (k, site) in slice
+                .as_chunks::<{ ND * LINK_REALS }>()
+                .0
+                .iter()
+                .enumerate()
+            {
+                for (value, to) in site.iter().zip(bytes.chunks_exact_mut(real)) {
+                    match precision {
+                        // Rounding to single precision is what writing in it means.
+                        FilePrecision::Single => to.copy_from_slice(&(*value as f32).to_be_bytes()),
+                        FilePrecision::Double => to.copy_from_slice(&value.to_be_bytes()),
+                    }
+                }
+                sum.add(first + k as u64, &bytes);
+                out.write_all(&bytes)?;
+            }
+            Ok(())
+        },
+        |(mut out, sum)| {
+            pad(&mut out, len)?;
+            let checksum = format!(
+                "{XML}<scidacChecksum><version>1.0</version><suma>{:x}</suma>\
+                 <sumb>{:x}</sumb></scidacChecksum>",
+                sum.a, sum.b
+            );
+            text_record(&mut out, SCIDAC_CHECKSUM, &checksum, MESSAGE_END)?;
+            out.flush()?;
+            Ok(())
+        },
+    )
+}
+
+/// The records before the links, and the header of the record of the links (`len`
+/// bytes).
+fn begin(
+    out: &mut impl Write,
+    dims: [usize; ND],
+    precision: FilePrecision,
+    flavour: Flavour,
+    len: u64,
+) -> Result<(), IoError> {
+    let [lx, ly, lz, lt] = dims;
+    let real = precision.bytes();
 
     // The first message describes the file, the second holds the field.
     let of_file = format!(
         "{XML}<scidacFile><version>1.1</version><spacetime>{ND}</spacetime>\
          <dims>{lx} {ly} {lz} {lt} </dims><volfmt>0</volfmt></scidacFile>"
     );
-    text_record(&mut out, SCIDAC_FILE, &of_file, MESSAGE_BEGIN)?;
+    text_record(out, SCIDAC_FILE, &of_file, MESSAGE_BEGIN)?;
     let user_file = format!("{XML}<info>gauge configuration written by RutticeQCD</info>");
-    text_record(&mut out, SCIDAC_USER_FILE, &user_file, MESSAGE_END)?;
+    text_record(out, SCIDAC_USER_FILE, &user_file, MESSAGE_END)?;
 
     let (letter, bits) = match precision {
         FilePrecision::Single => ('F', 32),
@@ -447,9 +500,9 @@ fn write(
         date(),
         LINK_REALS * real
     );
-    text_record(&mut out, SCIDAC_RECORD, &of_record, MESSAGE_BEGIN)?;
+    text_record(out, SCIDAC_RECORD, &of_record, MESSAGE_BEGIN)?;
     let user_record = format!("{XML}<info>SU(3) gauge field, four links per site</info>");
-    text_record(&mut out, SCIDAC_USER_RECORD, &user_record, 0)?;
+    text_record(out, SCIDAC_USER_RECORD, &user_record, 0)?;
     let data_kind = match flavour {
         Flavour::Scidac => SCIDAC_DATA,
         Flavour::Ildg => {
@@ -461,41 +514,12 @@ fn write(
                  <field>su3gauge</field><precision>{bits}</precision>\
                  <lx>{lx}</lx><ly>{ly}</ly><lz>{lz}</lz><lt>{lt}</lt></ildgFormat>"
             );
-            text_record(&mut out, ILDG_FORMAT, &format, 0)?;
+            text_record(out, ILDG_FORMAT, &format, 0)?;
             ILDG_DATA
         }
     };
 
-    let len = (lat.num_sites() * site_bytes) as u64;
-    header(&mut out, data_kind, len, 0)?;
-    let mut sum = Checksum::default();
-    let mut bytes = vec![0u8; site_bytes];
-    // On one process the sites are numbered as in the file.
-    for site in 0..lat.num_sites() {
-        for mu in 0..ND {
-            let link = u.site(mu, site);
-            let to = &mut bytes[mu * LINK_REALS * real..(mu + 1) * LINK_REALS * real];
-            for (value, to) in link.iter().zip(to.chunks_exact_mut(real)) {
-                match precision {
-                    // Rounding to single precision is what writing in it means.
-                    FilePrecision::Single => to.copy_from_slice(&(*value as f32).to_be_bytes()),
-                    FilePrecision::Double => to.copy_from_slice(&value.to_be_bytes()),
-                }
-            }
-        }
-        sum.add(site as u64, &bytes);
-        out.write_all(&bytes)?;
-    }
-    pad(&mut out, len)?;
-
-    let checksum = format!(
-        "{XML}<scidacChecksum><version>1.0</version><suma>{:x}</suma><sumb>{:x}</sumb>\
-         </scidacChecksum>",
-        sum.a, sum.b
-    );
-    text_record(&mut out, SCIDAC_CHECKSUM, &checksum, MESSAGE_END)?;
-    out.flush()?;
-    Ok(())
+    header(out, data_kind, len, 0)
 }
 
 /// Write a gauge configuration as an ILDG file, the way QIO writes one: the SciDAC records
