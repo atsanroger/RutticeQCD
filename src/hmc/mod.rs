@@ -14,8 +14,10 @@
 //! by rational approximation (`rational`). Several time scales with leapfrog or Omelyan
 //! (`integrator`). An action is in the file of its kind, with what makes it an `MdAction`.
 
+mod even_odd;
 mod fermion;
 mod gauge_force;
+mod guess;
 mod integrator;
 mod links;
 mod mseries;
@@ -23,14 +25,16 @@ mod rational;
 
 pub use rational::Rational;
 
+pub use even_odd::{log_det_diag, EvenOddForceOp, HalfPsi, TwoFlavorEo};
 pub use fermion::{
-    clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force, ForceOp,
-    TwoFlavor, TwoFlavorRatio,
+    clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
+    CloverInsertion, ForceOp, TwoFlavor, TwoFlavorRatio,
 };
 pub use gauge_force::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
     RectangleAction, Step,
 };
+pub use guess::Chrono;
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
 pub use links::{Links, SmearingCache};
 pub use mseries::Mseries;
@@ -409,8 +413,156 @@ mod tests {
         }
     }
 
-    /// The forces of Möbius domain-wall fermions: two flavours, and two over two
-    /// Pauli-Villars flavours, on stout links.
+    /// The even-odd actions of Wilson and clover fermions (the clover one with its
+    /// −2 ln |det T_oo|): the force is the derivative of the action, on the links and on stout
+    /// links.
+    #[test]
+    fn even_odd_forces_are_the_derivatives() {
+        use crate::fermion::{Clover, CloverParams, Wilson, WilsonParams};
+        use crate::gauge::smear::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 29);
+        let boundary = [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ];
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 1000,
+            max_restarts: 10,
+        };
+        for smearing in [
+            None,
+            Some(GaugeSmearing {
+                smear: Smear::Stout(Stout::uniform(0.1)),
+                steps: 1,
+            }),
+        ] {
+            let mut wilson = TwoFlavorEo::new(
+                Wilson::<f64>::new(
+                    &lat,
+                    WilsonParams {
+                        kappa: 0.12,
+                        boundary,
+                    },
+                ),
+                smearing,
+                stop,
+                stop,
+            );
+            let cache = SmearingCache::new();
+            wilson.langevin(&Links::new(&u, &cache), &mut Mseries::new(31));
+            let f = wilson.force(&Links::new(&u, &cache));
+            check_force(
+                &u,
+                &f,
+                &[(0, 6), (2, 81), (3, 200)],
+                |w| wilson.hamiltonian(&Links::new(w, &SmearingCache::new())),
+                1e-7,
+            );
+            let params = CloverParams {
+                kappa: 0.12,
+                csw: 1.7,
+                boundary,
+            };
+            let mut clover =
+                TwoFlavorEo::new(Clover::<f64>::new(&lat, params), smearing, stop, stop)
+                    .with_clover(params.kappa * params.csw);
+            clover.langevin(&Links::new(&u, &cache), &mut Mseries::new(37));
+            let f = clover.force(&Links::new(&u, &cache));
+            check_force(
+                &u,
+                &f,
+                &[(0, 9), (1, 70), (3, 201)],
+                |w| clover.hamiltonian(&Links::new(w, &SmearingCache::new())),
+                1e-7,
+            );
+        }
+    }
+
+    /// The det term alone: −2 ln |det T_oo| of the clover term against a numerical
+    /// derivative, through the force of an action whose pseudofermions are zero.
+    #[test]
+    fn clover_log_det_force_is_the_derivative() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 41);
+        let params = CloverParams {
+            kappa: 0.13,
+            csw: 2.0,
+            boundary: [Boundary::Periodic; ND],
+        };
+        let stop = Stop::simple(1e-30, 1000);
+        let mut a = TwoFlavorEo::new(Clover::<f64>::new(&lat, params), None, stop, stop)
+            .with_clover(params.kappa * params.csw);
+        let cache = SmearingCache::new();
+        a.langevin(&Links::new(&u, &cache), &mut Mseries::new(1));
+        // The pseudofermion part is exercised above; here only the det term.
+        a.zero_pseudofermions();
+        let f = a.force(&Links::new(&u, &cache));
+        let mut op = Clover::<f64>::new(&lat, params);
+        check_force(
+            &u,
+            &f,
+            &[(0, 3), (1, 100), (2, 17), (3, 254)],
+            |w| {
+                use crate::fermion::FermionOp;
+                op.set_gauge(w).unwrap();
+                -2.0 * log_det_diag(&op, &lat, crate::Parity::Odd)
+            },
+            1e-8,
+        );
+    }
+
+    /// The initial guess changes the start of the force solves, not their solutions: the force
+    /// with a guess from earlier solves is the force without one, in fewer iterations.
+    #[test]
+    fn chronological_guess_saves_iterations() {
+        use crate::fermion::{Wilson, WilsonParams};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u0 = random_gauge(&lat, 43);
+        let params = WilsonParams {
+            kappa: 0.125,
+            boundary: [Boundary::Periodic; ND],
+        };
+        let stop = Stop::simple(1e-24, 2000);
+        let p = draw_momenta(&lat, &mut Mseries::new(2));
+        let mut plain = TwoFlavorEo::new(Wilson::<f64>::new(&lat, params), None, stop, stop);
+        let mut chrono =
+            TwoFlavorEo::new(Wilson::<f64>::new(&lat, params), None, stop, stop).with_guess(3);
+        let cache = SmearingCache::new();
+        plain.langevin(&Links::new(&u0, &cache), &mut Mseries::new(4));
+        chrono.langevin(&Links::new(&u0, &cache), &mut Mseries::new(4));
+        let mut u = Field::<f64, Gauge>::gauge(&lat);
+        u.as_mut_slice().copy_from_slice(u0.as_slice());
+        for step in 0..6 {
+            let a = plain.force(&Links::new(&u, &cache));
+            let b = chrono.force(&Links::new(&u, &cache));
+            let d = a
+                .as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+            assert!(d < 1e-9, "step {step}: forces differ by {d}");
+            exp_update(0.02, &p, &mut u, 8);
+            cache.clear();
+        }
+        eprintln!(
+            "CG iterations of six force solves: {} from zero, {} with the guess",
+            plain.md_iterations, chrono.md_iterations
+        );
+        // 168 against 130 when written (the first solve has nothing to start from).
+        assert!(chrono.md_iterations * 10 < plain.md_iterations * 9);
+    }
+
+    /// The forces of Möbius domain-wall fermions: two flavours (on the whole lattice and
+    /// even-odd), and two over two Pauli-Villars flavours, on stout links.
     #[test]
     fn domain_wall_forces_are_the_derivatives() {
         use crate::fermion::{Mdwf, MdwfParams};
@@ -451,6 +603,17 @@ mod tests {
             &f,
             &links,
             |w| two.hamiltonian(&Links::new(w, &SmearingCache::new())),
+            1e-7,
+        );
+        // Even-odd: T is the site-local part of the fifth dimension, the same for all links.
+        let mut eo = TwoFlavorEo::new(Mdwf::<f64>::new(&lat, params), smearing, stop, stop);
+        eo.langevin(&Links::new(&u, &cache), &mut Mseries::new(9));
+        let f = eo.force(&Links::new(&u, &cache));
+        check_force(
+            &u,
+            &f,
+            &links,
+            |w| eo.hamiltonian(&Links::new(w, &SmearingCache::new())),
             1e-7,
         );
         let mut ratio = TwoFlavorRatio::new(

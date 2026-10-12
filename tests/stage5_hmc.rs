@@ -350,6 +350,195 @@ fn bridge_domain_wall(expected: f64, pv: bool) {
     );
 }
 
+/// conf_04040408 repeated over 8⁴, as Bridge++'s reader `Text_4x4x4x8` puts it on a larger
+/// lattice (the link at x is the link of the file at x mod (4, 4, 4, 8)).
+fn tiled_8888(path: &std::path::Path) -> ruttice::Field<f64, ruttice::Gauge> {
+    use ruttice::gauge::{link, set_link};
+    let small = Lattice::single_node([4, 4, 4, 8]);
+    let u4 = ruttice::io::read_bridge_text(path, &small).unwrap();
+    let lat = Lattice::single_node([8; ND]);
+    let mut u = ruttice::Field::<f64, ruttice::Gauge>::gauge(&lat);
+    for site in 0..lat.num_sites() {
+        let (x, y, z, t) = (site % 8, (site / 8) % 8, (site / 64) % 8, site / 512);
+        let from = x % 4 + 4 * (y % 4 + 4 * (z % 4 + 4 * t));
+        for mu in 0..ND {
+            set_link(&mut u, mu, site, &link(&u4, mu, from));
+        }
+    }
+    u
+}
+
+/// Bridge++'s Wilson HMC tests of its alternative code (`test_alt_hmc`, the parameter files
+/// `test_HMC_Wilson_Nf2_alt*.yaml`) on conf_04040408 repeated over 8⁴: κ = 0.12, antiperiodic
+/// in time, the rectangle gauge action at β = 2.3, one level of leapfrog with 5 steps over
+/// 0.1, the M-series numbers of trajectory 200000, the fermion links smeared `steps` times
+/// (stout, ρ = 0.1). `even_odd`: `Action_F_alt_Standard_eo`, the pseudofermions on the even
+/// sites (`TwoFlavorEo`); otherwise `Action_F_alt_Standard_lex` (`TwoFlavor`). The plaquette
+/// after one trajectory against `expected_result`, to Bridge++'s relative 1e-11 (its solves
+/// are BiCGStab, ours CG, both to |r|²/|b|² < 1e-28); with the initial guess (`guess` > 0)
+/// the solves round differently, and the plaquette must agree to 1e-9. Returns the CG
+/// iterations of the force solves and the seconds of the trajectory.
+fn bridge_alt_wilson(
+    expected: Option<f64>,
+    steps: usize,
+    even_odd: bool,
+    metropolis: bool,
+    guess: usize,
+) -> Option<(usize, f64)> {
+    use ruttice::fermion::{Wilson, WilsonParams};
+    use ruttice::gauge::smear::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    use ruttice::hmc::{Hmc, Links, MdAction, RectangleAction, Scheme, Term};
+    use ruttice::hmc::{TwoFlavor, TwoFlavorEo};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return None;
+    };
+    let mut u = tiled_8888(&path);
+    let lat = u.lattice().clone();
+    let params = WilsonParams {
+        kappa: 0.12,
+        boundary: [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ],
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 1000,
+        max_restarts: 40,
+    };
+    let smearing = (steps > 0).then_some(GaugeSmearing {
+        smear: Smear::Stout(Stout::uniform(0.1)),
+        steps,
+    });
+    // The action inside the HMC, its iterations read after each force.
+    struct Counted<A> {
+        action: A,
+        count: Rc<Cell<usize>>,
+        read: fn(&A) -> usize,
+    }
+    impl<A: MdAction> MdAction for Counted<A> {
+        fn langevin(&mut self, l: &Links, r: &mut Mseries) -> f64 {
+            self.action.langevin(l, r)
+        }
+        fn hamiltonian(&mut self, l: &Links) -> f64 {
+            self.action.hamiltonian(l)
+        }
+        fn force(&mut self, l: &Links) -> ruttice::Field<f64, ruttice::Gauge> {
+            let f = self.action.force(l);
+            self.count.set((self.read)(&self.action));
+            f
+        }
+    }
+    let count = Rc::new(Cell::new(0usize));
+    let fermions: Box<dyn MdAction> = if even_odd {
+        Box::new(Counted {
+            action: TwoFlavorEo::new(Wilson::<f64>::new(&lat, params), smearing, stop, stop)
+                .with_guess(guess),
+            count: count.clone(),
+            read: |a| a.md_iterations,
+        })
+    } else {
+        Box::new(Counted {
+            action: TwoFlavor::new(Wilson::<f64>::new(&lat, params), smearing, stop, stop)
+                .with_guess(guess),
+            count: count.clone(),
+            read: |a| a.md_iterations,
+        })
+    };
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = Hmc::new(
+        vec![
+            Term {
+                level: 0,
+                action: fermions,
+            },
+            Term {
+                level: 0,
+                action: Box::new(gauge),
+            },
+        ],
+        Scheme::Leapfrog,
+        vec![5],
+        8,
+        0.1,
+    );
+    hmc.metropolis = metropolis;
+    let start = std::time::Instant::now();
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    let seconds = start.elapsed().as_secs_f64();
+    eprintln!(
+        "{t:?}\nforce solves: {} CG iterations; {seconds:.2} s",
+        count.get()
+    );
+    if let Some(expected) = expected {
+        let tol = if guess == 0 { 1e-11 } else { 1e-9 };
+        assert!(
+            ((t.plaquette - expected) / expected).abs() < tol,
+            "plaquette {:.15} against {expected}",
+            t.plaquette
+        );
+    }
+    Some((count.get(), seconds))
+}
+
+/// `test_HMC_Wilson_Nf2_alt` (8⁴): the action of the whole lattice, links smeared once. It
+/// checks the tiling of the configuration for the even-odd tests below.
+#[test]
+fn bridge_test_wilson_nf2_alt_8888() {
+    bridge_alt_wilson(Some(0.624961897149602), 1, false, true, 0);
+}
+
+/// `test_HMC_Wilson_Nf2_alt_eo` (8⁴): even-odd, links smeared twice, no Metropolis test.
+#[test]
+fn bridge_test_wilson_nf2_alt_eo_8888() {
+    bridge_alt_wilson(Some(0.624921816342905), 2, true, false, 0);
+}
+
+/// `test_HMC_Wilson_Nf2_alt_eo_nosmr` (8⁴): even-odd without smearing, no Metropolis test.
+#[test]
+fn bridge_test_wilson_nf2_alt_eo_nosmr_8888() {
+    bridge_alt_wilson(Some(0.625038361335609), 0, true, false, 0);
+}
+
+/// What even-odd preconditioning and the chronological guess save on one trajectory of
+/// `test_HMC_Wilson_Nf2_alt_eo` (8⁴, two stout steps; six force solves): the CG iterations
+/// of the force solves of the whole-lattice and of the even-odd action, each from zero and
+/// with the guess from the last four solutions. A CG iteration on the Schur complement costs
+/// about what one on the whole lattice does (two applications of D or of Ŝ, each of the
+/// latter two half-lattice hops).
+#[test]
+fn even_odd_and_guess_save_iterations() {
+    let e = Some(0.624921816342905);
+    let Some((eo, eo_s)) = bridge_alt_wilson(e, 2, true, false, 0) else {
+        return;
+    };
+    let (eo_g, eo_g_s) = bridge_alt_wilson(e, 2, true, false, 4).unwrap();
+    let (full, full_s) = bridge_alt_wilson(None, 2, false, false, 0).unwrap();
+    let (full_g, full_g_s) = bridge_alt_wilson(None, 2, false, false, 4).unwrap();
+    eprintln!("CG iterations of the force solves (seconds of the trajectory):");
+    eprintln!(
+        "  whole lattice {full:5} ({full_s:.2} s), with the guess {full_g:5} ({full_g_s:.2} s)"
+    );
+    eprintln!("  even-odd      {eo:5} ({eo_s:.2} s), with the guess {eo_g:5} ({eo_g_s:.2} s)");
+    assert!(2 * eo < full, "even-odd {eo} against {full}");
+    assert!(eo_g < eo && full_g < full);
+}
+
 /// `test_HMC_Domainwall_Nf2`.
 #[test]
 fn bridge_test_domain_wall_nf2() {

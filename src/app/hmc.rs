@@ -24,6 +24,18 @@
 //! output: {save_every: 5, file: "conf_{n}.txt"}
 //! ```
 //!
+//! A `two_flavor` action takes `even_odd: true` for the action of the Schur complement on the
+//! even sites (`hmc::TwoFlavorEo`, Wilson, clover or domain-wall fermions), and its `solver`
+//! `initial_guess: n` to start the force solves from the last n solutions (`hmc::Chrono`):
+//!
+//! ```yaml
+//!   - type: two_flavor
+//!     fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+//!     even_odd: true
+//!     solver: {tolerance_squared: 1.0e-24, initial_guess: 4}
+//!     level: 0
+//! ```
+//!
 //! The conventions are those of Bridge++'s `HMC_General` (momenta, pseudofermions and the
 //! Metropolis test from one M-series generator; the integrator levels of its
 //! `Builder_Integrator`), so a run can be repeated there. The gauge smearing of the fermion
@@ -36,7 +48,7 @@ use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParam
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
     cold_start, Hmc, MdAction, Mseries, PlaquetteAction, Rational, RectangleAction, Scheme, Term,
-    TwoFlavor, TwoFlavorRatio,
+    TwoFlavor, TwoFlavorEo, TwoFlavorRatio,
 };
 use crate::io::{BridgeText, GaugeFile, Ildg, Scidac};
 use crate::numerics::{RationalApprox, RationalSpec};
@@ -141,6 +153,12 @@ pub enum ActionConfig {
         /// On the links smeared by `gauge_smearing`.
         #[serde(default = "yes")]
         smeared: bool,
+        /// Even-odd preconditioned: φ on the even sites, S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|
+        /// with Ŝ the Schur complement (`hmc::TwoFlavorEo`; Bridge++'s
+        /// `Action_F_alt_Standard_eo` for Wilson fermions). The same distribution of links,
+        /// about a third of the operator applications per trajectory. Off by default.
+        #[serde(default)]
+        even_odd: bool,
         #[serde(default)]
         solver: HmcSolver,
     },
@@ -214,6 +232,11 @@ pub struct HmcSolver {
     pub energy_tolerance_squared: f64,
     #[serde(default = "md_iterations")]
     pub max_iterations: usize,
+    /// Start each force solve from the best combination of the solutions of the last this
+    /// many force solves of the trajectory (`hmc::Chrono`); 0 (the default): from zero, as
+    /// Bridge++ does, so that its runs are repeated number by number. Two flavours only.
+    #[serde(default)]
+    pub initial_guess: usize,
 }
 
 impl Default for HmcSolver {
@@ -222,6 +245,7 @@ impl Default for HmcSolver {
             tolerance_squared: md_tolerance(),
             energy_tolerance_squared: md_tolerance(),
             max_iterations: md_iterations(),
+            initial_guess: 0,
         }
     }
 }
@@ -365,6 +389,13 @@ impl HmcConfig {
                 ));
             }
             let _ = smeared;
+            if let ActionConfig::TwoFlavorRatio { solver, .. } = a {
+                if solver.initial_guess > 0 {
+                    return invalid(format!(
+                        "actions[{i}].solver.initial_guess: for two_flavor actions only"
+                    ));
+                }
+            }
             if let Some((f, d)) = ratio {
                 match (f, d) {
                     (HmcFermion::DomainWall { .. }, None) => {}
@@ -423,12 +454,39 @@ impl HmcConfig {
                         fermion,
                         level,
                         smeared,
+                        even_odd,
                         solver,
                     } => {
                         let sm = smearing.filter(|_| *smeared);
                         let (md, h) = stops(solver);
+                        let g = solver.initial_guess;
+                        // The same operator in either action; the clover term adds its force
+                        // (and, even-odd, its det term).
+                        macro_rules! two_flavor {
+                            ($op:expr, $clover:expr) => {{
+                                let op = $op;
+                                let clover: Option<f64> = $clover;
+                                if *even_odd {
+                                    let a = TwoFlavorEo::new(op, sm, md, h).with_guess(g);
+                                    match clover {
+                                        Some(kc) => {
+                                            Box::new(a.with_clover(kc)) as Box<dyn MdAction>
+                                        }
+                                        None => Box::new(a),
+                                    }
+                                } else {
+                                    let a = TwoFlavor::new(op, sm, md, h).with_guess(g);
+                                    match clover {
+                                        Some(kc) => {
+                                            Box::new(a.with_clover(kc)) as Box<dyn MdAction>
+                                        }
+                                        None => Box::new(a),
+                                    }
+                                }
+                            }};
+                        }
                         let action: Box<dyn MdAction> = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => Box::new(TwoFlavor::new(
+                            HmcFermion::Wilson { kappa, boundary: b } => two_flavor!(
                                 Wilson::<f64>::new(
                                     lat,
                                     WilsonParams {
@@ -436,36 +494,26 @@ impl HmcConfig {
                                         boundary: boundary(&b),
                                     },
                                 ),
-                                sm,
-                                md,
-                                h,
-                            )),
+                                None
+                            ),
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
                                 boundary: b,
-                            } => Box::new(
-                                TwoFlavor::new(
-                                    Clover::<f64>::new(
-                                        lat,
-                                        CloverParams {
-                                            kappa,
-                                            csw,
-                                            boundary: boundary(&b),
-                                        },
-                                    ),
-                                    sm,
-                                    md,
-                                    h,
-                                )
-                                .with_clover(kappa * csw),
+                            } => two_flavor!(
+                                Clover::<f64>::new(
+                                    lat,
+                                    CloverParams {
+                                        kappa,
+                                        csw,
+                                        boundary: boundary(&b),
+                                    },
+                                ),
+                                Some(kappa * csw)
                             ),
-                            HmcFermion::DomainWall { .. } => Box::new(TwoFlavor::new(
-                                Mdwf::<f64>::new(lat, mdwf_params(fermion)),
-                                sm,
-                                md,
-                                h,
-                            )),
+                            HmcFermion::DomainWall { .. } => {
+                                two_flavor!(Mdwf::<f64>::new(lat, mdwf_params(fermion)), None)
+                            }
                         };
                         (*level, action)
                     }
