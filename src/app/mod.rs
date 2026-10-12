@@ -208,6 +208,7 @@ pub fn run_file_on(
     };
     if hmc::is_hmc_file(path)? {
         let config = hmc::HmcConfig::load(path)?;
+        set_threads(config.cpu_thread)?;
         let base = path.parent().unwrap_or(Path::new("."));
         let mut sink = std::io::sink();
         let out: &mut dyn Write = if root { stdout } else { &mut sink };
@@ -221,6 +222,7 @@ pub fn run_file_on(
         ));
     }
     let p = params::Params::load(path)?;
+    set_threads(p.main.cpu_thread)?;
     if p.fopr.fermion_type.is_domain_wall() {
         // Only rank 0 prints.
         let mut sink = std::io::sink();
@@ -235,6 +237,26 @@ pub fn run_file_on(
         }
     }
     wilson::run_config(&p.to_config(), path, stdout, comm)
+}
+
+/// Make the thread pool of this process with `threads` threads (`cpu_thread` of a
+/// parameter file). The pool is made once: asking for another size later is an error.
+fn set_threads(threads: Option<usize>) -> Result<(), CliError> {
+    let Some(n) = threads else {
+        return Ok(());
+    };
+    if n == 0 {
+        return invalid("cpu_thread: at least 1".to_string());
+    }
+    let made = rayon::ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build_global();
+    match (made, rayon::current_num_threads()) {
+        (Err(_), have) if have != n => invalid(format!(
+            "cpu_thread {n}: the thread pool already has {have} threads"
+        )),
+        _ => Ok(()),
+    }
 }
 
 const USAGE: &str = "\

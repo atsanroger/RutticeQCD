@@ -78,19 +78,27 @@ multigrid, which wants a 12⁴ configuration of your own (`Gauge.config_filename
 
 ### Backends
 
+`Main.backend` in the file chooses how the kernels are computed:
+
 | Backend | How |
 |---|---|
-| CPU threads | the default; `RAYON_NUM_THREADS` sets how many |
-| SIMD | in the file: `Main: {backend: simd, simd_lanes: 4}` (2, 4 or 8 sites per register); build with `target-cpu=native` |
-| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid |
+| `cpu` | the default: one site at a time |
+| `simd` | `simd_lanes: 4` (2, 4 or 8) sites in one SIMD register; build with `target-cpu=native` |
 | GPU | planned |
+
+### Parallelism
+
+Either backend runs on threads, on several processes, or both:
+
+| | How |
+|---|---|
+| Threads | every core by default; `Main.cpu_thread` in the file or `RAYON_NUM_THREADS` sets how many |
+| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid |
 
 ```bash
 cargo build --release --features mpi        # needs an MPI installation and libclang
 mpirun -np 4 target/release/ruttice-mpi run/wilson_pion.yaml
 ```
-
-The backends combine: SIMD blocks inside each MPI process, threads over both.
 
 ### Which solver
 

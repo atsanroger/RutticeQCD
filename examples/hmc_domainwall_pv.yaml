@@ -7,6 +7,7 @@
 # Relative paths are taken from the directory of this file.
 
 lattice: [4, 4, 4, 8]
+# cpu_thread: 4          # threads per process; default: RAYON_NUM_THREADS, or every core
 start: {type: file, file: conf_04040408.txt, format: bridge_text}
 
 # Gauge smearing: the fermion operators are made of these links (not the smearing of

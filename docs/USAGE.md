@@ -66,6 +66,14 @@ The channels are named after the gamma matrices at the sink and at the source:
 All but `A4_A4` were checked against Bridge++; `A4_A4` is not in Bridge++ and has no
 reference values from another program.
 
+### Threads
+
+A run uses every core of the machine unless told otherwise, by `Main.cpu_thread` in the
+file (`cpu_thread` at the top of an HMC file) or by the environment variable
+`RAYON_NUM_THREADS`; the file wins. With MPI this is the number of threads of each process, so
+processes × threads should not exceed the cores. The kernels are limited by memory bandwidth:
+more threads than a few per memory channel gain little.
+
 ### SIMD
 
 With `backend : simd` the fields are kept in blocks of `simd_lanes` sites, and the operator

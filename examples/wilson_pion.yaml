@@ -8,6 +8,7 @@
 Main:
   lattice_size : [4, 4, 4, 8]
   ## grid_size : [1, 1, 2, 2]    # processes in x, y, z, t for ruttice-mpi; chosen automatically if omitted
+  ## cpu_thread : 4        # threads per process; default: RAYON_NUM_THREADS, or every core
   backend    : cpu               # cpu (default) | simd: several sites in one SIMD register
   simd_lanes : 4                 # with backend simd: 2, 4 or 8 sites; see the README
 Gauge:

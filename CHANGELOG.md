@@ -23,6 +23,7 @@ The first tagged version.
   iteration; leapfrog and Omelyan integrators on several time scales; initial guesses from
   earlier solutions; saving configurations on several processes.
 - **Input and output.** Gauge configurations as Bridge++ text and binary, ILDG, SciDAC and HDF5.
+- **Threads.** `cpu_thread` in a parameter file, or `RAYON_NUM_THREADS`.
 - **Checked against Bridge++**: operators, solver iteration counts, correlators, and one
   trajectory of each of its HMC tests.
 
