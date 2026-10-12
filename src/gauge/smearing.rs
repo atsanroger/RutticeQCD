@@ -1,21 +1,5 @@
 //! Gauge smearing: every link replaced by a smoother one built from its staples, as the links
 //! a fermion operator is made of (stout links in HMC) or for gauge observables.
-//!
-//! This is the smearing of the gauge field. The smearing of quark sources and sinks
-//! (operator smearing, e.g. exponential or Gaussian wave functions) is a different thing and
-//! lives with the sources (`measure`); the parameter files keep the two apart
-//! (`gauge_smearing` and the source type).
-//!
-//! Two kinds, with the conventions of Bridge++ (`Smear_APE` with `Projection_Stout_SU3` or
-//! `Projection_Maximum_SU_N`) so that its runs can be repeated:
-//!
-//! - stout (Morningstar–Peardon, hep-lat/0311018): V_μ = exp(iQ_μ) U_μ, iQ_μ the traceless
-//!   anti-Hermitian part of C_μ U_μ†, C_μ = Σ_(ν≠μ) ρ_μν (staples in the μν plane);
-//!   differentiable, so HMC can use it (`Stout::chain`);
-//! - APE: V_μ = the SU(3) matrix that maximises Re tr[V† ((1 − ρ_μμ) U_μ + C_μ)], found by
-//!   SU(2) subgroups (Cabibbo–Marinari) until the change is below a tolerance.
-//!
-//! Written from the formulas of the paper and the structure of the Bridge++ code.
 
 use super::link;
 use super::paths::Extended;

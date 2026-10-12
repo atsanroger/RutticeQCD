@@ -9,12 +9,6 @@ use std::sync::Arc;
 
 /// Read a gauge configuration in the plain-text format used by Bridge++ (one real per
 /// line).
-///
-/// File order, outermost first: global site (x fastest), direction, then the 18 reals of
-/// the link, row-major with the real part first (the ILDG ordering). This interoperates
-/// with the file format only; the reader is written from that description.
-///
-/// With several processes, every process reads the whole file and keeps its own part.
 pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
     let text = std::fs::read_to_string(path).map_err(IoError::Read)?;
     let mut u = Field::<f64, Gauge>::gauge(lat);
@@ -55,8 +49,6 @@ pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Ga
 
 /// Write a gauge configuration in the same plain-text format, one real per line, with
 /// enough digits that reading it back gives the same bits.
-///
-/// With several processes, every process makes this call and rank 0 writes the file.
 pub fn write_bridge_text(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     write_on_root(
         u,

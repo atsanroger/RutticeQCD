@@ -109,13 +109,6 @@ where
 /// A solver together with its operator: `out = A^{-1} inp` to the solver's tolerance,
 /// starting from zero. This is what makes a solver usable as someone else's
 /// preconditioner.
-///
-/// Not reaching the tolerance is normal for an inner solve and is not an error here; the
-/// outcome of the most recent solve is kept in `last`.
-///
-/// The solver is owned; pass `&mut solver` to keep using it elsewhere. With a fixed number
-/// of iterations and no tolerance to reach, this is how a Krylov solver becomes a smoother
-/// (GMRES(m): `Fgmres` with `max_iterations = m`, no restarts).
 pub struct Solve<S, A, M> {
     solver: S,
     a: A,

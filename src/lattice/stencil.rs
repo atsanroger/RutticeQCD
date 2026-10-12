@@ -45,14 +45,6 @@ const ZERO: u8 = 2;
 const BUFFER: u8 = 4;
 
 /// Nearest-neighbour geometry of a lattice, built once and shared by kernels and `shift`.
-///
-/// So far: unit displacements. Whether this is a table or arithmetic is an internal choice
-/// that callers do not see.
-///
-/// In a direction with more than one process, the neighbours beyond the local lattice are
-/// `Source::Buffer`. The sites a process has to send are listed by `send_sites`, in the
-/// order the receiving side indexes them: both sides order a face by increasing site
-/// index, which is the same order because their local lattices have the same shape.
 pub struct Stencil {
     num_sites: usize,
     neighbor: Vec<u32>,
@@ -237,9 +229,6 @@ impl Stencil {
 
 /// `out(x) = inp(x ± mu)` for every outer slab. Sites whose neighbour is `Zero` are set to
 /// the default value. No boundary phase is applied.
-///
-/// Meant to be simple and general, not fast: with several processes it sets up its own
-/// exchange on every call.
 pub fn shift<T, K, S>(
     out: &mut Field<T, K, S, Aos, Cpu>,
     inp: &Field<T, K, S, Aos, Cpu>,

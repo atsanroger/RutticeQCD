@@ -22,9 +22,6 @@ impl fmt::Display for Singular {
 impl std::error::Error for Singular {}
 
 /// Invert a dense complex `n × n` matrix by Gauss-Jordan elimination with partial pivoting.
-///
-/// Both matrices are row-major with (re, im) pairs: element (r, c) is at `2 * (n * r + c)`.
-/// `a` is used as scratch and holds no meaningful value afterwards.
 pub fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Singular> {
     assert_eq!(a.len(), 2 * n * n);
     assert_eq!(inv.len(), 2 * n * n);
@@ -96,10 +93,9 @@ pub fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Si
     Ok(())
 }
 
-/// Eigenvalues and eigenvectors of a Hermitian `n × n` matrix (row-major, only its
-/// Hermitian part is used) by the cyclic complex Jacobi method: returns λ and V, the
-/// eigenvectors in the columns of the row-major V, with A = V diag(λ) V†. Meant for the
-/// small blocks of a coarse operator (n up to a few hundred).
+/// Eigenvalues and eigenvectors of a Hermitian `n × n` matrix (row-major, only its Hermitian part
+/// is used) by the cyclic complex Jacobi method: returns λ and V, the eigenvectors in the columns
+/// of the row-major V, with A = V diag(λ) V†.
 pub fn hermitian_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
     assert_eq!(a.len(), n * n);
     let mut a: Vec<C64> = (0..n * n)

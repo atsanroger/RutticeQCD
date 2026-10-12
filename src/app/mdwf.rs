@@ -2,17 +2,6 @@
 //! Pauli-Villars multigrid (`pv_eo`), from a parameter file in the style of Bridge++
 //! (`params`): what `ruttice` runs for `fermion_type: Mobius` (and the example
 //! `mdwf_pv_eo_mg`, which can choose the seeds of random right-hand sides).
-//!
-//! Per right-hand side: iterations, preconditioner applications, applications of the
-//! operator (outer and inside the preconditioner), coarse applications, |D x − b|²/|b|² with
-//! the plain D, time, nominal GFlop/s (Bridge++'s count for the domain-wall operator, two
-//! per application of the even-odd operator, and 72 dim² per coarse site for a coarse
-//! application), and the memory now and at its peak. A `Setup.checkpoint` in the MultiGrid
-//! block takes the low modes from a checkpoint (written by the study program
-//! `mdwf_evenodd_coherence`, kept under the tag `mdwf-mg-studies`) instead of the
-//! filter. With `Main.backend: simd` the fine fields are in blocks of `simd_lanes` sites:
-//! the operator, the smoother and the outer solver run there, the multigrid setup and the
-//! coarse correction in the usual layout.
 
 use super::memory_line;
 use super::params::{Backend, Params, PrecisionType, PreconditionerType, SolverType};
@@ -124,10 +113,9 @@ impl<V: Vector> LinearFn<V> for Counted<'_, V> {
     }
 }
 
-/// Run what a domain-wall parameter file (`Params`) describes: random right-hand sides
-/// with seeds `seeds` (inclusive) without a `Source` block, the propagator, the meson
-/// correlators and the residual mass with one. `file` is the parameter file (relative paths
-/// in it are taken from its directory). What it does goes to `out`.
+/// Run what a domain-wall parameter file (`Params`) describes: random right-hand sides with seeds
+/// `seeds` (inclusive) without a `Source` block, the propagator, the meson correlators and the
+/// residual mass with one.
 pub fn run(
     params: &Params,
     file: &Path,
@@ -137,10 +125,8 @@ pub fn run(
     run_on(params, file, seeds, out, Arc::new(SingleComm))
 }
 
-/// `run` on the processes of `comm`, split as `Main.grid_size` asks (or as chosen here when
-/// it is left at one process). Every process makes this call; give the others a sink for
-/// `out`. The random right-hand sides are drawn on every process for its own sites, so
-/// they differ from those of a run on another number of processes.
+/// `run` on the processes of `comm`, split as `Main.grid_size` asks (or as chosen here when it is
+/// left at one process).
 pub fn run_on(
     params: &Params,
     file: &Path,

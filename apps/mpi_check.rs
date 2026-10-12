@@ -3,8 +3,7 @@
 //!
 //!     mpirun -np 4 ruttice-mpi-check 2 1 1 2
 //!
-//! where the arguments are the process grid. Every process also computes the whole lattice
-//! by itself as the reference, so this is for small lattices only.
+//! where the arguments are the process grid.
 
 use ruttice::fermion::{solve_even_odd, Bound, FermionOp, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;

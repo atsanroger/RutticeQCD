@@ -3,13 +3,8 @@
 use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
-/// Flexible GCR(k): every step applies the preconditioner once, z = M r, makes q = A z
-/// orthogonal to the q of the last `k` steps (and z alike), and minimises the residual
-/// along q. M may change from one application to the next. Memory: x, r and k + 1 pairs
-/// (z, q), 2k + 4 vectors per right-hand side, against 2(k + 1) + 2 for FGMRES(k); with
-/// k = 1 or 2 it is CG-like. Restarted: after `max_iterations` steps the true residual is
-/// recomputed and the directions are dropped. Every vector of a multi-vector has its own
-/// coefficients; a converged vector is no longer updated.
+/// Flexible GCR(k): every step applies the preconditioner once, z = M r, makes q = A z orthogonal
+/// to the q of the last `k` steps (and z alike), and minimises the residual along q.
 pub struct Gcr<V> {
     pub stop: Stop,
     pub k: usize,

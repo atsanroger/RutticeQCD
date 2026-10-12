@@ -3,15 +3,9 @@
 use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
-/// MINRES (Elman, Silvester and Wathen, *Finite Elements and Fast Iterative Solvers*,
-/// algorithm 2.4): Lanczos in the M-inner product with Givens rotations. A must be
-/// Hermitian, M (optional) Hermitian positive definite and fixed. Unlike conjugate
-/// residuals it cannot break down on an indefinite A, which divides by ⟨z, A z⟩.
-///
-/// It minimises the M-weighted norm of the residual (√⟨r, M r⟩), and stops when that is
-/// below √`tolerance_sqr` times the same norm of b, or when the true |b − A x|² / |b|² is
-/// below `tolerance_sqr`; after `max_iterations` steps it restarts from the current
-/// solution. Every vector of a multi-vector has its own recurrence.
+/// MINRES (Elman, Silvester and Wathen, *Finite Elements and Fast Iterative Solvers*, algorithm
+/// 2.4): Lanczos in the M-inner product with Givens rotations. A must be Hermitian, M (optional)
+/// Hermitian positive definite and fixed.
 pub struct Minres<V> {
     pub stop: Stop,
     /// An inner solve: x is zero on entry (the first residual is b, no application of A),

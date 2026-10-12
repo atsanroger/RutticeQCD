@@ -392,17 +392,6 @@ where
     }
 
     /// Add the forward and the backward leg of direction `MU` of one block to `hops`.
-    ///
-    /// The steps are those of the sweep over sites, in the same order, so that every lane
-    /// gets the bits its site gets there. Where the hop leaves the sub-lattice, the lanes of
-    /// the neighbouring block are rotated into place and each lane gets its boundary factor.
-    /// The backward leg multiplies by the neighbouring block's link first, in that block's
-    /// order of lanes, and rotates the product: the link then never has to be rotated.
-    ///
-    /// Lanes whose hop leaves the local lattice towards another process are computed like
-    /// the others, from the periodic image on this process, and then replaced by what
-    /// arrived in `received`: a projected spinor on the forward leg, where this side holds
-    /// the link, a transported one on the backward leg.
     #[inline(always)]
     fn add_block_legs<const MU: usize>(
         &self,

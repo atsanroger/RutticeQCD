@@ -329,10 +329,8 @@ impl LinearFn<C64Field> for CoarseSchur<'_> {
     }
 }
 
-/// The even-odd form of the coarse operator: solving the Schur complement on the even coarse
-/// sites and filling in the odd ones solves D_c c = g, and the Schur complement stays on the
-/// even sites. (The iterations printed are those of a coarse operator from random vectors,
-/// which is well conditioned: no measure of what the even-odd form saves.)
+/// The even-odd form of the coarse operator: solving the Schur complement on the even coarse sites
+/// and filling in the odd ones solves D_c c = g, and the Schur complement stays on the even sites.
 #[test]
 fn coarse_even_odd_solves_the_coarse_system() {
     let lat = lattice();
@@ -611,9 +609,8 @@ fn single_precision_multigrid_returns_single_precision_values() {
 }
 
 /// The Bridge++ test configuration with the operator of the Bridge++ multigrid test
-/// (`test_alt_Multigrid.yaml`: clover, κ = 0.13, c_SW = 1.1, periodic) and its multigrid
-/// parameters on 2^4 blocks. No reference iteration count: the Bridge++ multigrid test
-/// could not be built here (the design notes, §14). Skipped without the configuration.
+/// (`test_alt_Multigrid.yaml`: clover, κ = 0.13, c_SW = 1.1, periodic) and its multigrid parameters
+/// on 2^4 blocks.
 #[test]
 fn multigrid_on_the_bridge_configuration() {
     let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
@@ -658,10 +655,9 @@ fn multigrid_on_the_bridge_configuration() {
     assert!(with_mg * 10 < plain);
 }
 
-/// The members of the cycle can be exchanged: the domain-wall choices of the CUDA version
-/// (GMRES(m) before and after the coarse correction, GMRES(m) on the coarse lattice, coarse
-/// operator preconditioned by its diagonal blocks), here on a clover operator, still make a
-/// good preconditioner. And the outer solver can be BiCGStab, which is flexible with a
+/// The members of the cycle can be exchanged: the domain-wall choices of the CUDA version (GMRES(m)
+/// before and after the coarse correction, GMRES(m) on the coarse lattice, coarse operator
+/// preconditioned by its diagonal blocks), here on a clover operator, still make a good
 /// preconditioner.
 #[test]
 fn exchangeable_members_and_outer_solvers() {
@@ -786,10 +782,9 @@ fn multigrid_on_several_processes() {
     }
 }
 
-/// The multigrid of the whole lattice under a solver on the even sites (`OnParity`): the
-/// even block of an approximate inverse of D approximates the inverse of the Schur
-/// complement, so FGMRES on the Schur complement needs about as many iterations as on D,
-/// and far fewer than without it.
+/// The multigrid of the whole lattice under a solver on the even sites (`OnParity`): the even block
+/// of an approximate inverse of D approximates the inverse of the Schur complement, so FGMRES on
+/// the Schur complement needs about as many iterations as on D, and far fewer than without it.
 #[test]
 fn multigrid_under_an_even_odd_solver() {
     let lat = lattice();

@@ -1,22 +1,6 @@
 //! The two-level multigrid for Möbius domain-wall fermions: the cycle of `Multigrid` with
 //! the members of the Pauli-Villars preconditioned method (Kanamori, Chen, Matsufuru,
 //! PoS(LATTICE2024)414; the working note `pvprec_amg` of Chen, Kanamori, Matsufuru).
-//!
-//! - The cycle approximates the inverse of `A = (D_PV C_PV^-1)† D C^-1`
-//!   (`PvPreconditioned`), so it is the preconditioner of a flexible solver on A.
-//! - Smoother, before and after the coarse correction: GMRES(m) on A from a zero start, a
-//!   polynomial of A fitted once, or Chebyshev iteration on the upper part of the spectrum
-//!   of A (`MdwfSmoother`).
-//! - Aggregates: blocks in space-time that keep the whole fifth dimension, split by the
-//!   chirality of Γ5 = γ5 R.
-//! - Test vectors: random vectors, smoothed, then multiplied by D_PV.
-//! - Coarse operator: `P† D C_PV^-1 P`, built from the parts of D with the exact
-//!   site-local `C_PV^-1` as a right factor, so that it reaches the eight neighbouring
-//!   aggregates only; preconditioned by the inverse of its diagonal blocks. This is the
-//!   reference's choice for its A = (D_PV C_PV^-1)† C^-1 D, kept for now with the paper's A:
-//!   on a 12^4 configuration neither this nor the Galerkin projection of A, for either A,
-//!   reduces a smooth error (the design notes, §7.6.5 (d)).
-//! - Coarse solver: GMRES(m), restarted a few times, to a loose tolerance.
 
 use super::wilson::random_vectors;
 use super::{Aggregation, CycleParts, Multigrid, MultigridError, SetupHooks};
@@ -53,15 +37,12 @@ pub enum MdwfSmoother {
     /// `tolerance_sqr`. Keeps `max_iterations + 1` vectors, and is a different map for
     /// every input.
     Gmres(Stop),
-    /// `Polynomial`: a polynomial of A with `degree` coefficients, fitted to a random
-    /// vector in the setup and applied `passes` times as a stationary correction. Keeps
-    /// three vectors, and is the same linear map every time. In a Krylov solver it can
-    /// stall (degree 4 does on a 12^4 configuration; the working log (branch `notes`)).
+    /// `Polynomial`: a polynomial of A with `degree` coefficients, fitted to a random vector in the
+    /// setup and applied `passes` times as a stationary correction.
     Polynomial { degree: usize, passes: usize },
-    /// `Chebyshev`: `steps` steps of Chebyshev iteration on A for the real interval
-    /// `[hi/ratio, hi]`, hi = 1.1 |λ_max(A)| from 30 steps of the power iteration in the
-    /// setup (the design notes, §7.6.5 (c)). Keeps three vectors, and is the same linear map every
-    /// time.
+    /// `Chebyshev`: `steps` steps of Chebyshev iteration on A for the real interval `[hi/ratio,
+    /// hi]`, hi = 1.1 |λ_max(A)| from 30 steps of the power iteration in the setup (the design
+    /// notes, §7.6.5 (c)).
     Chebyshev { steps: usize, ratio: f64 },
 }
 

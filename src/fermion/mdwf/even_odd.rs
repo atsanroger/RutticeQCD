@@ -15,13 +15,9 @@ pub enum EoForm {
 
 type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
 
-/// The Pauli-Villars preconditioned operator on the even sites, in the form `form`, of a
-/// quark operator and a Pauli-Villars operator (normally the same at mass 1), each with
-/// its own α (`Mdwf::set_alpha`; 1 for the plain operator). With it: the right-hand side
-/// for `D x = b` and the solution x of `D x = b`, through `x = Q x^(α)` when the quark
-/// operator carries α.
-///
-/// One application is four half-lattice hops, two Wilson sweeps, as for the full-lattice A.
+/// The Pauli-Villars preconditioned operator on the even sites, in the form `form`, of a quark
+/// operator and a Pauli-Villars operator (normally the same at mass 1), each with its own α
+/// (`Mdwf::set_alpha`; 1 for the plain operator).
 pub struct PvEvenOdd<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
     op: &'a Mdwf<T, G, L>,
     pv: &'a Mdwf<T, G, L>,
@@ -197,10 +193,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         }
     }
 
-    /// `out = D_pq inp` (or `(D†)_pq inp`) of the plain operator (α = 1), then `then` on each
-    /// site of it while the sweep has it in the cache: `out = [from −] [C⁻¹] D_pq inp` in one
-    /// pass over the fields. B goes to the Wilson kernel for its input; B† after the kernel
-    /// of the adjoint is done here, before `then`.
+    /// `out = D_pq inp` (or `(D†)_pq inp`) of the plain operator (α = 1), then `then` on each site
+    /// of it while the sweep has it in the cache: `out = [from −] [C⁻¹] D_pq inp` in one pass over
+    /// the fields.
     fn hop_plain(
         &self,
         work: &mut WilsonWork<T>,
@@ -247,10 +242,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
 
 /// The Schur factor `1 − D_eo C_o⁻¹ D_oe C_e⁻¹` (right form) or `1 − C_e⁻¹ D_eo C_o⁻¹ D_oe`
 /// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one.
-///
-/// What follows a hop within a site is done in the sweep of the hop (`Mdwf::hop_plain`):
-/// three passes over the field when C⁻¹ comes first, two when the hop does, instead of
-/// five. With α each step is a pass of its own.
 fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
     op: &Mdwf<T, G, L>,
     work: &mut MdwfHalfWork<T, L>,
@@ -370,9 +361,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
 /// parity of the site. With `B = b - c Y` and the hops `M_pq` of the Wilson kernel,
 ///
 ///   D = [[C, (4 - M5) M_eo B], [(4 - M5) M_oe B, C]],
-///
-/// so the diagonal blocks are the site-local part C, whose inverse is exact, and
-/// `(D†)_pq = B† (4 - M5) (M†)_pq`.
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half, L>>
     for Mdwf<T, G, L>
 {

@@ -1,11 +1,4 @@
 //! Communication between the processes that share a lattice.
-//!
-//! Kernels see two things: a global sum, and a non-blocking exchange of the eight faces of
-//! the local lattice with the neighbouring processes. Writing a file adds a third: a gather
-//! to rank 0, which writes it. Which library moves the data is hidden behind `Comm`.
-//!
-//! Implementations here: `SingleComm` (one process) and `LocalComm` (several ranks as
-//! threads of one process, for tests and for development without an MPI installation).
 
 use crate::lattice::{Lattice, ND};
 use std::collections::{HashMap, VecDeque};
@@ -32,10 +25,6 @@ pub struct HaloSpec {
 }
 
 /// A reusable set of send and receive buffers for the faces of the local lattice.
-///
-/// Data written to `send_buffer(face)` travels to the neighbour on that side and appears
-/// there in `recv_buffer(opposite_face(face))`. `start` begins all transfers and returns
-/// without waiting; the receive buffers are valid after `wait`.
 pub trait HaloExchange<T>: Send {
     fn send_buffer(&mut self, face: usize) -> &mut [T];
     fn start(&mut self);

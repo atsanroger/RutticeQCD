@@ -144,10 +144,8 @@ where
     op
 }
 
-/// The operator on blocks gives every site the bits the operator on sites gives it: D, D†
-/// and γ5 D, two spinors per site, every kind of boundary, every width. With W = 1 a block
-/// is one site; with W = 16 every direction is cut and every hop out of a sub-lattice
-/// rotates lanes.
+/// The operator on blocks gives every site the bits the operator on sites gives it: D, D† and γ5 D,
+/// two spinors per site, every kind of boundary, every width.
 #[test]
 fn wilson_on_blocks_is_identical() {
     let lat = lattice();
@@ -311,10 +309,8 @@ fn clover_on_blocks_is_identical() {
 type HalfSites = Field<f64, Spinor, Half>;
 type HalfBlocks<const W: usize> = Field<f64, Spinor, Half, Aosoa<W>>;
 
-/// The even-odd blocks of an operator on fields in blocks against the same blocks on
-/// sites: hops onto both parities, the diagonal term and its inverse, for M and M†. A half
-/// field in blocks holds the blocks of one parity, so the two are compared after putting
-/// the results back into whole fields.
+/// The even-odd blocks of an operator on fields in blocks against the same blocks on sites: hops
+/// onto both parities, the diagonal term and its inverse, for M and M†.
 fn even_odd_blocks_agree<D: DiagTerm<f64>, const W: usize>(
     sites: &WilsonOp<f64, Dirac, D>,
     blocks: &WilsonOp<f64, Dirac, D, Aosoa<W>>,
@@ -803,10 +799,9 @@ const MOBIUS: MdwfParams = MdwfParams {
     ],
 };
 
-/// Möbius domain-wall fermions on fields in blocks of W sites, against the usual layout:
-/// D, D† and Γ5 D, with and without Neff's α; the even-odd Pauli-Villars operator Ã in both
-/// forms; and the solution of D x = b through it. The fifth dimension is the same code on
-/// numbers of W lanes, so the results agree to rounding.
+/// Möbius domain-wall fermions on fields in blocks of W sites, against the usual layout: D, D† and
+/// Γ5 D, with and without Neff's α; the even-odd Pauli-Villars operator Ã in both forms; and the
+/// solution of D x = b through it.
 #[test]
 fn mdwf_on_blocks_is_identical() {
     let lat = lattice();

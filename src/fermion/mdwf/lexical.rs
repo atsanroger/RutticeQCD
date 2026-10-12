@@ -54,13 +54,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     }
 }
 
-/// The Pauli-Villars preconditioned operator `A = (D_PV C_PV^-1)† D C^-1` of an `Mdwf`,
-/// with what goes with it: the right-hand side `X† b`, `X = D_PV C_PV^-1`, and the
-/// solution `x = C^-1 y` of `D x = b` from the solution y of `A y = X† b`. See the top of
-/// the file.
-///
-/// One application is two sweeps of the Wilson kernel (through D and through D_PV†) and
-/// two exact site-local inverses.
+/// The Pauli-Villars preconditioned operator `A = (D_PV C_PV^-1)† D C^-1` of an `Mdwf`, with what
+/// goes with it: the right-hand side `X† b`, `X = D_PV C_PV^-1`, and the solution `x = C^-1 y` of
+/// `D x = b` from the solution y of `A y = X† b`.
 pub struct PvPreconditioned<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
     op: &'a Mdwf<T, G, L>,
     work: MdwfWork<T, L>,
@@ -156,10 +152,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<Field<T, Spinor, Lexi
     }
 }
 
-/// The parts of D, as multigrid coarsening needs them: with `w = b ψ - c Y ψ`,
-/// `D ψ = C ψ - (4 - M5) κ Σ hops(w)`, the hops being those of the Wilson kernel. The
-/// part that stays within a site is C; Γ5 is γ5 times the reflection of the fifth
-/// dimension.
+/// The parts of D, as multigrid coarsening needs them: with `w = b ψ - c Y ψ`, `D ψ = C ψ - (4 -
+/// M5) κ Σ hops(w)`, the hops being those of the Wilson kernel.
 impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
     fn hop_forward(
         &self,

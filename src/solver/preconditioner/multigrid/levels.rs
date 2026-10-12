@@ -1,18 +1,5 @@
 //! Levels below the coarse lattice of a multigrid, as a preconditioner of a coarse
 //! operator A_c (the working log (branch `notes`): the signed multilevel V-cycle, `sm:`).
-//!
-//! Level ℓ groups the sites of the level above into super-blocks; on each it keeps `nq`
-//! orthonormal local vectors, half from the lower chirality of the test vectors and half
-//! from the upper (so that Γ5 stays diagonal on every level), and its operator
-//! A_ℓ = Q_ℓ† A_ℓ−1 Q_ℓ is found by probing and kept as a nearest-neighbour block operator.
-//! The V-cycle on level ℓ is M_ℓ r = z₁ + D_ℓ⁻¹ (r − A_ℓ z₁), z₁ = Q_ℓ+1 M_ℓ+1 Q_ℓ+1† r,
-//! with D_ℓ the diagonal blocks of A_ℓ and the coarsest level solved exactly (dense LU).
-//! Nothing here needs A_c to be Hermitian.
-//!
-//! On several processes the levels are kept whole on every process: a vector of the coarse
-//! lattice is gathered by one global sum, every process runs the same V-cycle, and each
-//! keeps its own sites of the result. That is right but does not scale with the number of
-//! processes; it is meant for a coarse lattice small enough to be gathered.
 
 use super::{CoarseOp, MultigridError};
 use crate::kernel::{Number, Real};
@@ -215,10 +202,8 @@ impl Level {
     }
 }
 
-/// A nearest-neighbour block operator on a level's lattice: per site the diagonal block
-/// and one block per direction (0..4 forward, 4..8 backward), `nq × nq` row-major. With
-/// an extent of 2 both neighbours are one site, coupled through the forward block; with an
-/// extent of 1 everything is in the diagonal block.
+/// A nearest-neighbour block operator on a level's lattice: per site the diagonal block and one
+/// block per direction (0..4 forward, 4..8 backward), `nq × nq` row-major.
 struct LevelOp {
     nq: usize,
     nbr: Vec<[usize; 2 * ND]>,
@@ -249,10 +234,9 @@ impl LevelOp {
         out
     }
 
-    /// The operator of `level` (lattice `ext`) from that of the level above (`apply`, on
-    /// vectors of `parent_len` components), by probing: sources c_μ apart, c_μ the
-    /// smallest divisor of the extent from 3 up (or the extent), share no neighbour.
-    /// Returns it and the applications of `apply`.
+    /// The operator of `level` (lattice `ext`) from that of the level above (`apply`, on vectors of
+    /// `parent_len` components), by probing: sources c_μ apart, c_μ the smallest divisor of the
+    /// extent from 3 up (or the extent), share no neighbour.
     fn probe(
         level: &Level,
         ext: [usize; ND],
@@ -363,13 +347,10 @@ pub struct SignedMultilevel {
     pub setup_applications: usize,
 }
 
-/// Refinement of the test vectors on the lattice of one level before the level below it is
-/// built from them: `rounds` times, every vector t is replaced by an approximation of
-/// A_ℓ⁻¹ t (`iterations` steps of GCR on the level's operator, preconditioned by its V-cycle
-/// with the levels built so far), normalised, and the levels below are built again. Inverse
-/// iteration: the vectors turn towards the low modes of A_ℓ, which is what a level with few
-/// super-blocks (one, at the bottom) needs; vectors that are only smooth within blocks are
-/// not enough there. Costs no applications of A_c.
+/// Refinement of the test vectors on the lattice of one level before the level below it is built
+/// from them: `rounds` times, every vector t is replaced by an approximation of A_ℓ⁻¹ t
+/// (`iterations` steps of GCR on the level's operator, preconditioned by its V-cycle with the
+/// levels built so far), normalised, and the levels below are built again.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LevelBootstrap {
     pub rounds: usize,

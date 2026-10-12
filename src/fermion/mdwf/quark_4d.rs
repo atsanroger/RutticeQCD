@@ -4,12 +4,11 @@
 use super::*;
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
-    /// The five-dimensional right-hand side for a four-dimensional source η (`eta`, Ls = 1,
-    /// any number of vectors): `out = D₋ b`, b = P+ η at s = 0 and P- η at s = Ls-1, zero
-    /// in between, D₋ = 1 - c W. With D = D₋ K, K of the form of Shamir's operator, the
-    /// solution ψ of D ψ = out has the four-dimensional quark field
-    /// q = P- ψ_0 + P+ ψ_(Ls-1) (`propagator_4d`) of the source η: the fields
-    /// q̄ = ψ̄_(Ls-1) P- + ψ̄_0 P+ (Furman and Shamir) put η on these walls.
+    /// The five-dimensional right-hand side for a four-dimensional source η (`eta`, Ls = 1, any
+    /// number of vectors): `out = D₋ b`, b = P+ η at s = 0 and P- η at s = Ls-1, zero in between,
+    /// D₋ = 1 - c W. With D = D₋ K, K of the form of Shamir's operator, the solution ψ of D ψ = out
+    /// has the four-dimensional quark field q = P- ψ_0 + P+ ψ_(Ls-1) (`propagator_4d`) of the
+    /// source η: the fields q̄ = ψ̄_(Ls-1) P- + ψ̄_0 P+ (Furman and Shamir) put η on these walls.
     pub fn source_5d(
         &self,
         work: &mut MdwfWork<T, L>,

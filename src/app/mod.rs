@@ -1,12 +1,5 @@
 //! The application layer: read a parameter file, build the pieces it names, run, report.
 //! Nothing below this crate knows that parameter files exist.
-//!
-//! Files: `params` reads the parameter files of solves (the sections of Bridge++) and
-//! `keyword` their keywords; one file per kind of run: `wilson` (Wilson and clover
-//! fermions, with `config` what such a run is made of), `mdwf` (domain-wall fermions), `hmc`
-//! (generating configurations, with its own file format); `bench` times the Wilson
-//! operator. This file has the errors, the process grid, and the command line, which sends a
-//! file to the run it describes.
 
 mod bench;
 mod config;
@@ -203,10 +196,6 @@ pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
 }
 
 /// `run_file` on the processes of `comm`. Only rank 0 prints and writes.
-///
-/// The file is an HMC file (`hmc::HmcConfig`) or a parameter file in the style of Bridge++
-/// (`params::Params`, with a `Main` section): a domain-wall one is run by `mdwf::run_on`, a
-/// Wilson or clover one as the `Config` it describes, after a summary in comment lines.
 pub fn run_file_on(
     path: &Path,
     stdout: &mut dyn Write,

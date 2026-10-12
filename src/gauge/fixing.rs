@@ -1,15 +1,4 @@
 //! Coulomb gauge fixing.
-//!
-//! The gauge is chosen to maximise F = Σ_x Σ_{i spatial} Re tr U_i(x) on every time slice,
-//! which makes the lattice divergence of the spatial gauge potential vanish. The algorithm
-//! is the usual one: sweep over the even sites and then the odd ones; at each site take
-//! the sum W of the spatial links touching it, find the gauge transformation g that
-//! increases Re tr(g W) by maximising it in the three SU(2) subgroups in turn
-//! (Cabibbo-Marinari), overrelax it to g^ω, and apply it. Sites of one parity do not share
-//! links, so all of them are updated at once.
-//!
-//! Parameters, the overrelaxation step and the convergence measure follow the Bridge++
-//! class `GaugeFixing_Coulomb`, so that the same parameters stop at the same step.
 
 use super::{link, shifted, BWD, FWD};
 use crate::kernel::{ColorMatrix, Cplx, NC};
@@ -90,8 +79,7 @@ impl std::error::Error for GaugeFixError {}
 /// Transform `u` to Coulomb gauge in place. Works on any number of processes.
 ///
 /// Every extent must be even, so that the checkerboard is consistent across the periodic
-/// boundaries. Neighbours are always periodic: gauge fixing acts on the configuration, not
-/// on a fermion operator, so the fermion boundary conditions play no part.
+/// boundaries.
 pub fn fix_coulomb(
     u: &mut Field<f64, Gauge>,
     params: &CoulombParams,
@@ -152,14 +140,7 @@ fn largest(v: &[f64]) -> f64 {
 
 /// How far `u` is from Coulomb gauge, per global time slice:
 ///
-/// σ(t) = Σ_{x in slice t} |Δ(x)|² / (4 Nc V_t),  Δ(x) = [M(x) − M(x)^†]_traceless,
-/// M(x) = Σ_i [U_i(x − i) − U_i(x)],
-///
-/// where |·|² is the sum of the squares of all real components and V_t is the number of
-/// sites in a time slice. The factor 4 (the number of dimensions, not of spatial ones)
-/// matches the normalisation Bridge++ uses for its convergence criterion.
-///
-/// The stencil must be periodic in every direction. The sum runs over all processes.
+/// The stencil must be periodic in every direction.
 pub fn coulomb_violation(u: &Field<f64, Gauge>, st: &Stencil) -> Vec<f64> {
     let lat = u.lattice();
     let back: [_; TIME] = core::array::from_fn(|i| shifted(u, st, i, BWD));

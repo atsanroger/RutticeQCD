@@ -1,18 +1,4 @@
 //! Reading and writing gauge configurations.
-//!
-//! A file format is a type that implements `GaugeFile`:
-//!
-//! - `BridgeText`: plain text, one real per line (`bridge`)
-//! - `Ildg` and `Scidac`: binary data in a LIME container, as the ILDG specifies it and as
-//!   the SciDAC QIO library writes it (`lime`)
-//! - `Hdf5`: one dataset in an HDF5 file, read by hyperslabs; only with the feature `hdf5`
-//!
-//! All of them keep the links in the same order, the one of ILDG: the site outermost with x
-//! running fastest, then the direction, then the 3x3 matrix row by row, real part first.
-//!
-//! Reading works on several processes; each keeps the part of the lattice it holds.
-//! Writing too: the processes send their parts to rank 0 one time slice at a time, and
-//! rank 0 writes the file, the same bytes as on one process (`write_on_root`).
 
 mod bridge;
 #[cfg(feature = "hdf5")]
@@ -201,19 +187,6 @@ const LINK_REALS: usize = 18;
 
 /// Write a configuration file on rank 0 from the parts held by all processes. Every
 /// process makes this call.
-///
-/// `open` makes the file and writes what comes before the links; `slice` writes the links
-/// of one time slice, given its `t` and its reals in the order of the files (the site with
-/// x running fastest, the direction, the 18 reals of the link); `close` writes what comes
-/// after. All three run on rank 0 only, the slices in the order of `t`.
-///
-/// The slices come to rank 0 one at a time through `Comm::gather`, so rank 0 holds one
-/// time slice of the global lattice at a time (two while it is assembled), not the whole
-/// field: on a 48³ × 96 lattice 64 MB in place of 1.7 GB. The file is the one written on
-/// one process, byte for byte.
-///
-/// If writing fails on rank 0, it still takes part in the gathers, and then every process
-/// returns an error, so that all of them go on (or stop) together.
 fn write_on_root<W>(
     u: &Field<f64, Gauge>,
     open: impl FnOnce() -> Result<W, IoError>,

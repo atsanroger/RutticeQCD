@@ -1,13 +1,5 @@
 //! `Comm` on top of an MPI library. Built with the feature `mpi`, which needs an MPI
 //! installation and libclang.
-//!
-//! Initialisation and finalisation go through the `mpi` crate. The halo exchange and the
-//! global sum call the C interface directly: the requests of an exchange stay alive from
-//! `start` to `wait`, across two method calls, which the scoped requests of the `mpi`
-//! crate cannot express.
-//!
-//! MPI is initialised for serialised calls from several threads, and every call made here
-//! takes one process-wide lock, so the objects of this module can be moved between threads.
 
 use crate::comm::{opposite_face, Comm, HaloExchange, HaloSpec, FACES};
 use ::mpi::ffi;

@@ -5,9 +5,8 @@ use crate::field::vector::{Vector, C64};
 /// Takes a vector, gives a vector. Operators, preconditioners, smoothers and solvers bound
 /// to an operator are all this.
 ///
-/// A map used as the operator of a solver must take sets of any number of vectors: the
-/// solvers go on with fewer once some have converged. A map that keeps vectors of its own
-/// fits them to its input (`fit`).
+/// A map used as the operator of a solver must take sets of any number of vectors: the solvers go
+/// on with fewer once some have converged.
 pub trait LinearFn<V: Vector> {
     /// `out = A inp`.
     fn mult(&mut self, out: &mut V, inp: &V);

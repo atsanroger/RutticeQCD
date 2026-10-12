@@ -4,34 +4,12 @@
 //!   S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|,   Ŝ = T_ee − M_eo T_oo⁻¹ M_oe,
 //!
 //! with D = [[T_ee, M_eo], [M_oe, T_oo]] split by parity (`fermion::EvenOdd`, the blocks the
-//! even-odd solvers use). det D = det T_oo · det Ŝ, so e^(−S) integrated over φ_e is
-//! |det D|², the same distribution of links as `TwoFlavor`, from a field of half the size
-//! whose operator Ŝ†Ŝ is better conditioned: the CG solves of a trajectory take about a third
-//! of the operator applications of the full ones (`tests/hmc.rs` has the numbers).
-//!
-//! The log det term is there only when T depends on the links: the clover term
-//! (`with_clover`). For Wilson fermions T = 1, for domain-wall fermions T is the
-//! site-local part in the fifth dimension, the same for any links; both have no such term.
-//!
-//! This is Bridge++'s `Action_F_alt_Standard_eo` (with `AFopr_Wilson_eo`, `AForce_F_Wilson_eo_Nf2`)
-//! for Wilson fermions: ξ drawn on the whole lattice in Bridge++'s order (`gauss_lex_global`)
-//! and its even sites kept, φ_e = Ŝ† ξ_e, with Ŝ = 1 − κ² H_eo H_oe as there. Bridge++ has no
-//! even-odd action for clover fermions with the det term; its `Action_F_Standard_eo` (used
-//! by `test_HMC_Clover_Nf2_eo`) is the action of the whole lattice with the solves done by
-//! even-odd, which here is `TwoFlavor`. For clover fermions Ŝ keeps T_ee rather than being
-//! T_ee⁻¹ times it: then only det T_oo enters, and the solves are on the operator the
-//! even-odd solvers already use.
+//! even-odd solvers use).
 //!
 //! The force: with η = (Ŝ†Ŝ)⁻¹ φ_e and ζ = Ŝ η, δS = −2 Re ζ† δŜ η − 2 Re Tr T_oo⁻¹ δT_oo.
 //! The first term is −2 Re Y† δD X for the vectors of the whole lattice
 //!
 //!   X = (η, −T_oo⁻¹ M_oe η),   Y = (ζ, −T_oo⁻† (M_eo)† ζ),
-//!
-//! as expanding Y† δD X block by block shows (the terms with δM_eo, δM_oe and δT_oo of
-//! δŜ = δT_ee − δM_eo T_oo⁻¹ M_oe − M_eo T_oo⁻¹ δM_oe + M_eo T_oo⁻¹ δT_oo T_oo⁻¹ M_oe),
-//! so the force of the whole-lattice action (`ForceOp::derivative`, `clover_derivative`)
-//! gives it. The second is Σ_k −2 Re (T_oo⁻¹ e_k)† δT_oo e_k over the twelve unit vectors e_k
-//! of spin and colour on every odd site: the clover insertion of those pairs.
 
 use super::fermion_action::{draw, smeared_force, CloverInsertion, ForceOp};
 use super::{Chrono, Links, MdAction, Mseries};

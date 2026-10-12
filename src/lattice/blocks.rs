@@ -1,11 +1,4 @@
 //! Blocks of sites for the SIMD layout (`Aosoa<W>`).
-//!
-//! The local lattice is cut into W sub-lattices of equal shape, by halving it along some
-//! directions. A block holds one site from each sub-lattice, the ones at the same position
-//! inside their sub-lattice; they are the W lanes of the block. This is the arrangement
-//! Grid uses. Its point: the neighbour of a block in any direction is a whole block with
-//! the lanes in the same order, so a stencil loads it as one vector. Only when the hop
-//! leaves the sub-lattice do the lanes have to be rotated (`BlockStencil`).
 
 use super::even_odd::{EvenOddIndex, Parity};
 use super::stencil::{Boundary, Direction, Stencil};
@@ -126,14 +119,6 @@ pub struct Edge<const W: usize> {
 pub const NOT_RECEIVED: u32 = u32::MAX;
 
 /// Nearest neighbours of blocks: the counterpart of `Stencil` for the SIMD layout.
-///
-/// In a direction with more than one process, the hops that leave the local lattice get
-/// their data from the neighbouring process. They are some of the lanes of the blocks at
-/// the edge of the sub-lattice, those of the last sub-lattice in that direction; the other
-/// lanes of such a block are found on this process as before. What is exchanged is
-/// numbered site by site exactly as `Stencil` numbers it, so both layouts fill and read
-/// the same buffers: `send_lanes` lists what leaves through a face and `received` says
-/// where the lanes of a block are in what arrived.
 pub struct BlockStencil<const W: usize> {
     blocks: Blocks,
     /// Blocks covered: all of them, or those of one parity.

@@ -1,17 +1,6 @@
 //! Initial guesses for the solves of the molecular dynamics from the solutions of the solves
 //! before them (the chronological inverter of Brower, Ivanenko, Levi and Orginos,
 //! hep-lat/9509012).
-//!
-//! Along a trajectory the links move by O(ε) per step, so the solution x = A⁻¹ b of a force
-//! solve differs little from the previous ones. The guess is the best combination of the last
-//! `depth` solutions v_1 … v_n for the present A: x₀ = Σ c_j v_j with c minimising the A-norm
-//! of the error, (V†AV) c = V†b, which takes n products with A. With depth 1 this is the last
-//! solution rescaled.
-//!
-//! The guess changes the rounding of the solution, so with a guess the run is no longer the
-//! same number by number as without; that is why it is off by default (Bridge++'s tests start
-//! from zero). It also makes the molecular dynamics reversible only to the precision of the
-//! solves, which at |r|²/|b|² ≤ 1e-20 or below is far below what the Metropolis test sees.
 
 use crate::{LinearFn, Vector, C64};
 use std::collections::VecDeque;

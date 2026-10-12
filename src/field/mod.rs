@@ -89,11 +89,8 @@ impl Layout for Aos {
     }
 }
 
-/// Blocks of `W` sites, for SIMD: within a block every real is stored `W` times in a row,
-/// once per lane. The buffer position of real `c` of copy `r` in lane `lane` of block
-/// `block` is `lane + W * (c + internal_dof * (r + copies * block))`. Which lattice sites
-/// are the lanes of which block is decided by `Blocks` (one site from each of `W`
-/// sub-lattices); `offset` takes `site = block * W + lane`.
+/// Blocks of `W` sites, for SIMD: within a block every real is stored `W` times in a row, once per
+/// lane.
 #[derive(Clone, Copy)]
 pub struct Aosoa<const W: usize>;
 impl<const W: usize> Layout for Aosoa<W> {
@@ -125,11 +122,7 @@ pub trait Backend: Send + Sync + 'static {
 pub struct Cpu;
 impl Backend for Cpu {
     type Buf<T: Storage> = CpuBuf<T>;
-    /// A zeroed buffer that starts on a cache line. Large ones are written once by the
-    /// threads of the pool before they are returned: on a machine with several memory
-    /// nodes a page is placed on the node of the thread that first writes to it, and a
-    /// buffer written first by the calling thread alone ends up on one node, out of reach
-    /// of the memory bandwidth of the others.
+    /// A zeroed buffer that starts on a cache line.
     fn alloc<T: Storage>(len: usize) -> CpuBuf<T> {
         let mut buf = CpuBuf::zeroed(len);
         if len >= FIRST_TOUCH_MIN {
@@ -147,11 +140,6 @@ impl Backend for Cpu {
 pub const CACHE_LINE: usize = 64;
 
 /// The memory of a field on the CPU: a slice that starts on a cache line.
-///
-/// Sites and blocks whose size is a multiple of a cache line then cover whole lines, which
-/// is what a store that bypasses the cache needs (`Storage::stream`). The memory is a
-/// vector a little longer than asked for, of which the part from the first aligned element
-/// is used; that needs no unsafe code.
 pub struct CpuBuf<T> {
     memory: Vec<T>,
     start: usize,
@@ -189,9 +177,6 @@ impl<T> core::ops::DerefMut for CpuBuf<T> {
 type Marker<K, S, L> = PhantomData<fn() -> (K, S, L)>;
 
 /// A lattice field.
-///
-/// Each site holds `ls * num_vectors` copies of `internal_dof` reals. `outer` is an index
-/// outside the site (the four directions of a gauge field); each outer slab is laid out by `L`.
 pub struct Field<T: Storage, K: Kind, S: Sites = Lexical, L: Layout = Aos, B: Backend = Cpu> {
     lat: Arc<Lattice>,
     buf: B::Buf<T>,

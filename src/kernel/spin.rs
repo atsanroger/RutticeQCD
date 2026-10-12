@@ -344,9 +344,6 @@ fn scale_color<T: Number>(z: Cplx<T>, v: &ColorVector<T>) -> ColorVector<T> {
 }
 
 /// The two independent components of `(1 + sign * γ) ψ`.
-///
-/// `1 + sign * γ` has rank two. For an off-diagonal γ, rows 0 and 1 determine the other
-/// two; for a diagonal γ, two rows vanish and the other two are `2 ψ`.
 #[inline(always)]
 pub fn project<T: Number>(g: &Gamma, sign: Sign, psi: &Spinor<T>) -> HalfSpinor<T> {
     if g.col[0] != 0 {

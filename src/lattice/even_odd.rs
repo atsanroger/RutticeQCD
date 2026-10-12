@@ -36,9 +36,6 @@ impl Parity {
 }
 
 /// The correspondence between full-lattice sites and the sites of each parity.
-///
-/// Sites of one parity are numbered in the order they appear in the full lattice, which
-/// gives `x / 2 + (Lx / 2) * (y + Ly * (z + Lz * t))`.
 pub struct EvenOddIndex {
     full_of: [Vec<u32>; 2],
     half_of: Vec<u32>,
@@ -107,10 +104,6 @@ impl EvenOddIndex {
 }
 
 /// Copy the sites of one parity out of a full field. The half field takes that parity.
-///
-/// What is moved are the blocks of the layout, so `index` is the decomposition of the
-/// lattice of blocks: of the lattice itself for the usual layout, of the reduced lattice
-/// for the SIMD layout, where all lanes of a block have the parity of the block.
 pub fn extract_parity<T: Storage, K: Kind, L: Layout>(
     half: &mut Field<T, K, Half, L, Cpu>,
     full: &Field<T, K, Lexical, L, Cpu>,
@@ -150,11 +143,10 @@ pub fn insert_parity<T: Storage, K: Kind, L: Layout>(
     }
 }
 
-/// Fields on one parity in the usual layout and in blocks of `W` sites (the SIMD layout)
-/// number their sites differently: the usual one by `EvenOddIndex::new`, the blocks by the
-/// even-odd decomposition of the lattice of blocks, in which every lane of a block has the
-/// parity of the block. This holds, for each parity, the site in the usual numbering of
-/// every lane of every block, to convert between the two without a full field.
+/// Fields on one parity in the usual layout and in blocks of `W` sites (the SIMD layout) number
+/// their sites differently: the usual one by `EvenOddIndex::new`, the blocks by the even-odd
+/// decomposition of the lattice of blocks, in which every lane of a block has the parity of the
+/// block.
 pub struct ParityBlocks<const W: usize> {
     /// `[parity][block * W + lane]`: the site on that parity in the usual numbering.
     site_of: [Vec<u32>; 2],

@@ -55,11 +55,6 @@ pub fn set_unit<T: Storage>(u: &mut Field<T, Gauge>) {
 
 /// Average plaquette, normalised so that a unit gauge field gives 1:
 /// the mean over sites and the six planes of Re tr[U_mu(x) U_nu(x+mu) U_mu(x+nu)^† U_nu(x)^†] / Nc.
-///
-/// Planes with a `Zero` neighbour (Dirichlet boundary) are skipped and still counted in
-/// the normalisation.
-///
-/// The sum runs over all processes.
 pub fn plaquette<T: Storage>(u: &Field<T, Gauge>, st: &Stencil) -> f64 {
     let lat = u.lattice();
     let num_sites = u.num_sites();
@@ -113,14 +108,7 @@ pub const PLANES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3),
 /// Clover-leaf field strength, one 3 × 3 matrix per site and plane (the outer index runs
 /// over `PLANES`):
 ///
-/// `F_mu_nu(x) = (Q - Q^†) / 8`, where Q is the sum of the four plaquettes in the mu-nu
-/// plane that start and end at x, all with the same orientation. F is anti-Hermitian;
-/// its trace is not removed.
-///
 /// The stencil must give a neighbour in every direction (no Dirichlet boundaries).
-///
-/// Neighbours are reached through shifted copies of the gauge field, so this works on any
-/// number of processes; it is meant to be simple, not fast.
 pub fn field_strength(u: &Field<f64, Gauge>, st: &Stencil) -> Field<f64, Gauge> {
     assert!(
         (0..ND).all(|mu| st.boundary(mu) != Boundary::Dirichlet),

@@ -8,10 +8,8 @@ use super::*;
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for WilsonOp<T, G, D> {
     type Work = WilsonWork<T>;
 
-    /// The hopping term and the unit diagonal are counted as Bridge++ counts its Wilson
-    /// operator in the Dirac representation: `Nc Nd (4 + 6 (4 Nc + 2) + 2 (4 Nc + 1))`,
-    /// 1368 for three colours. Six of the eight legs have an off-diagonal gamma matrix
-    /// and two a diagonal one, which needs no additions to project.
+    /// The hopping term and the unit diagonal are counted as Bridge++ counts its Wilson operator in
+    /// the Dirac representation: `Nc Nd (4 + 6 (4 Nc + 2) + 2 (4 Nc + 1))`, 1368 for three colours.
     fn flops_per_site(&self) -> usize {
         NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1)) + D::FLOPS_PER_SITE
     }

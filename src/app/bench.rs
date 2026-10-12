@@ -1,12 +1,4 @@
 //! Timing of the Wilson operator, shared by `ruttice-bench` and `ruttice-bench-mpi`.
-//!
-//! Applies D on a random gauge field and prints the time of one application and the speed
-//! in GFlops per core, in double and in single precision, with the links kept in full and
-//! as two rows, and for fields in blocks of sites (the SIMD layout). The
-//! flops are the operator's nominal count (`FermionOp::flops_per_site`), the one Bridge++
-//! uses, so the figure can be set next to the "GFlops / core" that Bridge++ prints. The operator, the hopping parameter and the boundary condition are
-//! those of the Bridge++ test `Mult_Wilson`, so that the two programs can be timed on the
-//! same problem.
 
 use super::choose_grid;
 use crate::fermion::{Bound, FermionOp, LinkFormat, Variant, Wilson, WilsonParams, WilsonSimd};

@@ -5,23 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// The prolongation P between a coarse lattice and the fine one, and the restriction P†.
-///
-/// A coarse site carries `2 n` complex numbers for `n` test vectors: component `i` is the
-/// coefficient of test vector `i` on the positive-chirality aggregate of that block,
-/// component `n + i` the same on the negative-chirality one.
-///
-/// The chiralities come from the operator's Γ5, given with the test vectors: the aggregate
-/// of a block and chirality ± is spanned by (1 ± Γ5) v_i / 2 restricted to the block. Γ5
-/// may act on all components of a site, including a fifth dimension (`ls > 1`): the
-/// aggregate holds every s. This is how Bridge++ (`MultiGrid_Clover`) and the CUDA
-/// domain-wall multigrid (`MultiGrid_Domainwall`) do it (the design notes, §7.6.1).
-///
-/// `T` is the storage of the fields P acts between, `S` that of P itself (by default the
-/// same). A single-precision P with double-precision fields (`Basis<f64, f32>`) halves the
-/// memory of P, which holds two fine-lattice vectors per test vector, while restriction and
-/// prolongation still compute in `T`. With a [`Reflection`] Γ5 (the domain-wall Γ5 = γ5 R,
-/// given to [`BasisBuilder::folded`]) P keeps only half of the fifth dimension: half the
-/// memory again, and half the work in restriction and prolongation.
 pub struct Basis<T: Storage, S: Storage = T> {
     agg: Arc<Aggregation>,
     n: usize,
@@ -35,12 +18,8 @@ pub struct Basis<T: Storage, S: Storage = T> {
     fields: PhantomData<T>,
 }
 
-/// Γ5 = R ⊗ g for fields with a fifth dimension of even extent: R reverses it,
-/// s → Ls − 1 − s, and g is a spin matrix with g² = 1 (γ5 of the representation), the
-/// colour untouched. The domain-wall Γ5 = γ5 R is of this form. The ± chirality part p of a
-/// test vector then has p_(Ls−1−s) = ± g p_s, so P needs only s < Ls/2: for a field f,
-/// ⟨p, f⟩ = Σ_(s<Ls/2) ⟨p_s, f_s ± g f_(Ls−1−s)⟩ (g is unitary and Hermitian), and P c is
-/// a₊ + a₋ on s < Ls/2 and g (a₊ − a₋) on the mirror slice, a± the half-length sums.
+/// Γ5 = R ⊗ g for fields with a fifth dimension of even extent: R reverses it, s → Ls − 1 − s, and
+/// g is a spin matrix with g² = 1 (γ5 of the representation), the colour untouched.
 #[derive(Clone, Copy, Debug)]
 pub struct Reflection(pub Gamma);
 
@@ -353,11 +332,9 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     }
 }
 
-/// Builds a [`Basis`] from test vectors given one at a time, so that a caller never needs
-/// all of them, or all their Γ5 images, at once: the chirality parts (1 ± Γ5) v_i / 2 go
-/// straight into the basis storage and are orthonormalised aggregate by aggregate in
-/// [`finish`](Self::finish). The peak memory is then the basis itself plus one vector and
-/// its image, instead of that plus all 2n vectors (`from_vectors` needs both fields whole).
+/// Builds a [`Basis`] from test vectors given one at a time, so that a caller never needs all of
+/// them, or all their Γ5 images, at once: the chirality parts (1 ± Γ5) v_i / 2 go straight into the
+/// basis storage and are orthonormalised aggregate by aggregate in [`finish`](Self::finish).
 pub struct BasisBuilder<T: Storage, S: Storage = T> {
     agg: Arc<Aggregation>,
     n: usize,
@@ -468,10 +445,8 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
         let volume = self.agg.block_volume();
         // Complex numbers of one vector on one aggregate (both chiralities stored).
         let dim = volume * reals / 2;
-        // Folded, the stored half carries half of every inner product (|g v| = |v|): the
-        // parts are orthonormalised on it and scaled by 1/√2 to be orthonormal on all of
-        // the fifth dimension. A folded part is free on its half, so up to `dim` of them
-        // fit, against `dim / 2` unfolded (half of a full part is fixed by its chirality).
+        // Folded, the stored half carries half of every inner product (|g v| = |v|): the parts are
+        // orthonormalised on it and scaled by 1/√2 to be orthonormal on all of the fifth dimension.
         let (fit, scale) = match self.fold {
             Some(_) => (dim, core::f64::consts::FRAC_1_SQRT_2),
             None => (dim / 2, 1.0),

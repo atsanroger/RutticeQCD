@@ -1,13 +1,6 @@
-//! Products of links along paths, site by site: the links of this process with a halo of
-//! `depth` sites on every side, corners included (an extended field), and walks along paths
-//! that multiply the links they meet. Any sum of short paths (staples, rectangles, the terms
-//! of the stout chain rule) is then one parallel pass over the sites, the same on one process
-//! and on several: a single exchange per direction fills the halo, instead of shifting whole
-//! fields for every step of every path.
-//!
-//! The halo is filled direction by direction; the slab sent in direction μ includes the halo
-//! already filled in the directions before μ, which fills the corners. Periodic boundary
-//! conditions.
+//! Products of links along paths, site by site: the links of this process with a halo of `depth`
+//! sites on every side, corners included (an extended field), and walks along paths that multiply
+//! the links they meet.
 
 use crate::kernel::ColorMatrix;
 use crate::{for_sites, opposite_face, Direction, Field, Gauge, Stencil, ND};

@@ -1,9 +1,5 @@
-//! The M-series random numbers of Bridge++ (`RandomNumbers_Mseries`): a lagged-Fibonacci
-//! generator x_n = x_(n−521) XOR x_(n−32) of 31-bit words (J. Makino, Parallel Computing 20
-//! (1994) 1357). Bridge++'s class is a C++ version of the Fortran code of Makino and Miyamura,
-//! whose public version came with S. Hioki's QCDMPI; Bridge++ does not use QCDMPI itself.
-//! The same numbers as Bridge++ for the same seed, so that its runs can be repeated here;
-//! written from the description of the algorithm, not from either code.
+//! The M-series random numbers of Bridge++ (`RandomNumbers_Mseries`): a lagged-Fibonacci generator
+//! x_n = x_(n−521) XOR x_(n−32) of 31-bit words (J. Makino, Parallel Computing 20 (1994) 1357).
 
 use crate::{Lattice, ND};
 
@@ -113,12 +109,10 @@ impl Mseries {
         (radius * angle.cos(), radius * angle.sin())
     }
 
-    /// `nin` Gaussian numbers of variance 1/2 for every `ex` < `nex` and every site of the
-    /// global lattice, in the order Bridge++ draws them (`gauss_lex_global`): `ex`
-    /// outermost, then the global sites with x fastest, then the numbers of a site, which
-    /// come in pairs (for an odd `nin` the second number of the last pair is dropped).
-    /// `put(ex, local site, numbers)` gets those of the sites this process holds; every
-    /// process draws all of them, so all get the same numbers on any process grid.
+    /// `nin` Gaussian numbers of variance 1/2 for every `ex` < `nex` and every site of the global
+    /// lattice, in the order Bridge++ draws them (`gauss_lex_global`): `ex` outermost, then the
+    /// global sites with x fastest, then the numbers of a site, which come in pairs (for an odd
+    /// `nin` the second number of the last pair is dropped).
     pub fn gauss_lex_global(
         &mut self,
         lat: &Lattice,

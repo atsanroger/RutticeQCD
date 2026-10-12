@@ -5,11 +5,6 @@ use crate::{LinearFn, Vector, C64};
 
 /// Conjugate gradient, optionally preconditioned (the preconditioner must then be Hermitian
 /// positive definite and the same at every application).
-///
-/// Every vector of a multi-vector has its own coefficients and its own convergence test;
-/// a converged vector stops being updated while the others continue. Without a
-/// preconditioner, once a quarter of the vectors have converged the others are gathered
-/// into a smaller set and the iteration goes on with that (see `BiCgStab`).
 pub struct Cg<V> {
     pub stop: Stop,
     work: Option<Work<V>>,

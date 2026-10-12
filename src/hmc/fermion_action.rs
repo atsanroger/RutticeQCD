@@ -1,16 +1,5 @@
 //! Two flavours of fermions in HMC: the pseudofermion action S = φ† (D†D)⁻¹ φ and its force,
 //! for operators of Wilson type made of (optionally smeared) links.
-//!
-//! The force: with η = (D†D)⁻¹ φ and ζ = D η, a change δU of the links changes S by
-//! −2 Re ζ† δD η. For D = diag + c Σ_μ [(1 − γ_μ) U_μ(x) δ_(x+μ,y) + (1 + γ_μ) U_μ(x−μ)† δ_(x−μ,y)]
-//! and δU_μ(x) = X U_μ(x) this is Re tr X M_μ(x) with
-//! M_μ(x) = −2c Σ_spin [h_μ(η)(x) ζ(x)† − γ5 η(x) h_μ(γ5 ζ)(x)†],
-//! h_μ(ψ)(x) = (1 − γ_μ) U_μ(x) ψ(x+μ) the forward hopping term (`HopTerms::hop_forward`,
-//! boundary phases included); the backward hop is turned into a forward one with γ5. The
-//! force on the momenta is then F = TA(M) (`gauge_action`'s convention).
-//!
-//! With smeared links V(U) the derivative is taken for V, Σ' = V† M (dS = Re tr Σ' δV), and
-//! carried back to U by the chain rule of the smearing (`GaugeSmearing::chain`).
 
 use super::{traceless_antihermitian, Chrono, Links, MdAction, Mseries};
 use crate::fermion::{Bound, HopTerms, Variant};
@@ -83,13 +72,8 @@ pub fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
     m
 }
 
-/// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for
-/// the links `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s
-/// convention). With A_μν(x) = Σ_spin γ_μγ_ν η(x) ζ(x)† and B = κ c_SW (A − A†)/4, a change of
-/// the links changes S by Σ_x Σ_(μ<ν) Re tr δQ_μν(x) B_μν(x). A leaf through the link U_ρ(y)
-/// contributes the leaf turned to start at y with B inserted where the leaf starts: the
-/// product of its links from y round to y, plus for a forward step and minus for a backward
-/// one.
+/// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for the links
+/// `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s convention).
 pub fn clover_derivative(
     u: &Field<f64, Gauge>,
     kappa_csw: f64,

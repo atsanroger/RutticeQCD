@@ -3,35 +3,15 @@
 use super::{fewer, kept, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
-/// BiCGStab with an optional right preconditioner. Every vector of a multi-vector has its
-/// own coefficients; a converged vector stops being updated. Without a preconditioner,
-/// once a quarter of the vectors have converged the others are gathered into a smaller set
-/// and the iteration goes on with that: the operator and the updates no longer run over
-/// vectors that are finished. The recurrences are per vector, so the iterates of the
-/// vectors that go on are unchanged.
+/// BiCGStab with an optional right preconditioner.
 ///
-/// With a preconditioner M the solution is updated with the preconditioned vectors
-/// themselves (x += α M p + ω M s), so M may change from one application to the next: this
-/// is the flexible BiCGStab of Bridge++ (`ASolver_FBiCGStab`), usable with a multigrid
-/// preconditioner.
-///
-/// ω is stabilised as in Bridge++ (`Omega_tolerance`): when |⟨t, s⟩| / (|t| |s|) is below
-/// `omega_tolerance`, ω is scaled up by `omega_tolerance` divided by that ratio. Bridge++
-/// uses 0.7, the default here; 0 turns it off.
-///
-/// The shadow residual is the residual at the start of a cycle. BiCGStab breaks down when
-/// the shadow residual becomes orthogonal to the vectors it is tested against; this is not
-/// exotic: a point source on a Wilson-type operator does it on the second step, because
-/// hopping out and straight back is projected to zero. A breakdown after at least one
-/// step therefore starts a new cycle from the current solution, with a new shadow
-/// residual. Only a breakdown on the very first step of a cycle is an error.
+/// Only a breakdown on the very first step of a cycle is an error.
 pub struct BiCgStab<V> {
     pub stop: Stop,
     pub omega_tolerance: f64,
     /// An inner solve (`inner`): x is zero on entry, so the first residual is b and needs no
     /// application of A; and the end does not recompute the residual (`residual_sqr` is the
-    /// recurrence's). Two applications of A fewer per solve, which for the coarse solves of a
-    /// multigrid cycle, a few iterations each, is a large part of their cost.
+    /// recurrence's).
     pub inner: bool,
     work: Option<Work<V>>,
 }

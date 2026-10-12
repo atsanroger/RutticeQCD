@@ -1,20 +1,4 @@
 //! Threads for the loops over sites, and how a loop is dealt out to them.
-//!
-//! A loop over the sites of a lattice does the same work at every site. Three ways of
-//! running one in parallel are here, chosen by the environment variable `RUTTICE_SCHEDULE`
-//! so that they can be compared on the same program:
-//!
-//! - `steal`: the loop is cut into tasks that the threads of the rayon pool take from each
-//!   other (the default so far).
-//! - `static`: every thread of the rayon pool gets one fixed piece (`rayon::broadcast`).
-//! - `pool`: the same fixed pieces on the threads of `Pool`, a small pool of its own whose
-//!   threads are pinned to one processor each and, when idle, spin for a while before they
-//!   sleep. This is what an OpenMP runtime does with a static schedule, bound threads and
-//!   an active wait policy.
-//!
-//! `RUTTICE_PIN=1` also pins the threads of the rayon pool, one processor each.
-//!
-//! The number of threads is that of the rayon pool in every case (`RAYON_NUM_THREADS`).
 
 use std::cell::Cell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -294,10 +278,8 @@ fn worker(shared: &Shared, index: usize, spin: usize) {
     }
 }
 
-/// Hand one piece to every thread under the static schedules: `work(k, piece)` for piece
-/// `k` on thread `k`. There must be one piece per thread of the pool in use. If the threads
-/// are not available (the caller is one of them, or a loop is under way) the pieces are
-/// worked on one after the other on the calling thread.
+/// Hand one piece to every thread under the static schedules: `work(k, piece)` for piece `k` on
+/// thread `k`. There must be one piece per thread of the pool in use.
 pub fn each_thread<P, W>(pieces: Vec<P>, work: W)
 where
     P: Send,

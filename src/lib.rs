@@ -1,27 +1,4 @@
 //! The RutticeQCD library.
-//!
-//! One directory per subject:
-//!
-//! - `field`: fields, storage types, the vector and linear-operator interfaces (re-exported
-//!   at the top level)
-//! - `lattice`: lattice geometry, stencils, even-odd decomposition, site-parallel entry
-//!   points (re-exported at the top level)
-//! - `comm`: communication between processes
-//! - `backend`: backends that need an external library; `backend::mpi` with the feature `mpi`
-//! - `kernel`: arithmetic on one site (complex numbers, colour matrices, spinors, gammas)
-//! - `numerics`: small dense linear algebra
-//! - `io`: reading and writing gauge configurations
-//! - `gauge`: plaquette, field strength, gauge transformations and gauge fixing, smearing,
-//!   products of links along paths
-//! - `fermion`: Wilson, clover and Möbius domain-wall operators, even-odd preconditioning
-//! - `solver`: Krylov solvers, mixed precision, preconditioners (polynomials, multigrid)
-//! - `hmc`: hybrid Monte Carlo: actions and their forces, integrators
-//! - `measure`: sources and correlators
-//! - `app`: parameter files, building what they name, running and reporting
-//!
-//! Fields are in the usual layout (`Aos`) or in blocks of W sites for SIMD (`Aosoa<W>`), on
-//! the whole lattice or on one parity; the only backend is `Cpu`. Several processes are
-//! supported by the stencil, `shift`, and the reductions.
 
 pub mod app;
 pub mod backend;

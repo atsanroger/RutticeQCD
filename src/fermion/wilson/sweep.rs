@@ -38,13 +38,9 @@ impl Parts {
     }
 }
 
-/// Run the passes of a sweep around an exchange that has been started: the interior while
-/// a thread of its own waits for the exchange, then the surface with what arrived. Without
-/// an exchange there is one pass over everything. `pass(received, part)` computes one part
-/// of the output, all of it for `None`.
-///
-/// The thread is started for every sweep. It spends its time inside the communication
-/// library, which is where received data are copied into place.
+/// Run the passes of a sweep around an exchange that has been started: the interior while a thread
+/// of its own waits for the exchange, then the surface with what arrived. `pass(received, part)`
+/// computes one part of the output, all of it for `None`.
 pub(super) fn overlapped<'a, T: Storage>(
     exchange: Option<&'a mut dyn HaloExchange<T>>,
     parts: Option<&Parts>,
@@ -137,9 +133,6 @@ pub(super) enum Diagonal {
 
 /// One leg of the stencil resolved for one output site: where the neighbour is and what
 /// is still to be done to it.
-///
-/// Links are referred to where they are stored and converted when they are used: holding
-/// eight converted matrices per site cost a copy through the stack for each.
 #[derive(Clone, Copy)]
 pub(super) enum Hop<'a, T: Storage, R: LinkRepr> {
     /// Nothing arrives (Dirichlet boundary).
@@ -160,14 +153,8 @@ pub(super) enum Hop<'a, T: Storage, R: LinkRepr> {
     Transported { index: usize },
 }
 
-/// A factor that acts within a site and tridiagonally in the fifth dimension:
-/// `a φ_s + y (Y φ)_s`, or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per
-/// site and vector. (Y φ)_s = −P− φ_(s+1) − P+ φ_(s−1), and a term that crosses a wall comes
-/// back times −m (see `fermion::mdwf`). Domain-wall fermions put (4 − M5)(b − c Y) before the
-/// Wilson kernel, and its adjoint after the kernel of D†. A sweep applies it to its input on
-/// the way (`even_odd_hop_fifth`) instead of in a pass over the field of its own: every leg
-/// reads another site, so only the sweep can. After the kernel the factor acts on the site
-/// just written, which is the caller's to do (`After`).
+/// A factor that acts within a site and tridiagonally in the fifth dimension: `a φ_s + y (Y φ)_s`,
+/// or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per site and vector.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fifth {
     pub ls: usize,
@@ -281,23 +268,17 @@ impl Post {
     }
 }
 
-/// The last step of a sweep at each output site (or block): called with its number among
-/// those of the output and its values, all spinors of the site, once they are written and
-/// still in the cache. For what follows a hop within a site, in the same pass over the field
-/// (domain-wall fermions: C⁻¹, and the difference with another field).
+/// The last step of a sweep at each output site (or block): called with its number among those of
+/// the output and its values, all spinors of the site, once they are written and still in the
+/// cache.
 pub type After<'a, T> = Option<&'a (dyn Fn(usize, &mut [T]) + Sync)>;
 
-/// Largest site (or block), in reals, that a sweep with an `After` computes in a buffer on
-/// the stack before it writes it past the cache (`Storage::stream`): 64 spinors. The values
-/// `After` reads back are then in the buffer, and the output is written once without being
-/// read first. A larger site is written and read back in place.
+/// Largest site (or block), in reals, that a sweep with an `After` computes in a buffer on the
+/// stack before it writes it past the cache (`Storage::stream`): 64 spinors.
 pub(super) const SITE_BUFFER: usize = 64 * SPINOR_REALS;
 
 /// Reads spinor `r` of the sites of an input field, transformed by `pre`. A struct with
 /// methods rather than closures, so that the reads are expanded in place.
-///
-/// The field is held as a slice of stored spinors, `copies` of them per site, for the same
-/// reason as the links in `Fixed`.
 pub(super) struct Input<'a, T: Storage, G: GammaRepre> {
     pub(super) spinors: &'a [[T; SPINOR_REALS]],
     pub(super) r: usize,
@@ -328,10 +309,8 @@ pub enum LinkFormat {
     /// All 18 reals of each link.
     #[default]
     Full,
-    /// The first two rows, 12 reals; the third row is rebuilt as the conjugate of their
-    /// cross product every time the link is used. A third less gauge-field memory to read,
-    /// which is what limits the speed once all cores of a processor are in use, at the
-    /// price of more arithmetic per link. Only for links in SU(3): `set_gauge` checks.
+    /// The first two rows, 12 reals; the third row is rebuilt as the conjugate of their cross
+    /// product every time the link is used. Only for links in SU(3): `set_gauge` checks.
     TwoRows,
 }
 
@@ -439,11 +418,6 @@ pub(super) fn su3_deviation(u: &ColorMatrix<f64>) -> f64 {
 
 /// What is the same for every site of a sweep: the gauge field and, for each leg, the
 /// phase of a hop across the boundary of the global lattice.
-///
-/// The gauge field is held as one slice of links per direction, indexed by the full-lattice
-/// site. Reading a link is then one index with one bounds check; going through
-/// `Field::site` for every read recomputed the site's range from the shape of the field
-/// each time.
 pub(super) struct Fixed<'a, T: Storage, R: LinkRepr> {
     pub(super) links: [&'a [R::Stored<T>]; ND],
     pub(super) phase: [Option<Cplx<T::Compute>>; FACES],

@@ -2,31 +2,6 @@
 //! [x_min, x_max] with the smallest largest relative error |r(x)/x^(p/q) − 1| (minimax), the
 //! approximation AlgRemez computes and Bridge++ reads from its files
 //! `parameter_rational.<p>_<q>[inv]_<poles>_<x_min>_<x_max>` (`Math_Rational`).
-//!
-//! The minimax approximation of type (n, n) is characterised by its relative error taking
-//! the values ±E with alternating signs at 2n + 2 points of the interval (the reference),
-//! the endpoints among them. It is found by the Remez algorithm written for the partial
-//! fractions themselves:
-//!
-//! 1. On the reference x_i, Newton's method solves the 2n + 2 equations
-//!    r(x_i)/f(x_i) − 1 = (−1)^i E for a0, res_k, pole_k and E. The partial fractions are well
-//!    conditioned (the poles are spread geometrically, as the interval is) where the powers of
-//!    x of the classical algorithm are not: x^16 over [1e-4, 10] spans 80 decades, which is
-//!    why AlgRemez needs arbitrary precision. Here the equations are evaluated in
-//!    double-double arithmetic (about 32 digits), the Jacobian in double precision: the
-//!    solution is that of the equations as precisely evaluated, the Jacobian only sets how
-//!    fast Newton gets there.
-//! 2. The new reference is where the error now has its extrema: the 2n + 1 zeros of the
-//!    error split the interval into 2n + 2 pieces, and the largest |error| on each is found by
-//!    golden-section search in log x (the endpoints for the first and the last piece).
-//! 3. Repeat until the extrema are level: their spread is below 1e-15 of E.
-//!
-//! Newton needs a start close to the answer. For x^(−1/2) the answer is known in closed form
-//! (Zolotarev, Jacobi elliptic functions); for another negative power the solution is
-//! carried from −1/2 to it in small steps of the power, each step started from the last.
-//! A positive power p/q is the reciprocal of the approximation of x^(−p/q) (relative errors
-//! e and −e/(1 + e) differ by E² ≈ 1e-20), polished by the same Remez iteration; the poles of
-//! the reciprocal are the zeros of the approximation, one between each pair of poles.
 
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -507,10 +482,9 @@ fn solve_dense(n: usize, mut a: Vec<f64>, mut y: Vec<f64>) -> Option<Vec<f64>> {
 }
 
 impl Remez {
-    /// Zolotarev's minimax approximation of x^(−1/2) on [a, b]: for y = x/a in [1, κ],
-    /// κ = b/a, R(y) = D Π_l (y + c_2l)/(y + c_2l−1) with c_j = sn²/cn² of j K/(2n + 1) for
-    /// the parameter m = 1 − 1/κ, D such that the error is level. The reference is left for
-    /// the first exchange to find.
+    /// Zolotarev's minimax approximation of x^(−1/2) on [a, b]: for y = x/a in [1, κ], κ = b/a,
+    /// R(y) = D Π_l (y + c_2l)/(y + c_2l−1) with c_j = sn²/cn² of j K/(2n + 1) for the parameter m
+    /// = 1 − 1/κ, D such that the error is level.
     fn zolotarev(n: usize, a: f64, b: f64) -> Self {
         let m = 1.0 - a / b;
         let k = elliptic_k(m);
