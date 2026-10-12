@@ -1,8 +1,10 @@
 //! Small dense numerical tools that do not involve lattice fields.
 
 mod lsq;
+mod rational;
 
 pub use lsq::HessenbergLsq;
+pub use rational::{RationalApprox, RationalError, RationalSpec};
 
 use crate::C64;
 use std::fmt;
