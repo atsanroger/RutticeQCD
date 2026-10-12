@@ -44,7 +44,7 @@ Put a configuration next to a parameter file and run it. `run/` is ignored by gi
 ```bash
 mkdir -p run
 cp examples/wilson_pion.yaml run/
-cp /path/to/conf_04040408.txt run/
+cp /path/to/your_gauge_file run/
 target/release/ruttice run/wilson_pion.yaml
 ```
 
