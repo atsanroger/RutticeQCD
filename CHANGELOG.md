@@ -22,7 +22,7 @@ The first tagged version.
   ratios to Pauli-Villars fermions; RHMC with rational approximations computed by a Remez
   iteration; leapfrog and Omelyan integrators on several time scales; initial guesses from
   earlier solutions; saving configurations on several processes.
-- **Input and output.** Gauge configurations as Bridge++ text and binary, ILDG, SciDAC and HDF5.
+- **Input and output.** Gauge configurations as Bridge++ text and binary, NERSC, ILDG, SciDAC and HDF5.
 - **Solvers of HMC.** CG, BiCGStab, FGMRES and GCR for the two-flavour actions, multi-shift CG
   or CG pole by pole for RHMC; Chebyshev and (Wilson, clover) multigrid preconditioners; Neff's
   α for domain-wall fermions.

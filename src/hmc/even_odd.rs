@@ -15,7 +15,7 @@ use super::fermion_action::{draw, smeared_force, CloverInsertion, ForceOp};
 use super::solve::{chebyshev_cg, Pre};
 use super::{Chrono, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
-use crate::fermion::{Dagger, EvenOdd, Schur};
+use crate::fermion::{Dagger, EvenOdd, OnParity, Schur};
 use crate::gauge::GaugeSmearing;
 use crate::kernel::Cplx;
 use crate::solver::{SolveError, Stop};
@@ -65,6 +65,23 @@ impl<G: crate::kernel::GammaRepre> EvenOddForceOp for crate::fermion::Mdwf<f64, 
     }
     fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         self.mult_q(out, inp, false);
+    }
+}
+
+/// γ5 on the even sites, through the operator's γ5 on all of them.
+struct HalfGamma5<'a, O: EvenOddForceOp> {
+    op: &'a O,
+    work: <O as crate::fermion::FermionOp<Psi>>::Work,
+    whole: [Psi; 2],
+}
+
+impl<O: EvenOddForceOp> crate::LinearFn<HalfPsi> for HalfGamma5<'_, O> {
+    fn mult(&mut self, out: &mut HalfPsi, inp: &HalfPsi) {
+        let [from, to] = &mut self.whole;
+        from.set_zero();
+        insert_parity(from, inp, self.op.eo_index());
+        crate::fermion::HopTerms::mult_gamma5(self.op, &mut self.work, to, from);
+        extract_parity(out, to, self.op.eo_index(), Parity::Even);
     }
 }
 
@@ -158,7 +175,8 @@ pub struct TwoFlavorEo<O> {
     pub stop_h: Stop,
     /// How (Ŝ†Ŝ)⁻¹ is computed (CG by default).
     pub solver: NormalSolver,
-    /// Chebyshev, or none: the multigrid is for the action on all sites.
+    /// Chebyshev with CG; the multigrid of the whole operator with the two-step solvers: its
+    /// even sites approximate Ŝ⁻¹, the block of D⁻¹ there.
     pub preconditioner: Preconditioner,
     conditioned: Option<O>,
     fresh: bool,
@@ -251,8 +269,13 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         }
     }
 
-    /// (Ŝ†Ŝ)⁻¹ φ_e; for the force (`md`) from the guess.
-    fn solve(&mut self, stop: Stop, md: bool) -> Result<HalfPsi, SolveError> {
+    /// (Ŝ†Ŝ)⁻¹ φ_e on the links `v`; for the force (`md`) from the guess.
+    fn solve(
+        &mut self,
+        v: &Field<f64, Gauge>,
+        stop: Stop,
+        md: bool,
+    ) -> Result<HalfPsi, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let a = self.conditioned.as_ref().unwrap_or(&self.op);
         let odd = a.new_half(phi.lattice(), Parity::Odd);
@@ -275,8 +298,31 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
                 &b,
                 stop,
             )?,
-            Preconditioner::Multigrid { .. } => {
-                panic!("the multigrid is for the action on all sites")
+            Preconditioner::Multigrid {
+                cycle,
+                refresh_every,
+                since,
+            } => {
+                if fresh || (*refresh_every > 0 && *since >= *refresh_every) {
+                    cycle.setup(v).expect("the multigrid setup succeeds");
+                    *since = 0;
+                }
+                if md {
+                    *since += 1;
+                }
+                let like = a.new_field(phi.lattice());
+                let index = a.eo_index();
+                let mut m = OnParity::new(cycle.cycle(), index, &like);
+                let mut gamma = HalfGamma5 {
+                    op: a,
+                    work: <O as crate::fermion::FermionOp<Psi>>::work(a),
+                    whole: [like.zeros_like(), like.zeros_like()],
+                };
+                let pre = Pre::Hermitian {
+                    m: &mut m,
+                    gamma: &mut gamma,
+                };
+                self.solver.solve(&mut schur, pre, &mut z, &b, stop)?
             }
         };
         self.last_iterations = info.iterations;
@@ -313,9 +359,9 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
 
     /// S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|.
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.set_links(links);
+        let levels = self.set_links(links);
         let v = self
-            .solve(self.stop_h, false)
+            .solve(levels.last().unwrap_or(links.thin), self.stop_h, false)
             .expect("the solve for the energy converges");
         let mut d = [C64::ZERO];
         v.dot(self.phi.as_ref().expect("drawn"), &mut d);
@@ -325,7 +371,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
     pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
         let levels = self.set_links(links);
         let eta = self
-            .solve(self.stop_md, true)
+            .solve(levels.last().unwrap_or(links.thin), self.stop_md, true)
             .expect("the solve for the force converges");
         let lat = links.thin.lattice();
         let (even, odd) = (Parity::Even, Parity::Odd);

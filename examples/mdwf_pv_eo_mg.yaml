@@ -90,6 +90,7 @@ MultiGrid:
   ## MultiGrid_Level4): super-blocks of super_block_size sites of the level above per
   ## direction; the last level is solved exactly, so keep it small. On 16^4 in blocks of
   ## 4^4 (4^4 coarse sites), Level2 + Level3 of 2 end in one site.
+  ## levels_for_pauli_villars : true   # the levels also under the Pauli-Villars factor (MINRES)
   # MultiGrid_Level2:
   #   super_block_size : 2
   # MultiGrid_Level3:

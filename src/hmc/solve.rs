@@ -109,7 +109,7 @@ impl NormalSolver {
 
     /// One solve A x = b from zero; its iterations. Not reaching the tolerance is left to the
     /// residual of the normal system to find.
-    fn one<V: Vector>(
+    pub(super) fn one<V: Vector>(
         self,
         a: &mut dyn LinearFn<V>,
         m: Option<&mut dyn LinearFn<V>>,
@@ -135,6 +135,92 @@ impl NormalSolver {
             Err(e) => Err(e),
         }
     }
+}
+
+/// A + iμΓ.
+struct Twisted<'a, V> {
+    a: &'a mut dyn LinearOp<V>,
+    gamma: &'a mut dyn LinearFn<V>,
+    mu: f64,
+    turned: V,
+}
+
+impl<V: Vector> LinearFn<V> for Twisted<'_, V> {
+    fn mult(&mut self, out: &mut V, inp: &V) {
+        crate::fit(&mut self.turned, inp);
+        self.a.mult(out, inp);
+        self.gamma.mult(&mut self.turned, inp);
+        out.axpy(
+            &vec![C64::new(0.0, self.mu); inp.num_vectors()],
+            &self.turned,
+        );
+    }
+}
+
+/// x = (A†A + μ²)⁻¹ b for an A with A† = Γ A Γ, so that ΓA is Hermitian and
+/// A†A + μ² = Γ (A + iμΓ) Γ (A − iμΓ): two solves, (A + iμΓ) w = Γ b and then (A − iμΓ) x = Γ w,
+/// by `solver` (not CG) with the approximate inverse `m` of A, repeated on the residual until
+/// that is below the tolerance. `x` holds the initial guess on entry.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn shifted_two_step<V: Vector>(
+    solver: NormalSolver,
+    a: &mut dyn LinearOp<V>,
+    gamma: &mut dyn LinearFn<V>,
+    mut m: Option<&mut dyn LinearFn<V>>,
+    mu: f64,
+    x: &mut V,
+    b: &V,
+    stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    let n = b.num_vectors();
+    let (minus, one) = (vec![C64::new(-1.0, 0.0); n], vec![C64::new(1.0, 0.0); n]);
+    let shift = vec![C64::new(mu * mu, 0.0); n];
+    let mut b_norm = vec![0.0; n];
+    b.norm_sqr(&mut b_norm);
+    let (mut t, mut r) = (b.zeros_like(), b.zeros_like());
+    let (mut w, mut e) = (b.zeros_like(), b.zeros_like());
+    let mut info = SolveInfo {
+        iterations: 0,
+        restarts: 0,
+        residual_sqr: vec![0.0; n],
+    };
+    for sweep in 0..=stop.max_restarts {
+        // r = b − (A†A + μ²) x
+        a.mult(&mut t, x);
+        a.mult_dag(&mut r, &t);
+        r.axpy(&shift, x);
+        r.aypx(&minus, b);
+        r.norm_sqr(&mut info.residual_sqr);
+        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
+            *r = if *b > 0.0 { *r / b } else { 0.0 };
+        }
+        info.restarts = sweep;
+        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
+            return Ok(info);
+        }
+        if sweep == stop.max_restarts {
+            break;
+        }
+        for sign in [1.0, -1.0] {
+            // The right-hand side of this half: Γ r, then Γ w.
+            let from = if sign > 0.0 { &r } else { &w };
+            gamma.mult(&mut t, from);
+            e.set_zero();
+            let mut twisted = Twisted {
+                a: &mut *a,
+                gamma: &mut *gamma,
+                mu: sign * mu,
+                turned: b.zeros_like(),
+            };
+            let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
+            info.iterations += solver.one(&mut twisted, pre, &mut e, &t, stop)?;
+            if sign > 0.0 {
+                w.copy_from(&e);
+            }
+        }
+        x.axpy(&one, &e);
+    }
+    Err(SolveError::NotConverged(info))
 }
 
 /// A multigrid cycle that is set up again when the links have changed enough.
@@ -168,6 +254,32 @@ pub enum Preconditioner {
 }
 
 impl Preconditioner {
+    /// The multigrid cycle for a solve on the links `v`, set up first when that is due; none
+    /// without a multigrid. `fresh`, `md`: as in `normal_solve`.
+    pub(super) fn cycle_for(
+        &mut self,
+        v: &Field<f64, Gauge>,
+        fresh: bool,
+        md: bool,
+    ) -> Option<&mut dyn LinearFn<Psi>> {
+        let Preconditioner::Multigrid {
+            cycle,
+            refresh_every,
+            since,
+        } = self
+        else {
+            return None;
+        };
+        if fresh || (*refresh_every > 0 && *since >= *refresh_every) {
+            cycle.setup(v).expect("the multigrid setup succeeds");
+            *since = 0;
+        }
+        if md {
+            *since += 1;
+        }
+        Some(cycle.cycle())
+    }
+
     pub fn chebyshev(steps: usize, ratio: f64) -> Self {
         Preconditioner::Chebyshev {
             steps,
@@ -221,6 +333,9 @@ where
 {
     make: Box<dyn Fn() -> O>,
     params: MultigridParams,
+    /// Start a setup from the test vectors of the one before, improved this many times;
+    /// none: every setup from random vectors.
+    reuse: Option<usize>,
     built: Option<Built<O>>,
 }
 
@@ -255,8 +370,16 @@ where
         Self {
             make: Box::new(make),
             params,
+            reuse: None,
             built: None,
         }
+    }
+
+    /// Start every setup but the first from the test vectors of the setup before it, improved
+    /// `iterations` times (0: smoothed once): the links of consecutive setups are close.
+    pub fn reusing_vectors(mut self, iterations: usize) -> Self {
+        self.reuse = Some(iterations);
+        self
     }
 }
 
@@ -266,6 +389,10 @@ where
 {
     fn setup(&mut self, u: &Field<f64, Gauge>) -> Result<(), MultigridError> {
         // The old cycle first: two of them need not be held at once.
+        let before = match (self.reuse, self.built.as_ref()) {
+            (Some(iterations), Some(built)) => Some((built.cycle.test_vectors(), iterations)),
+            _ => None,
+        };
         self.built = None;
         let mut op = (self.make)();
         op.set_gauge(u).expect("the links suit the operator");
@@ -273,7 +400,13 @@ where
         // SAFETY: `op` points to a live box that `Built` frees only after the cycle borrowing
         // it is dropped, and nothing else gets a reference to it.
         let borrowed: &'static O = unsafe { &*op };
-        match Multigrid::new(borrowed, u.lattice(), &self.params) {
+        let cycle = match before {
+            Some((vectors, iterations)) => {
+                Multigrid::from_vectors(borrowed, u.lattice(), &self.params, vectors, iterations)
+            }
+            None => Multigrid::new(borrowed, u.lattice(), &self.params),
+        };
+        match cycle {
             Ok(cycle) => {
                 self.built = Some(Built {
                     cycle: ManuallyDrop::new(cycle),

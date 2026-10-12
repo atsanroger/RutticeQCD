@@ -949,6 +949,11 @@ actions:
     }
     assert!(ok(&clover, "two_flavor", "preconditioner: chebyshev"));
     assert!(ok(&clover, "two_flavor", &format!("type: bicgstab, {mg}")));
+    assert!(HmcConfig::from_yaml(
+        &file(&clover, "two_flavor", &format!("type: gcr, {mg}"))
+            .replace("    level: 0", "    even_odd: true\n    level: 0")
+    )
+    .is_ok());
     assert!(ok(
         &wall,
         "two_flavor",
@@ -977,6 +982,8 @@ actions:
     ));
     assert!(!ok(&wall, "two_flavor", "type: bicgstab"));
     assert!(!ok(&wall, "two_flavor", &format!("type: bicgstab, {mg}")));
-    assert!(!ok(&rational, "rational", "type: bicgstab"));
+    assert!(ok(&rational, "rational", "type: bicgstab"));
+    assert!(ok(&rational, "rational", &format!("type: gcr, {mg}")));
+    assert!(!ok(&rational, "rational", &format!("type: cg, {mg}")));
     assert!(!ok(&rational, "rational", "preconditioner: chebyshev"));
 }

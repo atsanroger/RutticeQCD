@@ -8,7 +8,8 @@
 //! It can also come from a file of its own (`MultiGrid_file`), to share one multigrid among
 //! many parameter files. `MultiGrid_Level1` is the coarse lattice; it names a solver for each
 //! coarse factor, with the keys of `Solver`. `MultiGrid_Level2` to `MultiGrid_Level4`, if
-//! given, are levels below it (`super_block_size`) in the solves of the quark factor.
+//! given, are levels below it (`super_block_size`) in the solves of the quark factor, and with
+//! `levels_for_pauli_villars : true` in those of the second factor too.
 //!
 //! ```yaml
 //! Main:
@@ -77,6 +78,8 @@ keyword_enum! {
         Text => ["Text", "Bridge_text", "Text_4x4x4x8"],
         /// Big-endian doubles without a header, the Bridge++ binary format.
         Binary => ["Binary"],
+        /// The NERSC format: a text header, then the links.
+        Nersc => ["NERSC"],
         Ildg => ["ILDG"],
         /// A lattice-colour-matrix record of the SciDAC QIO library, in a LIME container.
         Scidac => ["SciDAC", "QIO"],
@@ -537,6 +540,10 @@ pub struct MultigridBlock {
     pub level3: Option<SubLevelBlock>,
     #[serde(rename = "MultiGrid_Level4")]
     pub level4: Option<SubLevelBlock>,
+    /// The levels below the coarse lattice also for the solves of the second factor
+    /// P†D_PV†P (with MINRES for that factor).
+    #[serde(default)]
+    pub levels_for_pauli_villars: bool,
 }
 
 impl MultigridBlock {
@@ -1457,6 +1464,7 @@ impl Params {
                 format: match self.gauge.gauge_config_type_input {
                     GaugeType::Text => GaugeFormat::BridgeText,
                     GaugeType::Binary => GaugeFormat::Binary,
+                    GaugeType::Nersc => GaugeFormat::Nersc,
                     GaugeType::Ildg => GaugeFormat::Ildg,
                     GaugeType::Scidac => GaugeFormat::Scidac,
                     GaugeType::Hdf5 => GaugeFormat::Hdf5,
@@ -1708,6 +1716,9 @@ impl fmt::Display for Params {
                         f,
                         "\nlevels below the coarse lattice for P†DP: super-blocks {levels:?} (V-cycle, the last solved exactly)"
                     )?;
+                    if mg.levels_for_pauli_villars {
+                        write!(f, "; for P†D_PV†P too (|H|⁻¹, added to the blocks)")?;
+                    }
                 }
                 Ok(())
             }

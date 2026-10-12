@@ -4,7 +4,7 @@
 use super::{CoarseOp, MultigridError};
 use crate::kernel::{Number, Real};
 use crate::numerics::{hermitian_eigen, invert_complex};
-use crate::{Coarse, Field, LinearFn, Storage, Vector, C64, ND};
+use crate::{Coarse, Field, LinearFn, LinearOp, Storage, Vector, C64, ND};
 use std::cell::{Cell, RefCell};
 
 /// `out = m v` for a dense row-major n × n m.
@@ -555,6 +555,194 @@ impl SignedMultilevel {
     }
 }
 
+/// The inverse absolute value V |Λ|⁺ V† of a Hermitian n × n matrix (row-major; its Hermitian
+/// part is taken). Eigenvalues below 1e-10 of the largest in magnitude, which come from
+/// dependent local vectors, are left out.
+fn abs_inverse(h: &[C64], n: usize) -> Vec<C64> {
+    let (lam, v) = hermitian_eigen(n, h);
+    let top = lam.iter().fold(0.0f64, |m, l| m.max(l.abs()));
+    let inv: Vec<f64> = lam
+        .iter()
+        .map(|l| {
+            if l.abs() > 1e-10 * top {
+                1.0 / l.abs()
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let mut m = vec![C64::ZERO; n * n];
+    for i in 0..n {
+        for k in 0..n {
+            let mut z = C64::ZERO;
+            for (j, w) in inv.iter().enumerate() {
+                z += v[i * n + j].scale(*w) * v[k * n + j].conj();
+            }
+            m[i * n + k] = z;
+        }
+    }
+    m
+}
+
+/// The levels below the coarse lattice for the Hermitian form H = A Γ5 of a coarse factor,
+/// as a Hermitian positive preconditioner, which MINRES needs (absolute-value
+/// preconditioning: Vecharynski and Knyazev, SIAM J. Sci. Comput. 35 (2013) A696). With H_ℓ
+/// the operator of level ℓ and B_ℓ its diagonal blocks,
+///
+///   M_ℓ = |B_ℓ|⁻¹ + Q_(ℓ+1) M_(ℓ+1) Q_(ℓ+1)†,    M = |H|⁻¹ exactly on the last level;
+///
+/// `add` adds Q₂ M₂ Q₂† r to the |B₁|⁻¹ r of the coarse lattice itself.
+pub struct AbsMultilevel {
+    levels: Vec<Level>,
+    /// |B_ℓ|⁻¹ of every level but the last.
+    abs_blocks: Vec<Vec<Vec<C64>>>,
+    coarsest_abs_inv: Vec<C64>,
+    /// Applications of the coarse operator to build it.
+    pub setup_applications: usize,
+}
+
+impl AbsMultilevel {
+    /// The levels for H = A Γ5, `a` applied as its Γ5-adjoint (`a.mult_dag`, then Γ5), from
+    /// test vectors on the coarse lattice (each one vector of `vectors`), with super-blocks
+    /// of `super_blocks[ℓ]` sites per direction on level ℓ + 2.
+    pub fn build<T: Storage>(
+        a: &mut CoarseOp<T>,
+        vectors: &[Field<f64, Coarse>],
+        super_blocks: &[usize],
+    ) -> Result<Self, MultigridError> {
+        assert!(!super_blocks.is_empty() && !vectors.is_empty());
+        let lat = a.lattice().clone();
+        let dim = a.dim();
+        let like_t: Field<T, Coarse> = Field::with_shape(&lat, 2 * dim, 1, 1, 1);
+        let mut tests: Vec<Vec<C64>> = vectors.iter().map(|v| get_vector(v, 0)).collect();
+        let mut levels: Vec<Level> = Vec::new();
+        let mut ops: Vec<LevelOp> = Vec::new();
+        let (mut ext, mut parent_dim) = (lat.global, dim);
+        let mut setup_applications = 0;
+        for (l, &sb) in super_blocks.iter().enumerate() {
+            let (level, level_ext) = Level::build(ext, parent_dim, sb, &tests);
+            let parent_len = ext.iter().product::<usize>() * parent_dim;
+            let op = if l == 0 {
+                let mut apply = |v: &[C64]| -> Vec<C64> {
+                    let (mut f, mut out) = (like_t.zeros_like(), like_t.zeros_like());
+                    set_vector(&mut f, 0, v);
+                    a.mult_dag(&mut out, &f);
+                    let mut h = get_vector(&out, 0);
+                    // Γ5: −1 on the second half of the components of every site.
+                    for (i, z) in h.iter_mut().enumerate() {
+                        if i % dim >= dim / 2 {
+                            *z = -*z;
+                        }
+                    }
+                    h
+                };
+                let (op, applications) = LevelOp::probe(&level, level_ext, parent_len, &mut apply)?;
+                setup_applications = applications;
+                op
+            } else {
+                let above = ops.last().expect("a level above");
+                let mut apply = |v: &[C64]| above.mult(v);
+                LevelOp::probe(&level, level_ext, parent_len, &mut apply)?.0
+            };
+            tests = tests.iter().map(|t| level.restrict(t)).collect();
+            (ext, parent_dim) = (level_ext, op.nq);
+            levels.push(level);
+            ops.push(op);
+        }
+        let last = ops.last().expect("at least one level");
+        let n = ext.iter().product::<usize>() * last.nq;
+        let mut dense = vec![C64::ZERO; n * n];
+        for j in 0..n {
+            let mut e = vec![C64::ZERO; n];
+            e[j] = C64::new(1.0, 0.0);
+            for (i, z) in last.mult(&e).into_iter().enumerate() {
+                dense[i * n + j] = z;
+            }
+        }
+        let abs_blocks = ops[..ops.len() - 1]
+            .iter()
+            .map(|op| {
+                op.blocks
+                    .iter()
+                    .map(|b| abs_inverse(&b[0], op.nq))
+                    .collect()
+            })
+            .collect();
+        Ok(Self {
+            levels,
+            abs_blocks,
+            coarsest_abs_inv: abs_inverse(&dense, n),
+            setup_applications,
+        })
+    }
+
+    /// Complex components of the coarsest level, solved densely.
+    pub fn coarsest_dim(&self) -> usize {
+        (self.coarsest_abs_inv.len() as f64).sqrt() as usize
+    }
+
+    /// M of the lattice the level `l` restricts to, applied to `r` there.
+    fn m(&self, l: usize, r: &[C64]) -> Vec<C64> {
+        if l + 1 == self.levels.len() {
+            return mat_vec(&self.coarsest_abs_inv, r.len(), r);
+        }
+        let below = &self.levels[l + 1];
+        let nq = self.levels[l].nq;
+        let mut z = vec![C64::ZERO; r.len()];
+        for (t, b) in self.abs_blocks[l].iter().enumerate() {
+            z[t * nq..(t + 1) * nq].copy_from_slice(&mat_vec(b, nq, &r[t * nq..(t + 1) * nq]));
+        }
+        below.prolong_add(&self.m(l + 1, &below.restrict(r)), &mut z);
+        z
+    }
+
+    /// `out += Q₂ M₂ Q₂† inp`, every vector of the field by itself (on several processes, the
+    /// same on every process, on the gathered vector).
+    pub fn add<T: Storage>(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        let first = &self.levels[0];
+        let mut term = inp.zeros_like();
+        for j in 0..inp.num_vectors() {
+            let z = self.m(0, &first.restrict(&get_vector(inp, j)));
+            let mut v =
+                vec![C64::ZERO; first.sites.iter().map(Vec::len).sum::<usize>() * first.parent_dim];
+            first.prolong_add(&z, &mut v);
+            set_vector(&mut term, j, &v);
+        }
+        out.axpy(&vec![C64::new(1.0, 0.0); inp.num_vectors()], &term);
+    }
+}
+
+/// The preconditioner of the second factor: the blocks |B|⁻¹ of the coarse lattice, plus the
+/// levels below it.
+pub(super) struct BlocksPlusLevels<'a> {
+    pub(super) blocks: &'a mut BlockMap,
+    pub(super) levels: Option<&'a AbsMultilevel>,
+}
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for BlocksPlusLevels<'_> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.blocks.mult(out, inp);
+        if let Some(levels) = self.levels {
+            levels.add(out, inp);
+        }
+    }
+}
+
+/// `OnEven` for a coarse operator that is not shared.
+pub(super) struct OnEvenOf<'a, T: Storage, M> {
+    pub(super) inner: M,
+    pub(super) a: &'a CoarseOp<T>,
+    pub(super) whole: Field<T, Coarse>,
+}
+
+impl<T: Storage, M: LinearFn<Field<T, Coarse>>> LinearFn<Field<T, Coarse>> for OnEvenOf<'_, T, M> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        crate::fit(&mut self.whole, inp);
+        self.inner.mult(&mut self.whole, inp);
+        self.a.even_part(out, &self.whole);
+    }
+}
+
 /// Dense matrices on the coarse sites, applied site by site.
 pub(super) struct BlockMap {
     dim: usize,
@@ -665,6 +853,24 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedShared<'_, T> {
     fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         self.n.set(self.n.get() + inp.num_vectors());
         self.a.borrow_mut().mult(out, inp);
+    }
+}
+
+/// A preconditioner of the Schur complement on the even coarse sites from one, `inner`, of
+/// the whole coarse operator A: the block of A⁻¹ on the even sites is the inverse of the Schur
+/// complement, so the even sites of `inner` applied to a field that is zero on the odd sites
+/// approximate it as well as `inner` approximates A⁻¹.
+pub(super) struct OnEven<'a, T: Storage, M> {
+    pub(super) inner: M,
+    pub(super) a: &'a RefCell<CoarseOp<T>>,
+    pub(super) whole: Field<T, Coarse>,
+}
+
+impl<T: Storage, M: LinearFn<Field<T, Coarse>>> LinearFn<Field<T, Coarse>> for OnEven<'_, T, M> {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        crate::fit(&mut self.whole, inp);
+        self.inner.mult(&mut self.whole, inp);
+        self.a.borrow().even_part(out, &self.whole);
     }
 }
 

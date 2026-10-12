@@ -620,6 +620,14 @@ mod tests {
         let (h, f) = run(true);
         assert!((h - h0).abs() < 1e-9 * h0.abs(), "pole by pole: {h} {h0}");
         close(&f, &f0);
+        // The poles through γ5 D, by BiCGStab.
+        let mut a = Rational::new(op(), None, md.clone(), hb.clone(), stop, stop)
+            .with_clover(0.12)
+            .with_two_step(NormalSolver::BiCgStab);
+        a.langevin(&links, &mut Mseries::new(43));
+        let (h, f) = (a.hamiltonian(&links), a.force(&links));
+        assert!((h - h0).abs() < 1e-9 * h0.abs(), "two-step: {h} {h0}");
+        close(&f, &f0);
     }
 
     /// The preconditioned solves give the action and the force of plain CG: Chebyshev with CG
@@ -709,18 +717,104 @@ mod tests {
             same("multigrid", &reference, &(mg.0, mg.1));
         }
 
-        let run = |pre: Preconditioner| {
+        let run = |solver, pre: Preconditioner| {
             let mut a = TwoFlavorEo::new(op(), None, stop, stop)
                 .with_clover(0.12)
+                .with_solver(solver)
                 .with_preconditioner(pre);
             a.langevin(&links, &mut Mseries::new(59));
-            (a.hamiltonian(&links), a.force(&links))
+            let h = a.hamiltonian(&links);
+            (h, a.force(&links), a.last_iterations)
         };
-        same(
-            "Chebyshev, even-odd",
-            &run(Preconditioner::None),
-            &run(Preconditioner::chebyshev(6, 30.0)),
+        let plain = run(NormalSolver::Cg, Preconditioner::None);
+        let reference = (plain.0, plain.1);
+        let cheb = run(NormalSolver::Cg, Preconditioner::chebyshev(6, 30.0));
+        same("Chebyshev, even-odd", &reference, &(cheb.0, cheb.1));
+        let plain = run(NormalSolver::BiCgStab, Preconditioner::None);
+        let mg = run(
+            NormalSolver::BiCgStab,
+            Preconditioner::multigrid(OwnedMultigrid::new(op.clone(), params), 0),
         );
+        assert!(
+            mg.2 < plain.2,
+            "even-odd with the multigrid: {} against {}",
+            mg.2,
+            plain.2
+        );
+        same("multigrid, even-odd", &reference, &(mg.0, mg.1));
+    }
+
+    /// After the links have moved a little, a setup from the test vectors of the setup before
+    /// preconditions about as well as one from scratch, and the solution is the same.
+    #[test]
+    fn multigrid_setup_reuses_the_vectors_of_the_one_before() {
+        use crate::fermion::{Clover, CloverParams};
+        use crate::solver::preconditioner::multigrid::MultigridParams;
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 61);
+        // The links a few molecular-dynamics steps later.
+        let mut moved = Field::<f64, Gauge>::gauge(&lat);
+        moved.as_mut_slice().copy_from_slice(u.as_slice());
+        let p = draw_momenta(&lat, &mut Mseries::new(63));
+        exp_update(0.02, &p, &mut moved, 8);
+        let boundary = [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ];
+        let stop = Stop {
+            tolerance_sqr: 1e-26,
+            max_iterations: 2000,
+            max_restarts: 10,
+        };
+        let op = {
+            let lat = lat.clone();
+            move || {
+                Clover::<f64>::new(
+                    &lat,
+                    CloverParams {
+                        kappa: 0.12,
+                        csw: 1.0,
+                        boundary,
+                    },
+                )
+            }
+        };
+        let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+        params.num_test_vectors = 8;
+        params.setup_iterations = 2;
+        // A setup after every force solve; the action and the iterations of the second force.
+        let run = |reuse: bool| {
+            let mut cycle = OwnedMultigrid::new(op.clone(), params);
+            if reuse {
+                cycle = cycle.reusing_vectors(0);
+            }
+            let mut a = TwoFlavor::new(op(), None, stop, stop)
+                .with_clover(0.12)
+                .with_solver(NormalSolver::BiCgStab)
+                .with_preconditioner(Preconditioner::multigrid(cycle, 1));
+            let cache = SmearingCache::new();
+            a.langevin(&Links::new(&u, &cache), &mut Mseries::new(67));
+            a.force(&Links::new(&u, &cache));
+            let cache = SmearingCache::new();
+            a.force(&Links::new(&moved, &cache));
+            let f = a.force(&Links::new(&moved, &cache));
+            (f, a.last_iterations)
+        };
+        let (cold, cold_iterations) = run(false);
+        let (warm, warm_iterations) = run(true);
+        let worst = cold
+            .as_slice()
+            .iter()
+            .zip(warm.as_slice())
+            .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+        assert!(worst < 1e-9, "forces differ by {worst:e}");
+        eprintln!(
+            "iterations: {cold_iterations} from scratch, {warm_iterations} from the vectors before"
+        );
+        assert!(2 * warm_iterations <= 3 * cold_iterations);
     }
 
     #[cfg(test)]

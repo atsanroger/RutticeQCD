@@ -7,9 +7,11 @@
 //! λ of |D| and reads its coefficients from AlgRemez's files, which `RationalApprox::minimax`
 //! reproduces to the last digit.
 
+use super::fermion_action::Gamma5;
 use super::fermion_action::{draw, full_derivative, Psi};
-use super::solve::Shifted;
+use super::solve::{shifted_two_step, Shifted};
 use super::{smeared_force, ForceOp, Links, Mseries};
+use super::{NormalSolver, Preconditioner};
 use crate::fermion::{Bound, Variant};
 use crate::gauge::GaugeSmearing;
 use crate::numerics::RationalApprox;
@@ -30,6 +32,11 @@ pub struct Rational<O> {
     pub stop_h: Stop,
     /// One CG solve per pole instead of the multi-shift solver.
     pub pole_by_pole: bool,
+    /// Solve every pole by two solves with D ± i√pole γ5 (`with_two_step`).
+    two_step: Option<NormalSolver>,
+    /// The multigrid of the two-step solves; none otherwise.
+    pub preconditioner: Preconditioner,
+    fresh: bool,
     phi: Option<Psi>,
     /// κ c_SW when the operator has a clover term.
     clover: Option<f64>,
@@ -54,6 +61,9 @@ impl<O: ForceOp> Rational<O> {
             stop_md,
             stop_h,
             pole_by_pole: false,
+            two_step: None,
+            preconditioner: Preconditioner::None,
+            fresh: true,
             phi: None,
             clover: None,
             last_iterations: 0,
@@ -63,6 +73,20 @@ impl<O: ForceOp> Rational<O> {
     /// Solve for every pole with a CG of its own (each to the tolerance on its own residual).
     pub fn with_pole_by_pole(mut self, on: bool) -> Self {
         self.pole_by_pole = on;
+        self
+    }
+
+    /// Solve pole by pole with `solver` (not CG) through the Hermitian γ5 D:
+    /// D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5), two solves that take the multigrid of D as
+    /// preconditioner (`with_preconditioner`).
+    pub fn with_two_step(mut self, solver: NormalSolver) -> Self {
+        self.two_step = Some(solver);
+        self
+    }
+
+    /// The multigrid of the two-step solves.
+    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+        self.preconditioner = preconditioner;
         self
     }
 
@@ -80,8 +104,45 @@ impl<O: ForceOp> Rational<O> {
         levels
     }
 
-    /// x_k = (D†D + pole_k)⁻¹ b for the poles of `r`.
-    fn shifted(&mut self, r: &RationalApprox, b: &Psi, stop: Stop) -> Result<Vec<Psi>, SolveError> {
+    /// x_k = (D†D + pole_k)⁻¹ b for the poles of `r`, on the links `v`; `md`: for the force.
+    fn shifted(
+        &mut self,
+        v: &Field<f64, Gauge>,
+        r: &RationalApprox,
+        b: &Psi,
+        stop: Stop,
+        md: bool,
+    ) -> Result<Vec<Psi>, SolveError> {
+        if let Some(solver) = self.two_step {
+            let fresh = std::mem::take(&mut self.fresh);
+            let mut m = self.preconditioner.cycle_for(v, fresh, md);
+            let mut d = Bound::new(&self.op, Variant::D);
+            let mut gamma = Gamma5 {
+                op: &self.op,
+                work: self.op.work(),
+            };
+            let mut xs = Vec::new();
+            self.last_iterations = 0;
+            for pole in &r.poles {
+                let mut x = b.zeros_like();
+                let pre = m
+                    .as_mut()
+                    .map(|m| &mut **m as &mut dyn crate::LinearFn<Psi>);
+                let info = shifted_two_step(
+                    solver,
+                    &mut d,
+                    &mut gamma,
+                    pre,
+                    pole.sqrt(),
+                    &mut x,
+                    b,
+                    stop,
+                )?;
+                self.last_iterations += info.iterations;
+                xs.push(x);
+            }
+            return Ok(xs);
+        }
         let mut d = Bound::new(&self.op, Variant::D);
         let mut normal = Normal::new(&mut d, b);
         let mut xs = Vec::new();
@@ -105,9 +166,9 @@ impl<O: ForceOp> Rational<O> {
     }
 
     /// r(D†D) b = a0 b + Σ_k res_k x_k, in Bridge++'s order of the sum.
-    fn apply(&mut self, r: &RationalApprox, b: &Psi, stop: Stop) -> Psi {
+    fn apply(&mut self, v: &Field<f64, Gauge>, r: &RationalApprox, b: &Psi, stop: Stop) -> Psi {
         let xs = self
-            .shifted(r, b, stop)
+            .shifted(v, r, b, stop, false)
             .expect("the multi-shift solve converges");
         let mut out = b.zeros_like();
         out.copy_from(b);
@@ -121,11 +182,13 @@ impl<O: ForceOp> Rational<O> {
     /// The heat bath: φ = r_hb(D†D) ξ, ξ Gaussian (variance ½ per real) in Bridge++'s order;
     /// returns |ξ|².
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
-        self.set_links(links);
+        let levels = self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
         draw(&mut xi, rng);
         let r = self.heat_bath.clone();
-        self.phi = Some(self.apply(&r, &xi, self.stop_h));
+        self.fresh = true;
+        let v = levels.last().unwrap_or(links.thin);
+        self.phi = Some(self.apply(v, &r, &xi, self.stop_h));
         let mut n = [0.0];
         xi.norm_sqr(&mut n);
         n[0]
@@ -133,10 +196,10 @@ impl<O: ForceOp> Rational<O> {
 
     /// S = φ† r_md(D†D) φ.
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.set_links(links);
+        let levels = self.set_links(links);
         let phi = self.phi.take().expect("pseudofermions drawn");
         let r = self.md.clone();
-        let v = self.apply(&r, &phi, self.stop_h);
+        let v = self.apply(levels.last().unwrap_or(links.thin), &r, &phi, self.stop_h);
         let mut d = [C64::ZERO];
         v.dot(&phi, &mut d);
         self.phi = Some(phi);
@@ -147,11 +210,11 @@ impl<O: ForceOp> Rational<O> {
         let levels = self.set_links(links);
         let phi = self.phi.take().expect("pseudofermions drawn");
         let r = self.md.clone();
+        let v = levels.last().unwrap_or(links.thin);
         let xs = self
-            .shifted(&r, &phi, self.stop_md)
+            .shifted(v, &r, &phi, self.stop_md, true)
             .expect("the multi-shift solve for the force converges");
         self.phi = Some(phi);
-        let v = levels.last().unwrap_or(links.thin);
         let mut m = Field::<f64, Gauge>::gauge(links.thin.lattice());
         let mut work = self.op.work();
         for (x, res) in xs.iter().zip(&r.residues) {

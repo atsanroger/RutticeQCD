@@ -172,6 +172,8 @@ pub enum GaugeFormat {
     /// Big-endian doubles without a header (the Bridge++ binary format).
     #[serde(alias = "bridge_binary")]
     Binary,
+    /// The NERSC format: a text header, then the links.
+    Nersc,
     /// The ILDG format: binary data in a LIME container.
     Ildg,
     /// A lattice-colour-matrix record written by the SciDAC QIO library, in a LIME
