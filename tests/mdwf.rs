@@ -334,7 +334,7 @@ fn parts_add_up_to_the_operator() {
 /// A = (D_PV C_PV^-1)† C^-1 D it took between 356 and 488. Whether the cycle helps is not
 /// established by this: BiCGStab with a preconditioner that changes from one application
 /// to the next varies widely in its iteration count, and on a 12^4 configuration the
-/// coarse correction does not reduce a smooth error (docs/MDWF_MULTIGRID_LOG.md). The test
+/// coarse correction does not reduce a smooth error (the working log (branch `notes`)). The test
 /// checks that the pieces work together, not that they help.
 #[test]
 fn multigrid_cycle_runs_as_a_preconditioner() {

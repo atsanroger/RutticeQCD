@@ -1,5 +1,5 @@
 # One package: the library in src/, the programs in apps/, tests in tests/, examples in
-# examples/. The layout is fixed by DESIGN.md §8.
+# examples/.
 [package]
 name = "ruttice"
 version = "0.0.1"
