@@ -1,0 +1,45 @@
+# HMC with 2 + 1 flavours of clover fermions on stout links, with the Iwasaki gauge action:
+# Bridge++'s test_HMC_Clover_RHMC_Nf2p1. One trajectory from conf_04040408.txt ends at the
+# plaquette 0.627668186553629 (Bridge++).
+#
+#   cargo run --release --bin ruttice -- examples/hmc_clover_rhmc_nf2p1.yaml
+#
+# Relative paths are taken from the directory of this file.
+
+lattice: [4, 4, 4, 8]
+start: {type: file, file: conf_04040408.txt, format: bridge_text}
+
+gauge_smearing: {type: stout, rho: 0.1, steps: 2}
+
+hmc:
+  trajectories: 1
+  first_trajectory: 200000
+  trajectory_length: 0.1
+  integrator:
+    scheme: leapfrog
+    steps: [5, 2, 3]            # the outer level first
+    exp_order: 8
+
+actions:
+  # The light pair, Hasenbusch's way: det(D_0.13)² / det(D_0.11)² ...
+  - type: two_flavor_ratio
+    fermion: {type: clover, kappa: 0.13, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+    denominator: {type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+    level: 0
+    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
+  # ... times det(D_0.11)².
+  - type: two_flavor
+    fermion: {type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+    level: 1
+    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
+  # The strange quark: det(D†D_0.12)^(1/2) by RHMC, 16 poles; the bounds are those of |D|
+  # (D†D in [1e-4, 10]). The coefficients are computed; `coefficients: <dir>` reads
+  # Bridge++'s files parameter_rational.* from a directory instead (the same numbers).
+  - type: rational
+    fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
+    power: [1, 2]
+    poles: 16
+    bounds: [1.0e-2, 3.16227766]
+    level: 1
+    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28, max_iterations: 1000}
+  - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 2}

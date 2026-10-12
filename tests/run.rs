@@ -567,3 +567,102 @@ fn hmc_saves_configurations_on_several_processes() {
         let _ = std::fs::remove_dir_all(four);
     }
 }
+
+/// The RHMC example file: one trajectory of Bridge++'s test_HMC_Clover_RHMC_Nf2p1 (2 + 1
+/// flavours, the strange quark by a rational approximation computed by the program), to
+/// Bridge++'s relative 1e-11.
+#[test]
+fn the_rhmc_example_repeats_bridge() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    let Some(conf) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let dir = scratch("rhmc");
+    std::fs::copy(&conf, dir.join("conf_04040408.txt")).unwrap();
+    let text = include_str!("../examples/hmc_clover_rhmc_nf2p1.yaml");
+    let config = HmcConfig::from_yaml(text).unwrap();
+    let mut out = Vec::new();
+    let report = run_on(
+        &config,
+        &dir,
+        &mut out,
+        std::sync::Arc::new(ruttice::SingleComm),
+    )
+    .unwrap();
+    eprintln!("{}", String::from_utf8(out).unwrap());
+    let (_, _, _, plaq) = report.trajectories[0];
+    let expected = 0.627668186553629;
+    assert!(((plaq - expected) / expected).abs() < 1e-11, "{plaq}");
+    // Powers outside (0, 1), empty intervals and domain-wall fermions are refused.
+    for bad in [
+        text.replace("power: [1, 2]", "power: [2, 2]"),
+        text.replace("bounds: [1.0e-2, 3.16227766]", "bounds: [1.0, 0.5]"),
+        text.replace(
+            "fermion: {type: clover, kappa: 0.12, csw: 1.0,",
+            "fermion: {type: domain_wall, ls: 4, m5: 1.6, mass: 0.1,",
+        ),
+    ] {
+        assert!(matches!(
+            HmcConfig::from_yaml(&bad),
+            Err(CliError::Invalid(_))
+        ));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A `rational` action (one flavour of Wilson fermions from a cold start, no Bridge++ input):
+/// the trajectory conserves H, and the coefficients read from Bridge++-format files in
+/// `coefficients` give the run of the computed ones.
+#[test]
+fn rational_action_from_a_parameter_file() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    use ruttice::numerics::{RationalApprox, RationalSpec};
+    let dir = scratch("rhmc_wilson");
+    let text = "
+lattice: [4, 4, 4, 4]
+start: {type: hot, seed: 3}
+hmc:
+  trajectories: 1
+  trajectory_length: 0.2
+  integrator: {scheme: omelyan, steps: [3, 2]}
+actions:
+  - type: rational
+    fermion: {type: wilson, kappa: 0.11, boundary: [periodic, periodic, periodic, antiperiodic]}
+    poles: 10
+    bounds: [0.05, 2.5]
+    level: 0
+  - {type: plaquette, beta: 5.5, level: 1}
+";
+    let run = |text: &str| {
+        let config = HmcConfig::from_yaml(text).unwrap();
+        let mut out = Vec::new();
+        let report = run_on(
+            &config,
+            &dir,
+            &mut out,
+            std::sync::Arc::new(ruttice::SingleComm),
+        )
+        .unwrap();
+        eprintln!("{}", String::from_utf8(out).unwrap());
+        report.trajectories[0]
+    };
+    let (_, dh, _, plaq) = run(text);
+    assert!(dh.abs() < 0.05, "dH {dh}");
+    // D†D in [0.05², 2.5²]: x^(−1/2) and x^(1/4), written as Bridge++ writes them.
+    for (p, q) in [(-1, 2), (1, 4)] {
+        let spec = RationalSpec {
+            poles: 10,
+            p,
+            q,
+            x_min: 0.05 * 0.05,
+            x_max: 2.5 * 2.5,
+        };
+        let r = RationalApprox::minimax(&spec).unwrap();
+        std::fs::write(dir.join(spec.bridge_file_name()), r.to_bridge(&spec)).unwrap();
+    }
+    let (_, dh_file, _, plaq_file) =
+        run(&text.replace("poles: 10", "poles: 10\n    coefficients: ."));
+    assert!((plaq_file - plaq).abs() < 1e-13 && (dh_file - dh).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
