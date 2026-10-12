@@ -3,37 +3,43 @@
 #
 #   cargo run --release --bin ruttice -- examples/clover_two_flavours.yaml
 #
+# Fopr and Source at the top are the first quark; Quark_2 (up to Quark_4) adds more, each
+# with its own Fopr and Source. The solver is the same for all of them.
 # Relative paths are taken from the directory of this file.
-# The exponential source is gauge dependent; no gauge fixing is applied.
+# The exponential source is gauge dependent; add the section
+#
+#   GaugeFixing:
+#     gauge_fixing_type : Coulomb
+#
+# to fix the gauge first (Bridge++'s test Spectrum_Clover_Hadron2ptFunction).
 
-lattice: [4, 4, 4, 8]
-
-gauge:
-  file: conf_04040408.txt
-
-solver:
-  type: cg_normal
-  tolerance_squared: 1.0e-28
-  max_iterations: 2000
-
-quark:
-  - fermion:
-      type: clover
-      kappa: 0.12
-      csw: 1.0
-      boundary: [periodic, periodic, periodic, antiperiodic]
-    source:
-      type: exponential
-      position: [0, 0, 0, 0]
-      slope: 0.25
-      power: 2.0
-  - fermion:
-      type: clover
-      kappa: 0.115
-      csw: 1.0
-      boundary: [periodic, periodic, periodic, antiperiodic]
-    source:
-      type: exponential
-      position: [0, 0, 0, 0]
-      slope: 0.5
-      power: 2.0
+Main:
+  lattice_size : [4, 4, 4, 8]
+Gauge:
+  config_filename_input : conf_04040408.txt
+Fopr:
+  fermion_type       : Clover
+  hopping_parameter  : 0.12
+  clover_coefficient : 1.0
+  boundary_condition : [1, 1, 1, -1]
+Source:
+  source_type     : Exponential   # the wave function exp(-slope r^power) on the time slice
+  source_position : [0, 0, 0, 0]
+  slope           : 0.25
+  power           : 2.0
+Quark_2:
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.115
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Source:
+    source_type     : Exponential
+    source_position : [0, 0, 0, 0]
+    slope           : 0.5
+    power           : 2.0
+Solver:
+  solver_type                   : CG
+  convergence_criterion_squared : 1.0e-28
+  maximum_number_of_iteration   : 2000
+  maximum_number_of_restart     : 3

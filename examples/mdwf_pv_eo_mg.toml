@@ -9,7 +9,7 @@ lattice_size = [12, 12, 12, 12]
 backend = "cpu"
 
 [Gauge]
-config_filename_input = "/home/wlchenhome/Bridge/runs/hmc_12_b6.0/conf_quench_12x12x12x12_b6.0.txt-000200"
+config_filename_input = "conf_12x12x12x12.txt"
 
 [Fopr]
 fermion_type = "Mobius"

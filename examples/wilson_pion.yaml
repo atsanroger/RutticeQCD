@@ -1,0 +1,33 @@
+# Pion correlator with Wilson fermions from a point source.
+#
+#   cargo run --release --bin ruttice -- examples/wilson_pion.yaml
+#
+# The sections and keys are those of Bridge++ parameter files; keywords are read in any
+# case, with or without "_". Relative paths are taken from the directory of this file.
+
+Main:
+  lattice_size : [4, 4, 4, 8]
+  ## grid_size : [1, 1, 2, 2]    # processes in x, y, z, t for ruttice-mpi; chosen automatically if omitted
+  backend    : cpu               # cpu (default) | simd: several sites in one SIMD register
+  simd_lanes : 4                 # with backend simd: 2, 4 or 8 sites; see the README
+Gauge:
+  gauge_config_type_input : Text # Text (one real per line; the default) | ILDG | SciDAC | HDF5
+  config_filename_input   : conf_04040408.txt
+Fopr:
+  fermion_type       : Wilson
+  hopping_parameter  : 0.12
+  boundary_condition : [-1, -1, -1, -1]    # 1 periodic, -1 antiperiodic, 0 Dirichlet
+Solver:
+  solver_type                   : CG       # CG (on the normal equations) | BiCGStab | FGMRES
+  operator_type                 : Even_odd # Even_odd (default; needs even extents) | Lexical
+  convergence_criterion_squared : 1.0e-28  # on |r|^2 / |b|^2, for every right-hand side
+  maximum_number_of_iteration   : 2000     # per restart
+  maximum_number_of_restart     : 3
+Source:
+  source_type     : Local
+  source_position : [0, 0, 0, 0]
+Measure:
+  channels : [PS]                # or all (the default):
+                                 # PS V1 V2 V3 A4_PS PS_A4 S G51 G52 G53 S12 S23 S31 A4_A4
+Output:
+  file : wilson_pion.out         # optional; the table is always printed as well

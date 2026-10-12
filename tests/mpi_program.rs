@@ -3,7 +3,8 @@
 
 mod common;
 
-use ruttice::app::{run, Config};
+use ruttice::app::params::Params;
+use ruttice::app::run;
 use ruttice::gauge::random_gauge;
 use ruttice::io::write_bridge_text;
 use ruttice::Lattice;
@@ -11,29 +12,47 @@ use std::io::ErrorKind;
 
 /// A Wilson and a clover quark, a point and a smeared source away from the origin, so
 /// that the sources and the clover term all cross process boundaries.
-const PARAMETERS: &str = r#"
-lattice = [4, 4, 4, 8]
+const PARAMETERS: &str = "
+Gauge:
+  config_filename_input : conf.txt
+Fopr:
+  fermion_type       : Wilson
+  hopping_parameter  : 0.12
+  boundary_condition : [1, 1, 1, -1]
+Source:
+  source_type     : Local
+  source_position : [1, 2, 3, 5]
+Quark_2:
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.11
+    clover_coefficient : 1.2
+    boundary_condition : [1, 1, 1, -1]
+  Source:
+    source_type     : Exponential
+    source_position : [3, 0, 1, 5]
+    slope           : 0.5
+    power           : 1.0
+Solver:
+  solver_type                   : BiCGStab
+  operator_type                 : Even_odd
+  convergence_criterion_squared : 1.0e-26
+  maximum_number_of_iteration   : 2000
+Measure:
+  channels : [PS, V1, A4_PS]
+";
 
-[gauge]
-file = "conf.txt"
-
-[solver]
-type = "bicgstab"
-even_odd = true
-tolerance_squared = 1.0e-26
-max_iterations = 2000
-
-[[quark]]
-fermion = { type = "wilson", kappa = 0.12, boundary = ["periodic", "periodic", "periodic", "antiperiodic"] }
-source = { type = "point", position = [1, 2, 3, 5] }
-
-[[quark]]
-fermion = { type = "clover", kappa = 0.11, csw = 1.2, boundary = ["periodic", "periodic", "periodic", "antiperiodic"] }
-source = { type = "exponential", position = [3, 0, 1, 5], slope = 0.5, power = 1.0 }
-
-[measure]
-channels = ["PS", "V1", "A4_PS"]
-"#;
+/// The `Main` section: the lattice, the process grid if one is asked for, the SIMD lanes.
+fn main_section(grid: Option<&str>, simd: usize) -> String {
+    let mut main = "Main:\n  lattice_size : [4, 4, 4, 8]\n".to_string();
+    if let Some(grid) = grid {
+        main += &format!("  grid_size : {grid}\n");
+    }
+    if simd > 1 {
+        main += &format!("  backend : simd\n  simd_lanes : {simd}\n");
+    }
+    main
+}
 
 /// The table lines of the program's output: (label, re, im).
 fn table(text: &str) -> Vec<(String, f64, f64)> {
@@ -57,9 +76,10 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
     std::fs::create_dir_all(&dir).unwrap();
     let whole = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf.txt"), &random_gauge(&whole, 700)).unwrap();
-    let file = dir.join("run.toml");
+    let file = dir.join("run.yaml");
 
-    let reference = run(&Config::from_toml(PARAMETERS).unwrap(), &dir).unwrap();
+    let whole_file = format!("{}{PARAMETERS}", main_section(None, 1));
+    let reference = run(&Params::from_yaml(&whole_file).unwrap().to_config(), &dir).unwrap();
     let scale = reference.correlators[0].values[5].re.abs();
     assert_eq!(reference.correlators.len(), 9);
 
@@ -71,12 +91,7 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
         (4, None, 1),
         (4, Some("[1, 1, 2, 2]"), 2),
     ] {
-        let grid_line = grid.map_or(String::new(), |g| format!("process_grid = {g}\n"));
-        let parameters = PARAMETERS.replace(
-            "max_iterations = 2000\n",
-            &format!("max_iterations = 2000\nsimd = {simd}\n"),
-        );
-        std::fs::write(&file, format!("{grid_line}{parameters}")).unwrap();
+        std::fs::write(&file, format!("{}{PARAMETERS}", main_section(grid, simd))).unwrap();
         let mut command = common::mpirun(processes);
         command.arg(env!("CARGO_BIN_EXE_ruttice-mpi"));
         let output = match command.arg(&file).output() {
@@ -117,7 +132,11 @@ fn the_program_gives_the_same_correlators_on_several_processes() {
     }
 
     // A grid that does not fit is an error from every process, not a hang.
-    std::fs::write(&file, format!("process_grid = [1, 1, 1, 4]\n{PARAMETERS}")).unwrap();
+    std::fs::write(
+        &file,
+        format!("{}{PARAMETERS}", main_section(Some("[1, 1, 1, 4]"), 1)),
+    )
+    .unwrap();
     let output = common::mpirun(2)
         .arg(env!("CARGO_BIN_EXE_ruttice-mpi"))
         .arg(&file)
