@@ -163,13 +163,20 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
     }
 }
 
-/// What `Mdwf::hop_then` does to the result of the hop at each site, in the same pass.
-#[derive(Clone, Copy)]
+/// What `Mdwf::hop_plain` does to the result of the hop at each site, in the same pass.
 struct Then<'f, T: Storage, L: Layout> {
     /// C⁻¹ (C†⁻¹ after the adjoint hop).
     site_inv: bool,
     /// Then the result is subtracted from this field.
     from: Option<&'f HalfSpinorField<T, L>>,
+}
+
+impl<T: Storage, L: Layout> Then<'_, T, L> {
+    /// The hop alone.
+    const NOTHING: Self = Then {
+        site_inv: false,
+        from: None,
+    };
 }
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
@@ -190,27 +197,31 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         }
     }
 
-    /// `out = D_pq inp` (or `(D†)_pq inp`), then `then` on each site of it while the sweep
-    /// has it in the cache: `out = [from −] [C⁻¹] D_pq inp` in one pass over the fields. For
-    /// the plain operator (α = 1).
-    fn hop_then(
+    /// `out = D_pq inp` (or `(D†)_pq inp`) of the plain operator (α = 1), then `then` on each
+    /// site of it while the sweep has it in the cache: `out = [from −] [C⁻¹] D_pq inp` in one
+    /// pass over the fields. B goes to the Wilson kernel for its input; B† after the kernel
+    /// of the adjoint is done here, before `then`.
+    fn hop_plain(
         &self,
-        work: &mut MdwfHalfWork<T, L>,
+        work: &mut WilsonWork<T>,
         out: &mut HalfSpinorField<T, L>,
         inp: &HalfSpinorField<T, L>,
         to: Parity,
         dagger: Dagger,
         then: Then<'_, T, L>,
     ) {
-        assert!(!self.has_alpha(), "with α the steps are separate passes");
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
         if let Some(from) = then.from {
             assert!(from.parity() == to && from.same_shape(out));
         }
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let constants = self.substitution(self.params.mass);
+        let fifth = self.hop_factor(dagger);
         let adjoint = dagger == Dagger::Yes;
         let after = |x: usize, o: &mut [T]| {
+            if adjoint {
+                Self::factor_in_place(&fifth, o);
+            }
             if then.site_inv {
                 for v in o.chunks_exact_mut(ls * sp) {
                     Self::site_inv_in_place(&constants, v, ls, adjoint);
@@ -222,24 +233,22 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
                 }
             }
         };
-        let fifth = self.hop_factor(dagger);
-        L::hop_fifth(
-            &self.wilson,
-            &mut work.wilson,
-            out,
-            inp,
-            to,
-            dagger,
-            fifth,
-            Some(&after),
-        );
+        // The hop alone leaves nothing to do after the kernel of M, which may then write its
+        // result past the cache.
+        let after: After<'_, T> = if adjoint || then.site_inv || then.from.is_some() {
+            Some(&after)
+        } else {
+            None
+        };
+        let before = (!adjoint).then_some(fifth);
+        L::hop_fifth(&self.wilson, work, out, inp, to, dagger, before, after);
     }
 }
 
 /// The Schur factor `1 − D_eo C_o⁻¹ D_oe C_e⁻¹` (right form) or `1 − C_e⁻¹ D_eo C_o⁻¹ D_oe`
 /// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one.
 ///
-/// What follows a hop within a site is done in the sweep of the hop (`Mdwf::hop_then`):
+/// What follows a hop within a site is done in the sweep of the hop (`Mdwf::hop_plain`):
 /// three passes over the field when C⁻¹ comes first, two when the hop does, instead of
 /// five. With α each step is a pass of its own.
 fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
@@ -264,11 +273,13 @@ fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
                 from: Some(inp),
             };
             op.diag_inv(work, e, inp, even, dagger);
-            op.hop_then(work, o2, e, odd, dagger, inverse(None));
-            op.hop_then(work, out, o2, even, dagger, subtract);
+            let kernel = &mut work.wilson;
+            op.hop_plain(kernel, o2, e, odd, dagger, inverse(None));
+            op.hop_plain(kernel, out, o2, even, dagger, subtract);
         } else {
-            op.hop_then(work, o2, inp, odd, dagger, inverse(None));
-            op.hop_then(work, out, o2, even, dagger, inverse(Some(inp)));
+            let kernel = &mut work.wilson;
+            op.hop_plain(kernel, o2, inp, odd, dagger, inverse(None));
+            op.hop_plain(kernel, out, o2, even, dagger, inverse(Some(inp)));
         }
         return;
     }
@@ -383,62 +394,26 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
         dagger: Dagger,
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
-        let fifth = self.hop_factor(dagger);
+        let kernel = &mut work.wilson;
         match dagger {
             Dagger::No => {
                 // (D Q)_pq = D_pq Q_q.
                 if self.has_alpha() {
                     let q = half_scratch(&mut work.fields, inp);
                     self.mult_q(q, inp, false);
-                    L::hop_fifth(
-                        &self.wilson,
-                        &mut work.wilson,
-                        out,
-                        q,
-                        to,
-                        dagger,
-                        fifth,
-                        None,
-                    );
+                    self.hop_plain(kernel, out, q, to, dagger, Then::NOTHING);
                 } else {
-                    L::hop_fifth(
-                        &self.wilson,
-                        &mut work.wilson,
-                        out,
-                        inp,
-                        to,
-                        dagger,
-                        fifth,
-                        None,
-                    );
+                    self.hop_plain(kernel, out, inp, to, dagger, Then::NOTHING);
                 }
             }
             Dagger::Yes => {
                 // ((D Q)†)_pq = Q_p (D†)_pq.
                 if self.has_alpha() {
                     let v = half_scratch(&mut work.fields, out);
-                    L::hop_fifth(
-                        &self.wilson,
-                        &mut work.wilson,
-                        v,
-                        inp,
-                        to,
-                        dagger,
-                        fifth,
-                        None,
-                    );
+                    self.hop_plain(kernel, v, inp, to, dagger, Then::NOTHING);
                     self.mult_q(out, v, false);
                 } else {
-                    L::hop_fifth(
-                        &self.wilson,
-                        &mut work.wilson,
-                        out,
-                        inp,
-                        to,
-                        dagger,
-                        fifth,
-                        None,
-                    );
+                    self.hop_plain(kernel, out, inp, to, dagger, Then::NOTHING);
                 }
             }
         }

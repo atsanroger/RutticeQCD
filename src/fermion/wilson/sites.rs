@@ -36,10 +36,10 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         &self.params
     }
 
-    /// The even-odd hop with a factor in the fifth dimension in the same sweep: `out =
-    /// M_(to, other) f(inp)`, or with `Dagger::Yes` `out = f(M†_(to, other) inp)`, where f is
-    /// `fifth` (with its own `dagger` set to match). One pass over the field instead of two.
-    /// `after` is then applied to every site of the result (see `After`).
+    /// The even-odd hop with what goes around it within a site in the same sweep: `out =
+    /// after(M_(to, other) before(inp))`, or `after(M†_(to, other) inp)` with `Dagger::Yes`.
+    /// `before` is a factor in the fifth dimension on the input (for M only); `after` is
+    /// applied to every site of the result (see `After`). One pass over the field.
     #[allow(clippy::too_many_arguments)]
     pub fn even_odd_hop_fifth(
         &self,
@@ -48,7 +48,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         inp: &Field<T, Spinor, Half>,
         to: Parity,
         dagger: Dagger,
-        fifth: Fifth,
+        before: Option<Fifth>,
         after: After<'_, T>,
     ) {
         let eo = self
@@ -58,15 +58,20 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
             .expect("Wilson: even-odd blocks need a lattice with even extents");
         assert_eq!(out.parity(), to, "output field has the wrong parity");
         assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
-        assert_eq!(
-            inp.copies() % fifth.ls,
-            0,
-            "the fields hold ls spinors per vector"
-        );
-        let ends = match dagger {
-            Dagger::No => (Pre::Fifth(fifth), Post::Plain),
-            Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
+        let g5 = dagger == Dagger::Yes;
+        let pre = match before {
+            Some(fifth) => {
+                assert!(!g5, "the factor goes before the kernel of M, not of M†");
+                assert_eq!(
+                    inp.copies() % fifth.ls,
+                    0,
+                    "the fields hold ls spinors per vector"
+                );
+                Pre::Fifth(fifth)
+            }
+            None => Pre::gamma5(g5),
         };
+        let ends = (pre, Post::gamma5(g5));
         self.sweep(
             work,
             &eo.to[to.index()],
@@ -411,9 +416,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let (fwd, bwd) = (Direction::Forward, Direction::Backward);
         let (out, site_len) = (out.slab_mut(0), copies * SPINOR_REALS);
-        // A factor over the spinors of a site reads them back: they stay in the cache.
-        let stream =
-            streams(out, site_len) && !matches!(post, Post::Gamma5Fifth(_)) && after.is_none();
+        // What is done to a site after the sweep reads it back: it stays in the cache.
+        let stream = streams(out, site_len) && after.is_none();
         let fence = || {
             if stream {
                 stream_fence();
@@ -450,7 +454,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                         Diagonal::Absent => SiteSpinor::zero(),
                     };
                     let mut result = diag.sub_scaled(kappa, &hops);
-                    if post.gamma5_first() {
+                    if matches!(post, Post::Gamma5) {
                         result = G::GAMMA5.apply(&result);
                     }
                     if stream {
@@ -460,13 +464,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
                     } else {
                         store_spinor::<T>(&result, o);
                     }
-                }
-                if let Post::Gamma5Fifth(f) = post {
-                    f.apply_in_place::<T::Compute, G, [T; SPINOR_REALS]>(
-                        o.as_chunks_mut::<SPINOR_REALS>().0,
-                        |x| load_spinor::<T>(x),
-                        |p, x| store_spinor::<T>(p, x),
-                    );
                 }
                 if let Some(after) = after {
                     after(x, o);

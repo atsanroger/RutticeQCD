@@ -1,4 +1,5 @@
-//! Fermion operators. One fermion per file.
+//! Fermion operators. One fermion per folder; even-odd preconditioning (`evenodd`) is
+//! written once for all of them.
 
 mod clover;
 mod evenodd;

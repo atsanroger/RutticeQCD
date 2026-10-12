@@ -139,6 +139,25 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         }
     }
 
+    /// `fifth` on the spinors of one site, `ls` per vector, in place: for the result of a
+    /// sweep of the Wilson kernel while it is in the cache. A spinor is read before it is
+    /// overwritten; the first and the last of a vector are kept for the wrap-around.
+    #[inline(always)]
+    pub(super) fn factor_in_place(fifth: &Fifth, site: &mut [T]) {
+        let (ls, sp) = (fifth.ls, SPINOR_REALS * L::LANES);
+        let at = |v: &[T], s: usize| L::load(&v[s * sp..(s + 1) * sp]);
+        for v in site.chunks_exact_mut(ls * sp) {
+            let (first, mut below) = (at(v, 0), at(v, ls - 1));
+            for s in 0..ls {
+                let here = at(v, s);
+                let above = if s + 1 < ls { at(v, s + 1) } else { first };
+                let result = fifth.apply::<L::Num, G>(s, &below, &here, &above);
+                L::store(&result, &mut v[s * sp..(s + 1) * sp]);
+                below = here;
+            }
+        }
+    }
+
     /// C⁻¹ (C†⁻¹ with `dagger`) of the plain operator on the `ls` spinors of one vector at
     /// one site, in place: for a result that is in the cache, in the pass that made it.
     ///

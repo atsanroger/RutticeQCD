@@ -317,8 +317,10 @@ enum Hop<'a, T: Storage, R: LinkRepr> {
 /// `a φ_s + y (Y φ)_s`, or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per
 /// site and vector. (Y φ)_s = −P− φ_(s+1) − P+ φ_(s−1), and a term that crosses a wall comes
 /// back times −m (see `fermion::mdwf`). Domain-wall fermions put (4 − M5)(b − c Y) before the
-/// Wilson kernel, and its adjoint after the kernel of D†; a sweep can apply it on the way
-/// (`even_odd_hop_fifth`) instead of in a pass over the field of its own.
+/// Wilson kernel, and its adjoint after the kernel of D†. A sweep applies it to its input on
+/// the way (`even_odd_hop_fifth`) instead of in a pass over the field of its own: every leg
+/// reads another site, so only the sweep can. After the kernel the factor acts on the site
+/// just written, which is the caller's to do (`After`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fifth {
     pub ls: usize,
@@ -370,28 +372,6 @@ impl Fifth {
         let hop = fifth_hop::<N, G>(s, self.ls, self.dagger, self.mass, above, below);
         result.sub_scaled(number(-self.y), &hop)
     }
-
-    /// The factor applied in place to the spinors of one site, `ls` per vector, each read
-    /// and written through `load` and `store`. A spinor is read before it is overwritten:
-    /// the first and the last of a vector are kept for the wrap-around.
-    #[inline(always)]
-    fn apply_in_place<N: Number, G: GammaRepre, X>(
-        &self,
-        spinors: &mut [X],
-        load: impl Fn(&X) -> SiteSpinor<N>,
-        store: impl Fn(&SiteSpinor<N>, &mut X),
-    ) {
-        let ls = self.ls;
-        for v in spinors.chunks_exact_mut(ls) {
-            let (first, mut below) = (load(&v[0]), load(&v[ls - 1]));
-            for s in 0..ls {
-                let here = load(&v[s]);
-                let above = if s + 1 < ls { load(&v[s + 1]) } else { first };
-                store(&self.apply::<N, G>(s, &below, &here, &above), &mut v[s]);
-                below = here;
-            }
-        }
-    }
 }
 
 /// What a sweep does to every spinor of its input before the hops.
@@ -442,8 +422,6 @@ impl Pre {
 enum Post {
     Plain,
     Gamma5,
-    /// γ5, then the factor over the spinors of each site (once all of them are there).
-    Gamma5Fifth(Fifth),
 }
 
 impl Post {
@@ -453,10 +431,6 @@ impl Post {
         } else {
             Post::Plain
         }
-    }
-
-    fn gamma5_first(self) -> bool {
-        !matches!(self, Post::Plain)
     }
 }
 

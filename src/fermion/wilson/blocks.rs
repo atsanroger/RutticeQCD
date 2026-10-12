@@ -361,20 +361,25 @@ where
         inp: &BlockField<T, Half, W>,
         to: Parity,
         dagger: Dagger,
-        fifth: Fifth,
+        before: Option<Fifth>,
         after: After<'_, T>,
     ) {
         assert_eq!(out.parity(), to, "output field has the wrong parity");
         assert_eq!(inp.parity(), to.flip(), "input field has the wrong parity");
-        assert_eq!(
-            inp.copies() % fifth.ls,
-            0,
-            "the fields hold ls spinors per vector"
-        );
-        let ends = match dagger {
-            Dagger::No => (Pre::Fifth(fifth), Post::Plain),
-            Dagger::Yes => (Pre::Gamma5, Post::Gamma5Fifth(fifth)),
+        let g5 = dagger == Dagger::Yes;
+        let pre = match before {
+            Some(fifth) => {
+                assert!(!g5, "the factor goes before the kernel of M, not of M†");
+                assert_eq!(
+                    inp.copies() % fifth.ls,
+                    0,
+                    "the fields hold ls spinors per vector"
+                );
+                Pre::Fifth(fifth)
+            }
+            None => Pre::gamma5(g5),
         };
+        let ends = (pre, Post::gamma5(g5));
         let geo = self.parity_geometry(to);
         self.block_sweep(work, geo, out, inp, Diagonal::Absent, ends, after);
     }
@@ -593,9 +598,8 @@ where
         let spinors = block_spinors(inp);
         let exchange = self.start_block_exchange(work, geo, inp, pre);
         let (out, block_len) = (out.slab_mut(0), copies * SPINOR_REALS * W);
-        // A factor over the spinors of a block reads them back: they stay in the cache.
-        let stream =
-            streams(out, block_len) && !matches!(post, Post::Gamma5Fifth(_)) && after.is_none();
+        // What is done to a block after the sweep reads it back: it stays in the cache.
+        let stream = streams(out, block_len) && after.is_none();
         let fence = || {
             if stream {
                 stream_fence();
@@ -626,7 +630,7 @@ where
                         Diagonal::Absent => SiteSpinor::zero(),
                     };
                     let mut result = diag.sub_scaled(kappa, &hops);
-                    if post.gamma5_first() {
+                    if matches!(post, Post::Gamma5) {
                         result = G::GAMMA5.apply(&result);
                     }
                     if stream {
@@ -636,13 +640,6 @@ where
                     } else {
                         store_block_spinor::<T, W>(&result, o);
                     }
-                }
-                if let Post::Gamma5Fifth(f) = post {
-                    f.apply_in_place::<LaneType<T, W>, G, BlockSpinor<T, W>>(
-                        o,
-                        |x| load_block_spinor::<T, W>(x),
-                        |p, x| store_block_spinor::<T, W>(p, x),
-                    );
                 }
                 if let Some(after) = after {
                     after(block, values);
