@@ -73,8 +73,23 @@ Start from an example; each one is commented.
 | [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
 | [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavours of clover fermions (RHMC) |
 
-[docs/USAGE.md](docs/USAGE.md) has the rest: every section of the file, SIMD, several
-processes (MPI), generating configurations, the formats of gauge files.
+[docs/USAGE.md](docs/USAGE.md) has every section of the file.
+
+### Backends
+
+| Backend | How |
+|---|---|
+| CPU threads | the default; `RAYON_NUM_THREADS` sets how many |
+| SIMD | in the file: `Main: {backend: simd, simd_lanes: 4}` (2, 4 or 8 sites per register); build with `target-cpu=native` |
+| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid |
+| GPU | planned |
+
+```bash
+cargo build --release --features mpi        # needs an MPI installation and libclang
+mpirun -np 4 target/release/ruttice-mpi run/wilson_pion.yaml
+```
+
+The backends combine: SIMD blocks inside each MPI process, threads over both.
 
 ### Which solver
 
@@ -83,15 +98,14 @@ processes (MPI), generating configurations, the formats of gauge files.
 | Wilson, clover | CG, BiCGStab, FGMRES; on all sites (`Lexical`) or on the even sites (`Even_odd`) | multigrid |
 | Möbius domain-wall | GCR, BiCGStab, FGMRES, CG; always on the even sites | multigrid, Chebyshev polynomial |
 
-The fastest on the lattices tried so far (up to 16⁴, one machine, few configurations):
+What to choose:
 
 | Fermions | Lattice | Fastest |
 |---|---|---|
-| Wilson, clover | small | `CG` on `Even_odd`. The multigrid cuts the iterations (157 → 8) but costs more than it saves at this size. |
+| Wilson, clover | small | `CG` on `Even_odd` |
+| Wilson, clover | large | `FGMRES` or `BiCGStab` with the multigrid |
 | Domain-wall | up to 12⁴ | `CG` on `Normal_left` with `neff_alpha : 0.6` |
-| Domain-wall | 16⁴ | `GCR` or `FGMRES` with the multigrid: half the operator applications of the solve without it |
-
-Larger lattices, where a multigrid has the most to gain, have not been measured yet.
+| Domain-wall | 16⁴ and larger | `GCR` or `FGMRES` with the multigrid |
 
 ### The domain-wall multigrid
 
