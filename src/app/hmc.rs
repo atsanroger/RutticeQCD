@@ -207,7 +207,7 @@ pub struct HmcOutput {
     #[serde(default)]
     pub save_every: Option<usize>,
     /// The file name, `{n}` replaced by the trajectory number; relative to the parameter
-    /// file's directory.
+    /// file's directory. On several processes rank 0 writes it.
     #[serde(default)]
     pub file: Option<String>,
     #[serde(default)]
@@ -517,11 +517,6 @@ pub fn run_on(
     let grid = super::grid_for(config.lattice, config.process_grid, comm.size())?;
     let lat = Lattice::new(config.lattice, grid, comm);
     let root = lat.comm.rank() == 0;
-    if config.output.save_every.is_some() && lat.comm.size() > 1 {
-        return invalid(
-            "output: writing configurations on several processes is not implemented yet".into(),
-        );
-    }
     let mut u = match &config.start {
         StartConfig::File { file, format } => gauge_format(*format)?
             .read(&base.join(file), &lat)
@@ -593,6 +588,7 @@ pub fn run_on(
         if let (Some(every), Some(file)) = (config.output.save_every, &config.output.file) {
             if (k + 1) % every == 0 || k + 1 == config.hmc.trajectories {
                 let path = base.join(file.replace("{n}", &format!("{n:06}")));
+                // Every process takes part; rank 0 writes the file.
                 gauge_format(config.output.format)?
                     .write(&path, &u)
                     .map_err(CliError::Gauge)?;
