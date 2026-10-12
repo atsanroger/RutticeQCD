@@ -186,7 +186,7 @@ N = 32 個測試向量、4⁴ 區塊、Chebyshev 5/30、粗網格到 1e-2、Ã �
 | 10-09 | 給在 `main` 上工作的 session（分工；不按日期，在 Boyle 投影片之後） |
 | 10-11 | 「2026-10-11：當時的結論與最好的設定」；「2026-10-11：接下來、多層 V-cycle、記憶體、setup 成本、外層解法、搬進 `src/`、α」（原第 0.3、0.4 節） |
 | 10-11 夜–10-12 | 「三種費米子的功能補齊、資料夾拆分」（原第 0.0 節：粗網格下的層、`[2, 2]` 與 bootstrap 基底、`inner`、SIMD） |
-| 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」、「`fermion/` 的檔名統一」 |
+| 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」、「`fermion/` 的檔名統一」、「v0.1.0 的準備」 |
 
 ---
 
@@ -1682,3 +1682,19 @@ Wilson/clover 的 cycle 開了之後外層 15 步（不開 15 步）；MDWF 的�
 Wilson 沒有 `quark_4d.rs`：它的解本來就是四維的，量測在 `crate::measure`，domain-wall 轉成四維後用的也是那一份。
 只搬不改，對外名稱不變；232 個測試通過，`mdwf_layout_bench`、`ruttice-bench` 前後相同。其他資料夾的命名還沒動（等使用者決定）。
 （之後，使用者：`full.rs` 改叫 `lexical.rs`，和參數檔的 Lexical／Even_odd 對應。上表的 `full.rs` 現在是 `lexical.rs`。）
+
+## 2026-10-12（夜）：v0.1.0 的準備（main = `d72be0c`，tag 還沒打）
+
+- **三個本機分支搬上 main**：`multi-process-save`（多 process 寫組態）、`rhmc`（Remez、multi-shift CG、有理作用量）、`hmc-eo`（even-odd 的兩味作用量、chronological 猜測；
+  原本是沒 commit 的修改，確認測試全過後替它 commit）。cherry-pick 到工作分支，歷史一直線；原分支沒動。全部測試 257 個。
+- **改名的第二批**：`gauge/smearing`、`hmc/gauge_action`／`fermion_action`、`multigrid/wilson`／`mdwf_lexical`／`mdwf_even_odd`、`lattice/for_sites`（`shift` 在 `stencil`）、
+  型別 `Full` → `Lexical`、`fermion/*/full.rs` → `lexical.rs`、測試去掉 `stage` 編號。名稱對照在第 0 節。
+- **參數檔只留 Bridge++ 風格**（使用者：求解先統一，HMC 下一版）。舊格式（`lattice`、`[solver]`、`[[quark]]`）不再讀；它有而 Bridge++ 風格沒有的補進去了：
+  `Quark_2`…`Quark_4`、`GaugeFixing`、`Measure`、`Output`、`Exponential` 源、Dirichlet 邊界（`boundary_condition` 的 0）、`SciDAC`／`HDF5`、
+  MG 的 `Smoother.pre_smoothing` 與 `MultiGrid_Level1.precondition_diagonal`。`Config` 留著當 Wilson/clover 執行的內部描述（`Params::to_config`）。
+  Wilson/clover 的執行流程搬到 `app/wilson.rs`。**HMC 的參數檔仍是自己的格式**，下一版改成 Bridge++ 的 `HMC_General`。
+- **examples**：26 個研究用的程式移出 main，在 tag `mdwf-mg-studies`。`examples/wilson_pion.toml` 改成 `wilson_pion.yaml`。
+- **README 重寫**（介紹、用法、架構、致謝）、`CHANGELOG.md`、版本號 0.1.0。GPU 寫成計畫（先包 Bridge++ 的 CUDA core，Rust CUDA 正式後加純 Rust 後端），因為現在沒有 GPU 程式。
+- **沒驗證的**：`--features mpi` 在這台機器編不起來（bindgen 找不到 libclang），所以 `tests/mpi_program.rs`、`tests/mpirun.rs` 沒跑；改過的 `mpi_program.rs` 只做了型別檢查。
+  多 process 的正確性由 `LocalComm`（執行緒代替 process）的測試涵蓋。
+- **留著的本機檔**：`run/banner_line_emoji.txt`（LINE 繪文字的字元畫；有著作權，不放 repo）。
