@@ -1,23 +1,29 @@
 //! Möbius domain-wall solves on the GPU (`Main.backend : cuda_bridge`): the Pauli-Villars
 //! preconditioned operator on the even sites and the outer solver on the device, without or
-//! with the Chebyshev preconditioner or the multigrid. The cycle of the multigrid is on the
-//! device, and so are the filter and the solves of its setup and the coarse operators; the
-//! basis, and the inverses of the blocks of the coarse operators, are made on the CPU. With levels below the coarse lattice, or another solver of
-//! the second factor than MINRES, the coarse correction is that of the CPU (`mdwf`), the
-//! residual and the correction crossing over in every cycle.
-//! The five-dimensional source, the residual of the solution
-//! (by the operator on the whole lattice, not the one that was solved) and its four-dimensional
-//! fields are made on the device as well: the CPU has the four-dimensional source, the random
-//! right-hand sides and the contractions.
+//! with the Chebyshev preconditioner or the multigrid.
+//!
+//! The multigrid is on the device: the filter of its test vectors and their bootstrap, the
+//! prolongation, the coarse operators, and the cycle with its coarse solves. The inverses of
+//! the blocks of the coarse operators are made on the CPU. With levels below the coarse
+//! lattice, or another solver of the second factor than MINRES, the basis, the coarse
+//! operators and the coarse correction are those of the CPU (`mdwf`), the residual and the
+//! correction crossing over in every cycle.
+//!
+//! The five-dimensional source, the residual of the solution (by the operator on the whole
+//! lattice, not the one that was solved) and its four-dimensional fields are made on the
+//! device as well: the CPU has the four-dimensional source, the random right-hand sides and
+//! the contractions.
 
 use super::mdwf::{iterations_text, load, multigrid_cycle, write_measurements};
 use super::memory_line;
 use super::params::{Params, PrecisionType, PreconditionerType, SolverType};
-use crate::backend::cuda_bridge::{CudaMdwf, DeviceCorrection, DeviceParities, DeviceSpinor};
+use crate::backend::cuda_bridge::{
+    CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor,
+};
 use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity, Variant};
 use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_round, low_modes, pv_eo_basis, pv_eo_start, Aggregation, PvEoBasis, PvEoCycle,
+    bootstrap_round, low_modes, pv_eo_basis, random_even, Aggregation, PvEoBasis, PvEoCycle,
     TwoGrid,
 };
 use crate::solver::{
@@ -35,6 +41,9 @@ use std::time::Instant;
 
 type F = Field<f64, Spinor>;
 type H = Field<f64, Spinor, Half>;
+
+/// (D, the second factor): the operators a multigrid is built from, or is for.
+type Pair<'a, Op> = (&'a Op, &'a Op);
 
 /// A coarse correction of the CPU as one on the device: the residual to the CPU, its
 /// correction back.
@@ -69,39 +78,37 @@ fn top_of<A: LinearFn<DeviceSpinor>>(
     Ok(1.1 * largest_magnitude(a, &mut start, steps))
 }
 
-/// The vectors on the even sites the multigrid is built from, with the basis on them
-/// (`mdwf::multigrid_basis`): from a checkpoint, or filtered here, and improved by the
-/// bootstrap if the file asks. The applications of the operator are on the device, with the
-/// plain operators `device` of the ones on the CPU `cpu`; the bases and the coarse
-/// corrections of the bootstrap are made on the CPU.
+/// The vectors on the even sites the multigrid is built from: from a checkpoint, or filtered
+/// here, and improved by the bootstrap if the file asks. The multigrid of the bootstrap is on
+/// the device, with the plain operators `device`, unless its settings are on the CPU only:
+/// then its basis and its coarse correction are made with the operators `cpu`.
 #[allow(clippy::too_many_arguments)]
-fn device_basis(
+fn test_vectors(
     params: &Params,
     file: &Path,
     lat: &Arc<Lattice>,
-    (d, pv): (&Mdwf<f64>, &Mdwf<f64>),
-    (device_d, device_pv): (&CudaMdwf, &CudaMdwf),
+    cpu: Option<Pair<'_, Mdwf<f64>>>,
+    device: Pair<'_, CudaMdwf>,
     (even, odd): (&DeviceSpinor, &DeviceSpinor),
+    index: &EvenOddIndex,
     start: Instant,
     out: &mut dyn Write,
-) -> Result<(PvEoBasis, H), Box<dyn Error>> {
+) -> Result<DeviceSpinor, Box<dyn Error>> {
     let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
     let (_, low, boot) = params.multigrid().ok_or("no multigrid")?;
-    let index = d
-        .even_odd_index()
-        .ok_or("no even-odd decomposition")?
-        .clone();
+    let ls = even.ls();
     let keep = mg.level1.test_vectors(true) / 2;
-    let ratio = || PvRatio::new(device_d, device_pv, EoForm::Right, even, odd);
+    let ratio = || PvRatio::new(device.0, device.1, EoForm::Right, even, odd);
     let mut y = match &mg.setup.checkpoint {
         Some(path) => {
-            let mut like = H::with_shape(lat, 24, d.params().ls, 1, 1);
+            let mut like = H::with_shape(lat, 24, ls, 1, 1);
             like.set_parity(Parity::Even);
             let path = file.parent().map_or(path.clone(), |dir| dir.join(path));
-            DeviceSpinor::from_host_half(&load(&path, &like, keep)?, &index)?
+            DeviceSpinor::from_host_half(&load(&path, &like, keep)?, index)?
         }
         None => {
-            let x = DeviceSpinor::from_host_half(&pv_eo_start(d, lat, low), &index)?;
+            let random = random_even(lat, index, ls, low.vectors, low.seed);
+            let x = DeviceSpinor::from_host_half(&random, index)?;
             let (x, theta) = low_modes(|c: &DeviceSpinor| Normal::new(ratio(), c), x, low);
             writeln!(
                 out,
@@ -115,12 +122,11 @@ fn device_basis(
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
     for _ in 0..boot.rounds {
-        let basis = pv_eo_basis(d, pv, &agg, &y.to_host_half(&index)?)?;
-        let device = (device_d, device_pv);
-        let (mut on_device, mut cpu_cycle) = (None, None);
+        // The cycle on the current vectors: on the device, or its coarse part on the CPU.
+        let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
         if DeviceCorrection::<f32>::supports(&boot.cycle) {
             on_device = Some(DeviceCorrection::<f32>::new(
-                &basis,
+                DeviceBasis::pv_eo(device.0, device.1, &agg, &y)?,
                 device,
                 device,
                 EoForm::Right,
@@ -128,13 +134,10 @@ fn device_basis(
                 even,
             )?);
         } else {
-            cpu_cycle = Some(PvEoCycle::new(
-                d,
-                pv,
-                (d, pv, EoForm::Right),
-                &basis,
-                boot.cycle,
-            )?);
+            let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
+            let basis = cpu_basis.insert(pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?);
+            let outer = (d, pv, EoForm::Right);
+            cpu_cycle = Some(PvEoCycle::new(d, pv, outer, basis, boot.cycle)?);
         }
         let hi = match &cpu_cycle {
             Some(cycle) => cycle.top(),
@@ -155,14 +158,13 @@ fn device_basis(
         );
         let correction: Correction = match (on_device.as_mut(), cpu_cycle.as_mut()) {
             (Some(c), _) => Box::new(|e, r| c.correct(e, r)),
-            (None, Some(cycle)) => Box::new(on_cpu(&index, |e, r| cycle.coarse_correction(e, r))),
+            (None, Some(cycle)) => Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r))),
             (None, None) => unreachable!("one of them was made"),
         };
         let mut two_grid = TwoGrid::new(smoother, correction, even);
         bootstrap_round(&mut ratio(), &mut two_grid, &mut y, boot.steps);
     }
-    let y = y.to_host_half(&index)?;
-    Ok((pv_eo_basis(d, pv, &agg, &y)?, y))
+    Ok(y)
 }
 
 /// A random field with `ls` spinors per site.
@@ -189,8 +191,9 @@ pub(super) fn run(
         op.set_alpha(alpha);
         Ok(op)
     };
+    let m_pv = fo.quark_mass_pauli_villars;
     let op = make(fo.mass(), fo.neff_alpha)?;
-    let pv_alpha = make(fo.quark_mass_pauli_villars, fo.neff_alpha_pauli_villars)?;
+    let pv_alpha = make(m_pv, fo.neff_alpha_pauli_villars)?;
     // The normal equations are the operator with D in place of D_PV.
     let (form, normal) = params.form();
     let pv = if normal { &op } else { &pv_alpha };
@@ -199,16 +202,38 @@ pub(super) fn run(
     let operator = || PvRatio::new(&op, pv, form, &even, &odd);
     let s = &params.solver;
     let start = Instant::now();
-    // The multigrid of the CPU, for its setup and its coarse correction: the plain operators
-    // it is built from, and those of the operator that is solved.
-    let cpu_ops = if s.preconditioner_type == PreconditionerType::Multigrid {
+
+    // The multigrid. Its settings, and whether its coarse correction is on the device: not
+    // with levels below the coarse lattice, nor with another solver of the second factor
+    // than MINRES, which are on the CPU only.
+    let settings = match (params.multigrid(), &params.multigrid) {
+        (Some((cycle, _, boot)), Some(mg)) => Some((cycle, boot, mg)),
+        _ => None,
+    };
+    let on_device = settings.is_some_and(|(cycle, _, mg)| {
+        mg.super_blocks().is_empty() && DeviceCorrection::<f32>::supports(&cycle)
+    });
+    // The plain operators it is built from, on the device ...
+    let plain = match settings {
+        Some(_) => Some(make(fo.mass(), 1.0)?),
+        None => None,
+    };
+    let plain_pv = match settings {
+        Some(_) if !normal => Some(make(m_pv, 1.0)?),
+        _ => None,
+    };
+    let device_plain = plain.as_ref().map(|d| (d, plain_pv.as_ref().unwrap_or(d)));
+    // ... and, for what of it is on the CPU, there: D and D_PV, plain and with α.
+    let on_cpu_too = settings.is_some_and(|(_, boot, _)| {
+        !on_device || (boot.rounds > 0 && !DeviceCorrection::<f32>::supports(&boot.cycle))
+    });
+    let cpu_ops = if on_cpu_too {
         let cpu = |mass: f64, alpha: f64| -> Result<Mdwf<f64>, Box<dyn Error>> {
             let mut op = Mdwf::<f64>::new(lat, params.mdwf_params(mass));
             op.set_gauge(u)?;
             op.set_alpha(alpha);
             Ok(op)
         };
-        let m_pv = fo.quark_mass_pauli_villars;
         Some([
             cpu(fo.mass(), 1.0)?,
             cpu(m_pv, 1.0)?,
@@ -218,7 +243,7 @@ pub(super) fn run(
     } else {
         None
     };
-    // (D, D_PV) plain and with α; the normal equations have D in place of D_PV.
+    // The normal equations have D in place of D_PV.
     let cpu_pairs = cpu_ops.as_ref().map(|[d, pv, d_a, pv_a]| {
         if normal {
             ((d, d), (d_a, d_a))
@@ -226,44 +251,33 @@ pub(super) fn run(
             ((d, pv), (d_a, pv_a))
         }
     });
-    // The plain operators on the device, for the setup and the coarse correction.
-    let plain = match cpu_ops {
-        Some(_) => Some(make(fo.mass(), 1.0)?),
-        None => None,
-    };
-    let plain_pv = match cpu_ops {
-        Some(_) if !normal => Some(make(fo.quark_mass_pauli_villars, 1.0)?),
-        _ => None,
-    };
-    let device_plain = plain.as_ref().map(|d| (d, plain_pv.as_ref().unwrap_or(d)));
-    let basis = match (cpu_pairs, device_plain) {
-        (Some((cpu, _)), Some(device)) => Some(device_basis(
+    let index = EvenOddIndex::new(lat);
+    let y = match device_plain {
+        Some(device) => Some(test_vectors(
             params,
             file,
             lat,
-            cpu,
+            cpu_pairs.map(|(plain, _)| plain),
             device,
             (&even, &odd),
+            &index,
             start,
             out,
         )?),
+        None => None,
+    };
+    // The basis and the cycle of the CPU, where the coarse correction is its.
+    let cpu_basis: Option<(PvEoBasis, H)> = match (&y, settings, cpu_pairs) {
+        (Some(y), Some((_, _, mg)), Some(((d, pv), _))) if !on_device => {
+            let agg = Aggregation::new(lat, mg.level1.block_size);
+            let y = y.to_host_half(&index)?;
+            Some((pv_eo_basis(d, pv, &agg, &y)?, y))
+        }
         _ => None,
     };
-    let index = cpu_ops
-        .as_ref()
-        .and_then(|ops| ops[0].even_odd_index().cloned());
-    let settings = params.multigrid();
-    // The coarse correction is on the device unless the file asks for what is on the CPU only:
-    // levels below the coarse lattice, or another solver of the second factor than MINRES.
-    let on_device = match (&settings, &params.multigrid) {
-        (Some((cycle_params, _, _)), Some(mg)) => {
-            mg.super_blocks().is_empty() && DeviceCorrection::<f32>::supports(cycle_params)
-        }
-        _ => false,
-    };
-    let mut cpu_cycle = match (cpu_pairs, &basis, settings) {
-        (Some((plain, (d_a, pv_a))), Some(basis), Some((cycle_params, _, _))) if !on_device => {
-            let cycle = multigrid_cycle::<Aos>(
+    let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
+        (Some(basis), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
+            multigrid_cycle::<Aos>(
                 params,
                 lat,
                 plain,
@@ -273,9 +287,8 @@ pub(super) fn run(
                 cycle_params,
                 out,
             )?
-            .0;
-            Some(cycle)
-        }
+            .0,
+        ),
         _ => None,
     };
     let mut pre: Option<Box<dyn LinearFn<DeviceSpinor> + '_>> = match s.preconditioner_type {
@@ -292,7 +305,7 @@ pub(super) fn run(
         }
         PreconditionerType::None => None,
         PreconditionerType::Multigrid => {
-            let (cycle_params, _, _) = settings.ok_or("no multigrid")?;
+            let (cycle_params, _, mg) = settings.ok_or("no multigrid")?;
             let hi = match &cpu_cycle {
                 Some(cycle) => cycle.top(),
                 None => top_of(
@@ -311,15 +324,13 @@ pub(super) fn run(
                 &even,
             );
             let correction: Correction = match cpu_cycle.as_mut() {
-                Some(cycle) => {
-                    let index = index.as_deref().ok_or("no even-odd decomposition")?;
-                    Box::new(on_cpu(index, move |e, r| cycle.coarse_correction(e, r)))
-                }
+                Some(cycle) => Box::new(on_cpu(&index, move |e, r| cycle.coarse_correction(e, r))),
                 None => {
-                    let (Some((basis, _)), Some(device)) = (&basis, device_plain) else {
+                    let (Some(y), Some(device)) = (&y, device_plain) else {
                         return Err("the multigrid was not set up".into());
                     };
-                    let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
+                    let agg = Aggregation::new(lat, mg.level1.block_size);
+                    let basis = DeviceBasis::pv_eo(device.0, device.1, &agg, y)?;
                     let outer = (&op, pv);
                     match mg.coarse_precision {
                         PrecisionType::Single => {
@@ -350,6 +361,7 @@ pub(super) fn run(
             Some(Box::new(TwoGrid::new(smoother, correction, &even)))
         }
     };
+    drop(y);
     writeln!(
         out,
         "  setup on the device: {:.0} s; {}",
