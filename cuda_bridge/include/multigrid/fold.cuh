@@ -47,11 +47,14 @@ __host__ __device__ __forceinline__ size_t coarse_reals(int n_coarse, int dim) {
     return (static_cast<size_t>(n_coarse) * dim + WarpSize - 1) / WarpSize * 2 * WarpSize;
 }
 
+// Reading P is most of what the two kernels below cost: a thread reads its part of P once
+// for up to FoldVectors vectors of the fields, blockIdx.y the group of vectors.
+constexpr int FoldVectors = 8;
+
 // -------------------------------------------------------------------------
-// coarse = P^dag fine. A thread for each (coarse site, component); blockIdx.y the vector.
-// All of P is read, which is most of the time this takes; a field of g.leg takes the sites
-// it is not zero on.
+// coarse = P^dag fine. A thread for each (coarse site, component).
 // d_sites: the block_volume sites (of the whole lattice) of every coarse site.
+// A field of g.leg takes the sites it is not zero on.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void fold_restrict_kernel(
@@ -59,7 +62,7 @@ __global__ void fold_restrict_kernel(
     const Float* __restrict__ d_fine,
     const float* __restrict__ d_p,
     const unsigned* __restrict__ d_sites,
-    int n_coarse, int block_volume, int n,
+    int n_coarse, int block_volume, int n, int vectors,
     FoldGeometry g)
 {
     const int dim = 2 * n;
@@ -69,10 +72,18 @@ __global__ void fold_restrict_kernel(
     const int Ls = g.Ls, kept = 12 * Ls;
     const bool half = (g.parity >= 0);
     const int sites = (half ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
-    const Float* fine = d_fine + blockIdx.y * vector_reals(sites, Ls);
+    const int first = blockIdx.y * FoldVectors;
+    const int count = (vectors - first < FoldVectors) ? vectors - first : FoldVectors;
+    const size_t fine_reals = vector_reals(sites, Ls);
+    const Float* fine = d_fine + first * fine_reals;
     const Float chirality = (c == 0) ? static_cast<Float>(1.0) : static_cast<Float>(-1.0);
 
-    Float zr = 0, zi = 0;
+    Float zr[FoldVectors], zi[FoldVectors];
+    #pragma unroll
+    for (int v = 0; v < FoldVectors; ++v) {
+        zr[v] = 0;
+        zi[v] = 0;
+    }
     for (int j = 0; j < block_volume; ++j) {
         const int x = d_sites[static_cast<size_t>(X) * block_volume + j];
         int at = x;
@@ -95,28 +106,35 @@ __global__ void fold_restrict_kernel(
                 const Float sign = chirality * g.sign[a];
                 #pragma unroll
                 for (int colour = 0; colour < Nc; ++colour) {
-                    // f_s + or - gamma_5 f_(Ls-1-s)
-                    const Float fr = fine[aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at)]
-                        + sign * fine[aosoa_5d_spinor_idx(colour, g.col[a], 0, Ls - 1 - s, Ls, at)];
-                    const Float fi = fine[aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at)]
-                        + sign * fine[aosoa_5d_spinor_idx(colour, g.col[a], 1, Ls - 1 - s, Ls, at)];
                     const int e = 24 * s + 2 * (colour + Nc * a);
                     const Float br = b[e], bi = b[e + 1];
-                    zr += br * fr + bi * fi;
-                    zi += br * fi - bi * fr;
+                    const int near_r = aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at);
+                    const int near_i = aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at);
+                    const int far_r = aosoa_5d_spinor_idx(colour, g.col[a], 0, Ls - 1 - s, Ls, at);
+                    const int far_i = aosoa_5d_spinor_idx(colour, g.col[a], 1, Ls - 1 - s, Ls, at);
+                    for (int v = 0; v < count; ++v) {
+                        // f_s + or - gamma_5 f_(Ls-1-s)
+                        const Float* f = fine + v * fine_reals;
+                        const Float fr = f[near_r] + sign * f[far_r];
+                        const Float fi = f[near_i] + sign * f[far_i];
+                        zr[v] += br * fr + bi * fi;
+                        zi[v] += br * fi - bi * fr;
+                    }
                 }
             }
         }
     }
-    Float* coarse = d_coarse + blockIdx.y * coarse_reals(n_coarse, dim);
     const size_t q = coarse_index(static_cast<size_t>(X) * dim + k);
-    coarse[q] = zr;
-    coarse[q + WarpSize] = zi;
+    for (int v = 0; v < count; ++v) {
+        Float* coarse = d_coarse + (first + v) * coarse_reals(n_coarse, dim);
+        coarse[q] = zr[v];
+        coarse[q + WarpSize] = zi[v];
+    }
 }
 
 // -------------------------------------------------------------------------
 // fine = P coarse. A thread for each (fine site, s < Ls/2, spin, colour), which writes the
-// spinor at s and its mirror at Ls - 1 - s; blockIdx.y the vector.
+// spinor at s and its mirror at Ls - 1 - s.
 // d_coarse_of: the coarse site of every site of the whole lattice.
 // -------------------------------------------------------------------------
 template <typename Float>
@@ -125,7 +143,7 @@ __global__ void fold_prolong_kernel(
     const Float* __restrict__ d_coarse,
     const float* __restrict__ d_p,
     const unsigned* __restrict__ d_coarse_of,
-    int n_coarse, int n,
+    int n_coarse, int n, int vectors,
     FoldGeometry g)
 {
     const int dim = 2 * n;
@@ -141,28 +159,33 @@ __global__ void fold_prolong_kernel(
         half_site_to_coords(at, g.parity, xc, g.nx, g.ny, g.nz);
         x = coords_to_site(xc[0], xc[1], xc[2], xc[3], g.nx, g.ny, g.nz, g.nt);
     }
-    const Float* coarse = d_coarse + blockIdx.y * coarse_reals(n_coarse, dim);
+    const int first_vector = blockIdx.y * FoldVectors;
+    const int count = (vectors - first_vector < FoldVectors) ? vectors - first_vector : FoldVectors;
+    const size_t reals = coarse_reals(n_coarse, dim);
+    const Float* coarse = d_coarse + first_vector * reals;
     const size_t first = static_cast<size_t>(d_coarse_of[x]) * dim;
 
     // a_c = sum_i coefficient(c, i) b(i, c), for the two chiralities.
-    Float ar[2], ai[2];
+    Float ar[2][FoldVectors], ai[2][FoldVectors];
     #pragma unroll
     for (int c = 0; c < 2; ++c) {
-        ar[c] = 0;
-        ai[c] = 0;
+        #pragma unroll
+        for (int v = 0; v < FoldVectors; ++v) {
+            ar[c][v] = 0;
+            ai[c][v] = 0;
+        }
         for (int i = 0; i < n; ++i) {
             const size_t q = coarse_index(first + c * n + i);
-            const Float cr = coarse[q], ci = coarse[q + WarpSize];
             const float* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e;
             const Float br = b[0], bi = b[1];
-            ar[c] += cr * br - ci * bi;
-            ai[c] += cr * bi + ci * br;
+            for (int v = 0; v < count; ++v) {
+                const Float cr = coarse[v * reals + q], ci = coarse[v * reals + q + WarpSize];
+                ar[c][v] += cr * br - ci * bi;
+                ai[c][v] += cr * bi + ci * br;
+            }
         }
     }
     const int s = e / 12, a = (e % 12) / Nc, colour = e % Nc;
-    Float* fine = d_fine + blockIdx.y * vector_reals(sites, Ls);
-    fine[aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at)] = ar[0] + ar[1];
-    fine[aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at)] = ai[0] + ai[1];
     // The mirror: gamma_5 (a_+ - a_-), whose row `to` takes this spin.
     int to = 0;
     #pragma unroll
@@ -170,8 +193,13 @@ __global__ void fold_prolong_kernel(
         if (g.col[row] == a) to = row;
     }
     const Float sign = g.sign[to];
-    fine[aosoa_5d_spinor_idx(colour, to, 0, Ls - 1 - s, Ls, at)] = sign * (ar[0] - ar[1]);
-    fine[aosoa_5d_spinor_idx(colour, to, 1, Ls - 1 - s, Ls, at)] = sign * (ai[0] - ai[1]);
+    for (int v = 0; v < count; ++v) {
+        Float* fine = d_fine + (first_vector + v) * vector_reals(sites, Ls);
+        fine[aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at)] = ar[0][v] + ar[1][v];
+        fine[aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at)] = ai[0][v] + ai[1][v];
+        fine[aosoa_5d_spinor_idx(colour, to, 0, Ls - 1 - s, Ls, at)] = sign * (ar[0][v] - ar[1][v]);
+        fine[aosoa_5d_spinor_idx(colour, to, 1, Ls - 1 - s, Ls, at)] = sign * (ai[0][v] - ai[1][v]);
+    }
 }
 
 // -------------------------------------------------------------------------

@@ -546,6 +546,11 @@ void bridge_cuda_blas_scal_f64(double* x, const double* a, int n, int vectors, c
 void bridge_cuda_blas_caxpy_f64(double* y, const double* x, const double* a, int n, int vectors, cudaStream_t stream);
 void bridge_cuda_blas_caypx_f64(double* y, const double* x, const double* a, int n, int vectors, cudaStream_t stream);
 
+// x_j <- sum_i x_i c[i vectors + j] for the vectors of a set of n reals each, in place; c on the
+// device, (re, im), row-major. At most 32 vectors.
+void bridge_cuda_blas_rotate_f32(float* x, const double* c, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_rotate_f64(double* x, const double* c, int n, int vectors, cudaStream_t stream);
+
 // |x_v|^2 and <x_v|y_v> = sum conj(x_v) y_v for `vectors` vectors of n reals one after the other.
 // The sums of the CUDA blocks of all of them are fetched together and summed on the host in a
 // fixed order: deterministic, and one wait for the device.

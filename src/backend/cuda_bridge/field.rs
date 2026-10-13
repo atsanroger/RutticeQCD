@@ -241,10 +241,13 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
 }
 
 impl<T: DeviceReal> crate::Subspace for DeviceSpinor<T> {
-    /// By sums of the vectors into a second set (no kernel of its own).
+    /// In place; for more vectors than the kernel takes, by sums into a second set.
     fn rotate(&mut self, c: &[C64]) {
         let n = self.vectors;
         assert_eq!(c.len(), n * n);
+        if n <= columns::ROTATE_VECTORS {
+            return columns::rotate(&self.data, n, c);
+        }
         let mut out = self.zeros_like();
         for i in 0..n {
             out.axpy(&c[i * n..(i + 1) * n], &self.select(&vec![i; n]));

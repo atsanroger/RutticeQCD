@@ -188,6 +188,14 @@ void bridge_cuda_blas_caypx_f64(double* y, const double* x, const double* a, int
     }
 }
 
+void bridge_cuda_blas_rotate_f32(float* x, const double* c, int n, int vectors, cudaStream_t stream) {
+    bridge_cuda::blas_rotate_kernel<float><<<get_grid_size(n / 2), BLOCK_SIZE, 0, stream>>>(x, c, n / 2, vectors);
+}
+
+void bridge_cuda_blas_rotate_f64(double* x, const double* c, int n, int vectors, cudaStream_t stream) {
+    bridge_cuda::blas_rotate_kernel<double><<<get_grid_size(n / 2), BLOCK_SIZE, 0, stream>>>(x, c, n / 2, vectors);
+}
+
 void bridge_cuda_cast_f64_to_f32(float* dst, const double* src, int total_elements, cudaStream_t stream) {
     int grid = get_grid_size(total_elements);
     bridge_cuda::cast_f64_to_f32_kernel<<<grid, BLOCK_SIZE, 0, stream>>>(dst, src, total_elements);

@@ -4,6 +4,11 @@
 namespace {
     constexpr int BLOCK_SIZE = 256;
 
+    // The groups of vectors the kernels of P take.
+    inline int groups(int vectors) {
+        return (vectors + bridge_cuda::FoldVectors - 1) / bridge_cuda::FoldVectors;
+    }
+
     // dims: the extents of the fine lattice; gamma: col[4] and sign[4] of gamma_5.
     inline bridge_cuda::FoldGeometry geometry(
         const int* dims, int Ls, int parity, const int* gamma, int leg = -1, const int* block = nullptr)
@@ -29,9 +34,9 @@ void bridge_cuda_fold_restrict_f32(
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
     int leg, const int* block, int vectors, cudaStream_t stream)
 {
-    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, groups(vectors));
     bridge_cuda::fold_restrict_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n,
+        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors,
         geometry(dims, Ls, parity, gamma, leg, block));
 }
 
@@ -41,9 +46,9 @@ void bridge_cuda_fold_prolong_f32(
     int vectors, cudaStream_t stream)
 {
     const size_t sites = static_cast<size_t>(parity >= 0 ? dims[0] / 2 : dims[0]) * dims[1] * dims[2] * dims[3];
-    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), vectors);
+    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), groups(vectors));
     bridge_cuda::fold_prolong_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, geometry(dims, Ls, parity, gamma));
+        d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, vectors, geometry(dims, Ls, parity, gamma));
 }
 
 void bridge_cuda_fold_restrict_f64(
@@ -51,9 +56,9 @@ void bridge_cuda_fold_restrict_f64(
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
     int leg, const int* block, int vectors, cudaStream_t stream)
 {
-    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, groups(vectors));
     bridge_cuda::fold_restrict_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n,
+        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors,
         geometry(dims, Ls, parity, gamma, leg, block));
 }
 
@@ -63,9 +68,9 @@ void bridge_cuda_fold_prolong_f64(
     int vectors, cudaStream_t stream)
 {
     const size_t sites = static_cast<size_t>(parity >= 0 ? dims[0] / 2 : dims[0]) * dims[1] * dims[2] * dims[3];
-    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), vectors);
+    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), groups(vectors));
     bridge_cuda::fold_prolong_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, geometry(dims, Ls, parity, gamma));
+        d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, vectors, geometry(dims, Ls, parity, gamma));
 }
 
 void bridge_cuda_coarse_pass_f32(
