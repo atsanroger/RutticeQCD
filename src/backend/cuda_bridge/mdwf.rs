@@ -225,7 +225,7 @@ impl CudaMdwf<f32> {
 }
 
 /// Scratch fields of `CudaMdwf`, made on first use.
-type Work<T> = [Option<DeviceSpinor<T>>; 2];
+pub type Work<T> = [Option<DeviceSpinor<T>>; 2];
 
 impl<T: DeviceReal> CudaMdwf<T> {
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Result<Self, CudaError> {
@@ -408,6 +408,73 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 self.hops(out, t, from, (1.0, 0.0), false, to);
             }
         }
+    }
+
+    /// The five-dimensional right-hand side for a four-dimensional source η (`eta`, one spinor
+    /// per site): `out = D₋ b`, b = P+ η at s = 0 and P− η at s = Ls−1, D₋ = 1 − c W, as
+    /// `Mdwf::source_5d`. With H the hops, `D₋ b = (1 − c (4 − M5)) b − c H b`.
+    pub fn source_5d(&self, work: &mut Work<T>, out: &mut DeviceSpinor<T>, eta: &DeviceSpinor<T>) {
+        let MdwfParams { ls, m5, c, .. } = self.params;
+        assert!(eta.is(out, 1, None) && out.ls == ls && out.vectors == eta.vectors);
+        out.parity = None;
+        let [b, from] = work;
+        let (b, from) = (scratch(b, out), scratch(from, out));
+        b.set_zero();
+        b.parity = None;
+        // SAFETY: a field of one spinor per site and one of `ls`, on the same lattice with as
+        // many vectors.
+        unsafe {
+            T::walls(
+                b.data.ptr,
+                eta.data.ptr,
+                eta.sites() as i32,
+                ls as i32,
+                ls as i32 - 1,
+                0,
+                0,
+                eta.vectors as i32,
+            );
+        }
+        from.copy_from(b);
+        from.scale(&vec![1.0 - c * (4.0 - m5); from.vectors]);
+        self.hops(out, b, Some(from), (c, 0.0), false, None);
+    }
+
+    /// `out = P− ψ_minus + P+ ψ_plus`, a field of one spinor per site.
+    fn walls_to_4d(
+        &self,
+        out: &mut DeviceSpinor<T>,
+        psi: &DeviceSpinor<T>,
+        (minus, plus): (usize, usize),
+    ) {
+        let ls = self.params.ls;
+        assert!(psi.is(out, ls, None) && out.is(psi, 1, None) && out.vectors == psi.vectors);
+        // SAFETY: as in `source_5d`.
+        unsafe {
+            T::walls(
+                out.data.ptr,
+                psi.data.ptr,
+                psi.sites() as i32,
+                ls as i32,
+                minus as i32,
+                plus as i32,
+                1,
+                psi.vectors as i32,
+            );
+        }
+    }
+
+    /// The four-dimensional quark field `q = P− ψ_0 + P+ ψ_(Ls−1)` of a solution ψ of the plain
+    /// operator (`x = Q x^(α)` for D^(α)).
+    pub fn propagator_4d(&self, out: &mut DeviceSpinor<T>, psi: &DeviceSpinor<T>) {
+        self.walls_to_4d(out, psi, (0, self.params.ls - 1));
+    }
+
+    /// The field at the middle of the fifth dimension, `P− ψ_(Ls/2) + P+ ψ_(Ls/2−1)`.
+    pub fn midpoint_4d(&self, out: &mut DeviceSpinor<T>, psi: &DeviceSpinor<T>) {
+        let ls = self.params.ls;
+        assert!(ls.is_multiple_of(2), "the midpoint needs an even Ls");
+        self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
     }
 
     /// `out = D inp` of the plain operator on the whole lattice, in one pass.
