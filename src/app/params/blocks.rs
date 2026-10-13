@@ -333,6 +333,10 @@ pub struct MultigridBlock {
     /// in double precision.
     #[serde(default = "single")]
     pub fine_precision: PrecisionType,
+    /// On a device: how the prolongation is kept, the largest thing of the multigrid: in half
+    /// precision unless this says single. The coarse operators are built from it as it is kept.
+    #[serde(default = "basis_default")]
+    pub basis_precision: BasisPrecision,
     #[serde(rename = "Setup", default)]
     pub setup: SetupBlock,
     #[serde(rename = "Smoother", default)]
@@ -590,6 +594,9 @@ fn iterations() -> usize {
 }
 fn no_preconditioner() -> PreconditionerType {
     PreconditionerType::None
+}
+fn basis_default() -> BasisPrecision {
+    BasisPrecision::Half
 }
 fn single() -> PrecisionType {
     PrecisionType::Single

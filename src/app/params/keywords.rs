@@ -142,6 +142,14 @@ keyword_enum! {
 }
 
 keyword_enum! {
+    /// How a device keeps the prolongation of the multigrid.
+    pub enum BasisPrecision {
+        Half => ["half", "f16"],
+        Single => ["single", "float", "f32"],
+    }
+}
+
+keyword_enum! {
     pub enum SourceType {
         /// A unit source at one site, twelve columns (colour × spin).
         Local => ["Local", "Point"],

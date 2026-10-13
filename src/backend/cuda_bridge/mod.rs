@@ -111,7 +111,8 @@ extern "C" {
         stream: *mut c_void,
     );
     fn bridge_cuda_fold_orthonormalise(
-        p: *mut f32,
+        p: *mut c_void,
+        half: i32,
         w: *mut f64,
         sites: *const u32,
         fail: *mut u32,
@@ -240,7 +241,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
     unsafe fn fold_restrict(
         coarse: *mut Self,
         fine: *const Self,
-        p: *const f32,
+        p: *const c_void,
         sites: *const u32,
         n_coarse: i32,
         block_volume: i32,
@@ -256,7 +257,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
     unsafe fn fold_prolong(
         fine: *mut Self,
         coarse: *const Self,
-        p: *const f32,
+        p: *const c_void,
         coarse_of: *const u32,
         n_coarse: i32,
         n: i32,
@@ -299,7 +300,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         vectors: i32,
     );
     unsafe fn fold_fill(
-        p: *mut f32,
+        p: *mut c_void,
         fine: *const Self,
         n: i32,
         first: i32,
@@ -454,7 +455,7 @@ macro_rules! device_real {
             fn $restrict(
                 coarse: *mut $t,
                 fine: *const $t,
-                p: *const f32,
+                p: *const c_void,
                 sites: *const u32,
                 n_coarse: i32,
                 block_volume: i32,
@@ -471,7 +472,7 @@ macro_rules! device_real {
             fn $prolong(
                 fine: *mut $t,
                 coarse: *const $t,
-                p: *const f32,
+                p: *const c_void,
                 coarse_of: *const u32,
                 n_coarse: i32,
                 n: i32,
@@ -523,7 +524,7 @@ macro_rules! device_real {
                 stream: *mut c_void,
             );
             fn $fill(
-                p: *mut f32,
+                p: *mut c_void,
                 fine: *const $t,
                 n: i32,
                 first: i32,
@@ -728,7 +729,7 @@ macro_rules! device_real {
             unsafe fn fold_restrict(
                 coarse: *mut Self,
                 fine: *const Self,
-                p: *const f32,
+                p: *const c_void,
                 sites: *const u32,
                 n_coarse: i32,
                 block_volume: i32,
@@ -762,7 +763,7 @@ macro_rules! device_real {
             unsafe fn fold_prolong(
                 fine: *mut Self,
                 coarse: *const Self,
-                p: *const f32,
+                p: *const c_void,
                 coarse_of: *const u32,
                 n_coarse: i32,
                 n: i32,
@@ -822,7 +823,7 @@ macro_rules! device_real {
                 )
             }
             unsafe fn fold_fill(
-                p: *mut f32,
+                p: *mut c_void,
                 fine: *const Self,
                 n: i32,
                 first: i32,

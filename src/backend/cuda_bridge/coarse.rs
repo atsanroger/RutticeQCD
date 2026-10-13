@@ -52,6 +52,70 @@ impl Drop for DeviceTable {
     }
 }
 
+/// P as it is stored on the device: reals in single or in half precision.
+struct Stored {
+    ptr: *mut c_void,
+    bytes: usize,
+    half: bool,
+}
+
+impl Stored {
+    /// `reals` zeros.
+    fn zeros(reals: usize, half: bool) -> Result<Self, CudaError> {
+        let bytes = reals * if half { 2 } else { 4 };
+        let mut ptr: *mut c_void = std::ptr::null_mut();
+        // SAFETY: `ptr` is a valid place for the pointer; then the range it was given. All
+        // bits zero is the real 0 in either precision.
+        unsafe {
+            check(cudaMalloc(&mut ptr, bytes))?;
+            check(cudaMemset(ptr, 0, bytes))?;
+        }
+        Ok(Self { ptr, bytes, half })
+    }
+
+    /// `host`, in single precision.
+    fn upload(host: &[f32]) -> Result<Self, CudaError> {
+        let stored = Self::zeros(host.len(), false)?;
+        // SAFETY: two ranges of as many bytes.
+        check(unsafe {
+            cudaMemcpy(
+                stored.ptr,
+                host.as_ptr().cast(),
+                stored.bytes,
+                HOST_TO_DEVICE,
+            )
+        })?;
+        Ok(stored)
+    }
+
+    /// The reals, if they are in single precision.
+    fn download(&self) -> Result<Vec<f32>, CudaError> {
+        assert!(!self.half, "P in half precision is not read back");
+        let mut host = vec![0.0f32; self.bytes / 4];
+        // SAFETY: two ranges of as many bytes.
+        check(unsafe {
+            cudaMemcpy(
+                host.as_mut_ptr().cast(),
+                self.ptr.cast_const(),
+                self.bytes,
+                DEVICE_TO_HOST,
+            )
+        })?;
+        Ok(host)
+    }
+}
+
+impl Drop for Stored {
+    fn drop(&mut self) {
+        // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
+        // may still read it.
+        unsafe {
+            cudaDeviceSynchronize();
+            cudaFree(self.ptr);
+        }
+    }
+}
+
 /// Fields on a coarse lattice on the device: `dim` complex numbers per site, `vectors` of
 /// them one after the other. Complex number q = x dim + k of a vector is at `at(0, q, 2)`
 /// (real part) and `at(1, q, 2)`: the layout the linear algebra takes.
@@ -227,10 +291,10 @@ impl<T: DeviceReal, U: DeviceReal> ConvertFrom<DeviceCoarse<U>> for DeviceCoarse
 }
 
 /// The prolongation P of the multigrid of domain-wall fermions on the device, folded on the
-/// fifth dimension and in single precision as the one of the CPU it is made from
-/// (`PvEoBasis`); between fields in either precision.
+/// fifth dimension as the one of the CPU (`PvEoBasis`), and kept in single precision as that
+/// one or, made here, in half precision; between fields in either precision.
 pub struct DeviceBasis {
-    p: DeviceBuffer<f32>,
+    p: Stored,
     /// The fine sites of every coarse site, and the coarse site of every fine one.
     fine_sites: DeviceTable,
     coarse_of: DeviceTable,
@@ -245,8 +309,9 @@ pub struct DeviceBasis {
     /// The coarse lattice.
     pub(super) coarse: Arc<Lattice>,
     dims: [i32; ND],
-    /// γ5 of the fold: the column and the sign of the entry of every row.
-    gamma: [i32; 8],
+    /// γ5 of the fold: the column and the sign of the entry of every row; then whether P is
+    /// in half precision.
+    gamma: [i32; 9],
 }
 
 impl DeviceBasis {
@@ -260,19 +325,26 @@ impl DeviceBasis {
             basis.fine_reals() / SPINOR,
             basis.num_test_vectors(),
             g,
-            DeviceBuffer::upload(basis.stored())?,
+            Stored::upload(basis.stored())?,
         )
     }
 
     /// A P to be made on the device, for `n` test vectors with `ls` spinors per site on the
     /// aggregates `agg`: zero until every test vector was given (`add`) and `finish` called.
-    pub fn empty(agg: &Arc<Aggregation>, ls: usize, n: usize) -> Result<Self, CudaError> {
+    /// `half`: kept in half precision, half the memory of what is the largest thing of a
+    /// multigrid. The coarse operators are built from P as it is kept.
+    pub fn empty(
+        agg: &Arc<Aggregation>,
+        ls: usize,
+        n: usize,
+        half: bool,
+    ) -> Result<Self, CudaError> {
         assert!(
             ls.is_multiple_of(2),
             "folding needs an even fifth dimension"
         );
         let reals = agg.fine_lattice().num_sites() * n * 2 * 12 * ls;
-        Self::with(agg, ls, n, Dirac::GAMMA5, DeviceBuffer::zeros(reals)?)
+        Self::with(agg, ls, n, Dirac::GAMMA5, Stored::zeros(reals, half)?)
     }
 
     fn with(
@@ -280,11 +352,12 @@ impl DeviceBasis {
         ls: usize,
         n: usize,
         g: Gamma,
-        p: DeviceBuffer<f32>,
+        p: Stored,
     ) -> Result<Self, CudaError> {
         let lat = agg.fine_lattice().clone();
         let coarse_sites = agg.coarse_lattice().num_sites();
-        let mut gamma = [0; 8];
+        let mut gamma = [0; 9];
+        gamma[8] = i32::from(p.half);
         for a in 0..4 {
             gamma[a] = g.col[a] as i32;
             gamma[4 + a] = match g.val[a] {
@@ -347,9 +420,9 @@ impl DeviceBasis {
             );
         }
         // The vectors of an aggregate and chirality in double precision: as many coarse sites
-        // at a time as keep that within half a GB.
+        // at a time as keep that within a quarter of a GB.
         let per_site = 2 * n * dim * 2;
-        let count = ((1 << 26) / per_site).clamp(1, self.coarse_sites);
+        let count = ((1 << 25) / per_site).clamp(1, self.coarse_sites);
         let scratch = DeviceBuffer::<f64>::uninitialised(count * per_site)?;
         let fail = DeviceTable::from_host(&vec![0; 2 * count])?;
         for first in (0..self.coarse_sites).step_by(count) {
@@ -359,6 +432,7 @@ impl DeviceBasis {
             unsafe {
                 bridge_cuda_fold_orthonormalise(
                     self.p.ptr,
+                    i32::from(self.p.half),
                     scratch.ptr,
                     self.fine_sites.ptr,
                     fail.ptr,
@@ -396,16 +470,17 @@ impl DeviceBasis {
         pv: &CudaMdwf<T>,
         agg: &Arc<Aggregation>,
         y: &DeviceSpinor<T>,
+        half: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut basis = Self::empty(agg, ls, 2 * n)?;
+        let mut basis = Self::empty(agg, ls, 2 * n, half)?;
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
         let mut full_work = FermionOp::work(op);
-        // A few vectors at a time: the fields on the whole lattice are large.
+        // Two vectors at a time: the fields on the whole lattice are large.
         let all: Vec<usize> = (0..n).collect();
-        for chunk in all.chunks(4) {
+        for chunk in all.chunks(2) {
             let nv = chunk.len();
             let yj = y.select(chunk);
             let mut x_e = yj.zeros_like();
@@ -435,8 +510,8 @@ impl DeviceBasis {
         Ok(basis)
     }
 
-    /// P as it is kept (`Basis::stored`), from the device.
-    pub fn stored(&self) -> Result<Vec<f64>, CudaError> {
+    /// P as it is kept (`Basis::stored`), from the device; not in half precision.
+    pub fn stored(&self) -> Result<Vec<f32>, CudaError> {
         self.p.download()
     }
 

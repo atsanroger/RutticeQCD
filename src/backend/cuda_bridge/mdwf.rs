@@ -493,10 +493,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let matrix = 2 * dim * dim;
         let mut diag = vec![0.0; sites * matrix];
         let mut links = vec![0.0; 8 * sites * matrix];
-        // As many components at a time as keep the three fine fields within about a GB: whole
+        // As many components at a time as keep the three fine fields within half a GB: whole
         // groups of the vectors P is read once for, if that is several.
         let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
-        let fit = ((1 << 30) / (3 * phi.data.bytes())).clamp(1, dim);
+        let fit = ((1 << 29) / (3 * phi.data.bytes())).clamp(1, dim);
         let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
         // Column `first + v` of every site's matrix from vector v of a coarse field.
         let store = |target: &mut [f64], first: usize, values: &[C64]| {

@@ -364,46 +364,11 @@ void bridge_cuda_gamma5_f64(
 // fine lattice; gamma: col[4] and sign[4] of gamma_5. The restriction with leg >= 0: of a
 // field that is zero but where that leg of the hops comes from another aggregate of `block`
 // sites (the `cross` of bridge_cuda_hop_split).
-void bridge_cuda_fold_restrict_f32(
-    float* d_coarse, const float* d_fine, const float* d_p, const unsigned* d_sites,
-    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int leg, const int* block, int vectors, cudaStream_t stream
-);
-void bridge_cuda_fold_prolong_f32(
-    float* d_fine, const float* d_coarse, const float* d_p, const unsigned* d_coarse_of,
-    int n_coarse, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream
-);
-void bridge_cuda_fold_restrict_f64(
-    double* d_coarse, const double* d_fine, const float* d_p, const unsigned* d_sites,
-    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int leg, const int* block, int vectors, cudaStream_t stream
-);
-void bridge_cuda_fold_prolong_f64(
-    double* d_fine, const double* d_coarse, const float* d_p, const unsigned* d_coarse_of,
-    int n_coarse, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream
-);
-
 // Making that P (multigrid/fold.cuh): the chirality parts of the vectors of a field on the
 // whole lattice as test vectors first, first + 1, ...; then, for `count` coarse sites from
 // first_site, the parts made orthonormal over every aggregate and scaled. d_w: scratch of
 // 2 count n block_volume kept doubles; d_fail: 2 count numbers, 0 or 1 + the first vector
 // that depends on the earlier ones in that aggregate and chirality.
-void bridge_cuda_fold_fill_f32(
-    float* d_p, const float* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
-    int vectors, cudaStream_t stream
-);
-void bridge_cuda_fold_fill_f64(
-    float* d_p, const double* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
-    int vectors, cudaStream_t stream
-);
-void bridge_cuda_fold_orthonormalise(
-    float* d_p, double* d_w, const unsigned* d_sites, unsigned* d_fail,
-    int first_site, int count, int block_volume, int n, int kept, double scale,
-    cudaStream_t stream
-);
-
 // Of dim x dim complex matrices on n_sites coarse sites, row-major (re, im), in double
 // precision (multigrid/fold.cuh): the inverses (d_fail[site] = 1 where there is none), and
 // |H|^-1 of the Hermitian part H of A Gamma_5. d_scratch: 4 n_sites dim^2 doubles. dim at
@@ -414,6 +379,44 @@ void bridge_cuda_blocks_inverse(
 );
 void bridge_cuda_blocks_abs_inverse_gamma5(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream
+);
+
+// P of the multigrid of domain-wall fermions (multigrid/fold.cuh), in single or in half
+// precision: coarse = P^dag fine, fine = P coarse, the chirality parts of test vectors into P,
+// and those made orthonormal over the aggregates. fold: col[4] and sign[4] of gamma_5, then
+// whether P is in half precision.
+void bridge_cuda_fold_restrict_f32(
+    float* d_coarse, const float* d_fine, const void* d_p, const unsigned* d_sites,
+    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* fold,
+    int leg, const int* block, int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_prolong_f32(
+    float* d_fine, const float* d_coarse, const void* d_p, const unsigned* d_coarse_of,
+    int n_coarse, int n, const int* dims, int Ls, int parity, const int* fold,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_fill_f32(
+    void* d_p, const float* d_fine, int n, int first, const int* dims, int Ls, const int* fold,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_restrict_f64(
+    double* d_coarse, const double* d_fine, const void* d_p, const unsigned* d_sites,
+    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* fold,
+    int leg, const int* block, int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_prolong_f64(
+    double* d_fine, const double* d_coarse, const void* d_p, const unsigned* d_coarse_of,
+    int n_coarse, int n, const int* dims, int Ls, int parity, const int* fold,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_fill_f64(
+    void* d_p, const double* d_fine, int n, int first, const int* dims, int Ls, const int* fold,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_orthonormalise(
+    void* d_p, int half, double* d_w, const unsigned* d_sites, unsigned* d_fail,
+    int first_site, int count, int block_volume, int n, int kept, double scale,
+    cudaStream_t stream
 );
 
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
