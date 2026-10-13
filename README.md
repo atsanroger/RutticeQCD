@@ -122,6 +122,8 @@ In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. 
 clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
 take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
 
+Test gauge configuration could be download from [here](https://drive.google.com/drive/folders/1-OUysaybUd8ViKQbliD7gu7_wPPNpM4S?usp=drive_link)
+
 ### The domain-wall multigrid
 
 - It works on the **Pauli-Villars preconditioned operator** of Kanamori, Chen and
