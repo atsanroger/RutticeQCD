@@ -233,13 +233,13 @@ pub enum CoarseKrylov {
 /// x = A⁻¹ b approximately by kind, preconditioned by m, from x = 0 (inner solves: no
 /// application of A for the first residual nor for a last one); not reaching the tolerance
 /// is not an error.
-fn coarse_solve<T: Storage>(
+pub fn coarse_solve<V: Vector>(
     kind: CoarseKrylov,
     stop: Stop,
-    a: &mut dyn LinearFn<Field<T, Coarse>>,
-    m: Option<&mut dyn LinearFn<Field<T, Coarse>>>,
-    x: &mut Field<T, Coarse>,
-    b: &Field<T, Coarse>,
+    a: &mut dyn LinearFn<V>,
+    m: Option<&mut dyn LinearFn<V>>,
+    x: &mut V,
+    b: &V,
 ) {
     let _ = match kind {
         CoarseKrylov::BiCgStab => BiCgStab::inner(stop).solve(a, m, x, b),
