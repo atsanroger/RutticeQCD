@@ -568,6 +568,47 @@ fn single_precision_on_the_device() {
     same_operator(&cpu, &gpu, &psi, 5e-6, "MDWF in single precision");
 }
 
+/// The matrix products of the fifth dimension in TF32 are those of single precision to the
+/// ten bits of mantissa of TF32, and not better: they are another kernel.
+#[test]
+fn tf32_products_on_the_device() {
+    use ruttice::fermion::SplitParity;
+    for ls in [4, 8, 12, 16] {
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 391);
+        let params = MdwfParams {
+            ls,
+            m5: 1.8,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: ANTIPERIODIC_T,
+        };
+        let mut gpu = CudaMdwf::<f32>::new(&lat, params).unwrap();
+        gpu.set_gauge(&u).unwrap();
+        let psi = DeviceSpinor::<f32>::from_host(&random_fifth(&lat, ls, 392)).unwrap();
+        let mut inp = DeviceParities.half_like(&psi, Parity::Odd);
+        DeviceParities.extract(&mut inp, &psi, Parity::Odd);
+        let (mut exact, mut rounded) = (inp.zeros_like(), inp.zeros_like());
+        let mut work = gpu.even_odd_work();
+        for dagger in [Dagger::No, Dagger::Yes] {
+            gpu.diag_inv(&mut work, &mut exact, &inp, Parity::Odd, dagger);
+            gpu.set_tf32(true);
+            gpu.diag_inv(&mut work, &mut rounded, &inp, Parity::Odd, dagger);
+            gpu.set_tf32(false);
+            let (mut norm, mut difference) = ([0.0f64], [0.0f64]);
+            exact.norm_sqr(&mut norm);
+            rounded.axpy(&[C64::new(-1.0, 0.0)], &exact);
+            rounded.norm_sqr(&mut difference);
+            let relative = (difference[0] / norm[0]).sqrt();
+            assert!(
+                (1e-6..2e-3).contains(&relative),
+                "Ls = {ls}: C⁻¹ in TF32 differs from single precision by {relative:e}"
+            );
+        }
+    }
+}
+
 /// Mixed precision on the device: defect correction in double precision around CG in single
 /// precision reaches the residual of double precision, as the operator on the CPU sees it.
 #[test]

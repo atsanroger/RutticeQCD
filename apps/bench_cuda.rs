@@ -245,4 +245,13 @@ fn main() {
         &psi,
         stop,
     );
+    let single_psi = DeviceSpinor::<f32>::from_host(&psi).expect("memory on the device");
+    let (_, exact, _) = time_blocks(&single, &single_psi);
+    single.set_tf32(true);
+    let (_, rounded, _) = time_blocks(&single, &single_psi);
+    println!(
+        "MDWF Ls={ls}: inverse within the site, single {:.3} ms, in TF32 {:.3} ms",
+        exact * 1e3,
+        rounded * 1e3
+    );
 }
