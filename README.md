@@ -133,6 +133,21 @@ take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
   [arXiv:2602.14454](https://arxiv.org/abs/2602.14454). It speeds up `CG` on `Normal_left`
   and the solves on `PV_left`, with or without the multigrid.
 
+### Supported formats for gauge configuration
+
+RutticeQCD supports following formats of gauge configuration formats (`src/io`):
+
+| Format (`gauge_config_type_input`) | Description | Precision / Notes |
+|---|---|---|
+| `ILDG` | International Lattice Data Grid standard format: LIME container with `ildg-format` and `ildg-binary-data` records. | Single or Double precision (`FilePrecision`); fully compatible with QIO/SciDAC. |
+| `SciDAC` | SciDAC QIO lattice-colour-matrix record: LIME container with `scidac-binary-data`. | Single or Double precision; verifies SciDAC checksum when present. |
+| `Binary` | Headerless binary format of Bridge++. | Big-endian double precision. |
+| `Text` | Plain ASCII text format with one real number per line (Bridge++ Text format). | Double precision text. |
+| `NERSC` | Standard NERSC (Gauge Connection) format with text header (`4D_SU3_GAUGE` or `4D_SU3_GAUGE_3x3`). | Single or Double precision; big/little endian; checksum is verified. Written as full matrices in big-endian double. |
+| `HDF5` | Structured HDF5 dataset (`gauge` of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`). | Double precision; requires `--features hdf5`. |
+
+All formats maintain consistent lexicographical ordering: site ($x$ fastest), followed by Lorentz direction $\mu \in \{0, 1, 2, 3\}$, and the $3 \times 3$ SU(3) matrix row-by-row (real then imaginary).
+
 ## More
 
 | | |
@@ -142,6 +157,19 @@ take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | the structure of the code, the tests, the library, what is not there yet |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | the comparisons with Bridge++, number by number |
 | [CHANGELOG.md](CHANGELOG.md) | what changed |
+
+## Bug Reports & Contributing with AI Agents
+
+### Bug Reports
+If you discover any bugs, numerical discrepancies, or unexpected behavior, please:
+- Open an Issue on GitHub: [https://github.com/atsanroger/RutticeQCD/issues](https://github.com/atsanroger/RutticeQCD/issues)
+- Or email the author directly: `wlchenba@gmail.com`
+
+### Guidelines for AI Coding Assistants / Agents
+When using AI Agents to develop or contribute to this project, please instruct the agent prompt to strictly conform to the project's architecture and style guidelines:
+- **Project Style & Idioms**: Respect the modular layout, zero-overhead abstractions, explicit type signatures, and clear math formulations.
+- **Avoid Non-Deterministic Operations (No `atomicAdd`)**: For GPU kernels, strictly avoid `atomicAdd` on floating-point reductions. Use deterministic block/warp shared-memory tree reductions to ensure bitwise reproducibility and numerical stability.
+- **Minimize `unsafe` in Rust**: Minimize `unsafe` code as much as possible. Keep `unsafe` blocks strictly isolated, audited, and well-documented with explicit safety invariants.
 
 ## Acknowledgements
 
