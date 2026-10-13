@@ -1,9 +1,9 @@
-//! The coarse lattice of the multigrid of domain-wall fermions on the device: its fields, and
-//! the prolongation P (`multigrid/fold.cuh`).
+//! The coarse lattice of the multigrid of domain-wall fermions on the device: its fields, the
+//! prolongation P and the coarse operators (`multigrid/fold.cuh`).
 
 use super::*;
 use crate::kernel::{Number, Real, Unit};
-use crate::solver::preconditioner::multigrid::Basis;
+use crate::solver::preconditioner::multigrid::{Basis, CoarseOp};
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64};
 
 /// Whole numbers on the device.
@@ -285,5 +285,216 @@ impl DeviceBasis {
                 fine.vectors as i32,
             );
         }
+    }
+}
+
+/// A coarse operator `P† D P` on the device (`CoarseOp`, from which it is made): its blocks
+/// and links, and for the even-odd form the inverses of the blocks.
+pub struct DeviceCoarseOp<T = f64> {
+    diag: DeviceBuffer<T>,
+    links: DeviceBuffer<T>,
+    inverse: Option<DeviceBuffer<T>>,
+    /// The site every hop of every site comes from, and whether each site is odd.
+    neighbours: DeviceTable,
+    odd: DeviceTable,
+    sites: usize,
+    dim: usize,
+}
+
+/// The parities of the sites a pass acts on.
+const ALL: i32 = -1;
+const EVEN: i32 = 0;
+const ODD: i32 = 1;
+
+impl<T: DeviceReal> DeviceCoarseOp<T> {
+    /// The operator `a` on the device; with its even-odd form if `a` has it
+    /// (`CoarseOp::prepare_even_odd`).
+    pub fn new<S: Storage>(a: &CoarseOp<S>) -> Result<Self, CudaError> {
+        let (sites, dim) = (a.lattice().num_sites(), a.dim());
+        assert!(
+            dim <= 1024,
+            "a coarse site has at most 1024 complex numbers on the device"
+        );
+        let reals = |m: &[S]| -> Vec<f64> { m.iter().map(|x| x.load().to_f64()).collect() };
+        let (diag, links) = a.blocks();
+        let mut neighbours = vec![0u32; 8 * sites];
+        for x in 0..sites {
+            for (d, y) in a.neighbours(x).into_iter().enumerate() {
+                neighbours[d * sites + x] = y as u32;
+            }
+        }
+        let coords = |x| a.lattice().global_coords(x);
+        let odd: Vec<u32> = (0..sites)
+            .map(|x| (coords(x).iter().sum::<usize>() % 2) as u32)
+            .collect();
+        Ok(Self {
+            diag: DeviceBuffer::from_host(&reals(diag))?,
+            links: DeviceBuffer::from_host(&reals(links))?,
+            inverse: match a.block_inverses() {
+                Some(inverse) => Some(DeviceBuffer::from_host(&reals(inverse))?),
+                None => None,
+            },
+            neighbours: DeviceTable::from_host(&neighbours)?,
+            odd: DeviceTable::from_host(&odd)?,
+            sites,
+            dim,
+        })
+    }
+
+    /// Whether the even-odd form is there (`schur` and the like).
+    pub fn has_even_odd(&self) -> bool {
+        self.inverse.is_some()
+    }
+
+    /// Matrices on the coarse sites, `[site][row][column]`, for `apply_blocks`.
+    pub fn blocks(&self, blocks: &[Vec<C64>]) -> Result<DeviceBuffer<T>, CudaError> {
+        assert!(
+            blocks.len() == self.sites && blocks.iter().all(|b| b.len() == self.dim * self.dim)
+        );
+        let reals: Vec<f64> = blocks.iter().flatten().flat_map(|z| [z.re, z.im]).collect();
+        DeviceBuffer::from_host(&reals)
+    }
+
+    /// One pass (`coarse_pass_kernel`): on the sites of `parity`,
+    /// `out = [M] (base + A d ± Σ B h)`, the other sites zero.
+    #[allow(clippy::too_many_arguments)]
+    fn pass(
+        &self,
+        out: &mut DeviceCoarse<T>,
+        parity: i32,
+        base: Option<&DeviceCoarse<T>>,
+        diag_of: Option<&DeviceCoarse<T>>,
+        hops_of: Option<(&DeviceCoarse<T>, bool)>,
+        matrices: Option<&DeviceBuffer<T>>,
+        gamma5: bool,
+    ) {
+        assert!((out.sites, out.dim) == (self.sites, self.dim));
+        let field = |f: Option<&DeviceCoarse<T>>| match f {
+            Some(f) => {
+                assert!(f.same_shape(out));
+                f.data.ptr.cast_const()
+            }
+            None => std::ptr::null(),
+        };
+        // SAFETY: fields of the shape of `out`, which is none of them (it is borrowed
+        // mutably), the matrices and tables of this lattice; null pointers are not read.
+        unsafe {
+            T::coarse_pass(
+                out.data.ptr,
+                field(base),
+                field(diag_of),
+                field(hops_of.map(|(h, _)| h)),
+                self.diag.ptr,
+                self.links.ptr,
+                matrices.map_or(std::ptr::null(), |m| m.ptr.cast_const()),
+                self.neighbours.ptr,
+                self.odd.ptr,
+                self.sites as i32,
+                self.dim as i32,
+                parity,
+                i32::from(hops_of.is_some_and(|(_, minus)| minus)),
+                i32::from(gamma5),
+                out.vectors as i32,
+            );
+        }
+    }
+
+    fn inverse(&self) -> &DeviceBuffer<T> {
+        self.inverse.as_ref().expect("no even-odd form")
+    }
+
+    /// `out = D_c inp`, or `Γ5 D_c Γ5 inp`, its adjoint.
+    pub fn apply(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>, gamma5: bool) {
+        self.pass(out, ALL, None, Some(inp), Some((inp, false)), None, gamma5);
+    }
+
+    /// `out = M inp` site by site, for matrices of `blocks`.
+    pub fn apply_blocks(
+        &self,
+        out: &mut DeviceCoarse<T>,
+        inp: &DeviceCoarse<T>,
+        blocks: &DeviceBuffer<T>,
+    ) {
+        self.pass(out, ALL, Some(inp), None, None, Some(blocks), false);
+    }
+
+    /// `v = Γ5 v`: −1 on the second half of the components of a site.
+    pub fn gamma5(&self, v: &mut DeviceCoarse<T>) {
+        assert!((v.sites, v.dim) == (self.sites, self.dim));
+        // SAFETY: a field of this lattice.
+        unsafe {
+            T::coarse_gamma5(
+                v.data.ptr,
+                self.sites as i32,
+                self.dim as i32,
+                v.vectors as i32,
+            )
+        };
+    }
+
+    /// `out = S inp`, the Schur complement on the even sites (`CoarseOp::schur`); `odd` is
+    /// scratch.
+    pub fn schur(
+        &self,
+        out: &mut DeviceCoarse<T>,
+        inp: &DeviceCoarse<T>,
+        odd: &mut DeviceCoarse<T>,
+    ) {
+        crate::fit(odd, inp);
+        self.pass(
+            odd,
+            ODD,
+            None,
+            None,
+            Some((inp, false)),
+            Some(self.inverse()),
+            false,
+        );
+        self.pass(out, EVEN, None, Some(inp), Some((odd, true)), None, false);
+    }
+
+    /// `out = g_e − B_eo A_oo⁻¹ g_o`, the right-hand side of the Schur system for `D_c c = g`.
+    pub fn schur_source(
+        &self,
+        out: &mut DeviceCoarse<T>,
+        g: &DeviceCoarse<T>,
+        odd: &mut DeviceCoarse<T>,
+    ) {
+        crate::fit(odd, g);
+        self.pass(odd, ODD, Some(g), None, None, Some(self.inverse()), false);
+        self.pass(out, EVEN, Some(g), None, Some((odd, true)), None, false);
+    }
+
+    /// `c` holds c_e and gets `c_o = A_oo⁻¹ (g_o − B_oe c_e)` added.
+    pub fn schur_solution(
+        &self,
+        c: &mut DeviceCoarse<T>,
+        g: &DeviceCoarse<T>,
+        odd: &mut DeviceCoarse<T>,
+    ) {
+        crate::fit(odd, g);
+        self.pass(
+            odd,
+            ODD,
+            Some(g),
+            None,
+            Some((c, true)),
+            Some(self.inverse()),
+            false,
+        );
+        c.axpy(&vec![C64::new(1.0, 0.0); c.vectors], odd);
+    }
+
+    /// `out = A_ee⁻¹ inp` on the even sites, zero on the odd ones.
+    pub fn even_block_inverse(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        self.pass(
+            out,
+            EVEN,
+            Some(inp),
+            None,
+            None,
+            Some(self.inverse()),
+            false,
+        );
     }
 }

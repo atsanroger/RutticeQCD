@@ -14,7 +14,7 @@ pub use aggregation::Aggregation;
 pub use basis::{Basis, BasisBuilder, Reflection};
 pub use coarse::CoarseOp;
 pub use cycle::TwoGrid;
-pub use levels::{AbsMultilevel, LevelBootstrap, SignedMultilevel};
+pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_even_odd::{
     bootstrap_round, low_modes, pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors,
     pv_eo_low_modes, pv_eo_start, BootstrapParams, CoarseKrylov, CycleLayout, LowModeParams,

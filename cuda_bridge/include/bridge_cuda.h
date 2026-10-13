@@ -383,6 +383,25 @@ void bridge_cuda_fold_prolong_f64(
     int vectors, cudaStream_t stream
 );
 
+// One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
+// out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
+// one parity, the others set to zero (parity < 0: all); every part may be null. dim at most
+// 1024. And Gamma_5 of a coarse field, in place.
+void bridge_cuda_coarse_pass_f32(
+    float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
+    const float* d_diag, const float* d_links, const float* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream
+);
+void bridge_cuda_coarse_gamma5_f32(float* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_pass_f64(
+    double* d_out, const double* d_base, const double* d_diag_of, const double* d_hops_of,
+    const double* d_diag, const double* d_links, const double* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream
+);
+void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
+
 // Between a field of one spinor per site and the walls of one of Ls (fermion/mdwf.cuh,
 // walls_kernel), every vector: to_4d, out = P- in_(s_minus) + P+ in_(s_plus); otherwise
 // out_(s_minus) = P- in and out_(s_plus) = P+ in, the other s of out left as they are.
