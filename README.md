@@ -12,34 +12,35 @@ Lattice QCD in Rust.
 
 ## Introduction
 
-Ruttice is a lattice QCD code written in Rust. Its idea is to use what Rust offers as far
+Ruttice is a lattice QCD code written in Rust. Our goal is to use what Rust offers as far
 as it goes to make the solvers and HMC fast, with the aim of simulations in pure Rust on
 every kind of hardware.
 
-- **Fermions**: Wilson, clover and Möbius domain-wall.
-- **Solvers**: a multigrid written for each kind, to compute two-point correlation
-  functions quickly.
-- **Configurations**: pure gauge, HMC and RHMC.
-- **GPUs**: not yet. The plan is the CUDA core of Bridge++ first, and a backend in Rust
+- **Fermions**: Wilson, clover and Möbius domain-wall fermion.
+- **Solvers**: Various preconditied solves including multigrid to compute correlation
+  functions.
+- **Configurations**: Pure gauge, HMC and RHMC.
+- **GPUs**: Not yet. The plan is the CUDA core of Bridge++ first, and a backend in Rust
   once CUDA is officially supported there, keeping both.
 
 The code is written for a clear structure and for speed, at some cost in readability where
-the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory.
+the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory and also low-level assembly.
 
 Everything it computes is checked number by number against
 [Bridge++](https://bridge.kek.jp/Lattice-code/).
 
 ## Quick start
 
-You need a stable Rust toolchain.
+You need a stable Rust toolchain.(if not, check [Rust](https://rust-lang.org/ja/tools/install/))
 
+Then
 ```bash
 git clone https://github.com/atsanroger/RutticeQCD.git
 cd RutticeQCD
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-Run an example. It reads `examples/conf_04040408.txt`, the 4³ × 8 test configuration of
+Run an example. It reads the `examples/conf_04040408.txt`, the 4³ × 8 test gauge configuration from
 Bridge++, which comes with the repository:
 
 ```bash
@@ -65,7 +66,7 @@ Start from an example; each one is commented.
 | Example | What it runs |
 |---|---|
 | [wilson_pion.yaml](examples/wilson_pion.yaml) | Wilson fermions, pion correlator |
-| [clover_two_flavours.yaml](examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources, every channel |
+| [clover_two_flavours.yaml](examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources |
 | [clover_mg.yaml](examples/clover_mg.yaml) | clover fermions with the multigrid |
 | [mdwf_pv_eo_mg.yaml](examples/mdwf_pv_eo_mg.yaml) | domain-wall fermions with the multigrid |
 | [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
@@ -114,9 +115,8 @@ rows marked *expected* have not been measured:
 |---|---|---|
 | Wilson, clover | small | `CG` on `Even_odd` |
 | Wilson, clover | large | `FGMRES` or `BiCGStab` with the multigrid (*expected*) |
-| Domain-wall | up to 12⁴ | `CG` on `Normal_left` with `neff_alpha : 0.6` |
-| Domain-wall | 16⁴ | `GCR` or `FGMRES` with the multigrid |
-| Domain-wall | larger | the multigrid (*expected*) |
+| Domain-wall | small | `CG` on `Normal_left` with `neff_alpha : 0.6` |
+| Domain-wall | large | `GCR` or `FGMRES` with the multigrid |
 
 In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. Wilson and
 clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
