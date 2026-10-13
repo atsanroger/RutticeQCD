@@ -230,6 +230,24 @@ void bridge_cuda_fifth_gemm_f64(
     }
 }
 
+void bridge_cuda_fifth_gemm_tf32_f32(
+    float* d_out, const float* d_in, const float* d_from, const float* d_m,
+    int sites, int Ls, cudaStream_t stream)
+{
+    int blocks = (sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize;
+    // A warp for every strip of 8 columns of every block, 8 warps to a block of threads.
+    int grid = (blocks * bridge_cuda::FifthStrips + 7) / 8;
+    int nt = (2 * Ls + 15) / 16, k32 = (2 * Ls + 31) / 32 * 32;
+    size_t shared = static_cast<size_t>(16 * nt * k32) * sizeof(float);
+    switch (nt) {
+        case 1: bridge_cuda::fifth_gemm_tf32_kernel<1><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 2: bridge_cuda::fifth_gemm_tf32_kernel<2><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 3: bridge_cuda::fifth_gemm_tf32_kernel<3><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 4: bridge_cuda::fifth_gemm_tf32_kernel<4><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        default: break;  // Ls is at most 32
+    }
+}
+
 int bridge_cuda_hop_gemm_f32(
     float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_m,
     const BridgeCudaGeometry* geom, double mass, double b5, double c5,

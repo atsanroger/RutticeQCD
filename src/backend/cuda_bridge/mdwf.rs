@@ -16,6 +16,18 @@ use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
 use crate::{Parity, Vector};
 
+extern "C" {
+    fn bridge_cuda_fifth_gemm_tf32_f32(
+        out: *mut f32,
+        inp: *const f32,
+        from: *const f32,
+        matrix: *const f32,
+        sites: i32,
+        ls: i32,
+        stream: *mut c_void,
+    );
+}
+
 /// An operator within a site that acts on the fifth dimension and the chirality:
 /// `Σ_s' (plus_ss' P+ + minus_ss' P−)`, the two Ls × Ls matrices row after row. P± are
 /// orthogonal projectors that commute with the fifth dimension, so such operators multiply,
@@ -197,6 +209,19 @@ pub struct CudaMdwf<T = f64> {
     /// Neff's α (1: the plain operator).
     alpha: f64,
     matrices: Matrices<T>,
+    /// The matrix products in TF32 (`set_tf32`); single precision only.
+    tf32: bool,
+}
+
+impl CudaMdwf<f32> {
+    /// The matrix products of the fifth dimension on the tensor cores, which in single
+    /// precision is TF32: the matrix and the field rounded to ten bits of mantissa, a relative
+    /// error of 1e-3. For an operator whose result is corrected afterwards (a smoother, the
+    /// inner solve of a mixed-precision one), never for one whose result is kept. The hops
+    /// with a product in the same pass (`EvenOdd::hop_then`) stay exact.
+    pub fn set_tf32(&mut self, on: bool) {
+        self.tf32 = on;
+    }
 }
 
 /// Scratch fields of `CudaMdwf`, made on first use.
@@ -214,6 +239,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             gauge: DeviceGauge::new(lat)?,
             alpha: 1.0,
             matrices: Matrices::new(&params, 1.0)?,
+            tf32: false,
         })
     }
 
@@ -247,6 +273,23 @@ impl<T: DeviceReal> CudaMdwf<T> {
             }
             None => std::ptr::null(),
         };
+        let sites = (inp.vectors * padded(inp.sites())) as i32;
+        if self.tf32 {
+            // SAFETY: as below; `tf32` is set on an operator in single precision only, so the
+            // reals are `f32`.
+            unsafe {
+                bridge_cuda_fifth_gemm_tf32_f32(
+                    out.data.ptr.cast(),
+                    inp.data.ptr.cast(),
+                    from.cast(),
+                    matrix.ptr.cast_const().cast(),
+                    sites,
+                    inp.ls as i32,
+                    STREAM,
+                );
+            }
+            return;
+        }
         // SAFETY: the buffers hold the same sites with `ls` spinors each (padded to blocks),
         // `out` is none of the inputs (it is borrowed mutably), the matrix is the padded one
         // of this `ls`, and a null `from` is not read.
@@ -256,7 +299,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 inp.data.ptr,
                 from,
                 matrix.ptr,
-                (inp.vectors * padded(inp.sites())) as i32,
+                sites,
                 inp.ls as i32,
             );
         }

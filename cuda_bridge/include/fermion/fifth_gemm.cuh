@@ -121,8 +121,108 @@ __global__ void fifth_gemm_mma_kernel(
 }
 
 // -------------------------------------------------------------------------
-// The same product without the tensor cores: single precision (whose tensor cores are TF32,
-// ten bits of mantissa: not for an operator). A thread has a column of a block: it reads the
+// The product in single precision on the tensor cores, which is TF32: the reals of M and of
+// the input are rounded to ten bits of mantissa, and the sums are single precision. Not for
+// an operator whose result is kept: for what is corrected afterwards (a smoother, an inner
+// solve), and only where it is asked for.
+//
+//   D (16 x 8) += A (16 x 8) B (8 x 8),    mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32,
+//
+// in which thread t = 4 g + i of a warp holds A[g][i], A[g+8][i], A[g][i+4], A[g+8][i+4],
+// B[i][g], B[i+4][g], and D[g][2i], D[g][2i+1], D[g+8][2i], D[g+8][2i+1]. A warp has a strip
+// of 8 columns of one block, as in fifth_gemm_mma_kernel.
+//
+// M is in the shared memory, rounded already, 16 NT rows of K32 = 32 ceil(2 Ls / 32) reals,
+// real (row, k) at column k ^ (4 (row % 8)): the 32 threads of a warp read 8 rows of 4
+// columns at once, which then are the 32 banks.
+// Shared memory: 16 NT * K32 reals.
+// -------------------------------------------------------------------------
+__device__ __forceinline__ unsigned to_tf32(float x) {
+    unsigned rounded;
+    asm volatile("cvt.rna.tf32.f32 %0, %1;" : "=r"(rounded) : "f"(x));
+    return rounded;
+}
+
+template <int NT>
+__global__ void fifth_gemm_tf32_kernel(
+    float* __restrict__ d_out,
+    const float* __restrict__ d_in,
+    const float* __restrict__ d_from,
+    const float* __restrict__ d_m,
+    int blocks,
+    int Ls)
+{
+    extern __shared__ unsigned m_tf32[];
+    const int rows = 2 * Ls;
+    // M as it is given: rows8 rows of k4 reals.
+    const int rows8 = (rows + 7) / 8 * 8, k4 = (rows + 3) / 4 * 4;
+    const int k32 = (rows + 31) / 32 * 32;
+    for (int i = threadIdx.x; i < 16 * NT * rows8; i += blockDim.x) {
+        const int row = i / rows8, k = i % rows8;
+        const float m = (row < rows8 && k < k4) ? d_m[row * k4 + k] : 0.0f;
+        m_tf32[row * k32 + (k ^ (4 * (row % 8)))] = to_tf32(m);
+    }
+    __syncthreads();
+
+    const int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    const int g = (threadIdx.x % 32) / 4, i = threadIdx.x % 4;
+    // A whole warp leaves, or none of it.
+    if (warp >= blocks * FifthStrips) return;
+    const size_t base = static_cast<size_t>(warp / FifthStrips) * rows * FifthColumns;
+    const int n0 = (warp % FifthStrips) * 8;
+
+    float d[NT][4];
+    #pragma unroll
+    for (int it = 0; it < NT; ++it) {
+        #pragma unroll
+        for (int q = 0; q < 4; ++q) d[it][q] = 0.0f;
+    }
+
+    for (int kk = 0; kk < rows8; kk += 8) {
+        unsigned b[2];
+        #pragma unroll
+        for (int h = 0; h < 2; ++h) {
+            // The rows past the last one are zero; no thread branches before the mma.
+            const int j = kk + i + 4 * h;
+            const int j_in = (j < rows) ? j : rows - 1;
+            const float read = d_in[base + static_cast<size_t>(j_in) * FifthColumns + n0 + g];
+            b[h] = to_tf32((j < rows) ? read : 0.0f);
+        }
+        #pragma unroll
+        for (int it = 0; it < NT; ++it) {
+            const int upper = (it * 16 + g) * k32, lower = upper + 8 * k32;
+            const int j0 = (kk + i) ^ (4 * g), j1 = (kk + i + 4) ^ (4 * g);
+            const unsigned a0 = m_tf32[upper + j0], a1 = m_tf32[lower + j0];
+            const unsigned a2 = m_tf32[upper + j1], a3 = m_tf32[lower + j1];
+            float e0, e1, e2, e3;
+            asm volatile(
+                "mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32 "
+                "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13};"
+                : "=f"(e0), "=f"(e1), "=f"(e2), "=f"(e3)
+                : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b[0]), "r"(b[1]),
+                  "f"(d[it][0]), "f"(d[it][1]), "f"(d[it][2]), "f"(d[it][3]));
+            d[it][0] = e0;
+            d[it][1] = e1;
+            d[it][2] = e2;
+            d[it][3] = e3;
+        }
+    }
+
+    #pragma unroll
+    for (int it = 0; it < NT; ++it) {
+        #pragma unroll
+        for (int q = 0; q < 4; ++q) {
+            const int row = it * 16 + g + 8 * (q / 2);
+            if (row < rows) {
+                const size_t k = base + static_cast<size_t>(row) * FifthColumns + n0 + 2 * i + q % 2;
+                d_out[k] = (d_from != nullptr) ? d_from[k] - d[it][q] : d[it][q];
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// The same product in single precision without the tensor cores, exact to single precision. A thread has a column of a block: it reads the
 // 2 Ls reals of the column once each and adds them to the 8 NT reals of the result, which
 // stay in its registers until they are written. M is in the shared memory of the block of
 // threads; its threads read the same real of it at the same time, which is one access.

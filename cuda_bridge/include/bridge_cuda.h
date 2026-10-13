@@ -358,6 +358,13 @@ void bridge_cuda_gamma5_f64(
     double* d_out, const double* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
+// bridge_cuda_fifth_gemm_f32 on the tensor cores, in TF32: M and the input rounded to ten bits
+// of mantissa. Ls at most 32.
+void bridge_cuda_fifth_gemm_tf32_f32(
+    float* d_out, const float* d_in, const float* d_from, const float* d_m,
+    int sites, int Ls, cudaStream_t stream
+);
+
 // The hops and the product in one pass (fermion/fifth_gemm.cuh, hop_gemm_kernel):
 // out = M H (b - c Y) in, or d_from - that. Returns 0, having done nothing, if the spinors of
 // a block do not fit in the shared memory for this Ls: then bridge_cuda_hop and
