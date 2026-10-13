@@ -6,6 +6,7 @@
 #include "../base/aosoa.cuh"
 #include "../fermion/hops.cuh"
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 // The prolongation P of the multigrid of domain-wall fermions and its adjoint.
 //
@@ -17,7 +18,10 @@
 //
 //   d_p[((x n + i) 2 + c) 12 Ls + 24 s + 2 (colour + 3 spin) + ri],   x a site of the whole lattice,
 //
-// in single precision. gamma_5 has one entry in a row: (gamma_5 w)_a = sign[a] w_(col[a]).
+// in single precision, or in half precision (`Stored`: float or __half), which halves what is
+// the largest thing a multigrid keeps; the coarse operator is built from P as it is stored, so
+// the correction stays the Galerkin one. gamma_5 has one entry in a row:
+// (gamma_5 w)_a = sign[a] w_(col[a]).
 //
 // A coarse field has complex number q = X dim + k of coarse site X at coarse_index(q) (real
 // part) and that + W (imaginary part) of its vector: blocks of W real parts and W imaginary
@@ -39,6 +43,11 @@ struct FoldGeometry {
     int block[4];
 };
 
+__device__ __forceinline__ float from_stored(float x) { return x; }
+__device__ __forceinline__ float from_stored(__half x) { return __half2float(x); }
+__device__ __forceinline__ void to_stored(float& slot, float x) { slot = x; }
+__device__ __forceinline__ void to_stored(__half& slot, float x) { slot = __float2half(x); }
+
 __host__ __device__ __forceinline__ size_t coarse_index(size_t q) {
     return (q / WarpSize) * 2 * WarpSize + q % WarpSize;
 }
@@ -56,11 +65,11 @@ constexpr int FoldVectors = 8;
 // d_sites: the block_volume sites (of the whole lattice) of every coarse site.
 // A field of g.leg takes the sites it is not zero on.
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, typename Stored>
 __global__ void fold_restrict_kernel(
     Float* __restrict__ d_coarse,
     const Float* __restrict__ d_fine,
-    const float* __restrict__ d_p,
+    const Stored* __restrict__ d_p,
     const unsigned* __restrict__ d_sites,
     int n_coarse, int block_volume, int n, int vectors,
     FoldGeometry g)
@@ -99,7 +108,7 @@ __global__ void fold_restrict_kernel(
                 if (in_block != (g.leg < 4 ? g.block[mu] - 1 : 0)) continue;
             }
         }
-        const float* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept;
+        const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept;
         for (int s = 0; s < Ls / 2; ++s) {
             #pragma unroll
             for (int a = 0; a < Nspin; ++a) {
@@ -107,7 +116,7 @@ __global__ void fold_restrict_kernel(
                 #pragma unroll
                 for (int colour = 0; colour < Nc; ++colour) {
                     const int e = 24 * s + 2 * (colour + Nc * a);
-                    const Float br = b[e], bi = b[e + 1];
+                    const Float br = from_stored(b[e]), bi = from_stored(b[e + 1]);
                     const int near_r = aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at);
                     const int near_i = aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at);
                     const int far_r = aosoa_5d_spinor_idx(colour, g.col[a], 0, Ls - 1 - s, Ls, at);
@@ -137,11 +146,11 @@ __global__ void fold_restrict_kernel(
 // spinor at s and its mirror at Ls - 1 - s.
 // d_coarse_of: the coarse site of every site of the whole lattice.
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, typename Stored>
 __global__ void fold_prolong_kernel(
     Float* __restrict__ d_fine,
     const Float* __restrict__ d_coarse,
-    const float* __restrict__ d_p,
+    const Stored* __restrict__ d_p,
     const unsigned* __restrict__ d_coarse_of,
     int n_coarse, int n, int vectors,
     FoldGeometry g)
@@ -176,8 +185,8 @@ __global__ void fold_prolong_kernel(
         }
         for (int i = 0; i < n; ++i) {
             const size_t q = coarse_index(first + c * n + i);
-            const float* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e;
-            const Float br = b[0], bi = b[1];
+            const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e;
+            const Float br = from_stored(b[0]), bi = from_stored(b[1]);
             for (int v = 0; v < count; ++v) {
                 const Float cr = coarse[v * reals + q], ci = coarse[v * reals + q + WarpSize];
                 ar[c][v] += cr * br - ci * bi;
@@ -207,9 +216,9 @@ __global__ void fold_prolong_kernel(
 // kept: vector blockIdx.y of the field d_fine on the whole lattice is test vector
 // first + blockIdx.y. A thread for each (site, s < Ls/2, spin, colour).
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, typename Stored>
 __global__ void fold_fill_kernel(
-    float* __restrict__ d_p,
+    Stored* __restrict__ d_p,
     const Float* __restrict__ d_fine,
     int n, int first,
     FoldGeometry g)
@@ -226,9 +235,9 @@ __global__ void fold_fill_kernel(
         // (Gamma_5 v)_s = gamma_5 v_(Ls-1-s)
         const Float near = fine[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, x)];
         const Float far = g.sign[a] * fine[aosoa_5d_spinor_idx(colour, g.col[a], ri, Ls - 1 - s, Ls, x)];
-        float* b = d_p + (static_cast<size_t>(x) * n + first + blockIdx.y) * 2 * kept + 2 * e + ri;
-        b[0] = static_cast<float>(static_cast<Float>(0.5) * (near + far));
-        b[kept] = static_cast<float>(static_cast<Float>(0.5) * (near - far));
+        Stored* b = d_p + (static_cast<size_t>(x) * n + first + blockIdx.y) * 2 * kept + 2 * e + ri;
+        to_stored(b[0], static_cast<float>(static_cast<Float>(0.5) * (near + far)));
+        to_stored(b[kept], static_cast<float>(static_cast<Float>(0.5) * (near - far)));
     }
 }
 
@@ -244,8 +253,9 @@ __global__ void fold_fill_kernel(
 // -------------------------------------------------------------------------
 constexpr int FoldThreads = 256;
 
+template <typename Stored>
 __global__ void fold_orthonormalise_kernel(
-    float* __restrict__ d_p,
+    Stored* __restrict__ d_p,
     double* __restrict__ d_w,
     const unsigned* __restrict__ d_sites,
     unsigned* __restrict__ d_fail,
@@ -290,8 +300,8 @@ __global__ void fold_orthonormalise_kernel(
 
     for (int k = tid; k < n * dim; k += FoldThreads) {
         const size_t at = in_p(k / dim, k % dim);
-        w[2 * k] = d_p[at];
-        w[2 * k + 1] = d_p[at + 1];
+        w[2 * k] = from_stored(d_p[at]);
+        w[2 * k + 1] = from_stored(d_p[at + 1]);
     }
     if (tid == 0) d_fail[blockIdx.x] = 0;
     __syncthreads();
@@ -328,8 +338,8 @@ __global__ void fold_orthonormalise_kernel(
 
     for (int k = tid; k < n * dim; k += FoldThreads) {
         const size_t at = in_p(k / dim, k % dim);
-        d_p[at] = static_cast<float>(scale * w[2 * k]);
-        d_p[at + 1] = static_cast<float>(scale * w[2 * k + 1]);
+        to_stored(d_p[at], static_cast<float>(scale * w[2 * k]));
+        to_stored(d_p[at + 1], static_cast<float>(scale * w[2 * k + 1]));
     }
 }
 

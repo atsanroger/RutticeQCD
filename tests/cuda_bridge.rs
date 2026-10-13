@@ -1099,14 +1099,14 @@ fn multigrid_transfers_on_the_device() {
             },
         );
         let y = DeviceSpinor::from_host_half(&half(Parity::Even, n, 432), &index).unwrap();
-        let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y).unwrap();
+        let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y, false).unwrap();
         let (a, b) = (basis.stored(), made.stored().unwrap());
         assert_eq!(a.len(), b.len());
         let size = a.iter().fold(0.0f64, |m, x| m.max(f64::from(x.abs())));
         let d = a
             .iter()
             .zip(&b)
-            .fold(0.0f64, |m, (a, b)| m.max((f64::from(*a) - b).abs()));
+            .fold(0.0f64, |m, (a, b)| m.max(f64::from((a - b).abs())));
         assert!(
             d < 1e-5 * size,
             "P made on the device differs by {d:e} of {size:e}"
@@ -1381,9 +1381,16 @@ fn domain_wall_multigrid_runs_on_the_device() {
         + MULTIGRID;
     same_tables(&text, "mdwf_mg", 1e-6);
 
+    // The prolongation kept in single precision, not in half precision.
+    let single = text.replace(
+        "  coarse_precision : single",
+        "  coarse_precision : single\n  basis_precision  : single",
+    );
+    same_tables(&single, "mdwf_mg_single", 1e-6);
+
     let text = text.replace(
         "  coarse_precision : single",
-        "  coarse_precision : single\n  fine_precision   : double",
+        "  coarse_precision : single\n  fine_precision   : double\n  basis_precision  : single",
     );
     let (cpu, gpu) = (
         run_with_backend(&text, "cpu", "mdwf_mg_double"),

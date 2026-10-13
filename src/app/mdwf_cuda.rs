@@ -17,7 +17,7 @@
 
 use super::mdwf::{iterations_text, load, multigrid_cycle, write_measurements, Preconditioner};
 use super::memory_line;
-use super::params::{Params, PrecisionType, PreconditionerType, SolverType};
+use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
 };
@@ -168,6 +168,7 @@ fn test_vectors<T: DeviceReal>(
     let (even, odd, device) = (&ops.even, &ops.odd, ops.plain()?);
     let ls = even.ls();
     let keep = mg.level1.test_vectors(true) / 2;
+    let half = mg.basis_precision == BasisPrecision::Half;
     let ratio = || PvRatio::new(device.0, device.1, EoForm::Right, even, odd);
     let mut y = match &mg.setup.checkpoint {
         Some(path) => {
@@ -196,7 +197,7 @@ fn test_vectors<T: DeviceReal>(
         let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
         if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
             on_device = Some(DeviceCorrection::<T, f32>::new(
-                DeviceBasis::pv_eo(device.0, device.1, &agg, &y)?,
+                DeviceBasis::pv_eo(device.0, device.1, &agg, &y, half)?,
                 device,
                 device,
                 EoForm::Right,
@@ -237,14 +238,14 @@ fn test_vectors<T: DeviceReal>(
     Ok(y)
 }
 
-/// The cycle of the multigrid on the test vectors `y` for the operator of `ops`: with the
-/// coarse correction of the CPU's cycle if there is one, else all of it on the device.
+/// The cycle of the multigrid for the operator of `ops`: with the coarse correction of the
+/// CPU's cycle if there is one, else all of it on the device, with the prolongation `basis`.
 #[allow(clippy::too_many_arguments)]
 fn two_grid<'a, T: DeviceReal>(
     params: &Params,
     lat: &Arc<Lattice>,
     ops: &'a Operators<T>,
-    y: &DeviceSpinor<T>,
+    basis: Option<DeviceBasis>,
     form: EoForm,
     cpu_cycle: Option<&'a mut Preconditioner<'_, Aos>>,
     index: &'a EvenOddIndex,
@@ -274,8 +275,7 @@ fn two_grid<'a, T: DeviceReal>(
         Some(cycle) => Box::new(on_cpu(index, move |e, r| cycle.coarse_correction(e, r))),
         None => {
             let device = ops.plain()?;
-            let agg = Aggregation::new(lat, mg.level1.block_size);
-            let basis = DeviceBasis::pv_eo(device.0, device.1, &agg, y)?;
+            let basis = basis.ok_or("the prolongation was not made")?;
             match mg.coarse_precision {
                 PrecisionType::Single => {
                     let mut c = DeviceCorrection::<T, f32>::new(
@@ -397,6 +397,27 @@ pub(super) fn run(
         }
         _ => None,
     };
+    // The prolongation on the device, where the coarse correction is there; the test vectors
+    // are not needed after it.
+    let mut device_basis = match (settings, on_device) {
+        (Some((_, _, mg)), true) => {
+            let agg = Aggregation::new(lat, mg.level1.block_size);
+            let half = mg.basis_precision == BasisPrecision::Half;
+            Some(match (&ops_single, &y_single, &y_double) {
+                (Some(o), Some(y), _) => {
+                    let (d, pv) = o.plain()?;
+                    DeviceBasis::pv_eo(d, pv, &agg, y, half)?
+                }
+                (_, _, Some(y)) => {
+                    let (d, pv) = ops.plain()?;
+                    DeviceBasis::pv_eo(d, pv, &agg, y, half)?
+                }
+                _ => return Err("no test vectors".into()),
+            })
+        }
+        _ => None,
+    };
+    drop((y_single, y_double));
     let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
         (Some(basis), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
             multigrid_cycle::<Aos>(
@@ -428,19 +449,19 @@ pub(super) fn run(
             )))
         }
         PreconditionerType::None => None,
-        PreconditionerType::Multigrid => match (&ops_single, &y_single, &y_double) {
-            (Some(o), Some(y), _) => {
-                let cycle = two_grid(params, lat, o, y, form, cpu_cycle.as_mut(), &index)?;
-                Some(Box::new(Convert::new(cycle, &o.even)))
+        PreconditionerType::Multigrid => {
+            let (basis, cpu) = (device_basis.take(), cpu_cycle.as_mut());
+            match &ops_single {
+                Some(o) => {
+                    let cycle = two_grid(params, lat, o, basis, form, cpu, &index)?;
+                    Some(Box::new(Convert::new(cycle, &o.even)))
+                }
+                None => Some(Box::new(two_grid(
+                    params, lat, &ops, basis, form, cpu, &index,
+                )?)),
             }
-            (_, _, Some(y)) => {
-                let cycle = two_grid(params, lat, &ops, y, form, cpu_cycle.as_mut(), &index)?;
-                Some(Box::new(cycle))
-            }
-            _ => return Err("the multigrid was not set up".into()),
-        },
+        }
     };
-    drop((y_single, y_double));
     writeln!(
         out,
         "  setup on the device: {:.0} s; {}",
