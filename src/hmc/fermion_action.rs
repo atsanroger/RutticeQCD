@@ -317,15 +317,13 @@ impl<O: ForceOp> LinearFn<Psi> for Gamma5<'_, O> {
     }
 }
 
-/// (A†A)⁻¹ b for A = `op` on the links `v`, from the guess in `z`, with an action's solver and
+/// (A†A)⁻¹ b for A = `op`, from the guess in `z`, with an action's solver and
 /// preconditioner. `fresh`: the first solve since the pseudofermions were drawn; `md`: a solve
 /// for the force.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn normal_solve<O: ForceOp>(
     op: &O,
     solver: NormalSolver,
     pre: &mut Preconditioner,
-    v: &Field<f64, Gauge>,
     (fresh, md): (bool, bool),
     z: &mut Psi,
     b: &Psi,
@@ -343,24 +341,14 @@ pub(super) fn normal_solve<O: ForceOp>(
             b,
             stop,
         ),
-        Preconditioner::Multigrid {
-            cycle,
-            refresh_every,
-            since,
-        } => {
-            if fresh || (*refresh_every > 0 && *since >= *refresh_every) {
-                cycle.setup(v).expect("the multigrid setup succeeds");
-                *since = 0;
-            }
-            if md {
-                *since += 1;
-            }
+        Preconditioner::Multigrid(setup) => {
+            let mut cycle = setup.cycle(op, b.lattice(), fresh, md);
             let mut gamma = Gamma5 {
                 op,
                 work: op.work(),
             };
             let pre = Pre::Hermitian {
-                m: cycle.cycle(),
+                m: &mut cycle,
                 gamma: &mut gamma,
             };
             solver.solve(&mut d, pre, z, b, stop)
@@ -457,8 +445,8 @@ impl<O: ForceOp> TwoFlavor<O> {
         levels
     }
 
-    /// (D†D)⁻¹ φ on the links `v`; for the force (`md`) from the guess.
-    fn solve(&mut self, v: &Field<f64, Gauge>, stop: Stop, md: bool) -> Result<Psi, SolveError> {
+    /// (D†D)⁻¹ φ; for the force (`md`) from the guess.
+    fn solve(&mut self, stop: Stop, md: bool) -> Result<Psi, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let a = self.conditioned.as_ref().unwrap_or(&self.op);
         let (mut b, mut z) = (phi.zeros_like(), phi.zeros_like());
@@ -469,7 +457,7 @@ impl<O: ForceOp> TwoFlavor<O> {
         }
         let flags = (std::mem::take(&mut self.fresh), md);
         let pre = &mut self.preconditioner;
-        let info = normal_solve(a, self.solver, pre, v, flags, &mut z, &b, stop)?;
+        let info = normal_solve(a, self.solver, pre, flags, &mut z, &b, stop)?;
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -499,9 +487,9 @@ impl<O: ForceOp> TwoFlavor<O> {
 
     /// S = φ† (D†D)⁻¹ φ.
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
-        let levels = self.set_links(links);
+        self.set_links(links);
         let v = self
-            .solve(levels.last().unwrap_or(links.thin), self.stop_h, false)
+            .solve(self.stop_h, false)
             .expect("the solve for the energy converges");
         let mut d = [C64::ZERO];
         v.dot(self.phi.as_ref().expect("drawn"), &mut d);
@@ -511,7 +499,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
         let levels = self.set_links(links);
         let eta = self
-            .solve(levels.last().unwrap_or(links.thin), self.stop_md, true)
+            .solve(self.stop_md, true)
             .expect("the solve for the force converges");
         let mut zeta = eta.zeros_like();
         let mut work = self.op.work();
@@ -595,29 +583,28 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         levels
     }
 
-    /// (D†D)⁻¹ b for the operator `op` on the links `v`.
+    /// (D†D)⁻¹ b for the operator `op`.
     fn solve(
         solver: NormalSolver,
         op: &O,
         pre: &mut Preconditioner,
-        v: &Field<f64, Gauge>,
         flags: (bool, bool),
         b: &Psi,
         stop: Stop,
     ) -> Psi {
         let (mut rb, mut z, mut x) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
         op.right(&mut rb, b);
-        normal_solve(op, solver, pre, v, flags, &mut z, &rb, stop).expect("the solve converges");
+        normal_solve(op, solver, pre, flags, &mut z, &rb, stop).expect("the solve converges");
         op.right(&mut x, &z);
         x
     }
 
     /// (D†D)⁻¹ b for the operator of the action, with its preconditioner.
-    fn solve_op(&mut self, v: &Field<f64, Gauge>, b: &Psi, stop: Stop, md: bool) -> Psi {
+    fn solve_op(&mut self, b: &Psi, stop: Stop, md: bool) -> Psi {
         let flags = (std::mem::take(&mut self.fresh), md);
         let op = self.conditioned.as_ref().unwrap_or(&self.op);
         let pre = &mut self.preconditioner;
-        Self::solve(self.solver, op, pre, v, flags, b, stop)
+        Self::solve(self.solver, op, pre, flags, b, stop)
     }
 
     fn apply(op: &O, v: &Psi, variant: Variant) -> Psi {
@@ -634,8 +621,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
-        let levels = self.set_links(links);
-        let v = levels.last().unwrap_or(links.thin);
+        self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
         draw(&mut xi, rng);
         // H† ξ = D† Γ5 ξ.
@@ -645,7 +631,6 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             self.solver,
             &self.pv,
             none,
-            v,
             (false, false),
             &v2,
             self.stop_h,
@@ -664,9 +649,9 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
-        let levels = self.set_links(links);
+        self.set_links(links);
         let v1 = self.v1();
-        let v2 = self.solve_op(levels.last().unwrap_or(links.thin), &v1, self.stop_h, false);
+        let v2 = self.solve_op(&v1, self.stop_h, false);
         let mut d = [C64::ZERO];
         v1.dot(&v2, &mut d);
         d[0].re
@@ -677,7 +662,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         let levels = self.set_links(links);
         let v1 = self.v1();
         let v = levels.last().unwrap_or(links.thin);
-        let v2 = self.solve_op(v, &v1, self.stop_md, true);
+        let v2 = self.solve_op(&v1, self.stop_md, true);
         let dv2 = Self::apply(&self.op, &v2, Variant::D);
         let mut m = full_derivative(&self.op, self.clover.map(|c| c.0), v, &dv2, &v2);
         let g5phi = Self::gamma5(&self.pv, self.phi.as_ref().expect("drawn"));

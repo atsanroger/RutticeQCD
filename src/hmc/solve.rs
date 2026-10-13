@@ -3,12 +3,12 @@
 
 use super::fermion_action::Psi;
 use super::ForceOp;
-use crate::solver::preconditioner::multigrid::{Multigrid, MultigridError, MultigridParams};
+use crate::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
 use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
 };
-use crate::{Adjoint, Field, Gauge, LinearFn, LinearOp, Normal, Vector, C64};
-use std::mem::ManuallyDrop;
+use crate::{Adjoint, Lattice, LinearFn, LinearOp, Normal, Vector, C64};
+use std::sync::Arc;
 
 /// How (A†A)⁻¹ b is computed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,6 +39,37 @@ pub enum Pre<'a, V> {
     },
 }
 
+/// Γ with A† = Γ A Γ, and an approximate inverse `m` of A if there is one.
+pub(super) struct Hermitian<'a, V> {
+    pub(super) gamma: &'a mut dyn LinearFn<V>,
+    pub(super) m: Option<&'a mut dyn LinearFn<V>>,
+}
+
+/// The residual r = b − (A†A + σ) x and its squares over those of b; true when all are below
+/// the tolerance.
+fn residual<V: Vector>(
+    a: &mut dyn LinearOp<V>,
+    shift: f64,
+    (x, b): (&V, &V),
+    (t, r): (&mut V, &mut V),
+    b_norm: &[f64],
+    info: &mut SolveInfo,
+    tolerance_sqr: f64,
+) -> bool {
+    let n = b.num_vectors();
+    a.mult(t, x);
+    a.mult_dag(r, t);
+    if shift != 0.0 {
+        r.axpy(&vec![C64::new(shift, 0.0); n], x);
+    }
+    r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
+    r.norm_sqr(&mut info.residual_sqr);
+    for (r, b) in info.residual_sqr.iter_mut().zip(b_norm) {
+        *r = if *b > 0.0 { *r / b } else { 0.0 };
+    }
+    info.residual_sqr.iter().all(|r| *r < tolerance_sqr)
+}
+
 impl NormalSolver {
     /// `x` holds the initial guess on entry. The info has the true |b − A†A x|²/|b|² and the
     /// iterations of all the solves. Panics for a preconditioner that is not of the solver's
@@ -46,7 +77,7 @@ impl NormalSolver {
     pub fn solve<V: Vector>(
         self,
         a: &mut dyn LinearOp<V>,
-        mut pre: Pre<'_, V>,
+        pre: Pre<'_, V>,
         x: &mut V,
         b: &V,
         stop: Stop,
@@ -59,57 +90,101 @@ impl NormalSolver {
             };
             return Cg::new(stop).solve(&mut Normal::new(a, b), m, x, b);
         }
+        let hermitian = match pre {
+            Pre::None => None,
+            Pre::Hermitian { m, gamma } => Some(Hermitian { gamma, m: Some(m) }),
+            Pre::Normal(_) => panic!("the two-step solvers take a preconditioner of A"),
+        };
+        self.two_step(a, hermitian, 0.0, x, b, stop)
+    }
+
+    /// x = (A†A + μ²)⁻¹ b through the Hermitian ΓA of an A with A† = Γ A Γ:
+    /// A†A + μ² = Γ (A + iμΓ) Γ (A − iμΓ), two solves with the approximate inverse `m` of A.
+    pub(super) fn shifted<V: Vector>(
+        self,
+        a: &mut dyn LinearOp<V>,
+        hermitian: Hermitian<'_, V>,
+        mu: f64,
+        x: &mut V,
+        b: &V,
+        stop: Stop,
+    ) -> Result<SolveInfo, SolveError> {
+        self.two_step(a, Some(hermitian), mu, x, b, stop)
+    }
+
+    /// The two solves of (A†A + μ²) x = b, repeated on its residual until that is below the
+    /// tolerance: with Γ, (A + iμΓ) w = Γ r and then (A − iμΓ) e = Γ w, both with `m`; without
+    /// (μ = 0), A† w = r and then A e = w.
+    fn two_step<V: Vector>(
+        self,
+        a: &mut dyn LinearOp<V>,
+        mut hermitian: Option<Hermitian<'_, V>>,
+        mu: f64,
+        x: &mut V,
+        b: &V,
+        stop: Stop,
+    ) -> Result<SolveInfo, SolveError> {
         let n = b.num_vectors();
-        let (minus, one) = (vec![C64::new(-1.0, 0.0); n], vec![C64::new(1.0, 0.0); n]);
         let mut b_norm = vec![0.0; n];
         b.norm_sqr(&mut b_norm);
         let (mut t, mut r) = (b.zeros_like(), b.zeros_like());
-        let (mut y, mut e) = (b.zeros_like(), b.zeros_like());
+        let (mut w, mut e) = (b.zeros_like(), b.zeros_like());
         let mut info = SolveInfo {
             iterations: 0,
             restarts: 0,
             residual_sqr: vec![0.0; n],
         };
         for sweep in 0..=stop.max_restarts {
-            // r = b − A†A x
-            a.mult(&mut t, x);
-            a.mult_dag(&mut r, &t);
-            r.aypx(&minus, b);
-            r.norm_sqr(&mut info.residual_sqr);
-            for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
-                *r = if *b > 0.0 { *r / b } else { 0.0 };
-            }
             info.restarts = sweep;
-            if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
+            let done = residual(
+                a,
+                mu * mu,
+                (x, b),
+                (&mut t, &mut r),
+                &b_norm,
+                &mut info,
+                stop.tolerance_sqr,
+            );
+            if done {
                 return Ok(info);
             }
             if sweep == stop.max_restarts {
                 break;
             }
-            y.set_zero();
-            e.set_zero();
-            match &mut pre {
-                Pre::None => {
-                    info.iterations += self.one(&mut Adjoint(&mut *a), None, &mut y, &r, stop)?;
-                    info.iterations += self.one(&mut &mut *a, None, &mut e, &y, stop)?;
-                }
-                Pre::Hermitian { m, gamma } => {
-                    gamma.mult(&mut t, &r);
-                    info.iterations += self.one(&mut &mut *a, Some(&mut **m), &mut e, &t, stop)?;
-                    gamma.mult(&mut y, &e);
+            match hermitian.as_mut() {
+                None => {
+                    w.set_zero();
                     e.set_zero();
-                    info.iterations += self.one(&mut &mut *a, Some(&mut **m), &mut e, &y, stop)?;
+                    info.iterations += self.one(&mut Adjoint(&mut *a), None, &mut w, &r, stop)?;
+                    info.iterations += self.one(&mut &mut *a, None, &mut e, &w, stop)?;
                 }
-                Pre::Normal(_) => panic!("the two-step solvers take a preconditioner of A"),
+                Some(Hermitian { gamma, m }) => {
+                    for sign in [1.0, -1.0] {
+                        // The right-hand side of this half: Γ r, then Γ w.
+                        gamma.mult(&mut t, if sign > 0.0 { &r } else { &w });
+                        e.set_zero();
+                        let mut twisted = Twisted {
+                            a: &mut *a,
+                            gamma: &mut **gamma,
+                            mu: sign * mu,
+                            turned: b.zeros_like(),
+                        };
+                        let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
+                        info.iterations += self.one(&mut twisted, pre, &mut e, &t, stop)?;
+                        if sign > 0.0 {
+                            w.copy_from(&e);
+                        }
+                    }
+                }
             }
-            x.axpy(&one, &e);
+            x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
         }
         Err(SolveError::NotConverged(info))
     }
 
     /// One solve A x = b from zero; its iterations. Not reaching the tolerance is left to the
     /// residual of the normal system to find.
-    pub(super) fn one<V: Vector>(
+    fn one<V: Vector>(
         self,
         a: &mut dyn LinearFn<V>,
         m: Option<&mut dyn LinearFn<V>>,
@@ -137,7 +212,7 @@ impl NormalSolver {
     }
 }
 
-/// A + iμΓ.
+/// A + iμΓ (A itself at μ = 0).
 struct Twisted<'a, V> {
     a: &'a mut dyn LinearOp<V>,
     gamma: &'a mut dyn LinearFn<V>,
@@ -147,88 +222,77 @@ struct Twisted<'a, V> {
 
 impl<V: Vector> LinearFn<V> for Twisted<'_, V> {
     fn mult(&mut self, out: &mut V, inp: &V) {
-        crate::fit(&mut self.turned, inp);
         self.a.mult(out, inp);
-        self.gamma.mult(&mut self.turned, inp);
-        out.axpy(
-            &vec![C64::new(0.0, self.mu); inp.num_vectors()],
-            &self.turned,
-        );
+        if self.mu != 0.0 {
+            crate::fit(&mut self.turned, inp);
+            self.gamma.mult(&mut self.turned, inp);
+            out.axpy(
+                &vec![C64::new(0.0, self.mu); inp.num_vectors()],
+                &self.turned,
+            );
+        }
     }
 }
 
-/// x = (A†A + μ²)⁻¹ b for an A with A† = Γ A Γ, so that ΓA is Hermitian and
-/// A†A + μ² = Γ (A + iμΓ) Γ (A − iμΓ): two solves, (A + iμΓ) w = Γ b and then (A − iμΓ) x = Γ w,
-/// by `solver` (not CG) with the approximate inverse `m` of A, repeated on the residual until
-/// that is below the tolerance. `x` holds the initial guess on entry.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn shifted_two_step<V: Vector>(
-    solver: NormalSolver,
-    a: &mut dyn LinearOp<V>,
-    gamma: &mut dyn LinearFn<V>,
-    mut m: Option<&mut dyn LinearFn<V>>,
-    mu: f64,
-    x: &mut V,
-    b: &V,
-    stop: Stop,
-) -> Result<SolveInfo, SolveError> {
-    let n = b.num_vectors();
-    let (minus, one) = (vec![C64::new(-1.0, 0.0); n], vec![C64::new(1.0, 0.0); n]);
-    let shift = vec![C64::new(mu * mu, 0.0); n];
-    let mut b_norm = vec![0.0; n];
-    b.norm_sqr(&mut b_norm);
-    let (mut t, mut r) = (b.zeros_like(), b.zeros_like());
-    let (mut w, mut e) = (b.zeros_like(), b.zeros_like());
-    let mut info = SolveInfo {
-        iterations: 0,
-        restarts: 0,
-        residual_sqr: vec![0.0; n],
-    };
-    for sweep in 0..=stop.max_restarts {
-        // r = b − (A†A + μ²) x
-        a.mult(&mut t, x);
-        a.mult_dag(&mut r, &t);
-        r.axpy(&shift, x);
-        r.aypx(&minus, b);
-        r.norm_sqr(&mut info.residual_sqr);
-        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
-            *r = if *b > 0.0 { *r / b } else { 0.0 };
+/// The multigrid of Wilson and clover fermions along a trajectory: the test vectors are kept,
+/// and the cycle of every solve is made from them for the operator on the links of that solve.
+pub struct MultigridSetup {
+    pub params: MultigridParams,
+    /// The test vectors are improved (a full setup) when the pseudofermions are drawn and after
+    /// every this many force solves; 0: never within a trajectory.
+    pub refresh_every: usize,
+    /// A full setup starts from the vectors of the one before, improved this many times; none:
+    /// from random vectors.
+    pub reuse: Option<usize>,
+    vectors: Option<Psi>,
+    since: usize,
+}
+
+impl MultigridSetup {
+    pub fn new(params: MultigridParams, refresh_every: usize) -> Self {
+        Self {
+            params,
+            refresh_every,
+            reuse: None,
+            vectors: None,
+            since: 0,
         }
-        info.restarts = sweep;
-        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
-            return Ok(info);
-        }
-        if sweep == stop.max_restarts {
-            break;
-        }
-        for sign in [1.0, -1.0] {
-            // The right-hand side of this half: Γ r, then Γ w.
-            let from = if sign > 0.0 { &r } else { &w };
-            gamma.mult(&mut t, from);
-            e.set_zero();
-            let mut twisted = Twisted {
-                a: &mut *a,
-                gamma: &mut *gamma,
-                mu: sign * mu,
-                turned: b.zeros_like(),
-            };
-            let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
-            info.iterations += solver.one(&mut twisted, pre, &mut e, &t, stop)?;
-            if sign > 0.0 {
-                w.copy_from(&e);
+    }
+
+    /// Start every full setup but the first from the test vectors of the one before, improved
+    /// `iterations` times (0: smoothed once): the links of consecutive setups are close.
+    pub fn reusing_vectors(mut self, iterations: usize) -> Self {
+        self.reuse = Some(iterations);
+        self
+    }
+
+    /// The cycle for `op`. `fresh`: the first solve since the pseudofermions were drawn; `md`:
+    /// a solve for the force.
+    pub(super) fn cycle<'a, O: ForceOp>(
+        &mut self,
+        op: &'a O,
+        lat: &Arc<Lattice>,
+        fresh: bool,
+        md: bool,
+    ) -> Multigrid<'a, O, f64> {
+        let due = fresh || (self.refresh_every > 0 && self.since >= self.refresh_every);
+        let cycle = match (self.vectors.take(), due, self.reuse) {
+            (Some(vectors), false, _) => Multigrid::rebuilt(op, lat, &self.params, vectors),
+            (Some(vectors), true, Some(iterations)) => {
+                Multigrid::from_vectors(op, lat, &self.params, vectors, iterations)
             }
+            _ => Multigrid::new(op, lat, &self.params),
         }
-        x.axpy(&one, &e);
+        .expect("the multigrid setup succeeds");
+        if due {
+            self.since = 0;
+        }
+        if md {
+            self.since += 1;
+        }
+        self.vectors = Some(cycle.test_vectors());
+        cycle
     }
-    Err(SolveError::NotConverged(info))
-}
-
-/// A multigrid cycle that is set up again when the links have changed enough.
-pub trait SetupOnLinks {
-    /// Set up for the operator on the links `u`.
-    fn setup(&mut self, u: &Field<f64, Gauge>) -> Result<(), MultigridError>;
-    /// The cycle of the last setup: an approximate inverse of the operator on those links.
-    fn cycle(&mut self) -> &mut dyn LinearFn<Psi>;
 }
 
 /// The preconditioner of an action's solves.
@@ -243,41 +307,13 @@ pub enum Preconditioner {
         ratio: f64,
         hi: Option<f64>,
     },
-    /// For the two-step solvers of Wilson and clover fermions: a multigrid cycle, set up when
-    /// the pseudofermions are drawn and again after every `refresh_every` force solves (0:
-    /// never within a trajectory). In between it is the cycle of the links of its setup.
-    Multigrid {
-        cycle: Box<dyn SetupOnLinks>,
-        refresh_every: usize,
-        since: usize,
-    },
+    /// For the two-step solvers of Wilson and clover fermions.
+    Multigrid(Box<MultigridSetup>),
 }
 
 impl Preconditioner {
-    /// The multigrid cycle for a solve on the links `v`, set up first when that is due; none
-    /// without a multigrid. `fresh`, `md`: as in `normal_solve`.
-    pub(super) fn cycle_for(
-        &mut self,
-        v: &Field<f64, Gauge>,
-        fresh: bool,
-        md: bool,
-    ) -> Option<&mut dyn LinearFn<Psi>> {
-        let Preconditioner::Multigrid {
-            cycle,
-            refresh_every,
-            since,
-        } = self
-        else {
-            return None;
-        };
-        if fresh || (*refresh_every > 0 && *since >= *refresh_every) {
-            cycle.setup(v).expect("the multigrid setup succeeds");
-            *since = 0;
-        }
-        if md {
-            *since += 1;
-        }
-        Some(cycle.cycle())
+    pub fn multigrid(setup: MultigridSetup) -> Self {
+        Preconditioner::Multigrid(Box::new(setup))
     }
 
     pub fn chebyshev(steps: usize, ratio: f64) -> Self {
@@ -287,19 +323,10 @@ impl Preconditioner {
             hi: None,
         }
     }
-
-    pub fn multigrid(cycle: impl SetupOnLinks + 'static, refresh_every: usize) -> Self {
-        Preconditioner::Multigrid {
-            cycle: Box::new(cycle),
-            refresh_every,
-            since: 0,
-        }
-    }
 }
 
 /// (A†A)⁻¹ b by CG with the Chebyshev polynomial of A†A as preconditioner. `again` is a second
 /// instance of A, for the polynomial; `hi` is estimated when `fresh` or not known yet.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn chebyshev_cg<V: Vector, A: LinearOp<V>>(
     a: &mut dyn LinearOp<V>,
     again: A,
@@ -323,108 +350,6 @@ pub(super) fn chebyshev_cg<V: Vector, A: LinearOp<V>>(
     };
     let mut m = Chebyshev::new(normal, steps, top / ratio, top, b);
     NormalSolver::Cg.solve(a, Pre::Normal(&mut m), x, b, stop)
-}
-
-/// The multigrid of Wilson and clover fermions with an operator of its own, on the links of
-/// the last setup.
-pub struct OwnedMultigrid<O: ForceOp + 'static>
-where
-    O::Work: 'static,
-{
-    make: Box<dyn Fn() -> O>,
-    params: MultigridParams,
-    /// Start a setup from the test vectors of the one before, improved this many times;
-    /// none: every setup from random vectors.
-    reuse: Option<usize>,
-    built: Option<Built<O>>,
-}
-
-struct Built<O: ForceOp + 'static>
-where
-    O::Work: 'static,
-{
-    cycle: ManuallyDrop<Multigrid<'static, O, f64>>,
-    op: *mut O,
-}
-
-impl<O: ForceOp + 'static> Drop for Built<O>
-where
-    O::Work: 'static,
-{
-    fn drop(&mut self) {
-        // SAFETY: `cycle` is the only borrower of `*op`, which came from `Box::into_raw`; it is
-        // dropped first, and neither is used again.
-        unsafe {
-            ManuallyDrop::drop(&mut self.cycle);
-            drop(Box::from_raw(self.op));
-        }
-    }
-}
-
-impl<O: ForceOp + 'static> OwnedMultigrid<O>
-where
-    O::Work: 'static,
-{
-    /// `make` gives the operator, without links.
-    pub fn new(make: impl Fn() -> O + 'static, params: MultigridParams) -> Self {
-        Self {
-            make: Box::new(make),
-            params,
-            reuse: None,
-            built: None,
-        }
-    }
-
-    /// Start every setup but the first from the test vectors of the setup before it, improved
-    /// `iterations` times (0: smoothed once): the links of consecutive setups are close.
-    pub fn reusing_vectors(mut self, iterations: usize) -> Self {
-        self.reuse = Some(iterations);
-        self
-    }
-}
-
-impl<O: ForceOp + 'static> SetupOnLinks for OwnedMultigrid<O>
-where
-    O::Work: 'static,
-{
-    fn setup(&mut self, u: &Field<f64, Gauge>) -> Result<(), MultigridError> {
-        // The old cycle first: two of them need not be held at once.
-        let before = match (self.reuse, self.built.as_ref()) {
-            (Some(iterations), Some(built)) => Some((built.cycle.test_vectors(), iterations)),
-            _ => None,
-        };
-        self.built = None;
-        let mut op = (self.make)();
-        op.set_gauge(u).expect("the links suit the operator");
-        let op = Box::into_raw(Box::new(op));
-        // SAFETY: `op` points to a live box that `Built` frees only after the cycle borrowing
-        // it is dropped, and nothing else gets a reference to it.
-        let borrowed: &'static O = unsafe { &*op };
-        let cycle = match before {
-            Some((vectors, iterations)) => {
-                Multigrid::from_vectors(borrowed, u.lattice(), &self.params, vectors, iterations)
-            }
-            None => Multigrid::new(borrowed, u.lattice(), &self.params),
-        };
-        match cycle {
-            Ok(cycle) => {
-                self.built = Some(Built {
-                    cycle: ManuallyDrop::new(cycle),
-                    op,
-                });
-                Ok(())
-            }
-            Err(e) => {
-                // SAFETY: the setup failed, so nothing borrows `*op`.
-                drop(unsafe { Box::from_raw(op) });
-                Err(e)
-            }
-        }
-    }
-
-    fn cycle(&mut self) -> &mut dyn LinearFn<Psi> {
-        &mut *self.built.as_mut().expect("set up").cycle
-    }
 }
 
 /// A + σ.

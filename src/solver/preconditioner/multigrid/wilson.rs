@@ -194,6 +194,28 @@ where
         initial: Fine<T>,
         setup_iterations: usize,
     ) -> Result<Self, MultigridError> {
+        Self::from_parameters(op, lat, params, initial, true, setup_iterations)
+    }
+
+    /// The cycle for `op` from the test vectors of a cycle for links nearby (`test_vectors`),
+    /// taken as they are: only the coarse operator is made again.
+    pub fn rebuilt(
+        op: &'a F,
+        lat: &Arc<Lattice>,
+        params: &MultigridParams,
+        vectors: Fine<T>,
+    ) -> Result<Self, MultigridError> {
+        Self::from_parameters(op, lat, params, vectors, false, 0)
+    }
+
+    fn from_parameters(
+        op: &'a F,
+        lat: &Arc<Lattice>,
+        params: &MultigridParams,
+        initial: Fine<T>,
+        smooth: bool,
+        setup_iterations: usize,
+    ) -> Result<Self, MultigridError> {
         let agg = Aggregation::new(lat, params.block);
         let smoother = || -> Box<dyn LinearFn<Fine<T>> + 'a> {
             match params.smoother {
@@ -225,7 +247,7 @@ where
             coarse_even_odd: params.coarse_even_odd,
             ..SetupHooks::default()
         };
-        let mut mg = Self::with_parts(op, &agg, initial, setup_iterations, parts, hooks)?;
+        let mut mg = Self::assemble(op, &agg, initial, smooth, setup_iterations, parts, hooks)?;
         let levels: Vec<usize> = params.levels.into_iter().take_while(|s| *s > 0).collect();
         if !levels.is_empty() {
             mg.add_levels(&levels)?;
@@ -241,12 +263,29 @@ where
         agg: &Arc<Aggregation>,
         initial: Fine<T>,
         setup_iterations: usize,
+        parts: CycleParts<'a, T>,
+        hooks: SetupHooks<'a, T>,
+    ) -> Result<Self, MultigridError> {
+        Self::assemble(op, agg, initial, true, setup_iterations, parts, hooks)
+    }
+
+    /// `with_parts`; without `smooth` the initial vectors are the test vectors as they are.
+    fn assemble(
+        op: &'a F,
+        agg: &Arc<Aggregation>,
+        initial: Fine<T>,
+        smooth: bool,
+        setup_iterations: usize,
         mut parts: CycleParts<'a, T>,
         mut hooks: SetupHooks<'a, T>,
     ) -> Result<Self, MultigridError> {
         let mut work = op.work();
         let mut x = initial.zeros_like();
-        parts.post_smoother.mult(&mut x, &initial);
+        if smooth {
+            parts.post_smoother.mult(&mut x, &initial);
+        } else {
+            x.copy_from(&initial);
+        }
         let basis = basis_after_smoothing(op, &mut work, agg, &mut hooks, &x)?;
         let restriction = match hooks.adjoint_smoother.as_mut() {
             Some(smoother) => {

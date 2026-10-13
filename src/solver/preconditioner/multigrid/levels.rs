@@ -728,21 +728,6 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for BlocksPlusLevels<'_> {
     }
 }
 
-/// `OnEven` for a coarse operator that is not shared.
-pub(super) struct OnEvenOf<'a, T: Storage, M> {
-    pub(super) inner: M,
-    pub(super) a: &'a CoarseOp<T>,
-    pub(super) whole: Field<T, Coarse>,
-}
-
-impl<T: Storage, M: LinearFn<Field<T, Coarse>>> LinearFn<Field<T, Coarse>> for OnEvenOf<'_, T, M> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        crate::fit(&mut self.whole, inp);
-        self.inner.mult(&mut self.whole, inp);
-        self.a.even_part(out, &self.whole);
-    }
-}
-
 /// Dense matrices on the coarse sites, applied site by site.
 pub(super) struct BlockMap {
     dim: usize,
@@ -859,18 +844,24 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedShared<'_, T> {
 /// A preconditioner of the Schur complement on the even coarse sites from one, `inner`, of
 /// the whole coarse operator A: the block of A⁻¹ on the even sites is the inverse of the Schur
 /// complement, so the even sites of `inner` applied to a field that is zero on the odd sites
-/// approximate it as well as `inner` approximates A⁻¹.
-pub(super) struct OnEven<'a, T: Storage, M> {
+/// approximate it as well as `inner` approximates A⁻¹. `even_part(out, inp)` keeps the even
+/// sites of a field (`CoarseOp::even_part`).
+pub(super) struct OnEven<T: Storage, M, E> {
     pub(super) inner: M,
-    pub(super) a: &'a RefCell<CoarseOp<T>>,
+    pub(super) even_part: E,
     pub(super) whole: Field<T, Coarse>,
 }
 
-impl<T: Storage, M: LinearFn<Field<T, Coarse>>> LinearFn<Field<T, Coarse>> for OnEven<'_, T, M> {
+impl<T, M, E> LinearFn<Field<T, Coarse>> for OnEven<T, M, E>
+where
+    T: Storage,
+    M: LinearFn<Field<T, Coarse>>,
+    E: Fn(&mut Field<T, Coarse>, &Field<T, Coarse>),
+{
     fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         crate::fit(&mut self.whole, inp);
         self.inner.mult(&mut self.whole, inp);
-        self.a.borrow().even_part(out, &self.whole);
+        (self.even_part)(out, &self.whole);
     }
 }
 

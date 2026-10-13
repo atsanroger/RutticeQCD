@@ -9,7 +9,7 @@
 
 use super::fermion_action::Gamma5;
 use super::fermion_action::{draw, full_derivative, Psi};
-use super::solve::{shifted_two_step, Shifted};
+use super::solve::{Hermitian, Shifted};
 use super::{smeared_force, ForceOp, Links, Mseries};
 use super::{NormalSolver, Preconditioner};
 use crate::fermion::{Bound, Variant};
@@ -104,10 +104,9 @@ impl<O: ForceOp> Rational<O> {
         levels
     }
 
-    /// x_k = (D†D + pole_k)⁻¹ b for the poles of `r`, on the links `v`; `md`: for the force.
+    /// x_k = (D†D + pole_k)⁻¹ b for the poles of `r`; `md`: for the force.
     fn shifted(
         &mut self,
-        v: &Field<f64, Gauge>,
         r: &RationalApprox,
         b: &Psi,
         stop: Stop,
@@ -115,7 +114,12 @@ impl<O: ForceOp> Rational<O> {
     ) -> Result<Vec<Psi>, SolveError> {
         if let Some(solver) = self.two_step {
             let fresh = std::mem::take(&mut self.fresh);
-            let mut m = self.preconditioner.cycle_for(v, fresh, md);
+            let mut cycle = match &mut self.preconditioner {
+                Preconditioner::Multigrid(setup) => {
+                    Some(setup.cycle(&self.op, b.lattice(), fresh, md))
+                }
+                _ => None,
+            };
             let mut d = Bound::new(&self.op, Variant::D);
             let mut gamma = Gamma5 {
                 op: &self.op,
@@ -125,19 +129,11 @@ impl<O: ForceOp> Rational<O> {
             self.last_iterations = 0;
             for pole in &r.poles {
                 let mut x = b.zeros_like();
-                let pre = m
-                    .as_mut()
-                    .map(|m| &mut **m as &mut dyn crate::LinearFn<Psi>);
-                let info = shifted_two_step(
-                    solver,
-                    &mut d,
-                    &mut gamma,
-                    pre,
-                    pole.sqrt(),
-                    &mut x,
-                    b,
-                    stop,
-                )?;
+                let hermitian = Hermitian {
+                    gamma: &mut gamma,
+                    m: cycle.as_mut().map(|m| m as &mut dyn crate::LinearFn<Psi>),
+                };
+                let info = solver.shifted(&mut d, hermitian, pole.sqrt(), &mut x, b, stop)?;
                 self.last_iterations += info.iterations;
                 xs.push(x);
             }
@@ -166,9 +162,9 @@ impl<O: ForceOp> Rational<O> {
     }
 
     /// r(D†D) b = a0 b + Σ_k res_k x_k, in Bridge++'s order of the sum.
-    fn apply(&mut self, v: &Field<f64, Gauge>, r: &RationalApprox, b: &Psi, stop: Stop) -> Psi {
+    fn apply(&mut self, r: &RationalApprox, b: &Psi, stop: Stop) -> Psi {
         let xs = self
-            .shifted(v, r, b, stop, false)
+            .shifted(r, b, stop, false)
             .expect("the multi-shift solve converges");
         let mut out = b.zeros_like();
         out.copy_from(b);
@@ -182,13 +178,12 @@ impl<O: ForceOp> Rational<O> {
     /// The heat bath: φ = r_hb(D†D) ξ, ξ Gaussian (variance ½ per real) in Bridge++'s order;
     /// returns |ξ|².
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
-        let levels = self.set_links(links);
+        self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
         draw(&mut xi, rng);
         let r = self.heat_bath.clone();
         self.fresh = true;
-        let v = levels.last().unwrap_or(links.thin);
-        self.phi = Some(self.apply(v, &r, &xi, self.stop_h));
+        self.phi = Some(self.apply(&r, &xi, self.stop_h));
         let mut n = [0.0];
         xi.norm_sqr(&mut n);
         n[0]
@@ -196,10 +191,10 @@ impl<O: ForceOp> Rational<O> {
 
     /// S = φ† r_md(D†D) φ.
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
-        let levels = self.set_links(links);
+        self.set_links(links);
         let phi = self.phi.take().expect("pseudofermions drawn");
         let r = self.md.clone();
-        let v = self.apply(levels.last().unwrap_or(links.thin), &r, &phi, self.stop_h);
+        let v = self.apply(&r, &phi, self.stop_h);
         let mut d = [C64::ZERO];
         v.dot(&phi, &mut d);
         self.phi = Some(phi);
@@ -212,7 +207,7 @@ impl<O: ForceOp> Rational<O> {
         let r = self.md.clone();
         let v = levels.last().unwrap_or(links.thin);
         let xs = self
-            .shifted(v, &r, &phi, self.stop_md, true)
+            .shifted(&r, &phi, self.stop_md, true)
             .expect("the multi-shift solve for the force converges");
         self.phi = Some(phi);
         let mut m = Field::<f64, Gauge>::gauge(links.thin.lattice());
