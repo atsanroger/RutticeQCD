@@ -127,6 +127,34 @@ __global__ void blas_dotc_partial_kernel(Float* __restrict__ block_sums, const F
     }
 }
 
+// x_j <- sum_i x_i c[i n + j] for the n vectors of a set, in place: a thread for each complex
+// number, which reads it of every vector, then writes it. c: n^2 complex numbers (re, im),
+// row-major. n at most RotateVectors.
+constexpr int RotateVectors = 32;
+
+template <typename Float>
+__global__ void blas_rotate_kernel(Float* __restrict__ x, const double* __restrict__ c, int pairs, int n) {
+    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < static_cast<size_t>(pairs);
+         p += blockDim.x * gridDim.x) {
+        const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+        Float re[RotateVectors], im[RotateVectors];
+        for (int i = 0; i < n; ++i) {
+            re[i] = x[static_cast<size_t>(i) * 2 * pairs + kr];
+            im[i] = x[static_cast<size_t>(i) * 2 * pairs + ki];
+        }
+        for (int j = 0; j < n; ++j) {
+            Float zr = 0, zi = 0;
+            for (int i = 0; i < n; ++i) {
+                const Float cr = static_cast<Float>(c[2 * (i * n + j)]), ci = static_cast<Float>(c[2 * (i * n + j) + 1]);
+                zr += re[i] * cr - im[i] * ci;
+                zi += re[i] * ci + im[i] * cr;
+            }
+            x[static_cast<size_t>(j) * 2 * pairs + kr] = zr;
+            x[static_cast<size_t>(j) * 2 * pairs + ki] = zi;
+        }
+    }
+}
+
 } // namespace bridge_cuda
 
 #endif // BRIDGE_CUDA_LINALG_BLAS_CUH

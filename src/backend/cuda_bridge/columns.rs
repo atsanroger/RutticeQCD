@@ -142,3 +142,15 @@ pub(super) fn norm_sqr<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, out: 
     }
     finish();
 }
+
+/// The most vectors `rotate` takes.
+pub(super) const ROTATE_VECTORS: usize = 32;
+
+/// `x_j ← Σ_i x_i c[i n + j]` for the n vectors of the set, in place.
+pub(super) fn rotate<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, c: &[C64]) {
+    assert!(vectors <= ROTATE_VECTORS && c.len() == vectors * vectors);
+    let reals: Vec<f64> = c.iter().flat_map(|z| [z.re, z.im]).collect();
+    let c = must(DeviceBuffer::<f64>::from_host(&reals));
+    // SAFETY: `vectors` vectors of `len / vectors` reals, and the coefficients of that many.
+    unsafe { T::rotate(x.ptr, c.ptr, (x.len / vectors) as i32, vectors as i32) };
+}

@@ -308,6 +308,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         gamma: *const i32,
         vectors: i32,
     );
+    unsafe fn rotate(x: *mut Self, c: *const f64, n: i32, vectors: i32);
     /// `a`: a real for each vector; in `caxpy` and `caypx` its real and its imaginary part.
     unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32);
     unsafe fn caxpy(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
@@ -328,7 +329,7 @@ macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
      $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident, $walls:ident, $restrict:ident, $prolong:ident, $pass:ident,
-     $coarse_gamma5:ident, $hop_split:ident, $fill:ident) => {
+     $coarse_gamma5:ident, $hop_split:ident, $fill:ident, $rotate:ident) => {
         extern "C" {
             fn $wilson(
                 out: *mut $t,
@@ -532,6 +533,7 @@ macro_rules! device_real {
                 vectors: i32,
                 stream: *mut c_void,
             );
+            fn $rotate(x: *mut $t, c: *const f64, n: i32, vectors: i32, stream: *mut c_void);
             fn $scal(x: *mut $t, a: *const f64, n: i32, vectors: i32, stream: *mut c_void);
             fn $caxpy(
                 y: *mut $t,
@@ -831,6 +833,9 @@ macro_rules! device_real {
             ) {
                 $fill(p, fine, n, first, dims, ls, gamma, vectors, STREAM)
             }
+            unsafe fn rotate(x: *mut Self, c: *const f64, n: i32, vectors: i32) {
+                $rotate(x, c, n, vectors, STREAM)
+            }
             unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32) {
                 $scal(x, a, n, vectors, STREAM)
             }
@@ -864,7 +869,7 @@ device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32,
     bridge_cuda_walls_f32, bridge_cuda_fold_restrict_f32, bridge_cuda_fold_prolong_f32,
     bridge_cuda_coarse_pass_f32, bridge_cuda_coarse_gamma5_f32, bridge_cuda_hop_split_f32,
-    bridge_cuda_fold_fill_f32);
+    bridge_cuda_fold_fill_f32, bridge_cuda_blas_rotate_f32);
 device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
@@ -872,7 +877,7 @@ device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64,
     bridge_cuda_walls_f64, bridge_cuda_fold_restrict_f64, bridge_cuda_fold_prolong_f64,
     bridge_cuda_coarse_pass_f64, bridge_cuda_coarse_gamma5_f64, bridge_cuda_hop_split_f64,
-    bridge_cuda_fold_fill_f64);
+    bridge_cuda_fold_fill_f64, bridge_cuda_blas_rotate_f64);
 
 /// A call of the CUDA runtime failed with this code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

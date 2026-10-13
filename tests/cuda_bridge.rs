@@ -796,6 +796,21 @@ fn several_vectors_in_a_field_on_the_device() {
     dx.assign(&[1, 2], &device_part);
     same(&dx, &x, "assign");
 
+    // Another basis of the subspace of the vectors, in place.
+    {
+        use ruttice::Subspace;
+        let c: Vec<C64> = (0..nv * nv)
+            .map(|k| C64::new(0.3 * k as f64 - 1.0, 0.2 - 0.1 * (k * k) as f64))
+            .collect();
+        let mut expected = x.zeros_like();
+        for i in 0..nv {
+            expected.axpy(&c[i * nv..(i + 1) * nv], &x.select(&vec![i; nv]));
+        }
+        dx.rotate(&c);
+        x.copy_from(&expected);
+        same(&dx, &x, "the change of basis");
+    }
+
     // More vectors than one launch of the linear algebra takes coefficients for.
     {
         let more = 19;
