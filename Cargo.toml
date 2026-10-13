@@ -49,6 +49,9 @@ required-features = ["mpi"]
 mpi = ["dep:mpi"]
 # Gauge configurations in HDF5 files (`io::hdf5`). Needs the HDF5 library to build.
 hdf5 = ["dep:hdf5", "dep:ndarray"]
+# The CUDA kernels of `cuda_bridge/` (from Bridge++) and the backend on them
+# (`backend::cuda_bridge`). Needs the CUDA toolkit and cmake to build, and an NVIDIA GPU to run.
+cuda-bridge = []
 
 [dependencies]
 rayon = "1"

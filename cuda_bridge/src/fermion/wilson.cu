@@ -22,6 +22,8 @@ void bridge_cuda_wilson_dslash_f32(
     bridge_cuda::wilson_interior_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
         d_out, d_in, d_gauge,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
         static_cast<float>(params->kappa)
     );
 }
@@ -35,6 +37,8 @@ void bridge_cuda_wilson_dslash_f64(
     bridge_cuda::wilson_interior_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
         d_out, d_in, d_gauge,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
         params->kappa
     );
 }
