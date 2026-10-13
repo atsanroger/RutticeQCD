@@ -25,7 +25,11 @@ add_library(bridge_cuda_static STATIC ${BRIDGE_CUDA_SOURCES})
 add_library(bridge_cuda SHARED ${BRIDGE_CUDA_SOURCES})
 
 set_target_properties(bridge_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-set_target_properties(bridge_cuda_static PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+# The device link is done in the archive, so that a linker other than nvcc (cargo's) can use it.
+set_target_properties(bridge_cuda_static PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    POSITION_INDEPENDENT_CODE ON)
 
 add_executable(test_mdwf_1pass tests/test_mdwf_1pass.cu)
 target_link_libraries(test_mdwf_1pass PRIVATE bridge_cuda_static)

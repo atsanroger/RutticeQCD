@@ -11,6 +11,31 @@ namespace bridge_cuda {
 // Spin projection operators for Dirac and Chiral (Weyl) representations
 // -------------------------------------------------------------------------
 
+// out = gamma_mu in, in the Dirac representation of Ruttice and Bridge++ (gamma_4 diagonal):
+//   (gamma_mu psi)[row] = val[row] * psi[col[row]],  val one of +1, -1, +i, -i.
+template <typename Float>
+__device__ __forceinline__ void mult_gamma_dirac(
+    Float out[Nspin][Nc][Ncomplex],
+    const Float in[Nspin][Nc][Ncomplex],
+    int mu)
+{
+    // col[mu][row]; val as (re, im)
+    const int col[4][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}, {0, 1, 2, 3}};
+    const int re[4][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}, {1, 1, -1, -1}};
+    const int im[4][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
+    #pragma unroll
+    for (int row = 0; row < Nspin; ++row) {
+        const int k = col[mu][row];
+        const Float a = static_cast<Float>(re[mu][row]);
+        const Float b = static_cast<Float>(im[mu][row]);
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            out[row][c][0] = a * in[k][c][0] - b * in[k][c][1];
+            out[row][c][1] = a * in[k][c][1] + b * in[k][c][0];
+        }
+    }
+}
+
 // Chiral projection: P_R = (1 + gamma_5)/2
 template <typename Float, int GammaRep = BRIDGE_CUDA_GAMMA_CHIRAL>
 __device__ __forceinline__ void proj_pr(
