@@ -1815,3 +1815,18 @@ multigrid 只接在量 propagator 那條路上。這個缺口沒有在發布前�
 - **`params.rs` 拆成** `params/{mod, keywords, blocks, convert, display}.rs`。
 - **使用者決定不做／暫緩**：HMC 的 MG 單精度（Bridge++ 的 HMC 也沒有）；NERSC 的外部驗證（沒有外部檔）；HMC 的 SIMD 內容。
 
+**HMC 的 solver 在 12⁴ 的實測（10-13；clover κ = 0.137、c_SW = 1、β = 6.0 的 quenched 組態 `hmc_12_b6.0/…-000200`，plaquette＋兩味，leapfrog 4 步、長度 0.1，一條軌跡，8 條 thread，容許值 1e-20；各設定的 plaquette、ΔH 相同）：**
+
+| 設定 | 一條軌跡 |
+|---|---|
+| CG，even-odd | **11.5 s** |
+| CG＋Chebyshev，even-odd | 16.0 s |
+| CG，整格 | 18.4 s |
+| BiCGStab，整格 | 18.5 s |
+| GCR＋MG，even-odd | 200.3 s |
+| GCR＋MG，整格 | 203.8 s |
+| BiCGStab＋MG，整格 | 207.5 s |
+
+MG（區塊 3⁴、16 個測試向量、4 輪 setup）比 even-odd CG 慢約 17 倍；三種 MG 設定的時間幾乎相同，表示時間不在外層求解的差異上，但 setup／每次重建／cycle 各佔多少**沒有分開量**。
+結論：到 12⁴、這個質量為止，HMC 裡沒有任何選項贏過 even-odd CG。`app/hmc.rs` 的 macro 已改成三個對算子泛型的函式。
+
