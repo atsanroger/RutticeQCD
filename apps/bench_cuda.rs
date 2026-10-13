@@ -1,9 +1,9 @@
 //! The operators on the device against those on the CPU, in time: one application of D, and
 //! the even-odd solve with CG on the normal equations.
 //!
-//!   ruttice-bench-cuda <gauge file (Bridge++ text)> <L> [Ls]
+//!   ruttice-bench-cuda <gauge file (Bridge++ text)> <L> [Ls] [mult]
 //!
-//! on an L⁴ lattice. The CPU runs on the threads of rayon (RAYON_NUM_THREADS).
+//! on an L⁴ lattice; with `mult` only the applications of D are timed. The CPU runs on the threads of rayon (RAYON_NUM_THREADS).
 
 use ruttice::backend::cuda_bridge::{
     CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceSpinor,
@@ -36,7 +36,7 @@ fn time_mult<V: Vector, F: FermionOp<V>>(op: &F, psi: &V) -> f64 {
     start.elapsed().as_secs_f64() / APPLICATIONS as f64
 }
 
-fn compare<C, G>(name: &str, cpu: &C, gpu: &G, index: &EvenOddIndex, psi: &Psi, stop: Stop)
+fn compare<C, G>(name: &str, cpu: &C, gpu: &G, index: &EvenOddIndex, psi: &Psi, stop: Option<Stop>)
 where
     C: FermionOp<Psi> + EvenOdd<HalfPsi>,
     G: FermionOp<DeviceSpinor> + EvenOdd<DeviceSpinor>,
@@ -53,6 +53,9 @@ where
         gflops(t_gpu),
         t_cpu / t_gpu
     );
+    let Some(stop) = stop else {
+        return;
+    };
 
     let mut x = psi.zeros_like();
     let start = Instant::now();
@@ -86,7 +89,7 @@ where
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("usage: ruttice-bench-cuda <gauge file (Bridge++ text)> <L> [Ls]");
+        eprintln!("usage: ruttice-bench-cuda <gauge file (Bridge++ text)> <L> [Ls] [mult]");
         std::process::exit(2);
     }
     let l: usize = args[2].parse().expect("L is a number");
@@ -101,7 +104,8 @@ fn main() {
         Boundary::Periodic,
         Boundary::Antiperiodic,
     ];
-    let stop = Stop::simple(1e-16, 5000);
+    let solve = args.get(4).is_none_or(|a| a != "mult");
+    let stop = solve.then(|| Stop::simple(1e-16, 5000));
     println!(
         "{l}^4, {} threads on the CPU, |r|/|b| < 1e-8",
         rayon::current_num_threads()

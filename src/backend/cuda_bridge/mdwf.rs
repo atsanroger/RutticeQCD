@@ -83,7 +83,6 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 a,
             );
         }
-        finish();
     }
 
     /// `out = H (b − c Y) inp`, or with `H†`, for the given b and c: on the whole lattice, or
@@ -145,7 +144,6 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 i32::from(dagger),
             );
         }
-        finish();
     }
 
     /// `out = D inp` of the plain operator on the whole lattice, in one pass.
@@ -163,7 +161,6 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 &params,
             );
         }
-        finish();
     }
 
     /// `out = C⁻¹ inp`, or `C†⁻¹ inp`, of the plain operator: exactly, by substitution along
@@ -184,7 +181,6 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 i32::from(dagger),
             );
         }
-        finish();
     }
 
     /// `out = plain(Q inp)` (`q_first`) or `Q plain(inp)`, with Q⁻¹ for Q if `inverse`, through

@@ -41,7 +41,6 @@ pub(super) fn gamma5<T: DeviceReal>(
             i32::from(reflect),
         );
     }
-    finish();
 }
 
 /// The Wilson operator on the device.
@@ -79,7 +78,6 @@ impl<T: DeviceReal> CudaWilson<T> {
                 i32::from(dagger),
             );
         }
-        finish();
     }
 }
 
@@ -208,7 +206,6 @@ impl<T: DeviceReal> CudaClover<T> {
                 i32::from(dagger),
             );
         }
-        finish();
     }
 
     /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`, on the whole lattice or on
@@ -228,7 +225,6 @@ impl<T: DeviceReal> CudaClover<T> {
                 parity_number(inp.parity),
             );
         }
-        finish();
     }
 }
 

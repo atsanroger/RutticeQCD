@@ -214,7 +214,6 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     fn scale(&mut self, a: &[f64]) {
         // SAFETY: the buffer holds `len` reals.
         unsafe { T::scal(self.data.ptr, a[0], self.len()) };
-        finish();
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
@@ -223,7 +222,6 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
         unsafe {
             T::caxpy(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
         }
-        finish();
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
@@ -232,7 +230,6 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
         unsafe {
             T::caypx(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
         }
-        finish();
     }
 
     fn dot(&self, x: &Self, out: &mut [C64]) {
@@ -282,7 +279,6 @@ impl DeviceParities {
                 i32::from(to_half),
             );
         }
-        finish();
     }
 }
 
