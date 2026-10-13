@@ -25,8 +25,43 @@
 // x/2 + (nx/2)(y + ny (z + nz t)) of the field of parity p (nx even). The links are those of
 // the whole lattice. bc[mu] multiplies a spinor that arrives across the boundary in
 // direction mu (+1 periodic, -1 antiperiodic, 0 Dirichlet); the links are periodic.
+//
+// A field may hold several vectors, each as above, one after the other (vector_reals). The
+// kernels take all of them in one launch: a thread for each (site, fibre), a fibre being one
+// spinor of a site, of one vector at one s. threadIdx.x is the site and threadIdx.y the fibre
+// within the block of threads (site_block), so the threads of a warp read neighbouring sites
+// of a field, and the fibres of a site in a block the same links.
 
 namespace bridge_cuda {
+
+// Reals of one vector of a field of `sites` sites with Ls spinors each.
+__host__ __device__ __forceinline__ size_t vector_reals(int sites, int Ls) {
+    return static_cast<size_t>((sites + WarpSize - 1) / WarpSize) * WarpSize * Ls * (Nspin * Nc * Ncomplex);
+}
+
+// The limit of a block of threads: a thread of these kernels may use every register it can
+// have (255), and a block has 65536 of them, so with more than 256 threads the launch can fail.
+constexpr int MaxThreads = 256;
+// Fibres of a site in one block of threads.
+constexpr int MaxFibres = 32;
+
+// The block of threads for fields of `vectors` vectors with Ls spinors to a site: as many
+// sites as MaxThreads allow, a power of two, and of each
+// - in four dimensions its vectors (up to MaxFibres of them), which read the same links;
+// - in five the Ls spinors of one vector. More vectors in the block would leave it fewer
+//   sites, and a warp fewer neighbouring reals of a field to read at once: that costs more
+//   than the links read again.
+inline dim3 site_block(int Ls, int vectors) {
+    const int fibres = (Ls > 1) ? Ls : vectors;
+    int per = fibres < MaxFibres ? fibres : MaxFibres;
+    int lanes = 1;
+    while (2 * lanes * per <= MaxThreads) lanes *= 2;
+    return dim3(lanes, per);
+}
+inline dim3 site_grid(int sites, int Ls, int vectors) {
+    dim3 block = site_block(Ls, vectors);
+    return dim3((sites + block.x - 1) / block.x, (Ls * vectors + block.y - 1) / block.y);
+}
 
 // The coordinates of site `site` of the field of parity `parity`.
 __host__ __device__ __forceinline__ void half_site_to_coords(
@@ -240,11 +275,12 @@ __device__ __forceinline__ void hops(
 // out = H (b - c Y) in, or with H^dag (`sign` -1): on the whole lattice (target_parity < 0),
 // or out on the sites of parity target_parity and in on the others.
 // With d_from not null, out = d_from - that (a field on the sites of out; it may be out).
-// One thread for each (site, s): threadIdx.x the site and threadIdx.y the fifth coordinate
-// within the block of threads. With the Ls spinors of a site in one block its threads read the
-// same links and neighbouring spinors, which the caches then hold.
+// The fibres of a site: its spinors at every s of every vector.
+// `Many`: whether the fields may hold more than one vector. These kernels have no register to
+// spare, and where the vector of a thread begins costs a launch with one vector a sixth of
+// its time: it is launched without.
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, bool Many>
 __global__ void hop_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
@@ -252,7 +288,7 @@ __global__ void hop_kernel(
     const Float* d_from,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
-    int Ls,
+    int Ls, int vectors,
     int target_parity,
     Float sign, Float kappa,
     Float mass, Float b5, Float c5)
@@ -260,8 +296,13 @@ __global__ void hop_kernel(
     const bool half = (target_parity >= 0);
     const int sites = (half ? nx / 2 : nx) * ny * nz * nt;
     const int site  = blockIdx.x * blockDim.x + threadIdx.x;
-    const int is    = blockIdx.y * blockDim.y + threadIdx.y;
-    if (site >= sites || is >= Ls) return;
+    const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
+    if (site >= sites || fibre >= Ls * vectors) return;
+    const int is = Many ? fibre % Ls : fibre;
+    const size_t first = Many ? (fibre / Ls) * vector_reals(sites, Ls) : 0;
+    d_out += first;
+    d_in += first;
+    if (d_from != nullptr) d_from += first;
 
     const int dims[4] = {nx, ny, nz, nt};
     const Float bc[4] = {bcx, bcy, bcz, bct};
@@ -289,7 +330,7 @@ __global__ void hop_kernel(
 
 // -------------------------------------------------------------------------
 // A field on one parity out of the field on the whole lattice (to_half), or into it; the
-// sites of the other parity are left as they are.
+// sites of the other parity are left as they are. The fibres of a site: its vectors.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void parity_copy_kernel(
@@ -298,24 +339,28 @@ __global__ void parity_copy_kernel(
     int nx, int ny, int nz, int nt,
     int Ls,
     int parity,
-    int to_half)
+    int to_half,
+    int vectors)
 {
     const int sites = (nx / 2) * ny * nz * nt;
-    for (int half = blockIdx.x * blockDim.x + threadIdx.x; half < sites; half += blockDim.x * gridDim.x) {
-        int xc[4];
-        half_site_to_coords(half, parity, xc, nx, ny, nz);
-        const int site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
-        for (int is = 0; is < Ls; ++is) {
-            #pragma unroll
-            for (int k = 0; k < Nspin * Nc * Ncomplex; ++k) {
-                const int s = k / (Nc * Ncomplex), c = (k / Ncomplex) % Nc, ri = k % Ncomplex;
-                const int at_half = aosoa_5d_spinor_idx(c, s, ri, is, Ls, half);
-                const int at_full = aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
-                if (to_half) {
-                    d_half[at_half] = d_full[at_full];
-                } else {
-                    d_full[at_full] = d_half[at_half];
-                }
+    const int half = blockIdx.x * blockDim.x + threadIdx.x;
+    const int v = blockIdx.y * blockDim.y + threadIdx.y;
+    if (half >= sites || v >= vectors) return;
+    Float* __restrict__ h = d_half + v * vector_reals(sites, Ls);
+    Float* __restrict__ f = d_full + v * vector_reals(2 * sites, Ls);
+    int xc[4];
+    half_site_to_coords(half, parity, xc, nx, ny, nz);
+    const int site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    for (int is = 0; is < Ls; ++is) {
+        #pragma unroll
+        for (int j = 0; j < Nspin * Nc * Ncomplex; ++j) {
+            const int sp = j / (Nc * Ncomplex), c = (j / Ncomplex) % Nc, ri = j % Ncomplex;
+            const int at_half = aosoa_5d_spinor_idx(c, sp, ri, is, Ls, half);
+            const int at_full = aosoa_5d_spinor_idx(c, sp, ri, is, Ls, site);
+            if (to_half) {
+                h[at_half] = f[at_full];
+            } else {
+                f[at_full] = h[at_half];
             }
         }
     }

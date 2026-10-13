@@ -32,7 +32,7 @@ fn time_mult<V: Vector, F: FermionOp<V>>(op: &F, psi: &V) -> f64 {
         op.mult(&mut work, &mut out, psi, Variant::D);
     }
     // The norm waits for the device to finish.
-    out.norm_sqr(&mut [0.0]);
+    out.norm_sqr(&mut vec![0.0; out.num_vectors()]);
     start.elapsed().as_secs_f64() / APPLICATIONS as f64
 }
 
@@ -55,7 +55,7 @@ where
             run();
         }
         // The norm waits for the device to finish.
-        inp.norm_sqr(&mut [0.0]);
+        inp.norm_sqr(&mut vec![0.0; inp.num_vectors()]);
         start.elapsed().as_secs_f64() / APPLICATIONS as f64
     };
     let hop = time(&mut || gpu.hop(&mut work, &mut out_e, &inp, even, Dagger::No));
@@ -117,6 +117,22 @@ fn compare<C, G, G32>(
         hop_single * 1e3,
         inv_single * 1e3,
         both_single * 1e3
+    );
+    // Several right-hand sides in one field, in single precision: the time for each of them.
+    let nv = if psi.ls() == 1 { 12 } else { 4 };
+    let flat = random_spinor(psi.lattice(), psi.ls() * nv, 3);
+    let mut many = Psi::with_shape(psi.lattice(), 24, psi.ls(), nv, 1);
+    many.as_mut_slice().copy_from_slice(flat.as_slice());
+    let many = DeviceSpinor::<f32>::from_host(&many).expect("memory on the device");
+    let each = 1e3 / nv as f64;
+    let t_many = time_mult(single, &many);
+    let (hop, inv, both) = time_blocks(single, &many);
+    println!(
+        "{name}: {nv} vectors together, single, for each  D {:.3} ms;  hop {:.3} ms, inverse within the site {:.3} ms, the two together {:.3} ms",
+        t_many * each,
+        hop * each,
+        inv * each,
+        both * each
     );
     let Some(stop) = stop else {
         return;

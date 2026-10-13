@@ -96,7 +96,8 @@ __device__ __forceinline__ void clover_site(
 // -------------------------------------------------------------------------
 // out = T in, with the blocks of T (or of its inverse) in d_clover: on the whole lattice
 // (parity < 0), or in and out on the sites of `parity`. The blocks are those of every site of
-// the lattice.
+// the lattice. Every vector of the fields; the fibres of a site (hops.cuh) are its vectors,
+// which read the same block.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void clover_term_kernel(
@@ -104,31 +105,36 @@ __global__ void clover_term_kernel(
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_clover,
     int nx, int ny, int nz, int nt,
-    int parity)
+    int parity,
+    int vectors)
 {
     const int sites = ((parity >= 0) ? nx / 2 : nx) * ny * nz * nt;
-    for (int at = blockIdx.x * blockDim.x + threadIdx.x; at < sites; at += blockDim.x * gridDim.x) {
-        int site = at;
-        if (parity >= 0) {
-            int xc[4];
-            half_site_to_coords(at, parity, xc, nx, ny, nz);
-            site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
-        }
-        Float acc[Nspin][Nc][Ncomplex];
-        clover_site<Float>(acc, d_in, d_clover, at, site);
+    const int at = blockIdx.x * blockDim.x + threadIdx.x;
+    const int v = blockIdx.y * blockDim.y + threadIdx.y;
+    if (at >= sites || v >= vectors) return;
+    const Float* __restrict__ in = d_in + v * vector_reals(sites, 1);
+    Float* __restrict__ out = d_out + v * vector_reals(sites, 1);
+    int site = at;
+    if (parity >= 0) {
+        int xc[4];
+        half_site_to_coords(at, parity, xc, nx, ny, nz);
+        site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    }
+    Float acc[Nspin][Nc][Ncomplex];
+    clover_site<Float>(acc, in, d_clover, at, site);
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
         #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                d_out[aosoa_spinor_idx(c, s, 0, at)] = acc[s][c][0];
-                d_out[aosoa_spinor_idx(c, s, 1, at)] = acc[s][c][1];
-            }
+        for (int c = 0; c < Nc; ++c) {
+            out[aosoa_spinor_idx(c, s, 0, at)] = acc[s][c][0];
+            out[aosoa_spinor_idx(c, s, 1, at)] = acc[s][c][1];
         }
     }
 }
 
 // -------------------------------------------------------------------------
-// out = D in = T in + H in (hops.cuh), or D^dag in (`sign` -1; T is Hermitian).
+// out = D in = T in + H in (hops.cuh), or D^dag in (`sign` -1; T is Hermitian), of every
+// vector of the fields, as wilson_interior_kernel.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void clover_dslash_kernel(
@@ -139,25 +145,29 @@ __global__ void clover_dslash_kernel(
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     Float kappa,
-    Float sign)
+    Float sign,
+    int vectors)
 {
     const int vol = nx * ny * nz * nt;
     const int dims[4] = {nx, ny, nz, nt};
     const Float bc[4] = {bcx, bcy, bcz, bct};
-    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < vol; site += blockDim.x * gridDim.x) {
-        Float acc[Nspin][Nc][Ncomplex];
-        clover_site<Float>(acc, d_in, d_clover, site, site);
-        int xc[4];
-        site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
-        hops<Float>(acc, d_in, d_gauge, link_rows, xc, 0, 1, dims, bc, false, sign, kappa,
-                    static_cast<Float>(0.0), static_cast<Float>(1.0), static_cast<Float>(0.0));
+    const int site = blockIdx.x * blockDim.x + threadIdx.x;
+    const int v = blockIdx.y * blockDim.y + threadIdx.y;
+    if (site >= vol || v >= vectors) return;
+    const Float* __restrict__ in = d_in + v * vector_reals(vol, 1);
+    Float* __restrict__ out = d_out + v * vector_reals(vol, 1);
+    Float acc[Nspin][Nc][Ncomplex];
+    clover_site<Float>(acc, in, d_clover, site, site);
+    int xc[4];
+    site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    hops<Float>(acc, in, d_gauge, link_rows, xc, 0, 1, dims, bc, false, sign, kappa,
+                static_cast<Float>(0.0), static_cast<Float>(1.0), static_cast<Float>(0.0));
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
         #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                d_out[aosoa_spinor_idx(c, s, 0, site)] = acc[s][c][0];
-                d_out[aosoa_spinor_idx(c, s, 1, site)] = acc[s][c][1];
-            }
+        for (int c = 0; c < Nc; ++c) {
+            out[aosoa_spinor_idx(c, s, 0, site)] = acc[s][c][0];
+            out[aosoa_spinor_idx(c, s, 1, site)] = acc[s][c][1];
         }
     }
 }

@@ -9,7 +9,8 @@
 //! row, the four directions of a site one after the other).
 //!
 //! `DeviceSpinor` is a `Vector` (of one or several vectors) and the operators are `FermionOp`
-//! and `EvenOdd` on it, so the solvers run on them as they are. Making a field or an operator returns a `CudaError` if the
+//! and `EvenOdd` on it, so the solvers run on them as they are; a kernel takes all the vectors
+//! of a field in one launch. Making a field or an operator returns a `CudaError` if the
 //! device refuses (no memory); the operations of `Vector`, `FermionOp` and `EvenOdd` have no
 //! error to return and panic if the CUDA runtime fails; a kernel that fails is noticed at the
 //! next reduction or transfer, not where it was launched.
@@ -104,6 +105,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         geometry: *const Geometry,
         params: *const WilsonKernelParams,
         dagger: i32,
+        vectors: i32,
     );
     unsafe fn clover_term(
         out: *mut Self,
@@ -111,6 +113,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         clover: *const Self,
         geometry: *const Geometry,
         parity: i32,
+        vectors: i32,
     );
     unsafe fn clover_dslash(
         out: *mut Self,
@@ -120,6 +123,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         geometry: *const Geometry,
         params: *const CloverKernelParams,
         dagger: i32,
+        vectors: i32,
     );
     unsafe fn mdwf_dslash(
         out: *mut Self,
@@ -127,6 +131,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         gauge: *const Self,
         geometry: *const Geometry,
         params: *const MdwfKernelParams,
+        vectors: i32,
     );
     unsafe fn hop(
         out: *mut Self,
@@ -140,6 +145,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         c5: f64,
         dagger: i32,
         target_parity: i32,
+        vectors: i32,
     );
     unsafe fn mdwf_fifth(
         out: *mut Self,
@@ -167,6 +173,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         c5: f64,
         dagger: i32,
         target_parity: i32,
+        vectors: i32,
     ) -> bool;
     unsafe fn fifth_gemm(
         out: *mut Self,
@@ -183,12 +190,21 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         geometry: *const Geometry,
         parity: i32,
         to_half: i32,
+        vectors: i32,
     );
-    unsafe fn scal(x: *mut Self, a: f64, n: i32);
-    unsafe fn caxpy(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32);
-    unsafe fn caypx(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32);
-    unsafe fn norm2(x: *const Self, n: i32) -> f64;
-    unsafe fn dotc(re: *mut f64, im: *mut f64, x: *const Self, y: *const Self, n: i32);
+    /// `a`: a real for each vector; in `caxpy` and `caypx` its real and its imaginary part.
+    unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32);
+    unsafe fn caxpy(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
+    unsafe fn caypx(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
+    unsafe fn norm2(out: *mut f64, x: *const Self, n: i32, vectors: i32);
+    unsafe fn dotc(
+        re: *mut f64,
+        im: *mut f64,
+        x: *const Self,
+        y: *const Self,
+        n: i32,
+        vectors: i32,
+    );
 }
 
 /// `DeviceReal` for one type, on the functions of that precision.
@@ -204,6 +220,7 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 params: *const WilsonKernelParams,
                 dagger: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
             fn $clover_term(
@@ -212,6 +229,7 @@ macro_rules! device_real {
                 clover: *const $t,
                 geometry: *const Geometry,
                 parity: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
             fn $clover(
@@ -222,6 +240,7 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 params: *const CloverKernelParams,
                 dagger: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
             fn $mdwf(
@@ -230,6 +249,7 @@ macro_rules! device_real {
                 gauge: *const $t,
                 geometry: *const Geometry,
                 params: *const MdwfKernelParams,
+                vectors: i32,
                 stream: *mut c_void,
             );
             fn $hop(
@@ -244,6 +264,7 @@ macro_rules! device_real {
                 c5: f64,
                 dagger: i32,
                 target_parity: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
             fn $fifth(
@@ -272,6 +293,7 @@ macro_rules! device_real {
                 c5: f64,
                 dagger: i32,
                 target_parity: i32,
+                vectors: i32,
                 stream: *mut c_void,
             ) -> i32;
             fn $gemm(
@@ -297,18 +319,34 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 parity: i32,
                 to_half: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
-            fn $scal(x: *mut $t, a: $t, n: i32, stream: *mut c_void);
-            fn $caxpy(y: *mut $t, x: *const $t, ar: $t, ai: $t, n: i32, stream: *mut c_void);
-            fn $caypx(y: *mut $t, x: *const $t, ar: $t, ai: $t, n: i32, stream: *mut c_void);
-            fn $norm2(x: *const $t, n: i32, stream: *mut c_void) -> f64;
+            fn $scal(x: *mut $t, a: *const f64, n: i32, vectors: i32, stream: *mut c_void);
+            fn $caxpy(
+                y: *mut $t,
+                x: *const $t,
+                a: *const f64,
+                n: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $caypx(
+                y: *mut $t,
+                x: *const $t,
+                a: *const f64,
+                n: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $norm2(out: *mut f64, x: *const $t, n: i32, vectors: i32, stream: *mut c_void);
             fn $dotc(
                 re: *mut f64,
                 im: *mut f64,
                 x: *const $t,
                 y: *const $t,
                 n: i32,
+                vectors: i32,
                 stream: *mut c_void,
             );
         }
@@ -327,8 +365,9 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 params: *const WilsonKernelParams,
                 dagger: i32,
+                vectors: i32,
             ) {
-                $wilson(out, inp, gauge, geometry, params, dagger, STREAM)
+                $wilson(out, inp, gauge, geometry, params, dagger, vectors, STREAM)
             }
             unsafe fn clover_term(
                 out: *mut Self,
@@ -336,8 +375,9 @@ macro_rules! device_real {
                 clover: *const Self,
                 geometry: *const Geometry,
                 parity: i32,
+                vectors: i32,
             ) {
-                $clover_term(out, inp, clover, geometry, parity, STREAM)
+                $clover_term(out, inp, clover, geometry, parity, vectors, STREAM)
             }
             unsafe fn clover_dslash(
                 out: *mut Self,
@@ -347,8 +387,11 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 params: *const CloverKernelParams,
                 dagger: i32,
+                vectors: i32,
             ) {
-                $clover(out, inp, gauge, clover, geometry, params, dagger, STREAM)
+                $clover(
+                    out, inp, gauge, clover, geometry, params, dagger, vectors, STREAM,
+                )
             }
             unsafe fn mdwf_dslash(
                 out: *mut Self,
@@ -356,8 +399,9 @@ macro_rules! device_real {
                 gauge: *const Self,
                 geometry: *const Geometry,
                 params: *const MdwfKernelParams,
+                vectors: i32,
             ) {
-                $mdwf(out, inp, gauge, geometry, params, STREAM)
+                $mdwf(out, inp, gauge, geometry, params, vectors, STREAM)
             }
             unsafe fn hop(
                 out: *mut Self,
@@ -371,6 +415,7 @@ macro_rules! device_real {
                 c5: f64,
                 dagger: i32,
                 target_parity: i32,
+                vectors: i32,
             ) {
                 $hop(
                     out,
@@ -384,6 +429,7 @@ macro_rules! device_real {
                     c5,
                     dagger,
                     target_parity,
+                    vectors,
                     STREAM,
                 )
             }
@@ -414,6 +460,7 @@ macro_rules! device_real {
                 c5: f64,
                 dagger: i32,
                 target_parity: i32,
+                vectors: i32,
             ) -> bool {
                 $hop_gemm(
                     out,
@@ -427,6 +474,7 @@ macro_rules! device_real {
                     c5,
                     dagger,
                     target_parity,
+                    vectors,
                     STREAM,
                 ) != 0
             }
@@ -449,23 +497,31 @@ macro_rules! device_real {
                 geometry: *const Geometry,
                 parity: i32,
                 to_half: i32,
+                vectors: i32,
             ) {
-                $parity_copy(half, full, geometry, parity, to_half, STREAM)
+                $parity_copy(half, full, geometry, parity, to_half, vectors, STREAM)
             }
-            unsafe fn scal(x: *mut Self, a: f64, n: i32) {
-                $scal(x, a as $t, n, STREAM)
+            unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32) {
+                $scal(x, a, n, vectors, STREAM)
             }
-            unsafe fn caxpy(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32) {
-                $caxpy(y, x, ar as $t, ai as $t, n, STREAM)
+            unsafe fn caxpy(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32) {
+                $caxpy(y, x, a, n, vectors, STREAM)
             }
-            unsafe fn caypx(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32) {
-                $caypx(y, x, ar as $t, ai as $t, n, STREAM)
+            unsafe fn caypx(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32) {
+                $caypx(y, x, a, n, vectors, STREAM)
             }
-            unsafe fn norm2(x: *const Self, n: i32) -> f64 {
-                $norm2(x, n, STREAM)
+            unsafe fn norm2(out: *mut f64, x: *const Self, n: i32, vectors: i32) {
+                $norm2(out, x, n, vectors, STREAM)
             }
-            unsafe fn dotc(re: *mut f64, im: *mut f64, x: *const Self, y: *const Self, n: i32) {
-                $dotc(re, im, x, y, n, STREAM)
+            unsafe fn dotc(
+                re: *mut f64,
+                im: *mut f64,
+                x: *const Self,
+                y: *const Self,
+                n: i32,
+                vectors: i32,
+            ) {
+                $dotc(re, im, x, y, n, vectors, STREAM)
             }
         }
     };
@@ -732,7 +788,7 @@ impl FifthInHops {
 
 /// `out = H (b − c Y) inp`, or with `H†`, H the hops of the Wilson kernel at `kappa`: on the
 /// whole lattice (`to` none), or `out` on the sites of parity `to` and `inp` on the others.
-/// With `from`, a field on the sites of `out`, `out = from −` that.
+/// With `from`, a field on the sites of `out`, `out = from −` that. Every vector of the fields.
 #[allow(clippy::too_many_arguments)]
 fn hops<T: DeviceReal>(
     (gauge, geometry): (&DeviceGauge<T>, &Geometry),
@@ -771,6 +827,7 @@ fn hops<T: DeviceReal>(
             fifth.c,
             i32::from(dagger),
             parity_number(to),
+            inp.vectors as i32,
         );
     }
 }

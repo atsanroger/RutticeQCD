@@ -13,20 +13,36 @@ __global__ void blas_axpy_kernel(Float* __restrict__ y, const Float* __restrict_
     }
 }
 
+// The fields below hold `vectors` vectors of n reals one after the other, with a coefficient
+// for each: the coefficients are an argument of the kernel, which takes up to BlasVectors
+// vectors.
+constexpr int BlasVectors = 16;
+
 template <typename Float>
-__global__ void blas_scal_kernel(Float* __restrict__ x, Float a, int n) {
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
-        x[i] *= a;
+struct BlasCoefficients {
+    Float re[BlasVectors];
+    Float im[BlasVectors];
+};
+
+// x_v *= a_v, a real
+template <typename Float>
+__global__ void blas_scal_kernel(Float* __restrict__ x, BlasCoefficients<Float> a, int n, int vectors) {
+    const size_t all = static_cast<size_t>(n) * vectors;
+    for (size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < all; i += blockDim.x * gridDim.x) {
+        x[i] *= a.re[i / n];
     }
 }
 
+// |x_v|^2: gridDim.x / vectors CUDA blocks for each vector, the sum of CUDA block b in
+// block_sums[b].
 template <typename Float, int BLOCK_SIZE = 256>
-__global__ void blas_norm2_partial_kernel(Float* __restrict__ block_sums, const Float* __restrict__ x, int n) {
+__global__ void blas_norm2_partial_kernel(Float* __restrict__ block_sums, const Float* __restrict__ x, int n, int vectors) {
     __shared__ Float sdata[BLOCK_SIZE];
-    int tid = threadIdx.x;
+    const int tid = threadIdx.x, per = gridDim.x / vectors;
+    x += static_cast<size_t>(blockIdx.x / per) * n;
     Float sum = 0;
 
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
+    for (int i = (blockIdx.x % per) * blockDim.x + tid; i < n; i += blockDim.x * per) {
         sum += x[i] * x[i];
     }
     sdata[tid] = sum;
@@ -43,46 +59,52 @@ __global__ void blas_norm2_partial_kernel(Float* __restrict__ block_sums, const 
     }
 }
 
-// The kernels below take a field of complex numbers in blocks of W: the real parts of W
+// The kernels below take fields of complex numbers in blocks of W: the real parts of W
 // numbers, then their imaginary parts (every field of base/aosoa.cuh is such). `pairs` is
-// the number of complex numbers.
-__device__ __forceinline__ int blas_real_index(int pair) {
+// the number of complex numbers of a vector, a multiple of W.
+__device__ __forceinline__ size_t blas_real_index(size_t pair) {
     return (pair / BRIDGE_CUDA_WARP_SIZE) * 2 * BRIDGE_CUDA_WARP_SIZE + pair % BRIDGE_CUDA_WARP_SIZE;
 }
 
-// y += a x, a complex
+// y_v += a_v x_v, a complex
 template <typename Float>
-__global__ void blas_caxpy_kernel(Float* __restrict__ y, const Float* __restrict__ x, Float ar, Float ai, int pairs) {
-    for (int p = blockIdx.x * blockDim.x + threadIdx.x; p < pairs; p += blockDim.x * gridDim.x) {
-        const int kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+__global__ void blas_caxpy_kernel(Float* __restrict__ y, const Float* __restrict__ x, BlasCoefficients<Float> a, int pairs, int vectors) {
+    const size_t all = static_cast<size_t>(pairs) * vectors;
+    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < all; p += blockDim.x * gridDim.x) {
+        const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+        const Float ar = a.re[p / pairs], ai = a.im[p / pairs];
         const Float xr = x[kr], xi = x[ki];
         y[kr] += ar * xr - ai * xi;
         y[ki] += ar * xi + ai * xr;
     }
 }
 
-// y = a y + x, a complex
+// y_v = a_v y_v + x_v, a complex
 template <typename Float>
-__global__ void blas_caypx_kernel(Float* __restrict__ y, const Float* __restrict__ x, Float ar, Float ai, int pairs) {
-    for (int p = blockIdx.x * blockDim.x + threadIdx.x; p < pairs; p += blockDim.x * gridDim.x) {
-        const int kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+__global__ void blas_caypx_kernel(Float* __restrict__ y, const Float* __restrict__ x, BlasCoefficients<Float> a, int pairs, int vectors) {
+    const size_t all = static_cast<size_t>(pairs) * vectors;
+    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < all; p += blockDim.x * gridDim.x) {
+        const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+        const Float ar = a.re[p / pairs], ai = a.im[p / pairs];
         const Float yr = y[kr], yi = y[ki];
         y[kr] = ar * yr - ai * yi + x[kr];
         y[ki] = ar * yi + ai * yr + x[ki];
     }
 }
 
-// <x|y> = sum conj(x) y: the real part of the sum of CUDA block b in block_sums[b], the
-// imaginary part in block_sums[gridDim.x + b].
+// <x_v|y_v> = sum conj(x_v) y_v: gridDim.x / vectors CUDA blocks for each vector, the real part
+// of the sum of CUDA block b in block_sums[b], the imaginary part in block_sums[gridDim.x + b].
 template <typename Float, int BLOCK_SIZE = 256>
-__global__ void blas_dotc_partial_kernel(Float* __restrict__ block_sums, const Float* __restrict__ x, const Float* __restrict__ y, int pairs) {
+__global__ void blas_dotc_partial_kernel(Float* __restrict__ block_sums, const Float* __restrict__ x, const Float* __restrict__ y, int pairs, int vectors) {
     __shared__ Float sr[BLOCK_SIZE];
     __shared__ Float si[BLOCK_SIZE];
-    int tid = threadIdx.x;
+    const int tid = threadIdx.x, per = gridDim.x / vectors;
+    x += static_cast<size_t>(blockIdx.x / per) * 2 * pairs;
+    y += static_cast<size_t>(blockIdx.x / per) * 2 * pairs;
     Float re = 0, im = 0;
 
-    for (int p = blockIdx.x * blockDim.x + threadIdx.x; p < pairs; p += blockDim.x * gridDim.x) {
-        const int kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+    for (int p = (blockIdx.x % per) * blockDim.x + tid; p < pairs; p += blockDim.x * per) {
+        const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
         re += x[kr] * y[kr] + x[ki] * y[ki];
         im += x[kr] * y[ki] - x[ki] * y[kr];
     }

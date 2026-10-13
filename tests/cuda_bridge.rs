@@ -712,6 +712,42 @@ fn several_vectors_in_a_field_on_the_device() {
     dx.assign(&[1, 2], &device_part);
     same(&dx, &x, "assign");
 
+    // More vectors than one launch of the linear algebra takes coefficients for.
+    {
+        let more = 19;
+        let (mut x, y) = (
+            random_spinor(&lat, more, 417),
+            random_spinor(&lat, more, 418),
+        );
+        let (mut dx, dy) = (
+            DeviceSpinor::from_host(&x).unwrap(),
+            DeviceSpinor::from_host(&y).unwrap(),
+        );
+        let a: Vec<C64> = (0..more)
+            .map(|v| C64::new(0.1 * v as f64 - 0.9, 1.0 / (1.0 + v as f64)))
+            .collect();
+        let scales: Vec<f64> = (0..more).map(|v| 0.5 + 0.25 * v as f64).collect();
+        x.axpy(&a, &y);
+        dx.axpy(&a, &dy);
+        same(&dx, &x, "axpy of 19 vectors");
+        x.aypx(&a, &y);
+        dx.aypx(&a, &dy);
+        same(&dx, &x, "aypx of 19 vectors");
+        x.scale(&scales);
+        dx.scale(&scales);
+        same(&dx, &x, "scale of 19 vectors");
+        let (mut dot, mut device_dot) = (vec![C64::ZERO; more], vec![C64::ZERO; more]);
+        x.dot(&y, &mut dot);
+        dx.dot(&dy, &mut device_dot);
+        let (mut norm, mut device_norm) = (vec![0.0; more], vec![0.0; more]);
+        x.norm_sqr(&mut norm);
+        dx.norm_sqr(&mut device_norm);
+        for v in 0..more {
+            assert!((dot[v] - device_dot[v]).norm_sqr().sqrt() < 1e-11 * norm[v]);
+            assert!((norm[v] - device_norm[v]).abs() < 1e-12 * norm[v]);
+        }
+    }
+
     let params = MdwfParams {
         ls,
         m5: 1.8,

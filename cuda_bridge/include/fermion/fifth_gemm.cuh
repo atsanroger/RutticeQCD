@@ -186,6 +186,8 @@ __global__ void fifth_gemm_columns_kernel(
 // rows moved by 8 it is two, the least for 8 bytes each. The same holds for the threads that
 // write: a warp of them writes rows of one parity.
 //
+// The vectors of the fields: blockIdx.y.
+//
 // lanes: a multiple of 4, and lanes * Ls a multiple of 32 in double precision (whole warps).
 // Shared memory: 2 Ls * 12 lanes reals, then the matrix as the kernel of the precision keeps
 // it (8 NT * K16 doubles, or 8 NT * K4 floats).
@@ -224,6 +226,10 @@ __global__ void hop_gemm_kernel(
     const int at = blockIdx.x * lanes + lane;
     // No thread leaves before the barrier, and none of a warp before its mma.
     const bool live = (at < sites);
+    const size_t first = (gridDim.y == 1) ? 0 : blockIdx.y * vector_reals(sites, Ls);
+    d_out += first;
+    d_in += first;
+    if (d_from != nullptr) d_from += first;
 
     {
         Float acc[Nspin][Nc][Ncomplex] = {0};

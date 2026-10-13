@@ -79,7 +79,7 @@ int main() {
     CUDA_CHECK(cudaStreamCreate(&stream));
 
     // Warm-up run
-    bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, &geom, &params, stream);
+    bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, &geom, &params, 1, stream);
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
     // Timing with CUDA events
@@ -90,7 +90,7 @@ int main() {
     const int n_iter = 50;
     CUDA_CHECK(cudaEventRecord(start, stream));
     for (int i = 0; i < n_iter; ++i) {
-        bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, &geom, &params, stream);
+        bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, &geom, &params, 1, stream);
     }
     CUDA_CHECK(cudaEventRecord(stop, stream));
     CUDA_CHECK(cudaEventSynchronize(stop));
