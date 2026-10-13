@@ -177,6 +177,64 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
     }
 }
 
+impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
+    /// The right-hand side of `Ã y = rhs` for `D x = b`: with b′_e = b_e − D_eo C_o⁻¹ b_o,
+    /// `(S_PV C_PV,e⁻¹)† b′_e` for the right form and `(C_PV,e⁻¹ S_PV)† C_e⁻¹ b′_e` for the left
+    /// one.
+    pub fn right_hand_side<V, P: SplitParity<V, H>>(&mut self, split: &P, rhs: &mut H, b: &V) {
+        let (even, odd) = (Parity::Even, Parity::Odd);
+        let (mut b_e, mut b_o) = (split.half_like(b, even), split.half_like(b, odd));
+        split.extract(&mut b_e, b, even);
+        split.extract(&mut b_o, b, odd);
+        let (mut t_o, mut t_e) = (split.half_like(b, odd), split.half_like(b, even));
+        self.op
+            .diag_inv(&mut self.work, &mut t_o, &b_o, odd, Dagger::No);
+        self.op
+            .hop(&mut self.work, &mut t_e, &t_o, even, Dagger::No);
+        let minus = vec![C64::new(-1.0, 0.0); b_e.num_vectors()];
+        t_e.aypx(&minus, &b_e);
+        if self.form == EoForm::Left {
+            self.op
+                .diag_inv(&mut self.work, &mut b_e, &t_e, even, Dagger::No);
+            t_e = b_e;
+        }
+        let scratch = (&mut self.odd, &mut self.even[0]);
+        schur_factor(
+            self.pv,
+            &mut self.work_pv,
+            self.form,
+            scratch,
+            rhs,
+            &t_e,
+            Dagger::Yes,
+        );
+    }
+
+    /// The solution x of `M x = b` from the solution y of `Ã y = rhs`, M the operator this was
+    /// made of: x_e = M_ee⁻¹ y (right form) or y (left form), x_o = M_oo⁻¹ (b_o − M_oe x_e).
+    /// For an operator D Q (Neff's α) this is x^(α); the solution of D x = b is Q x^(α).
+    pub fn solution<V, P: SplitParity<V, H>>(&mut self, split: &P, x: &mut V, y: &H, b: &V) {
+        let (even, odd) = (Parity::Even, Parity::Odd);
+        let mut x_e = split.half_like(b, even);
+        match self.form {
+            EoForm::Right => self
+                .op
+                .diag_inv(&mut self.work, &mut x_e, y, even, Dagger::No),
+            EoForm::Left => x_e.copy_from(y),
+        }
+        let (mut b_o, mut t_o) = (split.half_like(b, odd), split.half_like(b, odd));
+        split.extract(&mut b_o, b, odd);
+        self.op.hop(&mut self.work, &mut t_o, &x_e, odd, Dagger::No);
+        let minus = vec![C64::new(-1.0, 0.0); y.num_vectors()];
+        t_o.aypx(&minus, &b_o);
+        let mut x_o = b_o;
+        self.op
+            .diag_inv(&mut self.work, &mut x_o, &t_o, odd, Dagger::No);
+        split.insert(x, &x_e);
+        split.insert(x, &x_o);
+    }
+}
+
 impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
     /// `out = Ã inp`: the factor of the operator, then the adjoint of the Pauli-Villars one.
     fn mult(&mut self, out: &mut H, inp: &H) {

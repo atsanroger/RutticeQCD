@@ -8,6 +8,9 @@ keyword_enum! {
         Cpu => ["cpu"],
         /// Several sites in the lanes of one SIMD register (`simd_lanes`).
         Simd => ["simd"],
+        /// The CUDA kernels extracted from Bridge++ (`backend::cuda_bridge`; a program built
+        /// with the feature `cuda-bridge`).
+        CudaBridge => ["cuda_bridge"],
         /// Not implemented yet: the keyword is reserved.
         Gpu => ["gpu", "cuda"],
     }

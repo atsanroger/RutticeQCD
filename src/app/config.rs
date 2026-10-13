@@ -247,6 +247,8 @@ pub struct SolverConfig {
     /// layout of the fields), 2, 4 or 8. In double precision 4 fills a 256-bit register
     /// and 8 a 512-bit one.
     pub simd: usize,
+    /// Solve on the GPU, with the kernels of `backend::cuda_bridge`.
+    pub cuda_bridge: bool,
     /// Precondition with two-level multigrid.
     pub multigrid: Option<MultigridConfig>,
 }

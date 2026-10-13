@@ -154,9 +154,10 @@ impl Params {
                     )));
                 }
             }
+            Backend::CudaBridge => {}
             Backend::Gpu => {
                 return Err(invalid(
-                    "Main.backend: gpu is not implemented yet; use cpu".into(),
+                    "Main.backend: gpu is not implemented yet; use cpu or cuda_bridge".into(),
                 ))
             }
         }
@@ -284,11 +285,40 @@ impl Params {
         }
         if self.main.backend == Backend::Gpu {
             return Err(invalid(
-                "Main.backend: gpu is not implemented yet; use cpu".into(),
+                "Main.backend: gpu is not implemented yet; use cpu or cuda_bridge".into(),
             ));
+        }
+        if self.main.backend == Backend::CudaBridge {
+            self.check_cuda_bridge()?;
         }
         if let Some(src) = &self.source {
             self.check_source(src, "Source")?;
+        }
+        Ok(())
+    }
+
+    /// What `backend : cuda_bridge` can do so far.
+    fn check_cuda_bridge(&self) -> Result<(), CliError> {
+        if !cfg!(feature = "cuda-bridge") {
+            return Err(invalid(
+                "Main.backend cuda_bridge needs a program built with the feature cuda-bridge"
+                    .into(),
+            ));
+        }
+        if self.main.grid_size != [1; ND] {
+            return Err(invalid(
+                "Main.backend cuda_bridge runs on one process; leave Main.grid_size out".into(),
+            ));
+        }
+        if self.solver.preconditioner_type == PreconditionerType::Multigrid {
+            return Err(invalid(
+                "Main.backend cuda_bridge: the multigrid is not on the device yet; use Solver.preconditioner_type None or Chebyshev".into(),
+            ));
+        }
+        if !self.main.lattice_size[0].is_multiple_of(2) {
+            return Err(invalid(
+                "Main.backend cuda_bridge needs an even extent in x".into(),
+            ));
         }
         Ok(())
     }
@@ -581,6 +611,7 @@ impl Params {
                     Backend::Simd => self.main.simd_lanes,
                     _ => 1,
                 },
+                cuda_bridge: self.main.backend == Backend::CudaBridge,
                 multigrid,
             },
             quark: std::iter::once(first).chain(more).collect(),

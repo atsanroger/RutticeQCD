@@ -26,7 +26,7 @@ The sections of a file that solves for propagators:
 
 | Section | What it holds |
 |---|---|
-| `Main` | `lattice_size`; `grid_size` (processes per direction); `backend` (`cpu` or `simd`) and `simd_lanes` |
+| `Main` | `lattice_size`; `grid_size` (processes per direction); `backend` (`cpu`, `simd` or `cuda_bridge`) and `simd_lanes` |
 | `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `Binary`, `NERSC`, `ILDG`, `SciDAC`, `HDF5`) |
 | `GaugeFixing` | optional: `gauge_fixing_type : Coulomb` and its parameters |
 | `GaugeSmearing` | optional: stout or APE smearing of the links the fermions see |
@@ -74,6 +74,22 @@ file or by the environment variable
 `RAYON_NUM_THREADS`; the file wins. With MPI this is the number of threads of each process, so
 processes × threads should not exceed the cores. The kernels are limited by memory bandwidth:
 more threads than a few per memory channel gain little.
+
+### GPU
+
+With `backend : cuda_bridge` the solve runs on an NVIDIA GPU, with the CUDA kernels extracted
+from Bridge++ (`cuda_bridge/`). The program must be built with the feature, which needs the CUDA
+toolkit and cmake:
+
+```bash
+CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
+```
+
+(`RUTTICE_CUDA_ARCH` is the architecture the kernels are compiled for; the default is 86.)
+Wilson and clover fermions take the solvers and operator types of the CPU; domain-wall fermions
+the outer solvers and operator types of the CPU without a preconditioner or with `Chebyshev`.
+The right-hand sides are solved one at a time. Not on the device yet: the multigrids, HMC,
+several processes, boundary phases other than ±1 and 0.
 
 ### SIMD
 

@@ -109,7 +109,9 @@ Version 0.1.0. See [CHANGELOG.md](../CHANGELOG.md).
 
 Not there yet:
 
-- GPUs (the README says what is planned)
+- On the GPU (`backend::cuda_bridge`): the multigrids and HMC. A field on the device is a
+  `Vector` and the operators there are `FermionOp` and `EvenOdd`, so what is written on those
+  traits runs on the device as it is; what is written on `Field` does not.
 - HMC on another layout or backend: the actions reach their fields only through the operator
   (`hmc::ForceOp::Field`, `hmc::EvenOddForceOp::Half`), and the operators of the usual layout
   are the only ones that implement it so far
