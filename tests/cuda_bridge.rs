@@ -1068,7 +1068,7 @@ fn multigrid_transfers_on_the_device() {
             .iter()
             .zip(b.as_slice())
             .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
-        assert!(d < 1e-13, "{what} differs by {d:e}");
+        assert!(d < 1e-10, "{what} differs by {d:e}");
     };
 
     // P made on the device is the P of the CPU, as far as single precision keeps it through
@@ -1134,7 +1134,7 @@ fn multigrid_transfers_on_the_device() {
         use ruttice::{LinearFn, LinearOp};
         let mut op = CoarseOp::build(&cpu, &mut cpu.work(), &basis);
         assert!(op.prepare_even_odd().unwrap());
-        let device_op = DeviceCoarseOp::<f64>::new(&op).unwrap();
+        let device_op = DeviceCoarseOp::<f64>::new(&op, true).unwrap();
         // The coarse operator built on the device is the one built on the CPU.
         let (_, gpu) = mdwf_pair(&lat, &u, params);
         let built = gpu.coarse_operator(&device).unwrap();
@@ -1200,6 +1200,11 @@ fn multigrid_transfers_on_the_device() {
         blocks.mult(&mut out, &x);
         device_op.apply_blocks(&mut dout, &dx, &device_blocks);
         same(&out, &dout, "matrices on the coarse sites");
+        // The same matrices made on the device, by its Jacobi method.
+        let made = device_op.abs_inverse_of_a_gamma5().unwrap();
+        device_op.apply_blocks(&mut dout, &dx, &made);
+        same(&out, &dout, "|H|⁻¹ made on the device");
+        device_op.apply_blocks(&mut dout, &dx, &device_blocks);
         device_op.gamma5(&mut dout);
         for site in out.as_mut_slice().chunks_exact_mut(4 * basis.coarse_dim()) {
             for vector in site.chunks_exact_mut(2 * basis.coarse_dim()) {

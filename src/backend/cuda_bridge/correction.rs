@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::fermion::{Dagger, EoForm, EvenOdd};
-use crate::solver::preconditioner::multigrid::{coarse_solve, BlockMap, CoarseKrylov, PvEoParams};
+use crate::solver::preconditioner::multigrid::{coarse_solve, CoarseKrylov, PvEoParams};
 use crate::solver::Stop;
 use crate::{ConvertFrom, LinearFn, Parity, Vector};
 use std::cell::Cell;
@@ -31,8 +31,7 @@ pub struct DeviceCorrection<'a, CT: DeviceReal = f32> {
     basis: DeviceBasis,
     coarse_d: DeviceCoarseOp<CT>,
     coarse_pv: DeviceCoarseOp<CT>,
-    /// The inverses of the blocks of P†DP, and |H_xx|⁻¹ of the second factor.
-    blocks_d: DeviceBuffer<CT>,
+    /// |H_xx|⁻¹ of the second factor.
     blocks_pv: DeviceBuffer<CT>,
     params: PvEoParams,
     h: DeviceSpinor,
@@ -60,26 +59,16 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
     ) -> Result<Self, Box<dyn Error>> {
         assert!(Self::supports(&params));
         assert_eq!(like.parity(), Some(Parity::Even));
-        let mut coarse_d = plain.0.coarse_operator(&device)?;
-        let mut coarse_pv = plain.1.coarse_operator(&device)?;
-        if params.coarse_even_odd {
-            coarse_d.prepare_even_odd()?;
-            coarse_pv.prepare_even_odd()?;
-        }
-        let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
-        let blocks_pv = BlockMap::abs_inverse_of_a_gamma5(&coarse_pv);
-        let (device_d, device_pv) = (
-            DeviceCoarseOp::<CT>::new(&coarse_d)?,
-            DeviceCoarseOp::<CT>::new(&coarse_pv)?,
-        );
+        let even_odd = params.coarse_even_odd;
+        let coarse_d = DeviceCoarseOp::<CT>::new(&plain.0.coarse_operator(&device)?, even_odd)?;
+        let coarse_pv = DeviceCoarseOp::<CT>::new(&plain.1.coarse_operator(&device)?, even_odd)?;
         Ok(Self {
             plain,
             outer,
             form,
-            blocks_d: device_d.blocks(blocks_d.site_blocks())?,
-            blocks_pv: device_pv.blocks(blocks_pv.site_blocks())?,
-            coarse_d: device_d,
-            coarse_pv: device_pv,
+            blocks_pv: coarse_pv.abs_inverse_of_a_gamma5()?,
+            coarse_d,
+            coarse_pv,
             params,
             h: like.zeros_like(),
             g: device.coarse_field(1),
@@ -202,13 +191,12 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
             d.schur_solution(&mut self.c, &self.gc, &mut odd);
             n.set(n.get() + nv);
         } else {
-            let blocks_d = &self.blocks_d;
             let mut a = Map(|out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
                 n.set(n.get() + inp.num_vectors());
                 d.apply(out, inp, false);
             });
             let mut m = Map(|out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
-                d.apply_blocks(out, inp, blocks_d);
+                d.apply_blocks(out, inp, d.block_inverses());
             });
             coarse_solve(kind, stop, &mut a, Some(&mut m), &mut self.c, &self.gc);
         }

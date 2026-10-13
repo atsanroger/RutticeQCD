@@ -3,8 +3,7 @@
 //! with the Chebyshev preconditioner or the multigrid.
 //!
 //! The multigrid is on the device: the filter of its test vectors and their bootstrap, the
-//! prolongation, the coarse operators, and the cycle with its coarse solves. The inverses of
-//! the blocks of the coarse operators are made on the CPU. With levels below the coarse
+//! prolongation, the coarse operators, and the cycle with its coarse solves. With levels below the coarse
 //! lattice, or another solver of the second factor than MINRES, the basis, the coarse
 //! operators and the coarse correction are those of the CPU (`mdwf`), the residual and the
 //! correction crossing over in every cycle.
