@@ -35,7 +35,7 @@
 
 use super::coarse::{CountedSchur, EvenBlocks};
 use super::levels::{
-    AbsMultilevel, BlockMap, BlocksPlusLevels, CountedShared, LevelsAndBlocks, OnEven, OnEvenOf,
+    AbsMultilevel, BlockMap, BlocksPlusLevels, CountedShared, LevelsAndBlocks, OnEven,
 };
 use super::{
     Aggregation, Basis, BasisBuilder, CoarseOp, LevelBootstrap, MultigridError, Reflection,
@@ -722,12 +722,15 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             let m: &mut dyn LinearFn<Field<CT, Coarse>> = match self.levels_pv.as_ref() {
                 None => &mut self.blocks_pv,
                 Some(levels) => {
-                    with_levels = OnEvenOf {
+                    let coarse_pv = &self.coarse_pv;
+                    with_levels = OnEven {
                         inner: BlocksPlusLevels {
                             blocks: &mut self.blocks_pv,
                             levels: Some(levels),
                         },
-                        a: &self.coarse_pv,
+                        even_part: move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| {
+                            coarse_pv.even_part(out, inp)
+                        },
                         whole: self.gc.zeros_like(),
                     };
                     &mut with_levels
@@ -794,6 +797,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             let m: &mut dyn LinearFn<Field<CT, Coarse>> = match self.levels_d.as_ref() {
                 None => &mut blocks,
                 Some(levels) => {
+                    let coarse_d = &self.coarse_d;
                     with_levels = OnEven {
                         inner: LevelsAndBlocks {
                             blocks: Some(&mut self.blocks_d),
@@ -801,7 +805,9 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
                             a: &self.coarse_d,
                             n,
                         },
-                        a: &self.coarse_d,
+                        even_part: move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| {
+                            coarse_d.borrow().even_part(out, inp)
+                        },
                         whole: self.gc.zeros_like(),
                     };
                     &mut with_levels

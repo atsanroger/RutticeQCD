@@ -12,7 +12,7 @@ mod rational;
 mod solve;
 
 pub use rational::Rational;
-pub use solve::{NormalSolver, OwnedMultigrid, Pre, Preconditioner, SetupOnLinks};
+pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 
 pub use even_odd::{log_det_diag, EvenOddForceOp, HalfPsi, TwoFlavorEo};
 pub use fermion_action::{
@@ -706,7 +706,7 @@ mod tests {
             let plain = run(solver, Preconditioner::None);
             let mg = run(
                 solver,
-                Preconditioner::multigrid(OwnedMultigrid::new(op.clone(), params), 0),
+                Preconditioner::multigrid(MultigridSetup::new(params, 0)),
             );
             assert!(
                 mg.2 < plain.2,
@@ -733,7 +733,7 @@ mod tests {
         let plain = run(NormalSolver::BiCgStab, Preconditioner::None);
         let mg = run(
             NormalSolver::BiCgStab,
-            Preconditioner::multigrid(OwnedMultigrid::new(op.clone(), params), 0),
+            Preconditioner::multigrid(MultigridSetup::new(params, 0)),
         );
         assert!(
             mg.2 < plain.2,
@@ -787,14 +787,14 @@ mod tests {
         params.setup_iterations = 2;
         // A setup after every force solve; the action and the iterations of the second force.
         let run = |reuse: bool| {
-            let mut cycle = OwnedMultigrid::new(op.clone(), params);
+            let mut cycle = MultigridSetup::new(params, 1);
             if reuse {
                 cycle = cycle.reusing_vectors(0);
             }
             let mut a = TwoFlavor::new(op(), None, stop, stop)
                 .with_clover(0.12)
                 .with_solver(NormalSolver::BiCgStab)
-                .with_preconditioner(Preconditioner::multigrid(cycle, 1));
+                .with_preconditioner(Preconditioner::multigrid(cycle));
             let cache = SmearingCache::new();
             a.langevin(&Links::new(&u, &cache), &mut Mseries::new(67));
             a.force(&Links::new(&u, &cache));

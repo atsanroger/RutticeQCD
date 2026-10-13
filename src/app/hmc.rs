@@ -59,7 +59,7 @@ use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, ForceOp, Hmc, MdAction, Mseries, NormalSolver, OwnedMultigrid, PlaquetteAction,
+    cold_start, Hmc, MdAction, Mseries, MultigridSetup, NormalSolver, PlaquetteAction,
     Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorEo,
     TwoFlavorRatio,
 };
@@ -376,12 +376,8 @@ impl HmcSolver {
         }
     }
 
-    /// The preconditioner of an action on all sites; `make` gives its operator again, for
-    /// the multigrid.
-    fn preconditioner<O: ForceOp + 'static>(&self, make: impl Fn() -> O + 'static) -> Preconditioner
-    where
-        O::Work: 'static,
-    {
+    /// The preconditioner the file asks for.
+    fn preconditioner(&self) -> Preconditioner {
         match (self.preconditioner, self.multigrid) {
             (Some(HmcPreconditioner::Multigrid), Some(mg)) => {
                 let params = MultigridParams {
@@ -389,11 +385,11 @@ impl HmcSolver {
                     setup_iterations: mg.setup_iterations,
                     ..MultigridParams::bridge(mg.block)
                 };
-                let mut cycle = OwnedMultigrid::new(make, params);
+                let mut setup = MultigridSetup::new(params, mg.refresh_every);
                 if mg.reuse_vectors {
-                    cycle = cycle.reusing_vectors(mg.reuse_iterations);
+                    setup = setup.reusing_vectors(mg.reuse_iterations);
                 }
-                Preconditioner::multigrid(cycle, mg.refresh_every)
+                Preconditioner::multigrid(setup)
             }
             _ => self.chebyshev(),
         }
@@ -762,15 +758,14 @@ impl HmcConfig {
                         // The same operator in either action; the clover term adds its force
                         // (and, even-odd, its det term).
                         macro_rules! two_flavor {
-                            ($make:expr, $clover:expr) => {{
-                                let make = $make;
-                                let op = make();
+                            ($op:expr, $clover:expr) => {{
+                                let op = $op;
                                 let clover: Option<f64> = $clover;
                                 if *even_odd {
                                     let a = TwoFlavorEo::new(op, sm, md, h)
                                         .with_guess(g)
                                         .with_solver(solver.normal())
-                                        .with_preconditioner(solver.preconditioner(make));
+                                        .with_preconditioner(solver.preconditioner());
                                     match clover {
                                         Some(kc) => {
                                             Box::new(a.with_clover(kc)) as Box<dyn MdAction>
@@ -781,7 +776,7 @@ impl HmcConfig {
                                     let a = TwoFlavor::new(op, sm, md, h)
                                         .with_guess(g)
                                         .with_solver(solver.normal())
-                                        .with_preconditioner(solver.preconditioner(make));
+                                        .with_preconditioner(solver.preconditioner());
                                     match clover {
                                         Some(kc) => {
                                             Box::new(a.with_clover(kc)) as Box<dyn MdAction>
@@ -792,32 +787,14 @@ impl HmcConfig {
                             }};
                         }
                         let action: Box<dyn MdAction> = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => two_flavor!(
-                                {
-                                    let lat = lat.clone();
-                                    move || {
-                                        Wilson::<f64>::new(
-                                            &lat,
-                                            WilsonParams {
-                                                kappa,
-                                                boundary: boundary(&b),
-                                            },
-                                        )
-                                    }
-                                },
-                                None
-                            ),
+                            HmcFermion::Wilson { kappa, boundary: b } => {
+                                two_flavor!(wilson(lat, kappa, &b), None)
+                            }
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
                                 boundary: b,
-                            } => two_flavor!(
-                                {
-                                    let lat = lat.clone();
-                                    move || clover(&lat, kappa, csw, &b)
-                                },
-                                Some(kappa * csw)
-                            ),
+                            } => two_flavor!(clover(lat, kappa, csw, &b), Some(kappa * csw)),
                             HmcFermion::DomainWall { .. } => {
                                 let p = mdwf_params(fermion);
                                 let alpha = with_alpha(lat, p, solver.neff_alpha);
@@ -878,33 +855,17 @@ impl HmcConfig {
                                     kappa: kd,
                                     boundary: bd,
                                 }),
-                            ) => {
-                                let w = |kappa, b: &[BoundaryConfig; ND]| {
-                                    Wilson::<f64>::new(
-                                        lat,
-                                        WilsonParams {
-                                            kappa,
-                                            boundary: boundary(b),
-                                        },
-                                    )
-                                };
-                                Box::new(
-                                    TwoFlavorRatio::new(w(kappa, &b), w(kd, &bd), sm, md, h)
-                                        .with_solver(solver.normal())
-                                        .with_preconditioner(solver.preconditioner({
-                                            let lat = lat.clone();
-                                            move || {
-                                                Wilson::<f64>::new(
-                                                    &lat,
-                                                    WilsonParams {
-                                                        kappa,
-                                                        boundary: boundary(&b),
-                                                    },
-                                                )
-                                            }
-                                        })),
+                            ) => Box::new(
+                                TwoFlavorRatio::new(
+                                    wilson(lat, kappa, &b),
+                                    wilson(lat, kd, &bd),
+                                    sm,
+                                    md,
+                                    h,
                                 )
-                            }
+                                .with_solver(solver.normal())
+                                .with_preconditioner(solver.preconditioner()),
+                            ),
                             (
                                 HmcFermion::Clover {
                                     kappa,
@@ -926,12 +887,7 @@ impl HmcConfig {
                                 )
                                 .with_clover(kappa * csw, kd * cd)
                                 .with_solver(solver.normal())
-                                .with_preconditioner(
-                                    solver.preconditioner({
-                                        let lat = lat.clone();
-                                        move || clover(&lat, kappa, csw, &b)
-                                    }),
-                                ),
+                                .with_preconditioner(solver.preconditioner()),
                             ),
                             _ => unreachable!("checked when the file is read"),
                         };
@@ -969,24 +925,19 @@ impl HmcConfig {
                         let by_pole = solver.kind == Some(HmcSolverKind::Cg);
                         let action: Box<dyn MdAction> = match *fermion {
                             HmcFermion::Wilson { kappa, boundary: b } => {
-                                let make = {
-                                    let lat = lat.clone();
-                                    move || {
-                                        Wilson::<f64>::new(
-                                            &lat,
-                                            WilsonParams {
-                                                kappa,
-                                                boundary: boundary(&b),
-                                            },
-                                        )
-                                    }
-                                };
-                                let a = Rational::new(make(), sm, md, hb, md_stop, h_stop)
-                                    .with_pole_by_pole(by_pole);
+                                let a = Rational::new(
+                                    wilson(lat, kappa, &b),
+                                    sm,
+                                    md,
+                                    hb,
+                                    md_stop,
+                                    h_stop,
+                                )
+                                .with_pole_by_pole(by_pole);
                                 Box::new(match solver.two_step() {
                                     Some(two) => a
                                         .with_two_step(two)
-                                        .with_preconditioner(solver.preconditioner(make)),
+                                        .with_preconditioner(solver.preconditioner()),
                                     None => a,
                                 })
                             }
@@ -995,17 +946,20 @@ impl HmcConfig {
                                 csw,
                                 boundary: b,
                             } => {
-                                let make = {
-                                    let lat = lat.clone();
-                                    move || clover(&lat, kappa, csw, &b)
-                                };
-                                let a = Rational::new(make(), sm, md, hb, md_stop, h_stop)
-                                    .with_clover(kappa * csw)
-                                    .with_pole_by_pole(by_pole);
+                                let a = Rational::new(
+                                    clover(lat, kappa, csw, &b),
+                                    sm,
+                                    md,
+                                    hb,
+                                    md_stop,
+                                    h_stop,
+                                )
+                                .with_clover(kappa * csw)
+                                .with_pole_by_pole(by_pole);
                                 Box::new(match solver.two_step() {
                                     Some(two) => a
                                         .with_two_step(two)
-                                        .with_preconditioner(solver.preconditioner(make)),
+                                        .with_preconditioner(solver.preconditioner()),
                                     None => a,
                                 })
                             }
@@ -1020,6 +974,16 @@ impl HmcConfig {
             })
             .collect()
     }
+}
+
+fn wilson(lat: &Arc<Lattice>, kappa: f64, b: &[BoundaryConfig; ND]) -> Wilson<f64> {
+    Wilson::<f64>::new(
+        lat,
+        WilsonParams {
+            kappa,
+            boundary: boundary(b),
+        },
+    )
 }
 
 fn clover(lat: &Arc<Lattice>, kappa: f64, csw: f64, b: &[BoundaryConfig; ND]) -> Clover<f64> {
