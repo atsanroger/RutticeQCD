@@ -33,13 +33,18 @@ pub fn random_su3(rng: &mut TestRng) -> ColorMatrix<f64> {
     ColorMatrix([r0, r1, r2])
 }
 
-/// Every link an independent random SU(3) matrix.
+/// Every link an independent random SU(3) matrix. The links are drawn in the order of the
+/// whole lattice and every process keeps its own: the field does not depend on how the
+/// lattice is split.
 pub fn random_gauge(lat: &Arc<Lattice>, seed: u64) -> Field<f64, Gauge> {
     let mut rng = TestRng::new(seed);
     let mut u = Field::<f64, Gauge>::gauge(lat);
     for mu in 0..ND {
-        for site in 0..lat.num_sites() {
-            set_link(&mut u, mu, site, &random_su3(&mut rng));
+        for global in 0..lat.num_global_sites() {
+            let link = random_su3(&mut rng);
+            if let Some(site) = lat.local_site(lat.global_site_coords(global)) {
+                set_link(&mut u, mu, site, &link);
+            }
         }
     }
     u

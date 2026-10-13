@@ -694,6 +694,58 @@ fn hmc_saves_configurations_on_several_processes() {
     }
 }
 
+/// HMC with the multigrid in the force solves on several processes: the trajectory of one
+/// process, to the tolerance of the solves; blocks that a process cuts are refused.
+#[test]
+fn hmc_with_the_multigrid_on_several_processes() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    use ruttice::LocalComm;
+    let yaml = |grid: &str, block: &str| {
+        format!(
+            "lattice: [4, 4, 4, 8]\n\
+             process_grid: {grid}\n\
+             start: {{type: hot, seed: 7}}\n\
+             hmc:\n  trajectories: 1\n  first_trajectory: 100\n  trajectory_length: 0.05\n  \
+             integrator: {{scheme: leapfrog, steps: [2]}}\n\
+             actions:\n  - {{type: plaquette, beta: 5.5, level: 0}}\n  \
+             - type: two_flavor\n    \
+             fermion: {{type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}}\n    \
+             level: 0\n    \
+             solver: {{type: bicgstab, tolerance_squared: 1.0e-24, energy_tolerance_squared: 1.0e-24, preconditioner: multigrid, multigrid: {{block: {block}, test_vectors: 8, setup_iterations: 2}}}}\n"
+        )
+    };
+    let dir = std::env::temp_dir();
+    let config = HmcConfig::from_yaml(&yaml("[1, 1, 1, 1]", "[2, 2, 2, 2]")).unwrap();
+    let alone = run_on(
+        &config,
+        &dir,
+        &mut Vec::new(),
+        std::sync::Arc::new(ruttice::SingleComm),
+    )
+    .unwrap();
+    let config = HmcConfig::from_yaml(&yaml("[1, 1, 2, 2]", "[2, 2, 2, 2]")).unwrap();
+    let split = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+        run_on(&config, &dir, &mut Vec::new(), lat.comm.clone()).unwrap()
+    });
+    for report in &split {
+        let (a, b) = (report.trajectories[0], alone.trajectories[0]);
+        assert_eq!((a.0, a.2), (b.0, b.2));
+        assert!((a.1 - b.1).abs() < 1e-7, "ΔH {} against {}", a.1, b.1);
+        assert!(
+            (a.3 - b.3).abs() < 1e-10,
+            "plaquette {} against {}",
+            a.3,
+            b.3
+        );
+    }
+    // 4 sites in z on each process: blocks of 4 in t fit (8 / 2), blocks of 4 in z do not.
+    let config = HmcConfig::from_yaml(&yaml("[1, 1, 2, 2]", "[2, 2, 4, 4]")).unwrap();
+    let refused = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+        run_on(&config, &dir, &mut Vec::new(), lat.comm.clone()).is_err()
+    });
+    assert!(refused.iter().all(|r| *r));
+}
+
 /// The RHMC example file: one trajectory of Bridge++'s test_HMC_Clover_RHMC_Nf2p1 (2 + 1
 /// flavours, the strange quark by a rational approximation computed by the program), to
 /// Bridge++'s relative 1e-11.

@@ -1,6 +1,7 @@
 //! Levels below the coarse lattice of a multigrid, as a preconditioner of a coarse
 //! operator A_c (the working log (branch `notes`): the signed multilevel V-cycle, `sm:`).
 
+use super::coarse::{CountedSchur, EvenBlocks};
 use super::{CoarseOp, MultigridError};
 use crate::kernel::{Number, Real};
 use crate::numerics::{hermitian_eigen, invert_complex};
@@ -726,6 +727,72 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for BlocksPlusLevels<'_> {
             levels.add(out, inp);
         }
     }
+}
+
+/// A solver of a coarse system, as `solve_shared` calls it: operator, preconditioner, solution
+/// (zero on entry), right-hand side.
+pub(super) type CoarseSolve<'a, T> = dyn FnMut(
+        &mut dyn LinearFn<Field<T, Coarse>>,
+        Option<&mut dyn LinearFn<Field<T, Coarse>>>,
+        &mut Field<T, Coarse>,
+        &Field<T, Coarse>,
+    ) + 'a;
+
+/// c = A⁻¹ g approximately for the coarse operator `a`, by `solve`: on the even coarse sites
+/// where `a` has the even-odd form (preconditioned by the inverses of the blocks there, or
+/// with `levels` by the even sites of their cycle), otherwise on all of them, right-
+/// preconditioned by the block inverses and the levels as far as there are any. `n` counts
+/// the applications of `a`.
+pub(super) fn solve_shared<T: Storage>(
+    a: &RefCell<CoarseOp<T>>,
+    blocks: Option<&mut BlockMap>,
+    levels: Option<&SignedMultilevel>,
+    n: &Cell<usize>,
+    solve: &mut CoarseSolve<'_, T>,
+    c: &mut Field<T, Coarse>,
+    g: &Field<T, Coarse>,
+) {
+    if !a.borrow().has_even_odd() {
+        let mut shared = CountedShared { a, n };
+        if blocks.is_none() && levels.is_none() {
+            return solve(&mut shared, None, c, g);
+        }
+        let mut m = LevelsAndBlocks {
+            blocks,
+            levels,
+            a,
+            n,
+        };
+        return solve(&mut shared, Some(&mut m), c, g);
+    }
+    let (mut source, mut odd) = (g.zeros_like(), g.zeros_like());
+    a.borrow().schur_source(&mut source, g, &mut odd);
+    let mut schur = CountedSchur {
+        a,
+        n,
+        odd: g.zeros_like(),
+    };
+    match levels {
+        None => solve(&mut schur, Some(&mut EvenBlocks(a)), c, &source),
+        Some(levels) => {
+            let mut m = OnEven {
+                inner: LevelsAndBlocks {
+                    blocks,
+                    levels: Some(levels),
+                    a,
+                    n,
+                },
+                even_part: |out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>| {
+                    a.borrow().even_part(out, inp)
+                },
+                whole: g.zeros_like(),
+            };
+            solve(&mut schur, Some(&mut m), c, &source)
+        }
+    }
+    a.borrow().schur_solution(c, g, &mut odd);
+    // The source and the odd sites of the solution: one application's work.
+    n.set(n.get() + g.num_vectors());
 }
 
 /// Dense matrices on the coarse sites, applied site by site.

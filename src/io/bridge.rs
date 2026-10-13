@@ -23,13 +23,7 @@ pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Ga
             // The field keeps the direction outermost; the file keeps the site outermost.
             let (site, mu, c) = (found / (ND * 18), (found / 18) % ND, found % 18);
             if mu == 0 && c == 0 {
-                let mut rest = site;
-                let x = lat.global.map(|l| {
-                    let x = rest % l;
-                    rest /= l;
-                    x
-                });
-                local = lat.local_site(x);
+                local = lat.local_site(lat.global_site_coords(site));
             }
             let value: f64 = token.parse().map_err(|_| IoError::Parse {
                 index: found,

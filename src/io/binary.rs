@@ -26,13 +26,7 @@ pub fn read_binary(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>,
     let (reals, _) = bytes.as_chunks::<REAL>();
     let (sites, _) = reals.as_chunks::<{ ND * LINK_REALS }>();
     for (global, links) in sites.iter().enumerate() {
-        let mut rest = global;
-        let x = lat.global.map(|l| {
-            let x = rest % l;
-            rest /= l;
-            x
-        });
-        let Some(site) = lat.local_site(x) else {
+        let Some(site) = lat.local_site(lat.global_site_coords(global)) else {
             continue;
         };
         // The field keeps the direction outermost; the file keeps the site outermost.
