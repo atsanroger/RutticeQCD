@@ -5,7 +5,6 @@
 
 namespace {
     constexpr int BLOCK_SIZE = 256;
-    constexpr int LS_PER_BLOCK = 4;
 
     inline int get_grid_size(int total_elems) {
         int grid = (total_elems + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -16,11 +15,23 @@ namespace {
         return geom->dims[0] * geom->dims[1] * geom->dims[2] * geom->dims[3];
     }
 
-    // One thread for each (site, s) of `sites` sites.
-    inline dim3 site_block() { return dim3(bridge_cuda::WarpSize, LS_PER_BLOCK); }
+    // The limits of a block of threads: its threads and its shared memory. A thread of these
+    // kernels may use every register it can have (255), and a block has 65536 of them: with
+    // more than 256 threads the launch can fail.
+    constexpr int MAX_THREADS = 256;
+    constexpr size_t MAX_SHARED = 48 * 1024;
+
+    // One thread for each (site, s) of `sites` sites: the Ls spinors of a site in one block of
+    // threads (up to 32 of them), and as many sites as MAX_THREADS allow, a power of two.
+    inline dim3 site_block(int Ls) {
+        int per = std::min(Ls, 32);
+        int lanes = 1;
+        while (2 * lanes * per <= MAX_THREADS) lanes *= 2;
+        return dim3(lanes, per);
+    }
     inline dim3 site_grid(int sites, int Ls) {
-        return dim3((sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize,
-                    (Ls + LS_PER_BLOCK - 1) / LS_PER_BLOCK);
+        dim3 block = site_block(Ls);
+        return dim3((sites + block.x - 1) / block.x, (Ls + block.y - 1) / block.y);
     }
 }
 
@@ -31,7 +42,7 @@ void bridge_cuda_mdwf_dslash_1pass_f32(
     const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
     cudaStream_t stream)
 {
-    bridge_cuda::mdwf_dslash_1pass_kernel<float, LS_PER_BLOCK><<<site_grid(volume(geom), geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::mdwf_dslash_1pass_kernel<float><<<site_grid(volume(geom), geom->Ls), site_block(geom->Ls), 0, stream>>>(
         d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
@@ -55,7 +66,7 @@ void bridge_cuda_hop_f32(
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
-    bridge_cuda::hop_kernel<float, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::hop_kernel<float><<<site_grid(sites, geom->Ls), site_block(geom->Ls), 0, stream>>>(
         d_out, d_in, d_gauge, geom->link_rows, d_from,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
@@ -101,7 +112,7 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
     const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
     cudaStream_t stream)
 {
-    bridge_cuda::mdwf_dslash_1pass_kernel<double, LS_PER_BLOCK><<<site_grid(volume(geom), geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::mdwf_dslash_1pass_kernel<double><<<site_grid(volume(geom), geom->Ls), site_block(geom->Ls), 0, stream>>>(
         d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
@@ -125,7 +136,7 @@ void bridge_cuda_hop_f64(
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
-    bridge_cuda::hop_kernel<double, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::hop_kernel<double><<<site_grid(sites, geom->Ls), site_block(geom->Ls), 0, stream>>>(
         d_out, d_in, d_gauge, geom->link_rows, d_from,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
@@ -225,6 +236,78 @@ void bridge_cuda_fifth_gemm_f64(
         case 16: bridge_cuda::fifth_gemm_mma_kernel<16><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
         default: break;  // Ls is at most 64
     }
+}
+
+int bridge_cuda_hop_gemm_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_m,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream)
+{
+    int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
+    int Ls = geom->Ls, nt = (2 * Ls + 7) / 8;
+    // The sites of a block of threads: as many as its threads and its shared memory hold,
+    // with whole warps where the tensor cores are used.
+    const size_t matrix = static_cast<size_t>(8 * nt * ((2 * Ls + 3) / 4 * 4)) * sizeof(float);
+    int lanes = bridge_cuda::WarpSize;
+    for (; lanes >= 4; lanes /= 2) {
+        const size_t tile = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(float);
+        if (lanes * Ls <= MAX_THREADS && tile + matrix <= MAX_SHARED && (!false || (lanes * Ls) % 32 == 0)) break;
+    }
+    if (lanes < 4 || nt > 8) return 0;
+    const size_t shared = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(float) + matrix;
+    dim3 block(lanes, Ls);
+    dim3 grid((sites + lanes - 1) / lanes);
+    const float bc[4] = {static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+                        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3])};
+    const float sign = dagger ? -1 : 1;
+    switch (nt) {
+        case 1: bridge_cuda::hop_gemm_kernel<float, 1><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 2: bridge_cuda::hop_gemm_kernel<float, 2><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 3: bridge_cuda::hop_gemm_kernel<float, 3><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 4: bridge_cuda::hop_gemm_kernel<float, 4><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 5: bridge_cuda::hop_gemm_kernel<float, 5><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 6: bridge_cuda::hop_gemm_kernel<float, 6><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 7: bridge_cuda::hop_gemm_kernel<float, 7><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        case 8: bridge_cuda::hop_gemm_kernel<float, 8><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)); break;
+        default: return 0;
+    }
+    return 1;
+}
+
+int bridge_cuda_hop_gemm_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_m,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream)
+{
+    int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
+    int Ls = geom->Ls, nt = (2 * Ls + 7) / 8;
+    // The sites of a block of threads: as many as its threads and its shared memory hold,
+    // with whole warps where the tensor cores are used.
+    const size_t matrix = static_cast<size_t>(8 * nt * ((2 * Ls + 15) / 16 * 16)) * sizeof(double);
+    int lanes = bridge_cuda::WarpSize;
+    for (; lanes >= 4; lanes /= 2) {
+        const size_t tile = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(double);
+        if (lanes * Ls <= MAX_THREADS && tile + matrix <= MAX_SHARED && (!true || (lanes * Ls) % 32 == 0)) break;
+    }
+    if (lanes < 4 || nt > 8) return 0;
+    const size_t shared = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(double) + matrix;
+    dim3 block(lanes, Ls);
+    dim3 grid((sites + lanes - 1) / lanes);
+    const double bc[4] = {static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+                        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3])};
+    const double sign = dagger ? -1 : 1;
+    switch (nt) {
+        case 1: bridge_cuda::hop_gemm_kernel<double, 1><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 2: bridge_cuda::hop_gemm_kernel<double, 2><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 3: bridge_cuda::hop_gemm_kernel<double, 3><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 4: bridge_cuda::hop_gemm_kernel<double, 4><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 5: bridge_cuda::hop_gemm_kernel<double, 5><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 6: bridge_cuda::hop_gemm_kernel<double, 6><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 7: bridge_cuda::hop_gemm_kernel<double, 7><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        case 8: bridge_cuda::hop_gemm_kernel<double, 8><<<grid, block, shared, stream>>>(d_out, d_in, d_gauge, geom->link_rows, d_from, d_m, geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], bc[0], bc[1], bc[2], bc[3], Ls, target_parity, sign, static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)); break;
+        default: return 0;
+    }
+    return 1;
 }
 
 } // extern "C"

@@ -84,6 +84,7 @@ extern "C" {
     fn cudaMemcpy(dst: *mut c_void, src: *const c_void, bytes: usize, kind: i32) -> i32;
     fn cudaMemset(ptr: *mut c_void, value: i32, bytes: usize) -> i32;
     fn cudaDeviceSynchronize() -> i32;
+    fn cudaGetLastError() -> i32;
     fn bridge_cuda_cast_f64_to_f32(dst: *mut f32, src: *const f64, n: i32, stream: *mut c_void);
     fn bridge_cuda_cast_f32_to_f64(dst: *mut f64, src: *const f32, n: i32, stream: *mut c_void);
 }
@@ -153,6 +154,20 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         mass: f64,
         dagger: i32,
     );
+    /// Whether it was done (see `bridge_cuda_hop_gemm`).
+    unsafe fn hop_gemm(
+        out: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
+        from: *const Self,
+        matrix: *const Self,
+        geometry: *const Geometry,
+        mass: f64,
+        b5: f64,
+        c5: f64,
+        dagger: i32,
+        target_parity: i32,
+    ) -> bool;
     unsafe fn fifth_gemm(
         out: *mut Self,
         inp: *const Self,
@@ -179,7 +194,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
 /// `DeviceReal` for one type, on the functions of that precision.
 macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
-     $fifth:ident, $gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
+     $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident) => {
         extern "C" {
             fn $wilson(
@@ -245,6 +260,20 @@ macro_rules! device_real {
                 dagger: i32,
                 stream: *mut c_void,
             );
+            fn $hop_gemm(
+                out: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                from: *const $t,
+                matrix: *const $t,
+                geometry: *const Geometry,
+                mass: f64,
+                b5: f64,
+                c5: f64,
+                dagger: i32,
+                target_parity: i32,
+                stream: *mut c_void,
+            ) -> i32;
             fn $gemm(
                 out: *mut $t,
                 inp: *const $t,
@@ -373,6 +402,34 @@ macro_rules! device_real {
             ) {
                 $fifth(out, x, a1, y1, z, a2, y2, sites, ls, mass, dagger, STREAM)
             }
+            unsafe fn hop_gemm(
+                out: *mut Self,
+                inp: *const Self,
+                gauge: *const Self,
+                from: *const Self,
+                matrix: *const Self,
+                geometry: *const Geometry,
+                mass: f64,
+                b5: f64,
+                c5: f64,
+                dagger: i32,
+                target_parity: i32,
+            ) -> bool {
+                $hop_gemm(
+                    out,
+                    inp,
+                    gauge,
+                    from,
+                    matrix,
+                    geometry,
+                    mass,
+                    b5,
+                    c5,
+                    dagger,
+                    target_parity,
+                    STREAM,
+                ) != 0
+            }
             unsafe fn fifth_gemm(
                 out: *mut Self,
                 inp: *const Self,
@@ -416,12 +473,12 @@ macro_rules! device_real {
 
 device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
-    bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_gamma5_f32,
+    bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_hop_gemm_f32, bridge_cuda_gamma5_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32);
 device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
-    bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_gamma5_f64,
+    bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64);
 
@@ -456,6 +513,9 @@ fn must<T>(result: Result<T, CudaError>) -> T {
 fn finish() {
     // SAFETY: no arguments.
     must(check(unsafe { cudaDeviceSynchronize() }));
+    // A kernel that could not be launched is not an error of the device: it is asked for.
+    // SAFETY: no arguments.
+    must(check(unsafe { cudaGetLastError() }));
 }
 
 /// Reals on the device.

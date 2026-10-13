@@ -3,6 +3,7 @@
 
 #include "../base/types.h"
 #include "../base/constant.h"
+#include "hops.cuh"
 #include <cuda_runtime.h>
 
 // What acts within a site of the four-dimensional lattice, on the fifth dimension and the
@@ -160,6 +161,159 @@ __global__ void fifth_gemm_columns_kernel(
             if (r < rows) {
                 const size_t k = base + static_cast<size_t>(r) * FifthColumns;
                 d_out[k] = (d_from != nullptr) ? d_from[k] - acc[r] : acc[r];
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// The hops and the product in one pass: out = M H (b - c Y) in, or from - that, with
+// H^dag for `sign` -1; out on the sites of parity target_parity and in on the others, or
+// both on the whole lattice (target_parity < 0).
+//
+// A block of threads has `lanes` = blockDim.x sites and their Ls spinors, a thread for each
+// (site, s) as in hop_kernel. The threads sum their hops in their registers and put the
+// result into the shared memory of the block, as the 2 Ls rows of 12 lanes reals that the
+// product takes; nothing of it passes through the memory of the device. Then
+//
+// - in double precision the warps of the block take the strips of 8 columns of these rows in
+//   turn and multiply as fifth_gemm_mma_kernel does, on the tensor cores;
+// - in single precision every thread sums the two rows of its s over the rows of its site.
+//
+// The rows in the shared memory: real (row, column) is at column ^ (8 (row & 1)) of its row
+// (12 lanes reals, a multiple of 16). A warp reads 4 rows of 8 columns for an mma, and the
+// rows one under the other would fall on the same banks, four threads to a bank; with odd
+// rows moved by 8 it is two, the least for 8 bytes each. The same holds for the threads that
+// write: a warp of them writes rows of one parity.
+//
+// lanes: a multiple of 4, and lanes * Ls a multiple of 32 in double precision (whole warps).
+// Shared memory: 2 Ls * 12 lanes reals, then the matrix as the kernel of the precision keeps
+// it (8 NT * K16 doubles, or 8 NT * K4 floats).
+// -------------------------------------------------------------------------
+template <typename Float, int NT>
+__global__ void hop_gemm_kernel(
+    Float* d_out,
+    const Float* __restrict__ d_in,
+    const Float* __restrict__ d_gauge, int link_rows,
+    const Float* d_from,
+    const Float* __restrict__ d_m,
+    int nx, int ny, int nz, int nt,
+    Float bcx, Float bcy, Float bcz, Float bct,
+    int Ls,
+    int target_parity,
+    Float sign,
+    Float mass, Float b5, Float c5)
+{
+    extern __shared__ unsigned char shared_bytes[];
+    Float* tile = reinterpret_cast<Float*>(shared_bytes);
+    const int lanes = blockDim.x;
+    const int rows = 2 * Ls, width = 12 * lanes;
+    const int k4 = (rows + 3) / 4 * 4;
+    const int k16 = (rows + 15) / 16 * 16;
+    Float* m_shared = tile + rows * width;
+    const int tid = threadIdx.y * lanes + threadIdx.x;
+    const bool tensor_cores = (sizeof(Float) == 8);
+    for (int i = tid; i < 8 * NT * k4; i += lanes * Ls) {
+        const int row = i / k4, k = i % k4;
+        m_shared[tensor_cores ? row * k16 + (k ^ (4 * (row % 4))) : i] = d_m[i];
+    }
+
+    const int lane = threadIdx.x, is = threadIdx.y;
+    const bool half = (target_parity >= 0);
+    const int sites = (half ? nx / 2 : nx) * ny * nz * nt;
+    const int at = blockIdx.x * lanes + lane;
+    // No thread leaves before the barrier, and none of a warp before its mma.
+    const bool live = (at < sites);
+
+    {
+        Float acc[Nspin][Nc][Ncomplex] = {0};
+        if (live) {
+            const int dims[4] = {nx, ny, nz, nt};
+            const Float bc[4] = {bcx, bcy, bcz, bct};
+            int xc[4];
+            if (half) {
+                half_site_to_coords(at, target_parity, xc, nx, ny, nz);
+            } else {
+                site_to_coords(at, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+            }
+            hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign,
+                        static_cast<Float>(0.5), mass, b5, c5);
+        }
+        // The upper two spin components are row 2 s, the lower two row 2 s + 1.
+        #pragma unroll
+        for (int k = 0; k < Nspin * Nc * Ncomplex; ++k) {
+            const int row = 2 * is + k / 12, column = (k % 12) * lanes + lane;
+            tile[row * width + (column ^ (8 * (row & 1)))] = (&acc[0][0][0])[k];
+        }
+    }
+    __syncthreads();
+
+    // Where real `column` of row `row` of the block goes in the fields.
+    auto in_field = [&](int row, int column) {
+        const int site = blockIdx.x * lanes + column % lanes;
+        const int comp = column / lanes + 12 * (row % 2);
+        return ((site / WarpSize) * Ls + row / 2) * (Nspin * Nc * Ncomplex) * WarpSize
+               + comp * WarpSize + site % WarpSize;
+    };
+
+    if constexpr (sizeof(Float) == 8) {
+        const int warp = tid / 32, t = tid % 32, warps = lanes * Ls / 32;
+        for (int strip = warp; strip < width / 8; strip += warps) {
+            const int n0 = strip * 8;
+            double d[NT][2];
+            #pragma unroll
+            for (int it = 0; it < NT; ++it) { d[it][0] = 0.0; d[it][1] = 0.0; }
+            for (int kk = 0; kk < k4; kk += 4) {
+                const int j = kk + t % 4;
+                const int j_in = (j < rows) ? j : rows - 1;
+                const double read = tile[j_in * width + ((n0 + t / 4) ^ (8 * (j_in & 1)))];
+                const double fb = (j < rows) ? read : 0.0;
+                #pragma unroll
+                for (int it = 0; it < NT; ++it) {
+                    const int row = it * 8 + t / 4;
+                    const double fa = m_shared[row * k16 + (j ^ (4 * (row % 4)))];
+                    const double c0 = d[it][0], c1 = d[it][1];
+                    double d0, d1;
+                    asm volatile(
+                        "mma.sync.aligned.m8n8k4.row.col.f64.f64.f64.f64 {%0, %1}, {%2}, {%3}, {%4, %5};"
+                        : "=d"(d0), "=d"(d1)
+                        : "d"(fa), "d"(fb), "d"(c0), "d"(c1));
+                    d[it][0] = d0;
+                    d[it][1] = d1;
+                }
+            }
+            #pragma unroll
+            for (int it = 0; it < NT; ++it) {
+                const int row = it * 8 + t / 4;
+                #pragma unroll
+                for (int i = 0; i < 2; ++i) {
+                    const int column = n0 + (t % 4) * 2 + i;
+                    if (row < rows && blockIdx.x * lanes + column % lanes < sites) {
+                        const int k = in_field(row, column);
+                        d_out[k] = (d_from != nullptr) ? d_from[k] - d[it][i] : d[it][i];
+                    }
+                }
+            }
+        }
+    } else {
+        Float upper[12], lower[12];
+        #pragma unroll
+        for (int c = 0; c < 12; ++c) { upper[c] = 0; lower[c] = 0; }
+        for (int j = 0; j < rows; ++j) {
+            const Float m_upper = m_shared[(2 * is) * k4 + j], m_lower = m_shared[(2 * is + 1) * k4 + j];
+            #pragma unroll
+            for (int c = 0; c < 12; ++c) {
+                const Float x = tile[j * width + ((c * lanes + lane) ^ (8 * (j & 1)))];
+                upper[c] += m_upper * x;
+                lower[c] += m_lower * x;
+            }
+        }
+        if (live) {
+            #pragma unroll
+            for (int c = 0; c < 12; ++c) {
+                const int ku = in_field(2 * is, c * lanes + lane), kl = in_field(2 * is + 1, c * lanes + lane);
+                d_out[ku] = (d_from != nullptr) ? d_from[ku] - upper[c] : upper[c];
+                d_out[kl] = (d_from != nullptr) ? d_from[kl] - lower[c] : lower[c];
             }
         }
     }

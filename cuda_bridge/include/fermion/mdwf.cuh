@@ -28,7 +28,7 @@ namespace bridge_cuda {
 // -------------------------------------------------------------------------
 // out = D in on the whole lattice, in one pass. One thread for each (site, s), as in hop_kernel.
 // -------------------------------------------------------------------------
-template <typename Float, int LS_PER_BLOCK = 4>
+template <typename Float>
 __global__ void mdwf_dslash_1pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
@@ -38,8 +38,8 @@ __global__ void mdwf_dslash_1pass_kernel(
     int Ls,
     Float M5, Float mass, Float b5, Float c5)
 {
-    const int site = threadIdx.x + WarpSize * blockIdx.x;
-    const int is   = blockIdx.y * LS_PER_BLOCK + threadIdx.y;
+    const int site = blockIdx.x * blockDim.x + threadIdx.x;
+    const int is   = blockIdx.y * blockDim.y + threadIdx.y;
     if (site >= nx * ny * nz * nt || is >= Ls) return;
 
     const int dims[4] = {nx, ny, nz, nt};

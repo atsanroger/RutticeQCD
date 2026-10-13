@@ -240,10 +240,11 @@ __device__ __forceinline__ void hops(
 // out = H (b - c Y) in, or with H^dag (`sign` -1): on the whole lattice (target_parity < 0),
 // or out on the sites of parity target_parity and in on the others.
 // With d_from not null, out = d_from - that (a field on the sites of out; it may be out).
-// One thread for each (site, s): threadIdx.x the site within its block of 32, threadIdx.y
-// the fifth coordinate within LS_PER_BLOCK of them.
+// One thread for each (site, s): threadIdx.x the site and threadIdx.y the fifth coordinate
+// within the block of threads. With the Ls spinors of a site in one block its threads read the
+// same links and neighbouring spinors, which the caches then hold.
 // -------------------------------------------------------------------------
-template <typename Float, int LS_PER_BLOCK = 4>
+template <typename Float>
 __global__ void hop_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
@@ -258,8 +259,8 @@ __global__ void hop_kernel(
 {
     const bool half = (target_parity >= 0);
     const int sites = (half ? nx / 2 : nx) * ny * nz * nt;
-    const int site  = threadIdx.x + WarpSize * blockIdx.x;
-    const int is    = blockIdx.y * LS_PER_BLOCK + threadIdx.y;
+    const int site  = blockIdx.x * blockDim.x + threadIdx.x;
+    const int is    = blockIdx.y * blockDim.y + threadIdx.y;
     if (site >= sites || is >= Ls) return;
 
     const int dims[4] = {nx, ny, nz, nt};
