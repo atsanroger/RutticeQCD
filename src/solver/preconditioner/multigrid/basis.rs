@@ -95,6 +95,21 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         Field::with_shape(self.agg.fine_lattice(), 24, self.reals / 24, num_vectors, 1)
     }
 
+    /// The reals of one vector at one site of the fine fields: 24 Ls.
+    pub fn fine_reals(&self) -> usize {
+        self.reals
+    }
+
+    /// The spin matrix of the reflection P is folded by, if it is.
+    pub fn reflection(&self) -> Option<Gamma> {
+        self.fold
+    }
+
+    /// P as it is stored: `[fine site][vector][chirality]`, the kept reals of each.
+    pub fn stored(&self) -> &[S] {
+        &self.data
+    }
+
     /// Whether P keeps only half of the fifth dimension (see [`Reflection`]).
     pub fn is_folded(&self) -> bool {
         self.fold.is_some()

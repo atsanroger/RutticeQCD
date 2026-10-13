@@ -15,10 +15,13 @@
 //! error to return and panic if the CUDA runtime fails; a kernel that fails is noticed at the
 //! next reduction or transfer, not where it was launched.
 
+mod coarse;
+mod columns;
 mod field;
 mod mdwf;
 mod wilson;
 
+pub use coarse::{DeviceBasis, DeviceCoarse};
 pub use field::{DeviceParities, DeviceSpinor};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
@@ -202,6 +205,33 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         to_4d: i32,
         vectors: i32,
     );
+    unsafe fn fold_restrict(
+        coarse: *mut Self,
+        fine: *const Self,
+        p: *const f32,
+        sites: *const u32,
+        n_coarse: i32,
+        block_volume: i32,
+        n: i32,
+        dims: *const i32,
+        ls: i32,
+        parity: i32,
+        gamma: *const i32,
+        vectors: i32,
+    );
+    unsafe fn fold_prolong(
+        fine: *mut Self,
+        coarse: *const Self,
+        p: *const f32,
+        coarse_of: *const u32,
+        n_coarse: i32,
+        n: i32,
+        dims: *const i32,
+        ls: i32,
+        parity: i32,
+        gamma: *const i32,
+        vectors: i32,
+    );
     /// `a`: a real for each vector; in `caxpy` and `caypx` its real and its imaginary part.
     unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32);
     unsafe fn caxpy(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
@@ -221,7 +251,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
 macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
      $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
-     $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident, $walls:ident) => {
+     $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident, $walls:ident, $restrict:ident, $prolong:ident) => {
         extern "C" {
             fn $wilson(
                 out: *mut $t,
@@ -340,6 +370,35 @@ macro_rules! device_real {
                 s_minus: i32,
                 s_plus: i32,
                 to_4d: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $restrict(
+                coarse: *mut $t,
+                fine: *const $t,
+                p: *const f32,
+                sites: *const u32,
+                n_coarse: i32,
+                block_volume: i32,
+                n: i32,
+                dims: *const i32,
+                ls: i32,
+                parity: i32,
+                gamma: *const i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $prolong(
+                fine: *mut $t,
+                coarse: *const $t,
+                p: *const f32,
+                coarse_of: *const u32,
+                n_coarse: i32,
+                n: i32,
+                dims: *const i32,
+                ls: i32,
+                parity: i32,
+                gamma: *const i32,
                 vectors: i32,
                 stream: *mut c_void,
             );
@@ -534,6 +593,54 @@ macro_rules! device_real {
             ) {
                 $walls(out, inp, sites, ls, s_minus, s_plus, to_4d, vectors, STREAM)
             }
+            unsafe fn fold_restrict(
+                coarse: *mut Self,
+                fine: *const Self,
+                p: *const f32,
+                sites: *const u32,
+                n_coarse: i32,
+                block_volume: i32,
+                n: i32,
+                dims: *const i32,
+                ls: i32,
+                parity: i32,
+                gamma: *const i32,
+                vectors: i32,
+            ) {
+                $restrict(
+                    coarse,
+                    fine,
+                    p,
+                    sites,
+                    n_coarse,
+                    block_volume,
+                    n,
+                    dims,
+                    ls,
+                    parity,
+                    gamma,
+                    vectors,
+                    STREAM,
+                )
+            }
+            unsafe fn fold_prolong(
+                fine: *mut Self,
+                coarse: *const Self,
+                p: *const f32,
+                coarse_of: *const u32,
+                n_coarse: i32,
+                n: i32,
+                dims: *const i32,
+                ls: i32,
+                parity: i32,
+                gamma: *const i32,
+                vectors: i32,
+            ) {
+                $prolong(
+                    fine, coarse, p, coarse_of, n_coarse, n, dims, ls, parity, gamma, vectors,
+                    STREAM,
+                )
+            }
             unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32) {
                 $scal(x, a, n, vectors, STREAM)
             }
@@ -565,13 +672,13 @@ device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_hop_gemm_f32, bridge_cuda_gamma5_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32,
-    bridge_cuda_walls_f32);
+    bridge_cuda_walls_f32, bridge_cuda_fold_restrict_f32, bridge_cuda_fold_prolong_f32);
 device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64,
-    bridge_cuda_walls_f64);
+    bridge_cuda_walls_f64, bridge_cuda_fold_restrict_f64, bridge_cuda_fold_prolong_f64);
 
 /// A call of the CUDA runtime failed with this code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -613,9 +720,6 @@ fn finish() {
 struct DeviceBuffer<T> {
     ptr: *mut T,
     len: usize,
-    /// Whether the memory is this buffer's to free; not for a part of another buffer
-    /// (`DeviceSpinor::vector`).
-    owned: bool,
     /// The memory is the device's: not to be sent between threads behind our back.
     _not_send: PhantomData<*mut T>,
 }
@@ -638,7 +742,6 @@ impl<T: DeviceReal> DeviceBuffer<T> {
         Ok(Self {
             ptr: ptr.cast(),
             len,
-            owned: true,
             _not_send: PhantomData,
         })
     }
@@ -646,6 +749,11 @@ impl<T: DeviceReal> DeviceBuffer<T> {
     /// The reals `host`, in the precision of the buffer, on the device.
     fn from_host(host: &[f64]) -> Result<Self, CudaError> {
         let host: Vec<T> = host.iter().map(|x| T::from_f64(*x)).collect();
+        Self::upload(&host)
+    }
+
+    /// The reals `host` as they are, on the device.
+    fn upload(host: &[T]) -> Result<Self, CudaError> {
         let buffer = Self::uninitialised(host.len())?;
         // SAFETY: both ranges hold `len` reals: the device one was allocated with that size.
         check(unsafe {
@@ -695,9 +803,6 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
 impl<T> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
-        if !self.owned {
-            return;
-        }
         // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
         // may still read or write it.
         unsafe {

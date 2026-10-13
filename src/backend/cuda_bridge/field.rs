@@ -175,26 +175,6 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     pub(super) fn is(&self, like: &Self, ls: usize, parity: Option<Parity>) -> bool {
         Arc::ptr_eq(&self.lat, &like.lat) && self.ls == ls && self.parity == parity
     }
-
-    /// Vector `v` as a field of its own on the same memory. It must not outlive the field, and
-    /// is not freed.
-    pub(super) fn vector(&self, v: usize) -> Self {
-        assert!(v < self.vectors);
-        let one = self.reals();
-        Self {
-            data: DeviceBuffer {
-                // SAFETY: vector `v` is inside the buffer.
-                ptr: unsafe { self.data.ptr.add(v * one) },
-                len: one,
-                owned: false,
-                _not_send: PhantomData,
-            },
-            lat: self.lat.clone(),
-            ls: self.ls,
-            parity: self.parity,
-            vectors: 1,
-        }
-    }
 }
 
 /// The padding of a field is zero and stays zero under these operations.
@@ -213,17 +193,13 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
 
     fn select(&self, which: &[usize]) -> Self {
         let out = self.zeros_with(which.len());
-        for (k, v) in which.iter().enumerate() {
-            must(out.vector(k).data.copy_from(&self.vector(*v).data));
-        }
+        columns::select(&out.data, &self.data, self.vectors, which);
         out
     }
 
     fn assign(&mut self, which: &[usize], from: &Self) {
         assert!(from.vectors == which.len() && self.reals() == from.reals());
-        for (k, v) in which.iter().enumerate() {
-            must(self.vector(*v).data.copy_from(&from.vector(k).data));
-        }
+        columns::assign(&self.data, self.vectors, which, &from.data);
     }
 
     fn same_shape(&self, x: &Self) -> bool {
@@ -241,82 +217,26 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     }
 
     fn scale(&mut self, a: &[f64]) {
-        assert!(a.len() >= self.vectors);
-        // SAFETY: `vectors` vectors of `reals()` reals and a coefficient for each.
-        unsafe {
-            T::scal(
-                self.data.ptr,
-                a.as_ptr(),
-                self.reals() as i32,
-                self.vectors as i32,
-            )
-        };
+        columns::scale(&self.data, self.vectors, a);
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
-        assert!(self.same_shape(x) && a.len() >= self.vectors);
-        // SAFETY: two buffers of `vectors` vectors of `reals()` reals, not the same one (`self`
-        // is borrowed mutably); a complex number is its real and its imaginary part.
-        unsafe {
-            T::caxpy(
-                self.data.ptr,
-                x.data.ptr,
-                a.as_ptr().cast(),
-                self.reals() as i32,
-                self.vectors as i32,
-            )
-        };
+        assert!(self.same_shape(x));
+        columns::axpy(&self.data, &x.data, self.vectors, a);
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
-        assert!(self.same_shape(x) && a.len() >= self.vectors);
-        // SAFETY: as in `axpy`.
-        unsafe {
-            T::caypx(
-                self.data.ptr,
-                x.data.ptr,
-                a.as_ptr().cast(),
-                self.reals() as i32,
-                self.vectors as i32,
-            )
-        };
+        assert!(self.same_shape(x));
+        columns::aypx(&self.data, &x.data, self.vectors, a);
     }
 
-    /// The inner products of all the vectors, fetched from the device together.
     fn dot(&self, x: &Self, out: &mut [C64]) {
-        assert!(self.same_shape(x) && out.len() >= self.vectors);
-        let (mut re, mut im) = (vec![0.0; self.vectors], vec![0.0; self.vectors]);
-        // SAFETY: two buffers of `vectors` vectors of `reals()` reals, and places for that
-        // many results.
-        unsafe {
-            T::dotc(
-                re.as_mut_ptr(),
-                im.as_mut_ptr(),
-                self.data.ptr,
-                x.data.ptr,
-                self.reals() as i32,
-                self.vectors as i32,
-            );
-        }
-        finish();
-        for (out, (re, im)) in out.iter_mut().zip(re.into_iter().zip(im)) {
-            *out = C64::new(re, im);
-        }
+        assert!(self.same_shape(x));
+        columns::dot(&self.data, &x.data, self.vectors, out);
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
-        assert!(out.len() >= self.vectors);
-        // SAFETY: a buffer of `vectors` vectors of `reals()` reals, and places for that many
-        // results.
-        unsafe {
-            T::norm2(
-                out.as_mut_ptr(),
-                self.data.ptr,
-                self.reals() as i32,
-                self.vectors as i32,
-            );
-        }
-        finish();
+        columns::norm_sqr(&self.data, self.vectors, out);
     }
 }
 
