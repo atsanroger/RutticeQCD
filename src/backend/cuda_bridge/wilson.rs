@@ -89,7 +89,7 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaWilson<T> {
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        self.gauge.set(u)
+        self.gauge.set(u, &mut self.geometry)
     }
 
     fn mult(
@@ -287,7 +287,7 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaClover<T> {
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
         FermionOp::<Field<f64, Spinor>>::set_gauge(&mut self.cpu, u)?;
-        self.gauge.set(u)?;
+        self.gauge.set(u, &mut self.geometry)?;
         let diag = self.cpu.diag_term();
         self.term = must(DeviceBuffer::from_host(&in_blocks(diag.blocks(), CLOVER)));
         self.inverse = must(DeviceBuffer::from_host(&in_blocks(

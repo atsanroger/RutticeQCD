@@ -31,7 +31,8 @@ use std::sync::Arc;
 /// Sites per block of the device layout.
 const W: usize = 32;
 const SPINOR: usize = 24;
-const LINKS: usize = 72;
+/// Reals of one row of the four links of a site.
+const LINK_ROW: usize = 24;
 
 #[repr(C)]
 pub struct Geometry {
@@ -42,6 +43,8 @@ pub struct Geometry {
     vol5d: i32,
     vol_pad: i32,
     gamma_rep: i32,
+    /// Rows of a link the operators read (`DeviceGauge`).
+    link_rows: i32,
 }
 
 #[repr(C)]
@@ -587,37 +590,51 @@ fn geometry(lat: &Lattice, boundary: [Boundary; ND], ls: usize) -> Geometry {
         vol5d: (sites * ls) as i32,
         vol_pad: padded(sites) as i32,
         gamma_rep: 0,
+        link_rows: 3,
     }
 }
 
-/// The links of an operator on the device: zero until `set`.
+/// The links of an operator on the device: zero until `set`. Links in SU(3) are kept as their
+/// first two rows (the kernels rebuild the third), others whole.
 struct DeviceGauge<T> {
     lat: Arc<Lattice>,
     links: DeviceBuffer<T>,
+    rows: usize,
 }
 
 impl<T: DeviceReal> DeviceGauge<T> {
     fn new(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
         Ok(Self {
             lat: lat.clone(),
-            links: DeviceBuffer::zeros(padded(lat.num_sites()) * LINKS)?,
+            links: DeviceBuffer::zeros(padded(lat.num_sites()) * 3 * LINK_ROW)?,
+            rows: 3,
         })
     }
 
-    fn set(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
+    /// The links `u`, and the geometry told how they are kept.
+    fn set(&mut self, u: &Field<f64, Gauge>, geometry: &mut Geometry) -> Result<(), GaugeError> {
         if u.lattice().local != self.lat.local {
             return Err(GaugeError::LatticeMismatch);
         }
         let sites = self.lat.num_sites();
-        let mut host = vec![0.0; padded(sites) * LINKS];
+        let rows = if crate::fermion::links_in_su3(u) {
+            2
+        } else {
+            3
+        };
+        // The rows of a link one after the other, the links of a site one after the other.
+        let (reals, kept) = (rows * LINK_ROW, 6 * rows);
+        let mut host = vec![0.0; padded(sites) * reals];
         for mu in 0..ND {
             for x in 0..sites {
-                for (c, v) in u.site(mu, x).iter().enumerate() {
-                    host[at(18 * mu + c, x, LINKS)] = *v;
+                for (c, v) in u.site(mu, x)[..kept].iter().enumerate() {
+                    host[at(kept * mu + c, x, reals)] = *v;
                 }
             }
         }
         self.links = must(DeviceBuffer::from_host(&host));
+        self.rows = rows;
+        geometry.link_rows = rows as i32;
         Ok(())
     }
 }

@@ -37,6 +37,7 @@ int main() {
     geom.vol5d = vol5d;
     geom.vol_pad = ((vol4d + 31) / 32) * 32;
     geom.gamma_rep = BRIDGE_CUDA_GAMMA_CHIRAL;
+    geom.link_rows = 3;
 
     BridgeCudaMdwfParams params;
     params.M5 = 1.6;

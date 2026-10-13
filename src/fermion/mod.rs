@@ -11,6 +11,7 @@ pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 pub use even_odd::{
     schur_factor, solve_even_odd, Dagger, EoForm, EvenOdd, OnParity, PvRatio, Schur, SplitParity,
 };
+pub use wilson::links_in_su3;
 
 pub use mdwf::{
     Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd, PvPreconditioned,

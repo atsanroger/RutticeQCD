@@ -416,6 +416,15 @@ pub(super) fn su3_deviation(u: &ColorMatrix<f64>) -> f64 {
     worst.max((det - Cplx::ONE).norm_sqr().sqrt())
 }
 
+/// Whether every link of `u` is in SU(3) as closely as `LinkFormat::TwoRows` asks: two rows of
+/// each are then enough to keep.
+pub fn links_in_su3(u: &Field<f64, Gauge>) -> bool {
+    let stored: &[[f64; FULL_LINK_REALS]] = u.as_slice().as_chunks().0;
+    stored
+        .iter()
+        .all(|link| su3_deviation(&ColorMatrix::from_reals(link)) <= SU3_TOLERANCE)
+}
+
 /// What is the same for every site of a sweep: the gauge field and, for each leg, the
 /// phase of a hop across the boundary of the global lattice.
 pub(super) struct Fixed<'a, T: Storage, R: LinkRepr> {

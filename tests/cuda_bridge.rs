@@ -168,6 +168,35 @@ fn wilson_pair(
     (cpu, gpu)
 }
 
+/// Links in SU(3) are kept as two rows on the device and others whole: the operators agree
+/// with the CPU on both.
+#[test]
+fn links_outside_su3_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut u = random_gauge(&lat, 401);
+    assert!(ruttice::fermion::links_in_su3(&u));
+    for (k, v) in u.as_mut_slice().iter_mut().enumerate() {
+        *v *= 1.0 + 0.05 * ((k % 7) as f64 - 3.0);
+    }
+    assert!(!ruttice::fermion::links_in_su3(&u));
+    let wilson = WilsonParams {
+        kappa: 0.123,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = wilson_pair(&lat, &u, wilson);
+    same_operator(
+        &cpu,
+        &gpu,
+        &random_spinor(&lat, 1, 402),
+        1e-13,
+        "Wilson, links not in SU(3)",
+    );
+    let (_, params) = mdwf_cases().swap_remove(1);
+    let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+    let psi = random_fifth(&lat, params.ls, 403);
+    same_operator(&cpu, &gpu, &psi, 1e-12, "MDWF, links not in SU(3)");
+}
+
 /// The Wilson operator, for the three kinds of boundary.
 #[test]
 fn wilson_on_the_device_is_wilson_on_the_cpu() {

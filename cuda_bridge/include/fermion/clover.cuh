@@ -134,7 +134,7 @@ template <typename Float>
 __global__ void clover_dslash_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
-    const Float* __restrict__ d_gauge,
+    const Float* __restrict__ d_gauge, int link_rows,
     const Float* __restrict__ d_clover,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
@@ -149,7 +149,7 @@ __global__ void clover_dslash_kernel(
         clover_site<Float>(acc, d_in, d_clover, site, site);
         int xc[4];
         site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
-        hops<Float>(acc, d_in, d_gauge, xc, 0, 1, dims, bc, false, sign, kappa,
+        hops<Float>(acc, d_in, d_gauge, link_rows, xc, 0, 1, dims, bc, false, sign, kappa,
                     static_cast<Float>(0.0), static_cast<Float>(1.0), static_cast<Float>(0.0));
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
