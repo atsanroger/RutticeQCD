@@ -36,22 +36,35 @@ fn time_mult<V: Vector, F: FermionOp<V>>(op: &F, psi: &V) -> f64 {
     start.elapsed().as_secs_f64() / APPLICATIONS as f64
 }
 
-fn compare<C, G>(name: &str, cpu: &C, gpu: &G, index: &EvenOddIndex, psi: &Psi, stop: Option<Stop>)
-where
+#[allow(clippy::too_many_arguments)]
+fn compare<C, G, G32>(
+    name: &str,
+    cpu: &C,
+    gpu: &G,
+    single: &G32,
+    index: &EvenOddIndex,
+    psi: &Psi,
+    stop: Option<Stop>,
+) where
     C: FermionOp<Psi> + EvenOdd<HalfPsi>,
     G: FermionOp<DeviceSpinor> + EvenOdd<DeviceSpinor>,
+    G32: FermionOp<DeviceSpinor<f32>>,
 {
     let device_psi = DeviceSpinor::from_host(psi).expect("memory on the device");
     let sites = psi.lattice().num_sites() as f64;
     let gflops = |seconds: f64| cpu.flops_per_site() as f64 * sites / seconds * 1e-9;
     let (t_cpu, t_gpu) = (time_mult(cpu, psi), time_mult(gpu, &device_psi));
+    let single_psi = DeviceSpinor::<f32>::from_host(psi).expect("memory on the device");
+    let t_single = time_mult(single, &single_psi);
     println!(
-        "{name}: D  CPU {:.3} ms ({:.1} GFlops)  device {:.3} ms ({:.1} GFlops)  ratio {:.1}",
+        "{name}: D  CPU {:.3} ms ({:.1} GFlops)  device {:.3} ms ({:.1} GFlops)  ratio {:.1}  single {:.3} ms ({:.1} GFlops)",
         t_cpu * 1e3,
         gflops(t_cpu),
         t_gpu * 1e3,
         gflops(t_gpu),
-        t_cpu / t_gpu
+        t_cpu / t_gpu,
+        t_single * 1e3,
+        gflops(t_single)
     );
     let Some(stop) = stop else {
         return;
@@ -119,9 +132,11 @@ fn main() {
     cpu.set_gauge(&u).expect("the links");
     let mut gpu = CudaWilson::new(&lat, params).expect("memory on the device");
     gpu.set_gauge(&u).expect("the links");
+    let mut single = CudaWilson::<f32>::new(&lat, params).expect("memory on the device");
+    single.set_gauge(&u).expect("the links");
     let index = cpu.even_odd_index().expect("even extents").clone();
     let psi = random_spinor(&lat, 1, 1);
-    compare("Wilson", &cpu, &gpu, &index, &psi, stop);
+    compare("Wilson", &cpu, &gpu, &single, &index, &psi, stop);
 
     let params = CloverParams {
         kappa: 0.13,
@@ -132,7 +147,9 @@ fn main() {
     cpu.set_gauge(&u).expect("the links");
     let mut gpu = CudaClover::new(&lat, params).expect("memory on the device");
     gpu.set_gauge(&u).expect("the links");
-    compare("clover", &cpu, &gpu, &index, &psi, stop);
+    let mut single = CudaClover::<f32>::new(&lat, params).expect("memory on the device");
+    single.set_gauge(&u).expect("the links");
+    compare("clover", &cpu, &gpu, &single, &index, &psi, stop);
 
     let params = MdwfParams {
         ls,
@@ -146,8 +163,18 @@ fn main() {
     cpu.set_gauge(&u).expect("the links");
     let mut gpu = CudaMdwf::new(&lat, params).expect("memory on the device");
     gpu.set_gauge(&u).expect("the links");
+    let mut single = CudaMdwf::<f32>::new(&lat, params).expect("memory on the device");
+    single.set_gauge(&u).expect("the links");
     let flat = random_spinor(&lat, ls, 2);
     let mut psi = Psi::with_shape(&lat, 24, ls, 1, 1);
     psi.as_mut_slice().copy_from_slice(flat.as_slice());
-    compare(&format!("MDWF Ls={ls}"), &cpu, &gpu, &index, &psi, stop);
+    compare(
+        &format!("MDWF Ls={ls}"),
+        &cpu,
+        &gpu,
+        &single,
+        &index,
+        &psi,
+        stop,
+    );
 }
