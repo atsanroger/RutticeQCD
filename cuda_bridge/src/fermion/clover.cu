@@ -15,10 +15,12 @@ extern "C" {
 
 void bridge_cuda_clover_term_f32(
     float* d_out, const float* d_in, const float* d_clover,
-    const BridgeCudaGeometry* geom, cudaStream_t stream)
+    const BridgeCudaGeometry* geom, int parity, cudaStream_t stream)
 {
-    bridge_cuda::clover_term_kernel<float><<<get_grid_size(geom->vol), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, d_clover, geom->vol
+    int sites = (parity >= 0) ? geom->vol / 2 : geom->vol;
+    bridge_cuda::clover_term_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, d_clover,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], parity
     );
 }
 
@@ -39,10 +41,12 @@ void bridge_cuda_clover_dslash_f32(
 
 void bridge_cuda_clover_term_f64(
     double* d_out, const double* d_in, const double* d_clover,
-    const BridgeCudaGeometry* geom, cudaStream_t stream)
+    const BridgeCudaGeometry* geom, int parity, cudaStream_t stream)
 {
-    bridge_cuda::clover_term_kernel<double><<<get_grid_size(geom->vol), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, d_clover, geom->vol
+    int sites = (parity >= 0) ? geom->vol / 2 : geom->vol;
+    bridge_cuda::clover_term_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, d_clover,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3], parity
     );
 }
 

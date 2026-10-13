@@ -14,11 +14,11 @@ namespace {
         return std::min(grid, MAX_GRID);
     }
 
-    // Device memory for the sums of the CUDA blocks of a reduction, kept between calls.
-    // One thread uses the device at a time.
+    // Device memory for the sums of the CUDA blocks of a reduction, kept between calls:
+    // one for each thread, so that threads may reduce at the same time.
     template <typename Float>
     Float* block_sums() {
-        static Float* sums = nullptr;
+        static thread_local Float* sums = nullptr;
         if (sums == nullptr) cudaMalloc(&sums, 2 * MAX_GRID * sizeof(Float));
         return sums;
     }

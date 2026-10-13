@@ -22,6 +22,12 @@ name = "ruttice-bench-mpi"
 path = "apps/bench_mpi.rs"
 required-features = ["mpi"]
 
+# Times the operators and a solve on the GPU against the CPU.
+[[bin]]
+name = "ruttice-bench-cuda"
+path = "apps/bench_cuda.rs"
+required-features = ["cuda-bridge"]
+
 # The same program on several processes.
 [[bin]]
 name = "ruttice-mpi"

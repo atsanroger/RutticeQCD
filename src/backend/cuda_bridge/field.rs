@@ -1,6 +1,7 @@
 //! Spinor fields on the device.
 
 use super::*;
+use crate::fermion::SplitParity;
 use crate::{EvenOddIndex, Half, Parity, Spinor, Vector, C64};
 
 /// Where component `c` of the spinor at `s` of site `x` is, with `ls` spinors per site: the
@@ -270,5 +271,45 @@ impl Vector for DeviceSpinor {
         // SAFETY: the buffer holds `len` reals.
         out[0] = unsafe { bridge_cuda_blas_norm2_f64(self.data.ptr, self.len(), STREAM) };
         finish();
+    }
+}
+
+/// How a field on the device splits into its two parities (for `solve_even_odd`).
+pub struct DeviceParities;
+
+impl DeviceParities {
+    /// Copies the part of `full` on the parity of `half` out of it (`to_half`), or into it.
+    fn copy(half: &DeviceSpinor, full: &DeviceSpinor, to_half: bool) {
+        let parity = half.parity.expect("a field on one parity");
+        assert!(full.is(half, half.ls, None), "not the same lattice and Ls");
+        let geometry = geometry(&full.lat, [Boundary::Periodic; ND], full.ls);
+        // SAFETY: the buffers hold the sites of one parity and of the whole lattice with the
+        // same `ls`; the kernel writes one of them and reads the other.
+        unsafe {
+            bridge_cuda_parity_copy_f64(
+                half.data.ptr,
+                full.data.ptr,
+                &geometry,
+                parity.index() as i32,
+                i32::from(to_half),
+                STREAM,
+            );
+        }
+        finish();
+    }
+}
+
+impl SplitParity<DeviceSpinor, DeviceSpinor> for DeviceParities {
+    fn half_like(&self, like: &DeviceSpinor, parity: Parity) -> DeviceSpinor {
+        must(DeviceSpinor::zeros_half(&like.lat, like.ls, parity))
+    }
+
+    fn extract(&self, half: &mut DeviceSpinor, full: &DeviceSpinor, parity: Parity) {
+        half.parity = Some(parity);
+        Self::copy(half, full, true);
+    }
+
+    fn insert(&self, full: &mut DeviceSpinor, half: &DeviceSpinor) {
+        Self::copy(half, full, false);
     }
 }

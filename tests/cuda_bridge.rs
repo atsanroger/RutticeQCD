@@ -1,16 +1,18 @@
 //! The CUDA kernels against the operators on the CPU (feature `cuda-bridge`; needs a GPU).
 #![cfg(feature = "cuda-bridge")]
 
-use ruttice::backend::cuda_bridge::{CudaClover, CudaMdwf, CudaWilson, DeviceSpinor};
+use ruttice::backend::cuda_bridge::{
+    CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceSpinor,
+};
 use ruttice::fermion::{
-    Bound, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant, Wilson,
-    WilsonParams,
+    solve_even_odd, Bound, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams,
+    Schur, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
-use ruttice::solver::{Cg, Solver, Stop};
+use ruttice::solver::{solve_cgne, Cg, Solver, Stop};
 use ruttice::{
-    extract_parity, random_spinor, Boundary, Field, Gauge, Half, Lattice, LinearFn, Normal, Parity,
-    Sites, Spinor, Vector, C64,
+    extract_parity, random_spinor, Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn,
+    LinearOp, Normal, Parity, Sites, Spinor, Vector, C64,
 };
 use std::sync::Arc;
 
@@ -268,72 +270,154 @@ fn mdwf_on_the_device_is_mdwf_on_the_cpu() {
     }
 }
 
-/// The even-odd blocks of the domain-wall operator: the hop to each parity and its adjoint,
-/// C⁻¹ and C†⁻¹, and the Schur factor made of them.
+type HalfPsi = Field<f64, Spinor, Half>;
+
+/// The even-odd blocks on the device are those on the CPU: the hop to each parity, the block
+/// within a site and its inverse, each with its adjoint, and the Schur complement made of them.
+fn same_blocks<C: EvenOdd<HalfPsi>, G: EvenOdd<DeviceSpinor>>(
+    cpu: &C,
+    gpu: &G,
+    index: &EvenOddIndex,
+    psi: &Psi,
+    what: &str,
+) {
+    let (lat, ls) = (psi.lattice(), psi.ls());
+    let half = |parity| {
+        let mut f = HalfPsi::with_shape(lat, 24, ls, 1, 1);
+        f.set_parity(parity);
+        f
+    };
+    let device = |parity| DeviceSpinor::zeros_half(lat, ls, parity).unwrap();
+    let (mut work, mut gpu_work) = (cpu.even_odd_work(), gpu.even_odd_work());
+    let same = |out: &DeviceSpinor, expected: &HalfPsi, which: &str| {
+        let d = worst(&out.to_host_half(index).unwrap(), expected);
+        assert!(d < 1e-13, "{what}: {which} differs by {d:e}");
+    };
+
+    for to in [Parity::Even, Parity::Odd] {
+        let from = to.flip();
+        let mut inp = half(from);
+        extract_parity(&mut inp, psi, index, from);
+        let device_inp = DeviceSpinor::from_host_half(&inp, index).unwrap();
+        for dagger in [Dagger::No, Dagger::Yes] {
+            let (mut expected, mut out) = (half(to), device(to));
+            cpu.hop(&mut work, &mut expected, &inp, to, dagger);
+            gpu.hop(&mut gpu_work, &mut out, &device_inp, to, dagger);
+            same(&out, &expected, &format!("the hop to {to:?} ({dagger:?})"));
+
+            let (mut expected, mut out) = (half(from), device(from));
+            cpu.diag(&mut work, &mut expected, &inp, from, dagger);
+            gpu.diag(&mut gpu_work, &mut out, &device_inp, from, dagger);
+            same(
+                &out,
+                &expected,
+                &format!("the block on {from:?} ({dagger:?})"),
+            );
+            cpu.diag_inv(&mut work, &mut expected, &inp, from, dagger);
+            gpu.diag_inv(&mut gpu_work, &mut out, &device_inp, from, dagger);
+            same(
+                &out,
+                &expected,
+                &format!("its inverse on {from:?} ({dagger:?})"),
+            );
+        }
+    }
+
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    let mut inp = half(even);
+    extract_parity(&mut inp, psi, index, even);
+    let device_inp = DeviceSpinor::from_host_half(&inp, index).unwrap();
+    let mut cpu_schur = Schur::new(cpu, even, &inp, &half(odd));
+    let mut gpu_schur = Schur::new(gpu, even, &device_inp, &device(odd));
+    let (mut expected, mut out) = (half(even), device(even));
+    cpu_schur.mult(&mut expected, &inp);
+    gpu_schur.mult(&mut out, &device_inp);
+    let d = worst(&out.to_host_half(index).unwrap(), &expected);
+    assert!(d < 1e-12, "{what}: the Schur complement differs by {d:e}");
+    cpu_schur.mult_dag(&mut expected, &inp);
+    gpu_schur.mult_dag(&mut out, &device_inp);
+    let d = worst(&out.to_host_half(index).unwrap(), &expected);
+    assert!(
+        d < 1e-12,
+        "{what}: the adjoint of the Schur complement differs by {d:e}"
+    );
+}
+
+/// The even-odd solve on the device (CG on the normal equations of the Schur complement)
+/// gives a solution of D x = b, as the operator on the CPU sees it.
+fn solves_even_odd<C: FermionOp<Psi>, G: EvenOdd<DeviceSpinor>>(
+    cpu: &C,
+    gpu: &G,
+    b: &Psi,
+    what: &str,
+) {
+    let stop = Stop::simple(1e-22, 20000);
+    let device_b = DeviceSpinor::from_host(b).unwrap();
+    let mut x = device_b.zeros_like();
+    let info = solve_even_odd(
+        gpu,
+        &DeviceParities,
+        &mut x,
+        &device_b,
+        |schur, x_e, rhs| solve_cgne(&mut Cg::new(stop), schur, x_e, rhs),
+    )
+    .unwrap_or_else(|e| panic!("{what}: the even-odd solve on the device failed: {e:?}"));
+    let x = x.to_host().unwrap();
+
+    let mut r = b.zeros_like();
+    cpu.mult(&mut cpu.work(), &mut r, &x, Variant::D);
+    r.aypx(&[C64::new(-1.0, 0.0)], b);
+    let (mut rr, mut bb) = ([0.0], [0.0]);
+    r.norm_sqr(&mut rr);
+    b.norm_sqr(&mut bb);
+    assert!(
+        rr[0] / bb[0] < 1e-18,
+        "{what}: |b - D x|² / |b|² = {:e} after {} iterations",
+        rr[0] / bb[0],
+        info.iterations
+    );
+    println!(
+        "{what}: {} iterations of the even-odd solve on the device",
+        info.iterations
+    );
+}
+
 #[test]
-fn mdwf_even_odd_on_the_device_is_that_on_the_cpu() {
+fn even_odd_blocks_on_the_device_are_those_on_the_cpu() {
+    for (dims, boundary) in [([4, 4, 4, 8], ANTIPERIODIC_T), ([6, 4, 2, 6], MIXED)] {
+        let lat = Lattice::single_node(dims);
+        let u = random_gauge(&lat, 361);
+        let psi = random_spinor(&lat, 1, 362);
+
+        let wilson = WilsonParams {
+            kappa: 0.123,
+            boundary,
+        };
+        let (cpu, gpu) = wilson_pair(&lat, &u, wilson);
+        let index = cpu.even_odd_index().unwrap().clone();
+        same_blocks(&cpu, &gpu, &index, &psi, &format!("Wilson {dims:?}"));
+
+        let clover = CloverParams {
+            kappa: 0.123,
+            csw: 1.3,
+            boundary,
+        };
+        let (cpu, gpu) = clover_pair(&lat, &u, clover);
+        same_blocks(&cpu, &gpu, &index, &psi, &format!("clover {dims:?}"));
+    }
     for (dims, params) in mdwf_cases() {
-        let what = format!("MDWF {dims:?} {params:?}");
-        let ls = params.ls;
         let lat = Lattice::single_node(dims);
         let u = random_gauge(&lat, 321);
-        let psi = random_fifth(&lat, ls, 322);
+        let psi = random_fifth(&lat, params.ls, 322);
         let (cpu, gpu) = mdwf_pair(&lat, &u, params);
         let index = cpu.even_odd_index().unwrap().clone();
-        let mut work = cpu.even_odd_work();
-        let mut gpu_work = None;
-        let half = |parity| {
-            let mut f = Field::<f64, Spinor, Half>::with_shape(&lat, 24, ls, 1, 1);
-            f.set_parity(parity);
-            f
-        };
-        let device = |parity| DeviceSpinor::zeros_half(&lat, ls, parity).unwrap();
-
-        for to in [Parity::Even, Parity::Odd] {
-            let from = to.flip();
-            let mut inp = half(from);
-            extract_parity(&mut inp, &psi, &index, from);
-            let device_inp = DeviceSpinor::from_host_half(&inp, &index).unwrap();
-            for dagger in [Dagger::No, Dagger::Yes] {
-                let mut expected = half(to);
-                cpu.hop(&mut work, &mut expected, &inp, to, dagger);
-                let mut out = device(to);
-                gpu.hop(&mut gpu_work, &mut out, &device_inp, to, dagger);
-                let d = worst(&out.to_host_half(&index).unwrap(), &expected);
-                assert!(
-                    d < 1e-13,
-                    "{what}: the hop to {to:?} ({dagger:?}) differs by {d:e}"
-                );
-
-                let mut expected = half(from);
-                cpu.diag_inv(&mut work, &mut expected, &inp, from, dagger);
-                let mut out = device(from);
-                gpu.site_inv(&mut out, &device_inp, dagger);
-                let d = worst(&out.to_host_half(&index).unwrap(), &expected);
-                assert!(
-                    d < 1e-13,
-                    "{what}: C⁻¹ ({dagger:?}) on {from:?} differs by {d:e}"
-                );
-            }
-        }
-
-        // 1 − D_eo C_o⁻¹ D_oe C_e⁻¹
-        let (even, odd) = (Parity::Even, Parity::Odd);
-        let mut inp = half(even);
-        extract_parity(&mut inp, &psi, &index, even);
-        let (mut e, mut o1, mut o2) = (half(even), half(odd), half(odd));
-        cpu.diag_inv(&mut work, &mut e, &inp, even, Dagger::No);
-        cpu.hop(&mut work, &mut o1, &e, odd, Dagger::No);
-        cpu.diag_inv(&mut work, &mut o2, &o1, odd, Dagger::No);
-        cpu.hop(&mut work, &mut e, &o2, even, Dagger::No);
-        let mut expected = inp.zeros_like();
-        expected.copy_from(&inp);
-        expected.axpy(&[C64::new(-1.0, 0.0)], &e);
-        let device_inp = DeviceSpinor::from_host_half(&inp, &index).unwrap();
-        let mut out = device(even);
-        gpu.schur_factor(&mut out, &device_inp, &mut [device(even), device(odd)]);
-        let d = worst(&out.to_host_half(&index).unwrap(), &expected);
-        assert!(d < 1e-12, "{what}: the Schur factor differs by {d:e}");
+        same_blocks(
+            &cpu,
+            &gpu,
+            &index,
+            &psi,
+            &format!("MDWF {dims:?} {params:?}"),
+        );
     }
 }
 
@@ -369,4 +453,38 @@ fn conjugate_gradient_on_the_device_solves_as_on_the_cpu() {
     };
     let (cpu, gpu) = mdwf_pair(&lat, &u, mdwf);
     same_solution(&cpu, &gpu, &random_fifth(&lat, mdwf.ls, 353), "MDWF");
+}
+
+/// The even-odd solve runs on the device as it is, for the three operators.
+#[test]
+fn even_odd_solve_on_the_device_solves() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 351);
+    let b = random_spinor(&lat, 1, 352);
+
+    let wilson = WilsonParams {
+        kappa: 0.1,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = wilson_pair(&lat, &u, wilson);
+    solves_even_odd(&cpu, &gpu, &b, "Wilson");
+
+    let clover = CloverParams {
+        kappa: 0.1,
+        csw: 1.0,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = clover_pair(&lat, &u, clover);
+    solves_even_odd(&cpu, &gpu, &b, "clover");
+
+    let mdwf = MdwfParams {
+        ls: 6,
+        m5: 1.8,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = mdwf_pair(&lat, &u, mdwf);
+    solves_even_odd(&cpu, &gpu, &random_fifth(&lat, mdwf.ls, 353), "MDWF");
 }

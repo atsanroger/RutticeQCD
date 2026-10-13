@@ -5,9 +5,9 @@
 
 use super::wilson::{gamma5, scratch};
 use super::*;
-use crate::fermion::{Dagger, FermionOp, MdwfParams, Variant};
+use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Variant};
 use crate::kernel::NC;
-use crate::{Parity, Vector, C64};
+use crate::{Parity, Vector};
 
 pub struct CudaMdwf {
     params: MdwfParams,
@@ -50,27 +50,20 @@ impl CudaMdwf {
         dagger: bool,
         to: Option<Parity>,
     ) {
-        let ls = self.params.ls;
-        assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
-        assert_eq!(out.data.len, inp.data.len);
-        out.parity = to;
-        // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
-        // kernel is told; the links are those of the whole lattice; `out` is not `inp`.
-        unsafe {
-            bridge_cuda_mdwf_hop_f64(
-                out.data.ptr,
-                inp.data.ptr,
-                self.gauge.links.ptr,
-                &self.geometry,
-                self.params.mass,
-                b,
-                c,
-                i32::from(dagger),
-                to.map_or(-1, |p| p.index() as i32),
-                STREAM,
-            );
-        }
-        finish();
+        let fifth = FifthInHops {
+            mass: self.params.mass,
+            b,
+            c,
+        };
+        hops(
+            (&self.gauge, &self.geometry),
+            out,
+            inp,
+            0.5,
+            fifth,
+            dagger,
+            to,
+        );
     }
 
     /// `out = (a1 + y1 Y) x + (a2 + y2 Y) z`, or with `Y†`; the second term is optional.
@@ -109,12 +102,20 @@ impl CudaMdwf {
         }
         finish();
     }
+}
 
-    /// `out = D_pq inp`, or `(D†)_pq inp`: `out` on the sites of parity `to`, `inp` on the
-    /// others.
-    pub fn hop(
+/// The even-odd blocks of D, in four dimensions (all `ls` spinors of a site have its parity):
+/// the hops `D_pq = H_pq (b − c Y)` and the part within a site `C = d+ + d− Y`.
+impl EvenOdd<DeviceSpinor> for CudaMdwf {
+    type Work = Option<DeviceSpinor>;
+
+    fn even_odd_work(&self) -> Self::Work {
+        None
+    }
+
+    fn hop(
         &self,
-        work: &mut Option<DeviceSpinor>,
+        work: &mut Self::Work,
         out: &mut DeviceSpinor,
         inp: &DeviceSpinor,
         to: Parity,
@@ -132,10 +133,30 @@ impl CudaMdwf {
         }
     }
 
-    /// `out = C⁻¹ inp`, or `C†⁻¹ inp`: the inverse of the part of D within a site, on the
-    /// whole lattice or on one parity.
-    pub fn site_inv(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor, dagger: Dagger) {
+    fn diag(
+        &self,
+        _work: &mut Self::Work,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        parity: Parity,
+        dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity, Some(parity));
+        let (d_plus, d_minus) = self.site_coefficients();
+        self.fifth(out, (inp, d_plus, d_minus), None, dagger == Dagger::Yes);
+    }
+
+    /// Exactly, by substitution along the fifth dimension.
+    fn diag_inv(
+        &self,
+        _work: &mut Self::Work,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        parity: Parity,
+        dagger: Dagger,
+    ) {
         assert!(out.same_shape(inp) && inp.ls == self.params.ls);
+        assert_eq!(inp.parity, Some(parity));
         out.parity = inp.parity;
         let params = self.kernel_params();
         // SAFETY: both buffers hold the sites of `inp` with `ls` spinors each (padded), and
@@ -152,23 +173,6 @@ impl CudaMdwf {
             );
         }
         finish();
-    }
-
-    /// `out = (1 − D_eo C_o⁻¹ D_oe C_e⁻¹) inp` on the even sites, the Schur complement of D
-    /// times C_e⁻¹, with two scratch fields.
-    pub fn schur_factor(
-        &self,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
-        scratch: &mut [DeviceSpinor; 2],
-    ) {
-        let [a, b] = scratch;
-        self.site_inv(a, inp, Dagger::No);
-        self.hop(&mut None, b, a, Parity::Odd, Dagger::No);
-        self.site_inv(a, b, Dagger::No);
-        self.hop(&mut None, b, a, Parity::Even, Dagger::No);
-        out.copy_from(inp);
-        out.axpy(&[C64::new(-1.0, 0.0)], b);
     }
 }
 

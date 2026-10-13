@@ -92,42 +92,85 @@ impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for Schur<'_, F, H> {
 
 type HalfField<T, K, L> = Field<T, K, Half, L, Cpu>;
 
-/// Solve `M x = b` on the full lattice through the Schur complement on the even sites:
-pub fn solve_even_odd<T, K, L, F, R, E>(
-    op: &F,
-    index: &EvenOddIndex,
-    x: &mut Field<T, K, crate::Lexical, L>,
-    b: &Field<T, K, crate::Lexical, L>,
-    solve: impl FnOnce(
-        &mut Schur<'_, F, HalfField<T, K, L>>,
-        &mut HalfField<T, K, L>,
-        &HalfField<T, K, L>,
-    ) -> Result<R, E>,
-) -> Result<R, E>
-where
-    T: Storage,
-    K: Kind,
-    L: Layout,
-    F: EvenOdd<HalfField<T, K, L>>,
+/// How a field on the whole lattice (`V`) splits into fields on one parity (`H`).
+pub trait SplitParity<V, H> {
+    /// A zero field on `parity`, for the part of `like` there.
+    fn half_like(&self, like: &V, parity: Parity) -> H;
+    /// `half` = the part of `full` on `parity`.
+    fn extract(&self, half: &mut H, full: &V, parity: Parity);
+    /// The part of `full` on the parity of `half` = `half`.
+    fn insert(&self, full: &mut V, half: &H);
+}
+
+/// Fields on the CPU split by the numbering of the sites of each parity.
+impl<T: Storage, K: Kind, L: Layout> SplitParity<Field<T, K, crate::Lexical, L>, HalfField<T, K, L>>
+    for EvenOddIndex
 {
-    let half = |parity: Parity| {
+    fn half_like(
+        &self,
+        like: &Field<T, K, crate::Lexical, L>,
+        parity: Parity,
+    ) -> HalfField<T, K, L> {
         let mut f = HalfField::<T, K, L>::with_shape(
-            b.lattice(),
-            b.internal_dof(),
-            b.ls(),
-            Field::num_vectors(b),
-            b.outer(),
+            like.lattice(),
+            like.internal_dof(),
+            like.ls(),
+            Field::num_vectors(like),
+            like.outer(),
         );
         f.set_parity(parity);
         f
-    };
+    }
+
+    fn extract(
+        &self,
+        half: &mut HalfField<T, K, L>,
+        full: &Field<T, K, crate::Lexical, L>,
+        parity: Parity,
+    ) {
+        extract_parity(half, full, self, parity);
+    }
+
+    fn insert(&self, full: &mut Field<T, K, crate::Lexical, L>, half: &HalfField<T, K, L>) {
+        insert_parity(full, half, self);
+    }
+}
+
+impl<V, H, P: SplitParity<V, H>> SplitParity<V, H> for std::sync::Arc<P> {
+    fn half_like(&self, like: &V, parity: Parity) -> H {
+        (**self).half_like(like, parity)
+    }
+    fn extract(&self, half: &mut H, full: &V, parity: Parity) {
+        (**self).extract(half, full, parity);
+    }
+    fn insert(&self, full: &mut V, half: &H) {
+        (**self).insert(full, half);
+    }
+}
+
+/// Solve `M x = b` on the full lattice through the Schur complement on the even sites:
+/// `solve` solves `S x_e = rhs`. `split` is the numbering of the operator (`EvenOddIndex`) for
+/// fields on the CPU.
+pub fn solve_even_odd<V, H, F, P, R, E>(
+    op: &F,
+    split: &P,
+    x: &mut V,
+    b: &V,
+    solve: impl FnOnce(&mut Schur<'_, F, H>, &mut H, &H) -> Result<R, E>,
+) -> Result<R, E>
+where
+    H: Vector,
+    F: EvenOdd<H>,
+    P: SplitParity<V, H>,
+{
+    let half = |parity: Parity| split.half_like(b, parity);
     let (even, odd) = (Parity::Even, Parity::Odd);
-    let minus_one = vec![C64::new(-1.0, 0.0); Field::num_vectors(b)];
     let mut work = op.even_odd_work();
 
     let (mut b_e, mut b_o) = (half(even), half(odd));
-    extract_parity(&mut b_e, b, index, even);
-    extract_parity(&mut b_o, b, index, odd);
+    split.extract(&mut b_e, b, even);
+    split.extract(&mut b_o, b, odd);
+    let minus_one = vec![C64::new(-1.0, 0.0); b_e.num_vectors()];
 
     // rhs = b_e - M_eo M_oo^{-1} b_o
     let (mut t_o, mut rhs) = (half(odd), half(even));
@@ -147,8 +190,8 @@ where
     t_o.aypx(&minus_one, &b_o);
     op.diag_inv(&mut work, &mut x_o, &t_o, odd, Dagger::No);
 
-    insert_parity(x, &x_e, index);
-    insert_parity(x, &x_o, index);
+    split.insert(x, &x_e);
+    split.insert(x, &x_o);
     Ok(result)
 }
 
