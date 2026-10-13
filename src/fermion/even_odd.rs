@@ -231,8 +231,17 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
         }
     }
 
+    /// The work fields for as many vectors as `like` has: the solvers go on with fewer once
+    /// some have converged.
+    fn fit_all(&mut self, like: &H) {
+        for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
+            crate::fit(f, like);
+        }
+    }
+
     /// `out = second(first(inp))`, the factors given as (Pauli-Villars?, dagger).
     fn product(&mut self, out: &mut H, inp: &H, first: (bool, Dagger), second: (bool, Dagger)) {
+        self.fit_all(inp);
         let [e0, e1] = &mut self.even;
         for (which, (pv, dagger)) in [first, second].into_iter().enumerate() {
             let (op, work) = if pv {
@@ -271,6 +280,7 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
                 .diag_inv(&mut self.work, &mut b_e, &t_e, even, Dagger::No);
             t_e = b_e;
         }
+        self.fit_all(&t_e);
         let scratch = (&mut self.odd, &mut self.even[0]);
         schur_factor(
             self.pv,

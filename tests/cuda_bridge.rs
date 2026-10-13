@@ -321,13 +321,13 @@ fn same_blocks<C: EvenOdd<HalfPsi>, G: EvenOdd<DeviceSpinor>>(
     psi: &Psi,
     what: &str,
 ) {
-    let (lat, ls) = (psi.lattice(), psi.ls());
+    let (lat, ls, nv) = (psi.lattice(), psi.ls(), psi.num_vectors());
     let half = |parity| {
-        let mut f = HalfPsi::with_shape(lat, 24, ls, 1, 1);
+        let mut f = HalfPsi::with_shape(lat, 24, ls, nv, 1);
         f.set_parity(parity);
         f
     };
-    let device = |parity| DeviceSpinor::zeros_half(lat, ls, parity).unwrap();
+    let device = |parity| DeviceSpinor::from_host_half(&half(parity), index).unwrap();
     let (mut work, mut gpu_work) = (cpu.even_odd_work(), gpu.even_odd_work());
     let same = |out: &DeviceSpinor, expected: &HalfPsi, which: &str| {
         let d = worst(&out.to_host_half(index).unwrap(), expected);
@@ -404,16 +404,17 @@ fn solves_even_odd<C: FermionOp<Psi>, G: EvenOdd<DeviceSpinor>>(
     .unwrap_or_else(|e| panic!("{what}: the even-odd solve on the device failed: {e:?}"));
     let x = x.to_host().unwrap();
 
+    let nv = b.num_vectors();
     let mut r = b.zeros_like();
     cpu.mult(&mut cpu.work(), &mut r, &x, Variant::D);
-    r.aypx(&[C64::new(-1.0, 0.0)], b);
-    let (mut rr, mut bb) = ([0.0], [0.0]);
+    r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+    let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
     r.norm_sqr(&mut rr);
     b.norm_sqr(&mut bb);
+    let residual = rr.iter().zip(&bb).fold(0.0f64, |m, (r, b)| m.max(r / b));
     assert!(
-        rr[0] / bb[0] < 1e-18,
-        "{what}: |b - D x|² / |b|² = {:e} after {} iterations",
-        rr[0] / bb[0],
+        residual < 1e-18,
+        "{what}: |b - D x|² / |b|² = {residual:e} after {} iterations",
         info.iterations
     );
     println!(
@@ -660,6 +661,93 @@ fn pauli_villars_preconditioned_operator_on_the_device() {
     }
 }
 
+/// Several vectors in one field on the device: the linear algebra with a coefficient for each,
+/// taking some out and putting them back, the operators, and a solve of all of them together.
+#[test]
+fn several_vectors_in_a_field_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 2, 6]);
+    let u = random_gauge(&lat, 411);
+    let (ls, nv) = (4, 3);
+    let many = |seed| {
+        let flat = random_spinor(&lat, ls * nv, seed);
+        let mut psi = Psi::with_shape(&lat, 24, ls, nv, 1);
+        psi.as_mut_slice().copy_from_slice(flat.as_slice());
+        psi
+    };
+    let (mut x, y) = (many(412), many(413));
+    let (mut dx, dy) = (
+        DeviceSpinor::from_host(&x).unwrap(),
+        DeviceSpinor::from_host(&y).unwrap(),
+    );
+    assert_eq!(dx.num_vectors(), nv);
+    let same = |dx: &DeviceSpinor, x: &Psi, what: &str| {
+        let d = worst(&dx.to_host().unwrap(), x);
+        assert!(d < 1e-13, "{what} differs by {d:e}");
+    };
+    same(&dx, &x, "the field after the transfer");
+
+    let a = [C64::new(0.3, -1.1), C64::new(-2.0, 0.4), C64::new(0.0, 1.0)];
+    let (mut dot, mut device_dot) = ([C64::ZERO; 3], [C64::ZERO; 3]);
+    x.dot(&y, &mut dot);
+    dx.dot(&dy, &mut device_dot);
+    let (mut norm, mut device_norm) = ([0.0; 3], [0.0; 3]);
+    x.norm_sqr(&mut norm);
+    dx.norm_sqr(&mut device_norm);
+    for v in 0..nv {
+        assert!((dot[v] - device_dot[v]).norm_sqr().sqrt() < 1e-11 * dot[v].norm_sqr().sqrt());
+        assert!((norm[v] - device_norm[v]).abs() < 1e-12 * norm[v]);
+    }
+    x.axpy(&a, &y);
+    dx.axpy(&a, &dy);
+    same(&dx, &x, "axpy");
+    x.aypx(&a, &y);
+    dx.aypx(&a, &dy);
+    same(&dx, &x, "aypx");
+    x.scale(&[-0.7, 2.0, 0.1]);
+    dx.scale(&[-0.7, 2.0, 0.1]);
+    same(&dx, &x, "scale");
+    let (part, device_part) = (x.select(&[2, 0]), dx.select(&[2, 0]));
+    same(&device_part, &part, "select");
+    x.assign(&[1, 2], &part);
+    dx.assign(&[1, 2], &device_part);
+    same(&dx, &x, "assign");
+
+    let params = MdwfParams {
+        ls,
+        m5: 1.8,
+        mass: 0.2,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (mut cpu, mut gpu) = mdwf_pair(&lat, &u, params);
+    cpu.set_alpha(0.7);
+    gpu.set_alpha(0.7);
+    let index = cpu.even_odd_index().unwrap().clone();
+    same_operator(&cpu, &gpu, &x, 1e-13, "MDWF with three vectors");
+    same_blocks(&cpu, &gpu, &index, &x, "MDWF with three vectors");
+    solves_even_odd(&cpu, &gpu, &y, "MDWF with three vectors");
+
+    let wilson = WilsonParams {
+        kappa: 0.11,
+        boundary: MIXED,
+    };
+    let four = |seed| random_spinor(&lat, nv, seed);
+    let (cpu, gpu) = wilson_pair(&lat, &u, wilson);
+    let index = cpu.even_odd_index().unwrap().clone();
+    same_operator(&cpu, &gpu, &four(414), 1e-13, "Wilson with three vectors");
+    same_blocks(&cpu, &gpu, &index, &four(414), "Wilson with three vectors");
+    let clover = CloverParams {
+        kappa: 0.11,
+        csw: 1.2,
+        boundary: MIXED,
+    };
+    let (cpu, gpu) = clover_pair(&lat, &u, clover);
+    same_operator(&cpu, &gpu, &four(415), 1e-13, "clover with three vectors");
+    same_blocks(&cpu, &gpu, &index, &four(415), "clover with three vectors");
+    solves_even_odd(&cpu, &gpu, &four(416), "clover with three vectors");
+}
+
 /// The numbers of the tables a run prints: of every line that starts with an integer (a time
 /// slice, or the pair of quarks), the reals after it.
 fn tables(output: &str) -> Vec<f64> {
@@ -760,7 +848,7 @@ Solver:
 Source:
   source_type             : Local
   source_position         : [0, 0, 0, 0]
-  number_of_rhs_per_solve : 1
+  number_of_rhs_per_solve : RHS
 ";
 
 /// `ruttice` with `backend : cuda_bridge`: the correlators of the CPU, for the Wilson and
@@ -789,14 +877,16 @@ fn wilson_runs_from_a_parameter_file_on_the_device() {
 /// solvers, both forms of the operator, with Neff's α and with the Chebyshev preconditioner.
 #[test]
 fn domain_wall_runs_from_a_parameter_file_on_the_device() {
-    for (solver, operator, alpha, preconditioner) in [
-        ("GCR", "PV_right", "1.0", "None"),
-        ("GCR", "PV_left", "0.6", "None"),
-        ("BiCGStab", "PV_left", "0.6", "None"),
-        ("FGMRES", "PV_right", "1.0", "Chebyshev"),
-        ("CG", "Normal_left", "1.0", "None"),
+    for (solver, operator, alpha, preconditioner, rhs) in [
+        ("GCR", "PV_right", "1.0", "None", "1"),
+        ("GCR", "PV_left", "0.6", "None", "12"),
+        ("Block_GCR", "PV_left", "0.6", "None", "4"),
+        ("BiCGStab", "PV_left", "0.6", "None", "6"),
+        ("FGMRES", "PV_right", "1.0", "Chebyshev", "4"),
+        ("CG", "Normal_left", "1.0", "None", "12"),
     ] {
         let text = MDWF_RUN
+            .replace("RHS", rhs)
             .replace("SOLVER", solver)
             .replace("OPERATOR", operator)
             .replace("ALPHA", alpha)

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::fermion::SplitParity;
-use crate::{ConvertFrom, EvenOddIndex, Half, Parity, Spinor, Vector, C64};
+use crate::{ConvertFrom, EvenOddIndex, Half, Parity, Sites, Spinor, Vector, C64};
 
 /// Where component `c` of the spinor at `s` of site `x` is, with `ls` spinors per site: the
 /// `ls` spinors of a block of sites are one after the other.
@@ -16,124 +16,137 @@ fn in_half(full: usize, nx: usize) -> usize {
     (full % nx) / 2 + (nx / 2) * (full / nx)
 }
 
-/// A spinor field (one vector, `ls` spinors per site) of reals `T` on the device: on the whole lattice,
-/// or on the sites of one parity, site (x, y, z, t) of it at x/2 + (nx/2)(y + ny (z + nz t)).
+/// Spinor fields of reals `T` on the device, `vectors` of them one after the other, each with
+/// `ls` spinors per site: on the whole lattice, or on the sites of one parity, site
+/// (x, y, z, t) of it at x/2 + (nx/2)(y + ny (z + nz t)).
 pub struct DeviceSpinor<T = f64> {
     pub(super) data: DeviceBuffer<T>,
     pub(super) lat: Arc<Lattice>,
     pub(super) ls: usize,
     pub(super) parity: Option<Parity>,
+    pub(super) vectors: usize,
 }
 
 impl<T: DeviceReal> DeviceSpinor<T> {
+    /// Zero fields on the whole lattice (`parity` none) or on one parity.
+    fn new(
+        lat: &Arc<Lattice>,
+        ls: usize,
+        parity: Option<Parity>,
+        vectors: usize,
+    ) -> Result<Self, CudaError> {
+        assert!(vectors > 0 && ls > 0);
+        let sites = match parity {
+            None => lat.num_sites(),
+            Some(_) => {
+                assert!(lat.local[0].is_multiple_of(2), "an odd extent in x");
+                lat.num_sites() / 2
+            }
+        };
+        Ok(Self {
+            data: DeviceBuffer::zeros(vectors * padded(sites) * ls * SPINOR)?,
+            lat: lat.clone(),
+            ls,
+            parity,
+            vectors,
+        })
+    }
+
     /// A field of four-dimensional spinors.
     pub fn zeros(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
-        Self::zeros_fifth(lat, 1)
+        Self::new(lat, 1, None, 1)
     }
 
     /// A field with `ls` spinors per site.
     pub fn zeros_fifth(lat: &Arc<Lattice>, ls: usize) -> Result<Self, CudaError> {
-        Ok(Self {
-            data: DeviceBuffer::zeros(padded(lat.num_sites()) * ls * SPINOR)?,
-            lat: lat.clone(),
-            ls,
-            parity: None,
-        })
+        Self::new(lat, ls, None, 1)
     }
 
     /// A field with `ls` spinors per site on the sites of `parity`.
     pub fn zeros_half(lat: &Arc<Lattice>, ls: usize, parity: Parity) -> Result<Self, CudaError> {
-        assert!(lat.local[0].is_multiple_of(2), "an odd extent in x");
-        Ok(Self {
-            data: DeviceBuffer::zeros(padded(lat.num_sites() / 2) * ls * SPINOR)?,
-            lat: lat.clone(),
-            ls,
-            parity: Some(parity),
-        })
+        Self::new(lat, ls, Some(parity), 1)
     }
 
-    /// The field `psi` (one vector, the usual layout) on the device.
-    pub fn from_host(psi: &Field<f64, Spinor>) -> Result<Self, CudaError> {
-        assert_eq!(psi.num_vectors(), 1);
-        let (lat, ls) = (psi.lattice(), psi.ls());
-        let mut host = vec![0.0; padded(lat.num_sites()) * ls * SPINOR];
-        for x in 0..lat.num_sites() {
-            for (s, spinor) in psi.site(0, x).as_chunks::<SPINOR>().0.iter().enumerate() {
-                for (c, v) in spinor.iter().enumerate() {
-                    host[at_fifth(c, s, x, ls)] = *v;
+    /// The fields of `psi` on the device, the host site `sites[x]` at `place(x)` there.
+    fn upload<S: Sites>(
+        psi: &Field<f64, Spinor, S>,
+        parity: Option<Parity>,
+        place: impl Fn(usize) -> usize,
+    ) -> Result<Self, CudaError> {
+        let (lat, ls, vectors) = (psi.lattice(), psi.ls(), psi.num_vectors());
+        let mut out = Self::new(lat, ls, parity, vectors)?;
+        let one = out.reals();
+        let mut host = vec![0.0; out.data.len];
+        for h in 0..psi.num_sites() {
+            let x = place(h);
+            // A site of the host field: its vectors one after the other, the `ls` spinors of
+            // each together.
+            for (k, spinor) in psi.site(0, h).as_chunks::<SPINOR>().0.iter().enumerate() {
+                let (v, s) = (k / ls, k % ls);
+                for (c, value) in spinor.iter().enumerate() {
+                    host[v * one + at_fifth(c, s, x, ls)] = *value;
                 }
             }
         }
-        Ok(Self {
-            data: DeviceBuffer::from_host(&host)?,
-            lat: lat.clone(),
-            ls,
-            parity: None,
-        })
+        out.data = DeviceBuffer::from_host(&host)?;
+        Ok(out)
     }
 
-    /// The field back on the host.
+    /// The fields back on the host, as `upload` took them.
+    fn download<S: Sites>(
+        &self,
+        psi: &mut Field<f64, Spinor, S>,
+        place: impl Fn(usize) -> usize,
+    ) -> Result<(), CudaError> {
+        let host = self.data.download()?;
+        let (ls, one) = (self.ls, self.reals());
+        for h in 0..psi.num_sites() {
+            let x = place(h);
+            let site = psi.site_mut(0, h).as_chunks_mut::<SPINOR>().0;
+            for (k, spinor) in site.iter_mut().enumerate() {
+                let (v, s) = (k / ls, k % ls);
+                for (c, value) in spinor.iter_mut().enumerate() {
+                    *value = host[v * one + at_fifth(c, s, x, ls)];
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The fields of `psi` (the usual layout) on the device.
+    pub fn from_host(psi: &Field<f64, Spinor>) -> Result<Self, CudaError> {
+        Self::upload(psi, None, |x| x)
+    }
+
+    /// The fields back on the host.
     pub fn to_host(&self) -> Result<Field<f64, Spinor>, CudaError> {
         assert!(self.parity.is_none(), "a field on one parity");
-        let host = self.data.download()?;
-        let ls = self.ls;
-        let mut psi = Field::<f64, Spinor>::with_shape(&self.lat, SPINOR, ls, 1, 1);
-        for x in 0..self.lat.num_sites() {
-            let site = psi.site_mut(0, x).as_chunks_mut::<SPINOR>().0;
-            for (s, spinor) in site.iter_mut().enumerate() {
-                for (c, v) in spinor.iter_mut().enumerate() {
-                    *v = host[at_fifth(c, s, x, ls)];
-                }
-            }
-        }
+        let mut psi = Field::<f64, Spinor>::with_shape(&self.lat, SPINOR, self.ls, self.vectors, 1);
+        self.download(&mut psi, |x| x)?;
         Ok(psi)
     }
 
-    /// The field `psi` on the sites of one parity (one vector), numbered by `index`, on the
-    /// device.
+    /// The fields of `psi` on the sites of one parity, numbered by `index`, on the device.
     pub fn from_host_half(
         psi: &Field<f64, Spinor, Half>,
         index: &EvenOddIndex,
     ) -> Result<Self, CudaError> {
-        assert_eq!(psi.num_vectors(), 1);
-        let (lat, ls, parity) = (psi.lattice(), psi.ls(), psi.parity());
-        assert!(lat.local[0].is_multiple_of(2), "an odd extent in x");
-        let mut host = vec![0.0; padded(lat.num_sites() / 2) * ls * SPINOR];
-        for (h, full) in index.full_sites(parity).iter().enumerate() {
-            let x = in_half(*full as usize, lat.local[0]);
-            for (s, spinor) in psi.site(0, h).as_chunks::<SPINOR>().0.iter().enumerate() {
-                for (c, v) in spinor.iter().enumerate() {
-                    host[at_fifth(c, s, x, ls)] = *v;
-                }
-            }
-        }
-        Ok(Self {
-            data: DeviceBuffer::from_host(&host)?,
-            lat: lat.clone(),
-            ls,
-            parity: Some(parity),
-        })
+        let (parity, nx) = (psi.parity(), psi.lattice().local[0]);
+        let full = index.full_sites(parity);
+        Self::upload(psi, Some(parity), |h| in_half(full[h] as usize, nx))
     }
 
-    /// A field on one parity back on the host, numbered by `index`.
+    /// Fields on one parity back on the host, numbered by `index`.
     pub fn to_host_half(
         &self,
         index: &EvenOddIndex,
     ) -> Result<Field<f64, Spinor, Half>, CudaError> {
         let parity = self.parity.expect("a field on one parity");
-        let host = self.data.download()?;
-        let ls = self.ls;
-        let mut psi = Field::<f64, Spinor, Half>::with_shape(&self.lat, SPINOR, ls, 1, 1);
+        let mut psi =
+            Field::<f64, Spinor, Half>::with_shape(&self.lat, SPINOR, self.ls, self.vectors, 1);
         psi.set_parity(parity);
-        for (h, full) in index.full_sites(parity).iter().enumerate() {
-            let x = in_half(*full as usize, self.lat.local[0]);
-            let site = psi.site_mut(0, h).as_chunks_mut::<SPINOR>().0;
-            for (s, spinor) in site.iter_mut().enumerate() {
-                for (c, v) in spinor.iter_mut().enumerate() {
-                    *v = host[at_fifth(c, s, x, ls)];
-                }
-            }
-        }
+        let (full, nx) = (index.full_sites(parity), self.lat.local[0]);
+        self.download(&mut psi, |h| in_half(full[h] as usize, nx))?;
         Ok(psi)
     }
 
@@ -152,9 +165,9 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         self.lat.num_sites() / if self.parity.is_some() { 2 } else { 1 }
     }
 
-    /// Reals of the buffer, as the kernels count them.
-    pub(super) fn len(&self) -> i32 {
-        self.data.len as i32
+    /// Reals of one vector on the device.
+    fn reals(&self) -> usize {
+        self.data.len / self.vectors
     }
 
     /// Whether the field is on the lattice of `like`, with `ls` spinors per site, on the
@@ -162,39 +175,70 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     pub(super) fn is(&self, like: &Self, ls: usize, parity: Option<Parity>) -> bool {
         Arc::ptr_eq(&self.lat, &like.lat) && self.ls == ls && self.parity == parity
     }
-}
 
-/// One vector per field: `select`, `assign` and `zeros_with` take that one only. The padding
-/// of a field is zero and stays zero under these operations.
-impl<T: DeviceReal> Vector for DeviceSpinor<T> {
-    fn num_vectors(&self) -> usize {
-        1
-    }
-
-    fn zeros_like(&self) -> Self {
+    /// Vector `v` as a field of its own on the same memory: what the kernels, which take one
+    /// vector, are given. It must not outlive the field, and is not freed.
+    pub(super) fn vector(&self, v: usize) -> Self {
+        assert!(v < self.vectors);
+        let one = self.reals();
         Self {
-            data: must(DeviceBuffer::zeros(self.data.len)),
+            data: DeviceBuffer {
+                // SAFETY: vector `v` is inside the buffer.
+                ptr: unsafe { self.data.ptr.add(v * one) },
+                len: one,
+                owned: false,
+                _not_send: PhantomData,
+            },
             lat: self.lat.clone(),
             ls: self.ls,
             parity: self.parity,
+            vectors: 1,
         }
+    }
+}
+
+/// `one(out_v, inp_v, v)` for every vector v of `inp` and the same of `out`: the kernels of the
+/// operators take one vector. The parity the last one gives its output is that of `out`.
+pub(super) fn each_vector<T: DeviceReal>(
+    out: &mut DeviceSpinor<T>,
+    inp: &DeviceSpinor<T>,
+    mut one: impl FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T>, usize),
+) {
+    assert_eq!(out.vectors, inp.vectors, "another number of vectors");
+    for v in 0..inp.vectors {
+        let (mut o, i) = (out.vector(v), inp.vector(v));
+        one(&mut o, &i, v);
+        out.parity = o.parity;
+    }
+}
+
+/// The padding of a field is zero and stays zero under these operations.
+impl<T: DeviceReal> Vector for DeviceSpinor<T> {
+    fn num_vectors(&self) -> usize {
+        self.vectors
+    }
+
+    fn zeros_like(&self) -> Self {
+        self.zeros_with(self.vectors)
     }
 
     fn zeros_with(&self, num_vectors: usize) -> Self {
-        assert_eq!(num_vectors, 1, "a device field holds one vector");
-        self.zeros_like()
+        must(Self::new(&self.lat, self.ls, self.parity, num_vectors))
     }
 
     fn select(&self, which: &[usize]) -> Self {
-        assert_eq!(which, [0], "a device field holds one vector");
-        let mut out = self.zeros_like();
-        out.copy_from(self);
+        let out = self.zeros_with(which.len());
+        for (k, v) in which.iter().enumerate() {
+            must(out.vector(k).data.copy_from(&self.vector(*v).data));
+        }
         out
     }
 
     fn assign(&mut self, which: &[usize], from: &Self) {
-        assert_eq!(which, [0], "a device field holds one vector");
-        self.copy_from(from);
+        assert!(from.vectors == which.len() && self.reals() == from.reals());
+        for (k, v) in which.iter().enumerate() {
+            must(self.vector(*v).data.copy_from(&from.vector(k).data));
+        }
     }
 
     fn same_shape(&self, x: &Self) -> bool {
@@ -212,40 +256,57 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     }
 
     fn scale(&mut self, a: &[f64]) {
-        // SAFETY: the buffer holds `len` reals.
-        unsafe { T::scal(self.data.ptr, a[0], self.len()) };
+        let n = self.reals() as i32;
+        for (v, a) in a.iter().enumerate().take(self.vectors) {
+            // SAFETY: the vector holds `n` reals.
+            unsafe { T::scal(self.vector(v).data.ptr, *a, n) };
+        }
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
-        // SAFETY: two buffers of `len` reals, not the same one (`self` is borrowed mutably).
-        unsafe {
-            T::caxpy(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
+        let n = self.reals() as i32;
+        for (v, a) in a.iter().enumerate().take(self.vectors) {
+            // SAFETY: two vectors of `n` reals, not the same one (`self` is borrowed mutably).
+            unsafe { T::caxpy(self.vector(v).data.ptr, x.vector(v).data.ptr, a.re, a.im, n) };
         }
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
-        // SAFETY: as in `axpy`.
-        unsafe {
-            T::caypx(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
+        let n = self.reals() as i32;
+        for (v, a) in a.iter().enumerate().take(self.vectors) {
+            // SAFETY: as in `axpy`.
+            unsafe { T::caypx(self.vector(v).data.ptr, x.vector(v).data.ptr, a.re, a.im, n) };
         }
     }
 
     fn dot(&self, x: &Self, out: &mut [C64]) {
         assert!(self.same_shape(x));
-        let (mut re, mut im) = (0.0, 0.0);
-        // SAFETY: two buffers of `len` reals and two places for the result.
-        unsafe {
-            T::dotc(&mut re, &mut im, self.data.ptr, x.data.ptr, self.len());
+        let n = self.reals() as i32;
+        for (v, out) in out.iter_mut().enumerate().take(self.vectors) {
+            let (mut re, mut im) = (0.0, 0.0);
+            // SAFETY: two vectors of `n` reals and two places for the result.
+            unsafe {
+                T::dotc(
+                    &mut re,
+                    &mut im,
+                    self.vector(v).data.ptr,
+                    x.vector(v).data.ptr,
+                    n,
+                );
+            }
+            *out = C64::new(re, im);
         }
         finish();
-        out[0] = C64::new(re, im);
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
-        // SAFETY: the buffer holds `len` reals.
-        out[0] = unsafe { T::norm2(self.data.ptr, self.len()) };
+        let n = self.reals() as i32;
+        for (v, out) in out.iter_mut().enumerate().take(self.vectors) {
+            // SAFETY: the vector holds `n` reals.
+            *out = unsafe { T::norm2(self.vector(v).data.ptr, n) };
+        }
         finish();
     }
 }
@@ -267,24 +328,32 @@ impl DeviceParities {
     fn copy<T: DeviceReal>(half: &DeviceSpinor<T>, full: &DeviceSpinor<T>, to_half: bool) {
         let parity = half.parity.expect("a field on one parity");
         assert!(full.is(half, half.ls, None), "not the same lattice and Ls");
+        assert_eq!(half.vectors, full.vectors, "another number of vectors");
         let geometry = geometry(&full.lat, [Boundary::Periodic; ND], full.ls);
-        // SAFETY: the buffers hold the sites of one parity and of the whole lattice with the
-        // same `ls`; the kernel writes one of them and reads the other.
-        unsafe {
-            T::parity_copy(
-                half.data.ptr,
-                full.data.ptr,
-                &geometry,
-                parity.index() as i32,
-                i32::from(to_half),
-            );
+        for v in 0..full.vectors {
+            // SAFETY: the vectors hold the sites of one parity and of the whole lattice with
+            // the same `ls`; the kernel writes one of them and reads the other.
+            unsafe {
+                T::parity_copy(
+                    half.vector(v).data.ptr,
+                    full.vector(v).data.ptr,
+                    &geometry,
+                    parity.index() as i32,
+                    i32::from(to_half),
+                );
+            }
         }
     }
 }
 
 impl<T: DeviceReal> SplitParity<DeviceSpinor<T>, DeviceSpinor<T>> for DeviceParities {
     fn half_like(&self, like: &DeviceSpinor<T>, parity: Parity) -> DeviceSpinor<T> {
-        must(DeviceSpinor::zeros_half(&like.lat, like.ls, parity))
+        must(DeviceSpinor::new(
+            &like.lat,
+            like.ls,
+            Some(parity),
+            like.vectors,
+        ))
     }
 
     fn extract(&self, half: &mut DeviceSpinor<T>, full: &DeviceSpinor<T>, parity: Parity) {

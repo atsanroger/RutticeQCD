@@ -1,5 +1,5 @@
 //! Wilson and clover propagators on the GPU (`Main.backend : cuda_bridge`): the same solve as
-//! on the CPU, one right-hand side at a time on the device.
+//! on the CPU, the right-hand sides of a quark together on the device.
 
 use super::wilson::{solve_as_asked, worst_residual};
 use super::*;
@@ -35,22 +35,11 @@ where
     C: FermionOp<V>,
     G: FermionOp<DeviceSpinor> + EvenOdd<DeviceSpinor>,
 {
-    let mut s = b.zeros_like();
-    let mut total = SolveInfo {
-        iterations: 0,
-        restarts: 0,
-        residual_sqr: Vec::new(),
-    };
-    for column in 0..b.num_vectors() {
-        let rhs = DeviceSpinor::from_host(&b.select(&[column])).map_err(device)?;
-        let (x, info) = solve_as_asked(gpu, Some(&DeviceParities), &rhs, solver, None, None)
-            .map_err(|e| CliError::Solve { quark, source: e })?;
-        s.assign(&[column], &x.to_host().map_err(device)?);
-        total.iterations = total.iterations.max(info.iterations);
-        total.restarts = total.restarts.max(info.restarts);
-        total.residual_sqr.extend(info.residual_sqr);
-    }
-    Ok((worst_residual(cpu, &s, b), s, total))
+    let rhs = DeviceSpinor::from_host(b).map_err(device)?;
+    let (x, info) = solve_as_asked(gpu, Some(&DeviceParities), &rhs, solver, None, None)
+        .map_err(|e| CliError::Solve { quark, source: e })?;
+    let s = x.to_host().map_err(device)?;
+    Ok((worst_residual(cpu, &s, b), s, info))
 }
 
 pub(super) fn wilson(
