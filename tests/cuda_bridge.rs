@@ -627,3 +627,152 @@ fn pauli_villars_preconditioned_operator_on_the_device() {
         }
     }
 }
+
+/// The numbers of the tables a run prints: of every line that starts with an integer (a time
+/// slice, or the pair of quarks), the reals after it.
+fn tables(output: &str) -> Vec<f64> {
+    output
+        .lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .is_some_and(|first| first.parse::<usize>().is_ok())
+        })
+        .flat_map(|line| {
+            line.split_whitespace()
+                .skip(1)
+                .filter(|token| token.contains(['.', 'e']))
+                .filter_map(|token| token.trim_matches(['(', ')', ',']).parse::<f64>().ok())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// What `ruttice` prints for the parameter file `text` with `Main.backend : backend`.
+fn run_with_backend(text: &str, backend: &str, name: &str) -> String {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = text
+        .replace("BACKEND", backend)
+        .replace("CONF", examples.join("conf_04040408.txt").to_str().unwrap());
+    let path = std::env::temp_dir().join(format!(
+        "ruttice_cuda_{name}_{backend}_{}.yaml",
+        std::process::id()
+    ));
+    std::fs::write(&path, text).unwrap();
+    let mut out = Vec::new();
+    let result = ruttice::app::run_file(&path, &mut out);
+    let _ = std::fs::remove_file(&path);
+    let out = String::from_utf8(out).unwrap();
+    result.unwrap_or_else(|e| panic!("{name} on {backend} failed: {e:?}\n{out}"));
+    out
+}
+
+/// A parameter file gives the same tables with `backend : cuda_bridge` as with `cpu`.
+fn same_tables(text: &str, name: &str, tolerance: f64) {
+    let (cpu, gpu) = (
+        run_with_backend(text, "cpu", name),
+        run_with_backend(text, "cuda_bridge", name),
+    );
+    let (a, b) = (tables(&cpu), tables(&gpu));
+    assert!(!a.is_empty() && a.len() == b.len(), "{name}:\n{cpu}\n{gpu}");
+    for (x, y) in a.iter().zip(&b) {
+        assert!(
+            (x - y).abs() <= tolerance * x.abs().max(y.abs()) + 1e-13,
+            "{name}: {x:e} on the CPU, {y:e} on the device\n{gpu}"
+        );
+    }
+}
+
+const WILSON_RUN: &str = "Main:
+  lattice_size : [4, 4, 4, 8]
+  backend      : BACKEND
+Gauge:
+  config_filename_input : CONF
+Fopr:
+  fermion_type       : FERMION
+  hopping_parameter  : 0.12
+  boundary_condition : [-1, -1, -1, -1]
+Solver:
+  solver_type                   : SOLVER
+  operator_type                 : OPERATOR
+  convergence_criterion_squared : 1.0e-26
+  maximum_number_of_iteration   : 2000
+  maximum_number_of_restart     : 3
+Source:
+  source_type     : Local
+  source_position : [0, 0, 0, 0]
+";
+
+const MDWF_RUN: &str = "Main:
+  lattice_size : [4, 4, 4, 8]
+  backend      : BACKEND
+Gauge:
+  config_filename_input : CONF
+Fopr:
+  fermion_type             : Domainwall_5din
+  quark_mass               : 0.1
+  quark_mass_PauliVillars  : 1.0
+  domain_wall_height       : 1.0
+  extent_of_5th_dimension  : 4
+  coefficient_b            : 1.5
+  coefficient_c            : 0.5
+  boundary_condition       : [1, 1, 1, -1]
+  neff_alpha               : ALPHA
+Solver:
+  solver_type                   : SOLVER
+  operator_type                 : OPERATOR
+  number_of_kept_directions     : 4
+  maximum_number_of_iteration   : 4000
+  convergence_criterion_squared : 1.0e-22
+  preconditioner_type           : PRECONDITIONER
+Source:
+  source_type             : Local
+  source_position         : [0, 0, 0, 0]
+  number_of_rhs_per_solve : 1
+";
+
+/// `ruttice` with `backend : cuda_bridge`: the correlators of the CPU, for the Wilson and
+/// clover solvers on the whole lattice and on the even sites.
+#[test]
+fn wilson_runs_from_a_parameter_file_on_the_device() {
+    for (fermion, solver, operator) in [
+        ("Wilson", "CG", "Even_odd"),
+        ("Wilson", "BiCGStab", "Lexical"),
+        ("Clover\n  clover_coefficient : 1.2", "BiCGStab", "Even_odd"),
+        ("Clover\n  clover_coefficient : 1.2", "FGMRES", "Lexical"),
+    ] {
+        let text = WILSON_RUN
+            .replace("FERMION", fermion)
+            .replace("SOLVER", solver)
+            .replace("OPERATOR", operator);
+        same_tables(
+            &text,
+            &format!("{}_{solver}_{operator}", &fermion[..6]),
+            1e-8,
+        );
+    }
+}
+
+/// The same for domain-wall fermions: the correlators and the residual mass, for the outer
+/// solvers, both forms of the operator, with Neff's α and with the Chebyshev preconditioner.
+#[test]
+fn domain_wall_runs_from_a_parameter_file_on_the_device() {
+    for (solver, operator, alpha, preconditioner) in [
+        ("GCR", "PV_right", "1.0", "None"),
+        ("GCR", "PV_left", "0.6", "None"),
+        ("BiCGStab", "PV_left", "0.6", "None"),
+        ("FGMRES", "PV_right", "1.0", "Chebyshev"),
+        ("CG", "Normal_left", "1.0", "None"),
+    ] {
+        let text = MDWF_RUN
+            .replace("SOLVER", solver)
+            .replace("OPERATOR", operator)
+            .replace("ALPHA", alpha)
+            .replace("PRECONDITIONER", preconditioner);
+        same_tables(
+            &text,
+            &format!("mdwf_{solver}_{operator}_{preconditioner}"),
+            1e-6,
+        );
+    }
+}

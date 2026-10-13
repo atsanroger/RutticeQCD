@@ -7,8 +7,12 @@ pub mod hmc;
 pub mod hmc_params;
 pub mod keyword;
 pub mod mdwf;
+#[cfg(feature = "cuda-bridge")]
+mod mdwf_cuda;
 pub mod params;
 mod wilson;
+#[cfg(feature = "cuda-bridge")]
+mod wilson_cuda;
 
 pub use bench::wilson_benchmark;
 pub use wilson::{run, run_on, write_report, Correlator, Report, SolveReport};
@@ -21,7 +25,7 @@ pub use config::{
 
 use crate::fermion::{
     solve_even_odd, Bound, Clover, CloverParams, CloverSimd, DiagTerm, EvenOdd, FermionOp,
-    GaugeError, OnParity, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
+    GaugeError, OnParity, SplitParity, Variant, Wilson, WilsonOp, WilsonParams, WilsonSimd,
 };
 use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
 use crate::io::{Binary, BridgeText, GaugeFile, Ildg, IoError, Nersc, Scidac};

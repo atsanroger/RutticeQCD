@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `backend : cuda_bridge`: Wilson, clover and domain-wall propagators on an NVIDIA GPU with
+  the CUDA kernels extracted from Bridge++ (feature `cuda-bridge`), in double, single and
+  mixed precision. No multigrid and no HMC on the device.
+- `fermion::PvRatio`: the Pauli-Villars preconditioned operator on the even sites for any
+  operator with even-odd blocks; `fermion::solve_even_odd` for any kind of field.
+
 ## 0.1.0 (2026-10-13)
 
 The first tagged version.

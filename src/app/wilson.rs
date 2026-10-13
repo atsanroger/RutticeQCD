@@ -169,17 +169,22 @@ const SIMD_WIDTHS: [usize; 3] = [2, 4, 8];
 
 type Spinors<L> = Field<f64, Spinor, Lexical, L>;
 
-/// Solve D S = b for the twelve right-hand sides of `b`, the way the parameter file asks.
-fn propagator<L, F>(
+/// Solve D S = b for the right-hand sides of `b`, the way the parameter file asks, for any kind
+/// of field: `split` is how it splits into its parities (for the even-odd solve), `m` a
+/// preconditioner of D and `m_even` one of its Schur complement on the even sites.
+pub(super) fn solve_as_asked<X, E, F, P>(
     op: &F,
-    index: Option<&EvenOddIndex>,
-    b: &Spinors<L>,
+    split: Option<&P>,
+    b: &X,
     solver: &SolverConfig,
-    m: Option<&mut dyn LinearFn<Spinors<L>>>,
-) -> Result<(Spinors<L>, SolveInfo), SolveError>
+    m: Option<&mut dyn LinearFn<X>>,
+    m_even: Option<&mut dyn LinearFn<E>>,
+) -> Result<(X, SolveInfo), SolveError>
 where
-    L: Layout,
-    F: FermionOp<Spinors<L>> + EvenOdd<Field<f64, Spinor, Half, L>>,
+    X: Vector,
+    E: Vector,
+    F: FermionOp<X> + EvenOdd<E>,
+    P: SplitParity<X, E>,
 {
     let stop = Stop {
         tolerance_sqr: solver.tolerance_squared,
@@ -189,15 +194,11 @@ where
     let mut s = b.zeros_like();
     let info = match (solver.even_odd, solver.kind) {
         (true, kind) => {
-            let index = index.expect("even extents were checked when the file was read");
-            let mut on_even = m.map(|m| OnParity::new(m, index, b));
-            let m = on_even
-                .as_mut()
-                .map(|m| m as &mut dyn LinearFn<Field<f64, Spinor, Half, L>>);
-            solve_even_odd(op, index, &mut s, b, |schur, x_e, rhs| match kind {
+            let split = split.expect("even extents were checked when the file was read");
+            solve_even_odd(op, split, &mut s, b, |schur, x_e, rhs| match kind {
                 SolverKind::CgNormal => solve_cgne(&mut Cg::new(stop), schur, x_e, rhs),
-                SolverKind::Bicgstab => BiCgStab::new(stop).solve(schur, m, x_e, rhs),
-                SolverKind::Fgmres => Fgmres::new(stop).solve(schur, m, x_e, rhs),
+                SolverKind::Bicgstab => BiCgStab::new(stop).solve(schur, m_even, x_e, rhs),
+                SolverKind::Fgmres => Fgmres::new(stop).solve(schur, m_even, x_e, rhs),
             })?
         }
         (false, SolverKind::CgNormal) => solve_cgne(
@@ -214,6 +215,30 @@ where
         }
     };
     Ok((s, info))
+}
+
+/// `solve_as_asked` for fields on the CPU, with a preconditioner `m` of D: for the even-odd
+/// solve it is used on the even sites (`OnParity`).
+fn propagator<L, F>(
+    op: &F,
+    index: Option<&EvenOddIndex>,
+    b: &Spinors<L>,
+    solver: &SolverConfig,
+    m: Option<&mut dyn LinearFn<Spinors<L>>>,
+) -> Result<(Spinors<L>, SolveInfo), SolveError>
+where
+    L: Layout,
+    F: FermionOp<Spinors<L>> + EvenOdd<Field<f64, Spinor, Half, L>>,
+{
+    if !solver.even_odd {
+        return solve_as_asked(op, index, b, solver, m, None);
+    }
+    let index = index.expect("even extents were checked when the file was read");
+    let mut on_even = m.map(|m| OnParity::new(m, index, b));
+    let m_even = on_even
+        .as_mut()
+        .map(|m| m as &mut dyn LinearFn<Field<f64, Spinor, Half, L>>);
+    solve_as_asked(op, Some(index), b, solver, None, m_even)
 }
 
 /// Solve for one quark with `op`, building the multigrid preconditioner first when the parameter
@@ -360,7 +385,7 @@ where
 }
 
 /// Worst |D S - b|^2 / |b|^2 over the right-hand sides, using the full operator.
-fn worst_residual<X: Vector, F: FermionOp<X>>(op: &F, s: &X, b: &X) -> f64 {
+pub(super) fn worst_residual<X: Vector, F: FermionOp<X>>(op: &F, s: &X, b: &X) -> f64 {
     let mut r = b.zeros_like();
     Bound::new(op, Variant::D).mult(&mut r, s);
     r.scale(&[-1.0; NUM_SOURCES]);
@@ -481,6 +506,27 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
         // The two fermion types differ only in the operator that is built; everything after
         // that is the same generic code.
         let solved = match q.fermion {
+            #[cfg(feature = "cuda-bridge")]
+            FermionConfig::Wilson { kappa, boundary } if config.solver.cuda_bridge => {
+                let params = WilsonParams {
+                    kappa,
+                    boundary: boundary.map(Into::into),
+                };
+                wilson_cuda::wilson(&lat, params, &u, &b, &config.solver, quark)?
+            }
+            #[cfg(feature = "cuda-bridge")]
+            FermionConfig::Clover {
+                kappa,
+                csw,
+                boundary,
+            } if config.solver.cuda_bridge => {
+                let params = CloverParams {
+                    kappa,
+                    csw,
+                    boundary: boundary.map(Into::into),
+                };
+                wilson_cuda::clover(&lat, params, &u, &b, &config.solver, quark)?
+            }
             FermionConfig::Wilson { kappa, boundary } if config.solver.simd > 1 => {
                 let params = WilsonParams {
                     kappa,

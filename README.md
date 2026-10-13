@@ -20,8 +20,9 @@ every kind of hardware.
 - **Solvers**: a multigrid written for each kind, to compute two-point correlation
   functions quickly.
 - **Configurations**: pure gauge, HMC and RHMC.
-- **GPUs**: not yet. The plan is the CUDA core of Bridge++ first, and a backend in Rust
-  once CUDA is officially supported there, keeping both.
+- **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge` (propagators; no
+  multigrid and no HMC on the device yet). A backend in Rust is planned once CUDA is officially
+  supported there, keeping both.
 
 The code is written for a clear structure and for speed, at some cost in readability where
 the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory.
@@ -84,7 +85,7 @@ multigrid, which wants a 12⁴ configuration of your own (`Gauge.config_filename
 |---|---|
 | `cpu` | the default: one site at a time |
 | `simd` | `simd_lanes: 4` (2, 4 or 8) sites in one SIMD register; build with `target-cpu=native` |
-| GPU | planned |
+| `cuda_bridge` | on an NVIDIA GPU, with the CUDA kernels of Bridge++; a program built with `--features cuda-bridge` |
 
 ### Parallelism
 

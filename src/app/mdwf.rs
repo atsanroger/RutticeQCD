@@ -175,6 +175,8 @@ pub fn run_on(
         (Backend::Simd, 4) => run_in::<Aosoa<4>>(params, file, &lat, &u, seeds, out),
         (Backend::Simd, 8) => run_in::<Aosoa<8>>(params, file, &lat, &u, seeds, out),
         (Backend::Cpu, _) => run_in::<Aos>(params, file, &lat, &u, seeds, out),
+        #[cfg(feature = "cuda-bridge")]
+        (Backend::CudaBridge, _) => super::mdwf_cuda::run(params, &lat, &u, seeds, out),
         _ => unreachable!("refused when the file is read"),
     }
 }
@@ -430,11 +432,7 @@ where
             }
         };
         let seconds = start.elapsed().as_secs_f64();
-        let iterations = match &result {
-            Ok(i) => format!("{}", i.iterations),
-            Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
-            Err(e) => format!("failed: {e}"),
-        };
+        let iterations = iterations_text(&result);
         // Applications of the operator, per right-hand side.
         let applications = (outer.get() + applied.get() * inner_per) / nv;
         let coarse = (pre.coarse_applications() - coarse_before) / nv;
@@ -495,15 +493,42 @@ where
         prop.assign(chunk, &q);
         mid.assign(chunk, &m);
     }
+    write_measurements(
+        src.source_position,
+        params.main.lattice_size[3],
+        &prop,
+        &mid,
+        out,
+    )?;
+    Ok(())
+}
+
+/// The iterations of a solve as the report shows them: with `!` if it did not converge.
+pub(super) fn iterations_text(result: &Result<SolveInfo, SolveError>) -> String {
+    match result {
+        Ok(i) => format!("{}", i.iterations),
+        Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
+        Err(e) => format!("failed: {e}"),
+    }
+}
+
+/// The meson correlators of the propagator `prop` from a source at `position`, and the residual
+/// mass from it and the field at the middle of the fifth dimension `mid`.
+pub(super) fn write_measurements(
+    position: [usize; ND],
+    nt: usize,
+    prop: &F,
+    mid: &F,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
     // Bridge++'s layout of the output: one block per channel, t from the source.
-    let t0 = src.source_position[3];
-    let nt = params.main.lattice_size[3];
+    let t0 = position[3];
     let shift = |c: &[C64]| -> Vec<C64> { (0..nt).map(|t| c[(t + t0) % nt]).collect() };
     for name in CHANNELS {
         let (sink, source) = channel::<Dirac>(name).expect("a channel of the list");
         let c = shift(&meson_correlator(
-            &prop,
-            &prop,
+            prop,
+            prop,
             &sink,
             &source,
             &Dirac::GAMMA5,
@@ -513,7 +538,7 @@ where
             writeln!(out, "    {t:3}  {:+.15e}  {:+.15e}", z.re, z.im)?;
         }
     }
-    let (pp, j5q) = (pion_correlator(&prop), pion_correlator(&mid));
+    let (pp, j5q) = (pion_correlator(prop), pion_correlator(mid));
     writeln!(out, "  residual mass m_res(t) = C_J5q(t) / C_PS(t):")?;
     for t in 0..nt {
         let at = (t + t0) % nt;
