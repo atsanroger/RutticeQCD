@@ -232,11 +232,17 @@ __global__ void mdwf_ee_LUinv_5d_v2_kernel(
 
 
 // -------------------------------------------------------------------------
-// Fused 1-Pass Möbius Domain Wall Dslash Kernel
-// Computes D_MDWF psi = (local_5D) + D_4(b_5, c_5) in a single pass without
-// any intermediate memory writes or reads.
+// Fused 1-Pass Möbius Domain Wall Dslash Kernel, the plain operator (Neff's alpha = 1):
+//
+//   (Y psi)_s = - P- psi_{s+1} - P+ psi_{s-1}     (+ m instead of - 1 across the walls)
+//   D psi = d+ psi + d- Y psi
+//           - 1/2 sum_mu [ (1 - gamma_mu) U_mu(x) w(x+mu) + (1 + gamma_mu) U_mu(x-mu)^dag w(x-mu) ],
+//   w = b psi - c Y psi,   d+ = 1 + b (4 - M5),   d- = 1 - c (4 - M5),
+//
+// in a single pass without any intermediate memory writes or reads. gamma_mu is that of the
+// Dirac representation; GammaRep (of P+-) must be the same. bc[mu] as in the Wilson kernel.
 // -------------------------------------------------------------------------
-template <typename Float, int LS_PER_BLOCK = 4, int GammaRep = BRIDGE_CUDA_GAMMA_CHIRAL>
+template <typename Float, int LS_PER_BLOCK = 4, int GammaRep = BRIDGE_CUDA_GAMMA_DIRAC>
 __global__ void mdwf_dslash_1pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
@@ -244,12 +250,14 @@ __global__ void mdwf_dslash_1pass_kernel(
     int vol4d,
     int Ls,
     int nx, int ny, int nz, int nt,
+    Float bcx, Float bcy, Float bcz, Float bct,
     Float M5,
     Float mass,
-    Float alpha,
     Float b5,
     Float c5)
 {
+    const Float alpha = static_cast<Float>(1.0);
+    const Float bc[4] = {bcx, bcy, bcz, bct};
     const int lane     = threadIdx.x;
     const int is_local = threadIdx.y;
     const int outer    = blockIdx.x;
@@ -315,6 +323,10 @@ __global__ void mdwf_dslash_1pass_kernel(
         int z_b = (mu == 2) ? (z - 1 >= 0 ? z - 1 : nz - 1) : z;
         int t_b = (mu == 3) ? (t - 1 >= 0 ? t - 1 : nt - 1) : t;
         int site_b = coords_to_site(x_b, y_b, z_b, t_b, nx, ny, nz, nt);
+        const int here = (mu == 0) ? x : (mu == 1) ? y : (mu == 2) ? z : t;
+        const int size = (mu == 0) ? nx : (mu == 1) ? ny : (mu == 2) ? nz : nt;
+        const Float sign_f = (here + 1 == size) ? bc[mu] : static_cast<Float>(1.0);
+        const Float sign_b = (here == 0) ? bc[mu] : static_cast<Float>(1.0);
 
         if (is_local == 0) {
             #pragma unroll
@@ -420,13 +432,18 @@ __global__ void mdwf_dslash_1pass_kernel(
             }
         }
 
+        // (1 - gamma_mu) w(x+mu) and (1 + gamma_mu) w(x-mu), with the sign of the boundary
+        Float g_f[Nspin][Nc][Ncomplex], g_b[Nspin][Nc][Ncomplex];
+        mult_gamma_dirac<Float>(g_f, phi_f, mu);
+        mult_gamma_dirac<Float>(g_b, phi_b, mu);
+
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
             Float v_in_r[Nc], v_in_i[Nc], v_out_r[Nc], v_out_i[Nc];
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = phi_f[s][c][0];
-                v_in_i[c] = phi_f[s][c][1];
+                v_in_r[c] = sign_f * (phi_f[s][c][0] - g_f[s][c][0]);
+                v_in_i[c] = sign_f * (phi_f[s][c][1] - g_f[s][c][1]);
             }
             su3_mult_vec(v_out_r, v_out_i, u_f_r, u_f_i, v_in_r, v_in_i);
             #pragma unroll
@@ -437,8 +454,8 @@ __global__ void mdwf_dslash_1pass_kernel(
 
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = phi_b[s][c][0];
-                v_in_i[c] = phi_b[s][c][1];
+                v_in_r[c] = sign_b * (phi_b[s][c][0] + g_b[s][c][0]);
+                v_in_i[c] = sign_b * (phi_b[s][c][1] + g_b[s][c][1]);
             }
             su3_dagger_mult_vec(v_out_r, v_out_i, u_b_r, u_b_i, v_in_r, v_in_i);
             #pragma unroll
