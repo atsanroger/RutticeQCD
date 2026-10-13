@@ -17,8 +17,8 @@ pub use cycle::TwoGrid;
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_even_odd::{
     bootstrap_round, coarse_solve, low_modes, pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors,
-    pv_eo_low_modes, pv_eo_start, BootstrapParams, CoarseKrylov, CycleLayout, LowModeParams,
-    PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
+    pv_eo_low_modes, pv_eo_start, random_even, BootstrapParams, CoarseKrylov, CycleLayout,
+    LowModeParams, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::Sap;

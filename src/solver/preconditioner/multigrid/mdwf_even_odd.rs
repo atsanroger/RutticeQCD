@@ -926,26 +926,34 @@ fn orthonormalise_all<V: Subspace>(x: &mut V) {
     x.rotate(&c);
 }
 
+/// `vectors` random vectors with `ls` spinors per site on the even sites, from `seed`: the
+/// even sites of `random_spinor`.
+pub fn random_even(
+    lat: &Arc<Lattice>,
+    index: &EvenOddIndex,
+    ls: usize,
+    vectors: usize,
+    seed: u64,
+) -> HalfField {
+    let mut x = HalfField::with_shape(lat, 24, ls, vectors, 1);
+    x.set_parity(Parity::Even);
+    extract_parity(
+        &mut x,
+        &random_spinor(lat, ls * vectors, seed),
+        index,
+        Parity::Even,
+    );
+    x
+}
+
 /// The random vectors on the even sites that `pv_eo_low_modes` starts from.
 pub fn pv_eo_start<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     lat: &Arc<Lattice>,
     params: LowModeParams,
 ) -> HalfField {
-    let index = op
-        .even_odd_index()
-        .expect("an even-odd decomposition")
-        .clone();
-    let (ls, m) = (op.params().ls, params.vectors);
-    let mut x = HalfField::with_shape(lat, 24, ls, m, 1);
-    x.set_parity(Parity::Even);
-    extract_parity(
-        &mut x,
-        &random_spinor(lat, ls * m, params.seed),
-        &index,
-        Parity::Even,
-    );
-    x
+    let index = op.even_odd_index().expect("an even-odd decomposition");
+    random_even(lat, index, op.params().ls, params.vectors, params.seed)
 }
 
 /// Approximate eigenvectors of the smallest eigenvalues of a Hermitian positive operator, from

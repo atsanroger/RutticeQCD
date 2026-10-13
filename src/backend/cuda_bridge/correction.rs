@@ -5,9 +5,7 @@
 
 use super::*;
 use crate::fermion::{Dagger, EoForm, EvenOdd};
-use crate::solver::preconditioner::multigrid::{
-    coarse_solve, BlockMap, CoarseKrylov, PvEoBasis, PvEoParams,
-};
+use crate::solver::preconditioner::multigrid::{coarse_solve, BlockMap, CoarseKrylov, PvEoParams};
 use crate::solver::Stop;
 use crate::{ConvertFrom, LinearFn, Parity, Vector};
 use std::cell::Cell;
@@ -53,7 +51,7 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
 
     /// The coarse operators are those of `plain`; `like`: a field on the even sites.
     pub fn new(
-        basis: &PvEoBasis,
+        device: DeviceBasis,
         plain: (&'a CudaMdwf, &'a CudaMdwf),
         outer: (&'a CudaMdwf, &'a CudaMdwf),
         form: EoForm,
@@ -62,7 +60,6 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
     ) -> Result<Self, Box<dyn Error>> {
         assert!(Self::supports(&params));
         assert_eq!(like.parity(), Some(Parity::Even));
-        let device = DeviceBasis::new(basis)?;
         let mut coarse_d = plain.0.coarse_operator(&device)?;
         let mut coarse_pv = plain.1.coarse_operator(&device)?;
         if params.coarse_even_odd {

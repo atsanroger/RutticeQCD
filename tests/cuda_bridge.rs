@@ -1229,7 +1229,7 @@ fn multigrid_transfers_on_the_device() {
 /// the two agree to that.
 #[test]
 fn multigrid_correction_on_the_device() {
-    use ruttice::backend::cuda_bridge::DeviceCorrection;
+    use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCorrection};
     use ruttice::fermion::EoForm;
     use ruttice::kernel::Dirac;
     use ruttice::solver::preconditioner::multigrid::{
@@ -1297,9 +1297,15 @@ fn multigrid_correction_on_the_device() {
         .unwrap();
         let mut expected = r.zeros_like();
         cycle.coarse_correction(&mut expected, &r);
-        let mut correction =
-            DeviceCorrection::<f64>::new(&basis, (&gpu, &gpu_pv), gpu_outer, form, settings, &even)
-                .unwrap();
+        let mut correction = DeviceCorrection::<f64>::new(
+            DeviceBasis::new(&basis).unwrap(),
+            (&gpu, &gpu_pv),
+            gpu_outer,
+            form,
+            settings,
+            &even,
+        )
+        .unwrap();
         let mut e = even.zeros_like();
         correction.correct(&mut e, &device_r);
         let d = worst(&e.to_host_half(&index).unwrap(), &expected);
