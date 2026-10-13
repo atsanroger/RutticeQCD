@@ -1108,6 +1108,22 @@ fn multigrid_transfers_on_the_device() {
         let mut op = CoarseOp::build(&cpu, &mut cpu.work(), &basis);
         assert!(op.prepare_even_odd().unwrap());
         let device_op = DeviceCoarseOp::<f64>::new(&op).unwrap();
+        // The coarse operator built on the device is the one built on the CPU.
+        let (_, gpu) = mdwf_pair(&lat, &u, params);
+        let built = gpu.coarse_operator(&device).unwrap();
+        for (what, a, b) in [
+            ("blocks", op.blocks().0, built.blocks().0),
+            ("links", op.blocks().1, built.blocks().1),
+        ] {
+            let d = a
+                .iter()
+                .zip(b)
+                .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+            assert!(
+                d < 1e-13,
+                "the {what} of the coarse operator differ by {d:e}"
+            );
+        }
         let mut seed = 0x2545_f491_4f6c_dd1du64;
         let mut random = || {
             let mut f = basis.coarse_field(nv);
@@ -1254,16 +1270,9 @@ fn multigrid_correction_on_the_device() {
         .unwrap();
         let mut expected = r.zeros_like();
         cycle.coarse_correction(&mut expected, &r);
-        let mut correction = DeviceCorrection::<f64>::new(
-            (&cpu, &cpu_pv),
-            &basis,
-            (&gpu, &gpu_pv),
-            gpu_outer,
-            form,
-            settings,
-            &even,
-        )
-        .unwrap();
+        let mut correction =
+            DeviceCorrection::<f64>::new(&basis, (&gpu, &gpu_pv), gpu_outer, form, settings, &even)
+                .unwrap();
         let mut e = even.zeros_like();
         correction.correct(&mut e, &device_r);
         let d = worst(&e.to_host_half(&index).unwrap(), &expected);

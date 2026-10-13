@@ -230,6 +230,36 @@ void bridge_cuda_fifth_gemm_f64(
     }
 }
 
+void bridge_cuda_hop_split_f32(
+    float* d_cross, float* d_inside, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, cudaStream_t stream)
+{
+    bridge_cuda::hop_split_kernel<float><<<site_grid(volume(geom), geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+        d_cross, d_inside, d_in, d_gauge, geom->link_rows,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
+        geom->Ls, vectors, leg, block[0], block[1], block[2], block[3],
+        static_cast<float>(kappa), static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)
+    );
+}
+
+void bridge_cuda_hop_split_f64(
+    double* d_cross, double* d_inside, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, cudaStream_t stream)
+{
+    bridge_cuda::hop_split_kernel<double><<<site_grid(volume(geom), geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+        d_cross, d_inside, d_in, d_gauge, geom->link_rows,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
+        geom->Ls, vectors, leg, block[0], block[1], block[2], block[3],
+        static_cast<double>(kappa), static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)
+    );
+}
+
 void bridge_cuda_walls_f32(
     float* d_out, const float* d_in, int sites, int Ls, int s_minus, int s_plus, int to_4d,
     int vectors, cudaStream_t stream)

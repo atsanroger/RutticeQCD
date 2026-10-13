@@ -1,8 +1,8 @@
 //! Möbius domain-wall solves on the GPU (`Main.backend : cuda_bridge`): the Pauli-Villars
 //! preconditioned operator on the even sites and the outer solver on the device, without or
 //! with the Chebyshev preconditioner or the multigrid. The cycle of the multigrid is on the
-//! device, and so are the filter and the solves of its setup; the basis and the coarse
-//! operators are made on the CPU. With levels below the coarse lattice, or another solver of
+//! device, and so are the filter and the solves of its setup and the coarse operators; the
+//! basis, and the inverses of the blocks of the coarse operators, are made on the CPU. With levels below the coarse lattice, or another solver of
 //! the second factor than MINRES, the coarse correction is that of the CPU (`mdwf`), the
 //! residual and the correction crossing over in every cycle.
 //! The five-dimensional source, the residual of the solution
@@ -120,7 +120,6 @@ fn device_basis(
         let (mut on_device, mut cpu_cycle) = (None, None);
         if DeviceCorrection::<f32>::supports(&boot.cycle) {
             on_device = Some(DeviceCorrection::<f32>::new(
-                (d, pv),
                 &basis,
                 device,
                 device,
@@ -317,9 +316,7 @@ pub(super) fn run(
                     Box::new(on_cpu(index, move |e, r| cycle.coarse_correction(e, r)))
                 }
                 None => {
-                    let (Some((cpu, _)), Some((basis, _)), Some(device)) =
-                        (cpu_pairs, &basis, device_plain)
-                    else {
+                    let (Some((basis, _)), Some(device)) = (&basis, device_plain) else {
                         return Err("the multigrid was not set up".into());
                     };
                     let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
@@ -327,7 +324,6 @@ pub(super) fn run(
                     match mg.coarse_precision {
                         PrecisionType::Single => {
                             let mut c = DeviceCorrection::<f32>::new(
-                                cpu,
                                 basis,
                                 device,
                                 outer,
@@ -339,7 +335,6 @@ pub(super) fn run(
                         }
                         PrecisionType::Double => {
                             let mut c = DeviceCorrection::<f64>::new(
-                                cpu,
                                 basis,
                                 device,
                                 outer,
