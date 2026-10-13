@@ -85,6 +85,15 @@ impl Lattice {
     }
 
     /// The local site with the given global coordinates, if this process holds it.
+    /// The coordinates of site `index` of the whole lattice, numbered with x fastest.
+    pub fn global_site_coords(&self, mut index: usize) -> [usize; ND] {
+        self.global.map(|l| {
+            let x = index % l;
+            index /= l;
+            x
+        })
+    }
+
     pub fn local_site(&self, global: [usize; ND]) -> Option<usize> {
         let mut x = [0; ND];
         for mu in 0..ND {

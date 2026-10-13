@@ -116,13 +116,7 @@ pub fn read_nersc(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, 
     let num_sites = lat.num_sites();
     let out = u.as_mut_slice();
     for global in 0..lat.num_global_sites() {
-        let mut rest = global;
-        let x = lat.global.map(|l| {
-            let x = rest % l;
-            rest /= l;
-            x
-        });
-        let Some(site) = lat.local_site(x) else {
+        let Some(site) = lat.local_site(lat.global_site_coords(global)) else {
             continue;
         };
         // The field keeps the direction outermost; the file keeps the site outermost.

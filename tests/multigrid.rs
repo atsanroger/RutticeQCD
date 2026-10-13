@@ -850,8 +850,14 @@ fn multigrid_with_a_level_below_the_coarse_lattice() {
         levels: [2, 0, 0],
         ..MultigridParams::bridge([2, 2, 2, 2])
     });
+    let even = solve(MultigridParams {
+        levels: [2, 0, 0],
+        coarse_even_odd: true,
+        ..MultigridParams::bridge([2, 2, 2, 2])
+    });
     eprintln!(
-        "FGMRES iterations: {two} with two levels, {three} with a level below the coarse lattice"
+        "FGMRES iterations: {two} with two levels, {three} with a level below the coarse lattice, {even} with that on the even coarse sites"
     );
     assert!(three <= two + 2);
+    assert!(even <= two + 2);
 }

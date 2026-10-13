@@ -26,12 +26,20 @@ impl TestRng {
     }
 }
 
-/// `num_vectors` spinor fields with every real uniform in (-1, 1).
+/// `num_vectors` spinor fields with every real uniform in (-1, 1). The numbers are drawn in the
+/// order of the whole lattice and every process keeps its own: the field does not depend on
+/// how the lattice is split.
 pub fn random_spinor(lat: &Arc<Lattice>, num_vectors: usize, seed: u64) -> Field<f64, Spinor> {
     let mut rng = TestRng::new(seed);
     let mut psi = Field::<f64, Spinor>::spinor(lat, num_vectors);
-    for x in psi.as_mut_slice() {
-        *x = rng.uniform();
+    let mut reals = vec![0.0; psi.site_len()];
+    for global in 0..lat.num_global_sites() {
+        for x in reals.iter_mut() {
+            *x = rng.uniform();
+        }
+        if let Some(site) = lat.local_site(lat.global_site_coords(global)) {
+            psi.site_mut(0, site).copy_from_slice(&reals);
+        }
     }
     psi
 }

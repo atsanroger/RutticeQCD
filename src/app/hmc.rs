@@ -714,6 +714,31 @@ impl HmcConfig {
         Ok(())
     }
 
+    /// The blocks of the multigrids must divide the lattice of a process (`local`).
+    fn check_blocks(&self, local: [usize; ND]) -> Result<(), CliError> {
+        for (i, a) in self.actions.iter().enumerate() {
+            let solver = match a {
+                ActionConfig::TwoFlavor { solver, .. }
+                | ActionConfig::TwoFlavorRatio { solver, .. }
+                | ActionConfig::Rational { solver, .. } => solver,
+                _ => continue,
+            };
+            let (true, Some(mg)) = (
+                solver.asks_for(HmcPreconditioner::Multigrid),
+                solver.multigrid,
+            ) else {
+                continue;
+            };
+            if (0..ND).any(|mu| !local[mu].is_multiple_of(mg.block[mu])) {
+                return invalid(format!(
+                    "actions[{i}].solver.multigrid.block {:?} must divide the lattice {local:?} of a process",
+                    mg.block
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// The actions on the lattice `lat`; files named relative to `base`.
     fn terms(&self, lat: &Arc<Lattice>, base: &Path) -> Result<Vec<Term<'static>>, CliError> {
         let smearing = self.gauge_smearing.map(|g| g.smearing());
@@ -1087,6 +1112,7 @@ pub fn run_on(
 ) -> Result<HmcReport, CliError> {
     let grid = super::grid_for(config.lattice, config.process_grid, comm.size())?;
     let lat = Lattice::new(config.lattice, grid, comm);
+    config.check_blocks(lat.local)?;
     let root = lat.comm.rank() == 0;
     let mut u = match &config.start {
         StartConfig::File { file, format } => gauge_format(*format)?

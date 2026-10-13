@@ -1,5 +1,4 @@
-use super::coarse::{CountedSchur, EvenBlocks};
-use super::levels::{BlockMap, CountedShared, LevelsAndBlocks};
+use super::levels::{solve_shared, BlockMap};
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap, SignedMultilevel};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::kernel::Number;
@@ -31,7 +30,7 @@ pub struct MultigridParams {
     /// Precondition the coarse operator by its diagonal blocks.
     pub precondition_coarse_diagonal: bool,
     /// Solve the coarse system on the even coarse sites (the Schur complement, see
-    /// `CoarseOp`), where the coarse lattice allows it and there are neither levels below it
+    /// `CoarseOp`), where the coarse lattice allows it, with or without levels below it, and
     /// nor `precondition_coarse_diagonal`.
     pub coarse_even_odd: bool,
     /// Seed of the random initial test vectors.
@@ -522,48 +521,22 @@ impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T>
         };
         coarse_e.set_zero();
         // An inexact coarse solve is expected; whatever it reached is used.
-        let _ = match self.levels.as_mut() {
-            // On the even coarse sites, with the inverses of the diagonal blocks there.
-            None if self.coarse.borrow().has_even_odd() => {
-                let (mut source, mut odd) = (rhs.zeros_like(), rhs.zeros_like());
-                self.coarse
-                    .borrow()
-                    .schur_source(&mut source, rhs, &mut odd);
-                let n = Cell::new(0);
-                let reached = parts.coarse_solver.solve(
-                    &mut CountedSchur {
-                        a: &self.coarse,
-                        n: &n,
-                        odd: rhs.zeros_like(),
-                    },
-                    Some(&mut EvenBlocks(&self.coarse)),
-                    coarse_e,
-                    &source,
-                );
-                self.coarse.borrow().schur_solution(coarse_e, rhs, &mut odd);
-                reached
-            }
-            None => parts
-                .coarse_solver
-                .solve(self.coarse.get_mut(), None, coarse_e, rhs),
-            Some((levels, blocks)) => {
-                let n = Cell::new(0);
-                parts.coarse_solver.solve(
-                    &mut CountedShared {
-                        a: &self.coarse,
-                        n: &n,
-                    },
-                    Some(&mut LevelsAndBlocks {
-                        blocks: blocks.as_mut(),
-                        levels: Some(levels),
-                        a: &self.coarse,
-                        n: &n,
-                    }),
-                    coarse_e,
-                    rhs,
-                )
-            }
+        let (levels, blocks) = match self.levels.as_mut() {
+            Some((levels, blocks)) => (Some(&*levels), blocks.as_mut()),
+            None => (None, None),
         };
+        let coarse_solver = &mut parts.coarse_solver;
+        solve_shared(
+            &self.coarse,
+            blocks,
+            levels,
+            &Cell::new(0),
+            &mut |a, m, x, b| {
+                let _ = coarse_solver.solve(a, m, x, b);
+            },
+            coarse_e,
+            rhs,
+        );
         self.basis.prolong(e, coarse_e);
         x.axpy(&one, e);
 

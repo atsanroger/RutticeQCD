@@ -64,12 +64,7 @@ fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut buf = vec![0u8; 8 * m * reals];
     for site in 0..sites {
         f.read_exact(&mut buf)?;
-        let mut rest = whole.full_site(Parity::Even, site);
-        let coords = lat.global.map(|l| {
-            let x = rest % l;
-            rest /= l;
-            x
-        });
+        let coords = lat.global_site_coords(whole.full_site(Parity::Even, site));
         let Some(local) = lat.local_site(coords) else {
             continue;
         };
