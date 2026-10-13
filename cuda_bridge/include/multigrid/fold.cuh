@@ -175,6 +175,137 @@ __global__ void fold_prolong_kernel(
 }
 
 // -------------------------------------------------------------------------
+// Making P. First the chirality parts (1 +- Gamma_5) v / 2 of the test vectors, as they are
+// kept: vector blockIdx.y of the field d_fine on the whole lattice is test vector
+// first + blockIdx.y. A thread for each (site, s < Ls/2, spin, colour).
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void fold_fill_kernel(
+    float* __restrict__ d_p,
+    const Float* __restrict__ d_fine,
+    int n, int first,
+    FoldGeometry g)
+{
+    const int Ls = g.Ls, kept = 12 * Ls, entries = 6 * Ls;
+    const int sites = g.nx * g.ny * g.nz * g.nt;
+    const size_t t = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (t >= static_cast<size_t>(sites) * entries) return;
+    const int x = t / entries, e = t % entries;
+    const int s = e / 12, a = (e % 12) / Nc, colour = e % Nc;
+    const Float* fine = d_fine + blockIdx.y * vector_reals(sites, Ls);
+    #pragma unroll
+    for (int ri = 0; ri < Ncomplex; ++ri) {
+        // (Gamma_5 v)_s = gamma_5 v_(Ls-1-s)
+        const Float near = fine[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, x)];
+        const Float far = g.sign[a] * fine[aosoa_5d_spinor_idx(colour, g.col[a], ri, Ls - 1 - s, Ls, x)];
+        float* b = d_p + (static_cast<size_t>(x) * n + first + blockIdx.y) * 2 * kept + 2 * e + ri;
+        b[0] = static_cast<float>(static_cast<Float>(0.5) * (near + far));
+        b[kept] = static_cast<float>(static_cast<Float>(0.5) * (near - far));
+    }
+}
+
+// -------------------------------------------------------------------------
+// Then the parts of either chirality made orthonormal over every aggregate, by the modified
+// Gram-Schmidt procedure in double precision, and scaled (P keeps half of the fifth
+// dimension, which carries half of every inner product: scale = 1/sqrt(2)).
+//
+// A block of FoldThreads threads for each (coarse site first_site + blockIdx.x / 2,
+// chirality blockIdx.x % 2). d_w: the vectors of the block in double precision, n vectors of
+// block_volume * kept / 2 complex numbers for every block of threads. d_fail[blockIdx.x]: 0,
+// or 1 + the first vector that is in the span of the earlier ones (the block then stops).
+// -------------------------------------------------------------------------
+constexpr int FoldThreads = 256;
+
+__global__ void fold_orthonormalise_kernel(
+    float* __restrict__ d_p,
+    double* __restrict__ d_w,
+    const unsigned* __restrict__ d_sites,
+    unsigned* __restrict__ d_fail,
+    int first_site, int block_volume, int n, int kept,
+    double scale)
+{
+    __shared__ double sum_r[FoldThreads];
+    __shared__ double sum_i[FoldThreads];
+    const int tid = threadIdx.x;
+    const int X = first_site + blockIdx.x / 2, c = blockIdx.x % 2;
+    const int per_site = kept / 2;
+    const int dim = block_volume * per_site;
+    double* w = d_w + static_cast<size_t>(blockIdx.x) * n * dim * 2;
+    // Where complex number e of vector i of this block is in P.
+    auto in_p = [&](int i, int e) {
+        const size_t x = d_sites[static_cast<size_t>(X) * block_volume + e / per_site];
+        return ((x * n + i) * 2 + c) * kept + 2 * (e % per_site);
+    };
+    // The sum over the threads of (re, im), for all of them.
+    auto total = [&](double& re, double& im) {
+        sum_r[tid] = re;
+        sum_i[tid] = im;
+        __syncthreads();
+        #pragma unroll
+        for (int step = FoldThreads / 2; step > 0; step >>= 1) {
+            if (tid < step) {
+                sum_r[tid] += sum_r[tid + step];
+                sum_i[tid] += sum_i[tid + step];
+            }
+            __syncthreads();
+        }
+        re = sum_r[0];
+        im = sum_i[0];
+        __syncthreads();
+    };
+    auto norm = [&](const double* v) {
+        double re = 0, im = 0;
+        for (int e = tid; e < dim; e += FoldThreads) re += v[2 * e] * v[2 * e] + v[2 * e + 1] * v[2 * e + 1];
+        total(re, im);
+        return re;
+    };
+
+    for (int k = tid; k < n * dim; k += FoldThreads) {
+        const size_t at = in_p(k / dim, k % dim);
+        w[2 * k] = d_p[at];
+        w[2 * k + 1] = d_p[at + 1];
+    }
+    if (tid == 0) d_fail[blockIdx.x] = 0;
+    __syncthreads();
+
+    for (int i = 0; i < n; ++i) {
+        double* wi = w + static_cast<size_t>(i) * dim * 2;
+        const double before = norm(wi);
+        for (int j = 0; j < i; ++j) {
+            const double* wj = w + static_cast<size_t>(j) * dim * 2;
+            double re = 0, im = 0;
+            for (int e = tid; e < dim; e += FoldThreads) {
+                re += wj[2 * e] * wi[2 * e] + wj[2 * e + 1] * wi[2 * e + 1];
+                im += wj[2 * e] * wi[2 * e + 1] - wj[2 * e + 1] * wi[2 * e];
+            }
+            total(re, im);
+            for (int e = tid; e < dim; e += FoldThreads) {
+                wi[2 * e] -= re * wj[2 * e] - im * wj[2 * e + 1];
+                wi[2 * e + 1] -= re * wj[2 * e + 1] + im * wj[2 * e];
+            }
+            __syncthreads();
+        }
+        const double after = norm(wi);
+        if (!(after > 1e-24 * before)) {
+            if (tid == 0) d_fail[blockIdx.x] = i + 1;
+            return;
+        }
+        const double factor = rsqrt(after);
+        for (int e = tid; e < dim; e += FoldThreads) {
+            wi[2 * e] *= factor;
+            wi[2 * e + 1] *= factor;
+        }
+        __syncthreads();
+    }
+
+    for (int k = tid; k < n * dim; k += FoldThreads) {
+        const size_t at = in_p(k / dim, k % dim);
+        d_p[at] = static_cast<float>(scale * w[2 * k]);
+        d_p[at + 1] = static_cast<float>(scale * w[2 * k + 1]);
+    }
+}
+
+// -------------------------------------------------------------------------
 // The coarse operator D_c = P^dag D P: at every coarse site X a block A(X) and a link
 // B_dir(X) for each of the eight hops, dim x dim complex matrices, row-major (re, im):
 //

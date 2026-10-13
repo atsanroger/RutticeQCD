@@ -2,8 +2,10 @@
 //! prolongation P and the coarse operators (`multigrid/fold.cuh`).
 
 use super::*;
-use crate::kernel::{Number, Real, Unit};
-use crate::solver::preconditioner::multigrid::{Basis, CoarseOp};
+use crate::fermion::{Dagger, EvenOdd, FermionOp, SplitParity, Variant};
+use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
+use crate::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp, MultigridError};
+use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64};
 
 /// Whole numbers on the device.
@@ -21,6 +23,21 @@ impl DeviceTable {
             check(cudaMemcpy(ptr, host.as_ptr().cast(), bytes, HOST_TO_DEVICE))?;
         }
         Ok(Self { ptr: ptr.cast() })
+    }
+
+    /// The first `len` numbers.
+    fn download(&self, len: usize) -> Result<Vec<u32>, CudaError> {
+        let mut host = vec![0u32; len];
+        // SAFETY: two ranges of `len` numbers; the table has at least as many.
+        check(unsafe {
+            cudaMemcpy(
+                host.as_mut_ptr().cast(),
+                self.ptr.cast_const().cast(),
+                4 * len,
+                DEVICE_TO_HOST,
+            )
+        })?;
+        Ok(host)
     }
 }
 
@@ -233,13 +250,40 @@ pub struct DeviceBasis {
 }
 
 impl DeviceBasis {
+    /// The P of the CPU, `basis`.
     pub fn new<T: Storage>(basis: &Basis<T, f32>) -> Result<Self, CudaError> {
-        let agg = basis.aggregation();
-        let lat = agg.fine_lattice().clone();
-        let coarse_sites = agg.coarse_lattice().num_sites();
         let g = basis
             .reflection()
             .expect("a basis folded on the fifth dimension");
+        Self::with(
+            basis.aggregation(),
+            basis.fine_reals() / SPINOR,
+            basis.num_test_vectors(),
+            g,
+            DeviceBuffer::upload(basis.stored())?,
+        )
+    }
+
+    /// A P to be made on the device, for `n` test vectors with `ls` spinors per site on the
+    /// aggregates `agg`: zero until every test vector was given (`add`) and `finish` called.
+    pub fn empty(agg: &Arc<Aggregation>, ls: usize, n: usize) -> Result<Self, CudaError> {
+        assert!(
+            ls.is_multiple_of(2),
+            "folding needs an even fifth dimension"
+        );
+        let reals = agg.fine_lattice().num_sites() * n * 2 * 12 * ls;
+        Self::with(agg, ls, n, Dirac::GAMMA5, DeviceBuffer::zeros(reals)?)
+    }
+
+    fn with(
+        agg: &Arc<Aggregation>,
+        ls: usize,
+        n: usize,
+        g: Gamma,
+        p: DeviceBuffer<f32>,
+    ) -> Result<Self, CudaError> {
+        let lat = agg.fine_lattice().clone();
+        let coarse_sites = agg.coarse_lattice().num_sites();
         let mut gamma = [0; 8];
         for a in 0..4 {
             gamma[a] = g.col[a] as i32;
@@ -256,11 +300,11 @@ impl DeviceBasis {
             .map(|x| agg.coarse_site(x) as u32)
             .collect();
         Ok(Self {
-            p: DeviceBuffer::upload(basis.stored())?,
+            p,
             fine_sites: DeviceTable::from_host(&fine_sites)?,
             coarse_of: DeviceTable::from_host(&coarse_of)?,
-            ls: basis.fine_reals() / SPINOR,
-            n: basis.num_test_vectors(),
+            ls,
+            n,
             coarse_sites,
             block_volume: agg.block_volume(),
             block: agg.block().map(|b| b as i32),
@@ -269,6 +313,131 @@ impl DeviceBasis {
             lat,
             gamma,
         })
+    }
+
+    /// The vectors of `v`, a field on the whole lattice, as the test vectors `first`,
+    /// `first + 1`, ...: their chirality parts (1 ± Γ5) v / 2, not yet orthonormal.
+    pub fn add<T: DeviceReal>(&mut self, first: usize, v: &DeviceSpinor<T>) {
+        assert!(Arc::ptr_eq(&self.lat, &v.lat) && v.ls == self.ls && v.parity.is_none());
+        assert!(first + v.vectors <= self.n, "more test vectors than P has");
+        // SAFETY: a field on the whole lattice of this basis, and its P; the small arrays are
+        // copied by the call.
+        unsafe {
+            T::fold_fill(
+                self.p.ptr,
+                v.data.ptr,
+                self.n as i32,
+                first as i32,
+                self.dims.as_ptr(),
+                self.ls as i32,
+                self.gamma.as_ptr(),
+                v.vectors as i32,
+            );
+        }
+    }
+
+    /// The chirality parts made orthonormal over every aggregate: P. As `BasisBuilder::finish`
+    /// on the CPU (modified Gram-Schmidt in double precision on the parts as they are kept).
+    pub fn finish(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (n, kept) = (self.n, 12 * self.ls);
+        let dim = self.block_volume * kept / 2;
+        if n > dim {
+            return Err(
+                format!("{n} test vectors do not fit into aggregates of dimension {dim}").into(),
+            );
+        }
+        // The vectors of an aggregate and chirality in double precision: as many coarse sites
+        // at a time as keep that within half a GB.
+        let per_site = 2 * n * dim * 2;
+        let count = ((1 << 26) / per_site).clamp(1, self.coarse_sites);
+        let scratch = DeviceBuffer::<f64>::uninitialised(count * per_site)?;
+        let fail = DeviceTable::from_host(&vec![0; 2 * count])?;
+        for first in (0..self.coarse_sites).step_by(count) {
+            let sites = count.min(self.coarse_sites - first);
+            // SAFETY: P and the sites of this basis, scratch and places for the results of
+            // `sites` coarse sites.
+            unsafe {
+                bridge_cuda_fold_orthonormalise(
+                    self.p.ptr,
+                    scratch.ptr,
+                    self.fine_sites.ptr,
+                    fail.ptr,
+                    first as i32,
+                    sites as i32,
+                    self.block_volume as i32,
+                    n as i32,
+                    kept as i32,
+                    std::f64::consts::FRAC_1_SQRT_2,
+                    STREAM,
+                );
+            }
+            finish();
+            if let Some((k, vector)) = fail
+                .download(2 * sites)?
+                .into_iter()
+                .enumerate()
+                .find(|(_, f)| *f != 0)
+            {
+                return Err(Box::new(MultigridError::DependentTestVectors {
+                    coarse_site: first + k / 2,
+                    vector: vector as usize - 1,
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    /// The P of the even-odd Pauli-Villars multigrid from the vectors `y` on the even sites,
+    /// as `pv_eo_basis` makes it on the CPU: for every y, s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
+    /// and t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s) (see the top of
+    /// `multigrid::mdwf_even_odd`); `op` and `pv` the plain operators.
+    pub fn pv_eo(
+        op: &CudaMdwf,
+        pv: &CudaMdwf,
+        agg: &Arc<Aggregation>,
+        y: &DeviceSpinor,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        assert_eq!(y.parity, Some(Parity::Even));
+        let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
+        let mut basis = Self::empty(agg, ls, 2 * n)?;
+        let (even, odd) = (Parity::Even, Parity::Odd);
+        let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
+        let mut full_work = FermionOp::work(op);
+        // A few vectors at a time: the fields on the whole lattice are large.
+        let all: Vec<usize> = (0..n).collect();
+        for chunk in all.chunks(4) {
+            let nv = chunk.len();
+            let yj = y.select(chunk);
+            let mut x_e = yj.zeros_like();
+            let mut t = DeviceSpinor::zeros_half(lat, ls, odd)?.zeros_with(nv);
+            let mut x_o = t.zeros_like();
+            let mut s = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(nv);
+            let minus = vec![-1.0; nv];
+            op.diag_inv(&mut work, &mut x_e, &yj, even, Dagger::No);
+            op.hop(&mut work, &mut t, &x_e, odd, Dagger::No);
+            op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
+            x_o.scale(&minus);
+            DeviceParities.insert(&mut s, &x_e);
+            DeviceParities.insert(&mut s, &x_o);
+            basis.add(chunk[0], &s);
+            let mut ds = s.zeros_like();
+            op.mult(&mut full_work, &mut ds, &s, Variant::D);
+            // a = π D s
+            DeviceParities.extract(&mut x_e, &ds, even);
+            pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
+            pv.diag_inv(&mut work_pv, &mut x_o, &t, odd, Dagger::Yes);
+            x_o.scale(&minus);
+            DeviceParities.insert(&mut s, &x_e);
+            DeviceParities.insert(&mut s, &x_o);
+            basis.add(n + chunk[0], &s);
+        }
+        basis.finish()?;
+        Ok(basis)
+    }
+
+    /// P as it is kept (`Basis::stored`), from the device.
+    pub fn stored(&self) -> Result<Vec<f64>, CudaError> {
+        self.p.download()
     }
 
     /// Complex numbers of a coarse site.
