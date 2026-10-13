@@ -10,11 +10,12 @@ use super::config::{BoundaryConfig, GaugeFormat, GaugeSmearingConfig};
 use super::hmc_params::{is_hmc_text, HmcParams};
 use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
+use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, Hmc, MdAction, Mseries, MultigridSetup, NormalSolver, PlaquetteAction,
-    Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor, TwoFlavorEo,
-    TwoFlavorRatio,
+    cold_start, EvenOddForceOp, ForceOp, Hmc, MdAction, Mseries, MultigridSetup, NormalSolver,
+    PlaquetteAction, Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor,
+    TwoFlavorEo, TwoFlavorRatio,
 };
 use crate::io::{Binary, BridgeText, GaugeFile, Ildg, Scidac};
 use crate::numerics::{RationalApprox, RationalSpec};
@@ -635,72 +636,29 @@ impl HmcConfig {
                         even_odd,
                         solver,
                     } => {
-                        let sm = smearing.filter(|_| *smeared);
                         let (md, h) = stops(solver);
-                        let g = solver.initial_guess;
-                        // The same operator in either action; the clover term adds its force
-                        // (and, even-odd, its det term).
-                        macro_rules! two_flavor {
-                            ($op:expr, $clover:expr) => {{
-                                let op = $op;
-                                let clover: Option<f64> = $clover;
-                                if *even_odd {
-                                    let a = TwoFlavorEo::new(op, sm, md, h)
-                                        .with_guess(g)
-                                        .with_solver(solver.normal())
-                                        .with_preconditioner(solver.preconditioner());
-                                    match clover {
-                                        Some(kc) => {
-                                            Box::new(a.with_clover(kc)) as Box<dyn MdAction>
-                                        }
-                                        None => Box::new(a),
-                                    }
-                                } else {
-                                    let a = TwoFlavor::new(op, sm, md, h)
-                                        .with_guess(g)
-                                        .with_solver(solver.normal())
-                                        .with_preconditioner(solver.preconditioner());
-                                    match clover {
-                                        Some(kc) => {
-                                            Box::new(a.with_clover(kc)) as Box<dyn MdAction>
-                                        }
-                                        None => Box::new(a),
-                                    }
-                                }
-                            }};
-                        }
-                        let action: Box<dyn MdAction> = match *fermion {
+                        let c = Common {
+                            smearing: smearing.filter(|_| *smeared),
+                            md,
+                            h,
+                            solver,
+                        };
+                        let action = match *fermion {
                             HmcFermion::Wilson { kappa, boundary: b } => {
-                                two_flavor!(wilson(lat, kappa, &b), None)
+                                two_flavor(wilson(lat, kappa, &b), None, None, *even_odd, c)
                             }
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
                                 boundary: b,
-                            } => two_flavor!(clover(lat, kappa, csw, &b), Some(kappa * csw)),
+                            } => {
+                                let op = clover(lat, kappa, csw, &b);
+                                two_flavor(op, Some(kappa * csw), None, *even_odd, c)
+                            }
                             HmcFermion::DomainWall { .. } => {
                                 let p = mdwf_params(fermion);
                                 let alpha = with_alpha(lat, p, solver.neff_alpha);
-                                let op = Mdwf::<f64>::new(lat, p);
-                                if *even_odd {
-                                    let a = TwoFlavorEo::new(op, sm, md, h)
-                                        .with_guess(g)
-                                        .with_solver(solver.normal())
-                                        .with_preconditioner(solver.chebyshev());
-                                    match alpha {
-                                        Some(c) => Box::new(a.with_conditioned(c)),
-                                        None => Box::new(a),
-                                    }
-                                } else {
-                                    let a = TwoFlavor::new(op, sm, md, h)
-                                        .with_guess(g)
-                                        .with_solver(solver.normal())
-                                        .with_preconditioner(solver.chebyshev());
-                                    match alpha {
-                                        Some(c) => Box::new(a.with_conditioned(c)),
-                                        None => Box::new(a),
-                                    }
-                                }
+                                two_flavor(Mdwf::<f64>::new(lat, p), None, alpha, *even_odd, c)
                             }
                         };
                         (*level, action)
@@ -712,25 +670,19 @@ impl HmcConfig {
                         smeared,
                         solver,
                     } => {
-                        let sm = smearing.filter(|_| *smeared);
                         let (md, h) = stops(solver);
-                        let action: Box<dyn MdAction> = match (*fermion, *denominator) {
+                        let c = Common {
+                            smearing: smearing.filter(|_| *smeared),
+                            md,
+                            h,
+                            solver,
+                        };
+                        let action = match (*fermion, *denominator) {
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
-                                let a = TwoFlavorRatio::new(
-                                    Mdwf::<f64>::new(lat, p),
-                                    Mdwf::<f64>::new(lat, pd),
-                                    sm,
-                                    md,
-                                    h,
-                                )
-                                .with_solver(solver.normal())
-                                .with_preconditioner(solver.chebyshev());
-                                match with_alpha(lat, p, solver.neff_alpha) {
-                                    Some(c) => Box::new(a.with_conditioned(c)),
-                                    None => Box::new(a),
-                                }
+                                let ops = (Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd));
+                                ratio(ops, None, with_alpha(lat, p, solver.neff_alpha), c)
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -738,16 +690,11 @@ impl HmcConfig {
                                     kappa: kd,
                                     boundary: bd,
                                 }),
-                            ) => Box::new(
-                                TwoFlavorRatio::new(
-                                    wilson(lat, kappa, &b),
-                                    wilson(lat, kd, &bd),
-                                    sm,
-                                    md,
-                                    h,
-                                )
-                                .with_solver(solver.normal())
-                                .with_preconditioner(solver.preconditioner()),
+                            ) => ratio(
+                                (wilson(lat, kappa, &b), wilson(lat, kd, &bd)),
+                                None,
+                                None,
+                                c,
                             ),
                             (
                                 HmcFermion::Clover {
@@ -760,18 +707,10 @@ impl HmcConfig {
                                     csw: cd,
                                     boundary: bd,
                                 }),
-                            ) => Box::new(
-                                TwoFlavorRatio::new(
-                                    clover(lat, kappa, csw, &b),
-                                    clover(lat, kd, cd, &bd),
-                                    sm,
-                                    md,
-                                    h,
-                                )
-                                .with_clover(kappa * csw, kd * cd)
-                                .with_solver(solver.normal())
-                                .with_preconditioner(solver.preconditioner()),
-                            ),
+                            ) => {
+                                let ops = (clover(lat, kappa, csw, &b), clover(lat, kd, cd, &bd));
+                                ratio(ops, Some((kappa * csw, kd * cd)), None, c)
+                            }
                             _ => unreachable!("checked when the file is read"),
                         };
                         (*level, action)
@@ -786,8 +725,13 @@ impl HmcConfig {
                         smeared,
                         solver,
                     } => {
-                        let sm = smearing.filter(|_| *smeared);
-                        let (md_stop, h_stop) = stops(solver);
+                        let (md, h) = stops(solver);
+                        let c = Common {
+                            smearing: smearing.filter(|_| *smeared),
+                            md,
+                            h,
+                            solver,
+                        };
                         // S = φ† (D†D)^(−p/q) φ, φ = (D†D)^(p/2q) ξ.
                         let spec = RationalSpec {
                             poles: *poles,
@@ -797,7 +741,7 @@ impl HmcConfig {
                             x_max: bounds[1] * bounds[1],
                         };
                         let g = gcd(*p, 2 * q);
-                        let (md, hb) = (
+                        let approximations = (
                             approximation(&spec, coefficients.as_deref(), base)?,
                             approximation(
                                 &spec.with_power(p / g, 2 * q / g),
@@ -805,46 +749,17 @@ impl HmcConfig {
                                 base,
                             )?,
                         );
-                        let by_pole = solver.kind == Some(HmcSolverKind::Cg);
-                        let action: Box<dyn MdAction> = match *fermion {
+                        let action = match *fermion {
                             HmcFermion::Wilson { kappa, boundary: b } => {
-                                let a = Rational::new(
-                                    wilson(lat, kappa, &b),
-                                    sm,
-                                    md,
-                                    hb,
-                                    md_stop,
-                                    h_stop,
-                                )
-                                .with_pole_by_pole(by_pole);
-                                Box::new(match solver.two_step() {
-                                    Some(two) => a
-                                        .with_two_step(two)
-                                        .with_preconditioner(solver.preconditioner()),
-                                    None => a,
-                                })
+                                rational(wilson(lat, kappa, &b), None, approximations, c)
                             }
                             HmcFermion::Clover {
                                 kappa,
                                 csw,
                                 boundary: b,
                             } => {
-                                let a = Rational::new(
-                                    clover(lat, kappa, csw, &b),
-                                    sm,
-                                    md,
-                                    hb,
-                                    md_stop,
-                                    h_stop,
-                                )
-                                .with_clover(kappa * csw)
-                                .with_pole_by_pole(by_pole);
-                                Box::new(match solver.two_step() {
-                                    Some(two) => a
-                                        .with_two_step(two)
-                                        .with_preconditioner(solver.preconditioner()),
-                                    None => a,
-                                })
+                                let op = clover(lat, kappa, csw, &b);
+                                rational(op, Some(kappa * csw), approximations, c)
                             }
                             HmcFermion::DomainWall { .. } => {
                                 unreachable!("checked when the file is read")
@@ -857,6 +772,91 @@ impl HmcConfig {
             })
             .collect()
     }
+}
+
+/// What an action is made from besides its operator.
+struct Common<'a> {
+    smearing: Option<GaugeSmearing>,
+    /// The stopping rules of the force solves and of the energy solves.
+    md: Stop,
+    h: Stop,
+    solver: &'a HmcSolver,
+}
+
+/// Two flavours of `op`, on all sites or even-odd: with the clover term's coefficient κ c_SW
+/// for an operator that has one, and the better conditioned operator to solve with if any.
+fn two_flavor<O: EvenOddForceOp + 'static>(
+    op: O,
+    clover: Option<f64>,
+    conditioned: Option<O>,
+    even_odd: bool,
+    c: Common,
+) -> Box<dyn MdAction> {
+    let s = c.solver;
+    if even_odd {
+        let mut a = TwoFlavorEo::new(op, c.smearing, c.md, c.h)
+            .with_guess(s.initial_guess)
+            .with_solver(s.normal())
+            .with_preconditioner(s.preconditioner());
+        if let Some(kc) = clover {
+            a = a.with_clover(kc);
+        }
+        if let Some(o) = conditioned {
+            a = a.with_conditioned(o);
+        }
+        Box::new(a)
+    } else {
+        let mut a = TwoFlavor::new(op, c.smearing, c.md, c.h)
+            .with_guess(s.initial_guess)
+            .with_solver(s.normal())
+            .with_preconditioner(s.preconditioner());
+        if let Some(kc) = clover {
+            a = a.with_clover(kc);
+        }
+        if let Some(o) = conditioned {
+            a = a.with_conditioned(o);
+        }
+        Box::new(a)
+    }
+}
+
+/// Two flavours of the first operator over two of the second.
+fn ratio<O: ForceOp + 'static>(
+    (op, denominator): (O, O),
+    clover: Option<(f64, f64)>,
+    conditioned: Option<O>,
+    c: Common,
+) -> Box<dyn MdAction> {
+    let mut a = TwoFlavorRatio::new(op, denominator, c.smearing, c.md, c.h)
+        .with_solver(c.solver.normal())
+        .with_preconditioner(c.solver.preconditioner());
+    if let Some((kc, kc_denominator)) = clover {
+        a = a.with_clover(kc, kc_denominator);
+    }
+    if let Some(o) = conditioned {
+        a = a.with_conditioned(o);
+    }
+    Box::new(a)
+}
+
+/// A power of the determinant of `op` by the rational approximations of the action and of
+/// the heat bath.
+fn rational<O: ForceOp + 'static>(
+    op: O,
+    clover: Option<f64>,
+    (md, heat_bath): (RationalApprox, RationalApprox),
+    c: Common,
+) -> Box<dyn MdAction> {
+    let s = c.solver;
+    let mut a = Rational::new(op, c.smearing, md, heat_bath, c.md, c.h)
+        .with_pole_by_pole(s.kind == Some(HmcSolverKind::Cg));
+    if let Some(kc) = clover {
+        a = a.with_clover(kc);
+    }
+    if let Some(two) = s.two_step() {
+        a = a.with_two_step(two).with_preconditioner(s.preconditioner());
+    }
+    Box::new(a)
 }
 
 fn wilson(lat: &Arc<Lattice>, kappa: f64, b: &[BoundaryConfig; ND]) -> Wilson<f64> {
