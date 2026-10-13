@@ -2,7 +2,7 @@
 //! or its Schur complement on the even sites), and their preconditioners.
 
 use super::fermion_action::Psi;
-use super::ForceOp;
+use crate::fermion::HopTerms;
 use crate::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
 use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
@@ -268,7 +268,7 @@ impl MultigridSetup {
 
     /// The cycle for `op`. `fresh`: the first solve since the pseudofermions were drawn; `md`:
     /// a solve for the force.
-    pub(super) fn cycle<'a, O: ForceOp>(
+    pub(super) fn cycle<'a, O: HopTerms<Psi>>(
         &mut self,
         op: &'a O,
         lat: &Arc<Lattice>,
