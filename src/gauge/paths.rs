@@ -52,6 +52,9 @@ impl Extended {
             inner.par_iter().enumerate().for_each(|(x, &e)| {
                 let ptr = &ptr;
                 for (mu, slab) in slabs.iter().enumerate() {
+                    // SAFETY: `inner` maps the local sites to different extended indices
+                    // below `ext.product()`, so the `LINK` reals at `e * SITE + mu * LINK`
+                    // are inside `data` and no two threads get the same ones.
                     let dst = unsafe {
                         std::slice::from_raw_parts_mut(
                             ptr.0.add(e as usize * SITE + mu * LINK),
@@ -117,14 +120,17 @@ impl Extended {
         let last = self.slab(lat.local, mu, l..l + d);
         let low = self.slab(lat.local, mu, 0..d);
         let high = self.slab(lat.local, mu, l + d..l + 2 * d);
-        let ptr = SyncPtr(self.data.as_mut_ptr());
         if lat.grid[mu] == 1 {
-            // Periodic copies within this process; sources and destinations do not overlap.
+            // Periodic copies within this process.
+            let ptr = SyncPtr(self.data.as_mut_ptr());
             low.par_iter()
                 .zip(last.par_iter())
                 .chain(high.par_iter().zip(first.par_iter()))
                 .for_each(|(&to, &from)| {
                     let ptr = &ptr;
+                    // SAFETY: the sites written have coordinate μ in the halo (below d or from
+                    // l + d on) and those read have it inside (d..l + d, as l ≥ d was checked
+                    // in `new`): no site is both, and every site written is written once.
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             ptr.0.add(from * SITE),
@@ -162,10 +168,14 @@ impl Extended {
         gather(ex.send_buffer(fwd), &last);
         ex.start();
         ex.wait();
+        // After the last read of `data` above.
+        let ptr = SyncPtr(self.data.as_mut_ptr());
         for (face, to) in [(fwd, &high), (bwd, &low)] {
             let buf = ex.recv_buffer(face);
             buf.par_chunks(SITE).zip(to.par_iter()).for_each(|(b, &e)| {
                 let ptr = &ptr;
+                // SAFETY: `to` lists different sites of the halo, each inside `data`, and the
+                // receive buffer is not part of `data`.
                 unsafe {
                     std::ptr::copy_nonoverlapping(b.as_ptr(), ptr.0.add(e * SITE), SITE);
                 }
@@ -220,8 +230,13 @@ impl Extended {
     }
 }
 
+/// The start of `Extended::data`, for the threads of a parallel loop that each write sites of
+/// their own.
 struct SyncPtr(*mut f64);
+// SAFETY: the pointer is only used inside the loops above, which outlive neither `data` nor the
+// exclusive borrow it was taken from, and whose threads write disjoint ranges (see there).
 unsafe impl Sync for SyncPtr {}
+// SAFETY: as for `Sync`.
 unsafe impl Send for SyncPtr {}
 
 /// The product of the links along the path `steps` from every site, as one colour matrix per
