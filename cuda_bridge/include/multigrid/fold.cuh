@@ -162,6 +162,112 @@ __global__ void fold_prolong_kernel(
     fine[aosoa_5d_spinor_idx(colour, to, 1, Ls - 1 - s, Ls, at)] = sign * (ai[0] - ai[1]);
 }
 
+// -------------------------------------------------------------------------
+// The coarse operator D_c = P^dag D P: at every coarse site X a block A(X) and a link
+// B_dir(X) for each of the eight hops, dim x dim complex matrices, row-major (re, im):
+//
+//   d_diag[(X dim + row) dim + col],   d_links[((dir n_coarse + X) dim + row) dim + col],
+//
+// with d_neighbours[dir n_coarse + X] the site the hop dir of X comes from. Everything that is
+// done with it is one pass over the coarse sites of one parity (the others are set to zero;
+// parity < 0: all of them),
+//
+//   out(X) = [M(X)] ( base(X) + A(X) d(X) + sign sum_dir B_dir(X) h(X + dir) ),
+//
+// every part optional (a null pointer): the fields base, d (d_diag_of) and h (d_hops_of),
+// and the matrices M (d_inverse: the inverses of the blocks, or any others). With `gamma5`,
+// Gamma_5 (+1 on the first half of the components of a site, -1 on the second) acts on d and
+// h and on the result: Gamma_5 D_c Gamma_5, the adjoint of D_c.
+//
+// A block of threads for each (coarse site, vector), a thread for each row; blockIdx.y the
+// vector. out must be none of the fields. Shared memory: 2 dim reals.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void coarse_pass_kernel(
+    Float* __restrict__ d_out,
+    const Float* __restrict__ d_base,
+    const Float* __restrict__ d_diag_of,
+    const Float* __restrict__ d_hops_of,
+    const Float* __restrict__ d_diag,
+    const Float* __restrict__ d_links,
+    const Float* __restrict__ d_inverse,
+    const unsigned* __restrict__ d_neighbours,
+    const unsigned* __restrict__ d_odd,
+    int n_coarse, int dim,
+    int parity, Float sign, int gamma5)
+{
+    extern __shared__ unsigned char shared_bytes[];
+    Float* sum = reinterpret_cast<Float*>(shared_bytes);
+    const int X = blockIdx.x, row = threadIdx.x;
+    const size_t first = blockIdx.y * coarse_reals(n_coarse, dim);
+    const size_t matrix = static_cast<size_t>(dim) * dim;
+    const size_t at = first + coarse_index(static_cast<size_t>(X) * dim + row);
+    // The whole block of threads leaves, or none of it.
+    if (parity >= 0 && static_cast<int>(d_odd[X]) != parity) {
+        d_out[at] = 0;
+        d_out[at + WarpSize] = 0;
+        return;
+    }
+
+    // (m v)_row for the matrix m and the site Y of the field v.
+    auto times = [&](const Float* m, const Float* v, int Y, Float& re, Float& im) {
+        const Float* m_row = m + 2 * static_cast<size_t>(dim) * row;
+        for (int col = 0; col < dim; ++col) {
+            const size_t q = first + coarse_index(static_cast<size_t>(Y) * dim + col);
+            const Float flip = (gamma5 && col >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
+            const Float xr = flip * v[q], xi = flip * v[q + WarpSize];
+            const Float a = m_row[2 * col], b = m_row[2 * col + 1];
+            re += a * xr - b * xi;
+            im += a * xi + b * xr;
+        }
+    };
+
+    Float re = 0, im = 0;
+    if (d_diag_of != nullptr) {
+        times(d_diag + 2 * matrix * X, d_diag_of, X, re, im);
+    }
+    if (d_hops_of != nullptr) {
+        Float hr = 0, hi = 0;
+        for (int dir = 0; dir < 8; ++dir) {
+            const size_t link = static_cast<size_t>(dir) * n_coarse + X;
+            times(d_links + 2 * matrix * link, d_hops_of, d_neighbours[link], hr, hi);
+        }
+        re += sign * hr;
+        im += sign * hi;
+    }
+    if (d_base != nullptr) {
+        re += d_base[at];
+        im += d_base[at + WarpSize];
+    }
+    if (d_inverse != nullptr) {
+        sum[row] = re;
+        sum[dim + row] = im;
+        __syncthreads();
+        re = 0;
+        im = 0;
+        const Float* m_row = d_inverse + 2 * (matrix * X + static_cast<size_t>(dim) * row);
+        for (int col = 0; col < dim; ++col) {
+            const Float a = m_row[2 * col], b = m_row[2 * col + 1];
+            re += a * sum[col] - b * sum[dim + col];
+            im += a * sum[dim + col] + b * sum[col];
+        }
+    }
+    const Float flip = (gamma5 && row >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
+    d_out[at] = flip * re;
+    d_out[at + WarpSize] = flip * im;
+}
+
+// v = Gamma_5 v on the coarse lattice, every vector.
+template <typename Float>
+__global__ void coarse_gamma5_kernel(Float* __restrict__ d_v, int n_coarse, int dim)
+{
+    const int q = blockIdx.x * blockDim.x + threadIdx.x;
+    if (q >= n_coarse * dim || q % dim < dim / 2) return;
+    const size_t at = blockIdx.y * coarse_reals(n_coarse, dim) + coarse_index(q);
+    d_v[at] = -d_v[at];
+    d_v[at + WarpSize] = -d_v[at + WarpSize];
+}
+
 } // namespace bridge_cuda
 
 #endif // BRIDGE_CUDA_MULTIGRID_FOLD_CUH

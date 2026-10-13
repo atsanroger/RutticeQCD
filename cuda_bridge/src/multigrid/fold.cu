@@ -62,4 +62,40 @@ void bridge_cuda_fold_prolong_f64(
         d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, geometry(dims, Ls, parity, gamma));
 }
 
+void bridge_cuda_coarse_pass_f32(
+    float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
+    const float* d_diag, const float* d_links, const float* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
+{
+    dim3 grid(n_coarse, vectors);
+    bridge_cuda::coarse_pass_kernel<float><<<grid, dim, 2 * dim * sizeof(float), stream>>>(
+        d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
+        n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+}
+
+void bridge_cuda_coarse_gamma5_f32(float* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_gamma5_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim);
+}
+
+void bridge_cuda_coarse_pass_f64(
+    double* d_out, const double* d_base, const double* d_diag_of, const double* d_hops_of,
+    const double* d_diag, const double* d_links, const double* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
+{
+    dim3 grid(n_coarse, vectors);
+    bridge_cuda::coarse_pass_kernel<double><<<grid, dim, 2 * dim * sizeof(double), stream>>>(
+        d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
+        n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+}
+
+void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_gamma5_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim);
+}
+
 } // extern "C"

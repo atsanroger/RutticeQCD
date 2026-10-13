@@ -796,15 +796,20 @@ pub(super) fn solve_shared<T: Storage>(
 }
 
 /// Dense matrices on the coarse sites, applied site by site.
-pub(super) struct BlockMap {
+pub struct BlockMap {
     dim: usize,
     /// Per coarse site, row-major.
     blocks: Vec<Vec<C64>>,
 }
 
 impl BlockMap {
+    /// The matrices, one for each coarse site, row-major.
+    pub fn site_blocks(&self) -> &[Vec<C64>] {
+        &self.blocks
+    }
+
     /// The exact inverses of the diagonal blocks of `a`.
-    pub(super) fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
+    pub fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
         let dim = a.dim();
         let blocks = (0..a.lattice().num_sites())
             .map(|x| {
@@ -828,7 +833,7 @@ impl BlockMap {
     }
 
     /// The inverses of the diagonal blocks of the exact adjoint of `a`: (A_xx†)⁻¹ = (A_xx⁻¹)†.
-    pub(super) fn inverse_diagonal_adjoint(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
+    pub fn inverse_diagonal_adjoint(a: &CoarseOp<f64>) -> Result<Self, MultigridError> {
         let mut m = Self::inverse_diagonal(a)?;
         let dim = m.dim;
         for b in m.blocks.iter_mut() {
@@ -842,7 +847,7 @@ impl BlockMap {
     /// |H_xx|⁻¹ = V |Λ|⁻¹ V† for H = Γ5 (Γ5 A Γ5) = A Γ5, the operator MINRES works on
     /// when `a` holds P†D_PV P and is applied as its Γ5-adjoint (Γ5 = +1 on the first half
     /// of the components). Hermitian positive definite, as MINRES needs of a preconditioner.
-    pub(super) fn abs_inverse_of_a_gamma5(a: &CoarseOp<f64>) -> Self {
+    pub fn abs_inverse_of_a_gamma5(a: &CoarseOp<f64>) -> Self {
         let dim = a.dim();
         let blocks = (0..a.lattice().num_sites())
             .map(|x| {

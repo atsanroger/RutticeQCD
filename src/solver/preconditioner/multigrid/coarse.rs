@@ -569,6 +569,26 @@ impl<T: Storage> CoarseOp<T> {
         Ok(true)
     }
 
+    /// The operator as it is stored: the diagonal blocks `[site][row][column]` and the links
+    /// `[direction][site][row][column]`, complex numbers as (re, im).
+    pub fn blocks(&self) -> (&[T], &[T]) {
+        (&self.diag, &self.links)
+    }
+
+    /// The inverses of the diagonal blocks, with the even-odd form.
+    pub fn block_inverses(&self) -> Option<&[T]> {
+        self.even_odd.as_ref().map(|eo| eo.inverse.as_slice())
+    }
+
+    /// The sites the eight hops of site `x` come from, in the order of the links; on one
+    /// process.
+    pub fn neighbours(&self, x: usize) -> [usize; 2 * ND] {
+        DIRECTIONS.map(|(mu, dir)| match self.stencil.source(x, mu, dir) {
+            Source::Local { site, .. } => site,
+            _ => panic!("a coarse lattice on one process"),
+        })
+    }
+
     /// Whether `prepare_even_odd` has made the even-odd form available.
     pub fn has_even_odd(&self) -> bool {
         self.even_odd.is_some()

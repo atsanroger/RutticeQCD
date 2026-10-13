@@ -1100,6 +1100,74 @@ fn multigrid_transfers_on_the_device() {
         assert!(d < 1e-13, "π P differs by {d:e}");
     }
 
+    // The coarse operator, its adjoint and its even-odd form.
+    {
+        use ruttice::backend::cuda_bridge::DeviceCoarseOp;
+        use ruttice::solver::preconditioner::multigrid::{BlockMap, CoarseOp};
+        use ruttice::{LinearFn, LinearOp};
+        let mut op = CoarseOp::build(&cpu, &mut cpu.work(), &basis);
+        assert!(op.prepare_even_odd().unwrap());
+        let device_op = DeviceCoarseOp::<f64>::new(&op).unwrap();
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut random = || {
+            let mut f = basis.coarse_field(nv);
+            for v in f.as_mut_slice() {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                *v = (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+            }
+            f
+        };
+        let (x, g) = (random(), random());
+        let (dx, dg) = (
+            DeviceCoarse::<f64>::from_host(&x).unwrap(),
+            DeviceCoarse::<f64>::from_host(&g).unwrap(),
+        );
+        same(&x, &dx, "a coarse field after the transfer");
+        let (mut out, mut dout) = (x.zeros_like(), dx.zeros_like());
+        op.mult(&mut out, &x);
+        device_op.apply(&mut dout, &dx, false);
+        same(&out, &dout, "the coarse operator");
+        op.mult_dag(&mut out, &x);
+        device_op.apply(&mut dout, &dx, true);
+        same(&out, &dout, "the adjoint of the coarse operator");
+
+        let (mut odd, mut dodd) = (x.zeros_like(), dx.zeros_like());
+        let (mut even, mut deven) = (x.zeros_like(), dx.zeros_like());
+        op.even_block_inverse(&mut even, &x);
+        device_op.even_block_inverse(&mut deven, &dx);
+        same(
+            &even,
+            &deven,
+            "the inverses of the blocks on the even sites",
+        );
+        op.schur(&mut out, &even, &mut odd);
+        device_op.schur(&mut dout, &deven, &mut dodd);
+        same(&out, &dout, "the Schur complement");
+        op.schur_source(&mut out, &g, &mut odd);
+        device_op.schur_source(&mut dout, &dg, &mut dodd);
+        same(&out, &dout, "the source of the Schur system");
+        op.schur_solution(&mut even, &g, &mut odd);
+        device_op.schur_solution(&mut deven, &dg, &mut dodd);
+        same(&even, &deven, "the solution from that of the Schur system");
+
+        let mut blocks = BlockMap::abs_inverse_of_a_gamma5(&op);
+        let device_blocks = device_op.blocks(blocks.site_blocks()).unwrap();
+        blocks.mult(&mut out, &x);
+        device_op.apply_blocks(&mut dout, &dx, &device_blocks);
+        same(&out, &dout, "matrices on the coarse sites");
+        device_op.gamma5(&mut dout);
+        for site in out.as_mut_slice().chunks_exact_mut(4 * basis.coarse_dim()) {
+            for vector in site.chunks_exact_mut(2 * basis.coarse_dim()) {
+                for r in &mut vector[basis.coarse_dim()..] {
+                    *r = -*r;
+                }
+            }
+        }
+        same(&out, &dout, "Γ5 on the coarse lattice");
+    }
+
     // Between the precisions, and the linear algebra of coarse fields.
     let mut single = device.coarse_field::<f32>(nv);
     single.convert_from(&device_coarse);
