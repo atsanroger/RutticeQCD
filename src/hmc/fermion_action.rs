@@ -3,13 +3,14 @@
 
 use super::solve::{chebyshev_cg, Pre};
 use super::{traceless_antihermitian, Chrono, Links, MdAction, Mseries};
-use super::{NormalSolver, Preconditioner};
-use crate::fermion::{Bound, HopTerms, Variant};
+use super::{MultigridSetup, NormalSolver, Preconditioner};
+use crate::fermion::{Bound, FermionOp, HopTerms, Variant};
 use crate::gauge::{link, GaugeSmearing};
 use crate::kernel::{ColorMatrix, Cplx, NC, NS};
 use crate::solver::{SolveError, SolveInfo, Stop};
-use crate::{for_sites, Field, Gauge, LinearFn, Normal, Spinor, Vector, C64, ND};
+use crate::{for_sites, Field, Gauge, Lattice, LinearFn, Normal, Spinor, Vector, C64, ND};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// A spinor field of one vector.
 pub(super) type Psi = Field<f64, Spinor>;
@@ -195,30 +196,91 @@ fn clover_leaves(u: &Field<f64, Gauge>, b: &[Field<f64, Gauge>; 2]) -> Field<f64
     m
 }
 
-/// What the pseudofermion actions need of an operator besides applying it.
-pub trait ForceOp: HopTerms<Psi> + Sized {
-    /// M of −2 Re ζ† δD η (dS = Re tr X M for δU = X U).
-    fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
-        hop_derivative(self, zeta, eta)
-    }
+/// What the pseudofermion actions need of an operator besides applying it. `Field` is the kind
+/// of field the operator acts on: the actions reach their fields only through this trait and
+/// `Vector`, so an operator in another layout or on another backend brings its own fields and
+/// kernels, and the actions and the integrator stay as they are.
+pub trait ForceOp: FermionOp<Self::Field> + Sized {
+    type Field: Vector;
+    /// M of −2 Re ζ† δD η (dS = Re tr X M for δU = X U), without the clover term's part.
+    fn derivative(&self, zeta: &Self::Field, eta: &Self::Field) -> Field<f64, Gauge>;
+    /// The part of the clover term (coefficient κ c_SW) in that M, on the links `v`. Panics
+    /// for an operator without a clover term.
+    fn clover_derivative(
+        &self,
+        kappa_csw: f64,
+        v: &Field<f64, Gauge>,
+        zeta: &Self::Field,
+        eta: &Self::Field,
+    ) -> Field<f64, Gauge>;
     /// A zero field of the shape the operator acts on (one vector).
-    fn new_field(&self, lat: &std::sync::Arc<crate::Lattice>) -> Psi {
-        Psi::spinor(lat, 1)
-    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> Self::Field;
+    /// Gaussian numbers of variance ½ for every real of `xi`, in Bridge++'s order.
+    fn draw(&self, xi: &mut Self::Field, rng: &mut Mseries);
+    /// `out = Γ5 inp`, the Γ5 of the operator (γ5 R for domain-wall fermions).
+    fn gamma5(
+        &self,
+        work: &mut <Self as FermionOp<Self::Field>>::Work,
+        out: &mut Self::Field,
+        inp: &Self::Field,
+    );
     /// `out = R inp` when the operator applies D R in place of D (`with_conditioned`); R = 1
     /// for most.
-    fn right(&self, out: &mut Psi, inp: &Psi) {
+    fn right(&self, out: &mut Self::Field, inp: &Self::Field) {
         out.copy_from(inp);
+    }
+    /// The multigrid cycle of this operator from the test vectors of `setup` (`fresh`, `md`:
+    /// as `MultigridSetup::cycle` takes them); none for an operator without a multigrid.
+    fn multigrid<'a>(
+        &'a self,
+        _setup: &mut MultigridSetup,
+        _fresh: bool,
+        _md: bool,
+    ) -> Option<Box<dyn LinearFn<Self::Field> + 'a>> {
+        None
     }
 }
 
-impl<G: crate::kernel::GammaRepre, D: crate::fermion::DiagTerm<f64>> ForceOp
-    for crate::fermion::WilsonOp<f64, G, D>
+impl<G, D> ForceOp for crate::fermion::WilsonOp<f64, G, D>
+where
+    G: crate::kernel::GammaRepre + 'static,
+    D: crate::fermion::DiagTerm<f64> + 'static,
 {
+    type Field = Psi;
+    fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
+        hop_derivative(self, zeta, eta)
+    }
+    fn clover_derivative(
+        &self,
+        kappa_csw: f64,
+        v: &Field<f64, Gauge>,
+        zeta: &Psi,
+        eta: &Psi,
+    ) -> Field<f64, Gauge> {
+        clover_derivative(v, kappa_csw, zeta, eta)
+    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> Psi {
+        Psi::spinor(lat, 1)
+    }
+    fn draw(&self, xi: &mut Psi, rng: &mut Mseries) {
+        draw(xi, rng);
+    }
+    fn gamma5(&self, work: &mut Self::Work, out: &mut Psi, inp: &Psi) {
+        self.mult_gamma5(work, out, inp);
+    }
+    fn multigrid<'a>(
+        &'a self,
+        setup: &mut MultigridSetup,
+        fresh: bool,
+        md: bool,
+    ) -> Option<Box<dyn LinearFn<Psi> + 'a>> {
+        Some(Box::new(setup.cycle(self, self.lattice(), fresh, md)))
+    }
 }
 
 /// Domain-wall fermions: the hops are those of the Wilson kernel acting on b η − c Y η.
 impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
+    type Field = Psi;
     fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
         kernel_derivative(
             self.kernel(),
@@ -227,8 +289,23 @@ impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
             &self.kernel_input(eta),
         )
     }
-    fn new_field(&self, lat: &std::sync::Arc<crate::Lattice>) -> Psi {
+    fn clover_derivative(
+        &self,
+        _kappa_csw: f64,
+        _v: &Field<f64, Gauge>,
+        _zeta: &Psi,
+        _eta: &Psi,
+    ) -> Field<f64, Gauge> {
+        unreachable!("domain-wall fermions have no clover term")
+    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> Psi {
         Field::with_shape(lat, 24, self.params().ls, 1, 1)
+    }
+    fn draw(&self, xi: &mut Psi, rng: &mut Mseries) {
+        draw(xi, rng);
+    }
+    fn gamma5(&self, work: &mut Self::Work, out: &mut Psi, inp: &Psi) {
+        self.mult_gamma5(work, out, inp);
     }
     fn right(&self, out: &mut Psi, inp: &Psi) {
         self.mult_q(out, inp, false);
@@ -241,12 +318,12 @@ pub(super) fn full_derivative<O: ForceOp>(
     op: &O,
     clover: Option<f64>,
     v: &Field<f64, Gauge>,
-    zeta: &Psi,
-    eta: &Psi,
+    zeta: &O::Field,
+    eta: &O::Field,
 ) -> Field<f64, Gauge> {
     let mut m = op.derivative(zeta, eta);
     if let Some(kc) = clover {
-        let c = clover_derivative(v, kc, zeta, eta);
+        let c = op.clover_derivative(kc, v, zeta, eta);
         for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
             *a += b;
         }
@@ -308,12 +385,12 @@ pub fn smeared_force(
 /// γ5 of an operator as a map.
 pub(super) struct Gamma5<'a, O: ForceOp> {
     pub(super) op: &'a O,
-    pub(super) work: O::Work,
+    pub(super) work: <O as FermionOp<O::Field>>::Work,
 }
 
-impl<O: ForceOp> LinearFn<Psi> for Gamma5<'_, O> {
-    fn mult(&mut self, out: &mut Psi, inp: &Psi) {
-        self.op.mult_gamma5(&mut self.work, out, inp);
+impl<O: ForceOp> LinearFn<O::Field> for Gamma5<'_, O> {
+    fn mult(&mut self, out: &mut O::Field, inp: &O::Field) {
+        self.op.gamma5(&mut self.work, out, inp);
     }
 }
 
@@ -325,8 +402,8 @@ pub(super) fn normal_solve<O: ForceOp>(
     solver: NormalSolver,
     pre: &mut Preconditioner,
     (fresh, md): (bool, bool),
-    z: &mut Psi,
-    b: &Psi,
+    z: &mut O::Field,
+    b: &O::Field,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     let mut d = Bound::new(op, Variant::D);
@@ -342,13 +419,15 @@ pub(super) fn normal_solve<O: ForceOp>(
             stop,
         ),
         Preconditioner::Multigrid(setup) => {
-            let mut cycle = setup.cycle(op, b.lattice(), fresh, md);
+            let mut cycle = op
+                .multigrid(setup, fresh, md)
+                .expect("the operator has a multigrid");
             let mut gamma = Gamma5 {
                 op,
                 work: op.work(),
             };
             let pre = Pre::Hermitian {
-                m: &mut cycle,
+                m: &mut *cycle,
                 gamma: &mut gamma,
             };
             solver.solve(&mut d, pre, z, b, stop)
@@ -358,7 +437,7 @@ pub(super) fn normal_solve<O: ForceOp>(
 
 /// Two degenerate flavours, S = φ† (D†D)⁻¹ φ, with D the operator `op` on the links smeared
 /// by `smearing` (none: the links themselves). (D†D)⁻¹ by CG to |r|²/|b|² < `stop`.
-pub struct TwoFlavor<O> {
+pub struct TwoFlavor<O: ForceOp> {
     pub op: O,
     pub smearing: Option<GaugeSmearing>,
     /// The solves for the force and for the energy.
@@ -370,7 +449,7 @@ pub struct TwoFlavor<O> {
     conditioned: Option<O>,
     /// No solve yet since the pseudofermions were drawn.
     fresh: bool,
-    phi: Option<Psi>,
+    phi: Option<O::Field>,
     /// CG iterations of the last solve.
     pub last_iterations: usize,
     /// CG iterations of all force solves so far.
@@ -378,7 +457,7 @@ pub struct TwoFlavor<O> {
     /// κ c_SW when the operator has a clover term (`with_clover`).
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
-    pub guess: Chrono<Psi>,
+    pub guess: Chrono<O::Field>,
 }
 
 impl<O: ForceOp> TwoFlavor<O> {
@@ -446,7 +525,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     }
 
     /// (D†D)⁻¹ φ; for the force (`md`) from the guess.
-    fn solve(&mut self, stop: Stop, md: bool) -> Result<Psi, SolveError> {
+    fn solve(&mut self, stop: Stop, md: bool) -> Result<O::Field, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let a = self.conditioned.as_ref().unwrap_or(&self.op);
         let (mut b, mut z) = (phi.zeros_like(), phi.zeros_like());
@@ -473,7 +552,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
-        draw(&mut xi, rng);
+        self.op.draw(&mut xi, rng);
         let mut phi = xi.zeros_like();
         let mut work = self.op.work();
         self.op.mult(&mut work, &mut phi, &xi, Variant::Dagger);
@@ -513,7 +592,7 @@ impl<O: ForceOp> TwoFlavor<O> {
 /// Two flavours over two Pauli-Villars flavours, det(D†D)/det(D_PV†D_PV), as Bridge++'s
 /// `Action_F_Ratio_lex` writes it with H = Γ5 D: S = φ† H_PV (H†H)⁻¹ H_PV† φ, φ drawn as
 /// H_PV (H_PV†H_PV)⁻¹ H† ξ so that S = |ξ|² at the start.
-pub struct TwoFlavorRatio<O> {
+pub struct TwoFlavorRatio<O: ForceOp> {
     pub op: O,
     pub pv: O,
     pub smearing: Option<GaugeSmearing>,
@@ -525,7 +604,7 @@ pub struct TwoFlavorRatio<O> {
     pub preconditioner: Preconditioner,
     conditioned: Option<O>,
     fresh: bool,
-    phi: Option<Psi>,
+    phi: Option<O::Field>,
     /// κ c_SW of the operator and of the denominator when they have a clover term.
     clover: Option<(f64, f64)>,
 }
@@ -589,9 +668,9 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         op: &O,
         pre: &mut Preconditioner,
         flags: (bool, bool),
-        b: &Psi,
+        b: &O::Field,
         stop: Stop,
-    ) -> Psi {
+    ) -> O::Field {
         let (mut rb, mut z, mut x) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
         op.right(&mut rb, b);
         normal_solve(op, solver, pre, flags, &mut z, &rb, stop).expect("the solve converges");
@@ -600,30 +679,30 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 
     /// (D†D)⁻¹ b for the operator of the action, with its preconditioner.
-    fn solve_op(&mut self, b: &Psi, stop: Stop, md: bool) -> Psi {
+    fn solve_op(&mut self, b: &O::Field, stop: Stop, md: bool) -> O::Field {
         let flags = (std::mem::take(&mut self.fresh), md);
         let op = self.conditioned.as_ref().unwrap_or(&self.op);
         let pre = &mut self.preconditioner;
         Self::solve(self.solver, op, pre, flags, b, stop)
     }
 
-    fn apply(op: &O, v: &Psi, variant: Variant) -> Psi {
+    fn apply(op: &O, v: &O::Field, variant: Variant) -> O::Field {
         let mut out = v.zeros_like();
         op.mult(&mut op.work(), &mut out, v, variant);
         out
     }
 
     /// Γ5 of the operator (γ5 R for domain-wall fermions).
-    fn gamma5(op: &O, v: &Psi) -> Psi {
+    fn gamma5(op: &O, v: &O::Field) -> O::Field {
         let mut out = v.zeros_like();
-        op.mult_gamma5(&mut op.work(), &mut out, v);
+        op.gamma5(&mut op.work(), &mut out, v);
         out
     }
 
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
-        draw(&mut xi, rng);
+        self.op.draw(&mut xi, rng);
         // H† ξ = D† Γ5 ξ.
         let v2 = Self::apply(&self.op, &Self::gamma5(&self.op, &xi), Variant::Dagger);
         let none = &mut Preconditioner::None;
@@ -643,7 +722,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 
     /// H_PV† φ = D_PV† Γ5 φ.
-    fn v1(&self) -> Psi {
+    fn v1(&self) -> O::Field {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         Self::apply(&self.pv, &Self::gamma5(&self.pv, phi), Variant::Dagger)
     }

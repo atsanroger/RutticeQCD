@@ -74,6 +74,13 @@ pub struct WilsonOp<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T
     _gamma: PhantomData<G>,
 }
 
+impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T>> WilsonOp<T, G, D, L> {
+    /// The lattice the operator is on.
+    pub fn lattice(&self) -> &Arc<Lattice> {
+        &self.lat
+    }
+}
+
 /// A layout the Wilson operator has a sweep for.
 pub trait WilsonLayout<T: Storage>: Layout {
     /// The geometry and the links of an operator for this layout.

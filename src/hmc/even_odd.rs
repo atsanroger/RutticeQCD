@@ -11,7 +11,7 @@
 //!
 //!   X = (η, −T_oo⁻¹ M_oe η),   Y = (ζ, −T_oo⁻† (M_eo)† ζ),
 
-use super::fermion_action::{draw, smeared_force, CloverInsertion, ForceOp, Gamma5};
+use super::fermion_action::{smeared_force, CloverInsertion, ForceOp, Gamma5};
 use super::solve::{chebyshev_cg, Pre};
 use super::{Chrono, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
@@ -30,22 +30,59 @@ type Psi = Field<f64, Spinor>;
 /// A spinor field on the sites of one parity.
 pub type HalfPsi = Field<f64, Spinor, Half>;
 
-/// What the even-odd actions need of an operator besides its blocks.
-pub trait EvenOddForceOp: ForceOp + EvenOdd<HalfPsi> {
+/// What the even-odd actions need of an operator besides its blocks. `Half` is its kind of
+/// field on the sites of one parity: as with `ForceOp::Field`, the action reaches its fields
+/// only through this trait and `Vector`, so an operator in another layout or on another backend
+/// brings its own.
+pub trait EvenOddForceOp: ForceOp + EvenOdd<Self::Half> {
+    type Half: Vector;
+    /// A zero field on the sites of `parity` of the shape the operator acts on.
+    fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half;
+    /// `ForceOp::right` on the sites of one parity.
+    fn right_half(&self, out: &mut Self::Half, inp: &Self::Half);
+    /// `half` = the sites of `parity` of `whole`.
+    fn half_of(&self, half: &mut Self::Half, whole: &Self::Field, parity: Parity);
+    /// The sites of the parity of `half` in `whole` = `half`.
+    fn put_half(&self, whole: &mut Self::Field, half: &Self::Half);
+    /// Σ over the sites x of `parity` of ln |det T(x)|, T the site-diagonal block of the
+    /// operator; summed over all processes.
+    fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64;
+    /// The clover term's part (coefficient κ c_SW) of the M of the even-odd action on the links
+    /// `v`: that of −2 Re y† δD x, and that of the derivative of −2 ln |det T| on the sites
+    /// of `parity`.
+    fn clover_derivative_eo(
+        &self,
+        kappa_csw: f64,
+        v: &Field<f64, Gauge>,
+        parity: Parity,
+        y: &Self::Field,
+        x: &Self::Field,
+    ) -> Field<f64, Gauge>;
+    /// A map on the even sites from one on all sites: the even sites of `inner` applied to a
+    /// field that is zero on the odd ones.
+    fn on_even<'a>(
+        &'a self,
+        inner: &'a mut dyn LinearFn<Self::Field>,
+        lat: &Arc<Lattice>,
+    ) -> Box<dyn LinearFn<Self::Half> + 'a>;
+}
+
+/// The operators of the usual layout: what `EvenOddForceOp` is made of for them.
+pub trait EvenOddSites: ForceOp<Field = Psi> + EvenOdd<HalfPsi> {
     /// The numbering of the sites of each parity the operator uses.
     fn eo_index(&self) -> &EvenOddIndex;
-    /// A zero field on the sites of `parity` of the shape the operator acts on.
-    fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
+    fn half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
         HalfPsi::spinor_half(lat, 1, parity)
     }
-    /// `ForceOp::right` on the sites of one parity.
-    fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+    fn right_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         out.copy_from(inp);
     }
 }
 
-impl<G: crate::kernel::GammaRepre, D: crate::fermion::DiagTerm<f64>> EvenOddForceOp
-    for crate::fermion::WilsonOp<f64, G, D>
+impl<G, D> EvenOddSites for crate::fermion::WilsonOp<f64, G, D>
+where
+    G: crate::kernel::GammaRepre + 'static,
+    D: crate::fermion::DiagTerm<f64> + 'static,
 {
     fn eo_index(&self) -> &EvenOddIndex {
         self.even_odd_index()
@@ -53,24 +90,64 @@ impl<G: crate::kernel::GammaRepre, D: crate::fermion::DiagTerm<f64>> EvenOddForc
     }
 }
 
-impl<G: crate::kernel::GammaRepre> EvenOddForceOp for crate::fermion::Mdwf<f64, G> {
+impl<G: crate::kernel::GammaRepre> EvenOddSites for crate::fermion::Mdwf<f64, G> {
     fn eo_index(&self) -> &EvenOddIndex {
         self.even_odd_index()
             .expect("even-odd preconditioning needs even extents")
     }
-    fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
+    fn half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
         let mut f = HalfPsi::with_shape(lat, 24, self.params().ls, 1, 1);
         f.set_parity(parity);
         f
     }
-    fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+    fn right_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         self.mult_q(out, inp, false);
     }
 }
 
+impl<O: EvenOddSites> EvenOddForceOp for O {
+    type Half = HalfPsi;
+    fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
+        self.half(lat, parity)
+    }
+    fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        self.right_on_half(out, inp);
+    }
+    fn half_of(&self, half: &mut HalfPsi, whole: &Psi, parity: Parity) {
+        extract_parity(half, whole, self.eo_index(), parity);
+    }
+    fn put_half(&self, whole: &mut Psi, half: &HalfPsi) {
+        insert_parity(whole, half, self.eo_index());
+    }
+    fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64 {
+        log_det_diag(self, lat, parity)
+    }
+    fn clover_derivative_eo(
+        &self,
+        kappa_csw: f64,
+        v: &Field<f64, Gauge>,
+        parity: Parity,
+        y: &Psi,
+        x: &Psi,
+    ) -> Field<f64, Gauge> {
+        let lat = v.lattice();
+        let mut b = CloverInsertion::new(lat);
+        b.add(kappa_csw, y, x);
+        add_log_det_insertion(self, lat, kappa_csw, parity, &mut b);
+        b.leaves(v)
+    }
+    fn on_even<'a>(
+        &'a self,
+        inner: &'a mut dyn LinearFn<Psi>,
+        lat: &Arc<Lattice>,
+    ) -> Box<dyn LinearFn<HalfPsi> + 'a> {
+        Box::new(OnParity::new(inner, self.eo_index(), &self.new_field(lat)))
+    }
+}
+
 /// The unit vector e_k (k = colour + 3 spin) on every site of `parity`.
-fn unit<O: EvenOddForceOp>(op: &O, lat: &Arc<Lattice>, parity: Parity, k: usize) -> HalfPsi {
-    let mut e = op.new_half(lat, parity);
+fn unit<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity, k: usize) -> HalfPsi {
+    let mut e = op.half(lat, parity);
     for site in e.slab_mut(0).as_chunks_mut::<24>().0 {
         site[2 * k] = 1.0;
     }
@@ -79,7 +156,7 @@ fn unit<O: EvenOddForceOp>(op: &O, lat: &Arc<Lattice>, parity: Parity, k: usize)
 
 /// Σ over the sites x of `parity` of ln |det T(x)|, T(x) the 12 × 12 site-diagonal block of
 /// the operator, from its columns T e_k; summed over all processes.
-pub fn log_det_diag<O: EvenOddForceOp>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
+pub fn log_det_diag<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
     let mut work = op.even_odd_work();
     let cols: Vec<HalfPsi> = (0..12)
         .map(|k| {
@@ -129,7 +206,7 @@ fn log_abs_det(m: &mut [[C64; 12]; 12]) -> f64 {
 
 /// Adds to `b` the clover insertion of the derivative of −2 ln |det T_p| (the sites of
 /// `parity`): the pairs (T⁻¹ e_k, e_k) for the twelve unit vectors.
-fn add_log_det_insertion<O: EvenOddForceOp>(
+fn add_log_det_insertion<O: EvenOddSites>(
     op: &O,
     lat: &Arc<Lattice>,
     kappa_csw: f64,
@@ -151,7 +228,7 @@ fn add_log_det_insertion<O: EvenOddForceOp>(
 
 /// Two degenerate flavours with even-odd preconditioning (module documentation), D the
 /// operator `op` on the links smeared by `smearing`. (Ŝ†Ŝ)⁻¹ by CG to |r|²/|b|² < `stop`.
-pub struct TwoFlavorEo<O> {
+pub struct TwoFlavorEo<O: EvenOddForceOp> {
     pub op: O,
     pub smearing: Option<GaugeSmearing>,
     pub stop_md: Stop,
@@ -163,14 +240,14 @@ pub struct TwoFlavorEo<O> {
     pub preconditioner: Preconditioner,
     conditioned: Option<O>,
     fresh: bool,
-    phi: Option<HalfPsi>,
+    phi: Option<O::Half>,
     /// CG iterations of the last solve, and of all force solves so far.
     pub last_iterations: usize,
     pub md_iterations: usize,
     /// κ c_SW when the operator has a clover term (`with_clover`).
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
-    pub guess: Chrono<HalfPsi>,
+    pub guess: Chrono<O::Half>,
 }
 
 impl<O: EvenOddForceOp> TwoFlavorEo<O> {
@@ -247,16 +324,16 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
     /// −2 ln |det T_oo|, for the operator on the current links.
     fn det_term(&self, lat: &Arc<Lattice>) -> f64 {
         match self.clover {
-            Some(_) => -2.0 * log_det_diag(&self.op, lat, Parity::Odd),
+            Some(_) => -2.0 * self.op.log_det_diag(lat, Parity::Odd),
             None => 0.0,
         }
     }
 
     /// (Ŝ†Ŝ)⁻¹ φ_e; for the force (`md`) from the guess.
-    fn solve(&mut self, stop: Stop, md: bool) -> Result<HalfPsi, SolveError> {
+    fn solve(&mut self, lat: &Arc<Lattice>, stop: Stop, md: bool) -> Result<O::Half, SolveError> {
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let a = self.conditioned.as_ref().unwrap_or(&self.op);
-        let odd = a.new_half(phi.lattice(), Parity::Odd);
+        let odd = a.new_half(lat, Parity::Odd);
         let (mut b, mut z) = (phi.zeros_like(), phi.zeros_like());
         a.right_half(&mut b, phi);
         let mut schur = Schur::new(a, Parity::Even, phi, &odd);
@@ -279,17 +356,18 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
             Preconditioner::Multigrid(setup) => {
                 // The even sites of the cycle approximate Ŝ⁻¹, the block of D⁻¹ there; γ5 acts
                 // within a site.
-                let mut cycle = setup.cycle(a, phi.lattice(), fresh, md);
-                let like = a.new_field(phi.lattice());
-                let mut m = OnParity::new(&mut cycle, a.eo_index(), &like);
+                let mut cycle = a
+                    .multigrid(setup, fresh, md)
+                    .expect("the operator has a multigrid");
                 let mut gamma5 = Gamma5 {
                     op: a,
-                    work: <O as crate::fermion::FermionOp<Psi>>::work(a),
+                    work: <O as crate::fermion::FermionOp<O::Field>>::work(a),
                 };
-                let mut gamma = OnParity::new(&mut gamma5, a.eo_index(), &like);
+                let mut m = a.on_even(&mut *cycle, lat);
+                let mut gamma = a.on_even(&mut gamma5, lat);
                 let pre = Pre::Hermitian {
-                    m: &mut m,
-                    gamma: &mut gamma,
+                    m: &mut *m,
+                    gamma: &mut *gamma,
                 };
                 self.solver.solve(&mut schur, pre, &mut z, &b, stop)?
             }
@@ -310,9 +388,9 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         self.set_links(links);
         let lat = links.thin.lattice();
         let mut xi = self.op.new_field(lat);
-        draw(&mut xi, rng);
+        self.op.draw(&mut xi, rng);
         let mut xi_e = self.op.new_half(lat, Parity::Even);
-        extract_parity(&mut xi_e, &xi, self.op.eo_index(), Parity::Even);
+        self.op.half_of(&mut xi_e, &xi, Parity::Even);
         let mut phi = xi_e.zeros_like();
         {
             let odd = self.op.new_half(lat, Parity::Odd);
@@ -330,7 +408,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
     pub fn hamiltonian(&mut self, links: &Links) -> f64 {
         self.set_links(links);
         let v = self
-            .solve(self.stop_h, false)
+            .solve(links.thin.lattice(), self.stop_h, false)
             .expect("the solve for the energy converges");
         let mut d = [C64::ZERO];
         v.dot(self.phi.as_ref().expect("drawn"), &mut d);
@@ -339,10 +417,10 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
 
     pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
         let levels = self.set_links(links);
-        let eta = self
-            .solve(self.stop_md, true)
-            .expect("the solve for the force converges");
         let lat = links.thin.lattice();
+        let eta = self
+            .solve(lat, self.stop_md, true)
+            .expect("the solve for the force converges");
         let (even, odd) = (Parity::Even, Parity::Odd);
         let like_odd = self.op.new_half(lat, odd);
         let mut zeta = eta.zeros_like();
@@ -360,19 +438,15 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         self.op.hop(&mut work, &mut t, &zeta, odd, Dagger::Yes);
         self.op.diag_inv(&mut work, &mut y_o, &t, odd, Dagger::Yes);
         y_o.scale(&[-1.0]);
-        let index = self.op.eo_index();
-        let (mut x, mut y): (Psi, Psi) = (self.op.new_field(lat), self.op.new_field(lat));
-        insert_parity(&mut x, &eta, index);
-        insert_parity(&mut x, &x_o, index);
-        insert_parity(&mut y, &zeta, index);
-        insert_parity(&mut y, &y_o, index);
+        let (mut x, mut y) = (self.op.new_field(lat), self.op.new_field(lat));
+        self.op.put_half(&mut x, &eta);
+        self.op.put_half(&mut x, &x_o);
+        self.op.put_half(&mut y, &zeta);
+        self.op.put_half(&mut y, &y_o);
         let mut m = self.op.derivative(&y, &x);
         if let Some(kc) = self.clover {
             let v = levels.last().unwrap_or(links.thin);
-            let mut b = CloverInsertion::new(lat);
-            b.add(kc, &y, &x);
-            add_log_det_insertion(&self.op, lat, kc, odd, &mut b);
-            let c = b.leaves(v);
+            let c = self.op.clover_derivative_eo(kc, v, odd, &y, &x);
             for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
                 *a += b;
             }

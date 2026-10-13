@@ -7,8 +7,8 @@
 //! λ of |D| and reads its coefficients from AlgRemez's files, which `RationalApprox::minimax`
 //! reproduces to the last digit.
 
+use super::fermion_action::full_derivative;
 use super::fermion_action::Gamma5;
-use super::fermion_action::{draw, full_derivative, Psi};
 use super::solve::{Hermitian, Shifted};
 use super::{smeared_force, ForceOp, Links, Mseries};
 use super::{NormalSolver, Preconditioner};
@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 /// S = φ† r_md(D†D) φ, r_md ≈ (D†D)^(−a), φ drawn as r_hb(D†D) ξ, r_hb ≈ (D†D)^(a/2), with D
 /// the operator `op` on the links smeared by `smearing`.
-pub struct Rational<O> {
+pub struct Rational<O: ForceOp> {
     pub op: O,
     pub smearing: Option<GaugeSmearing>,
     /// The approximation of the action and the force, and that of the heat bath.
@@ -37,7 +37,7 @@ pub struct Rational<O> {
     /// The multigrid of the two-step solves; none otherwise.
     pub preconditioner: Preconditioner,
     fresh: bool,
-    phi: Option<Psi>,
+    phi: Option<O::Field>,
     /// κ c_SW when the operator has a clover term.
     clover: Option<f64>,
     /// Iterations of the last multi-shift solve.
@@ -108,16 +108,14 @@ impl<O: ForceOp> Rational<O> {
     fn shifted(
         &mut self,
         r: &RationalApprox,
-        b: &Psi,
+        b: &O::Field,
         stop: Stop,
         md: bool,
-    ) -> Result<Vec<Psi>, SolveError> {
+    ) -> Result<Vec<O::Field>, SolveError> {
         if let Some(solver) = self.two_step {
             let fresh = std::mem::take(&mut self.fresh);
             let mut cycle = match &mut self.preconditioner {
-                Preconditioner::Multigrid(setup) => {
-                    Some(setup.cycle(&self.op, b.lattice(), fresh, md))
-                }
+                Preconditioner::Multigrid(setup) => self.op.multigrid(setup, fresh, md),
                 _ => None,
             };
             let mut d = Bound::new(&self.op, Variant::D);
@@ -131,7 +129,9 @@ impl<O: ForceOp> Rational<O> {
                 let mut x = b.zeros_like();
                 let hermitian = Hermitian {
                     gamma: &mut gamma,
-                    m: cycle.as_mut().map(|m| m as &mut dyn crate::LinearFn<Psi>),
+                    m: cycle
+                        .as_mut()
+                        .map(|m| &mut **m as &mut dyn crate::LinearFn<O::Field>),
                 };
                 let info = solver.shifted(&mut d, hermitian, pole.sqrt(), &mut x, b, stop)?;
                 self.last_iterations += info.iterations;
@@ -162,7 +162,7 @@ impl<O: ForceOp> Rational<O> {
     }
 
     /// r(D†D) b = a0 b + Σ_k res_k x_k, in Bridge++'s order of the sum.
-    fn apply(&mut self, r: &RationalApprox, b: &Psi, stop: Stop) -> Psi {
+    fn apply(&mut self, r: &RationalApprox, b: &O::Field, stop: Stop) -> O::Field {
         let xs = self
             .shifted(r, b, stop, false)
             .expect("the multi-shift solve converges");
@@ -180,7 +180,7 @@ impl<O: ForceOp> Rational<O> {
     pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         self.set_links(links);
         let mut xi = self.op.new_field(links.thin.lattice());
-        draw(&mut xi, rng);
+        self.op.draw(&mut xi, rng);
         let r = self.heat_bath.clone();
         self.fresh = true;
         self.phi = Some(self.apply(&r, &xi, self.stop_h));
