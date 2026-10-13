@@ -90,6 +90,106 @@ impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for Schur<'_, F, H> {
     }
 }
 
+/// The even-odd form of a Pauli-Villars preconditioned operator (see [`PvRatio`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EoForm {
+    /// `Ã = C_PV,e†⁻¹ S_PV† S C_e⁻¹`, S = C_e − D_eo C_o⁻¹ D_oe the Schur complement of D on
+    /// the even sites: the even-odd version of A. Neff's α cancels in it.
+    Right,
+    /// `Ã_L = (C_PV,e⁻¹ S_PV)† (C_e⁻¹ S)`, which sees α: with D^(α) = D Q it is
+    /// `Q_e (C_PV,e⁻¹ S_PV)† Q_e⁻² (C_e⁻¹ S) Q_e` (α in D_PV too).
+    Left,
+}
+
+/// The Schur factor `1 − M_eo M_oo⁻¹ M_oe M_ee⁻¹` (right form) or `1 − M_ee⁻¹ M_eo M_oo⁻¹ M_oe`
+/// (left form) of `op` on the even sites, or its adjoint, from the blocks one after the other,
+/// with two scratch fields on the odd sites and one on the even ones.
+pub fn schur_factor<F: EvenOdd<H>, H: Vector>(
+    op: &F,
+    work: &mut F::Work,
+    form: EoForm,
+    ([o1, o2], e): (&mut [H; 2], &mut H),
+    out: &mut H,
+    inp: &H,
+    dagger: Dagger,
+) {
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    // The adjoint takes the factors in the opposite order.
+    if (form == EoForm::Right) == (dagger == Dagger::No) {
+        op.diag_inv(work, e, inp, even, dagger);
+        op.hop(work, o1, e, odd, dagger);
+        op.diag_inv(work, o2, o1, odd, dagger);
+        op.hop(work, out, o2, even, dagger);
+    } else {
+        op.hop(work, o1, inp, odd, dagger);
+        op.diag_inv(work, o2, o1, odd, dagger);
+        op.hop(work, e, o2, even, dagger);
+        op.diag_inv(work, out, e, even, dagger);
+    }
+    let minus = vec![C64::new(-1.0, 0.0); inp.num_vectors()];
+    out.aypx(&minus, inp);
+}
+
+/// The Pauli-Villars preconditioned operator on the even sites in the form `form`, the Schur
+/// factor of `op` followed by the adjoint of that of `pv` (normally the same operator at mass
+/// 1), for any operator with even-odd blocks. `fermion::mdwf::PvEvenOdd` is this for the
+/// operator on the CPU, with the blocks fused.
+pub struct PvRatio<'a, F: EvenOdd<H>, H> {
+    op: &'a F,
+    pv: &'a F,
+    form: EoForm,
+    work: F::Work,
+    work_pv: F::Work,
+    odd: [H; 2],
+    even: [H; 2],
+}
+
+impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
+    /// `like_even` and `like_odd` give the shapes of the fields on the two parities.
+    pub fn new(op: &'a F, pv: &'a F, form: EoForm, like_even: &H, like_odd: &H) -> Self {
+        Self {
+            op,
+            pv,
+            form,
+            work: op.even_odd_work(),
+            work_pv: pv.even_odd_work(),
+            odd: [like_odd.zeros_like(), like_odd.zeros_like()],
+            even: [like_even.zeros_like(), like_even.zeros_like()],
+        }
+    }
+
+    /// `out = second(first(inp))`, the factors given as (Pauli-Villars?, dagger).
+    fn product(&mut self, out: &mut H, inp: &H, first: (bool, Dagger), second: (bool, Dagger)) {
+        let [e0, e1] = &mut self.even;
+        for (which, (pv, dagger)) in [first, second].into_iter().enumerate() {
+            let (op, work) = if pv {
+                (self.pv, &mut self.work_pv)
+            } else {
+                (self.op, &mut self.work)
+            };
+            let scratch = (&mut self.odd, &mut *e0);
+            if which == 0 {
+                schur_factor(op, work, self.form, scratch, e1, inp, dagger);
+            } else {
+                schur_factor(op, work, self.form, scratch, out, e1, dagger);
+            }
+        }
+    }
+}
+
+impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
+    /// `out = Ã inp`: the factor of the operator, then the adjoint of the Pauli-Villars one.
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        self.product(out, inp, (false, Dagger::No), (true, Dagger::Yes));
+    }
+}
+
+impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for PvRatio<'_, F, H> {
+    fn mult_dag(&mut self, out: &mut H, inp: &H) {
+        self.product(out, inp, (true, Dagger::No), (false, Dagger::Yes));
+    }
+}
+
 type HalfField<T, K, L> = Field<T, K, Half, L, Cpu>;
 
 /// How a field on the whole lattice (`V`) splits into fields on one parity (`H`).

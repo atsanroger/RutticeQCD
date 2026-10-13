@@ -386,5 +386,5 @@ mod lexical;
 mod quark_4d;
 mod site;
 
-pub use even_odd::{EoForm, MdwfHalfWork, PvEvenOdd};
+pub use even_odd::{MdwfHalfWork, PvEvenOdd};
 pub use lexical::{MdwfAt, PvPreconditioned, SiteInverse};

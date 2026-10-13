@@ -220,6 +220,51 @@ __global__ void mdwf_site_inv_kernel(
 }
 
 // -------------------------------------------------------------------------
+// out = Q in, or Q^-1 in (`a` = alpha or 1/alpha): Neff's Q of D^(alpha) = D Q,
+//
+//   Q_0 = P- + a P+,   Q_s = a (0 < s < Ls-1),   Q_(Ls-1) = P+ + a P-,
+//
+// on `sites` sites. out must not be in.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void mdwf_q_kernel(
+    Float* __restrict__ d_out,
+    const Float* __restrict__ d_in,
+    int sites,
+    int Ls,
+    Float a)
+{
+    // P- + a P+ = (1 + a)/2 + (a - 1)/2 gamma_5; P+ + a P- = (1 + a)/2 - (a - 1)/2 gamma_5.
+    const Float even = static_cast<Float>(0.5) * (static_cast<Float>(1.0) + a);
+    const Float odd  = static_cast<Float>(0.5) * (a - static_cast<Float>(1.0));
+    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < sites; site += blockDim.x * gridDim.x) {
+        for (int is = 0; is < Ls; ++is) {
+            const bool wall = (is == 0 || is == Ls - 1);
+            const Float one = wall ? even : a;
+            const Float g5  = !wall ? static_cast<Float>(0.0) : (is == 0 ? odd : -odd);
+            Float phi[Nspin][Nc][Ncomplex], g[Nspin][Nc][Ncomplex];
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s) {
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c) {
+                    phi[s][c][0] = d_in[aosoa_5d_spinor_idx(c, s, 0, is, Ls, site)];
+                    phi[s][c][1] = d_in[aosoa_5d_spinor_idx(c, s, 1, is, Ls, site)];
+                }
+            }
+            mult_gamma5<Float, BRIDGE_CUDA_GAMMA_DIRAC>(g, phi);
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s) {
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c) {
+                    d_out[aosoa_5d_spinor_idx(c, s, 0, is, Ls, site)] = one * phi[s][c][0] + g5 * g[s][c][0];
+                    d_out[aosoa_5d_spinor_idx(c, s, 1, is, Ls, site)] = one * phi[s][c][1] + g5 * g[s][c][1];
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // out = gamma_5 in on `sites` sites of Ls spinors (Ls = 1: a four-dimensional field); with
 // `reflect` the fifth dimension is reflected as well, out_s = gamma_5 in_(Ls-1-s), which
 // is the Gamma_5 of domain-wall fermions. out must not be in.

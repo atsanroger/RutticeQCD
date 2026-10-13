@@ -2,16 +2,7 @@
 
 use super::*;
 
-/// The even-odd form of the Pauli-Villars preconditioned operator (see [`PvEvenOdd`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EoForm {
-    /// `Ã = C_PV,e†⁻¹ S_PV† S C_e⁻¹`, S = C_e − D_eo C_o⁻¹ D_oe the Schur complement of D on
-    /// the even sites: the even-odd version of A. Neff's α cancels in it.
-    Right,
-    /// `Ã_L = (C_PV,e⁻¹ S_PV)† (C_e⁻¹ S)`, which sees α: with D^(α) = D Q it is
-    /// `Q_e (C_PV,e⁻¹ S_PV)† Q_e⁻² (C_e⁻¹ S) Q_e` (α in D_PV too).
-    Left,
-}
+use crate::fermion::EoForm;
 
 type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
 
@@ -241,7 +232,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
 }
 
 /// The Schur factor `1 − D_eo C_o⁻¹ D_oe C_e⁻¹` (right form) or `1 − C_e⁻¹ D_eo C_o⁻¹ D_oe`
-/// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one.
+/// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one: for the
+/// plain operator with the blocks fused, with α the one of `fermion::schur_factor`.
 fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
     op: &Mdwf<T, G, L>,
     work: &mut MdwfHalfWork<T, L>,
@@ -251,9 +243,10 @@ fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
     inp: &HalfSpinorField<T, L>,
     dagger: Dagger,
 ) {
-    let ([o1, o2], e) = scratch;
+    let (odds, e) = scratch;
     let (even, odd) = (Parity::Even, Parity::Odd);
     if !op.has_alpha() {
+        let o2 = &mut odds[1];
         let inverse = |from| Then {
             site_inv: true,
             from,
@@ -274,20 +267,7 @@ fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
         }
         return;
     }
-    // The adjoint takes the factors in the opposite order.
-    if (form == EoForm::Right) == (dagger == Dagger::No) {
-        op.diag_inv(work, e, inp, even, dagger);
-        op.hop(work, o1, e, odd, dagger);
-        op.diag_inv(work, o2, o1, odd, dagger);
-        op.hop(work, out, o2, even, dagger);
-    } else {
-        op.hop(work, o1, inp, odd, dagger);
-        op.diag_inv(work, o2, o1, odd, dagger);
-        op.hop(work, e, o2, even, dagger);
-        op.diag_inv(work, out, e, even, dagger);
-    }
-    let minus = vec![C64::new(-1.0, 0.0); inp.num_vectors()];
-    out.aypx(&minus, inp);
+    crate::fermion::schur_factor(op, work, form, (odds, e), out, inp, dagger);
 }
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'_, T, G, L> {

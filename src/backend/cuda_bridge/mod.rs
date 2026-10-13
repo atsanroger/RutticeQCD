@@ -153,6 +153,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         dagger: i32,
     );
     unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32);
+    unsafe fn mdwf_q(out: *mut Self, inp: *const Self, sites: i32, ls: i32, a: f64);
     unsafe fn parity_copy(
         half: *mut Self,
         full: *mut Self,
@@ -170,7 +171,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
 /// `DeviceReal` for one type, on the functions of that precision.
 macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
-     $fifth:ident, $site_inv:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
+     $fifth:ident, $site_inv:ident, $gamma5:ident, $q:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident) => {
         extern "C" {
             fn $wilson(
@@ -252,6 +253,7 @@ macro_rules! device_real {
                 reflect: i32,
                 stream: *mut c_void,
             );
+            fn $q(out: *mut $t, inp: *const $t, sites: i32, ls: i32, a: f64, stream: *mut c_void);
             fn $parity_copy(
                 half: *mut $t,
                 full: *mut $t,
@@ -374,6 +376,9 @@ macro_rules! device_real {
             unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32) {
                 $gamma5(out, inp, sites, ls, reflect, STREAM)
             }
+            unsafe fn mdwf_q(out: *mut Self, inp: *const Self, sites: i32, ls: i32, a: f64) {
+                $q(out, inp, sites, ls, a, STREAM)
+            }
             unsafe fn parity_copy(
                 half: *mut Self,
                 full: *mut Self,
@@ -405,11 +410,13 @@ macro_rules! device_real {
 device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
     bridge_cuda_mdwf_fifth_f32, bridge_cuda_mdwf_site_inv_f32, bridge_cuda_gamma5_f32,
+    bridge_cuda_mdwf_q_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32);
 device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_mdwf_site_inv_f64, bridge_cuda_gamma5_f64,
+    bridge_cuda_mdwf_q_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64);
 

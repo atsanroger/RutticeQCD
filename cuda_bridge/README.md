@@ -70,8 +70,8 @@ for periodic, antiperiodic and Dirichlet boundaries:
 - `bridge_cuda_gamma5`; `bridge_cuda_blas_*`: axpy, scal, complex axpy and aypx, norm and
   inner product.
 
-These are the plain operators in the Dirac representation (gamma_4 diagonal); `alpha` of
-`BridgeCudaMdwfParams` (Neff) is not used.
+The operators are in the Dirac representation (gamma_4 diagonal). Neff's D^(alpha) = D Q is made
+of the plain kernels and `bridge_cuda_mdwf_q`; `alpha` of `BridgeCudaMdwfParams` is not used.
 
 Not there: the clover term from the links on the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
 kernels. `tests/test_clover_mg_transfer` fails with a CUDA error.
