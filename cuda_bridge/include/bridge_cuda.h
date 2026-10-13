@@ -1,0 +1,489 @@
+#ifndef BRIDGE_CUDA_H
+#define BRIDGE_CUDA_H
+
+#include "base/types.h"
+#include <cuda_runtime.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// =========================================================================
+// Wilson Operator
+// =========================================================================
+
+void bridge_cuda_wilson_dslash_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_wilson_dslash_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_wilson_eo_dslash_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_wilson_eo_dslash_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_wilson_pack_f32(
+    float* d_send_bufs[8], const float* d_in,
+    const BridgeCudaGeometry* geom, cudaStream_t stream
+);
+
+void bridge_cuda_wilson_pack_f64(
+    double* d_send_bufs[8], const double* d_in,
+    const BridgeCudaGeometry* geom, cudaStream_t stream
+);
+
+void bridge_cuda_wilson_exterior_f32(
+    float* d_out, const float* const d_recv_bufs[8], const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_wilson_exterior_f64(
+    double* d_out, const double* const d_recv_bufs[8], const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+// =========================================================================
+// Clover Operator
+// =========================================================================
+
+void bridge_cuda_clover_term_f32(
+    float* d_out, const float* d_in, const float* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_clover_term_f64(
+    double* d_out, const double* d_in, const double* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_clover_dslash_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_clover_dslash_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_clover_eo_dslash_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_clover_eo_dslash_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
+    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+// =========================================================================
+// Mobius Domain Wall Fermion (MDWF)
+// =========================================================================
+
+void bridge_cuda_mdwf_dslash_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_dslash_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_dslash_1pass_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_dslash_1pass_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_d5_f32(
+    float* d_out, const float* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_d5_f64(
+    double* d_out, const double* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_eo_hopb_5d_f32(
+    float* d_out, const float* d_gauge, const float* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int ieo, int jeo, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_eo_hopb_5d_f64(
+    double* d_out, const double* d_gauge, const double* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int ieo, int jeo, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_ee_LUinv_5d_f32(
+    float* d_out, const float* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_ee_LUinv_5d_f64(
+    double* d_out, const double* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+// =========================================================================
+// Domain Decomposition (SAP / Block DD) & Pauli-Villars Preconditioning
+// =========================================================================
+
+void bridge_cuda_wilson_dd_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    const BridgeCudaDdParams* dd_params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_wilson_dd_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    const BridgeCudaDdParams* dd_params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_dd_5dir_f32(
+    float* d_out, const float* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    const BridgeCudaDdParams* dd_params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_dd_5dir_f64(
+    double* d_out, const double* d_in,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    const BridgeCudaDdParams* dd_params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_a_f32(
+    float* d_out, const float* d_in,
+    float* d_scratch1, float* d_scratch2,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_a_f64(
+    double* d_out, const double* d_in,
+    double* d_scratch1, double* d_scratch2,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_leftprec_f32(
+    float* d_out, const float* d_in,
+    float* d_scratch,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_leftprec_f64(
+    double* d_out, const double* d_in,
+    double* d_scratch,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+// =========================================================================
+// Multigrid (MG) Coarse Operator & Transfers
+// =========================================================================
+
+void bridge_cuda_mg_coarse_dslash_f32(
+    float* d_out, const float* d_in, const float* d_clover_inv, const float* d_coarse_links,
+    const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_dslash_f64(
+    double* d_out, const double* d_in, const double* d_clover_inv, const double* d_coarse_links,
+    const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_restrict_f32(
+    float* d_coarse, const float* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_restrict_f64(
+    double* d_coarse, const double* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_prolong_f32(
+    float* d_fine, const float* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_prolong_f64(
+    double* d_fine, const double* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_block_normalize_f32(
+    float* d_basis, int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+// -------------------------------------------------------------------------
+// Unified Multigrid Transfer Operators (Unifies Clover Ls=1 and MDWF Ls>1)
+// -------------------------------------------------------------------------
+void bridge_cuda_mg_restrict_unified_f32(
+    float* d_coarse, const float* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mg_restrict_unified_f64(
+    double* d_coarse, const double* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mg_prolong_unified_f32(
+    float* d_fine, const float* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mg_prolong_unified_f64(
+    double* d_fine, const double* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mg_block_normalize_unified_f32(
+    float* d_basis, int num_vectors,
+    const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+// -------------------------------------------------------------------------
+// MDWF 5D Multigrid Transfer Operators
+// -------------------------------------------------------------------------
+void bridge_cuda_mdwf_mg_restrict_5d_f32(
+    float* d_coarse, const float* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_mg_restrict_5d_f64(
+    double* d_coarse, const double* d_fine, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_mg_prolong_5d_f32(
+    float* d_fine, const float* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_mg_prolong_5d_f64(
+    double* d_fine, const double* d_coarse, const float* d_basis,
+    int num_vectors, const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_mg_block_normalize_5d_f32(
+    float* d_basis, int num_vectors,
+    const BridgeCudaGeometry* geom, const BridgeCudaMgParams* params,
+    cudaStream_t stream
+);
+
+// -------------------------------------------------------------------------
+// Coarse Grid Even-Odd Operators & Schur Complement Pass
+// -------------------------------------------------------------------------
+void bridge_cuda_mg_coarse_pass_f32(
+    float* d_out, const float* d_base, const float* d_diag_in, const float* d_hop_in,
+    const float* d_diag, const float* d_diag_inv, const float* d_links,
+    int nx_c, int ny_c, int nz_c, int nt_c, int dim, int target_parity,
+    bool apply_diag, bool apply_hops, bool minus_hops, bool apply_inv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_pass_f64(
+    double* d_out, const double* d_base, const double* d_diag_in, const double* d_hop_in,
+    const double* d_diag, const double* d_diag_inv, const double* d_links,
+    int nx_c, int ny_c, int nz_c, int nt_c, int dim, int target_parity,
+    bool apply_diag, bool apply_hops, bool minus_hops, bool apply_inv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_gamma5_f32(
+    float* d_vec, int total_sites, int dim, cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_gamma5_f64(
+    double* d_vec, int total_sites, int dim, cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_invert_diagonal_blocks_f32(
+    float* d_diag_inv, const float* d_diag, int vol_c, int dim, cudaStream_t stream
+);
+
+void bridge_cuda_mg_coarse_invert_diagonal_blocks_f64(
+    double* d_diag_inv, const double* d_diag, int vol_c, int dim, cudaStream_t stream
+);
+
+// -------------------------------------------------------------------------
+// MDWF Exact Schur Factor & Even-Odd Pauli-Villars Preconditioner
+// -------------------------------------------------------------------------
+void bridge_cuda_mdwf_eo_dslash_5d_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, int target_parity,
+    float kappa_5, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_eo_dslash_5d_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, int target_parity,
+    double kappa_5, cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_schur_factor_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    float* d_scr_e, float* d_scr_o1, float* d_scr_o2,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_schur_factor_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    double* d_scr_e, double* d_scr_o1, double* d_scr_o2,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_a_exact_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    float* d_scr1, float* d_scr2, float* d_scr3, float* d_scr4,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mdwf_pvprec_a_exact_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    double* d_scr1, double* d_scr2, double* d_scr3, double* d_scr4,
+    const BridgeCudaGeometry* geom,
+    const BridgeCudaMdwfParams* params_phys,
+    const BridgeCudaMdwfParams* params_pv,
+    cudaStream_t stream
+);
+
+// =========================================================================
+// Multi-RHS (MRHS)
+// =========================================================================
+
+void bridge_cuda_mrhs_wilson_dslash_f32(
+    float* const* d_out_ptrs, const float* const* d_in_ptrs, const float* d_gauge,
+    int num_rhs, const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+void bridge_cuda_mrhs_wilson_dslash_f64(
+    double* const* d_out_ptrs, const double* const* d_in_ptrs, const double* d_gauge,
+    int num_rhs, const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
+    cudaStream_t stream
+);
+
+// =========================================================================
+// Gauge Actions & Smearing
+// =========================================================================
+
+void bridge_cuda_gauge_plaquette_partial_f32(
+    float* block_sums, const float* d_gauge, const BridgeCudaGeometry* geom,
+    int grid_size, cudaStream_t stream
+);
+
+void bridge_cuda_gauge_plaquette_partial_f64(
+    double* block_sums, const double* d_gauge, const BridgeCudaGeometry* geom,
+    int grid_size, cudaStream_t stream
+);
+
+void bridge_cuda_gauge_ape_smear_f32(
+    float* d_gauge_out, const float* d_gauge_in, const BridgeCudaGeometry* geom,
+    const BridgeCudaSmearParams* params, cudaStream_t stream
+);
+
+void bridge_cuda_gauge_ape_smear_f64(
+    double* d_gauge_out, const double* d_gauge_in, const BridgeCudaGeometry* geom,
+    const BridgeCudaSmearParams* params, cudaStream_t stream
+);
+
+// =========================================================================
+// Linear Algebra (BLAS, Cast, Basis Conversion)
+// =========================================================================
+
+void bridge_cuda_blas_axpy_f32(float* y, const float* x, float a, int n, cudaStream_t stream);
+void bridge_cuda_blas_axpy_f64(double* y, const double* x, double a, int n, cudaStream_t stream);
+
+void bridge_cuda_blas_scal_f32(float* x, float a, int n, cudaStream_t stream);
+void bridge_cuda_blas_scal_f64(double* x, double a, int n, cudaStream_t stream);
+
+void bridge_cuda_blas_norm2_partial_f32(float* block_sums, const float* x, int n, int grid_size, cudaStream_t stream);
+void bridge_cuda_blas_norm2_partial_f64(double* block_sums, const double* x, int n, int grid_size, cudaStream_t stream);
+
+void bridge_cuda_cast_f64_to_f32(float* dst, const double* src, int total_elements, cudaStream_t stream);
+void bridge_cuda_cast_f32_to_f64(double* dst, const float* src, int total_elements, cudaStream_t stream);
+
+void bridge_cuda_convert_dirac_chiral_f32(float* d_out, const float* d_in, int total_sites, cudaStream_t stream);
+void bridge_cuda_convert_dirac_chiral_f64(double* d_out, const double* d_in, int total_sites, cudaStream_t stream);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // BRIDGE_CUDA_H
