@@ -40,8 +40,5 @@ target_link_libraries(test_mdwf_transfer PRIVATE bridge_cuda_static)
 add_executable(test_coarse_schur tests/test_coarse_schur.cu)
 target_link_libraries(test_coarse_schur PRIVATE bridge_cuda_static)
 
-add_executable(test_mdwf_schur tests/test_mdwf_schur.cu)
-target_link_libraries(test_mdwf_schur PRIVATE bridge_cuda_static)
-
 add_executable(test_clover_mg_transfer tests/test_clover_mg_transfer.cu)
 target_link_libraries(test_clover_mg_transfer PRIVATE bridge_cuda_static)

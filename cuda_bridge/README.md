@@ -2,7 +2,7 @@
 
 `bridge_cuda` is a modernized, standalone CUDA/C++ kernel library for Lattice QCD, originally refactored and extracted from the Bridge++ CUDA codebase (`test_alt_amg_dw_GEMM`, Wei-Lun Chen, Issaku Kanamori, Hideo Matsufuru).
 
-It provides zero-overhead GPU kernels for Wilson, Clover, and Möbius Domain Wall Fermions (MDWF), Domain Decomposition (SAP / Block DD), Pauli-Villars preconditioned operators, Adaptive Multigrid (AMG), Multi-RHS Dirac operators, gauge actions & smearing, and linear algebra routines.
+It holds GPU kernels for Wilson, Clover, and Möbius Domain Wall Fermions (MDWF), Domain Decomposition (SAP / Block DD), Adaptive Multigrid (AMG), Multi-RHS Dirac operators, gauge actions & smearing, and linear algebra routines. Section 2 says which of them are checked against the CPU operators of RutticeQCD; the others are not.
 
 ---
 
@@ -24,8 +24,9 @@ gpu_fer/
 │   ├── fermion/                  # Fermion Dirac operators
 │   │   ├── wilson.cuh            # Wilson Dslash (interior, EO hopping, boundary packing)
 │   │   ├── clover.cuh            # Clover term (6x6 hermitian blocks) & EO Clover Dslash
-│   │   ├── mdwf.cuh              # 5D Möbius DWF (D5 hopping, Ls-parallel, register LU)
-│   │   └── dd.cuh                # Block Domain Decomposition (SAP) & Pauli-Villars operator
+│   │   ├── mdwf.cuh              # Möbius DWF: D in one pass
+│   │   ├── mdwf_eo.cuh           # Möbius DWF on one parity: the hop D_pq and C^-1
+│   │   └── dd.cuh                # Block Domain Decomposition (SAP)
 │   ├── multigrid/                # Adaptive Multigrid (AMG)
 │   │   ├── coarse.cuh            # Coarse grid Dirac operator
 │   │   ├── transfer.cuh          # Restriction, prolongation, block Gram-Schmidt
@@ -40,7 +41,7 @@ gpu_fer/
     │   ├── wilson.cu             # Host C-ABI wrappers for Wilson
     │   ├── clover.cu             # Host C-ABI wrappers for Clover
     │   ├── mdwf.cu               # Host C-ABI wrappers for MDWF
-    │   └── dd.cu                 # Host C-ABI wrappers for SAP & Pauli-Villars
+    │   └── dd.cu                 # Host C-ABI wrappers for SAP
     ├── multigrid/
     │   ├── multigrid.cu          # Host C-ABI wrappers for coarse operator & transfers
     │   └── mrhs.cu               # Host C-ABI wrappers for MRHS
@@ -52,22 +53,30 @@ gpu_fer/
 
 ---
 
-## 2. Technical Highlights
+## 2. What is checked
 
-- **Pure C-ABI Interface (`include/bridge_cuda.h`)**:
-  - All public symbols are exported with `extern "C"` and prefixed with `bridge_cuda_*`.
-  - Fully compatible with C, C++, and Rust (`bindgen` / FFI).
-- **C++ Scope**:
-  - All template kernels and device math reside cleanly in `namespace bridge_cuda`.
-- **Möbius Domain Wall Fermion (MDWF)**:
-  - Supports generalized parameters $b_5, c_5$. Standard Shamir DWF corresponds to $b_5 - c_5 = 1$.
-  - Includes $L_s$-parallel odd-even hopping and on-chip register LU-inversion for $(b_5 D_4 + 1)^{-1}$.
-- **Pauli-Villars Preconditioned AMG Support**:
-  - Directly reproduces the algorithm in `pvprec_amg.tex`: solves $A = (D_{PV} C_{PV}^{-1})^\dagger C^{-1} D$ using Domain Decomposition (SAP) smoothing on blocks with parity `ieo`.
-- **Numerical Determinism**:
-  - Reductions (Plaquette, Norm2) use deterministic block-shared-memory tree reductions rather than floating-point non-deterministic `atomicAdd`.
-- **Dual Precision**:
-  - Native templates instantiated for FP32 (`float`) and FP64 (`double`).
+Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs` there, feature
+`cuda-bridge`), in double precision, for periodic, antiperiodic and Dirichlet boundaries:
+
+- `bridge_cuda_wilson_dslash`: the Wilson operator.
+- `bridge_cuda_mdwf_dslash_1pass`: the Möbius domain-wall operator D.
+- `bridge_cuda_mdwf_eo_hop`, `bridge_cuda_mdwf_site_inv`: its even-odd hop D_pq and the inverse
+  of its part within a site, C^-1 and C^dag^-1, on fields of one parity.
+
+These are the plain operators in the Dirac representation (gamma_4 diagonal); `alpha` of
+`BridgeCudaMdwfParams` (Neff) is not used.
+
+Not checked: the even-odd Wilson hop, the clover kernels, the multi-RHS kernels (these three
+have no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
+kernels, single precision. `tests/test_clover_mg_transfer` fails with a CUDA error.
+
+Conventions:
+
+- All public symbols are `extern "C"` with the prefix `bridge_cuda_*` (`include/bridge_cuda.h`);
+  the kernels are templates in `namespace bridge_cuda`.
+- Fields are in blocks of 32 sites (`base/aosoa.cuh`); a field on one parity has site
+  (x, y, z, t) at x/2 + (nx/2)(y + ny (z + nz t)).
+- Reductions (plaquette, norm) are deterministic tree reductions.
 
 ---
 
