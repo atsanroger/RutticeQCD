@@ -104,4 +104,33 @@ void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vecto
     bridge_cuda::coarse_gamma5_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim);
 }
 
+void bridge_cuda_fold_fill_f32(
+    float* d_p, const float* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
+    int vectors, cudaStream_t stream)
+{
+    const size_t sites = static_cast<size_t>(dims[0]) * dims[1] * dims[2] * dims[3];
+    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), vectors);
+    bridge_cuda::fold_fill_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
+        d_p, d_fine, n, first, geometry(dims, Ls, -1, gamma));
+}
+
+void bridge_cuda_fold_fill_f64(
+    float* d_p, const double* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
+    int vectors, cudaStream_t stream)
+{
+    const size_t sites = static_cast<size_t>(dims[0]) * dims[1] * dims[2] * dims[3];
+    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), vectors);
+    bridge_cuda::fold_fill_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
+        d_p, d_fine, n, first, geometry(dims, Ls, -1, gamma));
+}
+
+void bridge_cuda_fold_orthonormalise(
+    float* d_p, double* d_w, const unsigned* d_sites, unsigned* d_fail,
+    int first_site, int count, int block_volume, int n, int kept, double scale,
+    cudaStream_t stream)
+{
+    bridge_cuda::fold_orthonormalise_kernel<<<2 * count, bridge_cuda::FoldThreads, 0, stream>>>(
+        d_p, d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
+}
+
 } // extern "C"

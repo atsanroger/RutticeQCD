@@ -1071,6 +1071,33 @@ fn multigrid_transfers_on_the_device() {
         assert!(d < 1e-13, "{what} differs by {d:e}");
     };
 
+    // P made on the device is the P of the CPU, as far as single precision keeps it through
+    // the Gram-Schmidt procedure.
+    {
+        let (_, gpu) = mdwf_pair(&lat, &u, params);
+        let (_, gpu_pv) = mdwf_pair(
+            &lat,
+            &u,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+        );
+        let y = DeviceSpinor::from_host_half(&half(Parity::Even, n, 432), &index).unwrap();
+        let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y).unwrap();
+        let (a, b) = (basis.stored(), made.stored().unwrap());
+        assert_eq!(a.len(), b.len());
+        let size = a.iter().fold(0.0f64, |m, x| m.max(f64::from(x.abs())));
+        let d = a
+            .iter()
+            .zip(&b)
+            .fold(0.0f64, |m, (a, b)| m.max((f64::from(*a) - b).abs()));
+        assert!(
+            d < 1e-5 * size,
+            "P made on the device differs by {d:e} of {size:e}"
+        );
+    }
+
     // On the whole lattice.
     let mut fine = Psi::with_shape(&lat, 24, ls, nv, 1);
     fine.as_mut_slice()

@@ -385,6 +385,25 @@ void bridge_cuda_fold_prolong_f64(
     int vectors, cudaStream_t stream
 );
 
+// Making that P (multigrid/fold.cuh): the chirality parts of the vectors of a field on the
+// whole lattice as test vectors first, first + 1, ...; then, for `count` coarse sites from
+// first_site, the parts made orthonormal over every aggregate and scaled. d_w: scratch of
+// 2 count n block_volume kept doubles; d_fail: 2 count numbers, 0 or 1 + the first vector
+// that depends on the earlier ones in that aggregate and chirality.
+void bridge_cuda_fold_fill_f32(
+    float* d_p, const float* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_fill_f64(
+    float* d_p, const double* d_fine, int n, int first, const int* dims, int Ls, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_orthonormalise(
+    float* d_p, double* d_w, const unsigned* d_sites, unsigned* d_fail,
+    int first_site, int count, int block_volume, int n, int kept, double scale,
+    cudaStream_t stream
+);
+
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
 // out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
 // one parity, the others set to zero (parity < 0: all); every part may be null. dim at most
