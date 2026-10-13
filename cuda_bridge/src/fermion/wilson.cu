@@ -43,34 +43,6 @@ void bridge_cuda_wilson_dslash_f64(
     );
 }
 
-void bridge_cuda_wilson_eo_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int target_parity, cudaStream_t stream)
-{
-    int vol_eo = geom->vol / 2;
-    int grid = get_grid_size(vol_eo);
-    bridge_cuda::wilson_eo_dslash_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, d_gauge,
-        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-        target_parity, static_cast<float>(params->kappa)
-    );
-}
-
-void bridge_cuda_wilson_eo_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int target_parity, cudaStream_t stream)
-{
-    int vol_eo = geom->vol / 2;
-    int grid = get_grid_size(vol_eo);
-    bridge_cuda::wilson_eo_dslash_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, d_gauge,
-        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-        target_parity, params->kappa
-    );
-}
-
 void bridge_cuda_wilson_pack_f32(
     float* d_send_bufs[8], const float* d_in,
     const BridgeCudaGeometry* geom, cudaStream_t stream)

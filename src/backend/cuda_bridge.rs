@@ -7,7 +7,7 @@
 //! of the fields here (spin outermost, then colour, then real and imaginary part; a link row by
 //! row, the four directions of a site one after the other).
 
-use crate::fermion::{MdwfParams, WilsonParams};
+use crate::fermion::{Clover, CloverParams, MdwfParams, WilsonParams};
 use crate::{Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, Parity, Spinor, ND};
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -17,6 +17,8 @@ use std::sync::Arc;
 const W: usize = 32;
 const SPINOR: usize = 24;
 const LINKS: usize = 72;
+/// Reals of the block of the clover operator within a site.
+const CLOVER: usize = 72;
 
 #[repr(C)]
 struct Geometry {
@@ -32,6 +34,12 @@ struct Geometry {
 #[repr(C)]
 struct WilsonKernelParams {
     kappa: f64,
+}
+
+#[repr(C)]
+struct CloverKernelParams {
+    kappa: f64,
+    csw: f64,
 }
 
 #[repr(C)]
@@ -58,6 +66,22 @@ extern "C" {
         gauge: *const f64,
         geometry: *const Geometry,
         params: *const WilsonKernelParams,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_clover_term_f64(
+        out: *mut f64,
+        inp: *const f64,
+        clover: *const f64,
+        geometry: *const Geometry,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_clover_dslash_f64(
+        out: *mut f64,
+        inp: *const f64,
+        gauge: *const f64,
+        clover: *const f64,
+        geometry: *const Geometry,
+        params: *const CloverKernelParams,
         stream: *mut c_void,
     );
     fn bridge_cuda_mdwf_eo_hop_f64(
@@ -413,6 +437,91 @@ impl CudaWilson {
                 self.gauge.ptr,
                 &self.geometry,
                 &params,
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+}
+
+/// The clover operator on the device (one process, the Dirac representation). The blocks of
+/// the operator within a site and their inverses are those the operator on the CPU made.
+pub struct CudaClover {
+    params: CloverParams,
+    geometry: Geometry,
+    gauge: DeviceBuffer,
+    term: DeviceBuffer,
+    inverse: DeviceBuffer,
+}
+
+impl CudaClover {
+    /// The operator on the links `u`, with the clover term of `cpu` (which has those links).
+    pub fn new(
+        u: &Field<f64, Gauge>,
+        params: CloverParams,
+        cpu: &Clover<f64>,
+    ) -> Result<Self, CudaError> {
+        let (gauge, geometry) = device_gauge(u, params.boundary, 1)?;
+        let sites = u.lattice().num_sites();
+        let blocks = |host: &[f64]| {
+            assert_eq!(host.len(), sites * CLOVER, "the operator has no links yet");
+            let mut device = vec![0.0; padded(sites) * CLOVER];
+            for (x, site) in host.as_chunks::<CLOVER>().0.iter().enumerate() {
+                for (c, v) in site.iter().enumerate() {
+                    device[at(c, x, CLOVER)] = *v;
+                }
+            }
+            let buffer = DeviceBuffer::uninitialised(device.len())?;
+            buffer.upload(&device)?;
+            Ok(buffer)
+        };
+        Ok(Self {
+            params,
+            geometry,
+            gauge,
+            term: blocks(cpu.diag_term().blocks())?,
+            inverse: blocks(cpu.diag_term().inverse_blocks())?,
+        })
+    }
+
+    /// `out = D inp`.
+    pub fn mult(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor) -> Result<(), CudaError> {
+        assert!(inp.like(out, 1, None) && out.parity.is_none());
+        let params = CloverKernelParams {
+            kappa: self.params.kappa,
+            csw: self.params.csw,
+        };
+        // SAFETY: as in `CudaWilson::mult`, with the blocks of the clover term of every site.
+        unsafe {
+            bridge_cuda_clover_dslash_f64(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.ptr,
+                self.term.ptr,
+                &self.geometry,
+                &params,
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+
+    /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`.
+    pub fn site(
+        &self,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        inverse: bool,
+    ) -> Result<(), CudaError> {
+        assert!(inp.like(out, 1, None) && out.parity.is_none());
+        let blocks = if inverse { &self.inverse } else { &self.term };
+        // SAFETY: two spinor buffers and the blocks of every site.
+        unsafe {
+            bridge_cuda_clover_term_f64(
+                out.data.ptr,
+                inp.data.ptr,
+                blocks.ptr,
+                &self.geometry,
                 std::ptr::null_mut(),
             );
             check(cudaDeviceSynchronize())
