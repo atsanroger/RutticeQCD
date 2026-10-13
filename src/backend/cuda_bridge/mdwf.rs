@@ -1,16 +1,194 @@
 //! The Möbius domain-wall operator on the device.
 //!
 //! In the notation of `fermion::mdwf`, with H the hops of the Wilson kernel times (4 − M5),
-//! the plain operator is `D = d+ + d− Y + H (b − c Y)`, `D† = d+ + d− Y† + (b − c Y†) H†`, and
-//! the part of it within a site `C = d+ + d− Y`. With Neff's α (`set_alpha`) the operator is
-//! `D Q`, Q diagonal in the fifth dimension and Hermitian: every block of it is the plain one
-//! with Q on its input, and the adjoint of that.
+//! the plain operator is `D = C + H B`, `D† = C† + B† H†`, with the part within a site
+//! `C = d+ + d− Y` and `B = b − c Y`. With Neff's α (`set_alpha`) the operator is `D Q`.
+//!
+//! C, B, Q, their inverses, adjoints and products act within a site, on the fifth dimension
+//! and the chirality only: each is a matrix (`FifthMatrix`), the products are made on the
+//! host, and one matrix product on the device applies any of them (`gemm`; in double precision
+//! on the tensor cores). So `(C Q)⁻¹` is one pass, and so is `(C Q)†⁻¹ (B Q)†` after the
+//! adjoint hops.
 
 use super::wilson::{gamma5, scratch};
 use super::*;
-use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Variant};
+use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
 use crate::{Parity, Vector};
+
+/// An operator within a site that acts on the fifth dimension and the chirality:
+/// `Σ_s' (plus_ss' P+ + minus_ss' P−)`, the two Ls × Ls matrices row after row. P± are
+/// orthogonal projectors that commute with the fifth dimension, so such operators multiply,
+/// invert and take adjoints matrix by matrix.
+#[derive(Clone)]
+struct FifthMatrix {
+    ls: usize,
+    plus: Vec<f64>,
+    minus: Vec<f64>,
+}
+
+impl FifthMatrix {
+    /// `a + y Y` at mass `mass`: `(Y ψ)_s = −P− ψ_{s+1} − P+ ψ_{s−1}`, with +m in the place of
+    /// −1 across the walls. Y takes P+ from below and P− from above.
+    fn linear(ls: usize, a: f64, y: f64, mass: f64) -> Self {
+        let (mut plus, mut minus) = (vec![0.0; ls * ls], vec![0.0; ls * ls]);
+        for s in 0..ls {
+            plus[s * ls + s] = a;
+            minus[s * ls + s] = a;
+            let (below, above) = ((s + ls - 1) % ls, (s + 1) % ls);
+            plus[s * ls + below] += y * if s == 0 { mass } else { -1.0 };
+            minus[s * ls + above] += y * if s == ls - 1 { mass } else { -1.0 };
+        }
+        Self { ls, plus, minus }
+    }
+
+    /// Neff's Q: Q_0 = P− + α P+, Q_s = α inside, Q_(Ls−1) = P+ + α P−.
+    fn q(ls: usize, alpha: f64) -> Self {
+        let (mut plus, mut minus) = (vec![0.0; ls * ls], vec![0.0; ls * ls]);
+        for s in 0..ls {
+            plus[s * ls + s] = if s == ls - 1 { 1.0 } else { alpha };
+            minus[s * ls + s] = if s == 0 { 1.0 } else { alpha };
+        }
+        Self { ls, plus, minus }
+    }
+
+    /// `self · other`.
+    fn times(&self, other: &Self) -> Self {
+        let ls = self.ls;
+        let product = |a: &[f64], b: &[f64]| {
+            let mut c = vec![0.0; ls * ls];
+            for i in 0..ls {
+                for k in 0..ls {
+                    for j in 0..ls {
+                        c[i * ls + j] += a[i * ls + k] * b[k * ls + j];
+                    }
+                }
+            }
+            c
+        };
+        Self {
+            ls,
+            plus: product(&self.plus, &other.plus),
+            minus: product(&self.minus, &other.minus),
+        }
+    }
+
+    fn adjoint(&self) -> Self {
+        let ls = self.ls;
+        let transpose =
+            |a: &[f64]| -> Vec<f64> { (0..ls * ls).map(|k| a[(k % ls) * ls + k / ls]).collect() };
+        Self {
+            ls,
+            plus: transpose(&self.plus),
+            minus: transpose(&self.minus),
+        }
+    }
+
+    /// The inverse, by Gauss-Jordan elimination with pivoting; a zero pivot is an operator
+    /// that is singular within a site.
+    fn inverse(&self) -> Self {
+        let ls = self.ls;
+        let invert = |a: &[f64]| {
+            let mut a = a.to_vec();
+            let mut inv = vec![0.0; ls * ls];
+            for i in 0..ls {
+                inv[i * ls + i] = 1.0;
+            }
+            for k in 0..ls {
+                let pivot = (k..ls)
+                    .max_by(|&i, &j| a[i * ls + k].abs().total_cmp(&a[j * ls + k].abs()))
+                    .expect("at least one row");
+                assert!(
+                    a[pivot * ls + k] != 0.0,
+                    "the part of the operator within a site is singular"
+                );
+                for j in 0..ls {
+                    a.swap(k * ls + j, pivot * ls + j);
+                    inv.swap(k * ls + j, pivot * ls + j);
+                }
+                let scale = 1.0 / a[k * ls + k];
+                for j in 0..ls {
+                    a[k * ls + j] *= scale;
+                    inv[k * ls + j] *= scale;
+                }
+                for i in (0..ls).filter(|&i| i != k) {
+                    let factor = a[i * ls + k];
+                    for j in 0..ls {
+                        a[i * ls + j] -= factor * a[k * ls + j];
+                        inv[i * ls + j] -= factor * inv[k * ls + j];
+                    }
+                }
+            }
+            inv
+        };
+        Self {
+            ls,
+            plus: invert(&self.plus),
+            minus: invert(&self.minus),
+        }
+    }
+
+    /// The matrix the kernel takes (`fifth_gemm.cuh`), on the device: on the rows 2 s + h of a
+    /// block, h = 0 the upper and 1 the lower spin components. γ5 exchanges the two, so
+    /// P± = (1 ± γ5)/2 give (plus + minus)/2 between rows of the same h and (plus − minus)/2
+    /// between the others. Rows padded to a multiple of 8, columns to a multiple of 4.
+    fn on_device<T: DeviceReal>(&self) -> Result<DeviceBuffer<T>, CudaError> {
+        let ls = self.ls;
+        let (rows, columns) = ((2 * ls).div_ceil(8) * 8, (2 * ls).div_ceil(4) * 4);
+        let mut m = vec![0.0; rows * columns];
+        for i in 0..ls {
+            for j in 0..ls {
+                let (p, q) = (self.plus[i * ls + j], self.minus[i * ls + j]);
+                for (h, k) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                    m[(2 * i + h) * columns + 2 * j + k] = 0.5 * if h == k { p + q } else { p - q };
+                }
+            }
+        }
+        DeviceBuffer::from_host(&m)
+    }
+}
+
+/// The matrices of an operator with Neff's α, on the device. `[_; 2]`: the operator and its
+/// adjoint (`Dagger::No`, `Dagger::Yes`).
+struct Matrices<T> {
+    /// The part within a site, `C Q`.
+    diag: [DeviceBuffer<T>; 2],
+    /// Its inverse.
+    inv: [DeviceBuffer<T>; 2],
+    /// `B Q`, what the hops act on. Without α the hop kernel makes `B ψ` as it reads.
+    pre: Option<DeviceBuffer<T>>,
+    /// `(B Q)†`, what follows the adjoint hops.
+    post: DeviceBuffer<T>,
+    /// `(C Q)†⁻¹ (B Q)†`: the adjoint hop followed by the inverse within the site.
+    inv_post: DeviceBuffer<T>,
+    /// Q and Q⁻¹.
+    q: [DeviceBuffer<T>; 2],
+}
+
+impl<T: DeviceReal> Matrices<T> {
+    fn new(params: &MdwfParams, alpha: f64) -> Result<Self, CudaError> {
+        let MdwfParams {
+            ls, m5, mass, b, c, ..
+        } = *params;
+        let height = 4.0 - m5;
+        let q = FifthMatrix::q(ls, alpha);
+        let diag = FifthMatrix::linear(ls, 1.0 + b * height, 1.0 - c * height, mass).times(&q);
+        let pre = FifthMatrix::linear(ls, b, -c, mass).times(&q);
+        let (inv, post) = (diag.inverse(), pre.adjoint());
+        Ok(Self {
+            diag: [diag.on_device()?, diag.adjoint().on_device()?],
+            inv: [inv.on_device()?, inv.adjoint().on_device()?],
+            pre: if alpha == 1.0 {
+                None
+            } else {
+                Some(pre.on_device()?)
+            },
+            inv_post: inv.adjoint().times(&post).on_device()?,
+            post: post.on_device()?,
+            q: [q.on_device()?, q.inverse().on_device()?],
+        })
+    }
+}
 
 pub struct CudaMdwf<T = f64> {
     params: MdwfParams,
@@ -18,6 +196,7 @@ pub struct CudaMdwf<T = f64> {
     gauge: DeviceGauge<T>,
     /// Neff's α (1: the plain operator).
     alpha: f64,
+    matrices: Matrices<T>,
 }
 
 /// Scratch fields of `CudaMdwf`, made on first use.
@@ -25,11 +204,16 @@ type Work<T> = [Option<DeviceSpinor<T>>; 2];
 
 impl<T: DeviceReal> CudaMdwf<T> {
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Result<Self, CudaError> {
+        assert!(
+            (2..=MAX_LS).contains(&params.ls),
+            "the fifth dimension must have between 2 and {MAX_LS} sites"
+        );
         Ok(Self {
             params,
             geometry: geometry(lat, params.boundary, params.ls),
             gauge: DeviceGauge::new(lat)?,
             alpha: 1.0,
+            matrices: Matrices::new(&params, 1.0)?,
         })
     }
 
@@ -37,60 +221,59 @@ impl<T: DeviceReal> CudaMdwf<T> {
     pub fn set_alpha(&mut self, alpha: f64) {
         assert!(alpha > 0.0, "α must be positive");
         self.alpha = alpha;
+        self.matrices = must(Matrices::new(&self.params, alpha));
     }
 
     pub fn alpha(&self) -> f64 {
         self.alpha
     }
 
-    fn has_alpha(&self) -> bool {
-        self.alpha != 1.0
-    }
-
-    fn kernel_params(&self) -> MdwfKernelParams {
-        MdwfKernelParams {
-            m5: self.params.m5,
-            mass: self.params.mass,
-            alpha: 1.0,
-            b5: self.params.b,
-            c5: self.params.c,
+    /// `out = M inp`, or `from − M inp`, for a matrix of `Matrices`: one pass, on the whole
+    /// lattice or on one parity.
+    fn gemm(
+        &self,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
+        matrix: &DeviceBuffer<T>,
+        from: Option<&DeviceSpinor<T>>,
+    ) {
+        assert!(out.same_shape(inp) && inp.ls == self.params.ls);
+        out.parity = inp.parity;
+        let from = match from {
+            Some(f) => {
+                assert!(f.same_shape(inp) && f.parity == inp.parity);
+                f.data.ptr.cast_const()
+            }
+            None => std::ptr::null(),
+        };
+        // SAFETY: the buffers hold the same sites with `ls` spinors each (padded to blocks),
+        // `out` is none of the inputs (it is borrowed mutably), the matrix is the padded one
+        // of this `ls`, and a null `from` is not read.
+        unsafe {
+            T::fifth_gemm(
+                out.data.ptr,
+                inp.data.ptr,
+                from,
+                matrix.ptr,
+                inp.sites() as i32,
+                inp.ls as i32,
+            );
         }
-    }
-
-    /// The coefficients (d+, d−) of the part of D within a site, C = d+ + d− Y.
-    fn site_coefficients(&self) -> (f64, f64) {
-        let height = 4.0 - self.params.m5;
-        (1.0 + self.params.b * height, 1.0 - self.params.c * height)
     }
 
     /// `out = Q inp`, or `Q⁻¹ inp`: Q_0 = P− + α P+, Q_s = α inside, Q_(Ls−1) = P+ + α P−.
     /// The solution of D x = b is x = Q x^(α) for D^(α) x^(α) = b.
     pub fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
-        assert!(out.same_shape(inp) && inp.ls == self.params.ls);
-        out.parity = inp.parity;
-        let a = if inverse {
-            1.0 / self.alpha
-        } else {
-            self.alpha
-        };
-        // SAFETY: two buffers of the same shape, not the same one (`out` is borrowed mutably).
-        unsafe {
-            T::mdwf_q(
-                out.data.ptr,
-                inp.data.ptr,
-                inp.sites() as i32,
-                inp.ls as i32,
-                a,
-            );
-        }
+        self.gemm(out, inp, &self.matrices.q[usize::from(inverse)], None);
     }
 
-    /// `out = H (b − c Y) inp`, or with `H†`, for the given b and c: on the whole lattice, or
-    /// `out` on the sites of parity `to` and `inp` on the others.
+    /// `out = [from −] H (b − c Y) inp`, or with `H†`, for the given b and c: on the whole
+    /// lattice, or `out` on the sites of parity `to` and `inp` on the others.
     fn hops(
         &self,
         out: &mut DeviceSpinor<T>,
         inp: &DeviceSpinor<T>,
+        from: Option<&DeviceSpinor<T>>,
         (b, c): (f64, f64),
         dagger: bool,
         to: Option<Parity>,
@@ -104,6 +287,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             (&self.gauge, &self.geometry),
             out,
             inp,
+            from,
             0.5,
             fifth,
             dagger,
@@ -111,38 +295,23 @@ impl<T: DeviceReal> CudaMdwf<T> {
         );
     }
 
-    /// `out = (a1 + y1 Y) x + (a2 + y2 Y) z`, or with `Y†`; the second term is optional.
-    fn fifth(
+    /// `out = [from −] H B Q inp`: the hops of the operator onto `to` (the whole lattice for
+    /// `None`). Without α one pass, B made as the hops read; with α through `t`.
+    fn hop_forward(
         &self,
+        t: &mut Option<DeviceSpinor<T>>,
         out: &mut DeviceSpinor<T>,
-        (x, a1, y1): (&DeviceSpinor<T>, f64, f64),
-        second: Option<(&DeviceSpinor<T>, f64, f64)>,
-        dagger: bool,
+        inp: &DeviceSpinor<T>,
+        from: Option<&DeviceSpinor<T>>,
+        to: Option<Parity>,
     ) {
-        assert!(out.same_shape(x) && x.ls == self.params.ls);
-        out.parity = x.parity;
-        let (z, a2, y2) = match second {
-            Some((z, a2, y2)) => {
-                assert!(z.same_shape(x) && z.parity == x.parity);
-                (z.data.ptr.cast_const(), a2, y2)
+        match &self.matrices.pre {
+            None => self.hops(out, inp, from, (self.params.b, self.params.c), false, to),
+            Some(pre) => {
+                let t = scratch(t, inp);
+                self.gemm(t, inp, pre, None);
+                self.hops(out, t, from, (1.0, 0.0), false, to);
             }
-            None => (std::ptr::null(), 0.0, 0.0),
-        };
-        // SAFETY: buffers of the same shape, `out` none of the inputs; a null `z` is not read.
-        unsafe {
-            T::mdwf_fifth(
-                out.data.ptr,
-                x.data.ptr,
-                a1,
-                y1,
-                z,
-                a2,
-                y2,
-                x.sites() as i32,
-                x.ls as i32,
-                self.params.mass,
-                i32::from(dagger),
-            );
         }
     }
 
@@ -150,7 +319,13 @@ impl<T: DeviceReal> CudaMdwf<T> {
     fn one_pass(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
         let ls = self.params.ls;
         assert!(inp.is(out, ls, None) && out.is(inp, ls, None));
-        let params = self.kernel_params();
+        let params = MdwfKernelParams {
+            m5: self.params.m5,
+            mass: self.params.mass,
+            alpha: 1.0,
+            b5: self.params.b,
+            c5: self.params.c,
+        };
         // SAFETY: as in `CudaWilson::apply`, the spinor buffers holding `ls` spinors per site.
         unsafe {
             T::mdwf_dslash(
@@ -162,55 +337,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
             );
         }
     }
-
-    /// `out = C⁻¹ inp`, or `C†⁻¹ inp`, of the plain operator: exactly, by substitution along
-    /// the fifth dimension. On the whole lattice or on one parity.
-    fn site_inv_plain(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
-        assert!(out.same_shape(inp) && inp.ls == self.params.ls);
-        out.parity = inp.parity;
-        let params = self.kernel_params();
-        // SAFETY: both buffers hold the sites of `inp` with `ls` spinors each (padded), and
-        // are not the same one.
-        unsafe {
-            T::mdwf_site_inv(
-                out.data.ptr,
-                inp.data.ptr,
-                inp.sites() as i32,
-                inp.ls as i32,
-                &params,
-                i32::from(dagger),
-            );
-        }
-    }
-
-    /// `out = plain(Q inp)` (`q_first`) or `Q plain(inp)`, with Q⁻¹ for Q if `inverse`, through
-    /// the scratch field `t`; without α, `plain` alone.
-    fn with_q(
-        &self,
-        t: &mut Option<DeviceSpinor<T>>,
-        out: &mut DeviceSpinor<T>,
-        inp: &DeviceSpinor<T>,
-        q_first: bool,
-        inverse: bool,
-        plain: impl FnOnce(&mut DeviceSpinor<T>, &DeviceSpinor<T>),
-    ) {
-        if !self.has_alpha() {
-            plain(out, inp);
-        } else if q_first {
-            let t = scratch(t, inp);
-            self.mult_q(t, inp, inverse);
-            plain(out, t);
-        } else {
-            let t = scratch(t, out);
-            plain(t, inp);
-            self.mult_q(out, t, inverse);
-        }
-    }
 }
 
-/// The even-odd blocks of D, in four dimensions (all `ls` spinors of a site have its parity):
-/// the hops `D_pq = H_pq (b − c Y)` and the part within a site `C = d+ + d− Y`; with α,
-/// `(D Q)_pq = D_pq Q` and `C Q`.
+/// The even-odd blocks of D Q, in four dimensions (all `ls` spinors of a site have its
+/// parity): the hops `H_pq B Q` and the part within a site `C Q`.
 impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
     type Work = Work<T>;
 
@@ -226,52 +356,75 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         to: Parity,
         dagger: Dagger,
     ) {
-        let MdwfParams { b, c, .. } = self.params;
         let [h, t] = work;
         match dagger {
-            Dagger::No => self.with_q(t, out, inp, true, false, |out, inp| {
-                self.hops(out, inp, (b, c), false, Some(to));
-            }),
-            // (D†)_pq = (b − c Y†) H†_pq, and Q after it
-            Dagger::Yes => self.with_q(t, out, inp, false, false, |out, inp| {
+            Dagger::No => self.hop_forward(t, out, inp, None, Some(to)),
+            // ((B Q)†) H†
+            Dagger::Yes => {
                 let h = scratch(h, out);
-                self.hops(h, inp, (1.0, 0.0), true, Some(to));
-                self.fifth(out, (h, b, -c), None, true);
-            }),
+                self.hops(h, inp, None, (1.0, 0.0), true, Some(to));
+                self.gemm(out, h, &self.matrices.post, None);
+            }
         }
     }
 
     fn diag(
         &self,
-        work: &mut Self::Work,
+        _work: &mut Self::Work,
         out: &mut DeviceSpinor<T>,
         inp: &DeviceSpinor<T>,
         parity: Parity,
         dagger: Dagger,
     ) {
         assert_eq!(inp.parity, Some(parity));
-        let (d_plus, d_minus) = self.site_coefficients();
-        let adjoint = dagger == Dagger::Yes;
-        // C Q, and its adjoint Q C†
-        self.with_q(&mut work[1], out, inp, !adjoint, false, |out, inp| {
-            self.fifth(out, (inp, d_plus, d_minus), None, adjoint);
-        });
+        let m = &self.matrices.diag[usize::from(dagger == Dagger::Yes)];
+        self.gemm(out, inp, m, None);
     }
 
+    /// Exactly: the inverse of `C Q` in the fifth dimension is a matrix.
     fn diag_inv(
+        &self,
+        _work: &mut Self::Work,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
+        parity: Parity,
+        dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity, Some(parity));
+        let m = &self.matrices.inv[usize::from(dagger == Dagger::Yes)];
+        self.gemm(out, inp, m, None);
+    }
+
+    /// The hops, then one matrix product for all that follows them within the site: `(C Q)⁻¹`,
+    /// or after the adjoint hops `(B Q)†` and `(C Q)†⁻¹` as one matrix, with the subtraction.
+    fn hop_then(
         &self,
         work: &mut Self::Work,
         out: &mut DeviceSpinor<T>,
         inp: &DeviceSpinor<T>,
-        parity: Parity,
+        to: Parity,
         dagger: Dagger,
+        then: Then<'_, DeviceSpinor<T>>,
+        scratch: &mut DeviceSpinor<T>,
     ) {
-        assert_eq!(inp.parity, Some(parity));
-        let adjoint = dagger == Dagger::Yes;
-        // (C Q)⁻¹ = Q⁻¹ C⁻¹ and (Q C†)⁻¹ = C†⁻¹ Q⁻¹
-        self.with_q(&mut work[1], out, inp, adjoint, true, |out, inp| {
-            self.site_inv_plain(out, inp, adjoint);
-        });
+        let [_, t] = work;
+        scratch.parity = Some(to);
+        match (dagger, then.site_inv) {
+            (Dagger::No, false) => self.hop_forward(t, out, inp, then.from, Some(to)),
+            (Dagger::No, true) => {
+                self.hop_forward(t, scratch, inp, None, Some(to));
+                self.gemm(out, scratch, &self.matrices.inv[0], then.from);
+            }
+            (Dagger::Yes, site_inv) => {
+                self.hops(scratch, inp, None, (1.0, 0.0), true, Some(to));
+                let m = if site_inv {
+                    &self.matrices.inv_post
+                } else {
+                    &self.matrices.post
+                };
+                self.gemm(out, scratch, m, then.from);
+            }
+        }
     }
 }
 
@@ -294,25 +447,62 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
         variant: Variant,
     ) {
         let [h, t] = work;
-        match variant {
-            // D Q
-            Variant::D => self.with_q(t, out, inp, true, false, |out, inp| {
+        let has_alpha = self.alpha != 1.0;
+        // D Q
+        let forward = |t: &mut Option<DeviceSpinor<T>>, out: &mut DeviceSpinor<T>| {
+            if has_alpha {
+                let t = scratch(t, inp);
+                self.mult_q(t, inp, false);
+                self.one_pass(out, t);
+            } else {
                 self.one_pass(out, inp);
-            }),
-            // Q D†
-            Variant::Dagger => self.with_q(t, out, inp, false, false, |out, inp| {
-                let MdwfParams { b, c, .. } = self.params;
-                let (d_plus, d_minus) = self.site_coefficients();
+            }
+        };
+        match variant {
+            Variant::D => forward(t, out),
+            // Q D†, D† = C† + B† H†
+            Variant::Dagger => {
+                let MdwfParams {
+                    ls, m5, b, c, mass, ..
+                } = self.params;
+                let height = 4.0 - m5;
                 let h = scratch(h, inp);
-                self.hops(h, inp, (1.0, 0.0), true, None);
-                self.fifth(out, (inp, d_plus, d_minus), Some((h, b, -c)), true);
-            }),
+                self.hops(h, inp, None, (1.0, 0.0), true, None);
+                // The plain D† inp = (d+ + d− Y†) inp + (b − c Y†) h.
+                let plain = |dst: &mut DeviceSpinor<T>| {
+                    assert!(dst.same_shape(inp));
+                    dst.parity = None;
+                    // SAFETY: buffers of the same shape, the output none of the inputs.
+                    unsafe {
+                        T::mdwf_fifth(
+                            dst.data.ptr,
+                            inp.data.ptr,
+                            1.0 + b * height,
+                            1.0 - c * height,
+                            h.data.ptr,
+                            b,
+                            -c,
+                            inp.sites() as i32,
+                            ls as i32,
+                            mass,
+                            1,
+                        );
+                    }
+                };
+                if has_alpha {
+                    let t = scratch(t, inp);
+                    plain(t);
+                    self.mult_q(out, t, false);
+                } else {
+                    plain(out);
+                }
+            }
             // Γ5 D Q
-            Variant::Gamma5D => self.with_q(t, out, inp, true, false, |out, inp| {
+            Variant::Gamma5D => {
                 let d = scratch(h, inp);
-                self.one_pass(d, inp);
+                forward(t, d);
                 gamma5(out, d, true);
-            }),
+            }
         }
     }
 

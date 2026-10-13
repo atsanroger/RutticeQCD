@@ -289,11 +289,19 @@ void bridge_cuda_mg_coarse_invert_diagonal_blocks_f64(
 // out = H (b - c Y) in, or with H^dag (fermion/hops.cuh): on the whole lattice
 // (target_parity < 0), or out on the sites of parity target_parity and in on the others. The
 // hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
-// the domain-wall operator (kappa = 1/2, its b and c).
+// the domain-wall operator (kappa = 1/2, its b and c). With d_from not null, d_from - that.
 void bridge_cuda_hop_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream
+);
+
+// out = M in, or d_from - M in if d_from is not null: the operators within a site of the
+// domain-wall operator as a matrix product (fermion/fifth_gemm.cuh), M the padded
+// (2 Ls) x (2 Ls) matrix on the device. In double precision on the tensor cores.
+void bridge_cuda_fifth_gemm_f32(
+    float* d_out, const float* d_in, const float* d_from, const float* d_m,
+    int sites, int Ls, cudaStream_t stream
 );
 
 // The field on one parity out of the one on the whole lattice (to_half), or into it.
@@ -309,18 +317,6 @@ void bridge_cuda_mdwf_fifth_f32(
     int sites, int Ls, double mass, int dagger, cudaStream_t stream
 );
 
-// out = Q in with a = alpha, Q^-1 in with a = 1/alpha: Neff's Q (fermion/mdwf.cuh).
-void bridge_cuda_mdwf_q_f32(
-    float* d_out, const float* d_in, int sites, int Ls, double a, cudaStream_t stream
-);
-
-// out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
-void bridge_cuda_mdwf_site_inv_f32(
-    float* d_out, const float* d_in,
-    int sites, int Ls, const BridgeCudaMdwfParams* params,
-    int dagger, cudaStream_t stream
-);
-
 // out = gamma_5 in, with `reflect` out_s = gamma_5 in_(Ls-1-s); Ls = 1 for a 4D field.
 void bridge_cuda_gamma5_f32(
     float* d_out, const float* d_in, int sites, int Ls, int reflect, cudaStream_t stream
@@ -329,11 +325,19 @@ void bridge_cuda_gamma5_f32(
 // out = H (b - c Y) in, or with H^dag (fermion/hops.cuh): on the whole lattice
 // (target_parity < 0), or out on the sites of parity target_parity and in on the others. The
 // hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
-// the domain-wall operator (kappa = 1/2, its b and c).
+// the domain-wall operator (kappa = 1/2, its b and c). With d_from not null, d_from - that.
 void bridge_cuda_hop_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream
+);
+
+// out = M in, or d_from - M in if d_from is not null: the operators within a site of the
+// domain-wall operator as a matrix product (fermion/fifth_gemm.cuh), M the padded
+// (2 Ls) x (2 Ls) matrix on the device. In double precision on the tensor cores.
+void bridge_cuda_fifth_gemm_f64(
+    double* d_out, const double* d_in, const double* d_from, const double* d_m,
+    int sites, int Ls, cudaStream_t stream
 );
 
 // The field on one parity out of the one on the whole lattice (to_half), or into it.
@@ -347,18 +351,6 @@ void bridge_cuda_mdwf_fifth_f64(
     double* d_out, const double* d_x, double a1, double y1,
     const double* d_z, double a2, double y2,
     int sites, int Ls, double mass, int dagger, cudaStream_t stream
-);
-
-// out = Q in with a = alpha, Q^-1 in with a = 1/alpha: Neff's Q (fermion/mdwf.cuh).
-void bridge_cuda_mdwf_q_f64(
-    double* d_out, const double* d_in, int sites, int Ls, double a, cudaStream_t stream
-);
-
-// out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
-void bridge_cuda_mdwf_site_inv_f64(
-    double* d_out, const double* d_in,
-    int sites, int Ls, const BridgeCudaMdwfParams* params,
-    int dagger, cudaStream_t stream
 );
 
 // out = gamma_5 in, with `reflect` out_s = gamma_5 in_(Ls-1-s); Ls = 1 for a 4D field.

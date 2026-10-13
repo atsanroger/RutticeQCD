@@ -67,6 +67,9 @@ pub struct MdwfKernelParams {
     c5: f64,
 }
 
+/// Largest fifth dimension (that of the operator on the CPU).
+const MAX_LS: usize = 64;
+
 const HOST_TO_DEVICE: i32 = 1;
 const DEVICE_TO_HOST: i32 = 2;
 const DEVICE_TO_DEVICE: i32 = 3;
@@ -127,6 +130,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         out: *mut Self,
         inp: *const Self,
         gauge: *const Self,
+        from: *const Self,
         geometry: *const Geometry,
         kappa: f64,
         mass: f64,
@@ -148,16 +152,15 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         mass: f64,
         dagger: i32,
     );
-    unsafe fn mdwf_site_inv(
+    unsafe fn fifth_gemm(
         out: *mut Self,
         inp: *const Self,
+        from: *const Self,
+        matrix: *const Self,
         sites: i32,
         ls: i32,
-        params: *const MdwfKernelParams,
-        dagger: i32,
     );
     unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32);
-    unsafe fn mdwf_q(out: *mut Self, inp: *const Self, sites: i32, ls: i32, a: f64);
     unsafe fn parity_copy(
         half: *mut Self,
         full: *mut Self,
@@ -175,7 +178,7 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
 /// `DeviceReal` for one type, on the functions of that precision.
 macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
-     $fifth:ident, $site_inv:ident, $gamma5:ident, $q:ident, $parity_copy:ident, $scal:ident,
+     $fifth:ident, $gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident) => {
         extern "C" {
             fn $wilson(
@@ -217,6 +220,7 @@ macro_rules! device_real {
                 out: *mut $t,
                 inp: *const $t,
                 gauge: *const $t,
+                from: *const $t,
                 geometry: *const Geometry,
                 kappa: f64,
                 mass: f64,
@@ -240,13 +244,13 @@ macro_rules! device_real {
                 dagger: i32,
                 stream: *mut c_void,
             );
-            fn $site_inv(
+            fn $gemm(
                 out: *mut $t,
                 inp: *const $t,
+                from: *const $t,
+                matrix: *const $t,
                 sites: i32,
                 ls: i32,
-                params: *const MdwfKernelParams,
-                dagger: i32,
                 stream: *mut c_void,
             );
             fn $gamma5(
@@ -257,7 +261,6 @@ macro_rules! device_real {
                 reflect: i32,
                 stream: *mut c_void,
             );
-            fn $q(out: *mut $t, inp: *const $t, sites: i32, ls: i32, a: f64, stream: *mut c_void);
             fn $parity_copy(
                 half: *mut $t,
                 full: *mut $t,
@@ -330,6 +333,7 @@ macro_rules! device_real {
                 out: *mut Self,
                 inp: *const Self,
                 gauge: *const Self,
+                from: *const Self,
                 geometry: *const Geometry,
                 kappa: f64,
                 mass: f64,
@@ -342,6 +346,7 @@ macro_rules! device_real {
                     out,
                     inp,
                     gauge,
+                    from,
                     geometry,
                     kappa,
                     mass,
@@ -367,21 +372,18 @@ macro_rules! device_real {
             ) {
                 $fifth(out, x, a1, y1, z, a2, y2, sites, ls, mass, dagger, STREAM)
             }
-            unsafe fn mdwf_site_inv(
+            unsafe fn fifth_gemm(
                 out: *mut Self,
                 inp: *const Self,
+                from: *const Self,
+                matrix: *const Self,
                 sites: i32,
                 ls: i32,
-                params: *const MdwfKernelParams,
-                dagger: i32,
             ) {
-                $site_inv(out, inp, sites, ls, params, dagger, STREAM)
+                $gemm(out, inp, from, matrix, sites, ls, STREAM)
             }
             unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32) {
                 $gamma5(out, inp, sites, ls, reflect, STREAM)
-            }
-            unsafe fn mdwf_q(out: *mut Self, inp: *const Self, sites: i32, ls: i32, a: f64) {
-                $q(out, inp, sites, ls, a, STREAM)
             }
             unsafe fn parity_copy(
                 half: *mut Self,
@@ -413,14 +415,12 @@ macro_rules! device_real {
 
 device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
-    bridge_cuda_mdwf_fifth_f32, bridge_cuda_mdwf_site_inv_f32, bridge_cuda_gamma5_f32,
-    bridge_cuda_mdwf_q_f32,
+    bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_gamma5_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32);
 device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
-    bridge_cuda_mdwf_fifth_f64, bridge_cuda_mdwf_site_inv_f64, bridge_cuda_gamma5_f64,
-    bridge_cuda_mdwf_q_f64,
+    bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64);
 
@@ -664,10 +664,13 @@ impl FifthInHops {
 
 /// `out = H (b − c Y) inp`, or with `H†`, H the hops of the Wilson kernel at `kappa`: on the
 /// whole lattice (`to` none), or `out` on the sites of parity `to` and `inp` on the others.
+/// With `from`, a field on the sites of `out`, `out = from −` that.
+#[allow(clippy::too_many_arguments)]
 fn hops<T: DeviceReal>(
     (gauge, geometry): (&DeviceGauge<T>, &Geometry),
     out: &mut DeviceSpinor<T>,
     inp: &DeviceSpinor<T>,
+    from: Option<&DeviceSpinor<T>>,
     kappa: f64,
     fifth: FifthInHops,
     dagger: bool,
@@ -677,13 +680,22 @@ fn hops<T: DeviceReal>(
     assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
     assert_eq!(out.data.len, inp.data.len);
     out.parity = to;
+    let from = match from {
+        Some(f) => {
+            assert!(f.is(out, ls, to) && f.data.len == out.data.len);
+            f.data.ptr.cast_const()
+        }
+        None => std::ptr::null(),
+    };
     // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
-    // kernel is told; the links are those of the whole lattice; `out` is not `inp`.
+    // kernel is told; the links are those of the whole lattice; `out` is not `inp`; a null
+    // `from` is not read.
     unsafe {
         T::hop(
             out.data.ptr,
             inp.data.ptr,
             gauge.links.ptr,
+            from,
             geometry,
             kappa,
             fifth.mass,

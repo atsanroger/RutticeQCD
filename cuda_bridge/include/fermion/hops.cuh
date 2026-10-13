@@ -239,14 +239,16 @@ __device__ __forceinline__ void hops(
 // -------------------------------------------------------------------------
 // out = H (b - c Y) in, or with H^dag (`sign` -1): on the whole lattice (target_parity < 0),
 // or out on the sites of parity target_parity and in on the others.
+// With d_from not null, out = d_from - that (a field on the sites of out; it may be out).
 // One thread for each (site, s): threadIdx.x the site within its block of 32, threadIdx.y
 // the fifth coordinate within LS_PER_BLOCK of them.
 // -------------------------------------------------------------------------
 template <typename Float, int LS_PER_BLOCK = 4>
 __global__ void hop_kernel(
-    Float* __restrict__ d_out,
+    Float* d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_gauge, int link_rows,
+    const Float* d_from,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     int Ls,
@@ -275,8 +277,11 @@ __global__ void hop_kernel(
     for (int s = 0; s < Nspin; ++s) {
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
-            d_out[aosoa_5d_spinor_idx(c, s, 0, is, Ls, site)] = acc[s][c][0];
-            d_out[aosoa_5d_spinor_idx(c, s, 1, is, Ls, site)] = acc[s][c][1];
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                const int k = aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
+                d_out[k] = (d_from != nullptr) ? d_from[k] - acc[s][c][ri] : acc[s][c][ri];
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 #include "fermion/mdwf.cuh"
+#include "fermion/fifth_gemm.cuh"
 #include "bridge_cuda.h"
 #include <algorithm>
 
@@ -49,13 +50,13 @@ void bridge_cuda_mdwf_dslash_f32(
 }
 
 void bridge_cuda_hop_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
     bridge_cuda::hop_kernel<float, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge, geom->link_rows,
+        d_out, d_in, d_gauge, geom->link_rows, d_from,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
@@ -73,26 +74,6 @@ void bridge_cuda_mdwf_fifth_f32(
     bridge_cuda::mdwf_fifth_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
         d_out, d_x, d_z, sites, Ls, static_cast<float>(mass),
         static_cast<float>(a1), static_cast<float>(y1), static_cast<float>(a2), static_cast<float>(y2), dagger
-    );
-}
-
-void bridge_cuda_mdwf_site_inv_f32(
-    float* d_out, const float* d_in,
-    int sites, int Ls, const BridgeCudaMdwfParams* params,
-    int dagger, cudaStream_t stream)
-{
-    bridge_cuda::mdwf_site_inv_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, sites, Ls,
-        static_cast<float>(params->M5), static_cast<float>(params->mass), static_cast<float>(params->b5), static_cast<float>(params->c5),
-        dagger
-    );
-}
-
-void bridge_cuda_mdwf_q_f32(
-    float* d_out, const float* d_in, int sites, int Ls, double a, cudaStream_t stream)
-{
-    bridge_cuda::mdwf_q_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, sites, Ls, static_cast<float>(a)
     );
 }
 
@@ -139,13 +120,13 @@ void bridge_cuda_mdwf_dslash_f64(
 }
 
 void bridge_cuda_hop_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
     bridge_cuda::hop_kernel<double, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge, geom->link_rows,
+        d_out, d_in, d_gauge, geom->link_rows, d_from,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
@@ -166,26 +147,6 @@ void bridge_cuda_mdwf_fifth_f64(
     );
 }
 
-void bridge_cuda_mdwf_site_inv_f64(
-    double* d_out, const double* d_in,
-    int sites, int Ls, const BridgeCudaMdwfParams* params,
-    int dagger, cudaStream_t stream)
-{
-    bridge_cuda::mdwf_site_inv_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, sites, Ls,
-        static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5),
-        dagger
-    );
-}
-
-void bridge_cuda_mdwf_q_f64(
-    double* d_out, const double* d_in, int sites, int Ls, double a, cudaStream_t stream)
-{
-    bridge_cuda::mdwf_q_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, sites, Ls, static_cast<double>(a)
-    );
-}
-
 void bridge_cuda_parity_copy_f64(
     double* d_half, double* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
     cudaStream_t stream)
@@ -203,6 +164,44 @@ void bridge_cuda_gamma5_f64(
     bridge_cuda::gamma5_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
         d_out, d_in, sites, Ls, reflect
     );
+}
+
+void bridge_cuda_fifth_gemm_f32(
+    float* d_out, const float* d_in, const float* d_from, const float* d_m,
+    int sites, int Ls, cudaStream_t stream)
+{
+    int blocks = (sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize;
+    bridge_cuda::fifth_gemm_kernel<float><<<get_grid_size(blocks * 2 * Ls * bridge_cuda::FifthColumns), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, d_from, d_m, blocks, Ls
+    );
+}
+
+void bridge_cuda_fifth_gemm_f64(
+    double* d_out, const double* d_in, const double* d_from, const double* d_m,
+    int sites, int Ls, cudaStream_t stream)
+{
+    int blocks = (sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize;
+    // A warp for every strip of 8 columns of every block, 8 warps to a block of threads.
+    int grid = (blocks * bridge_cuda::FifthStrips + 7) / 8;
+    switch ((2 * Ls + 7) / 8) {
+        case 1: bridge_cuda::fifth_gemm_mma_kernel<1><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 2: bridge_cuda::fifth_gemm_mma_kernel<2><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 3: bridge_cuda::fifth_gemm_mma_kernel<3><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 4: bridge_cuda::fifth_gemm_mma_kernel<4><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 5: bridge_cuda::fifth_gemm_mma_kernel<5><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 6: bridge_cuda::fifth_gemm_mma_kernel<6><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 7: bridge_cuda::fifth_gemm_mma_kernel<7><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 8: bridge_cuda::fifth_gemm_mma_kernel<8><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 9: bridge_cuda::fifth_gemm_mma_kernel<9><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 10: bridge_cuda::fifth_gemm_mma_kernel<10><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 11: bridge_cuda::fifth_gemm_mma_kernel<11><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 12: bridge_cuda::fifth_gemm_mma_kernel<12><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 13: bridge_cuda::fifth_gemm_mma_kernel<13><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 14: bridge_cuda::fifth_gemm_mma_kernel<14><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 15: bridge_cuda::fifth_gemm_mma_kernel<15><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 16: bridge_cuda::fifth_gemm_mma_kernel<16><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        default: break;  // Ls is at most 64
+    }
 }
 
 } // extern "C"
