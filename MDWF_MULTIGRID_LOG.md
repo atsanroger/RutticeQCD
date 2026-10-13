@@ -1830,3 +1830,23 @@ multigrid 只接在量 propagator 那條路上。這個缺口沒有在發布前�
 MG（區塊 3⁴、16 個測試向量、4 輪 setup）比 even-odd CG 慢約 17 倍；三種 MG 設定的時間幾乎相同，表示時間不在外層求解的差異上，但 setup／每次重建／cycle 各佔多少**沒有分開量**。
 結論：到 12⁴、這個質量為止，HMC 裡沒有任何選項贏過 even-odd CG。`app/hmc.rs` 的 macro 已改成三個對算子泛型的函式。
 
+### v0.1.0 之後（10-13；tag `v0.1.0` = `9162529`，GitHub Release 已建）
+
+**`unsafe` 的檢查。** 全 `src/` 共 36 處，`app`／`hmc`／`solver`／`fermion`／`io` 為 0。原本 5 處沒有 `SAFETY` 說明，全在 `gauge/paths.rs`（延伸場的平行寫入）；
+逐一看過都成立（寫入的格點互不相同、讀與寫的格點不重疊），補上理由，並把取指標的位置移到最後一次共享讀取之後（`632fb18`）。其餘 31 處原本就有說明，這次沒有重新審。
+
+**先記下、之後再處理的（使用者：告一段落）。**
+1. `app/wilson.rs` 的 `in_blocks!` macro：對 SIMD 的 2／4／8 個 lane 各展開一次（lane 數是編譯期常數、參數檔是執行期）。
+2. Wilson 的兩套 sweep（`sweep_sites`、`sweep_blocks`）沒有合併（使用者先前決定延後）。
+3. HMC 裡 MG 的 200 秒沒有拆開量（setup／每次重建／cycle）。到 12⁴ 為止 HMC 沒有任何選項贏過 even-odd CG。
+4. HMC 的 SIMD 內容（模板已有）；NERSC 的外部驗證；Release 說明裡 CHANGELOG 的開頭重複了一次。
+
+**GPU 分支 `origin/feat/gpu-unified-mg`（使用者請 Gemini 從 Bridge++ 的 CUDA 整理出來的）——只讀過，還沒動。**
+- 和 `main` **沒有共同歷史**，是獨立的一棵樹：35 個檔，`include/`（`.cuh` kernel）、`src/`（`.cu` 的 C 介面包裝）、`tests/`（5 個 `.cu`）、`CMakeLists.txt`，產出 `libbridge_cuda`。
+- C 介面 `include/bridge_cuda.h`：Wilson／clover／MDWF 的 dslash（整格、even-odd、1-pass）、MDWF 的 D5／LU 逆／PV 預處理／Schur 因子、SAP、MG 的粗網格算子與 restrict／prolong、
+  多右手邊 Wilson、plaquette、APE、BLAS（**只有 axpy、scal、norm2**）、精度轉換、Dirac↔chiral。參數都是**裝置指標**加 `BridgeCudaGeometry`；排列是 AoSoA W = 32。
+- **它是 kernel 函式庫，不是求解器**：沒有求解迴圈、沒有裝置記憶體管理與主機↔裝置搬運的介面、沒有複數內積。
+- **它的測試只檢查「沒有 NaN、範數不為零」，沒有對任何參考值**；commit 訊息也寫「not tested fully yet」。正確性與慣例（正規化、格點順序、even-odd、γ 基底、鏈結排列）都要拿我們的 CPU 算子當基準去驗。
+- 這台機器：RTX 3080 10 GB，`/usr/local/cuda-12*`、`cuda-13*`、HPC SDK 25.11、cmake 都在；`nvcc` 不在 PATH。
+- 參數檔的 `Backend::Gpu`（`gpu`／`cuda`）關鍵字已經存在。整合方案見對話（10-13），還沒得到使用者的決定。
+
