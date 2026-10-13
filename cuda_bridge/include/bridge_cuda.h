@@ -358,6 +358,26 @@ void bridge_cuda_gamma5_f64(
     double* d_out, const double* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
+// The hops and the product in one pass (fermion/fifth_gemm.cuh, hop_gemm_kernel):
+// out = M H (b - c Y) in, or d_from - that. Returns 0, having done nothing, if the spinors of
+// a block do not fit in the shared memory for this Ls: then bridge_cuda_hop and
+// bridge_cuda_fifth_gemm one after the other do the same.
+int bridge_cuda_hop_gemm_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_m,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream
+);
+
+// The hops and the product in one pass (fermion/fifth_gemm.cuh, hop_gemm_kernel):
+// out = M H (b - c Y) in, or d_from - that. Returns 0, having done nothing, if the spinors of
+// a block do not fit in the shared memory for this Ls: then bridge_cuda_hop and
+// bridge_cuda_fifth_gemm one after the other do the same.
+int bridge_cuda_hop_gemm_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_m,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream
+);
+
 // =========================================================================
 // Multi-RHS (MRHS)
 // =========================================================================

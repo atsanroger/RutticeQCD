@@ -254,14 +254,17 @@ fn clover_on_the_device_is_clover_on_the_cpu() {
     }
 }
 
-/// The lattices and parameters of the domain-wall tests: Shamir and Möbius, with a mass, an Ls
-/// that does not fill the blocks of four of the kernels, and the three kinds of boundary.
+/// The lattices and parameters of the domain-wall tests: Shamir and Möbius, with a mass, small
+/// and large Ls (the kernels shape their blocks of threads by it), odd Ls, and the three kinds
+/// of boundary.
 fn mdwf_cases() -> Vec<([usize; 4], MdwfParams)> {
     [
         ([4, 4, 4, 8], 8, 1.0, 0.0, 1.0, 0.05, PERIODIC),
         ([4, 4, 4, 8], 6, 1.5, 0.5, 1.8, 0.02, ANTIPERIODIC_T),
         ([6, 4, 2, 6], 5, 2.0, 1.0, 1.4, 0.3, MIXED),
         ([2, 4, 4, 4], 2, 1.5, 0.5, 1.8, 1.0, ANTIPERIODIC_T),
+        ([4, 4, 4, 4], 16, 1.5, 0.5, 1.8, 0.01, ANTIPERIODIC_T),
+        ([4, 2, 4, 4], 12, 2.0, 1.0, 1.4, 0.1, PERIODIC),
     ]
     .into_iter()
     .map(|(dims, ls, b, c, m5, mass, boundary)| {

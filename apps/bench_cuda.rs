@@ -10,7 +10,7 @@ use ruttice::backend::cuda_bridge::{
 };
 use ruttice::fermion::{
     solve_even_odd, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams,
-    SplitParity, Variant, Wilson, WilsonParams,
+    SplitParity, Then, Variant, Wilson, WilsonParams,
 };
 use ruttice::io::read_bridge_text;
 use ruttice::solver::{solve_cgne, Cg, Stop};
@@ -36,9 +36,9 @@ fn time_mult<V: Vector, F: FermionOp<V>>(op: &F, psi: &V) -> f64 {
     start.elapsed().as_secs_f64() / APPLICATIONS as f64
 }
 
-/// Seconds of one hop between the parities and of one inverse of the block within a site, the
-/// two parts of an even-odd solve.
-fn time_blocks<T, G>(gpu: &G, psi: &DeviceSpinor<T>) -> (f64, f64)
+/// Seconds of one hop between the parities, of one inverse of the block within a site, and of
+/// the two as the even-odd solves take them (`EvenOdd::hop_then`).
+fn time_blocks<T, G>(gpu: &G, psi: &DeviceSpinor<T>) -> (f64, f64, f64)
 where
     T: ruttice::backend::cuda_bridge::DeviceReal,
     G: EvenOdd<DeviceSpinor<T>>,
@@ -61,7 +61,20 @@ where
     let hop = time(&mut || gpu.hop(&mut work, &mut out_e, &inp, even, Dagger::No));
     let mut work = gpu.even_odd_work();
     let inv = time(&mut || gpu.diag_inv(&mut work, &mut out_o, &inp, odd, Dagger::No));
-    (hop, inv)
+    let mut work = gpu.even_odd_work();
+    let mut scratch = out_e.zeros_like();
+    let both = time(&mut || {
+        gpu.hop_then(
+            &mut work,
+            &mut out_e,
+            &inp,
+            even,
+            Dagger::No,
+            Then::INVERSE,
+            &mut scratch,
+        );
+    });
+    (hop, inv, both)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -94,14 +107,16 @@ fn compare<C, G, G32>(
         t_single * 1e3,
         gflops(t_single)
     );
-    let (hop, inv) = time_blocks(gpu, &device_psi);
-    let (hop_single, inv_single) = time_blocks(single, &single_psi);
+    let (hop, inv, both) = time_blocks(gpu, &device_psi);
+    let (hop_single, inv_single, both_single) = time_blocks(single, &single_psi);
     println!(
-        "{name}: on one parity  hop {:.3} ms, inverse within the site {:.3} ms;  single {:.3} ms, {:.3} ms",
+        "{name}: on one parity  hop {:.3} ms, inverse within the site {:.3} ms, the two together {:.3} ms;  single {:.3} ms, {:.3} ms, {:.3} ms",
         hop * 1e3,
         inv * 1e3,
+        both * 1e3,
         hop_single * 1e3,
-        inv_single * 1e3
+        inv_single * 1e3,
+        both_single * 1e3
     );
     let Some(stop) = stop else {
         return;

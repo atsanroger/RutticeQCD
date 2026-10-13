@@ -295,6 +295,56 @@ impl<T: DeviceReal> CudaMdwf<T> {
         );
     }
 
+    /// `out = [from −] M H (b − c Y) inp`, or with `H†`, M a matrix of `Matrices`: the hops and
+    /// the product in one pass, the result of the hops in the shared memory of the kernel;
+    /// through `scratch` in two if the spinors of a block do not fit there.
+    #[allow(clippy::too_many_arguments)]
+    fn hops_then(
+        &self,
+        scratch: &mut DeviceSpinor<T>,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
+        from: Option<&DeviceSpinor<T>>,
+        (b, c): (f64, f64),
+        dagger: bool,
+        to: Parity,
+        matrix: &DeviceBuffer<T>,
+    ) {
+        let ls = self.params.ls;
+        assert!(inp.is(out, ls, Some(to.flip())) && out.ls == ls);
+        assert_eq!(out.data.len, inp.data.len);
+        out.parity = Some(to);
+        let from_ptr = match from {
+            Some(f) => {
+                assert!(f.is(out, ls, Some(to)) && f.data.len == out.data.len);
+                f.data.ptr.cast_const()
+            }
+            None => std::ptr::null(),
+        };
+        // SAFETY: the spinor buffers hold the sites of one parity each, as the kernel is told;
+        // the links are those of the whole lattice; `out` is not `inp`; the matrix is the
+        // padded one of this `ls`; a null `from` is not read.
+        let done = unsafe {
+            T::hop_gemm(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.links.ptr,
+                from_ptr,
+                matrix.ptr,
+                &self.geometry,
+                self.params.mass,
+                b,
+                c,
+                i32::from(dagger),
+                to.index() as i32,
+            )
+        };
+        if !done {
+            self.hops(scratch, inp, None, (b, c), dagger, Some(to));
+            self.gemm(out, scratch, matrix, from);
+        }
+    }
+
     /// `out = [from −] H B Q inp`: the hops of the operator onto `to` (the whole lattice for
     /// `None`). Without α one pass, B made as the hops read; with α through `t`.
     fn hop_forward(
@@ -362,8 +412,7 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
             // ((B Q)†) H†
             Dagger::Yes => {
                 let h = scratch(h, out);
-                self.hops(h, inp, None, (1.0, 0.0), true, Some(to));
-                self.gemm(out, h, &self.matrices.post, None);
+                self.hops_then(h, out, inp, None, (1.0, 0.0), true, to, &self.matrices.post);
             }
         }
     }
@@ -412,17 +461,26 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         match (dagger, then.site_inv) {
             (Dagger::No, false) => self.hop_forward(t, out, inp, then.from, Some(to)),
             (Dagger::No, true) => {
-                self.hop_forward(t, scratch, inp, None, Some(to));
-                self.gemm(out, scratch, &self.matrices.inv[0], then.from);
+                let inv = &self.matrices.inv[0];
+                match &self.matrices.pre {
+                    None => {
+                        let bc = (self.params.b, self.params.c);
+                        self.hops_then(scratch, out, inp, then.from, bc, false, to, inv);
+                    }
+                    Some(pre) => {
+                        let t = super::wilson::scratch(t, inp);
+                        self.gemm(t, inp, pre, None);
+                        self.hops_then(scratch, out, t, then.from, (1.0, 0.0), false, to, inv);
+                    }
+                }
             }
             (Dagger::Yes, site_inv) => {
-                self.hops(scratch, inp, None, (1.0, 0.0), true, Some(to));
                 let m = if site_inv {
                     &self.matrices.inv_post
                 } else {
                     &self.matrices.post
                 };
-                self.gemm(out, scratch, m, then.from);
+                self.hops_then(scratch, out, inp, then.from, (1.0, 0.0), true, to, m);
             }
         }
     }
