@@ -91,6 +91,68 @@ __device__ __forceinline__ void fifth_term(
     }
 }
 
+// acc += coef U (1 - s gamma_mu) w, or with U^dag (`adjoint`), s = +-1.
+//
+// (1 - s gamma_mu) w has two independent spin components, so the link multiplies two colour
+// vectors, not four. With (gamma_mu w)[row] = val[row] w[col[row]]: for mu < 3, col takes the
+// rows 0, 1 to the rows 2, 3, the rows a = 0, 1 of (1 - s gamma_mu) w are
+// h_a = w_a - s val[a] w_col[a], and its row col[a] is - s val[col[a]] h_a. gamma_4 is diagonal,
+// (1, 1, -1, -1): (1 - s gamma_4) w is 2 w on the rows 2, 3 for s = +1, on the rows 0, 1 for
+// s = -1, and zero on the others.
+template <typename Float>
+__device__ __forceinline__ void hop_leg(
+    Float acc[Nspin][Nc][Ncomplex],
+    const Float w[Nspin][Nc][Ncomplex],
+    const Float u_r[Nc][Nc], const Float u_i[Nc][Nc],
+    bool adjoint, int mu, Float s, Float coef)
+{
+    // col[mu][row]; val as (re, im)
+    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
+    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
+    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
+    #pragma unroll
+    for (int a = 0; a < 2; ++a) {
+        // The row of the half spinor, and the other row it gives with the factor (fr, fi).
+        int row, other = -1;
+        Float h_r[Nc], h_i[Nc], fr = 0, fi = 0;
+        if (mu < 3) {
+            row = a;
+            other = col[mu][a];
+            const Float vr = s * static_cast<Float>(re[mu][a]);
+            const Float vi = s * static_cast<Float>(im[mu][a]);
+            #pragma unroll
+            for (int c = 0; c < Nc; ++c) {
+                h_r[c] = w[a][c][0] - (vr * w[other][c][0] - vi * w[other][c][1]);
+                h_i[c] = w[a][c][1] - (vr * w[other][c][1] + vi * w[other][c][0]);
+            }
+            fr = -s * static_cast<Float>(re[mu][other]);
+            fi = -s * static_cast<Float>(im[mu][other]);
+        } else {
+            row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
+            #pragma unroll
+            for (int c = 0; c < Nc; ++c) {
+                h_r[c] = static_cast<Float>(2.0) * w[row][c][0];
+                h_i[c] = static_cast<Float>(2.0) * w[row][c][1];
+            }
+        }
+        Float t_r[Nc], t_i[Nc];
+        if (adjoint) {
+            su3_dagger_mult_vec(t_r, t_i, u_r, u_i, h_r, h_i);
+        } else {
+            su3_mult_vec(t_r, t_i, u_r, u_i, h_r, h_i);
+        }
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            acc[row][c][0] += coef * t_r[c];
+            acc[row][c][1] += coef * t_i[c];
+            if (mu < 3) {
+                acc[other][c][0] += coef * (fr * t_r[c] - fi * t_i[c]);
+                acc[other][c][1] += coef * (fr * t_i[c] + fi * t_r[c]);
+            }
+        }
+    }
+}
+
 // acc += H w at the site of coordinates xc and fifth coordinate `is`, with
 // w = (b - c Y) psi of d_in; `sign` -1 gives H^dag. With `half`, d_in holds the sites of the
 // parity opposite to that of xc. For a four-dimensional field: Ls = 1, b = 1, c = 0.
@@ -125,10 +187,6 @@ __device__ __forceinline__ void hops(
         Float w_f[Nspin][Nc][Ncomplex], w_b[Nspin][Nc][Ncomplex];
         fifth_term<Float>(w_f, d_in, is, Ls, in_f, mass, b5, -c5, false);
         fifth_term<Float>(w_b, d_in, is, Ls, in_b, mass, b5, -c5, false);
-        Float g_f[Nspin][Nc][Ncomplex], g_b[Nspin][Nc][Ncomplex];
-        mult_gamma_dirac<Float>(g_f, w_f, mu);
-        mult_gamma_dirac<Float>(g_b, w_b, mu);
-
         Float u_f_r[Nc][Nc], u_f_i[Nc][Nc], u_b_r[Nc][Nc], u_b_i[Nc][Nc];
         #pragma unroll
         for (int r = 0; r < Nc; ++r) {
@@ -140,32 +198,8 @@ __device__ __forceinline__ void hops(
                 u_b_i[r][c] = d_gauge[aosoa_gauge_idx(mu, r, c, 1, site_b)];
             }
         }
-        #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            Float v_in_r[Nc], v_in_i[Nc], v_out_r[Nc], v_out_i[Nc];
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = sign_f * (w_f[s][c][0] - sign * g_f[s][c][0]);
-                v_in_i[c] = sign_f * (w_f[s][c][1] - sign * g_f[s][c][1]);
-            }
-            su3_mult_vec(v_out_r, v_out_i, u_f_r, u_f_i, v_in_r, v_in_i);
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                acc[s][c][0] -= kappa * v_out_r[c];
-                acc[s][c][1] -= kappa * v_out_i[c];
-            }
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = sign_b * (w_b[s][c][0] + sign * g_b[s][c][0]);
-                v_in_i[c] = sign_b * (w_b[s][c][1] + sign * g_b[s][c][1]);
-            }
-            su3_dagger_mult_vec(v_out_r, v_out_i, u_b_r, u_b_i, v_in_r, v_in_i);
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                acc[s][c][0] -= kappa * v_out_r[c];
-                acc[s][c][1] -= kappa * v_out_i[c];
-            }
-        }
+        hop_leg<Float>(acc, w_f, u_f_r, u_f_i, false, mu, sign, -kappa * sign_f);
+        hop_leg<Float>(acc, w_b, u_b_r, u_b_i, true, mu, -sign, -kappa * sign_b);
     }
 }
 
