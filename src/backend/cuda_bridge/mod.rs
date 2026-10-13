@@ -67,8 +67,9 @@ pub struct MdwfKernelParams {
     c5: f64,
 }
 
-/// Largest fifth dimension (that of the operator on the CPU).
-const MAX_LS: usize = 64;
+/// Largest fifth dimension: the matrix of the fifth dimension must fit in the shared memory
+/// of a block of threads (`fifth_gemm.cuh`).
+const MAX_LS: usize = 32;
 
 const HOST_TO_DEVICE: i32 = 1;
 const DEVICE_TO_HOST: i32 = 2;

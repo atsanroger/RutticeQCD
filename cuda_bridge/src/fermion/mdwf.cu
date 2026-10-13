@@ -171,9 +171,29 @@ void bridge_cuda_fifth_gemm_f32(
     int sites, int Ls, cudaStream_t stream)
 {
     int blocks = (sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize;
-    bridge_cuda::fifth_gemm_kernel<float><<<get_grid_size(blocks * 2 * Ls * bridge_cuda::FifthColumns), BLOCK_SIZE, 0, stream>>>(
-        d_out, d_in, d_from, d_m, blocks, Ls
-    );
+    int grid = get_grid_size(blocks * bridge_cuda::FifthColumns);
+    // The padded matrix: 8 NT rows of K4 reals.
+    int nt = (2 * Ls + 7) / 8, k4 = (2 * Ls + 3) / 4 * 4;
+    size_t shared = static_cast<size_t>(8 * nt * k4) * sizeof(float);
+    switch (nt) {
+        case 1: bridge_cuda::fifth_gemm_columns_kernel<float, 1><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 2: bridge_cuda::fifth_gemm_columns_kernel<float, 2><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 3: bridge_cuda::fifth_gemm_columns_kernel<float, 3><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 4: bridge_cuda::fifth_gemm_columns_kernel<float, 4><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 5: bridge_cuda::fifth_gemm_columns_kernel<float, 5><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 6: bridge_cuda::fifth_gemm_columns_kernel<float, 6><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 7: bridge_cuda::fifth_gemm_columns_kernel<float, 7><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 8: bridge_cuda::fifth_gemm_columns_kernel<float, 8><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 9: bridge_cuda::fifth_gemm_columns_kernel<float, 9><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 10: bridge_cuda::fifth_gemm_columns_kernel<float, 10><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 11: bridge_cuda::fifth_gemm_columns_kernel<float, 11><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 12: bridge_cuda::fifth_gemm_columns_kernel<float, 12><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 13: bridge_cuda::fifth_gemm_columns_kernel<float, 13><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 14: bridge_cuda::fifth_gemm_columns_kernel<float, 14><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 15: bridge_cuda::fifth_gemm_columns_kernel<float, 15><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 16: bridge_cuda::fifth_gemm_columns_kernel<float, 16><<<grid, BLOCK_SIZE, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        default: break;  // Ls is at most 64
+    }
 }
 
 void bridge_cuda_fifth_gemm_f64(
@@ -183,23 +203,26 @@ void bridge_cuda_fifth_gemm_f64(
     int blocks = (sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize;
     // A warp for every strip of 8 columns of every block, 8 warps to a block of threads.
     int grid = (blocks * bridge_cuda::FifthStrips + 7) / 8;
-    switch ((2 * Ls + 7) / 8) {
-        case 1: bridge_cuda::fifth_gemm_mma_kernel<1><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 2: bridge_cuda::fifth_gemm_mma_kernel<2><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 3: bridge_cuda::fifth_gemm_mma_kernel<3><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 4: bridge_cuda::fifth_gemm_mma_kernel<4><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 5: bridge_cuda::fifth_gemm_mma_kernel<5><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 6: bridge_cuda::fifth_gemm_mma_kernel<6><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 7: bridge_cuda::fifth_gemm_mma_kernel<7><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 8: bridge_cuda::fifth_gemm_mma_kernel<8><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 9: bridge_cuda::fifth_gemm_mma_kernel<9><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 10: bridge_cuda::fifth_gemm_mma_kernel<10><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 11: bridge_cuda::fifth_gemm_mma_kernel<11><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 12: bridge_cuda::fifth_gemm_mma_kernel<12><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 13: bridge_cuda::fifth_gemm_mma_kernel<13><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 14: bridge_cuda::fifth_gemm_mma_kernel<14><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 15: bridge_cuda::fifth_gemm_mma_kernel<15><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
-        case 16: bridge_cuda::fifth_gemm_mma_kernel<16><<<grid, 256, 0, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+    // The copy of the matrix in the shared memory: 8 NT rows of K16 reals.
+    int nt = (2 * Ls + 7) / 8, k16 = (2 * Ls + 15) / 16 * 16;
+    size_t shared = static_cast<size_t>(8 * nt * k16) * sizeof(double);
+    switch (nt) {
+        case 1: bridge_cuda::fifth_gemm_mma_kernel<1><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 2: bridge_cuda::fifth_gemm_mma_kernel<2><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 3: bridge_cuda::fifth_gemm_mma_kernel<3><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 4: bridge_cuda::fifth_gemm_mma_kernel<4><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 5: bridge_cuda::fifth_gemm_mma_kernel<5><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 6: bridge_cuda::fifth_gemm_mma_kernel<6><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 7: bridge_cuda::fifth_gemm_mma_kernel<7><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 8: bridge_cuda::fifth_gemm_mma_kernel<8><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 9: bridge_cuda::fifth_gemm_mma_kernel<9><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 10: bridge_cuda::fifth_gemm_mma_kernel<10><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 11: bridge_cuda::fifth_gemm_mma_kernel<11><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 12: bridge_cuda::fifth_gemm_mma_kernel<12><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 13: bridge_cuda::fifth_gemm_mma_kernel<13><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 14: bridge_cuda::fifth_gemm_mma_kernel<14><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 15: bridge_cuda::fifth_gemm_mma_kernel<15><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
+        case 16: bridge_cuda::fifth_gemm_mma_kernel<16><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
         default: break;  // Ls is at most 64
     }
 }
