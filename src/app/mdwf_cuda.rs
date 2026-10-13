@@ -1,13 +1,15 @@
 //! Möbius domain-wall solves on the GPU (`Main.backend : cuda_bridge`): the Pauli-Villars
 //! preconditioned operator on the even sites and the outer solver on the device, without or
-//! with the Chebyshev preconditioner. The source, the
-//! four-dimensional fields of the solution and the check of the residual are on the CPU.
+//! with the Chebyshev preconditioner. The five-dimensional source, the residual of the solution
+//! (by the operator on the whole lattice, not the one that was solved) and its four-dimensional
+//! fields are made on the device as well: the CPU has the four-dimensional source, the random
+//! right-hand sides and the contractions.
 
 use super::mdwf::{iterations_text, write_measurements};
 use super::memory_line;
 use super::params::{Params, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::{CudaMdwf, DeviceParities, DeviceSpinor};
-use crate::fermion::{FermionOp, Mdwf, PvRatio, SplitParity, Variant};
+use crate::fermion::{FermionOp, PvRatio, SplitParity, Variant};
 use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::{
     largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Fgmres, Gcr, Solver, Stop,
@@ -48,10 +50,6 @@ pub(super) fn run(
     // The normal equations are the operator with D in place of D_PV.
     let (form, normal) = params.form();
     let pv = if normal { &op } else { &pv_alpha };
-    // The plain operator on the CPU: the source, the four-dimensional fields, the check.
-    let mut check = Mdwf::<f64>::new(lat, params.mdwf_params(fo.mass()));
-    check.set_gauge(u)?;
-
     let even = DeviceSpinor::zeros_half(lat, ls, Parity::Even)?;
     let odd = DeviceSpinor::zeros_half(lat, ls, Parity::Odd)?;
     let operator = || PvRatio::new(&op, pv, form, &even, &odd);
@@ -85,12 +83,15 @@ pub(super) fn run(
     let mut a = operator();
     let stop: Stop = s.stop();
     let k = s.number_of_kept_directions;
+    let (mut check_work, mut source_work) = (op.work(), op.work());
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
-    let mut solve = |b: &F, label: &str, out: &mut dyn Write| -> Result<F, Box<dyn Error>> {
-        let device_b = DeviceSpinor::from_host(b)?;
+    let mut solve = |b: &DeviceSpinor,
+                     label: &str,
+                     out: &mut dyn Write|
+     -> Result<DeviceSpinor, Box<dyn Error>> {
         let nv = b.num_vectors();
         let mut rhs = even.zeros_with(nv);
-        a.right_hand_side(&DeviceParities, &mut rhs, &device_b);
+        a.right_hand_side(&DeviceParities, &mut rhs, b);
         let mut sol = rhs.zeros_like();
         let start = Instant::now();
         let m = pre.as_mut().map(|m| m as &mut dyn LinearFn<DeviceSpinor>);
@@ -108,22 +109,24 @@ pub(super) fn run(
             SolverType::Minres => unreachable!("refused when the file is read"),
         };
         let seconds = start.elapsed().as_secs_f64();
-        // x^(α), and x = Q x^(α)
-        let mut x = device_b.zeros_like();
-        a.solution(&DeviceParities, &mut x, &sol, &device_b);
+        // x^(α), with D^(α) x^(α) = b on the whole lattice
+        let mut x = b.zeros_like();
+        a.solution(&DeviceParities, &mut x, &sol, b);
+        let worst = {
+            let mut r = b.zeros_like();
+            op.mult(&mut check_work, &mut r, &x, Variant::D);
+            r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+            let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
+            r.norm_sqr(&mut rr);
+            b.norm_sqr(&mut bb);
+            rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b))
+        };
+        // x = Q x^(α)
         if op.alpha() != 1.0 {
             let mut plain = x.zeros_like();
             op.mult_q(&mut plain, &x, false);
             x = plain;
         }
-        let x = x.to_host()?;
-        let mut r = b.zeros_like();
-        check.mult(&mut check.work(), &mut r, &x, Variant::D);
-        r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
-        let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
-        r.norm_sqr(&mut rr);
-        b.norm_sqr(&mut bb);
-        let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         writeln!(
             out,
             "  {label}: {} {} iterations on the device; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
@@ -136,7 +139,8 @@ pub(super) fn run(
 
     let Some(src) = &params.source else {
         for seed in seed_lo..=seed_hi {
-            solve(&random_fifth(lat, ls, seed), &format!("seed {seed}"), out)?;
+            let b = DeviceSpinor::from_host(&random_fifth(lat, ls, seed))?;
+            solve(&b, &format!("seed {seed}"), out)?;
         }
         return Ok(());
     };
@@ -147,15 +151,15 @@ pub(super) fn run(
     let (mut prop, mut mid) = (eta.zeros_like(), eta.zeros_like());
     let columns: Vec<usize> = (0..NUM_SOURCES).collect();
     for chunk in columns.chunks(src.number_of_rhs_per_solve) {
-        let eta_c = eta.select(chunk);
-        let mut b = F::with_shape(lat, 24, ls, chunk.len(), 1);
-        check.source_5d(&mut check.work(), &mut b, &eta_c);
+        let eta_c = DeviceSpinor::from_host(&eta.select(chunk))?;
+        let mut b = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(chunk.len());
+        op.source_5d(&mut source_work, &mut b, &eta_c);
         let psi = solve(&b, &format!("columns {chunk:?}"), out)?;
         let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
-        check.propagator_4d(&mut q, &psi);
-        check.midpoint_4d(&mut m, &psi);
-        prop.assign(chunk, &q);
-        mid.assign(chunk, &m);
+        op.propagator_4d(&mut q, &psi);
+        op.midpoint_4d(&mut m, &psi);
+        prop.assign(chunk, &q.to_host()?);
+        mid.assign(chunk, &m.to_host()?);
     }
     write_measurements(
         src.source_position,

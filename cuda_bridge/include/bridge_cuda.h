@@ -358,6 +358,18 @@ void bridge_cuda_gamma5_f64(
     double* d_out, const double* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
+// Between a field of one spinor per site and the walls of one of Ls (fermion/mdwf.cuh,
+// walls_kernel), every vector: to_4d, out = P- in_(s_minus) + P+ in_(s_plus); otherwise
+// out_(s_minus) = P- in and out_(s_plus) = P+ in, the other s of out left as they are.
+void bridge_cuda_walls_f32(
+    float* d_out, const float* d_in, int sites, int Ls, int s_minus, int s_plus, int to_4d,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_walls_f64(
+    double* d_out, const double* d_in, int sites, int Ls, int s_minus, int s_plus, int to_4d,
+    int vectors, cudaStream_t stream
+);
+
 // bridge_cuda_fifth_gemm_f32 on the tensor cores, in TF32: M and the input rounded to ten bits
 // of mantissa. Ls at most 32.
 void bridge_cuda_fifth_gemm_tf32_f32(

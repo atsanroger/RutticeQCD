@@ -149,6 +149,67 @@ __global__ void gamma5_kernel(
     }
 }
 
+// -------------------------------------------------------------------------
+// Between a field of one spinor per site and the walls of one of Ls, on the `sites` sites of
+// the lattice, for every vector (the fibres of a site, hops.cuh):
+//
+//   to_4d:   out = P- in_(s_minus) + P+ in_(s_plus)
+//   from_4d: out_(s_minus) = P- in, out_(s_plus) = P+ in; the other s are left as they are.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void walls_kernel(
+    Float* __restrict__ d_out,
+    const Float* __restrict__ d_in,
+    int sites,
+    int Ls,
+    int s_minus, int s_plus,
+    int to_4d,
+    int vectors)
+{
+    const int site = blockIdx.x * blockDim.x + threadIdx.x;
+    const int v = blockIdx.y * blockDim.y + threadIdx.y;
+    if (site >= sites || v >= vectors) return;
+    const size_t four = v * vector_reals(sites, 1), five = v * vector_reals(sites, Ls);
+    const Float* __restrict__ in = d_in + (to_4d ? five : four);
+    Float* __restrict__ out = d_out + (to_4d ? four : five);
+
+    Float m[Nspin][Nc][Ncomplex], p[Nspin][Nc][Ncomplex];
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                if (to_4d) {
+                    m[s][c][ri] = in[aosoa_5d_spinor_idx(c, s, ri, s_minus, Ls, site)];
+                    p[s][c][ri] = in[aosoa_5d_spinor_idx(c, s, ri, s_plus, Ls, site)];
+                } else {
+                    m[s][c][ri] = in[aosoa_spinor_idx(c, s, ri, site)];
+                    p[s][c][ri] = m[s][c][ri];
+                }
+            }
+        }
+    }
+    Float minus[Nspin][Nc][Ncomplex], plus[Nspin][Nc][Ncomplex];
+    proj_pl<Float, BRIDGE_CUDA_GAMMA_DIRAC>(minus, m);
+    proj_pr<Float, BRIDGE_CUDA_GAMMA_DIRAC>(plus, p);
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                if (to_4d) {
+                    out[aosoa_spinor_idx(c, s, ri, site)] = minus[s][c][ri] + plus[s][c][ri];
+                } else {
+                    out[aosoa_5d_spinor_idx(c, s, ri, s_minus, Ls, site)] = minus[s][c][ri];
+                    out[aosoa_5d_spinor_idx(c, s, ri, s_plus, Ls, site)] = plus[s][c][ri];
+                }
+            }
+        }
+    }
+}
+
 } // namespace bridge_cuda
 
 #endif // BRIDGE_CUDA_FERMION_MDWF_CUH

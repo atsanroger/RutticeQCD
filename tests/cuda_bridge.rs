@@ -568,6 +568,49 @@ fn single_precision_on_the_device() {
     same_operator(&cpu, &gpu, &psi, 5e-6, "MDWF in single precision");
 }
 
+/// The five-dimensional source of a four-dimensional one and the four-dimensional fields of a
+/// five-dimensional solution, made on the device, are those of the CPU.
+#[test]
+fn four_dimensional_fields_of_mdwf_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 2, 6]);
+    let u = random_gauge(&lat, 421);
+    let (ls, nv) = (6, 3);
+    let params = MdwfParams {
+        ls,
+        m5: 1.8,
+        mass: 0.2,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+    let eta = random_spinor(&lat, nv, 422);
+    let mut b = Psi::with_shape(&lat, 24, ls, nv, 1);
+    cpu.source_5d(&mut cpu.work(), &mut b, &eta);
+    let device_eta = DeviceSpinor::from_host(&eta).unwrap();
+    let mut device_b = DeviceSpinor::from_host(&b).unwrap().zeros_like();
+    gpu.source_5d(&mut gpu.work(), &mut device_b, &device_eta);
+    let d = worst(&device_b.to_host().unwrap(), &b);
+    assert!(d < 1e-13, "the five-dimensional source differs by {d:e}");
+
+    let mut psi = Psi::with_shape(&lat, 24, ls, nv, 1);
+    psi.as_mut_slice()
+        .copy_from_slice(random_spinor(&lat, ls * nv, 423).as_slice());
+    let device_psi = DeviceSpinor::from_host(&psi).unwrap();
+    let (mut q, mut device_q) = (eta.zeros_like(), device_eta.zeros_like());
+    cpu.propagator_4d(&mut q, &psi);
+    gpu.propagator_4d(&mut device_q, &device_psi);
+    let d = worst(&device_q.to_host().unwrap(), &q);
+    assert!(
+        d < 1e-14,
+        "the four-dimensional quark field differs by {d:e}"
+    );
+    cpu.midpoint_4d(&mut q, &psi);
+    gpu.midpoint_4d(&mut device_q, &device_psi);
+    let d = worst(&device_q.to_host().unwrap(), &q);
+    assert!(d < 1e-14, "the midpoint field differs by {d:e}");
+}
+
 /// The matrix products of the fifth dimension in TF32 are those of single precision to the
 /// ten bits of mantissa of TF32, and not better: they are another kernel.
 #[test]

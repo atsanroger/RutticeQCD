@@ -230,6 +230,24 @@ void bridge_cuda_fifth_gemm_f64(
     }
 }
 
+void bridge_cuda_walls_f32(
+    float* d_out, const float* d_in, int sites, int Ls, int s_minus, int s_plus, int to_4d,
+    int vectors, cudaStream_t stream)
+{
+    bridge_cuda::walls_kernel<float><<<site_grid(sites, 1, vectors), site_block(1, vectors), 0, stream>>>(
+        d_out, d_in, sites, Ls, s_minus, s_plus, to_4d, vectors
+    );
+}
+
+void bridge_cuda_walls_f64(
+    double* d_out, const double* d_in, int sites, int Ls, int s_minus, int s_plus, int to_4d,
+    int vectors, cudaStream_t stream)
+{
+    bridge_cuda::walls_kernel<double><<<site_grid(sites, 1, vectors), site_block(1, vectors), 0, stream>>>(
+        d_out, d_in, sites, Ls, s_minus, s_plus, to_4d, vectors
+    );
+}
+
 void bridge_cuda_fifth_gemm_tf32_f32(
     float* d_out, const float* d_in, const float* d_from, const float* d_m,
     int sites, int Ls, cudaStream_t stream)
