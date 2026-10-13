@@ -9,12 +9,12 @@ use ruttice::backend::cuda_bridge::{
     CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceSpinor,
 };
 use ruttice::fermion::{
-    solve_even_odd, Clover, CloverParams, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant, Wilson,
-    WilsonParams,
+    solve_even_odd, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams,
+    SplitParity, Variant, Wilson, WilsonParams,
 };
 use ruttice::io::read_bridge_text;
 use ruttice::solver::{solve_cgne, Cg, Stop};
-use ruttice::{random_spinor, Boundary, EvenOddIndex, Field, Half, Spinor, Vector};
+use ruttice::{random_spinor, Boundary, EvenOddIndex, Field, Half, Parity, Spinor, Vector};
 use std::path::Path;
 use std::time::Instant;
 
@@ -36,6 +36,34 @@ fn time_mult<V: Vector, F: FermionOp<V>>(op: &F, psi: &V) -> f64 {
     start.elapsed().as_secs_f64() / APPLICATIONS as f64
 }
 
+/// Seconds of one hop between the parities and of one inverse of the block within a site, the
+/// two parts of an even-odd solve.
+fn time_blocks<T, G>(gpu: &G, psi: &DeviceSpinor<T>) -> (f64, f64)
+where
+    T: ruttice::backend::cuda_bridge::DeviceReal,
+    G: EvenOdd<DeviceSpinor<T>>,
+{
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    let mut inp = DeviceParities.half_like(psi, odd);
+    DeviceParities.extract(&mut inp, psi, odd);
+    let (mut out_e, mut out_o) = (DeviceParities.half_like(psi, even), inp.zeros_like());
+    let mut work = gpu.even_odd_work();
+    let time = |run: &mut dyn FnMut()| {
+        run();
+        let start = Instant::now();
+        for _ in 0..APPLICATIONS {
+            run();
+        }
+        // The norm waits for the device to finish.
+        inp.norm_sqr(&mut [0.0]);
+        start.elapsed().as_secs_f64() / APPLICATIONS as f64
+    };
+    let hop = time(&mut || gpu.hop(&mut work, &mut out_e, &inp, even, Dagger::No));
+    let mut work = gpu.even_odd_work();
+    let inv = time(&mut || gpu.diag_inv(&mut work, &mut out_o, &inp, odd, Dagger::No));
+    (hop, inv)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compare<C, G, G32>(
     name: &str,
@@ -48,7 +76,7 @@ fn compare<C, G, G32>(
 ) where
     C: FermionOp<Psi> + EvenOdd<HalfPsi>,
     G: FermionOp<DeviceSpinor> + EvenOdd<DeviceSpinor>,
-    G32: FermionOp<DeviceSpinor<f32>>,
+    G32: FermionOp<DeviceSpinor<f32>> + EvenOdd<DeviceSpinor<f32>>,
 {
     let device_psi = DeviceSpinor::from_host(psi).expect("memory on the device");
     let sites = psi.lattice().num_sites() as f64;
@@ -65,6 +93,15 @@ fn compare<C, G, G32>(
         t_cpu / t_gpu,
         t_single * 1e3,
         gflops(t_single)
+    );
+    let (hop, inv) = time_blocks(gpu, &device_psi);
+    let (hop_single, inv_single) = time_blocks(single, &single_psi);
+    println!(
+        "{name}: on one parity  hop {:.3} ms, inverse within the site {:.3} ms;  single {:.3} ms, {:.3} ms",
+        hop * 1e3,
+        inv * 1e3,
+        hop_single * 1e3,
+        inv_single * 1e3
     );
     let Some(stop) = stop else {
         return;

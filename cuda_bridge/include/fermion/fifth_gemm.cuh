@@ -41,7 +41,16 @@ constexpr int FifthStrips = FifthColumns / 8;
 // 4 x 8 reals once (B), and with the 8 x 4 tiles of M (A) adds to the NT tiles of 8 rows of
 // the result, which stay in its registers until they are written.
 //
+// M is in the shared memory of the block of threads. A tile of it is read by the 32 threads
+// of a warp at once, 8 rows of 4 columns: with the rows one under the other they would fall
+// on the same banks of the shared memory (a row is a multiple of 16 reals, and 16 reals of 8
+// bytes are the 32 banks), eight threads to a bank. So real (row, k) is kept at column
+// k ^ (4 (row % 4)) of its row: the four columns of a tile are then four different groups of
+// four in rows that differ in row % 4, and two threads share a bank, the least there can be
+// when 32 threads read 8 bytes each. The rows of the copy have K16 = 16 ceil(2 Ls / 16) reals.
+//
 // out = M in, or from - M in if d_from is not null. out must not be in.
+// Shared memory: 8 NT * K16 doubles.
 // -------------------------------------------------------------------------
 template <int NT>
 __global__ void fifth_gemm_mma_kernel(
@@ -52,8 +61,16 @@ __global__ void fifth_gemm_mma_kernel(
     int blocks,
     int Ls)
 {
+    extern __shared__ double m_shared[];
     const int rows = 2 * Ls;
     const int k4 = (rows + 3) / 4 * 4;
+    const int k16 = (rows + 15) / 16 * 16;
+    for (int i = threadIdx.x; i < 8 * NT * k4; i += blockDim.x) {
+        const int row = i / k4, k = i % k4;
+        m_shared[row * k16 + (k ^ (4 * (row % 4)))] = d_m[i];
+    }
+    __syncthreads();
+
     const int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
     const int lane = threadIdx.x % 32;
     // A whole warp leaves, or none of it: every thread of a warp takes part in an mma.
@@ -73,7 +90,8 @@ __global__ void fifth_gemm_mma_kernel(
         const double fb = (j < rows) ? read : 0.0;
         #pragma unroll
         for (int it = 0; it < NT; ++it) {
-            const double fa = d_m[(it * 8 + lane / 4) * k4 + j];
+            const int row = it * 8 + lane / 4;
+            const double fa = m_shared[row * k16 + (j ^ (4 * (row % 4)))];
             const double c0 = d[it][0], c1 = d[it][1];
             double d0, d1;
             asm volatile(
@@ -102,11 +120,15 @@ __global__ void fifth_gemm_mma_kernel(
 }
 
 // -------------------------------------------------------------------------
-// The same product without the tensor cores, one thread for a real of the result: single
-// precision (whose tensor cores are TF32, ten bits of mantissa: not for an operator).
+// The same product without the tensor cores: single precision (whose tensor cores are TF32,
+// ten bits of mantissa: not for an operator). A thread has a column of a block: it reads the
+// 2 Ls reals of the column once each and adds them to the 8 NT reals of the result, which
+// stay in its registers until they are written. M is in the shared memory of the block of
+// threads; its threads read the same real of it at the same time, which is one access.
+// Shared memory: 8 NT * K4 reals.
 // -------------------------------------------------------------------------
-template <typename Float>
-__global__ void fifth_gemm_kernel(
+template <typename Float, int NT>
+__global__ void fifth_gemm_columns_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_from,
@@ -114,18 +136,32 @@ __global__ void fifth_gemm_kernel(
     int blocks,
     int Ls)
 {
+    extern __shared__ unsigned char shared_bytes[];
+    Float* m_shared = reinterpret_cast<Float*>(shared_bytes);
     const int rows = 2 * Ls;
     const int k4 = (rows + 3) / 4 * 4;
-    const size_t total = static_cast<size_t>(blocks) * rows * FifthColumns;
-    for (size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < total;
-         idx += static_cast<size_t>(blockDim.x) * gridDim.x) {
-        const size_t base = idx / (rows * FifthColumns) * (rows * FifthColumns);
-        const int row = (idx - base) / FifthColumns, n = (idx - base) % FifthColumns;
-        Float sum = 0;
+    for (int i = threadIdx.x; i < 8 * NT * k4; i += blockDim.x) m_shared[i] = d_m[i];
+    __syncthreads();
+
+    const size_t columns = static_cast<size_t>(blocks) * FifthColumns;
+    for (size_t column = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; column < columns;
+         column += static_cast<size_t>(blockDim.x) * gridDim.x) {
+        const size_t base = column / FifthColumns * rows * FifthColumns + column % FifthColumns;
+        Float acc[8 * NT];
+        #pragma unroll
+        for (int r = 0; r < 8 * NT; ++r) acc[r] = 0;
         for (int j = 0; j < rows; ++j) {
-            sum += d_m[row * k4 + j] * d_in[base + static_cast<size_t>(j) * FifthColumns + n];
+            const Float x = d_in[base + static_cast<size_t>(j) * FifthColumns];
+            #pragma unroll
+            for (int r = 0; r < 8 * NT; ++r) acc[r] += m_shared[r * k4 + j] * x;
         }
-        d_out[idx] = (d_from != nullptr) ? d_from[idx] - sum : sum;
+        #pragma unroll
+        for (int r = 0; r < 8 * NT; ++r) {
+            if (r < rows) {
+                const size_t k = base + static_cast<size_t>(r) * FifthColumns;
+                d_out[k] = (d_from != nullptr) ? d_from[k] - acc[r] : acc[r];
+            }
+        }
     }
 }
 
