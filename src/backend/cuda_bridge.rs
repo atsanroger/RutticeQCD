@@ -8,7 +8,7 @@
 //! row, the four directions of a site one after the other).
 
 use crate::fermion::{MdwfParams, WilsonParams};
-use crate::{Boundary, Field, Gauge, Lattice, Spinor, ND};
+use crate::{Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, Parity, Spinor, ND};
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -45,6 +45,7 @@ struct MdwfKernelParams {
 
 const HOST_TO_DEVICE: i32 = 1;
 const DEVICE_TO_HOST: i32 = 2;
+const DEVICE_TO_DEVICE: i32 = 3;
 
 extern "C" {
     fn cudaMalloc(ptr: *mut *mut c_void, bytes: usize) -> i32;
@@ -59,6 +60,25 @@ extern "C" {
         params: *const WilsonKernelParams,
         stream: *mut c_void,
     );
+    fn bridge_cuda_mdwf_eo_hop_f64(
+        out: *mut f64,
+        inp: *const f64,
+        gauge: *const f64,
+        geometry: *const Geometry,
+        params: *const MdwfKernelParams,
+        target_parity: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_mdwf_site_inv_f64(
+        out: *mut f64,
+        inp: *const f64,
+        sites: i32,
+        ls: i32,
+        params: *const MdwfKernelParams,
+        dagger: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_blas_axpy_f64(y: *mut f64, x: *const f64, a: f64, n: i32, stream: *mut c_void);
     fn bridge_cuda_mdwf_dslash_1pass_f64(
         out: *mut f64,
         inp: *const f64,
@@ -128,6 +148,20 @@ impl DeviceBuffer {
         })
     }
 
+    fn copy_from(&mut self, other: &Self) -> Result<(), CudaError> {
+        assert_eq!(other.len, self.len);
+        // SAFETY: two device ranges of `len` reals, which do not overlap (`self` is borrowed
+        // mutably).
+        check(unsafe {
+            cudaMemcpy(
+                self.ptr.cast(),
+                other.ptr.cast_const().cast(),
+                self.len * std::mem::size_of::<f64>(),
+                DEVICE_TO_DEVICE,
+            )
+        })
+    }
+
     fn download(&self) -> Result<Vec<f64>, CudaError> {
         let mut host = vec![0.0; self.len];
         // SAFETY: as in `upload`, the other way.
@@ -169,11 +203,18 @@ fn at_fifth(c: usize, s: usize, x: usize, ls: usize) -> usize {
     (((x / W) * ls + s) * SPINOR + c) * W + x % W
 }
 
-/// A spinor field (one vector, `ls` spinors per site) on the device.
+/// A spinor field (one vector, `ls` spinors per site) on the device: on the whole lattice,
+/// or on the sites of one parity, site (x, y, z, t) of it at x/2 + (nx/2)(y + ny (z + nz t)).
 pub struct DeviceSpinor {
     data: DeviceBuffer,
     lat: Arc<Lattice>,
     ls: usize,
+    parity: Option<Parity>,
+}
+
+/// Where the site `full` of the whole lattice is in the field of its parity.
+fn in_half(full: usize, nx: usize) -> usize {
+    (full % nx) / 2 + (nx / 2) * (full / nx)
 }
 
 impl DeviceSpinor {
@@ -188,7 +229,70 @@ impl DeviceSpinor {
             data: DeviceBuffer::zeros(padded(lat.num_sites()) * ls * SPINOR)?,
             lat: lat.clone(),
             ls,
+            parity: None,
         })
+    }
+
+    /// A field with `ls` spinors per site on the sites of `parity`.
+    pub fn zeros_half(lat: &Arc<Lattice>, ls: usize, parity: Parity) -> Result<Self, CudaError> {
+        assert!(lat.local[0].is_multiple_of(2), "an odd extent in x");
+        Ok(Self {
+            data: DeviceBuffer::zeros(padded(lat.num_sites() / 2) * ls * SPINOR)?,
+            lat: lat.clone(),
+            ls,
+            parity: Some(parity),
+        })
+    }
+
+    /// The field `psi` on the sites of one parity (one vector), numbered by `index`, on the
+    /// device.
+    pub fn from_host_half(
+        psi: &Field<f64, Spinor, Half>,
+        index: &EvenOddIndex,
+    ) -> Result<Self, CudaError> {
+        assert_eq!(psi.num_vectors(), 1);
+        let (lat, ls, parity) = (psi.lattice(), psi.ls(), psi.parity());
+        let out = Self::zeros_half(lat, ls, parity)?;
+        let mut host = vec![0.0; out.data.len];
+        for (h, full) in index.full_sites(parity).iter().enumerate() {
+            let x = in_half(*full as usize, lat.local[0]);
+            for (s, spinor) in psi.site(0, h).as_chunks::<SPINOR>().0.iter().enumerate() {
+                for (c, v) in spinor.iter().enumerate() {
+                    host[at_fifth(c, s, x, ls)] = *v;
+                }
+            }
+        }
+        out.data.upload(&host)?;
+        Ok(out)
+    }
+
+    /// A field on one parity back on the host, numbered by `index`.
+    pub fn to_host_half(
+        &self,
+        index: &EvenOddIndex,
+    ) -> Result<Field<f64, Spinor, Half>, CudaError> {
+        let parity = self.parity.expect("a field on one parity");
+        let host = self.data.download()?;
+        let ls = self.ls;
+        let mut psi = Field::<f64, Spinor, Half>::with_shape(&self.lat, SPINOR, ls, 1, 1);
+        psi.set_parity(parity);
+        for (h, full) in index.full_sites(parity).iter().enumerate() {
+            let x = in_half(*full as usize, self.lat.local[0]);
+            let site = psi.site_mut(0, h).as_chunks_mut::<SPINOR>().0;
+            for (s, spinor) in site.iter_mut().enumerate() {
+                for (c, v) in spinor.iter_mut().enumerate() {
+                    *v = host[at_fifth(c, s, x, ls)];
+                }
+            }
+        }
+        Ok(psi)
+    }
+
+    /// Whether `other` is a field of the same kind: lattice, Ls, and whole or which parity.
+    fn like(&self, other: &Self, ls: usize, parity: Option<Parity>) -> bool {
+        Arc::ptr_eq(&self.lat, &other.lat)
+            && (self.ls, other.ls) == (ls, ls)
+            && self.parity == parity
     }
 
     /// The field `psi` (one vector, the usual layout) on the device.
@@ -209,11 +313,13 @@ impl DeviceSpinor {
             data,
             lat: lat.clone(),
             ls,
+            parity: None,
         })
     }
 
     /// The field back on the host.
     pub fn to_host(&self) -> Result<Field<f64, Spinor>, CudaError> {
+        assert!(self.parity.is_none(), "a field on one parity");
         let host = self.data.download()?;
         let ls = self.ls;
         let mut psi = Field::<f64, Spinor>::with_shape(&self.lat, SPINOR, ls, 1, 1);
@@ -293,7 +399,7 @@ impl CudaWilson {
 
     /// `out = D inp`.
     pub fn mult(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor) -> Result<(), CudaError> {
-        assert!(out.ls == 1 && inp.ls == 1 && Arc::ptr_eq(&out.lat, &inp.lat));
+        assert!(inp.like(out, 1, None) && out.parity.is_none());
         let params = WilsonKernelParams {
             kappa: self.params.kappa,
         };
@@ -335,15 +441,8 @@ impl CudaMdwf {
 
     /// `out = D inp`.
     pub fn mult(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor) -> Result<(), CudaError> {
-        let ls = self.params.ls;
-        assert!(out.ls == ls && inp.ls == ls && Arc::ptr_eq(&out.lat, &inp.lat));
-        let params = MdwfKernelParams {
-            m5: self.params.m5,
-            mass: self.params.mass,
-            alpha: 1.0,
-            b5: self.params.b,
-            c5: self.params.c,
-        };
+        assert!(inp.like(out, self.params.ls, None) && out.parity.is_none());
+        let params = self.kernel_params();
         // SAFETY: as in `CudaWilson::mult`, the spinor buffers holding `ls` spinors per site.
         unsafe {
             bridge_cuda_mdwf_dslash_1pass_f64(
@@ -352,6 +451,102 @@ impl CudaMdwf {
                 self.gauge.ptr,
                 &self.geometry,
                 &params,
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+
+    fn kernel_params(&self) -> MdwfKernelParams {
+        MdwfKernelParams {
+            m5: self.params.m5,
+            mass: self.params.mass,
+            alpha: 1.0,
+            b5: self.params.b,
+            c5: self.params.c,
+        }
+    }
+
+    /// `out = D_pq inp`: `out` on the sites of parity `to`, `inp` on the others.
+    pub fn hop(
+        &self,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        to: Parity,
+    ) -> Result<(), CudaError> {
+        let ls = self.params.ls;
+        assert!(
+            inp.like(out, ls, Some(to.flip())),
+            "the input is not on the other parity"
+        );
+        out.parity = Some(to);
+        let params = self.kernel_params();
+        // SAFETY: as in `mult`, the spinor buffers holding the sites of one parity.
+        unsafe {
+            bridge_cuda_mdwf_eo_hop_f64(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.ptr,
+                &self.geometry,
+                &params,
+                to.index() as i32,
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+
+    /// `out = C⁻¹ inp`, or `C†⁻¹ inp`: the inverse of the part of D within a site, on the
+    /// whole lattice or on one parity.
+    pub fn site_inv(
+        &self,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        dagger: bool,
+    ) -> Result<(), CudaError> {
+        let ls = self.params.ls;
+        assert!(inp.ls == ls && out.data.len == inp.data.len && Arc::ptr_eq(&out.lat, &inp.lat));
+        out.parity = inp.parity;
+        let sites = inp.lat.num_sites() / if inp.parity.is_some() { 2 } else { 1 };
+        let params = self.kernel_params();
+        // SAFETY: both buffers hold `sites` sites of `ls` spinors (padded), and are not the
+        // same one.
+        unsafe {
+            bridge_cuda_mdwf_site_inv_f64(
+                out.data.ptr,
+                inp.data.ptr,
+                sites as i32,
+                ls as i32,
+                &params,
+                i32::from(dagger),
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+
+    /// `out = (1 − D_eo C_o⁻¹ D_oe C_e⁻¹) inp` on the even sites, the Schur complement of D
+    /// times C_e⁻¹, with two scratch fields.
+    pub fn schur_factor(
+        &self,
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        scratch: &mut [DeviceSpinor; 2],
+    ) -> Result<(), CudaError> {
+        let [a, b] = scratch;
+        self.site_inv(a, inp, false)?;
+        self.hop(b, a, Parity::Odd)?;
+        self.site_inv(a, b, false)?;
+        self.hop(b, a, Parity::Even)?;
+        out.data.copy_from(&inp.data)?;
+        out.parity = inp.parity;
+        // SAFETY: two device buffers of the same length.
+        unsafe {
+            bridge_cuda_blas_axpy_f64(
+                out.data.ptr,
+                b.data.ptr,
+                -1.0,
+                out.data.len as i32,
                 std::ptr::null_mut(),
             );
             check(cudaDeviceSynchronize())

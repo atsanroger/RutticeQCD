@@ -1,5 +1,6 @@
 #include "fermion/mdwf.cuh"
 #include "fermion/mdwf_schur.cuh"
+#include "fermion/mdwf_eo.cuh"
 #include "bridge_cuda.h"
 #include <algorithm>
 
@@ -305,6 +306,82 @@ void bridge_cuda_mdwf_pvprec_a_exact_f64(
 {
     bridge_cuda_mdwf_schur_factor_f64(d_scr4, d_in, d_gauge, d_scr1, d_scr2, d_scr3, geom, params_phys, stream);
     bridge_cuda_mdwf_schur_factor_f64(d_out, d_scr4, d_gauge, d_scr1, d_scr2, d_scr3, geom, params_pv, stream);
+}
+
+void bridge_cuda_mdwf_eo_hop_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int target_parity, cudaStream_t stream)
+{
+    int half = (geom->dims[0] / 2) * geom->dims[1] * geom->dims[2] * geom->dims[3];
+    constexpr int LS_PER_BLOCK = 4;
+    dim3 block(bridge_cuda::WarpSize, LS_PER_BLOCK);
+    dim3 grid((half + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize,
+              (geom->Ls + LS_PER_BLOCK - 1) / LS_PER_BLOCK);
+
+    bridge_cuda::mdwf_eo_hop_kernel<float, LS_PER_BLOCK><<<grid, block, 0, stream>>>(
+        d_out, d_in, d_gauge,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
+        geom->Ls, target_parity,
+        static_cast<float>(params->mass),
+        static_cast<float>(params->b5),
+        static_cast<float>(params->c5)
+    );
+}
+
+void bridge_cuda_mdwf_site_inv_f32(
+    float* d_out, const float* d_in,
+    int sites, int Ls, const BridgeCudaMdwfParams* params,
+    int dagger, cudaStream_t stream)
+{
+    bridge_cuda::mdwf_site_inv_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, sites, Ls,
+        static_cast<float>(params->M5),
+        static_cast<float>(params->mass),
+        static_cast<float>(params->b5),
+        static_cast<float>(params->c5),
+        dagger
+    );
+}
+
+void bridge_cuda_mdwf_eo_hop_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int target_parity, cudaStream_t stream)
+{
+    int half = (geom->dims[0] / 2) * geom->dims[1] * geom->dims[2] * geom->dims[3];
+    constexpr int LS_PER_BLOCK = 4;
+    dim3 block(bridge_cuda::WarpSize, LS_PER_BLOCK);
+    dim3 grid((half + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize,
+              (geom->Ls + LS_PER_BLOCK - 1) / LS_PER_BLOCK);
+
+    bridge_cuda::mdwf_eo_hop_kernel<double, LS_PER_BLOCK><<<grid, block, 0, stream>>>(
+        d_out, d_in, d_gauge,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
+        geom->Ls, target_parity,
+        static_cast<double>(params->mass),
+        static_cast<double>(params->b5),
+        static_cast<double>(params->c5)
+    );
+}
+
+void bridge_cuda_mdwf_site_inv_f64(
+    double* d_out, const double* d_in,
+    int sites, int Ls, const BridgeCudaMdwfParams* params,
+    int dagger, cudaStream_t stream)
+{
+    bridge_cuda::mdwf_site_inv_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, sites, Ls,
+        static_cast<double>(params->M5),
+        static_cast<double>(params->mass),
+        static_cast<double>(params->b5),
+        static_cast<double>(params->c5),
+        dagger
+    );
 }
 
 } // extern "C"
