@@ -9,13 +9,13 @@ use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Variant};
 use crate::kernel::NC;
 use crate::{Parity, Vector};
 
-pub struct CudaMdwf {
+pub struct CudaMdwf<T = f64> {
     params: MdwfParams,
     geometry: Geometry,
-    gauge: DeviceGauge,
+    gauge: DeviceGauge<T>,
 }
 
-impl CudaMdwf {
+impl<T: DeviceReal> CudaMdwf<T> {
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Result<Self, CudaError> {
         Ok(Self {
             params,
@@ -44,8 +44,8 @@ impl CudaMdwf {
     /// `out` on the sites of parity `to` and `inp` on the others.
     fn hops(
         &self,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
         (b, c): (f64, f64),
         dagger: bool,
         to: Option<Parity>,
@@ -69,9 +69,9 @@ impl CudaMdwf {
     /// `out = (a1 + y1 Y) x + (a2 + y2 Y) z`, or with `Y†`; the second term is optional.
     fn fifth(
         &self,
-        out: &mut DeviceSpinor,
-        (x, a1, y1): (&DeviceSpinor, f64, f64),
-        second: Option<(&DeviceSpinor, f64, f64)>,
+        out: &mut DeviceSpinor<T>,
+        (x, a1, y1): (&DeviceSpinor<T>, f64, f64),
+        second: Option<(&DeviceSpinor<T>, f64, f64)>,
         dagger: bool,
     ) {
         assert!(out.same_shape(x) && x.ls == self.params.ls);
@@ -85,7 +85,7 @@ impl CudaMdwf {
         };
         // SAFETY: buffers of the same shape, `out` none of the inputs; a null `z` is not read.
         unsafe {
-            bridge_cuda_mdwf_fifth_f64(
+            T::mdwf_fifth(
                 out.data.ptr,
                 x.data.ptr,
                 a1,
@@ -97,7 +97,6 @@ impl CudaMdwf {
                 x.ls as i32,
                 self.params.mass,
                 i32::from(dagger),
-                STREAM,
             );
         }
         finish();
@@ -106,8 +105,8 @@ impl CudaMdwf {
 
 /// The even-odd blocks of D, in four dimensions (all `ls` spinors of a site have its parity):
 /// the hops `D_pq = H_pq (b − c Y)` and the part within a site `C = d+ + d− Y`.
-impl EvenOdd<DeviceSpinor> for CudaMdwf {
-    type Work = Option<DeviceSpinor>;
+impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
+    type Work = Option<DeviceSpinor<T>>;
 
     fn even_odd_work(&self) -> Self::Work {
         None
@@ -116,8 +115,8 @@ impl EvenOdd<DeviceSpinor> for CudaMdwf {
     fn hop(
         &self,
         work: &mut Self::Work,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
         to: Parity,
         dagger: Dagger,
     ) {
@@ -136,8 +135,8 @@ impl EvenOdd<DeviceSpinor> for CudaMdwf {
     fn diag(
         &self,
         _work: &mut Self::Work,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
         parity: Parity,
         dagger: Dagger,
     ) {
@@ -150,8 +149,8 @@ impl EvenOdd<DeviceSpinor> for CudaMdwf {
     fn diag_inv(
         &self,
         _work: &mut Self::Work,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
         parity: Parity,
         dagger: Dagger,
     ) {
@@ -162,22 +161,21 @@ impl EvenOdd<DeviceSpinor> for CudaMdwf {
         // SAFETY: both buffers hold the sites of `inp` with `ls` spinors each (padded), and
         // are not the same one.
         unsafe {
-            bridge_cuda_mdwf_site_inv_f64(
+            T::mdwf_site_inv(
                 out.data.ptr,
                 inp.data.ptr,
                 inp.sites() as i32,
                 inp.ls as i32,
                 &params,
                 i32::from(dagger == Dagger::Yes),
-                STREAM,
             );
         }
         finish();
     }
 }
 
-impl FermionOp<DeviceSpinor> for CudaMdwf {
-    type Work = Option<DeviceSpinor>;
+impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
+    type Work = Option<DeviceSpinor<T>>;
 
     fn work(&self) -> Self::Work {
         None
@@ -190,24 +188,23 @@ impl FermionOp<DeviceSpinor> for CudaMdwf {
     fn mult(
         &self,
         work: &mut Self::Work,
-        out: &mut DeviceSpinor,
-        inp: &DeviceSpinor,
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
         variant: Variant,
     ) {
         let ls = self.params.ls;
         assert!(inp.is(out, ls, None) && out.is(inp, ls, None));
-        let one_pass = |out: &mut DeviceSpinor| {
+        let one_pass = |out: &mut DeviceSpinor<T>| {
             let params = self.kernel_params();
             // SAFETY: as in `CudaWilson::apply`, the spinor buffers holding `ls` spinors
             // per site.
             unsafe {
-                bridge_cuda_mdwf_dslash_1pass_f64(
+                T::mdwf_dslash(
                     out.data.ptr,
                     inp.data.ptr,
                     self.gauge.links.ptr,
                     &self.geometry,
                     &params,
-                    STREAM,
                 );
             }
             finish();

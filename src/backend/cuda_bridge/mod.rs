@@ -1,5 +1,6 @@
 //! The CUDA kernels of `cuda_bridge/` (extracted from Bridge++): fields on the device and the
-//! operators on them. One process, double precision, the Dirac representation.
+//! operators on them. One process, the Dirac representation, single or double precision
+//! (`DeviceReal`).
 //!
 //! A device field is the AoSoA layout of the kernels, 32 sites to a block: component `c` of
 //! site `x` is at `((x / 32) * n + c) * 32 + x % 32` for `n` components per site, the number of
@@ -7,10 +8,10 @@
 //! of the fields here (spin outermost, then colour, then real and imaginary part; a link row by
 //! row, the four directions of a site one after the other).
 //!
-//! `DeviceSpinor` is a `Vector` and the operators are `FermionOp<DeviceSpinor>`, so the solvers
-//! run on them as they are. Making a field or an operator returns a `CudaError` if the device
-//! refuses (no memory); the operations of `Vector` and `FermionOp` have no error to return and
-//! panic if the CUDA runtime fails.
+//! `DeviceSpinor` is a `Vector` and the operators are `FermionOp` and `EvenOdd` on it, so the
+//! solvers run on them as they are. Making a field or an operator returns a `CudaError` if the
+//! device refuses (no memory); the operations of `Vector`, `FermionOp` and `EvenOdd` have no
+//! error to return and panic if the CUDA runtime fails.
 
 mod field;
 mod mdwf;
@@ -32,7 +33,7 @@ const SPINOR: usize = 24;
 const LINKS: usize = 72;
 
 #[repr(C)]
-struct Geometry {
+pub struct Geometry {
     dims: [i32; 4],
     ls: i32,
     bc: [i32; 4],
@@ -43,18 +44,18 @@ struct Geometry {
 }
 
 #[repr(C)]
-struct WilsonKernelParams {
+pub struct WilsonKernelParams {
     kappa: f64,
 }
 
 #[repr(C)]
-struct CloverKernelParams {
+pub struct CloverKernelParams {
     kappa: f64,
     csw: f64,
 }
 
 #[repr(C)]
-struct MdwfKernelParams {
+pub struct MdwfKernelParams {
     m5: f64,
     mass: f64,
     alpha: f64,
@@ -75,54 +76,53 @@ extern "C" {
     fn cudaMemcpy(dst: *mut c_void, src: *const c_void, bytes: usize, kind: i32) -> i32;
     fn cudaMemset(ptr: *mut c_void, value: i32, bytes: usize) -> i32;
     fn cudaDeviceSynchronize() -> i32;
+    fn bridge_cuda_cast_f64_to_f32(dst: *mut f32, src: *const f64, n: i32, stream: *mut c_void);
+    fn bridge_cuda_cast_f32_to_f64(dst: *mut f64, src: *const f32, n: i32, stream: *mut c_void);
+}
 
-    fn bridge_cuda_wilson_dslash_f64(
-        out: *mut f64,
-        inp: *const f64,
-        gauge: *const f64,
+/// A real of the device, `f32` or `f64`: the kernels in that precision. The methods are the
+/// functions of `cuda_bridge/include/bridge_cuda.h`; the pointers are device memory of the
+/// sizes those read and write.
+#[allow(clippy::too_many_arguments, clippy::missing_safety_doc)]
+pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
+    fn from_f64(x: f64) -> Self;
+    fn to_f64(self) -> f64;
+
+    unsafe fn wilson_dslash(
+        out: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
         geometry: *const Geometry,
         params: *const WilsonKernelParams,
         dagger: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_clover_term_f64(
-        out: *mut f64,
-        inp: *const f64,
-        clover: *const f64,
+    unsafe fn clover_term(
+        out: *mut Self,
+        inp: *const Self,
+        clover: *const Self,
         geometry: *const Geometry,
         parity: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_clover_dslash_f64(
-        out: *mut f64,
-        inp: *const f64,
-        gauge: *const f64,
-        clover: *const f64,
+    unsafe fn clover_dslash(
+        out: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
+        clover: *const Self,
         geometry: *const Geometry,
         params: *const CloverKernelParams,
         dagger: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_mdwf_dslash_1pass_f64(
-        out: *mut f64,
-        inp: *const f64,
-        gauge: *const f64,
+    unsafe fn mdwf_dslash(
+        out: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
         geometry: *const Geometry,
         params: *const MdwfKernelParams,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_parity_copy_f64(
-        half: *mut f64,
-        full: *mut f64,
-        geometry: *const Geometry,
-        parity: i32,
-        to_half: i32,
-        stream: *mut c_void,
-    );
-    fn bridge_cuda_hop_f64(
-        out: *mut f64,
-        inp: *const f64,
-        gauge: *const f64,
+    unsafe fn hop(
+        out: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
         geometry: *const Geometry,
         kappa: f64,
         mass: f64,
@@ -130,67 +130,288 @@ extern "C" {
         c5: f64,
         dagger: i32,
         target_parity: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_mdwf_fifth_f64(
-        out: *mut f64,
-        x: *const f64,
+    unsafe fn mdwf_fifth(
+        out: *mut Self,
+        x: *const Self,
         a1: f64,
         y1: f64,
-        z: *const f64,
+        z: *const Self,
         a2: f64,
         y2: f64,
         sites: i32,
         ls: i32,
         mass: f64,
         dagger: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_mdwf_site_inv_f64(
-        out: *mut f64,
-        inp: *const f64,
+    unsafe fn mdwf_site_inv(
+        out: *mut Self,
+        inp: *const Self,
         sites: i32,
         ls: i32,
         params: *const MdwfKernelParams,
         dagger: i32,
-        stream: *mut c_void,
     );
-    fn bridge_cuda_gamma5_f64(
-        out: *mut f64,
-        inp: *const f64,
-        sites: i32,
-        ls: i32,
-        reflect: i32,
-        stream: *mut c_void,
+    unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32);
+    unsafe fn parity_copy(
+        half: *mut Self,
+        full: *mut Self,
+        geometry: *const Geometry,
+        parity: i32,
+        to_half: i32,
     );
-
-    fn bridge_cuda_blas_scal_f64(x: *mut f64, a: f64, n: i32, stream: *mut c_void);
-    fn bridge_cuda_blas_caxpy_f64(
-        y: *mut f64,
-        x: *const f64,
-        ar: f64,
-        ai: f64,
-        n: i32,
-        stream: *mut c_void,
-    );
-    fn bridge_cuda_blas_caypx_f64(
-        y: *mut f64,
-        x: *const f64,
-        ar: f64,
-        ai: f64,
-        n: i32,
-        stream: *mut c_void,
-    );
-    fn bridge_cuda_blas_norm2_f64(x: *const f64, n: i32, stream: *mut c_void) -> f64;
-    fn bridge_cuda_blas_dotc_f64(
-        re: *mut f64,
-        im: *mut f64,
-        x: *const f64,
-        y: *const f64,
-        n: i32,
-        stream: *mut c_void,
-    );
+    unsafe fn scal(x: *mut Self, a: f64, n: i32);
+    unsafe fn caxpy(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32);
+    unsafe fn caypx(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32);
+    unsafe fn norm2(x: *const Self, n: i32) -> f64;
+    unsafe fn dotc(re: *mut f64, im: *mut f64, x: *const Self, y: *const Self, n: i32);
 }
+
+/// `DeviceReal` for one type, on the functions of that precision.
+macro_rules! device_real {
+    ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
+     $fifth:ident, $site_inv:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
+     $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident) => {
+        extern "C" {
+            fn $wilson(
+                out: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                geometry: *const Geometry,
+                params: *const WilsonKernelParams,
+                dagger: i32,
+                stream: *mut c_void,
+            );
+            fn $clover_term(
+                out: *mut $t,
+                inp: *const $t,
+                clover: *const $t,
+                geometry: *const Geometry,
+                parity: i32,
+                stream: *mut c_void,
+            );
+            fn $clover(
+                out: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                clover: *const $t,
+                geometry: *const Geometry,
+                params: *const CloverKernelParams,
+                dagger: i32,
+                stream: *mut c_void,
+            );
+            fn $mdwf(
+                out: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                geometry: *const Geometry,
+                params: *const MdwfKernelParams,
+                stream: *mut c_void,
+            );
+            fn $hop(
+                out: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                geometry: *const Geometry,
+                kappa: f64,
+                mass: f64,
+                b5: f64,
+                c5: f64,
+                dagger: i32,
+                target_parity: i32,
+                stream: *mut c_void,
+            );
+            fn $fifth(
+                out: *mut $t,
+                x: *const $t,
+                a1: f64,
+                y1: f64,
+                z: *const $t,
+                a2: f64,
+                y2: f64,
+                sites: i32,
+                ls: i32,
+                mass: f64,
+                dagger: i32,
+                stream: *mut c_void,
+            );
+            fn $site_inv(
+                out: *mut $t,
+                inp: *const $t,
+                sites: i32,
+                ls: i32,
+                params: *const MdwfKernelParams,
+                dagger: i32,
+                stream: *mut c_void,
+            );
+            fn $gamma5(
+                out: *mut $t,
+                inp: *const $t,
+                sites: i32,
+                ls: i32,
+                reflect: i32,
+                stream: *mut c_void,
+            );
+            fn $parity_copy(
+                half: *mut $t,
+                full: *mut $t,
+                geometry: *const Geometry,
+                parity: i32,
+                to_half: i32,
+                stream: *mut c_void,
+            );
+            fn $scal(x: *mut $t, a: $t, n: i32, stream: *mut c_void);
+            fn $caxpy(y: *mut $t, x: *const $t, ar: $t, ai: $t, n: i32, stream: *mut c_void);
+            fn $caypx(y: *mut $t, x: *const $t, ar: $t, ai: $t, n: i32, stream: *mut c_void);
+            fn $norm2(x: *const $t, n: i32, stream: *mut c_void) -> f64;
+            fn $dotc(
+                re: *mut f64,
+                im: *mut f64,
+                x: *const $t,
+                y: *const $t,
+                n: i32,
+                stream: *mut c_void,
+            );
+        }
+
+        impl DeviceReal for $t {
+            fn from_f64(x: f64) -> Self {
+                x as $t
+            }
+            fn to_f64(self) -> f64 {
+                f64::from(self)
+            }
+            unsafe fn wilson_dslash(
+                out: *mut Self,
+                inp: *const Self,
+                gauge: *const Self,
+                geometry: *const Geometry,
+                params: *const WilsonKernelParams,
+                dagger: i32,
+            ) {
+                $wilson(out, inp, gauge, geometry, params, dagger, STREAM)
+            }
+            unsafe fn clover_term(
+                out: *mut Self,
+                inp: *const Self,
+                clover: *const Self,
+                geometry: *const Geometry,
+                parity: i32,
+            ) {
+                $clover_term(out, inp, clover, geometry, parity, STREAM)
+            }
+            unsafe fn clover_dslash(
+                out: *mut Self,
+                inp: *const Self,
+                gauge: *const Self,
+                clover: *const Self,
+                geometry: *const Geometry,
+                params: *const CloverKernelParams,
+                dagger: i32,
+            ) {
+                $clover(out, inp, gauge, clover, geometry, params, dagger, STREAM)
+            }
+            unsafe fn mdwf_dslash(
+                out: *mut Self,
+                inp: *const Self,
+                gauge: *const Self,
+                geometry: *const Geometry,
+                params: *const MdwfKernelParams,
+            ) {
+                $mdwf(out, inp, gauge, geometry, params, STREAM)
+            }
+            unsafe fn hop(
+                out: *mut Self,
+                inp: *const Self,
+                gauge: *const Self,
+                geometry: *const Geometry,
+                kappa: f64,
+                mass: f64,
+                b5: f64,
+                c5: f64,
+                dagger: i32,
+                target_parity: i32,
+            ) {
+                $hop(
+                    out,
+                    inp,
+                    gauge,
+                    geometry,
+                    kappa,
+                    mass,
+                    b5,
+                    c5,
+                    dagger,
+                    target_parity,
+                    STREAM,
+                )
+            }
+            unsafe fn mdwf_fifth(
+                out: *mut Self,
+                x: *const Self,
+                a1: f64,
+                y1: f64,
+                z: *const Self,
+                a2: f64,
+                y2: f64,
+                sites: i32,
+                ls: i32,
+                mass: f64,
+                dagger: i32,
+            ) {
+                $fifth(out, x, a1, y1, z, a2, y2, sites, ls, mass, dagger, STREAM)
+            }
+            unsafe fn mdwf_site_inv(
+                out: *mut Self,
+                inp: *const Self,
+                sites: i32,
+                ls: i32,
+                params: *const MdwfKernelParams,
+                dagger: i32,
+            ) {
+                $site_inv(out, inp, sites, ls, params, dagger, STREAM)
+            }
+            unsafe fn gamma5(out: *mut Self, inp: *const Self, sites: i32, ls: i32, reflect: i32) {
+                $gamma5(out, inp, sites, ls, reflect, STREAM)
+            }
+            unsafe fn parity_copy(
+                half: *mut Self,
+                full: *mut Self,
+                geometry: *const Geometry,
+                parity: i32,
+                to_half: i32,
+            ) {
+                $parity_copy(half, full, geometry, parity, to_half, STREAM)
+            }
+            unsafe fn scal(x: *mut Self, a: f64, n: i32) {
+                $scal(x, a as $t, n, STREAM)
+            }
+            unsafe fn caxpy(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32) {
+                $caxpy(y, x, ar as $t, ai as $t, n, STREAM)
+            }
+            unsafe fn caypx(y: *mut Self, x: *const Self, ar: f64, ai: f64, n: i32) {
+                $caypx(y, x, ar as $t, ai as $t, n, STREAM)
+            }
+            unsafe fn norm2(x: *const Self, n: i32) -> f64 {
+                $norm2(x, n, STREAM)
+            }
+            unsafe fn dotc(re: *mut f64, im: *mut f64, x: *const Self, y: *const Self, n: i32) {
+                $dotc(re, im, x, y, n, STREAM)
+            }
+        }
+    };
+}
+
+device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
+    bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
+    bridge_cuda_mdwf_fifth_f32, bridge_cuda_mdwf_site_inv_f32, bridge_cuda_gamma5_f32,
+    bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
+    bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32);
+device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
+    bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
+    bridge_cuda_mdwf_fifth_f64, bridge_cuda_mdwf_site_inv_f64, bridge_cuda_gamma5_f64,
+    bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
+    bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64);
 
 /// A call of the CUDA runtime failed with this code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,16 +445,16 @@ fn finish() {
 }
 
 /// Reals on the device.
-struct DeviceBuffer {
-    ptr: *mut f64,
+struct DeviceBuffer<T> {
+    ptr: *mut T,
     len: usize,
     /// The memory is the device's: not to be sent between threads behind our back.
-    _not_send: PhantomData<*mut f64>,
+    _not_send: PhantomData<*mut T>,
 }
 
-impl DeviceBuffer {
+impl<T: DeviceReal> DeviceBuffer<T> {
     fn bytes(&self) -> usize {
-        self.len * std::mem::size_of::<f64>()
+        self.len * std::mem::size_of::<T>()
     }
 
     fn zeros(len: usize) -> Result<Self, CudaError> {
@@ -245,7 +466,7 @@ impl DeviceBuffer {
     fn uninitialised(len: usize) -> Result<Self, CudaError> {
         let mut ptr: *mut c_void = std::ptr::null_mut();
         // SAFETY: `ptr` is a valid place for the pointer; the size is that of `len` reals.
-        check(unsafe { cudaMalloc(&mut ptr, len * std::mem::size_of::<f64>()) })?;
+        check(unsafe { cudaMalloc(&mut ptr, len * std::mem::size_of::<T>()) })?;
         Ok(Self {
             ptr: ptr.cast(),
             len,
@@ -253,8 +474,9 @@ impl DeviceBuffer {
         })
     }
 
-    /// The reals `host` on the device.
+    /// The reals `host`, in the precision of the buffer, on the device.
     fn from_host(host: &[f64]) -> Result<Self, CudaError> {
+        let host: Vec<T> = host.iter().map(|x| T::from_f64(*x)).collect();
         let buffer = Self::uninitialised(host.len())?;
         // SAFETY: both ranges hold `len` reals: the device one was allocated with that size.
         check(unsafe {
@@ -288,7 +510,7 @@ impl DeviceBuffer {
     }
 
     fn download(&self) -> Result<Vec<f64>, CudaError> {
-        let mut host = vec![0.0; self.len];
+        let mut host = vec![T::default(); self.len];
         // SAFETY: as in `from_host`, the other way.
         check(unsafe {
             cudaMemcpy(
@@ -298,11 +520,11 @@ impl DeviceBuffer {
                 DEVICE_TO_HOST,
             )
         })?;
-        Ok(host)
+        Ok(host.into_iter().map(T::to_f64).collect())
     }
 }
 
-impl Drop for DeviceBuffer {
+impl<T> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
         // SAFETY: the pointer came from `cudaMalloc` and is freed once.
         unsafe {
@@ -357,22 +579,24 @@ fn geometry(lat: &Lattice, boundary: [Boundary; ND], ls: usize) -> Geometry {
 }
 
 /// The links of an operator on the device: zero until `set`.
-struct DeviceGauge {
+struct DeviceGauge<T> {
     lat: Arc<Lattice>,
-    links: DeviceBuffer,
+    links: DeviceBuffer<T>,
 }
 
-impl DeviceGauge {
+impl<T: DeviceReal> DeviceGauge<T> {
     fn new(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
-        let unit = Field::<f64, Gauge>::gauge(lat);
         Ok(Self {
             lat: lat.clone(),
-            links: Self::upload(&unit)?,
+            links: DeviceBuffer::zeros(padded(lat.num_sites()) * LINKS)?,
         })
     }
 
-    fn upload(u: &Field<f64, Gauge>) -> Result<DeviceBuffer, CudaError> {
-        let sites = u.lattice().num_sites();
+    fn set(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
+        if u.lattice().local != self.lat.local {
+            return Err(GaugeError::LatticeMismatch);
+        }
+        let sites = self.lat.num_sites();
         let mut host = vec![0.0; padded(sites) * LINKS];
         for mu in 0..ND {
             for x in 0..sites {
@@ -381,14 +605,7 @@ impl DeviceGauge {
                 }
             }
         }
-        DeviceBuffer::from_host(&host)
-    }
-
-    fn set(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        if u.lattice().local != self.lat.local {
-            return Err(GaugeError::LatticeMismatch);
-        }
-        self.links = must(Self::upload(u));
+        self.links = must(DeviceBuffer::from_host(&host));
         Ok(())
     }
 }
@@ -418,10 +635,10 @@ impl FifthInHops {
 
 /// `out = H (b − c Y) inp`, or with `H†`, H the hops of the Wilson kernel at `kappa`: on the
 /// whole lattice (`to` none), or `out` on the sites of parity `to` and `inp` on the others.
-fn hops(
-    (gauge, geometry): (&DeviceGauge, &Geometry),
-    out: &mut DeviceSpinor,
-    inp: &DeviceSpinor,
+fn hops<T: DeviceReal>(
+    (gauge, geometry): (&DeviceGauge<T>, &Geometry),
+    out: &mut DeviceSpinor<T>,
+    inp: &DeviceSpinor<T>,
     kappa: f64,
     fifth: FifthInHops,
     dagger: bool,
@@ -434,7 +651,7 @@ fn hops(
     // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
     // kernel is told; the links are those of the whole lattice; `out` is not `inp`.
     unsafe {
-        bridge_cuda_hop_f64(
+        T::hop(
             out.data.ptr,
             inp.data.ptr,
             gauge.links.ptr,
@@ -445,8 +662,32 @@ fn hops(
             fifth.c,
             i32::from(dagger),
             parity_number(to),
-            STREAM,
         );
+    }
+    finish();
+}
+
+/// `dst = src`, from one precision to another.
+fn convert<T: DeviceReal, U: DeviceReal>(dst: &mut DeviceBuffer<T>, src: &DeviceBuffer<U>) {
+    use std::any::TypeId;
+    assert_eq!(dst.len, src.len);
+    let n = dst.len as i32;
+    let (t, u) = (TypeId::of::<T>(), TypeId::of::<U>());
+    // SAFETY: two device buffers of `len` reals, of the types the checks say.
+    unsafe {
+        if t == TypeId::of::<f32>() && u == TypeId::of::<f64>() {
+            bridge_cuda_cast_f64_to_f32(dst.ptr.cast(), src.ptr.cast_const().cast(), n, STREAM);
+        } else if t == TypeId::of::<f64>() && u == TypeId::of::<f32>() {
+            bridge_cuda_cast_f32_to_f64(dst.ptr.cast(), src.ptr.cast_const().cast(), n, STREAM);
+        } else {
+            assert_eq!(t, u);
+            must(check(cudaMemcpy(
+                dst.ptr.cast(),
+                src.ptr.cast_const().cast(),
+                dst.bytes(),
+                DEVICE_TO_DEVICE,
+            )));
+        }
     }
     finish();
 }
