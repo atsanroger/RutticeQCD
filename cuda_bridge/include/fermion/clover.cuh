@@ -118,7 +118,7 @@ __global__ void clover_term_kernel(
 }
 
 // -------------------------------------------------------------------------
-// out = D in = T in + hops (see wilson_hops).
+// out = D in = T in + hops (see wilson_hops), or D^dag in (T is Hermitian).
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void clover_dslash_kernel(
@@ -128,7 +128,8 @@ __global__ void clover_dslash_kernel(
     const Float* __restrict__ d_clover,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
-    Float kappa)
+    Float kappa,
+    Float sign)
 {
     const int vol = nx * ny * nz * nt;
     const int dims[4] = {nx, ny, nz, nt};
@@ -136,7 +137,7 @@ __global__ void clover_dslash_kernel(
     for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < vol; site += blockDim.x * gridDim.x) {
         Float acc[Nspin][Nc][Ncomplex];
         clover_site<Float>(acc, d_in, d_clover, site);
-        wilson_hops<Float>(acc, d_in, d_gauge, site, dims, bc, kappa);
+        wilson_hops<Float>(acc, d_in, d_gauge, site, dims, bc, kappa, sign);
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
             #pragma unroll

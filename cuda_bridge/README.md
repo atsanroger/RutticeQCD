@@ -24,8 +24,7 @@ gpu_fer/
 │   ├── fermion/                  # Fermion Dirac operators
 │   │   ├── wilson.cuh            # Wilson D, boundary packing
 │   │   ├── clover.cuh            # Clover D and the block within a site (6x6 Hermitian blocks)
-│   │   ├── mdwf.cuh              # Möbius DWF: D in one pass
-│   │   ├── mdwf_eo.cuh           # Möbius DWF on one parity: the hop D_pq and C^-1
+│   │   ├── mdwf.cuh              # Möbius DWF: D, its hops on the lattice or one parity, C^-1
 │   │   └── dd.cuh                # Block Domain Decomposition (SAP)
 │   ├── multigrid/                # Adaptive Multigrid (AMG)
 │   │   ├── coarse.cuh            # Coarse grid Dirac operator
@@ -34,7 +33,7 @@ gpu_fer/
 │   ├── gauge/                    # Gauge configurations & smearing
 │   │   └── gauge.cuh             # Deterministic plaquette & APE smearing
 │   └── linalg/                   # GPU Linear algebra
-│       ├── blas.cuh              # Deterministic AXPY, SCAL, NORM2 tree reduction
+│       ├── blas.cuh              # axpy, scal, complex axpy/aypx, norm and inner product
 │       └── cast.cuh              # On-device FP64 <-> FP32 precision conversion
 └── src/
     ├── fermion/
@@ -58,12 +57,14 @@ gpu_fer/
 Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs` there, feature
 `cuda-bridge`), in double precision, for periodic, antiperiodic and Dirichlet boundaries:
 
-- `bridge_cuda_wilson_dslash`: the Wilson operator.
-- `bridge_cuda_clover_dslash`, `bridge_cuda_clover_term`: the clover operator and the block of it
-  within a site (or its inverse), with the blocks made on the CPU.
+- `bridge_cuda_wilson_dslash`: the Wilson operator D and D^dag.
+- `bridge_cuda_clover_dslash`, `bridge_cuda_clover_term`: the clover operator D and D^dag, and
+  the block of it within a site (or its inverse), with the blocks made on the CPU.
 - `bridge_cuda_mdwf_dslash_1pass`: the Möbius domain-wall operator D.
-- `bridge_cuda_mdwf_eo_hop`, `bridge_cuda_mdwf_site_inv`: its even-odd hop D_pq and the inverse
-  of its part within a site, C^-1 and C^dag^-1, on fields of one parity.
+- `bridge_cuda_mdwf_hop`, `bridge_cuda_mdwf_fifth`, `bridge_cuda_mdwf_site_inv`: its parts, of
+  which D^dag and the even-odd blocks D_pq, D_pq^dag, C^-1 and C^dag^-1 are made.
+- `bridge_cuda_gamma5`; `bridge_cuda_blas_*`: axpy, scal, complex axpy and aypx, norm and
+  inner product.
 
 These are the plain operators in the Dirac representation (gamma_4 diagonal); `alpha` of
 `BridgeCudaMdwfParams` (Neff) is not used.

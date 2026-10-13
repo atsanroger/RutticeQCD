@@ -13,6 +13,7 @@ namespace bridge_cuda {
 //
 //   acc -= kappa sum_mu [ (1 - gamma_mu) U_mu(x) psi(x+mu) + (1 + gamma_mu) U_mu(x-mu)^dag psi(x-mu) ]
 //
+// With `sign` -1 the signs of gamma_mu are exchanged: the hops of D^dag = gamma_5 D gamma_5.
 // bc[mu] multiplies a spinor that arrives across the boundary in direction mu
 // (+1 periodic, -1 antiperiodic, 0 Dirichlet); the links are periodic.
 // -------------------------------------------------------------------------
@@ -24,7 +25,8 @@ __device__ __forceinline__ void wilson_hops(
     int site,
     const int dims[4],
     const Float bc[4],
-    Float kappa)
+    Float kappa,
+    Float sign)
 {
     const int nx = dims[0], ny = dims[1], nz = dims[2], nt = dims[3];
     int xc[4];
@@ -74,8 +76,8 @@ __device__ __forceinline__ void wilson_hops(
             Float v_in_r[Nc], v_in_i[Nc], v_out_r[Nc], v_out_i[Nc];
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = sp_f[s][c][0] - g_f[s][c][0];
-                v_in_i[c] = sp_f[s][c][1] - g_f[s][c][1];
+                v_in_r[c] = sp_f[s][c][0] - sign * g_f[s][c][0];
+                v_in_i[c] = sp_f[s][c][1] - sign * g_f[s][c][1];
             }
             su3_mult_vec(v_out_r, v_out_i, u_f_r, u_f_i, v_in_r, v_in_i);
             #pragma unroll
@@ -85,8 +87,8 @@ __device__ __forceinline__ void wilson_hops(
             }
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
-                v_in_r[c] = sp_b[s][c][0] + g_b[s][c][0];
-                v_in_i[c] = sp_b[s][c][1] + g_b[s][c][1];
+                v_in_r[c] = sp_b[s][c][0] + sign * g_b[s][c][0];
+                v_in_i[c] = sp_b[s][c][1] + sign * g_b[s][c][1];
             }
             su3_dagger_mult_vec(v_out_r, v_out_i, u_b_r, u_b_i, v_in_r, v_in_i);
             #pragma unroll
@@ -99,7 +101,7 @@ __device__ __forceinline__ void wilson_hops(
 }
 
 // -------------------------------------------------------------------------
-// Wilson operator (Grid-Stride Loop): D psi = psi + hops (see wilson_hops).
+// Wilson operator (Grid-Stride Loop): D psi = psi + hops (see wilson_hops), or D^dag.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void wilson_interior_kernel(
@@ -108,14 +110,15 @@ __global__ void wilson_interior_kernel(
     const Float* __restrict__ d_gauge,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
-    Float kappa)
+    Float kappa,
+    Float sign)
 {
     const int vol = nx * ny * nz * nt;
     const int dims[4] = {nx, ny, nz, nt};
     const Float bc[4] = {bcx, bcy, bcz, bct};
     for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < vol; site += blockDim.x * gridDim.x) {
         Float acc[Nspin][Nc][Ncomplex] = {0};
-        wilson_hops<Float>(acc, d_in, d_gauge, site, dims, bc, kappa);
+        wilson_hops<Float>(acc, d_in, d_gauge, site, dims, bc, kappa, sign);
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
             #pragma unroll

@@ -15,13 +15,13 @@ extern "C" {
 void bridge_cuda_wilson_dslash_f32(
     float* d_out, const float* d_in, const float* d_gauge,
     const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    cudaStream_t stream
+    int dagger, cudaStream_t stream
 );
 
 void bridge_cuda_wilson_dslash_f64(
     double* d_out, const double* d_in, const double* d_gauge,
     const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    cudaStream_t stream
+    int dagger, cudaStream_t stream
 );
 
 void bridge_cuda_wilson_pack_f32(
@@ -60,7 +60,7 @@ void bridge_cuda_clover_term_f32(
 void bridge_cuda_clover_dslash_f32(
     float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
     const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    cudaStream_t stream
+    int dagger, cudaStream_t stream
 );
 
 // out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh).
@@ -73,7 +73,7 @@ void bridge_cuda_clover_term_f64(
 void bridge_cuda_clover_dslash_f64(
     double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
     const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    cudaStream_t stream
+    int dagger, cudaStream_t stream
 );
 
 // =========================================================================
@@ -282,16 +282,21 @@ void bridge_cuda_mg_coarse_invert_diagonal_blocks_f64(
     double* d_diag_inv, const double* d_diag, int vol_c, int dim, cudaStream_t stream
 );
 
-// -------------------------------------------------------------------------
-// MDWF even-odd blocks on fields of one parity (fermion/mdwf_eo.cuh): the plain operator,
-// Dirac representation. Checked against the CPU operator of Ruttice.
-// -------------------------------------------------------------------------
+// The parts of the MDWF operator (fermion/mdwf.cuh): the plain operator, Dirac representation.
 
-// out = D_pq in: out on the sites of parity target_parity, in on the others.
-void bridge_cuda_mdwf_eo_hop_f32(
+// out = H (b - c Y) in, or with H^dag: on the whole lattice (target_parity < 0), or out on the
+// sites of parity target_parity and in on the others (the block D_pq of D, with b and c of D).
+void bridge_cuda_mdwf_hop_f32(
     float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
-    int target_parity, cudaStream_t stream
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream
+);
+
+// out = (a1 + y1 Y) x + (a2 + y2 Y) z, or with Y^dag; d_z may be null.
+void bridge_cuda_mdwf_fifth_f32(
+    float* d_out, const float* d_x, double a1, double y1,
+    const float* d_z, double a2, double y2,
+    int sites, int Ls, double mass, int dagger, cudaStream_t stream
 );
 
 // out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
@@ -301,11 +306,24 @@ void bridge_cuda_mdwf_site_inv_f32(
     int dagger, cudaStream_t stream
 );
 
-// out = D_pq in: out on the sites of parity target_parity, in on the others.
-void bridge_cuda_mdwf_eo_hop_f64(
+// out = gamma_5 in, with `reflect` out_s = gamma_5 in_(Ls-1-s); Ls = 1 for a 4D field.
+void bridge_cuda_gamma5_f32(
+    float* d_out, const float* d_in, int sites, int Ls, int reflect, cudaStream_t stream
+);
+
+// out = H (b - c Y) in, or with H^dag: on the whole lattice (target_parity < 0), or out on the
+// sites of parity target_parity and in on the others (the block D_pq of D, with b and c of D).
+void bridge_cuda_mdwf_hop_f64(
     double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
-    int target_parity, cudaStream_t stream
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int target_parity, cudaStream_t stream
+);
+
+// out = (a1 + y1 Y) x + (a2 + y2 Y) z, or with Y^dag; d_z may be null.
+void bridge_cuda_mdwf_fifth_f64(
+    double* d_out, const double* d_x, double a1, double y1,
+    const double* d_z, double a2, double y2,
+    int sites, int Ls, double mass, int dagger, cudaStream_t stream
 );
 
 // out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
@@ -313,6 +331,11 @@ void bridge_cuda_mdwf_site_inv_f64(
     double* d_out, const double* d_in,
     int sites, int Ls, const BridgeCudaMdwfParams* params,
     int dagger, cudaStream_t stream
+);
+
+// out = gamma_5 in, with `reflect` out_s = gamma_5 in_(Ls-1-s); Ls = 1 for a 4D field.
+void bridge_cuda_gamma5_f64(
+    double* d_out, const double* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
 // =========================================================================
@@ -361,6 +384,18 @@ void bridge_cuda_gauge_ape_smear_f64(
 
 void bridge_cuda_blas_axpy_f32(float* y, const float* x, float a, int n, cudaStream_t stream);
 void bridge_cuda_blas_axpy_f64(double* y, const double* x, double a, int n, cudaStream_t stream);
+
+// Complex y += a x and y = a y + x on fields of n reals (blocks of 32 real parts, then 32
+// imaginary parts), |x|^2 and <x|y> = sum conj(x) y. The reductions sum the CUDA blocks on the
+// host in a fixed order, so they are deterministic; they wait for the device.
+void bridge_cuda_blas_caxpy_f32(float* y, const float* x, float ar, float ai, int n, cudaStream_t stream);
+void bridge_cuda_blas_caypx_f32(float* y, const float* x, float ar, float ai, int n, cudaStream_t stream);
+double bridge_cuda_blas_norm2_f32(const float* x, int n, cudaStream_t stream);
+void bridge_cuda_blas_dotc_f32(double* re, double* im, const float* x, const float* y, int n, cudaStream_t stream);
+void bridge_cuda_blas_caxpy_f64(double* y, const double* x, double ar, double ai, int n, cudaStream_t stream);
+void bridge_cuda_blas_caypx_f64(double* y, const double* x, double ar, double ai, int n, cudaStream_t stream);
+double bridge_cuda_blas_norm2_f64(const double* x, int n, cudaStream_t stream);
+void bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const double* y, int n, cudaStream_t stream);
 
 void bridge_cuda_blas_scal_f32(float* x, float a, int n, cudaStream_t stream);
 void bridge_cuda_blas_scal_f64(double* x, double a, int n, cudaStream_t stream);
