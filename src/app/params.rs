@@ -88,6 +88,19 @@ keyword_enum! {
     }
 }
 
+impl From<GaugeType> for GaugeFormat {
+    fn from(t: GaugeType) -> Self {
+        match t {
+            GaugeType::Text => GaugeFormat::BridgeText,
+            GaugeType::Binary => GaugeFormat::Binary,
+            GaugeType::Nersc => GaugeFormat::Nersc,
+            GaugeType::Ildg => GaugeFormat::Ildg,
+            GaugeType::Scidac => GaugeFormat::Scidac,
+            GaugeType::Hdf5 => GaugeFormat::Hdf5,
+        }
+    }
+}
+
 keyword_enum! {
     pub enum FermionType {
         /// Möbius domain-wall fermions with a Wilson kernel (b = 1, c = 0: Shamir).
@@ -722,6 +735,15 @@ impl FoprBlock {
     pub fn ls(&self) -> usize {
         self.extent_of_5th_dimension
             .expect("checked for domain-wall fermions")
+    }
+
+    /// The boundary conditions as the internal parameter structures hold them.
+    pub(super) fn boundary_config(&self) -> [BoundaryConfig; ND] {
+        self.boundary().map(|b| match b {
+            Boundary::Antiperiodic => BoundaryConfig::Antiperiodic,
+            Boundary::Dirichlet => BoundaryConfig::Dirichlet,
+            _ => BoundaryConfig::Periodic,
+        })
     }
 
     fn boundary(&self) -> [Boundary; ND] {
@@ -1385,11 +1407,7 @@ impl Params {
     /// describes (the propagator of the source, all meson channels).
     pub fn to_config(&self) -> Config {
         let quark = |f: &FoprBlock, src: &SourceBlock| {
-            let boundary = f.boundary().map(|b| match b {
-                Boundary::Antiperiodic => BoundaryConfig::Antiperiodic,
-                Boundary::Dirichlet => BoundaryConfig::Dirichlet,
-                _ => BoundaryConfig::Periodic,
-            });
+            let boundary = f.boundary_config();
             let kappa = f.hopping_parameter.expect("checked");
             let position = src.source_position;
             QuarkConfig {
@@ -1463,14 +1481,7 @@ impl Params {
             process_grid: (self.main.grid_size != [1; ND]).then_some(self.main.grid_size),
             gauge: GaugeConfig {
                 file: self.gauge.config_filename_input.clone(),
-                format: match self.gauge.gauge_config_type_input {
-                    GaugeType::Text => GaugeFormat::BridgeText,
-                    GaugeType::Binary => GaugeFormat::Binary,
-                    GaugeType::Nersc => GaugeFormat::Nersc,
-                    GaugeType::Ildg => GaugeFormat::Ildg,
-                    GaugeType::Scidac => GaugeFormat::Scidac,
-                    GaugeType::Hdf5 => GaugeFormat::Hdf5,
-                },
+                format: GaugeFormat::from(self.gauge.gauge_config_type_input),
                 fixing: self.gauge_fixing.map(|g| g.to_config()),
             },
             gauge_smearing: self.gauge_smearing.map(|g| g.to_config()),

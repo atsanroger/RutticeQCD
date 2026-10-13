@@ -4,6 +4,7 @@
 mod bench;
 mod config;
 pub mod hmc;
+pub mod hmc_params;
 pub mod keyword;
 pub mod mdwf;
 pub mod params;

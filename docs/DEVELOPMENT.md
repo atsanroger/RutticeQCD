@@ -110,7 +110,8 @@ Version 0.1.0. See [CHANGELOG.md](../CHANGELOG.md).
 Not there yet:
 
 - GPUs (the README says what is planned)
-- HMC files in the sections of Bridge++
+- HMC with the fields in blocks for SIMD (`Main.backend : simd`)
+- a multigrid for domain-wall fermions in HMC
 - the multigrids on lattices larger than 16⁴: they have been developed and measured on 12⁴
   and 16⁴, where a multigrid has little to gain; what they save on physical volumes is not
   known yet

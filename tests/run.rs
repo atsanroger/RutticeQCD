@@ -618,13 +618,10 @@ fn the_hmc_example_repeats_bridge() {
         ((plaq - 0.62754640357188) / 0.62754640357188).abs() < 1e-11,
         "{plaq}"
     );
-    // "smearing" alone is refused here too.
+    // A section the file does not have is refused.
     let bad =
-        include_str!("../examples/hmc_domainwall_pv.yaml").replace("gauge_smearing:", "smearing:");
-    assert!(matches!(
-        HmcConfig::from_yaml(&bad),
-        Err(CliError::Invalid(_))
-    ));
+        include_str!("../examples/hmc_domainwall_pv.yaml").replace("GaugeSmearing:", "Smearing:");
+    assert!(HmcConfig::from_yaml(&bad).is_err());
 }
 
 /// The HMC runner saves configurations on several processes (threads standing in for them):
@@ -643,16 +640,29 @@ fn hmc_saves_configurations_on_several_processes() {
         }
         bytes
     };
-    for (format, name) in [("bridge_text", "conf_{n}.txt"), ("ildg", "conf_{n}.lime")] {
+    for (format, name) in [("Text", "conf_{n}.txt"), ("ILDG", "conf_{n}.lime")] {
         let yaml = |grid: &str| {
             format!(
-                "lattice: [4, 4, 4, 8]\n\
-                 process_grid: {grid}\n\
-                 start: {{type: cold}}\n\
-                 hmc:\n  trajectories: 2\n  first_trajectory: 100\n  trajectory_length: 0.5\n  \
-                 integrator: {{scheme: omelyan, steps: [5]}}\n  metropolis: false\n\
-                 actions:\n  - {{type: plaquette, beta: 5.5, level: 0}}\n\
-                 output: {{save_every: 1, file: \"{name}\", format: {format}}}\n"
+                "Main:
+  lattice_size : [4, 4, 4, 8]
+  grid_size : {grid}
+HMC:
+  gauge_config_status : Cold_start
+  trajectory_number : 100
+  number_of_trajectories : 2
+  save_config_interval : 1
+  config_filename_output : \"{name}\"
+  gauge_config_type_output : {format}
+HMC_General:
+  trajectory_length : 0.5
+  Metropolis_test : false
+Builder_Integrator:
+  integrator : Omelyan
+  number_of_steps : [5]
+Action_G:
+  action_type : Action_G_Plaq
+  beta : 5.5
+"
             )
         };
         let one = scratch(&format!("hmc_save_{format}_1"));
@@ -702,16 +712,38 @@ fn hmc_with_the_multigrid_on_several_processes() {
     use ruttice::LocalComm;
     let yaml = |grid: &str, block: &str| {
         format!(
-            "lattice: [4, 4, 4, 8]\n\
-             process_grid: {grid}\n\
-             start: {{type: hot, seed: 7}}\n\
-             hmc:\n  trajectories: 1\n  first_trajectory: 100\n  trajectory_length: 0.05\n  \
-             integrator: {{scheme: leapfrog, steps: [2]}}\n\
-             actions:\n  - {{type: plaquette, beta: 5.5, level: 0}}\n  \
-             - type: two_flavor\n    \
-             fermion: {{type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}}\n    \
-             level: 0\n    \
-             solver: {{type: bicgstab, tolerance_squared: 1.0e-24, energy_tolerance_squared: 1.0e-24, preconditioner: multigrid, multigrid: {{block: {block}, test_vectors: 8, setup_iterations: 2}}}}\n"
+            "Main:
+  lattice_size : [4, 4, 4, 8]
+  grid_size : {grid}
+HMC:
+  gauge_config_status : Hot_start
+  seed_for_random_number : 7
+  trajectory_number : 100
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.05
+Builder_Integrator:
+  integrator : Leapfrog
+  number_of_steps : [2]
+Action_G:
+  action_type : Action_G_Plaq
+  beta : 5.5
+Action_F_1:
+  action_type : Standard
+  Fopr:
+    fermion_type : Clover
+    hopping_parameter : 0.11
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    solver_type : BiCGStab
+    convergence_criterion_squared : 1.0e-24
+    preconditioner_type : MG
+    MultiGrid:
+      block_size : {block}
+      number_of_test_vectors : 8
+      number_of_setup_iterations : 2
+"
         )
     };
     let dir = std::env::temp_dir();
@@ -774,11 +806,18 @@ fn the_rhmc_example_repeats_bridge() {
     assert!(((plaq - expected) / expected).abs() < 1e-11, "{plaq}");
     // Powers outside (0, 1), empty intervals and domain-wall fermions are refused.
     for bad in [
-        text.replace("power: [1, 2]", "power: [2, 2]"),
-        text.replace("bounds: [1.0e-2, 3.16227766]", "bounds: [1.0, 0.5]"),
+        text.replace("exponent_numerator   : 1", "exponent_numerator   : 2"),
         text.replace(
-            "fermion: {type: clover, kappa: 0.12, csw: 1.0,",
-            "fermion: {type: domain_wall, ls: 4, m5: 1.6, mass: 0.1,",
+            "lower_bound          : 1.0e-2",
+            "lower_bound          : 5.0",
+        ),
+        text.replace(
+            "    hopping_parameter  : 0.12\n    clover_coefficient : 1.0\n",
+            "    extent_of_5th_dimension : 4\n    domain_wall_height : 1.6\n    quark_mass : 0.1\n",
+        )
+        .replace(
+            "    fermion_type       : Clover\n    extent_of_5th_dimension",
+            "    fermion_type       : Domainwall\n    extent_of_5th_dimension",
         ),
     ] {
         assert!(matches!(
@@ -798,19 +837,32 @@ fn rational_action_from_a_parameter_file() {
     use ruttice::numerics::{RationalApprox, RationalSpec};
     let dir = scratch("rhmc_wilson");
     let text = "
-lattice: [4, 4, 4, 4]
-start: {type: hot, seed: 3}
-hmc:
-  trajectories: 1
-  trajectory_length: 0.2
-  integrator: {scheme: omelyan, steps: [3, 2]}
-actions:
-  - type: rational
-    fermion: {type: wilson, kappa: 0.11, boundary: [periodic, periodic, periodic, antiperiodic]}
-    poles: 10
-    bounds: [0.05, 2.5]
-    level: 0
-  - {type: plaquette, beta: 5.5, level: 1}
+Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+  gauge_config_status : Hot_start
+  seed_for_random_number : 3
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.2
+Builder_Integrator:
+  integrator : Omelyan
+  number_of_steps : [3, 2]
+Action_G:
+  action_type : Action_G_Plaq
+  beta : 5.5
+  level_of_action : 1
+Action_F_1:
+  action_type : Rational
+  level_of_action : 0
+  Fopr:
+    fermion_type : Wilson
+    hopping_parameter : 0.11
+    boundary_condition : [1, 1, 1, -1]
+  Rational:
+    number_of_poles : 10
+    lower_bound : 0.05
+    upper_bound : 2.5
 ";
     let run = |text: &str| {
         let config = HmcConfig::from_yaml(text).unwrap();
@@ -839,8 +891,10 @@ actions:
         let r = RationalApprox::minimax(&spec).unwrap();
         std::fs::write(dir.join(spec.bridge_file_name()), r.to_bridge(&spec)).unwrap();
     }
-    let (_, dh_file, _, plaq_file) =
-        run(&text.replace("poles: 10", "poles: 10\n    coefficients: ."));
+    let (_, dh_file, _, plaq_file) = run(&text.replace(
+        "number_of_poles : 10",
+        "number_of_poles : 10\n    coefficients : .",
+    ));
     assert!((plaq_file - plaq).abs() < 1e-13 && (dh_file - dh).abs() < 1e-9);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -858,21 +912,38 @@ fn hmc_file_even_odd_and_initial_guess() {
     use ruttice::Boundary;
     let yaml = |guess: usize| {
         format!(
-            "lattice: [4, 4, 4, 4]
-start: {{type: hot, seed: 7}}
-gauge_smearing: {{type: stout, rho: 0.1, steps: 1}}
-hmc:
-  trajectories: 1
-  first_trajectory: 5
-  trajectory_length: 0.2
-  integrator: {{scheme: leapfrog, steps: [4]}}
-actions:
-  - {{type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 0}}
-  - type: two_flavor
-    fermion: {{type: clover, kappa: 0.12, csw: 1.5, boundary: [periodic, periodic, periodic, antiperiodic]}}
-    even_odd: true
-    solver: {{tolerance_squared: 1.0e-26, energy_tolerance_squared: 1.0e-26, initial_guess: {guess}}}
-    level: 0
+            "Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+  gauge_config_status : Hot_start
+  seed_for_random_number : 7
+  trajectory_number : 5
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.2
+Builder_Integrator:
+  integrator : Leapfrog
+  number_of_steps : [4]
+GaugeSmearing:
+  smear_type : Stout
+  rho_uniform : 0.1
+  number_of_smearing : 1
+Action_G:
+  action_type : Action_G_Rectangle
+  beta : 2.3
+  c_plaq : 3.648
+  c_rect : -0.331
+Action_F_1:
+  action_type : Standard
+  operator_type : Even_odd
+  Fopr:
+    fermion_type : Clover
+    hopping_parameter : 0.12
+    clover_coefficient : 1.5
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    convergence_criterion_squared : 1.0e-26
+    number_of_initial_guess : {guess}
 "
         )
     };
@@ -945,14 +1016,26 @@ actions:
         "{plaq_g} {dh_g}"
     );
 
-    let bad = "lattice: [4, 4, 4, 4]
-start: {type: cold}
-hmc: {trajectories: 1, trajectory_length: 0.1, integrator: {scheme: leapfrog, steps: [2]}}
-actions:
-  - type: two_flavor_ratio
-    fermion: {type: domain_wall, ls: 4, m5: 1.6, mass: 0.1, boundary: [periodic, periodic, periodic, antiperiodic]}
-    solver: {initial_guess: 2}
-    level: 0
+    let bad = "Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+  gauge_config_status : Cold_start
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.1
+Builder_Integrator:
+  integrator : Leapfrog
+  number_of_steps : [2]
+Action_F_1:
+  action_type : Ratio
+  Fopr:
+    fermion_type : Domainwall
+    extent_of_5th_dimension : 4
+    domain_wall_height : 1.6
+    quark_mass : 0.1
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    number_of_initial_guess : 2
 ";
     assert!(matches!(
         HmcConfig::from_yaml(bad),
@@ -965,77 +1048,106 @@ actions:
 #[test]
 fn hmc_solver_keys_are_checked() {
     use ruttice::app::hmc::HmcConfig;
-    let file = |fermion: &str, kind: &str, solver: &str| {
-        format!(
-            "lattice: [4, 4, 4, 8]
-start: {{type: cold}}
-hmc: {{trajectories: 1, trajectory_length: 0.1, integrator: {{scheme: leapfrog, steps: [2]}}}}
-actions:
-  - type: {kind}
-    fermion: {fermion}
-    level: 0
-    solver: {{{solver}}}
+    // `action`: the lines of the action after its type; `solver`: the lines of its Solver.
+    let file = |fopr: &str, action: &str, solver: &[&str]| {
+        let mut text = format!(
+            "Main:
+  lattice_size : [4, 4, 4, 8]
+HMC:
+  gauge_config_status : Cold_start
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.1
+Builder_Integrator:
+  integrator : Leapfrog
+  number_of_steps : [2]
+Action_F_1:
+{action}  Fopr:
+{fopr}    boundary_condition : [1, 1, 1, -1]
 "
-        )
+        );
+        if !solver.is_empty() {
+            text += "  Solver:\n";
+            for line in solver {
+                text += &format!("    {line}\n");
+            }
+        }
+        text
     };
-    let bc = "boundary: [periodic, periodic, periodic, antiperiodic]";
-    let clover = format!("{{type: clover, kappa: 0.12, csw: 1.0, {bc}}}");
-    let wall = format!("{{type: domain_wall, ls: 4, m5: 1.6, mass: 0.1, {bc}}}");
-    let rational = format!("{clover}\n    poles: 8\n    bounds: [0.01, 3.2]");
-    let mg = "preconditioner: multigrid, multigrid: {block: [2, 2, 2, 2]}";
-    let ok = |fermion: &str, kind: &str, solver: &str| {
-        let parsed = HmcConfig::from_yaml(&file(fermion, kind, solver));
+    let clover =
+        "    fermion_type : Clover\n    hopping_parameter : 0.12\n    clover_coefficient : 1.0\n";
+    let wall = "    fermion_type : Domainwall\n    extent_of_5th_dimension : 4\n    domain_wall_height : 1.6\n    quark_mass : 0.1\n";
+    let standard = "  action_type : Standard\n";
+    let even_odd = "  action_type : Standard\n  operator_type : Even_odd\n";
+    let rational = "  action_type : Rational\n  Rational:\n    number_of_poles : 8\n    lower_bound : 0.01\n    upper_bound : 3.2\n";
+    let mg = [
+        "preconditioner_type : MG",
+        "MultiGrid:",
+        "  block_size : [2, 2, 2, 2]",
+    ];
+    let with = |first: &'static str, more: &[&'static str]| -> Vec<&'static str> {
+        [&[first][..], more].concat()
+    };
+    let ok = |fopr: &str, action: &str, solver: &[&str]| {
+        let parsed = HmcConfig::from_yaml(&file(fopr, action, solver));
         if let Err(e) = &parsed {
-            eprintln!("{solver}: {e}");
+            eprintln!("{solver:?}: {e}");
         }
         parsed.is_ok()
     };
-    for solver in [
-        "",
-        "type: cg",
-        "type: bicgstab",
-        "type: fgmres, restart: 16",
-        "type: gcr",
-    ] {
-        assert!(ok(&clover, "two_flavor", solver), "{solver}");
+    for solver in ["CG", "BiCGStab", "FGMRES", "GCR"] {
+        assert!(ok(clover, standard, &[&format!("solver_type : {solver}")]));
     }
-    assert!(ok(&clover, "two_flavor", "preconditioner: chebyshev"));
-    assert!(ok(&clover, "two_flavor", &format!("type: bicgstab, {mg}")));
-    assert!(HmcConfig::from_yaml(
-        &file(&clover, "two_flavor", &format!("type: gcr, {mg}"))
-            .replace("    level: 0", "    even_odd: true\n    level: 0")
-    )
-    .is_ok());
+    assert!(ok(clover, standard, &[]));
+    assert!(ok(clover, standard, &["preconditioner_type : Chebyshev"]));
+    assert!(ok(clover, standard, &with("solver_type : BiCGStab", &mg)));
+    assert!(ok(clover, even_odd, &with("solver_type : GCR", &mg)));
     assert!(ok(
-        &wall,
-        "two_flavor",
-        "neff_alpha: 0.6, preconditioner: chebyshev"
+        &format!("{wall}    neff_alpha : 0.6\n"),
+        standard,
+        &["preconditioner_type : Chebyshev"]
     ));
-    assert!(ok(&rational, "rational", "type: cg"));
-    assert!(ok(&rational, "rational", "type: multishift_cg"));
+    assert!(ok(clover, rational, &[]));
+    assert!(ok(clover, rational, &["solver_type : CG"]));
+    assert!(ok(clover, rational, &["solver_type : BiCGStab"]));
+    assert!(ok(clover, rational, &with("solver_type : GCR", &mg)));
     // What does not go together.
-    assert!(!ok(&clover, "two_flavor", "type: multishift_cg"));
-    assert!(!ok(&clover, "two_flavor", &format!("type: cg, {mg}")));
+    assert!(!ok(clover, standard, &["solver_type : MINRES"]));
+    assert!(!ok(clover, standard, &with("solver_type : CG", &mg)));
     assert!(!ok(
-        &clover,
-        "two_flavor",
-        "type: bicgstab, preconditioner: multigrid"
+        clover,
+        standard,
+        &["solver_type : BiCGStab", "preconditioner_type : MG"]
     ));
     assert!(!ok(
-        &clover,
-        "two_flavor",
-        "type: bicgstab, preconditioner: chebyshev"
+        clover,
+        standard,
+        &["solver_type : BiCGStab", "preconditioner_type : Chebyshev"]
     ));
-    assert!(!ok(&clover, "two_flavor", "neff_alpha: 0.6"));
     assert!(!ok(
-        &clover,
-        "two_flavor",
-        "type: bicgstab, preconditioner: multigrid, multigrid: {block: [3, 2, 2, 2]}"
+        &format!("{clover}    neff_alpha : 0.6\n"),
+        standard,
+        &[]
     ));
-    assert!(!ok(&wall, "two_flavor", "type: bicgstab"));
-    assert!(!ok(&wall, "two_flavor", &format!("type: bicgstab, {mg}")));
-    assert!(ok(&rational, "rational", "type: bicgstab"));
-    assert!(ok(&rational, "rational", &format!("type: gcr, {mg}")));
-    assert!(!ok(&rational, "rational", &format!("type: cg, {mg}")));
-    assert!(!ok(&rational, "rational", "preconditioner: chebyshev"));
+    assert!(!ok(
+        clover,
+        standard,
+        &[
+            "solver_type : BiCGStab",
+            "preconditioner_type : MG",
+            "MultiGrid:",
+            "  block_size : [3, 2, 2, 2]"
+        ]
+    ));
+    assert!(!ok(wall, standard, &["solver_type : BiCGStab"]));
+    assert!(!ok(wall, standard, &with("solver_type : BiCGStab", &mg)));
+    assert!(!ok(clover, rational, &with("solver_type : CG", &mg)));
+    assert!(!ok(clover, rational, &["preconditioner_type : Chebyshev"]));
+    // The sections of an action must suit its type.
+    assert!(!ok(clover, "  action_type : Rational\n", &[]));
+    assert!(!ok(
+        clover,
+        "  action_type : Ratio\n  operator_type : Even_odd\n",
+        &[]
+    ));
 }

@@ -39,7 +39,8 @@ The first tagged version.
   `[solver]`, `[[quark]]`) is no longer read; what it could say that the Bridge++ sections
   could not has been added to them: `Quark_2` … `Quark_4`, `GaugeFixing`, `Measure`,
   `Output`, the `Exponential` source, Dirichlet boundaries, the `SciDAC` and `HDF5` formats.
-  HMC files keep their own format in this version.
+  HMC files have the sections of Bridge++'s (`HMC_General`, `Builder_Integrator`, `Action_G`)
+  and list their fermion actions as `Action_F_1`, `Action_F_2`, ….
 - **Even-odd or lexical is one choice** (`Solver.operator_type : Even_odd | Lexical`), for
   the fine lattice and the coarse lattice of the multigrid alike. `Full` is still read for
   `Lexical`.

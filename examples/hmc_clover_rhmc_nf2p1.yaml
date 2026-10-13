@@ -6,42 +6,81 @@
 #
 # Relative paths are taken from the directory of this file.
 
-lattice: [4, 4, 4, 8]
-start: {type: file, file: conf_04040408.txt, format: bridge_text}
+Main:
+  lattice_size : [4, 4, 4, 8]
+HMC:
+  gauge_config_status     : Continue
+  gauge_config_type_input : Text
+  config_filename_input   : conf_04040408.txt
+  trajectory_number       : 200000
+  number_of_trajectories  : 1
+HMC_General:
+  trajectory_length : 0.1
+Builder_Integrator:
+  integrator      : Leapfrog
+  number_of_steps : [5, 2, 3]             # the outer level first
+  order_of_exp_iP : 8
+GaugeSmearing:
+  smear_type         : Stout
+  rho_uniform        : 0.1
+  number_of_smearing : 2
 
-gauge_smearing: {type: stout, rho: 0.1, steps: 2}
+Action_G:
+  action_type     : Action_G_Rectangle
+  beta            : 2.3
+  c_plaq          : 3.648
+  c_rect          : -0.331
+  level_of_action : 2
 
-hmc:
-  trajectories: 1
-  first_trajectory: 200000
-  trajectory_length: 0.1
-  integrator:
-    scheme: leapfrog
-    steps: [5, 2, 3]            # the outer level first
-    exp_order: 8
+# A Solver section also takes solver_type : CG (default) | BiCGStab | FGMRES | GCR, and
+# preconditioner_type : Chebyshev (with CG) | MG (with the others); docs/USAGE.md has the keys.
 
-actions:
-  # `solver` also takes type: cg (default) | bicgstab | fgmres | gcr, and preconditioner:
-  # chebyshev (with cg) | multigrid (with the others); docs/USAGE.md has the keys.
-  # The light pair, Hasenbusch's way: det(D_0.13)² / det(D_0.11)² ...
-  - type: two_flavor_ratio
-    fermion: {type: clover, kappa: 0.13, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-    denominator: {type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-    level: 0
-    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
-  # ... times det(D_0.11)².
-  - type: two_flavor
-    fermion: {type: clover, kappa: 0.11, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-    level: 1
-    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
-  # The strange quark: det(D†D_0.12)^(1/2) by RHMC, 16 poles; the bounds are those of |D|
-  # (D†D in [1e-4, 10]). The coefficients are computed; `coefficients: <dir>` reads
-  # Bridge++'s files parameter_rational.* from a directory instead (the same numbers).
-  - type: rational
-    fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-    power: [1, 2]
-    poles: 16
-    bounds: [1.0e-2, 3.16227766]
-    level: 1
-    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28, max_iterations: 1000}
-  - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 2}
+# The light pair, Hasenbusch's way: det(D_0.13)² / det(D_0.11)² ...
+Action_F_1:
+  action_type     : Ratio
+  level_of_action : 0
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.13
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Fopr_denominator:
+    fermion_type       : Clover
+    hopping_parameter  : 0.11
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    convergence_criterion_squared : 1.0e-28
+
+# ... times det(D_0.11)².
+Action_F_2:
+  action_type     : Standard
+  level_of_action : 1
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.11
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    convergence_criterion_squared : 1.0e-28
+
+# The strange quark: det(D†D_0.12)^(1/2) by RHMC, 16 poles; the bounds are those of |D|
+# (D†D in [1e-4, 10]). The coefficients are computed; `coefficients : <dir>` reads
+# Bridge++'s files parameter_rational.* from a directory instead (the same numbers).
+Action_F_3:
+  action_type     : Rational
+  level_of_action : 1
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.12
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Rational:
+    number_of_poles      : 16
+    exponent_numerator   : 1
+    exponent_denominator : 2
+    lower_bound          : 1.0e-2
+    upper_bound          : 3.16227766
+  Solver:
+    convergence_criterion_squared : 1.0e-28
+    maximum_number_of_iteration   : 1000

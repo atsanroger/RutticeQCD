@@ -1,60 +1,13 @@
-//! Hybrid Monte Carlo from a parameter file: the start configuration, the actions on the
-//! levels of the integrator, the trajectories, and where the configurations go.
-//!
-//! ```yaml
-//! lattice: [4, 4, 4, 8]
-//! start: {type: file, file: conf_04040408.txt}     # or {type: cold}
-//! gauge_smearing: {type: stout, rho: 0.1, steps: 2} # the links of `smeared` fermions
-//! hmc:
-//!   trajectories: 10
-//!   first_trajectory: 200000      # the random numbers are Bridge++'s M-series of this number
-//!   trajectory_length: 1.0
-//!   integrator: {scheme: omelyan, steps: [5, 4]}
-//! actions:
-//!   - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 1}
-//!   - type: two_flavor_ratio
-//!     fermion: {type: domain_wall, ls: 8, m5: 1.6, mass: 0.1, b: 1.0, c: 0.0,
-//!               boundary: [periodic, periodic, periodic, antiperiodic]}
-//!     level: 0
-//!   - type: rational              # det(D†D)^(1/2): one flavour (the strange quark), RHMC
-//!     fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-//!     poles: 16
-//!     bounds: [1.0e-2, 3.16227766] # of |D|: D†D in [lower², upper²], Bridge++'s lower_bound, upper_bound
-//!     level: 1
-//! output: {save_every: 5, file: "conf_{n}.txt"}
-//! ```
-//!
-//! A `two_flavor` action takes `even_odd: true` for the action of the Schur complement on the
-//! even sites (`hmc::TwoFlavorEo`, Wilson, clover or domain-wall fermions), and its `solver`
-//! `initial_guess: n` to start the force solves from the last n solutions (`hmc::Chrono`):
-//!
-//! ```yaml
-//!   - type: two_flavor
-//!     fermion: {type: clover, kappa: 0.12, csw: 1.0, boundary: [periodic, periodic, periodic, antiperiodic]}
-//!     even_odd: true
-//!     solver: {tolerance_squared: 1.0e-24, initial_guess: 4}
-//!     level: 0
-//! ```
-//!
-//! `solver.type` chooses how (D†D)⁻¹ is computed: `cg` (the default), or `bicgstab`, `fgmres`,
-//! `gcr` (D† y = φ, then D x = y; `restart: 32` is the cycle of FGMRES and the directions GCR
-//! keeps; Wilson and clover fermions only). A `rational` action takes `multishift_cg` (the
-//! default), `cg` (one solve per pole), or the two-step solvers pole by pole through γ5 D.
-//!
-//! `solver.neff_alpha: 0.6` solves domain-wall fermions with Neff's D Q. `solver.preconditioner`
-//! is `chebyshev` (with `cg`; `chebyshev: {steps: 8, ratio: 30}`) or `multigrid` (with the
-//! two-step solvers, Wilson and clover fermions;
-//! `multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`),
-//! which is set up when a trajectory starts and again after `refresh_every` force solves, from
-//! the test vectors of the setup before (`reuse_vectors: false`: from random vectors).
+//! Hybrid Monte Carlo from a parameter file ([`super::hmc_params`] has its sections): the start
+//! configuration, the actions on the levels of the integrator, the trajectories, and where the
+//! configurations go. The structures here are what the run is made from.
 //!
 //! The conventions are those of Bridge++'s `HMC_General` (momenta, pseudofermions and the
 //! Metropolis test from one M-series generator; the integrator levels of its
-//! `Builder_Integrator`), so a run can be repeated there. The gauge smearing of the fermion
-//! links is `gauge_smearing`, as in the other parameter files; it is not the smearing of
-//! sources.
+//! `Builder_Integrator`), so a run can be repeated there.
 
-use super::config::{BoundaryConfig, GaugeFormat, GaugeSmearingConfig, AMBIGUOUS_SMEARING};
+use super::config::{BoundaryConfig, GaugeFormat, GaugeSmearingConfig};
+use super::hmc_params::{is_hmc_text, HmcParams};
 use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
 use crate::gauge::{plaquette, random_gauge};
@@ -68,89 +21,66 @@ use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
-use serde::Deserialize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct HmcConfig {
     pub lattice: [usize; ND],
-    #[serde(default)]
     pub process_grid: Option<[usize; ND]>,
     /// Threads of each process; without it `RAYON_NUM_THREADS`, or every core.
-    #[serde(default)]
     pub cpu_thread: Option<usize>,
     pub start: StartConfig,
     /// The smearing of the links of the fermion actions that ask for it (`smeared`).
-    #[serde(default)]
     pub gauge_smearing: Option<GaugeSmearingConfig>,
-    #[serde(default)]
-    smearing: Option<serde::de::IgnoredAny>,
-    #[serde(default)]
-    smear: Option<serde::de::IgnoredAny>,
     pub hmc: HmcBlock,
     pub actions: Vec<ActionConfig>,
-    #[serde(default)]
     pub output: HmcOutput,
 }
 
 /// The configuration the run starts from.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub enum StartConfig {
     /// Read from a file; relative paths from the parameter file's directory.
-    File {
-        file: PathBuf,
-        #[serde(default)]
-        format: GaugeFormat,
-    },
+    File { file: PathBuf, format: GaugeFormat },
     /// Every link the identity.
     Cold,
     /// Random links.
     Hot { seed: u64 },
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct HmcBlock {
     pub trajectories: usize,
     /// The number of the first trajectory: the random numbers of the run are those of the
     /// M-series generator made from it (Bridge++'s `trajectory_number`).
-    #[serde(default)]
     pub first_trajectory: u32,
     pub trajectory_length: f64,
     pub integrator: IntegratorConfig,
-    #[serde(default = "yes")]
     pub metropolis: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct IntegratorConfig {
     pub scheme: SchemeConfig,
     /// Steps of each level, the outermost first.
     pub steps: Vec<usize>,
     /// λ of the Omelyan scheme.
-    #[serde(default = "omelyan_lambda")]
     pub lambda: f64,
     /// Order of the Taylor series of exp(ε iP).
-    #[serde(default = "exp_order")]
     pub exp_order: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemeConfig {
     Leapfrog,
     Omelyan,
 }
 
 /// An action and the level of the integrator it is on.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub enum ActionConfig {
     Plaquette {
         beta: f64,
@@ -168,26 +98,20 @@ pub enum ActionConfig {
         fermion: HmcFermion,
         level: usize,
         /// On the links smeared by `gauge_smearing`.
-        #[serde(default = "yes")]
         smeared: bool,
         /// Even-odd preconditioned: φ on the even sites, S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|
         /// with Ŝ the Schur complement (`hmc::TwoFlavorEo`; Bridge++'s `Action_F_alt_Standard_eo`
         /// for Wilson fermions).
-        #[serde(default)]
         even_odd: bool,
-        #[serde(default)]
         solver: HmcSolver,
     },
     /// Two flavours over two of `denominator` (Hasenbusch), S = φ† H_d (H†H)⁻¹ H_d† φ; for
     /// domain-wall fermions without `denominator`, over two Pauli-Villars flavours.
     TwoFlavorRatio {
         fermion: HmcFermion,
-        #[serde(default)]
         denominator: Option<HmcFermion>,
         level: usize,
-        #[serde(default = "yes")]
         smeared: bool,
-        #[serde(default)]
         solver: HmcSolver,
     },
     /// det(D†D)^(p/q) by rational approximation (RHMC), p/q = `power` (one flavour: [1, 2]): S = φ†
@@ -199,19 +123,14 @@ pub enum ActionConfig {
         level: usize,
         poles: usize,
         bounds: [f64; 2],
-        #[serde(default = "one_flavor")]
         power: [i32; 2],
-        #[serde(default)]
         coefficients: Option<PathBuf>,
-        #[serde(default = "yes")]
         smeared: bool,
-        #[serde(default)]
         solver: HmcSolver,
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HmcFermion {
     Wilson {
         kappa: f64,
@@ -227,39 +146,30 @@ pub enum HmcFermion {
         ls: usize,
         m5: f64,
         mass: f64,
-        #[serde(default = "one_f")]
         b: f64,
-        #[serde(default)]
         c: f64,
         boundary: [BoundaryConfig; ND],
     },
 }
 
 /// The solver of an action's forces and energies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HmcSolverKind {
     /// CG on D†D: the default of the two-flavour actions.
-    #[serde(alias = "CG")]
     Cg,
     /// D† y = φ and then D x = y, by BiCGStab.
-    #[serde(alias = "BiCGStab")]
     Bicgstab,
     /// The same by FGMRES restarted after `restart` steps.
-    #[serde(alias = "FGMRES")]
     Fgmres,
     /// The same by GCR truncated to `restart` directions.
-    #[serde(alias = "GCR")]
     Gcr,
     /// Multi-shift CG: the default of `rational`, which with `cg` solves pole by pole and with
     /// the two-step solvers pole by pole through γ5 D (D ± i√pole γ5).
-    #[serde(alias = "MultiShift_CG")]
     MultishiftCg,
 }
 
 /// The preconditioner of an action's solves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HmcPreconditioner {
     None,
     /// A Chebyshev polynomial of D†D (`chebyshev`), with `cg`; any fermions.
@@ -269,14 +179,11 @@ pub enum HmcPreconditioner {
     Multigrid,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Copy)]
 pub struct HmcChebyshev {
     /// Steps of the Chebyshev iteration: a polynomial of degree `steps` − 1.
-    #[serde(default = "chebyshev_steps")]
     pub steps: usize,
     /// The interval is [hi/ratio, hi], hi the largest eigenvalue of D†D.
-    #[serde(default = "chebyshev_ratio")]
     pub ratio: f64,
 }
 
@@ -289,54 +196,37 @@ impl Default for HmcChebyshev {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Copy)]
 pub struct HmcMultigrid {
     /// The blocks of the coarse lattice; they must divide the lattice of a process.
     pub block: [usize; ND],
-    #[serde(default = "mg_vectors")]
     pub test_vectors: usize,
-    #[serde(default = "mg_setup")]
     pub setup_iterations: usize,
     /// Set up again after this many force solves; 0: only when a trajectory starts.
-    #[serde(default)]
     pub refresh_every: usize,
     /// Start every setup but the first from the test vectors of the one before (the links are
     /// close), improved `reuse_iterations` times; false: always from random vectors.
-    #[serde(default = "yes")]
     pub reuse_vectors: bool,
-    #[serde(default)]
     pub reuse_iterations: usize,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Copy)]
 pub struct HmcSolver {
-    #[serde(default)]
     pub preconditioner: Option<HmcPreconditioner>,
-    #[serde(default)]
     pub chebyshev: HmcChebyshev,
-    #[serde(default)]
     pub multigrid: Option<HmcMultigrid>,
-    #[serde(default, rename = "type")]
     pub kind: Option<HmcSolverKind>,
     /// Domain-wall fermions: solve with Neff's better conditioned D Q at this α (1: D itself).
-    #[serde(default = "one_f")]
     pub neff_alpha: f64,
     /// Steps of FGMRES before a restart; directions GCR keeps.
-    #[serde(default = "restart")]
     pub restart: usize,
-    #[serde(default = "md_tolerance")]
     pub tolerance_squared: f64,
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
-    #[serde(default = "md_tolerance")]
     pub energy_tolerance_squared: f64,
-    #[serde(default = "md_iterations")]
     pub max_iterations: usize,
     /// Start each force solve from the best combination of the solutions of the last this
     /// many force solves of the trajectory (`hmc::Chrono`); 0 (the default): from zero, as
     /// Bridge++ does, so that its runs are repeated number by number. Two flavours only.
-    #[serde(default)]
     pub initial_guess: usize,
 }
 
@@ -463,46 +353,21 @@ impl Default for HmcSolver {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default)]
 pub struct HmcOutput {
     /// Write the configuration after every this many trajectories (and after the last).
-    #[serde(default)]
     pub save_every: Option<usize>,
     /// The file name, `{n}` replaced by the trajectory number; relative to the parameter
     /// file's directory. On several processes rank 0 writes it.
-    #[serde(default)]
     pub file: Option<String>,
-    #[serde(default)]
     pub format: GaugeFormat,
 }
 
-fn yes() -> bool {
-    true
-}
-fn one_flavor() -> [i32; 2] {
-    [1, 2]
-}
-fn one_f() -> f64 {
-    1.0
-}
-fn omelyan_lambda() -> f64 {
-    0.1931833275
-}
-fn exp_order() -> usize {
-    8
-}
 fn chebyshev_steps() -> usize {
     8
 }
 fn chebyshev_ratio() -> f64 {
     30.0
-}
-fn mg_vectors() -> usize {
-    16
-}
-fn mg_setup() -> usize {
-    4
 }
 fn restart() -> usize {
     32
@@ -528,15 +393,8 @@ pub fn is_hmc_file(path: &Path) -> Result<bool, CliError> {
         path: path.to_path_buf(),
         source: e,
     })?;
-    Ok(match path.extension().and_then(|e| e.to_str()) {
-        Some("toml") => text
-            .parse::<toml::Table>()
-            .is_ok_and(|t| t.contains_key("hmc")),
-        _ => serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&text)
-            .ok()
-            .and_then(|v| v.as_mapping().map(|m| m.contains_key("hmc")))
-            .unwrap_or(false),
-    })
+    let toml = path.extension().and_then(|e| e.to_str()) == Some("toml");
+    Ok(is_hmc_text(&text, toml))
 }
 
 impl HmcConfig {
@@ -545,24 +403,24 @@ impl HmcConfig {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let c: Self = match path.extension().and_then(|e| e.to_str()) {
-            Some("toml") => toml::from_str(&text).map_err(|e| CliError::Parse(e.to_string()))?,
-            _ => serde_yaml_ng::from_str(&text).map_err(|e| CliError::Parse(e.to_string()))?,
+        let params = match path.extension().and_then(|e| e.to_str()) {
+            Some("toml") => HmcParams::from_toml(&text)?,
+            _ => HmcParams::from_yaml(&text)?,
         };
-        c.check()?;
-        Ok(c)
+        Self::checked(params)
     }
 
     pub fn from_yaml(text: &str) -> Result<Self, CliError> {
-        let c: Self = serde_yaml_ng::from_str(text).map_err(|e| CliError::Parse(e.to_string()))?;
+        Self::checked(HmcParams::from_yaml(text)?)
+    }
+
+    fn checked(params: HmcParams) -> Result<Self, CliError> {
+        let c = params.to_config()?;
         c.check()?;
         Ok(c)
     }
 
     fn check(&self) -> Result<(), CliError> {
-        if self.smearing.is_some() || self.smear.is_some() {
-            return invalid(AMBIGUOUS_SMEARING.into());
-        }
         let levels = self.hmc.integrator.steps.len();
         if levels == 0 {
             return invalid("hmc.integrator.steps: at least one level".into());
