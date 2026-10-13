@@ -1,0 +1,34 @@
+# Build directory and artifacts
+build/
+cmake-build-*/
+bin/
+lib/
+
+# Compiled object files, libraries and binaries
+*.o
+*.obj
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.bin
+*.ptx
+*.cubin
+*.fatbin
+
+# CMake temporary files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Editor and temporary files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+*.log
+.DS_Store
