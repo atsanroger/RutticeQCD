@@ -1181,6 +1181,103 @@ fn multigrid_transfers_on_the_device() {
     }
 }
 
+/// The coarse correction of the domain-wall multigrid on the device is that of the CPU, for
+/// both forms of the operator: with the coarse systems solved to rounding in double precision
+/// the two agree to that.
+#[test]
+fn multigrid_correction_on_the_device() {
+    use ruttice::backend::cuda_bridge::DeviceCorrection;
+    use ruttice::fermion::EoForm;
+    use ruttice::kernel::Dirac;
+    use ruttice::solver::preconditioner::multigrid::{
+        pv_eo_basis, Aggregation, PvEoCycle, PvEoParams,
+    };
+    use ruttice::{extract_parity, Aos};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 441);
+    let (ls, n, nv) = (4, 4, 2);
+    let params = MdwfParams {
+        ls,
+        m5: 1.8,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+    let (cpu_pv, gpu_pv) = mdwf_pair(
+        &lat,
+        &u,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    );
+    let (mut cpu_a, mut gpu_a) = mdwf_pair(&lat, &u, params);
+    cpu_a.set_alpha(0.6);
+    gpu_a.set_alpha(0.6);
+    let index = cpu.even_odd_index().unwrap().clone();
+    let half = |vectors: usize, seed| {
+        let mut h = HalfPsi::with_shape(&lat, 24, ls, vectors, 1);
+        h.set_parity(Parity::Even);
+        extract_parity(
+            &mut h,
+            &random_spinor(&lat, ls * vectors, seed),
+            &index,
+            Parity::Even,
+        );
+        h
+    };
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &half(n, 442)).unwrap();
+    let settings = PvEoParams {
+        coarse_tolerance_sqr: 1e-26,
+        pv_tolerance_sqr: 1e-26,
+        coarse_max_iterations: 400,
+        pv_max_iterations: 400,
+        ..PvEoParams::default()
+    };
+    let r = half(nv, 443);
+    let device_r = DeviceSpinor::from_host_half(&r, &index).unwrap();
+    let even = device_r.zeros_like();
+    for (form, cpu_outer, gpu_outer) in [
+        (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv)),
+        (EoForm::Left, (&cpu_a, &cpu_pv), (&gpu_a, &gpu_pv)),
+    ] {
+        let mut cycle = PvEoCycle::<Dirac, f64, Aos>::with_coarse_storage(
+            &cpu,
+            &cpu_pv,
+            (cpu_outer.0, cpu_outer.1, form),
+            &basis,
+            settings,
+        )
+        .unwrap();
+        let mut expected = r.zeros_like();
+        cycle.coarse_correction(&mut expected, &r);
+        let mut correction = DeviceCorrection::<f64>::new(
+            (&cpu, &cpu_pv),
+            &basis,
+            (&gpu, &gpu_pv),
+            gpu_outer,
+            form,
+            settings,
+            &even,
+        )
+        .unwrap();
+        let mut e = even.zeros_like();
+        correction.correct(&mut e, &device_r);
+        let d = worst(&e.to_host_half(&index).unwrap(), &expected);
+        let size = expected
+            .as_slice()
+            .iter()
+            .fold(0.0f64, |m, x| m.max(x.abs()));
+        assert!(
+            d < 1e-9 * size,
+            "{form:?}: the correction differs by {d:e} of {size:e}"
+        );
+    }
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:

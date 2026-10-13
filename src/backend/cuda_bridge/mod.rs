@@ -17,11 +17,13 @@
 
 mod coarse;
 mod columns;
+mod correction;
 mod field;
 mod mdwf;
 mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
+pub use correction::DeviceCorrection;
 pub use field::{DeviceParities, DeviceSpinor};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
