@@ -33,6 +33,10 @@ struct FoldGeometry {
     int parity;
     int col[Nspin];
     int sign[Nspin];
+    // For a field that is zero but where leg `leg` of the hops (fermion/hops.cuh) comes from
+    // another aggregate of `block` sites: only those sites are read. leg < 0: all sites.
+    int leg;
+    int block[4];
 };
 
 __host__ __device__ __forceinline__ size_t coarse_index(size_t q) {
@@ -45,6 +49,8 @@ __host__ __device__ __forceinline__ size_t coarse_reals(int n_coarse, int dim) {
 
 // -------------------------------------------------------------------------
 // coarse = P^dag fine. A thread for each (coarse site, component); blockIdx.y the vector.
+// All of P is read, which is most of the time this takes; a field of g.leg takes the sites
+// it is not zero on.
 // d_sites: the block_volume sites (of the whole lattice) of every coarse site.
 // -------------------------------------------------------------------------
 template <typename Float>
@@ -70,11 +76,17 @@ __global__ void fold_restrict_kernel(
     for (int j = 0; j < block_volume; ++j) {
         const int x = d_sites[static_cast<size_t>(X) * block_volume + j];
         int at = x;
-        if (half) {
+        if (half || g.leg >= 0) {
             int xc[4];
             site_to_coords(x, xc[0], xc[1], xc[2], xc[3], g.nx, g.ny, g.nz, g.nt);
-            if (((xc[0] + xc[1] + xc[2] + xc[3]) & 1) != g.parity) continue;
-            at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
+            if (half) {
+                if (((xc[0] + xc[1] + xc[2] + xc[3]) & 1) != g.parity) continue;
+                at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
+            }
+            if (g.leg >= 0) {
+                const int mu = g.leg % 4, in_block = xc[mu] % g.block[mu];
+                if (in_block != (g.leg < 4 ? g.block[mu] - 1 : 0)) continue;
+            }
         }
         const float* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept;
         for (int s = 0; s < Ls / 2; ++s) {

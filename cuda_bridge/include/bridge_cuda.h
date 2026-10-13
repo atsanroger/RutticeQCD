@@ -361,11 +361,13 @@ void bridge_cuda_gamma5_f64(
 // The prolongation of the multigrid of domain-wall fermions, folded on the fifth dimension
 // (multigrid/fold.cuh): coarse = P^dag fine and fine = P coarse, for fields on the whole
 // lattice (parity < 0) or on the sites of one parity, every vector. dims: the extents of the
-// fine lattice; gamma: col[4] and sign[4] of gamma_5.
+// fine lattice; gamma: col[4] and sign[4] of gamma_5. The restriction with leg >= 0: of a
+// field that is zero but where that leg of the hops comes from another aggregate of `block`
+// sites (the `cross` of bridge_cuda_hop_split).
 void bridge_cuda_fold_restrict_f32(
     float* d_coarse, const float* d_fine, const float* d_p, const unsigned* d_sites,
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream
+    int leg, const int* block, int vectors, cudaStream_t stream
 );
 void bridge_cuda_fold_prolong_f32(
     float* d_fine, const float* d_coarse, const float* d_p, const unsigned* d_coarse_of,
@@ -375,7 +377,7 @@ void bridge_cuda_fold_prolong_f32(
 void bridge_cuda_fold_restrict_f64(
     double* d_coarse, const double* d_fine, const float* d_p, const unsigned* d_sites,
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream
+    int leg, const int* block, int vectors, cudaStream_t stream
 );
 void bridge_cuda_fold_prolong_f64(
     double* d_fine, const double* d_coarse, const float* d_p, const unsigned* d_coarse_of,

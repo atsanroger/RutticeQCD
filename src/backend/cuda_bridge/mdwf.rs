@@ -537,7 +537,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
                         nv as i32,
                     );
                 }
-                basis.restrict(&mut restricted, &cross);
+                basis.restrict_leg(&mut restricted, &cross, Some(leg));
                 let range = leg * sites * matrix..(leg + 1) * sites * matrix;
                 store(&mut links[range], first, &restricted.values()?);
             }

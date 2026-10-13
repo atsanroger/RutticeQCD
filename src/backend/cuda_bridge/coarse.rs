@@ -295,6 +295,17 @@ impl DeviceBasis {
     /// `coarse = P† fine`, or `P† ι fine` for a field on the sites of one parity (ι puts it
     /// onto the whole lattice, zero on the other sites).
     pub fn restrict<T: DeviceReal>(&self, coarse: &mut DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
+        self.restrict_leg(coarse, fine, None);
+    }
+
+    /// `restrict` of a field that is zero but where leg `leg` of the hops comes from another
+    /// aggregate (`CudaMdwf::coarse_operator`): only those sites are read.
+    pub(super) fn restrict_leg<T: DeviceReal>(
+        &self,
+        coarse: &mut DeviceCoarse<T>,
+        fine: &DeviceSpinor<T>,
+        leg: Option<usize>,
+    ) {
         self.check(coarse, fine);
         // SAFETY: the fields are those of this basis (checked), P and the tables those of its
         // lattices; the small arrays outlive the call, which copies them.
@@ -311,6 +322,8 @@ impl DeviceBasis {
                 self.ls as i32,
                 parity_number(fine.parity),
                 self.gamma.as_ptr(),
+                leg.map_or(-1, |l| l as i32),
+                self.block.as_ptr(),
                 fine.vectors as i32,
             );
         }

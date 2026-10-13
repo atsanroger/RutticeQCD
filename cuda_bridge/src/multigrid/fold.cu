@@ -5,8 +5,12 @@ namespace {
     constexpr int BLOCK_SIZE = 256;
 
     // dims: the extents of the fine lattice; gamma: col[4] and sign[4] of gamma_5.
-    inline bridge_cuda::FoldGeometry geometry(const int* dims, int Ls, int parity, const int* gamma) {
+    inline bridge_cuda::FoldGeometry geometry(
+        const int* dims, int Ls, int parity, const int* gamma, int leg = -1, const int* block = nullptr)
+    {
         bridge_cuda::FoldGeometry g;
+        g.leg = leg;
+        for (int mu = 0; mu < 4; ++mu) g.block[mu] = (block != nullptr) ? block[mu] : 1;
         g.nx = dims[0]; g.ny = dims[1]; g.nz = dims[2]; g.nt = dims[3];
         g.Ls = Ls;
         g.parity = parity;
@@ -23,11 +27,12 @@ extern "C" {
 void bridge_cuda_fold_restrict_f32(
     float* d_coarse, const float* d_fine, const float* d_p, const unsigned* d_sites,
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream)
+    int leg, const int* block, int vectors, cudaStream_t stream)
 {
     dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
     bridge_cuda::fold_restrict_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, geometry(dims, Ls, parity, gamma));
+        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n,
+        geometry(dims, Ls, parity, gamma, leg, block));
 }
 
 void bridge_cuda_fold_prolong_f32(
@@ -44,11 +49,12 @@ void bridge_cuda_fold_prolong_f32(
 void bridge_cuda_fold_restrict_f64(
     double* d_coarse, const double* d_fine, const float* d_p, const unsigned* d_sites,
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
-    int vectors, cudaStream_t stream)
+    int leg, const int* block, int vectors, cudaStream_t stream)
 {
     dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
     bridge_cuda::fold_restrict_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
-        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, geometry(dims, Ls, parity, gamma));
+        d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n,
+        geometry(dims, Ls, parity, gamma, leg, block));
 }
 
 void bridge_cuda_fold_prolong_f64(
