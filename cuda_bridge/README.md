@@ -22,8 +22,8 @@ gpu_fer/
 │   │   ├── su3.cuh               # SU(3) complex matrix math & 3rd-row reconstruction
 │   │   └── gamma.cuh             # Spin projection, gamma5, Dirac <-> Chiral basis
 │   ├── fermion/                  # Fermion Dirac operators
-│   │   ├── wilson.cuh            # Wilson Dslash (interior, EO hopping, boundary packing)
-│   │   ├── clover.cuh            # Clover term (6x6 hermitian blocks) & EO Clover Dslash
+│   │   ├── wilson.cuh            # Wilson D, boundary packing
+│   │   ├── clover.cuh            # Clover D and the block within a site (6x6 Hermitian blocks)
 │   │   ├── mdwf.cuh              # Möbius DWF: D in one pass
 │   │   ├── mdwf_eo.cuh           # Möbius DWF on one parity: the hop D_pq and C^-1
 │   │   └── dd.cuh                # Block Domain Decomposition (SAP)
@@ -59,6 +59,8 @@ Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs`
 `cuda-bridge`), in double precision, for periodic, antiperiodic and Dirichlet boundaries:
 
 - `bridge_cuda_wilson_dslash`: the Wilson operator.
+- `bridge_cuda_clover_dslash`, `bridge_cuda_clover_term`: the clover operator and the block of it
+  within a site (or its inverse), with the blocks made on the CPU.
 - `bridge_cuda_mdwf_dslash_1pass`: the Möbius domain-wall operator D.
 - `bridge_cuda_mdwf_eo_hop`, `bridge_cuda_mdwf_site_inv`: its even-odd hop D_pq and the inverse
   of its part within a site, C^-1 and C^dag^-1, on fields of one parity.
@@ -66,8 +68,8 @@ Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs`
 These are the plain operators in the Dirac representation (gamma_4 diagonal); `alpha` of
 `BridgeCudaMdwfParams` (Neff) is not used.
 
-Not checked: the even-odd Wilson hop, the clover kernels, the multi-RHS kernels (these three
-have no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
+Not there: the Wilson and clover operators on one parity, the clover term from the links on
+the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
 kernels, single precision. `tests/test_clover_mg_transfer` fails with a CUDA error.
 
 Conventions:

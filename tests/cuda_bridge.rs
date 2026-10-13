@@ -1,9 +1,10 @@
 //! The CUDA kernels against the operators on the CPU (feature `cuda-bridge`; needs a GPU).
 #![cfg(feature = "cuda-bridge")]
 
-use ruttice::backend::cuda_bridge::{CudaMdwf, CudaWilson, DeviceSpinor};
+use ruttice::backend::cuda_bridge::{CudaClover, CudaMdwf, CudaWilson, DeviceSpinor};
 use ruttice::fermion::{
-    Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant, Wilson, WilsonParams,
+    Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams, Variant, Wilson,
+    WilsonParams,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::{
@@ -241,5 +242,55 @@ fn mdwf_even_odd_on_the_device_is_that_on_the_cpu() {
             .unwrap();
         let d = worst(&out.to_host_half(&index).unwrap(), &expected);
         assert!(d < 1e-12, "{what}: the Schur factor differs by {d:e}");
+    }
+}
+
+/// The clover operator on the device is the one on the CPU, and so is T⁻¹ T = 1.
+#[test]
+fn clover_on_the_device_is_clover_on_the_cpu() {
+    let mixed = [
+        Boundary::Antiperiodic,
+        Boundary::Periodic,
+        Boundary::Dirichlet,
+        Boundary::Antiperiodic,
+    ];
+    for (dims, csw, boundary) in [
+        ([4, 4, 4, 8], 1.0, [Boundary::Periodic; 4]),
+        ([6, 4, 2, 6], 1.7, mixed),
+    ] {
+        let lat = Lattice::single_node(dims);
+        let u = random_gauge(&lat, 331);
+        let psi = random_spinor(&lat, 1, 332);
+        let params = CloverParams {
+            kappa: 0.123,
+            csw,
+            boundary,
+        };
+        let mut cpu = Clover::<f64>::new(&lat, params);
+        cpu.set_gauge(&u).unwrap();
+        let mut expected = psi.zeros_like();
+        cpu.mult(&mut cpu.work(), &mut expected, &psi, Variant::D);
+
+        let gpu = CudaClover::new(&u, params, &cpu).unwrap();
+        let inp = DeviceSpinor::from_host(&psi).unwrap();
+        let mut out = DeviceSpinor::zeros(&lat).unwrap();
+        gpu.mult(&mut out, &inp).unwrap();
+        let worst = |a: &Field<f64, Spinor>, b: &Field<f64, Spinor>| {
+            a.as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()))
+        };
+        let d = worst(&out.to_host().unwrap(), &expected);
+        assert!(d < 1e-13, "{dims:?} csw {csw}: D differs by {d:e}");
+
+        let mut back = DeviceSpinor::zeros(&lat).unwrap();
+        gpu.site(&mut out, &inp, false).unwrap();
+        gpu.site(&mut back, &out, true).unwrap();
+        let d = worst(&back.to_host().unwrap(), &psi);
+        assert!(
+            d < 1e-12,
+            "{dims:?} csw {csw}: T⁻¹ T differs from 1 by {d:e}"
+        );
     }
 }

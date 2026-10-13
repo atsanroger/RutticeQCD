@@ -24,18 +24,6 @@ void bridge_cuda_wilson_dslash_f64(
     cudaStream_t stream
 );
 
-void bridge_cuda_wilson_eo_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int target_parity, cudaStream_t stream
-);
-
-void bridge_cuda_wilson_eo_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int target_parity, cudaStream_t stream
-);
-
 void bridge_cuda_wilson_pack_f32(
     float* d_send_bufs[8], const float* d_in,
     const BridgeCudaGeometry* geom, cudaStream_t stream
@@ -62,40 +50,30 @@ void bridge_cuda_wilson_exterior_f64(
 // Clover Operator
 // =========================================================================
 
+// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh).
 void bridge_cuda_clover_term_f32(
     float* d_out, const float* d_in, const float* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    cudaStream_t stream
+    const BridgeCudaGeometry* geom, cudaStream_t stream
 );
 
-void bridge_cuda_clover_term_f64(
-    double* d_out, const double* d_in, const double* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    cudaStream_t stream
-);
-
+// out = D in = T in - kappa hops; csw of the parameters is in T already.
 void bridge_cuda_clover_dslash_f32(
     float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
     const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
     cudaStream_t stream
 );
 
+// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh).
+void bridge_cuda_clover_term_f64(
+    double* d_out, const double* d_in, const double* d_clover,
+    const BridgeCudaGeometry* geom, cudaStream_t stream
+);
+
+// out = D in = T in - kappa hops; csw of the parameters is in T already.
 void bridge_cuda_clover_dslash_f64(
     double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
     const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
     cudaStream_t stream
-);
-
-void bridge_cuda_clover_eo_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    int target_parity, cudaStream_t stream
-);
-
-void bridge_cuda_clover_eo_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    int target_parity, cudaStream_t stream
 );
 
 // =========================================================================

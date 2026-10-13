@@ -79,6 +79,11 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T>> WilsonOp<T, 
     pub fn lattice(&self) -> &Arc<Lattice> {
         &self.lat
     }
+
+    /// The block of the operator within a site.
+    pub fn diag_term(&self) -> &D {
+        &self.diag
+    }
 }
 
 /// A layout the Wilson operator has a sweep for.

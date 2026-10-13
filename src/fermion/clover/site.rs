@@ -34,6 +34,17 @@ impl<T: Storage> CloverDiag<T> {
         }
     }
 
+    /// The blocks of T, `2 * HERMITIAN6_REALS` reals per site of the lattice: the block on
+    /// γ5 = +1 and the one on γ5 = −1, each packed (`hermitian6_mul`). Empty before `set_gauge`.
+    pub fn blocks(&self) -> &[T] {
+        &self.t
+    }
+
+    /// The blocks of T⁻¹, as `blocks`.
+    pub fn inverse_blocks(&self) -> &[T] {
+        &self.t_inv
+    }
+
     /// Apply the two stored blocks of one site to a spinor.
     #[inline(always)]
     fn apply_blocks(
