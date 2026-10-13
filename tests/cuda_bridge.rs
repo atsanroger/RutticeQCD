@@ -1302,7 +1302,7 @@ fn multigrid_correction_on_the_device() {
         .unwrap();
         let mut expected = r.zeros_like();
         cycle.coarse_correction(&mut expected, &r);
-        let mut correction = DeviceCorrection::<f64>::new(
+        let mut correction = DeviceCorrection::<f64, f64>::new(
             DeviceBasis::new(&basis).unwrap(),
             (&gpu, &gpu_pv),
             gpu_outer,
@@ -1351,9 +1351,10 @@ const MULTIGRID: &str = "MultiGrid:
       convergence_criterion_squared : 1.0e-2
 ";
 
-/// The multigrid of domain-wall fermions with `backend : cuda_bridge`: the filter and the
-/// solves of its setup, the smoother and the outer solver on the device. The test vectors are
-/// those of the CPU to rounding, so the cycles and the correlators are.
+/// The multigrid of domain-wall fermions with `backend : cuda_bridge`, all of it on the
+/// device. In double precision above the coarse lattice the test vectors are those of the CPU
+/// to rounding, and so are the cycles: as many iterations. In single precision (the default)
+/// they are not; the correlators are the same either way.
 #[test]
 fn domain_wall_multigrid_runs_on_the_device() {
     let text = MDWF_RUN
@@ -1363,9 +1364,15 @@ fn domain_wall_multigrid_runs_on_the_device() {
         .replace("ALPHA", "0.6")
         .replace("PRECONDITIONER", "MG")
         + MULTIGRID;
+    same_tables(&text, "mdwf_mg", 1e-6);
+
+    let text = text.replace(
+        "  coarse_precision : single",
+        "  coarse_precision : single\n  fine_precision   : double",
+    );
     let (cpu, gpu) = (
-        run_with_backend(&text, "cpu", "mdwf_mg"),
-        run_with_backend(&text, "cuda_bridge", "mdwf_mg"),
+        run_with_backend(&text, "cpu", "mdwf_mg_double"),
+        run_with_backend(&text, "cuda_bridge", "mdwf_mg_double"),
     );
     // As many iterations of the outer solver, for every solve.
     let iterations = |out: &str| -> Vec<String> {
@@ -1380,5 +1387,5 @@ fn domain_wall_multigrid_runs_on_the_device() {
     };
     assert_eq!(iterations(&cpu), iterations(&gpu), "\n{cpu}\n{gpu}");
     assert!(!iterations(&cpu).is_empty(), "{cpu}");
-    same_tables(&text, "mdwf_mg", 1e-6);
+    same_tables(&text, "mdwf_mg_double", 1e-6);
 }

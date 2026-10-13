@@ -21,12 +21,13 @@ impl<V: Vector, F: FnMut(&mut V, &V)> LinearFn<V> for Map<F> {
 }
 
 /// e = O_L π P (P†DP)⁻¹ P† ι M π P (P†D_PV†P)⁻¹ P† ι O_R r for the operator
-/// `PvRatio::new(outer.0, outer.1, form, ..)`, the coarse solves in the precision `CT`.
-pub struct DeviceCorrection<'a, CT: DeviceReal = f32> {
+/// `PvRatio::new(outer.0, outer.1, form, ..)` on fields in the precision `F`, the coarse solves
+/// in the precision `CT`.
+pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
     /// D and the second factor (D_PV, or D for the normal equations), plain ...
-    plain: (&'a CudaMdwf, &'a CudaMdwf),
+    plain: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
     /// ... and as they are in the operator that is solved (with Neff's α).
-    outer: (&'a CudaMdwf, &'a CudaMdwf),
+    outer: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
     form: EoForm,
     basis: DeviceBasis,
     coarse_d: DeviceCoarseOp<CT>,
@@ -34,15 +35,15 @@ pub struct DeviceCorrection<'a, CT: DeviceReal = f32> {
     /// |H_xx|⁻¹ of the second factor.
     blocks_pv: DeviceBuffer<CT>,
     params: PvEoParams,
-    h: DeviceSpinor,
-    g: DeviceCoarse<f64>,
+    h: DeviceSpinor<F>,
+    g: DeviceCoarse<F>,
     gc: DeviceCoarse<CT>,
     w: DeviceCoarse<CT>,
     c: DeviceCoarse<CT>,
     coarse_applications: Cell<usize>,
 }
 
-impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
+impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
     /// Whether the correction with these settings is on the device.
     pub fn supports(params: &PvEoParams) -> bool {
         params.pv_solver == CoarseKrylov::Minres && params.d_solver != CoarseKrylov::Minres
@@ -51,11 +52,11 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
     /// The coarse operators are those of `plain`; `like`: a field on the even sites.
     pub fn new(
         device: DeviceBasis,
-        plain: (&'a CudaMdwf, &'a CudaMdwf),
-        outer: (&'a CudaMdwf, &'a CudaMdwf),
+        plain: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
+        outer: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
         form: EoForm,
         params: PvEoParams,
-        like: &DeviceSpinor,
+        like: &DeviceSpinor<F>,
     ) -> Result<Self, Box<dyn Error>> {
         assert!(Self::supports(&params));
         assert_eq!(like.parity(), Some(Parity::Even));
@@ -86,7 +87,7 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
     }
 
     /// `e` = the coarse correction of `r`, fields on the even sites.
-    pub fn correct(&mut self, e: &mut DeviceSpinor, r: &DeviceSpinor) {
+    pub fn correct(&mut self, e: &mut DeviceSpinor<F>, r: &DeviceSpinor<F>) {
         let nv = r.num_vectors();
         crate::fit(&mut self.h, r);
         if self.g.num_vectors() != nv {
