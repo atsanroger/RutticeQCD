@@ -1799,3 +1799,19 @@ multigrid 只接在量 propagator 那條路上。這個缺口沒有在發布前�
 **還沒做（都是研究等級，使用者同意先不做）：** MDWF 的 MG 進 HMC；32⁴ 上的驗證；{s, t̂} 的新穎性與理論；與 Boyle 的公平比較。
 另有兩個沒驗證的小項：NERSC 對外部檔；RHMC 兩步解法與 HMC 各前處理在大於 4³×8 的格子上的速度。
 
+### 10-13 之後：除 GPU 以外的技術債（使用者：不要有技術債、不要像 Bridge++ 一直複製貼上）
+
+都已 push（main = 本節最後一個 commit，271 個測試）。
+
+- **HMC 的 MG 不再自帶算子**：只保存測試向量，每次求解用當下的算子重建粗網格算子（`MultigridSetup::cycle`、`Multigrid::rebuilt`）。`unsafe` 全部拿掉。
+- **去重**：「何時重新 setup」一處；偶粗格點包裝 `OnEven` 一個；γ5 一個；兩步解法有無位移合成 `NormalSolver::two_step`；
+  Wilson 與 MDWF 的粗網格求解合成 `levels::solve_shared`（Wilson 因此有多層配 even-odd）；全域格點座標 `Lattice::global_site_coords`。
+- **修掉的原有缺陷**：`random_gauge`、`random_spinor` 原本每個 process 各自從同一種子產生（hot start 隨切法而變、每塊相同）；改成依整個格子的順序產生。
+- **多 process 的 HMC＋MG**：區塊對每個 process 的局部格子檢查；4 個 process 與單 process 的 ΔH、plaquette 一致。
+- **HMC 參數檔改成 Bridge++ 風格**（`src/app/hmc_params.rs`）：`HMC`、`HMC_General`、`Builder_Integrator`、`Action_G`，fermion 作用量 `Action_F_1`…；
+  重用 `Main`／`Fopr`／`GaugeSmearing`／`Chebyshev`。舊格式移除。使用者：不必和 Bridge++ 完全一致，以本專案結構清楚為準。
+- **HMC 的模板**（使用者：SIMD 內容不急，但模板優先，之後要吃不同 backend）：算子宣告自己的場，`ForceOp::Field`、`EvenOddForceOp::Half`；
+  作用量、solver、前處理只透過這兩個介面和 `Vector` 碰場。一般排列的實作在 `EvenOddSites` 的 blanket impl。新 backend ＝ 新的算子型別實作這兩個介面。
+- **`params.rs` 拆成** `params/{mod, keywords, blocks, convert, display}.rs`。
+- **使用者決定不做／暫緩**：HMC 的 MG 單精度（Bridge++ 的 HMC 也沒有）；NERSC 的外部驗證（沒有外部檔）；HMC 的 SIMD 內容。
+
