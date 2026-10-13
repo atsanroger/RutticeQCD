@@ -377,6 +377,39 @@ void bridge_cuda_mg_coarse_invert_diagonal_blocks_f64(
 );
 
 // -------------------------------------------------------------------------
+// MDWF even-odd blocks on fields of one parity (fermion/mdwf_eo.cuh): the plain operator,
+// Dirac representation. Checked against the CPU operator of Ruttice.
+// -------------------------------------------------------------------------
+
+// out = D_pq in: out on the sites of parity target_parity, in on the others.
+void bridge_cuda_mdwf_eo_hop_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+// out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
+void bridge_cuda_mdwf_site_inv_f32(
+    float* d_out, const float* d_in,
+    int sites, int Ls, const BridgeCudaMdwfParams* params,
+    int dagger, cudaStream_t stream
+);
+
+// out = D_pq in: out on the sites of parity target_parity, in on the others.
+void bridge_cuda_mdwf_eo_hop_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int target_parity, cudaStream_t stream
+);
+
+// out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
+void bridge_cuda_mdwf_site_inv_f64(
+    double* d_out, const double* d_in,
+    int sites, int Ls, const BridgeCudaMdwfParams* params,
+    int dagger, cudaStream_t stream
+);
+
+// -------------------------------------------------------------------------
 // MDWF Exact Schur Factor & Even-Odd Pauli-Villars Preconditioner
 // -------------------------------------------------------------------------
 void bridge_cuda_mdwf_eo_dslash_5d_f32(
