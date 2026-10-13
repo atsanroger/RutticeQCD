@@ -404,6 +404,18 @@ void bridge_cuda_fold_orthonormalise(
     cudaStream_t stream
 );
 
+// Of dim x dim complex matrices on n_sites coarse sites, row-major (re, im), in double
+// precision (multigrid/fold.cuh): the inverses (d_fail[site] = 1 where there is none), and
+// |H|^-1 of the Hermitian part H of A Gamma_5. d_scratch: 4 n_sites dim^2 doubles. dim at
+// most 1024.
+void bridge_cuda_blocks_inverse(
+    double* d_out, const double* d_a, double* d_scratch, unsigned* d_fail,
+    int n_sites, int dim, cudaStream_t stream
+);
+void bridge_cuda_blocks_abs_inverse_gamma5(
+    double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream
+);
+
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
 // out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
 // one parity, the others set to zero (parity < 0: all); every part may be null. dim at most

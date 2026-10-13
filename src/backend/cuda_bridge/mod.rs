@@ -93,6 +93,23 @@ extern "C" {
     fn cudaGetLastError() -> i32;
     fn bridge_cuda_cast_f64_to_f32(dst: *mut f32, src: *const f64, n: i32, stream: *mut c_void);
     fn bridge_cuda_cast_f32_to_f64(dst: *mut f64, src: *const f32, n: i32, stream: *mut c_void);
+    fn bridge_cuda_blocks_inverse(
+        out: *mut f64,
+        a: *const f64,
+        scratch: *mut f64,
+        fail: *mut u32,
+        n_sites: i32,
+        dim: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_blocks_abs_inverse_gamma5(
+        out: *mut f64,
+        a: *const f64,
+        scratch: *mut f64,
+        n_sites: i32,
+        dim: i32,
+        stream: *mut c_void,
+    );
     fn bridge_cuda_fold_orthonormalise(
         p: *mut f32,
         w: *mut f64,

@@ -520,12 +520,16 @@ impl DeviceBasis {
     }
 }
 
-/// A coarse operator `P† D P` on the device (`CoarseOp`, from which it is made): its blocks
-/// and links, and for the even-odd form the inverses of the blocks.
+/// A coarse operator `P† D P` on the device, from its blocks and links (`CoarseOp`): with the
+/// inverses of the blocks, which are made on the device, and so the even-odd form where the
+/// coarse lattice has it.
 pub struct DeviceCoarseOp<T = f64> {
     diag: DeviceBuffer<T>,
     links: DeviceBuffer<T>,
-    inverse: Option<DeviceBuffer<T>>,
+    inverse: DeviceBuffer<T>,
+    /// The blocks in double precision, for what is made of them.
+    diag_f64: DeviceBuffer<f64>,
+    even_odd: bool,
     /// The site every hop of every site comes from, and whether each site is odd.
     neighbours: DeviceTable,
     odd: DeviceTable,
@@ -538,10 +542,20 @@ const ALL: i32 = -1;
 const EVEN: i32 = 0;
 const ODD: i32 = 1;
 
+/// `src` in the precision `T`.
+fn in_precision<T: DeviceReal>(src: &DeviceBuffer<f64>) -> Result<DeviceBuffer<T>, CudaError> {
+    let mut dst = DeviceBuffer::<T>::uninitialised(src.len)?;
+    convert(&mut dst, src);
+    Ok(dst)
+}
+
 impl<T: DeviceReal> DeviceCoarseOp<T> {
-    /// The operator `a` on the device; with its even-odd form if `a` has it
-    /// (`CoarseOp::prepare_even_odd`).
-    pub fn new<S: Storage>(a: &CoarseOp<S>) -> Result<Self, CudaError> {
+    /// The operator `a` on the device. `even_odd`: with the even-odd form (`schur` and the
+    /// like) if the coarse lattice has one: no odd extent.
+    pub fn new<S: Storage>(
+        a: &CoarseOp<S>,
+        even_odd: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let (sites, dim) = (a.lattice().num_sites(), a.dim());
         assert!(
             dim <= 1024,
@@ -559,13 +573,36 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         let odd: Vec<u32> = (0..sites)
             .map(|x| (coords(x).iter().sum::<usize>() % 2) as u32)
             .collect();
+        let diag_f64 = DeviceBuffer::<f64>::from_host(&reals(diag))?;
+        // The inverses of the blocks, by Gauss-Jordan elimination in double precision.
+        let inverse = DeviceBuffer::<f64>::uninitialised(diag_f64.len)?;
+        let scratch = DeviceBuffer::<f64>::uninitialised(2 * diag_f64.len)?;
+        let fail = DeviceTable::from_host(&vec![0; sites])?;
+        // SAFETY: the blocks of `sites` sites, as many places for the inverses and for the
+        // failures, and the scratch the kernel asks for.
+        unsafe {
+            bridge_cuda_blocks_inverse(
+                inverse.ptr,
+                diag_f64.ptr,
+                scratch.ptr,
+                fail.ptr,
+                sites as i32,
+                dim as i32,
+                STREAM,
+            );
+        }
+        finish();
+        if let Some(coarse_site) = fail.download(sites)?.into_iter().position(|f| f != 0) {
+            return Err(Box::new(MultigridError::SingularCoarseDiagonal {
+                coarse_site,
+            }));
+        }
         Ok(Self {
-            diag: DeviceBuffer::from_host(&reals(diag))?,
+            diag: in_precision(&diag_f64)?,
             links: DeviceBuffer::from_host(&reals(links))?,
-            inverse: match a.block_inverses() {
-                Some(inverse) => Some(DeviceBuffer::from_host(&reals(inverse))?),
-                None => None,
-            },
+            inverse: in_precision(&inverse)?,
+            diag_f64,
+            even_odd: even_odd && a.lattice().global.iter().all(|l| l % 2 == 0),
             neighbours: DeviceTable::from_host(&neighbours)?,
             odd: DeviceTable::from_host(&odd)?,
             sites,
@@ -575,7 +612,34 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
 
     /// Whether the even-odd form is there (`schur` and the like).
     pub fn has_even_odd(&self) -> bool {
-        self.inverse.is_some()
+        self.even_odd
+    }
+
+    /// The inverses of the blocks, for `apply_blocks`.
+    pub fn block_inverses(&self) -> &DeviceBuffer<T> {
+        &self.inverse
+    }
+
+    /// |H_xx|⁻¹ = V |Λ|⁻¹ V† of H = A Γ5, the form of the operator MINRES works on, for
+    /// `apply_blocks` (`BlockMap::abs_inverse_of_a_gamma5` on the CPU): by the Jacobi method
+    /// in double precision.
+    pub fn abs_inverse_of_a_gamma5(&self) -> Result<DeviceBuffer<T>, CudaError> {
+        let out = DeviceBuffer::<f64>::uninitialised(self.diag_f64.len)?;
+        let scratch = DeviceBuffer::<f64>::uninitialised(2 * self.diag_f64.len)?;
+        // SAFETY: the blocks of the sites, as many places for the results, and the scratch the
+        // kernel asks for.
+        unsafe {
+            bridge_cuda_blocks_abs_inverse_gamma5(
+                out.ptr,
+                self.diag_f64.ptr,
+                scratch.ptr,
+                self.sites as i32,
+                self.dim as i32,
+                STREAM,
+            );
+        }
+        finish();
+        in_precision(&out)
     }
 
     /// Matrices on the coarse sites, `[site][row][column]`, for `apply_blocks`.
@@ -631,10 +695,6 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         }
     }
 
-    fn inverse(&self) -> &DeviceBuffer<T> {
-        self.inverse.as_ref().expect("no even-odd form")
-    }
-
     /// `out = D_c inp`, or `Γ5 D_c Γ5 inp`, its adjoint.
     pub fn apply(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>, gamma5: bool) {
         self.pass(out, ALL, None, Some(inp), Some((inp, false)), None, gamma5);
@@ -679,7 +739,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             None,
             None,
             Some((inp, false)),
-            Some(self.inverse()),
+            Some(&self.inverse),
             false,
         );
         self.pass(out, EVEN, None, Some(inp), Some((odd, true)), None, false);
@@ -693,7 +753,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         odd: &mut DeviceCoarse<T>,
     ) {
         crate::fit(odd, g);
-        self.pass(odd, ODD, Some(g), None, None, Some(self.inverse()), false);
+        self.pass(odd, ODD, Some(g), None, None, Some(&self.inverse), false);
         self.pass(out, EVEN, Some(g), None, Some((odd, true)), None, false);
     }
 
@@ -711,7 +771,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             Some(g),
             None,
             Some((c, true)),
-            Some(self.inverse()),
+            Some(&self.inverse),
             false,
         );
         c.axpy(&vec![C64::new(1.0, 0.0); c.vectors], odd);
@@ -719,14 +779,6 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
 
     /// `out = A_ee⁻¹ inp` on the even sites, zero on the odd ones.
     pub fn even_block_inverse(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
-        self.pass(
-            out,
-            EVEN,
-            Some(inp),
-            None,
-            None,
-            Some(self.inverse()),
-            false,
-        );
+        self.pass(out, EVEN, Some(inp), None, None, Some(&self.inverse), false);
     }
 }

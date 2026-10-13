@@ -88,8 +88,9 @@ CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 (`RUTTICE_CUDA_ARCH` is the architecture the kernels are compiled for; the default is 86.)
 Wilson and clover fermions take the solvers and operator types of the CPU; domain-wall fermions
 the outer solvers and operator types of the CPU, without a preconditioner, with `Chebyshev` or
-with the multigrid: its smoother, the filter and the solves of its setup are on the device,
-its basis, coarse operators and coarse correction on the CPU.
+with the multigrid, which is on the device with its setup. With levels below the coarse lattice
+(`MultiGrid_Level2` and on), or another solver of the second factor than `MINRES`, the coarse
+part of the multigrid is that of the CPU.
 Not on the device yet: the multigrid of Wilson and clover fermions, HMC,
 several processes, boundary phases other than ±1 and 0.
 

@@ -133,4 +133,17 @@ void bridge_cuda_fold_orthonormalise(
         d_p, d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
 }
 
+void bridge_cuda_blocks_inverse(
+    double* d_out, const double* d_a, double* d_scratch, unsigned* d_fail,
+    int n_sites, int dim, cudaStream_t stream)
+{
+    bridge_cuda::blocks_inverse_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, d_fail, dim);
+}
+
+void bridge_cuda_blocks_abs_inverse_gamma5(
+    double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream)
+{
+    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim);
+}
+
 } // extern "C"

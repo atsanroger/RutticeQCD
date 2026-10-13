@@ -411,6 +411,242 @@ __global__ void coarse_gamma5_kernel(Float* __restrict__ d_v, int n_coarse, int 
     d_v[at + WarpSize] = -d_v[at + WarpSize];
 }
 
+// -------------------------------------------------------------------------
+// Dense matrices on the coarse sites, dim x dim complex numbers each, row-major (re, im), in
+// double precision. A block of dim threads for each site (dim at most 1024).
+//
+// The inverses, by Gauss-Jordan elimination with a pivot in the column: thread r has row r of
+// [A | 1] (d_scratch: 4 dim^2 reals a site), and in the steps along a row column r and
+// dim + r. d_fail[site]: 1 where a pivot is zero.
+// -------------------------------------------------------------------------
+__global__ void blocks_inverse_kernel(
+    double* __restrict__ d_out,
+    const double* __restrict__ d_a,
+    double* __restrict__ d_scratch,
+    unsigned* __restrict__ d_fail,
+    int dim)
+{
+    __shared__ double size[1024];
+    __shared__ double pivot_value[2];
+    __shared__ int pivot_row;
+    const int r = threadIdx.x, wide = 2 * dim;
+    const size_t site = blockIdx.x;
+    double* m = d_scratch + site * dim * wide * 2;
+    const double* a = d_a + site * dim * dim * 2;
+    for (int c = 0; c < dim; ++c) {
+        m[2 * (r * wide + c)] = a[2 * (r * dim + c)];
+        m[2 * (r * wide + c) + 1] = a[2 * (r * dim + c) + 1];
+        m[2 * (r * wide + dim + c)] = (r == c) ? 1.0 : 0.0;
+        m[2 * (r * wide + dim + c) + 1] = 0.0;
+    }
+    if (r == 0) d_fail[site] = 0;
+    __syncthreads();
+
+    for (int k = 0; k < dim; ++k) {
+        const double re = m[2 * (r * wide + k)], im = m[2 * (r * wide + k) + 1];
+        size[r] = (r >= k) ? re * re + im * im : -1.0;
+        __syncthreads();
+        if (r == 0) {
+            int best = k;
+            for (int i = k + 1; i < dim; ++i) {
+                if (size[i] > size[best]) best = i;
+            }
+            pivot_row = (size[best] > 0.0) ? best : -1;
+        }
+        __syncthreads();
+        const int p = pivot_row;
+        if (p < 0) {
+            if (r == 0) d_fail[site] = 1;
+            return;
+        }
+        // Rows k and p change places; thread r has columns r and dim + r of them.
+        if (p != k) {
+            #pragma unroll
+            for (int c = r; c < wide; c += dim) {
+                #pragma unroll
+                for (int ri = 0; ri < 2; ++ri) {
+                    const double t = m[2 * (k * wide + c) + ri];
+                    m[2 * (k * wide + c) + ri] = m[2 * (p * wide + c) + ri];
+                    m[2 * (p * wide + c) + ri] = t;
+                }
+            }
+        }
+        __syncthreads();
+        if (r == 0) {
+            pivot_value[0] = m[2 * (k * wide + k)];
+            pivot_value[1] = m[2 * (k * wide + k) + 1];
+        }
+        __syncthreads();
+        // Row k over the pivot.
+        {
+            const double pr = pivot_value[0], pi = pivot_value[1];
+            const double inverse = 1.0 / (pr * pr + pi * pi);
+            #pragma unroll
+            for (int c = r; c < wide; c += dim) {
+                const double x = m[2 * (k * wide + c)], y = m[2 * (k * wide + c) + 1];
+                m[2 * (k * wide + c)] = (x * pr + y * pi) * inverse;
+                m[2 * (k * wide + c) + 1] = (y * pr - x * pi) * inverse;
+            }
+        }
+        __syncthreads();
+        // The other rows: column k away.
+        if (r != k) {
+            const double fr = m[2 * (r * wide + k)], fi = m[2 * (r * wide + k) + 1];
+            for (int c = 0; c < wide; ++c) {
+                const double x = m[2 * (k * wide + c)], y = m[2 * (k * wide + c) + 1];
+                m[2 * (r * wide + c)] -= fr * x - fi * y;
+                m[2 * (r * wide + c) + 1] -= fr * y + fi * x;
+            }
+        }
+        __syncthreads();
+    }
+
+    double* out = d_out + site * dim * dim * 2;
+    for (int c = 0; c < dim; ++c) {
+        out[2 * (r * dim + c)] = m[2 * (r * wide + dim + c)];
+        out[2 * (r * dim + c) + 1] = m[2 * (r * wide + dim + c) + 1];
+    }
+}
+
+// -------------------------------------------------------------------------
+// |H|^-1 = V |Lambda|^-1 V^dag for H the Hermitian part of A Gamma_5 (Gamma_5: -1 on the
+// second half of the columns), by the cyclic Jacobi method as numerics::hermitian_eigen has
+// it on the CPU: for every pair (p, q), a phase on column and row q that makes a_pq real,
+// then a rotation. Thread k has what the loops over k of that method do. d_scratch: H and V,
+// 4 dim^2 reals a site.
+// -------------------------------------------------------------------------
+__global__ void blocks_abs_inverse_gamma5_kernel(
+    double* __restrict__ d_out,
+    const double* __restrict__ d_a,
+    double* __restrict__ d_scratch,
+    int dim)
+{
+    __shared__ double part[1024];
+    __shared__ double sums[2];
+    const int k = threadIdx.x, n = dim;
+    const size_t site = blockIdx.x;
+    double* h = d_scratch + site * n * n * 4;
+    double* v = h + static_cast<size_t>(n) * n * 2;
+    const double* a = d_a + site * n * n * 2;
+    auto flip = [&](int col) { return (col >= n / 2) ? -1.0 : 1.0; };
+    for (int c = 0; c < n; ++c) {
+        // ((A Gamma_5) + (A Gamma_5)^dag) / 2
+        h[2 * (k * n + c)] = 0.5 * (flip(c) * a[2 * (k * n + c)] + flip(k) * a[2 * (c * n + k)]);
+        h[2 * (k * n + c) + 1] = 0.5 * (flip(c) * a[2 * (k * n + c) + 1] - flip(k) * a[2 * (c * n + k) + 1]);
+        v[2 * (k * n + c)] = (k == c) ? 1.0 : 0.0;
+        v[2 * (k * n + c) + 1] = 0.0;
+    }
+    __syncthreads();
+    // The sum over the threads of two numbers, for all of them.
+    auto total = [&](double x, double y, double& sx, double& sy) {
+        part[k] = x;
+        __syncthreads();
+        if (k == 0) {
+            double t = 0;
+            for (int i = 0; i < n; ++i) t += part[i];
+            sums[0] = t;
+        }
+        __syncthreads();
+        part[k] = y;
+        __syncthreads();
+        if (k == 0) {
+            double t = 0;
+            for (int i = 0; i < n; ++i) t += part[i];
+            sums[1] = t;
+        }
+        __syncthreads();
+        sx = sums[0];
+        sy = sums[1];
+        __syncthreads();
+    };
+    double all = 0, off = 0;
+    {
+        double x = 0;
+        for (int c = 0; c < n; ++c) x += h[2 * (k * n + c)] * h[2 * (k * n + c)] + h[2 * (k * n + c) + 1] * h[2 * (k * n + c) + 1];
+        total(x, 0.0, all, off);
+    }
+
+    for (int sweep = 0; sweep < 100; ++sweep) {
+        {
+            double x = 0, unused;
+            for (int c = k + 1; c < n; ++c) x += h[2 * (k * n + c)] * h[2 * (k * n + c)] + h[2 * (k * n + c) + 1] * h[2 * (k * n + c) + 1];
+            total(x, 0.0, off, unused);
+        }
+        if (sqrt(off) <= 1e-15 * sqrt(all)) break;
+        for (int p = 0; p < n; ++p) {
+            for (int q = p + 1; q < n; ++q) {
+                const double gr = h[2 * (p * n + q)], gi = h[2 * (p * n + q) + 1];
+                const double g = sqrt(gr * gr + gi * gi);
+                if (g <= 1e-300) continue;
+                // d = conj(a_pq) / |a_pq|: column q of H and V times d, then row q of H times conj(d).
+                const double dr = gr / g, di = -gi / g;
+                {
+                    double* x = h + 2 * (k * n + q);
+                    const double xr = x[0], xi = x[1];
+                    x[0] = xr * dr - xi * di;
+                    x[1] = xr * di + xi * dr;
+                    double* y = v + 2 * (k * n + q);
+                    const double yr = y[0], yi = y[1];
+                    y[0] = yr * dr - yi * di;
+                    y[1] = yr * di + yi * dr;
+                }
+                __syncthreads();
+                {
+                    double* x = h + 2 * (q * n + k);
+                    const double xr = x[0], xi = x[1];
+                    x[0] = xr * dr + xi * di;
+                    x[1] = xi * dr - xr * di;
+                }
+                __syncthreads();
+                const double theta = (h[2 * (q * n + q)] - h[2 * (p * n + p)]) / (2.0 * g);
+                const double t = ((theta >= 0.0) ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
+                const double c = 1.0 / sqrt(t * t + 1.0), s = t * c;
+                __syncthreads();
+                #pragma unroll
+                for (int which = 0; which < 2; ++which) {
+                    double* m = which == 0 ? h : v;
+                    #pragma unroll
+                    for (int ri = 0; ri < 2; ++ri) {
+                        const double kp = m[2 * (k * n + p) + ri], kq = m[2 * (k * n + q) + ri];
+                        m[2 * (k * n + p) + ri] = c * kp - s * kq;
+                        m[2 * (k * n + q) + ri] = s * kp + c * kq;
+                    }
+                }
+                __syncthreads();
+                #pragma unroll
+                for (int ri = 0; ri < 2; ++ri) {
+                    const double pk = h[2 * (p * n + k) + ri], qk = h[2 * (q * n + k) + ri];
+                    h[2 * (p * n + k) + ri] = c * pk - s * qk;
+                    h[2 * (q * n + k) + ri] = s * pk + c * qk;
+                }
+                __syncthreads();
+                if (k == 0) {
+                    h[2 * (p * n + q)] = 0.0;
+                    h[2 * (p * n + q) + 1] = 0.0;
+                    h[2 * (q * n + p)] = 0.0;
+                    h[2 * (q * n + p) + 1] = 0.0;
+                }
+                __syncthreads();
+            }
+        }
+    }
+
+    // out_ik = sum_j v_ij conj(v_kj) / |lambda_j|, row i = k of the thread.
+    double* out = d_out + site * n * n * 2;
+    for (int col = 0; col < n; ++col) {
+        double re = 0, im = 0;
+        for (int j = 0; j < n; ++j) {
+            const double lambda = fmax(fabs(h[2 * (j * n + j)]), 1e-300);
+            const double xr = v[2 * (k * n + j)], xi = v[2 * (k * n + j) + 1];
+            const double yr = v[2 * (col * n + j)], yi = v[2 * (col * n + j) + 1];
+            re += (xr * yr + xi * yi) / lambda;
+            im += (xi * yr - xr * yi) / lambda;
+        }
+        out[2 * (k * n + col)] = re;
+        out[2 * (k * n + col) + 1] = im;
+    }
+}
+
 } // namespace bridge_cuda
 
 #endif // BRIDGE_CUDA_MULTIGRID_FOLD_CUH
