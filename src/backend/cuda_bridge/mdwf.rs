@@ -549,6 +549,12 @@ impl<T: DeviceReal> CudaMdwf<T> {
         Ok(CoarseOp::from_parts(&basis.coarse, dim, diag, links))
     }
 
+    /// `out = D inp` of the plain operator, without Neff's Q whatever α is, on the whole lattice
+    /// in one pass and with no field besides the two.
+    pub fn mult_plain(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        self.one_pass(out, inp);
+    }
+
     /// `out = D inp` of the plain operator on the whole lattice, in one pass.
     fn one_pass(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
         let ls = self.params.ls;

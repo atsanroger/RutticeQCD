@@ -21,7 +21,7 @@ use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, S
 use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
 };
-use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity, Variant};
+use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity};
 use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::{
     bootstrap_round, low_modes, pv_eo_basis, random_even, Aggregation, PvEoBasis, PvEoCycle,
@@ -473,7 +473,7 @@ pub(super) fn run(
     let mut a = operator();
     let stop: Stop = s.stop();
     let k = s.number_of_kept_directions;
-    let (mut check_work, mut source_work) = (op.work(), op.work());
+    let mut source_work = op.work();
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let mut solve = |b: &DeviceSpinor,
                      label: &str,
@@ -501,24 +501,25 @@ pub(super) fn run(
             SolverType::Minres => unreachable!("refused when the file is read"),
         };
         let seconds = start.elapsed().as_secs_f64();
-        // x^(α), with D^(α) x^(α) = b on the whole lattice
+        // x^(α), then x = Q x^(α), the solution of the plain operator; its residual by that
+        // operator on the whole lattice, with three fields there at most.
         let mut x = b.zeros_like();
         a.solution(&DeviceParities, &mut x, &sol, b);
+        drop((rhs, sol));
+        if op.alpha() != 1.0 {
+            let mut plain = x.zeros_like();
+            op.mult_q(&mut plain, &x, false);
+            x = plain;
+        }
         let worst = {
             let mut r = b.zeros_like();
-            op.mult(&mut check_work, &mut r, &x, Variant::D);
+            op.mult_plain(&mut r, &x);
             r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
             let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
             r.norm_sqr(&mut rr);
             b.norm_sqr(&mut bb);
             rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b))
         };
-        // x = Q x^(α)
-        if op.alpha() != 1.0 {
-            let mut plain = x.zeros_like();
-            op.mult_q(&mut plain, &x, false);
-            x = plain;
-        }
         writeln!(
             out,
             "  {label}: {} {} iterations on the device; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
