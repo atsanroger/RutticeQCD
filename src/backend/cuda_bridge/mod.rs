@@ -219,6 +219,8 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
         ls: i32,
         parity: i32,
         gamma: *const i32,
+        leg: i32,
+        block: *const i32,
         vectors: i32,
     );
     unsafe fn fold_prolong(
@@ -420,6 +422,8 @@ macro_rules! device_real {
                 ls: i32,
                 parity: i32,
                 gamma: *const i32,
+                leg: i32,
+                block: *const i32,
                 vectors: i32,
                 stream: *mut c_void,
             );
@@ -680,6 +684,8 @@ macro_rules! device_real {
                 ls: i32,
                 parity: i32,
                 gamma: *const i32,
+                leg: i32,
+                block: *const i32,
                 vectors: i32,
             ) {
                 $restrict(
@@ -694,6 +700,8 @@ macro_rules! device_real {
                     ls,
                     parity,
                     gamma,
+                    leg,
+                    block,
                     vectors,
                     STREAM,
                 )
