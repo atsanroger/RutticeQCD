@@ -358,6 +358,31 @@ void bridge_cuda_gamma5_f64(
     double* d_out, const double* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
+// The prolongation of the multigrid of domain-wall fermions, folded on the fifth dimension
+// (multigrid/fold.cuh): coarse = P^dag fine and fine = P coarse, for fields on the whole
+// lattice (parity < 0) or on the sites of one parity, every vector. dims: the extents of the
+// fine lattice; gamma: col[4] and sign[4] of gamma_5.
+void bridge_cuda_fold_restrict_f32(
+    float* d_coarse, const float* d_fine, const float* d_p, const unsigned* d_sites,
+    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_prolong_f32(
+    float* d_fine, const float* d_coarse, const float* d_p, const unsigned* d_coarse_of,
+    int n_coarse, int n, const int* dims, int Ls, int parity, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_restrict_f64(
+    double* d_coarse, const double* d_fine, const float* d_p, const unsigned* d_sites,
+    int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+void bridge_cuda_fold_prolong_f64(
+    double* d_fine, const double* d_coarse, const float* d_p, const unsigned* d_coarse_of,
+    int n_coarse, int n, const int* dims, int Ls, int parity, const int* gamma,
+    int vectors, cudaStream_t stream
+);
+
 // Between a field of one spinor per site and the walls of one of Ls (fermion/mdwf.cuh,
 // walls_kernel), every vector: to_4d, out = P- in_(s_minus) + P+ in_(s_plus); otherwise
 // out_(s_minus) = P- in and out_(s_plus) = P+ in, the other s of out left as they are.

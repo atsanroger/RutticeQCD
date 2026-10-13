@@ -1019,6 +1019,100 @@ fn domain_wall_runs_from_a_parameter_file_on_the_device() {
     }
 }
 
+/// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
+/// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
+#[test]
+fn multigrid_transfers_on_the_device() {
+    use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse};
+    use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation};
+    use ruttice::{extract_parity, Coarse, ConvertFrom};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 431);
+    let (ls, n, nv) = (4, 3, 2);
+    let params = MdwfParams {
+        ls,
+        m5: 1.8,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, _) = mdwf_pair(&lat, &u, params);
+    let (pv, _) = mdwf_pair(
+        &lat,
+        &u,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    );
+    let index = cpu.even_odd_index().unwrap().clone();
+    let half = |parity, vectors: usize, seed| {
+        let mut h = HalfPsi::with_shape(&lat, 24, ls, vectors, 1);
+        h.set_parity(parity);
+        extract_parity(
+            &mut h,
+            &random_spinor(&lat, ls * vectors, seed),
+            &index,
+            parity,
+        );
+        h
+    };
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let basis = pv_eo_basis(&cpu, &pv, &agg, &half(Parity::Even, n, 432)).unwrap();
+    let device = DeviceBasis::new(&basis).unwrap();
+    let same = |a: &Field<f64, Coarse>, b: &DeviceCoarse, what: &str| {
+        let b = b.to_host(a).unwrap();
+        let d = a
+            .as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        assert!(d < 1e-13, "{what} differs by {d:e}");
+    };
+
+    // On the whole lattice.
+    let mut fine = Psi::with_shape(&lat, 24, ls, nv, 1);
+    fine.as_mut_slice()
+        .copy_from_slice(random_spinor(&lat, ls * nv, 433).as_slice());
+    let device_fine = DeviceSpinor::from_host(&fine).unwrap();
+    let mut coarse = basis.coarse_field(nv);
+    basis.restrict(&mut coarse, &fine);
+    let mut device_coarse = device.coarse_field::<f64>(nv);
+    device.restrict(&mut device_coarse, &device_fine);
+    same(&coarse, &device_coarse, "P† on the whole lattice");
+    let (mut back, mut device_back) = (fine.zeros_like(), device_fine.zeros_like());
+    basis.prolong(&mut back, &coarse);
+    device.prolong(&mut device_back, &device_coarse);
+    let d = worst(&device_back.to_host().unwrap(), &back);
+    assert!(d < 1e-13, "P on the whole lattice differs by {d:e}");
+
+    for parity in [Parity::Even, Parity::Odd] {
+        let h = half(parity, nv, 434);
+        let device_h = DeviceSpinor::from_host_half(&h, &index).unwrap();
+        basis.restrict_half(&mut coarse, &h, &index);
+        device.restrict(&mut device_coarse, &device_h);
+        same(&coarse, &device_coarse, "P† ι");
+        let (mut back, mut device_back) = (h.zeros_like(), device_h.zeros_like());
+        basis.prolong_half(&mut back, &coarse, &index);
+        device.prolong(&mut device_back, &device_coarse);
+        let d = worst(&device_back.to_host_half(&index).unwrap(), &back);
+        assert!(d < 1e-13, "π P differs by {d:e}");
+    }
+
+    // Between the precisions, and the linear algebra of coarse fields.
+    let mut single = device.coarse_field::<f32>(nv);
+    single.convert_from(&device_coarse);
+    let mut norms = [[0.0; 2]; 3];
+    device_coarse.norm_sqr(&mut norms[0]);
+    single.norm_sqr(&mut norms[1]);
+    coarse.norm_sqr(&mut norms[2]);
+    for v in 0..nv {
+        assert!((norms[0][v] - norms[2][v]).abs() < 1e-12 * norms[2][v]);
+        assert!((norms[1][v] - norms[2][v]).abs() < 1e-5 * norms[2][v]);
+    }
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:

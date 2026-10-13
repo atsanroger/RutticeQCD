@@ -17,6 +17,7 @@ set(BRIDGE_CUDA_SOURCES
     src/fermion/dd.cu
     src/multigrid/multigrid.cu
     src/multigrid/mrhs.cu
+    src/multigrid/fold.cu
     src/gauge/gauge.cu
     src/linalg/blas.cu
 )
