@@ -26,21 +26,26 @@
 namespace bridge_cuda {
 
 // -------------------------------------------------------------------------
-// out = D in on the whole lattice, in one pass. One thread for each (site, s), as in hop_kernel.
+// out = D in on the whole lattice, in one pass. One thread for each (site, vector, s), as in
+// hop_kernel.
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, bool Many>
 __global__ void mdwf_dslash_1pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_gauge, int link_rows,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
-    int Ls,
+    int Ls, int vectors,
     Float M5, Float mass, Float b5, Float c5)
 {
-    const int site = blockIdx.x * blockDim.x + threadIdx.x;
-    const int is   = blockIdx.y * blockDim.y + threadIdx.y;
-    if (site >= nx * ny * nz * nt || is >= Ls) return;
+    const int site  = blockIdx.x * blockDim.x + threadIdx.x;
+    const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
+    if (site >= nx * ny * nz * nt || fibre >= Ls * vectors) return;
+    const int is = Many ? fibre % Ls : fibre;
+    const size_t first = Many ? (fibre / Ls) * vector_reals(nx * ny * nz * nt, Ls) : 0;
+    d_out += first;
+    d_in += first;
 
     const int dims[4] = {nx, ny, nz, nt};
     const Float bc[4] = {bcx, bcy, bcz, bct};

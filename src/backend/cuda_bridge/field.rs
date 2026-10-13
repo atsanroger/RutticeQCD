@@ -176,8 +176,8 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         Arc::ptr_eq(&self.lat, &like.lat) && self.ls == ls && self.parity == parity
     }
 
-    /// Vector `v` as a field of its own on the same memory: what the kernels, which take one
-    /// vector, are given. It must not outlive the field, and is not freed.
+    /// Vector `v` as a field of its own on the same memory. It must not outlive the field, and
+    /// is not freed.
     pub(super) fn vector(&self, v: usize) -> Self {
         assert!(v < self.vectors);
         let one = self.reals();
@@ -194,21 +194,6 @@ impl<T: DeviceReal> DeviceSpinor<T> {
             parity: self.parity,
             vectors: 1,
         }
-    }
-}
-
-/// `one(out_v, inp_v, v)` for every vector v of `inp` and the same of `out`: the kernels of the
-/// operators take one vector. The parity the last one gives its output is that of `out`.
-pub(super) fn each_vector<T: DeviceReal>(
-    out: &mut DeviceSpinor<T>,
-    inp: &DeviceSpinor<T>,
-    mut one: impl FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T>, usize),
-) {
-    assert_eq!(out.vectors, inp.vectors, "another number of vectors");
-    for v in 0..inp.vectors {
-        let (mut o, i) = (out.vector(v), inp.vector(v));
-        one(&mut o, &i, v);
-        out.parity = o.parity;
     }
 }
 
@@ -256,56 +241,80 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     }
 
     fn scale(&mut self, a: &[f64]) {
-        let n = self.reals() as i32;
-        for (v, a) in a.iter().enumerate().take(self.vectors) {
-            // SAFETY: the vector holds `n` reals.
-            unsafe { T::scal(self.vector(v).data.ptr, *a, n) };
-        }
+        assert!(a.len() >= self.vectors);
+        // SAFETY: `vectors` vectors of `reals()` reals and a coefficient for each.
+        unsafe {
+            T::scal(
+                self.data.ptr,
+                a.as_ptr(),
+                self.reals() as i32,
+                self.vectors as i32,
+            )
+        };
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
-        assert!(self.same_shape(x));
-        let n = self.reals() as i32;
-        for (v, a) in a.iter().enumerate().take(self.vectors) {
-            // SAFETY: two vectors of `n` reals, not the same one (`self` is borrowed mutably).
-            unsafe { T::caxpy(self.vector(v).data.ptr, x.vector(v).data.ptr, a.re, a.im, n) };
-        }
+        assert!(self.same_shape(x) && a.len() >= self.vectors);
+        // SAFETY: two buffers of `vectors` vectors of `reals()` reals, not the same one (`self`
+        // is borrowed mutably); a complex number is its real and its imaginary part.
+        unsafe {
+            T::caxpy(
+                self.data.ptr,
+                x.data.ptr,
+                a.as_ptr().cast(),
+                self.reals() as i32,
+                self.vectors as i32,
+            )
+        };
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
-        assert!(self.same_shape(x));
-        let n = self.reals() as i32;
-        for (v, a) in a.iter().enumerate().take(self.vectors) {
-            // SAFETY: as in `axpy`.
-            unsafe { T::caypx(self.vector(v).data.ptr, x.vector(v).data.ptr, a.re, a.im, n) };
-        }
+        assert!(self.same_shape(x) && a.len() >= self.vectors);
+        // SAFETY: as in `axpy`.
+        unsafe {
+            T::caypx(
+                self.data.ptr,
+                x.data.ptr,
+                a.as_ptr().cast(),
+                self.reals() as i32,
+                self.vectors as i32,
+            )
+        };
     }
 
+    /// The inner products of all the vectors, fetched from the device together.
     fn dot(&self, x: &Self, out: &mut [C64]) {
-        assert!(self.same_shape(x));
-        let n = self.reals() as i32;
-        for (v, out) in out.iter_mut().enumerate().take(self.vectors) {
-            let (mut re, mut im) = (0.0, 0.0);
-            // SAFETY: two vectors of `n` reals and two places for the result.
-            unsafe {
-                T::dotc(
-                    &mut re,
-                    &mut im,
-                    self.vector(v).data.ptr,
-                    x.vector(v).data.ptr,
-                    n,
-                );
-            }
-            *out = C64::new(re, im);
+        assert!(self.same_shape(x) && out.len() >= self.vectors);
+        let (mut re, mut im) = (vec![0.0; self.vectors], vec![0.0; self.vectors]);
+        // SAFETY: two buffers of `vectors` vectors of `reals()` reals, and places for that
+        // many results.
+        unsafe {
+            T::dotc(
+                re.as_mut_ptr(),
+                im.as_mut_ptr(),
+                self.data.ptr,
+                x.data.ptr,
+                self.reals() as i32,
+                self.vectors as i32,
+            );
         }
         finish();
+        for (out, (re, im)) in out.iter_mut().zip(re.into_iter().zip(im)) {
+            *out = C64::new(re, im);
+        }
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
-        let n = self.reals() as i32;
-        for (v, out) in out.iter_mut().enumerate().take(self.vectors) {
-            // SAFETY: the vector holds `n` reals.
-            *out = unsafe { T::norm2(self.vector(v).data.ptr, n) };
+        assert!(out.len() >= self.vectors);
+        // SAFETY: a buffer of `vectors` vectors of `reals()` reals, and places for that many
+        // results.
+        unsafe {
+            T::norm2(
+                out.as_mut_ptr(),
+                self.data.ptr,
+                self.reals() as i32,
+                self.vectors as i32,
+            );
         }
         finish();
     }
@@ -330,18 +339,17 @@ impl DeviceParities {
         assert!(full.is(half, half.ls, None), "not the same lattice and Ls");
         assert_eq!(half.vectors, full.vectors, "another number of vectors");
         let geometry = geometry(&full.lat, [Boundary::Periodic; ND], full.ls);
-        for v in 0..full.vectors {
-            // SAFETY: the vectors hold the sites of one parity and of the whole lattice with
-            // the same `ls`; the kernel writes one of them and reads the other.
-            unsafe {
-                T::parity_copy(
-                    half.vector(v).data.ptr,
-                    full.vector(v).data.ptr,
-                    &geometry,
-                    parity.index() as i32,
-                    i32::from(to_half),
-                );
-            }
+        // SAFETY: the fields hold the sites of one parity and of the whole lattice with the same
+        // `ls` and as many vectors; the kernel writes one of them and reads the other.
+        unsafe {
+            T::parity_copy(
+                half.data.ptr,
+                full.data.ptr,
+                &geometry,
+                parity.index() as i32,
+                i32::from(to_half),
+                full.vectors as i32,
+            );
         }
     }
 }

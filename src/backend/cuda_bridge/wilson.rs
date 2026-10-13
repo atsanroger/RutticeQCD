@@ -1,6 +1,5 @@
 //! The Wilson and the clover operator on the device.
 
-use super::field::each_vector;
 use super::*;
 use crate::fermion::{Clover, CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
 use crate::kernel::{NC, NS};
@@ -24,7 +23,8 @@ pub(super) fn scratch<'w, T: DeviceReal>(
     work.as_mut().expect("the field was just made")
 }
 
-/// `out = γ5 inp` (`ls` 1), or `Γ5 inp` with the fifth dimension reflected.
+/// `out = γ5 inp` (`ls` 1), or `Γ5 inp` with the fifth dimension reflected. The vectors of a
+/// field are whole blocks of the device layout one after the other: more sites to the kernel.
 pub(super) fn gamma5<T: DeviceReal>(
     out: &mut DeviceSpinor<T>,
     inp: &DeviceSpinor<T>,
@@ -37,7 +37,7 @@ pub(super) fn gamma5<T: DeviceReal>(
         T::gamma5(
             out.data.ptr,
             inp.data.ptr,
-            inp.sites() as i32,
+            (inp.vectors * padded(inp.sites())) as i32,
             inp.ls as i32,
             i32::from(reflect),
         );
@@ -62,7 +62,7 @@ impl<T: DeviceReal> CudaWilson<T> {
 
     /// `out = D inp`, or `D† inp`.
     fn apply(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
-        assert!(inp.is(out, 1, None) && out.is(inp, 1, None));
+        assert!(inp.is(out, 1, None) && out.is(inp, 1, None) && out.same_shape(inp));
         let params = WilsonKernelParams {
             kappa: self.params.kappa,
         };
@@ -77,6 +77,7 @@ impl<T: DeviceReal> CudaWilson<T> {
                 &self.geometry,
                 &params,
                 i32::from(dagger),
+                inp.vectors as i32,
             );
         }
     }
@@ -100,9 +101,6 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaWilson<T> {
         inp: &DeviceSpinor<T>,
         variant: Variant,
     ) {
-        if inp.vectors > 1 {
-            return each_vector(out, inp, |out, inp, _| self.mult(work, out, inp, variant));
-        }
         match variant {
             Variant::D => self.apply(out, inp, false),
             Variant::Dagger => self.apply(out, inp, true),
@@ -133,11 +131,6 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaWilson<T> {
         to: Parity,
         dagger: Dagger,
     ) {
-        if inp.vectors > 1 {
-            return each_vector(out, inp, |out, inp, _| {
-                self.hop(&mut (), out, inp, to, dagger)
-            });
-        }
         hops(
             (&self.gauge, &self.geometry),
             out,
@@ -199,7 +192,7 @@ impl<T: DeviceReal> CudaClover<T> {
 
     /// `out = D inp`, or `D† inp`.
     fn apply(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
-        assert!(inp.is(out, 1, None) && out.is(inp, 1, None));
+        assert!(inp.is(out, 1, None) && out.is(inp, 1, None) && out.same_shape(inp));
         let params = CloverKernelParams {
             kappa: self.params.kappa,
             csw: self.params.csw,
@@ -214,6 +207,7 @@ impl<T: DeviceReal> CudaClover<T> {
                 &self.geometry,
                 &params,
                 i32::from(dagger),
+                inp.vectors as i32,
             );
         }
     }
@@ -221,9 +215,6 @@ impl<T: DeviceReal> CudaClover<T> {
     /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`, on the whole lattice or on
     /// one parity.
     pub fn site(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
-        if inp.vectors > 1 {
-            return each_vector(out, inp, |out, inp, _| self.site(out, inp, inverse));
-        }
         assert!(out.same_shape(inp) && inp.ls == 1);
         out.parity = inp.parity;
         let blocks = if inverse { &self.inverse } else { &self.term };
@@ -236,6 +227,7 @@ impl<T: DeviceReal> CudaClover<T> {
                 blocks.ptr,
                 &self.geometry,
                 parity_number(inp.parity),
+                inp.vectors as i32,
             );
         }
     }
@@ -255,11 +247,6 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaClover<T> {
         to: Parity,
         dagger: Dagger,
     ) {
-        if inp.vectors > 1 {
-            return each_vector(out, inp, |out, inp, _| {
-                self.hop(&mut (), out, inp, to, dagger)
-            });
-        }
         hops(
             (&self.gauge, &self.geometry),
             out,
@@ -323,9 +310,6 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaClover<T> {
         inp: &DeviceSpinor<T>,
         variant: Variant,
     ) {
-        if inp.vectors > 1 {
-            return each_vector(out, inp, |out, inp, _| self.mult(work, out, inp, variant));
-        }
         match variant {
             Variant::D => self.apply(out, inp, false),
             Variant::Dagger => self.apply(out, inp, true),
