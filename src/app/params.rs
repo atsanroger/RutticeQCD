@@ -146,6 +146,8 @@ keyword_enum! {
     pub enum SolverType {
         /// Flexible GCR keeping `number_of_kept_directions` directions.
         Gcr => ["GCR"],
+        /// Block GCR: the right-hand sides of a solve share the kept directions.
+        BlockGcr => ["Block_GCR", "BlockGCR"],
         BiCgStab => ["BiCGStab", "BiCGStab_Cmplx", "BiCG_Stab"],
         /// Flexible GMRES; `number_of_kept_directions` is the size of its Krylov space.
         Fgmres => ["FGMRES", "GMRES"],

@@ -1,6 +1,7 @@
 //! Krylov solvers and preconditioners.
 
 mod bicgstab;
+mod block_gcr;
 mod cg;
 mod fgmres;
 mod gcr;
@@ -10,6 +11,7 @@ mod multishift;
 pub mod preconditioner;
 
 pub use bicgstab::BiCgStab;
+pub use block_gcr::BlockGcr;
 pub use cg::Cg;
 pub use fgmres::Fgmres;
 pub use gcr::Gcr;

@@ -26,6 +26,8 @@ The first tagged version.
 - **Solvers of HMC.** CG, BiCGStab, FGMRES and GCR for the two-flavour actions, multi-shift CG
   or CG pole by pole for RHMC; Chebyshev and (Wilson, clover) multigrid preconditioners; Neff's
   α for domain-wall fermions.
+- **Block GCR** (`Block_GCR`) for domain-wall fermions: the right-hand sides of a solve share
+  their directions. On the lattices tried it takes as many steps as GCR and more time.
 - **Threads.** `cpu_thread` in a parameter file, or `RAYON_NUM_THREADS`.
 - **Checked against Bridge++**: operators, solver iteration counts, correlators, and one
   trajectory of each of its HMC tests.
