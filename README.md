@@ -105,7 +105,7 @@ mpirun -np 4 target/release/ruttice-mpi run/wilson_pion.yaml
 | Fermions | Solvers | Preconditioners |
 |---|---|---|
 | Wilson, clover | CG, BiCGStab, FGMRES; on all sites (`Lexical`) or on the even sites (`Even_odd`) | multigrid |
-| Möbius domain-wall | GCR, BiCGStab, FGMRES, CG; always on the even sites | multigrid, Chebyshev polynomial |
+| Möbius domain-wall | GCR, block GCR, BiCGStab, FGMRES, CG; always on the even sites | multigrid, Chebyshev polynomial |
 
 What to choose for propagators. The lattices tried so far go up to 16⁴ on one machine; the
 rows marked *expected* have not been measured:

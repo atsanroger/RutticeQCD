@@ -16,7 +16,8 @@ use crate::solver::preconditioner::multigrid::{
     PvEoBasis, PvEoCycle, SharedOperator,
 };
 use crate::solver::{
-    largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
+    largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo,
+    Solver, Stop,
 };
 use crate::{
     extract_parity, random_spinor, Aos, Aosoa, Comm, ConvertFrom, EvenOddIndex, Field, Gauge, Half,
@@ -417,6 +418,9 @@ where
             let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
             match s.solver_type {
                 SolverType::Gcr => Gcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs),
+                SolverType::BlockGcr => {
+                    BlockGcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs)
+                }
                 SolverType::BiCgStab => {
                     BiCgStab::new(stop).solve(&mut counted_a, m, &mut sol, &rhs)
                 }

@@ -38,7 +38,9 @@ Fopr:
   neff_alpha_PauliVillars  : 1.0
 
 Solver:
-  ## solver_type = {GCR, BiCGStab, FGMRES, CG (= CGNE)}
+  ## solver_type = {GCR, Block_GCR (the right-hand sides of a solve share their directions;
+  ##                on 12^4 as many steps as GCR and more time),
+  ##                BiCGStab, FGMRES, CG (= CGNE)}
   solver_type                   : GCR
   ## operator_type = {PV_right (A'), PV_left (A' with alpha), Normal_left (CGNE)};
   ## by default Normal_left for CG and PV_right otherwise
@@ -90,7 +92,8 @@ MultiGrid:
   ## MultiGrid_Level4): super-blocks of super_block_size sites of the level above per
   ## direction; the last level is solved exactly, so keep it small. On 16^4 in blocks of
   ## 4^4 (4^4 coarse sites), Level2 + Level3 of 2 end in one site.
-  ## levels_for_pauli_villars : true   # the levels also under the Pauli-Villars factor (MINRES)
+  ## levels_for_pauli_villars : true   # the levels also under the Pauli-Villars factor (MINRES);
+  ##                                   # on 16^4 it cost more coarse applications, not fewer
   # MultiGrid_Level2:
   #   super_block_size : 2
   # MultiGrid_Level3:
