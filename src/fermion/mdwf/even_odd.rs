@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::fermion::EoForm;
+use crate::fermion::{hop_then_of_blocks, schur_factor, EoForm, Then};
 
 type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
 
@@ -150,22 +150,6 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
     }
 }
 
-/// What `Mdwf::hop_plain` does to the result of the hop at each site, in the same pass.
-struct Then<'f, T: Storage, L: Layout> {
-    /// C⁻¹ (C†⁻¹ after the adjoint hop).
-    site_inv: bool,
-    /// Then the result is subtracted from this field.
-    from: Option<&'f HalfSpinorField<T, L>>,
-}
-
-impl<T: Storage, L: Layout> Then<'_, T, L> {
-    /// The hop alone.
-    const NOTHING: Self = Then {
-        site_inv: false,
-        from: None,
-    };
-}
-
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// The factor in the fifth dimension that goes with the hop: B = (4 − M5)(b − c Y), on
     /// the input of the Wilson kernel for D_pq = M_pq B, on its output for
@@ -194,7 +178,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         inp: &HalfSpinorField<T, L>,
         to: Parity,
         dagger: Dagger,
-        then: Then<'_, T, L>,
+        then: Then<'_, HalfSpinorField<T, L>>,
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
         if let Some(from) = then.from {
@@ -229,45 +213,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         let before = (!adjoint).then_some(fifth);
         L::hop_fifth(&self.wilson, work, out, inp, to, dagger, before, after);
     }
-}
-
-/// The Schur factor `1 − D_eo C_o⁻¹ D_oe C_e⁻¹` (right form) or `1 − C_e⁻¹ D_eo C_o⁻¹ D_oe`
-/// (left form) of `op`, or its adjoint, with two odd scratch fields and one even one: for the
-/// plain operator with the blocks fused, with α the one of `fermion::schur_factor`.
-fn schur_factor<T: Storage, G: GammaRepre, L: MdwfLayout<T>>(
-    op: &Mdwf<T, G, L>,
-    work: &mut MdwfHalfWork<T, L>,
-    form: EoForm,
-    scratch: (&mut [HalfSpinorField<T, L>; 2], &mut HalfSpinorField<T, L>),
-    out: &mut HalfSpinorField<T, L>,
-    inp: &HalfSpinorField<T, L>,
-    dagger: Dagger,
-) {
-    let (odds, e) = scratch;
-    let (even, odd) = (Parity::Even, Parity::Odd);
-    if !op.has_alpha() {
-        let o2 = &mut odds[1];
-        let inverse = |from| Then {
-            site_inv: true,
-            from,
-        };
-        if (form == EoForm::Right) == (dagger == Dagger::No) {
-            let subtract = Then {
-                site_inv: false,
-                from: Some(inp),
-            };
-            op.diag_inv(work, e, inp, even, dagger);
-            let kernel = &mut work.wilson;
-            op.hop_plain(kernel, o2, e, odd, dagger, inverse(None));
-            op.hop_plain(kernel, out, o2, even, dagger, subtract);
-        } else {
-            let kernel = &mut work.wilson;
-            op.hop_plain(kernel, o2, inp, odd, dagger, inverse(None));
-            op.hop_plain(kernel, out, o2, even, dagger, inverse(Some(inp)));
-        }
-        return;
-    }
-    crate::fermion::schur_factor(op, work, form, (odds, e), out, inp, dagger);
 }
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'_, T, G, L> {
@@ -397,6 +342,25 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
     ) {
         assert!(inp.parity() == parity && out.parity() == parity);
         self.mult_site(out, inp, self.params.mass, dagger == Dagger::Yes);
+    }
+
+    /// In one pass over the fields for the plain operator (the hop, and C⁻¹ and the
+    /// subtraction on its result while the sweep has it in the cache).
+    fn hop_then(
+        &self,
+        work: &mut MdwfHalfWork<T, L>,
+        out: &mut Field<T, Spinor, Half, L>,
+        inp: &Field<T, Spinor, Half, L>,
+        to: Parity,
+        dagger: Dagger,
+        then: Then<'_, Field<T, Spinor, Half, L>>,
+        scratch: &mut Field<T, Spinor, Half, L>,
+    ) {
+        if self.has_alpha() {
+            hop_then_of_blocks(self, work, out, inp, to, dagger, then, scratch);
+        } else {
+            self.hop_plain(&mut work.wilson, out, inp, to, dagger, then);
+        }
     }
 
     fn diag_inv(

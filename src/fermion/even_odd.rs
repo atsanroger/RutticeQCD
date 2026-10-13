@@ -27,6 +27,70 @@ pub trait EvenOdd<H> {
     fn diag(&self, work: &mut Self::Work, out: &mut H, inp: &H, parity: Parity, dagger: Dagger);
     /// `out = M_{pp}^{-1} inp`.
     fn diag_inv(&self, work: &mut Self::Work, out: &mut H, inp: &H, parity: Parity, dagger: Dagger);
+
+    /// `out = [from −] [M_{to,to}⁻¹] M_{to, other} inp`: the hop and then what `then` asks of its
+    /// result. An operator with a kernel that does it in one pass over the fields provides
+    /// this; otherwise it is made of the blocks, through `scratch` (a field on `to`).
+    #[allow(clippy::too_many_arguments)]
+    fn hop_then(
+        &self,
+        work: &mut Self::Work,
+        out: &mut H,
+        inp: &H,
+        to: Parity,
+        dagger: Dagger,
+        then: Then<'_, H>,
+        scratch: &mut H,
+    ) where
+        H: Vector,
+    {
+        hop_then_of_blocks(self, work, out, inp, to, dagger, then, scratch);
+    }
+}
+
+/// What `EvenOdd::hop_then` does to the result of the hop.
+pub struct Then<'f, H> {
+    /// The inverse of the block within a site (of its adjoint after the adjoint hop).
+    pub site_inv: bool,
+    /// Then the result is subtracted from this field.
+    pub from: Option<&'f H>,
+}
+
+impl<H> Then<'_, H> {
+    /// The hop alone.
+    pub const NOTHING: Self = Then {
+        site_inv: false,
+        from: None,
+    };
+    /// The inverse of the block within a site after the hop.
+    pub const INVERSE: Self = Then {
+        site_inv: true,
+        from: None,
+    };
+}
+
+/// `EvenOdd::hop_then` from the blocks of the operator one after the other.
+#[allow(clippy::too_many_arguments)]
+pub fn hop_then_of_blocks<F: EvenOdd<H> + ?Sized, H: Vector>(
+    op: &F,
+    work: &mut F::Work,
+    out: &mut H,
+    inp: &H,
+    to: Parity,
+    dagger: Dagger,
+    then: Then<'_, H>,
+    scratch: &mut H,
+) {
+    if then.site_inv {
+        op.hop(work, scratch, inp, to, dagger);
+        op.diag_inv(work, out, scratch, to, dagger);
+    } else {
+        op.hop(work, out, inp, to, dagger);
+    }
+    if let Some(from) = then.from {
+        let minus = vec![C64::new(-1.0, 0.0); inp.num_vectors()];
+        out.aypx(&minus, from);
+    }
 }
 
 /// The Schur complement on one parity p (q is the other):
@@ -67,10 +131,15 @@ impl<'a, F: EvenOdd<H>, H: Vector> Schur<'a, F, H> {
             self.minus_one = vec![C64::new(-1.0, 0.0); n];
         }
         // (S†) has the same form with every block replaced by the block of M†.
-        self.op
-            .hop(&mut self.work, &mut self.other_a, inp, q, dagger);
-        self.op
-            .diag_inv(&mut self.work, &mut self.other_b, &self.other_a, q, dagger);
+        self.op.hop_then(
+            &mut self.work,
+            &mut self.other_b,
+            inp,
+            q,
+            dagger,
+            Then::INVERSE,
+            &mut self.other_a,
+        );
         self.op
             .hop(&mut self.work, &mut self.same, &self.other_b, p, dagger);
         self.op.diag(&mut self.work, out, inp, p, dagger);
@@ -102,8 +171,9 @@ pub enum EoForm {
 }
 
 /// The Schur factor `1 − M_eo M_oo⁻¹ M_oe M_ee⁻¹` (right form) or `1 − M_ee⁻¹ M_eo M_oo⁻¹ M_oe`
-/// (left form) of `op` on the even sites, or its adjoint, from the blocks one after the other,
-/// with two scratch fields on the odd sites and one on the even ones.
+/// (left form) of `op` on the even sites, or its adjoint, with two scratch fields on the odd
+/// sites and one on the even ones: three passes over the fields for one form, two for the
+/// other, with an operator that has `hop_then` in one.
 pub fn schur_factor<F: EvenOdd<H>, H: Vector>(
     op: &F,
     work: &mut F::Work,
@@ -116,18 +186,21 @@ pub fn schur_factor<F: EvenOdd<H>, H: Vector>(
     let (even, odd) = (Parity::Even, Parity::Odd);
     // The adjoint takes the factors in the opposite order.
     if (form == EoForm::Right) == (dagger == Dagger::No) {
+        let subtract = Then {
+            site_inv: false,
+            from: Some(inp),
+        };
         op.diag_inv(work, e, inp, even, dagger);
-        op.hop(work, o1, e, odd, dagger);
-        op.diag_inv(work, o2, o1, odd, dagger);
-        op.hop(work, out, o2, even, dagger);
+        op.hop_then(work, o2, e, odd, dagger, Then::INVERSE, o1);
+        op.hop_then(work, out, o2, even, dagger, subtract, e);
     } else {
-        op.hop(work, o1, inp, odd, dagger);
-        op.diag_inv(work, o2, o1, odd, dagger);
-        op.hop(work, e, o2, even, dagger);
-        op.diag_inv(work, out, e, even, dagger);
+        let inverse = Then {
+            site_inv: true,
+            from: Some(inp),
+        };
+        op.hop_then(work, o2, inp, odd, dagger, Then::INVERSE, o1);
+        op.hop_then(work, out, o2, even, dagger, inverse, e);
     }
-    let minus = vec![C64::new(-1.0, 0.0); inp.num_vectors()];
-    out.aypx(&minus, inp);
 }
 
 /// The Pauli-Villars preconditioned operator on the even sites in the form `form`, the Schur
