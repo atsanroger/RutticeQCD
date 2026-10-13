@@ -5,7 +5,7 @@
 
 use super::memory_line;
 use super::params::{Backend, Params, PrecisionType, PreconditionerType, SolverType};
-use crate::fermion::{FermionOp, Mdwf, PvEvenOdd, Variant};
+use crate::fermion::{EoForm, FermionOp, Mdwf, PvEvenOdd, Variant};
 use crate::io::read_bridge_text;
 use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
@@ -13,7 +13,7 @@ use crate::measure::{
 };
 use crate::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, Aggregation, CycleLayout,
-    PvEoBasis, PvEoCycle, SharedOperator,
+    PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
 use crate::solver::{
     largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo,
@@ -36,7 +36,7 @@ type F<L = Aos> = Field<f64, Spinor, Lexical, L>;
 /// The first `count` vectors of a low-mode checkpoint, read site by site. The file holds the
 /// even sites of the whole lattice in the order of one process; every process reads it and
 /// keeps its sites.
-fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
+pub(super) fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
     let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut word = [0u8; 8];
     let mut next = |f: &mut std::io::BufReader<std::fs::File>| -> std::io::Result<u64> {
@@ -78,7 +78,7 @@ fn load(path: &Path, like: &H, count: usize) -> Result<H, Box<dyn Error>> {
 }
 
 /// The preconditioner of the outer solver, in the layout `L` of the fine fields.
-enum Preconditioner<'a, L: CycleLayout> {
+pub(super) enum Preconditioner<'a, L: CycleLayout> {
     None,
     Chebyshev(Box<Chebyshev<PvEvenOdd<'a, f64, Dirac, L>, H<L>>>),
     Single(Box<PvEoCycle<'a, Dirac, f32, L>>),
@@ -112,6 +112,142 @@ impl<L: CycleLayout> Preconditioner<'_, L> {
             Preconditioner::Double(c) => Some(c.as_mut()),
         }
     }
+}
+
+impl Preconditioner<'_, Aos> {
+    /// The coarse correction of the multigrid cycle and the top of the interval of its
+    /// smoother, for a cycle whose smoother is elsewhere (`mdwf_cuda`).
+    #[cfg(feature = "cuda-bridge")]
+    pub(super) fn coarse_correction(&mut self, e: &mut H, r: &H) {
+        match self {
+            Preconditioner::Single(c) => c.coarse_correction(e, r),
+            Preconditioner::Double(c) => c.coarse_correction(e, r),
+            _ => unreachable!("not a multigrid"),
+        }
+    }
+
+    #[cfg(feature = "cuda-bridge")]
+    pub(super) fn top(&self) -> f64 {
+        match self {
+            Preconditioner::Single(c) => c.top(),
+            Preconditioner::Double(c) => c.top(),
+            _ => unreachable!("not a multigrid"),
+        }
+    }
+}
+
+/// The vectors y on the even sites the multigrid is built from (from a checkpoint, or
+/// filtered here, and improved by the bootstrap if the file asks) with the basis on them;
+/// none unless the multigrid is the preconditioner. `start`: when the setup began.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn multigrid_basis(
+    params: &Params,
+    file: &Path,
+    lat: &Arc<Lattice>,
+    op: &Mdwf<f64>,
+    pv: &Mdwf<f64>,
+    like: &H,
+    start: Instant,
+    out: &mut dyn Write,
+) -> Result<Option<(PvEoBasis, H)>, Box<dyn Error>> {
+    let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
+    let mg_settings = params.multigrid();
+    let basis = match (&mg_settings, &params.multigrid) {
+        (Some((_, low, boot)), Some(mg)) => {
+            let keep = mg.level1.test_vectors(true) / 2;
+            let mut y = match &mg.setup.checkpoint {
+                Some(path) => load(&relative(path), like, keep)?,
+                None => {
+                    let (x, theta) = pv_eo_low_modes(op, pv, lat, *low);
+                    writeln!(
+                        out,
+                        "  filter: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
+                        theta[0],
+                        theta[theta.len() - 1],
+                        start.elapsed().as_secs_f64()
+                    )?;
+                    x.select(&(0..keep).collect::<Vec<_>>())
+                }
+            };
+            let agg = Aggregation::new(lat, mg.level1.block_size);
+            let basis = if boot.rounds > 0 {
+                pv_eo_bootstrap(op, pv, &agg, &mut y, *boot)?
+            } else {
+                pv_eo_basis(op, pv, &agg, &y)?
+            };
+            Some((basis, y))
+        }
+        _ => None,
+    };
+    Ok(basis)
+}
+
+/// The cycle on a basis of `multigrid_basis` for the operator `outer`, with the levels below
+/// the coarse lattice the file asks for, and the flops of one application of a coarse
+/// operator. `fine`: the operators of `outer` in the layout of the fine fields.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn multigrid_cycle<'a, L: CycleLayout>(
+    params: &Params,
+    lat: &Lattice,
+    (op, pv): (&'a Mdwf<f64>, &'a Mdwf<f64>),
+    outer: (&'a Mdwf<f64>, &'a Mdwf<f64>, EoForm),
+    fine: (&'a Mdwf<f64, Dirac, L>, &'a Mdwf<f64, Dirac, L>),
+    (basis, y): &'a (PvEoBasis, H),
+    cycle_params: PvEoParams,
+    out: &mut dyn Write,
+) -> Result<(Preconditioner<'a, L>, f64), Box<dyn Error>> {
+    let mg = params.multigrid.as_ref().expect("multigrid() found it");
+    let dim = basis.coarse_dim() as f64;
+    let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
+    let coarse_flops = 72.0 * dim * dim * coarse_sites;
+    let map = L::map(lat).ok_or("the lattice cannot be cut for the SIMD layout")?;
+    let mut cycle = match mg.coarse_precision {
+        PrecisionType::Single => Preconditioner::Single(Box::new(
+            PvEoCycle::<Dirac, f32, L>::with_layout(op, pv, outer, fine, map, basis, cycle_params)?,
+        )),
+        PrecisionType::Double => Preconditioner::Double(Box::new(
+            PvEoCycle::<Dirac, f64, L>::with_layout(op, pv, outer, fine, map, basis, cycle_params)?,
+        )),
+    };
+    let super_blocks = mg.super_blocks();
+    if !super_blocks.is_empty() {
+        let levels_start = Instant::now();
+        let vectors = pv_eo_coarse_vectors(op, pv, basis, y);
+        let applications = match &mut cycle {
+            Preconditioner::Single(c) => {
+                c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
+            }
+            Preconditioner::Double(c) => {
+                c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
+            }
+            _ => unreachable!(),
+        };
+        writeln!(
+    out,
+            "  levels below the coarse lattice {super_blocks:?} (refinement {:?}): {applications} coarse applications ({:.0} s)",
+            mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
+            levels_start.elapsed().as_secs_f64()
+        )?;
+        if mg.levels_for_pauli_villars {
+            if cycle_params.pv_solver
+                != crate::solver::preconditioner::multigrid::CoarseKrylov::Minres
+            {
+                return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
+            }
+            let levels_start = Instant::now();
+            let applications = match &mut cycle {
+                Preconditioner::Single(c) => c.add_pv_levels(&vectors, &super_blocks)?,
+                Preconditioner::Double(c) => c.add_pv_levels(&vectors, &super_blocks)?,
+                _ => unreachable!(),
+            };
+            writeln!(
+                out,
+                "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({:.0} s)",
+                levels_start.elapsed().as_secs_f64()
+            )?;
+        }
+    }
+    Ok((cycle, coarse_flops))
 }
 
 /// Counts the applications of the map it wraps.
@@ -176,7 +312,7 @@ pub fn run_on(
         (Backend::Simd, 8) => run_in::<Aosoa<8>>(params, file, &lat, &u, seeds, out),
         (Backend::Cpu, _) => run_in::<Aos>(params, file, &lat, &u, seeds, out),
         #[cfg(feature = "cuda-bridge")]
-        (Backend::CudaBridge, _) => super::mdwf_cuda::run(params, &lat, &u, seeds, out),
+        (Backend::CudaBridge, _) => super::mdwf_cuda::run(params, file, &lat, &u, seeds, out),
         _ => unreachable!("refused when the file is read"),
     }
 }
@@ -194,7 +330,6 @@ where
     F<L>: ConvertFrom<F>,
     F: ConvertFrom<F<L>>,
 {
-    let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
     let lat = lat.clone();
     let fo = &params.fopr;
     let make = |mass: f64, alpha: f64| -> Result<Mdwf<f64>, Box<dyn Error>> {
@@ -246,105 +381,21 @@ where
     let start = Instant::now();
     let s = &params.solver;
     let mg_settings = params.multigrid();
-    // With the vectors y it was built from (for the levels below the coarse lattice).
-    let basis: Option<(PvEoBasis, H)> = match (&mg_settings, &params.multigrid) {
-        (Some((_, low, boot)), Some(mg)) => {
-            let keep = mg.level1.test_vectors(true) / 2;
-            let mut y = match &mg.setup.checkpoint {
-                Some(path) => load(&relative(path), &like, keep)?,
-                None => {
-                    let (x, theta) = pv_eo_low_modes(&op, pv, &lat, *low);
-                    writeln!(
-                        out,
-                        "  filter: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
-                        theta[0],
-                        theta[theta.len() - 1],
-                        start.elapsed().as_secs_f64()
-                    )?;
-                    x.select(&(0..keep).collect::<Vec<_>>())
-                }
-            };
-            let agg = Aggregation::new(&lat, mg.level1.block_size);
-            let basis = if boot.rounds > 0 {
-                pv_eo_bootstrap(&op, pv, &agg, &mut y, *boot)?
-            } else {
-                pv_eo_basis(&op, pv, &agg, &y)?
-            };
-            Some((basis, y))
-        }
-        _ => None,
-    };
+    let basis = multigrid_basis(params, file, &lat, &op, pv, &like, start, out)?;
     let mut coarse_flops = 0.0;
     let (mut pre, steps) = match (s.preconditioner_type, &mg_settings, &basis) {
-        (PreconditionerType::Multigrid, Some((cycle_params, _, _)), Some((basis, y))) => {
-            let mg = params.multigrid.as_ref().expect("multigrid() found it");
-            let dim = basis.coarse_dim() as f64;
-            let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
-            coarse_flops = 72.0 * dim * dim * coarse_sites;
-            let outer = (&op_a, pv_a, form);
-            let map = L::map(&lat).ok_or(no_map)?;
-            let mut cycle = match mg.coarse_precision {
-                PrecisionType::Single => {
-                    Preconditioner::Single(Box::new(PvEoCycle::<Dirac, f32, L>::with_layout(
-                        &op,
-                        pv,
-                        outer,
-                        (&op_l, pv_l),
-                        map,
-                        basis,
-                        *cycle_params,
-                    )?))
-                }
-                PrecisionType::Double => {
-                    Preconditioner::Double(Box::new(PvEoCycle::<Dirac, f64, L>::with_layout(
-                        &op,
-                        pv,
-                        outer,
-                        (&op_l, pv_l),
-                        map,
-                        basis,
-                        *cycle_params,
-                    )?))
-                }
-            };
-            let super_blocks = mg.super_blocks();
-            if !super_blocks.is_empty() {
-                let levels_start = Instant::now();
-                let vectors = pv_eo_coarse_vectors(&op, pv, basis, y);
-                let applications = match &mut cycle {
-                    Preconditioner::Single(c) => {
-                        c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
-                    }
-                    Preconditioner::Double(c) => {
-                        c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
-                    }
-                    _ => unreachable!(),
-                };
-                writeln!(
-            out,
-                    "  levels below the coarse lattice {super_blocks:?} (refinement {:?}): {applications} coarse applications ({:.0} s)",
-                    mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
-                    levels_start.elapsed().as_secs_f64()
-                )?;
-                if mg.levels_for_pauli_villars {
-                    if cycle_params.pv_solver
-                        != crate::solver::preconditioner::multigrid::CoarseKrylov::Minres
-                    {
-                        return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
-                    }
-                    let levels_start = Instant::now();
-                    let applications = match &mut cycle {
-                        Preconditioner::Single(c) => c.add_pv_levels(&vectors, &super_blocks)?,
-                        Preconditioner::Double(c) => c.add_pv_levels(&vectors, &super_blocks)?,
-                        _ => unreachable!(),
-                    };
-                    writeln!(
-                        out,
-                        "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({:.0} s)",
-                        levels_start.elapsed().as_secs_f64()
-                    )?;
-                }
-            }
+        (PreconditionerType::Multigrid, Some((cycle_params, _, _)), Some(basis)) => {
+            let (cycle, flops) = multigrid_cycle(
+                params,
+                &lat,
+                (&op, pv),
+                (&op_a, pv_a, form),
+                (&op_l, pv_l),
+                basis,
+                *cycle_params,
+                out,
+            )?;
+            coarse_flops = flops;
             (cycle, cycle_params.chebyshev_steps)
         }
         (PreconditionerType::Chebyshev, _, _) => {

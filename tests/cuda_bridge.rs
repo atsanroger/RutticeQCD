@@ -1018,3 +1018,61 @@ fn domain_wall_runs_from_a_parameter_file_on_the_device() {
         );
     }
 }
+
+const MULTIGRID: &str = "MultiGrid:
+  coarse_precision : single
+  Setup:
+    filter_number_of_vectors   : 8
+    filter_number_of_rounds    : 1
+    filter_number_in_block     : 4
+    bootstrap_number_of_rounds : 1
+    bootstrap_number_of_steps  : 2
+    seed                       : 21
+  Smoother:
+    smoother_type   : Chebyshev
+    number_of_steps : 4
+    interval_ratio  : 30
+  MultiGrid_Level1:
+    block_size             : [2, 2, 2, 4]
+    number_of_test_vectors : 16
+    Coarse_Solver_D:
+      solver_type                   : BiCGStab
+      maximum_number_of_iteration   : 200
+      convergence_criterion_squared : 1.0e-2
+    Coarse_Solver_PV:
+      solver_type                   : MINRES
+      maximum_number_of_iteration   : 200
+      convergence_criterion_squared : 1.0e-2
+";
+
+/// The multigrid of domain-wall fermions with `backend : cuda_bridge`: the filter and the
+/// solves of its setup, the smoother and the outer solver on the device. The test vectors are
+/// those of the CPU to rounding, so the cycles and the correlators are.
+#[test]
+fn domain_wall_multigrid_runs_on_the_device() {
+    let text = MDWF_RUN
+        .replace("RHS", "4")
+        .replace("SOLVER", "GCR")
+        .replace("OPERATOR", "PV_left")
+        .replace("ALPHA", "0.6")
+        .replace("PRECONDITIONER", "MG")
+        + MULTIGRID;
+    let (cpu, gpu) = (
+        run_with_backend(&text, "cpu", "mdwf_mg"),
+        run_with_backend(&text, "cuda_bridge", "mdwf_mg"),
+    );
+    // As many iterations of the outer solver, for every solve.
+    let iterations = |out: &str| -> Vec<String> {
+        out.lines()
+            .filter_map(|line| {
+                line.split(" iterations")
+                    .next()
+                    .filter(|_| line.contains(" iterations"))
+            })
+            .filter_map(|head| head.split_whitespace().last().map(str::to_string))
+            .collect()
+    };
+    assert_eq!(iterations(&cpu), iterations(&gpu), "\n{cpu}\n{gpu}");
+    assert!(!iterations(&cpu).is_empty(), "{cpu}");
+    same_tables(&text, "mdwf_mg", 1e-6);
+}

@@ -32,6 +32,12 @@ pub fn fit<V: Vector>(tmp: &mut V, like: &V) {
     }
 }
 
+/// A set of vectors as the basis of a subspace: it can be changed for another basis.
+pub trait Subspace: Vector {
+    /// `x_j ← Σ_i x_i c[i n + j]` for the n vectors of the set, c row-major.
+    fn rotate(&mut self, c: &[C64]);
+}
+
 /// A linear map that also knows its Hermitian conjugate.
 pub trait LinearOp<V: Vector>: LinearFn<V> {
     /// `out = A^† inp`.

@@ -17,7 +17,7 @@ mod lattice;
 
 pub use comm::{opposite_face, Comm, HaloExchange, HaloSpec, LocalComm, SingleComm, FACES};
 pub use field::blas::{dot, fill, norm_sqr};
-pub use field::linear::{fit, Adjoint, LinearFn, LinearOp, Normal, Product};
+pub use field::linear::{fit, Adjoint, LinearFn, LinearOp, Normal, Product, Subspace};
 pub use field::random::{random_spinor, TestRng};
 pub use field::storage::{stream_fence, Storage};
 pub use field::vector::{ConvertFrom, Vector, C64};
