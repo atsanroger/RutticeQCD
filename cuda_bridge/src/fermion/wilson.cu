@@ -16,7 +16,7 @@ extern "C" {
 void bridge_cuda_wilson_dslash_f32(
     float* d_out, const float* d_in, const float* d_gauge,
     const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    cudaStream_t stream)
+    int dagger, cudaStream_t stream)
 {
     int grid = get_grid_size(geom->vol);
     bridge_cuda::wilson_interior_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(
@@ -24,14 +24,15 @@ void bridge_cuda_wilson_dslash_f32(
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
-        static_cast<float>(params->kappa)
+        static_cast<float>(params->kappa),
+        dagger ? -1 : 1
     );
 }
 
 void bridge_cuda_wilson_dslash_f64(
     double* d_out, const double* d_in, const double* d_gauge,
     const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    cudaStream_t stream)
+    int dagger, cudaStream_t stream)
 {
     int grid = get_grid_size(geom->vol);
     bridge_cuda::wilson_interior_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(
@@ -39,7 +40,8 @@ void bridge_cuda_wilson_dslash_f64(
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
-        params->kappa
+        params->kappa,
+        dagger ? -1 : 1
     );
 }
 
