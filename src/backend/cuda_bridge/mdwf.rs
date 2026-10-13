@@ -10,6 +10,7 @@
 //! on the tensor cores). So `(C Q)⁻¹` is one pass, and so is `(C Q)†⁻¹ (B Q)†` after the
 //! adjoint hops.
 
+use super::field::each_vector;
 use super::wilson::{gamma5, scratch};
 use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
@@ -264,6 +265,9 @@ impl<T: DeviceReal> CudaMdwf<T> {
     /// `out = Q inp`, or `Q⁻¹ inp`: Q_0 = P− + α P+, Q_s = α inside, Q_(Ls−1) = P+ + α P−.
     /// The solution of D x = b is x = Q x^(α) for D^(α) x^(α) = b.
     pub fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, _| self.mult_q(out, inp, inverse));
+        }
         self.gemm(out, inp, &self.matrices.q[usize::from(inverse)], None);
     }
 
@@ -406,6 +410,9 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         to: Parity,
         dagger: Dagger,
     ) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, _| self.hop(work, out, inp, to, dagger));
+        }
         let [h, t] = work;
         match dagger {
             Dagger::No => self.hop_forward(t, out, inp, None, Some(to)),
@@ -425,6 +432,11 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         parity: Parity,
         dagger: Dagger,
     ) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, _| {
+                self.diag(_work, out, inp, parity, dagger)
+            });
+        }
         assert_eq!(inp.parity, Some(parity));
         let m = &self.matrices.diag[usize::from(dagger == Dagger::Yes)];
         self.gemm(out, inp, m, None);
@@ -439,6 +451,11 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         parity: Parity,
         dagger: Dagger,
     ) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, _| {
+                self.diag_inv(_work, out, inp, parity, dagger)
+            });
+        }
         assert_eq!(inp.parity, Some(parity));
         let m = &self.matrices.inv[usize::from(dagger == Dagger::Yes)];
         self.gemm(out, inp, m, None);
@@ -456,6 +473,16 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         then: Then<'_, DeviceSpinor<T>>,
         scratch: &mut DeviceSpinor<T>,
     ) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, v| {
+                let from = then.from.map(|f| f.vector(v));
+                let then = Then {
+                    site_inv: then.site_inv,
+                    from: from.as_ref(),
+                };
+                self.hop_then(work, out, inp, to, dagger, then, &mut scratch.vector(v));
+            });
+        }
         let [_, t] = work;
         scratch.parity = Some(to);
         match (dagger, then.site_inv) {
@@ -504,6 +531,9 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
         inp: &DeviceSpinor<T>,
         variant: Variant,
     ) {
+        if inp.vectors > 1 {
+            return each_vector(out, inp, |out, inp, _| self.mult(work, out, inp, variant));
+        }
         let [h, t] = work;
         let has_alpha = self.alpha != 1.0;
         // D Q

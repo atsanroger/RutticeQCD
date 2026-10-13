@@ -1,6 +1,6 @@
 //! Möbius domain-wall solves on the GPU (`Main.backend : cuda_bridge`): the Pauli-Villars
-//! preconditioned operator on the even sites and the outer solver on the device, one
-//! right-hand side at a time, without or with the Chebyshev preconditioner. The source, the
+//! preconditioned operator on the even sites and the outer solver on the device, without or
+//! with the Chebyshev preconditioner. The source, the
 //! four-dimensional fields of the solution and the check of the residual are on the CPU.
 
 use super::mdwf::{iterations_text, write_measurements};
@@ -85,10 +85,11 @@ pub(super) fn run(
     let mut a = operator();
     let stop: Stop = s.stop();
     let k = s.number_of_kept_directions;
-    // Solves D ψ = b (one vector) and reports it in one line, under `label`.
+    // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let mut solve = |b: &F, label: &str, out: &mut dyn Write| -> Result<F, Box<dyn Error>> {
         let device_b = DeviceSpinor::from_host(b)?;
-        let mut rhs = even.zeros_like();
+        let nv = b.num_vectors();
+        let mut rhs = even.zeros_with(nv);
         a.right_hand_side(&DeviceParities, &mut rhs, &device_b);
         let mut sol = rhs.zeros_like();
         let start = Instant::now();
@@ -118,16 +119,16 @@ pub(super) fn run(
         let x = x.to_host()?;
         let mut r = b.zeros_like();
         check.mult(&mut check.work(), &mut r, &x, Variant::D);
-        r.aypx(&[C64::new(-1.0, 0.0)], b);
-        let (mut rr, mut bb) = ([0.0], [0.0]);
+        r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+        let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
         r.norm_sqr(&mut rr);
         b.norm_sqr(&mut bb);
+        let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         writeln!(
             out,
-            "  {label}: {} {} iterations on the device; worst |Dx−b|² {:.0e}; {seconds:.1} s; {}",
+            "  {label}: {} {} iterations on the device; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
             s.solver_type,
             iterations_text(&result),
-            rr[0] / bb[0],
             memory_line()
         )?;
         Ok(x)
@@ -140,20 +141,21 @@ pub(super) fn run(
         return Ok(());
     };
 
-    // The propagator from the point source, a column at a time: the four-dimensional quark
-    // field and the midpoint field of every column.
+    // The propagator from the point source, `number_of_rhs_per_solve` columns at a time: the
+    // four-dimensional quark field and the midpoint field of every column.
     let eta = point_source::<f64>(lat, src.source_position);
     let (mut prop, mut mid) = (eta.zeros_like(), eta.zeros_like());
-    for column in 0..NUM_SOURCES {
-        let eta_c = eta.select(&[column]);
-        let mut b = F::with_shape(lat, 24, ls, 1, 1);
+    let columns: Vec<usize> = (0..NUM_SOURCES).collect();
+    for chunk in columns.chunks(src.number_of_rhs_per_solve) {
+        let eta_c = eta.select(chunk);
+        let mut b = F::with_shape(lat, 24, ls, chunk.len(), 1);
         check.source_5d(&mut check.work(), &mut b, &eta_c);
-        let psi = solve(&b, &format!("column {column}"), out)?;
+        let psi = solve(&b, &format!("columns {chunk:?}"), out)?;
         let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
         check.propagator_4d(&mut q, &psi);
         check.midpoint_4d(&mut m, &psi);
-        prop.assign(&[column], &q);
-        mid.assign(&[column], &m);
+        prop.assign(chunk, &q);
+        mid.assign(chunk, &m);
     }
     write_measurements(
         src.source_position,

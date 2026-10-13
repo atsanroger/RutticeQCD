@@ -8,8 +8,8 @@
 //! of the fields here (spin outermost, then colour, then real and imaginary part; a link row by
 //! row, the four directions of a site one after the other).
 //!
-//! `DeviceSpinor` is a `Vector` and the operators are `FermionOp` and `EvenOdd` on it, so the
-//! solvers run on them as they are. Making a field or an operator returns a `CudaError` if the
+//! `DeviceSpinor` is a `Vector` (of one or several vectors) and the operators are `FermionOp`
+//! and `EvenOdd` on it, so the solvers run on them as they are. Making a field or an operator returns a `CudaError` if the
 //! device refuses (no memory); the operations of `Vector`, `FermionOp` and `EvenOdd` have no
 //! error to return and panic if the CUDA runtime fails; a kernel that fails is noticed at the
 //! next reduction or transfer, not where it was launched.
@@ -522,6 +522,9 @@ fn finish() {
 struct DeviceBuffer<T> {
     ptr: *mut T,
     len: usize,
+    /// Whether the memory is this buffer's to free; not for a part of another buffer
+    /// (`DeviceSpinor::vector`).
+    owned: bool,
     /// The memory is the device's: not to be sent between threads behind our back.
     _not_send: PhantomData<*mut T>,
 }
@@ -544,6 +547,7 @@ impl<T: DeviceReal> DeviceBuffer<T> {
         Ok(Self {
             ptr: ptr.cast(),
             len,
+            owned: true,
             _not_send: PhantomData,
         })
     }
@@ -600,6 +604,9 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
 impl<T> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
         // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
         // may still read or write it.
         unsafe {
