@@ -402,6 +402,20 @@ void bridge_cuda_coarse_pass_f64(
 );
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
 
+// One leg of the hops H (b - c Y) in on the whole lattice, sorted by whether it comes from
+// another block of `block` sites (fermion/hops.cuh, hop_split_kernel): cross = the leg where
+// it does, inside += the leg elsewhere. leg mu: forward in direction mu, 4 + mu: backward.
+void bridge_cuda_hop_split_f32(
+    float* d_cross, float* d_inside, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, cudaStream_t stream
+);
+void bridge_cuda_hop_split_f64(
+    double* d_cross, double* d_inside, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, cudaStream_t stream
+);
+
 // Between a field of one spinor per site and the walls of one of Ls (fermion/mdwf.cuh,
 // walls_kernel), every vector: to_4d, out = P- in_(s_minus) + P+ in_(s_plus); otherwise
 // out_(s_minus) = P- in and out_(s_plus) = P+ in, the other s of out left as they are.

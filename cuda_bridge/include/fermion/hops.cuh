@@ -240,7 +240,8 @@ __device__ __forceinline__ void hops(
     const int xc[4], int is, int Ls,
     const int dims[4], const Float bc[4],
     bool half, Float sign, Float kappa,
-    Float mass, Float b5, Float c5)
+    Float mass, Float b5, Float c5,
+    int legs = 0xFF)
 {
     const int nx = dims[0], ny = dims[1], nz = dims[2], nt = dims[3];
     const int site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
@@ -266,8 +267,9 @@ __device__ __forceinline__ void hops(
         Float u_f_r[Nc][Nc], u_f_i[Nc][Nc], u_b_r[Nc][Nc], u_b_i[Nc][Nc];
         load_link<Float>(u_f_r, u_f_i, d_gauge, mu, site, link_rows);
         load_link<Float>(u_b_r, u_b_i, d_gauge, mu, site_b, link_rows);
-        hop_leg<Float>(acc, w_f, u_f_r, u_f_i, false, mu, sign, -kappa * sign_f);
-        hop_leg<Float>(acc, w_b, u_b_r, u_b_i, true, mu, -sign, -kappa * sign_b);
+        // `legs`: bit mu for the forward hop in direction mu, bit 4 + mu for the backward one.
+        if (legs & (1 << mu)) hop_leg<Float>(acc, w_f, u_f_r, u_f_i, false, mu, sign, -kappa * sign_f);
+        if (legs & (16 << mu)) hop_leg<Float>(acc, w_b, u_b_r, u_b_i, true, mu, -sign, -kappa * sign_b);
     }
 }
 
@@ -323,6 +325,58 @@ __global__ void hop_kernel(
             for (int ri = 0; ri < Ncomplex; ++ri) {
                 const int k = aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
                 d_out[k] = (d_from != nullptr) ? d_from[k] - acc[s][c][ri] : acc[s][c][ri];
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// One leg of H (b - c Y) in on the whole lattice (leg mu: the forward hop in direction mu,
+// 4 + mu: the backward one), sorted by whether it comes from another block of the lattice
+// (blocks of bx by bz bt sites: the aggregates of a multigrid): cross = the leg where it
+// does and zero elsewhere, and inside += the leg elsewhere. For the coarse operator.
+// The fibres of a site as in hop_kernel.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void hop_split_kernel(
+    Float* __restrict__ d_cross,
+    Float* __restrict__ d_inside,
+    const Float* __restrict__ d_in,
+    const Float* __restrict__ d_gauge, int link_rows,
+    int nx, int ny, int nz, int nt,
+    Float bcx, Float bcy, Float bcz, Float bct,
+    int Ls, int vectors,
+    int leg,
+    int bx, int by, int bz, int bt,
+    Float kappa,
+    Float mass, Float b5, Float c5)
+{
+    const int sites = nx * ny * nz * nt;
+    const int site  = blockIdx.x * blockDim.x + threadIdx.x;
+    const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
+    if (site >= sites || fibre >= Ls * vectors) return;
+    const int is = fibre % Ls;
+    const size_t first = (fibre / Ls) * vector_reals(sites, Ls);
+
+    const int dims[4] = {nx, ny, nz, nt};
+    const int block[4] = {bx, by, bz, bt};
+    const Float bc[4] = {bcx, bcy, bcz, bct};
+    int xc[4];
+    site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    Float acc[Nspin][Nc][Ncomplex] = {0};
+    hops<Float>(acc, d_in + first, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
+                static_cast<Float>(1.0), kappa, mass, b5, c5, 1 << leg);
+    const int mu = leg % 4, at = xc[mu] % block[mu];
+    const bool crosses = (leg < 4) ? (at == block[mu] - 1) : (at == 0);
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                const size_t k = first + aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
+                d_cross[k] = crosses ? acc[s][c][ri] : static_cast<Float>(0.0);
+                if (!crosses) d_inside[k] += acc[s][c][ri];
             }
         }
     }

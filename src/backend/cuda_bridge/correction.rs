@@ -4,9 +4,9 @@
 //! the coarse lattice.
 
 use super::*;
-use crate::fermion::{Dagger, EoForm, EvenOdd, FermionOp, Mdwf};
+use crate::fermion::{Dagger, EoForm, EvenOdd};
 use crate::solver::preconditioner::multigrid::{
-    coarse_solve, BlockMap, CoarseKrylov, CoarseOp, PvEoBasis, PvEoParams,
+    coarse_solve, BlockMap, CoarseKrylov, PvEoBasis, PvEoParams,
 };
 use crate::solver::Stop;
 use crate::{ConvertFrom, LinearFn, Parity, Vector};
@@ -51,11 +51,8 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
         params.pv_solver == CoarseKrylov::Minres && params.d_solver != CoarseKrylov::Minres
     }
 
-    /// For the operators `cpu` = (D, second factor) of the CPU, plain, which the coarse
-    /// operators are built from, and the same on the device, `plain`; `like`: a field on the
-    /// even sites.
+    /// The coarse operators are those of `plain`; `like`: a field on the even sites.
     pub fn new(
-        cpu: (&Mdwf<f64>, &Mdwf<f64>),
         basis: &PvEoBasis,
         plain: (&'a CudaMdwf, &'a CudaMdwf),
         outer: (&'a CudaMdwf, &'a CudaMdwf),
@@ -65,15 +62,15 @@ impl<'a, CT: DeviceReal> DeviceCorrection<'a, CT> {
     ) -> Result<Self, Box<dyn Error>> {
         assert!(Self::supports(&params));
         assert_eq!(like.parity(), Some(Parity::Even));
-        let mut coarse_d = CoarseOp::build(cpu.0, &mut cpu.0.work(), basis);
-        let mut coarse_pv = CoarseOp::build(cpu.1, &mut cpu.1.work(), basis);
+        let device = DeviceBasis::new(basis)?;
+        let mut coarse_d = plain.0.coarse_operator(&device)?;
+        let mut coarse_pv = plain.1.coarse_operator(&device)?;
         if params.coarse_even_odd {
             coarse_d.prepare_even_odd()?;
             coarse_pv.prepare_even_odd()?;
         }
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
         let blocks_pv = BlockMap::abs_inverse_of_a_gamma5(&coarse_pv);
-        let device = DeviceBasis::new(basis)?;
         let (device_d, device_pv) = (
             DeviceCoarseOp::<CT>::new(&coarse_d)?,
             DeviceCoarseOp::<CT>::new(&coarse_pv)?,

@@ -243,6 +243,27 @@ impl<T: Storage> CoarseOp<T> {
         })
     }
 
+    /// The operator from its blocks and links as `blocks` gives them, made elsewhere (on a
+    /// device), for a fine operator with `D† = γ5 D γ5`.
+    pub fn from_parts(lat: &Arc<Lattice>, dim: usize, diag: Vec<T>, links: Vec<T>) -> Self {
+        let matrix = 2 * dim * dim;
+        assert_eq!(diag.len(), lat.num_sites() * matrix);
+        assert_eq!(links.len(), 2 * ND * lat.num_sites() * matrix);
+        Self {
+            stencil: Stencil::nearest(lat, [Boundary::Periodic; ND]),
+            lat: lat.clone(),
+            dim,
+            diag,
+            links,
+            diag_inv: None,
+            scratch: None,
+            adjoint_from_gamma5: true,
+            exchange: Mutex::new(None),
+            ghost_links: OnceLock::new(),
+            even_odd: None,
+        }
+    }
+
     /// The coarse operator `R A P` of any map A on the fine lattice, cut down to the couplings of a
     /// coarse site with itself and its eight neighbours.
     ///

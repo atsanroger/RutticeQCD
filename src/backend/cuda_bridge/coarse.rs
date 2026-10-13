@@ -82,6 +82,40 @@ impl<T: DeviceReal> DeviceCoarse<T> {
         })
     }
 
+    /// Vectors that are 1 in component `first + v` of every site (vector v) and zero elsewhere.
+    pub(super) fn units(
+        sites: usize,
+        dim: usize,
+        first: usize,
+        vectors: usize,
+    ) -> Result<Self, CudaError> {
+        let one = Self::reals_of(sites, dim);
+        let mut host = vec![0.0; vectors * one];
+        for v in 0..vectors {
+            for x in 0..sites {
+                host[v * one + at(0, x * dim + first + v, 2)] = 1.0;
+            }
+        }
+        Ok(Self {
+            data: DeviceBuffer::from_host(&host)?,
+            sites,
+            dim,
+            vectors,
+        })
+    }
+
+    /// The complex numbers of the field, `[vector][site][component]`.
+    pub(super) fn values(&self) -> Result<Vec<C64>, CudaError> {
+        let (count, one) = (self.sites * self.dim, Self::reals_of(self.sites, self.dim));
+        let host = self.data.download()?;
+        Ok((0..self.vectors * count)
+            .map(|k| {
+                let (v, q) = (k / count, k % count);
+                C64::new(host[v * one + at(0, q, 2)], host[v * one + at(1, q, 2)])
+            })
+            .collect())
+    }
+
     /// The field on the host, in the shape of `like` but for the number of vectors.
     pub fn to_host<S: Storage>(
         &self,
@@ -187,8 +221,12 @@ pub struct DeviceBasis {
     ls: usize,
     /// Test vectors: a coarse site has twice as many complex numbers.
     n: usize,
-    coarse_sites: usize,
+    pub(super) coarse_sites: usize,
     block_volume: usize,
+    /// Sites of an aggregate in every direction.
+    pub(super) block: [i32; ND],
+    /// The coarse lattice.
+    pub(super) coarse: Arc<Lattice>,
     dims: [i32; ND],
     /// γ5 of the fold: the column and the sign of the entry of every row.
     gamma: [i32; 8],
@@ -225,10 +263,22 @@ impl DeviceBasis {
             n: basis.num_test_vectors(),
             coarse_sites,
             block_volume: agg.block_volume(),
+            block: agg.block().map(|b| b as i32),
+            coarse: agg.coarse_lattice().clone(),
             dims: lat.local.map(|l| l as i32),
             lat,
             gamma,
         })
+    }
+
+    /// Complex numbers of a coarse site.
+    pub fn coarse_dim(&self) -> usize {
+        2 * self.n
+    }
+
+    /// A zero field on the whole fine lattice.
+    pub fn fine_field<T: DeviceReal>(&self, vectors: usize) -> Result<DeviceSpinor<T>, CudaError> {
+        Ok(DeviceSpinor::zeros_fifth(&self.lat, self.ls)?.zeros_with(vectors))
     }
 
     /// A zero field on the coarse lattice.

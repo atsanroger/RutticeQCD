@@ -14,7 +14,8 @@ use super::wilson::{gamma5, scratch};
 use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
-use crate::{Parity, Vector};
+use crate::solver::preconditioner::multigrid::CoarseOp;
+use crate::{Parity, Vector, C64};
 
 extern "C" {
     fn bridge_cuda_fifth_gemm_tf32_f32(
@@ -475,6 +476,75 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let ls = self.params.ls;
         assert!(ls.is_multiple_of(2), "the midpoint needs an even Ls");
         self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
+    }
+
+    /// The coarse operator `P† D P` of this operator (plain: without Neff's α), as
+    /// `CoarseOp::build` makes it on the CPU: for every component of a coarse site, P of the
+    /// unit vectors of that component, the part of D within a site and each of the eight
+    /// hops, sorted by whether the hop stays inside its aggregate, and P† of each. Several
+    /// components at a time, as the vectors of the fields.
+    pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
+        assert!(
+            self.alpha == 1.0,
+            "the coarse operator is that of the plain operator"
+        );
+        let MdwfParams { mass, b, c, .. } = self.params;
+        let (sites, dim) = (basis.coarse_sites, basis.coarse_dim());
+        let matrix = 2 * dim * dim;
+        let mut diag = vec![0.0; sites * matrix];
+        let mut links = vec![0.0; 8 * sites * matrix];
+        // As many components at a time as keep the three fine fields within about a GB.
+        let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
+        let batch = ((1 << 30) / (3 * phi.data.bytes())).clamp(1, dim);
+        // Column `first + v` of every site's matrix from vector v of a coarse field.
+        let store = |target: &mut [f64], first: usize, values: &[C64]| {
+            for (v, part) in values.chunks_exact(sites * dim).enumerate() {
+                for (site, rows) in part.chunks_exact(dim).enumerate() {
+                    for (row, z) in rows.iter().enumerate() {
+                        let k = site * matrix + 2 * (dim * row + first + v);
+                        target[k] = z.re;
+                        target[k + 1] = z.im;
+                    }
+                }
+            }
+        };
+        for first in (0..dim).step_by(batch) {
+            let nv = batch.min(dim - first);
+            let unit = DeviceCoarse::<T>::units(sites, dim, first, nv)?;
+            if phi.vectors != nv {
+                phi = phi.zeros_with(nv);
+            }
+            let (mut inside, cross) = (phi.zeros_like(), phi.zeros_like());
+            let mut restricted = unit.zeros_like();
+            basis.prolong(&mut phi, &unit);
+            self.gemm(&mut inside, &phi, &self.matrices.diag[0], None);
+            for leg in 0..8 {
+                // SAFETY: three fields on the whole lattice with `ls` spinors per site and as
+                // many vectors, the links of the lattice; `block` is copied.
+                unsafe {
+                    T::hop_split(
+                        cross.data.ptr,
+                        inside.data.ptr,
+                        phi.data.ptr,
+                        self.gauge.links.ptr,
+                        &self.geometry,
+                        0.5,
+                        mass,
+                        b,
+                        c,
+                        leg as i32,
+                        basis.block.as_ptr(),
+                        nv as i32,
+                    );
+                }
+                basis.restrict(&mut restricted, &cross);
+                let range = leg * sites * matrix..(leg + 1) * sites * matrix;
+                store(&mut links[range], first, &restricted.values()?);
+            }
+            basis.restrict(&mut restricted, &inside);
+            store(&mut diag, first, &restricted.values()?);
+        }
+        Ok(CoarseOp::from_parts(&basis.coarse, dim, diag, links))
     }
 
     /// `out = D inp` of the plain operator on the whole lattice, in one pass.
