@@ -4,40 +4,58 @@
 #
 #   cargo run --release --bin ruttice -- examples/hmc_domainwall_pv.yaml
 #
-# Relative paths are taken from the directory of this file.
+# The sections and keys are those of Bridge++'s HMC files where it has them; the fermion
+# actions are listed as Action_F_1, Action_F_2, ... Relative paths are taken from the
+# directory of this file.
 
-lattice: [4, 4, 4, 8]
-# cpu_thread: 4          # threads per process; default: RAYON_NUM_THREADS, or every core
-start: {type: file, file: conf_04040408.txt, format: bridge_text}
+Main:
+  lattice_size : [4, 4, 4, 8]
+  ## cpu_thread : 4              # threads per process; default: RAYON_NUM_THREADS, or every core
+HMC:
+  gauge_config_status     : Continue      # Continue | Cold_start | Hot_start (seed_for_random_number)
+  gauge_config_type_input : Text
+  config_filename_input   : conf_04040408.txt
+  trajectory_number       : 200000        # of the first one: the M-series random numbers of Bridge++
+  number_of_trajectories  : 1
+  ## save_config_interval     : 10
+  ## config_filename_output   : "conf_{n}.txt"
+  ## gauge_config_type_output : Text
+HMC_General:
+  trajectory_length : 0.1
+  Metropolis_test   : true
+Builder_Integrator:
+  integrator      : Omelyan               # Leapfrog | Omelyan
+  number_of_steps : [5, 4]                # one per level, the outer level (fermions) first
+  order_of_exp_iP : 8
 
 # Gauge smearing: the fermion operators are made of these links (not the smearing of
 # sources, which is a source type in the propagator files).
-gauge_smearing: {type: stout, rho: 0.1, steps: 2}
+GaugeSmearing:
+  smear_type         : Stout
+  rho_uniform        : 0.1
+  number_of_smearing : 2
 
-hmc:
-  trajectories: 1
-  first_trajectory: 200000      # the M-series random numbers of Bridge++ for this number
-  trajectory_length: 0.1
-  integrator:
-    scheme: omelyan             # leapfrog | omelyan
-    steps: [5, 4]               # the outer level (fermions) first
-    exp_order: 8
+Action_G:
+  action_type     : Action_G_Rectangle    # Action_G_Plaq | Action_G_Rectangle
+  beta            : 2.3
+  c_plaq          : 3.648
+  c_rect          : -0.331
+  level_of_action : 1
 
-actions:
-  - type: two_flavor_ratio      # det(D†D) / det(D_PV†D_PV)
-    fermion:
-      type: domain_wall
-      ls: 8
-      m5: 1.6
-      mass: 0.1
-      b: 1.0                    # b = 1, c = 0: Shamir's operator
-      c: 0.0
-      boundary: [periodic, periodic, periodic, antiperiodic]
-    level: 0
-    smeared: true
-    # Domain-wall fermions are solved by CG; neff_alpha: 0.6 solves with Neff's D Q, and
-    # preconditioner: chebyshev adds a polynomial preconditioner.
-    solver: {tolerance_squared: 1.0e-28, energy_tolerance_squared: 1.0e-28}
-  - {type: rectangle, beta: 2.3, c_plaq: 3.648, c_rect: -0.331, level: 1}
-
-# output: {save_every: 10, file: "conf_{n}.txt", format: bridge_text}
+Action_F_1:
+  action_type     : Ratio                 # det(D†D) / det(D_PV†D_PV); Standard | Ratio | Rational
+  level_of_action : 0
+  smeared         : true
+  Fopr:
+    fermion_type            : Domainwall
+    extent_of_5th_dimension : 8
+    domain_wall_height      : 1.6
+    quark_mass              : 0.1
+    coefficient_b           : 1.0         # b = 1, c = 0: Shamir's operator
+    coefficient_c           : 0.0
+    boundary_condition      : [1, 1, 1, -1]
+    ## neff_alpha : 0.6                   # solve with Neff's D Q
+  Solver:
+    # Domain-wall fermions are solved by CG; preconditioner_type : Chebyshev adds a polynomial.
+    solver_type                   : CG
+    convergence_criterion_squared : 1.0e-28

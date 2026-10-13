@@ -116,9 +116,6 @@ impl GaugeSmearingConfig {
     }
 }
 
-/// The message for a key that says "smearing" without saying of what.
-pub(crate) const AMBIGUOUS_SMEARING: &str = "\"smearing\" alone is ambiguous: gauge (link) smearing is `gauge_smearing` (type stout or ape); the smearing of quark sources (operator smearing) is the source type of each quark (`quark.source`, e.g. exponential)";
-
 /// Gauge fixing. The defaults are those of the Bridge++ test `Spectrum_Clover_Hadron2ptFunction`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GaugeFixingConfig {

@@ -44,9 +44,10 @@ on the even sites, and the coarse system on the even coarse sites; `Lexical` sol
 sites of both. Domain-wall fermions are always solved on the even sites
 (`PV_right`, `PV_left`, `Normal_left` choose the form of the operator).
 
-An HMC file has a format of its own for now (`lattice`, `start`, `hmc`, `actions`,
-`output`; see the two examples). It will take the sections of Bridge++'s `HMC_General` in
-the next version.
+An HMC file has the sections of Bridge++'s HMC files (`HMC_General`, `Builder_Integrator`,
+`Action_G`) and, where Bridge++ fixes the actions in the test program, lists them:
+`Action_F_1`, `Action_F_2`, … each with its `Fopr`, its level and its `Solver`. `Main`, `Fopr`
+and `GaugeSmearing` are the sections of the propagator files. See the two examples.
 
 ### What is computed
 
@@ -69,7 +70,7 @@ reference values from another program.
 ### Threads
 
 A run uses every core of the machine unless told otherwise, by `Main.cpu_thread` in the
-file (`cpu_thread` at the top of an HMC file) or by the environment variable
+file or by the environment variable
 `RAYON_NUM_THREADS`; the file wins. With MPI this is the number of threads of each process, so
 processes × threads should not exceed the cores. The kernels are limited by memory bandwidth:
 more threads than a few per memory channel gain little.
@@ -121,22 +122,23 @@ the coefficients computed by the program. The links the fermions see can be stou
 The integrator is leapfrog or Omelyan on several time scales; the force solves can start
 from the solutions before them.
 
-The `solver` of a fermion action says how its forces and energies are solved:
+The `Solver` section of a fermion action says how its forces and energies are solved:
 
-| `solver` key | Values |
+| `Solver` key | Values |
 |---|---|
-| `type` | `cg` (the default): CG on D†D. `bicgstab`, `fgmres`, `gcr`: D† y = φ and then D x = y; Wilson and clover fermions only. A `rational` action takes `multishift_cg` (the default), `cg` (one solve per pole), or the two-step solvers pole by pole through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
-| `preconditioner` | `chebyshev`, with `cg`, for any fermions (`chebyshev: {steps: 8, ratio: 30}`). `multigrid`, with `bicgstab`, `fgmres` or `gcr`, for Wilson and clover fermions (`multigrid: {block: [2, 2, 2, 2], test_vectors: 16, setup_iterations: 4, refresh_every: 0}`) |
-| `neff_alpha` | domain-wall fermions: solve with Neff's D Q at this α |
-| `initial_guess` | `two_flavor`: start the force solves from the last n solutions |
-| `restart` | the cycle of FGMRES, the directions GCR keeps (32) |
-| `tolerance_squared`, `energy_tolerance_squared`, `max_iterations` | the stopping rule of the force solves and of the energy solves |
+| `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
+| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`). `MG`, with `BiCGStab`, `FGMRES` or `GCR`, for Wilson and clover fermions (`MultiGrid: {block_size: [2, 2, 2, 2], number_of_test_vectors: 16, number_of_setup_iterations: 4, refresh_interval: 0}`) |
+| `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
+| `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
+| `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves |
 
-The multigrid is set up when a trajectory starts and again after every `refresh_every` force
-solves, from the test vectors of the setup before (`reuse_vectors: false`: from random
-vectors); in between it is the cycle of the links of its last setup, which the outer solver
-corrects. Domain-wall fermions have no multigrid in HMC, and no solver but CG: BiCGStab and
-GMRES do not converge on D itself.
+`Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α.
+
+The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
+from them for the operator on the links of that solve. The vectors are improved when a
+trajectory starts and again after every `refresh_interval` force solves, starting from the
+vectors before (`reuse_vectors: false`: from random vectors). Domain-wall fermions have no
+multigrid in HMC, and no solver but CG: BiCGStab and GMRES do not converge on D itself.
 
 The momenta, the pseudofermions and the Metropolis test use the random numbers of
 Bridge++, in its order, so a run of Bridge++'s `HMC_General` can be repeated number by
