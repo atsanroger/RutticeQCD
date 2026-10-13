@@ -56,7 +56,8 @@ gpu_fer/
 ## 2. What is checked
 
 Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs` there, feature
-`cuda-bridge`), in double precision, for periodic, antiperiodic and Dirichlet boundaries:
+`cuda-bridge`) in double precision, and to what single precision allows in single precision,
+for periodic, antiperiodic and Dirichlet boundaries:
 
 - `bridge_cuda_wilson_dslash`: the Wilson operator D and D^dag.
 - `bridge_cuda_clover_dslash`, `bridge_cuda_clover_term`: the clover operator D and D^dag, and
@@ -73,7 +74,7 @@ These are the plain operators in the Dirac representation (gamma_4 diagonal); `a
 `BridgeCudaMdwfParams` (Neff) is not used.
 
 Not there: the clover term from the links on the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
-kernels, single precision. `tests/test_clover_mg_transfer` fails with a CUDA error.
+kernels. `tests/test_clover_mg_transfer` fails with a CUDA error.
 
 Conventions:
 

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::fermion::SplitParity;
-use crate::{EvenOddIndex, Half, Parity, Spinor, Vector, C64};
+use crate::{ConvertFrom, EvenOddIndex, Half, Parity, Spinor, Vector, C64};
 
 /// Where component `c` of the spinor at `s` of site `x` is, with `ls` spinors per site: the
 /// `ls` spinors of a block of sites are one after the other.
@@ -16,16 +16,16 @@ fn in_half(full: usize, nx: usize) -> usize {
     (full % nx) / 2 + (nx / 2) * (full / nx)
 }
 
-/// A spinor field (one vector, `ls` spinors per site) on the device: on the whole lattice,
+/// A spinor field (one vector, `ls` spinors per site) of reals `T` on the device: on the whole lattice,
 /// or on the sites of one parity, site (x, y, z, t) of it at x/2 + (nx/2)(y + ny (z + nz t)).
-pub struct DeviceSpinor {
-    pub(super) data: DeviceBuffer,
+pub struct DeviceSpinor<T = f64> {
+    pub(super) data: DeviceBuffer<T>,
     pub(super) lat: Arc<Lattice>,
     pub(super) ls: usize,
     pub(super) parity: Option<Parity>,
 }
 
-impl DeviceSpinor {
+impl<T: DeviceReal> DeviceSpinor<T> {
     /// A field of four-dimensional spinors.
     pub fn zeros(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
         Self::zeros_fifth(lat, 1)
@@ -166,7 +166,7 @@ impl DeviceSpinor {
 
 /// One vector per field: `select`, `assign` and `zeros_with` take that one only. The padding
 /// of a field is zero and stays zero under these operations.
-impl Vector for DeviceSpinor {
+impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     fn num_vectors(&self) -> usize {
         1
     }
@@ -213,7 +213,7 @@ impl Vector for DeviceSpinor {
 
     fn scale(&mut self, a: &[f64]) {
         // SAFETY: the buffer holds `len` reals.
-        unsafe { bridge_cuda_blas_scal_f64(self.data.ptr, a[0], self.len(), STREAM) };
+        unsafe { T::scal(self.data.ptr, a[0], self.len()) };
         finish();
     }
 
@@ -221,14 +221,7 @@ impl Vector for DeviceSpinor {
         assert!(self.same_shape(x));
         // SAFETY: two buffers of `len` reals, not the same one (`self` is borrowed mutably).
         unsafe {
-            bridge_cuda_blas_caxpy_f64(
-                self.data.ptr,
-                x.data.ptr,
-                a[0].re,
-                a[0].im,
-                self.len(),
-                STREAM,
-            );
+            T::caxpy(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
         }
         finish();
     }
@@ -237,14 +230,7 @@ impl Vector for DeviceSpinor {
         assert!(self.same_shape(x));
         // SAFETY: as in `axpy`.
         unsafe {
-            bridge_cuda_blas_caypx_f64(
-                self.data.ptr,
-                x.data.ptr,
-                a[0].re,
-                a[0].im,
-                self.len(),
-                STREAM,
-            );
+            T::caypx(self.data.ptr, x.data.ptr, a[0].re, a[0].im, self.len());
         }
         finish();
     }
@@ -254,14 +240,7 @@ impl Vector for DeviceSpinor {
         let (mut re, mut im) = (0.0, 0.0);
         // SAFETY: two buffers of `len` reals and two places for the result.
         unsafe {
-            bridge_cuda_blas_dotc_f64(
-                &mut re,
-                &mut im,
-                self.data.ptr,
-                x.data.ptr,
-                self.len(),
-                STREAM,
-            );
+            T::dotc(&mut re, &mut im, self.data.ptr, x.data.ptr, self.len());
         }
         finish();
         out[0] = C64::new(re, im);
@@ -269,8 +248,17 @@ impl Vector for DeviceSpinor {
 
     fn norm_sqr(&self, out: &mut [f64]) {
         // SAFETY: the buffer holds `len` reals.
-        out[0] = unsafe { bridge_cuda_blas_norm2_f64(self.data.ptr, self.len(), STREAM) };
+        out[0] = unsafe { T::norm2(self.data.ptr, self.len()) };
         finish();
+    }
+}
+
+/// From one precision to another, on the device.
+impl<T: DeviceReal, U: DeviceReal> ConvertFrom<DeviceSpinor<U>> for DeviceSpinor<T> {
+    fn convert_from(&mut self, src: &DeviceSpinor<U>) {
+        assert!(Arc::ptr_eq(&self.lat, &src.lat) && self.ls == src.ls);
+        convert(&mut self.data, &src.data);
+        self.parity = src.parity;
     }
 }
 
@@ -279,37 +267,36 @@ pub struct DeviceParities;
 
 impl DeviceParities {
     /// Copies the part of `full` on the parity of `half` out of it (`to_half`), or into it.
-    fn copy(half: &DeviceSpinor, full: &DeviceSpinor, to_half: bool) {
+    fn copy<T: DeviceReal>(half: &DeviceSpinor<T>, full: &DeviceSpinor<T>, to_half: bool) {
         let parity = half.parity.expect("a field on one parity");
         assert!(full.is(half, half.ls, None), "not the same lattice and Ls");
         let geometry = geometry(&full.lat, [Boundary::Periodic; ND], full.ls);
         // SAFETY: the buffers hold the sites of one parity and of the whole lattice with the
         // same `ls`; the kernel writes one of them and reads the other.
         unsafe {
-            bridge_cuda_parity_copy_f64(
+            T::parity_copy(
                 half.data.ptr,
                 full.data.ptr,
                 &geometry,
                 parity.index() as i32,
                 i32::from(to_half),
-                STREAM,
             );
         }
         finish();
     }
 }
 
-impl SplitParity<DeviceSpinor, DeviceSpinor> for DeviceParities {
-    fn half_like(&self, like: &DeviceSpinor, parity: Parity) -> DeviceSpinor {
+impl<T: DeviceReal> SplitParity<DeviceSpinor<T>, DeviceSpinor<T>> for DeviceParities {
+    fn half_like(&self, like: &DeviceSpinor<T>, parity: Parity) -> DeviceSpinor<T> {
         must(DeviceSpinor::zeros_half(&like.lat, like.ls, parity))
     }
 
-    fn extract(&self, half: &mut DeviceSpinor, full: &DeviceSpinor, parity: Parity) {
+    fn extract(&self, half: &mut DeviceSpinor<T>, full: &DeviceSpinor<T>, parity: Parity) {
         half.parity = Some(parity);
         Self::copy(half, full, true);
     }
 
-    fn insert(&self, full: &mut DeviceSpinor, half: &DeviceSpinor) {
+    fn insert(&self, full: &mut DeviceSpinor<T>, half: &DeviceSpinor<T>) {
         Self::copy(half, full, false);
     }
 }

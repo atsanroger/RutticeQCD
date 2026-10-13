@@ -2,14 +2,14 @@
 #![cfg(feature = "cuda-bridge")]
 
 use ruttice::backend::cuda_bridge::{
-    CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceSpinor,
+    CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceReal, DeviceSpinor,
 };
 use ruttice::fermion::{
     solve_even_odd, Bound, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams,
     Schur, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
-use ruttice::solver::{solve_cgne, Cg, Solver, Stop};
+use ruttice::solver::{solve_cgne, Cg, Convert, Refine, Solve, Solver, Stop};
 use ruttice::{
     extract_parity, random_spinor, Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn,
     LinearOp, Normal, Parity, Sites, Spinor, Vector, C64,
@@ -48,14 +48,16 @@ fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> Psi {
     psi
 }
 
-/// D, D† and γ5 D on the device are those on the CPU.
-fn same_operator<C: FermionOp<Psi>, G: FermionOp<DeviceSpinor>>(
+/// D, D† and γ5 D on the device are those on the CPU, to `tolerance` (the device may be in
+/// single precision).
+fn same_operator<T: DeviceReal, C: FermionOp<Psi>, G: FermionOp<DeviceSpinor<T>>>(
     cpu: &C,
     gpu: &G,
     psi: &Psi,
+    tolerance: f64,
     what: &str,
 ) {
-    let inp = DeviceSpinor::from_host(psi).unwrap();
+    let inp = DeviceSpinor::<T>::from_host(psi).unwrap();
     let mut out = inp.zeros_like();
     let (mut cpu_work, mut gpu_work) = (cpu.work(), gpu.work());
     for variant in [Variant::D, Variant::Dagger, Variant::Gamma5D] {
@@ -63,7 +65,7 @@ fn same_operator<C: FermionOp<Psi>, G: FermionOp<DeviceSpinor>>(
         cpu.mult(&mut cpu_work, &mut expected, psi, variant);
         gpu.mult(&mut gpu_work, &mut out, &inp, variant);
         let d = worst(&out.to_host().unwrap(), &expected);
-        assert!(d < 1e-13, "{what}: {variant:?} differs by {d:e}");
+        assert!(d < tolerance, "{what}: {variant:?} differs by {d:e}");
     }
 }
 
@@ -182,7 +184,7 @@ fn wilson_on_the_device_is_wilson_on_the_cpu() {
         };
         let (cpu, gpu) = wilson_pair(&lat, &u, params);
         let what = format!("Wilson {dims:?} {boundary:?}");
-        same_operator(&cpu, &gpu, &random_spinor(&lat, 1, 302), &what);
+        same_operator(&cpu, &gpu, &random_spinor(&lat, 1, 302), 1e-13, &what);
     }
 }
 
@@ -212,7 +214,7 @@ fn clover_on_the_device_is_clover_on_the_cpu() {
         };
         let (cpu, gpu) = clover_pair(&lat, &u, params);
         let what = format!("clover {dims:?} csw {csw}");
-        same_operator(&cpu, &gpu, &psi, &what);
+        same_operator(&cpu, &gpu, &psi, 1e-13, &what);
 
         let inp = DeviceSpinor::from_host(&psi).unwrap();
         let (mut t, mut back) = (inp.zeros_like(), inp.zeros_like());
@@ -266,7 +268,13 @@ fn mdwf_on_the_device_is_mdwf_on_the_cpu() {
         let u = random_gauge(&lat, 311);
         let (cpu, gpu) = mdwf_pair(&lat, &u, params);
         let psi = random_fifth(&lat, params.ls, 312);
-        same_operator(&cpu, &gpu, &psi, &format!("MDWF {dims:?} {params:?}"));
+        same_operator(
+            &cpu,
+            &gpu,
+            &psi,
+            1e-13,
+            &format!("MDWF {dims:?} {params:?}"),
+        );
     }
 }
 
@@ -487,4 +495,94 @@ fn even_odd_solve_on_the_device_solves() {
     };
     let (cpu, gpu) = mdwf_pair(&lat, &u, mdwf);
     solves_even_odd(&cpu, &gpu, &random_fifth(&lat, mdwf.ls, 353), "MDWF");
+}
+
+/// The operators in single precision on the device are those in double precision on the CPU,
+/// as far as single precision goes.
+#[test]
+fn single_precision_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 371);
+    let psi = random_spinor(&lat, 1, 372);
+
+    let params = WilsonParams {
+        kappa: 0.123,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut cpu = Wilson::<f64>::new(&lat, params);
+    cpu.set_gauge(&u).unwrap();
+    let mut gpu = CudaWilson::<f32>::new(&lat, params).unwrap();
+    gpu.set_gauge(&u).unwrap();
+    same_operator(&cpu, &gpu, &psi, 2e-6, "Wilson in single precision");
+
+    let params = CloverParams {
+        kappa: 0.123,
+        csw: 1.3,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut cpu = Clover::<f64>::new(&lat, params);
+    cpu.set_gauge(&u).unwrap();
+    let mut gpu = CudaClover::<f32>::new(&lat, params).unwrap();
+    gpu.set_gauge(&u).unwrap();
+    same_operator(&cpu, &gpu, &psi, 2e-6, "clover in single precision");
+
+    let (_, params) = mdwf_cases().swap_remove(1);
+    let mut cpu = Mdwf::<f64>::new(&lat, params);
+    cpu.set_gauge(&u).unwrap();
+    let mut gpu = CudaMdwf::<f32>::new(&lat, params).unwrap();
+    gpu.set_gauge(&u).unwrap();
+    let psi = random_fifth(&lat, params.ls, 373);
+    same_operator(&cpu, &gpu, &psi, 5e-6, "MDWF in single precision");
+}
+
+/// Mixed precision on the device: defect correction in double precision around CG in single
+/// precision reaches the residual of double precision, as the operator on the CPU sees it.
+#[test]
+fn mixed_precision_solve_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 381);
+    let params = MdwfParams {
+        ls: 6,
+        m5: 1.8,
+        mass: 0.1,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+    let mut single = CudaMdwf::<f32>::new(&lat, params).unwrap();
+    single.set_gauge(&u).unwrap();
+    let b = random_fifth(&lat, params.ls, 382);
+
+    let device_b = DeviceSpinor::<f64>::from_host(&b).unwrap();
+    let like = DeviceSpinor::<f32>::zeros_fifth(&lat, params.ls).unwrap();
+    let mut a = Normal::new(Bound::new(&gpu, Variant::D), &device_b);
+    let inner = Solve::new(
+        Cg::new(Stop::simple(1e-8, 2000)),
+        Normal::new(Bound::new(&single, Variant::D), &like),
+    );
+    let mut m = Convert::new(inner, &like);
+    let mut x = device_b.zeros_like();
+    let info = Refine::new(Stop::simple(1e-22, 50))
+        .solve(&mut a, Some(&mut m), &mut x, &device_b)
+        .unwrap_or_else(|e| panic!("the mixed precision solve failed: {e:?}"));
+    let x = x.to_host().unwrap();
+
+    let mut cpu_normal = Normal::new(Bound::new(&cpu, Variant::D), &b);
+    let mut r = b.zeros_like();
+    cpu_normal.mult(&mut r, &x);
+    r.aypx(&[C64::new(-1.0, 0.0)], &b);
+    let (mut rr, mut bb) = ([0.0], [0.0]);
+    r.norm_sqr(&mut rr);
+    b.norm_sqr(&mut bb);
+    assert!(
+        rr[0] / bb[0] < 1e-20,
+        "|b - D†D x|² / |b|² = {:e} after {} corrections",
+        rr[0] / bb[0],
+        info.iterations
+    );
+    println!(
+        "mixed precision: {} corrections in double precision",
+        info.iterations
+    );
 }
