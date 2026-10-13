@@ -1,6 +1,5 @@
 //! The CUDA kernels of `cuda_bridge/` (extracted from Bridge++): fields on the device and the
-//! operators on them. One process, one thread using the device, double precision, the Dirac
-//! representation.
+//! operators on them. One process, double precision, the Dirac representation.
 //!
 //! A device field is the AoSoA layout of the kernels, 32 sites to a block: component `c` of
 //! site `x` is at `((x / 32) * n + c) * 32 + x % 32` for `n` components per site, the number of
@@ -17,12 +16,12 @@ mod field;
 mod mdwf;
 mod wilson;
 
-pub use field::DeviceSpinor;
+pub use field::{DeviceParities, DeviceSpinor};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
 
 use crate::fermion::GaugeError;
-use crate::{Boundary, Field, Gauge, Lattice, ND};
+use crate::{Boundary, Field, Gauge, Lattice, Parity, ND};
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -91,6 +90,7 @@ extern "C" {
         inp: *const f64,
         clover: *const f64,
         geometry: *const Geometry,
+        parity: i32,
         stream: *mut c_void,
     );
     fn bridge_cuda_clover_dslash_f64(
@@ -111,11 +111,20 @@ extern "C" {
         params: *const MdwfKernelParams,
         stream: *mut c_void,
     );
-    fn bridge_cuda_mdwf_hop_f64(
+    fn bridge_cuda_parity_copy_f64(
+        half: *mut f64,
+        full: *mut f64,
+        geometry: *const Geometry,
+        parity: i32,
+        to_half: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_hop_f64(
         out: *mut f64,
         inp: *const f64,
         gauge: *const f64,
         geometry: *const Geometry,
+        kappa: f64,
         mass: f64,
         b5: f64,
         c5: f64,
@@ -382,4 +391,62 @@ impl DeviceGauge {
         self.links = must(Self::upload(u));
         Ok(())
     }
+}
+
+/// The number the kernels have for the sites a field is on: the parity, or -1 for the whole
+/// lattice.
+fn parity_number(parity: Option<Parity>) -> i32 {
+    parity.map_or(-1, |p| p.index() as i32)
+}
+
+/// The fifth dimension in the hops of an operator: the mass and (b, c) of `b − c Y`. Those of a
+/// four-dimensional operator: no Y.
+#[derive(Clone, Copy)]
+struct FifthInHops {
+    mass: f64,
+    b: f64,
+    c: f64,
+}
+
+impl FifthInHops {
+    const NONE: Self = Self {
+        mass: 0.0,
+        b: 1.0,
+        c: 0.0,
+    };
+}
+
+/// `out = H (b − c Y) inp`, or with `H†`, H the hops of the Wilson kernel at `kappa`: on the
+/// whole lattice (`to` none), or `out` on the sites of parity `to` and `inp` on the others.
+fn hops(
+    (gauge, geometry): (&DeviceGauge, &Geometry),
+    out: &mut DeviceSpinor,
+    inp: &DeviceSpinor,
+    kappa: f64,
+    fifth: FifthInHops,
+    dagger: bool,
+    to: Option<Parity>,
+) {
+    let ls = geometry.ls as usize;
+    assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
+    assert_eq!(out.data.len, inp.data.len);
+    out.parity = to;
+    // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
+    // kernel is told; the links are those of the whole lattice; `out` is not `inp`.
+    unsafe {
+        bridge_cuda_hop_f64(
+            out.data.ptr,
+            inp.data.ptr,
+            gauge.links.ptr,
+            geometry,
+            kappa,
+            fifth.mass,
+            fifth.b,
+            fifth.c,
+            i32::from(dagger),
+            parity_number(to),
+            STREAM,
+        );
+    }
+    finish();
 }

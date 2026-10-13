@@ -52,13 +52,13 @@ __device__ __forceinline__ void hermitian6_mul(
     }
 }
 
-// out = T psi(site).
+// out = T psi: psi at `at` of d_in, T that of the site `site` of the lattice.
 template <typename Float>
 __device__ __forceinline__ void clover_site(
     Float out[Nspin][Nc][Ncomplex],
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_clover,
-    int site)
+    int at, int site)
 {
     // The components along e_a + e_(a+2) and e_a - e_(a+2), without the 1/sqrt(2).
     Float plus[6][Ncomplex], minus[6][Ncomplex];
@@ -68,8 +68,8 @@ __device__ __forceinline__ void clover_site(
         for (int c = 0; c < Nc; ++c) {
             #pragma unroll
             for (int ri = 0; ri < Ncomplex; ++ri) {
-                const Float upper = d_in[aosoa_spinor_idx(c, s, ri, site)];
-                const Float lower = d_in[aosoa_spinor_idx(c, s + 2, ri, site)];
+                const Float upper = d_in[aosoa_spinor_idx(c, s, ri, at)];
+                const Float lower = d_in[aosoa_spinor_idx(c, s + 2, ri, at)];
                 plus[c + Nc * s][ri]  = upper + lower;
                 minus[c + Nc * s][ri] = upper - lower;
             }
@@ -94,31 +94,41 @@ __device__ __forceinline__ void clover_site(
 }
 
 // -------------------------------------------------------------------------
-// out = T in, with the blocks of T (or of its inverse) in d_clover.
+// out = T in, with the blocks of T (or of its inverse) in d_clover: on the whole lattice
+// (parity < 0), or in and out on the sites of `parity`. The blocks are those of every site of
+// the lattice.
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void clover_term_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_clover,
-    int vol)
+    int nx, int ny, int nz, int nt,
+    int parity)
 {
-    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < vol; site += blockDim.x * gridDim.x) {
+    const int sites = ((parity >= 0) ? nx / 2 : nx) * ny * nz * nt;
+    for (int at = blockIdx.x * blockDim.x + threadIdx.x; at < sites; at += blockDim.x * gridDim.x) {
+        int site = at;
+        if (parity >= 0) {
+            int xc[4];
+            half_site_to_coords(at, parity, xc, nx, ny, nz);
+            site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+        }
         Float acc[Nspin][Nc][Ncomplex];
-        clover_site<Float>(acc, d_in, d_clover, site);
+        clover_site<Float>(acc, d_in, d_clover, at, site);
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
-                d_out[aosoa_spinor_idx(c, s, 0, site)] = acc[s][c][0];
-                d_out[aosoa_spinor_idx(c, s, 1, site)] = acc[s][c][1];
+                d_out[aosoa_spinor_idx(c, s, 0, at)] = acc[s][c][0];
+                d_out[aosoa_spinor_idx(c, s, 1, at)] = acc[s][c][1];
             }
         }
     }
 }
 
 // -------------------------------------------------------------------------
-// out = D in = T in + hops (see wilson_hops), or D^dag in (T is Hermitian).
+// out = D in = T in + H in (hops.cuh), or D^dag in (`sign` -1; T is Hermitian).
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void clover_dslash_kernel(
@@ -136,8 +146,11 @@ __global__ void clover_dslash_kernel(
     const Float bc[4] = {bcx, bcy, bcz, bct};
     for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < vol; site += blockDim.x * gridDim.x) {
         Float acc[Nspin][Nc][Ncomplex];
-        clover_site<Float>(acc, d_in, d_clover, site);
-        wilson_hops<Float>(acc, d_in, d_gauge, site, dims, bc, kappa, sign);
+        clover_site<Float>(acc, d_in, d_clover, site, site);
+        int xc[4];
+        site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+        hops<Float>(acc, d_in, d_gauge, xc, 0, 1, dims, bc, false, sign, kappa,
+                    static_cast<Float>(0.0), static_cast<Float>(1.0), static_cast<Float>(0.0));
         #pragma unroll
         for (int s = 0; s < Nspin; ++s) {
             #pragma unroll

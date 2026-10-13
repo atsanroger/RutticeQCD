@@ -48,19 +48,19 @@ void bridge_cuda_mdwf_dslash_f32(
     bridge_cuda_mdwf_dslash_1pass_f32(d_out, d_in, d_gauge, geom, params, stream);
 }
 
-void bridge_cuda_mdwf_hop_f32(
+void bridge_cuda_hop_f32(
     float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
-    bridge_cuda::mdwf_hop_kernel<float, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::hop_kernel<float, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
         d_out, d_in, d_gauge,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
         geom->Ls, target_parity,
-        static_cast<float>(dagger ? -1 : 1),
+        static_cast<float>(dagger ? -1 : 1), static_cast<float>(kappa),
         static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)
     );
 }
@@ -85,6 +85,17 @@ void bridge_cuda_mdwf_site_inv_f32(
         d_out, d_in, sites, Ls,
         static_cast<float>(params->M5), static_cast<float>(params->mass), static_cast<float>(params->b5), static_cast<float>(params->c5),
         dagger
+    );
+}
+
+void bridge_cuda_parity_copy_f32(
+    float* d_half, float* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
+    cudaStream_t stream)
+{
+    bridge_cuda::parity_copy_kernel<float><<<get_grid_size(volume(geom) / 2), BLOCK_SIZE, 0, stream>>>(
+        d_half, d_full,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        geom->Ls, parity, to_half
     );
 }
 
@@ -119,19 +130,19 @@ void bridge_cuda_mdwf_dslash_f64(
     bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, geom, params, stream);
 }
 
-void bridge_cuda_mdwf_hop_f64(
+void bridge_cuda_hop_f64(
     double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream)
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
-    bridge_cuda::mdwf_hop_kernel<double, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
+    bridge_cuda::hop_kernel<double, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
         d_out, d_in, d_gauge,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
         geom->Ls, target_parity,
-        static_cast<double>(dagger ? -1 : 1),
+        static_cast<double>(dagger ? -1 : 1), static_cast<double>(kappa),
         static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)
     );
 }
@@ -156,6 +167,17 @@ void bridge_cuda_mdwf_site_inv_f64(
         d_out, d_in, sites, Ls,
         static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5),
         dagger
+    );
+}
+
+void bridge_cuda_parity_copy_f64(
+    double* d_half, double* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
+    cudaStream_t stream)
+{
+    bridge_cuda::parity_copy_kernel<double><<<get_grid_size(volume(geom) / 2), BLOCK_SIZE, 0, stream>>>(
+        d_half, d_full,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        geom->Ls, parity, to_half
     );
 }
 

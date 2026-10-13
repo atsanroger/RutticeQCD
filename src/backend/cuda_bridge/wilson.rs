@@ -1,9 +1,9 @@
 //! The Wilson and the clover operator on the device.
 
 use super::*;
-use crate::fermion::{Clover, CloverParams, FermionOp, Variant, WilsonParams};
+use crate::fermion::{Clover, CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
 use crate::kernel::{NC, NS};
-use crate::{Spinor, Vector};
+use crate::{Parity, Spinor, Vector};
 
 /// Reals of the block of the clover operator within a site.
 const CLOVER: usize = 72;
@@ -115,6 +115,54 @@ impl FermionOp<DeviceSpinor> for CudaWilson {
     }
 }
 
+/// The even-odd blocks: the hops between the parities; the block within a site is 1.
+impl EvenOdd<DeviceSpinor> for CudaWilson {
+    type Work = ();
+
+    fn even_odd_work(&self) {}
+
+    fn hop(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        hops(
+            (&self.gauge, &self.geometry),
+            out,
+            inp,
+            self.params.kappa,
+            FifthInHops::NONE,
+            dagger == Dagger::Yes,
+            Some(to),
+        );
+    }
+
+    fn diag(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        _parity: Parity,
+        _dagger: Dagger,
+    ) {
+        out.copy_from(inp);
+    }
+
+    fn diag_inv(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        _parity: Parity,
+        _dagger: Dagger,
+    ) {
+        out.copy_from(inp);
+    }
+}
+
 /// The clover operator on the device. The blocks of the operator within a site and their
 /// inverses are made on the CPU, by the operator there, and sent to the device.
 pub struct CudaClover {
@@ -162,21 +210,75 @@ impl CudaClover {
         finish();
     }
 
-    /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`.
+    /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`, on the whole lattice or on
+    /// one parity.
     pub fn site(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor, inverse: bool) {
-        assert!(inp.is(out, 1, None) && out.is(inp, 1, None));
+        assert!(out.same_shape(inp) && inp.ls == 1);
+        out.parity = inp.parity;
         let blocks = if inverse { &self.inverse } else { &self.term };
-        // SAFETY: two spinor buffers and the blocks of every site.
+        // SAFETY: two spinor buffers on the sites the kernel is told, and the blocks of
+        // every site of the lattice.
         unsafe {
             bridge_cuda_clover_term_f64(
                 out.data.ptr,
                 inp.data.ptr,
                 blocks.ptr,
                 &self.geometry,
+                parity_number(inp.parity),
                 STREAM,
             );
         }
         finish();
+    }
+}
+
+/// The even-odd blocks: the hops between the parities, and T, which is Hermitian.
+impl EvenOdd<DeviceSpinor> for CudaClover {
+    type Work = ();
+
+    fn even_odd_work(&self) {}
+
+    fn hop(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        to: Parity,
+        dagger: Dagger,
+    ) {
+        hops(
+            (&self.gauge, &self.geometry),
+            out,
+            inp,
+            self.params.kappa,
+            FifthInHops::NONE,
+            dagger == Dagger::Yes,
+            Some(to),
+        );
+    }
+
+    fn diag(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        parity: Parity,
+        _dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity, Some(parity));
+        self.site(out, inp, false);
+    }
+
+    fn diag_inv(
+        &self,
+        _work: &mut (),
+        out: &mut DeviceSpinor,
+        inp: &DeviceSpinor,
+        parity: Parity,
+        _dagger: Dagger,
+    ) {
+        assert_eq!(inp.parity, Some(parity));
+        self.site(out, inp, true);
     }
 }
 

@@ -50,10 +50,11 @@ void bridge_cuda_wilson_exterior_f64(
 // Clover Operator
 // =========================================================================
 
-// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh).
+// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh); on the
+// whole lattice (parity < 0) or on the sites of one parity.
 void bridge_cuda_clover_term_f32(
     float* d_out, const float* d_in, const float* d_clover,
-    const BridgeCudaGeometry* geom, cudaStream_t stream
+    const BridgeCudaGeometry* geom, int parity, cudaStream_t stream
 );
 
 // out = D in = T in - kappa hops; csw of the parameters is in T already.
@@ -63,10 +64,11 @@ void bridge_cuda_clover_dslash_f32(
     int dagger, cudaStream_t stream
 );
 
-// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh).
+// out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh); on the
+// whole lattice (parity < 0) or on the sites of one parity.
 void bridge_cuda_clover_term_f64(
     double* d_out, const double* d_in, const double* d_clover,
-    const BridgeCudaGeometry* geom, cudaStream_t stream
+    const BridgeCudaGeometry* geom, int parity, cudaStream_t stream
 );
 
 // out = D in = T in - kappa hops; csw of the parameters is in T already.
@@ -284,12 +286,20 @@ void bridge_cuda_mg_coarse_invert_diagonal_blocks_f64(
 
 // The parts of the MDWF operator (fermion/mdwf.cuh): the plain operator, Dirac representation.
 
-// out = H (b - c Y) in, or with H^dag: on the whole lattice (target_parity < 0), or out on the
-// sites of parity target_parity and in on the others (the block D_pq of D, with b and c of D).
-void bridge_cuda_mdwf_hop_f32(
+// out = H (b - c Y) in, or with H^dag (fermion/hops.cuh): on the whole lattice
+// (target_parity < 0), or out on the sites of parity target_parity and in on the others. The
+// hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
+// the domain-wall operator (kappa = 1/2, its b and c).
+void bridge_cuda_hop_f32(
     float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream
+);
+
+// The field on one parity out of the one on the whole lattice (to_half), or into it.
+void bridge_cuda_parity_copy_f32(
+    float* d_half, float* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
+    cudaStream_t stream
 );
 
 // out = (a1 + y1 Y) x + (a2 + y2 Y) z, or with Y^dag; d_z may be null.
@@ -311,12 +321,20 @@ void bridge_cuda_gamma5_f32(
     float* d_out, const float* d_in, int sites, int Ls, int reflect, cudaStream_t stream
 );
 
-// out = H (b - c Y) in, or with H^dag: on the whole lattice (target_parity < 0), or out on the
-// sites of parity target_parity and in on the others (the block D_pq of D, with b and c of D).
-void bridge_cuda_mdwf_hop_f64(
+// out = H (b - c Y) in, or with H^dag (fermion/hops.cuh): on the whole lattice
+// (target_parity < 0), or out on the sites of parity target_parity and in on the others. The
+// hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
+// the domain-wall operator (kappa = 1/2, its b and c).
+void bridge_cuda_hop_f64(
     double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, cudaStream_t stream
+);
+
+// The field on one parity out of the one on the whole lattice (to_half), or into it.
+void bridge_cuda_parity_copy_f64(
+    double* d_half, double* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
+    cudaStream_t stream
 );
 
 // out = (a1 + y1 Y) x + (a2 + y2 Y) z, or with Y^dag; d_z may be null.
