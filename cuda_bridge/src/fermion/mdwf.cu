@@ -85,27 +85,17 @@ void bridge_cuda_mdwf_dslash_1pass_f32(
     dim3 grid((vol4d + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize,
               (geom->Ls + LS_PER_BLOCK - 1) / LS_PER_BLOCK);
 
-    if (geom->gamma_rep == BRIDGE_CUDA_GAMMA_DIRAC) {
-        bridge_cuda::mdwf_dslash_1pass_kernel<float, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_DIRAC><<<grid, block, 0, stream>>>(
-            d_out, d_in, d_gauge, vol4d, geom->Ls,
-            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-            static_cast<float>(params->M5),
-            static_cast<float>(params->mass),
-            static_cast<float>(params->alpha),
-            static_cast<float>(params->b5),
-            static_cast<float>(params->c5)
-        );
-    } else {
-        bridge_cuda::mdwf_dslash_1pass_kernel<float, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_CHIRAL><<<grid, block, 0, stream>>>(
-            d_out, d_in, d_gauge, vol4d, geom->Ls,
-            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-            static_cast<float>(params->M5),
-            static_cast<float>(params->mass),
-            static_cast<float>(params->alpha),
-            static_cast<float>(params->b5),
-            static_cast<float>(params->c5)
-        );
-    }
+    // The Dirac representation and alpha = 1 only (see the kernel).
+    bridge_cuda::mdwf_dslash_1pass_kernel<float, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_DIRAC><<<grid, block, 0, stream>>>(
+        d_out, d_in, d_gauge, vol4d, geom->Ls,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
+        static_cast<float>(params->M5),
+        static_cast<float>(params->mass),
+        static_cast<float>(params->b5),
+        static_cast<float>(params->c5)
+    );
 }
 
 void bridge_cuda_mdwf_dslash_1pass_f64(
@@ -119,27 +109,17 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
     dim3 grid((vol4d + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize,
               (geom->Ls + LS_PER_BLOCK - 1) / LS_PER_BLOCK);
 
-    if (geom->gamma_rep == BRIDGE_CUDA_GAMMA_DIRAC) {
-        bridge_cuda::mdwf_dslash_1pass_kernel<double, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_DIRAC><<<grid, block, 0, stream>>>(
-            d_out, d_in, d_gauge, vol4d, geom->Ls,
-            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-            params->M5,
-            params->mass,
-            params->alpha,
-            params->b5,
-            params->c5
-        );
-    } else {
-        bridge_cuda::mdwf_dslash_1pass_kernel<double, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_CHIRAL><<<grid, block, 0, stream>>>(
-            d_out, d_in, d_gauge, vol4d, geom->Ls,
-            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
-            params->M5,
-            params->mass,
-            params->alpha,
-            params->b5,
-            params->c5
-        );
-    }
+    // The Dirac representation and alpha = 1 only (see the kernel).
+    bridge_cuda::mdwf_dslash_1pass_kernel<double, LS_PER_BLOCK, BRIDGE_CUDA_GAMMA_DIRAC><<<grid, block, 0, stream>>>(
+        d_out, d_in, d_gauge, vol4d, geom->Ls,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
+        params->M5,
+        params->mass,
+        params->b5,
+        params->c5
+    );
 }
 
 void bridge_cuda_mdwf_dslash_f32(

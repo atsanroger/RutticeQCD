@@ -7,7 +7,7 @@
 //! of the fields here (spin outermost, then colour, then real and imaginary part; a link row by
 //! row, the four directions of a site one after the other).
 
-use crate::fermion::WilsonParams;
+use crate::fermion::{MdwfParams, WilsonParams};
 use crate::{Boundary, Field, Gauge, Lattice, Spinor, ND};
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -34,6 +34,15 @@ struct WilsonKernelParams {
     kappa: f64,
 }
 
+#[repr(C)]
+struct MdwfKernelParams {
+    m5: f64,
+    mass: f64,
+    alpha: f64,
+    b5: f64,
+    c5: f64,
+}
+
 const HOST_TO_DEVICE: i32 = 1;
 const DEVICE_TO_HOST: i32 = 2;
 
@@ -48,6 +57,14 @@ extern "C" {
         gauge: *const f64,
         geometry: *const Geometry,
         params: *const WilsonKernelParams,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_mdwf_dslash_1pass_f64(
+        out: *mut f64,
+        inp: *const f64,
+        gauge: *const f64,
+        geometry: *const Geometry,
+        params: *const MdwfKernelParams,
         stream: *mut c_void,
     );
 }
@@ -145,28 +162,45 @@ fn padded(sites: usize) -> usize {
     sites.div_ceil(W) * W
 }
 
-/// A spinor field (one vector) on the device.
+/// Where component `c` of the spinor at `s` of site `x` is, with `ls` spinors per site: the
+/// `ls` spinors of a block of sites are one after the other.
+#[inline]
+fn at_fifth(c: usize, s: usize, x: usize, ls: usize) -> usize {
+    (((x / W) * ls + s) * SPINOR + c) * W + x % W
+}
+
+/// A spinor field (one vector, `ls` spinors per site) on the device.
 pub struct DeviceSpinor {
     data: DeviceBuffer,
     lat: Arc<Lattice>,
+    ls: usize,
 }
 
 impl DeviceSpinor {
+    /// A field of four-dimensional spinors.
     pub fn zeros(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
+        Self::zeros_fifth(lat, 1)
+    }
+
+    /// A field with `ls` spinors per site.
+    pub fn zeros_fifth(lat: &Arc<Lattice>, ls: usize) -> Result<Self, CudaError> {
         Ok(Self {
-            data: DeviceBuffer::zeros(padded(lat.num_sites()) * SPINOR)?,
+            data: DeviceBuffer::zeros(padded(lat.num_sites()) * ls * SPINOR)?,
             lat: lat.clone(),
+            ls,
         })
     }
 
     /// The field `psi` (one vector, the usual layout) on the device.
     pub fn from_host(psi: &Field<f64, Spinor>) -> Result<Self, CudaError> {
         assert_eq!(psi.num_vectors(), 1);
-        let lat = psi.lattice();
-        let mut host = vec![0.0; padded(lat.num_sites()) * SPINOR];
+        let (lat, ls) = (psi.lattice(), psi.ls());
+        let mut host = vec![0.0; padded(lat.num_sites()) * ls * SPINOR];
         for x in 0..lat.num_sites() {
-            for (c, v) in psi.site(0, x).iter().enumerate() {
-                host[at(c, x, SPINOR)] = *v;
+            for (s, spinor) in psi.site(0, x).as_chunks::<SPINOR>().0.iter().enumerate() {
+                for (c, v) in spinor.iter().enumerate() {
+                    host[at_fifth(c, s, x, ls)] = *v;
+                }
             }
         }
         let data = DeviceBuffer::uninitialised(host.len())?;
@@ -174,20 +208,69 @@ impl DeviceSpinor {
         Ok(Self {
             data,
             lat: lat.clone(),
+            ls,
         })
     }
 
     /// The field back on the host.
     pub fn to_host(&self) -> Result<Field<f64, Spinor>, CudaError> {
         let host = self.data.download()?;
-        let mut psi = Field::<f64, Spinor>::spinor(&self.lat, 1);
+        let ls = self.ls;
+        let mut psi = Field::<f64, Spinor>::with_shape(&self.lat, SPINOR, ls, 1, 1);
         for x in 0..self.lat.num_sites() {
-            for (c, v) in psi.site_mut(0, x).iter_mut().enumerate() {
-                *v = host[at(c, x, SPINOR)];
+            for (s, spinor) in psi
+                .site_mut(0, x)
+                .as_chunks_mut::<SPINOR>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                for (c, v) in spinor.iter_mut().enumerate() {
+                    *v = host[at_fifth(c, s, x, ls)];
+                }
             }
         }
         Ok(psi)
     }
+}
+
+/// The links `u` on the device and the geometry the kernels take, for `ls` spinors per site.
+fn device_gauge(
+    u: &Field<f64, Gauge>,
+    boundary: [Boundary; ND],
+    ls: usize,
+) -> Result<(DeviceBuffer, Geometry), CudaError> {
+    let lat = u.lattice();
+    assert_eq!(lat.comm.size(), 1, "the CUDA backend runs on one process");
+    let sites = lat.num_sites();
+    let mut host = vec![0.0; padded(sites) * LINKS];
+    for mu in 0..ND {
+        for x in 0..sites {
+            for (c, v) in u.site(mu, x).iter().enumerate() {
+                host[at(18 * mu + c, x, LINKS)] = *v;
+            }
+        }
+    }
+    let gauge = DeviceBuffer::uninitialised(host.len())?;
+    gauge.upload(&host)?;
+    let bc = boundary.map(|b| match b {
+        Boundary::Periodic => 1,
+        Boundary::Antiperiodic => -1,
+        Boundary::Dirichlet => 0,
+        Boundary::Phase(..) => {
+            panic!("the CUDA kernels take periodic, antiperiodic and Dirichlet boundaries")
+        }
+    });
+    let geometry = Geometry {
+        dims: lat.local.map(|l| l as i32),
+        ls: ls as i32,
+        bc,
+        vol: sites as i32,
+        vol5d: (sites * ls) as i32,
+        vol_pad: padded(sites) as i32,
+        gamma_rep: 0,
+    };
+    Ok((gauge, geometry))
 }
 
 /// The Wilson operator on the device (one process, the Dirac representation).
@@ -200,45 +283,17 @@ pub struct CudaWilson {
 impl CudaWilson {
     /// The operator on the links `u`.
     pub fn new(u: &Field<f64, Gauge>, params: WilsonParams) -> Result<Self, CudaError> {
-        let lat = u.lattice();
-        assert_eq!(lat.comm.size(), 1, "the CUDA backend runs on one process");
-        let sites = lat.num_sites();
-        let mut host = vec![0.0; padded(sites) * LINKS];
-        for mu in 0..ND {
-            for x in 0..sites {
-                for (c, v) in u.site(mu, x).iter().enumerate() {
-                    host[at(18 * mu + c, x, LINKS)] = *v;
-                }
-            }
-        }
-        let gauge = DeviceBuffer::uninitialised(host.len())?;
-        gauge.upload(&host)?;
-        let dims = lat.local.map(|l| l as i32);
-        let bc = params.boundary.map(|b| match b {
-            Boundary::Periodic => 1,
-            Boundary::Antiperiodic => -1,
-            Boundary::Dirichlet => 0,
-            Boundary::Phase(..) => {
-                panic!("the CUDA kernels take periodic, antiperiodic and Dirichlet boundaries")
-            }
-        });
+        let (gauge, geometry) = device_gauge(u, params.boundary, 1)?;
         Ok(Self {
             params,
-            geometry: Geometry {
-                dims,
-                ls: 1,
-                bc,
-                vol: sites as i32,
-                vol5d: sites as i32,
-                vol_pad: padded(sites) as i32,
-                gamma_rep: 0,
-            },
+            geometry,
             gauge,
         })
     }
 
     /// `out = D inp`.
     pub fn mult(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor) -> Result<(), CudaError> {
+        assert!(out.ls == 1 && inp.ls == 1 && Arc::ptr_eq(&out.lat, &inp.lat));
         let params = WilsonKernelParams {
             kappa: self.params.kappa,
         };
@@ -247,6 +302,51 @@ impl CudaWilson {
         // `inp` (one is borrowed mutably), and the structures outlive the call.
         unsafe {
             bridge_cuda_wilson_dslash_f64(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.ptr,
+                &self.geometry,
+                &params,
+                std::ptr::null_mut(),
+            );
+            check(cudaDeviceSynchronize())
+        }
+    }
+}
+
+/// The Möbius domain-wall operator on the device (one process, the Dirac representation, the
+/// plain operator: no α of Neff).
+pub struct CudaMdwf {
+    params: MdwfParams,
+    geometry: Geometry,
+    gauge: DeviceBuffer,
+}
+
+impl CudaMdwf {
+    /// The operator on the links `u`.
+    pub fn new(u: &Field<f64, Gauge>, params: MdwfParams) -> Result<Self, CudaError> {
+        let (gauge, geometry) = device_gauge(u, params.boundary, params.ls)?;
+        Ok(Self {
+            params,
+            geometry,
+            gauge,
+        })
+    }
+
+    /// `out = D inp`.
+    pub fn mult(&self, out: &mut DeviceSpinor, inp: &DeviceSpinor) -> Result<(), CudaError> {
+        let ls = self.params.ls;
+        assert!(out.ls == ls && inp.ls == ls && Arc::ptr_eq(&out.lat, &inp.lat));
+        let params = MdwfKernelParams {
+            m5: self.params.m5,
+            mass: self.params.mass,
+            alpha: 1.0,
+            b5: self.params.b,
+            c5: self.params.c,
+        };
+        // SAFETY: as in `CudaWilson::mult`, the spinor buffers holding `ls` spinors per site.
+        unsafe {
+            bridge_cuda_mdwf_dslash_1pass_f64(
                 out.data.ptr,
                 inp.data.ptr,
                 self.gauge.ptr,
