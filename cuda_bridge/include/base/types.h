@@ -30,6 +30,7 @@ typedef struct {
     int32_t vol5d;    // Local 5D volume = vol * Ls
     int32_t vol_pad;  // Volume padded to multiple of BRIDGE_CUDA_WARP_SIZE (W=32)
     int32_t gamma_rep;// BridgeCudaGammaRep (Dirac or Chiral)
+    int32_t link_rows;// Rows of a link the operators read: 2 (the third rebuilt, links in SU(3)), else all 3
 } BridgeCudaGeometry;
 
 // Wilson operator parameters - aligned with Ruttice WilsonParams

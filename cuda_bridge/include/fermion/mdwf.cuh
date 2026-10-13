@@ -29,7 +29,7 @@ template <typename Float, int LS_PER_BLOCK = 4>
 __global__ void mdwf_dslash_1pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
-    const Float* __restrict__ d_gauge,
+    const Float* __restrict__ d_gauge, int link_rows,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     int Ls,
@@ -48,7 +48,7 @@ __global__ void mdwf_dslash_1pass_kernel(
 
     Float acc[Nspin][Nc][Ncomplex];
     fifth_term<Float>(acc, d_in, is, Ls, site, mass, d_plus, d_minus, false);
-    hops<Float>(acc, d_in, d_gauge, xc, is, Ls, dims, bc, false, static_cast<Float>(1.0),
+    hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, false, static_cast<Float>(1.0),
                 static_cast<Float>(0.5), mass, b5, c5);
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {

@@ -283,7 +283,7 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        self.gauge.set(u)
+        self.gauge.set(u, &mut self.geometry)
     }
 
     fn mult(

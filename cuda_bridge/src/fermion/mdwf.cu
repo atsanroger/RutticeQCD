@@ -31,7 +31,7 @@ void bridge_cuda_mdwf_dslash_1pass_f32(
     cudaStream_t stream)
 {
     bridge_cuda::mdwf_dslash_1pass_kernel<float, LS_PER_BLOCK><<<site_grid(volume(geom), geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge,
+        d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
@@ -55,7 +55,7 @@ void bridge_cuda_hop_f32(
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
     bridge_cuda::hop_kernel<float, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge,
+        d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
@@ -121,7 +121,7 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
     cudaStream_t stream)
 {
     bridge_cuda::mdwf_dslash_1pass_kernel<double, LS_PER_BLOCK><<<site_grid(volume(geom), geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge,
+        d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
@@ -145,7 +145,7 @@ void bridge_cuda_hop_f64(
 {
     int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
     bridge_cuda::hop_kernel<double, LS_PER_BLOCK><<<site_grid(sites, geom->Ls), site_block(), 0, stream>>>(
-        d_out, d_in, d_gauge,
+        d_out, d_in, d_gauge, geom->link_rows,
         geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),

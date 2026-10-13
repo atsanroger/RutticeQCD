@@ -91,6 +91,46 @@ __device__ __forceinline__ void fifth_term(
     }
 }
 
+// The link in direction mu at `site`. The operators keep `rows` rows of every link: all three
+// (18 reals, the links of base/aosoa.cuh), or the first two (12 reals), for links in SU(3),
+// whose third row is the conjugate of the cross product of the first two. A third less to read
+// for a link, which is most of what a four-dimensional operator reads.
+template <typename Float>
+__device__ __forceinline__ void load_link(
+    Float u_r[Nc][Nc], Float u_i[Nc][Nc],
+    const Float* __restrict__ d_gauge,
+    int mu, int site, int rows)
+{
+    const int reals = 4 * 2 * Nc * rows;
+    #pragma unroll
+    for (int r = 0; r < 2; ++r) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            const int comp = 2 * (c + Nc * (r + rows * mu));
+            u_r[r][c] = d_gauge[aosoa_idx(comp, site, reals)];
+            u_i[r][c] = d_gauge[aosoa_idx(comp + 1, site, reals)];
+        }
+    }
+    if (rows == 2) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            const int a = (c + 1) % Nc, b = (c + 2) % Nc;
+            // conj(u0[a] u1[b] - u0[b] u1[a])
+            u_r[2][c] = (u_r[0][a] * u_r[1][b] - u_i[0][a] * u_i[1][b])
+                      - (u_r[0][b] * u_r[1][a] - u_i[0][b] * u_i[1][a]);
+            u_i[2][c] = (u_r[0][b] * u_i[1][a] + u_i[0][b] * u_r[1][a])
+                      - (u_r[0][a] * u_i[1][b] + u_i[0][a] * u_r[1][b]);
+        }
+    } else {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            const int comp = 2 * (c + Nc * (2 + rows * mu));
+            u_r[2][c] = d_gauge[aosoa_idx(comp, site, reals)];
+            u_i[2][c] = d_gauge[aosoa_idx(comp + 1, site, reals)];
+        }
+    }
+}
+
 // acc += coef U (1 - s gamma_mu) w, or with U^dag (`adjoint`), s = +-1.
 //
 // (1 - s gamma_mu) w has two independent spin components, so the link multiplies two colour
@@ -155,12 +195,13 @@ __device__ __forceinline__ void hop_leg(
 
 // acc += H w at the site of coordinates xc and fifth coordinate `is`, with
 // w = (b - c Y) psi of d_in; `sign` -1 gives H^dag. With `half`, d_in holds the sites of the
-// parity opposite to that of xc. For a four-dimensional field: Ls = 1, b = 1, c = 0.
+// parity opposite to that of xc. For a four-dimensional field: Ls = 1, b = 1, c = 0. The links
+// are kept as load_link says.
 template <typename Float>
 __device__ __forceinline__ void hops(
     Float acc[Nspin][Nc][Ncomplex],
     const Float* __restrict__ d_in,
-    const Float* __restrict__ d_gauge,
+    const Float* __restrict__ d_gauge, int link_rows,
     const int xc[4], int is, int Ls,
     const int dims[4], const Float bc[4],
     bool half, Float sign, Float kappa,
@@ -188,16 +229,8 @@ __device__ __forceinline__ void hops(
         fifth_term<Float>(w_f, d_in, is, Ls, in_f, mass, b5, -c5, false);
         fifth_term<Float>(w_b, d_in, is, Ls, in_b, mass, b5, -c5, false);
         Float u_f_r[Nc][Nc], u_f_i[Nc][Nc], u_b_r[Nc][Nc], u_b_i[Nc][Nc];
-        #pragma unroll
-        for (int r = 0; r < Nc; ++r) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                u_f_r[r][c] = d_gauge[aosoa_gauge_idx(mu, r, c, 0, site)];
-                u_f_i[r][c] = d_gauge[aosoa_gauge_idx(mu, r, c, 1, site)];
-                u_b_r[r][c] = d_gauge[aosoa_gauge_idx(mu, r, c, 0, site_b)];
-                u_b_i[r][c] = d_gauge[aosoa_gauge_idx(mu, r, c, 1, site_b)];
-            }
-        }
+        load_link<Float>(u_f_r, u_f_i, d_gauge, mu, site, link_rows);
+        load_link<Float>(u_b_r, u_b_i, d_gauge, mu, site_b, link_rows);
         hop_leg<Float>(acc, w_f, u_f_r, u_f_i, false, mu, sign, -kappa * sign_f);
         hop_leg<Float>(acc, w_b, u_b_r, u_b_i, true, mu, -sign, -kappa * sign_b);
     }
@@ -213,7 +246,7 @@ template <typename Float, int LS_PER_BLOCK = 4>
 __global__ void hop_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
-    const Float* __restrict__ d_gauge,
+    const Float* __restrict__ d_gauge, int link_rows,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     int Ls,
@@ -237,7 +270,7 @@ __global__ void hop_kernel(
     }
 
     Float acc[Nspin][Nc][Ncomplex] = {0};
-    hops<Float>(acc, d_in, d_gauge, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
+    hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {
         #pragma unroll

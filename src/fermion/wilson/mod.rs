@@ -119,6 +119,7 @@ mod even_odd;
 mod lexical;
 mod site;
 mod sweep;
+pub use sweep::links_in_su3;
 mod sweep_blocks;
 mod sweep_sites;
 
