@@ -60,6 +60,9 @@ Solver:
 MultiGrid:
   ## coarse_precision = {single, double}: the coarse operators and solves
   coarse_precision : single
+  ## fine_precision = {single, double}: with backend cuda_bridge, the setup and the cycle above
+  ## the coarse lattice (the outer solver is in double precision); on the CPU always double
+  fine_precision   : single
   Setup:
     ## Chebyshev-filtered subspace iteration on A^dag A, then the multigrid bootstrap
     filter_number_of_vectors   : 16

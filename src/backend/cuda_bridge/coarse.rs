@@ -391,11 +391,11 @@ impl DeviceBasis {
     /// as `pv_eo_basis` makes it on the CPU: for every y, s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
     /// and t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s) (see the top of
     /// `multigrid::mdwf_even_odd`); `op` and `pv` the plain operators.
-    pub fn pv_eo(
-        op: &CudaMdwf,
-        pv: &CudaMdwf,
+    pub fn pv_eo<T: DeviceReal>(
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
         agg: &Arc<Aggregation>,
-        y: &DeviceSpinor,
+        y: &DeviceSpinor<T>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);

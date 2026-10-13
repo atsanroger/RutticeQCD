@@ -328,6 +328,11 @@ impl Default for ChebyshevBlock {
 pub struct MultigridBlock {
     #[serde(default = "single")]
     pub coarse_precision: PrecisionType,
+    /// On a device: the precision of the multigrid above the coarse lattice, its setup and
+    /// its cycle (the outer solver is in double precision either way). On the CPU these are
+    /// in double precision.
+    #[serde(default = "single")]
+    pub fine_precision: PrecisionType,
     #[serde(rename = "Setup", default)]
     pub setup: SetupBlock,
     #[serde(rename = "Smoother", default)]
