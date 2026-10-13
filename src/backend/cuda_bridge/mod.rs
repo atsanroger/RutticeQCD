@@ -11,7 +11,8 @@
 //! `DeviceSpinor` is a `Vector` and the operators are `FermionOp` and `EvenOdd` on it, so the
 //! solvers run on them as they are. Making a field or an operator returns a `CudaError` if the
 //! device refuses (no memory); the operations of `Vector`, `FermionOp` and `EvenOdd` have no
-//! error to return and panic if the CUDA runtime fails.
+//! error to return and panic if the CUDA runtime fails; a kernel that fails is noticed at the
+//! next reduction or transfer, not where it was launched.
 
 mod field;
 mod mdwf;
@@ -445,7 +446,9 @@ fn must<T>(result: Result<T, CudaError>) -> T {
     result.unwrap_or_else(|e| panic!("{e}"))
 }
 
-/// Wait for the kernels launched so far; an error of any of them shows here.
+/// Wait for the kernels launched so far; an error of any of them shows here. The kernels are
+/// not waited for one by one: what needs their result on the host waits (a reduction, a
+/// transfer), and so does freeing memory they may still use.
 fn finish() {
     // SAFETY: no arguments.
     must(check(unsafe { cudaDeviceSynchronize() }));
@@ -533,8 +536,10 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
 impl<T> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from `cudaMalloc` and is freed once.
+        // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
+        // may still read or write it.
         unsafe {
+            cudaDeviceSynchronize();
             cudaFree(self.ptr.cast());
         }
     }
@@ -671,7 +676,6 @@ fn hops<T: DeviceReal>(
             parity_number(to),
         );
     }
-    finish();
 }
 
 /// `dst = src`, from one precision to another.
@@ -696,5 +700,4 @@ fn convert<T: DeviceReal, U: DeviceReal>(dst: &mut DeviceBuffer<T>, src: &Device
             )));
         }
     }
-    finish();
 }
