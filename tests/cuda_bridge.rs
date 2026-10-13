@@ -5,8 +5,8 @@ use ruttice::backend::cuda_bridge::{
     CudaClover, CudaMdwf, CudaWilson, DeviceParities, DeviceReal, DeviceSpinor,
 };
 use ruttice::fermion::{
-    solve_even_odd, Bound, Clover, CloverParams, Dagger, EvenOdd, FermionOp, Mdwf, MdwfParams,
-    Schur, Variant, Wilson, WilsonParams,
+    solve_even_odd, Bound, Clover, CloverParams, Dagger, EoForm, EvenOdd, FermionOp, Mdwf,
+    MdwfParams, PvEvenOdd, PvRatio, Schur, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::solver::{solve_cgne, Cg, Convert, Refine, Solve, Solver, Stop};
@@ -585,4 +585,45 @@ fn mixed_precision_solve_on_the_device() {
         "mixed precision: {} corrections in double precision",
         info.iterations
     );
+}
+
+/// Neff's α on the device, and the Pauli-Villars preconditioned operator on the even sites in
+/// both forms, are those on the CPU.
+#[test]
+fn pauli_villars_preconditioned_operator_on_the_device() {
+    for alpha in [1.0, 0.6] {
+        for (dims, params) in mdwf_cases().into_iter().take(3) {
+            let what = format!("MDWF {dims:?} {params:?} α {alpha}");
+            let lat = Lattice::single_node(dims);
+            let u = random_gauge(&lat, 391);
+            let psi = random_fifth(&lat, params.ls, 392);
+            let (mut cpu, mut gpu) = mdwf_pair(&lat, &u, params);
+            let (mut cpu_pv, mut gpu_pv) = mdwf_pair(&lat, &u, params.pauli_villars());
+            cpu.set_alpha(alpha);
+            cpu_pv.set_alpha(alpha);
+            gpu.set_alpha(alpha);
+            gpu_pv.set_alpha(alpha);
+            let index = cpu.even_odd_index().unwrap().clone();
+            same_operator(&cpu, &gpu, &psi, 1e-13, &what);
+            same_blocks(&cpu, &gpu, &index, &psi, &what);
+
+            let mut inp = HalfPsi::with_shape(&lat, 24, params.ls, 1, 1);
+            extract_parity(&mut inp, &psi, &index, Parity::Even);
+            let device_inp = DeviceSpinor::from_host_half(&inp, &index).unwrap();
+            let device_odd = DeviceSpinor::zeros_half(&lat, params.ls, Parity::Odd).unwrap();
+            for form in [EoForm::Right, EoForm::Left] {
+                let mut cpu_a = PvEvenOdd::new(&cpu, &cpu_pv, form, &inp);
+                let mut gpu_a = PvRatio::new(&gpu, &gpu_pv, form, &device_inp, &device_odd);
+                let (mut expected, mut out) = (inp.zeros_like(), device_inp.zeros_like());
+                cpu_a.mult(&mut expected, &inp);
+                gpu_a.mult(&mut out, &device_inp);
+                let d = worst(&out.to_host_half(&index).unwrap(), &expected);
+                assert!(d < 1e-12, "{what}: Ã ({form:?}) differs by {d:e}");
+                cpu_a.mult_dag(&mut expected, &inp);
+                gpu_a.mult_dag(&mut out, &device_inp);
+                let d = worst(&out.to_host_half(&index).unwrap(), &expected);
+                assert!(d < 1e-12, "{what}: Ã† ({form:?}) differs by {d:e}");
+            }
+        }
+    }
 }

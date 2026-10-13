@@ -8,11 +8,13 @@ mod wilson;
 
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
-pub use even_odd::{solve_even_odd, Dagger, EvenOdd, OnParity, Schur, SplitParity};
+pub use even_odd::{
+    schur_factor, solve_even_odd, Dagger, EoForm, EvenOdd, OnParity, PvRatio, Schur, SplitParity,
+};
 
 pub use mdwf::{
-    EoForm, Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd,
-    PvPreconditioned, SiteInverse, MAX_LS,
+    Mdwf, MdwfAt, MdwfHalfWork, MdwfLayout, MdwfParams, MdwfWork, PvEvenOdd, PvPreconditioned,
+    SiteInverse, MAX_LS,
 };
 
 pub use wilson::{

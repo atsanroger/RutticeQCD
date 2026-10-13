@@ -88,6 +88,14 @@ void bridge_cuda_mdwf_site_inv_f32(
     );
 }
 
+void bridge_cuda_mdwf_q_f32(
+    float* d_out, const float* d_in, int sites, int Ls, double a, cudaStream_t stream)
+{
+    bridge_cuda::mdwf_q_kernel<float><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, sites, Ls, static_cast<float>(a)
+    );
+}
+
 void bridge_cuda_parity_copy_f32(
     float* d_half, float* d_full, const BridgeCudaGeometry* geom, int parity, int to_half,
     cudaStream_t stream)
@@ -167,6 +175,14 @@ void bridge_cuda_mdwf_site_inv_f64(
         d_out, d_in, sites, Ls,
         static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5),
         dagger
+    );
+}
+
+void bridge_cuda_mdwf_q_f64(
+    double* d_out, const double* d_in, int sites, int Ls, double a, cudaStream_t stream)
+{
+    bridge_cuda::mdwf_q_kernel<double><<<get_grid_size(sites), BLOCK_SIZE, 0, stream>>>(
+        d_out, d_in, sites, Ls, static_cast<double>(a)
     );
 }
 

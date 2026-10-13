@@ -309,6 +309,11 @@ void bridge_cuda_mdwf_fifth_f32(
     int sites, int Ls, double mass, int dagger, cudaStream_t stream
 );
 
+// out = Q in with a = alpha, Q^-1 in with a = 1/alpha: Neff's Q (fermion/mdwf.cuh).
+void bridge_cuda_mdwf_q_f32(
+    float* d_out, const float* d_in, int sites, int Ls, double a, cudaStream_t stream
+);
+
 // out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
 void bridge_cuda_mdwf_site_inv_f32(
     float* d_out, const float* d_in,
@@ -342,6 +347,11 @@ void bridge_cuda_mdwf_fifth_f64(
     double* d_out, const double* d_x, double a1, double y1,
     const double* d_z, double a2, double y2,
     int sites, int Ls, double mass, int dagger, cudaStream_t stream
+);
+
+// out = Q in with a = alpha, Q^-1 in with a = 1/alpha: Neff's Q (fermion/mdwf.cuh).
+void bridge_cuda_mdwf_q_f64(
+    double* d_out, const double* d_in, int sites, int Ls, double a, cudaStream_t stream
 );
 
 // out = C^-1 in, or C^dag^-1 in, on `sites` sites with Ls spinors each.
