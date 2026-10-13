@@ -310,9 +310,11 @@ impl Params {
                 "Main.backend cuda_bridge runs on one process; leave Main.grid_size out".into(),
             ));
         }
-        if self.solver.preconditioner_type == PreconditionerType::Multigrid {
+        if self.solver.preconditioner_type == PreconditionerType::Multigrid
+            && !matches!(self.fopr.fermion_type, FermionType::DomainWall)
+        {
             return Err(invalid(
-                "Main.backend cuda_bridge: the multigrid is not on the device yet; use Solver.preconditioner_type None or Chebyshev".into(),
+                "Main.backend cuda_bridge: the multigrid is on the device for domain-wall fermions only; use Solver.preconditioner_type None".into(),
             ));
         }
         if !self.main.lattice_size[0].is_multiple_of(2) {

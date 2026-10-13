@@ -320,6 +320,19 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     }
 }
 
+impl<T: DeviceReal> crate::Subspace for DeviceSpinor<T> {
+    /// By sums of the vectors into a second set (no kernel of its own).
+    fn rotate(&mut self, c: &[C64]) {
+        let n = self.vectors;
+        assert_eq!(c.len(), n * n);
+        let mut out = self.zeros_like();
+        for i in 0..n {
+            out.axpy(&c[i * n..(i + 1) * n], &self.select(&vec![i; n]));
+        }
+        *self = out;
+    }
+}
+
 /// From one precision to another, on the device.
 impl<T: DeviceReal, U: DeviceReal> ConvertFrom<DeviceSpinor<U>> for DeviceSpinor<T> {
     fn convert_from(&mut self, src: &DeviceSpinor<U>) {
