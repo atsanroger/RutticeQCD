@@ -96,3 +96,61 @@ fn bridge_gauge_lex_plaquette() {
     eprintln!("plaquette = {p:.15}, Bridge++ = {BRIDGE_GAUGE_LEX_PLAQUETTE:.15}");
     assert!((p - BRIDGE_GAUGE_LEX_PLAQUETTE).abs() < 1e-13, "{p}");
 }
+
+/// `expected_result` of the Bridge++ tests `Gauge_EnergyDensity` (the improved clover E,
+/// c_plaq 5/3, c_rect −1/12), `GradientFlow_Nf0_RK3` (t² E_plaq after four steps of 0.01,
+/// exponentials to order 8) and `TopologicalCharge` (the improved clover Q after 30 APE
+/// smearings of ρ = 0.1, the projection to 1e-14).
+const BRIDGE_ENERGY_DENSITY: f64 = 3.23051703618675e+00;
+const BRIDGE_GRADIENT_FLOW_RK3: f64 = 0.0154888237555128;
+const BRIDGE_TOPOLOGICAL_CHARGE: f64 = -4.53173555809789e-04;
+
+#[test]
+fn bridge_gradient_flow_energy_density_and_topological_charge() {
+    use ruttice::gauge::flow::{
+        energy_density_clover, energy_density_plaq, topological_charge, WilsonFlow,
+    };
+    use ruttice::gauge::smearing::Ape;
+    let Some(path) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = read_bridge_text(&path, &lat).unwrap();
+
+    let e = energy_density_clover(&u, 5.0 / 3.0, -1.0 / 12.0);
+    eprintln!("E_clover = {e:.15e}, Bridge++ = {BRIDGE_ENERGY_DENSITY:.15e}");
+    assert!(
+        (e - BRIDGE_ENERGY_DENSITY).abs() < 1e-12 * BRIDGE_ENERGY_DENSITY,
+        "{e}"
+    );
+
+    let flow = WilsonFlow {
+        step: 0.01,
+        exp_order: 8,
+    };
+    let mut v = read_bridge_text(&path, &lat).unwrap();
+    let mut t = 0.0;
+    for _ in 0..4 {
+        flow.step(&mut v);
+        t += flow.step;
+    }
+    let t2e = t * t * energy_density_plaq(&v);
+    eprintln!("t^2 E_plaq = {t2e:.15e}, Bridge++ = {BRIDGE_GRADIENT_FLOW_RK3:.15e}");
+    assert!(
+        (t2e - BRIDGE_GRADIENT_FLOW_RK3).abs() < 1e-12 * BRIDGE_GRADIENT_FLOW_RK3,
+        "{t2e}"
+    );
+
+    let ape = Ape::uniform(0.1, 1e-14, 1000);
+    let mut w = read_bridge_text(&path, &lat).unwrap();
+    for _ in 0..30 {
+        w = ape.apply(&w);
+    }
+    let q = topological_charge(&w, 5.0 / 3.0, -1.0 / 12.0);
+    eprintln!("Q = {q:.15e}, Bridge++ = {BRIDGE_TOPOLOGICAL_CHARGE:.15e}");
+    assert!(
+        (q - BRIDGE_TOPOLOGICAL_CHARGE).abs() < 1e-10 * BRIDGE_TOPOLOGICAL_CHARGE.abs(),
+        "{q}"
+    );
+}
