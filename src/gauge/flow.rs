@@ -191,6 +191,43 @@ mod tests {
         }
     }
 
+    /// On several processes (threads standing in for them) the flow, E and Q are those of one
+    /// process, to the rounding of the sums.
+    #[test]
+    fn several_processes_give_the_same() {
+        use crate::gauge::random_gauge;
+        use crate::{local_part, LocalComm};
+        let global = [4, 4, 4, 8];
+        let whole = Lattice::single_node(global);
+        let u = random_gauge(&whole, 7);
+        let flow = WilsonFlow {
+            step: 0.02,
+            exp_order: 8,
+        };
+        let measure = |u: &mut Field<f64, Gauge>| {
+            for _ in 0..3 {
+                flow.step(u);
+            }
+            [
+                energy_density_plaq(u),
+                energy_density_clover(u, 5.0 / 3.0, -1.0 / 12.0),
+                topological_charge(u, 5.0 / 3.0, -1.0 / 12.0),
+            ]
+        };
+        let one = measure(&mut local_part(&u, &whole));
+        for grid in [[1, 1, 1, 2], [1, 1, 2, 2], [2, 2, 1, 2]] {
+            let parts = LocalComm::run(global, grid, |lat| measure(&mut local_part(&u, &lat)));
+            for got in parts {
+                for (a, b) in got.iter().zip(&one) {
+                    assert!(
+                        (a - b).abs() <= 1e-12 * b.abs().max(1e-3),
+                        "{grid:?}: {a} vs {b}"
+                    );
+                }
+            }
+        }
+    }
+
     /// The unit field has no field strength, and the flow leaves it alone.
     #[test]
     fn the_unit_field_stays() {

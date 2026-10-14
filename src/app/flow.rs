@@ -2,6 +2,7 @@
 //! topological charge of every configuration of a Monte Carlo history.
 //!
 //!     ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
+//!     mpirun -np 4 ruttice-flow-mpi LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
 //!
 //! FORMAT is text, binary, nersc, ildg or scidac (`gauge_config_type_input`). For every file
 //! one line: the plaquette, t0/a² (t² E = 0.3, E of the clover field strength, interpolated
@@ -88,6 +89,9 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
         return 1;
     };
     let lat = Lattice::new(size, grid, comm);
+    // Every process takes part; rank 0 prints.
+    let mut sink = std::io::sink();
+    let out: &mut dyn Write = if lat.comm.rank() == 0 { out } else { &mut sink };
     let flow = WilsonFlow { step, exp_order: 8 };
     let _ = writeln!(
         out,
