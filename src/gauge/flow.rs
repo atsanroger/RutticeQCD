@@ -4,7 +4,7 @@
 
 use super::paths::{path_product, Step};
 use super::smearing::traceless_antihermitian;
-use super::{link, plaquette, PLANES};
+use super::{field_strength, link, plaquette, PLANES};
 use crate::hmc::{exp_update, PlaquetteAction};
 use crate::kernel::ColorMatrix;
 use crate::{reduce_sites, Boundary, Field, Gauge, Stencil, Vector, ND};
@@ -95,7 +95,19 @@ fn clover_loops(mu: usize, nu: usize, rect: bool) -> Vec<Vec<Step>> {
 /// k = ¼ for the plaquettes and ⅛ for the rectangles, kept as the anti-Hermitian
 /// A = −k TA(Σ loops) with F = i A.
 fn clover(u: &Field<f64, Gauge>, rect: bool) -> Vec<Vec<ColorMatrix<f64>>> {
-    let k = if rect { 0.125 } else { 0.25 };
+    if !rect {
+        // `field_strength` is m = (Q − Q†)/8 of the four plaquettes Q, so −¼ TA(Q) = −TA(m).
+        let st = Stencil::nearest(u.lattice(), [Boundary::Periodic; ND]);
+        let f = field_strength(u, &st);
+        return (0..PLANES.len())
+            .map(|plane| {
+                (0..u.num_sites())
+                    .map(|x| traceless_antihermitian(&link(&f, plane, x)).scale(-1.0))
+                    .collect()
+            })
+            .collect();
+    }
+    let k = 0.125;
     PLANES
         .iter()
         .map(|&(mu, nu)| {

@@ -3,6 +3,7 @@
 
 mod bench;
 mod config;
+pub mod flow;
 pub mod hmc;
 pub mod hmc_params;
 pub mod keyword;
