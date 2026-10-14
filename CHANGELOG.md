@@ -6,6 +6,11 @@
   scheme, the energy density (plaquette and clover) and the topological charge (clover and
   improved), as Bridge++ and checked against its tests; `ruttice-flow` and `ruttice-flow-mpi`
   print t0 and the charge of saved configurations.
+- HMC measures t0 and the charge by the flow every `GradientFlow.measurement_interval`
+  trajectories.
+- The Γ-method of Wolff (`numerics::gamma_method`): the error of a mean and the integrated
+  autocorrelation time, printed for t0 and the charges at the end of an HMC run and of
+  `ruttice-flow`.
 - The force of the plaquette action walks its staples site by site: the same numbers, faster.
 
 ## 0.2.0 (2026-10-14)

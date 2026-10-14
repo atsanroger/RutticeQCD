@@ -1,8 +1,10 @@
 //! Small dense numerical tools that do not involve lattice fields.
 
+mod autocorrelation;
 mod lsq;
 mod rational;
 
+pub use autocorrelation::{gamma_method, GammaAnalysis};
 pub use lsq::HessenbergLsq;
 pub use rational::{RationalApprox, RationalError, RationalSpec};
 

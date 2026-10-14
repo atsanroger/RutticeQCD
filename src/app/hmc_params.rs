@@ -40,14 +40,16 @@
 
 use super::config::GaugeFormat;
 use super::hmc::{
-    ActionConfig, HmcBlock, HmcChebyshev, HmcConfig, HmcFermion, HmcMultigrid, HmcOutput,
-    HmcPreconditioner, HmcSolver, HmcSolverKind, IntegratorConfig, SchemeConfig, StartConfig,
+    ActionConfig, FlowMonitor, HmcBlock, HmcChebyshev, HmcConfig, HmcFermion, HmcMultigrid,
+    HmcOutput, HmcPreconditioner, HmcSolver, HmcSolverKind, IntegratorConfig, SchemeConfig,
+    StartConfig,
 };
 use super::params::{
     Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
     OperatorType, PreconditionerType, SolverType,
 };
 use super::CliError;
+use crate::gauge::flow::WilsonFlow;
 use crate::{keyword_enum, ND};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -117,6 +119,63 @@ pub struct HmcParams {
     pub action_f_5: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_6")]
     pub action_f_6: Option<FermionActionBlock>,
+    /// The Wilson flow measured every `measurement_interval` trajectories.
+    #[serde(rename = "GradientFlow")]
+    pub gradient_flow: Option<FlowBlock>,
+}
+
+/// The Wilson flow along the run: t0 and the topological charge after every
+/// `measurement_interval` trajectories (keys of Bridge++'s `GradientFlow` where it has them).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlowBlock {
+    pub measurement_interval: usize,
+    #[serde(default = "flow_step")]
+    pub step_size: f64,
+    #[serde(default = "flow_t_max")]
+    pub max_flow_time: f64,
+    #[serde(rename = "order_of_approx_for_exp_iP", default = "flow_exp_order")]
+    pub order_of_exp_ip: usize,
+    /// Only 3 (Lüscher's scheme).
+    #[serde(rename = "order_of_RungeKutta", default = "flow_rk_order")]
+    pub order_of_runge_kutta: usize,
+}
+
+fn flow_step() -> f64 {
+    0.01
+}
+
+fn flow_t_max() -> f64 {
+    10.0
+}
+
+fn flow_exp_order() -> usize {
+    8
+}
+
+fn flow_rk_order() -> usize {
+    3
+}
+
+impl FlowBlock {
+    fn to_config(self) -> Result<FlowMonitor, CliError> {
+        if self.order_of_runge_kutta != 3 {
+            return invalid("GradientFlow.order_of_RungeKutta: only 3".into());
+        }
+        if self.measurement_interval == 0 || self.step_size <= 0.0 {
+            return invalid(
+                "GradientFlow: measurement_interval and step_size must be positive".into(),
+            );
+        }
+        Ok(FlowMonitor {
+            interval: self.measurement_interval,
+            flow: WilsonFlow {
+                step: self.step_size,
+                exp_order: self.order_of_exp_ip,
+            },
+            t_max: self.max_flow_time,
+        })
+    }
 }
 
 /// Where the run starts, how long it is and what it saves.
@@ -430,6 +489,7 @@ impl HmcParams {
                 file: run.config_filename_output.clone(),
                 format: GaugeFormat::from(run.gauge_config_type_output),
             },
+            flow: self.gradient_flow.map(FlowBlock::to_config).transpose()?,
         })
     }
 }

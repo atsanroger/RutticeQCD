@@ -704,6 +704,78 @@ Action_G:
     }
 }
 
+/// The Wilson flow along an HMC run: a line after every `measurement_interval` trajectories
+/// with what `flow_to_t0` finds on that configuration, the same on several processes, and the
+/// Γ-method for the series at the end.
+#[test]
+fn hmc_measures_the_flow_along_the_run() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    use ruttice::LocalComm;
+    let yaml = |grid: &str| {
+        format!(
+            "Main:
+  lattice_size : [4, 4, 4, 8]
+  grid_size : {grid}
+HMC:
+  gauge_config_status : Hot_start
+  seed_for_random_number : 5
+  number_of_trajectories : 6
+HMC_General:
+  trajectory_length : 0.5
+  Metropolis_test : false
+Builder_Integrator:
+  integrator : Omelyan
+  number_of_steps : [5]
+Action_G:
+  action_type : Action_G_Plaq
+  beta : 5.5
+GradientFlow:
+  measurement_interval : 2
+  step_size : 0.02
+  max_flow_time : 3.0
+"
+        )
+    };
+    let flow_lines = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|l| {
+                l.starts_with("# flow") || l.starts_with("# t0/a^2") || l.starts_with("# Q_")
+            })
+            .map(str::to_string)
+            .collect()
+    };
+    let config = HmcConfig::from_yaml(&yaml("[1, 1, 1, 1]")).unwrap();
+    let mut one = Vec::new();
+    run_on(
+        &config,
+        Path::new("."),
+        &mut one,
+        std::sync::Arc::new(ruttice::SingleComm),
+    )
+    .unwrap();
+    let one = flow_lines(&String::from_utf8(one).unwrap());
+    assert_eq!(
+        one.iter().filter(|l| l.starts_with("# flow")).count(),
+        3,
+        "{one:?}"
+    );
+    assert!(one.iter().any(|l| l.starts_with("# t0/a^2")), "{one:?}");
+
+    let config = HmcConfig::from_yaml(&yaml("[1, 1, 2, 2]")).unwrap();
+    let split = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+        let mut out = Vec::new();
+        run_on(&config, Path::new("."), &mut out, lat.comm.clone()).unwrap();
+        String::from_utf8(out).unwrap()
+    });
+    // Rank 0 prints; the numbers to the digits printed are those of one process.
+    assert_eq!(flow_lines(&split[0]), one);
+
+    let bad = yaml("[1, 1, 1, 1]").replace("step_size : 0.02", "order_of_RungeKutta : 4");
+    assert!(HmcConfig::from_yaml(&bad)
+        .map(|c| c.flow.is_some())
+        .is_err());
+}
+
 /// HMC with the multigrid in the force solves on several processes: the trajectory of one
 /// process, to the tolerance of the solves; blocks that a process cuts are refused.
 #[test]
