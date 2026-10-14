@@ -20,6 +20,11 @@ path = "apps/bench.rs"
 name = "ruttice-flow"
 path = "apps/flow.rs"
 
+[[bin]]
+name = "ruttice-flow-mpi"
+path = "apps/flow_mpi.rs"
+required-features = ["mpi"]
+
 # The same benchmark on several processes.
 [[bin]]
 name = "ruttice-bench-mpi"
