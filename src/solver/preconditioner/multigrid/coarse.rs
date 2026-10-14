@@ -1,5 +1,5 @@
 use super::{Basis, MultigridError};
-use crate::fermion::HopTerms;
+use crate::fermion::{HopTerms, Variant};
 use crate::kernel::{Cplx, Number, Real};
 use crate::numerics::invert_complex;
 use crate::{
@@ -123,9 +123,16 @@ fn invert_blocks<T: Storage>(
 }
 
 impl<T: Storage> CoarseOp<T> {
-    /// Build `P† D P` from the parts of the fine operator, one column at a time: prolong the coarse
-    /// unit vector of one component on every coarse site at once, apply the diagonal block and each
-    /// hopping term, sort what comes out by whether the hop stayed inside the block, and restrict.
+    /// Build `P† D P`, a few columns at a time as the vectors of the fields: P of the coarse
+    /// unit vectors of one component on every coarse site at once, and of that
+    ///
+    /// - each of the eight hops where it comes from another block, for the links. With φ kept
+    ///   on the face of every block that the hop comes from and zero elsewhere, D of it on
+    ///   the opposite face is that hop and nothing else (in blocks of more than two sites:
+    ///   the part within a site stays on the first face, the other hops do not reach the
+    ///   second), so this is the operator itself, in one sweep; in blocks of one or two sites
+    ///   it is the hop of `HopTerms`. P† reads the one face;
+    /// - D of all of φ: P† of it less the eight links is the block within the coarse site.
     pub fn build<F, S: Storage>(op: &F, work: &mut F::Work, basis: &Basis<T, S>) -> Self
     where
         F: HopTerms<Field<T, Spinor>>,
@@ -148,77 +155,86 @@ impl<T: Storage> CoarseOp<T> {
     {
         let agg = basis.aggregation();
         let (fine_lat, lat) = (agg.fine_lattice(), agg.coarse_lattice().clone());
-        let dim = basis.coarse_dim();
+        let (dim, block) = (basis.coarse_dim(), agg.block());
         let n_coarse = lat.num_sites();
         let matrix = 2 * dim * dim;
         let mut diag = vec![T::default(); n_coarse * matrix];
         let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
-        let hop_coefficient: T::Compute = Number::from_f64(op.hop_coefficient());
         let one = T::store(T::Compute::ONE);
 
-        let mut unit = basis.coarse_field(1);
-        let mut restricted = basis.coarse_field(1);
-        let mut phi = basis.fine_field(1);
-        let mut phi_right = basis.fine_field(1);
-        let mut inside = basis.fine_field(1);
-        let mut hop = basis.fine_field(1);
-        let mut crossing = basis.fine_field(1);
-
-        // Write column `column` of every site's matrix from a coarse field.
-        let store_column = |target: &mut [T], column: usize, values: &Field<T, Coarse>| {
+        // As many columns at a time as keep the four fine fields within about a GB, eight at
+        // most (P is read once for all of them).
+        let reals = basis.fine_field(1).as_slice().len();
+        let batch = ((1usize << 30) / (4 * reals * size_of::<T>())).clamp(1, 8.min(dim));
+        // Write the columns `first`, `first + 1`, ... of every site's matrix from the vectors
+        // of a coarse field.
+        let store_columns = |target: &mut [T], first: usize, values: &Field<T, Coarse>| {
             for site in 0..n_coarse {
-                let v = values.site(0, site);
-                for row in 0..dim {
-                    let at = site * matrix + 2 * (dim * row + column);
-                    target[at] = v[2 * row];
-                    target[at + 1] = v[2 * row + 1];
+                for (v, part) in values.site(0, site).chunks_exact(2 * dim).enumerate() {
+                    for row in 0..dim {
+                        let at = site * matrix + 2 * (dim * row + first + v);
+                        target[at] = part[2 * row];
+                        target[at + 1] = part[2 * row + 1];
+                    }
                 }
             }
         };
+        // Where a site is in its block, in direction mu.
+        let in_block = |x: usize, mu: usize| fine_lat.coords(x)[mu] % block[mu];
 
-        for column in 0..dim {
-            unit.as_mut_slice().fill(T::default());
+        for first in (0..dim).step_by(batch) {
+            let nv = batch.min(dim - first);
+            let mut unit = basis.coarse_field(nv);
             for site in 0..n_coarse {
-                unit.site_mut(0, site)[2 * column] = one;
+                for (v, part) in unit.site_mut(0, site).chunks_exact_mut(2 * dim).enumerate() {
+                    part[2 * (first + v)] = one;
+                }
             }
+            let mut phi = basis.fine_field(nv);
             basis.prolong(&mut phi, &unit);
-            let phi = match right.as_mut() {
-                Some(r) => {
-                    r.mult(&mut phi_right, &phi);
-                    &phi_right
-                }
-                None => &phi,
-            };
-
-            inside.as_mut_slice().fill(T::default());
-            op.mult_diag(work, &mut inside, phi);
-
-            for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
-                hop.as_mut_slice().fill(T::default());
-                match dir {
-                    Direction::Forward => op.hop_forward(work, mu, &mut hop, phi),
-                    Direction::Backward => op.hop_backward(work, mu, &mut hop, phi),
-                }
-                crossing.as_mut_slice().fill(T::default());
-                for x in 0..fine_lat.num_sites() {
-                    let scaled = hop.site(0, x).iter().map(|h| h.load() * hop_coefficient);
-                    if agg.crosses(x, mu, dir) {
-                        for (c, h) in crossing.site_mut(0, x).iter_mut().zip(scaled) {
-                            *c = T::store(h);
-                        }
-                    } else {
-                        for (i, h) in inside.site_mut(0, x).iter_mut().zip(scaled) {
-                            *i = T::store(i.load() + h);
-                        }
-                    }
-                }
-                basis.restrict(&mut restricted, &crossing);
-                let range = d * n_coarse * matrix..(d + 1) * n_coarse * matrix;
-                store_column(&mut links[range], column, &restricted);
+            if let Some(r) = right.as_mut() {
+                let mut phi_right = phi.zeros_like();
+                r.mult(&mut phi_right, &phi);
+                phi = phi_right;
             }
+            let (mut masked, mut out) = (phi.zeros_like(), phi.zeros_like());
+            let (mut restricted, mut inside) = (unit.zeros_like(), unit.zeros_like());
+            let site_len = phi.site_len();
 
-            basis.restrict(&mut restricted, &inside);
-            store_column(&mut diag, column, &restricted);
+            op.mult(work, &mut out, &phi, Variant::D);
+            basis.restrict(&mut inside, &out);
+            for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+                // The hop comes from the face `from` of a block onto the face `onto` of the
+                // block before or after it.
+                let last = block[mu] - 1;
+                let (from, onto) = match dir {
+                    Direction::Forward => (0, last),
+                    Direction::Backward => (last, 0),
+                };
+                if block[mu] > 2 {
+                    for_sites(masked.slab_mut(0), site_len, |x, m| {
+                        if in_block(x, mu) == from {
+                            m.copy_from_slice(phi.site(0, x));
+                        } else {
+                            m.fill(T::default());
+                        }
+                    });
+                    op.mult(work, &mut out, &masked, Variant::D);
+                    basis.restrict_where(&mut restricted, &out, |x| in_block(x, mu) == onto);
+                } else {
+                    out.as_mut_slice().fill(T::default());
+                    match dir {
+                        Direction::Forward => op.hop_forward(work, mu, &mut out, &phi),
+                        Direction::Backward => op.hop_backward(work, mu, &mut out, &phi),
+                    }
+                    basis.restrict_where(&mut restricted, &out, |x| agg.crosses(x, mu, dir));
+                    restricted.scale(&vec![op.hop_coefficient(); nv]);
+                }
+                let range = d * n_coarse * matrix..(d + 1) * n_coarse * matrix;
+                store_columns(&mut links[range], first, &restricted);
+                inside.axpy(&vec![C64::new(-1.0, 0.0); nv], &restricted);
+            }
+            store_columns(&mut diag, first, &inside);
         }
 
         let diag_inv = if precondition_diagonal {

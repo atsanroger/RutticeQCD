@@ -141,6 +141,17 @@ impl<T: Storage, S: Storage> Basis<T, S> {
 
     /// `coarse = P† fine`.
     pub fn restrict(&self, coarse: &mut Field<T, Coarse>, fine: &Field<T, Spinor>) {
+        self.restrict_where(coarse, fine, |_| true);
+    }
+
+    /// `coarse = P† fine` for a field that is zero but on the fine sites x with `keep(x)`:
+    /// only those are read.
+    pub fn restrict_where(
+        &self,
+        coarse: &mut Field<T, Coarse>,
+        fine: &Field<T, Spinor>,
+        keep: impl Fn(usize) -> bool + Sync,
+    ) {
         self.check(coarse, fine);
         assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
         let (dim, reals) = (self.coarse_dim(), self.reals);
@@ -150,6 +161,9 @@ impl<T: Storage, S: Storage> Basis<T, S> {
             let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
+                if !keep(x) {
+                    continue;
+                }
                 for (out, f) in out
                     .chunks_exact_mut(2 * dim)
                     .zip(fine.site(0, x).chunks_exact(reals))
