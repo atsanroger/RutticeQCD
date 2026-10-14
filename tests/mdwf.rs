@@ -1716,13 +1716,16 @@ fn printed_pion(text: &str) -> Vec<f64> {
 
 /// A domain-wall parameter file run on several processes (threads standing in for them)
 /// prints the pion correlator of the run on one process: without a preconditioner, with the
-/// Chebyshev polynomial of Ã, and with the multigrid. The three give the same correlator.
+/// Chebyshev polynomial of Ã, and with the multigrid. The three give the same correlator, and so
+/// does the configuration read from Bridge++'s binary format.
 #[test]
 fn a_domain_wall_run_on_several_processes() {
     let dir = std::env::temp_dir().join(format!("ruttice_mdwf_ranks_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let whole = Lattice::single_node([4, 4, 4, 8]);
-    ruttice::io::write_bridge_text(&dir.join("conf.txt"), &random_gauge(&whole, 191)).unwrap();
+    let u = random_gauge(&whole, 191);
+    ruttice::io::write_bridge_text(&dir.join("conf.txt"), &u).unwrap();
+    ruttice::io::GaugeFile::write(&ruttice::io::Binary, &dir.join("conf.bin"), &u).unwrap();
     let base = "Main:\n  lattice_size : [4, 4, 4, 8]\nGauge:\n  config_filename_input : conf.txt\nFopr:\n  fermion_type : Mobius\n  quark_mass : 0.1\n  domain_wall_height : 1.4\n  extent_of_5th_dimension : 4\nSolver:\n  solver_type : BiCGStab\n  convergence_criterion_squared : 1.0e-24\n  maximum_number_of_iteration : 4000\nSource:\n  source_position : [0, 0, 0, 0]\n  number_of_rhs_per_solve : 12\n";
     let multigrid = base.replace("solver_type : BiCGStab", "solver_type : GCR\n  preconditioner_type : MG")
         + "MultiGrid:\n  Setup:\n    filter_number_of_vectors : 4\n    filter_number_of_rounds : 1\n    bootstrap_number_of_rounds : 0\n  MultiGrid_Level1:\n    block_size : [2, 2, 2, 2]\n    number_of_test_vectors : 8\n";
@@ -1730,11 +1733,16 @@ fn a_domain_wall_run_on_several_processes() {
         "solver_type : BiCGStab",
         "solver_type : BiCGStab\n  preconditioner_type : Chebyshev",
     );
+    let binary = base.replace(
+        "config_filename_input : conf.txt",
+        "gauge_config_type_input : Binary\n  config_filename_input : conf.bin",
+    );
     let mut plain: Option<Vec<f64>> = None;
     for (name, text) in [
         ("plain", base.to_string()),
         ("chebyshev", chebyshev),
         ("multigrid", multigrid),
+        ("binary", binary),
     ] {
         let file = dir.join(format!("{name}.yaml"));
         std::fs::write(&file, &text).unwrap();
