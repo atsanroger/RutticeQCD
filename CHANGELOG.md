@@ -4,7 +4,19 @@
 
 - `backend : cuda_bridge`: Wilson, clover and domain-wall propagators on an NVIDIA GPU with
   the CUDA kernels extracted from Bridge++ (feature `cuda-bridge`), in double, single and
-  mixed precision. No multigrid and no HMC on the device.
+  mixed precision, several right-hand sides in one launch, optionally TF32 on the tensor cores.
+  The domain-wall multigrid is on the device with its setup (the filter, the bootstrap, P, the
+  coarse operators and their solves). Not on the device: the multigrid of Wilson and clover
+  fermions, HMC. On an A30, large lattices gave different last digits from run to run: not
+  understood yet.
+- The domain-wall multigrid of the CPU: single precision above the coarse lattice
+  (`MultiGrid.fine_precision`), P in half precision (`F16`, with F16C where the processor has
+  it), the coarse operators built from the operator itself a few columns at a time; less
+  memory (start vectors drawn on the even sites, scratch fields made when needed, test vectors
+  dropped once the cycle is made). One coarse correction and one cycle for the CPU and the
+  device (`Correction`, `TwoGrid`).
+- `app::mdwf` reads the gauge field in the format `gauge_config_type_input` names; it read
+  Bridge++ text only.
 - `fermion::PvRatio`: the Pauli-Villars preconditioned operator on the even sites for any
   operator with even-odd blocks; `fermion::solve_even_odd` for any kind of field.
 

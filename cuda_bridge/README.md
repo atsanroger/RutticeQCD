@@ -71,12 +71,25 @@ for periodic, antiperiodic and Dirichlet boundaries:
 - `bridge_cuda_hop` with Ls = 1 and `bridge_cuda_clover_term` on one parity: the even-odd blocks
   of the Wilson and clover operators. `bridge_cuda_parity_copy`.
 - `bridge_cuda_gamma5`; `bridge_cuda_blas_*`: axpy, scal, complex axpy and aypx, norm and
-  inner product.
+  inner product, and the rotation of a set of vectors (`bridge_cuda_blas_rotate_*`), for any
+  number of vectors in one call.
+- `bridge_cuda_fifth_gemm_tf32_f32`: the product in the fifth dimension in TF32, to what TF32
+  allows.
+- The domain-wall multigrid (`multigrid/fold.cuh`): P folded on the fifth dimension, made from
+  test vectors and orthonormalised on the device (`bridge_cuda_fold_fill_*`,
+  `bridge_cuda_fold_orthonormalise`), the restriction and prolongation
+  (`bridge_cuda_fold_restrict_*`, `bridge_cuda_fold_prolong_*`), with P in single or half
+  precision; the coarse operators built on the device (`bridge_cuda_hop_split_*`), applied
+  (`bridge_cuda_coarse_pass_*`, `bridge_cuda_coarse_gamma5_*`), the inverses of their blocks
+  and |H_xx|^-1 (`bridge_cuda_blocks_inverse`, `bridge_cuda_blocks_abs_inverse_gamma5`); the
+  four-dimensional fields of a five-dimensional one (`bridge_cuda_walls_*`). The coarse
+  correction on the device agrees with that of the CPU to 1e-9.
 
 The operators are in the Dirac representation (gamma_4 diagonal). `alpha` of
 `BridgeCudaMdwfParams` is not used: Neff's Q is one of the matrices of `bridge_cuda_fifth_gemm`.
 
-Not there: the clover term from the links on the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the multigrid transfers and coarse operator, the gauge
+Not there: the clover term from the links on the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the transfers and coarse
+operator of `multigrid/coarse.cuh` and `transfer.cuh` (those of `fold.cuh` above are), the gauge
 kernels. `tests/test_clover_mg_transfer` fails with a CUDA error.
 
 Conventions:
@@ -85,7 +98,10 @@ Conventions:
   the kernels are templates in `namespace bridge_cuda`.
 - Fields are in blocks of 32 sites (`base/aosoa.cuh`); a field on one parity has site
   (x, y, z, t) at x/2 + (nx/2)(y + ny (z + nz t)).
-- Reductions (plaquette, norm) are deterministic tree reductions.
+- Reductions (plaquette, norm) are deterministic tree reductions, and no kernel uses atomics.
+  Even so, on an A30 the domain-wall multigrid on 28^4 and 24^3x48 gave different last digits
+  from run to run (from the first round of the bootstrap on; not on 12^4, and not on an
+  RTX 3080): not understood yet.
 
 ---
 

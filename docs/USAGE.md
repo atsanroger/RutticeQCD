@@ -89,13 +89,15 @@ CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 Wilson and clover fermions take the solvers and operator types of the CPU; domain-wall fermions
 the outer solvers and operator types of the CPU, without a preconditioner, with `Chebyshev` or
 with the multigrid, which is on the device with its setup: above the coarse lattice in single
-precision (`MultiGrid.fine_precision : double` for double; the outer solver is in double
-precision either way), its prolongation kept in half precision (`basis_precision : single` for
-single), which is most of its memory. `Setup.filter_number_in_block` vectors are filtered at a
+precision as on the CPU (`MultiGrid.fine_precision : double` for double; the outer solver is in
+double precision either way), its prolongation kept in half precision as on the CPU
+(`basis_precision : single` for single, on the device only), which is most of its memory. `Setup.filter_number_in_block` vectors are filtered at a
 time: fewer take less memory. With levels below the coarse lattice
 (`MultiGrid_Level2` and on), or another solver of the second factor than `MINRES`, the coarse
 part of the multigrid is that of the CPU.
-Not on the device yet: the multigrid of Wilson and clover fermions, HMC,
+With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
+stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
+by bit. Not on the device yet: the multigrid of Wilson and clover fermions, HMC,
 several processes, boundary phases other than ±1 and 0.
 
 ### SIMD
