@@ -402,7 +402,8 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
 
     /// Test vector `i`: `x` holds one vector and `g5x` = Γ5 x, the operator's Γ5 applied
     /// to it.
-    pub fn add(&mut self, i: usize, x: &Field<f64, Spinor>, g5x: &Field<f64, Spinor>) {
+    pub fn add<U: Storage>(&mut self, i: usize, x: &Field<U, Spinor>, g5x: &Field<U, Spinor>) {
+        let value = |v: &U| v.load().to_f64();
         let fine = self.agg.fine_lattice();
         assert_eq!(x.num_sites(), fine.num_sites());
         assert!(x.outer() == 1 && x.same_shape(g5x) && x.num_vectors() == 1);
@@ -437,14 +438,17 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
                 let sign = if c == 0 { 1.0 } else { -1.0 };
                 let base = ((site * n + i) * 2 + c) * kept;
                 for (d, (v, g)) in xs.iter().zip(gs).take(kept).enumerate() {
-                    self.data[base + d] = S::store(Number::from_f64(0.5 * (v + sign * g)));
+                    self.data[base + d] =
+                        S::store(Number::from_f64(0.5 * (value(v) + sign * value(g))));
                 }
                 if let Some(gamma) = &self.fold {
                     let ls = reals / SPINOR_REALS;
                     for s in 0..ls / 2 {
                         let part = |slice: usize| -> [f64; SPINOR_REALS] {
                             let at = slice * SPINOR_REALS;
-                            core::array::from_fn(|k| 0.5 * (xs[at + k] + sign * gs[at + k]))
+                            core::array::from_fn(|k| {
+                                0.5 * (value(&xs[at + k]) + sign * value(&gs[at + k]))
+                            })
                         };
                         let (near, far) = (part(s), part(ls - 1 - s));
                         let mut mirrored = [0.0; SPINOR_REALS];
@@ -455,7 +459,7 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
                     }
                 }
             }
-            size = xs.iter().fold(size, |m, v| m.max(v.abs()));
+            size = xs.iter().fold(size, |m, v| m.max(value(v).abs()));
         }
         assert!(
             deviation <= 1e-10 * size,

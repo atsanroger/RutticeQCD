@@ -17,12 +17,12 @@ use ruttice::solver::preconditioner::multigrid::{
     MdwfCoarse, MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
 };
 use ruttice::solver::{
-    largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Fgmres, Gcr, Polynomial, Solve,
-    Solver, Stop,
+    largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Convert, Fgmres, Gcr, Polynomial,
+    Solve, Solver, Stop,
 };
 use ruttice::{
     assemble, extract_parity, insert_parity, local_part, random_spinor, Boundary, Field, Gauge,
-    Half, Lattice, LinearFn, LinearOp, LocalComm, Normal, Parity, Spinor, Vector, C64, ND,
+    Half, Lattice, LinearFn, LinearOp, LocalComm, Normal, Parity, Spinor, Storage, Vector, C64, ND,
 };
 use std::sync::Arc;
 
@@ -1286,10 +1286,10 @@ fn even_odd_pv_multigrid_on_several_processes() {
     }
 }
 
-/// The setup of the even-odd Pauli-Villars multigrid from scratch: filtered low modes,
-/// one bootstrap round, then GCR(2) with the cycle solves D x = b.
-#[test]
-fn even_odd_pv_multigrid_setup_from_scratch() {
+/// The setup of the even-odd Pauli-Villars multigrid from scratch with everything above the
+/// coarse lattice stored as `T`: filtered low modes, one bootstrap round, then GCR(2) in double
+/// precision with the cycle solves D x = b. Its steps.
+fn setup_from_scratch<T: Storage>() -> usize {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 171);
     let pv_params = MdwfParams {
@@ -1297,9 +1297,15 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
         ..MOBIUS
     };
     let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+    let stored = |params: MdwfParams| {
+        let mut op = Mdwf::<T>::new(&lat, params);
+        op.set_gauge(&u).unwrap();
+        op
+    };
+    let (op_t, pv_t) = (stored(MOBIUS), stored(pv_params));
     let (mut y, theta) = pv_eo_low_modes(
-        &op,
-        &pv,
+        &op_t,
+        &pv_t,
         &lat,
         LowModeParams {
             vectors: 6,
@@ -1311,8 +1317,8 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
     assert!(theta.windows(2).all(|w| w[0] <= w[1]), "{theta:?}");
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
     let basis = pv_eo_bootstrap(
-        &op,
-        &pv,
+        &op_t,
+        &pv_t,
         &agg,
         &mut y,
         BootstrapParams {
@@ -1324,14 +1330,17 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
     let mut like = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
     like.set_parity(Parity::Even);
     let mut a = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);
-    let mut cycle = PvEoCycle::new(
-        &op,
-        &pv,
-        (&op, &pv, EoForm::Right),
+    let cycle = PvEoCycle::new(
+        &op_t,
+        &pv_t,
+        (&op_t, &pv_t, EoForm::Right),
         &basis,
         PvEoParams::default(),
     )
     .unwrap();
+    let mut like_t = Field::<T, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    like_t.set_parity(Parity::Even);
+    let mut cycle = Convert::new(cycle, &like_t);
     let b = random(&lat, MOBIUS.ls, 1, 173);
     let mut rhs = like.zeros_like();
     a.right_hand_side(&mut rhs, &b);
@@ -1354,6 +1363,14 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
         left[0] / size[0]
     );
     assert!(left[0] < 1e-16 * size[0]);
+    info.iterations
+}
+
+/// In single precision above the coarse lattice the multigrid is as good a preconditioner.
+#[test]
+fn even_odd_pv_multigrid_setup_from_scratch() {
+    let (double, single) = (setup_from_scratch::<f64>(), setup_from_scratch::<f32>());
+    assert!(single <= double + 1, "{single} steps against {double}");
 }
 
 /// The exact adjoint of a coarse operator: <x, D_c y> = <D_c† x, y>; and it differs from
