@@ -185,6 +185,11 @@ impl<T: DeviceReal> DeviceSpinor<T> {
 }
 
 impl<T: DeviceReal> DeviceSpinor<T> {
+    /// A checksum of the reals of the fields, padding included, to compare runs bit by bit.
+    pub fn checksum(&self) -> Result<u64, CudaError> {
+        self.data.checksum()
+    }
+
     /// The fields to the host, to make room on the device.
     pub fn stash(self) -> Result<Stashed<T>, CudaError> {
         Ok(Stashed {

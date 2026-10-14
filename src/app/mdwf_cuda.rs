@@ -42,6 +42,19 @@ use std::time::Instant;
 
 type F = Field<f64, Spinor>;
 
+/// With `RUTTICE_CHECKSUM` set, a line with the checksum of what a stage of the run made, to
+/// compare runs bit by bit and find where they part.
+fn checksum_line(
+    out: &mut dyn Write,
+    what: &str,
+    sum: impl FnOnce() -> Result<u64, CudaError>,
+) -> Result<(), Box<dyn Error>> {
+    if std::env::var_os("RUTTICE_CHECKSUM").is_some() {
+        writeln!(out, "  checksum of {what}: {:016x}", sum()?)?;
+    }
+    Ok(())
+}
+
 /// The memory of the host and that of the program's fields on the device, for a report.
 fn memory() -> String {
     let (now, peak) = crate::backend::cuda_bridge::device_memory();
@@ -204,6 +217,7 @@ fn test_vectors<T: DeviceReal>(
                 start.elapsed().as_secs_f64(),
                 memory()
             )?;
+            checksum_line(out, "the filtered vectors", || x.checksum())?;
             x.select(&(0..keep).collect::<Vec<_>>())
         }
     };
@@ -263,6 +277,11 @@ fn test_vectors<T: DeviceReal>(
         };
         y = stash.restore()?;
         orthonormalise_all(&mut y);
+        checksum_line(
+            out,
+            &format!("the vectors after round {}", round + 1),
+            || y.checksum(),
+        )?;
         writeln!(
             out,
             "  bootstrap round {}: {:.0} s; {}",
@@ -453,6 +472,9 @@ pub(super) fn run(
         }
         _ => None,
     };
+    if let Some(b) = &device_basis {
+        checksum_line(out, "P", || b.checksum())?;
+    }
     drop((y_single, y_double));
     let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
         (Some((basis, y)), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
@@ -540,6 +562,7 @@ pub(super) fn run(
             SolverType::Minres => unreachable!("refused when the file is read"),
         };
         let seconds = start.elapsed().as_secs_f64();
+        checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;
         let b = b_host.restore()?;
         // x^(α), then x = Q x^(α), the solution of the plain operator; its residual by that
         // operator on the whole lattice, with three fields there at most.
