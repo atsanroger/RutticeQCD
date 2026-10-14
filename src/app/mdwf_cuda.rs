@@ -41,13 +41,26 @@ use std::sync::Arc;
 use std::time::Instant;
 
 type F = Field<f64, Spinor>;
+
+/// The memory of the host and that of the program's fields on the device, for a report.
+fn memory() -> String {
+    let (now, peak) = crate::backend::cuda_bridge::device_memory();
+    let gb = |bytes: usize| bytes as f64 / (1u64 << 30) as f64;
+    format!(
+        "{}; device {:.2} GB, peak {:.2} GB",
+        memory_line(),
+        gb(now),
+        gb(peak)
+    )
+}
 type H = Field<f64, Spinor, Half>;
 
 /// (D, the second factor): the operators a multigrid is built from, or is for. The second
 /// factor is D_PV, or D itself for the normal equations.
 type Pair<'a, Op> = (&'a Op, &'a Op);
 
-/// The operators of a run on the device in the precision `T`, and a field on either parity.
+/// The operators of a run on the device in the precision `T`, on the same links there, and
+/// the shape of the fields on either parity.
 struct Operators<T: DeviceReal> {
     /// With Neff's α: those of the operator that is solved.
     op: CudaMdwf<T>,
@@ -68,15 +81,16 @@ impl<T: DeviceReal> Operators<T> {
         with_plain: bool,
     ) -> Result<Self, Box<dyn Error>> {
         let fo = &params.fopr;
+        let mut op = CudaMdwf::new(lat, params.mdwf_params(fo.mass()))?;
+        op.set_gauge(u)?;
+        op.set_alpha(fo.neff_alpha);
         let make = |mass: f64, alpha: f64| -> Result<CudaMdwf<T>, Box<dyn Error>> {
-            let mut op = CudaMdwf::new(lat, params.mdwf_params(mass))?;
-            op.set_gauge(u)?;
-            op.set_alpha(alpha);
-            Ok(op)
+            let mut other = CudaMdwf::on_the_links_of(&op, params.mdwf_params(mass))?;
+            other.set_alpha(alpha);
+            Ok(other)
         };
         let (m_pv, (_, normal)) = (fo.quark_mass_pauli_villars, params.form());
         Ok(Self {
-            op: make(fo.mass(), fo.neff_alpha)?,
             pv: match normal {
                 true => None,
                 false => Some(make(m_pv, fo.neff_alpha_pauli_villars)?),
@@ -89,8 +103,9 @@ impl<T: DeviceReal> Operators<T> {
                 true => Some(make(m_pv, 1.0)?),
                 false => None,
             },
-            even: DeviceSpinor::zeros_half(lat, fo.ls(), Parity::Even)?,
-            odd: DeviceSpinor::zeros_half(lat, fo.ls(), Parity::Odd)?,
+            even: DeviceSpinor::shape_half(lat, fo.ls(), Parity::Even)?,
+            odd: DeviceSpinor::shape_half(lat, fo.ls(), Parity::Odd)?,
+            op,
         })
     }
 
@@ -142,7 +157,7 @@ fn top_of<T: DeviceReal, A: LinearFn<DeviceSpinor<T>>>(
     seed: u64,
     steps: usize,
 ) -> Result<f64, CudaError> {
-    let mut start = even.zeros_like();
+    let mut start = even.zeros_with(1);
     let random = DeviceSpinor::<T>::from_host(&random_fifth(lat, even.ls(), seed))?;
     DeviceParities.extract(&mut start, &random, Parity::Even);
     Ok(1.1 * largest_magnitude(a, &mut start, steps))
@@ -183,16 +198,17 @@ fn test_vectors<T: DeviceReal>(
             let (x, theta) = low_modes(|c: &DeviceSpinor<T>| Normal::new(ratio(), c), x, low);
             writeln!(
                 out,
-                "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
+                "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s); {}",
                 theta[0],
                 theta[theta.len() - 1],
-                start.elapsed().as_secs_f64()
+                start.elapsed().as_secs_f64(),
+                memory()
             )?;
             x.select(&(0..keep).collect::<Vec<_>>())
         }
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
-    for _ in 0..boot.rounds {
+    for round in 0..boot.rounds {
         // The cycle on the current vectors: on the device, or its coarse part on the CPU.
         let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
         if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
@@ -234,6 +250,13 @@ fn test_vectors<T: DeviceReal>(
         };
         let mut two_grid = TwoGrid::new(smoother, correction, even);
         bootstrap_round(&mut ratio(), &mut two_grid, &mut y, boot.steps);
+        writeln!(
+            out,
+            "  bootstrap round {}: {:.0} s; {}",
+            round + 1,
+            start.elapsed().as_secs_f64(),
+            memory()
+        )?;
     }
     Ok(y)
 }
@@ -466,7 +489,7 @@ pub(super) fn run(
         out,
         "  setup on the device: {:.0} s; {}",
         start.elapsed().as_secs_f64(),
-        memory_line()
+        memory()
     )?;
 
     let op = &ops.op;
@@ -525,7 +548,7 @@ pub(super) fn run(
             "  {label}: {} {} iterations on the device; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
             s.solver_type,
             iterations_text(&result),
-            memory_line()
+            memory()
         )?;
         Ok(x)
     };

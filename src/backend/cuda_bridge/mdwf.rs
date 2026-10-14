@@ -16,6 +16,7 @@ use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
 use crate::solver::preconditioner::multigrid::{CoarseOp, NeffQ};
 use crate::{Parity, Vector, C64};
+use std::rc::Rc;
 
 extern "C" {
     fn bridge_cuda_fifth_gemm_tf32_f32(
@@ -206,7 +207,8 @@ impl<T: DeviceReal> Matrices<T> {
 pub struct CudaMdwf<T = f64> {
     params: MdwfParams,
     geometry: Geometry,
-    gauge: DeviceGauge<T>,
+    /// Shared by the operators made with `on_the_links_of`.
+    gauge: Rc<DeviceGauge<T>>,
     /// Neff's α (1: the plain operator).
     alpha: f64,
     matrices: Matrices<T>,
@@ -237,7 +239,26 @@ impl<T: DeviceReal> CudaMdwf<T> {
         Ok(Self {
             params,
             geometry: geometry(lat, params.boundary, params.ls),
-            gauge: DeviceGauge::new(lat)?,
+            gauge: Rc::new(DeviceGauge::new(lat)?),
+            alpha: 1.0,
+            matrices: Matrices::new(&params, 1.0)?,
+            tf32: false,
+        })
+    }
+
+    /// The operator of the parameters `params` on the links of `other`, which the two share on
+    /// the device from then on (until `set_gauge` gives one of them links of its own).
+    pub fn on_the_links_of(other: &Self, params: MdwfParams) -> Result<Self, CudaError> {
+        assert!(
+            (2..=MAX_LS).contains(&params.ls),
+            "the fifth dimension must have between 2 and {MAX_LS} sites"
+        );
+        let mut geometry = geometry(&other.gauge.lat, params.boundary, params.ls);
+        geometry.link_rows = other.geometry.link_rows;
+        Ok(Self {
+            params,
+            geometry,
+            gauge: other.gauge.clone(),
             alpha: 1.0,
             matrices: Matrices::new(&params, 1.0)?,
             tf32: false,
@@ -329,7 +350,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             c,
         };
         hops(
-            (&self.gauge, &self.geometry),
+            (&*self.gauge, &self.geometry),
             out,
             inp,
             from,
@@ -685,7 +706,11 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        self.gauge.set(u, &mut self.geometry)
+        if Rc::get_mut(&mut self.gauge).is_none() {
+            self.gauge = Rc::new(must(DeviceGauge::new(&self.gauge.lat)));
+        }
+        let gauge = Rc::get_mut(&mut self.gauge).expect("its own links");
+        gauge.set(u, &mut self.geometry)
     }
 
     fn mult(

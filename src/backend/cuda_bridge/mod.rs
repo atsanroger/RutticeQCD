@@ -32,6 +32,7 @@ use crate::fermion::GaugeError;
 use crate::{Boundary, Field, Gauge, Lattice, Parity, ND};
 use std::ffi::c_void;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// Sites per block of the device layout.
@@ -41,6 +42,7 @@ const SPINOR: usize = 24;
 const LINK_ROW: usize = 24;
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Geometry {
     dims: [i32; 4],
     ls: i32,
@@ -916,6 +918,42 @@ fn finish() {
     must(check(unsafe { cudaGetLastError() }));
 }
 
+static IN_USE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+/// `bytes` bytes on the device, counted for `device_memory`.
+fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
+    let mut ptr: *mut c_void = std::ptr::null_mut();
+    if bytes == 0 {
+        return Ok(ptr);
+    }
+    // SAFETY: `ptr` is a valid place for the pointer.
+    check(unsafe { cudaMalloc(&mut ptr, bytes) })?;
+    PEAK.fetch_max(
+        IN_USE.fetch_add(bytes, Ordering::Relaxed) + bytes,
+        Ordering::Relaxed,
+    );
+    Ok(ptr)
+}
+
+/// Frees what `device_alloc` gave for `bytes` bytes, after the kernels that may still use it.
+///
+/// # Safety
+/// `ptr` came from `device_alloc(bytes)` and is not used afterwards.
+unsafe fn device_free(ptr: *mut c_void, bytes: usize) {
+    if bytes == 0 {
+        return;
+    }
+    cudaDeviceSynchronize();
+    cudaFree(ptr);
+    IN_USE.fetch_sub(bytes, Ordering::Relaxed);
+}
+
+/// The bytes this program holds on the device, and the most it has held.
+pub fn device_memory() -> (usize, usize) {
+    (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
+}
+
 /// Reals on the device.
 pub struct DeviceBuffer<T> {
     ptr: *mut T,
@@ -931,14 +969,14 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
     fn zeros(len: usize) -> Result<Self, CudaError> {
         let mut buffer = Self::uninitialised(len)?;
-        buffer.set_zero()?;
+        if len > 0 {
+            buffer.set_zero()?;
+        }
         Ok(buffer)
     }
 
     fn uninitialised(len: usize) -> Result<Self, CudaError> {
-        let mut ptr: *mut c_void = std::ptr::null_mut();
-        // SAFETY: `ptr` is a valid place for the pointer; the size is that of `len` reals.
-        check(unsafe { cudaMalloc(&mut ptr, len * std::mem::size_of::<T>()) })?;
+        let ptr = device_alloc(len * std::mem::size_of::<T>())?;
         Ok(Self {
             ptr: ptr.cast(),
             len,
@@ -1003,12 +1041,8 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
 impl<T> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
-        // may still read or write it.
-        unsafe {
-            cudaDeviceSynchronize();
-            cudaFree(self.ptr.cast());
-        }
+        // SAFETY: the pointer came from `device_alloc` with this size and is freed once.
+        unsafe { device_free(self.ptr.cast(), self.len * std::mem::size_of::<T>()) }
     }
 }
 
