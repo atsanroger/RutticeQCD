@@ -17,7 +17,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         assert!(eta.ls() == 1 && out.ls() == ls && out.num_vectors() == eta.num_vectors());
-        let [b, v, _, _] = scratch(&mut work.fields, out);
+        let [b, v, _, _] = &mut work.fields;
+        let (b, v) = (scratch(b, out), scratch(v, out));
         let site_len = b.block_len();
         let half = <L::Num as Number>::from_f64(0.5);
         for_sites(b.slab_mut(0), site_len, |x, o| {

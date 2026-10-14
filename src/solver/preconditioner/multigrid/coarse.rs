@@ -162,10 +162,10 @@ impl<T: Storage> CoarseOp<T> {
         let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
         let one = T::store(T::Compute::ONE);
 
-        // As many columns at a time as keep the four fine fields within about a GB, eight at
-        // most (P is read once for all of them).
+        // As many columns at a time as keep the five fine fields (three here, two in the
+        // operator) within about a GB, eight at most (P is read once for all of them).
         let reals = basis.fine_field(1).as_slice().len();
-        let batch = ((1usize << 30) / (4 * reals * size_of::<T>())).clamp(1, 8.min(dim));
+        let batch = ((1usize << 30) / (5 * reals * size_of::<T>())).clamp(1, 8.min(dim));
         // Write the columns `first`, `first + 1`, ... of every site's matrix from the vectors
         // of a coarse field.
         let store_columns = |target: &mut [T], first: usize, values: &Field<T, Coarse>| {

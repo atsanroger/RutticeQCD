@@ -15,9 +15,10 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
         assert!(out.same_shape(inp));
-        let [w, v, d, qf] = scratch(&mut work.fields, inp);
+        let [w, v, d, qf] = &mut work.fields;
         // D^(α) ψ = D (Q ψ); D^(α)† ψ = Q (D† ψ), Q applied at the end below.
         let inp: &Field<T, Spinor, Lexical, L> = if self.has_alpha() && variant != Variant::Dagger {
+            let qf = scratch(qf, inp);
             self.mult_q(qf, inp, false);
             qf
         } else {
@@ -29,21 +30,25 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         match variant {
             // D ψ = ψ + Y ψ + W (b ψ - c Y ψ)
             Variant::D | Variant::Gamma5D => {
+                let (w, v) = (scratch(w, inp), scratch(v, inp));
                 self.combine(w, &[(inp, b, -c)], plain, mass);
                 L::mult(&self.wilson, &mut work.wilson, v, w, Variant::D);
-                let reflect = variant == Variant::Gamma5D;
-                // Γ5 goes on last, so it needs D ψ whole before it is reflected.
-                let to = if reflect { &mut *d } else { &mut *out };
-                self.combine(to, &[(inp, 1.0, 1.0), (v, height, 0.0)], plain, mass);
-                if reflect {
+                if variant == Variant::Gamma5D {
+                    // Γ5 goes on last, so it needs D ψ whole before it is reflected.
+                    let d = scratch(d, inp);
+                    self.combine(d, &[(inp, 1.0, 1.0), (v, height, 0.0)], plain, mass);
                     self.combine(out, &[(d, 1.0, 0.0)], (false, true), mass);
+                } else {
+                    self.combine(out, &[(inp, 1.0, 1.0), (v, height, 0.0)], plain, mass);
                 }
             }
             // D† ψ = ψ + Y† ψ + (b - c Y†) W† ψ
             Variant::Dagger => {
+                let v = scratch(v, inp);
                 L::mult(&self.wilson, &mut work.wilson, v, inp, Variant::Dagger);
                 let terms = [(inp, 1.0, 1.0), (&*v, height * b, -height * c)];
                 if self.has_alpha() {
+                    let d = scratch(d, inp);
                     self.combine(d, &terms, (true, false), mass);
                     self.mult_q(out, d, false);
                 } else {
@@ -185,7 +190,7 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
-        let [c, ..] = scratch(&mut work.fields, inp);
+        let c = scratch(&mut work.fields[0], inp);
         self.mult_site(c, inp, self.params.mass, false);
         out.axpy(&vec![C64::new(1.0, 0.0); inp.num_vectors()], c);
     }
@@ -213,7 +218,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 
     /// w = b ψ − c Y ψ (of Q ψ with Neff's α), the field the kernel's hops act on in D ψ.
     pub fn kernel_input(&self, inp: &Field<T, Spinor>) -> Field<T, Spinor> {
-        let mut fields = None;
+        let mut fields = [None, None, None, None];
         let w = self.before_kernel(&mut fields, inp);
         let mut out = inp.zeros_like();
         out.copy_from(w);
@@ -225,13 +230,15 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `b ψ - c Y ψ`, what the Wilson kernel is applied to, in a scratch field.
     fn before_kernel<'w>(
         &self,
-        fields: &'w mut Option<[Field<T, Spinor, Lexical, L>; 4]>,
+        fields: &'w mut [Option<Field<T, Spinor, Lexical, L>>; 4],
         inp: &Field<T, Spinor, Lexical, L>,
     ) -> &'w Field<T, Spinor, Lexical, L> {
-        let [w, _, _, qf] = scratch(fields, inp);
+        let [w, _, _, qf] = fields;
+        let w = scratch(w, inp);
         let MdwfParams { b, c, mass, .. } = self.params;
         // The hops of D^(α) = D Q act on Q ψ.
         if self.has_alpha() {
+            let qf = scratch(qf, inp);
             self.mult_q(qf, inp, false);
             self.combine(w, &[(&*qf, b, -c)], (false, false), mass);
         } else {
@@ -294,7 +301,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Lex
     fn work(&self) -> MdwfWork<T, L> {
         MdwfWork {
             wilson: L::work_of(&self.wilson),
-            fields: None,
+            fields: [None, None, None, None],
         }
     }
 

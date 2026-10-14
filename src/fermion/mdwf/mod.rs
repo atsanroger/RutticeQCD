@@ -79,7 +79,8 @@ pub struct Mdwf<T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = Aos> {
 /// Scratch space of `Mdwf`: that of the Wilson kernel and four fields, made on first use.
 pub struct MdwfWork<T: Storage, L: Layout = Aos> {
     wilson: WilsonWork<T>,
-    fields: Option<[Field<T, Spinor, Lexical, L>; 4]>,
+    /// Made when first used, each in the shape it is used in.
+    fields: [Option<Field<T, Spinor, Lexical, L>>; 4],
 }
 
 /// A layout `Mdwf` works in: the Wilson kernel has a sweep for it, and the reals of one
@@ -370,20 +371,16 @@ fn store<T: Storage>(p: &SiteSpinor<T::Compute>, reals: &mut [T]) {
     }
 }
 
-/// The four scratch fields of a work object, in the shape of `like`.
+/// A scratch field of a work object in the shape of `like`, made when it is first needed:
+/// most uses need two of the four.
 fn scratch<'w, T: Storage, L: Layout>(
-    fields: &'w mut Option<[Field<T, Spinor, Lexical, L>; 4]>,
+    slot: &'w mut Option<Field<T, Spinor, Lexical, L>>,
     like: &Field<T, Spinor, Lexical, L>,
-) -> &'w mut [Field<T, Spinor, Lexical, L>; 4] {
-    if !fields.as_ref().is_some_and(|f| f[0].same_shape(like)) {
-        *fields = Some([
-            like.zeros_like(),
-            like.zeros_like(),
-            like.zeros_like(),
-            like.zeros_like(),
-        ]);
+) -> &'w mut Field<T, Spinor, Lexical, L> {
+    if !slot.as_ref().is_some_and(|f| f.same_shape(like)) {
+        *slot = Some(like.zeros_like());
     }
-    fields.as_mut().expect("the fields were just made")
+    slot.as_mut().expect("the field was just made")
 }
 
 mod even_odd;
