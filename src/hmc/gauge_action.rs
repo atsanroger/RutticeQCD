@@ -4,7 +4,7 @@
 use super::{Links, MdAction, Mseries};
 use crate::gauge::paths::Extended;
 use crate::gauge::smearing::uniform;
-use crate::gauge::{link, plaquette, weighted_staples};
+use crate::gauge::{plaquette, weighted_staples};
 use crate::kernel::ColorMatrix;
 use crate::{for_sites, Boundary, Field, Gauge, Stencil, ND};
 use rayon::prelude::*;
@@ -38,12 +38,29 @@ impl PlaquetteAction {
     /// The force on the momenta, −∂S_G/∂U as the momenta are normalised (iP = i P^a T^a,
     /// H = ½ |iP|²): F_μ(x) = −(β/3) TA[U_μ(x) Σ_μ(x)†], TA the traceless anti-Hermitian part.
     pub fn force(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
-        let sigma = staples(u);
+        // The staples walked site by site through the links and a halo one site deep, with
+        // no shifted copies of the whole field.
+        let ext = Extended::new(u, 1);
         let mut f = Field::<f64, Gauge>::gauge(u.lattice());
         let k = -self.beta / 3.0;
         for mu in 0..ND {
+            let paths: Vec<[Step; 3]> = (0..ND)
+                .filter(|nu| *nu != mu)
+                .flat_map(|nu| {
+                    [
+                        [(nu, true), (mu, true), (nu, false)],
+                        [(nu, false), (mu, true), (nu, true)],
+                    ]
+                })
+                .collect();
             for_sites(f.slab_mut(mu), 18, |x, out| {
-                let m = link(u, mu, x).mul(&link(&sigma, mu, x).adj());
+                let e = ext.at(x);
+                let sigma = paths
+                    .iter()
+                    .map(|p| ext.walk(e, p))
+                    .reduce(|s, m| s.add(&m))
+                    .expect("staples");
+                let m = ext.link(mu, e).mul(&sigma.adj());
                 traceless_antihermitian(&m).scale(k).write_reals(out);
             });
         }

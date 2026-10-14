@@ -2,9 +2,9 @@
 //! the energy density and the topological charge. The conventions are those of Bridge++
 //! (`GradientFlow`, `EnergyDensity`, `TopologicalCharge`, `FieldStrength`).
 
-use super::paths::{path_product, Step};
+use super::paths::{Extended, Step};
 use super::smearing::traceless_antihermitian;
-use super::{field_strength, link, plaquette, PLANES};
+use super::{plaquette, PLANES};
 use crate::hmc::{exp_update, PlaquetteAction};
 use crate::kernel::ColorMatrix;
 use crate::{reduce_sites, Boundary, Field, Gauge, Stencil, Vector, ND};
@@ -90,61 +90,62 @@ fn clover_loops(mu: usize, nu: usize, rect: bool) -> Vec<Vec<Step>> {
     loops
 }
 
-/// The clover field strength of every plane (in the order of `PLANES`), as Bridge++'s
-/// `construct_Fmunu_1x1_traceless` (or `_1x2_traceless` with `rect`): F = −i k TA(Σ loops),
-/// k = ¼ for the plaquettes and ⅛ for the rectangles, kept as the anti-Hermitian
-/// A = −k TA(Σ loops) with F = i A.
-fn clover(u: &Field<f64, Gauge>, rect: bool) -> Vec<Vec<ColorMatrix<f64>>> {
-    if !rect {
-        // `field_strength` is m = (Q − Q†)/8 of the four plaquettes Q, so −¼ TA(Q) = −TA(m).
-        let st = Stencil::nearest(u.lattice(), [Boundary::Periodic; ND]);
-        let f = field_strength(u, &st);
-        return (0..PLANES.len())
-            .map(|plane| {
-                (0..u.num_sites())
-                    .map(|x| traceless_antihermitian(&link(&f, plane, x)).scale(-1.0))
-                    .collect()
-            })
-            .collect();
-    }
-    let k = 0.125;
+/// The loops of the clovers of the six planes (in the order of `PLANES`).
+fn all_clover_loops(rect: bool) -> Vec<Vec<Vec<Step>>> {
     PLANES
         .iter()
-        .map(|&(mu, nu)| {
-            let products: Vec<Field<f64, Gauge>> = clover_loops(mu, nu, rect)
-                .iter()
-                .map(|path| path_product(u, path))
-                .collect();
-            (0..u.num_sites())
-                .map(|x| {
-                    let sum = products
-                        .iter()
-                        .map(|p| link(p, 0, x))
-                        .reduce(|s, m| s.add(&m))
-                        .expect("a clover has loops");
-                    traceless_antihermitian(&sum).scale(-k)
-                })
-                .collect()
-        })
+        .map(|&(mu, nu)| clover_loops(mu, nu, rect))
         .collect()
 }
 
-/// Σ_x Re tr(F_a F_b) of two planes, F = i A: −Σ_x Re tr(A_a A_b), over all processes.
-fn contract(u: &Field<f64, Gauge>, a: &[ColorMatrix<f64>], b: &[ColorMatrix<f64>]) -> f64 {
-    let local = reduce_sites(a.len(), |x| -a[x].mul(&b[x]).trace().re);
+/// The clover field strength of the six planes at one site, as Bridge++'s
+/// `construct_Fmunu_1x1_traceless` (or `_1x2_traceless` with the rectangles):
+/// F = −i k TA(Σ loops), k = ¼ for the plaquettes and ⅛ for the rectangles, kept as the
+/// anti-Hermitian A = −k TA(Σ loops), F = i A. `ext` reaches as far as the loops go.
+fn site_clovers(
+    ext: &Extended,
+    loops: &[Vec<Vec<Step>>],
+    x: usize,
+    k: f64,
+) -> [ColorMatrix<f64>; 6] {
+    let e = ext.at(x);
+    core::array::from_fn(|plane| {
+        let sum = loops[plane]
+            .iter()
+            .map(|path| ext.walk(e, path))
+            .reduce(|s, m| s.add(&m))
+            .expect("a clover has loops");
+        traceless_antihermitian(&sum).scale(-k)
+    })
+}
+
+/// Σ_x f(the field strength of the six planes at x) over all processes, for the plaquette
+/// clover (`rect` false) or the rectangle one.
+fn sum_over_sites(
+    u: &Field<f64, Gauge>,
+    rect: bool,
+    f: impl Fn(&[ColorMatrix<f64>; 6]) -> f64 + Sync,
+) -> f64 {
+    let (depth, k) = if rect { (2, 0.125) } else { (1, 0.25) };
+    let ext = Extended::new(u, depth);
+    let loops = all_clover_loops(rect);
+    let local = reduce_sites(u.num_sites(), |x| f(&site_clovers(&ext, &loops, x, k)));
     let mut sum = [local];
     u.lattice().comm.sum(&mut sum);
     sum[0]
+}
+
+/// Re tr(F_a F_b) of two field strengths kept as F = i A: −Re tr(A_a A_b).
+fn re_tr(a: &ColorMatrix<f64>, b: &ColorMatrix<f64>) -> f64 {
+    -a.mul(b).trace().re
 }
 
 /// E from the clover field strength, c_plaq E_1x1 + c_rect E_1x2 with E = Σ_μ<ν Re tr F_μν²
 /// averaged over the sites (Bridge++ `E_clover`; the 1 × 2 part counted twice as there).
 pub fn energy_density_clover(u: &Field<f64, Gauge>, c_plaq: f64, c_rect: f64) -> f64 {
     let sites = u.lattice().num_global_sites() as f64;
-    let part = |rect: bool| {
-        let f = clover(u, rect);
-        f.iter().map(|p| contract(u, p, p)).sum::<f64>() / sites
-    };
+    let part =
+        |rect: bool| sum_over_sites(u, rect, |f| f.iter().map(|a| re_tr(a, a)).sum()) / sites;
     let mut e = c_plaq * part(false);
     if c_rect != 0.0 {
         e += c_rect * 2.0 * part(true);
@@ -157,10 +158,11 @@ pub fn energy_density_clover(u: &Field<f64, Gauge>, c_plaq: f64, c_rect: f64) ->
 /// twice as there). c_plaq = 1, c_rect = 0 is the clover charge; 5/3, −1/12 the improved one.
 pub fn topological_charge(u: &Field<f64, Gauge>, c_plaq: f64, c_rect: f64) -> f64 {
     let pi2 = std::f64::consts::PI * std::f64::consts::PI;
+    // The planes (01)(23), (02)(13), (03)(12): indices 0 5, 1 4, 2 3 of PLANES.
     let part = |rect: bool| {
-        let f = clover(u, rect);
-        // The planes (01)(23), (02)(13), (03)(12): indices 0 5, 1 4, 2 3 of PLANES.
-        let q = contract(u, &f[0], &f[5]) - contract(u, &f[1], &f[4]) + contract(u, &f[2], &f[3]);
+        let q = sum_over_sites(u, rect, |f| {
+            re_tr(&f[0], &f[5]) - re_tr(&f[1], &f[4]) + re_tr(&f[2], &f[3])
+        });
         8.0 * q / (32.0 * pi2)
     };
     let mut q = c_plaq * part(false);
