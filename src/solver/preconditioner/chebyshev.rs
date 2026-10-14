@@ -3,8 +3,15 @@
 
 use crate::{fit, LinearFn, Vector, C64};
 
+/// The norm of a vector at which `ChebyshevFilter` scales it down, far below the largest single
+/// precision number (3.4e38) even after another few steps.
+const RESCALE: f64 = 1e15;
+
 /// `out = T_n(ℓ(H)) inp` with `ℓ(x) = (2x - (hi + lo)) / (hi - lo)`, for a Hermitian H whose
-/// spectrum lies in `[0, hi]`.
+/// spectrum lies in `[0, hi]`, up to a positive factor per vector: below `lo` T_n grows like
+/// cosh(n arcosh |ℓ|), so a vector whose norm passes `RESCALE` at some step of the recurrence is
+/// scaled down there (the pair of terms by the same factor, which the linear recurrence carries
+/// through unchanged). Without that, single precision overflows for large n or a small `lo`.
 pub struct ChebyshevFilter<H, V> {
     h: H,
     degree: usize,
@@ -50,12 +57,28 @@ impl<H: LinearFn<V>, V: Vector> LinearFn<V> for ChebyshevFilter<H, V> {
         Self::mapped(&mut self.h, self.lo, self.hi, &mut self.current, inp);
         let two = vec![2.0; nv];
         let minus_one = vec![C64::new(-1.0, 0.0); nv];
+        let mut norms = vec![0.0; nv];
         for _ in 1..self.degree {
             Self::mapped(&mut self.h, self.lo, self.hi, &mut self.next, &self.current);
             self.next.scale(&two);
             self.next.axpy(&minus_one, &self.previous);
             std::mem::swap(&mut self.previous, &mut self.current);
             std::mem::swap(&mut self.current, &mut self.next);
+            self.current.norm_sqr(&mut norms);
+            if norms.iter().any(|n| *n > RESCALE * RESCALE) {
+                let s: Vec<f64> = norms
+                    .iter()
+                    .map(|n| {
+                        if *n > RESCALE * RESCALE {
+                            1.0 / n.sqrt()
+                        } else {
+                            1.0
+                        }
+                    })
+                    .collect();
+                self.current.scale(&s);
+                self.previous.scale(&s);
+            }
         }
         out.copy_from(&self.current);
     }

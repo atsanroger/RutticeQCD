@@ -406,6 +406,27 @@ fn chebyshev_filter_is_the_chebyshev_polynomial() {
     }
 }
 
+/// Far below `lo` and at a high degree T_n passes the largest double: the filter scales the
+/// vector down as it goes and gives a finite positive multiple of it, the direction T_n gives.
+#[test]
+fn chebyshev_filter_does_not_overflow() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let v: V64 = random_spinor(&lat, 1, 3);
+    // ℓ(0) = −5/3: T_1000 is about e^1099.
+    let mut f = ruttice::solver::ChebyshevFilter::new(Scalar(0.0), 1000, 1.0, 4.0, &v);
+    let mut out = v.zeros_like();
+    f.mult(&mut out, &v);
+    assert!(out.as_slice().iter().all(|x| x.is_finite()));
+    let (mut d, mut n) = ([ruttice::C64::ZERO], [0.0]);
+    v.dot(&out, &mut d);
+    out.norm_sqr(&mut n);
+    let mut vv = [0.0];
+    v.norm_sqr(&mut vv);
+    // T_1000 is even and positive at ℓ < −1: out = c v with c > 0.
+    let cos = d[0].re / (n[0] * vv[0]).sqrt();
+    assert!(d[0].re > 0.0 && (cos - 1.0).abs() < 1e-12, "{cos}");
+}
+
 /// Chebyshev iteration from zero leaves the residual polynomial
 /// T_k((θ - λ)/δ) / T_k(θ/δ) on an eigenvalue λ (Saad, Iterative Methods, eq. 12.8): one at
 /// λ = 0, small on [lo, hi], and k steps apply A k - 1 times.
