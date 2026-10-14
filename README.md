@@ -89,6 +89,18 @@ multigrid, which wants a 12⁴ configuration of your own (`Gauge.config_filename
 | `simd` | `simd_lanes: 4` (2, 4 or 8) sites in one SIMD register; build with `target-cpu=native` |
 | `cuda_bridge` | on an NVIDIA GPU, with the CUDA kernels of Bridge++; a program built with `--features cuda-bridge` |
 
+What runs on the GPU with `backend : cuda_bridge`, and what does not yet:
+
+| On the GPU | Not yet |
+|---|---|
+| Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | the multigrid of Wilson and clover fermions |
+| the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves) | the levels below the coarse lattice (`MultiGrid_Level2` and on): the coarse part of the multigrid is then that of the CPU |
+| the meson correlators from the propagators (on the CPU, after the solves) | HMC |
+| | several GPUs or processes; boundary phases other than ±1 and 0 |
+
+[docs/USAGE.md](docs/USAGE.md) has the details, and [cuda_bridge/README.md](cuda_bridge/README.md)
+which kernels are checked against the CPU.
+
 ### Parallelism
 
 Either backend runs on threads, on several processes, or both:
