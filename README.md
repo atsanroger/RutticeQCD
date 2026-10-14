@@ -103,12 +103,14 @@ which kernels are checked against the CPU.
 
 ### Parallelism
 
-Either backend runs on threads, on several processes, or both:
+The CPU backends (`cpu`, `simd`) run on threads, on several processes, or both; `cuda_bridge`
+runs on one GPU in one process:
 
 | | How |
 |---|---|
-| Threads | every core by default; `Main.cpu_thread` in the file or `RAYON_NUM_THREADS` sets how many |
-| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid |
+| Threads | every core by default; `Main.cpu_thread` in the file or `RAYON_NUM_THREADS` sets how many (with `cuda_bridge`, for what stays on the host) |
+| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid; not with `cuda_bridge` yet |
+| GPU | one device; `CUDA_VISIBLE_DEVICES` chooses which; several GPUs not yet |
 
 ```bash
 cargo build --release --features mpi        # needs an MPI installation and libclang
