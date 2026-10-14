@@ -1,4 +1,5 @@
-use super::levels::{solve_shared, BlockMap};
+use super::levels::BlockMap;
+use super::solve_shared;
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap, SignedMultilevel};
 use crate::fermion::{Bound, HopTerms, Variant};
 use crate::kernel::Number;
@@ -526,10 +527,11 @@ impl<F: HopTerms<Fine<T>>, T: Storage> LinearFn<Fine<T>> for Multigrid<'_, F, T>
             None => (None, None),
         };
         let coarse_solver = &mut parts.coarse_solver;
+        let levels = levels.map(|l| move |out: &mut _, inp: &_| l.apply(out, inp));
         solve_shared(
             &self.coarse,
-            blocks,
-            levels,
+            blocks.map(|b| b as &mut dyn LinearFn<_>),
+            levels.as_ref().map(|l| l as &super::Levels<'_, _>),
             &Cell::new(0),
             &mut |a, m, x, b| {
                 let _ = coarse_solver.solve(a, m, x, b);

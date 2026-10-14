@@ -4,7 +4,9 @@
 use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, SplitParity, Variant};
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
-use crate::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp, MultigridError};
+use crate::solver::preconditioner::multigrid::{
+    Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
+};
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64};
 
@@ -855,5 +857,61 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// `out = A_ee⁻¹ inp` on the even sites, zero on the odd ones.
     pub fn even_block_inverse(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
         self.pass(out, EVEN, Some(inp), None, None, Some(&self.inverse), false);
+    }
+}
+
+impl<T: DeviceReal> CoarseOperator<DeviceCoarse<T>> for DeviceCoarseOp<T> {
+    fn has_even_odd(&self) -> bool {
+        DeviceCoarseOp::has_even_odd(self)
+    }
+    fn mult(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        self.apply(out, inp, false);
+    }
+    fn mult_hermitian(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        self.apply(out, inp, true);
+        DeviceCoarseOp::gamma5(self, out);
+    }
+    fn mult_adjoint(&self, _: &mut DeviceCoarse<T>, _: &DeviceCoarse<T>) {
+        unreachable!("the exact adjoint of a coarse operator is not on the device");
+    }
+    fn gamma5(&self, v: &mut DeviceCoarse<T>) {
+        DeviceCoarseOp::gamma5(self, v);
+    }
+    fn schur(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>, odd: &mut DeviceCoarse<T>) {
+        DeviceCoarseOp::schur(self, out, inp, odd);
+    }
+    fn schur_source(
+        &self,
+        out: &mut DeviceCoarse<T>,
+        g: &DeviceCoarse<T>,
+        odd: &mut DeviceCoarse<T>,
+    ) {
+        DeviceCoarseOp::schur_source(self, out, g, odd);
+    }
+    fn schur_solution(
+        &self,
+        c: &mut DeviceCoarse<T>,
+        g: &DeviceCoarse<T>,
+        odd: &mut DeviceCoarse<T>,
+    ) {
+        DeviceCoarseOp::schur_solution(self, c, g, odd);
+    }
+    fn even_part(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        self.pass(out, EVEN, Some(inp), None, None, None, false);
+    }
+    fn even_block_inverse(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        DeviceCoarseOp::even_block_inverse(self, out, inp);
+    }
+}
+
+impl<T: DeviceReal> Transfer<DeviceSpinor<T>, DeviceCoarse<T>> for DeviceBasis {
+    fn coarse_field(&self, vectors: usize) -> DeviceCoarse<T> {
+        DeviceBasis::coarse_field(self, vectors)
+    }
+    fn restrict(&self, coarse: &mut DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
+        DeviceBasis::restrict(self, coarse, fine);
+    }
+    fn prolong(&self, fine: &mut DeviceSpinor<T>, coarse: &DeviceCoarse<T>) {
+        DeviceBasis::prolong(self, fine, coarse);
     }
 }

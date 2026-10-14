@@ -3,6 +3,7 @@
 mod aggregation;
 mod basis;
 mod coarse;
+mod correction;
 mod cycle;
 mod levels;
 mod mdwf_even_odd;
@@ -13,7 +14,10 @@ mod wilson;
 pub use aggregation::Aggregation;
 pub use basis::{Basis, BasisBuilder, Reflection};
 pub use coarse::CoarseOp;
-pub use cycle::TwoGrid;
+pub use correction::{
+    solve_shared, CoarseOperator, CoarseSolve, Correction, FnMap, Levels, NeffQ, Transfer,
+};
+pub use cycle::{Corrects, TwoGrid};
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_even_odd::{
     bootstrap_round, coarse_solve, low_modes, pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors,
