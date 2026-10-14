@@ -49,7 +49,7 @@ use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop
 use crate::{
     extract_parity, insert_parity, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
     Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage, Subspace, TestRng,
-    Vector, C64,
+    Vector, C64, F16,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -58,8 +58,8 @@ use std::sync::Arc;
 type HalfField<L = Aos, F = f64> = Field<F, Spinor, Half, L>;
 type CoarseField<F = f64> = Field<F, Coarse>;
 
-/// P for fields stored as `F`, itself in single precision, folded on the fifth dimension.
-pub type PvEoBasis<F = f64> = Basis<F, f32>;
+/// P for fields stored as `F`, itself in half precision, folded on the fifth dimension.
+pub type PvEoBasis<F = f64> = Basis<F, F16>;
 
 /// The full-lattice vectors s_j and t̂_j of the vectors y_j on the even sites (see the top
 /// of the file), one j at a time: `visit(i, v)` gets s_j as i = j and t̂_j as i = n + j.
@@ -126,7 +126,7 @@ pub fn pv_eo_basis<F: Storage, G: GammaRepre>(
 ) -> Result<PvEoBasis<F>, MultigridError> {
     let lat = agg.fine_lattice().clone();
     let mut builder =
-        BasisBuilder::<F, f32>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
+        BasisBuilder::<F, F16>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
     let mut work = op.work();
     let mut g5 = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
     lifted_vectors(op, pv, &lat, y, |i, v| {
