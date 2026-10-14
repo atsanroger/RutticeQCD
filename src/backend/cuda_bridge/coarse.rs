@@ -546,6 +546,7 @@ impl DeviceBasis {
             basis.add(n + chunk[0], &s);
         }
         basis.finish()?;
+        trace_checksum("P made on the device", || basis.checksum());
         Ok(basis)
     }
 
@@ -747,6 +748,12 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// The inverses of the blocks, for `apply_blocks`.
     pub fn block_inverses(&self) -> &DeviceBuffer<T> {
         &self.inverse
+    }
+
+    /// Checksums of the blocks with the links, and of the inverses of the blocks.
+    pub fn checksums(&self) -> Result<(u64, u64), CudaError> {
+        let parts = [self.diag.checksum()?, self.links.checksum()?];
+        Ok((checksum_of(&parts), self.inverse.checksum()?))
     }
 
     /// |H_xx|⁻¹ = V |Λ|⁻¹ V† of H = A Γ5, the form of the operator MINRES works on, for
