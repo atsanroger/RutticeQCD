@@ -251,6 +251,7 @@ fn test_vectors<T: DeviceReal>(
                     boot.cycle.power_steps,
                 )?,
             };
+            checksum_line(out, "the top of the smoother", || Ok(hi.to_bits()))?;
             let smoother = Chebyshev::new(
                 ratio(),
                 boot.cycle.chebyshev_steps,
@@ -271,6 +272,11 @@ fn test_vectors<T: DeviceReal>(
             let mut a = ratio();
             for j in 0..stash.num_vectors() {
                 let x = bootstrap_vector(&mut a, &mut two_grid, &stash.vector(j)?, boot.steps);
+                if j < 2 {
+                    checksum_line(out, &format!("vector {j} of round {}", round + 1), || {
+                        x.checksum()
+                    })?;
+                }
                 stash.set_vector(j, &x)?;
             }
             stash

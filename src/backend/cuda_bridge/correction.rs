@@ -52,6 +52,12 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
             )?))
         };
         let (coarse_d, coarse_pv) = (build(plain.0)?, build(plain.1)?);
+        for (name, op) in [("P†DP", &coarse_d), ("P†D_PV P", &coarse_pv)] {
+            trace_checksum(name, || op.checksums().map(|c| c.0));
+            trace_checksum(&format!("the block inverses of {name}"), || {
+                op.checksums().map(|c| c.1)
+            });
+        }
         // The matrices on the coarse sites: the inverses of the blocks of P†DP, and |H_xx|⁻¹
         // of the second factor.
         let (d, pv, abs) = (
@@ -59,6 +65,7 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
             coarse_pv.clone(),
             coarse_pv.abs_inverse_of_a_gamma5()?,
         );
+        trace_checksum("|H_xx|⁻¹", || abs.checksum());
         let blocks_d = FnMap(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
             d.apply_blocks(out, inp, d.block_inverses());
         });

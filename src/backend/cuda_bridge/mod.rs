@@ -960,6 +960,17 @@ fn checksum_of<T: Copy>(data: &[T]) -> u64 {
     })
 }
 
+/// With `RUTTICE_CHECKSUM` set, the checksum of `what` on the standard error: for the stages
+/// inside the library (the application prints its own with its report).
+pub fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaError>) {
+    if std::env::var_os("RUTTICE_CHECKSUM").is_some() {
+        match sum() {
+            Ok(s) => eprintln!("  checksum of {what}: {s:016x}"),
+            Err(e) => eprintln!("  checksum of {what}: {e}"),
+        }
+    }
+}
+
 /// The bytes this program holds on the device, and the most it has held.
 pub fn device_memory() -> (usize, usize) {
     (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
