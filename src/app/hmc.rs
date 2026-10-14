@@ -10,6 +10,7 @@ use super::config::{BoundaryConfig, GaugeFormat, GaugeSmearingConfig};
 use super::hmc_params::{is_hmc_text, HmcParams};
 use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
+use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
@@ -20,7 +21,7 @@ use crate::hmc::{
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
-use crate::{Boundary, Comm, Lattice, Stencil, ND};
+use crate::{Boundary, Comm, Lattice, Stencil, Vector, ND};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -38,6 +39,18 @@ pub struct HmcConfig {
     pub hmc: HmcBlock,
     pub actions: Vec<ActionConfig>,
     pub output: HmcOutput,
+    /// The Wilson flow measured along the run.
+    pub flow: Option<FlowMonitor>,
+}
+
+/// t0 and the topological charge by the Wilson flow of a copy of the configuration, after every
+/// `interval` trajectories; at the end, the Γ-method for their series.
+#[derive(Debug, Clone, Copy)]
+pub struct FlowMonitor {
+    pub interval: usize,
+    pub flow: WilsonFlow,
+    /// The flow stops here if t² E has not reached 0.3.
+    pub t_max: f64,
 }
 
 /// The configuration the run starts from.
@@ -1002,6 +1015,7 @@ pub fn run_on(
         trajectories: Vec::new(),
     };
     let (mut accepted, mut exp_sum) = (0usize, 0.0);
+    let mut flowed: Vec<AtT0> = Vec::new();
     for k in 0..config.hmc.trajectories {
         let n = first + k as u32 + 1;
         let start = Instant::now();
@@ -1023,6 +1037,21 @@ pub fn run_on(
         report
             .trajectories
             .push((n, t.delta_h, t.accepted, t.plaquette));
+        if let Some(m) = config.flow.filter(|m| (k + 1) % m.interval == 0) {
+            // The flow of a copy: the chain goes on from `u`.
+            let mut v = u.zeros_like();
+            v.as_mut_slice().copy_from_slice(u.as_slice());
+            let at = flow_to_t0(&mut v, &m.flow, m.t_max);
+            if root {
+                writeln!(
+                    out,
+                    "# flow {n:8}  t0/a^2 t Q_clover Q_imp  {}",
+                    super::flow::t0_columns(at.as_ref())
+                )
+                .map_err(io)?;
+            }
+            flowed.extend(at);
+        }
         if let (Some(every), Some(file)) = (config.output.save_every, &config.output.file) {
             if (k + 1) % every == 0 || k + 1 == config.hmc.trajectories {
                 let path = base.join(file.replace("{n}", &format!("{n:06}")));
@@ -1042,6 +1071,9 @@ pub fn run_on(
             exp_sum / n
         )
         .map_err(io)?;
+        if let Some(m) = config.flow {
+            super::flow::gamma_lines(out, &flowed, m.interval, "trajectories").map_err(io)?;
+        }
     }
     Ok(report)
 }

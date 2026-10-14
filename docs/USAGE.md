@@ -184,6 +184,24 @@ strength) and the topological charge there, of the clover field strength and imp
 rectangles. The flow (Lüscher's third-order Runge-Kutta), E and Q follow the conventions of
 Bridge++ and agree with its tests.
 
+An HMC file measures the same along the run with a `GradientFlow` section; the chain goes on
+from the configuration, the flow works on a copy:
+
+```yaml
+GradientFlow:
+  measurement_interval : 10        # after every 10 trajectories
+  step_size            : 0.01      # the default
+  max_flow_time        : 10.0      # the default: give up on t0 there
+```
+
+Each measurement is a line `# flow N  ... t0/a^2 t Q_clover Q_imp`. At the end of the run
+(and of `ruttice-flow`, over its files in the order given) the series of t0, Q_clover and Q_imp
+get the Γ-method of Wolff (Comput. Phys. Commun. 156 (2004) 143, S_τ = 1.5): the mean, its
+error with the autocorrelations, and τ_int with its error, in trajectories (in files for
+`ruttice-flow`). "window not found" means the series is too short for τ_int. A chain is
+thermalized from where t0 and Q no longer drift; drop the trajectories before that and several
+τ_int more.
+
 ### The gauge configuration file
 
 | `gauge_config_type_input` | File |

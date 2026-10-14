@@ -11,18 +11,17 @@
 //! between the steps of the flow), and the topological charge of the clover field strength
 //! (Q_clover) and its improved form with rectangles (Q_imp, c_plaq 5/3, c_rect −1/12) at the
 //! first step past t0. A configuration whose t² E stays below 0.3 up to the largest flow time
-//! has `-` there.
+//! has `-` there. At the end, the mean, its error and the integrated autocorrelation time of t0
+//! and of the charges over the files in the order given (`gamma_lines`).
 
 use super::config::GaugeFormat;
-use crate::gauge::flow::{energy_density_clover, topological_charge, WilsonFlow};
+use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow, T0_LEVEL};
 use crate::gauge::plaquette;
+use crate::numerics::gamma_method;
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
-
-/// t² E at the scale t0.
-const T0_LEVEL: f64 = 0.3;
 
 fn usage(out: &mut dyn Write) -> u8 {
     let _ = writeln!(
@@ -101,10 +100,12 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
          # file  plaquette  t0/a^2  t  Q_clover(t)  Q_imp(t)"
     );
     let mut code = 0;
+    let mut found: Vec<AtT0> = Vec::new();
     for file in &positional[ND + 1..] {
         match measure_one(&lat, &*reader, Path::new(file), &flow, t_max) {
-            Ok(line) => {
-                let _ = writeln!(out, "{file}  {line}");
+            Ok((plaq, at)) => {
+                let _ = writeln!(out, "{file}  {plaq:.15}  {}", t0_columns(at.as_ref()));
+                found.extend(at);
             }
             Err(e) => {
                 let _ = writeln!(out, "{file}  error: {e}");
@@ -112,33 +113,67 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
             }
         }
     }
+    let _ = gamma_lines(out, &found, 1, "files");
     code
 }
 
-/// The line of one configuration, after its file name.
+/// The columns t0/a², t, Q_clover, Q_imp of a measurement, `-` where t0 was not reached.
+pub(super) fn t0_columns(at: Option<&AtT0>) -> String {
+    match at {
+        Some(a) => format!(
+            "{:.6}  {:.4}  {:+.6}  {:+.6}",
+            a.t0, a.t, a.q_clover, a.q_improved
+        ),
+        None => "-  -  -  -".into(),
+    }
+}
+
+/// The Γ-method (Wolff, S_τ = 1.5) for t0, Q_clover and Q_imp of the measurements `found`,
+/// made every `spacing` `unit`s: one line each, τ_int in `unit`s.
+pub(super) fn gamma_lines(
+    out: &mut dyn Write,
+    found: &[AtT0],
+    spacing: usize,
+    unit: &str,
+) -> std::io::Result<()> {
+    let series: [(&str, Vec<f64>); 3] = [
+        ("t0/a^2", found.iter().map(|a| a.t0).collect()),
+        ("Q_clover", found.iter().map(|a| a.q_clover).collect()),
+        ("Q_imp", found.iter().map(|a| a.q_improved).collect()),
+    ];
+    for (name, x) in series {
+        let Some(g) = gamma_method(&x, 1.5) else {
+            continue;
+        };
+        let s = spacing as f64;
+        writeln!(
+            out,
+            "# {name}: {:.6} +- {:.6}, tau_int {:.2} +- {:.2} {unit} (W = {}{}; {} measurements)",
+            g.mean,
+            g.error,
+            g.tau_int * s,
+            g.tau_int_error * s,
+            g.window,
+            if g.window_found {
+                ""
+            } else {
+                ", window not found: too few"
+            },
+            x.len()
+        )?;
+    }
+    Ok(())
+}
+
+/// The plaquette of one configuration, and what the flow finds at its t0.
 fn measure_one(
     lat: &Arc<Lattice>,
     reader: &dyn crate::io::GaugeFile,
     file: &Path,
     flow: &WilsonFlow,
     t_max: f64,
-) -> Result<String, crate::io::IoError> {
+) -> Result<(f64, Option<AtT0>), crate::io::IoError> {
     let mut u = reader.read(file, lat)?;
     let plaq = plaquette(&u, &Stencil::nearest(lat, [Boundary::Periodic; ND]));
-    let (mut t, mut before) = (0.0, 0.0);
-    while t < t_max {
-        flow.step(&mut u);
-        let t_next = t + flow.step;
-        let now = t_next * t_next * energy_density_clover(&u, 1.0, 0.0);
-        if now >= T0_LEVEL {
-            let t0 = t + (T0_LEVEL - before) / (now - before) * flow.step;
-            return Ok(format!(
-                "{plaq:.15}  {t0:.6}  {t_next:.4}  {:+.6}  {:+.6}",
-                topological_charge(&u, 1.0, 0.0),
-                topological_charge(&u, 5.0 / 3.0, -1.0 / 12.0)
-            ));
-        }
-        (t, before) = (t_next, now);
-    }
-    Ok(format!("{plaq:.15}  -  -  -  -"))
+    Ok((plaq, flow_to_t0(&mut u, flow, t_max)))
 }

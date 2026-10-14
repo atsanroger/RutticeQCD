@@ -50,6 +50,43 @@ impl WilsonFlow {
     }
 }
 
+/// t² E at the scale t0.
+pub const T0_LEVEL: f64 = 0.3;
+
+/// What the flow finds at the scale t0 of a configuration.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AtT0 {
+    /// t0/a²: where t² E = 0.3, E of the clover field strength, interpolated between steps.
+    pub t0: f64,
+    /// The flow time of the first step past t0, where the charges are measured.
+    pub t: f64,
+    /// The topological charge there, of the clover field strength and improved with
+    /// rectangles (c_plaq 5/3, c_rect −1/12).
+    pub q_clover: f64,
+    pub q_improved: f64,
+}
+
+/// Flow `u` (it is changed) until t² E reaches 0.3, and measure there; `None` if it does not
+/// before the flow time `t_max`.
+pub fn flow_to_t0(u: &mut Field<f64, Gauge>, flow: &WilsonFlow, t_max: f64) -> Option<AtT0> {
+    let (mut t, mut before) = (0.0, 0.0);
+    while t < t_max {
+        flow.step(u);
+        let t_next = t + flow.step;
+        let now = t_next * t_next * energy_density_clover(u, 1.0, 0.0);
+        if now >= T0_LEVEL {
+            return Some(AtT0 {
+                t0: t + (T0_LEVEL - before) / (now - before) * flow.step,
+                t: t_next,
+                q_clover: topological_charge(u, 1.0, 0.0),
+                q_improved: topological_charge(u, 5.0 / 3.0, -1.0 / 12.0),
+            });
+        }
+        (t, before) = (t_next, now);
+    }
+    None
+}
+
 /// E = 36 (1 − ⟨plaquette⟩), the energy density from the plaquette (Bridge++ `E_plaq`).
 pub fn energy_density_plaq(u: &Field<f64, Gauge>) -> f64 {
     let st = Stencil::nearest(u.lattice(), [Boundary::Periodic; ND]);
