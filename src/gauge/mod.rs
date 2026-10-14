@@ -7,6 +7,7 @@ use crate::{
 };
 
 mod fixing;
+pub mod flow;
 pub mod paths;
 mod random;
 pub mod smearing;
