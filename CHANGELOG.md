@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The gradient flow (`gauge::flow`): the Wilson flow by Lüscher's third-order Runge-Kutta
+  scheme, the energy density (plaquette and clover) and the topological charge (clover and
+  improved), as Bridge++ and checked against its tests; `ruttice-flow` and `ruttice-flow-mpi`
+  print t0 and the charge of saved configurations.
+- The force of the plaquette action walks its staples site by site: the same numbers, faster.
+
 ## 0.2.0 (2026-10-14)
 
 Known issue: on an A30, the domain-wall multigrid on large lattices (28^4, 24^3x48) gives

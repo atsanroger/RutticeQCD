@@ -169,6 +169,21 @@ The momenta, the pseudofermions and the Metropolis test use the random numbers o
 Bridge++, in its order, so a run of Bridge++'s `HMC_General` can be repeated number by
 number.
 
+### The gradient flow
+
+`ruttice-flow` (`ruttice-flow-mpi` on several processes, built with `--features mpi`) runs
+the Wilson flow on saved configurations, for the history of a Monte Carlo chain:
+
+```bash
+ruttice-flow 24 24 24 48 binary conf_*.bin              # --step 0.01 --t-max 10 by default
+mpirun -np 4 ruttice-flow-mpi 32 32 32 32 binary conf_*.bin
+```
+
+For every file it prints the plaquette, t0/a² (where t² E = 0.3, E of the clover field
+strength) and the topological charge there, of the clover field strength and improved with
+rectangles. The flow (Lüscher's third-order Runge-Kutta), E and Q follow the conventions of
+Bridge++ and agree with its tests.
+
 ### The gauge configuration file
 
 | `gauge_config_type_input` | File |
