@@ -2,7 +2,7 @@
 //! topological charge of every configuration of a Monte Carlo history.
 //!
 //! ```text
-//! ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
+//! ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T] [--skip N]
 //! mpirun -np 4 ruttice-flow-mpi LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
 //! ```
 //!
@@ -12,7 +12,8 @@
 //! (Q_clover) and its improved form with rectangles (Q_imp, c_plaq 5/3, c_rect −1/12) at the
 //! first step past t0. A configuration whose t² E stays below 0.3 up to the largest flow time
 //! has `-` there. At the end, the mean, its error and the integrated autocorrelation time of t0
-//! and of the charges over the files in the order given (`gamma_lines`).
+//! and of the charges over the files in the order given, without the first N (`--skip`,
+//! thermalization; `gamma_lines`).
 
 use super::config::GaugeFormat;
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow, T0_LEVEL};
@@ -26,7 +27,7 @@ use std::sync::Arc;
 fn usage(out: &mut dyn Write) -> u8 {
     let _ = writeln!(
         out,
-        "usage: ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]\n\
+        "usage: ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T] [--skip N]\n\
          FORMAT: text, binary, nersc, ildg or scidac"
     );
     2
@@ -34,11 +35,18 @@ fn usage(out: &mut dyn Write) -> u8 {
 
 /// What `ruttice-flow` does with its arguments (the program name left out); the exit code.
 pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -> u8 {
-    let (mut step, mut t_max) = (0.01, 10.0);
+    let (mut step, mut t_max, mut skip) = (0.01, 10.0, 0usize);
     let mut positional = Vec::new();
     let mut k = 0;
     while k < args.len() {
         match args[k].as_str() {
+            "--skip" if k + 1 < args.len() => {
+                let Ok(n) = args[k + 1].parse::<usize>() else {
+                    return usage(out);
+                };
+                skip = n;
+                k += 2;
+            }
             "--step" | "--t-max" if k + 1 < args.len() => {
                 let Ok(v) = args[k + 1].parse::<f64>() else {
                     return usage(out);
@@ -101,17 +109,22 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
     );
     let mut code = 0;
     let mut found: Vec<AtT0> = Vec::new();
-    for file in &positional[ND + 1..] {
+    for (i, file) in positional[ND + 1..].iter().enumerate() {
         match measure_one(&lat, &*reader, Path::new(file), &flow, t_max) {
             Ok((plaq, at)) => {
                 let _ = writeln!(out, "{file}  {plaq:.15}  {}", t0_columns(at.as_ref()));
-                found.extend(at);
+                if i >= skip {
+                    found.extend(at);
+                }
             }
             Err(e) => {
                 let _ = writeln!(out, "{file}  error: {e}");
                 code = 1;
             }
         }
+    }
+    if skip > 0 {
+        let _ = writeln!(out, "# without the first {skip} files:");
     }
     let _ = gamma_lines(out, &found, 1, "files");
     code

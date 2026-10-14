@@ -139,6 +139,9 @@ pub struct FlowBlock {
     /// Only 3 (Lüscher's scheme).
     #[serde(rename = "order_of_RungeKutta", default = "flow_rk_order")]
     pub order_of_runge_kutta: usize,
+    /// The first this many trajectories of the run are left out of the Γ-method at the end.
+    #[serde(default)]
+    pub skip_trajectories: usize,
 }
 
 fn flow_step() -> f64 {
@@ -174,6 +177,7 @@ impl FlowBlock {
                 exp_order: self.order_of_exp_ip,
             },
             t_max: self.max_flow_time,
+            skip: self.skip_trajectories,
         })
     }
 }
