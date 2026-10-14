@@ -192,6 +192,7 @@ GradientFlow:
   measurement_interval : 10        # after every 10 trajectories
   step_size            : 0.01      # the default
   max_flow_time        : 10.0      # the default: give up on t0 there
+  skip_trajectories    : 200       # thermalization: measured, left out of the analysis
 ```
 
 Each measurement is a line `# flow N  ... t0/a^2 t Q_clover Q_imp`. At the end of the run
@@ -199,8 +200,9 @@ Each measurement is a line `# flow N  ... t0/a^2 t Q_clover Q_imp`. At the end o
 get the Γ-method of Wolff (Comput. Phys. Commun. 156 (2004) 143, S_τ = 1.5): the mean, its
 error with the autocorrelations, and τ_int with its error, in trajectories (in files for
 `ruttice-flow`). "window not found" means the series is too short for τ_int. A chain is
-thermalized from where t0 and Q no longer drift; drop the trajectories before that and several
-τ_int more.
+thermalized from where t0 and Q no longer drift: leave out the trajectories before that and
+several τ_int more, by `skip_trajectories` (for `ruttice-flow`, `--skip N` files). A drift left
+in biases the mean and shows up as a long τ_int.
 
 ### The gauge configuration file
 

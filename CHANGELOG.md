@@ -7,7 +7,8 @@
   improved), as Bridge++ and checked against its tests; `ruttice-flow` and `ruttice-flow-mpi`
   print t0 and the charge of saved configurations.
 - HMC measures t0 and the charge by the flow every `GradientFlow.measurement_interval`
-  trajectories.
+  trajectories; `skip_trajectories` (`ruttice-flow --skip`) leaves the thermalization out of
+  the analysis.
 - The Γ-method of Wolff (`numerics::gamma_method`): the error of a mean and the integrated
   autocorrelation time, printed for t0 and the charges at the end of an HMC run and of
   `ruttice-flow`.

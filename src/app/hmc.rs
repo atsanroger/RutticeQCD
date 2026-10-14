@@ -51,6 +51,9 @@ pub struct FlowMonitor {
     pub flow: WilsonFlow,
     /// The flow stops here if t² E has not reached 0.3.
     pub t_max: f64,
+    /// The first this many trajectories of the run (thermalization) are measured and printed
+    /// but left out of the Γ-method at the end.
+    pub skip: usize,
 }
 
 /// The configuration the run starts from.
@@ -1050,7 +1053,9 @@ pub fn run_on(
                 )
                 .map_err(io)?;
             }
-            flowed.extend(at);
+            if k + 1 > m.skip {
+                flowed.extend(at);
+            }
         }
         if let (Some(every), Some(file)) = (config.output.save_every, &config.output.file) {
             if (k + 1) % every == 0 || k + 1 == config.hmc.trajectories {
@@ -1072,6 +1077,9 @@ pub fn run_on(
         )
         .map_err(io)?;
         if let Some(m) = config.flow {
+            if m.skip > 0 {
+                writeln!(out, "# without the first {} trajectories:", m.skip).map_err(io)?;
+            }
             super::flow::gamma_lines(out, &flowed, m.interval, "trajectories").map_err(io)?;
         }
     }

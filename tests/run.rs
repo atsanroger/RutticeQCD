@@ -770,6 +770,32 @@ GradientFlow:
     // Rank 0 prints; the numbers to the digits printed are those of one process.
     assert_eq!(flow_lines(&split[0]), one);
 
+    // Without the first two trajectories: the measurements after 4 and 6 only.
+    let skipping = yaml("[1, 1, 1, 1]").replace(
+        "max_flow_time : 3.0",
+        "max_flow_time : 3.0\n  skip_trajectories : 2",
+    );
+    let config = HmcConfig::from_yaml(&skipping).unwrap();
+    let mut out = Vec::new();
+    run_on(
+        &config,
+        Path::new("."),
+        &mut out,
+        std::sync::Arc::new(ruttice::SingleComm),
+    )
+    .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        text.contains("# without the first 2 trajectories:"),
+        "{text}"
+    );
+    assert!(
+        text.lines()
+            .filter(|l| l.starts_with("# t0/a^2"))
+            .all(|l| l.ends_with("; 2 measurements)")),
+        "{text}"
+    );
+
     let bad = yaml("[1, 1, 1, 1]").replace("step_size : 0.02", "order_of_RungeKutta : 4");
     assert!(HmcConfig::from_yaml(&bad)
         .map(|c| c.flow.is_some())
