@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-14)
+
+Known issue: on an A30, the domain-wall multigrid on large lattices (28^4, 24^3x48) gives
+different last digits from run to run of the same program, from the first round of the
+bootstrap on; not on 12^4, and not on an RTX 3080. Not understood yet.
 
 - `backend : cuda_bridge`: Wilson, clover and domain-wall propagators on an NVIDIA GPU with
   the CUDA kernels extracted from Bridge++ (feature `cuda-bridge`), in double, single and
