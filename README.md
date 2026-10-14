@@ -12,35 +12,37 @@ Lattice QCD in Rust.
 
 ## Introduction
 
-Ruttice is a lattice QCD code written in Rust. Its idea is to use what Rust offers as far
+Ruttice is a lattice QCD code written in Rust. Our goal is to use what Rust offers as far
 as it goes to make the solvers and HMC fast, with the aim of simulations in pure Rust on
 every kind of hardware.
 
-- **Fermions**: Wilson, clover and Möbius domain-wall.
-- **Solvers**: a multigrid written for each kind, to compute two-point correlation
-  functions quickly.
-- **Configurations**: pure gauge, HMC and RHMC.
-- **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge` (propagators; no
-  multigrid and no HMC on the device yet). A backend in Rust is planned once CUDA is officially
-  supported there, keeping both.
+- **Fermions**: Wilson, clover and Möbius domain-wall fermion.
+- **Solvers**: Various preconditied solves including multigrid to compute correlation
+  functions.
+- **Configurations**: Pure gauge, HMC and RHMC.
+- **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge`: propagators of the
+  three kinds of fermions, and the domain-wall multigrid with its setup. Not yet on the device:
+  the multigrid of Wilson and clover fermions, and HMC. A backend in Rust is planned once CUDA
+  is officially supported there, keeping both.
 
 The code is written for a clear structure and for speed, at some cost in readability where
-the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory.
+the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory and also low-level assembly.
 
 Everything it computes is checked number by number against
 [Bridge++](https://bridge.kek.jp/Lattice-code/).
 
 ## Quick start
 
-You need a stable Rust toolchain.
+You need a stable Rust toolchain.(if not, check [Rust](https://rust-lang.org/ja/tools/install/))
 
+Then
 ```bash
 git clone https://github.com/atsanroger/RutticeQCD.git
 cd RutticeQCD
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-Run an example. It reads `examples/conf_04040408.txt`, the 4³ × 8 test configuration of
+Run an example. It reads the `examples/conf_04040408.txt`, the 4³ × 8 test gauge configuration from
 Bridge++, which comes with the repository:
 
 ```bash
@@ -66,7 +68,7 @@ Start from an example; each one is commented.
 | Example | What it runs |
 |---|---|
 | [wilson_pion.yaml](examples/wilson_pion.yaml) | Wilson fermions, pion correlator |
-| [clover_two_flavours.yaml](examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources, every channel |
+| [clover_two_flavours.yaml](examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources |
 | [clover_mg.yaml](examples/clover_mg.yaml) | clover fermions with the multigrid |
 | [mdwf_pv_eo_mg.yaml](examples/mdwf_pv_eo_mg.yaml) | domain-wall fermions with the multigrid |
 | [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
@@ -115,9 +117,8 @@ rows marked *expected* have not been measured:
 |---|---|---|
 | Wilson, clover | small | `CG` on `Even_odd` |
 | Wilson, clover | large | `FGMRES` or `BiCGStab` with the multigrid (*expected*) |
-| Domain-wall | up to 12⁴ | `CG` on `Normal_left` with `neff_alpha : 0.6` |
-| Domain-wall | 16⁴ | `GCR` or `FGMRES` with the multigrid |
-| Domain-wall | larger | the multigrid (*expected*) |
+| Domain-wall | small | `CG` on `Normal_left` with `neff_alpha : 0.6` |
+| Domain-wall | large | `GCR` or `FGMRES` with the multigrid |
 
 In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. Wilson and
 clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
@@ -136,6 +137,21 @@ Test gauge configuration could be download from [here](https://drive.google.com/
   [arXiv:2602.14454](https://arxiv.org/abs/2602.14454). It speeds up `CG` on `Normal_left`
   and the solves on `PV_left`, with or without the multigrid.
 
+### Supported formats for gauge configuration
+
+RutticeQCD supports following formats of gauge configuration formats (`src/io`):
+
+| Format (`gauge_config_type_input`) | Description | Precision / Notes |
+|---|---|---|
+| `ILDG` | International Lattice Data Grid standard format: LIME container with `ildg-format` and `ildg-binary-data` records. | Single or Double precision (`FilePrecision`); fully compatible with QIO/SciDAC. |
+| `SciDAC` | SciDAC QIO lattice-colour-matrix record: LIME container with `scidac-binary-data`. | Single or Double precision; verifies SciDAC checksum when present. |
+| `Binary` | Headerless binary format of Bridge++. | Big-endian double precision. |
+| `Text` | Plain ASCII text format with one real number per line (Bridge++ Text format). | Double precision text. |
+| `NERSC` | Standard NERSC (Gauge Connection) format with text header (`4D_SU3_GAUGE` or `4D_SU3_GAUGE_3x3`). | Single or Double precision; big/little endian; checksum is verified. Written as full matrices in big-endian double. |
+| `HDF5` | Structured HDF5 dataset (`gauge` of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`). | Double precision; requires `--features hdf5`. |
+
+All formats maintain consistent lexicographical ordering: site ($x$ fastest), followed by Lorentz direction $\mu \in \{0, 1, 2, 3\}$, and the $3 \times 3$ SU(3) matrix row-by-row (real then imaginary).
+
 ## More
 
 | | |
@@ -145,6 +161,19 @@ Test gauge configuration could be download from [here](https://drive.google.com/
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | the structure of the code, the tests, the library, what is not there yet |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | the comparisons with Bridge++, number by number |
 | [CHANGELOG.md](CHANGELOG.md) | what changed |
+
+## Bug Reports & Contributing with AI Agents
+
+### Bug Reports
+If you discover any bugs, numerical discrepancies, or unexpected behavior, please:
+- Open an Issue on GitHub: [https://github.com/atsanroger/RutticeQCD/issues](https://github.com/atsanroger/RutticeQCD/issues)
+- Or email the author directly: `wlchenba@gmail.com`
+
+### Guidelines for AI Coding Assistants / Agents
+When using AI Agents to develop or contribute to this project, please instruct the agent prompt to strictly conform to the project's architecture and style guidelines:
+- **Project Style & Idioms**: Respect the modular layout, zero-overhead abstractions, explicit type signatures, and clear math formulations.
+- **Avoid Non-Deterministic Operations (No `atomicAdd`)**: For GPU kernels, strictly avoid `atomicAdd` on floating-point reductions. Use deterministic block/warp shared-memory tree reductions to ensure bitwise reproducibility and numerical stability.
+- **Minimize `unsafe` in Rust**: Minimize `unsafe` code as much as possible. Keep `unsafe` blocks strictly isolated, audited, and well-documented with explicit safety invariants.
 
 ## Acknowledgements
 
