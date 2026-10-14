@@ -410,21 +410,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
     let lat = Lattice::new(config.lattice, grid, comm);
 
     let gauge_path = base.join(&config.gauge.file);
-    let format: &dyn GaugeFile = match config.gauge.format {
-        GaugeFormat::BridgeText => &BridgeText,
-        GaugeFormat::Binary => &Binary,
-        GaugeFormat::Nersc => &Nersc,
-        GaugeFormat::Ildg => &Ildg::default(),
-        GaugeFormat::Scidac => &Scidac::default(),
-        #[cfg(feature = "hdf5")]
-        GaugeFormat::Hdf5 => &crate::io::Hdf5::default(),
-        #[cfg(not(feature = "hdf5"))]
-        GaugeFormat::Hdf5 => {
-            return invalid(
-                "gauge.format = hdf5 needs a program built with the feature hdf5".to_string(),
-            )
-        }
-    };
+    let format = gauge_file(config.gauge.format)?;
     let mut u = format.read(&gauge_path, &lat).map_err(CliError::Gauge)?;
     let plaq = plaquette(&u, &Stencil::nearest(&lat, [Boundary::Periodic; ND]));
     let gauge_fixing_sweeps = match &config.gauge.fixing {

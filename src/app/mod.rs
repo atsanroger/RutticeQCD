@@ -122,6 +122,23 @@ pub fn memory_line() -> String {
     })
 }
 
+/// The reader and writer of the gauge-field format `f`.
+pub(crate) fn gauge_file(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
+    Ok(match f {
+        GaugeFormat::BridgeText => Box::new(BridgeText),
+        GaugeFormat::Binary => Box::new(Binary),
+        GaugeFormat::Nersc => Box::new(Nersc),
+        GaugeFormat::Ildg => Box::new(Ildg::default()),
+        GaugeFormat::Scidac => Box::new(Scidac::default()),
+        #[cfg(feature = "hdf5")]
+        GaugeFormat::Hdf5 => Box::new(crate::io::Hdf5::default()),
+        #[cfg(not(feature = "hdf5"))]
+        GaugeFormat::Hdf5 => {
+            return invalid("format hdf5 needs a program built with the feature hdf5".into())
+        }
+    })
+}
+
 fn invalid<T>(message: String) -> Result<T, CliError> {
     Err(CliError::Invalid(message))
 }

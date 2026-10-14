@@ -6,7 +6,6 @@
 use super::memory_line;
 use super::params::{Backend, Params, PrecisionType, PreconditionerType, SolverType};
 use crate::fermion::{EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd, Variant};
-use crate::io::read_bridge_text;
 use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
     channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
@@ -321,7 +320,9 @@ pub fn run_on(
     let requested = (params.main.grid_size != [1; ND]).then_some(params.main.grid_size);
     let grid = super::grid_for(size, requested, comm.size())?;
     let lat = Lattice::new(size, grid, comm);
-    let u = read_bridge_text(&relative(&params.gauge.config_filename_input), &lat)?;
+    let format = super::config::GaugeFormat::from(params.gauge.gauge_config_type_input);
+    let u =
+        super::gauge_file(format)?.read(&relative(&params.gauge.config_filename_input), &lat)?;
     // Gauge smearing: the operators are made of the smeared links.
     let u = match &params.gauge_smearing {
         None => u,

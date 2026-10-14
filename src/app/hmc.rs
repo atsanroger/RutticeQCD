@@ -17,7 +17,6 @@ use crate::hmc::{
     PlaquetteAction, Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor,
     TwoFlavorEo, TwoFlavorRatio,
 };
-use crate::io::{Binary, BridgeText, GaugeFile, Ildg, Scidac};
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
@@ -936,22 +935,6 @@ fn mdwf_params(f: &HmcFermion) -> MdwfParams {
     }
 }
 
-fn gauge_format(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
-    Ok(match f {
-        GaugeFormat::BridgeText => Box::new(BridgeText),
-        GaugeFormat::Binary => Box::new(Binary),
-        GaugeFormat::Nersc => Box::new(crate::io::Nersc),
-        GaugeFormat::Ildg => Box::new(Ildg::default()),
-        GaugeFormat::Scidac => Box::new(Scidac::default()),
-        #[cfg(feature = "hdf5")]
-        GaugeFormat::Hdf5 => Box::new(crate::io::Hdf5::default()),
-        #[cfg(not(feature = "hdf5"))]
-        GaugeFormat::Hdf5 => {
-            return invalid("format hdf5 needs a program built with the feature hdf5".into())
-        }
-    })
-}
-
 /// What a run did, trajectory by trajectory.
 #[derive(Debug, Clone)]
 pub struct HmcReport {
@@ -973,7 +956,7 @@ pub fn run_on(
     config.check_blocks(lat.local)?;
     let root = lat.comm.rank() == 0;
     let mut u = match &config.start {
-        StartConfig::File { file, format } => gauge_format(*format)?
+        StartConfig::File { file, format } => super::gauge_file(*format)?
             .read(&base.join(file), &lat)
             .map_err(CliError::Gauge)?,
         StartConfig::Cold => cold_start(&lat),
@@ -1044,7 +1027,7 @@ pub fn run_on(
             if (k + 1) % every == 0 || k + 1 == config.hmc.trajectories {
                 let path = base.join(file.replace("{n}", &format!("{n:06}")));
                 // Every process takes part; rank 0 writes the file.
-                gauge_format(config.output.format)?
+                super::gauge_file(config.output.format)?
                     .write(&path, &u)
                     .map_err(CliError::Gauge)?;
             }
