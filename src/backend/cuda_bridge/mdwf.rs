@@ -14,7 +14,7 @@ use super::wilson::{gamma5, scratch};
 use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
-use crate::solver::preconditioner::multigrid::CoarseOp;
+use crate::solver::preconditioner::multigrid::{CoarseOp, NeffQ};
 use crate::{Parity, Vector, C64};
 
 extern "C" {
@@ -758,5 +758,11 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
     /// The count Bridge++ uses for its domain-wall operator, `(464 Nc + 240) Ls`.
     fn flops_per_site(&self) -> usize {
         (464 * NC + 240) * self.params.ls
+    }
+}
+
+impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
+    fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
+        CudaMdwf::mult_q(self, out, inp, inverse);
     }
 }

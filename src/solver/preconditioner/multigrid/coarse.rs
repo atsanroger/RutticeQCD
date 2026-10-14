@@ -6,7 +6,6 @@ use crate::{
     fit, for_sites, Boundary, Coarse, Direction, Field, HaloExchange, Lattice, LinearFn, LinearOp,
     Source, Spinor, Stencil, Storage, Vector, C64, FACES, ND,
 };
-use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The eight hopping directions, in the order the coarse links are stored (the order of the
@@ -411,7 +410,7 @@ impl<T: Storage> CoarseOp<T> {
     }
 
     /// Γ5 on the coarse lattice: +1 on the first half of the components, -1 on the second.
-    fn gamma5(&self, v: &mut Field<T, Coarse>) {
+    pub(super) fn gamma5(&self, v: &mut Field<T, Coarse>) {
         let dim = self.dim;
         let site_len = v.site_len();
         for_sites(v.slab_mut(0), site_len, |_, s| {
@@ -837,30 +836,5 @@ impl<T: Storage> LinearOp<Field<T, Coarse>> for CoarseOp<T> {
         t.copy_from(out);
         self.apply(out, &t, true);
         self.scratch = Some(t);
-    }
-}
-
-/// The Schur complement of a shared coarse operator on its even sites, as the operator of
-/// a solver, counting its applications (each the work of one of the coarse operator).
-pub(super) struct CountedSchur<'a, T: Storage> {
-    pub(super) a: &'a RefCell<CoarseOp<T>>,
-    pub(super) n: &'a Cell<usize>,
-    pub(super) odd: Field<T, Coarse>,
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedSchur<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        self.n.set(self.n.get() + inp.num_vectors());
-        self.a.borrow().schur(out, inp, &mut self.odd);
-    }
-}
-
-/// The inverses of the diagonal blocks on the even sites: the preconditioner of
-/// `CountedSchur`.
-pub(super) struct EvenBlocks<'a, T: Storage>(pub(super) &'a RefCell<CoarseOp<T>>);
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for EvenBlocks<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        self.0.borrow().even_block_inverse(out, inp);
     }
 }

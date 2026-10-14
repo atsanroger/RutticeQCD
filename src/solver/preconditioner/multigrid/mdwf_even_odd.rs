@@ -33,14 +33,15 @@
 //! as its Γ5-adjoint, by MINRES on H = Γ5 (P†D_PV P)† with the block |H_xx|⁻¹. The cycle:
 //! y = S b, y += e(b − Ã y), y += S(b − Ã y), S a Chebyshev polynomial in the operator.
 
-use super::levels::{solve_shared, AbsMultilevel, BlockMap, BlocksPlusLevels, OnEven};
+use super::correction::{Correction, NeffQ, Transfer};
+use super::cycle::{Corrects, TwoGrid};
+use super::levels::{AbsMultilevel, BlockMap};
 use super::{
     Aggregation, Basis, BasisBuilder, CoarseOp, LevelBootstrap, MultigridError, Reflection,
     SignedMultilevel,
 };
 use crate::fermion::{
-    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfHalfWork, MdwfLayout, PvEvenOdd,
-    Variant,
+    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfLayout, PvEvenOdd, Variant,
 };
 use crate::kernel::{Dirac, GammaRepre, LaneOf};
 use crate::numerics::hermitian_eigen;
@@ -50,7 +51,7 @@ use crate::{
     Field, Half, Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage,
     Subspace, Vector, C64,
 };
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -154,65 +155,6 @@ pub fn pv_eo_coarse_vectors<G: GammaRepre>(
         .into_iter()
         .map(|c| c.expect("every vector visited"))
         .collect()
-}
-
-/// Γ5 on a coarse field: −1 on the second half of the components.
-fn coarse_gamma5<T: Storage>(v: &mut Field<T, Coarse>) {
-    let dim = v.internal_dof() / 2;
-    for site in v.as_mut_slice().chunks_exact_mut(2 * dim) {
-        for r in &mut site[dim..] {
-            *r = T::store(-r.load());
-        }
-    }
-}
-
-/// How the PV factor is applied.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Apply {
-    /// H = Γ5 (Γ5 D_c Γ5) = D_c Γ5, the Γ5-adjoint (for MINRES).
-    Gamma5Adjoint,
-    /// D_c† exactly.
-    Adjoint,
-}
-
-/// A coarse factor as a linear map counting its applications.
-struct Counted<'a, T: Storage> {
-    a: &'a mut CoarseOp<T>,
-    apply: Apply,
-    n: &'a Cell<usize>,
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for Counted<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        self.n.set(self.n.get() + inp.num_vectors());
-        match self.apply {
-            Apply::Gamma5Adjoint => {
-                self.a.mult_dag(out, inp);
-                coarse_gamma5(out);
-            }
-            Apply::Adjoint => self.a.mult_adjoint(out, inp),
-        }
-    }
-}
-
-/// The Schur complement on the even coarse sites of H = D_c Γ5, the Γ5-Hermitian form MINRES
-/// works on: it is S Γ5, with S that of D_c (`CoarseOp::schur`), since Γ5 acts within a
-/// site. Counts its applications.
-struct CountedSchurGamma5<'a, T: Storage> {
-    a: &'a CoarseOp<T>,
-    n: &'a Cell<usize>,
-    odd: Field<T, Coarse>,
-    turned: Field<T, Coarse>,
-}
-
-impl<T: Storage> LinearFn<Field<T, Coarse>> for CountedSchurGamma5<'_, T> {
-    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
-        self.n.set(self.n.get() + inp.num_vectors());
-        crate::fit(&mut self.turned, inp);
-        self.turned.copy_from(inp);
-        coarse_gamma5(&mut self.turned);
-        self.a.schur(out, &self.turned, &mut self.odd);
-    }
 }
 
 /// The Krylov solver of a coarse factor, right-preconditioned by the inverses of its
@@ -396,42 +338,83 @@ where
     }
 }
 
-/// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of a
-/// flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator.
-pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32, L: CycleLayout = Aos> {
-    op: &'a Mdwf<f64, G>,
-    pv: &'a Mdwf<f64, G>,
-    op_a: &'a Mdwf<f64, G>,
-    pv_a: &'a Mdwf<f64, G>,
-    form: EoForm,
-    index: Arc<EvenOddIndex>,
+/// P between fields on the even sites and the coarse lattice, on the CPU.
+pub struct HalfTransfer<'a> {
     basis: &'a PvEoBasis,
-    /// Shared by the coarse solver and its preconditioner (which applies it with levels).
-    coarse_d: RefCell<CoarseOp<CT>>,
-    coarse_pv: CoarseOp<CT>,
-    blocks_d: BlockMap,
-    /// Levels below the coarse lattice for the quark factor (`add_levels`).
-    levels_d: Option<SignedMultilevel>,
-    blocks_pv: BlockMap,
-    /// Levels below the coarse lattice for the second factor (`add_pv_levels`).
-    levels_pv: Option<AbsMultilevel>,
-    smoother: Chebyshev<SharedOperator<'a, G, L>, HalfField<L>>,
-    params: PvEoParams,
-    hi: f64,
-    work: [MdwfHalfWork<f64>; 2],
-    /// Scratch on the even sites (taken out while the cycle runs) and on the coarse lattice:
-    /// `g` in the precision of P, the others in that of the coarse solves.
-    r: Option<HalfField<L>>,
-    e: Option<HalfField<L>>,
+    index: Arc<EvenOddIndex>,
+}
+
+impl Transfer<HalfField, CoarseField> for HalfTransfer<'_> {
+    fn coarse_field(&self, vectors: usize) -> CoarseField {
+        self.basis.coarse_field(vectors)
+    }
+    fn restrict(&self, coarse: &mut CoarseField, fine: &HalfField) {
+        self.basis.restrict_half(coarse, fine, &self.index);
+    }
+    fn prolong(&self, fine: &mut HalfField, coarse: &CoarseField) {
+        self.basis.prolong_half(fine, coarse, &self.index);
+    }
+}
+
+impl<G: GammaRepre> NeffQ<HalfField> for Mdwf<f64, G> {
+    fn mult_q(&self, out: &mut HalfField, inp: &HalfField, inverse: bool) {
+        Mdwf::mult_q(self, out, inp, inverse);
+    }
+}
+
+/// The coarse correction on the CPU, in the usual layout, the coarse systems stored as `CT`.
+type CpuCorrection<'a, G, CT> = Correction<
+    'a,
+    HalfField,
+    CoarseField,
+    Field<CT, Coarse>,
+    Mdwf<f64, G>,
+    HalfTransfer<'a>,
+    RefCell<CoarseOp<CT>>,
+>;
+
+/// The coarse correction for an operator in the layout `L`: P and the coarse operators work in
+/// the usual layout, so in blocks the residual is converted before it and the correction
+/// after it.
+pub struct InLayout<'a, G: GammaRepre, CT: Storage, L: CycleLayout> {
+    correction: CpuCorrection<'a, G, CT>,
     /// The residual and the correction in the usual layout, when `L` is another one.
     sites: Option<[HalfField; 2]>,
     map: L::Map,
-    h: HalfField,
-    g: CoarseField,
-    gc: Field<CT, Coarse>,
-    w: Field<CT, Coarse>,
-    c: Field<CT, Coarse>,
-    coarse_applications: Cell<usize>,
+    lat: Arc<Lattice>,
+}
+
+impl<G: GammaRepre, CT: Storage, L: CycleLayout> Corrects<HalfField<L>> for InLayout<'_, G, CT, L>
+where
+    Field<CT, Coarse>: ConvertFrom<CoarseField>,
+    CoarseField: ConvertFrom<Field<CT, Coarse>>,
+{
+    fn correct(&mut self, e: &mut HalfField<L>, r: &HalfField<L>) {
+        if let (Some(r), Some(e)) = (L::as_sites(r), L::as_sites_mut(e)) {
+            self.correction.correct(e, r);
+            return;
+        }
+        let [mut r_s, mut e_s] = match self.sites.take() {
+            Some(f) if f[0].num_vectors() == r.num_vectors() => f,
+            _ => {
+                let mut f = HalfField::with_shape(&self.lat, 24, r.ls(), r.num_vectors(), 1);
+                f.set_parity(Parity::Even);
+                [f.zeros_like(), f]
+            }
+        };
+        L::to_sites(&self.map, &mut r_s, r);
+        self.correction.correct(&mut e_s, &r_s);
+        L::from_sites(&self.map, e, &e_s);
+        self.sites = Some([r_s, e_s]);
+    }
+}
+
+/// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of a
+/// flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator: `TwoGrid` with the
+/// Chebyshev smoother and `Correction`, built here on the CPU.
+pub struct PvEoCycle<'a, G: GammaRepre = Dirac, CT: Storage = f32, L: CycleLayout = Aos> {
+    cycle: TwoGrid<HalfField<L>, SharedOperator<'a, G, L>, InLayout<'a, G, CT, L>>,
+    hi: f64,
 }
 
 /// A zero field on the coarse lattice of `basis`, stored as `T`.
@@ -458,7 +441,11 @@ impl<'a, G: GammaRepre> PvEoCycle<'a, G, f32, Aos> {
     }
 }
 
-impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT, Aos> {
+impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT, Aos>
+where
+    Field<CT, Coarse>: ConvertFrom<CoarseField>,
+    CoarseField: ConvertFrom<Field<CT, Coarse>>,
+{
     /// The cycle with the coarse solves stored as `CT`.
     pub fn with_coarse_storage(
         op: &'a Mdwf<f64, G>,
@@ -474,6 +461,8 @@ impl<'a, G: GammaRepre, CT: Storage> PvEoCycle<'a, G, CT, Aos> {
 impl<'a, G: GammaRepre, CT: Storage, const W: usize> PvEoCycle<'a, G, CT, Aosoa<W>>
 where
     f64: LaneOf<W>,
+    Field<CT, Coarse>: ConvertFrom<CoarseField>,
+    CoarseField: ConvertFrom<Field<CT, Coarse>>,
 {
     /// The cycle for the operator in blocks of `W` sites: `outer` in the usual layout
     /// (for the coarse correction) and `in_blocks` the same two operators in blocks.
@@ -491,7 +480,11 @@ where
     }
 }
 
-impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
+impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L>
+where
+    Field<CT, Coarse>: ConvertFrom<CoarseField>,
+    CoarseField: ConvertFrom<Field<CT, Coarse>>,
+{
     /// The cycle for the operator `outer_l` (the operators of `outer` in the layout
     /// `L`), with `map = L::map(lattice)`.
     pub fn with_layout(
@@ -511,6 +504,8 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         let ls = op.params().ls;
         let mut like = HalfField::with_shape(&lat, 24, ls, 1, 1);
         like.set_parity(Parity::Even);
+        // The coarse operators, with the even-odd form where they are solved in it, and the
+        // matrices on the coarse sites that precondition their solves.
         let mut coarse_d = CoarseOp::build(op, &mut op.work(), basis);
         if params.coarse_even_odd {
             coarse_d.prepare_even_odd()?;
@@ -520,15 +515,29 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             coarse_pv.prepare_even_odd()?;
         }
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
-        assert!(
-            params.d_solver != CoarseKrylov::Minres,
-            "MINRES needs a Hermitian operator: not for the quark factor"
-        );
         let blocks_pv = match params.pv_solver {
             CoarseKrylov::Minres => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
             _ => BlockMap::inverse_diagonal_adjoint(&coarse_pv)?,
         };
-        let (coarse_d, coarse_pv) = (coarse_d.to_storage(), coarse_pv.to_storage());
+        let coarse = (
+            RefCell::new(coarse_d.to_storage::<CT>()),
+            RefCell::new(coarse_pv.to_storage::<CT>()),
+        );
+        let correction = Correction::new(
+            (op, pv),
+            (op_a, pv_a),
+            form,
+            HalfTransfer {
+                basis,
+                index: index.clone(),
+            },
+            coarse,
+            (Box::new(blocks_d), Box::new(blocks_pv)),
+            params,
+            &like,
+            &coarse_field::<CT>(basis, 1),
+        );
+        // The smoother, on [hi / ratio, hi] with hi = 1.1 |λ_max| of the operator.
         let mut start_sites = like.zeros_like();
         extract_parity(
             &mut start_sites,
@@ -553,41 +562,22 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
             hi,
             &like_l,
         );
-        Ok(Self {
-            op,
-            pv,
-            op_a,
-            pv_a,
-            form,
-            index,
-            basis,
-            g: basis.coarse_field(1),
-            gc: coarse_field(basis, 1),
-            w: coarse_field(basis, 1),
-            c: coarse_field(basis, 1),
-            coarse_d: RefCell::new(coarse_d),
-            coarse_pv,
-            blocks_d,
-            levels_d: None,
-            blocks_pv,
-            levels_pv: None,
-            smoother,
-            params,
-            hi,
-            work: [op.even_odd_work(), op_a.even_odd_work()],
-            r: Some(like_l.zeros_like()),
-            e: Some(like_l.zeros_like()),
+        let in_layout = InLayout {
+            correction,
             sites: None,
             map,
-            h: like,
-            coarse_applications: Cell::new(0),
+            lat,
+        };
+        Ok(Self {
+            cycle: TwoGrid::new(smoother, in_layout, &like_l),
+            hi,
         })
     }
 
     /// The operator the cycle approximates the inverse of, to be used by the solver it
     /// preconditions (one copy of its work fields for both).
     pub fn operator(&mut self) -> SharedOperator<'a, G, L> {
-        self.smoother.operator().clone()
+        self.cycle.smoother_mut().operator().clone()
     }
 
     /// Add levels below the coarse lattice to the solves of the quark factor P†DP: a V-cycle on
@@ -608,14 +598,17 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         super_blocks: &[usize],
         bootstrap: &[LevelBootstrap],
     ) -> Result<usize, MultigridError> {
+        let correction = &mut self.cycle.correction_mut().correction;
         let levels = SignedMultilevel::build_with(
-            self.coarse_d.get_mut(),
+            correction.coarse_mut().0.get_mut(),
             vectors,
             super_blocks,
             bootstrap,
         )?;
         let applications = levels.setup_applications;
-        self.levels_d = Some(levels);
+        correction.set_levels_d(Box::new(
+            move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| levels.apply(out, inp),
+        ));
         Ok(applications)
     }
 
@@ -629,13 +622,17 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
         vectors: &[CoarseField],
         super_blocks: &[usize],
     ) -> Result<usize, MultigridError> {
+        let correction = &mut self.cycle.correction_mut().correction;
         assert!(
-            self.params.pv_solver == CoarseKrylov::Minres,
+            correction.params().pv_solver == CoarseKrylov::Minres,
             "levels for the second factor go with MINRES"
         );
-        let levels = AbsMultilevel::build(&mut self.coarse_pv, vectors, super_blocks)?;
+        let levels =
+            AbsMultilevel::build(correction.coarse_mut().1.get_mut(), vectors, super_blocks)?;
         let applications = levels.setup_applications;
-        self.levels_pv = Some(levels);
+        correction.set_levels_pv(Box::new(
+            move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| levels.add(out, inp),
+        ));
         Ok(applications)
     }
 
@@ -646,186 +643,24 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout> PvEoCycle<'a, G, CT, L> {
 
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
     pub fn coarse_applications(&self) -> usize {
-        self.coarse_applications.get()
+        self.cycle.correction().correction.coarse_applications()
     }
 
-    /// `coarse_correction` in the layout of the operator.
-    fn correct(&mut self, e: &mut HalfField<L>, r: &HalfField<L>) {
-        if let (Some(r), Some(e)) = (L::as_sites(r), L::as_sites_mut(e)) {
-            self.coarse_correction(e, r);
-            return;
-        }
-        let [mut r_s, mut e_s] = match self.sites.take() {
-            Some(f) if f[0].num_vectors() == r.num_vectors() => f,
-            _ => {
-                let lat = self.basis.aggregation().fine_lattice();
-                let mut f = HalfField::with_shape(lat, 24, r.ls(), r.num_vectors(), 1);
-                f.set_parity(Parity::Even);
-                [f.zeros_like(), f]
-            }
-        };
-        L::to_sites(&self.map, &mut r_s, r);
-        self.coarse_correction(&mut e_s, &r_s);
-        L::from_sites(&self.map, e, &e_s);
-        self.sites = Some([r_s, e_s]);
-    }
-
-    /// e = the coarse correction of r (see the top of the file). By itself it is the coarse
-    /// part of a cycle whose smoother is elsewhere (`TwoGrid`, with the operator on a device).
+    /// e = the coarse correction of r (see the top of the file), in the usual layout. By
+    /// itself it is the coarse part of a cycle whose smoother is elsewhere.
     pub fn coarse_correction(&mut self, e: &mut HalfField, r: &HalfField) {
-        let nv = r.num_vectors();
-        if self.g.num_vectors() != nv {
-            self.g = self.basis.coarse_field(nv);
-        }
-        for f in [&mut self.gc, &mut self.w, &mut self.c] {
-            if f.num_vectors() != nv {
-                *f = coarse_field(self.basis, nv);
-            }
-        }
-        crate::fit(&mut self.h, r);
-        let [work, work_a] = &mut self.work;
-        // h = O_R r, g = P† ι h.
-        match self.form {
-            EoForm::Right => self
-                .pv
-                .diag(work, &mut self.h, r, Parity::Even, Dagger::Yes),
-            EoForm::Left => self.pv_a.mult_q(&mut self.h, r, true),
-        }
-        self.basis.restrict_half(&mut self.g, &self.h, &self.index);
-        self.gc.convert_from(&self.g);
-        let stop = Stop::simple(
-            self.params.coarse_tolerance_sqr,
-            self.params.coarse_max_iterations,
-        );
-        let pv_stop = Stop::simple(self.params.pv_tolerance_sqr, self.params.pv_max_iterations);
-        let n = &self.coarse_applications;
-        // w = (P†D_PV†P)⁻¹ g: on the exact adjoint, or by MINRES on
-        // H = Γ5 (Γ5 P†D_PV P Γ5) with H w = Γ5 g.
-        self.w.set_zero();
-        let apply = if self.params.pv_solver == CoarseKrylov::Minres {
-            coarse_gamma5(&mut self.gc);
-            Apply::Gamma5Adjoint
-        } else {
-            Apply::Adjoint
-        };
-        if apply == Apply::Gamma5Adjoint && self.coarse_pv.has_even_odd() {
-            // H w = gc on the even coarse sites: H = D_c Γ5 for the stored D_c (taken as its
-            // own Γ5-adjoint), so u = Γ5 w solves D_c u = gc. The blocks |H_xx|⁻¹ act within
-            // a site and keep a field on the even sites there.
-            let (mut source, mut odd) = (self.gc.zeros_like(), self.gc.zeros_like());
-            self.coarse_pv.schur_source(&mut source, &self.gc, &mut odd);
-            // Preconditioned by the blocks, or with levels below by the even sites of blocks
-            // plus levels on the whole coarse lattice (Hermitian positive either way).
-            let mut with_levels;
-            let m: &mut dyn LinearFn<Field<CT, Coarse>> = match self.levels_pv.as_ref() {
-                None => &mut self.blocks_pv,
-                Some(levels) => {
-                    let coarse_pv = &self.coarse_pv;
-                    with_levels = OnEven {
-                        inner: BlocksPlusLevels {
-                            blocks: &mut self.blocks_pv,
-                            levels: Some(levels),
-                        },
-                        even_part: move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| {
-                            coarse_pv.even_part(out, inp)
-                        },
-                        whole: self.gc.zeros_like(),
-                    };
-                    &mut with_levels
-                }
-            };
-            coarse_solve(
-                self.params.pv_solver,
-                pv_stop,
-                &mut CountedSchurGamma5 {
-                    a: &self.coarse_pv,
-                    n,
-                    odd: self.gc.zeros_like(),
-                    turned: self.gc.zeros_like(),
-                },
-                Some(m),
-                &mut self.w,
-                &source,
-            );
-            coarse_gamma5(&mut self.w);
-            self.coarse_pv
-                .schur_solution(&mut self.w, &self.gc, &mut odd);
-            coarse_gamma5(&mut self.w);
-            // The source and the odd sites of the solution: one application's work.
-            n.set(n.get() + nv);
-        } else {
-            coarse_solve(
-                self.params.pv_solver,
-                pv_stop,
-                &mut Counted {
-                    a: &mut self.coarse_pv,
-                    apply,
-                    n,
-                },
-                Some(&mut BlocksPlusLevels {
-                    blocks: &mut self.blocks_pv,
-                    levels: self.levels_pv.as_ref(),
-                }),
-                &mut self.w,
-                &self.gc,
-            );
-        }
-        // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
-        self.g.convert_from(&self.w);
-        self.basis.prolong_half(&mut self.h, &self.g, &self.index);
-        if self.form == EoForm::Left {
-            self.pv_a
-                .diag(work_a, e, &self.h, Parity::Even, Dagger::Yes);
-            self.op_a
-                .diag(work_a, &mut self.h, e, Parity::Even, Dagger::No);
-        }
-        self.basis.restrict_half(&mut self.g, &self.h, &self.index);
-        self.gc.convert_from(&self.g);
-        // c = (P†DP)⁻¹ g.
-        self.c.set_zero();
-        let d_solver = self.params.d_solver;
-        solve_shared(
-            &self.coarse_d,
-            Some(&mut self.blocks_d),
-            self.levels_d.as_ref(),
-            n,
-            &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
-            &mut self.c,
-            &self.gc,
-        );
-        // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
-        self.g.convert_from(&self.c);
-        self.basis.prolong_half(&mut self.h, &self.g, &self.index);
-        match self.form {
-            EoForm::Right => self.op.diag(work, e, &self.h, Parity::Even, Dagger::No),
-            EoForm::Left => self.op_a.mult_q(e, &self.h, true),
-        }
+        self.cycle.correction_mut().correction.correct(e, r);
     }
 }
 
-impl<G: GammaRepre, CT: Storage, L: CycleLayout> LinearFn<HalfField<L>>
-    for PvEoCycle<'_, G, CT, L>
+impl<G: GammaRepre, CT: Storage, L: CycleLayout> LinearFn<HalfField<L>> for PvEoCycle<'_, G, CT, L>
+where
+    Field<CT, Coarse>: ConvertFrom<CoarseField>,
+    CoarseField: ConvertFrom<Field<CT, Coarse>>,
 {
     /// y = S b; y += e(b − Ã y); y += S(b − Ã y).
     fn mult(&mut self, y: &mut HalfField<L>, b: &HalfField<L>) {
-        let nv = b.num_vectors();
-        let one = vec![C64::new(1.0, 0.0); nv];
-        let minus = vec![C64::new(-1.0, 0.0); nv];
-        let (mut r, mut e) = (
-            self.r.take().expect("returned after every cycle"),
-            self.e.take().expect("returned after every cycle"),
-        );
-        crate::fit(&mut r, b);
-        crate::fit(&mut e, b);
-        self.smoother.mult(y, b);
-        self.smoother.operator().mult_xpay(&mut r, y, &minus, b);
-        self.correct(&mut e, &r);
-        y.axpy(&one, &e);
-        self.smoother.operator().mult_xpay(&mut r, y, &minus, b);
-        self.smoother.mult(&mut e, &r);
-        y.axpy(&one, &e);
-        self.r = Some(r);
-        self.e = Some(e);
+        self.cycle.mult(y, b);
     }
 }
 
