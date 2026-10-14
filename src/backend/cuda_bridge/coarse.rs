@@ -8,7 +8,7 @@ use crate::solver::preconditioner::multigrid::{
     Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
 };
 use crate::Parity;
-use crate::{Coarse, ConvertFrom, Storage, Vector, C64};
+use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
 
 /// Whole numbers on the device.
 struct DeviceTable {
@@ -71,6 +71,21 @@ impl Stored {
     /// `host`, in single precision.
     fn upload(host: &[f32]) -> Result<Self, CudaError> {
         let stored = Self::zeros(host.len(), false)?;
+        // SAFETY: two ranges of as many bytes.
+        check(unsafe {
+            cudaMemcpy(
+                stored.ptr,
+                host.as_ptr().cast(),
+                stored.bytes,
+                HOST_TO_DEVICE,
+            )
+        })?;
+        Ok(stored)
+    }
+
+    /// `host`, the bits of numbers in half precision.
+    fn upload_half(host: &[u16]) -> Result<Self, CudaError> {
+        let stored = Self::zeros(host.len(), true)?;
         // SAFETY: two ranges of as many bytes.
         check(unsafe {
             cudaMemcpy(
@@ -305,18 +320,49 @@ pub struct DeviceBasis {
     gamma: [i32; 9],
 }
 
+/// Every vector of `v` scaled to |v_j|² = the number of sites, as `BasisBuilder::add` does on
+/// the CPU: P does not change, and its parts stay far from the smallest numbers of half
+/// precision.
+fn to_unit_sites<T: DeviceReal>(v: &mut DeviceSpinor<T>) {
+    let mut norms = vec![0.0; v.vectors];
+    v.norm_sqr(&mut norms);
+    let sites = v.lat.num_global_sites() as f64;
+    let scales: Vec<f64> = norms
+        .iter()
+        .map(|n| if *n > 0.0 { (sites / n).sqrt() } else { 1.0 })
+        .collect();
+    v.scale(&scales);
+}
+
 impl DeviceBasis {
-    /// The P of the CPU, `basis`.
-    pub fn new<T: Storage>(basis: &Basis<T, f32>) -> Result<Self, CudaError> {
+    /// The P of the CPU, `basis`, kept as it is there: in half (`F16`) or single precision.
+    pub fn new<T: Storage, S: Storage>(basis: &Basis<T, S>) -> Result<Self, CudaError> {
         let g = basis
             .reflection()
             .expect("a basis folded on the fifth dimension");
+        let data = basis.stored();
+        let stored = if std::any::TypeId::of::<S>() == std::any::TypeId::of::<F16>() {
+            // SAFETY: `F16` is a `u16` (`repr(transparent)`), the bits of a binary16 number.
+            Stored::upload_half(unsafe {
+                std::slice::from_raw_parts(data.as_ptr().cast::<u16>(), data.len())
+            })?
+        } else {
+            assert_eq!(
+                std::any::TypeId::of::<S>(),
+                std::any::TypeId::of::<f32>(),
+                "P is kept in half or single precision"
+            );
+            // SAFETY: `S` is `f32`.
+            Stored::upload(unsafe {
+                std::slice::from_raw_parts(data.as_ptr().cast::<f32>(), data.len())
+            })?
+        };
         Self::with(
             basis.aggregation(),
             basis.fine_reals() / SPINOR,
             basis.num_test_vectors(),
             g,
-            Stored::upload(basis.stored())?,
+            stored,
         )
     }
 
@@ -485,6 +531,7 @@ impl DeviceBasis {
             x_o.scale(&minus);
             DeviceParities.insert(&mut s, &x_e);
             DeviceParities.insert(&mut s, &x_o);
+            to_unit_sites(&mut s);
             basis.add(chunk[0], &s);
             let mut ds = s.zeros_like();
             op.mult(&mut full_work, &mut ds, &s, Variant::D);
@@ -495,6 +542,7 @@ impl DeviceBasis {
             x_o.scale(&minus);
             DeviceParities.insert(&mut s, &x_e);
             DeviceParities.insert(&mut s, &x_o);
+            to_unit_sites(&mut s);
             basis.add(n + chunk[0], &s);
         }
         basis.finish()?;

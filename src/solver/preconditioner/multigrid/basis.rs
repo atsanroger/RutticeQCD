@@ -1,6 +1,8 @@
 use super::{Aggregation, MultigridError};
 use crate::kernel::{Cplx, Gamma, Number, Real, NC, NS, SPINOR_REALS};
-use crate::{for_sites, Coarse, EvenOddIndex, Field, Half, Sites, Spinor, Storage, Vector, C64};
+use crate::{
+    for_sites, Coarse, EvenOddIndex, Field, Half, Sites, Spinor, Storage, Vector, C64, F16,
+};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -115,12 +117,34 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         self.fold.is_some()
     }
 
-    /// The stored reals of test vector `i`, chirality `c` (0 positive), at fine site `x`:
-    /// all of them, or those of s < Ls/2 when folded.
+    /// P at fine site `x` in the arithmetic of the fields, `[vector][chirality][kept]`: read
+    /// and widened once for all the vectors of a field.
     #[inline(always)]
-    fn part(&self, x: usize, i: usize, c: usize) -> &[S] {
-        let base = ((x * self.n + i) * 2 + c) * self.kept;
-        &self.data[base..base + self.kept]
+    fn widen_site(&self, x: usize, site_p: &mut Vec<T::Compute>) {
+        let len = self.n * 2 * self.kept;
+        let stored = &self.data[x * len..(x + 1) * len];
+        use std::any::TypeId;
+        if TypeId::of::<S>() == TypeId::of::<F16>()
+            && TypeId::of::<T::Compute>() == TypeId::of::<f32>()
+        {
+            site_p.resize(len, T::Compute::ZERO);
+            // SAFETY: `S` is `F16` and `T::Compute` is `f32`, checked just above; both slices
+            // hold `len` values.
+            let (from, to) = unsafe {
+                (
+                    std::slice::from_raw_parts(stored.as_ptr().cast::<F16>(), len),
+                    std::slice::from_raw_parts_mut(site_p.as_mut_ptr().cast::<f32>(), len),
+                )
+            };
+            crate::widen_halves(from, to);
+            return;
+        }
+        site_p.clear();
+        site_p.extend(
+            self.data[x * len..(x + 1) * len]
+                .iter()
+                .map(|v| widen::<S, T>(*v)),
+        );
     }
 
     fn check<X: Sites>(&self, coarse: &Field<T, Coarse>, fine: &Field<T, Spinor, X>) {
@@ -159,16 +183,18 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
             out.fill(T::default());
             let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
+            let mut site_p = Vec::new();
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
                 if !keep(x) {
                     continue;
                 }
+                self.widen_site(x, &mut site_p);
                 for (out, f) in out
                     .chunks_exact_mut(2 * dim)
                     .zip(fine.site(0, x).chunks_exact(reals))
                 {
-                    self.restrict_site(x, f, out, &mut folded);
+                    self.restrict_site(&site_p, f, out, &mut folded);
                 }
             }
         });
@@ -190,17 +216,19 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
             out.fill(T::default());
             let mut folded = [[T::Compute::ZERO; 2 * MAX_HALF_REALS]; 2];
+            let mut site_p = Vec::new();
             for x in self.agg.fine_sites(coarse_site) {
                 let x = *x as usize;
                 let (p, h) = index.half_site(x);
                 if p != parity {
                     continue;
                 }
+                self.widen_site(x, &mut site_p);
                 for (out, f) in out
                     .chunks_exact_mut(2 * dim)
                     .zip(half.site(0, h).chunks_exact(reals))
                 {
-                    self.restrict_site(x, f, out, &mut folded);
+                    self.restrict_site(&site_p, f, out, &mut folded);
                 }
             }
         });
@@ -211,7 +239,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     #[inline(always)]
     fn restrict_site(
         &self,
-        x: usize,
+        site_p: &[T::Compute],
         f: &[T],
         out: &mut [T],
         folded: &mut [[T::Compute; 2 * MAX_HALF_REALS]; 2],
@@ -239,15 +267,15 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         for i in 0..n {
             for c in 0..2 {
                 let mut z = Cplx::<T::Compute>::ZERO;
-                let b = self.part(x, i, c).as_chunks::<2>().0;
+                let b = site_p[(i * 2 + c) * kept..][..kept].as_chunks::<2>().0;
                 if self.fold.is_some() {
                     for (b, f) in b.iter().zip(folded[c][..kept].as_chunks::<2>().0) {
-                        let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                        let b = Cplx::new(b[0], b[1]);
                         z += b.conj() * Cplx::new(f[0], f[1]);
                     }
                 } else {
                     for (b, f) in b.iter().zip(f.as_chunks::<2>().0) {
-                        let b = Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                        let b = Cplx::new(b[0], b[1]);
                         z += b.conj() * Cplx::new(f[0].load(), f[1].load());
                     }
                 }
@@ -265,11 +293,13 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         let site_len = fine.site_len();
         for_sites(fine.slab_mut(0), site_len, |x, out| {
             let coarse_site = coarse.site(0, self.agg.coarse_site(x));
+            let mut site_p = Vec::new();
+            self.widen_site(x, &mut site_p);
             for (out, c) in out
                 .chunks_exact_mut(reals)
                 .zip(coarse_site.chunks_exact(2 * dim))
             {
-                self.prolong_site(x, c, out);
+                self.prolong_site(&site_p, c, out);
             }
         });
     }
@@ -289,11 +319,13 @@ impl<T: Storage, S: Storage> Basis<T, S> {
         for_sites(half.slab_mut(0), site_len, |h, out| {
             let x = index.full_site(parity, h);
             let coarse_site = coarse.site(0, self.agg.coarse_site(x));
+            let mut site_p = Vec::new();
+            self.widen_site(x, &mut site_p);
             for (out, c) in out
                 .chunks_exact_mut(reals)
                 .zip(coarse_site.chunks_exact(2 * dim))
             {
-                self.prolong_site(x, c, out);
+                self.prolong_site(&site_p, c, out);
             }
         });
     }
@@ -301,7 +333,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     /// P at fine site `x` for one vector: `out` from that vector's part `c` of the coarse
     /// site.
     #[inline(always)]
-    fn prolong_site(&self, x: usize, c: &[T], out: &mut [T]) {
+    fn prolong_site(&self, site_p: &[T::Compute], c: &[T], out: &mut [T]) {
         let (n, reals) = (self.n, self.reals);
         // On the stack: this runs once per fine site and vector. Unfolded, one sum over
         // both chiralities; folded, a₊ and a₋ over half the fifth dimension.
@@ -315,8 +347,9 @@ impl<T: Storage, S: Storage> Basis<T, S> {
                     Some(_) => &mut acc_store[ch * half..(ch + 1) * half],
                     None => &mut acc_store[..half],
                 };
-                for (a, b) in acc.iter_mut().zip(self.part(x, i, ch).as_chunks::<2>().0) {
-                    *a += coef * Cplx::new(widen::<S, T>(b[0]), widen::<S, T>(b[1]));
+                let part = &site_p[(i * 2 + ch) * self.kept..][..self.kept];
+                for (a, b) in acc.iter_mut().zip(part.as_chunks::<2>().0) {
+                    *a += coef * Cplx::new(b[0], b[1]);
                 }
             }
         }
@@ -403,8 +436,17 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
     /// Test vector `i`: `x` holds one vector and `g5x` = Γ5 x, the operator's Γ5 applied
     /// to it.
     pub fn add<U: Storage>(&mut self, i: usize, x: &Field<U, Spinor>, g5x: &Field<U, Spinor>) {
-        let value = |v: &U| v.load().to_f64();
         let fine = self.agg.fine_lattice();
+        // The vector scaled to |x|² = the number of sites, which leaves P as it is (it is
+        // orthonormalised aggregate by aggregate) and keeps the parts far from the smallest
+        // numbers of a storage in half precision.
+        let mut norm = [0.0];
+        x.norm_sqr(&mut norm);
+        let scale = match norm[0] > 0.0 {
+            true => (fine.num_global_sites() as f64 / norm[0]).sqrt(),
+            false => 1.0,
+        };
+        let value = |v: &U| v.load().to_f64();
         assert_eq!(x.num_sites(), fine.num_sites());
         assert!(x.outer() == 1 && x.same_shape(g5x) && x.num_vectors() == 1);
         assert!(
@@ -439,7 +481,7 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
                 let base = ((site * n + i) * 2 + c) * kept;
                 for (d, (v, g)) in xs.iter().zip(gs).take(kept).enumerate() {
                     self.data[base + d] =
-                        S::store(Number::from_f64(0.5 * (value(v) + sign * value(g))));
+                        S::store(Number::from_f64(0.5 * scale * (value(v) + sign * value(g))));
                 }
                 if let Some(gamma) = &self.fold {
                     let ls = reals / SPINOR_REALS;
