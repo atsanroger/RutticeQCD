@@ -24,7 +24,7 @@ mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::DeviceCorrection;
-pub use field::{DeviceParities, DeviceSpinor};
+pub use field::{DeviceParities, DeviceSpinor, Stashed};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
 
@@ -1025,6 +1025,11 @@ impl<T: DeviceReal> DeviceBuffer<T> {
     }
 
     fn download(&self) -> Result<Vec<f64>, CudaError> {
+        Ok(self.download_raw()?.into_iter().map(T::to_f64).collect())
+    }
+
+    /// The reals as they are, on the host.
+    fn download_raw(&self) -> Result<Vec<T>, CudaError> {
         let mut host = vec![T::default(); self.len];
         // SAFETY: as in `from_host`, the other way.
         check(unsafe {
@@ -1035,7 +1040,7 @@ impl<T: DeviceReal> DeviceBuffer<T> {
                 DEVICE_TO_HOST,
             )
         })?;
-        Ok(host.into_iter().map(T::to_f64).collect())
+        Ok(host)
     }
 }
 

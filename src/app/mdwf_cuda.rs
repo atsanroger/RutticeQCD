@@ -24,8 +24,8 @@ use crate::backend::cuda_bridge::{
 use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity};
 use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_round, low_modes, pv_eo_basis, random_even, Aggregation, PvEoBasis, PvEoCycle,
-    TwoGrid,
+    bootstrap_vector, low_modes, orthonormalise_all, pv_eo_basis, random_even, Aggregation,
+    PvEoBasis, PvEoCycle, TwoGrid,
 };
 use crate::solver::{
     largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop,
@@ -209,47 +209,60 @@ fn test_vectors<T: DeviceReal>(
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
     for round in 0..boot.rounds {
-        // The cycle on the current vectors: on the device, or its coarse part on the CPU.
-        let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
-        if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
-            on_device = Some(DeviceCorrection::<T, f32>::new(
-                DeviceBasis::pv_eo(device.0, device.1, &agg, &y, half)?,
-                device,
-                device,
-                EoForm::Right,
-                boot.cycle,
+        let stash = {
+            // The cycle on the current vectors: on the device, or its coarse part on the CPU.
+            let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
+            if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
+                on_device = Some(DeviceCorrection::<T, f32>::new(
+                    DeviceBasis::pv_eo(device.0, device.1, &agg, &y, half)?,
+                    device,
+                    device,
+                    EoForm::Right,
+                    boot.cycle,
+                    even,
+                )?);
+            } else {
+                let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
+                let basis = cpu_basis.insert(pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?);
+                let outer = (d, pv, EoForm::Right);
+                cpu_cycle = Some(PvEoCycle::new(d, pv, outer, basis, boot.cycle)?);
+            }
+            let hi = match &cpu_cycle {
+                Some(cycle) => cycle.top(),
+                None => top_of(
+                    &mut ratio(),
+                    lat,
+                    even,
+                    boot.cycle.seed,
+                    boot.cycle.power_steps,
+                )?,
+            };
+            let smoother = Chebyshev::new(
+                ratio(),
+                boot.cycle.chebyshev_steps,
+                hi / boot.cycle.chebyshev_ratio,
+                hi,
                 even,
-            )?);
-        } else {
-            let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
-            let basis = cpu_basis.insert(pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?);
-            let outer = (d, pv, EoForm::Right);
-            cpu_cycle = Some(PvEoCycle::new(d, pv, outer, basis, boot.cycle)?);
-        }
-        let hi = match &cpu_cycle {
-            Some(cycle) => cycle.top(),
-            None => top_of(
-                &mut ratio(),
-                lat,
-                even,
-                boot.cycle.seed,
-                boot.cycle.power_steps,
-            )?,
+            );
+            let correction: Correction<T> = match (on_device.as_mut(), cpu_cycle.as_mut()) {
+                (Some(c), _) => Box::new(|e, r| c.correct(e, r)),
+                (None, Some(cycle)) => {
+                    Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r)))
+                }
+                (None, None) => unreachable!("one of them was made"),
+            };
+            let mut two_grid = TwoGrid::new(smoother, correction, even);
+            // The vectors wait on the host while the cycle works on one at a time.
+            let mut stash = y.stash()?;
+            let mut a = ratio();
+            for j in 0..stash.num_vectors() {
+                let x = bootstrap_vector(&mut a, &mut two_grid, &stash.vector(j)?, boot.steps);
+                stash.set_vector(j, &x)?;
+            }
+            stash
         };
-        let smoother = Chebyshev::new(
-            ratio(),
-            boot.cycle.chebyshev_steps,
-            hi / boot.cycle.chebyshev_ratio,
-            hi,
-            even,
-        );
-        let correction: Correction<T> = match (on_device.as_mut(), cpu_cycle.as_mut()) {
-            (Some(c), _) => Box::new(|e, r| c.correct(e, r)),
-            (None, Some(cycle)) => Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r))),
-            (None, None) => unreachable!("one of them was made"),
-        };
-        let mut two_grid = TwoGrid::new(smoother, correction, even);
-        bootstrap_round(&mut ratio(), &mut two_grid, &mut y, boot.steps);
+        y = stash.restore()?;
+        orthonormalise_all(&mut y);
         writeln!(
             out,
             "  bootstrap round {}: {:.0} s; {}",
@@ -498,13 +511,15 @@ pub(super) fn run(
     let k = s.number_of_kept_directions;
     let mut source_work = op.work();
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
-    let mut solve = |b: &DeviceSpinor,
+    let mut solve = |b: DeviceSpinor,
                      label: &str,
                      out: &mut dyn Write|
      -> Result<DeviceSpinor, Box<dyn Error>> {
         let nv = b.num_vectors();
         let mut rhs = even.zeros_with(nv);
-        a.right_hand_side(&DeviceParities, &mut rhs, b);
+        a.right_hand_side(&DeviceParities, &mut rhs, &b);
+        // b waits on the host during the solve.
+        let b_host = b.stash()?;
         let mut sol = rhs.zeros_like();
         let start = Instant::now();
         let m = pre
@@ -524,10 +539,11 @@ pub(super) fn run(
             SolverType::Minres => unreachable!("refused when the file is read"),
         };
         let seconds = start.elapsed().as_secs_f64();
+        let b = b_host.restore()?;
         // x^(α), then x = Q x^(α), the solution of the plain operator; its residual by that
         // operator on the whole lattice, with three fields there at most.
         let mut x = b.zeros_like();
-        a.solution(&DeviceParities, &mut x, &sol, b);
+        a.solution(&DeviceParities, &mut x, &sol, &b);
         drop((rhs, sol));
         if op.alpha() != 1.0 {
             let mut plain = x.zeros_like();
@@ -537,7 +553,7 @@ pub(super) fn run(
         let worst = {
             let mut r = b.zeros_like();
             op.mult_plain(&mut r, &x);
-            r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+            r.aypx(&vec![C64::new(-1.0, 0.0); nv], &b);
             let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
             r.norm_sqr(&mut rr);
             b.norm_sqr(&mut bb);
@@ -556,7 +572,7 @@ pub(super) fn run(
     let Some(src) = &params.source else {
         for seed in seed_lo..=seed_hi {
             let b = DeviceSpinor::from_host(&random_fifth(lat, ls, seed))?;
-            solve(&b, &format!("seed {seed}"), out)?;
+            solve(b, &format!("seed {seed}"), out)?;
         }
         return Ok(());
     };
@@ -570,7 +586,7 @@ pub(super) fn run(
         let eta_c = DeviceSpinor::from_host(&eta.select(chunk))?;
         let mut b = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(chunk.len());
         op.source_5d(&mut source_work, &mut b, &eta_c);
-        let psi = solve(&b, &format!("columns {chunk:?}"), out)?;
+        let psi = solve(b, &format!("columns {chunk:?}"), out)?;
         let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
         op.propagator_4d(&mut q, &psi);
         op.midpoint_4d(&mut m, &psi);
