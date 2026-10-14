@@ -1,8 +1,10 @@
 //! `ruttice-flow`: the Wilson flow of gauge configurations, for the scale t0 and the
 //! topological charge of every configuration of a Monte Carlo history.
 //!
-//!     ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
-//!     mpirun -np 4 ruttice-flow-mpi LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
+//! ```text
+//! ruttice-flow LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
+//! mpirun -np 4 ruttice-flow-mpi LX LY LZ LT FORMAT FILE... [--step EPS] [--t-max T]
+//! ```
 //!
 //! FORMAT is text, binary, nersc, ildg or scidac (`gauge_config_type_input`). For every file
 //! one line: the plaquette, t0/a² (t² E = 0.3, E of the clover field strength, interpolated
