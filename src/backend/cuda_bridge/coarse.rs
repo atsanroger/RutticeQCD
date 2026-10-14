@@ -501,6 +501,21 @@ impl DeviceBasis {
         Ok(basis)
     }
 
+    /// A checksum of P as it is kept, to compare runs bit by bit.
+    pub fn checksum(&self) -> Result<u64, CudaError> {
+        let mut host = vec![0u8; self.p.bytes];
+        // SAFETY: two ranges of as many bytes.
+        check(unsafe {
+            cudaMemcpy(
+                host.as_mut_ptr().cast(),
+                self.p.ptr.cast_const(),
+                self.p.bytes,
+                DEVICE_TO_HOST,
+            )
+        })?;
+        Ok(checksum_of(&host))
+    }
+
     /// P as it is kept (`Basis::stored`), from the device; not in half precision.
     pub fn stored(&self) -> Result<Vec<f32>, CudaError> {
         self.p.download()

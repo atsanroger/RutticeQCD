@@ -949,6 +949,17 @@ unsafe fn device_free(ptr: *mut c_void, bytes: usize) {
     IN_USE.fetch_sub(bytes, Ordering::Relaxed);
 }
 
+/// FNV-1a of the bytes of `data`: what a buffer holds, to compare runs bit by bit.
+fn checksum_of<T: Copy>(data: &[T]) -> u64 {
+    // SAFETY: the bytes of a slice of plain numbers.
+    let bytes = unsafe {
+        std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), std::mem::size_of_val(data))
+    };
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 /// The bytes this program holds on the device, and the most it has held.
 pub fn device_memory() -> (usize, usize) {
     (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
@@ -1026,6 +1037,11 @@ impl<T: DeviceReal> DeviceBuffer<T> {
 
     fn download(&self) -> Result<Vec<f64>, CudaError> {
         Ok(self.download_raw()?.into_iter().map(T::to_f64).collect())
+    }
+
+    /// A checksum of the reals (`checksum_of`).
+    fn checksum(&self) -> Result<u64, CudaError> {
+        Ok(checksum_of(&self.download_raw()?))
     }
 
     /// The reals as they are, on the host.
