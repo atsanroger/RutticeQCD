@@ -13,18 +13,19 @@ use crate::{Coarse, ConvertFrom, Storage, Vector, C64};
 /// Whole numbers on the device.
 struct DeviceTable {
     ptr: *mut u32,
+    bytes: usize,
 }
 
 impl DeviceTable {
     fn from_host(host: &[u32]) -> Result<Self, CudaError> {
         let bytes = std::mem::size_of_val(host);
-        let mut ptr: *mut c_void = std::ptr::null_mut();
-        // SAFETY: `ptr` is a valid place for the pointer; then two ranges of `bytes` bytes.
-        unsafe {
-            check(cudaMalloc(&mut ptr, bytes))?;
-            check(cudaMemcpy(ptr, host.as_ptr().cast(), bytes, HOST_TO_DEVICE))?;
-        }
-        Ok(Self { ptr: ptr.cast() })
+        let ptr = device_alloc(bytes)?;
+        // SAFETY: two ranges of `bytes` bytes.
+        check(unsafe { cudaMemcpy(ptr, host.as_ptr().cast(), bytes, HOST_TO_DEVICE) })?;
+        Ok(Self {
+            ptr: ptr.cast(),
+            bytes,
+        })
     }
 
     /// The first `len` numbers.
@@ -45,12 +46,8 @@ impl DeviceTable {
 
 impl Drop for DeviceTable {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
-        // may still read it.
-        unsafe {
-            cudaDeviceSynchronize();
-            cudaFree(self.ptr.cast());
-        }
+        // SAFETY: the pointer came from `device_alloc` with this size and is freed once.
+        unsafe { device_free(self.ptr.cast(), self.bytes) }
     }
 }
 
@@ -65,13 +62,9 @@ impl Stored {
     /// `reals` zeros.
     fn zeros(reals: usize, half: bool) -> Result<Self, CudaError> {
         let bytes = reals * if half { 2 } else { 4 };
-        let mut ptr: *mut c_void = std::ptr::null_mut();
-        // SAFETY: `ptr` is a valid place for the pointer; then the range it was given. All
-        // bits zero is the real 0 in either precision.
-        unsafe {
-            check(cudaMalloc(&mut ptr, bytes))?;
-            check(cudaMemset(ptr, 0, bytes))?;
-        }
+        let ptr = device_alloc(bytes)?;
+        // SAFETY: the range it was given. All bits zero is the real 0 in either precision.
+        check(unsafe { cudaMemset(ptr, 0, bytes) })?;
         Ok(Self { ptr, bytes, half })
     }
 
@@ -109,12 +102,8 @@ impl Stored {
 
 impl Drop for Stored {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from `cudaMalloc` and is freed once, after the kernels that
-        // may still read it.
-        unsafe {
-            cudaDeviceSynchronize();
-            cudaFree(self.ptr);
-        }
+        // SAFETY: the pointer came from `device_alloc` with this size and is freed once.
+        unsafe { device_free(self.ptr, self.bytes) }
     }
 }
 

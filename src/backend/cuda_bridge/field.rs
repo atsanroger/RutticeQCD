@@ -35,7 +35,7 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         parity: Option<Parity>,
         vectors: usize,
     ) -> Result<Self, CudaError> {
-        assert!(vectors > 0 && ls > 0);
+        assert!(ls > 0);
         let sites = match parity {
             None => lat.num_sites(),
             Some(_) => {
@@ -65,6 +65,13 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     /// A field with `ls` spinors per site on the sites of `parity`.
     pub fn zeros_half(lat: &Arc<Lattice>, ls: usize, parity: Parity) -> Result<Self, CudaError> {
         Self::new(lat, ls, Some(parity), 1)
+    }
+
+    /// The shape of fields with `ls` spinors per site on the sites of `parity`: a set of no
+    /// vectors, which takes no memory on the device. For `zeros_with`, and as the `like` of
+    /// work fields that fit themselves to what they are given.
+    pub fn shape_half(lat: &Arc<Lattice>, ls: usize, parity: Parity) -> Result<Self, CudaError> {
+        Self::new(lat, ls, Some(parity), 0)
     }
 
     /// The fields of `psi` on the device, the host site `sites[x]` at `place(x)` there.
