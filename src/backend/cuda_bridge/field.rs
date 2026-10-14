@@ -184,6 +184,70 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     }
 }
 
+impl<T: DeviceReal> DeviceSpinor<T> {
+    /// The fields to the host, to make room on the device.
+    pub fn stash(self) -> Result<Stashed<T>, CudaError> {
+        Ok(Stashed {
+            host: self.data.download_raw()?,
+            lat: self.lat.clone(),
+            ls: self.ls,
+            parity: self.parity,
+            vectors: self.vectors,
+        })
+    }
+}
+
+/// Fields kept on the host as they are on the device, while the device needs the room
+/// (`DeviceSpinor::stash`): back all at once or one vector at a time.
+pub struct Stashed<T> {
+    host: Vec<T>,
+    lat: Arc<Lattice>,
+    ls: usize,
+    parity: Option<Parity>,
+    vectors: usize,
+}
+
+impl<T: DeviceReal> Stashed<T> {
+    pub fn num_vectors(&self) -> usize {
+        self.vectors
+    }
+
+    /// Reals of one vector.
+    fn one(&self) -> usize {
+        self.host.len() / self.vectors
+    }
+
+    /// The vectors `range` on the device.
+    fn part(&self, range: std::ops::Range<usize>) -> Result<DeviceSpinor<T>, CudaError> {
+        let one = self.one();
+        Ok(DeviceSpinor {
+            data: DeviceBuffer::upload(&self.host[range.start * one..range.end * one])?,
+            lat: self.lat.clone(),
+            ls: self.ls,
+            parity: self.parity,
+            vectors: range.len(),
+        })
+    }
+
+    /// All the fields on the device again.
+    pub fn restore(&self) -> Result<DeviceSpinor<T>, CudaError> {
+        self.part(0..self.vectors)
+    }
+
+    /// Vector `j` on the device.
+    pub fn vector(&self, j: usize) -> Result<DeviceSpinor<T>, CudaError> {
+        self.part(j..j + 1)
+    }
+
+    /// Vector `j` = the one vector of `v`.
+    pub fn set_vector(&mut self, j: usize, v: &DeviceSpinor<T>) -> Result<(), CudaError> {
+        let one = self.one();
+        assert!(v.vectors == 1 && v.data.len == one && v.parity == self.parity);
+        self.host[j * one..(j + 1) * one].copy_from_slice(&v.data.download_raw()?);
+        Ok(())
+    }
+}
+
 /// The padding of a field is zero and stays zero under these operations.
 impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     fn num_vectors(&self) -> usize {

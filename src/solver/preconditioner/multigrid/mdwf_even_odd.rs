@@ -749,7 +749,7 @@ fn sorted_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
 }
 
 /// Orthonormalise the vectors of x through their Gram matrix (Löwdin, x ← x G^-1/2 V).
-fn orthonormalise_all<V: Subspace>(x: &mut V) {
+pub fn orthonormalise_all<V: Subspace>(x: &mut V) {
     let n = x.num_vectors();
     let (values, mut c) = sorted_eigen(n, &gram(x, x));
     for (j, l) in values.iter().enumerate() {
@@ -882,24 +882,34 @@ impl Default for BootstrapParams {
     }
 }
 
+/// A test vector improved by the multigrid built on the test vectors, `cycle`: `steps` steps of
+/// FGMRES on A x = y_j from x = 0, preconditioned by the cycle.
+pub fn bootstrap_vector<V: Vector, A: LinearFn<V>>(
+    a: &mut A,
+    cycle: &mut dyn LinearFn<V>,
+    yj: &V,
+    steps: usize,
+) -> V {
+    let mut fgmres = crate::solver::Fgmres::new(Stop {
+        tolerance_sqr: 1e-30,
+        max_iterations: steps,
+        max_restarts: 0,
+    });
+    let mut x = yj.zeros_like();
+    let _ = fgmres.solve(a, Some(cycle), &mut x, yj);
+    x
+}
+
 /// One round of the improvement of the test vectors y by the multigrid built on them, `cycle`:
-/// y_j ← (`steps` steps of FGMRES on A x = y_j preconditioned by the cycle), one vector at a
-/// time, and y orthonormalised.
+/// every y_j by `bootstrap_vector`, one at a time, and y orthonormalised.
 pub fn bootstrap_round<V: Subspace, A: LinearFn<V>>(
     a: &mut A,
     cycle: &mut dyn LinearFn<V>,
     y: &mut V,
     steps: usize,
 ) {
-    let mut fgmres = crate::solver::Fgmres::new(Stop {
-        tolerance_sqr: 1e-30,
-        max_iterations: steps,
-        max_restarts: 0,
-    });
     for j in 0..y.num_vectors() {
-        let yj = y.select(&[j]);
-        let mut x = yj.zeros_like();
-        let _ = fgmres.solve(a, Some(&mut *cycle), &mut x, &yj);
+        let x = bootstrap_vector(a, &mut *cycle, &y.select(&[j]), steps);
         y.assign(&[j], &x);
     }
     orthonormalise_all(y);
