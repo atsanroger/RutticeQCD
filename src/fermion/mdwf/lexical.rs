@@ -302,9 +302,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> FermionOp<Field<T, Spinor, Lex
         L::set_gauge(&mut self.wilson, u)
     }
 
-    /// The count Bridge++ uses for its domain-wall operator, `(464 Nc + 240) Ls`.
     fn flops_per_site(&self) -> usize {
-        (464 * NC + 240) * self.params.ls
+        Mdwf::flops_per_site(self)
     }
 
     fn mult(

@@ -116,7 +116,7 @@ impl fmt::Display for Params {
                 let l = &mg.level1;
                 write!(
                     f,
-                    "\npreconditioned by the multigrid: {:?} blocks, {} test vectors; coarse {} (P†DP) to {:e} and {} ({}) to {:e} in {}; smoother Chebyshev {}/{}",
+                    "\npreconditioned by the multigrid: {:?} blocks, {} test vectors; coarse {} (P†DP) to {:e} and {} ({}) to {:e} in {}, above the coarse lattice in {}; smoother Chebyshev {}/{}",
                     l.block_size,
                     l.test_vectors(true),
                     l.solver_d(true).solver_type,
@@ -125,6 +125,7 @@ impl fmt::Display for Params {
                     if operator == OperatorType::NormalLeft { "P†D†P" } else { "P†D_PV†P" },
                     l.solver_pv().convergence_criterion_squared,
                     mg.coarse_precision,
+                    mg.fine_precision,
                     mg.smoother.number_of_steps.unwrap_or(cheb_steps()),
                     mg.smoother.interval_ratio
                 )?;

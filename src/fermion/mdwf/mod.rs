@@ -331,6 +331,11 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         &self.params
     }
 
+    /// The count Bridge++ uses for its domain-wall operator, `(464 Nc + 240) Ls`.
+    pub fn flops_per_site(&self) -> usize {
+        (464 * crate::kernel::NC + 240) * self.params.ls
+    }
+
     /// Neff's form D^(α) = D Q (see the top of the file); 1 is the plain operator.
     pub fn set_alpha(&mut self, alpha: f64) {
         assert!(alpha > 0.0, "α must be positive");
