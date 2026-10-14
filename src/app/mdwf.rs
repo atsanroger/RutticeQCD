@@ -207,7 +207,8 @@ pub(super) fn multigrid_cycle<'a, L: CycleLayout<T>, T: Storage>(
     (op, pv): (&'a Mdwf<T>, &'a Mdwf<T>),
     outer: (&'a Mdwf<T>, &'a Mdwf<T>, EoForm),
     fine: (&'a Mdwf<T, Dirac, L>, &'a Mdwf<T, Dirac, L>),
-    (basis, y): &'a Tested<T>,
+    basis: &'a PvEoBasis<T>,
+    y: &H<Aos, T>,
     cycle_params: PvEoParams,
     out: &mut dyn Write,
 ) -> Result<(Preconditioner<'a, L, T>, f64), Box<dyn Error>> {
@@ -487,21 +488,24 @@ where
             Some(CycleOperators::<f32, L>::new(params, &lat, u, true)?),
         ),
     };
-    let double_basis = match &double_ops {
+    // The test vectors are dropped once the cycle is made from them.
+    let (double_basis, double_y) = match &double_ops {
         Some(o) => multigrid_basis(params, file, &lat, o.plain.both(), start, out)?,
         None => None,
-    };
-    let single_basis = match &single_ops {
+    }
+    .unzip();
+    let (single_basis, single_y) = match &single_ops {
         Some(o) => multigrid_basis(params, file, &lat, o.plain.both(), start, out)?,
         None => None,
-    };
+    }
+    .unzip();
     let (mut coarse_flops, mut steps) = (0.0, 1);
     let mut pre: Preconditioner<L> = Preconditioner::None;
     let mut single_pre: Option<SinglePre<L>> = None;
     match (s.preconditioner_type, &mg_settings) {
         (PreconditionerType::Multigrid, Some((cycle_params, _, _))) => {
             steps = cycle_params.chebyshev_steps;
-            if let (Some(o), Some(basis)) = (&double_ops, &double_basis) {
+            if let (Some(o), Some(basis), Some(y)) = (&double_ops, &double_basis, &double_y) {
                 let (d, pv) = o.alpha.both();
                 (pre, coarse_flops) = multigrid_cycle(
                     params,
@@ -510,11 +514,12 @@ where
                     (d, pv, form),
                     (op_l, pv_l),
                     basis,
+                    y,
                     *cycle_params,
                     out,
                 )?;
             }
-            if let (Some(o), Some(basis)) = (&single_ops, &single_basis) {
+            if let (Some(o), Some(basis), Some(y)) = (&single_ops, &single_basis, &single_y) {
                 let (d, pv) = o.alpha.both();
                 let smoother = o.smoother.as_ref().expect("made with them");
                 let (cycle, flops) = multigrid_cycle(
@@ -524,6 +529,7 @@ where
                     (d, pv, form),
                     smoother.both(),
                     basis,
+                    y,
                     *cycle_params,
                     out,
                 )?;
@@ -561,6 +567,7 @@ where
         }
         _ => {}
     }
+    drop((double_y, single_y));
     writeln!(
         out,
         "  setup: {:.0} s; {}",

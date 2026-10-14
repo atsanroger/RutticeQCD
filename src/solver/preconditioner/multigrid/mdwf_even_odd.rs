@@ -47,9 +47,9 @@ use crate::kernel::{Dirac, GammaRepre, LaneOf, Number, Real};
 use crate::numerics::hermitian_eigen;
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
-    extract_parity, insert_parity, random_spinor, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex,
-    Field, Half, Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage,
-    Subspace, Vector, C64,
+    extract_parity, insert_parity, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
+    Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage, Subspace, TestRng,
+    Vector, C64,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -762,7 +762,8 @@ pub fn orthonormalise_all<V: Subspace>(x: &mut V) {
 }
 
 /// `vectors` random vectors with `ls` spinors per site on the even sites, from `seed`: the
-/// even sites of `random_spinor`.
+/// even sites of `random_spinor(lat, ls * vectors, seed)`, drawn site by site in the same
+/// order, without that field on the whole lattice.
 pub fn random_even<F: Storage>(
     lat: &Arc<Lattice>,
     index: &EvenOddIndex,
@@ -770,17 +771,24 @@ pub fn random_even<F: Storage>(
     vectors: usize,
     seed: u64,
 ) -> HalfField<Aos, F> {
-    let mut even = HalfField::<Aos, f64>::with_shape(lat, 24, ls, vectors, 1);
-    even.set_parity(Parity::Even);
-    extract_parity(
-        &mut even,
-        &random_spinor(lat, ls * vectors, seed),
-        index,
-        Parity::Even,
-    );
     let mut x = HalfField::<Aos, F>::with_shape(lat, 24, ls, vectors, 1);
     x.set_parity(Parity::Even);
-    x.convert_from(&even);
+    let mut rng = TestRng::new(seed);
+    let mut reals = vec![0.0; x.site_len()];
+    for global in 0..lat.num_global_sites() {
+        for r in reals.iter_mut() {
+            *r = rng.uniform();
+        }
+        let Some(site) = lat.local_site(lat.global_site_coords(global)) else {
+            continue;
+        };
+        let (parity, half) = index.half_site(site);
+        if parity == Parity::Even {
+            for (d, r) in x.site_mut(0, half).iter_mut().zip(&reals) {
+                *d = F::store(Number::from_f64(*r));
+            }
+        }
+    }
     x
 }
 

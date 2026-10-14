@@ -455,7 +455,7 @@ pub(super) fn run(
     };
     drop((y_single, y_double));
     let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
-        (Some(basis), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
+        (Some((basis, y)), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
             multigrid_cycle::<Aos, f64>(
                 params,
                 lat,
@@ -463,6 +463,7 @@ pub(super) fn run(
                 (d_a, pv_a, form),
                 (d_a, pv_a),
                 basis,
+                y,
                 cycle_params,
                 out,
             )?
