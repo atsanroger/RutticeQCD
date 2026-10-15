@@ -5,10 +5,11 @@
 //! The multigrid is on the device: the filter of its test vectors and their bootstrap, the
 //! prolongation, the coarse operators, and the cycle with its coarse solves; above the
 //! coarse lattice in single precision unless `MultiGrid.fine_precision` says double (the
-//! outer solver is in double precision either way). With levels below the coarse lattice, or
-//! another solver of the second factor than MINRES, the basis, the coarse operators and the
-//! coarse correction are those of the CPU (`mdwf`), the residual and the correction crossing
-//! over in every cycle.
+//! outer solver is in double precision either way), and so are levels below the coarse
+//! lattice for the quark factor. With those levels for the Pauli-Villars factor too
+//! (`levels_for_pauli_villars`), or another solver of the second factor than MINRES, the
+//! basis, the coarse operators and the coarse correction are those of the CPU (`mdwf`), the
+//! residual and the correction crossing over in every cycle.
 //!
 //! The five-dimensional source, the residual of the solution (by the operator on the whole
 //! lattice, not the one that was solved) and its four-dimensional fields are made on the
@@ -19,7 +20,8 @@ use super::mdwf::{iterations_text, load, multigrid_cycle, write_measurements, Pr
 use super::memory_line;
 use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::{
-    CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
+    CudaError, CudaMdwf, DeviceBasis, DeviceCoarse, DeviceCorrection, DeviceParities, DeviceReal,
+    DeviceSpinor, LevelReal,
 };
 use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity};
 use crate::measure::{point_source, NUM_SOURCES};
@@ -34,9 +36,11 @@ use crate::{
     random_spinor, Aos, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Normal, Parity,
     Spinor, Vector, C64,
 };
+use std::cell::Cell;
 use std::error::Error;
 use std::io::Write;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -299,18 +303,43 @@ fn test_vectors<T: DeviceReal>(
     Ok(y)
 }
 
+/// Levels below the coarse lattice for the solves of P†DP of `c`, from the test vectors
+/// `vectors` on the coarse lattice, as the file says.
+fn add_levels<T: DeviceReal, CT: LevelReal>(
+    c: &mut DeviceCorrection<'_, T, CT>,
+    mg: &super::params::MultigridBlock,
+    vectors: &DeviceCoarse<f64>,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    let start = Instant::now();
+    let (super_blocks, bootstrap) = (mg.super_blocks(), mg.level_bootstrap());
+    let applications = c.add_levels(vectors, &super_blocks, &bootstrap)?;
+    writeln!(
+        out,
+        "  levels below the coarse lattice {super_blocks:?} (refinement {:?}) on the device: {applications} coarse applications ({:.0} s); {}",
+        bootstrap.iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
+        start.elapsed().as_secs_f64(),
+        memory()
+    )?;
+    Ok(())
+}
+
 /// The cycle of the multigrid for the operator of `ops`: with the coarse correction of the
-/// CPU's cycle if there is one, else all of it on the device, with the prolongation `basis`.
-#[allow(clippy::too_many_arguments)]
+/// CPU's cycle if there is one, else all of it on the device, with the prolongation `basis`
+/// and levels below the coarse lattice from `level_vectors`; and the applications of the
+/// coarse operators so far, after every cycle.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn two_grid<'a, T: DeviceReal>(
     params: &Params,
     lat: &Arc<Lattice>,
     ops: &'a Operators<T>,
     basis: Option<DeviceBasis>,
+    level_vectors: Option<&DeviceCoarse<f64>>,
     form: EoForm,
     cpu_cycle: Option<&'a mut Preconditioner<'_, Aos>>,
     index: &'a EvenOddIndex,
-) -> Result<impl LinearFn<DeviceSpinor<T>> + 'a, Box<dyn Error>> {
+    out: &mut dyn Write,
+) -> Result<(impl LinearFn<DeviceSpinor<T>> + 'a, Rc<Cell<usize>>), Box<dyn Error>> {
     let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
     let (cycle_params, _, _) = params.multigrid().ok_or("no multigrid")?;
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
@@ -332,8 +361,13 @@ fn two_grid<'a, T: DeviceReal>(
         hi,
         even,
     );
+    let count = Rc::new(Cell::new(0));
+    let counted = count.clone();
     let correction: Correction<'a, T> = match cpu_cycle {
-        Some(cycle) => Box::new(on_cpu(index, move |e, r| cycle.coarse_correction(e, r))),
+        Some(cycle) => Box::new(on_cpu(index, move |e, r| {
+            cycle.coarse_correction(e, r);
+            counted.set(cycle.coarse_applications());
+        })),
         None => {
             let device = ops.plain()?;
             let basis = basis.ok_or("the prolongation was not made")?;
@@ -347,7 +381,13 @@ fn two_grid<'a, T: DeviceReal>(
                         cycle_params,
                         even,
                     )?;
-                    Box::new(move |e, r| c.correct(e, r))
+                    if let Some(v) = level_vectors {
+                        add_levels(&mut c, mg, v, out)?;
+                    }
+                    Box::new(move |e, r| {
+                        c.correct(e, r);
+                        counted.set(c.coarse_applications());
+                    })
                 }
                 PrecisionType::Double => {
                     let mut c = DeviceCorrection::<T, f64>::new(
@@ -358,12 +398,18 @@ fn two_grid<'a, T: DeviceReal>(
                         cycle_params,
                         even,
                     )?;
-                    Box::new(move |e, r| c.correct(e, r))
+                    if let Some(v) = level_vectors {
+                        add_levels(&mut c, mg, v, out)?;
+                    }
+                    Box::new(move |e, r| {
+                        c.correct(e, r);
+                        counted.set(c.coarse_applications());
+                    })
                 }
             }
         }
     };
-    Ok(TwoGrid::new(smoother, correction, even))
+    Ok((TwoGrid::new(smoother, correction, even), count))
 }
 
 pub(super) fn run(
@@ -381,14 +427,15 @@ pub(super) fn run(
     let start = Instant::now();
 
     // The multigrid. Its settings, and whether its coarse correction is on the device: not
-    // with levels below the coarse lattice, nor with another solver of the second factor
-    // than MINRES, which are on the CPU only.
+    // with levels below the coarse lattice for the Pauli-Villars factor, nor with another
+    // solver of that factor than MINRES, which are on the CPU only.
     let settings = match (params.multigrid(), &params.multigrid) {
         (Some((cycle, _, boot)), Some(mg)) => Some((cycle, boot, mg)),
         _ => None,
     };
     let on_device = settings.is_some_and(|(cycle, _, mg)| {
-        mg.super_blocks().is_empty() && DeviceCorrection::<f64, f32>::supports(&cycle)
+        (mg.super_blocks().is_empty() || !mg.levels_for_pauli_villars)
+            && DeviceCorrection::<f64, f32>::supports(&cycle)
     });
     // Above the coarse lattice it is in single precision, with operators of its own, or in
     // double precision with those of the outer solver.
@@ -481,6 +528,24 @@ pub(super) fn run(
     if let Some(b) = &device_basis {
         checksum_line(out, "P", || b.checksum())?;
     }
+    // The test vectors of the levels below the coarse lattice on the device, P† of the vectors P
+    // was made of.
+    let level_vectors = match (&device_basis, settings) {
+        (Some(b), Some((_, _, mg))) if !mg.super_blocks().is_empty() => {
+            Some(match (&ops_single, &y_single, &y_double) {
+                (Some(o), Some(y), _) => {
+                    let (d, pv) = o.plain()?;
+                    b.pv_eo_coarse_vectors(d, pv, y)?.to_precision::<f64>()?
+                }
+                (_, _, Some(y)) => {
+                    let (d, pv) = ops.plain()?;
+                    b.pv_eo_coarse_vectors(d, pv, y)?
+                }
+                _ => return Err("no test vectors".into()),
+            })
+        }
+        _ => None,
+    };
     drop((y_single, y_double));
     let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
         (Some((basis, y)), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
@@ -501,6 +566,8 @@ pub(super) fn run(
     };
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
     let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
+    // The applications of the coarse operators by the multigrid so far.
+    let mut coarse_count: Option<Rc<Cell<usize>>> = None;
     let mut pre: Option<Box<dyn LinearFn<DeviceSpinor> + '_>> = match s.preconditioner_type {
         PreconditionerType::Chebyshev => {
             let c = s.chebyshev_settings();
@@ -516,14 +583,20 @@ pub(super) fn run(
         PreconditionerType::None => None,
         PreconditionerType::Multigrid => {
             let (basis, cpu) = (device_basis.take(), cpu_cycle.as_mut());
+            let levels = level_vectors.as_ref();
             match &ops_single {
                 Some(o) => {
-                    let cycle = two_grid(params, lat, o, basis, form, cpu, &index)?;
+                    let (cycle, count) =
+                        two_grid(params, lat, o, basis, levels, form, cpu, &index, out)?;
+                    coarse_count = Some(count);
                     Some(Box::new(Convert::new(cycle, &o.even)))
                 }
-                None => Some(Box::new(two_grid(
-                    params, lat, &ops, basis, form, cpu, &index,
-                )?)),
+                None => {
+                    let (cycle, count) =
+                        two_grid(params, lat, &ops, basis, levels, form, cpu, &index, out)?;
+                    coarse_count = Some(count);
+                    Some(Box::new(cycle))
+                }
             }
         }
     };
@@ -550,6 +623,7 @@ pub(super) fn run(
         // b waits on the host during the solve.
         let b_host = b.stash()?;
         let mut sol = rhs.zeros_like();
+        let coarse_before = coarse_count.as_ref().map(|c| c.get());
         let start = Instant::now();
         let m = pre
             .as_mut()
@@ -568,6 +642,10 @@ pub(super) fn run(
             SolverType::Minres => unreachable!("refused when the file is read"),
         };
         let seconds = start.elapsed().as_secs_f64();
+        let coarse = match (&coarse_count, coarse_before) {
+            (Some(c), Some(before)) => format!("; {} coarse applications", c.get() - before),
+            _ => String::new(),
+        };
         checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;
         let b = b_host.restore()?;
         // x^(α), then x = Q x^(α), the solution of the plain operator; its residual by that
@@ -591,7 +669,7 @@ pub(super) fn run(
         };
         writeln!(
             out,
-            "  {label}: {} {} iterations on the device; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
+            "  {label}: {} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
             s.solver_type,
             iterations_text(&result),
             memory()

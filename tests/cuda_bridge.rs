@@ -1341,6 +1341,130 @@ fn multigrid_correction_on_the_device() {
     }
 }
 
+/// The levels below the coarse lattice on the device are those of the CPU: their test vectors
+/// (P† of the vectors P is made of), and the V-cycle built from them, with one level and with
+/// two, the first of them refined by the bootstrap; and the setup takes as many applications of
+/// the coarse operator.
+#[test]
+fn multigrid_levels_on_the_device() {
+    use ruttice::backend::cuda_bridge::{
+        DeviceBasis, DeviceCoarse, DeviceCoarseOp, DeviceMultilevel,
+    };
+    use ruttice::solver::preconditioner::multigrid::{
+        pv_eo_basis, pv_eo_coarse_vectors, Aggregation, CoarseOp, LevelBootstrap, SignedMultilevel,
+    };
+    use ruttice::{extract_parity, Coarse};
+    let (ls, n) = (4, 4);
+    for (dims, super_blocks, bootstrap) in [
+        ([4, 4, 4, 8], vec![2], vec![]),
+        (
+            [8, 8, 8, 8],
+            vec![2, 2],
+            vec![LevelBootstrap {
+                rounds: 1,
+                iterations: 3,
+            }],
+        ),
+    ] {
+        let lat = Lattice::single_node(dims);
+        let u = random_gauge(&lat, 451);
+        let params = MdwfParams {
+            ls,
+            m5: 1.8,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: ANTIPERIODIC_T,
+        };
+        let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+        let (cpu_pv, gpu_pv) = mdwf_pair(
+            &lat,
+            &u,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+        );
+        let index = cpu.even_odd_index().unwrap().clone();
+        let mut y = HalfPsi::with_shape(&lat, 24, ls, n, 1);
+        y.set_parity(Parity::Even);
+        extract_parity(
+            &mut y,
+            &random_spinor(&lat, ls * n, 452),
+            &index,
+            Parity::Even,
+        );
+        let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+        let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &y).unwrap();
+        let device_basis = DeviceBasis::new(&basis).unwrap();
+
+        // The test vectors.
+        let vectors = pv_eo_coarse_vectors(&cpu, &cpu_pv, &basis, &y);
+        let device_y = DeviceSpinor::from_host_half(&y, &index).unwrap();
+        let device_vectors = device_basis
+            .pv_eo_coarse_vectors(&gpu, &gpu_pv, &device_y)
+            .unwrap();
+        for (j, v) in vectors.iter().enumerate() {
+            let d = device_vectors.select(&[j]).to_host(v).unwrap();
+            let size = v.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+            let diff = v
+                .as_slice()
+                .iter()
+                .zip(d.as_slice())
+                .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+            assert!(diff < 1e-12 * size, "test vector {j}: {diff:e} of {size:e}");
+        }
+
+        // The V-cycle, from the same vectors.
+        let mut coarse = CoarseOp::build(&cpu, &mut cpu.work(), &basis).to_storage::<f64>();
+        let coarse_lat = coarse.lattice().clone();
+        let device_op = DeviceCoarseOp::<f64>::new(&coarse, false).unwrap();
+        let levels =
+            SignedMultilevel::build_with(&mut coarse, &vectors, &super_blocks, &bootstrap).unwrap();
+        let mut on_device =
+            DeviceCoarse::<f64>::zeros(coarse_lat.num_sites(), coarse.dim(), vectors.len())
+                .unwrap();
+        for (j, v) in vectors.iter().enumerate() {
+            on_device.assign(&[j], &DeviceCoarse::from_host(v).unwrap());
+        }
+        let device_levels = DeviceMultilevel::build(
+            &device_op,
+            &coarse_lat,
+            &on_device,
+            &super_blocks,
+            &bootstrap,
+        )
+        .unwrap();
+        assert_eq!(levels.setup_applications, device_levels.setup_applications);
+        assert_eq!(levels.coarsest_dim(), device_levels.coarsest_dim());
+        let mut r = Field::<f64, Coarse>::with_shape(&coarse_lat, 2 * coarse.dim(), 1, 2, 1);
+        for (k, x) in r.as_mut_slice().iter_mut().enumerate() {
+            *x = (0.37 * k as f64).sin() + 0.1 * (1.3 * k as f64).cos();
+        }
+        let mut expected = r.zeros_like();
+        levels.apply(&mut expected, &r);
+        let device_r = DeviceCoarse::from_host(&r).unwrap();
+        let mut out = device_r.zeros_like();
+        device_levels.apply(&mut out, &device_r);
+        let got = out.to_host(&r).unwrap();
+        let size = expected
+            .as_slice()
+            .iter()
+            .fold(0.0f64, |m, x| m.max(x.abs()));
+        let diff = expected
+            .as_slice()
+            .iter()
+            .zip(got.as_slice())
+            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        eprintln!(
+            "{dims:?}, super-blocks {super_blocks:?}: the V-cycles differ by {diff:e} of {size:e} \
+             (coarsest {} complex numbers)",
+            levels.coarsest_dim()
+        );
+        assert!(size > 0.0 && diff < 1e-12 * size);
+    }
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:
@@ -1411,4 +1535,22 @@ fn domain_wall_multigrid_runs_on_the_device() {
     assert_eq!(iterations(&cpu), iterations(&gpu), "\n{cpu}\n{gpu}");
     assert!(!iterations(&cpu).is_empty(), "{cpu}");
     same_tables(&text, "mdwf_mg_double", 1e-6);
+
+    // A level below the coarse lattice, on the device as well.
+    let levels = MDWF_RUN
+        .replace("RHS", "4")
+        .replace("SOLVER", "GCR")
+        .replace("OPERATOR", "PV_left")
+        .replace("ALPHA", "0.6")
+        .replace("PRECONDITIONER", "MG")
+        + MULTIGRID
+        + "  MultiGrid_Level2:\n    super_block_size : 2\n";
+    let gpu = run_with_backend(&levels, "cuda_bridge", "mdwf_mg_levels");
+    assert!(
+        gpu.lines()
+            .any(|l| l.contains("levels below the coarse lattice [2]")
+                && l.contains("on the device:")),
+        "{gpu}"
+    );
+    same_tables(&levels, "mdwf_mg_levels", 1e-6);
 }
