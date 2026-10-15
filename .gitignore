@@ -1,6 +1,21 @@
-/target
-/target-*/
-# Output of runs (`output.file` in a parameter file).
+# Only what belongs to the project is kept: everything at the top level is ignored unless it
+# is listed here, so runs, logs, build directories and binaries need no rule of their own.
+/*
+!/.gitignore
+!/Cargo.toml
+!/Cargo.lock
+!/build.rs
+!/README.md
+!/CHANGELOG.md
+!/LICENSE
+!/apps/
+!/cuda_bridge/
+!/docs/
+!/examples/
+!/src/
+!/tests/
+# Inside those: the output of runs started there (`output.file` in a parameter file), logs,
+# editor files.
 *.out
-# Your own runs: gauge configurations, parameter files, results.
-/run/
+*.log
+*.swp
