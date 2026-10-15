@@ -548,16 +548,18 @@ __global__ void blocks_inverse_kernel(
 
 // -------------------------------------------------------------------------
 // |H|^-1 = V |Lambda|^-1 V^dag for H the Hermitian part of A Gamma_5 (Gamma_5: -1 on the
-// second half of the columns), by the cyclic Jacobi method as numerics::hermitian_eigen has
-// it on the CPU: for every pair (p, q), a phase on column and row q that makes a_pq real,
-// then a rotation. Thread k has what the loops over k of that method do. d_scratch: H and V,
-// 4 dim^2 reals a site.
+// second half of the columns), or of A itself without `gamma5`, by the cyclic Jacobi method
+// as numerics::hermitian_eigen has it on the CPU: for every pair (p, q), a phase on column
+// and row q that makes a_pq real, then a rotation. Thread k has what the loops over k of that
+// method do. With cutoff > 0 the eigenvalues not above cutoff times the largest in magnitude
+// are left out (abs_inverse of levels.rs); else 1 / max(|lambda|, 1e-300). d_scratch: H and
+// V, 4 dim^2 reals a site.
 // -------------------------------------------------------------------------
 __global__ void blocks_abs_inverse_gamma5_kernel(
     double* __restrict__ d_out,
     const double* __restrict__ d_a,
     double* __restrict__ d_scratch,
-    int dim)
+    int dim, int gamma5, double cutoff)
 {
     __shared__ double part[1024];
     __shared__ double sums[2];
@@ -566,7 +568,7 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
     double* h = d_scratch + site * n * n * 4;
     double* v = h + static_cast<size_t>(n) * n * 2;
     const double* a = d_a + site * n * n * 2;
-    auto flip = [&](int col) { return (col >= n / 2) ? -1.0 : 1.0; };
+    auto flip = [&](int col) { return (gamma5 && col >= n / 2) ? -1.0 : 1.0; };
     for (int c = 0; c < n; ++c) {
         // ((A Gamma_5) + (A Gamma_5)^dag) / 2
         h[2 * (k * n + c)] = 0.5 * (flip(c) * a[2 * (k * n + c)] + flip(k) * a[2 * (c * n + k)]);
@@ -670,15 +672,18 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
     }
 
     // out_ik = sum_j v_ij conj(v_kj) / |lambda_j|, row i = k of the thread.
+    double top = 0;
+    for (int j = 0; j < n; ++j) top = fmax(top, fabs(h[2 * (j * n + j)]));
     double* out = d_out + site * n * n * 2;
     for (int col = 0; col < n; ++col) {
         double re = 0, im = 0;
         for (int j = 0; j < n; ++j) {
-            const double lambda = fmax(fabs(h[2 * (j * n + j)]), 1e-300);
+            const double l = fabs(h[2 * (j * n + j)]);
+            const double w = (cutoff > 0) ? ((l > cutoff * top) ? 1.0 / l : 0.0) : 1.0 / fmax(l, 1e-300);
             const double xr = v[2 * (k * n + j)], xi = v[2 * (k * n + j) + 1];
             const double yr = v[2 * (col * n + j)], yi = v[2 * (col * n + j) + 1];
-            re += (xr * yr + xi * yi) / lambda;
-            im += (xi * yr - xr * yi) / lambda;
+            re += (xr * yr + xi * yi) * w;
+            im += (xi * yr - xr * yi) * w;
         }
         out[2 * (k * n + col)] = re;
         out[2 * (k * n + col) + 1] = im;

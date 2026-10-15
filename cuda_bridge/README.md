@@ -89,9 +89,14 @@ for periodic, antiperiodic and Dirichlet boundaries:
   orthonormal on the device (`bridge_cuda_level_basis_*`), the restriction and prolongation
   between levels (`bridge_cuda_level_restrict_*`, `bridge_cuda_level_prolong_*`), the operators
   of the levels by probing (`bridge_cuda_level_sources_*`, `bridge_cuda_level_probe_*`), then
-  applied by `bridge_cuda_coarse_pass_*`, and the last level as a dense matrix
-  (`bridge_cuda_level_dense`) inverted by `bridge_cuda_blocks_inverse`. Their test vectors and
-  their V-cycle, with the bootstrap of a level, agree with those of the CPU to 1e-12.
+  applied by `bridge_cuda_coarse_pass_*`, |B|^-1 of their blocks for the Pauli-Villars factor
+  (`bridge_cuda_blocks_abs_inverse`), and the last level as a dense matrix
+  (`bridge_cuda_level_dense`) inverted, or |H|^-1 of it, by cuSOLVER and cuBLAS
+  (`multigrid/dense.cu`: `bridge_cuda_dense_inverse`, `bridge_cuda_dense_abs_inverse`, of any
+  size) and applied by `bridge_cuda_dense_apply_*`. Their test vectors, the V-cycle of the
+  quark factor with the bootstrap of a level and the preconditioner of the Pauli-Villars
+  factor agree with those of the CPU to 1e-12, with a last level of up to 1536 complex numbers
+  in the test.
 
 The operators are in the Dirac representation (gamma_4 diagonal). `alpha` of
 `BridgeCudaMdwfParams` is not used: Neff's Q is one of the matrices of `bridge_cuda_fifth_gemm`.

@@ -90,6 +90,18 @@ void bridge_cuda_level_probe_##SUFFIX(                                          
 LEVEL_FUNCTIONS(f32, float)
 LEVEL_FUNCTIONS(f64, double)
 
+void bridge_cuda_dense_apply_f32(float* d_out, const float* d_r, const float* d_m, int n, int vectors, cudaStream_t stream)
+{
+    dim3 grid(blocks_for(n), vectors);
+    bridge_cuda::dense_apply_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(d_out, d_r, d_m, n);
+}
+
+void bridge_cuda_dense_apply_f64(double* d_out, const double* d_r, const double* d_m, int n, int vectors, cudaStream_t stream)
+{
+    dim3 grid(blocks_for(n), vectors);
+    bridge_cuda::dense_apply_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_out, d_r, d_m, n);
+}
+
 void bridge_cuda_level_dense(
     double* d_dense, const double* d_diag, const double* d_links, const unsigned* d_neighbours,
     unsigned used, int n_sites, int nq, cudaStream_t stream)

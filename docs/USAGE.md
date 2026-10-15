@@ -92,9 +92,10 @@ with the multigrid, which is on the device with its setup: above the coarse latt
 precision as on the CPU (`MultiGrid.fine_precision : double` for double; the outer solver is in
 double precision either way), its prolongation kept in half precision as on the CPU
 (`basis_precision : single` for single, on the device only), which is most of its memory. `Setup.filter_number_in_block` vectors are filtered at a
-time: fewer take less memory. With levels below the coarse lattice
-(`MultiGrid_Level2` and on), or another solver of the second factor than `MINRES`, the coarse
-part of the multigrid is that of the CPU.
+time: fewer take less memory. The levels below the coarse lattice (`MultiGrid_Level2` and on,
+`levels_for_pauli_villars`) are on the device too, the last of them inverted densely by
+cuSOLVER (any size that fits in memory). With another solver of the second factor than
+`MINRES` (the exact adjoint) the coarse part of the multigrid is that of the CPU.
 With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
 by bit. Not on the device yet: the multigrid of Wilson and clover fermions, HMC,

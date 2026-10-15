@@ -380,6 +380,12 @@ void bridge_cuda_blocks_inverse(
 void bridge_cuda_blocks_abs_inverse_gamma5(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream
 );
+// The same for the Hermitian part of A itself, the eigenvalues not above `cutoff` times the
+// largest in magnitude left out.
+void bridge_cuda_blocks_abs_inverse(
+    double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, double cutoff,
+    cudaStream_t stream
+);
 
 // P of the multigrid of domain-wall fermions (multigrid/fold.cuh), in single or in half
 // precision: coarse = P^dag fine, fine = P coarse, the chirality parts of test vectors into P,
@@ -464,6 +470,16 @@ BRIDGE_CUDA_LEVEL_FUNCTIONS(f64, double)
 void bridge_cuda_level_dense(
     double* d_dense, const double* d_diag, const double* d_links, const unsigned* d_neighbours,
     unsigned used, int n_sites, int nq, cudaStream_t stream);
+// A dense n x n matrix applied to fields of n complex numbers (one site of all of them).
+void bridge_cuda_dense_apply_f32(float* d_out, const float* d_r, const float* d_m, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_dense_apply_f64(double* d_out, const double* d_r, const double* d_m, int n, int vectors, cudaStream_t stream);
+// Dense complex n x n matrices, row-major (re, im), in double precision, of any n, by
+// cuSOLVER (multigrid/dense.cu): the inverse (LU with partial pivoting), and V |Lambda|^+ V^dag
+// for (A + A^dag)/2 = V Lambda V^dag, the eigenvalues not above `cutoff` times the largest in
+// magnitude left out. They return 0, a positive number for a singular matrix or eigensolver
+// that did not converge, or a negative cuSOLVER or cuBLAS status.
+int bridge_cuda_dense_inverse(double* d_inverse, const double* d_a, int n);
+int bridge_cuda_dense_abs_inverse(double* d_out, const double* d_a, int n, double cutoff);
 
 // One leg of the hops H (b - c Y) in on the whole lattice, sorted by whether it comes from
 // another block of `block` sites (fermion/hops.cuh, hop_split_kernel): cross = the leg where

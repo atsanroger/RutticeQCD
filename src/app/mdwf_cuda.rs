@@ -6,10 +6,9 @@
 //! prolongation, the coarse operators, and the cycle with its coarse solves; above the
 //! coarse lattice in single precision unless `MultiGrid.fine_precision` says double (the
 //! outer solver is in double precision either way), and so are levels below the coarse
-//! lattice for the quark factor. With those levels for the Pauli-Villars factor too
-//! (`levels_for_pauli_villars`), or another solver of the second factor than MINRES, the
-//! basis, the coarse operators and the coarse correction are those of the CPU (`mdwf`), the
-//! residual and the correction crossing over in every cycle.
+//! lattice. With another solver of the second factor than MINRES, the basis, the coarse
+//! operators and the coarse correction are those of the CPU (`mdwf`), the residual and the
+//! correction crossing over in every cycle.
 //!
 //! The five-dimensional source, the residual of the solution (by the operator on the whole
 //! lattice, not the one that was solved) and its four-dimensional fields are made on the
@@ -321,6 +320,16 @@ fn add_levels<T: DeviceReal, CT: LevelReal>(
         start.elapsed().as_secs_f64(),
         memory()
     )?;
+    if mg.levels_for_pauli_villars {
+        let start = Instant::now();
+        let applications = c.add_pv_levels(vectors, &super_blocks)?;
+        writeln!(
+            out,
+            "  the same levels for the Pauli-Villars factor on the device: {applications} coarse applications ({:.0} s); {}",
+            start.elapsed().as_secs_f64(),
+            memory()
+        )?;
+    }
     Ok(())
 }
 
@@ -427,16 +436,13 @@ pub(super) fn run(
     let start = Instant::now();
 
     // The multigrid. Its settings, and whether its coarse correction is on the device: not
-    // with levels below the coarse lattice for the Pauli-Villars factor, nor with another
-    // solver of that factor than MINRES, which are on the CPU only.
+    // with another solver of the Pauli-Villars factor than MINRES, which is on the CPU only.
     let settings = match (params.multigrid(), &params.multigrid) {
         (Some((cycle, _, boot)), Some(mg)) => Some((cycle, boot, mg)),
         _ => None,
     };
-    let on_device = settings.is_some_and(|(cycle, _, mg)| {
-        (mg.super_blocks().is_empty() || !mg.levels_for_pauli_villars)
-            && DeviceCorrection::<f64, f32>::supports(&cycle)
-    });
+    let on_device =
+        settings.is_some_and(|(cycle, _, _)| DeviceCorrection::<f64, f32>::supports(&cycle));
     // Above the coarse lattice it is in single precision, with operators of its own, or in
     // double precision with those of the outer solver.
     let single = settings.is_some_and(|(_, _, mg)| mg.fine_precision == PrecisionType::Single);

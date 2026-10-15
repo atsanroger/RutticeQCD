@@ -47,5 +47,8 @@ fn main() {
         cuda.join("lib64").display()
     );
     println!("cargo:rustc-link-lib=dylib=cudart");
+    // The dense matrices of the last level below the coarse lattice.
+    println!("cargo:rustc-link-lib=dylib=cusolver");
+    println!("cargo:rustc-link-lib=dylib=cublas");
     println!("cargo:rustc-link-lib=dylib=stdc++");
 }

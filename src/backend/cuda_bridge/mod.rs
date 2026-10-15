@@ -26,7 +26,7 @@ mod wilson;
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::DeviceCorrection;
 pub use field::{DeviceParities, DeviceSpinor, Stashed};
-pub use levels::{DeviceMultilevel, LevelReal};
+pub use levels::{DeviceAbsMultilevel, DeviceMultilevel, LevelReal};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
 

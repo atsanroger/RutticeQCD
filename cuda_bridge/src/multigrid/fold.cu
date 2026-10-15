@@ -188,7 +188,14 @@ void bridge_cuda_blocks_inverse(
 void bridge_cuda_blocks_abs_inverse_gamma5(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream)
 {
-    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim);
+    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 1, 0.0);
+}
+
+void bridge_cuda_blocks_abs_inverse(
+    double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, double cutoff,
+    cudaStream_t stream)
+{
+    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 0, cutoff);
 }
 
 } // extern "C"

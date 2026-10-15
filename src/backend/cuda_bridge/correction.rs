@@ -26,8 +26,9 @@ type OnDevice<'a, F, CT> = Correction<
 /// precision `F`, the coarse solves in the precision `CT`.
 pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
     correction: OnDevice<'a, F, CT>,
-    /// P†DP and the coarse lattice, for levels below it.
+    /// The two coarse operators and the coarse lattice, for levels below it.
     coarse_d: Rc<DeviceCoarseOp<CT>>,
+    coarse_pv: Rc<DeviceCoarseOp<CT>>,
     coarse: Arc<Lattice>,
 }
 
@@ -87,13 +88,14 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
                 outer,
                 form,
                 device,
-                (coarse_d.clone(), coarse_pv),
+                (coarse_d.clone(), coarse_pv.clone()),
                 (Box::new(blocks_d), Box::new(blocks_pv)),
                 params,
                 &like.zeros_with(1),
                 &coarse_like,
             ),
             coarse_d,
+            coarse_pv,
             coarse,
         })
     }
@@ -121,17 +123,29 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         super_blocks: &[usize],
         bootstrap: &[LevelBootstrap],
     ) -> Result<usize, Box<dyn Error>> {
-        let mut v = must(DeviceCoarse::<CT>::zeros(
-            vectors.sites,
-            vectors.dim,
-            vectors.vectors,
-        ));
-        crate::ConvertFrom::convert_from(&mut v, vectors);
+        let v = vectors.to_precision::<CT>()?;
         let levels =
             DeviceMultilevel::build(&self.coarse_d, &self.coarse, &v, super_blocks, bootstrap)?;
         let applications = levels.setup_applications;
         self.correction.set_levels_d(Box::new(
             move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.apply(out, inp),
+        ));
+        Ok(applications)
+    }
+
+    /// The same levels for the solves of the Pauli-Villars factor, by MINRES on its Hermitian
+    /// form, as the CPU has them (`PvEoCycle::add_pv_levels`, `AbsMultilevel`), from the same
+    /// test vectors. Returns the applications of the coarse operator the setup took.
+    pub fn add_pv_levels<U: DeviceReal>(
+        &mut self,
+        vectors: &DeviceCoarse<U>,
+        super_blocks: &[usize],
+    ) -> Result<usize, Box<dyn Error>> {
+        let v = vectors.to_precision::<CT>()?;
+        let levels = DeviceAbsMultilevel::build(&self.coarse_pv, &self.coarse, &v, super_blocks)?;
+        let applications = levels.setup_applications;
+        self.correction.set_levels_pv(Box::new(
+            move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.add(out, inp),
         ));
         Ok(applications)
     }
