@@ -90,7 +90,7 @@ pub(super) enum Preconditioner<'a, L: CycleLayout<T>, T: Storage = f64> {
 }
 
 impl<L: CycleLayout<T>, T: Storage> Preconditioner<'_, L, T> {
-    fn coarse_applications(&self) -> usize {
+    pub(super) fn coarse_applications(&self) -> usize {
         match self {
             Preconditioner::Single(c) => c.coarse_applications(),
             Preconditioner::Double(c) => c.coarse_applications(),

@@ -4,7 +4,9 @@
 
 use super::*;
 use crate::fermion::EoForm;
-use crate::solver::preconditioner::multigrid::{CoarseKrylov, Correction, FnMap, PvEoParams};
+use crate::solver::preconditioner::multigrid::{
+    CoarseKrylov, Correction, FnMap, LevelBootstrap, PvEoParams,
+};
 use crate::{Parity, Vector};
 use std::error::Error;
 use std::rc::Rc;
@@ -22,7 +24,12 @@ type OnDevice<'a, F, CT> = Correction<
 
 /// The correction for the operator `PvRatio::new(outer.0, outer.1, form, ..)` on fields in the
 /// precision `F`, the coarse solves in the precision `CT`.
-pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32>(OnDevice<'a, F, CT>);
+pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
+    correction: OnDevice<'a, F, CT>,
+    /// P†DP and the coarse lattice, for levels below it.
+    coarse_d: Rc<DeviceCoarseOp<CT>>,
+    coarse: Arc<Lattice>,
+}
 
 impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
     /// Whether the correction with these settings is on the device: the second factor by
@@ -73,26 +80,59 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
             pv.apply_blocks(out, inp, &abs);
         });
         let coarse_like = device.coarse_field::<CT>(1);
-        Ok(Self(Correction::new(
-            plain,
-            outer,
-            form,
-            device,
-            (coarse_d, coarse_pv),
-            (Box::new(blocks_d), Box::new(blocks_pv)),
-            params,
-            &like.zeros_with(1),
-            &coarse_like,
-        )))
+        let coarse = device.coarse.clone();
+        Ok(Self {
+            correction: Correction::new(
+                plain,
+                outer,
+                form,
+                device,
+                (coarse_d.clone(), coarse_pv),
+                (Box::new(blocks_d), Box::new(blocks_pv)),
+                params,
+                &like.zeros_with(1),
+                &coarse_like,
+            ),
+            coarse_d,
+            coarse,
+        })
     }
 
     /// Coarse-operator applications so far (both factors).
     pub fn coarse_applications(&self) -> usize {
-        self.0.coarse_applications()
+        self.correction.coarse_applications()
     }
 
     /// `e` = the coarse correction of `r`, fields on the even sites.
     pub fn correct(&mut self, e: &mut DeviceSpinor<F>, r: &DeviceSpinor<F>) {
-        self.0.correct(e, r);
+        self.correction.correct(e, r);
+    }
+}
+
+impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
+    /// Add levels below the coarse lattice to the solves of P†DP, on the device as on the CPU
+    /// (`PvEoCycle::add_levels_with`): from the test vectors `vectors` on the coarse lattice
+    /// (`DeviceBasis::pv_eo_coarse_vectors`), with super-blocks of `super_blocks[ℓ]` sites per
+    /// direction on level ℓ + 2 refined by `bootstrap[ℓ]`. Returns the applications of P†DP the
+    /// setup took.
+    pub fn add_levels<U: DeviceReal>(
+        &mut self,
+        vectors: &DeviceCoarse<U>,
+        super_blocks: &[usize],
+        bootstrap: &[LevelBootstrap],
+    ) -> Result<usize, Box<dyn Error>> {
+        let mut v = must(DeviceCoarse::<CT>::zeros(
+            vectors.sites,
+            vectors.dim,
+            vectors.vectors,
+        ));
+        crate::ConvertFrom::convert_from(&mut v, vectors);
+        let levels =
+            DeviceMultilevel::build(&self.coarse_d, &self.coarse, &v, super_blocks, bootstrap)?;
+        let applications = levels.setup_applications;
+        self.correction.set_levels_d(Box::new(
+            move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.apply(out, inp),
+        ));
+        Ok(applications)
     }
 }

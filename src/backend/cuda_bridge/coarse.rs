@@ -11,13 +11,13 @@ use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
 
 /// Whole numbers on the device.
-struct DeviceTable {
-    ptr: *mut u32,
+pub(super) struct DeviceTable {
+    pub(super) ptr: *mut u32,
     bytes: usize,
 }
 
 impl DeviceTable {
-    fn from_host(host: &[u32]) -> Result<Self, CudaError> {
+    pub(super) fn from_host(host: &[u32]) -> Result<Self, CudaError> {
         let bytes = std::mem::size_of_val(host);
         let ptr = device_alloc(bytes)?;
         // SAFETY: two ranges of `bytes` bytes.
@@ -29,7 +29,7 @@ impl DeviceTable {
     }
 
     /// The first `len` numbers.
-    fn download(&self, len: usize) -> Result<Vec<u32>, CudaError> {
+    pub(super) fn download(&self, len: usize) -> Result<Vec<u32>, CudaError> {
         let mut host = vec![0u32; len];
         // SAFETY: two ranges of `len` numbers; the table has at least as many.
         check(unsafe {
@@ -201,6 +201,13 @@ impl<T: DeviceReal> DeviceCoarse<T> {
                 C64::new(host[v * one + at(0, q, 2)], host[v * one + at(1, q, 2)])
             })
             .collect())
+    }
+
+    /// The field in the precision `U`.
+    pub fn to_precision<U: DeviceReal>(&self) -> Result<DeviceCoarse<U>, CudaError> {
+        let mut out = DeviceCoarse::<U>::zeros(self.sites, self.dim, self.vectors)?;
+        convert(&mut out.data, &self.data);
+        Ok(out)
     }
 
     /// The field on the host, in the shape of `like` but for the number of vectors.
@@ -550,6 +557,53 @@ impl DeviceBasis {
         Ok(basis)
     }
 
+    /// The test vectors of the levels below the coarse lattice, as `pv_eo_coarse_vectors` of
+    /// the CPU: P† of the 2 n vectors on the whole lattice that `pv_eo` made P of, from the
+    /// same `op`, `pv` and `y`, as they are (not scaled), in the order of the columns of P.
+    pub fn pv_eo_coarse_vectors<T: DeviceReal>(
+        &self,
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
+        y: &DeviceSpinor<T>,
+    ) -> Result<DeviceCoarse<T>, CudaError> {
+        assert_eq!(y.parity, Some(Parity::Even));
+        let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
+        let mut out = DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?;
+        let (even, odd) = (Parity::Even, Parity::Odd);
+        let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
+        let mut full_work = FermionOp::work(op);
+        let all: Vec<usize> = (0..n).collect();
+        for chunk in all.chunks(2) {
+            let nv = chunk.len();
+            let yj = y.select(chunk);
+            let mut x_e = yj.zeros_like();
+            let mut t = DeviceSpinor::zeros_half(lat, ls, odd)?.zeros_with(nv);
+            let mut x_o = t.zeros_like();
+            let mut s = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(nv);
+            let minus = vec![-1.0; nv];
+            op.diag_inv(&mut work, &mut x_e, &yj, even, Dagger::No);
+            op.hop(&mut work, &mut t, &x_e, odd, Dagger::No);
+            op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
+            x_o.scale(&minus);
+            DeviceParities.insert(&mut s, &x_e);
+            DeviceParities.insert(&mut s, &x_o);
+            let mut c = self.coarse_field::<T>(nv);
+            self.restrict(&mut c, &s);
+            out.assign(chunk, &c);
+            let mut ds = s.zeros_like();
+            op.mult(&mut full_work, &mut ds, &s, Variant::D);
+            DeviceParities.extract(&mut x_e, &ds, even);
+            pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
+            pv.diag_inv(&mut work_pv, &mut x_o, &t, odd, Dagger::Yes);
+            x_o.scale(&minus);
+            DeviceParities.insert(&mut s, &x_e);
+            DeviceParities.insert(&mut s, &x_o);
+            self.restrict(&mut c, &s);
+            out.assign(&chunk.iter().map(|j| n + j).collect::<Vec<_>>(), &c);
+        }
+        Ok(out)
+    }
+
     /// A checksum of P as it is kept, to compare runs bit by bit.
     pub fn checksum(&self) -> Result<u64, CudaError> {
         let mut host = vec![0u8; self.p.bytes];
@@ -703,7 +757,31 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         let odd: Vec<u32> = (0..sites)
             .map(|x| (coords(x).iter().sum::<usize>() % 2) as u32)
             .collect();
-        let diag_f64 = DeviceBuffer::<f64>::from_host(&reals(diag))?;
+        Self::from_parts(
+            DeviceBuffer::<f64>::from_host(&reals(diag))?,
+            &DeviceBuffer::<f64>::from_host(&reals(links))?,
+            &neighbours,
+            &odd,
+            dim,
+            even_odd && a.lattice().global.iter().all(|l| l % 2 == 0),
+        )
+    }
+
+    /// The operator of the blocks `diag_f64` and the links `links_f64` on the device, in the
+    /// layout of `coarse_pass_kernel` (`multigrid/fold.cuh`), with the site every hop comes
+    /// from (`[direction][site]`) and the parity of every site (1 odd), which is used if
+    /// `even_odd`.
+    pub(super) fn from_parts(
+        diag_f64: DeviceBuffer<f64>,
+        links_f64: &DeviceBuffer<f64>,
+        neighbours: &[u32],
+        odd: &[u32],
+        dim: usize,
+        even_odd: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let sites = odd.len();
+        assert!(diag_f64.len == 2 * sites * dim * dim && links_f64.len == 8 * diag_f64.len);
+        assert_eq!(neighbours.len(), 8 * sites);
         // The inverses of the blocks, by Gauss-Jordan elimination in double precision.
         let inverse = DeviceBuffer::<f64>::uninitialised(diag_f64.len)?;
         let scratch = DeviceBuffer::<f64>::uninitialised(2 * diag_f64.len)?;
@@ -729,15 +807,30 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         }
         Ok(Self {
             diag: in_precision(&diag_f64)?,
-            links: DeviceBuffer::from_host(&reals(links))?,
+            links: in_precision(links_f64)?,
             inverse: in_precision(&inverse)?,
             diag_f64,
-            even_odd: even_odd && a.lattice().global.iter().all(|l| l % 2 == 0),
-            neighbours: DeviceTable::from_host(&neighbours)?,
-            odd: DeviceTable::from_host(&odd)?,
+            even_odd,
+            neighbours: DeviceTable::from_host(neighbours)?,
+            odd: DeviceTable::from_host(odd)?,
             sites,
             dim,
         })
+    }
+
+    /// Complex numbers per site.
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Sites of the lattice.
+    pub fn sites(&self) -> usize {
+        self.sites
+    }
+
+    /// The blocks in double precision.
+    pub(super) fn diag_f64(&self) -> &DeviceBuffer<f64> {
+        &self.diag_f64
     }
 
     /// Whether the even-odd form is there (`schur` and the like).

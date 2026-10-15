@@ -30,6 +30,7 @@ gpu_fer/
 │   │   └── dd.cuh                # Block Domain Decomposition (SAP)
 │   ├── multigrid/                # Adaptive Multigrid (AMG)
 │   │   ├── coarse.cuh            # Coarse grid Dirac operator
+│   │   ├── levels.cuh            # The levels below the coarse lattice of the domain-wall multigrid
 │   │   ├── transfer.cuh          # Restriction, prolongation, block Gram-Schmidt
 │   │   └── mrhs.cuh              # Multi-RHS batched Dslash
 │   ├── gauge/                    # Gauge configurations & smearing
@@ -84,6 +85,13 @@ for periodic, antiperiodic and Dirichlet boundaries:
   and |H_xx|^-1 (`bridge_cuda_blocks_inverse`, `bridge_cuda_blocks_abs_inverse_gamma5`); the
   four-dimensional fields of a five-dimensional one (`bridge_cuda_walls_*`). The coarse
   correction on the device agrees with that of the CPU to 1e-9.
+- The levels below the coarse lattice (`multigrid/levels.cuh`): their local vectors made
+  orthonormal on the device (`bridge_cuda_level_basis_*`), the restriction and prolongation
+  between levels (`bridge_cuda_level_restrict_*`, `bridge_cuda_level_prolong_*`), the operators
+  of the levels by probing (`bridge_cuda_level_sources_*`, `bridge_cuda_level_probe_*`), then
+  applied by `bridge_cuda_coarse_pass_*`, and the last level as a dense matrix
+  (`bridge_cuda_level_dense`) inverted by `bridge_cuda_blocks_inverse`. Their test vectors and
+  their V-cycle, with the bootstrap of a level, agree with those of the CPU to 1e-12.
 
 The operators are in the Dirac representation (gamma_4 diagonal). `alpha` of
 `BridgeCudaMdwfParams` is not used: Neff's Q is one of the matrices of `bridge_cuda_fifth_gemm`.

@@ -18,6 +18,7 @@ set(BRIDGE_CUDA_SOURCES
     src/multigrid/multigrid.cu
     src/multigrid/mrhs.cu
     src/multigrid/fold.cu
+    src/multigrid/levels.cu
     src/gauge/gauge.cu
     src/linalg/blas.cu
 )
