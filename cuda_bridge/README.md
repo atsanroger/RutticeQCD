@@ -97,6 +97,10 @@ for periodic, antiperiodic and Dirichlet boundaries:
   quark factor with the bootstrap of a level and the preconditioner of the Pauli-Villars
   factor agree with those of the CPU to 1e-12, with a last level of up to 1536 complex numbers
   in the test.
+- The exact adjoint of a coarse operator (`bridge_cuda_coarse_adjoint_*`): its blocks and links
+  conjugate-transposed and gathered from the sites the hops go to, an operator of its own; the
+  coarse correction with the Pauli-Villars factor solved on it agrees with that of the CPU to
+  1e-9.
 
 The operators are in the Dirac representation (gamma_4 diagonal). `alpha` of
 `BridgeCudaMdwfParams` is not used: Neff's Q is one of the matrices of `bridge_cuda_fifth_gemm`.

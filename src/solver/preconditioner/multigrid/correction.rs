@@ -27,8 +27,6 @@ pub trait CoarseOperator<C> {
     fn mult(&self, out: &mut C, inp: &C);
     /// `out = H inp` for H = Γ5 (Γ5 A Γ5) = A Γ5, the Γ5-Hermitian form.
     fn mult_hermitian(&self, out: &mut C, inp: &C);
-    /// `out = A† inp` exactly.
-    fn mult_adjoint(&self, out: &mut C, inp: &C);
     /// `v = Γ5 v`.
     fn gamma5(&self, v: &mut C);
     /// `out = S inp` on the even sites; `odd` is scratch.
@@ -52,9 +50,6 @@ impl<C, D: CoarseOperator<C>> CoarseOperator<C> for Rc<D> {
     }
     fn mult_hermitian(&self, out: &mut C, inp: &C) {
         (**self).mult_hermitian(out, inp);
-    }
-    fn mult_adjoint(&self, out: &mut C, inp: &C) {
-        (**self).mult_adjoint(out, inp);
     }
     fn gamma5(&self, v: &mut C) {
         (**self).gamma5(v);
@@ -186,7 +181,9 @@ pub trait NeffQ<V>: EvenOdd<V> {
 ///   be of a lower precision;
 /// - the coarse operators `D`, the quark factor by `params.d_solver` (`solve_shared`), the
 ///   second by MINRES on H = Γ5 (P†D_PV P)† with `blocks_pv` = |H_xx|⁻¹, on the even coarse
-///   sites where there is the even-odd form, or by another solver on the exact adjoint with
+///   sites where there is the even-odd form; or, with another solver, the second coarse
+///   operator is the exact adjoint P†D_PV†P itself (`CoarseOp::adjoint`), solved as the first
+///   (`solve_shared`, on the even coarse sites where it has the even-odd form) with
 ///   `blocks_pv` the inverses of its blocks;
 /// - levels below the coarse lattice for either factor, if they are set.
 pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
@@ -334,9 +331,11 @@ where
         gc.convert_from(g);
 
         // w = (P†D_PV†P)⁻¹ g: by MINRES on H = Γ5 (Γ5 P†D_PV P Γ5) with H w = Γ5 g, or on the
-        // exact adjoint. Preconditioned by the blocks, and the levels below if there are any.
+        // exact adjoint, which `coarse_pv` then is. Preconditioned by the blocks, and the
+        // levels below if there are any.
         w.set_zero();
         let minres = params.pv_solver == CoarseKrylov::Minres;
+        let pv_solver = params.pv_solver;
         if minres {
             coarse_pv.gamma5(gc);
         }
@@ -347,7 +346,17 @@ where
                 levels(out, inp);
             }
         });
-        if minres && coarse_pv.has_even_odd() {
+        if !minres {
+            solve_shared(
+                coarse_pv,
+                Some(&mut blocks),
+                None,
+                n,
+                &mut |a, m, x, b| coarse_solve(pv_solver, pv_stop, a, m, x, b),
+                w,
+                gc,
+            );
+        } else if coarse_pv.has_even_odd() {
             // H w = gc on the even coarse sites: H = D_c Γ5 for the stored D_c (taken as its
             // own Γ5-adjoint), so u = Γ5 w solves D_c u = gc, and the Schur complement of H is
             // S Γ5. The blocks |H_xx|⁻¹ act within a site and keep a field on the even sites
@@ -381,10 +390,7 @@ where
         } else {
             let mut a = FnMap(|out: &mut C, inp: &C| {
                 n.set(n.get() + inp.num_vectors());
-                match minres {
-                    true => coarse_pv.mult_hermitian(out, inp),
-                    false => coarse_pv.mult_adjoint(out, inp),
-                }
+                coarse_pv.mult_hermitian(out, inp);
             });
             coarse_solve(params.pv_solver, pv_stop, &mut a, Some(&mut blocks), w, gc);
         }
@@ -440,13 +446,6 @@ impl<T: crate::Storage> CoarseOperator<crate::Field<T, crate::Coarse>>
         use crate::LinearOp;
         self.borrow_mut().mult_dag(out, inp);
         self.borrow().gamma5(out);
-    }
-    fn mult_adjoint(
-        &self,
-        out: &mut crate::Field<T, crate::Coarse>,
-        inp: &crate::Field<T, crate::Coarse>,
-    ) {
-        self.borrow().mult_adjoint(out, inp);
     }
     fn gamma5(&self, v: &mut crate::Field<T, crate::Coarse>) {
         self.borrow().gamma5(v);

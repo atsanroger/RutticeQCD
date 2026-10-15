@@ -17,7 +17,11 @@
   single precision: on stout-smeared links its setup panicked ("the subspace lost rank").
 - The levels below the coarse lattice of the domain-wall multigrid (`MultiGrid_Level2` and on,
   and `levels_for_pauli_villars`) are on the device as well, the last level of any size
-  (cuSOLVER); the solves print the applications of the coarse operators they took.
+  (cuSOLVER); the solves print the applications of the coarse operators they took. So is
+  the exact adjoint of the Pauli-Villars coarse operator (`Coarse_Solver_PV` other than
+  MINRES): the whole domain-wall multigrid of the CPU is on the device. On both, that
+  adjoint is now an operator of its own (`CoarseOp::adjoint`), solved in its even-odd form on
+  the coarse lattice as the quark factor is, not on the whole coarse lattice.
 
 ## 0.2.0 (2026-10-14)
 

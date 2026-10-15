@@ -7,7 +7,7 @@ use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
     CoarseKrylov, Correction, FnMap, LevelBootstrap, PvEoParams,
 };
-use crate::{Parity, Vector};
+use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
 use std::rc::Rc;
 
@@ -32,11 +32,12 @@ pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
     coarse: Arc<Lattice>,
 }
 
-impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
-    /// Whether the correction with these settings is on the device: the second factor by
-    /// MINRES (the exact adjoint of a coarse operator is not there).
+impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
+    /// Whether the correction with these settings is on the device: the quark factor not by
+    /// MINRES, which is only for the Hermitian form of the second; that by MINRES on its
+    /// Hermitian form or by another solver on its exact adjoint.
     pub fn supports(params: &PvEoParams) -> bool {
-        params.pv_solver == CoarseKrylov::Minres && params.d_solver != CoarseKrylov::Minres
+        params.d_solver != CoarseKrylov::Minres
     }
 
     /// With the prolongation `device`. `plain`: D and the second factor (D_PV, or D for the
@@ -54,32 +55,43 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
         assert_eq!(like.parity(), Some(Parity::Even));
         let even_odd = params.coarse_even_odd;
         let build = |op: &CudaMdwf<F>| -> Result<_, Box<dyn Error>> {
-            Ok(Rc::new(DeviceCoarseOp::<CT>::new(
-                &op.coarse_operator(&device)?,
-                even_odd,
-            )?))
+            DeviceCoarseOp::<CT>::new(&op.coarse_operator(&device)?, even_odd)
         };
-        let (coarse_d, coarse_pv) = (build(plain.0)?, build(plain.1)?);
+        let minres = params.pv_solver == CoarseKrylov::Minres;
+        let coarse_d = Rc::new(build(plain.0)?);
+        // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
+        let pv_op = build(plain.1)?;
+        let coarse_pv = Rc::new(match minres {
+            true => pv_op,
+            false => pv_op.adjoint()?,
+        });
         for (name, op) in [("P†DP", &coarse_d), ("P†D_PV P", &coarse_pv)] {
             trace_checksum(name, || op.checksums().map(|c| c.0));
             trace_checksum(&format!("the block inverses of {name}"), || {
                 op.checksums().map(|c| c.1)
             });
         }
-        // The matrices on the coarse sites: the inverses of the blocks of P†DP, and |H_xx|⁻¹
-        // of the second factor.
-        let (d, pv, abs) = (
-            coarse_d.clone(),
-            coarse_pv.clone(),
-            coarse_pv.abs_inverse_of_a_gamma5()?,
-        );
-        trace_checksum("|H_xx|⁻¹", || abs.checksum());
+        // The matrices on the coarse sites: the inverses of the blocks of P†DP, and of the
+        // second factor |H_xx|⁻¹ for MINRES, else the inverses of the blocks of the adjoint.
+        let (d, pv) = (coarse_d.clone(), coarse_pv.clone());
         let blocks_d = FnMap(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
             d.apply_blocks(out, inp, d.block_inverses());
         });
-        let blocks_pv = FnMap(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
-            pv.apply_blocks(out, inp, &abs);
-        });
+        let blocks_pv: Box<dyn LinearFn<DeviceCoarse<CT>> + 'a> = if minres {
+            let abs = coarse_pv.abs_inverse_of_a_gamma5()?;
+            trace_checksum("|H_xx|⁻¹", || abs.checksum());
+            Box::new(FnMap(
+                move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
+                    pv.apply_blocks(out, inp, &abs);
+                },
+            ))
+        } else {
+            Box::new(FnMap(
+                move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
+                    pv.apply_blocks(out, inp, pv.block_inverses());
+                },
+            ))
+        };
         let coarse_like = device.coarse_field::<CT>(1);
         let coarse = device.coarse.clone();
         Ok(Self {
@@ -89,7 +101,7 @@ impl<'a, F: DeviceReal, CT: DeviceReal> DeviceCorrection<'a, F, CT> {
                 form,
                 device,
                 (coarse_d.clone(), coarse_pv.clone()),
-                (Box::new(blocks_d), Box::new(blocks_pv)),
+                (Box::new(blocks_d), blocks_pv),
                 params,
                 &like.zeros_with(1),
                 &coarse_like,
@@ -141,6 +153,9 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         vectors: &DeviceCoarse<U>,
         super_blocks: &[usize],
     ) -> Result<usize, Box<dyn Error>> {
+        if self.correction.params().pv_solver != CoarseKrylov::Minres {
+            return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
+        }
         let v = vectors.to_precision::<CT>()?;
         let levels = DeviceAbsMultilevel::build(&self.coarse_pv, &self.coarse, &v, super_blocks)?;
         let applications = levels.setup_applications;

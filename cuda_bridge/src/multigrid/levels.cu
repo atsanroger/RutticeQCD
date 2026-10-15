@@ -102,6 +102,18 @@ void bridge_cuda_dense_apply_f64(double* d_out, const double* d_r, const double*
     bridge_cuda::dense_apply_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_out, d_r, d_m, n);
 }
 
+void bridge_cuda_coarse_adjoint_f32(float* d_out, const float* d_m, const unsigned* d_from, int dirs, int n_coarse, int dim, cudaStream_t stream)
+{
+    const size_t entries = static_cast<size_t>(dim) * dim * n_coarse * dirs;
+    bridge_cuda::coarse_adjoint_kernel<float><<<blocks_for(static_cast<int>(entries)), BLOCK_SIZE, 0, stream>>>(d_out, d_m, d_from, dirs, n_coarse, dim);
+}
+
+void bridge_cuda_coarse_adjoint_f64(double* d_out, const double* d_m, const unsigned* d_from, int dirs, int n_coarse, int dim, cudaStream_t stream)
+{
+    const size_t entries = static_cast<size_t>(dim) * dim * n_coarse * dirs;
+    bridge_cuda::coarse_adjoint_kernel<double><<<blocks_for(static_cast<int>(entries)), BLOCK_SIZE, 0, stream>>>(d_out, d_m, d_from, dirs, n_coarse, dim);
+}
+
 void bridge_cuda_level_dense(
     double* d_dense, const double* d_diag, const double* d_links, const unsigned* d_neighbours,
     unsigned used, int n_sites, int nq, cudaStream_t stream)

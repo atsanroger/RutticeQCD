@@ -94,7 +94,7 @@ What runs on the GPU with `backend : cuda_bridge`, and what does not yet:
 | On the GPU | Not yet |
 |---|---|
 | Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | the multigrid of Wilson and clover fermions |
-| the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) | the exact adjoint for the Pauli-Villars factor (`Coarse_Solver_PV` other than MINRES): the coarse part of the multigrid is then that of the CPU |
+| the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) and either treatment of the Pauli-Villars factor (MINRES, or the exact adjoint) | |
 | the meson correlators from the propagators (on the CPU, after the solves) | HMC |
 | | several GPUs or processes; boundary phases other than ±1 and 0 |
 

@@ -1246,15 +1246,16 @@ fn multigrid_transfers_on_the_device() {
 }
 
 /// The coarse correction of the domain-wall multigrid on the device is that of the CPU, for
-/// both forms of the operator: with the coarse systems solved to rounding in double precision
-/// the two agree to that.
+/// both forms of the operator and the second factor by MINRES on its Hermitian form or by
+/// BiCGStab on its exact adjoint: with the coarse systems solved to rounding in double
+/// precision the two agree to that.
 #[test]
 fn multigrid_correction_on_the_device() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCorrection};
     use ruttice::fermion::EoForm;
     use ruttice::kernel::Dirac;
     use ruttice::solver::preconditioner::multigrid::{
-        pv_eo_basis, Aggregation, PvEoCycle, PvEoParams,
+        pv_eo_basis, Aggregation, CoarseKrylov, PvEoCycle, PvEoParams,
     };
     use ruttice::{extract_parity, Aos};
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1294,19 +1295,25 @@ fn multigrid_correction_on_the_device() {
     };
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &half(n, 442)).unwrap();
-    let settings = PvEoParams {
+    let minres = PvEoParams {
         coarse_tolerance_sqr: 1e-26,
         pv_tolerance_sqr: 1e-26,
         coarse_max_iterations: 400,
         pv_max_iterations: 400,
         ..PvEoParams::default()
     };
+    let adjoint = PvEoParams {
+        pv_solver: CoarseKrylov::BiCgStab,
+        ..minres
+    };
     let r = half(nv, 443);
     let device_r = DeviceSpinor::from_host_half(&r, &index).unwrap();
     let even = device_r.zeros_like();
-    for (form, cpu_outer, gpu_outer) in [
-        (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv)),
-        (EoForm::Left, (&cpu_a, &cpu_pv), (&gpu_a, &gpu_pv)),
+    for (form, cpu_outer, gpu_outer, settings) in [
+        (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv), minres),
+        (EoForm::Left, (&cpu_a, &cpu_pv), (&gpu_a, &gpu_pv), minres),
+        (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv), adjoint),
+        (EoForm::Left, (&cpu_a, &cpu_pv), (&gpu_a, &gpu_pv), adjoint),
     ] {
         let mut cycle = PvEoCycle::<Dirac, f64, Aos>::with_coarse_storage(
             &cpu,
@@ -1336,7 +1343,8 @@ fn multigrid_correction_on_the_device() {
             .fold(0.0f64, |m, x| m.max(x.abs()));
         assert!(
             d < 1e-9 * size,
-            "{form:?}: the correction differs by {d:e} of {size:e}"
+            "{form:?}, {:?}: the correction differs by {d:e} of {size:e}",
+            settings.pv_solver
         );
     }
 }
@@ -1595,4 +1603,12 @@ fn domain_wall_multigrid_runs_on_the_device() {
         "{gpu}"
     );
     same_tables(&both, "mdwf_mg_levels_pv", 1e-6);
+
+    // The second factor by BiCGStab on its exact adjoint, all of it on the device.
+    let exact = levels.replace(
+        "    Coarse_Solver_PV:\n      solver_type                   : MINRES",
+        "    Coarse_Solver_PV:\n      solver_type                   : BiCGStab",
+    );
+    assert_ne!(exact, levels);
+    same_tables(&exact, "mdwf_mg_exact_adjoint", 1e-6);
 }
