@@ -19,12 +19,18 @@ set(BRIDGE_CUDA_SOURCES
     src/multigrid/mrhs.cu
     src/multigrid/fold.cu
     src/multigrid/levels.cu
+    src/multigrid/dense.cu
     src/gauge/gauge.cu
     src/linalg/blas.cu
 )
 
 add_library(bridge_cuda_static STATIC ${BRIDGE_CUDA_SOURCES})
 add_library(bridge_cuda SHARED ${BRIDGE_CUDA_SOURCES})
+
+# The dense matrices of the last level below the coarse lattice (multigrid/dense.cu).
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(bridge_cuda_static PUBLIC CUDA::cusolver CUDA::cublas)
+target_link_libraries(bridge_cuda PUBLIC CUDA::cusolver CUDA::cublas)
 
 set_target_properties(bridge_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 # The device link is done in the archive, so that a linker other than nvcc (cargo's) can use it.

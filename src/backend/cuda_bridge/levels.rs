@@ -1,9 +1,10 @@
 //! The levels below the coarse lattice of the multigrid on the device: the signed multilevel
-//! V-cycle of the CPU (`SignedMultilevel`, `multigrid/levels.rs`) step for step, with the
-//! operator of every level a coarse operator of the device (`DeviceCoarseOp`), and its local
-//! vectors, the probing of its operators and the dense inverse of the last level made there
-//! (`multigrid/levels.cuh`). Only the tables of the lattices of the levels are made on the
-//! host.
+//! V-cycle of the CPU for the quark factor (`SignedMultilevel`, `multigrid/levels.rs`) and the
+//! absolute-value preconditioner for the Pauli-Villars factor (`AbsMultilevel`), step for step,
+//! with the operator of every level a coarse operator of the device (`DeviceCoarseOp`), and its
+//! local vectors, the probing of its operators (`multigrid/levels.cuh`) and the dense inverse
+//! of the last level (`multigrid/dense.cu`, by cuSOLVER: any size) made there. Only the tables
+//! of the lattices of the levels are made on the host.
 
 use super::coarse::DeviceTable;
 use super::*;
@@ -51,6 +52,7 @@ pub trait LevelReal: DeviceReal {
         pd: i32,
     );
     unsafe fn level_sources(e: *mut Self, colour_of: *const u32, colour: u32, sites: i32, nq: i32);
+    unsafe fn dense_apply(out: *mut Self, r: *const Self, m: *const Self, n: i32, vectors: i32);
     unsafe fn level_probe(
         diag: *mut f64,
         links: *mut f64,
@@ -65,6 +67,17 @@ pub trait LevelReal: DeviceReal {
 }
 
 extern "C" {
+    fn bridge_cuda_dense_inverse(inverse: *mut f64, a: *const f64, n: i32) -> i32;
+    fn bridge_cuda_dense_abs_inverse(out: *mut f64, a: *const f64, n: i32, cutoff: f64) -> i32;
+    fn bridge_cuda_blocks_abs_inverse(
+        out: *mut f64,
+        a: *const f64,
+        scratch: *mut f64,
+        sites: i32,
+        dim: i32,
+        cutoff: f64,
+        stream: *mut c_void,
+    );
     fn bridge_cuda_level_dense(
         dense: *mut f64,
         diag: *const f64,
@@ -78,8 +91,17 @@ extern "C" {
 }
 
 macro_rules! level_real {
-    ($t:ty: $restrict:ident, $prolong:ident, $basis:ident, $sources:ident, $probe:ident) => {
+    ($t:ty: $restrict:ident, $prolong:ident, $basis:ident, $sources:ident, $probe:ident,
+     $dense_apply:ident) => {
         extern "C" {
+            fn $dense_apply(
+                out: *mut $t,
+                r: *const $t,
+                m: *const $t,
+                n: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
             fn $restrict(
                 out: *mut $t,
                 v: *const $t,
@@ -187,6 +209,15 @@ macro_rules! level_real {
             ) {
                 $basis(q, tests, members, n_blocks, n_t, bs, n_parent, pd, STREAM)
             }
+            unsafe fn dense_apply(
+                out: *mut Self,
+                r: *const Self,
+                m: *const Self,
+                n: i32,
+                vectors: i32,
+            ) {
+                $dense_apply(out, r, m, n, vectors, STREAM)
+            }
             unsafe fn level_sources(
                 e: *mut Self,
                 colour_of: *const u32,
@@ -216,9 +247,80 @@ macro_rules! level_real {
 }
 
 level_real!(f32: bridge_cuda_level_restrict_f32, bridge_cuda_level_prolong_f32,
-    bridge_cuda_level_basis_f32, bridge_cuda_level_sources_f32, bridge_cuda_level_probe_f32);
+    bridge_cuda_level_basis_f32, bridge_cuda_level_sources_f32, bridge_cuda_level_probe_f32,
+    bridge_cuda_dense_apply_f32);
 level_real!(f64: bridge_cuda_level_restrict_f64, bridge_cuda_level_prolong_f64,
-    bridge_cuda_level_basis_f64, bridge_cuda_level_sources_f64, bridge_cuda_level_probe_f64);
+    bridge_cuda_level_basis_f64, bridge_cuda_level_sources_f64, bridge_cuda_level_probe_f64,
+    bridge_cuda_dense_apply_f64);
+
+/// The dense matrix of the operator of the last level (`last`, with the links `probed`), in
+/// double precision, n × n for n = its sites times its components.
+fn dense_of<T: LevelReal>(
+    last: &DeviceCoarseOp<T>,
+    probed: &Probed,
+) -> Result<(DeviceBuffer<f64>, usize), CudaError> {
+    let (sites, nq) = (last.sites(), last.dim());
+    let n = sites * nq;
+    let dense = DeviceBuffer::<f64>::zeros(2 * n * n)?;
+    // SAFETY: an n × n matrix, and the blocks, links and table of the last level.
+    unsafe {
+        bridge_cuda_level_dense(
+            dense.ptr,
+            last.diag_f64().ptr,
+            probed.links.ptr,
+            probed.neighbours.ptr,
+            probed.used,
+            sites as i32,
+            nq as i32,
+            STREAM,
+        );
+    }
+    Ok((dense, n))
+}
+
+/// A dense n × n matrix of the last level in the precision `T`, made in double precision by
+/// `make` (out, the dense operator, n: two n × n matrices) with its status (0: done).
+fn dense_map<T: LevelReal>(
+    dense: &DeviceBuffer<f64>,
+    n: usize,
+    what: &str,
+    make: impl FnOnce(*mut f64, *const f64, i32) -> i32,
+) -> Result<DeviceBuffer<T>, Box<dyn Error>> {
+    let out = DeviceBuffer::<f64>::zeros(dense.len)?;
+    finish();
+    let status = make(out.ptr, dense.ptr, n as i32);
+    finish();
+    match status {
+        0 => {}
+        s if s > 0 => {
+            return Err(Box::new(MultigridError::SingularCoarseDiagonal {
+                coarse_site: 0,
+            }))
+        }
+        s => {
+            return Err(
+                format!("{what} of the last level ({n} complex numbers): status {s}").into(),
+            )
+        }
+    }
+    let mut converted = DeviceBuffer::<T>::uninitialised(out.len)?;
+    convert(&mut converted, &out);
+    Ok(converted)
+}
+
+/// `out = M r` for the dense matrix `m` of n × n.
+fn dense_apply<T: LevelReal>(
+    m: &DeviceBuffer<T>,
+    n: usize,
+    r: &DeviceCoarse<T>,
+) -> DeviceCoarse<T> {
+    assert_eq!(r.sites * r.dim, n);
+    let out = r.zeros_like();
+    // SAFETY: the fields of the last level have the layout of one site of all their complex
+    // numbers (`coarse_index` of q = X dim + k), and m is n × n.
+    unsafe { T::dense_apply(out.data.ptr, r.data.ptr, m.ptr, n as i32, r.vectors as i32) };
+    out
+}
 
 fn site_coords(s: usize, ext: &[usize; ND]) -> [usize; ND] {
     let mut c = [0; ND];
@@ -613,57 +715,14 @@ impl<T: LevelReal> DeviceMultilevel<T> {
             self.exts.push(level_ext);
             self.last = Some(probed);
         }
-        // The coarsest level dense, inverted by Gauss-Jordan elimination in double precision.
+        // The coarsest level dense, inverted by LU in double precision.
         let last = self.ops.last().expect("at least one level");
         let probed = self.last.as_ref().expect("the links of the last level");
-        let (sites, nq) = (last.sites(), last.dim());
-        let n = sites * nq;
-        if n > 1024 {
-            return Err(format!(
-                "the last level below the coarse lattice has {n} complex numbers, more than the \
-                 1024 the device inverts densely: add a level or take larger super-blocks"
-            )
-            .into());
-        }
-        let dense = DeviceBuffer::<f64>::zeros(2 * n * n)?;
-        // SAFETY: an n × n matrix, and the blocks, links and table of the last level.
-        unsafe {
-            bridge_cuda_level_dense(
-                dense.ptr,
-                last.diag_f64().ptr,
-                probed.links.ptr,
-                probed.neighbours.ptr,
-                probed.used,
-                sites as i32,
-                nq as i32,
-                STREAM,
-            );
-        }
-        let inverse = DeviceBuffer::<f64>::uninitialised(dense.len)?;
-        let scratch = DeviceBuffer::<f64>::uninitialised(2 * dense.len)?;
-        let fail = DeviceTable::from_host(&[0])?;
-        // SAFETY: one matrix of dim n, as many places for its inverse, the scratch the kernel
-        // asks for, and a place for the failure.
-        unsafe {
-            bridge_cuda_blocks_inverse(
-                inverse.ptr,
-                dense.ptr,
-                scratch.ptr,
-                fail.ptr,
-                1,
-                n as i32,
-                STREAM,
-            );
-        }
-        finish();
-        if fail.download(1)?[0] != 0 {
-            return Err(Box::new(MultigridError::SingularCoarseDiagonal {
-                coarse_site: 0,
-            }));
-        }
-        let mut inv = DeviceBuffer::<T>::uninitialised(inverse.len)?;
-        convert(&mut inv, &inverse);
-        self.coarsest_inv = Some(inv);
+        let (dense, n) = dense_of(last, probed)?;
+        self.coarsest_inv = Some(dense_map(&dense, n, "the inverse", |out, a, n| {
+            // SAFETY: two n × n matrices.
+            unsafe { bridge_cuda_dense_inverse(out, a, n) }
+        })?);
         self.coarsest_dim = n;
         Ok(())
     }
@@ -671,30 +730,7 @@ impl<T: LevelReal> DeviceMultilevel<T> {
     /// The dense inverse of the last level applied to `r`.
     fn coarsest(&self, r: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         let inverse = self.coarsest_inv.as_ref().expect("the coarsest inverse");
-        assert_eq!(r.sites * r.dim, self.coarsest_dim);
-        let out = r.zeros_like();
-        // SAFETY: the fields of the last level have the layout of one site of all their
-        // complex numbers (`coarse_index` of q = X dim + k), and the inverse is that site's.
-        unsafe {
-            T::coarse_pass(
-                out.data.ptr,
-                r.data.ptr,
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-                inverse.ptr,
-                std::ptr::null(),
-                std::ptr::null(),
-                1,
-                self.coarsest_dim as i32,
-                -1,
-                0,
-                0,
-                r.vectors as i32,
-            );
-        }
-        out
+        dense_apply(inverse, self.coarsest_dim, r)
     }
 
     /// The V-cycle from the lattice of level `l`'s operator down.
@@ -722,5 +758,135 @@ impl<T: LevelReal> DeviceMultilevel<T> {
         let first = &self.levels[0];
         let z = self.vcycle(0, &first.restrict(inp));
         first.prolong(out, &z, false);
+    }
+}
+
+/// The cutoff of `abs_inverse` of the CPU: eigenvalues not above it times the largest in
+/// magnitude come from dependent local vectors and are left out.
+const ABS_CUTOFF: f64 = 1e-10;
+
+/// The levels below the coarse lattice for the Hermitian form H = A Γ5 of the Pauli-Villars
+/// factor on the device, `AbsMultilevel` of the CPU: the Hermitian positive preconditioner
+///
+///   M_ℓ = |B_ℓ|⁻¹ + Q_(ℓ+1) M_(ℓ+1) Q_(ℓ+1)†,    M = |H|⁻¹ exactly on the last level,
+///
+/// of which `add` adds Q₂ M₂ Q₂† r to the |B₁|⁻¹ r of the coarse lattice itself.
+pub struct DeviceAbsMultilevel<T: LevelReal> {
+    levels: Vec<Level<T>>,
+    /// |B_ℓ|⁻¹ of every level but the last, and the operators of those levels.
+    abs_blocks: Vec<DeviceBuffer<T>>,
+    ops: Vec<DeviceCoarseOp<T>>,
+    coarsest_abs_inv: DeviceBuffer<T>,
+    coarsest_dim: usize,
+    /// Applications of the coarse operator to build it.
+    pub setup_applications: usize,
+}
+
+impl<T: LevelReal> DeviceAbsMultilevel<T> {
+    /// The levels for H = A Γ5 of `a`, applied as Γ5 (Γ5 A Γ5), on the coarse lattice `lat`, from
+    /// the test vectors `vectors` there, with super-blocks of `super_blocks[ℓ]` sites per
+    /// direction on level ℓ + 2.
+    pub fn build(
+        a: &DeviceCoarseOp<T>,
+        lat: &Lattice,
+        vectors: &DeviceCoarse<T>,
+        super_blocks: &[usize],
+    ) -> Result<Self, Box<dyn Error>> {
+        assert!(!super_blocks.is_empty() && vectors.vectors > 0);
+        assert_eq!(vectors.sites, lat.num_sites());
+        let mut coords: Vec<[usize; ND]> =
+            (0..lat.num_sites()).map(|x| lat.global_coords(x)).collect();
+        let (mut ext, mut pd) = (lat.global, a.dim());
+        let mut tests = vectors.select(&(0..vectors.vectors).collect::<Vec<_>>());
+        let (mut levels, mut ops) = (Vec::new(), Vec::<DeviceCoarseOp<T>>::new());
+        let mut last: Option<Probed> = None;
+        let mut setup_applications = 0;
+        for (l, &sb) in super_blocks.iter().enumerate() {
+            let (level, level_ext) = Level::build(&coords, ext, pd, sb, &tests)?;
+            let (op, probed, applications) = if l == 0 {
+                probe(&level, level_ext, &mut |out, inp| {
+                    a.apply(out, inp, true);
+                    a.gamma5(out);
+                })?
+            } else {
+                let above = ops.last().expect("a level above");
+                probe(&level, level_ext, &mut |out, inp| {
+                    above.apply(out, inp, false)
+                })?
+            };
+            if l == 0 {
+                setup_applications = applications;
+            }
+            tests = level.restrict(&tests);
+            (ext, pd) = (level_ext, op.dim());
+            coords = (0..ext.iter().product())
+                .map(|x| site_coords(x, &ext))
+                .collect();
+            levels.push(level);
+            ops.push(op);
+            last = Some(probed);
+        }
+        let probed = last.expect("at least one level");
+        let (dense, n) = dense_of(ops.last().expect("at least one level"), &probed)?;
+        let coarsest_abs_inv = dense_map(&dense, n, "|H|⁻¹", |out, a, n| {
+            // SAFETY: two n × n matrices.
+            unsafe { bridge_cuda_dense_abs_inverse(out, a, n, ABS_CUTOFF) }
+        })?;
+        // |B_ℓ|⁻¹ of the levels but the last, by the Jacobi method on the device.
+        let mut abs_blocks = Vec::new();
+        for op in &ops[..ops.len() - 1] {
+            let diag = op.diag_f64();
+            let out = DeviceBuffer::<f64>::uninitialised(diag.len)?;
+            let scratch = DeviceBuffer::<f64>::uninitialised(2 * diag.len)?;
+            // SAFETY: the blocks of the level's sites, as many places for the results, and the
+            // scratch the kernel asks for.
+            unsafe {
+                bridge_cuda_blocks_abs_inverse(
+                    out.ptr,
+                    diag.ptr,
+                    scratch.ptr,
+                    op.sites() as i32,
+                    op.dim() as i32,
+                    ABS_CUTOFF,
+                    STREAM,
+                );
+            }
+            finish();
+            let mut converted = DeviceBuffer::<T>::uninitialised(out.len)?;
+            convert(&mut converted, &out);
+            abs_blocks.push(converted);
+        }
+        Ok(Self {
+            levels,
+            abs_blocks,
+            ops,
+            coarsest_abs_inv,
+            coarsest_dim: n,
+            setup_applications,
+        })
+    }
+
+    /// Complex components of the coarsest level, solved densely.
+    pub fn coarsest_dim(&self) -> usize {
+        self.coarsest_dim
+    }
+
+    /// M of the lattice the level `l` restricts to, applied to `r` there.
+    fn m(&self, l: usize, r: &DeviceCoarse<T>) -> DeviceCoarse<T> {
+        if l + 1 == self.levels.len() {
+            return dense_apply(&self.coarsest_abs_inv, self.coarsest_dim, r);
+        }
+        let below = &self.levels[l + 1];
+        let mut z = r.zeros_like();
+        self.ops[l].apply_blocks(&mut z, r, &self.abs_blocks[l]);
+        below.prolong(&mut z, &self.m(l + 1, &below.restrict(r)), true);
+        z
+    }
+
+    /// `out += Q₂ M₂ Q₂† inp`, all the vectors of the field at once.
+    pub fn add(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        let first = &self.levels[0];
+        let z = self.m(0, &first.restrict(inp));
+        first.prolong(out, &z, true);
     }
 }

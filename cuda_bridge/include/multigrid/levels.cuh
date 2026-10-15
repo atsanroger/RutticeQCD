@@ -263,6 +263,30 @@ __global__ void level_dense_kernel(
     }
 }
 
+// -------------------------------------------------------------------------
+// out = M r for a dense n x n matrix M, row-major (re, im), and fields of n complex numbers: a
+// thread for each row, blockIdx.y the vector.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void dense_apply_kernel(
+    Float* __restrict__ d_out, const Float* __restrict__ d_r, const Float* __restrict__ d_m, int n)
+{
+    const int row = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= n) return;
+    const Float* r = d_r + blockIdx.y * level_reals(1, n);
+    const Float* m = d_m + 2 * static_cast<size_t>(row) * n;
+    Float re = 0, im = 0;
+    for (int c = 0; c < n; ++c) {
+        const size_t at = level_at(c);
+        const Float a = m[2 * c], b = m[2 * c + 1], xr = r[at], xi = r[at + WarpSize];
+        re += a * xr - b * xi;
+        im += a * xi + b * xr;
+    }
+    const size_t at = blockIdx.y * level_reals(1, n) + level_at(row);
+    d_out[at] = re;
+    d_out[at + WarpSize] = im;
+}
+
 } // namespace bridge_cuda
 
 #endif

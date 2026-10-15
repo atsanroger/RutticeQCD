@@ -15,9 +15,9 @@
 - The force of the plaquette action walks its staples site by site: the same numbers, faster.
 - The Chebyshev filter of the test vectors of the domain-wall multigrid no longer overflows in
   single precision: on stout-smeared links its setup panicked ("the subspace lost rank").
-- The levels below the coarse lattice of the domain-wall multigrid (`MultiGrid_Level2` and on)
-  are on the device as well, but for the Pauli-Villars factor (`levels_for_pauli_villars`);
-  the solves print the applications of the coarse operators they took.
+- The levels below the coarse lattice of the domain-wall multigrid (`MultiGrid_Level2` and on,
+  and `levels_for_pauli_villars`) are on the device as well, the last level of any size
+  (cuSOLVER); the solves print the applications of the coarse operators they took.
 
 ## 0.2.0 (2026-10-14)
 

@@ -1342,29 +1342,44 @@ fn multigrid_correction_on_the_device() {
 }
 
 /// The levels below the coarse lattice on the device are those of the CPU: their test vectors
-/// (P† of the vectors P is made of), and the V-cycle built from them, with one level and with
-/// two, the first of them refined by the bootstrap; and the setup takes as many applications of
-/// the coarse operator.
+/// (P† of the vectors P is made of), the V-cycle of the quark factor built from them and the
+/// absolute-value preconditioner of the Pauli-Villars factor, with one level and with two, the
+/// first of them refined by the bootstrap, and with a last level larger than a block of threads
+/// (1536 complex numbers); and the setups take as many applications of the coarse operators.
 #[test]
 fn multigrid_levels_on_the_device() {
     use ruttice::backend::cuda_bridge::{
-        DeviceBasis, DeviceCoarse, DeviceCoarseOp, DeviceMultilevel,
+        DeviceAbsMultilevel, DeviceBasis, DeviceCoarse, DeviceCoarseOp, DeviceMultilevel,
     };
     use ruttice::solver::preconditioner::multigrid::{
-        pv_eo_basis, pv_eo_coarse_vectors, Aggregation, CoarseOp, LevelBootstrap, SignedMultilevel,
+        pv_eo_basis, pv_eo_coarse_vectors, AbsMultilevel, Aggregation, CoarseOp, LevelBootstrap,
+        SignedMultilevel,
     };
     use ruttice::{extract_parity, Coarse};
-    let (ls, n) = (4, 4);
-    for (dims, super_blocks, bootstrap) in [
-        ([4, 4, 4, 8], vec![2], vec![]),
+    let ls = 4;
+    // The largest difference of two coarse fields, and the size of the first.
+    let compare = |a: &Field<f64, Coarse>, b: &Field<f64, Coarse>| -> (f64, f64) {
+        let size = a.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        let diff = a
+            .as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+        (diff, size)
+    };
+    for (dims, n, super_blocks, bootstrap, pv) in [
+        ([4, 4, 4, 8], 4, vec![2], vec![], true),
         (
             [8, 8, 8, 8],
+            4,
             vec![2, 2],
             vec![LevelBootstrap {
                 rounds: 1,
                 iterations: 3,
             }],
+            true,
         ),
+        ([4, 4, 4, 8], 12, vec![1], vec![], false),
     ] {
         let lat = Lattice::single_node(dims);
         let u = random_gauge(&lat, 451);
@@ -1446,20 +1461,35 @@ fn multigrid_levels_on_the_device() {
         let device_r = DeviceCoarse::from_host(&r).unwrap();
         let mut out = device_r.zeros_like();
         device_levels.apply(&mut out, &device_r);
-        let got = out.to_host(&r).unwrap();
-        let size = expected
-            .as_slice()
-            .iter()
-            .fold(0.0f64, |m, x| m.max(x.abs()));
-        let diff = expected
-            .as_slice()
-            .iter()
-            .zip(got.as_slice())
-            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        let (diff, size) = compare(&expected, &out.to_host(&r).unwrap());
         eprintln!(
             "{dims:?}, super-blocks {super_blocks:?}: the V-cycles differ by {diff:e} of {size:e} \
              (coarsest {} complex numbers)",
             levels.coarsest_dim()
+        );
+        assert!(size > 0.0 && diff < 1e-12 * size);
+        if !pv {
+            continue;
+        }
+
+        // The levels of the Pauli-Villars factor, added to a field that is not zero.
+        let mut coarse_pv =
+            CoarseOp::build(&cpu_pv, &mut cpu_pv.work(), &basis).to_storage::<f64>();
+        let device_pv = DeviceCoarseOp::<f64>::new(&coarse_pv, false).unwrap();
+        let abs = AbsMultilevel::build(&mut coarse_pv, &vectors, &super_blocks).unwrap();
+        let device_abs =
+            DeviceAbsMultilevel::build(&device_pv, &coarse_lat, &on_device, &super_blocks).unwrap();
+        assert_eq!(abs.setup_applications, device_abs.setup_applications);
+        assert_eq!(abs.coarsest_dim(), device_abs.coarsest_dim());
+        let mut expected = r.zeros_like();
+        expected.copy_from(&r);
+        abs.add(&mut expected, &r);
+        let mut out = DeviceCoarse::from_host(&r).unwrap();
+        device_abs.add(&mut out, &device_r);
+        let (diff, size) = compare(&expected, &out.to_host(&r).unwrap());
+        eprintln!(
+            "  the Pauli-Villars levels differ by {diff:e} of {size:e} (coarsest {} complex numbers)",
+            abs.coarsest_dim()
         );
         assert!(size > 0.0 && diff < 1e-12 * size);
     }
@@ -1553,4 +1583,16 @@ fn domain_wall_multigrid_runs_on_the_device() {
         "{gpu}"
     );
     same_tables(&levels, "mdwf_mg_levels", 1e-6);
+
+    // The same levels for the Pauli-Villars factor too.
+    let both = levels.replace(
+        "  coarse_precision : single",
+        "  coarse_precision : single\n  levels_for_pauli_villars : true",
+    );
+    let gpu = run_with_backend(&both, "cuda_bridge", "mdwf_mg_levels_pv");
+    assert!(
+        gpu.contains("the same levels for the Pauli-Villars factor on the device:"),
+        "{gpu}"
+    );
+    same_tables(&both, "mdwf_mg_levels_pv", 1e-6);
 }
