@@ -264,6 +264,28 @@ __global__ void level_dense_kernel(
 }
 
 // -------------------------------------------------------------------------
+// The blocks of the exact adjoint of a coarse operator (coarse_pass_kernel's layout):
+// out[d][X] = m[d][Y]^dag with Y = d_from[d n + X] (Y = X without d_from), for `dirs`
+// directions of n_coarse matrices of dim x dim. A thread for each entry.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void coarse_adjoint_kernel(
+    Float* __restrict__ d_out, const Float* __restrict__ d_m, const unsigned* __restrict__ d_from,
+    int dirs, int n_coarse, int dim)
+{
+    const size_t matrix = static_cast<size_t>(dim) * dim;
+    const size_t e = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (e >= matrix * n_coarse * dirs) return;
+    const size_t block = e / matrix, at = e % matrix;
+    const size_t d = block / n_coarse, X = block % n_coarse;
+    const size_t Y = (d_from != nullptr) ? d_from[d * n_coarse + X] : X;
+    const size_t i = at / dim, j = at % dim;
+    const Float* m = d_m + 2 * ((d * n_coarse + Y) * matrix + j * dim + i);
+    d_out[2 * e] = m[0];
+    d_out[2 * e + 1] = -m[1];
+}
+
+// -------------------------------------------------------------------------
 // out = M r for a dense n x n matrix M, row-major (re, im), and fields of n complex numbers: a
 // thread for each row, blockIdx.y the vector.
 // -------------------------------------------------------------------------

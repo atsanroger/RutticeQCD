@@ -53,6 +53,14 @@ pub trait LevelReal: DeviceReal {
     );
     unsafe fn level_sources(e: *mut Self, colour_of: *const u32, colour: u32, sites: i32, nq: i32);
     unsafe fn dense_apply(out: *mut Self, r: *const Self, m: *const Self, n: i32, vectors: i32);
+    unsafe fn coarse_adjoint(
+        out: *mut Self,
+        m: *const Self,
+        from: *const u32,
+        dirs: i32,
+        n_coarse: i32,
+        dim: i32,
+    );
     unsafe fn level_probe(
         diag: *mut f64,
         links: *mut f64,
@@ -92,8 +100,17 @@ extern "C" {
 
 macro_rules! level_real {
     ($t:ty: $restrict:ident, $prolong:ident, $basis:ident, $sources:ident, $probe:ident,
-     $dense_apply:ident) => {
+     $dense_apply:ident, $adjoint:ident) => {
         extern "C" {
+            fn $adjoint(
+                out: *mut $t,
+                m: *const $t,
+                from: *const u32,
+                dirs: i32,
+                n_coarse: i32,
+                dim: i32,
+                stream: *mut c_void,
+            );
             fn $dense_apply(
                 out: *mut $t,
                 r: *const $t,
@@ -209,6 +226,16 @@ macro_rules! level_real {
             ) {
                 $basis(q, tests, members, n_blocks, n_t, bs, n_parent, pd, STREAM)
             }
+            unsafe fn coarse_adjoint(
+                out: *mut Self,
+                m: *const Self,
+                from: *const u32,
+                dirs: i32,
+                n_coarse: i32,
+                dim: i32,
+            ) {
+                $adjoint(out, m, from, dirs, n_coarse, dim, STREAM)
+            }
             unsafe fn dense_apply(
                 out: *mut Self,
                 r: *const Self,
@@ -248,10 +275,10 @@ macro_rules! level_real {
 
 level_real!(f32: bridge_cuda_level_restrict_f32, bridge_cuda_level_prolong_f32,
     bridge_cuda_level_basis_f32, bridge_cuda_level_sources_f32, bridge_cuda_level_probe_f32,
-    bridge_cuda_dense_apply_f32);
+    bridge_cuda_dense_apply_f32, bridge_cuda_coarse_adjoint_f32);
 level_real!(f64: bridge_cuda_level_restrict_f64, bridge_cuda_level_prolong_f64,
     bridge_cuda_level_basis_f64, bridge_cuda_level_sources_f64, bridge_cuda_level_probe_f64,
-    bridge_cuda_dense_apply_f64);
+    bridge_cuda_dense_apply_f64, bridge_cuda_coarse_adjoint_f64);
 
 /// The dense matrix of the operator of the last level (`last`, with the links `probed`), in
 /// double precision, n × n for n = its sites times its components.
@@ -888,5 +915,49 @@ impl<T: LevelReal> DeviceAbsMultilevel<T> {
         let first = &self.levels[0];
         let z = self.m(0, &first.restrict(inp));
         first.prolong(out, &z, true);
+    }
+}
+
+impl<T: LevelReal> DeviceCoarseOp<T> {
+    /// The exact adjoint A† of this operator, as an operator of its own (`CoarseOp::adjoint`
+    /// of the CPU): its blocks A(X)†, and for every direction d the link B_d(Y)† from the site
+    /// Y whose hop d comes from X, so (A† v)(X) = A(X)† v(X) + Σ_d B_d(Y)† v(Y). Made on the
+    /// device; with the even-odd form where this has it, and the inverses of its blocks
+    /// (A(X)⁻¹)†.
+    pub fn adjoint(&self) -> Result<Self, Box<dyn Error>> {
+        let (sites, dim) = (self.sites(), self.dim());
+        let neighbours = self.neighbour_table().download(2 * ND * sites)?;
+        // Every hop is a permutation of the sites: Y = its inverse at X.
+        let mut from = vec![0u32; 2 * ND * sites];
+        for d in 0..2 * ND {
+            for y in 0..sites {
+                from[d * sites + neighbours[d * sites + y] as usize] = y as u32;
+            }
+        }
+        let from_table = DeviceTable::from_host(&from)?;
+        let diag = DeviceBuffer::<f64>::uninitialised(self.diag_f64().len)?;
+        let links = DeviceBuffer::<T>::uninitialised(self.links().len)?;
+        // SAFETY: the blocks and links of this lattice, as many places for those of the
+        // adjoint, and the table of the sites they come from.
+        unsafe {
+            f64::coarse_adjoint(
+                diag.ptr,
+                self.diag_f64().ptr,
+                std::ptr::null(),
+                1,
+                sites as i32,
+                dim as i32,
+            );
+            T::coarse_adjoint(
+                links.ptr,
+                self.links().ptr,
+                from_table.ptr,
+                (2 * ND) as i32,
+                sites as i32,
+                dim as i32,
+            );
+        }
+        let odd = self.odd_table().download(sites)?;
+        Self::from_device_links(diag, links, &from, &odd, dim, self.has_even_odd())
     }
 }

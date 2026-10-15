@@ -1207,6 +1207,18 @@ fn even_odd_pv_multigrid_on_several_processes() {
         let (mut dv, mut ddv) = (v.zeros_like(), v.zeros_like());
         coarse.mult(&mut dv, &v);
         coarse.mult_adjoint(&mut ddv, &v);
+        // The exact adjoint as an operator of its own is the same map, on every process.
+        let mut adjoint = coarse.adjoint();
+        let mut by_adjoint = v.zeros_like();
+        adjoint.mult(&mut by_adjoint, &v);
+        assert!(
+            by_adjoint
+                .as_slice()
+                .iter()
+                .zip(ddv.as_slice())
+                .all(|(a, b)| (a - b).abs() <= 1e-13 * (1.0 + b.abs())),
+            "CoarseOp::adjoint is not mult_adjoint"
+        );
 
         let b = local_part(&b, &lat);
         let mut a = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);

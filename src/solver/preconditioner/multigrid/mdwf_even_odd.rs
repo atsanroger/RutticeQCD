@@ -518,14 +518,20 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         if params.coarse_even_odd {
             coarse_d.prepare_even_odd()?;
         }
+        // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
+        // adjoint P†D_PV†P, solved as the first factor is.
+        let minres = params.pv_solver == CoarseKrylov::Minres;
         let mut coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis).to_storage::<f64>();
-        if params.coarse_even_odd && params.pv_solver == CoarseKrylov::Minres {
+        if !minres {
+            coarse_pv = coarse_pv.adjoint();
+        }
+        if params.coarse_even_odd {
             coarse_pv.prepare_even_odd()?;
         }
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
-        let blocks_pv = match params.pv_solver {
-            CoarseKrylov::Minres => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
-            _ => BlockMap::inverse_diagonal_adjoint(&coarse_pv)?,
+        let blocks_pv = match minres {
+            true => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
+            false => BlockMap::inverse_diagonal(&coarse_pv)?,
         };
         let coarse = (
             RefCell::new(coarse_d.to_storage::<CT>()),

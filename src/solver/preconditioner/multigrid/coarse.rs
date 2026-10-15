@@ -571,6 +571,67 @@ impl<T: Storage> CoarseOp<T> {
         });
     }
 
+    /// The exact adjoint D_c† as an operator of its own, the conjugate transposes of the blocks
+    /// of `mult_adjoint`: A(X)† and, for the hop from X to X + dir, B_-dir(X + dir)† (from
+    /// another process where X + dir is there). Its hops join the same sites, so it has the
+    /// even-odd form where D_c has it (`prepare_even_odd`), and the inverses of its blocks are
+    /// (A(X)⁻¹)†. Not for an operator preconditioned by its diagonal blocks.
+    pub fn adjoint(&self) -> Self {
+        assert!(
+            self.diag_inv.is_none(),
+            "the exact adjoint of a diagonally preconditioned coarse operator"
+        );
+        let (dim, matrix) = (self.dim, 2 * self.dim * self.dim);
+        let n_coarse = self.lat.num_sites();
+        // (M†)_{row, col} = conj(M_{col, row})
+        let dagger = |m: &[T], out: &mut [T]| {
+            for row in 0..dim {
+                for col in 0..dim {
+                    let k = 2 * (dim * col + row);
+                    out[2 * (dim * row + col)] = m[k];
+                    out[2 * (dim * row + col) + 1] = T::store(T::Compute::ZERO - m[k + 1].load());
+                }
+            }
+        };
+        let mut diag = vec![T::default(); self.diag.len()];
+        for x in 0..n_coarse {
+            let at = x * matrix..(x + 1) * matrix;
+            dagger(&self.diag[at.clone()], &mut diag[at]);
+        }
+        let ghost_links = self.exchange_links();
+        let mut links = vec![T::default(); self.links.len()];
+        for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
+            let back = (d + ND) % (2 * ND);
+            for x in 0..n_coarse {
+                let from = match self.stencil.source(x, mu, dir) {
+                    Source::Local { site, .. } => {
+                        let at = (back * n_coarse + site) * matrix;
+                        &self.links[at..at + matrix]
+                    }
+                    Source::Buffer { index, .. } => {
+                        &ghost_links[d][index * matrix..(index + 1) * matrix]
+                    }
+                    Source::Zero => unreachable!("the coarse stencil is periodic"),
+                };
+                let at = (d * n_coarse + x) * matrix;
+                dagger(from, &mut links[at..at + matrix]);
+            }
+        }
+        Self {
+            stencil: Stencil::nearest(&self.lat, [Boundary::Periodic; ND]),
+            lat: self.lat.clone(),
+            dim,
+            diag,
+            links,
+            diag_inv: None,
+            scratch: None,
+            adjoint_from_gamma5: self.adjoint_from_gamma5,
+            exchange: Mutex::new(None),
+            ghost_links: OnceLock::new(),
+            even_odd: None,
+        }
+    }
+
     /// The diagonal block of D_c at coarse site `x` (of the operator as built, before any
     /// diagonal preconditioning), row-major `dim × dim`.
     pub fn diagonal_block(&self, x: usize) -> Vec<C64> {

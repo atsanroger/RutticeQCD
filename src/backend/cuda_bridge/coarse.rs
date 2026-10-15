@@ -779,8 +779,28 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         dim: usize,
         even_odd: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        assert!(links_f64.len == 8 * diag_f64.len);
+        Self::from_device_links(
+            diag_f64,
+            in_precision(links_f64)?,
+            neighbours,
+            odd,
+            dim,
+            even_odd,
+        )
+    }
+
+    /// `from_parts` with the links in the precision `T`.
+    pub(super) fn from_device_links(
+        diag_f64: DeviceBuffer<f64>,
+        links: DeviceBuffer<T>,
+        neighbours: &[u32],
+        odd: &[u32],
+        dim: usize,
+        even_odd: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let sites = odd.len();
-        assert!(diag_f64.len == 2 * sites * dim * dim && links_f64.len == 8 * diag_f64.len);
+        assert!(diag_f64.len == 2 * sites * dim * dim && links.len == 8 * diag_f64.len);
         assert_eq!(neighbours.len(), 8 * sites);
         // The inverses of the blocks, by Gauss-Jordan elimination in double precision.
         let inverse = DeviceBuffer::<f64>::uninitialised(diag_f64.len)?;
@@ -807,7 +827,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         }
         Ok(Self {
             diag: in_precision(&diag_f64)?,
-            links: in_precision(links_f64)?,
+            links,
             inverse: in_precision(&inverse)?,
             diag_f64,
             even_odd,
@@ -816,6 +836,18 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             sites,
             dim,
         })
+    }
+
+    pub(super) fn links(&self) -> &DeviceBuffer<T> {
+        &self.links
+    }
+
+    pub(super) fn neighbour_table(&self) -> &DeviceTable {
+        &self.neighbours
+    }
+
+    pub(super) fn odd_table(&self) -> &DeviceTable {
+        &self.odd
     }
 
     /// Complex numbers per site.
@@ -1022,9 +1054,6 @@ impl<T: DeviceReal> CoarseOperator<DeviceCoarse<T>> for DeviceCoarseOp<T> {
     fn mult_hermitian(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
         self.apply(out, inp, true);
         DeviceCoarseOp::gamma5(self, out);
-    }
-    fn mult_adjoint(&self, _: &mut DeviceCoarse<T>, _: &DeviceCoarse<T>) {
-        unreachable!("the exact adjoint of a coarse operator is not on the device");
     }
     fn gamma5(&self, v: &mut DeviceCoarse<T>) {
         DeviceCoarseOp::gamma5(self, v);
