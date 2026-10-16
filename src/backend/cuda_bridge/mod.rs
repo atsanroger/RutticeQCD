@@ -19,6 +19,7 @@ mod coarse;
 mod columns;
 mod correction;
 mod field;
+mod gauge;
 mod levels;
 mod mdwf;
 mod wilson;
@@ -26,6 +27,7 @@ mod wilson;
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::DeviceCorrection;
 pub use field::{DeviceParities, DeviceSpinor, Stashed};
+pub use gauge::DeviceLinks;
 pub use levels::{DeviceAbsMultilevel, DeviceMultilevel, LevelReal};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
@@ -1167,6 +1169,23 @@ impl<T: DeviceReal> DeviceGauge<T> {
         self.links = must(DeviceBuffer::from_host(&host));
         self.rows = rows;
         geometry.link_rows = rows as i32;
+        Ok(())
+    }
+
+    /// The links `u`, already on the device (kept whole, in the precision `T`).
+    fn set_on_device(
+        &mut self,
+        u: &DeviceLinks,
+        geometry: &mut Geometry,
+    ) -> Result<(), GaugeError> {
+        if u.lat.local != self.lat.local {
+            return Err(GaugeError::LatticeMismatch);
+        }
+        let mut links = must(DeviceBuffer::<T>::uninitialised(u.data.len));
+        convert(&mut links, &u.data);
+        self.links = links;
+        self.rows = 3;
+        geometry.link_rows = 3;
         Ok(())
     }
 }

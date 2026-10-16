@@ -265,6 +265,15 @@ impl<T: DeviceReal> CudaMdwf<T> {
         })
     }
 
+    /// `set_gauge` with links that are on the device already (smeared there, say), kept whole.
+    pub fn set_gauge_on_device(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        if Rc::get_mut(&mut self.gauge).is_none() {
+            self.gauge = Rc::new(must(DeviceGauge::new(&self.gauge.lat)));
+        }
+        let gauge = Rc::get_mut(&mut self.gauge).expect("its own links");
+        gauge.set_on_device(u, &mut self.geometry)
+    }
+
     /// Neff's form D^(α) = D Q; 1 is the plain operator.
     pub fn set_alpha(&mut self, alpha: f64) {
         assert!(alpha > 0.0, "α must be positive");
