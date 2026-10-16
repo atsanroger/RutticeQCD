@@ -247,6 +247,11 @@ fn bridge_test_clover_nf2_stout() {
 /// Bridge++'s domain-wall HMC tests on conf_04040408: Shamir's operator (b = 1, c = 0), M0 = 1.6, m
 /// = 0.1, Ls = 8, on links smeared twice (stout, ρ = 0.1), with the rectangle gauge action.
 fn bridge_domain_wall(expected: f64, pv: bool) {
+    bridge_domain_wall_bc(expected, pv, (1.0, 0.0));
+}
+
+/// `bridge_domain_wall` with Möbius' b and c.
+fn bridge_domain_wall_bc(expected: f64, pv: bool, (b, c): (f64, f64)) {
     use ruttice::fermion::{Mdwf, MdwfParams};
     use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
@@ -266,8 +271,8 @@ fn bridge_domain_wall(expected: f64, pv: bool) {
         ls: 8,
         m5: 1.6,
         mass: 0.1,
-        b: 1.0,
-        c: 0.0,
+        b,
+        c,
         boundary: [
             Boundary::Periodic,
             Boundary::Periodic,
@@ -540,6 +545,13 @@ fn bridge_test_domain_wall_nf2() {
 #[test]
 fn bridge_test_domain_wall_nf2_pv() {
     bridge_domain_wall(0.62754640357188, true);
+}
+
+/// `test_HMC_Domainwall_Moebius_Nf2_PV` (new in Bridge++ 2.1.3): Möbius' operator, b = 1.5,
+/// c = 0.5, over two Pauli-Villars flavours.
+#[test]
+fn bridge_test_domain_wall_moebius_nf2_pv() {
+    bridge_domain_wall_bc(0.62752900011880808, true, (1.5, 0.5));
 }
 
 /// Bridge++'s domain-wall tests over Pauli-Villars fields of its alternative code
