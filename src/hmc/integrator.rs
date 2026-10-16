@@ -1,19 +1,18 @@
 //! HMC with any actions on several time scales: Bridge++'s `HMC_General` with the integrators
 //! of its `Builder_Integrator`.
 
-use super::{draw_momenta, exp_update, kinetic_energy, Links, Mseries, SmearingCache};
-use crate::gauge::plaquette;
-use crate::{Boundary, Field, Gauge, Stencil, ND};
+use super::{LinkField, Links, Mseries, SmearingCache};
+use crate::{Field, Gauge};
 
-/// An action in the molecular dynamics.
-pub trait MdAction {
+/// An action in the molecular dynamics, on links of the kind `U` (on the host by default).
+pub trait MdAction<U: LinkField = Field<f64, Gauge>> {
     /// The start of a trajectory: draw what the action draws (pseudofermions) for the
     /// links; returns its energy.
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64;
+    fn langevin(&mut self, links: &Links<U>, rng: &mut Mseries) -> f64;
     /// The energy at the links.
-    fn hamiltonian(&mut self, links: &Links) -> f64;
+    fn hamiltonian(&mut self, links: &Links<U>) -> f64;
     /// The force on the momenta.
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge>;
+    fn force(&mut self, links: &Links<U>) -> U;
 }
 
 /// The scheme of every level.
@@ -26,15 +25,15 @@ pub enum Scheme {
 }
 
 /// One action and the level of the integrator it is on.
-pub struct Term<'a> {
+pub struct Term<'a, U: LinkField = Field<f64, Gauge>> {
     pub level: usize,
-    pub action: Box<dyn MdAction + 'a>,
+    pub action: Box<dyn MdAction<U> + 'a>,
 }
 
 /// HMC with the actions `terms`, in the order Bridge++ lists them (it matters for the order
 /// of the random numbers drawn: the momenta first, then the actions in this order).
-pub struct Hmc<'a> {
-    pub terms: Vec<Term<'a>>,
+pub struct Hmc<'a, U: LinkField = Field<f64, Gauge>> {
+    pub terms: Vec<Term<'a, U>>,
     pub scheme: Scheme,
     /// Steps of each level.
     pub steps: Vec<usize>,
@@ -43,9 +42,9 @@ pub struct Hmc<'a> {
     pub trajectory_length: f64,
     pub metropolis: bool,
     /// The force of each level at the current links.
-    cache: Vec<Option<Field<f64, Gauge>>>,
+    cache: Vec<Option<U>>,
     /// The smearings of the current links, shared by the actions.
-    smeared: SmearingCache,
+    smeared: SmearingCache<U>,
 }
 
 /// What one trajectory did.
@@ -64,9 +63,9 @@ pub struct HmcTrajectory {
     pub plaquette: f64,
 }
 
-impl<'a> Hmc<'a> {
+impl<'a, U: LinkField> Hmc<'a, U> {
     pub fn new(
-        terms: Vec<Term<'a>>,
+        terms: Vec<Term<'a, U>>,
         scheme: Scheme,
         steps: Vec<usize>,
         exp_order: usize,
@@ -95,40 +94,24 @@ impl<'a> Hmc<'a> {
     }
 
     /// P ← P + ε F_ℓ(U).
-    fn update_p(
-        &mut self,
-        level: usize,
-        eps: f64,
-        p: &mut Field<f64, Gauge>,
-        u: &Field<f64, Gauge>,
-    ) {
+    fn update_p(&mut self, level: usize, eps: f64, p: &mut U, u: &U) {
         if self.cache[level].is_none() {
-            let mut sum = Field::<f64, Gauge>::gauge(u.lattice());
+            let mut sum = u.zeros_like();
             let links = Links::new(u, &self.smeared);
             for t in self.terms.iter_mut().filter(|t| t.level == level) {
                 let f = t.action.force(&links);
-                for (s, v) in sum.as_mut_slice().iter_mut().zip(f.as_slice()) {
-                    *s += v;
-                }
+                sum.add_scaled(1.0, &f);
             }
             self.cache[level] = Some(sum);
         }
         let f = self.cache[level].as_ref().expect("just computed");
-        for (pv, fv) in p.as_mut_slice().iter_mut().zip(f.as_slice()) {
-            *pv += eps * fv;
-        }
+        p.add_scaled(eps, f);
     }
 
     /// Level `level` over the time `tau`.
-    fn evolve(
-        &mut self,
-        level: usize,
-        tau: f64,
-        p: &mut Field<f64, Gauge>,
-        u: &mut Field<f64, Gauge>,
-    ) {
+    fn evolve(&mut self, level: usize, tau: f64, p: &mut U, u: &mut U) {
         if level == self.steps.len() {
-            exp_update(tau, p, u, self.exp_order);
+            u.exp_update(tau, p, self.exp_order);
             self.invalidate();
             return;
         }
@@ -164,14 +147,12 @@ impl<'a> Hmc<'a> {
     }
 
     /// One trajectory from `u`, which becomes the new configuration if it is accepted.
-    pub fn trajectory(&mut self, u: &mut Field<f64, Gauge>, rng: &mut Mseries) -> HmcTrajectory {
+    pub fn trajectory(&mut self, u: &mut U, rng: &mut Mseries) -> HmcTrajectory {
         let lat = u.lattice().clone();
-        let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
-        let mut trial = Field::<f64, Gauge>::gauge(&lat);
-        trial.as_mut_slice().copy_from_slice(u.as_slice());
+        let mut trial = u.duplicate();
         self.invalidate();
-        let mut p = draw_momenta(&lat, rng);
-        let k0 = kinetic_energy(&p);
+        let mut p = U::draw_momenta(&lat, rng);
+        let k0 = p.kinetic_energy();
         let a0: Vec<f64> = {
             let links = Links::new(&trial, &self.smeared);
             self.terms
@@ -180,7 +161,7 @@ impl<'a> Hmc<'a> {
                 .collect()
         };
         self.evolve(0, self.trajectory_length, &mut p, &mut trial);
-        let k1 = kinetic_energy(&p);
+        let k1 = p.kinetic_energy();
         let a1: Vec<f64> = {
             let links = Links::new(&trial, &self.smeared);
             self.terms
@@ -193,9 +174,9 @@ impl<'a> Hmc<'a> {
         let delta_h = h1 - h0;
         let random = if self.metropolis { rng.uniform() } else { -1.0 };
         let accepted = random <= (-delta_h).exp();
-        let plaquette_trial = plaquette(&trial, &st);
+        let plaquette_trial = trial.plaquette();
         if accepted {
-            u.as_mut_slice().copy_from_slice(trial.as_slice());
+            *u = trial;
         }
         HmcTrajectory {
             kinetic: [k0, k1],
@@ -204,7 +185,7 @@ impl<'a> Hmc<'a> {
             random,
             accepted,
             plaquette_trial,
-            plaquette: plaquette(u, &st),
+            plaquette: u.plaquette(),
         }
     }
 }

@@ -6,6 +6,7 @@ mod fermion_action;
 mod gauge_action;
 mod guess;
 mod integrator;
+mod link_field;
 mod links;
 mod mseries;
 mod rational;
@@ -25,6 +26,7 @@ pub use gauge_action::{
 };
 pub use guess::Chrono;
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
+pub use link_field::LinkField;
 pub use links::{Links, SmearingCache};
 pub use mseries::Mseries;
 

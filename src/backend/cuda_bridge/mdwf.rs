@@ -881,24 +881,25 @@ impl CudaMdwf<f64> {
     }
 }
 
-/// The domain-wall operator on the device in the pseudofermion actions of HMC: the solves and
-/// the derivative on the device; the force crosses over to the host's integrator as a field of
-/// matrices, the pseudofermions are drawn on the host (Bridge's order) and go over.
+/// The domain-wall operator on the device in the pseudofermion actions of HMC: on links on the
+/// device, the solves and the derivative there; the pseudofermions are drawn on the host
+/// (Bridge++'s order) and go over.
 impl crate::hmc::ForceOp for CudaMdwf<f64> {
     type Field = DeviceSpinor<f64>;
-    fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> Field<f64, Gauge> {
-        must(
-            self.derivative_on_device(zeta, eta)
-                .and_then(|m| m.to_host()),
-        )
+    type Links = DeviceLinks;
+    fn set_links(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        self.set_gauge_on_device(u)
+    }
+    fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> DeviceLinks {
+        must(self.derivative_on_device(zeta, eta))
     }
     fn clover_derivative(
         &self,
         _kappa_csw: f64,
-        _v: &Field<f64, Gauge>,
+        _v: &DeviceLinks,
         _zeta: &DeviceSpinor<f64>,
         _eta: &DeviceSpinor<f64>,
-    ) -> Field<f64, Gauge> {
+    ) -> DeviceLinks {
         unreachable!("domain-wall fermions have no clover term")
     }
     fn new_field(&self, lat: &Arc<Lattice>) -> DeviceSpinor<f64> {

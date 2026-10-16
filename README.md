@@ -21,9 +21,9 @@ every kind of hardware.
   functions.
 - **Configurations**: Pure gauge, HMC and RHMC.
 - **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge`: propagators of the
-  three kinds of fermions, the domain-wall multigrid with its setup, and in HMC the solves and
-  the force of domain-wall fermions (the Ratio action). Not yet on the device: the multigrid of
-  Wilson and clover fermions, and the rest of HMC. A backend in Rust is planned once CUDA
+  three kinds of fermions, the domain-wall multigrid with its setup, and HMC with domain-wall
+  fermions (the Ratio action). Not yet on the device: the multigrid of Wilson and clover
+  fermions, and the other fermion actions of HMC. A backend in Rust is planned once CUDA
   is officially supported there, keeping both.
 
 The code is written for a clear structure and for speed, at some cost in readability where
@@ -97,7 +97,7 @@ What runs on the GPU with `backend : cuda_bridge`, and what does not yet:
 | Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | the multigrid of Wilson and clover fermions |
 | the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) and either treatment of the Pauli-Villars factor (MINRES, or the exact adjoint) | |
 | the meson correlators from the propagators (on the CPU, after the solves) | |
-| in HMC (`Main.backend : cuda_bridge`), the solves and the derivative of the domain-wall Ratio action; stout smearing and its chain rule (not yet used by HMC) | the rest of HMC: the smearing in it, the gauge action, the integrator, the other fermion actions, and the multigrid in its solves |
+| HMC (`Main.backend : cuda_bridge`): the links, the momenta and the integrator, the plaquette and rectangle gauge actions, stout smearing and its chain rule, and the domain-wall Ratio action with its solves and force; the links cross over only for the flow and to be saved | the other fermion actions in HMC (standard two flavours, even-odd, RHMC), and the multigrid in its solves |
 | | several GPUs or processes; boundary phases other than ±1 and 0 |
 
 [docs/USAGE.md](docs/USAGE.md) has the details, and [cuda_bridge/README.md](cuda_bridge/README.md)
