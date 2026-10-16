@@ -34,7 +34,7 @@ pub type HalfPsi = Field<f64, Spinor, Half>;
 /// field on the sites of one parity: as with `ForceOp::Field`, the action reaches its fields
 /// only through this trait and `Vector`, so an operator in another layout or on another backend
 /// brings its own.
-pub trait EvenOddForceOp: ForceOp + EvenOdd<Self::Half> {
+pub trait EvenOddForceOp: ForceOp<Links = Field<f64, Gauge>> + EvenOdd<Self::Half> {
     type Half: Vector;
     /// A zero field on the sites of `parity` of the shape the operator acts on.
     fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half;
@@ -68,7 +68,7 @@ pub trait EvenOddForceOp: ForceOp + EvenOdd<Self::Half> {
 }
 
 /// The operators of the usual layout: what `EvenOddForceOp` is made of for them.
-pub trait EvenOddSites: ForceOp<Field = Psi> + EvenOdd<HalfPsi> {
+pub trait EvenOddSites: ForceOp<Field = Psi, Links = Field<f64, Gauge>> + EvenOdd<HalfPsi> {
     /// The numbering of the sites of each parity the operator uses.
     fn eo_index(&self) -> &EvenOddIndex;
     fn half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {

@@ -460,6 +460,19 @@ void bridge_cuda_stout_chain(
     double* d_sigma, double* d_itheta, const double* d_sigma_prime, const double* d_u,
     const int* dims, const double* rho, cudaStream_t stream);
 
+// HMC on the device (gauge/links.cuh), fields of matrices as for stout smearing: y += a x
+// (n reals), U <- exp(eps iP) U (Taylor series to `order`, reunitarised), out = s TA(m),
+// out = a b or a^dag b link by link, the force of the gauge action of plaquettes and
+// rectangles, the sums of Re tr of the plaquettes and of the rectangles of every site, and
+// the sum of the squares of the reals of every site.
+void bridge_cuda_links_axpy(double* d_y, double a, const double* d_x, size_t n, cudaStream_t stream);
+void bridge_cuda_links_exp_update(double* d_u, const double* d_p, double eps, int order, int vol, cudaStream_t stream);
+void bridge_cuda_links_ta(double* d_out, const double* d_m, double s, int vol, cudaStream_t stream);
+void bridge_cuda_links_mul(double* d_out, const double* d_a, const double* d_b, int adjoint_a, int vol, cudaStream_t stream);
+void bridge_cuda_gauge_force(double* d_f, const double* d_u, double beta, double c_plaq, double c_rect, const int* dims, cudaStream_t stream);
+void bridge_cuda_gauge_traces(double* d_plaq, double* d_rect, const double* d_u, int with_rect, const int* dims, cudaStream_t stream);
+void bridge_cuda_links_norm2(double* d_out, const double* d_m, int vol, cudaStream_t stream);
+
 // The levels below the coarse lattice (multigrid/levels.cuh): out = Q^dag v and out (+)= Q y
 // between a level and the one above, Q from test vectors on the level above (in double
 // precision), the sources of the probing of a level's operator and its blocks from the

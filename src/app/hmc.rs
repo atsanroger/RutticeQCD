@@ -14,14 +14,14 @@ use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, EvenOddForceOp, ForceOp, Hmc, MdAction, Mseries, MultigridSetup, NormalSolver,
-    PlaquetteAction, Preconditioner, Rational, RectangleAction, Scheme, Term, TwoFlavor,
-    TwoFlavorEo, TwoFlavorRatio,
+    cold_start, EvenOddForceOp, ForceOp, Hmc, LinkField, MdAction, Mseries, MultigridSetup,
+    NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction, Scheme, Term,
+    TwoFlavor, TwoFlavorEo, TwoFlavorRatio,
 };
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
-use crate::{Boundary, Comm, Lattice, Stencil, Vector, ND};
+use crate::{Boundary, Comm, Field, Gauge, Lattice, Stencil, ND};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -696,11 +696,6 @@ impl HmcConfig {
                             solver,
                         };
                         let action = match (*fermion, *denominator) {
-                            (HmcFermion::DomainWall { .. }, d) if self.device => {
-                                let p = mdwf_params(fermion);
-                                let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
-                                device_ratio(lat, (p, pd), solver.neff_alpha, c)?
-                            }
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
@@ -797,6 +792,66 @@ impl HmcConfig {
     }
 }
 
+#[cfg(feature = "cuda-bridge")]
+impl HmcConfig {
+    /// The actions with the links on the device: the gauge actions and the domain-wall Ratio
+    /// actions (`HmcParams::to_config` refuses others).
+    fn device_terms(
+        &self,
+        lat: &Arc<Lattice>,
+    ) -> Result<Vec<Term<'static, crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
+        use crate::backend::cuda_bridge::DeviceLinks;
+        let smearing = self.gauge_smearing.map(|g| g.smearing());
+        self.actions
+            .iter()
+            .map(|a| -> Result<Term<'static, DeviceLinks>, CliError> {
+                let (level, action): (usize, Box<dyn MdAction<DeviceLinks>>) = match a {
+                    ActionConfig::Plaquette { beta, level } => {
+                        (*level, Box::new(PlaquetteAction { beta: *beta }))
+                    }
+                    ActionConfig::Rectangle {
+                        beta,
+                        c_plaq,
+                        c_rect,
+                        level,
+                    } => (
+                        *level,
+                        Box::new(RectangleAction {
+                            beta: *beta,
+                            c_plaq: *c_plaq,
+                            c_rect: *c_rect,
+                        }),
+                    ),
+                    ActionConfig::TwoFlavorRatio {
+                        fermion: fermion @ HmcFermion::DomainWall { .. },
+                        denominator,
+                        level,
+                        smeared,
+                        solver,
+                    } => {
+                        let stop = |t: f64| Stop {
+                            tolerance_sqr: t,
+                            max_iterations: solver.max_iterations,
+                            max_restarts: 10,
+                        };
+                        let c = Common {
+                            smearing: smearing.filter(|_| *smeared),
+                            md: stop(solver.tolerance_squared),
+                            h: stop(solver.energy_tolerance_squared),
+                            solver,
+                        };
+                        let p = mdwf_params(fermion);
+                        let pd = denominator.map_or(p.pauli_villars(), |d| mdwf_params(&d));
+                        (*level, device_ratio(lat, (p, pd), solver.neff_alpha, c)?)
+                    }
+                    _ => unreachable!("refused when the file is read"),
+                };
+                Ok(Term { level, action })
+            })
+            .collect()
+    }
+}
+
 /// What an action is made from besides its operator.
 struct Common<'a> {
     smearing: Option<GaugeSmearing>,
@@ -849,7 +904,7 @@ fn ratio<O: ForceOp + 'static>(
     clover: Option<(f64, f64)>,
     conditioned: Option<O>,
     c: Common,
-) -> Box<dyn MdAction> {
+) -> Box<dyn MdAction<O::Links>> {
     let mut a = TwoFlavorRatio::new(op, denominator, c.smearing, c.md, c.h)
         .with_solver(c.solver.normal())
         .with_preconditioner(c.solver.preconditioner());
@@ -870,7 +925,7 @@ fn device_ratio(
     (p, pd): (MdwfParams, MdwfParams),
     alpha: f64,
     c: Common,
-) -> Result<Box<dyn MdAction>, CliError> {
+) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
     use crate::backend::cuda_bridge::CudaMdwf;
     let make = |p: MdwfParams| {
         CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
@@ -886,21 +941,9 @@ fn device_ratio(
     Ok(ratio((make(p)?, make(pd)?), None, conditioned, c))
 }
 
-#[cfg(not(feature = "cuda-bridge"))]
-fn device_ratio(
-    _: &Arc<Lattice>,
-    _: (MdwfParams, MdwfParams),
-    _: f64,
-    _: Common,
-) -> Result<Box<dyn MdAction>, CliError> {
-    Err(CliError::Invalid(
-        "Main.backend: cuda_bridge needs a program built with --features cuda-bridge".into(),
-    ))
-}
-
 /// A power of the determinant of `op` by the rational approximations of the action and of
 /// the heat bath.
-fn rational<O: ForceOp + 'static>(
+fn rational<O: ForceOp<Links = Field<f64, Gauge>> + 'static>(
     op: O,
     clover: Option<f64>,
     (md, heat_bath): (RationalApprox, RationalApprox),
@@ -1015,7 +1058,7 @@ pub fn run_on(
     let lat = Lattice::new(config.lattice, grid, comm);
     config.check_blocks(lat.local)?;
     let root = lat.comm.rank() == 0;
-    let mut u = match &config.start {
+    let u = match &config.start {
         StartConfig::File { file, format } => super::gauge_file(*format)?
             .read(&base.join(file), &lat)
             .map_err(CliError::Gauge)?,
@@ -1024,23 +1067,69 @@ pub fn run_on(
     };
     let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
     let plaquette_start = plaquette(&u, &st);
-    let io = |e| CliError::Io {
-        path: PathBuf::from("<stdout>"),
-        source: e,
-    };
     let ig = &config.hmc.integrator;
     let scheme = match ig.scheme {
         SchemeConfig::Leapfrog => Scheme::Leapfrog,
         SchemeConfig::Omelyan => Scheme::Omelyan { lambda: ig.lambda },
     };
+    let make = |terms| {
+        let mut hmc = Hmc::new(
+            terms,
+            scheme,
+            ig.steps.clone(),
+            ig.exp_order,
+            config.hmc.trajectory_length,
+        );
+        hmc.metropolis = config.hmc.metropolis;
+        hmc
+    };
+    if config.device {
+        #[cfg(feature = "cuda-bridge")]
+        {
+            use crate::backend::cuda_bridge::DeviceLinks;
+            let hmc = make_device(config, &lat, scheme)?;
+            let u = <DeviceLinks as LinkField>::from_host(&u);
+            return chain(config, base, out, root, u, hmc, plaquette_start);
+        }
+    }
+    let hmc = make(config.terms(&lat, base)?);
+    chain(config, base, out, root, u, hmc, plaquette_start)
+}
+
+/// The HMC of the file with the links on the device.
+#[cfg(feature = "cuda-bridge")]
+fn make_device(
+    config: &HmcConfig,
+    lat: &Arc<Lattice>,
+    scheme: Scheme,
+) -> Result<Hmc<'static, crate::backend::cuda_bridge::DeviceLinks>, CliError> {
+    let ig = &config.hmc.integrator;
     let mut hmc = Hmc::new(
-        config.terms(&lat, base)?,
+        config.device_terms(lat)?,
         scheme,
         ig.steps.clone(),
         ig.exp_order,
         config.hmc.trajectory_length,
     );
     hmc.metropolis = config.hmc.metropolis;
+    Ok(hmc)
+}
+
+/// The trajectories of the run from the links `u`, on the host or on a device; the flow and
+/// the saved configurations from a copy on the host.
+fn chain<U: LinkField>(
+    config: &HmcConfig,
+    base: &Path,
+    out: &mut dyn Write,
+    root: bool,
+    mut u: U,
+    mut hmc: Hmc<'_, U>,
+    plaquette_start: f64,
+) -> Result<HmcReport, CliError> {
+    let io = |e| CliError::Io {
+        path: PathBuf::from("<stdout>"),
+        source: e,
+    };
     let first = config.hmc.first_trajectory;
     let mut rng = Mseries::new(first);
     if root {
@@ -1086,8 +1175,7 @@ pub fn run_on(
             .push((n, t.delta_h, t.accepted, t.plaquette));
         if let Some(m) = config.flow.filter(|m| (k + 1) % m.interval == 0) {
             // The flow of a copy: the chain goes on from `u`.
-            let mut v = u.zeros_like();
-            v.as_mut_slice().copy_from_slice(u.as_slice());
+            let mut v = u.to_host();
             let at = flow_to_t0(&mut v, &m.flow, m.t_max);
             if root {
                 writeln!(
@@ -1106,7 +1194,7 @@ pub fn run_on(
                 let path = base.join(file.replace("{n}", &format!("{n:06}")));
                 // Every process takes part; rank 0 writes the file.
                 super::gauge_file(config.output.format)?
-                    .write(&path, &u)
+                    .write(&path, &u.to_host())
                     .map_err(CliError::Gauge)?;
             }
         }

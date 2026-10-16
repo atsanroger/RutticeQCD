@@ -1618,10 +1618,13 @@ fn domain_wall_force_on_the_device() {
         gpu.set_alpha(alpha);
         let (zeta, eta) = (random_fifth(&lat, 6, 472), random_fifth(&lat, 6, 473));
         let expected = cpu.derivative(&zeta, &eta);
-        let got = gpu.derivative(
-            &DeviceSpinor::from_host(&zeta).unwrap(),
-            &DeviceSpinor::from_host(&eta).unwrap(),
-        );
+        let got = gpu
+            .derivative(
+                &DeviceSpinor::from_host(&zeta).unwrap(),
+                &DeviceSpinor::from_host(&eta).unwrap(),
+            )
+            .to_host()
+            .unwrap();
         let size = expected
             .as_slice()
             .iter()

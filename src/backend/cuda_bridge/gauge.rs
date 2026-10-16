@@ -8,6 +8,42 @@ use crate::gauge::{GaugeSmearing, Smear};
 use std::error::Error;
 
 extern "C" {
+    fn bridge_cuda_links_axpy(y: *mut f64, a: f64, x: *const f64, n: usize, stream: *mut c_void);
+    fn bridge_cuda_links_exp_update(
+        u: *mut f64,
+        p: *const f64,
+        eps: f64,
+        order: i32,
+        vol: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_links_ta(out: *mut f64, m: *const f64, s: f64, vol: i32, stream: *mut c_void);
+    fn bridge_cuda_links_mul(
+        out: *mut f64,
+        a: *const f64,
+        b: *const f64,
+        adjoint_a: i32,
+        vol: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_gauge_force(
+        f: *mut f64,
+        u: *const f64,
+        beta: f64,
+        c_plaq: f64,
+        c_rect: f64,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_gauge_traces(
+        plaq: *mut f64,
+        rect: *mut f64,
+        u: *const f64,
+        with_rect: i32,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_links_norm2(out: *mut f64, m: *const f64, vol: i32, stream: *mut c_void);
     fn bridge_cuda_stout_step(
         v: *mut f64,
         u: *const f64,
@@ -158,5 +194,171 @@ impl GaugeSmearing {
             sigma = stout.chain_on_device(&sigma, below)?;
         }
         Ok(sigma)
+    }
+}
+
+impl DeviceLinks {
+    fn vol(&self) -> i32 {
+        self.lat.num_sites() as i32
+    }
+
+    /// out = a b, or a† b, link by link.
+    fn product(&self, a: &Self, b: &Self, adjoint_a: bool) -> Self {
+        let out = must(Self::zeros(&self.lat));
+        // SAFETY: three fields of matrices of this lattice.
+        unsafe {
+            bridge_cuda_links_mul(
+                out.data.ptr,
+                a.data.ptr,
+                b.data.ptr,
+                i32::from(adjoint_a),
+                self.vol(),
+                STREAM,
+            );
+        }
+        out
+    }
+
+    /// s TA(self).
+    fn projected(&self, s: f64) -> Self {
+        let out = must(Self::zeros(&self.lat));
+        // SAFETY: two fields of matrices of this lattice.
+        unsafe { bridge_cuda_links_ta(out.data.ptr, self.data.ptr, s, self.vol(), STREAM) };
+        out
+    }
+
+    /// A per-site quantity summed on the host, site after site.
+    fn site_sum(per_site: &DeviceBuffer<f64>, sites: usize) -> f64 {
+        must(per_site.download())[..sites].iter().sum()
+    }
+}
+
+/// HMC with the links and the momenta on the device: what the integrator, the gauge actions and
+/// the smeared fermion actions do with them (`gauge/links.cuh`, `gauge/stout.cuh`). The
+/// momenta are drawn on the host in Bridge++'s order and go over; sums are taken on the host
+/// over the sums of the sites.
+impl crate::hmc::LinkField for DeviceLinks {
+    fn lattice(&self) -> &Arc<Lattice> {
+        &self.lat
+    }
+    fn zeros_like(&self) -> Self {
+        must(Self::zeros(&self.lat))
+    }
+    fn duplicate(&self) -> Self {
+        let mut v = must(Self::zeros(&self.lat));
+        must(v.data.copy_from(&self.data));
+        v
+    }
+    fn add_scaled(&mut self, a: f64, x: &Self) {
+        // SAFETY: two fields of matrices of this lattice, of `len` reals each.
+        unsafe { bridge_cuda_links_axpy(self.data.ptr, a, x.data.ptr, self.data.len, STREAM) };
+    }
+    fn kinetic_energy(&self) -> f64 {
+        let sums = must(DeviceBuffer::<f64>::zeros(self.lat.num_sites()));
+        // SAFETY: a field of matrices and a real for each site.
+        unsafe { bridge_cuda_links_norm2(sums.ptr, self.data.ptr, self.vol(), STREAM) };
+        0.5 * Self::site_sum(&sums, self.lat.num_sites())
+    }
+    fn exp_update(&mut self, eps: f64, p: &Self, order: usize) {
+        // SAFETY: the links and the momenta of this lattice.
+        unsafe {
+            bridge_cuda_links_exp_update(
+                self.data.ptr,
+                p.data.ptr,
+                eps,
+                order as i32,
+                self.vol(),
+                STREAM,
+            );
+        }
+    }
+    fn plaquette(&self) -> f64 {
+        let sites = self.lat.num_sites();
+        let (plaq, rect) = (
+            must(DeviceBuffer::<f64>::zeros(sites)),
+            must(DeviceBuffer::<f64>::zeros(sites)),
+        );
+        let dims = self.dims();
+        // SAFETY: the links of this lattice and a real for each site, twice.
+        unsafe {
+            bridge_cuda_gauge_traces(plaq.ptr, rect.ptr, self.data.ptr, 0, dims.as_ptr(), STREAM)
+        };
+        Self::site_sum(&plaq, sites) / (3.0 * 6.0 * sites as f64)
+    }
+    fn draw_momenta(lat: &Arc<Lattice>, rng: &mut crate::hmc::Mseries) -> Self {
+        must(Self::from_host(&crate::hmc::draw_momenta(lat, rng)))
+    }
+    fn smear_levels(&self, smearing: &GaugeSmearing) -> Vec<Self> {
+        smearing
+            .levels_on_device(self)
+            .unwrap_or_else(|e| panic!("smearing on the device: {e}"))
+    }
+    fn smeared_force(
+        m_v: &Self,
+        u: &Self,
+        smearing: Option<&GaugeSmearing>,
+        levels: &[Self],
+    ) -> Self {
+        let Some(smearing) = smearing.filter(|s| s.steps > 0) else {
+            return m_v.projected(1.0);
+        };
+        let v = levels.last().expect("the smeared links");
+        // Σ' = V† M, carried back through the steps; M of the thin links U Σ.
+        let sigma = u.product(v, m_v, true);
+        let sigma = smearing
+            .chain_on_device(sigma, u, levels)
+            .unwrap_or_else(|e| panic!("the chain rule on the device: {e}"));
+        u.product(u, &sigma, false).projected(1.0)
+    }
+    fn gauge_action(&self, beta: f64, c_plaq: f64, c_rect: f64) -> f64 {
+        let sites = self.lat.num_sites();
+        let (plaq, rect) = (
+            must(DeviceBuffer::<f64>::zeros(sites)),
+            must(DeviceBuffer::<f64>::zeros(sites)),
+        );
+        let dims = self.dims();
+        let with_rect = i32::from(c_rect != 0.0);
+        // SAFETY: the links of this lattice and a real for each site, twice.
+        unsafe {
+            bridge_cuda_gauge_traces(
+                plaq.ptr,
+                rect.ptr,
+                self.data.ptr,
+                with_rect,
+                dims.as_ptr(),
+                STREAM,
+            )
+        };
+        let v = sites as f64;
+        let (p, r) = (Self::site_sum(&plaq, sites), Self::site_sum(&rect, sites));
+        if c_rect == 0.0 && c_plaq == 1.0 {
+            // As PlaquetteAction::action: β (1 − ⟨plaquette⟩) 6 V.
+            beta * (1.0 - p / (3.0 * 6.0 * v)) * v * 6.0
+        } else {
+            beta * (c_plaq * (6.0 * v - p / 3.0) + c_rect * (12.0 * v - r / 3.0))
+        }
+    }
+    fn gauge_force(&self, beta: f64, c_plaq: f64, c_rect: f64) -> Self {
+        let f = must(Self::zeros(&self.lat));
+        let dims = self.dims();
+        // SAFETY: the links and the force of this lattice.
+        unsafe {
+            bridge_cuda_gauge_force(
+                f.data.ptr,
+                self.data.ptr,
+                beta,
+                c_plaq,
+                c_rect,
+                dims.as_ptr(),
+                STREAM,
+            );
+        }
+        f
+    }
+    fn to_host(&self) -> Field<f64, Gauge> {
+        must(DeviceLinks::to_host(self))
+    }
+    fn from_host(u: &Field<f64, Gauge>) -> Self {
+        must(DeviceLinks::from_host(u))
     }
 }

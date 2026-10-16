@@ -1,7 +1,7 @@
 //! The gauge actions and their forces: the plaquette action, and the improved actions of
 //! plaquettes and rectangles. The staples and the products of links are those of `gauge`.
 
-use super::{Links, MdAction, Mseries};
+use super::{LinkField, Links, MdAction, Mseries};
 use crate::gauge::paths::Extended;
 use crate::gauge::smearing::uniform;
 use crate::gauge::{plaquette, weighted_staples};
@@ -185,26 +185,26 @@ impl RectangleAction {
     }
 }
 
-impl MdAction for PlaquetteAction {
-    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
-        self.action(links.thin)
+impl<U: LinkField> MdAction<U> for PlaquetteAction {
+    fn langevin(&mut self, links: &Links<U>, _rng: &mut Mseries) -> f64 {
+        links.thin.gauge_action(self.beta, 1.0, 0.0)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.action(links.thin)
+    fn hamiltonian(&mut self, links: &Links<U>) -> f64 {
+        links.thin.gauge_action(self.beta, 1.0, 0.0)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        PlaquetteAction::force(self, links.thin)
+    fn force(&mut self, links: &Links<U>) -> U {
+        links.thin.gauge_force(self.beta, 1.0, 0.0)
     }
 }
 
-impl MdAction for RectangleAction {
-    fn langevin(&mut self, links: &Links, _rng: &mut Mseries) -> f64 {
-        self.action(links.thin)
+impl<U: LinkField> MdAction<U> for RectangleAction {
+    fn langevin(&mut self, links: &Links<U>, _rng: &mut Mseries) -> f64 {
+        links.thin.gauge_action(self.beta, self.c_plaq, self.c_rect)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
-        self.action(links.thin)
+    fn hamiltonian(&mut self, links: &Links<U>) -> f64 {
+        links.thin.gauge_action(self.beta, self.c_plaq, self.c_rect)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
-        RectangleAction::force(self, links.thin)
+    fn force(&mut self, links: &Links<U>) -> U {
+        links.thin.gauge_force(self.beta, self.c_plaq, self.c_rect)
     }
 }

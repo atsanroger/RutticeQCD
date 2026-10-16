@@ -44,7 +44,7 @@ pub struct Rational<O: ForceOp> {
     pub last_iterations: usize,
 }
 
-impl<O: ForceOp> Rational<O> {
+impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
     pub fn new(
         op: O,
         smearing: Option<GaugeSmearing>,
@@ -224,7 +224,7 @@ impl<O: ForceOp> Rational<O> {
     }
 }
 
-impl<O: ForceOp> super::MdAction for Rational<O> {
+impl<O: ForceOp<Links = Field<f64, Gauge>>> super::MdAction for Rational<O> {
     fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         Rational::langevin(self, links, rng)
     }

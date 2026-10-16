@@ -2,7 +2,7 @@
 //! for operators of Wilson type made of (optionally smeared) links.
 
 use super::solve::{chebyshev_cg, Pre};
-use super::{traceless_antihermitian, Chrono, Links, MdAction, Mseries};
+use super::{traceless_antihermitian, Chrono, LinkField, Links, MdAction, Mseries};
 use super::{MultigridSetup, NormalSolver, Preconditioner};
 use crate::fermion::{Bound, FermionOp, HopTerms, Variant};
 use crate::gauge::{link, GaugeSmearing};
@@ -202,17 +202,21 @@ fn clover_leaves(u: &Field<f64, Gauge>, b: &[Field<f64, Gauge>; 2]) -> Field<f64
 /// kernels, and the actions and the integrator stay as they are.
 pub trait ForceOp: FermionOp<Self::Field> + Sized {
     type Field: Vector;
+    /// The links the operator is made of, and the fields of matrices of the force.
+    type Links: LinkField;
+    /// The operator on the links `u`.
+    fn set_links(&mut self, u: &Self::Links) -> Result<(), crate::fermion::GaugeError>;
     /// M of −2 Re ζ† δD η (dS = Re tr X M for δU = X U), without the clover term's part.
-    fn derivative(&self, zeta: &Self::Field, eta: &Self::Field) -> Field<f64, Gauge>;
+    fn derivative(&self, zeta: &Self::Field, eta: &Self::Field) -> Self::Links;
     /// The part of the clover term (coefficient κ c_SW) in that M, on the links `v`. Panics
     /// for an operator without a clover term.
     fn clover_derivative(
         &self,
         kappa_csw: f64,
-        v: &Field<f64, Gauge>,
+        v: &Self::Links,
         zeta: &Self::Field,
         eta: &Self::Field,
-    ) -> Field<f64, Gauge>;
+    ) -> Self::Links;
     /// A zero field of the shape the operator acts on (one vector).
     fn new_field(&self, lat: &Arc<Lattice>) -> Self::Field;
     /// Gaussian numbers of variance ½ for every real of `xi`, in Bridge++'s order.
@@ -247,6 +251,10 @@ where
     D: crate::fermion::DiagTerm<f64> + 'static,
 {
     type Field = Psi;
+    type Links = Field<f64, Gauge>;
+    fn set_links(&mut self, u: &Field<f64, Gauge>) -> Result<(), crate::fermion::GaugeError> {
+        self.set_gauge(u)
+    }
     fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
         hop_derivative(self, zeta, eta)
     }
@@ -281,6 +289,10 @@ where
 /// Domain-wall fermions: the hops are those of the Wilson kernel acting on b η − c Y η.
 impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
     type Field = Psi;
+    type Links = Field<f64, Gauge>;
+    fn set_links(&mut self, u: &Field<f64, Gauge>) -> Result<(), crate::fermion::GaugeError> {
+        self.set_gauge(u)
+    }
     fn derivative(&self, zeta: &Psi, eta: &Psi) -> Field<f64, Gauge> {
         kernel_derivative(
             self.kernel(),
@@ -317,16 +329,14 @@ impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
 pub(super) fn full_derivative<O: ForceOp>(
     op: &O,
     clover: Option<f64>,
-    v: &Field<f64, Gauge>,
+    v: &O::Links,
     zeta: &O::Field,
     eta: &O::Field,
-) -> Field<f64, Gauge> {
+) -> O::Links {
     let mut m = op.derivative(zeta, eta);
     if let Some(kc) = clover {
         let c = op.clover_derivative(kc, v, zeta, eta);
-        for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
-            *a += b;
-        }
+        m.add_scaled(1.0, &c);
     }
     m
 }
@@ -460,7 +470,7 @@ pub struct TwoFlavor<O: ForceOp> {
     pub guess: Chrono<O::Field>,
 }
 
-impl<O: ForceOp> TwoFlavor<O> {
+impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
     pub fn new(op: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
         Self {
             op,
@@ -651,13 +661,13 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         self
     }
 
-    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+    fn set_links(&mut self, links: &Links<O::Links>) -> Rc<Vec<O::Links>> {
         let levels = links.levels(self.smearing.as_ref());
         let v = levels.last().unwrap_or(links.thin);
-        self.op.set_gauge(v).expect("the links suit the operator");
-        self.pv.set_gauge(v).expect("the links suit the operator");
+        self.op.set_links(v).expect("the links suit the operator");
+        self.pv.set_links(v).expect("the links suit the operator");
         if let Some(a) = self.conditioned.as_mut() {
-            a.set_gauge(v).expect("the links suit the operator");
+            a.set_links(v).expect("the links suit the operator");
         }
         levels
     }
@@ -699,9 +709,9 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         out
     }
 
-    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+    pub fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         self.set_links(links);
-        let mut xi = self.op.new_field(links.thin.lattice());
+        let mut xi = self.op.new_field(LinkField::lattice(links.thin));
         self.op.draw(&mut xi, rng);
         // H† ξ = D† Γ5 ξ.
         let v2 = Self::apply(&self.op, &Self::gamma5(&self.op, &xi), Variant::Dagger);
@@ -727,7 +737,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         Self::apply(&self.pv, &Self::gamma5(&self.pv, phi), Variant::Dagger)
     }
 
-    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+    pub fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         self.set_links(links);
         let v1 = self.v1();
         let v2 = self.solve_op(&v1, self.stop_h, false);
@@ -737,7 +747,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 
     /// dS = −2 Re (D v2)† δD v2 + 2 Re (Γ5 φ)† δD_PV v2, v2 = (D†D)⁻¹ H_PV† φ.
-    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    pub fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         let levels = self.set_links(links);
         let v1 = self.v1();
         let v = levels.last().unwrap_or(links.thin);
@@ -746,14 +756,12 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         let mut m = full_derivative(&self.op, self.clover.map(|c| c.0), v, &dv2, &v2);
         let g5phi = Self::gamma5(&self.pv, self.phi.as_ref().expect("drawn"));
         let m_pv = full_derivative(&self.pv, self.clover.map(|c| c.1), v, &g5phi, &v2);
-        for (a, b) in m.as_mut_slice().iter_mut().zip(m_pv.as_slice()) {
-            *a -= b;
-        }
-        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+        m.add_scaled(-1.0, &m_pv);
+        O::Links::smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
 
-impl<O: ForceOp> MdAction for TwoFlavor<O> {
+impl<O: ForceOp<Links = Field<f64, Gauge>>> MdAction for TwoFlavor<O> {
     fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
         TwoFlavor::langevin(self, links, rng)
     }
@@ -765,14 +773,14 @@ impl<O: ForceOp> MdAction for TwoFlavor<O> {
     }
 }
 
-impl<O: ForceOp> MdAction for TwoFlavorRatio<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+impl<O: ForceOp> MdAction<O::Links> for TwoFlavorRatio<O> {
+    fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         TwoFlavorRatio::langevin(self, links, rng)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
+    fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         TwoFlavorRatio::hamiltonian(self, links)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavorRatio::force(self, links)
     }
 }

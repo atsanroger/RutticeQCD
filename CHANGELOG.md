@@ -26,8 +26,11 @@
   `GaugeSmearing::levels_on_device`, `chain_on_device`).
 - HMC with `Main.backend : cuda_bridge`: the domain-wall Ratio action with its solves and the
   derivative by the links on the device (`ForceOp` for `CudaMdwf`); the trajectories of Bridge++'s
-  test_HMC_Domainwall_Nf2_PV are those of the CPU. The smearing, the gauge action and the
-  integrator are still on the host, the force crossing over once per step.
+  test_HMC_Domainwall_Nf2_PV are those of the CPU.
+- HMC is written once for links on the host or on a device (`hmc::LinkField`): with
+  `Main.backend : cuda_bridge` the links, the momenta, the integrator, the gauge actions and the
+  smearing are on the device too (`gauge/links.cuh`), and the links cross over only for the
+  flow and to be saved.
 
 ## 0.2.0 (2026-10-14)
 
