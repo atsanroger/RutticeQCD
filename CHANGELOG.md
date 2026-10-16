@@ -22,6 +22,12 @@
   MINRES): the whole domain-wall multigrid of the CPU is on the device. On both, that
   adjoint is now an operator of its own (`CoarseOp::adjoint`), solved in its even-odd form on
   the coarse lattice as the quark factor is, not on the whole coarse lattice.
+- Stout smearing and the chain rule of its force on the device (`DeviceLinks`,
+  `GaugeSmearing::levels_on_device`, `chain_on_device`).
+- HMC with `Main.backend : cuda_bridge`: the domain-wall Ratio action with its solves and the
+  derivative by the links on the device (`ForceOp` for `CudaMdwf`); the trajectories of Bridge++'s
+  test_HMC_Domainwall_Nf2_PV are those of the CPU. The smearing, the gauge action and the
+  integrator are still on the host, the force crossing over once per step.
 
 ## 0.2.0 (2026-10-14)
 
