@@ -15,7 +15,9 @@ mod solve;
 pub use rational::Rational;
 pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 
-pub use even_odd::{log_det_diag, EvenOddForceOp, HalfPsi, TwoFlavorEo};
+pub use even_odd::{
+    log_det_diag, EvenOddForceOp, EvenOddHalves, HalfPsi, TwoFlavorEo, TwoFlavorRatioEo,
+};
 pub use fermion_action::{
     clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
     CloverInsertion, ForceOp, TwoFlavor, TwoFlavorRatio,
@@ -1023,6 +1025,82 @@ mod tests {
             &links,
             |w| ratio.hamiltonian(&Links::new(w, &SmearingCache::new())),
             1e-7,
+        );
+    }
+
+    /// The even-odd ratio over Pauli-Villars fields (Bridge++'s `Action_F_alt_Ratio_eo`), of
+    /// Möbius domain-wall and of Wilson fermions, on stout links: S = |ξ_e|² right after the
+    /// heat bath, and the force is the derivative of the action.
+    #[test]
+    fn even_odd_ratio_force_is_the_derivative() {
+        use crate::fermion::{Mdwf, MdwfParams, Wilson, WilsonParams};
+        use crate::gauge::smearing::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 23);
+        let boundary = [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ];
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary,
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let smearing = Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        });
+        let sites = [(0, 9), (2, 77), (3, 250)];
+        let cache = SmearingCache::new();
+        fn check<O: EvenOddForceOp>(
+            mut a: TwoFlavorRatioEo<O>,
+            u: &Field<f64, Gauge>,
+            cache: &SmearingCache,
+            sites: &[(usize, usize)],
+        ) {
+            let s0 = a.langevin(&Links::new(u, cache), &mut Mseries::new(8));
+            let h = a.hamiltonian(&Links::new(u, cache));
+            assert!((h - s0).abs() < 1e-9 * s0, "S {h} against |xi|^2 {s0}");
+            let f = a.force(&Links::new(u, cache));
+            check_force(
+                u,
+                &f,
+                sites,
+                |w| a.hamiltonian(&Links::new(w, &SmearingCache::new())),
+                1e-7,
+            );
+        }
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        check(
+            TwoFlavorRatioEo::new(
+                mdwf(params),
+                mdwf(params.pauli_villars()),
+                smearing,
+                stop,
+                stop,
+            ),
+            &u,
+            &cache,
+            &sites,
+        );
+        let wilson = |kappa| Wilson::<f64>::new(&lat, WilsonParams { kappa, boundary });
+        check(
+            TwoFlavorRatioEo::new(wilson(0.12), wilson(0.11), smearing, stop, stop),
+            &u,
+            &cache,
+            &sites,
         );
     }
 

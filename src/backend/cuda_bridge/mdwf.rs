@@ -921,3 +921,24 @@ impl crate::hmc::ForceOp for CudaMdwf<f64> {
         self.mult_q(out, inp, false);
     }
 }
+
+/// The even-odd actions of HMC on the device (`hmc::TwoFlavorRatioEo`): the fields of one
+/// parity are fields on the device too, Γ5 the kernel of the whole lattice.
+impl crate::hmc::EvenOddHalves for CudaMdwf<f64> {
+    type Half = DeviceSpinor<f64>;
+    fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> DeviceSpinor<f64> {
+        must(DeviceSpinor::zeros_half(lat, self.params.ls, parity))
+    }
+    fn right_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        self.mult_q(out, inp, false);
+    }
+    fn gamma5_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        gamma5(out, inp, true);
+    }
+    fn half_of(&self, half: &mut DeviceSpinor<f64>, whole: &DeviceSpinor<f64>, parity: Parity) {
+        crate::fermion::SplitParity::extract(&super::DeviceParities, half, whole, parity);
+    }
+    fn put_half(&self, whole: &mut DeviceSpinor<f64>, half: &DeviceSpinor<f64>) {
+        crate::fermion::SplitParity::insert(&super::DeviceParities, whole, half);
+    }
+}

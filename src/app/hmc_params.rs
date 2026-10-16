@@ -26,7 +26,7 @@
 //!   level_of_action : 1
 //! Action_F_1:
 //!   action_type : Standard                    # Standard | Ratio | Rational
-//!   operator_type : Even_odd                  # Lexical (default) | Even_odd
+//!   operator_type : Even_odd                  # Lexical (default) | Even_odd (Standard, Ratio)
 //!   level_of_action : 0
 //!   Fopr:
 //!     fermion_type : Clover
@@ -240,8 +240,8 @@ pub struct GaugeActionBlock {
 #[serde(deny_unknown_fields)]
 pub struct FermionActionBlock {
     pub action_type: FermionActionType,
-    /// `Standard`: on all sites (`Lexical`, the default) or the Schur complement on the even
-    /// ones (`Even_odd`).
+    /// `Standard` and `Ratio`: on all sites (`Lexical`, the default) or the Schur complement on
+    /// the even ones (`Even_odd`).
     pub operator_type: Option<OperatorType>,
     #[serde(default)]
     pub level_of_action: usize,
@@ -488,7 +488,7 @@ impl HmcParams {
                     } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
                     _ => {
                         return invalid(format!(
-                            "fermion action {}: with Main.backend cuda_bridge only the Standard (Lexical) and the Ratio actions of domain-wall fermions, without the multigrid, are on the device",
+                            "fermion action {}: with Main.backend cuda_bridge only the Standard (Lexical) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions, without the multigrid, are on the device",
                             i
                         ))
                     }
@@ -617,9 +617,9 @@ impl FermionActionBlock {
                 ))
             }
         };
-        if even_odd && self.action_type != FermionActionType::Standard {
+        if even_odd && self.action_type == FermionActionType::Rational {
             return invalid(format!(
-                "{name}.operator_type: Even_odd is for action_type Standard"
+                "{name}.operator_type: Even_odd is for action_type Standard or Ratio"
             ));
         }
         if self.fopr_denominator.is_some() && self.action_type != FermionActionType::Ratio {
@@ -646,6 +646,7 @@ impl FermionActionBlock {
                 },
                 level,
                 smeared: self.smeared,
+                even_odd,
                 solver,
             },
             FermionActionType::Rational => {

@@ -14,9 +14,9 @@ use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
 use crate::hmc::{
-    cold_start, EvenOddForceOp, ForceOp, Hmc, LinkField, MdAction, Mseries, MultigridSetup,
-    NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction, Scheme, Term,
-    TwoFlavor, TwoFlavorEo, TwoFlavorRatio,
+    cold_start, EvenOddForceOp, EvenOddHalves, ForceOp, Hmc, LinkField, MdAction, Mseries,
+    MultigridSetup, NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction,
+    Scheme, Term, TwoFlavor, TwoFlavorEo, TwoFlavorRatio, TwoFlavorRatioEo,
 };
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::MultigridParams;
@@ -131,6 +131,9 @@ pub enum ActionConfig {
         denominator: Option<HmcFermion>,
         level: usize,
         smeared: bool,
+        /// Even-odd preconditioned, H = Γ5 T_ee⁻¹ Ŝ on the even sites (`hmc::TwoFlavorRatioEo`;
+        /// Bridge++'s `Action_F_alt_Ratio_eo`): Wilson and domain-wall fermions.
+        even_odd: bool,
         solver: HmcSolver,
     },
     /// det(D†D)^(p/q) by rational approximation (RHMC), p/q = `power` (one flavour: [1, 2]): S = φ†
@@ -561,11 +564,34 @@ impl HmcConfig {
                 }
                 _ => {}
             }
-            if let ActionConfig::TwoFlavorRatio { solver, .. } = a {
-                if solver.initial_guess > 0 {
+            if let ActionConfig::TwoFlavorRatio {
+                solver,
+                even_odd,
+                fermion,
+                ..
+            } = a
+            {
+                if solver.initial_guess > 0 && !even_odd {
                     return invalid(format!(
-                        "actions[{i}].solver.initial_guess: for two_flavor actions only"
+                        "actions[{i}].solver.initial_guess: for two_flavor actions and the even-odd ratio"
                     ));
+                }
+                if *even_odd {
+                    if matches!(fermion, HmcFermion::Clover { .. }) {
+                        return invalid(format!(
+                            "actions[{i}]: the even-odd ratio of clover fermions (its det T term) is not written"
+                        ));
+                    }
+                    if solver.neff_alpha != 1.0 {
+                        return invalid(format!(
+                            "actions[{i}].solver.neff_alpha: not with the even-odd ratio yet"
+                        ));
+                    }
+                    if solver.asks_for(HmcPreconditioner::Multigrid) {
+                        return invalid(format!(
+                            "actions[{i}].solver.preconditioner: none or chebyshev for the even-odd ratio (no multigrid yet)"
+                        ));
+                    }
                 }
             }
             if let Some((f, d)) = ratio {
@@ -686,6 +712,7 @@ impl HmcConfig {
                         denominator,
                         level,
                         smeared,
+                        even_odd,
                         solver,
                     } => {
                         let (md, h) = stops(solver);
@@ -696,6 +723,20 @@ impl HmcConfig {
                             solver,
                         };
                         let action = match (*fermion, *denominator) {
+                            (HmcFermion::DomainWall { .. }, d) if *even_odd => {
+                                let p = mdwf_params(fermion);
+                                let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
+                                ratio_eo((Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd)), c)
+                            }
+                            (
+                                HmcFermion::Wilson { kappa, boundary: b },
+                                Some(HmcFermion::Wilson {
+                                    kappa: kd,
+                                    boundary: bd,
+                                }),
+                            ) if *even_odd => {
+                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), c)
+                            }
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
@@ -827,6 +868,7 @@ impl HmcConfig {
                         denominator,
                         level,
                         smeared,
+                        even_odd,
                         solver,
                     } => {
                         let stop = |t: f64| Stop {
@@ -842,7 +884,11 @@ impl HmcConfig {
                         };
                         let p = mdwf_params(fermion);
                         let pd = denominator.map_or(p.pauli_villars(), |d| mdwf_params(&d));
-                        (*level, device_ratio(lat, (p, pd), solver.neff_alpha, c)?)
+                        let action = match even_odd {
+                            true => device_ratio_eo(lat, (p, pd), c)?,
+                            false => device_ratio(lat, (p, pd), solver.neff_alpha, c)?,
+                        };
+                        (*level, action)
                     }
                     ActionConfig::TwoFlavor {
                         fermion: fermion @ HmcFermion::DomainWall { .. },
@@ -938,6 +984,20 @@ fn ratio<O: ForceOp + 'static>(
     Box::new(a)
 }
 
+/// Two flavours of the first operator over two of the second, even-odd.
+fn ratio_eo<O: EvenOddHalves + 'static>(
+    (op, denominator): (O, O),
+    c: Common,
+) -> Box<dyn MdAction<O::Links>> {
+    let s = c.solver;
+    Box::new(
+        TwoFlavorRatioEo::new(op, denominator, c.smearing, c.md, c.h)
+            .with_guess(s.initial_guess)
+            .with_solver(s.normal())
+            .with_preconditioner(s.preconditioner()),
+    )
+}
+
 /// `ratio` of domain-wall operators on the device: D of `p` over D of `pd`, solved with Neff's
 /// `alpha` if it is not 1.
 #[cfg(feature = "cuda-bridge")]
@@ -960,6 +1020,20 @@ fn device_ratio(
         false => None,
     };
     Ok(ratio((make(p)?, make(pd)?), None, conditioned, c))
+}
+
+/// `ratio_eo` of domain-wall operators on the device: D of `p` over D of `pd`, even-odd.
+#[cfg(feature = "cuda-bridge")]
+fn device_ratio_eo(
+    lat: &Arc<Lattice>,
+    (p, pd): (MdwfParams, MdwfParams),
+    c: Common,
+) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
+    use crate::backend::cuda_bridge::CudaMdwf;
+    let make = |p: MdwfParams| {
+        CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
+    };
+    Ok(ratio_eo((make(p)?, make(pd)?), c))
 }
 
 /// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`

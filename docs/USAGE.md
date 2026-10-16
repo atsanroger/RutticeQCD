@@ -85,7 +85,9 @@ toolkit and cmake:
 CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 ```
 
-(`RUTTICE_CUDA_ARCH` is the architecture the kernels are compiled for; the default is 86.)
+(`RUTTICE_CUDA_ARCH` is the list of architectures the kernels are compiled for, as cmake takes
+it; the default is `80;86`, the A100 and A30 and the RTX 30 series. One architecture builds
+faster, e.g. `RUTTICE_CUDA_ARCH=86`.)
 Wilson and clover fermions take the solvers and operator types of the CPU; domain-wall fermions
 the outer solvers and operator types of the CPU, without a preconditioner, with `Chebyshev` or
 with the multigrid, which is on the device with its setup: above the coarse lattice in single

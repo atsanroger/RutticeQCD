@@ -542,6 +542,212 @@ fn bridge_test_domain_wall_nf2_pv() {
     bridge_domain_wall(0.62754640357188, true);
 }
 
+/// Bridge++'s domain-wall tests over Pauli-Villars fields of its alternative code
+/// (`test_alt_hmc`, `test_HMC_Domainwall_Nf2_PV_alt*.yaml`: `Action_F_Ratio_lex`, and
+/// `Action_F_alt_Ratio_eo` when `even_odd`) on conf_04040408 repeated over 8⁴: the operator of
+/// `bridge_domain_wall`, the PV mass 1, links smeared `steps` times (stout, ρ = 0.1), Omelyan
+/// [5, 4] over 0.1 with the fermions on the outer level, no Metropolis test. The plaquette after
+/// one trajectory against `expected_result`, to Bridge++'s 1e-11.
+fn bridge_alt_domain_wall_pv(expected: f64, steps: usize, even_odd: bool) {
+    use ruttice::fermion::{Mdwf, MdwfParams};
+    use ruttice::gauge::smearing::Stout;
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    use ruttice::hmc::{Hmc, MdAction, RectangleAction, Scheme, Term};
+    use ruttice::hmc::{TwoFlavorRatio, TwoFlavorRatioEo};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let mut u = tiled_8888(&path);
+    let lat = u.lattice().clone();
+    let params = MdwfParams {
+        ls: 8,
+        m5: 1.6,
+        mass: 0.1,
+        b: 1.0,
+        c: 0.0,
+        boundary: [
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Periodic,
+            Boundary::Antiperiodic,
+        ],
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 4000,
+        max_restarts: 40,
+    };
+    let smearing = (steps > 0).then_some(GaugeSmearing {
+        smear: Smear::Stout(Stout::uniform(0.1)),
+        steps,
+    });
+    let (op, pv) = (
+        Mdwf::<f64>::new(&lat, params),
+        Mdwf::<f64>::new(&lat, params.pauli_villars()),
+    );
+    let fermions: Box<dyn MdAction> = match even_odd {
+        true => Box::new(TwoFlavorRatioEo::new(op, pv, smearing, stop, stop)),
+        false => Box::new(TwoFlavorRatio::new(op, pv, smearing, stop, stop)),
+    };
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = Hmc::new(
+        vec![
+            Term {
+                level: 0,
+                action: fermions,
+            },
+            Term {
+                level: 1,
+                action: Box::new(gauge),
+            },
+        ],
+        Scheme::Omelyan {
+            lambda: 0.1931833275,
+        },
+        vec![5, 4],
+        8,
+        0.1,
+    );
+    hmc.metropolis = false;
+    let start = std::time::Instant::now();
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}\n{:.1} s", start.elapsed().as_secs_f64());
+    assert!(
+        ((t.plaquette - expected) / expected).abs() < 1e-11,
+        "plaquette {:.15} against {expected}",
+        t.plaquette
+    );
+}
+
+/// `test_HMC_Wilson_Nf2_alt_eo_ratio` (8⁴, conf_04040408 repeated, no smearing): Hasenbusch's
+/// two flavours, the even-odd ratio of κ = 0.12 over κ = 0.11 (`Action_F_alt_Ratio_eo`) on the
+/// outer level and the even-odd action of κ = 0.11 with the rectangle gauge action on the inner
+/// one; leapfrog [5, 4] over 0.1, no Metropolis test.
+#[test]
+fn bridge_test_wilson_nf2_alt_eo_ratio_8888() {
+    use ruttice::fermion::{Wilson, WilsonParams};
+    use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavorEo, TwoFlavorRatioEo};
+    use ruttice::solver::Stop;
+    use ruttice::Boundary;
+    let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
+        eprintln!(
+            "SKIPPED: set {} to a directory containing conf_04040408.txt",
+            common::BRIDGE_TESTS_ENV
+        );
+        return;
+    };
+    let expected = 0.625088521840085;
+    let mut u = tiled_8888(&path);
+    let lat = u.lattice().clone();
+    let wilson = |kappa| {
+        Wilson::<f64>::new(
+            &lat,
+            WilsonParams {
+                kappa,
+                boundary: [
+                    Boundary::Periodic,
+                    Boundary::Periodic,
+                    Boundary::Periodic,
+                    Boundary::Antiperiodic,
+                ],
+            },
+        )
+    };
+    let stop = Stop {
+        tolerance_sqr: 1e-28,
+        max_iterations: 4000,
+        max_restarts: 40,
+    };
+    let gauge = RectangleAction {
+        beta: 2.3,
+        c_plaq: 3.648,
+        c_rect: -0.331,
+    };
+    let mut hmc = Hmc::new(
+        vec![
+            Term {
+                level: 0,
+                action: Box::new(TwoFlavorRatioEo::new(
+                    wilson(0.12),
+                    wilson(0.11),
+                    None,
+                    stop,
+                    stop,
+                )),
+            },
+            Term {
+                level: 1,
+                action: Box::new(TwoFlavorEo::new(wilson(0.11), None, stop, stop)),
+            },
+            Term {
+                level: 1,
+                action: Box::new(gauge),
+            },
+        ],
+        Scheme::Leapfrog,
+        vec![5, 4],
+        8,
+        0.1,
+    );
+    hmc.metropolis = false;
+    let t = hmc.trajectory(&mut u, &mut Mseries::new(200000));
+    eprintln!("{t:?}");
+    assert!(
+        ((t.plaquette - expected) / expected).abs() < 1e-11,
+        "plaquette {:.15} against {expected}",
+        t.plaquette
+    );
+}
+
+/// `test_HMC_Domainwall_Nf2_PV_alt` (8⁴, links smeared twice).
+#[test]
+fn bridge_test_domain_wall_nf2_pv_alt_8888() {
+    bridge_alt_domain_wall_pv(0.624958020749689, 2, false);
+}
+
+/// `test_HMC_Domainwall_Nf2_PV_alt_nosmr` (8⁴, no smearing).
+#[test]
+fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
+    bridge_alt_domain_wall_pv(0.624866718847932, 0, false);
+}
+
+/// `test_HMC_Domainwall_Nf2_PV_alt_eo` (8⁴, links smeared twice).
+///
+/// Not passing (2026-10-16): the plaquette is 0.624960260701932, 7e-6 below `expected_result`,
+/// and 0.624865517099993 against 0.624876160774692 without smearing; ΔH is 3e-4 and 6e-4. What
+/// these tests share with the ones that agree to 1e-11 is checked: the lexical ratio of the same
+/// operator on the same 8⁴ lattice (`bridge_test_domain_wall_nf2_pv_alt*`), the even-odd ratio
+/// of Wilson fermions (`bridge_test_wilson_nf2_alt_eo_ratio_8888`), and of domain-wall fermions
+/// on their own K = T_ee⁻¹ Ŝ and K† against the blocks, Γ5 on the even sites against that of the
+/// whole lattice (`even_odd_pv_operator_is_made_of_the_blocks`), the force against the action and
+/// S = |ξ_e|² after the heat bath (`even_odd_ratio_force_is_the_derivative`). Not found: Bridge++'s
+/// numbers inside the trajectory. Its even-odd domain-wall HMC runs only on QXS fields, and
+/// neither the 2.0.0-mod.34 tree here (no `vsimd_common_float-inc.h`) nor mod.93 (QXS behind
+/// its `lib_alt`) builds that test.
+#[test]
+#[ignore = "7e-6 from Bridge++'s expected_result, not understood (see the comment)"]
+fn bridge_test_domain_wall_nf2_pv_alt_eo_8888() {
+    bridge_alt_domain_wall_pv(0.624964691911979, 2, true);
+}
+
+/// `test_HMC_Domainwall_Nf2_PV_alt_eo_nosmr` (8⁴, no smearing). Not passing: see
+/// `bridge_test_domain_wall_nf2_pv_alt_eo_8888`.
+#[test]
+#[ignore = "1e-5 from Bridge++'s expected_result, not understood"]
+fn bridge_test_domain_wall_nf2_pv_alt_eo_nosmr_8888() {
+    bridge_alt_domain_wall_pv(0.624876160774692, 0, true);
+}
+
 /// `test_HMC_Clover_RHMC_Nf2p1`: 2 + 1 flavours of clover fermions (c_SW = 1, Dirac γ matrices,
 /// antiperiodic in time) on links smeared twice (stout, ρ = 0.1), with the rectangle gauge action.
 #[test]

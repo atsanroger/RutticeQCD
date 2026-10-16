@@ -1685,6 +1685,34 @@ fn hmc_with_domain_wall_fermions_on_the_device() {
 
     // Two flavours of the same operator alone (action_type Standard), with Neff's α in its
     // solves and the initial guess of the force solves.
+    // The even-odd ratio (`Action_F_alt_Ratio_eo`), with three initial guesses.
+    let even_odd = text
+        .replace(
+            "action_type     : Ratio",
+            "action_type     : Ratio\n  operator_type   : Even_odd",
+        )
+        .replace(
+            "    convergence_criterion_squared : 1.0e-28",
+            "    convergence_criterion_squared : 1.0e-28\n    number_of_initial_guess       : 3",
+        );
+    assert_ne!(even_odd, text);
+    let (cpu, gpu) = (
+        run_with_backend(&even_odd, "cpu", "hmc_dw_eo"),
+        run_with_backend(&even_odd, "cuda_bridge", "hmc_dw_eo"),
+    );
+    let (a, b) = (rows(&cpu), rows(&gpu));
+    assert!(a.len() == 2 && a.len() == b.len(), "\n{cpu}\n{gpu}");
+    for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+        assert!(
+            (p - q).abs() < 1e-12,
+            "even-odd: plaquette {p} on the CPU, {q} on the device"
+        );
+        assert!(
+            (dh - dk).abs() < 1e-7,
+            "even-odd: ΔH {dh} on the CPU, {dk} on the device"
+        );
+    }
+
     let standard = text
         .replace("action_type     : Ratio", "action_type     : Standard")
         .replace("    ## neff_alpha : 0.6", "    neff_alpha : 0.6")

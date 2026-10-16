@@ -13,15 +13,15 @@
 
 use super::fermion_action::{smeared_force, CloverInsertion, ForceOp, Gamma5};
 use super::solve::{chebyshev_cg, Pre};
-use super::{Chrono, Links, MdAction, Mseries};
+use super::{Chrono, LinkField, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
-use crate::fermion::{Dagger, EvenOdd, OnParity, Schur};
+use crate::fermion::{Dagger, EoForm, EvenOdd, OnParity, Schur, SchurFactor};
 use crate::gauge::GaugeSmearing;
 use crate::kernel::Cplx;
-use crate::solver::{SolveError, Stop};
+use crate::solver::{SolveError, SolveInfo, Stop};
 use crate::{
-    extract_parity, insert_parity, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, LinearOp,
-    Normal, Parity, Spinor, Vector, C64,
+    extract_parity, for_sites, insert_parity, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn,
+    LinearOp, Normal, Parity, Spinor, Vector, C64,
 };
 use std::rc::Rc;
 use std::sync::Arc;
@@ -30,20 +30,27 @@ type Psi = Field<f64, Spinor>;
 /// A spinor field on the sites of one parity.
 pub type HalfPsi = Field<f64, Spinor, Half>;
 
-/// What the even-odd actions need of an operator besides its blocks. `Half` is its kind of
-/// field on the sites of one parity: as with `ForceOp::Field`, the action reaches its fields
-/// only through this trait and `Vector`, so an operator in another layout or on another backend
-/// brings its own.
-pub trait EvenOddForceOp: ForceOp<Links = Field<f64, Gauge>> + EvenOdd<Self::Half> {
+/// What the even-odd actions need of an operator besides its blocks, on the host or on a
+/// device. `Half` is its kind of field on the sites of one parity: as with `ForceOp::Field`,
+/// the action reaches its fields only through this trait and `Vector`, so an operator in another
+/// layout or on another backend brings its own.
+pub trait EvenOddHalves: ForceOp + EvenOdd<Self::Half> {
     type Half: Vector;
     /// A zero field on the sites of `parity` of the shape the operator acts on.
     fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half;
     /// `ForceOp::right` on the sites of one parity.
     fn right_half(&self, out: &mut Self::Half, inp: &Self::Half);
+    /// `ForceOp::gamma5` on the sites of one parity (Γ5 acts within a site).
+    fn gamma5_half(&self, out: &mut Self::Half, inp: &Self::Half);
     /// `half` = the sites of `parity` of `whole`.
     fn half_of(&self, half: &mut Self::Half, whole: &Self::Field, parity: Parity);
     /// The sites of the parity of `half` in `whole` = `half`.
     fn put_half(&self, whole: &mut Self::Field, half: &Self::Half);
+}
+
+/// What the even-odd two-flavour action needs besides: the clover term and the multigrid,
+/// on the host.
+pub trait EvenOddForceOp: EvenOddHalves + ForceOp<Links = Field<f64, Gauge>> {
     /// Σ over the sites x of `parity` of ln |det T(x)|, T the site-diagonal block of the
     /// operator; summed over all processes.
     fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64;
@@ -77,6 +84,7 @@ pub trait EvenOddSites: ForceOp<Field = Psi, Links = Field<f64, Gauge>> + EvenOd
     fn right_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         out.copy_from(inp);
     }
+    fn gamma5_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi);
 }
 
 impl<G, D> EvenOddSites for crate::fermion::WilsonOp<f64, G, D>
@@ -87,6 +95,22 @@ where
     fn eo_index(&self) -> &EvenOddIndex {
         self.even_odd_index()
             .expect("even-odd preconditioning needs even extents")
+    }
+    fn gamma5_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        // (γ5 ψ)_s = v_s ψ_(col s), colour by colour.
+        let (g5, from) = (G::GAMMA5, inp.slab(0));
+        for_sites(out.slab_mut(0), 24, |x, o| {
+            let i = &from[24 * x..24 * (x + 1)];
+            for spin in 0..4 {
+                let (col, v) = (g5.col[spin], g5.val[spin]);
+                for c in 0..3 {
+                    let j = 2 * (c + 3 * col);
+                    let w = v.times(Cplx::new(i[j], i[j + 1]));
+                    o[2 * (c + 3 * spin)] = w.re;
+                    o[2 * (c + 3 * spin) + 1] = w.im;
+                }
+            }
+        });
     }
 }
 
@@ -103,9 +127,12 @@ impl<G: crate::kernel::GammaRepre> EvenOddSites for crate::fermion::Mdwf<f64, G>
     fn right_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         self.mult_q(out, inp, false);
     }
+    fn gamma5_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        self.mult_gamma5_on(out, inp);
+    }
 }
 
-impl<O: EvenOddSites> EvenOddForceOp for O {
+impl<O: EvenOddSites> EvenOddHalves for O {
     type Half = HalfPsi;
     fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> HalfPsi {
         self.half(lat, parity)
@@ -113,12 +140,18 @@ impl<O: EvenOddSites> EvenOddForceOp for O {
     fn right_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         self.right_on_half(out, inp);
     }
+    fn gamma5_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
+        self.gamma5_on_half(out, inp);
+    }
     fn half_of(&self, half: &mut HalfPsi, whole: &Psi, parity: Parity) {
         extract_parity(half, whole, self.eo_index(), parity);
     }
     fn put_half(&self, whole: &mut Psi, half: &HalfPsi) {
         insert_parity(whole, half, self.eo_index());
     }
+}
+
+impl<O: EvenOddSites> EvenOddForceOp for O {
     fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64 {
         log_det_diag(self, lat, parity)
     }
@@ -421,32 +454,14 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         let eta = self
             .solve(lat, self.stop_md, true)
             .expect("the solve for the force converges");
-        let (even, odd) = (Parity::Even, Parity::Odd);
-        let like_odd = self.op.new_half(lat, odd);
+        let like_odd = self.op.new_half(lat, Parity::Odd);
         let mut zeta = eta.zeros_like();
-        Schur::new(&self.op, even, &eta, &like_odd).mult(&mut zeta, &eta);
-        // X_o = −T_oo⁻¹ M_oe η, Y_o = −T_oo⁻† (M_eo)† ζ.
-        let mut work = self.op.even_odd_work();
-        let (mut t, mut x_o, mut y_o) = (
-            like_odd.zeros_like(),
-            like_odd.zeros_like(),
-            like_odd.zeros_like(),
-        );
-        self.op.hop(&mut work, &mut t, &eta, odd, Dagger::No);
-        self.op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
-        x_o.scale(&[-1.0]);
-        self.op.hop(&mut work, &mut t, &zeta, odd, Dagger::Yes);
-        self.op.diag_inv(&mut work, &mut y_o, &t, odd, Dagger::Yes);
-        y_o.scale(&[-1.0]);
-        let (mut x, mut y) = (self.op.new_field(lat), self.op.new_field(lat));
-        self.op.put_half(&mut x, &eta);
-        self.op.put_half(&mut x, &x_o);
-        self.op.put_half(&mut y, &zeta);
-        self.op.put_half(&mut y, &y_o);
+        Schur::new(&self.op, Parity::Even, &eta, &like_odd).mult(&mut zeta, &eta);
+        let (y, x) = lift_to_whole(&self.op, lat, &zeta, &eta);
         let mut m = self.op.derivative(&y, &x);
         if let Some(kc) = self.clover {
             let v = levels.last().unwrap_or(links.thin);
-            let c = self.op.clover_derivative_eo(kc, v, odd, &y, &x);
+            let c = self.op.clover_derivative_eo(kc, v, Parity::Odd, &y, &x);
             for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
                 *a += b;
             }
@@ -464,5 +479,258 @@ impl<O: EvenOddForceOp> MdAction for TwoFlavorEo<O> {
     }
     fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
         TwoFlavorEo::force(self, links)
+    }
+}
+
+/// The fields of the whole lattice whose −2 Re Y† δD X is −2 Re y_e† δŜ x_e (module
+/// documentation): X = (x_e, −T_oo⁻¹ M_oe x_e), Y = (y_e, −T_oo⁻† (M_eo)† y_e); returns (Y, X).
+fn lift_to_whole<O: EvenOddHalves>(
+    op: &O,
+    lat: &Arc<Lattice>,
+    y_e: &O::Half,
+    x_e: &O::Half,
+) -> (O::Field, O::Field) {
+    let odd = Parity::Odd;
+    let like_odd = op.new_half(lat, odd);
+    let mut work = op.even_odd_work();
+    let (mut t, mut x_o, mut y_o) = (
+        like_odd.zeros_like(),
+        like_odd.zeros_like(),
+        like_odd.zeros_like(),
+    );
+    op.hop(&mut work, &mut t, x_e, odd, Dagger::No);
+    op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
+    x_o.scale(&[-1.0]);
+    op.hop(&mut work, &mut t, y_e, odd, Dagger::Yes);
+    op.diag_inv(&mut work, &mut y_o, &t, odd, Dagger::Yes);
+    y_o.scale(&[-1.0]);
+    let (mut x, mut y) = (op.new_field(lat), op.new_field(lat));
+    op.put_half(&mut x, x_e);
+    op.put_half(&mut x, &x_o);
+    op.put_half(&mut y, y_e);
+    op.put_half(&mut y, &y_o);
+    (y, x)
+}
+
+/// Two flavours over two Pauli-Villars flavours with even-odd preconditioning, as Bridge++'s
+/// `Action_F_alt_Ratio_eo` writes it: with K = T_ee⁻¹ Ŝ = 1 − T_ee⁻¹ M_eo T_oo⁻¹ M_oe (the left
+/// form of `SchurFactor`, Bridge++'s even-odd operator) and H = Γ5 K,
+///
+///   S = φ_e† H_PV (H†H)⁻¹ H_PV† φ_e,   φ_e = H_PV (H_PV†H_PV)⁻¹ H† ξ_e,
+///
+/// so that S = |ξ_e|² at the start. det D = det T_ee det T_oo det K, and T does not depend on
+/// the links for the operators this takes (Wilson and domain-wall fermions; not clover).
+///
+/// The force: with χ = Γ5 φ_e, v1 = K_PV† χ and v2 = (K†K)⁻¹ v1,
+/// δS = 2 Re χ† δK_PV v2 − 2 Re (K v2)† δK v2, and y† δK x = (T_ee⁻† y)† δŜ x.
+pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
+    pub op: O,
+    pub pv: O,
+    pub smearing: Option<GaugeSmearing>,
+    pub stop_md: Stop,
+    pub stop_h: Stop,
+    /// How (K†K)⁻¹ is computed (CG by default); the solve with the denominator in the heat
+    /// bath uses it with no preconditioner.
+    pub solver: NormalSolver,
+    /// None or Chebyshev.
+    pub preconditioner: Preconditioner,
+    fresh: bool,
+    phi: Option<O::Half>,
+    /// Iterations of the last solve with the operator, and of all its force solves so far.
+    pub last_iterations: usize,
+    pub md_iterations: usize,
+    /// The initial guess of the force solves (none by default).
+    pub guess: Chrono<O::Half>,
+}
+
+impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
+    pub fn new(op: O, pv: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
+        Self {
+            op,
+            pv,
+            smearing,
+            stop_md,
+            stop_h,
+            solver: NormalSolver::Cg,
+            preconditioner: Preconditioner::None,
+            fresh: true,
+            phi: None,
+            last_iterations: 0,
+            md_iterations: 0,
+            guess: Chrono::new(0),
+        }
+    }
+
+    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+        self.solver = solver;
+        self
+    }
+
+    /// None or Chebyshev: the multigrid of K is not written yet.
+    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+        assert!(
+            !matches!(preconditioner, Preconditioner::Multigrid(_)),
+            "the even-odd ratio action has no multigrid yet"
+        );
+        self.preconditioner = preconditioner;
+        self
+    }
+
+    /// Start the force solves from the best combination of the last `depth` solutions
+    /// (`Chrono`); 0: from zero.
+    pub fn with_guess(mut self, depth: usize) -> Self {
+        self.guess = Chrono::new(depth);
+        self
+    }
+
+    fn set_links(&mut self, links: &Links<O::Links>) -> Rc<Vec<O::Links>> {
+        let levels = links.levels(self.smearing.as_ref());
+        let v = levels.last().unwrap_or(links.thin);
+        self.op.set_links(v).expect("the links suit the operator");
+        self.pv.set_links(v).expect("the links suit the operator");
+        levels
+    }
+
+    /// K v or K† v for the operator `op`.
+    fn factor(op: &O, lat: &Arc<Lattice>, v: &O::Half, dagger: Dagger) -> O::Half {
+        let odd = op.new_half(lat, Parity::Odd);
+        let mut k = SchurFactor::new(op, EoForm::Left, v, &odd);
+        let mut out = v.zeros_like();
+        match dagger {
+            Dagger::No => k.mult(&mut out, v),
+            Dagger::Yes => k.mult_dag(&mut out, v),
+        }
+        out
+    }
+
+    fn gamma5(op: &O, v: &O::Half) -> O::Half {
+        let mut out = v.zeros_like();
+        op.gamma5_half(&mut out, v);
+        out
+    }
+
+    /// (K†K)⁻¹ b for the operator `op`, from `z`.
+    fn solve(
+        solver: NormalSolver,
+        op: &O,
+        lat: &Arc<Lattice>,
+        (pre, fresh): (&mut Preconditioner, bool),
+        z: &mut O::Half,
+        b: &O::Half,
+        stop: Stop,
+    ) -> Result<SolveInfo, SolveError> {
+        let odd = op.new_half(lat, Parity::Odd);
+        let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
+        match pre {
+            Preconditioner::None => solver.solve(&mut k, Pre::None, z, b, stop),
+            Preconditioner::Chebyshev { steps, ratio, hi } => chebyshev_cg(
+                &mut k,
+                SchurFactor::new(op, EoForm::Left, b, &odd),
+                (*steps, *ratio, hi),
+                fresh,
+                z,
+                b,
+                stop,
+            ),
+            Preconditioner::Multigrid(_) => unreachable!("refused by with_preconditioner"),
+        }
+    }
+
+    /// (K†K)⁻¹ v1 for the operator of the action; for the force (`md`) from the guess.
+    fn solve_op(&mut self, lat: &Arc<Lattice>, v1: &O::Half, stop: Stop, md: bool) -> O::Half {
+        let mut z = v1.zeros_like();
+        if md {
+            let odd = self.op.new_half(lat, Parity::Odd);
+            let mut k = SchurFactor::new(&self.op, EoForm::Left, v1, &odd);
+            self.guess.guess(&mut Normal::new(&mut k, v1), v1, &mut z);
+        }
+        let flags = (&mut self.preconditioner, std::mem::take(&mut self.fresh));
+        let info = Self::solve(self.solver, &self.op, lat, flags, &mut z, v1, stop)
+            .expect("the solve with the operator converges");
+        self.last_iterations = info.iterations;
+        if md {
+            self.md_iterations += info.iterations;
+            self.guess.record(&z);
+        }
+        z
+    }
+
+    /// v1 = H_PV† φ_e = K_PV† Γ5 φ_e.
+    fn v1(&self, lat: &Arc<Lattice>) -> O::Half {
+        let phi = self.phi.as_ref().expect("pseudofermions drawn");
+        Self::factor(&self.pv, lat, &Self::gamma5(&self.pv, phi), Dagger::Yes)
+    }
+
+    /// The heat bath: ξ Gaussian (variance ½ per real component) drawn on the whole lattice
+    /// in Bridge++'s order, φ_e = H_PV (H_PV†H_PV)⁻¹ H† ξ_e; returns |ξ_e|².
+    pub fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
+        self.set_links(links);
+        let lat = LinkField::lattice(links.thin);
+        let mut xi = self.op.new_field(lat);
+        self.op.draw(&mut xi, rng);
+        let mut xi_e = self.op.new_half(lat, Parity::Even);
+        self.op.half_of(&mut xi_e, &xi, Parity::Even);
+        let v2 = Self::factor(&self.op, lat, &Self::gamma5(&self.op, &xi_e), Dagger::Yes);
+        let mut v1 = v2.zeros_like();
+        let none = (&mut Preconditioner::None, false);
+        Self::solve(self.solver, &self.pv, lat, none, &mut v1, &v2, self.stop_h)
+            .expect("the solve with the denominator converges");
+        let k1 = Self::factor(&self.pv, lat, &v1, Dagger::No);
+        self.phi = Some(Self::gamma5(&self.pv, &k1));
+        self.fresh = true;
+        self.guess.clear();
+        let mut n = [0.0];
+        xi_e.norm_sqr(&mut n);
+        n[0]
+    }
+
+    /// S = v1† (K†K)⁻¹ v1.
+    pub fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
+        self.set_links(links);
+        let lat = LinkField::lattice(links.thin);
+        let v1 = self.v1(lat);
+        let v2 = self.solve_op(lat, &v1, self.stop_h, false);
+        let mut d = [C64::ZERO];
+        v1.dot(&v2, &mut d);
+        d[0].re
+    }
+
+    pub fn force(&mut self, links: &Links<O::Links>) -> O::Links {
+        let levels = self.set_links(links);
+        let lat = LinkField::lattice(links.thin);
+        let v1 = self.v1(lat);
+        let v2 = self.solve_op(lat, &v1, self.stop_md, true);
+        // y_e = T_ee⁻† (K v2) for the operator, T_PV,ee⁻† χ for the denominator.
+        let even_inv_dag = |op: &O, v: &O::Half| {
+            let mut out = v.zeros_like();
+            op.diag_inv(
+                &mut op.even_odd_work(),
+                &mut out,
+                v,
+                Parity::Even,
+                Dagger::Yes,
+            );
+            out
+        };
+        let y = even_inv_dag(&self.op, &Self::factor(&self.op, lat, &v2, Dagger::No));
+        let chi = Self::gamma5(&self.pv, self.phi.as_ref().expect("drawn"));
+        let y_pv = even_inv_dag(&self.pv, &chi);
+        let (y, x) = lift_to_whole(&self.op, lat, &y, &v2);
+        let mut m = self.op.derivative(&y, &x);
+        let (y_pv, x_pv) = lift_to_whole(&self.pv, lat, &y_pv, &v2);
+        m.add_scaled(-1.0, &self.pv.derivative(&y_pv, &x_pv));
+        O::Links::smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+    }
+}
+
+impl<O: EvenOddHalves> MdAction<O::Links> for TwoFlavorRatioEo<O> {
+    fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
+        TwoFlavorRatioEo::langevin(self, links, rng)
+    }
+    fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
+        TwoFlavorRatioEo::hamiltonian(self, links)
+    }
+    fn force(&mut self, links: &Links<O::Links>) -> O::Links {
+        TwoFlavorRatioEo::force(self, links)
     }
 }
