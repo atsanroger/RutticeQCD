@@ -7,15 +7,15 @@
 //! the Γ5-Hermitian form of P†DP or by BiCGStab on its exact adjoint.
 //!
 //! ```text
-//! cargo run --release --example adjoint_cycle -- L MASS M5 SMEAR(0|1)
+//! cargo run --release --example adjoint_cycle -- L MASS M5 SMEAR(0|1) FORMAT FILE
 //! ```
-//! on `conf_quench_LxLxLxL.txt` (Downloads), Ls = 8, b = 1.5, c = 0.5, blocks of 4⁴, 32 test
-//! vectors, Chebyshev 8 steps on [hi/10, hi], GCR(8) to 1e-18.
+//! on the L⁴ configuration FILE (FORMAT: text, binary, nersc, ildg or scidac; the v2 test
+//! configurations), Ls = 8, b = 1.5, c = 0.5, blocks of 4⁴, 32 test vectors, Chebyshev 8 steps on
+//! [hi/10, hi], GCR(8) to 1e-18.
 
 use ruttice::fermion::{EoForm, FermionOp, Mdwf, MdwfParams, PvEvenOdd};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
-use ruttice::io::read_bridge_text;
 use ruttice::solver::preconditioner::multigrid::{
     pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseKrylov, LowModeParams,
     PvEoCycle, PvEoParams,
@@ -37,10 +37,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mass: f64 = args.get(1).ok_or("MASS")?.parse()?;
     let m5: f64 = args.get(2).ok_or("M5")?.parse()?;
     let smear = args.get(3).ok_or("SMEAR")? == "1";
+    let format = args.get(4).ok_or("FORMAT")?;
+    let file = args.get(5).ok_or("FILE")?;
     let start = Instant::now();
     let lat = Lattice::single_node([l; ND]);
-    let file = format!("/mnt/c/Users/atsan/Downloads/conf_quench_{l}x{l}x{l}x{l}.txt");
-    let mut u = read_bridge_text(Path::new(&file), &lat)?;
+    let mut u = ruttice::app::read_gauge_named(format, Path::new(file), &lat)?;
     if smear {
         let s = GaugeSmearing {
             smear: Smear::Stout(Stout { rho: uniform(0.1) }),
