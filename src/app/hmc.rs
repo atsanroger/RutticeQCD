@@ -844,6 +844,27 @@ impl HmcConfig {
                         let pd = denominator.map_or(p.pauli_villars(), |d| mdwf_params(&d));
                         (*level, device_ratio(lat, (p, pd), solver.neff_alpha, c)?)
                     }
+                    ActionConfig::TwoFlavor {
+                        fermion: fermion @ HmcFermion::DomainWall { .. },
+                        level,
+                        smeared,
+                        solver,
+                        ..
+                    } => {
+                        let stop = |t: f64| Stop {
+                            tolerance_sqr: t,
+                            max_iterations: solver.max_iterations,
+                            max_restarts: 10,
+                        };
+                        let c = Common {
+                            smearing: smearing.filter(|_| *smeared),
+                            md: stop(solver.tolerance_squared),
+                            h: stop(solver.energy_tolerance_squared),
+                            solver,
+                        };
+                        let p = mdwf_params(fermion);
+                        (*level, device_two_flavor(lat, p, solver.neff_alpha, c)?)
+                    }
                     _ => unreachable!("refused when the file is read"),
                 };
                 Ok(Term { level, action })
@@ -939,6 +960,32 @@ fn device_ratio(
         false => None,
     };
     Ok(ratio((make(p)?, make(pd)?), None, conditioned, c))
+}
+
+/// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`
+/// if it is not 1: `two_flavor` on all sites.
+#[cfg(feature = "cuda-bridge")]
+fn device_two_flavor(
+    lat: &Arc<Lattice>,
+    p: MdwfParams,
+    alpha: f64,
+    c: Common,
+) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
+    use crate::backend::cuda_bridge::CudaMdwf;
+    let make = |p: MdwfParams| {
+        CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
+    };
+    let s = c.solver;
+    let mut a = TwoFlavor::new(make(p)?, c.smearing, c.md, c.h)
+        .with_guess(s.initial_guess)
+        .with_solver(s.normal())
+        .with_preconditioner(s.preconditioner());
+    if alpha != 1.0 {
+        let mut op = make(p)?;
+        op.set_alpha(alpha);
+        a = a.with_conditioned(op);
+    }
+    Ok(Box::new(a))
 }
 
 /// A power of the determinant of `op` by the rational approximations of the action and of

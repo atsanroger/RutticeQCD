@@ -479,10 +479,16 @@ impl HmcParams {
                         fermion: HmcFermion::DomainWall { .. },
                         solver,
                         ..
+                    }
+                    | ActionConfig::TwoFlavor {
+                        fermion: HmcFermion::DomainWall { .. },
+                        even_odd: false,
+                        solver,
+                        ..
                     } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
                     _ => {
                         return invalid(format!(
-                            "fermion action {}: with Main.backend cuda_bridge only the Ratio of domain-wall fermions, without the multigrid, is on the device",
+                            "fermion action {}: with Main.backend cuda_bridge only the Standard (Lexical) and the Ratio actions of domain-wall fermions, without the multigrid, are on the device",
                             i
                         ))
                     }

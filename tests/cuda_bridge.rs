@@ -1682,6 +1682,33 @@ fn hmc_with_domain_wall_fermions_on_the_device() {
             "ΔH {dh} on the CPU, {dk} on the device"
         );
     }
+
+    // Two flavours of the same operator alone (action_type Standard), with Neff's α in its
+    // solves and the initial guess of the force solves.
+    let standard = text
+        .replace("action_type     : Ratio", "action_type     : Standard")
+        .replace("    ## neff_alpha : 0.6", "    neff_alpha : 0.6")
+        .replace(
+            "    convergence_criterion_squared : 1.0e-28",
+            "    convergence_criterion_squared : 1.0e-28\n    number_of_initial_guess       : 3",
+        );
+    assert_ne!(standard, text);
+    let (cpu, gpu) = (
+        run_with_backend(&standard, "cpu", "hmc_dw_standard"),
+        run_with_backend(&standard, "cuda_bridge", "hmc_dw_standard"),
+    );
+    let (a, b) = (rows(&cpu), rows(&gpu));
+    assert!(a.len() == 2 && a.len() == b.len(), "\n{cpu}\n{gpu}");
+    for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+        assert!(
+            (p - q).abs() < 1e-12,
+            "plaquette {p} on the CPU, {q} on the device"
+        );
+        assert!(
+            (dh - dk).abs() < 1e-7,
+            "ΔH {dh} on the CPU, {dk} on the device"
+        );
+    }
 }
 
 const MULTIGRID: &str = "MultiGrid:
