@@ -470,7 +470,7 @@ pub struct TwoFlavor<O: ForceOp> {
     pub guess: Chrono<O::Field>,
 }
 
-impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
+impl<O: ForceOp> TwoFlavor<O> {
     pub fn new(op: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
         Self {
             op,
@@ -522,13 +522,13 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
     }
 
     /// The operator on the (smeared) links; the smeared levels, for the force.
-    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+    fn set_links(&mut self, links: &Links<O::Links>) -> Rc<Vec<O::Links>> {
         let levels = links.levels(self.smearing.as_ref());
         self.op
-            .set_gauge(levels.last().unwrap_or(links.thin))
+            .set_links(levels.last().unwrap_or(links.thin))
             .expect("the links suit the operator");
         if let Some(a) = self.conditioned.as_mut() {
-            a.set_gauge(levels.last().unwrap_or(links.thin))
+            a.set_links(levels.last().unwrap_or(links.thin))
                 .expect("the links suit the operator");
         }
         levels
@@ -559,9 +559,9 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
 
     /// The heat bath: φ = D† ξ, ξ Gaussian (variance ½ per real component) drawn in Bridge++'s
     /// order; returns |ξ|², the action of φ.
-    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+    pub fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         self.set_links(links);
-        let mut xi = self.op.new_field(links.thin.lattice());
+        let mut xi = self.op.new_field(LinkField::lattice(links.thin));
         self.op.draw(&mut xi, rng);
         let mut phi = xi.zeros_like();
         let mut work = self.op.work();
@@ -575,7 +575,7 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
     }
 
     /// S = φ† (D†D)⁻¹ φ.
-    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+    pub fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         self.set_links(links);
         let v = self
             .solve(self.stop_h, false)
@@ -585,7 +585,7 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
         d[0].re
     }
 
-    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    pub fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         let levels = self.set_links(links);
         let eta = self
             .solve(self.stop_md, true)
@@ -595,7 +595,7 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> TwoFlavor<O> {
         self.op.mult(&mut work, &mut zeta, &eta, Variant::D);
         let v = levels.last().unwrap_or(links.thin);
         let m = full_derivative(&self.op, self.clover, v, &zeta, &eta);
-        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+        O::Links::smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
 
@@ -761,14 +761,14 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     }
 }
 
-impl<O: ForceOp<Links = Field<f64, Gauge>>> MdAction for TwoFlavor<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+impl<O: ForceOp> MdAction<O::Links> for TwoFlavor<O> {
+    fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         TwoFlavor::langevin(self, links, rng)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
+    fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         TwoFlavor::hamiltonian(self, links)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavor::force(self, links)
     }
 }
