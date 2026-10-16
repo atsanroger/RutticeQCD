@@ -1,0 +1,908 @@
+\documentclass[11pt,a4paper]{article}
+% ===== Packages (only what the TinyTeX installation provides) =====
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}      % Times text; math in Computer Modern
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=green!35!black,urlcolor=blue!50!black]{hyperref}
+\geometry{a4paper,left=2.5cm,right=2.5cm,top=2.4cm,bottom=2.6cm}
+\setlength{\parindent}{1.2em}
+\setlength{\parskip}{0pt}
+\setlength{\emergencystretch}{2em}
+\renewcommand{\baselinestretch}{1.05}
+
+% ----- Minimal algorithm environments (algorithm/algpseudocode are not installed) -----
+\newcounter{alg}
+\newenvironment{algorithm}[1][]{%
+  \par\medskip\noindent\begin{minipage}{\linewidth}\hrule\vspace{3pt}%
+  \renewcommand{\caption}[1]{\refstepcounter{alg}\textbf{Algorithm~\thealg.} ##1\par\vspace{3pt}\hrule\vspace{2pt}}}%
+  {\vspace{2pt}\hrule\end{minipage}\par\medskip}
+\newenvironment{algorithmic}{%
+  \begin{list}{\small\arabic{enumi}:}{\usecounter{enumi}\setlength{\topsep}{2pt}\setlength{\itemsep}{1pt}%
+  \setlength{\leftmargin}{2.2em}\setlength{\labelwidth}{1.6em}}}{\end{list}}
+\newcommand{\State}{\item}
+\newcommand{\For}[1]{\item \textbf{for} #1 \textbf{do}}
+\newcommand{\EndFor}{\item \textbf{end for}}
+\newcommand{\Comment}[1]{\hfill{\small$\triangleright$ #1}}
+\newcommand{\Return}{\textbf{return}\ }
+
+% ----- APS-like headings, abstract and captions (revtex4 is not installed) -----
+\makeatletter
+\renewcommand\@seccntformat[1]{\csname the#1\endcsname.\hspace{0.6em}}
+\renewcommand\thesection{\Roman{section}}
+\renewcommand\thesubsection{\Alph{subsection}}
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+  {3.0ex \@plus 1ex \@minus .2ex}{1.4ex \@plus .2ex}%
+  {\centering\normalfont\normalsize\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {2.2ex \@plus 1ex \@minus .2ex}{1.1ex \@plus .2ex}%
+  {\centering\normalfont\small\bfseries}}
+\renewcommand\paragraph{\@startsection{paragraph}{4}{\z@}%
+  {1.6ex \@plus 1ex \@minus .2ex}{-0.6em}%
+  {\normalfont\normalsize\itshape}}
+\renewenvironment{abstract}{%
+  \begin{quote}\small\noindent}{\end{quote}\vspace{0.6ex}}
+\renewcommand\maketitle{\begin{center}%
+  {\large\bfseries\@title\par}\vspace{1.4ex}%
+  {\normalsize\@author\par}\vspace{0.4ex}%
+  {\small\itshape\@date\par}\end{center}\vspace{0.6ex}}
+\renewcommand*\l@section{\@dottedtocline{1}{0pt}{2.4em}}
+\long\def\@makecaption#1#2{\vskip 6pt{\small\textsc{#1.}~#2\par}}
+\makeatother
+\renewcommand{\figurename}{Fig.}
+\renewcommand{\refname}{References}
+\numberwithin{equation}{section}
+\renewcommand{\theequation}{\arabic{section}.\arabic{equation}}
+
+% ----- Statements -----
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+% Marker for statements that are derived here but not checked independently
+\newcommand{\unverified}{\textbf{[derived here; not verified]}}
+
+% ===== Notation =====
+\newcommand{\dg}{^{\dagger}}
+\newcommand{\Dpv}{D_{\mathrm{PV}}}
+\newcommand{\Cpv}{C_{\mathrm{PV}}}
+\newcommand{\Spv}{S_{\mathrm{PV}}}
+\newcommand{\Bpv}{B_{\mathrm{PV}}}
+\newcommand{\Pp}{P_{+}}
+\newcommand{\Pm}{P_{-}}
+\newcommand{\Gfive}{\Gamma_5}
+\newcommand{\AR}{\tilde A_{R}}
+\newcommand{\AL}{\tilde A_{L}}
+\newcommand{\Pro}{\mathcal P}
+\newcommand{\Dc}{\mathcal D_{\mathrm c}}
+\newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
+\newcommand{\Hc}{\mathcal H_{\mathrm c}}
+\renewcommand{\Re}{\operatorname{Re}}
+\newcommand{\Ce}{C_{e}}
+\newcommand{\Co}{C_{o}}
+\newcommand{\Cpve}{C_{\mathrm{PV},e}}
+\newcommand{\Cpvo}{C_{\mathrm{PV},o}}
+
+% Implementation and numerical-results sections; off = theory-only note.
+\newif\ifresults
+\resultsfalse
+
+\title{A factorised Pauli--Villars multigrid method\\
+for the M\"obius domain-wall operator}
+\author{Working note}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The M\"obius domain-wall operator has a spectrum that surrounds the origin,
+which defeats non-Hermitian Krylov solvers and most multigrid constructions.
+Kanamori, Chen and Matsufuru showed that preconditioning with the
+Pauli--Villars operator together with the site-diagonal part of the operator,
+$A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves the spectrum into the right half-plane
+and gives the smallest condition number among the operators they examined. This note
+describes a two-grid method for $A'$. The coarse-grid correction is factorised
+into one Galerkin solve for the quark operator and one for the adjoint
+Pauli--Villars operator, both with a nearest-neighbour coarse stencil, so that
+the outer system can be taken on the even sites without enlarging the coarse
+stencil; the prolongation is built from lifted
+approximate low modes for which the correction is exact on the vectors it is
+made from; the smoother is a fixed Chebyshev polynomial. We state the
+operator and its forms (with Neff's $\alpha$), the correction, the coarse
+solvers, the setup, the smoother, the outer solver, and the questions that are
+open. No numerical results of the method are given: they are still being
+obtained.
+\end{abstract}
+
+\vspace{0.4ex}\hrule\vspace{1ex}
+{\small\setcounter{tocdepth}{1}\tableofcontents}
+\vspace{1ex}\hrule\vspace{1ex}
+
+% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+Lattice computations of flavour physics and of the hadronic contributions to
+precision observables need a fermion discretisation whose chiral symmetry is
+broken only mildly at finite lattice spacing. The overlap
+operator~\cite{NarayananNeuberger,Neuberger} has an exact lattice chiral
+symmetry. Domain-wall fermions~\cite{Kaplan,Shamir,FurmanShamir} approximate it
+at a lower cost by adding a fifth dimension of extent $L_s$, in which modes of
+opposite chirality are bound to the two boundaries by a large negative Wilson
+mass $-M_5$; the residual chiral symmetry breaking is suppressed as $L_s$
+grows, and the effective four-dimensional operator is a rational approximation
+of the overlap operator. The M\"obius generalisation~\cite{BNO0,BNO1,BNO}
+introduces two coefficients $(b,c)$ and improves this approximation at fixed
+$L_s$; $c=0$ is Shamir's operator.
+
+The price is paid in the linear solver. The operator is neither Hermitian nor
+positive, one application costs $L_s$ four-dimensional Wilson hops, and the
+standard solver is still the conjugate gradient method on the normal equation
+of the even-odd preconditioned operator, whose condition number is the square
+of that of the operator itself. For Wilson-type fermions this problem has been
+solved by multigrid: the low modes that slow down Krylov solvers are locally
+coherent~\cite{Luscher}, so a few of them, cut into blocks, span the low-mode
+space, and adaptive aggregation multigrid makes the cost nearly independent of
+the quark mass~\cite{Brannick,DDalphaAMG,BridgeMG}.
+
+\paragraph{Multigrid for domain-wall fermions.}
+The domain-wall operator has a spectrum that encloses the origin, because of
+the large negative Wilson mass. This violates the half-plane condition of
+non-Hermitian Krylov methods, whose convergence is then of the order of the
+system size~\cite{NRT,BoyleMRHS}. Boyle~\cite{BoyleMRHS} lists four multigrid
+approaches that have had a measure of success, and they differ in the operator
+that is coarsened. Cohen \textit{et al.}~\cite{Cohen} coarsened the squared
+unpreconditioned operator, with blocks covering the whole fifth dimension, and
+noted that its coarse operator reaches two hops. HDCG~\cite{HDCG} accelerates
+the best standard solver, CG on the normal equation of the red-black (even-odd)
+operator, and coarsens that squared Schur complement; its coarse stencil is
+next-to-next-to-next-to-nearest neighbour, $81$ points for blocks of at least
+$4^4$. HDCR~\cite{HDCR} works instead directly on the nearest-neighbour
+Hermitian indefinite operator $\gamma_5R_5D$ at $c=0$, so that the coarse
+operator stays nearest neighbour, explicitly to make re-evaluation along an HMC
+trajectory affordable. Brower, Clark, Howarth and Weinberg~\cite{BCHW} pointed
+out that the Pauli--Villars preconditioned operator $\Dpv^{-1}D$, not $D$,
+carries the physical four-dimensional degrees of freedom, solved the
+system $\Dpv\dg Dx=\Dpv\dg b$ with coarse operators built from the
+projected Wilson kernel, and demonstrated it in the two-dimensional Schwinger
+model. Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir
+fermions; HDCR could be set up and solved faster than a single red-black CG
+solve on large volumes. Two of their observations bear on the present method:
+among red-black solvers, CG on the Schur complement
+$M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ needed far fewer iterations than on the
+left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$; and combining a
+red-black smoother with the HDCR coarse correction was not effective, which
+they attributed to the eigenvectors of the red-black operator and of
+$\gamma_5R_5D$ not being aligned.
+
+\paragraph{Recent work by Boyle and collaborators.}
+The multiple right-hand-side HDCG of Ref.~\cite{BoyleMRHS} works on the
+red-black Hermitian operator
+$(M_{ee}-M_{eo}M_{oo}^{-1}M_{oe})\dg(M_{ee}-M_{eo}M_{oo}^{-1}M_{oe})$ with a
+flexible ADEF2 two-level conjugate gradient, a coarse space spanned by blocked
+low modes obtained with Chebyshev filters, and a stationary coarse solver
+(deflation plus a Chebyshev polynomial). Treating several right-hand sides at
+once with block CG and batched matrix products makes the coarse space
+sub-dominant, and gains of up to a factor of twenty over red-black CG are
+reported at physical quark mass. In a Lattice~2026 talk, Boyle and
+Oare~\cite{BoyleOare} named two limitations of this approach---the cost of
+forming the $81$-point coarse operator, and that a single solve on a new gauge
+field, as in HMC, does not profit from many right-hand sides---and presented
+a multigrid that directly coarsens the two-hop operator
+$\Dpv\dg D$ with blocks that contain the whole fifth dimension, which gives a
+$33$-point coarse stencil. They emphasised that $\Dpv\dg D$ is non-normal: its field of values
+can extend into the left half-plane although its spectrum does not, the
+Eisenstat--Elman--Schultz bound~\cite{ESS} for GCR is then lost, and they
+introduced a shift in the smoothers. The coarse solve dominated the cost; a
+three-level multiple right-hand-side version performs similarly to
+multiple right-hand-side HDCG, and an exact dense inverse on a further coarse
+level is planned.
+
+\paragraph{Site-diagonal and Pauli--Villars preconditioning.}
+Kanamori, Chen and Matsufuru~\cite{KCM2024} examined the spectra of several
+preconditioned M\"obius operators. Combining the Pauli--Villars factor with the
+site-diagonal part $C$ of the operator, they found that
+$A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has eigenvalues with positive real part and
+the smallest condition number among the candidates, while replacing $\Dpv$ by
+a block-diagonal truncation brings back eigenvalues with negative real part.
+Independently, Neff's modification of the domain-wall
+matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor
+$Q$ and changes the conditioning of the even-odd system.
+
+\paragraph{This note.}
+We describe a two-grid method for $A'$. The outer system is the usual even-odd
+reduced one, as in HDCG, but the coarse-grid correction is \emph{factorised}: the inverses of the quark
+operator and of the adjoint Pauli--Villars operator are replaced by two
+separate Galerkin inverses, each with a nearest-neighbour coarse stencil and an
+aggregation that is compatible with the five-dimensional chirality. The
+prolongation is built from approximate low modes lifted to the whole lattice in
+two ways, which makes the correction exact on these vectors for the right form
+of the operator. The smoother is a fixed Chebyshev polynomial and the setup
+combines Chebyshev filtering with a bootstrap. The note states the method; it
+does not assess its performance.
+
+Section~\ref{sec:spectra} recalls the spectra on which the construction rests.
+Sections~\ref{sec:operator}--\ref{sec:outer} describe the method: the operator
+and its Pauli--Villars preconditioning, its even-odd forms, the
+factorised correction and the prolongation, the coarse solvers, the setup, the
+smoother and the outer solver. Section~\ref{sec:open} lists the open problems.
+Statements that are our own derivations and have not been checked
+independently are marked \unverified.
+
+\paragraph{Conventions.}
+Five-dimensional fields are $\psi_s(x)$, $s=0,\dots,L_s-1$; $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
+$R$ reverses the fifth dimension, $(R\psi)_s=\psi_{L_s-1-s}$, and $\Gfive=\gamma_5R$.
+Subscripts $e$ and $o$ denote blocks on the even and odd four-dimensional sites;
+$X_{pq}$ maps parity $q$ to parity $p$. The injection $\iota$ puts a field on the
+even sites onto the whole lattice (zero on the odd sites), and $\pi=\iota\dg$
+takes the even sites.
+
+% ============================================================
+\section{Spectra of preconditioned M\"obius operators}
+\label{sec:spectra}
+
+The location of the spectrum decides which iterative methods can work. A Krylov
+residual polynomial $p$ with $p(0)=1$ that is small on the spectrum exists at
+low degree only if the spectrum can be enclosed by a region, such as an
+ellipse, that excludes the origin. The same holds for the Chebyshev smoother
+of Sec.~\ref{sec:smoother}, which is defined by an ellipse in the right
+half-plane. The spectra of Ref.~\cite{KCM2024}, reproduced in
+Figs.~\ref{fig:free}--\ref{fig:A}, show what the preconditioners do. The
+lattices are given in the captions.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\linewidth]{spectrum_fig1.png}
+\caption{Spectrum of a free M\"obius domain-wall operator on $16^4\times8$ with
+quark mass $0.01$, $b=1.5$, $c=0.5$ and domain-wall height $M_5=1$.
+Reproduced from Ref.~\cite{KCM2024}, Fig.~1.}
+\label{fig:free}
+\end{figure}
+
+\paragraph{The unpreconditioned operator.}
+The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into
+$\Re\lambda<0$. On a $2+1$-flavour configuration at the physical point
+(Fig.~\ref{fig:pv}, top left) the real parts lie in $[-1.29,13.2]$. Conjugate
+gradients and BiCGStab therefore do not apply to $D$ itself, and the practical
+choice has been CG on a positive definite squared operator.
+
+\paragraph{Site-diagonal preconditioning.}
+With the site-diagonal part $C$, whose inverse is a constant matrix in the fifth
+dimension and spin (Sec.~\ref{sec:C}), $DC^{-1}$ has real parts in
+$[-0.22,2.22]$ (middle left): the extent shrinks, the sign problem remains.
+
+\paragraph{Pauli--Villars preconditioning.}
+The operator $\Dpv^{-1}D$, with $\Dpv=D(m=1)$, is a rational approximation of
+the overlap operator~\cite{BCHW}. Because $\Dpv^{-1}$ is as expensive as a solve
+with $D$, Ref.~\cite{BCHW} used $\Dpv\dg$ instead. $\Dpv\dg D$ has positive real
+parts (top right), and its low modes lie close to the imaginary axis with a
+positive shift of the order of the quark mass, as expected of an approximate
+overlap operator; its high end, however, reaches about $187$, which an overlap
+operator would not show. Replacing $\Dpv$ by its block-diagonal approximation
+$\Bpv$, which drops the hops between $4^4$ blocks, brings back negative real
+parts (middle and bottom right).
+
+\paragraph{Both together.}
+The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has real parts in
+$[2.67\times10^{-4},\,5.22]$ (Fig.~\ref{fig:A}, left); its condition number,
+$1.96\times10^{4}$, is smaller than the $2.34\times10^{4}$ of $\Dpv\dg D$, and
+the smallest among the operators examined in Ref.~\cite{KCM2024}. With $\Dpv$
+replaced by $\Bpv$ the real parts become negative again (right). A
+preconditioner that truncates the Pauli--Villars factor to blocks would
+therefore inherit eigenvalues with negative real part; in the method below
+the factor is kept exact on the fine lattice and is approximated only through
+its Galerkin coarse operator (Sec.~\ref{sec:correction}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{spectrum_fig3.png}
+\caption{Low and high ends of the spectrum of the M\"obius operator on a
+JLQCD $2+1$-flavour configuration at the physical point, with preconditioners.
+Left column: $D$, $DC^{-1}$, $(C^{-1}D)\dg C^{-1}D$. Right column:
+$\Dpv\dg D$, $\Bpv\dg D$, $\Bpv^{-1}D$, where $\Bpv$ is the block-diagonal
+approximation of $\Dpv$ (inverted approximately in the last panel). The text of
+Ref.~\cite{KCM2024} quotes $48^3\times16$ with $L_s=12$; the panel titles read
+$32^3\times16\times12$. Reproduced from Ref.~\cite{KCM2024}, Fig.~3.}
+\label{fig:pv}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{spectrum_fig4.png}
+\caption{Left: spectrum of $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, Eq.~\eqref{eq:Aprime},
+on the configuration of Fig.~\ref{fig:pv}; all real parts are positive. Right:
+the same with $\Dpv$ replaced by its block-diagonal approximation $\Bpv$; negative
+real parts reappear. Lattice size as in Fig.~\ref{fig:pv} (the text of the source
+quotes $48^3\times16$, $L_s=12$; the panel titles read $32^3\times16\times12$).
+Reproduced from Ref.~\cite{KCM2024}, Fig.~4.}
+\label{fig:A}
+\end{figure}
+
+\paragraph{Two caveats.}
+First, the figures show the full-lattice operator $A'$; the even-odd operators
+of Sec.~\ref{sec:eo} are related to it but their spectra are not part of these
+figures. Second, positivity of the real parts of the eigenvalues is not
+positivity of the field of values. For a non-normal operator the convergence
+bound of GCR~\cite{ESS} requires the Hermitian part $(A+A\dg)/2$ to be positive
+definite, which can fail while every eigenvalue lies in the right half-plane;
+this is the mechanism discussed for $\Dpv\dg D$ in Ref.~\cite{BoyleOare}.
+Whether it occurs for $A'$ and its even-odd forms is open
+(Sec.~\ref{sec:open}).
+
+% ============================================================
+\section{The operator and Pauli--Villars preconditioning}
+\label{sec:operator}
+
+\subsection{The M\"obius operator}
+Let $K$ be the hopping term of the Wilson operator,
+\begin{equation}
+(K\psi)(x)=\sum_{\mu=1}^{4}\Big[(1-\gamma_\mu)U_\mu(x)\psi(x+\hat\mu)
++(1+\gamma_\mu)U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\Big],
+\end{equation}
+and $W=(4-M_5)-\tfrac12K$ the Wilson operator with mass $-M_5$ and hopping
+coefficient $\tfrac12$. The hop in the fifth dimension is
+\begin{equation}
+(Y\psi)_s=-\Pm\psi_{s+1}-\Pp\psi_{s-1},\qquad
+\psi_{L_s}\equiv-m\,\psi_0,\quad \psi_{-1}\equiv-m\,\psi_{L_s-1},
+\label{eq:Y}
+\end{equation}
+where $m$ is the quark mass, which enters only through the wrap-around. The
+M\"obius operator is
+\begin{equation}
+D=1+Y+W\,(b-cY)=C-\tfrac12K\,(b-cY),\qquad C=d_++d_-Y,
+\label{eq:D}
+\end{equation}
+with $d_+=1+b(4-M_5)$ and $d_-=1-c(4-M_5)$. $K$ acts on each slice $s$ and does
+not commute with $\Pp$ and $\Pm$, so the order in Eq.~\eqref{eq:D} matters. The
+Pauli--Villars operator is the same operator at unit mass,
+$\Dpv=D|_{m=1}$, $\Cpv=C|_{m=1}$.
+
+\paragraph{$\Gfive$-Hermiticity.}
+Since $\Gfive K\Gfive=K\dg$, $\Gfive Y\Gfive=Y\dg$ and $\Gfive C\Gfive=C\dg$,
+\begin{equation}
+\Gfive D\Gfive-D\dg=-\tfrac12\big[K\dg,\,b-cY\dg\big]=\tfrac{c}{2}\big[K\dg,Y\dg\big].
+\label{eq:g5herm}
+\end{equation}
+The commutator is non-zero because $K$ contains $\gamma_\mu$ and $Y$ contains
+$P_\pm$. Thus $\Gfive D\Gfive=D\dg$ holds for Shamir's operator and fails at
+$O(c)$ for $c\neq0$; the Hermitian operator of the M\"obius case is
+$\Gfive D_-^{-1}D$ with $D_-=1-cW$~\cite{BNO}, which involves an inverse that is
+not local. This matters for the coarse solvers (Sec.~\ref{sec:coarse}).
+
+\subsection{The site-diagonal part and its inverse}
+\label{sec:C}
+$C$ acts within a four-dimensional site, as an $L_s\times L_s$ matrix in the
+fifth dimension on each chirality. With $\psi^\pm=P_\pm\psi$, it is lower
+bidiagonal on $\psi^+$ and upper bidiagonal on $\psi^-$, each with one corner
+element from the mass:
+\begin{equation}
+(C\psi)^+_s=\begin{cases}d_+\psi^+_0+m\,d_-\psi^+_{L_s-1}, & s=0,\\
+d_+\psi^+_s-d_-\psi^+_{s-1}, & s\ge1,\end{cases}
+\label{eq:Cblocks}
+\end{equation}
+and the same for $\psi^-$ with $s\to L_s-1-s$. With $q=d_-/d_+$, the solution
+of $C^+x=r$ is a forward substitution $p_0=0$,
+$p_s=(r_s+d_-p_{s-1})/d_+$, followed by
+\begin{equation}
+x_0=\frac{r_0-m\,d_-\,p_{L_s-1}}{d_++m\,d_-\,q^{L_s-1}},\qquad x_s=p_s+q^{s}x_0 ;
+\label{eq:Cinv}
+\end{equation}
+for $C^-$ the substitution runs from $s=L_s-1$ downwards, and for $C\dg$ the
+roles of the two chiralities are exchanged. $C^{-1}$ is thus exact and costs
+$O(L_s)$ per site. It does not depend on the gauge field~\cite{KCM2024}.
+
+\subsection{The preconditioned operator}
+The operator of Ref.~\cite{KCM2024} is
+\begin{equation}
+A'=(\Dpv\Cpv^{-1})\dg\,D\,C^{-1},\qquad
+A'y=(\Dpv\Cpv^{-1})\dg\,\eta,\quad \psi=C^{-1}y,
+\label{eq:Aprime}
+\end{equation}
+for $D\psi=\eta$. For $m\to1$ it becomes the Hermitian positive operator
+$(\Dpv\Cpv^{-1})\dg(\Dpv\Cpv^{-1})$.
+
+\subsection{Neff's $\alpha$}
+Neff's form of the domain-wall matrix~\cite{Neff,CKMN} is $D^{(\alpha)}=DQ$ with
+a site-local $Q$, diagonal in the fifth dimension,
+\begin{equation}
+Q_0=\Pm+\alpha\Pp,\qquad Q_s=\alpha\ \ (0<s<L_s-1),\qquad Q_{L_s-1}=\Pp+\alpha\Pm .
+\label{eq:Q}
+\end{equation}
+$Q$ is Hermitian, $Q^{-1}$ is Eq.~\eqref{eq:Q} with $\alpha\to1/\alpha$, and
+$Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ unchanged. The site-diagonal part
+of $DQ$ is $CQ$, with $(CQ)^{-1}=Q^{-1}C^{-1}$ and $(CQ)\dg=QC\dg$. The solution
+of $D\psi=\eta$ is $\psi=Q\psi^{(\alpha)}$ with $D^{(\alpha)}\psi^{(\alpha)}=\eta$.
+The factor may be applied to the quark operator alone or to the Pauli--Villars
+operator as well; we write $\Dpv^{(\alpha)}=\Dpv Q$ in the latter case.
+
+% ============================================================
+\section{Even-odd forms}
+\label{sec:eo}
+
+With $D=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix}$,
+$D_{pq}=-\tfrac12K_{pq}(b-cY)$, the Schur complement on the even sites is
+$S=\Ce-D_{eo}\Co^{-1}D_{oe}$, and $\Spv$ is that of $\Dpv$; note
+$S^{-1}=\pi D^{-1}\iota$ and $(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. The
+site-diagonal factor can stand on either side of $S$, which gives the right and
+the left form,
+\begin{equation}
+\AR=(\Spv\Cpve^{-1})\dg\,(S\,\Ce^{-1}),\qquad
+\AL=(\Cpve^{-1}\Spv)\dg\,(\Ce^{-1}S).
+\label{eq:AR}
+\end{equation}
+$\AR$ is the even-odd counterpart of $A'$; $\Ce^{-1}S$ is the usual left
+preconditioned even-odd operator, which Boyle and Yamaguchi found inferior to $S$
+itself for CG on the normal equation~\cite{BY}. With $\alpha$, $DQ$ has Schur
+complement $SQ_e$ and diagonal block $\Ce Q_e$, so $\AR$ is independent of
+$\alpha$, whereas
+\begin{equation}
+\AL^{(\alpha)}=
+\begin{cases}
+Q_e\,(\Cpve^{-1}\Spv)\dg\,Q_e^{-2}\,(\Ce^{-1}S)\,Q_e, & \alpha \text{ in } D \text{ and } \Dpv,\\[2pt]
+(\Cpve^{-1}\Spv)\dg\,Q_e^{-1}\,(\Ce^{-1}S)\,Q_e, & \alpha \text{ in } D \text{ only}.
+\end{cases}
+\label{eq:ALalpha}
+\end{equation}
+For $D\psi=\eta$, with $\eta'_e=\eta_e-D_{eo}\Co^{-1}\eta_o$, the right-hand side
+is $\rho_R=(\Spv\Cpve^{-1})\dg\eta'_e$ or $\rho_L=(\Cpve^{-1}\Spv)\dg\Ce^{-1}\eta'_e$
+(operators with $Q$ when $\alpha\neq1$); the solution is
+$\psi^{(\alpha)}_e=\Ce^{-1}y$ (right) or $y$ (left),
+$\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alpha)}$.
+
+% ============================================================
+\section{The factorised coarse-grid correction and the prolongation}
+\label{sec:correction}
+
+\subsection{Why factorise}
+Solving on the even sites halves the problem and improves the conditioning, but
+in the literature it has come at a price: the Schur complement is a two-hop
+operator, so HDCG, which coarsens the squared Schur complement, has an $81$-point
+coarse stencil~\cite{HDCG}, while the methods with a more compact coarse
+operator coarsen something other than the Schur complement: $\gamma_5R_5D$
+(HDCR~\cite{HDCR}) or $\Dpv\dg D$~\cite{BCHW,BoyleOare}. The
+factorised correction avoids this choice: the outer operator is the even-odd one,
+while the coarse operators are those of $D$ and $\Dpv$ themselves.
+By $S^{-1}=\pi D^{-1}\iota$, the inverse of the right form is
+\begin{equation}
+\AR^{-1}=\Ce\,S^{-1}\,(\Spv\dg)^{-1}\,\Cpve\dg
+=\Ce\,\pi D^{-1}\iota\;\pi(\Dpv\dg)^{-1}\iota\;\Cpve\dg ,
+\label{eq:ARinv}
+\end{equation}
+a product of two inverses of one-hop operators with site-local factors. The
+Galerkin operator of $\AR$ itself, a four-hop operator on the fine lattice, would
+have a much larger coarse stencil; the Galerkin operators of $D$ and $\Dpv$ are
+nearest-neighbour, because $D$ is
+nearest-neighbour in four dimensions and every aggregate contains the whole
+fifth dimension. We therefore replace each inverse by its Galerkin
+approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. For both forms and any
+$\alpha$, the correction of a residual $r$ on the even sites is
+\begin{equation}
+e=O_L\;\pi\Pro\,\Dc^{-1}\Pro\dg\iota\;\;O_M\;\;
+  \pi\Pro\,\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\iota\;\;O_R\,r,
+\qquad \Dc=\Pro\dg D\Pro ,
+\label{eq:corr}
+\end{equation}
+with the site-local factors of Table~\ref{tab:factors}. The coarse operators are
+always those of the plain operators $D$ and $\Dpv$ (no $\alpha$), so one setup
+serves both forms and every $\alpha$.
+
+\begin{table}[t]
+\centering
+\caption{Site-local factors of the correction~\eqref{eq:corr}. They follow from
+$\tilde A^{-1}$ with $S^{-1}=\pi D^{-1}\iota$; with $\alpha$ the site-diagonal
+blocks are $\Ce Q_e$ and $Q_e\Cpve\dg$.}
+\label{tab:factors}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+form & $O_R$ & $O_M$ & $O_L$\\
+\midrule
+right, any $\alpha$ & $\Cpve\dg$ & $1$ & $\Ce$\\
+left, $\alpha$ in $D$ only & $1$ & $\Ce Q_e\Cpve\dg$ & $Q_e^{-1}$\\
+left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Aggregation and prolongation}
+The fine lattice is divided into rectangular four-dimensional blocks; each block
+contains the whole fifth dimension and becomes one coarse site. Each test vector
+$v$ is split into its $\Gfive$ eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$, and
+within each block the $+$ parts and the $-$ parts are orthonormalised separately.
+With $n_v$ test vectors a coarse site carries $2n_v$ components, the first $n_v$
+of positive and the last $n_v$ of negative $\Gfive$-chirality. Writing
+$\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf 1_{n_v})$ on each coarse site,
+\begin{equation}
+\Gfive\Pro=\Pro\Sigma ,
+\label{eq:GP}
+\end{equation}
+so that $\Pro\dg(\Gfive X\Gfive)\Pro=\Sigma\,\Pro\dg X\Pro\,\Sigma$ for any fine
+operator $X$; in particular
+$\Pro\dg\Dpv\dg\Pro=\Sigma\Dcpv\Sigma$ with $\Dcpv=\Pro\dg\Dpv\Pro$ whenever
+$\Gfive\Dpv\Gfive=\Dpv\dg$, i.e.\ for $c=0$. Because
+$v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$, each part is fixed by half of the fifth
+dimension, so $\Pro$ need only be stored for $s<L_s/2$. On the even sites the
+transfer operators are $\Pro\dg\iota$ and $\pi\Pro$.
+
+\subsection{The basis $\{s,\hat t\}$}
+\label{sec:basis}
+The prolongation is built from vectors $y_j$ on the even sites that approximate
+low modes of $\AR$ (Sec.~\ref{sec:setup}). Each $y$ is lifted in two ways:
+\begin{align}
+s&=\big(\Ce^{-1}y,\;-\Co^{-1}D_{oe}\Ce^{-1}y\big),
+&& Ds=\iota\,S\Ce^{-1}y,
+\label{eq:s}\\
+\hat t&=\big(a,\;-(\Cpvo\dg)^{-1}(D_{\mathrm{PV},eo})\dg a\big),\quad a=\pi Ds,
+&& \Dpv\dg\hat t=\iota\,\Spv\dg a ,
+\label{eq:that}
+\end{align}
+where the right-hand columns follow from the block form of $D$ and of
+$\Dpv\dg$, whose odd-even block is $(D_{\mathrm{PV},eo})\dg$ and whose odd
+diagonal block is $\Cpvo\dg$. The images of $s$ under $D$ and of $\hat t$ under
+$\Dpv\dg$ thus vanish on the odd sites. The $2n$ vectors $\{s_j,\hat t_j\}$ are
+the test vectors, $n_v=2n$.
+
+\begin{proposition}[Exactness, right form]
+\label{prop:exact}
+Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$ and
+$\Pro\dg\Dpv\dg\Pro$ be invertible, and let both coarse systems in
+Eq.~\eqref{eq:corr} be solved exactly with the exact adjoint
+$\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form correction of
+$r=\AR y$ is $e=y$.
+\end{proposition}
+\begin{proof}
+For any invertible $\Pro\dg X\Pro$, $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the
+identity on $\operatorname{range}\Pro$. Now
+$O_Rr=\Cpve\dg\AR y=\Spv\dg S\Ce^{-1}y=\Spv\dg a$, and
+$\iota\Spv\dg a=\Dpv\dg\hat t$ by Eq.~\eqref{eq:that}. The first coarse solve
+returns $\pi\hat t=a=\pi Ds$. With $O_M=1$ the second has
+$\Pro\dg\iota\pi Ds=\Pro\dg Ds$ on the right, since $Ds$ vanishes on the odd sites,
+and returns $\pi s=\Ce^{-1}y$; $O_L=\Ce$ gives $y$.
+\end{proof}
+
+\begin{remark}[Conditions in practice] \unverified\
+The proposition needs (i) $s,\hat t$ in the range of the stored $\Pro$, which
+holds only up to the rounding of the reduced-precision storage of $\Pro$;
+(ii) the exact adjoint of the Pauli--Villars coarse factor---the $\Sigma$-adjoint
+$\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse} equals it only if
+$\Gfive\Dpv\Gfive=\Dpv\dg$, which by Eq.~\eqref{eq:g5herm} fails for $c\neq0$;
+(iii) exact coarse solves, whereas they are stopped at a loose tolerance. How
+much each departure costs has not been analysed.
+\end{remark}
+
+\begin{remark}[Left form] \unverified\
+For the left form with $\alpha$ in both operators, the same argument requires
+the quark lift $s'$ of $Q_ey'$ and the Pauli--Villars lift $\hat t'$ of
+$u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ to lie in
+$\operatorname{range}\Pro$ (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For
+$\alpha=1$ and $y'=\Ce^{-1}y$ one has $s'=s$, but
+$u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that
+mixes $s$ and spin, so $\hat t'$ is in general not in the span of the
+right-form vectors. We therefore expect the correction not to be exact for the
+left form with the basis above, but this has not been verified.
+\end{remark}
+
+\subsection{The coarse operators}
+$\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ are assembled from the hops of
+the fine operator between neighbouring blocks and from its block-internal part:
+on each coarse site a $2n_v\times2n_v$ diagonal block and one link block per
+direction, nine blocks in all. The adjoint factor $\Pro\dg\Dpv\dg\Pro$ is not
+assembled; it is applied either exactly, as the conjugate transpose $(\Dcpv)\dg$
+of the stored blocks, or approximately as $\Sigma\Dcpv\Sigma$. When all extents
+of the coarse lattice are even, the coarse hops connect coarse sites of opposite
+parity and both coarse operators admit an even-odd decomposition of their own.
+
+% ============================================================
+\section{The coarse solvers}
+\label{sec:coarse}
+
+Both coarse systems are solved approximately, to a loose relative residual or a
+maximum number of iterations, in reduced precision; reaching the tolerance is not
+required. They are solved in sequence: first the Pauli--Villars factor, whose
+solution enters the right-hand side of the quark factor.
+
+\subsection{The quark factor}
+Write $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\ B_{oe}&A_{oo}\end{pmatrix}$ on the
+coarse lattice. The system $\Dc c=g$ is solved through its Schur complement,
+\begin{equation}
+\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)\,c_e=g_e-B_{eo}A_{oo}^{-1}g_o,\qquad
+c_o=A_{oo}^{-1}(g_o-B_{oe}c_e),
+\label{eq:coarseeo}
+\end{equation}
+with BiCGStab or truncated flexible GCR, preconditioned by the exact inverses of
+the diagonal blocks $A_{ee}^{-1}$. $\Dc$ is not Hermitian and $\Sigma\Dc$ is
+Hermitian only for $c=0$, so a non-Hermitian Krylov method is used.
+
+\subsection{The Pauli--Villars factor}
+The system is $(\Pro\dg\Dpv\dg\Pro)\,w=g$. Two treatments are available.
+
+\paragraph{Exact adjoint.} Solve $(\Dcpv)\dg w=g$ with a non-Hermitian Krylov
+method, preconditioned by the inverses of the adjoint diagonal blocks,
+$(A_{xx}\dg)^{-1}=(A_{xx}^{-1})\dg$.
+
+\paragraph{$\Sigma$-Hermitian form.} Replace the adjoint by $\Sigma\Dcpv\Sigma$
+and solve the equivalent system
+\begin{equation}
+\Hc\,w=\Sigma g,\qquad \Hc=\Dcpv\Sigma ,
+\label{eq:Hc}
+\end{equation}
+with MINRES. $\Hc$ is Hermitian (indefinite) exactly when
+$(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, i.e.\ for $c=0$ by Eqs.~\eqref{eq:g5herm} and
+\eqref{eq:GP}; for $c\neq0$ MINRES is applied to a non-Hermitian matrix and has
+no guarantee. The preconditioner must be Hermitian positive definite; we use the
+absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
+V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
+on each coarse site. On a coarse lattice with even extents, the Schur
+complement of $\Hc$ on the even sites is $S_{\mathrm c}\Sigma_e$, with
+$S_{\mathrm c}$ the Schur complement of $\Dcpv$; one solves for
+$u_e=\Sigma w_e$ on the even sites, completes $u$ on the odd sites as in
+Eq.~\eqref{eq:coarseeo}, and sets $w=\Sigma u$.
+
+\subsection{Levels below the coarse lattice}
+Both factors may be preconditioned by further levels. The coarse sites are
+grouped into super-blocks; on each super-block, local vectors are formed from
+the coarse test vectors $\Pro\dg s_j$ and $\Pro\dg\hat t_j$, split by $\Sigma$
+and orthonormalised (Gram--Schmidt applied twice); the level operators are
+obtained by probing the nearest-neighbour stencil; the last level is inverted
+densely. With $Q_{\ell}$ the prolongation into level $\ell-1$ and $B_\ell$ the
+diagonal blocks of level $\ell$:
+
+\emph{Quark factor.} A V-cycle with the coarse correction followed by one
+block-Jacobi sweep on the updated residual, without pre-smoothing,
+\begin{equation}
+z=Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg r,\qquad
+M_\ell r=z+B_\ell^{-1}(r-\mathcal D_\ell z);
+\end{equation}
+on the coarse lattice itself the same multiplicative combination is used, and
+with the even-odd coarse form its even part preconditions the Schur system. The
+level test vectors can optionally be refined by a few GCR steps preconditioned
+by the levels already built.
+
+\emph{Pauli--Villars factor ($\Sigma$-Hermitian form only).} The additive
+Hermitian positive preconditioner
+\begin{equation}
+M_\ell=|B_\ell|^{-1}+Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg,\qquad
+M_{\ell_{\max}}=|\mathcal H_{\ell_{\max}}|^{-1},
+\end{equation}
+in the spirit of absolute-value preconditioning~\cite{VK}.
+
+% ============================================================
+\section{Setup}
+\label{sec:setup}
+
+The setup produces the vectors $y_1,\dots,y_n$ on the even sites, then the basis
+$\{s_j,\hat t_j\}$, $\Pro$, and the coarse operators. It always uses the right
+form; the same setup serves the left forms and every $\alpha$
+(Sec.~\ref{sec:correction}).
+
+\subsection{Chebyshev-filtered subspace iteration}
+The vectors approximate the right singular vectors of the smallest singular
+values of $\AR$, i.e.\ eigenvectors of the Hermitian positive operator
+$H_n=\AR\dg\AR$. With the Chebyshev polynomial $T_d$ and
+$\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm hi}-\lambda_{\rm lo})$,
+$|T_d(\ell(x))|\le1$ on $[\lambda_{\rm lo},\lambda_{\rm hi}]$ while components
+below $\lambda_{\rm lo}$ grow; $T_d(\ell(H_n))$ is applied by the three-term
+recurrence.
+
+\begin{algorithm}
+\caption{\textsc{LowModes}: Chebyshev-filtered subspace iteration on $H_n=\AR\dg\AR$.}
+\label{alg:lowmodes}
+\begin{algorithmic}
+\State $X\gets$ $n$ random vectors on the even sites
+\State $\lambda_{\rm hi}\gets$ a bound slightly above $\lambda_{\max}(H_n)$ (power iteration);\quad $\lambda_{\rm lo}\gets$ a small fraction of $\lambda_{\rm hi}$
+\For{each round}
+  \State $d\gets$ a degree proportional to $\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$, within fixed bounds
+  \State $X\gets T_d(\ell(H_n))\,X$;\quad orthonormalise $X$ through its Gram matrix
+  \State $G\gets X\dg H_nX=V\Theta V\dg$;\quad $X\gets XV$ \Comment{Rayleigh--Ritz}
+  \State $\lambda_{\rm lo}\gets\theta_{\max}$ \Comment{largest Ritz value}
+\EndFor
+\State \Return $X$, $\Theta$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Bootstrap}
+Each bootstrap round builds the basis and the two-grid cycle of
+Sec.~\ref{sec:smoother} from the current $y$, replaces every $y_j$ by the result
+of a fixed small number of FGMRES steps on $\AR x=y_j$ from $x=0$ preconditioned
+by that cycle, and orthonormalises the new $y$ through their Gram matrix
+($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$). The cycle damps the
+components it already handles, so the new vectors are enriched in what it does not.
+
+\begin{algorithm}
+\caption{Setup of the two-grid method.}
+\label{alg:setup}
+\begin{algorithmic}
+\State $y\gets\textsc{LowModes}(H_n)$
+\For{each bootstrap round}
+  \State build $\Pro$ from $\{s_j,\hat t_j\}$ of $y$ and the cycle $\mathcal M$ on it
+  \For{$j=1,\dots,n$}
+    \State $y_j\gets$ a few FGMRES steps on $\AR x=y_j$, preconditioned by $\mathcal M$
+  \EndFor
+  \State orthonormalise $y$
+\EndFor
+\State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalise per block $\to\Pro$
+\State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
+\State optionally, build the levels below from $\Pro\dg s_j$, $\Pro\dg\hat t_j$
+\end{algorithmic}
+\end{algorithm}
+
+% ============================================================
+\section{The Chebyshev smoother and the cycle}
+\label{sec:smoother}
+
+\subsection{Smoother}
+The smoother is $\nu$ steps of Chebyshev iteration~\cite{Manteuffel,Saad} for
+$\tilde Ax=b$ from $x=0$, i.e.\ a fixed polynomial $x=p(\tilde A)b$ of degree
+$\nu-1$. It is defined by an ellipse with real foci
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$: $\lambda_{\rm hi}$ slightly above an
+estimate of the spectral radius of $\tilde A$ from a power iteration, and
+$\lambda_{\rm lo}=\lambda_{\rm hi}/\kappa_s$ for a chosen ratio $\kappa_s$. With
+$\theta=\frac12(\lambda_{\rm hi}+\lambda_{\rm lo})$,
+$\delta=\frac12(\lambda_{\rm hi}-\lambda_{\rm lo})$, $\sigma=\theta/\delta$,
+$\varrho_0=1/\sigma$, $r_0=b$ and $d_0=r_0/\theta$, step $k$ is
+\begin{equation}
+x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
+\varrho_{k+1}=\frac{1}{2\sigma-\varrho_k},\quad
+d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1},
+\end{equation}
+the last step only updating $x$; $\nu$ steps cost $\nu-1$ applications of
+$\tilde A$. Only a real focal interval is used.
+
+\subsection{Cycle}
+\begin{algorithm}
+\caption{Two-grid cycle $y=\mathcal Mb$ for $\tilde A$.}
+\label{alg:cycle}
+\begin{algorithmic}
+\State $y\gets p(\tilde A)\,b$ \Comment{pre-smoothing}
+\State $r\gets b-\tilde Ay$
+\State $y\gets y+e(r)$ \Comment{correction~\eqref{eq:corr}}
+\State $r\gets b-\tilde Ay$
+\State $y\gets y+p(\tilde A)\,r$ \Comment{post-smoothing}
+\end{algorithmic}
+\end{algorithm}
+
+One cycle costs $2\nu$ applications of $\tilde A$ (two smoothings and two
+residuals) plus the two coarse solves. Because the coarse solves are Krylov
+iterations stopped by a residual test, $\mathcal M$ is not a fixed linear map.
+
+% ============================================================
+\section{The outer solver}
+\label{sec:outer}
+
+The outer iteration solves $\tilde Ay=\rho$ with the cycle as right
+preconditioner, and $\psi$ is reconstructed as in Sec.~\ref{sec:eo}. Since
+$\mathcal M$ varies from one application to the next, flexible methods are the
+ones with a theoretical footing: restarted FGMRES and truncated flexible GCR,
+which keep the preconditioned directions; BiCGStab with the cycle as
+preconditioner is also available but has no flexible counterpart of its
+convergence theory. Block variants treat several right-hand sides together.
+Convergence is monitored on the even-odd system; the residual of the original
+equation, $\|D\psi-\eta\|/\|\eta\|$, is evaluated with the plain $D$ after
+reconstruction. The reference solver is CG on the normal equation of the
+even-odd operator, which is robust but squares the condition number.
+
+\ifresults
+% ============================================================
+\section{Implementation in RutticeQCD}
+\label{sec:impl}
+% TODO: data layout, kernels and solver interfaces in RutticeQCD.
+
+% ============================================================
+\section{Numerical results}
+\label{sec:results}
+% TODO: 24^3x48 tests once MG tuning is finished.
+
+\fi
+% ============================================================
+\section{Open problems}
+\label{sec:open}
+
+The following are questions of theory and algorithm, not findings.
+
+\begin{enumerate}
+\item \textbf{Exactness for the left form.} Proposition~\ref{prop:exact} holds
+for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
+that would be needed differs from $\hat t$ by site-local factors (second remark
+of Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
+once, and what is lost by using the right-form basis for the left form, is open.
+
+\item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
+Eq.~\eqref{eq:g5herm}, $\Gfive D\Gfive\neq D\dg$ at $O(c)$. MINRES on
+$\Hc=\Dcpv\Sigma$, the absolute-value block preconditioner (built from the
+Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoint
+in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
+operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
+the non-Hermitian part is on the coarse space, and how to treat it, is open.
+
+\item \textbf{Smoother interval for a non-normal operator.} The interval
+$[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
+spectral radius, whereas the setup works with singular values (eigenvalues of
+$\AR\dg\AR$). For a non-normal $\tilde A$ these need not agree. Which part of
+the low end is left to the smoother after the coarse correction, and whether an
+ellipse with complex foci should replace the real interval, are open.
+
+\item \textbf{Even-odd smoother and coarse space.} Boyle and
+Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
+coarse correction was not effective, and attributed it to the eigenvectors of
+the red-black operator and of $\gamma_5R_5D$ not being aligned. In the present
+method the smoother and the correction both approximate $\tilde A^{-1}$ and the
+coarse space is built from low modes of $\AR$, so that particular mismatch is
+absent by construction; but the coarse operators are Galerkin projections of
+$D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
+preferable to the full-lattice $A'$ for this method has not been established.
+
+\item \textbf{Field of values versus real parts of eigenvalues.}
+Section~\ref{sec:spectra} shows $\Re\lambda>0$ for $A'$. The GCR bound~\cite{ESS}
+needs a positive definite Hermitian part, i.e.\ a field of values in the right
+half-plane, which is a stronger condition. Whether it holds for $A'$, $\AR$ and
+$\AL$, and whether a shift of the kind used in Ref.~\cite{BoyleOare} is needed,
+is not known.
+
+\item \textbf{Outer solver with a varying preconditioner.} Because the coarse
+solves are truncated, $\mathcal M$ is nonlinear and depends on the right-hand
+side. FGMRES and flexible GCR allow this; BiCGStab does not, and its behaviour
+with $\mathcal M$ as preconditioner has no theoretical justification.
+
+\item \textbf{Solving with $D\dg$.} The method is built for $D\psi=\eta$. A
+solve with $D\dg$, as needed for the normal equations in HMC, requires the dual
+correction (the two factors and the roles of the lifts exchanged), and its
+basis and exactness have not been derived.
+\end{enumerate}
+
+% ============================================================
+\begin{thebibliography}{99}
+\bibitem{NarayananNeuberger} R.~Narayanan and H.~Neuberger, \emph{Infinitely many regulator fields for chiral fermions},
+Phys.\ Lett.\ B \textbf{302} (1993) 62 [hep-lat/9212019].
+\bibitem{Neuberger} H.~Neuberger, \emph{Exactly massless quarks on the lattice},
+Phys.\ Lett.\ B \textbf{417} (1998) 141 [hep-lat/9707022].
+\bibitem{Kaplan} D.~B.~Kaplan, \emph{A method for simulating chiral fermions on the lattice},
+Phys.\ Lett.\ B \textbf{288} (1992) 342 [hep-lat/9206013].
+\bibitem{Shamir} Y.~Shamir, \emph{Chiral fermions from lattice boundaries},
+Nucl.\ Phys.\ B \textbf{406} (1993) 90 [hep-lat/9303005].
+\bibitem{FurmanShamir} V.~Furman and Y.~Shamir, \emph{Axial symmetries in lattice QCD with Kaplan fermions},
+Nucl.\ Phys.\ B \textbf{439} (1995) 54 [hep-lat/9405004].
+\bibitem{BNO0} R.~C.~Brower, H.~Neff and K.~Orginos, \emph{M\"obius fermions: improved domain wall chiral fermions},
+Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{140} (2005) 686 [hep-lat/0409118].
+\bibitem{BNO1} R.~C.~Brower, H.~Neff and K.~Orginos, \emph{M\"obius fermions},
+Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{153} (2006) 191 [hep-lat/0511031].
+\bibitem{BNO} R.~C.~Brower, H.~Neff and K.~Orginos, \emph{The M\"obius domain wall fermion algorithm},
+Comput.\ Phys.\ Commun.\ \textbf{220} (2017) 1 [arXiv:1206.5214].
+\bibitem{Luscher} M.~L\"uscher, \emph{Local coherence and deflation of the low quark modes in lattice QCD},
+JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
+\bibitem{Brannick} J.~Brannick, R.~C.~Brower, M.~A.~Clark, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for lattice QCD},
+Phys.\ Rev.\ Lett.\ \textbf{100} (2008) 041601 [arXiv:0707.4018].
+\bibitem{DDalphaAMG} A.~Frommer, K.~Kahl, S.~Krieg, B.~Leder and M.~Rottmann, \emph{Adaptive aggregation-based domain decomposition multigrid for the lattice Wilson--Dirac operator},
+SIAM J.\ Sci.\ Comput.\ \textbf{36} (2014) A1581 [arXiv:1303.1377].
+\bibitem{BridgeMG} I.~Kanamori, K.-I.~Ishikawa and H.~Matsufuru, \emph{Object-oriented implementation of algebraic multi-grid solver for lattice QCD on SIMD architectures and GPU clusters}, in \emph{Computational Science and Its Applications -- ICCSA 2021}, Lecture Notes in Computer Science \textbf{12953}, Springer (2021), pp.~218--233, doi:10.1007/978-3-030-86976-2\_15 [arXiv:2111.05012].
+\bibitem{NRT} N.~M.~Nachtigal, S.~C.~Reddy and L.~N.~Trefethen, \emph{How fast are nonsymmetric matrix iterations?},
+SIAM J.\ Matrix Anal.\ Appl.\ \textbf{13} (1992) 778.
+\bibitem{BoyleMRHS} P.~A.~Boyle, \emph{Multiple right hand side multigrid for domain wall fermions with a multigrid preconditioned block conjugate gradient algorithm}, arXiv:2409.03904.
+\bibitem{Cohen} S.~D.~Cohen, R.~C.~Brower, M.~A.~Clark and J.~C.~Osborn, \emph{Multigrid algorithms for domain-wall fermions},
+PoS \textbf{LATTICE2011} (2011) 030 [arXiv:1205.2933].
+\bibitem{HDCG} P.~A.~Boyle, \emph{Hierarchically deflated conjugate gradient}, arXiv:1402.2585.
+\bibitem{HDCR} A.~Yamaguchi and P.~A.~Boyle, \emph{Hierarchically deflated conjugate residual},
+PoS \textbf{LATTICE2016} (2016) 374.
+\bibitem{BY} P.~A.~Boyle and A.~Yamaguchi, \emph{Comparison of domain wall fermion multigrid methods}, arXiv:2103.05034.
+\bibitem{BCHW} R.~C.~Brower, M.~A.~Clark, D.~Howarth and E.~S.~Weinberg, \emph{Multigrid for chiral lattice fermions: domain wall},
+Phys.\ Rev.\ D \textbf{102} (2020) 094517 [arXiv:2004.07732].
+\bibitem{BoyleOare} P.~A.~Boyle and P.~Oare (with S.~Yamamoto, C.~Jung and C.~Lehner), \emph{Algorithms for domain wall fermions}, talk at Lattice 2026.
+\bibitem{ESS} S.~C.~Eisenstat, H.~C.~Elman and M.~H.~Schultz, \emph{Variational iterative methods for nonsymmetric systems of linear equations},
+SIAM J.\ Numer.\ Anal.\ \textbf{20} (1983) 345.
+\bibitem{KCM2024} I.~Kanamori, W.-L.~Chen and H.~Matsufuru, \emph{Spectrum of preconditioned Moebius domain-wall operators}, PoS \textbf{LATTICE2024} (2025) 414.
+\bibitem{Neff} H.~Neff, \emph{A better conditioned domain wall operator}, arXiv:1501.04950.
+\bibitem{CKMN} W.-L.~Chen, I.~Kanamori, H.~Matsufuru and H.~Neff, \emph{Accelerating iterative linear equation solver using modified domain-wall fermion matrix in lattice QCD simulations}, in \emph{Computational Science and Its Applications -- ICCSA 2025 Workshops}, Lecture Notes in Computer Science, Springer (2025), pp.~54--69, doi:10.1007/978-3-031-97606-3\_5.
+\bibitem{VK} E.~Vecharynski and A.~V.~Knyazev, \emph{Absolute value preconditioning for symmetric indefinite linear systems},
+SIAM J.\ Sci.\ Comput.\ \textbf{35} (2013) A696.
+\bibitem{Manteuffel} T.~A.~Manteuffel, \emph{The Tchebychev iteration for nonsymmetric linear systems},
+Numer.\ Math.\ \textbf{28} (1977) 307.
+\bibitem{Saad} Y.~Saad, \emph{Iterative Methods for Sparse Linear Systems}, 2nd ed., SIAM, Philadelphia (2003).
+\end{thebibliography}
+
+\end{document}
