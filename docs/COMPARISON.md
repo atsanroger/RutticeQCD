@@ -2,6 +2,8 @@
 
 One entry per comparison against a reference code. A feature gets its own
 regression baseline only after an entry here shows it agreeing with the reference.
+The comparisons are ours, made with the numbers Bridge++ ships or prints; the Bridge++
+developers have not reviewed them.
 
 ## 1. Plaquette of the Bridge++ test configuration
 

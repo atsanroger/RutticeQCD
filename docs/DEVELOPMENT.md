@@ -88,8 +88,11 @@ being the derivatives of their actions.
 applied to a vector; solver iteration counts; meson correlators in thirteen channels on
 every time slice, for one and two quark flavours and for point and smeared sources, with
 and without Coulomb gauge fixing; the domain-wall pion correlator; and one trajectory of
-each of Bridge++'s HMC tests (quenched, Wilson, clover, domain-wall, RHMC, even-odd). The
-comparisons of the solves are written down in [docs/COMPARISON.md](COMPARISON.md).
+Bridge++'s HMC tests of the actions Ruttice has (quenched, Wilson, clover, domain-wall over
+Pauli-Villars fields, RHMC, even-odd Wilson). The comparisons of the solves are written down
+in [docs/COMPARISON.md](COMPARISON.md). They are our comparisons with the numbers Bridge++
+prints; the Bridge++ developers have not reviewed them. What Bridge++ does not compute (the
+domain-wall multigrid, the low-mode probe, `A4_A4`) has only the checks above.
 
 The comparisons read a Bridge++ test configuration, `conf_04040408.txt`, that ships with
 Bridge++ and is not part of this repository. Put it in `run/` and `cargo test` finds it;
