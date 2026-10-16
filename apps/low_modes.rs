@@ -8,9 +8,21 @@
 //! unpaired ones below the pairs, and the sum of their chiralities is the charge (v2 12⁴: one
 //! unpaired mode, +1, Q = +1; v2 16⁴: none, Q ≈ 0).
 //!
+//! With `--coherence N1,N2,...`, Lüscher's test of local coherence (JHEP 0707:081) on these
+//! WANTED = K modes, with the prolongation of the multigrid (`DeviceBasis`: aggregates of
+//! `--block` b⁴ sites on the even sites, every s, split by Γ5 = γ5 R) made of the lowest N:
+//! - right: P from the right singular vectors v_0..v_(N−1); |P P† v_j| for j = N..K−1;
+//! - left: the same with the left ones, u_j = Ã v_j / σ_j;
+//! - cross: P from v, |P P† u_j| for all j < K (what the coarse operator P† Ã P needs: Ã maps
+//!   the near-null space of the right vectors onto that of the left ones);
+//! - random: |P P† t| of a random vector t.
+//!
+//! Locally coherent modes give right and left near 1 for N much smaller than K.
+//!
 //! ```text
 //! ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N]
 //!     [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N]
+//!     [--coherence N1,N2,...] [--block B]
 //! ```
 //!
 //! FORMAT: text, binary, nersc, ildg or scidac; SMEAR 1 for stout ρ = 0.1 × 3 (on the GPU), 0
@@ -25,7 +37,7 @@
 //! its estimate first.
 
 use ruttice::backend::cuda_bridge::{
-    CudaMdwf, DeviceLinks, DeviceParities, DeviceReal, DeviceSpinor,
+    CudaMdwf, DeviceBasis, DeviceLinks, DeviceParities, DeviceReal, DeviceSpinor,
 };
 use ruttice::eigen::{lowest, Chebyshev, LanczosParams};
 use ruttice::fermion::{EoForm, MdwfParams, PvRatio, SplitParity};
@@ -34,13 +46,16 @@ use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::kernel::Dirac;
 use ruttice::measure::chirality;
 use ruttice::solver::largest_magnitude;
-use ruttice::{random_spinor, Boundary, Field, Lattice, Normal, Parity, Spinor, Vector, ND};
+use ruttice::solver::preconditioner::multigrid::Aggregation;
+use ruttice::{
+    random_spinor, Boundary, Field, Lattice, LinearFn, Normal, Parity, Spinor, Vector, ND,
+};
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-const USAGE: &str = "usage: ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N] [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N]";
+const USAGE: &str = "usage: ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N] [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N] [--coherence N1,N2,...] [--block B]";
 
 struct Options {
     dims: [usize; ND],
@@ -60,6 +75,8 @@ struct Options {
     dim: usize,
     tol: f64,
     restarts: usize,
+    coherence: Vec<usize>,
+    block: usize,
 }
 
 fn options() -> Result<Options, Box<dyn Error>> {
@@ -99,6 +116,15 @@ fn options() -> Result<Options, Box<dyn Error>> {
         dim: value("--dim", (4 * wanted).max(wanted + 12) as f64)? as usize,
         tol: value("--tol", 1e-6)?,
         restarts: value("--restarts", 100.0)? as usize,
+        coherence: match flag("--coherence") {
+            Some(Some(list)) => list
+                .split(',')
+                .map(|n| n.trim().parse())
+                .collect::<Result<_, _>>()?,
+            Some(None) => return Err("--coherence needs a list".into()),
+            None => Vec::new(),
+        },
+        block: value("--block", 4.0)? as usize,
     })
 }
 
@@ -225,6 +251,101 @@ fn run<T: DeviceReal>(
             res / lambda.abs(),
             chirality::<Dirac>(&psi.to_host()?, true),
             chirality::<Dirac>(&q.to_host()?, false)
+        );
+    }
+    if !o.coherence.is_empty() {
+        coherence(o, lat, &mut r, &e.values, &e.vectors, &x0)?;
+    }
+    Ok(())
+}
+
+/// |π P P† ι w| / |w| for the prolongation `basis`.
+fn kept<T: DeviceReal>(basis: &DeviceBasis, w: &DeviceSpinor<T>) -> f64 {
+    let mut c = basis.coarse_field::<T>(1);
+    basis.restrict(&mut c, w);
+    let mut back = w.zeros_like();
+    basis.prolong(&mut back, &c);
+    let (mut a, mut b) = ([0.0], [0.0]);
+    back.norm_sqr(&mut a);
+    w.norm_sqr(&mut b);
+    (a[0] / b[0]).sqrt()
+}
+
+/// The prolongation of the multigrid from the vectors `v` (on the even sites).
+fn basis_of<T: DeviceReal>(
+    agg: &Arc<Aggregation>,
+    ls: usize,
+    v: &[DeviceSpinor<T>],
+    whole: &DeviceSpinor<T>,
+) -> Result<DeviceBasis, Box<dyn Error>> {
+    let mut basis = DeviceBasis::empty(agg, ls, v.len(), false)?;
+    for (j, y) in v.iter().enumerate() {
+        let mut s = whole.zeros_like();
+        DeviceParities.insert(&mut s, y);
+        basis.add(j, &s);
+    }
+    basis.finish()?;
+    Ok(basis)
+}
+
+/// Lüscher's test (module documentation).
+fn coherence<T: DeviceReal>(
+    o: &Options,
+    lat: &Arc<Lattice>,
+    a: &mut impl LinearFn<DeviceSpinor<T>>,
+    values: &[f64],
+    right: &[DeviceSpinor<T>],
+    random: &DeviceSpinor<T>,
+) -> Result<(), Box<dyn Error>> {
+    let k = right.len();
+    let agg = Aggregation::new(lat, [o.block; ND]);
+    let whole = DeviceSpinor::<T>::zeros_fifth(lat, o.ls)?;
+    // u_j = Ã v_j / σ_j, normalised.
+    let left: Vec<DeviceSpinor<T>> = right
+        .iter()
+        .map(|v| {
+            let mut u = v.zeros_like();
+            a.mult(&mut u, v);
+            let mut n = [0.0];
+            u.norm_sqr(&mut n);
+            u.scale(&[1.0 / n[0].sqrt()]);
+            u
+        })
+        .collect();
+    println!(
+        "# local coherence: blocks of {}^4, K = {k} modes (sigma {:.3e} .. {:.3e})",
+        o.block,
+        values[0].max(0.0).sqrt(),
+        values[k - 1].max(0.0).sqrt()
+    );
+    println!("# N  right: mean min at_N  left: mean min at_N  cross: mean min  random");
+    let stats = |basis: &DeviceBasis, w: &[DeviceSpinor<T>]| -> (f64, f64, f64) {
+        let f: Vec<f64> = w.iter().map(|x| kept(basis, x)).collect();
+        let mean = f.iter().sum::<f64>() / f.len() as f64;
+        let min = f.iter().copied().fold(f64::INFINITY, f64::min);
+        (mean, min, f[0])
+    };
+    for &n in &o.coherence {
+        if n == 0 || n >= k {
+            println!("{n:3}  (needs 0 < N < K)");
+            continue;
+        }
+        let p_right = basis_of(&agg, o.ls, &right[..n], &whole)?;
+        let p_left = basis_of(&agg, o.ls, &left[..n], &whole)?;
+        let r = stats(&p_right, &right[n..]);
+        let l = stats(&p_left, &left[n..]);
+        let c = stats(&p_right, &left);
+        println!(
+            "{n:3}  {:.4} {:.4} {:.4}  {:.4} {:.4} {:.4}  {:.4} {:.4}  {:.4}",
+            r.0,
+            r.1,
+            r.2,
+            l.0,
+            l.1,
+            l.2,
+            c.0,
+            c.1,
+            kept(&p_right, random)
         );
     }
     Ok(())
