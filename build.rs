@@ -25,8 +25,9 @@ fn main() {
     let source = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("cuda_bridge");
     let build = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("cuda_bridge");
     std::fs::create_dir_all(&build).unwrap();
-    // The architecture of the GPU: 86 is the RTX 30 series; RUTTICE_CUDA_ARCH overrides it.
-    let arch = std::env::var("RUTTICE_CUDA_ARCH").unwrap_or_else(|_| "86".to_string());
+    // The architectures of the GPUs, as a cmake list: 80 the A100 and A30, 86 the RTX 30
+    // series; RUTTICE_CUDA_ARCH overrides it (e.g. "90" or "80;86;90").
+    let arch = std::env::var("RUTTICE_CUDA_ARCH").unwrap_or_else(|_| "80;86".to_string());
     let run = |command: &mut Command| {
         let status = command.status().expect("cmake runs");
         assert!(status.success(), "{command:?} failed");

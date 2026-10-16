@@ -10,7 +10,7 @@ pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
 pub use even_odd::{
     hop_then_of_blocks, schur_factor, solve_even_odd, Dagger, EoForm, EvenOdd, OnParity, PvRatio,
-    Schur, SplitParity, Then,
+    Schur, SchurFactor, SplitParity, Then,
 };
 pub use wilson::links_in_su3;
 

@@ -203,6 +203,58 @@ pub fn schur_factor<F: EvenOdd<H>, H: Vector>(
     }
 }
 
+/// The Schur factor of `op` on the even sites (`schur_factor`) as a map. In the left form it is
+/// K = 1 − M_ee⁻¹ M_eo M_oo⁻¹ M_oe = M_ee⁻¹ Ŝ, Bridge++'s even-odd operator ("D" of its `_eo`
+/// operators).
+pub struct SchurFactor<'a, F: EvenOdd<H>, H> {
+    op: &'a F,
+    form: EoForm,
+    work: F::Work,
+    odd: [H; 2],
+    even: H,
+}
+
+impl<'a, F: EvenOdd<H>, H: Vector> SchurFactor<'a, F, H> {
+    /// `like_even` and `like_odd` give the shapes of the fields on the two parities.
+    pub fn new(op: &'a F, form: EoForm, like_even: &H, like_odd: &H) -> Self {
+        Self {
+            op,
+            form,
+            work: op.even_odd_work(),
+            odd: [like_odd.zeros_like(), like_odd.zeros_like()],
+            even: like_even.zeros_like(),
+        }
+    }
+
+    fn apply(&mut self, out: &mut H, inp: &H, dagger: Dagger) {
+        for f in self.odd.iter_mut().chain([&mut self.even]) {
+            crate::fit(f, inp);
+        }
+        let scratch = (&mut self.odd, &mut self.even);
+        schur_factor(
+            self.op,
+            &mut self.work,
+            self.form,
+            scratch,
+            out,
+            inp,
+            dagger,
+        );
+    }
+}
+
+impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for SchurFactor<'_, F, H> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        self.apply(out, inp, Dagger::No);
+    }
+}
+
+impl<F: EvenOdd<H>, H: Vector> LinearOp<H> for SchurFactor<'_, F, H> {
+    fn mult_dag(&mut self, out: &mut H, inp: &H) {
+        self.apply(out, inp, Dagger::Yes);
+    }
+}
+
 /// The Pauli-Villars preconditioned operator on the even sites in the form `form`, the Schur
 /// factor of `op` followed by the adjoint of that of `pv` (normally the same operator at mass
 /// 1), for any operator with even-odd blocks. `fermion::mdwf::PvEvenOdd` is this for the

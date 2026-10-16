@@ -36,6 +36,24 @@
   `measure::chirality`; `ruttice-low-modes` (feature `cuda-bridge`): the lowest singular
   values of the even-odd Pauli-Villars domain-wall operator on the GPU and the chirality of
   their vectors, the topological near-zero modes. Bridge++ has no counterpart to compare with.
+- The even-odd ratio of two flavours over two Pauli-Villars (or Hasenbusch) flavours,
+  `hmc::TwoFlavorRatioEo`, as Bridge++'s `Action_F_alt_Ratio_eo`: H = Γ5 K on the even sites,
+  K = 1 − T_ee⁻¹ M_eo T_oo⁻¹ M_oe (`fermion::SchurFactor`, the left form). Wilson and domain-wall
+  fermions (not clover), with CG or Chebyshev and the initial guess of the force solves; on the
+  CPU and, with `Main.backend : cuda_bridge`, on the device (`hmc::EvenOddHalves` for
+  `CudaMdwf`): `action_type : Ratio` with `operator_type : Even_odd`. Checked: the force is the
+  derivative of the action and S = |ξ_e|² after the heat bath (domain-wall and Wilson); K, K† and
+  Γ5 on the even sites against the blocks and the whole lattice; Bridge++'s
+  test_HMC_Wilson_Nf2_alt_eo_ratio (8⁴) to 1e-11; the trajectories of the device are those of
+  the CPU. **Not agreeing**: Bridge++'s domain-wall tests test_HMC_Domainwall_Nf2_PV_alt_eo and
+  _nosmr (8⁴) end 7e-6 and 1e-5 from their expected plaquettes, while the lexical ratio of the
+  same operator on the same lattice agrees to 1e-11. Not understood: Bridge++'s numbers inside
+  the trajectory are not at hand (its even-odd domain-wall HMC runs only on QXS fields, which
+  neither Bridge++ tree here builds). The two tests are `#[ignore]` with the numbers.
+- The Bridge++ tests of its alternative code with domain-wall fermions over Pauli-Villars
+  fields on all sites (test_HMC_Domainwall_Nf2_PV_alt and _nosmr, 8⁴) agree to 1e-11.
+- The CUDA kernels are compiled for the architectures 80 and 86 by default (A100 and A30, RTX
+  30 series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
 - The README, `docs/DEVELOPMENT.md` and the 0.1.0 entry below no longer say that everything is
   checked against Bridge++: the comparisons are ours, where Bridge++ computes the same thing,
   and its developers have not reviewed Ruttice.

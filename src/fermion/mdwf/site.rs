@@ -4,6 +4,15 @@
 use super::*;
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
+    /// `out = Γ5 inp`, Γ5 = γ5 R (R reverses the fifth dimension), on the sites `inp` has.
+    pub fn mult_gamma5_on<S: Sites>(
+        &self,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
+    ) {
+        self.combine(out, &[(inp, 1.0, 0.0)], (false, true), self.params.mass);
+    }
+
     /// `out = Q inp`, or `Q⁻¹ inp` with `inverse`: Q_0 = P- + α P+, Q_s = α inside,
     /// Q_(Ls-1) = P+ + α P-. Q is Hermitian. The solution of D x = b is x = Q x^(α) for
     /// D^(α) x^(α) = b.

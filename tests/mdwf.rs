@@ -5,7 +5,7 @@ mod common;
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
 use ruttice::fermion::{
     solve_even_odd, Bound, Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams,
-    PvEvenOdd, PvPreconditioned, Variant,
+    PvEvenOdd, PvPreconditioned, SchurFactor, Variant,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
@@ -973,7 +973,38 @@ fn even_odd_pv_operator_is_made_of_the_blocks() {
         let (d, d_dag) = (diff(&ax, &want), diff(&adag_x, &want_dag));
         assert!(diff(&ax, &x) > 0.1 && diff(&adag_x, &x) > 0.1);
         assert!(d < 1e-13 && d_dag < 1e-13, "{form:?}: {d:e}, {d_dag:e}");
+
+        // One factor alone (`SchurFactor`, through `schur_factor` and the fused `hop_then`).
+        let mut odd = even.zeros_like();
+        odd.set_parity(Parity::Odd);
+        let mut k = SchurFactor::new(&op, form, &even, &odd);
+        let (mut kx, mut kdag_x) = (even.zeros_like(), even.zeros_like());
+        k.mult(&mut kx, &x);
+        k.mult_dag(&mut kdag_x, &x);
+        let (d, d_dag) = (
+            diff(&kx, &factor(&op, form, Dagger::No, &x)),
+            diff(&kdag_x, &factor(&op, form, Dagger::Yes, &x)),
+        );
+        assert!(
+            d < 1e-13 && d_dag < 1e-13,
+            "SchurFactor {form:?}: {d:e}, {d_dag:e}"
+        );
     }
+
+    // Γ5 = γ5 R on the even sites is that of the whole lattice there.
+    let whole = random(&lat, MOBIUS.ls, 2, 153);
+    let g_whole = {
+        let mut g = whole.zeros_like();
+        op.mult_gamma5(&mut op.work(), &mut g, &whole);
+        let mut g_e = even.zeros_like();
+        extract_parity(&mut g_e, &g, index, Parity::Even);
+        g_e
+    };
+    let mut w_e = even.zeros_like();
+    extract_parity(&mut w_e, &whole, index, Parity::Even);
+    let mut g_half = even.zeros_like();
+    op.mult_gamma5_on(&mut g_half, &w_e);
+    assert!(diff(&g_half, &g_whole) < 1e-15, "Γ5 on the even sites");
 }
 
 /// P† ι and π P on the sites of one parity give what restricting the field put onto the
