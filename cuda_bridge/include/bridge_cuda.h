@@ -444,6 +444,14 @@ void bridge_cuda_coarse_pass_f64(
 );
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
 
+// Stout smearing (gauge/stout.cuh), in double precision, links whole: v = exp(iQ) u for one
+// step, and one step of the chain rule of its force (Sigma of u from Sigma' of v, with i Theta
+// as scratch). rho: the 4 x 4 weights, row-major.
+void bridge_cuda_stout_step(double* d_v, const double* d_u, const int* dims, const double* rho, cudaStream_t stream);
+void bridge_cuda_stout_chain(
+    double* d_sigma, double* d_itheta, const double* d_sigma_prime, const double* d_u,
+    const int* dims, const double* rho, cudaStream_t stream);
+
 // The levels below the coarse lattice (multigrid/levels.cuh): out = Q^dag v and out (+)= Q y
 // between a level and the one above, Q from test vectors on the level above (in double
 // precision), the sources of the probing of a level's operator and its blocks from the

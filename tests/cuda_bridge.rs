@@ -1503,6 +1503,100 @@ fn multigrid_levels_on_the_device() {
     }
 }
 
+/// Stout smearing on the device is that of the CPU: the smeared links of three steps of ρ = 0.1
+/// and one of weights only in space, the chain rule of the force through them, and the domain-
+/// wall operator on the links smeared there.
+#[test]
+fn stout_smearing_on_the_device() {
+    use ruttice::backend::cuda_bridge::DeviceLinks;
+    use ruttice::gauge::smearing::{spatial, uniform, Stout};
+    use ruttice::gauge::{GaugeSmearing, Smear};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 461);
+    let largest = |a: &Field<f64, Gauge>, b: &Field<f64, Gauge>| -> (f64, f64) {
+        let size = a.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        let diff = a
+            .as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+        (diff, size)
+    };
+    let device_u = DeviceLinks::from_host(&u).unwrap();
+    for (rho, steps) in [(uniform(0.1), 3), (spatial(0.15), 1)] {
+        let smearing = GaugeSmearing {
+            smear: Smear::Stout(Stout { rho }),
+            steps,
+        };
+        let levels = smearing.levels(&u);
+        let device_levels = smearing.levels_on_device(&device_u).unwrap();
+        for (k, (a, b)) in levels.iter().zip(&device_levels).enumerate() {
+            let (diff, size) = largest(a, &b.to_host().unwrap());
+            assert!(
+                diff < 1e-13 * size,
+                "step {k}: the links differ by {diff:e}"
+            );
+        }
+        // Σ' arbitrary matrices.
+        let sigma = random_gauge(&lat, 462);
+        let expected = smearing.chain(
+            {
+                let mut s = Field::<f64, Gauge>::gauge(&lat);
+                s.as_mut_slice().copy_from_slice(sigma.as_slice());
+                s
+            },
+            &u,
+            &levels,
+        );
+        let got = smearing
+            .chain_on_device(
+                DeviceLinks::from_host(&sigma).unwrap(),
+                &device_u,
+                &device_levels,
+            )
+            .unwrap()
+            .to_host()
+            .unwrap();
+        let (diff, size) = largest(&expected, &got);
+        eprintln!("{steps} steps: the chain rule differs by {diff:e} of {size:e}");
+        assert!(diff < 1e-12 * size);
+    }
+
+    // D on links smeared on the device is D on links smeared on the CPU.
+    let smearing = GaugeSmearing {
+        smear: Smear::Stout(Stout { rho: uniform(0.1) }),
+        steps: 3,
+    };
+    let v = smearing.apply(&u);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.0,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, _) = mdwf_pair(&lat, &v, params);
+    let mut gpu = CudaMdwf::<f64>::new(&lat, params).unwrap();
+    let device_v = smearing.levels_on_device(&device_u).unwrap().pop().unwrap();
+    gpu.set_gauge_on_device(&device_v).unwrap();
+    let x = random_fifth(&lat, 4, 463);
+    let expected = {
+        let mut out = x.zeros_like();
+        cpu.mult(&mut cpu.work(), &mut out, &x, Variant::D);
+        out
+    };
+    let mut out = DeviceSpinor::from_host(&x).unwrap().zeros_like();
+    gpu.mult(
+        &mut gpu.work(),
+        &mut out,
+        &DeviceSpinor::from_host(&x).unwrap(),
+        Variant::D,
+    );
+    let d = worst(&out.to_host().unwrap(), &expected);
+    assert!(d < 1e-12, "D on the smeared links differs by {d:e}");
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:

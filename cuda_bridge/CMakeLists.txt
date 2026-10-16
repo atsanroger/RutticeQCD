@@ -21,6 +21,7 @@ set(BRIDGE_CUDA_SOURCES
     src/multigrid/levels.cu
     src/multigrid/dense.cu
     src/gauge/gauge.cu
+    src/gauge/stout.cu
     src/linalg/blas.cu
 )
 
