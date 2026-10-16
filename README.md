@@ -29,8 +29,12 @@ every kind of hardware.
 The code is written for a clear structure and for speed, at some cost in readability where
 the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory and also low-level assembly.
 
-Everything it computes is checked number by number against
-[Bridge++](https://bridge.kek.jp/Lattice-code/).
+Where [Bridge++](https://bridge.kek.jp/Lattice-code/) computes the same thing, we compare our
+numbers with its results, number by number ([docs/COMPARISON.md](docs/COMPARISON.md)). What
+Bridge++ does not have (the domain-wall multigrid, the low-mode probe, the `A4_A4` channel)
+is checked only by the properties the results must have
+([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)). These comparisons are ours: the Bridge++
+developers have not reviewed Ruttice.
 
 ## Quick start
 
@@ -175,7 +179,7 @@ All formats maintain consistent lexicographical ordering: site ($x$ fastest), fo
 | [docs/USAGE.md](docs/USAGE.md) | the parameter files and the ways of running |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | operators, gamma matrices, correlators: for comparing numbers |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | the structure of the code, the tests, the library, what is not there yet |
-| [docs/COMPARISON.md](docs/COMPARISON.md) | the comparisons with Bridge++, number by number |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | our comparisons with the results of Bridge++, number by number |
 | [CHANGELOG.md](CHANGELOG.md) | what changed |
 
 ## Bug Reports & Contributing with AI Agents
@@ -197,6 +201,9 @@ This project draws heavily on [Bridge++](https://bridge.kek.jp/Lattice-code/): i
 algorithms, its conventions, its parameter files and its tests. Much has been changed, as
 the Rust language asks for, and the aims differ: Bridge++ is written to be read and to be
 general. But without Bridge++ there would be no Ruttice.
+
+The CUDA kernels under `cuda_bridge/` are taken from Bridge++, and its developers have agreed
+to their release here. They have not reviewed Ruttice; its errors are ours.
 
 ## License
 

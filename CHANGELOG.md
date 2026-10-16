@@ -31,6 +31,14 @@
   `Main.backend : cuda_bridge` the links, the momenta, the integrator, the gauge actions and the
   smearing are on the device too (`gauge/links.cuh`), and the links cross over only for the
   flow and to be saved.
+- `eigen::lowest`: the lowest eigenpairs of a Hermitian positive operator by thick-restart
+  Lanczos, optionally on a Chebyshev polynomial, for fields on the host or on a device;
+  `measure::chirality`; `ruttice-low-modes` (feature `cuda-bridge`): the lowest singular
+  values of the even-odd Pauli-Villars domain-wall operator on the GPU and the chirality of
+  their vectors, the topological near-zero modes. Bridge++ has no counterpart to compare with.
+- The README, `docs/DEVELOPMENT.md` and the 0.1.0 entry below no longer say that everything is
+  checked against Bridge++: the comparisons are ours, where Bridge++ computes the same thing,
+  and its developers have not reviewed Ruttice.
 
 ## 0.2.0 (2026-10-14)
 
@@ -85,8 +93,9 @@ The first tagged version.
 - **Block GCR** (`Block_GCR`) for domain-wall fermions: the right-hand sides of a solve share
   their directions. On the lattices tried it takes as many steps as GCR and more time.
 - **Threads.** `cpu_thread` in a parameter file, or `RAYON_NUM_THREADS`.
-- **Checked against Bridge++**: operators, solver iteration counts, correlators, and one
-  trajectory of each of its HMC tests.
+- **Compared with the results of Bridge++** (our comparisons; not reviewed by its
+  developers): operators, solver iteration counts, correlators, and one trajectory of its
+  HMC tests of the actions Ruttice has. The domain-wall multigrid has no counterpart there.
 
 ### Changed since the last state of `main` (0.0.1, 2026-10-10)
 
