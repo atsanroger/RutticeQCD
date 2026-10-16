@@ -730,8 +730,13 @@ fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
 /// of Wilson fermions (`bridge_test_wilson_nf2_alt_eo_ratio_8888`), and of domain-wall fermions
 /// on their own K = T_ee⁻¹ Ŝ and K† against the blocks, Γ5 on the even sites against that of the
 /// whole lattice (`even_odd_pv_operator_is_made_of_the_blocks`), the force against the action and
-/// S = |ξ_e|² after the heat bath (`even_odd_ratio_force_is_the_derivative`). Not found: Bridge++'s
-/// numbers inside the trajectory. Its even-odd domain-wall HMC runs only on QXS fields, and
+/// S = |ξ_e|² after the heat bath (`even_odd_ratio_force_is_the_derivative`). On Bridge++'s side,
+/// its D_ee⁻¹ and D_ee⁻† by L_inv, U_inv, Ldag_inv, Udag_inv were transcribed and are exact (to
+/// 4e-16), and Index_eo::convertField maps the noise site by site, every s alike. Seven other
+/// conventions tried in a self-consistent action (the noise of the odd sites, reflected in s or
+/// conjugated; K in the right form; Γ5 without R; H ξ for H† ξ; and their pairs) all land 2e-7
+/// to 1e-4 away, none to 1e-11: the plaquette after one trajectory moves by 1e-5 for any other
+/// pseudofermion field. Not found: Bridge++'s numbers inside the trajectory. Its even-odd domain-wall HMC runs only on QXS fields, and
 /// neither the 2.0.0-mod.34 tree here (no `vsimd_common_float-inc.h`) nor mod.93 (QXS behind
 /// its `lib_alt`) builds that test.
 #[test]
