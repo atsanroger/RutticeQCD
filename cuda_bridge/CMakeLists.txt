@@ -15,6 +15,7 @@ set(BRIDGE_CUDA_SOURCES
     src/fermion/clover.cu
     src/fermion/mdwf.cu
     src/fermion/dd.cu
+    src/fermion/force.cu
     src/multigrid/multigrid.cu
     src/multigrid/mrhs.cu
     src/multigrid/fold.cu

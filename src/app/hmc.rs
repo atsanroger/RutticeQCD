@@ -41,6 +41,9 @@ pub struct HmcConfig {
     pub output: HmcOutput,
     /// The Wilson flow measured along the run.
     pub flow: Option<FlowMonitor>,
+    /// The domain-wall operators of the fermion actions on the device, with their solves and
+    /// the derivative of the actions (`Main.backend : cuda_bridge`; the Ratio action only).
+    pub device: bool,
 }
 
 /// t0 and the topological charge by the Wilson flow of a copy of the configuration, after every
@@ -269,7 +272,7 @@ impl HmcSolver {
 }
 
 impl HmcSolver {
-    fn asks_for(&self, p: HmcPreconditioner) -> bool {
+    pub(super) fn asks_for(&self, p: HmcPreconditioner) -> bool {
         self.preconditioner == Some(p)
     }
 
@@ -693,6 +696,11 @@ impl HmcConfig {
                             solver,
                         };
                         let action = match (*fermion, *denominator) {
+                            (HmcFermion::DomainWall { .. }, d) if self.device => {
+                                let p = mdwf_params(fermion);
+                                let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
+                                device_ratio(lat, (p, pd), solver.neff_alpha, c)?
+                            }
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
@@ -852,6 +860,42 @@ fn ratio<O: ForceOp + 'static>(
         a = a.with_conditioned(o);
     }
     Box::new(a)
+}
+
+/// `ratio` of domain-wall operators on the device: D of `p` over D of `pd`, solved with Neff's
+/// `alpha` if it is not 1.
+#[cfg(feature = "cuda-bridge")]
+fn device_ratio(
+    lat: &Arc<Lattice>,
+    (p, pd): (MdwfParams, MdwfParams),
+    alpha: f64,
+    c: Common,
+) -> Result<Box<dyn MdAction>, CliError> {
+    use crate::backend::cuda_bridge::CudaMdwf;
+    let make = |p: MdwfParams| {
+        CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
+    };
+    let conditioned = match alpha != 1.0 {
+        true => {
+            let mut op = make(p)?;
+            op.set_alpha(alpha);
+            Some(op)
+        }
+        false => None,
+    };
+    Ok(ratio((make(p)?, make(pd)?), None, conditioned, c))
+}
+
+#[cfg(not(feature = "cuda-bridge"))]
+fn device_ratio(
+    _: &Arc<Lattice>,
+    _: (MdwfParams, MdwfParams),
+    _: f64,
+    _: Common,
+) -> Result<Box<dyn MdAction>, CliError> {
+    Err(CliError::Invalid(
+        "Main.backend: cuda_bridge needs a program built with --features cuda-bridge".into(),
+    ))
 }
 
 /// A power of the determinant of `op` by the rational approximations of the action and of

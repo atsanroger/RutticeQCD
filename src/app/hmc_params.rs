@@ -406,9 +406,11 @@ impl HmcParams {
 
     /// The run the file describes.
     pub fn to_config(&self) -> Result<HmcConfig, CliError> {
-        if self.main.backend != Backend::Cpu {
-            return invalid("Main.backend: HMC runs on cpu".into());
-        }
+        let device = match self.main.backend {
+            Backend::Cpu => false,
+            Backend::CudaBridge => true,
+            _ => return invalid("Main.backend: HMC runs on cpu or cuda_bridge".into()),
+        };
         let run = &self.hmc;
         let start = match run.gauge_config_status {
             StartStatus::Continue => StartConfig::File {
@@ -466,6 +468,27 @@ impl HmcParams {
             }
         }
         let grid = self.main.grid_size;
+        if device {
+            if grid != [1; ND] {
+                return invalid("Main.backend: cuda_bridge runs on one process".into());
+            }
+            for (i, a) in actions.iter().enumerate() {
+                match a {
+                    ActionConfig::Plaquette { .. } | ActionConfig::Rectangle { .. } => {}
+                    ActionConfig::TwoFlavorRatio {
+                        fermion: HmcFermion::DomainWall { .. },
+                        solver,
+                        ..
+                    } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
+                    _ => {
+                        return invalid(format!(
+                            "fermion action {}: with Main.backend cuda_bridge only the Ratio of domain-wall fermions, without the multigrid, is on the device",
+                            i
+                        ))
+                    }
+                }
+            }
+        }
         Ok(HmcConfig {
             lattice: self.main.lattice_size,
             process_grid: (grid != [1; ND]).then_some(grid),
@@ -494,6 +517,7 @@ impl HmcParams {
                 format: GaugeFormat::from(run.gauge_config_type_output),
             },
             flow: self.gradient_flow.map(FlowBlock::to_config).transpose()?,
+            device,
         })
     }
 }

@@ -444,6 +444,14 @@ void bridge_cuda_coarse_pass_f64(
 );
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
 
+// The derivative of a fermion action by the links for the hops of the Wilson kernel
+// (fermion/force.cuh), in double precision: M of -2 Re zeta^dag dD eta with eta the field the
+// hops act on, gamma5 zeta and gamma5 eta given; coef the coefficient of the hops in D.
+void bridge_cuda_hop_force(
+    double* d_m, const double* d_zeta, const double* d_eta, const double* d_g5zeta, const double* d_g5eta,
+    const double* d_gauge, int link_rows, const int* dims, const int* bc, int Ls, double coef,
+    cudaStream_t stream);
+
 // Stout smearing (gauge/stout.cuh), in double precision, links whole: v = exp(iQ) u for one
 // step, and one step of the chain rule of its force (Sigma of u from Sigma' of v, with i Theta
 // as scratch). rho: the 4 x 4 weights, row-major.

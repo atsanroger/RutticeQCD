@@ -800,3 +800,123 @@ impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
         CudaMdwf::mult_q(self, out, inp, inverse);
     }
 }
+
+extern "C" {
+    fn bridge_cuda_hop_force(
+        m: *mut f64,
+        zeta: *const f64,
+        eta: *const f64,
+        g5zeta: *const f64,
+        g5eta: *const f64,
+        gauge: *const f64,
+        link_rows: i32,
+        dims: *const i32,
+        bc: *const i32,
+        ls: i32,
+        coef: f64,
+        stream: *mut c_void,
+    );
+}
+
+impl CudaMdwf<f64> {
+    /// M of −2 Re ζ† δD η for the links of the operator (dS = Re tr X M for δU = X U), on the
+    /// device (`fermion/force.cuh`): `ForceOp::derivative` of the CPU's `Mdwf`, the hops of the
+    /// Wilson kernel acting on w = (b − c Y) Q η.
+    pub fn derivative_on_device(
+        &self,
+        zeta: &DeviceSpinor<f64>,
+        eta: &DeviceSpinor<f64>,
+    ) -> Result<DeviceLinks, CudaError> {
+        assert!(zeta.same_shape(eta) && eta.vectors == 1 && eta.parity.is_none());
+        let MdwfParams {
+            ls, m5, b, c, mass, ..
+        } = self.params;
+        let mut q = eta.zeros_like();
+        if self.alpha != 1.0 {
+            self.mult_q(&mut q, eta, false);
+        } else {
+            q.copy_from(eta);
+        }
+        let w = eta.zeros_like();
+        // SAFETY: two fields of the same shape, the output not the input.
+        unsafe {
+            f64::mdwf_fifth(
+                w.data.ptr,
+                q.data.ptr,
+                b,
+                -c,
+                std::ptr::null(),
+                0.0,
+                0.0,
+                padded(eta.sites()) as i32,
+                ls as i32,
+                mass,
+                0,
+            );
+        }
+        let (mut g5w, mut g5zeta) = (eta.zeros_like(), eta.zeros_like());
+        gamma5(&mut g5w, &w, false);
+        gamma5(&mut g5zeta, zeta, false);
+        let m = DeviceLinks::zeros(&self.gauge.lat)?;
+        let coef = -(4.0 - m5) / (8.0 - 2.0 * m5);
+        // SAFETY: four fields of the operator's shape, its links, and a field of matrices of
+        // its lattice.
+        unsafe {
+            bridge_cuda_hop_force(
+                m.data.ptr,
+                zeta.data.ptr,
+                w.data.ptr,
+                g5zeta.data.ptr,
+                g5w.data.ptr,
+                self.gauge.links.ptr,
+                self.geometry.link_rows,
+                self.geometry.dims.as_ptr(),
+                self.geometry.bc.as_ptr(),
+                ls as i32,
+                coef,
+                STREAM,
+            );
+        }
+        Ok(m)
+    }
+}
+
+/// The domain-wall operator on the device in the pseudofermion actions of HMC: the solves and
+/// the derivative on the device; the force crosses over to the host's integrator as a field of
+/// matrices, the pseudofermions are drawn on the host (Bridge's order) and go over.
+impl crate::hmc::ForceOp for CudaMdwf<f64> {
+    type Field = DeviceSpinor<f64>;
+    fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> Field<f64, Gauge> {
+        must(
+            self.derivative_on_device(zeta, eta)
+                .and_then(|m| m.to_host()),
+        )
+    }
+    fn clover_derivative(
+        &self,
+        _kappa_csw: f64,
+        _v: &Field<f64, Gauge>,
+        _zeta: &DeviceSpinor<f64>,
+        _eta: &DeviceSpinor<f64>,
+    ) -> Field<f64, Gauge> {
+        unreachable!("domain-wall fermions have no clover term")
+    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> DeviceSpinor<f64> {
+        must(DeviceSpinor::zeros_fifth(lat, self.params.ls))
+    }
+    fn draw(&self, xi: &mut DeviceSpinor<f64>, rng: &mut crate::hmc::Mseries) {
+        let lat = xi.lat.clone();
+        let ls = self.params.ls;
+        let mut host = Field::<f64, crate::Spinor>::with_shape(&lat, 24, ls, 1, 1);
+        rng.gauss_lex_global(&lat, 24, ls, |s, x, h| {
+            host.site_mut(0, x)[24 * s..24 * (s + 1)].copy_from_slice(h);
+        });
+        *xi = must(DeviceSpinor::from_host(&host));
+    }
+    fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        gamma5(out, inp, true);
+    }
+    fn right(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        self.mult_q(out, inp, false);
+    }
+}

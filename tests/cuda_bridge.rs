@@ -1597,6 +1597,90 @@ fn stout_smearing_on_the_device() {
     assert!(d < 1e-12, "D on the smeared links differs by {d:e}");
 }
 
+/// The derivative of the pseudofermion action by the links for the domain-wall operator on the
+/// device is that of the CPU (`ForceOp::derivative`), with and without Neff's α.
+#[test]
+fn domain_wall_force_on_the_device() {
+    use ruttice::hmc::ForceOp;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 471);
+    let params = MdwfParams {
+        ls: 6,
+        m5: 1.4,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    for alpha in [1.0, 0.6] {
+        let (mut cpu, mut gpu) = mdwf_pair(&lat, &u, params);
+        cpu.set_alpha(alpha);
+        gpu.set_alpha(alpha);
+        let (zeta, eta) = (random_fifth(&lat, 6, 472), random_fifth(&lat, 6, 473));
+        let expected = cpu.derivative(&zeta, &eta);
+        let got = gpu.derivative(
+            &DeviceSpinor::from_host(&zeta).unwrap(),
+            &DeviceSpinor::from_host(&eta).unwrap(),
+        );
+        let size = expected
+            .as_slice()
+            .iter()
+            .fold(0.0f64, |m, x| m.max(x.abs()));
+        let diff = expected
+            .as_slice()
+            .iter()
+            .zip(got.as_slice())
+            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        eprintln!("α = {alpha}: the derivatives differ by {diff:e} of {size:e}");
+        assert!(size > 0.0 && diff < 1e-12 * size);
+    }
+}
+
+/// HMC with the domain-wall Ratio action on the device (`Main.backend : cuda_bridge`): Bridge++'s
+/// test_HMC_Domainwall_Nf2_PV (stout links, Iwasaki action) gives the trajectories of the CPU,
+/// the plaquette to rounding and ΔH to the tolerance of the solves.
+#[test]
+fn hmc_with_domain_wall_fermions_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF")
+        .replace("number_of_trajectories  : 1", "number_of_trajectories  : 2");
+    let rows = |out: &str| -> Vec<(f64, f64)> {
+        out.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some((f[1].parse().ok()?, f[2].parse().ok()?))
+            })
+            .collect()
+    };
+    let (cpu, gpu) = (
+        run_with_backend(&text, "cpu", "hmc_dw"),
+        run_with_backend(&text, "cuda_bridge", "hmc_dw"),
+    );
+    let (a, b) = (rows(&cpu), rows(&gpu));
+    assert!(a.len() == 2 && a.len() == b.len(), "\n{cpu}\n{gpu}");
+    assert!((a[0].0 - 0.62754640357188).abs() < 1e-11, "{gpu}");
+    for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+        assert!(
+            (p - q).abs() < 1e-12,
+            "plaquette {p} on the CPU, {q} on the device"
+        );
+        assert!(
+            (dh - dk).abs() < 1e-7,
+            "ΔH {dh} on the CPU, {dk} on the device"
+        );
+    }
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:
