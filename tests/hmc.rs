@@ -748,9 +748,11 @@ fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
 /// conventions tried in a self-consistent action (the noise of the odd sites, reflected in s or
 /// conjugated; K in the right form; Γ5 without R; H ξ for H† ξ; and their pairs) all land 2e-7
 /// to 1e-4 away, none to 1e-11: the plaquette after one trajectory moves by 1e-5 for any other
-/// pseudofermion field. Not found: Bridge++'s numbers inside the trajectory. Its even-odd domain-wall HMC runs only on QXS fields, and
-/// neither the 2.0.0-mod.34 tree here (no `vsimd_common_float-inc.h`) nor mod.93 (QXS behind
-/// its `lib_alt`) builds that test.
+/// pseudofermion field. Not found: Bridge++'s numbers inside the trajectory. Its even-odd
+/// domain-wall HMC runs only on QXS fields, and neither the 2.0.0-mod.34 tree here (no
+/// `vsimd_common_float-inc.h`) nor mod.93 (QXS behind its `lib_alt`) builds that test. Bridge++
+/// 2.1.3 (16 Apr 2026) no longer has `Action_F_Ratio_eo` or `test_alt_hmc`: its even-odd actions
+/// are the lexical ones with even-odd solves, so it has no even-odd pseudofermion to compare with.
 #[test]
 #[ignore = "7e-6 from Bridge++'s expected_result, not understood (see the comment)"]
 fn bridge_test_domain_wall_nf2_pv_alt_eo_8888() {
