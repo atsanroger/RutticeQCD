@@ -51,7 +51,9 @@
   the trajectory are not at hand (its even-odd domain-wall HMC runs only on QXS fields, which
   neither Bridge++ tree here builds). The two tests are `#[ignore]` with the numbers.
 - The Bridge++ tests of its alternative code with domain-wall fermions over Pauli-Villars
-  fields on all sites (test_HMC_Domainwall_Nf2_PV_alt and _nosmr, 8⁴) agree to 1e-11.
+  fields on all sites (test_HMC_Domainwall_Nf2_PV_alt and _nosmr, 8⁴) agree to 1e-11, and so
+  does test_HMC_Domainwall_Moebius_Nf2_PV of Bridge++ 2.1.3 (Möbius b = 1.5, c = 0.5). Bridge++
+  2.1.3 itself has no even-odd ratio any more (`Action_F_Ratio_eo` and `test_alt_hmc` are gone).
 - The CUDA kernels are compiled for the architectures 80 and 86 by default (A100 and A30, RTX
   30 series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
 - The README, `docs/DEVELOPMENT.md` and the 0.1.0 entry below no longer say that everything is
