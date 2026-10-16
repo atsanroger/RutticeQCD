@@ -182,3 +182,35 @@ pub fn pion_correlator<T: Storage>(prop: &Field<T, Spinor>) -> Vec<f64> {
     lat.comm.sum(&mut sums);
     sums
 }
+
+/// ⟨ψ|γ5 ψ⟩ / ⟨ψ|ψ⟩ for a field of `ls` spinors per site (summed over all processes): with
+/// `reflect`, Γ5 = γ5 R of domain-wall fermions, R reversing the fifth dimension; else γ5 on
+/// every spinor. For the four-dimensional quark field of a near-zero mode, |chirality| ≈ 1 is
+/// the mark of a topological zero mode, its sign that of the charge.
+pub fn chirality<G: GammaRepre>(psi: &Field<f64, Spinor>, reflect: bool) -> f64 {
+    let lat = psi.lattice();
+    let g5 = G::GAMMA5;
+    let (mut num, mut den) = (0.0, 0.0);
+    for x in 0..lat.num_sites() {
+        let site = psi.site(0, x);
+        let ls = site.len() / 24;
+        for s in 0..ls {
+            let (a_at, b_at) = (24 * s, 24 * if reflect { ls - 1 - s } else { s });
+            for spin in 0..4 {
+                let (to, v) = (g5.col[spin], g5.val[spin]);
+                for c in 0..3 {
+                    let i = a_at + 2 * (c + 3 * spin);
+                    let j = b_at + 2 * (c + 3 * to);
+                    let (ar, ai) = (site[i], site[i + 1]);
+                    let w = v.times(crate::kernel::Cplx::new(site[j], site[j + 1]));
+                    // Re conj(a) w
+                    num += ar * w.re + ai * w.im;
+                    den += ar * ar + ai * ai;
+                }
+            }
+        }
+    }
+    let mut sums = [num, den];
+    lat.comm.sum(&mut sums);
+    sums[0] / sums[1]
+}

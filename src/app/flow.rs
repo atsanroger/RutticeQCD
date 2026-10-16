@@ -15,7 +15,6 @@
 //! and of the charges over the files in the order given, without the first N (`--skip`,
 //! thermalization; `gamma_lines`).
 
-use super::config::GaugeFormat;
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow, T0_LEVEL};
 use crate::gauge::plaquette;
 use crate::numerics::gamma_method;
@@ -74,13 +73,8 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
             _ => return usage(out),
         }
     }
-    let format = match positional[ND].to_ascii_lowercase().as_str() {
-        "text" => GaugeFormat::BridgeText,
-        "binary" => GaugeFormat::Binary,
-        "nersc" => GaugeFormat::Nersc,
-        "ildg" => GaugeFormat::Ildg,
-        "scidac" => GaugeFormat::Scidac,
-        _ => return usage(out),
+    let Some(format) = super::gauge_format_named(&positional[ND]) else {
+        return usage(out);
     };
     let reader = match super::gauge_file(format) {
         Ok(r) => r,

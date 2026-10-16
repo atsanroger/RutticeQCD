@@ -32,6 +32,12 @@ path = "apps/bench_mpi.rs"
 required-features = ["mpi"]
 
 # Times the operators and a solve on the GPU against the CPU.
+# The lowest singular values of the domain-wall operator and their chirality, on the GPU.
+[[bin]]
+name = "ruttice-low-modes"
+path = "apps/low_modes.rs"
+required-features = ["cuda-bridge"]
+
 [[bin]]
 name = "ruttice-bench-cuda"
 path = "apps/bench_cuda.rs"

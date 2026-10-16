@@ -3,6 +3,7 @@
 pub mod app;
 pub mod backend;
 pub mod comm;
+pub mod eigen;
 pub mod fermion;
 pub mod gauge;
 pub mod hmc;

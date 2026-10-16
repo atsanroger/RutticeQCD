@@ -123,6 +123,30 @@ pub fn memory_line() -> String {
     })
 }
 
+/// The gauge-field format of a name on a command line: text, binary, nersc, ildg or scidac
+/// (any case).
+pub fn gauge_format_named(name: &str) -> Option<GaugeFormat> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "text" => GaugeFormat::BridgeText,
+        "binary" => GaugeFormat::Binary,
+        "nersc" => GaugeFormat::Nersc,
+        "ildg" => GaugeFormat::Ildg,
+        "scidac" => GaugeFormat::Scidac,
+        _ => return None,
+    })
+}
+
+/// The links of the file `path` in the format named `name` (`gauge_format_named`).
+pub fn read_gauge_named(
+    name: &str,
+    path: &std::path::Path,
+    lat: &std::sync::Arc<crate::Lattice>,
+) -> Result<crate::Field<f64, crate::Gauge>, CliError> {
+    let format = gauge_format_named(name)
+        .ok_or_else(|| CliError::Invalid(format!("{name}: text, binary, nersc, ildg or scidac")))?;
+    gauge_file(format)?.read(path, lat).map_err(CliError::Gauge)
+}
+
 /// The reader and writer of the gauge-field format `f`.
 pub(crate) fn gauge_file(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
     Ok(match f {
