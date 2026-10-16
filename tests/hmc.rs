@@ -551,7 +551,7 @@ fn bridge_test_domain_wall_nf2_pv() {
 /// c = 0.5, over two Pauli-Villars flavours.
 #[test]
 fn bridge_test_domain_wall_moebius_nf2_pv() {
-    bridge_domain_wall_bc(0.62752900011880808, true, (1.5, 0.5));
+    bridge_domain_wall_bc(0.627_529_000_118_808_1, true, (1.5, 0.5));
 }
 
 /// Bridge++'s domain-wall tests over Pauli-Villars fields of its alternative code

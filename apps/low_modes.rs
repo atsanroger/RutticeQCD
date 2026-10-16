@@ -18,6 +18,11 @@
 //! has degree `--degree` (even, 100) on [lo, hi], hi = 1.1 |λ_max| of Ã†Ã by 50 power steps and
 //! lo = hi × `--lo` (1e-3). `--single` keeps the fields in single precision (half the memory of
 //! the `--dim` + `--keep` Lanczos vectors; the residuals then stop near 1e-6).
+//!
+//! Memory: about `--dim` + `--keep` + 8 fields on the even sites, each V/2 × Ls × 24 reals (V/2 ×
+//! Ls × 192 bytes in double precision): on 24³×48 with Ls 8 that is 0.51 GB a field, so WANTED 8
+//! (keep 16, dim 32) needs 28 GB; `--single --keep 10 --dim 20` about 5 GB. The program prints
+//! its estimate first.
 
 use ruttice::backend::cuda_bridge::{
     CudaMdwf, DeviceLinks, DeviceParities, DeviceReal, DeviceSpinor,
@@ -134,6 +139,13 @@ fn run<T: DeviceReal>(
     links: &DeviceLinks,
 ) -> Result<(), Box<dyn Error>> {
     let start = Instant::now();
+    let fields = o.dim + o.keep + 8;
+    let bytes = (lat.num_sites() / 2 * o.ls * 24 * std::mem::size_of::<T>()) as f64;
+    println!(
+        "# memory: about {fields} fields of {:.2} GB on the even sites, {:.1} GB",
+        bytes / 1e9,
+        fields as f64 * bytes / 1e9
+    );
     let params = |mass: f64| MdwfParams {
         ls: o.ls,
         m5: o.m5,
