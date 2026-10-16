@@ -19,10 +19,20 @@
 //!
 //! Locally coherent modes give right and left near 1 for N much smaller than K.
 //!
+//! With `--fov`, first two properties of Ã that the choice of its solvers rests on:
+//! - how far it is from Γ5-Hermitian: |Γ5 Ã Γ5 x − Ã† x| / |Ã† x| for a random x, and the same
+//!   for the five-dimensional D (|Γ5 D Γ5 x − D† x| / |D† x|), which for c ≠ 0 is not zero;
+//! - the real part of its field of values, [λ_min, λ_max] of the Hermitian part (Ã + Ã†)/2 by
+//!   Lanczos (no polynomial; `--fov-tol`, 1e-4): λ_min < 0 means the field of values reaches into
+//!   the left half plane, where GCR and FGMRES can stagnate and a Chebyshev smoother on a real
+//!   interval cannot be trusted.
+//!
+//! WANTED 0 with `--fov` skips the singular values.
+//!
 //! ```text
 //! ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N]
 //!     [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N]
-//!     [--coherence N1,N2,...] [--block B]
+//!     [--coherence N1,N2,...] [--block B] [--fov] [--fov-tol T]
 //! ```
 //!
 //! FORMAT: text, binary, nersc, ildg or scidac; SMEAR 1 for stout ρ = 0.1 × 3 (on the GPU), 0
@@ -40,7 +50,7 @@ use ruttice::backend::cuda_bridge::{
     CudaMdwf, DeviceBasis, DeviceLinks, DeviceParities, DeviceReal, DeviceSpinor,
 };
 use ruttice::eigen::{lowest, Chebyshev, LanczosParams};
-use ruttice::fermion::{EoForm, MdwfParams, PvRatio, SplitParity};
+use ruttice::fermion::{EoForm, FermionOp, MdwfParams, PvRatio, SplitParity, Variant};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::kernel::Dirac;
@@ -48,14 +58,15 @@ use ruttice::measure::chirality;
 use ruttice::solver::largest_magnitude;
 use ruttice::solver::preconditioner::multigrid::Aggregation;
 use ruttice::{
-    random_spinor, Boundary, Field, Lattice, LinearFn, Normal, Parity, Spinor, Vector, ND,
+    random_spinor, Boundary, Field, Lattice, LinearFn, LinearOp, Normal, Parity, Spinor, Vector,
+    C64, ND,
 };
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-const USAGE: &str = "usage: ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N] [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N] [--coherence N1,N2,...] [--block B]";
+const USAGE: &str = "usage: ruttice-low-modes LX LY LZ LT FORMAT FILE M5 MASS SMEAR WANTED [--single] [--ls N] [--b B] [--c C] [--degree D] [--lo R] [--keep K] [--dim M] [--tol T] [--restarts N] [--coherence N1,N2,...] [--block B] [--fov] [--fov-tol T]";
 
 struct Options {
     dims: [usize; ND],
@@ -77,6 +88,8 @@ struct Options {
     restarts: usize,
     coherence: Vec<usize>,
     block: usize,
+    fov: bool,
+    fov_tol: f64,
 }
 
 fn options() -> Result<Options, Box<dyn Error>> {
@@ -125,6 +138,8 @@ fn options() -> Result<Options, Box<dyn Error>> {
             None => Vec::new(),
         },
         block: value("--block", 4.0)? as usize,
+        fov: args.iter().any(|a| a == "--fov"),
+        fov_tol: value("--fov-tol", 1e-4)?,
     })
 }
 
@@ -209,6 +224,12 @@ fn run<T: DeviceReal>(
         hi,
     };
     println!("# hi = 1.1 |lambda_max(A^dag A)| = {hi:.6e}; {chebyshev:?}");
+    if o.fov {
+        field_of_values(o, lat, &d, &mut ratio(), &x0)?;
+        if o.wanted == 0 {
+            return Ok(());
+        }
+    }
     let e = lowest(
         &mut normal,
         &x0,
@@ -255,6 +276,109 @@ fn run<T: DeviceReal>(
     }
     if !o.coherence.is_empty() {
         coherence(o, lat, &mut r, &e.values, &e.vectors, &x0)?;
+    }
+    Ok(())
+}
+
+/// `s` (Ã + Ã†) / 2: the Hermitian part of Ã, or minus it.
+struct HermitianPart<'a, A> {
+    a: &'a mut A,
+    sign: f64,
+}
+
+impl<T: DeviceReal, A: LinearOp<DeviceSpinor<T>>> LinearFn<DeviceSpinor<T>>
+    for HermitianPart<'_, A>
+{
+    fn mult(&mut self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        let mut t = inp.zeros_like();
+        self.a.mult(out, inp);
+        self.a.mult_dag(&mut t, inp);
+        out.axpy(&vec![C64::new(1.0, 0.0); inp.num_vectors()], &t);
+        out.scale(&vec![0.5 * self.sign; inp.num_vectors()]);
+    }
+}
+
+fn norm<T: DeviceReal>(v: &DeviceSpinor<T>) -> f64 {
+    let mut n = vec![0.0; v.num_vectors()];
+    v.norm_sqr(&mut n);
+    n[0].sqrt()
+}
+
+/// The distance from Γ5-Hermiticity and the real part of the field of values (module
+/// documentation).
+fn field_of_values<T: DeviceReal>(
+    o: &Options,
+    lat: &Arc<Lattice>,
+    d: &CudaMdwf<T>,
+    a: &mut PvRatio<'_, CudaMdwf<T>, DeviceSpinor<T>>,
+    x0: &DeviceSpinor<T>,
+) -> Result<(), Box<dyn Error>> {
+    let start = Instant::now();
+    // |Γ5 Ã Γ5 x − Ã† x| / |Ã† x| on the even sites.
+    let (mut g, mut ag, mut gag, mut adag) = (
+        x0.zeros_like(),
+        x0.zeros_like(),
+        x0.zeros_like(),
+        x0.zeros_like(),
+    );
+    d.mult_gamma5_on(&mut g, x0);
+    a.mult(&mut ag, &g);
+    d.mult_gamma5_on(&mut gag, &ag);
+    a.mult_dag(&mut adag, x0);
+    let scale = norm(&adag);
+    gag.axpy(&[C64::new(-1.0, 0.0)], &adag);
+    let even_defect = norm(&gag) / scale;
+    // The same for D on the whole lattice.
+    let mut full = Field::<f64, Spinor>::with_shape(lat, 24, o.ls, 1, 1);
+    full.as_mut_slice()
+        .copy_from_slice(random_spinor(lat, o.ls, 43).as_slice());
+    let x = DeviceSpinor::<T>::from_host(&full)?;
+    let mut work = FermionOp::work(d);
+    let (mut gx, mut dgx, mut gdgx, mut ddag) = (
+        x.zeros_like(),
+        x.zeros_like(),
+        x.zeros_like(),
+        x.zeros_like(),
+    );
+    d.mult_gamma5_on(&mut gx, &x);
+    d.mult(&mut work, &mut dgx, &gx, Variant::D);
+    d.mult_gamma5_on(&mut gdgx, &dgx);
+    d.mult(&mut work, &mut ddag, &x, Variant::Dagger);
+    let scale = norm(&ddag);
+    gdgx.axpy(&[C64::new(-1.0, 0.0)], &ddag);
+    let full_defect = norm(&gdgx) / scale;
+    println!(
+        "# Gamma5-Hermiticity: |G5 A G5 x - A^dag x|/|A^dag x| = {even_defect:.3e} (even sites, A~); |G5 D G5 x - D^dag x|/|D^dag x| = {full_defect:.3e} (D, whole lattice)"
+    );
+    // The ends of the spectrum of (Ã + Ã†)/2: the lowest of it and of minus it.
+    let params = LanczosParams {
+        wanted: 1,
+        keep: 8,
+        max_dim: 40,
+        tolerance: o.fov_tol,
+        max_restarts: 2000,
+        chebyshev: None,
+    };
+    let mut ends = Vec::new();
+    for sign in [1.0, -1.0] {
+        let mut h = HermitianPart { a: &mut *a, sign };
+        let e = lowest(&mut h, x0, params);
+        ends.push((sign * e.values[0], e.converged, e.restarts, e.applications));
+    }
+    println!(
+        "# field of values: Re in [{:+.6e}, {:+.6e}] (lambda_min, lambda_max of (A + A^dag)/2; converged {} {}, {} + {} restarts, {} + {} applications; {:.0} s)",
+        ends[0].0,
+        ends[1].0,
+        ends[0].1,
+        ends[1].1,
+        ends[0].2,
+        ends[1].2,
+        ends[0].3,
+        ends[1].3,
+        start.elapsed().as_secs_f64()
+    );
+    if ends[0].0 < 0.0 {
+        println!("# lambda_min < 0: the field of values reaches into the left half plane");
     }
     Ok(())
 }

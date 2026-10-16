@@ -231,6 +231,12 @@ impl CudaMdwf<f32> {
 pub type Work<T> = [Option<DeviceSpinor<T>>; 2];
 
 impl<T: DeviceReal> CudaMdwf<T> {
+    /// `out = Γ5 inp`, Γ5 = γ5 R, on the sites `inp` has (as `Mdwf::mult_gamma5_on`).
+    pub fn mult_gamma5_on(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        assert_eq!(inp.ls, self.params.ls, "the field has another Ls");
+        gamma5(out, inp, true);
+    }
+
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Result<Self, CudaError> {
         assert!(
             (2..=MAX_LS).contains(&params.ls),
@@ -933,7 +939,7 @@ impl crate::hmc::EvenOddHalves for CudaMdwf<f64> {
         self.mult_q(out, inp, false);
     }
     fn gamma5_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
-        gamma5(out, inp, true);
+        self.mult_gamma5_on(out, inp);
     }
     fn half_of(&self, half: &mut DeviceSpinor<f64>, whole: &DeviceSpinor<f64>, parity: Parity) {
         crate::fermion::SplitParity::extract(&super::DeviceParities, half, whole, parity);
