@@ -1702,8 +1702,8 @@ fn d_dagger_through_the_adjoint_pv_operator_on_the_device() {
 }
 
 /// HMC with the multigrid of domain-wall fermions in the solves of the Ratio action on the
-/// device, on all sites and even-odd: the trajectories of CG on the CPU, the plaquette to
-/// rounding and ΔH to the tolerance of the solves.
+/// device, on all sites and even-odd, and as a cache: the trajectories of CG on the CPU, the
+/// plaquette to rounding and ΔH to the tolerance of the solves.
 #[test]
 fn hmc_with_the_domain_wall_multigrid_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -1741,6 +1741,12 @@ fn hmc_with_the_domain_wall_multigrid_on_the_device() {
     for (name, cg, mg) in [
         ("hmc_mg_lex", cg.clone(), mg.clone()),
         ("hmc_mg_eo", even_odd(&cg), even_odd(&mg)),
+        // P and the coarse parts kept from solve to solve.
+        (
+            "hmc_mg_cache",
+            cg.clone(),
+            mg.clone() + "  MultiGrid_HMC:\n    rebuild_iteration_growth : 1.5\n",
+        ),
     ] {
         let reference = run_with_backend(&cg, "cpu", name);
         let gpu = run_with_backend(&mg, "cuda_bridge", name);

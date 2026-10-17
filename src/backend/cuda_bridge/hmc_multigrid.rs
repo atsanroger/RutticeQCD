@@ -7,11 +7,13 @@
 //! Along a trajectory the test vectors are kept on the device; P, the coarse operators and the
 //! tops of the smoothers are made for the links of every solve, the vectors improved by the
 //! bootstrap when the pseudofermions are drawn and after every `refresh_every` force solves, as
-//! on the CPU. The fine fields are in double precision, P in half precision as in the
+//! on the CPU. With `rebuild_growth` they are kept from solve to solve (`DeviceParts` and the
+//! tops) and made again as on the CPU: after a bootstrap, or once the GCR iterations per solve
+//! have grown by that factor. The fine fields are in double precision, P in half precision as in the
 //! propagator runs, the coarse solves in single precision unless `coarse_double`.
 
 use super::multigrid::{
-    bootstrap, device_correction, filtered_test_vectors, two_grid, DeviceCycle,
+    bootstrap, device_correction, filtered_test_vectors, top_of, two_grid, DeviceCycle,
 };
 use super::{CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor, LevelReal};
 use crate::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, PvRatio};
@@ -31,7 +33,13 @@ type Run<'r> =
 #[derive(Default)]
 pub struct DeviceState {
     vectors: Option<DeviceSpinor<f64>>,
+    /// With the cache: the parts of the corrections of Ã and Ã† and the tops of their
+    /// smoothers, `Kept<CT>` for the precision of the coarse solves.
+    cache: Option<Box<dyn std::any::Any>>,
 }
+
+/// What the cache keeps on the device.
+type Kept<CT> = (super::DeviceParts<CT>, super::DeviceParts<CT>, f64, f64);
 
 /// x = (D†D)⁻¹ b for `d` over the Pauli-Villars operator `pv` with the multigrid of `setup`,
 /// on the device; `x` holds the initial guess.
@@ -159,72 +167,126 @@ fn with_coarse<CT: LevelReal>(
     let even = DeviceSpinor::<f64>::shape_half(lat, ls, Parity::Even)?;
     let odd = DeviceSpinor::<f64>::shape_half(lat, ls, Parity::Odd)?;
     let agg = Aggregation::new(lat, setup.block);
-    // The test vectors: a full setup the first time, a bootstrap from those of before when
-    // one is due, else as they are.
-    let due = setup.bootstrap_due(fresh);
-    let mut state = setup.device.take().unwrap_or_default();
-    let quiet = &mut |_: super::multigrid::Stage<'_, f64>| {};
-    let made = match state.vectors.take() {
-        None => {
-            setup.count_setup();
-            let index = EvenOddIndex::new(lat);
-            let mut y = filtered_test_vectors(
-                (d, pv),
-                (&even, &odd),
-                lat,
-                &index,
-                setup.low_modes,
-                setup.test_vectors,
-                quiet,
-            )?;
-            let mut with = device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
-            bootstrap(
-                (d, pv),
-                (&even, &odd),
-                lat,
-                &mut y,
-                setup.bootstrap,
-                &mut with,
-                quiet,
-            )?;
-            y
-        }
-        Some(mut y) if due => {
-            setup.count_refresh();
-            let mut with = device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
-            bootstrap(
-                (d, pv),
-                (&even, &odd),
-                lat,
-                &mut y,
-                setup.bootstrap,
-                &mut with,
-                quiet,
-            )?;
-            y
-        }
-        Some(y) => y,
-    };
-    setup.count_solve_for_refresh(due, md);
-    let setup_seconds = start.elapsed().as_secs_f64();
-    let start = std::time::Instant::now();
-    // P, shared by the cycles of Ã and Ã†, and the cycles.
-    let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &made, true)?);
-    state.vectors = Some(made);
     let dual = PvEoParams {
         pv_solver: CoarseKrylov::BiCgStab,
         ..setup.cycle
     };
-    let mut c = DeviceCorrection::<f64, CT>::shared(
-        basis.clone(),
+    let due = setup.bootstrap_due(fresh);
+    let mut state = setup.device.take().unwrap_or_default();
+    let caching = setup.rebuild_growth > 0.0;
+    let kept = state
+        .cache
+        .take()
+        .filter(|_| caching && !due && !setup.rebuild_is_due())
+        .and_then(|k| k.downcast::<Kept<CT>>().ok());
+    let reuse = kept.is_some();
+    let quiet = &mut |_: super::multigrid::Stage<'_, f64>| {};
+    let kept = match kept {
+        Some(k) => {
+            setup.count_solve_for_refresh(false, md);
+            setup.count_reuse();
+            *k
+        }
+        None => {
+            // The test vectors: a full setup the first time, a bootstrap from those of before
+            // when one is due, else as they are.
+            let made = match state.vectors.take() {
+                None => {
+                    setup.count_setup();
+                    let index = EvenOddIndex::new(lat);
+                    let mut y = filtered_test_vectors(
+                        (d, pv),
+                        (&even, &odd),
+                        lat,
+                        &index,
+                        setup.low_modes,
+                        setup.test_vectors,
+                        quiet,
+                    )?;
+                    let mut with =
+                        device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
+                    bootstrap(
+                        (d, pv),
+                        (&even, &odd),
+                        lat,
+                        &mut y,
+                        setup.bootstrap,
+                        &mut with,
+                        quiet,
+                    )?;
+                    y
+                }
+                Some(mut y) if due => {
+                    setup.count_refresh();
+                    let mut with =
+                        device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
+                    bootstrap(
+                        (d, pv),
+                        (&even, &odd),
+                        lat,
+                        &mut y,
+                        setup.bootstrap,
+                        &mut with,
+                        quiet,
+                    )?;
+                    y
+                }
+                Some(y) => y,
+            };
+            setup.count_solve_for_refresh(due, md);
+            setup.count_rebuild();
+            // P, shared by the corrections of Ã and Ã†, the coarse parts and the tops of the
+            // smoothers.
+            let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &made, true)?);
+            state.vectors = Some(made);
+            let c = DeviceCorrection::<f64, CT>::shared(
+                basis.clone(),
+                (d, pv),
+                (d, pv),
+                EoForm::Right,
+                setup.cycle,
+                &even,
+            )?;
+            let c_dag = DeviceCorrection::<f64, CT>::shared(
+                basis,
+                (pv, d),
+                (pv, d),
+                EoForm::Right,
+                dual,
+                &even,
+            )?;
+            let mut a = PvRatio::new(d, pv, EoForm::Right, &even, &odd);
+            let hi = top_of(
+                &mut a,
+                lat,
+                &even,
+                setup.cycle.seed,
+                setup.cycle.power_steps,
+            )?;
+            let mut a_dag = PvRatio::new(pv, d, EoForm::Right, &even, &odd);
+            let hi_dag = top_of(&mut a_dag, lat, &even, dual.seed, dual.power_steps)?;
+            (c.parts(), c_dag.parts(), hi, hi_dag)
+        }
+    };
+    let setup_seconds = start.elapsed().as_secs_f64();
+    let start = std::time::Instant::now();
+    let (parts, parts_dag, hi, hi_dag) = kept;
+    let mut c = DeviceCorrection::<f64, CT>::from_parts(
+        parts.clone(),
         (d, pv),
         (d, pv),
         EoForm::Right,
         setup.cycle,
         &even,
     )?;
-    let mut c_dag =
-        DeviceCorrection::<f64, CT>::shared(basis, (pv, d), (pv, d), EoForm::Right, dual, &even)?;
+    let mut c_dag = DeviceCorrection::<f64, CT>::from_parts(
+        parts_dag.clone(),
+        (pv, d),
+        (pv, d),
+        EoForm::Right,
+        dual,
+        &even,
+    )?;
     let m = two_grid(
         (d, pv),
         EoForm::Right,
@@ -232,7 +294,7 @@ fn with_coarse<CT: LevelReal>(
         lat,
         setup.cycle,
         Box::new(move |e, r| c.correct(e, r)),
-        None,
+        Some(hi),
     )?;
     let m_dag = two_grid(
         (pv, d),
@@ -241,7 +303,7 @@ fn with_coarse<CT: LevelReal>(
         lat,
         dual,
         Box::new(move |e, r| c_dag.correct(e, r)),
-        None,
+        Some(hi_dag),
     )?;
     let rebuild_seconds = start.elapsed().as_secs_f64();
     let start = std::time::Instant::now();
@@ -259,6 +321,11 @@ fn with_coarse<CT: LevelReal>(
     let result = run(&mut solves);
     let (inner, count) = (solves.inner, solves.count);
     drop(solves);
+    if caching {
+        setup.after_solve(reuse, inner as f64 / count.max(1) as f64);
+        let kept: Kept<CT> = (parts, parts_dag, hi, hi_dag);
+        state.cache = Some(Box::new(kept));
+    }
     setup.device = Some(state);
     setup.record(
         setup_seconds,

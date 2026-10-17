@@ -518,16 +518,10 @@ impl HmcParams {
             for (i, a) in actions.iter().enumerate() {
                 match a {
                     ActionConfig::Plaquette { .. } | ActionConfig::Rectangle { .. } => {}
-                    // The multigrid of the Ratio action is on the device, without the cache
-                    // of its coarse parts yet.
                     ActionConfig::TwoFlavorRatio {
                         fermion: HmcFermion::DomainWall { .. },
-                        solver,
                         ..
-                    } if !matches!(
-                        solver.multigrid,
-                        Some(HmcMultigrid::DomainWall { rebuild_growth, .. }) if rebuild_growth > 0.0
-                    ) => {}
+                    } => {}
                     ActionConfig::TwoFlavor {
                         fermion: HmcFermion::DomainWall { .. },
                         even_odd: false,
@@ -536,7 +530,7 @@ impl HmcParams {
                     } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
                     _ => {
                         return invalid(format!(
-                            "{}: with Main.backend cuda_bridge only the Standard (Lexical, without the multigrid) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions are on the device, and the multigrid there without MultiGrid_HMC.rebuild_iteration_growth",
+                            "{}: with Main.backend cuda_bridge only the Standard (Lexical, without the multigrid) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions are on the device",
                             names[i]
                         ))
                     }

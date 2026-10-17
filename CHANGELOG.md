@@ -12,8 +12,10 @@
   Ã†), the coarse operators and both cycles on the device (`backend::cuda_bridge::hmc_multigrid`,
   over `backend::cuda_bridge::multigrid`); the sweeps on D†D and K†K are those of the CPU,
   written once for both (`EvenSolves`). Two trajectories of the Bridge++ example (stout, 4³×8):
-  the plaquettes of CG on the CPU to the last digit, ΔH to 1e-9. Not yet on the device: the
-  cache (`rebuild_iteration_growth`).
+  the plaquettes of CG on the CPU to the last digit, ΔH to 1e-9. The cache
+  (`rebuild_iteration_growth`) is on the device as well: `DeviceParts` (P, the coarse operators,
+  |H_xx|⁻¹), shared, make the corrections for new links (`DeviceCorrection::from_parts`), the
+  tops of the smoothers kept with them; the cached trajectories are those of CG too.
 - HMC: the domain-wall multigrid as a cache (`MultiGrid_HMC.rebuild_iteration_growth`): P and
   the coarse parts of the cycles of Ã and Ã† (`CoarseParts`: the coarse operators, the inverses
   of their blocks, the top of the smoother) are kept from solve to solve and the cycles made
