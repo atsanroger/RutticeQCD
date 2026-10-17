@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Precisions are read in their usual spellings, in any case: `single`, `float`, `f32`, `FP32`,
+  `float32`; `double`, `f64`, `FP64`, `float64`; `half`, `f16`, `FP16`.
+- `ruttice` with `backend : cuda_bridge` no longer has a path that made the coarse correction of
+  the multigrid on the CPU: no file could reach it (the coarse solvers it was for are refused
+  when the file is read), and everything of the multigrid is on the device.
 - The setup and the cycle of the domain-wall multigrid on the device are in the library
   (`backend::cuda_bridge::multigrid`: the filtered test vectors, the bootstrap, the top of the
   smoother, the two-grid cycle), for any program; `ruttice` uses them and prints the same

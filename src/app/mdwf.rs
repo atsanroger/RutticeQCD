@@ -125,28 +125,6 @@ impl<L: CycleLayout<T>, T: Storage> LinearFn<H<L, T>> for Preconditioner<'_, L, 
     }
 }
 
-impl Preconditioner<'_, Aos> {
-    /// The coarse correction of the multigrid cycle and the top of the interval of its
-    /// smoother, for a cycle whose smoother is elsewhere (`mdwf_cuda`).
-    #[cfg(feature = "cuda-bridge")]
-    pub(super) fn coarse_correction(&mut self, e: &mut H, r: &H) {
-        match self {
-            Preconditioner::Single(c) => c.coarse_correction(e, r),
-            Preconditioner::Double(c) => c.coarse_correction(e, r),
-            _ => unreachable!("not a multigrid"),
-        }
-    }
-
-    #[cfg(feature = "cuda-bridge")]
-    pub(super) fn top(&self) -> f64 {
-        match self {
-            Preconditioner::Single(c) => c.top(),
-            Preconditioner::Double(c) => c.top(),
-            _ => unreachable!("not a multigrid"),
-        }
-    }
-}
-
 /// The vectors y on the even sites the multigrid is built from (from a checkpoint, or
 /// filtered here, and improved by the bootstrap if the file asks) with the basis on them, for
 /// the operators `op` and `pv` and stored as they are. `start`: when the setup began.

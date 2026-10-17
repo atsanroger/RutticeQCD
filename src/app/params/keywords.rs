@@ -136,16 +136,16 @@ keyword_enum! {
 
 keyword_enum! {
     pub enum PrecisionType {
-        Single => ["single", "float", "f32"],
-        Double => ["double", "f64"],
+        Single => ["single", "float", "f32", "fp32", "float32", "binary32", "sp"],
+        Double => ["double", "f64", "fp64", "float64", "binary64", "dp"],
     }
 }
 
 keyword_enum! {
     /// How a device keeps the prolongation of the multigrid.
     pub enum BasisPrecision {
-        Half => ["half", "f16"],
-        Single => ["single", "float", "f32"],
+        Half => ["half", "f16", "fp16", "float16", "binary16", "hp"],
+        Single => ["single", "float", "f32", "fp32", "float32", "binary32", "sp"],
     }
 }
 
