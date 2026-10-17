@@ -54,6 +54,16 @@
   fields on all sites (test_HMC_Domainwall_Nf2_PV_alt and _nosmr, 8⁴) agree to 1e-11, and so
   does test_HMC_Domainwall_Moebius_Nf2_PV of Bridge++ 2.1.3 (Möbius b = 1.5, c = 0.5). Bridge++
   2.1.3 itself has no even-odd ratio any more (`Action_F_Ratio_eo` and `test_alt_hmc` are gone).
+- D† x = b through Ã†, the Pauli-Villars operator with the roles of D and D_PV exchanged
+  (`fermion::adjoint_right_hand_side`, `adjoint_solution`; Ã† = `PvRatio::new(pv, op, ..)`, its
+  cycle M† = `PvEoCycle::new(pv, op, ..)` on the P of Ã), on the CPU and on the device: what the
+  multigrid needs in the force solves of HMC. Checked: D† x = b to 4e-27 on both.
+- `Hmc::reversibility` and `HMC_General.reversibility_checks`: forward, P → −P, back. On the
+  device for the 8⁴ domain-wall ratio on all sites and even-odd, |ΔU| ≤ 5e-13 and H back − H ≤
+  9e-10 of H ≈ 2.5e5.
+- `ruttice-low-modes`: `--coherence` (Lüscher's test of local coherence with the prolongation
+  of the multigrid, right, left and cross), `--fov` (the distance of Ã and D from
+  Γ5-Hermiticity, and [λ_min, λ_max] of (Ã + Ã†)/2), and its memory printed first.
 - The CUDA kernels are compiled for the architectures 80 and 86 by default (A100 and A30, RTX
   30 series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
 - The README, `docs/DEVELOPMENT.md` and the 0.1.0 entry below no longer say that everything is

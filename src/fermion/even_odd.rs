@@ -370,6 +370,60 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
     }
 }
 
+/// D† x = b by the adjoint of the Pauli-Villars operator: `PvRatio::new(pv, op, EoForm::Right,
+/// ..)` (the roles exchanged) is Ã† = C_e⁻† S† S_PV C_PV,e⁻¹, the adjoint of Ã of `op` over `pv`,
+/// and the cycle made the same way on the P of Ã (`PvEoCycle::new(pv, op, ..)`) is M†. The
+/// Schur complement of D† on the even sites is S†, so with b′_e = b_e − (M_oe)† C_o⁻† b_o and
+/// x_e = S_PV C_PV,e⁻¹ y the system is Ã† y = C_e⁻† b′_e. This is its right-hand side; `op` and
+/// `pv` without Neff's α.
+pub fn adjoint_right_hand_side<F, H, V, P>(op: &F, split: &P, rhs: &mut H, b: &V)
+where
+    F: EvenOdd<H>,
+    H: Vector,
+    P: SplitParity<V, H>,
+{
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    let mut work = op.even_odd_work();
+    let (mut b_e, mut b_o) = (split.half_like(b, even), split.half_like(b, odd));
+    split.extract(&mut b_e, b, even);
+    split.extract(&mut b_o, b, odd);
+    let (mut t_o, mut t_e) = (split.half_like(b, odd), split.half_like(b, even));
+    op.diag_inv(&mut work, &mut t_o, &b_o, odd, Dagger::Yes);
+    op.hop(&mut work, &mut t_e, &t_o, even, Dagger::Yes);
+    let minus = vec![C64::new(-1.0, 0.0); b_e.num_vectors()];
+    t_e.aypx(&minus, &b_e);
+    crate::fit(rhs, &t_e);
+    op.diag_inv(&mut work, rhs, &t_e, even, Dagger::Yes);
+}
+
+/// The solution x of D† x = b from the solution y of Ã† y = `adjoint_right_hand_side`:
+/// x_e = S_PV C_PV,e⁻¹ y, x_o = C_o⁻† (b_o − (M_eo)† x_e).
+pub fn adjoint_solution<F, H, V, P>(op: &F, pv: &F, split: &P, x: &mut V, y: &H, b: &V)
+where
+    F: EvenOdd<H>,
+    H: Vector,
+    P: SplitParity<V, H>,
+{
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
+    let mut t_e = split.half_like(b, even);
+    crate::fit(&mut t_e, y);
+    pv.diag_inv(&mut work_pv, &mut t_e, y, even, Dagger::No);
+    let mut like_odd = split.half_like(b, odd);
+    crate::fit(&mut like_odd, y);
+    let mut x_e = t_e.zeros_like();
+    Schur::new(pv, even, &t_e, &like_odd).mult(&mut x_e, &t_e);
+    let (mut b_o, mut t_o) = (split.half_like(b, odd), split.half_like(b, odd));
+    split.extract(&mut b_o, b, odd);
+    op.hop(&mut work, &mut t_o, &x_e, odd, Dagger::Yes);
+    let minus = vec![C64::new(-1.0, 0.0); y.num_vectors()];
+    t_o.aypx(&minus, &b_o);
+    let mut x_o = b_o;
+    op.diag_inv(&mut work, &mut x_o, &t_o, odd, Dagger::Yes);
+    split.insert(x, &x_e);
+    split.insert(x, &x_o);
+}
+
 impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
     /// `out = Ã inp`: the factor of the operator, then the adjoint of the Pauli-Villars one.
     fn mult(&mut self, out: &mut H, inp: &H) {
