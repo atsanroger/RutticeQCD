@@ -9,6 +9,7 @@ mod guess;
 mod integrator;
 mod link_field;
 mod links;
+mod mixed;
 mod mseries;
 mod rational;
 mod solve;
@@ -22,7 +23,7 @@ pub use even_odd::{
 };
 pub use fermion_action::{
     clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
-    CloverInsertion, ForceOp, TwoFlavor, TwoFlavorRatio,
+    CloverInsertion, ForceOp, Single, TwoFlavor, TwoFlavorRatio,
 };
 pub use gauge_action::{
     force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
@@ -32,6 +33,7 @@ pub use guess::Chrono;
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, Term};
 pub use link_field::LinkField;
 pub use links::{Links, SmearingCache};
+pub use mixed::{mixed_normal, SingleMdwf, SingleMdwfEo, SingleNormal};
 pub use mseries::Mseries;
 
 use crate::gauge::set_link;
@@ -1180,6 +1182,83 @@ mod tests {
         mg.langevin(&links, &mut Mseries::new(17));
         let h_double = mg.hamiltonian(&links);
         assert!((h_cg - h_double).abs() < 1e-9 * h_cg.abs(), "{h_double}");
+    }
+
+    /// Mixed precision, CG in single precision corrected in double, gives the energy and the
+    /// force of CG in double precision, for the Ratio action on all sites and even-odd.
+    #[test]
+    fn mixed_precision_gives_the_action_and_force_of_cg() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 47);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.05,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-24,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+        let worst = |a: &Field<f64, Gauge>, b: &Field<f64, Gauge>| {
+            a.as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+        };
+        // On all sites.
+        let mut cg =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop);
+        cg.langevin(&links, &mut Mseries::new(19));
+        let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
+        let mut mixed =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_single(Box::new(SingleMdwf::<crate::kernel::Dirac>::new(
+                    &lat, params, 1.0, 1e-10,
+                )));
+        mixed.langevin(&links, &mut Mseries::new(19));
+        let (h_m, f_m) = (mixed.hamiltonian(&links), mixed.force(&links));
+        let size = f_cg.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        eprintln!(
+            "all sites: H {h_cg} and {h_m}; forces differ by {:e} of {size:e}",
+            worst(&f_cg, &f_m)
+        );
+        assert!((h_cg - h_m).abs() < 1e-9 * h_cg.abs());
+        assert!(worst(&f_cg, &f_m) < 1e-8 * size);
+        // Even-odd.
+        let mut cg =
+            TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop);
+        cg.langevin(&links, &mut Mseries::new(19));
+        let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
+        let mut mixed =
+            TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_single(Box::new(SingleMdwfEo::<crate::kernel::Dirac>::new(
+                    &lat, params, 1e-10,
+                )));
+        mixed.langevin(&links, &mut Mseries::new(19));
+        let (h_m, f_m) = (mixed.hamiltonian(&links), mixed.force(&links));
+        let size = f_cg.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        eprintln!(
+            "even-odd: H {h_cg} and {h_m}; forces differ by {:e} of {size:e}; iterations {} (double CG {})",
+            worst(&f_cg, &f_m),
+            mixed.last_iterations,
+            cg.last_iterations
+        );
+        assert!((h_cg - h_m).abs() < 1e-9 * h_cg.abs());
+        assert!(worst(&f_cg, &f_m) < 1e-8 * size);
     }
 
     /// The molecular dynamics is reversible, for the ratio of domain-wall fermions over

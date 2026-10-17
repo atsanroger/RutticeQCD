@@ -596,6 +596,8 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     pub md_iterations: usize,
     /// The initial guess of the force solves (none by default).
     pub guess: Chrono<O::Half>,
+    /// Mixed precision: K in single precision (`with_single`).
+    single: Option<Box<dyn super::SingleNormal<O::Half, O::Links>>>,
 }
 
 impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
@@ -613,11 +615,19 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             last_iterations: 0,
             md_iterations: 0,
             guess: Chrono::new(0),
+            single: None,
         }
     }
 
     pub fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
+        self
+    }
+
+    /// Mixed precision in the solves with the operator: CG on K†K in single precision with
+    /// `single`, corrected in double; with CG and no preconditioner.
+    pub fn with_single(mut self, single: Box<dyn super::SingleNormal<O::Half, O::Links>>) -> Self {
+        self.single = Some(single);
         self
     }
 
@@ -644,6 +654,9 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         let v = levels.last().unwrap_or(links.thin);
         self.op.set_links(v).expect("the links suit the operator");
         self.pv.set_links(v).expect("the links suit the operator");
+        if let Some(s) = self.single.as_mut() {
+            s.set_links(v);
+        }
         levels
     }
 
@@ -718,8 +731,19 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             md,
         );
         let ops = (&self.op, Some(&self.pv));
-        let info = Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop)
-            .expect("the solve with the operator converges");
+        let info = match self.single.as_mut() {
+            Some(single) => {
+                assert!(
+                    self.solver == NormalSolver::Cg && matches!(flags.0, Preconditioner::None),
+                    "mixed precision is for CG without a preconditioner"
+                );
+                let odd = self.op.new_half(lat, Parity::Odd);
+                let mut k = SchurFactor::new(&self.op, EoForm::Left, v1, &odd);
+                super::mixed_normal(&mut k, single.as_mut(), &mut z, v1, stop)
+            }
+            None => Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop),
+        }
+        .expect("the solve with the operator converges");
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;

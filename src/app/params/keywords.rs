@@ -142,6 +142,14 @@ keyword_enum! {
 }
 
 keyword_enum! {
+    /// The precision of a solver: double, or mixed (single inside, corrected in double).
+    pub enum SolverPrecision {
+        Double => ["double", "f64", "fp64", "float64", "binary64", "dp"],
+        Mixed => ["mixed", "mixed_precision", "single_double", "double_single", "fp32_fp64"],
+    }
+}
+
+keyword_enum! {
     /// How a device keeps the prolongation of the multigrid.
     pub enum BasisPrecision {
         Half => ["half", "f16", "fp16", "float16", "binary16", "hp"],

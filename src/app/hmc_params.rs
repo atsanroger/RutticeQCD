@@ -50,7 +50,7 @@ use super::hmc::{
 };
 use super::params::{
     Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
-    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverType,
+    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision, SolverType,
 };
 use super::CliError;
 use crate::gauge::flow::WilsonFlow;
@@ -303,6 +303,11 @@ pub struct HmcSolverBlock {
     /// The polynomial preconditioner of CG (the smoother of the multigrid is in `MultiGrid`).
     #[serde(rename = "Chebyshev")]
     pub chebyshev: Option<ChebyshevBlock>,
+    /// `double` (the default) or `mixed`: CG in single precision corrected in double, for
+    /// domain-wall fermions with CG and no preconditioner.
+    pub precision: Option<SolverPrecision>,
+    /// Mixed precision: where each CG in single precision stops, |r|²/|b|² (1e-10).
+    pub convergence_criterion_squared_inner: Option<f64>,
     /// The place of the multigrid before it moved to the action: refused, with where it went.
     #[serde(rename = "MultiGrid")]
     pub moved_multigrid: Option<serde::de::IgnoredAny>,
@@ -318,6 +323,8 @@ impl Default for HmcSolverBlock {
             number_of_kept_directions: kept(),
             number_of_initial_guess: 0,
             operator_type: None,
+            precision: None,
+            convergence_criterion_squared_inner: None,
             preconditioner_type: PreconditionerType::None,
             chebyshev: None,
             moved_multigrid: None,
@@ -643,6 +650,17 @@ impl FermionActionBlock {
                 (None, _) => None,
             },
             kind,
+            mixed: match s.precision {
+                Some(SolverPrecision::Mixed) => {
+                    Some(s.convergence_criterion_squared_inner.unwrap_or(1e-10))
+                }
+                _ if s.convergence_criterion_squared_inner.is_some() => {
+                    return invalid(format!(
+                        "{name}.Solver.convergence_criterion_squared_inner: for precision mixed"
+                    ))
+                }
+                _ => None,
+            },
             neff_alpha: self.fopr.neff_alpha,
             restart: s.number_of_kept_directions,
             tolerance_squared: s.convergence_criterion_squared,
