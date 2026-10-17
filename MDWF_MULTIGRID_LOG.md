@@ -192,6 +192,7 @@ N = 32 個測試向量、4⁴ 區塊、Chebyshev 5/30、粗網格到 1e-2、Ã �
 | 10-11 夜–10-12 | 「三種費米子的功能補齊、資料夾拆分」（原第 0.0 節：粗網格下的層、`[2, 2]` 與 bootstrap 基底、`inner`、SIMD） |
 | 10-13 | 「誠實盤點、HMC 的 solver、研究等級的問題」 |
 | 10-12 | 「Schur 因子的合併」、「程式結構的整理」、「合併之後的 MG 驗證、緩衝寫出、Lüscher 的筆記」、「粗格子上的 even-odd」、「`fermion/` 的檔名統一」、「v0.1.0 的準備」 |
+| 10-17–18 | 「HMC 的 MG 與混合精度上 GPU、ÃM 的 field of values、even-odd 與 lexical 的 replica」 |
 
 ---
 
@@ -1849,4 +1850,35 @@ MG（區塊 3⁴、16 個測試向量、4 輪 setup）比 even-odd CG 慢約 17 
 - **它的測試只檢查「沒有 NaN、範數不為零」，沒有對任何參考值**；commit 訊息也寫「not tested fully yet」。正確性與慣例（正規化、格點順序、even-odd、γ 基底、鏈結排列）都要拿我們的 CPU 算子當基準去驗。
 - 這台機器：RTX 3080 10 GB，`/usr/local/cuda-12*`、`cuda-13*`、HPC SDK 25.11、cmake 都在；`nvcc` 不在 PATH。
 - 參數檔的 `Backend::Gpu`（`gpu`／`cuda`）關鍵字已經存在。整合方案見對話（10-13），還沒得到使用者的決定。
+
+### HMC 的 MG 與混合精度上 GPU、ÃM 的 field of values、even-odd 與 lexical 的 replica（10-17 夜–10-18；main = `8518205`）
+
+**程式（都已 push 到 `cuda-bridge` 與 `main`，每一項都對過 CPU 的 CG）。**
+- device MG 的 setup／cycle 搬進 library：`backend::cuda_bridge::multigrid`（`a5dc425`）；`ruttice` 的輸出與重構前逐位相同（4³×8 三種精度，31 行 checksum）。
+- HMC 參數檔：作用量的 `MultiGrid` 就是 propagator 檔的那一節（放在 `Solver` 旁邊），HMC 專用的放 `MultiGrid_HMC`；舊位置 `Solver.MultiGrid` 會被拒絕並指出新位置；
+  `Solver.operator_type`；精度關鍵字接受 FP32／FP64／float32… 任何大小寫（`40560dd`、`bce183a`）。
+- even-odd Ratio 也能用 MG：(K†K)⁻¹，K = T_ee⁻¹Ŝ，Ŝ⁻¹u 就是 D x = (u, 0) 的 even 部分，所以沿用同一組 even-site 兩次求解（`59e36cc`）。
+- **更正**：HMC 的 MG 粗網格本來就是單精度（`PvEoCycle` 的 CT 預設 f32）；`40560dd` 把它寫成雙精度、拒絕 `coarse_precision : single` 是錯的，`0c37916` 修正。
+- 混合精度 CGNE（`Solver.precision : mixed`）：外層雙精度 defect correction、內層單精度 CG，CPU（`9bc81bf`）與 GPU（`2b64806`）。
+- MG cache（`MultiGrid_HMC.rebuild_iteration_growth`）：保留 P、粗網格算子、block 逆、smoother 的 hi，GCR 迭代數成長到該倍數才重建；CPU（`20b46bc`）與 GPU（`e1de83e`）。
+- GPU 上的 MG HMC（`bb510e6`）：lexical 與 even-odd Ratio；Bridge++ 範例兩條軌跡，plaquette 與 CPU 的 CG 逐位相同、ΔH 差 1e-9。
+- 每條軌跡印 `# cost` 行（求解次數、迭代、秒、MG 的 setup／rebuild）（`d21b08f`）。
+- **還沒量**：A30、16⁴、24³×48 上的任何速度比較都還沒做；HMC MG 的 `fine_precision : single` 沒做。
+
+**ÃM 的 field of values（`examples/preconditioned_fov`、`preconditioned_fov_device`，`8518205`）。** M 為兩階 cycle，兩個粗網格因子都用精確伴隨（BiCGStab、雙精度、1e-20），
+M† 用同一個 P 且**同一個 smoother 上界 hi**（原本 M† 自己做 power iteration，伴隨檢查只到 3e-6；改用同一個 hi 後 1e-11，因為兩階 cycle 在結構上 E′ = E† 時就是精確伴隨）。
+CPU 與 GPU 在 4³×8（M5 = 1.0、m = 0.05、無 smearing）一致：Ã ∈ [−5.0e-3, 2.26]、ÃM ∈ [0.772, 1.222]（右半平面）。v2 12⁴、m = 0.001（Re W 的範圍）：
+
+| 設定 | Ã | ÃM |
+|---|---|---|
+| stout 0.1×3、M5 = 1.0、Chebyshev 8／10 | [−4.59e-3, 1.98] | **[−23.9, 30.8]** |
+| M5 = 1.8、Chebyshev 12／30 | [−5.02e-2, 4.46] | **[−1.49, 4.17]** |
+
+精確粗網格解的 ÃM 的 FOV 越過 0，stout 時比 Ã 本身差得多——和 K = U†CÃU 的譜（AS13：|1−λ| 最大 39）、以及「粗網格解得越準外層越差」（10-15）一致：
+問題在因子化的粗網格修正本身。實際的求解器用的是 1e-2 的粗網格解（不是固定線性映射，FOV 沒有定義），所以這不直接預測 GCR 的迭代數，但說明了 Elman 界不適用。
+16⁴、24³×48 已交給 AS13（m = 0.001、0.005）。
+
+**even-odd 與 lexical 的 replica（8⁴、M5 = 1.8、Iwasaki β = 2.3、`~/gamma3.py`）。** 主鏈去掉前 200、replica（從已熱化組態、不同亂數）去掉前 50，各鏈 Γ-method 後依誤差合併：
+lexical 4 條 2450 條軌跡 ⟨P⟩ = 0.623958(70)，even-odd 3 條 2500 條 ⟨P⟩ = 0.624007(62)，差 +0.000049(93)（**0.5σ**；之前只有主鏈時是 1.6–2σ，replica 後消失）。
+⟨exp(−ΔH)⟩：lexical 合併 1.0023(27)，even-odd 合併 0.989(6)（−2σ，主要來自主鏈 0.9913(58)）；不算決定性，但 even-odd 本來就有 Bridge++ alt_eo 的 1e-5 差距未解，記下。
 
