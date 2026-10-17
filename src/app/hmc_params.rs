@@ -504,7 +504,7 @@ impl HmcParams {
                     return invalid(format!("{name}: Action_F_{i} is missing"));
                 }
                 Some(f) => {
-                    actions.push(f.to_config(&name, self.main.lattice_size)?);
+                    actions.push(f.to_config(&name, self.main.lattice_size, device)?);
                     names.push(name);
                 }
                 None => ended = true,
@@ -604,7 +604,12 @@ fn fermion(f: &FoprBlock, name: &str) -> Result<HmcFermion, CliError> {
 }
 
 impl FermionActionBlock {
-    fn to_config(&self, name: &str, lattice: [usize; ND]) -> Result<ActionConfig, CliError> {
+    fn to_config(
+        &self,
+        name: &str,
+        lattice: [usize; ND],
+        device: bool,
+    ) -> Result<ActionConfig, CliError> {
         let s = &self.solver;
         if s.moved_multigrid.is_some() {
             return invalid(format!(
@@ -639,7 +644,7 @@ impl FermionActionBlock {
             chebyshev,
             multigrid: match (&self.multigrid, s.preconditioner_type) {
                 (Some(mg), PreconditionerType::Multigrid) => {
-                    Some(self.hmc_multigrid(mg, name, lattice)?)
+                    Some(self.hmc_multigrid(mg, name, lattice, device)?)
                 }
                 (None, PreconditionerType::Multigrid) => {
                     return invalid(format!(
@@ -753,16 +758,17 @@ impl FermionActionBlock {
         mg: &MultigridBlock,
         name: &str,
         lattice: [usize; ND],
+        device: bool,
     ) -> Result<HmcMultigrid, CliError> {
         let at = format!("{name}.MultiGrid");
         let h = &self.multigrid_hmc;
         let refused = |what: &str, why: &str| invalid(format!("{at}.{what}: {why}"));
         // The coarse solves in either precision, as in the propagator files; the rest of the
-        // cycle in double precision.
-        if mg.fine_precision_given == Some(PrecisionType::Single) {
+        // cycle in double precision on the CPU, in either on the device.
+        if mg.fine_precision_given == Some(PrecisionType::Single) && !device {
             return refused(
                 "fine_precision",
-                "the multigrid of HMC is in double precision above the coarse lattice (leave it out, or double)",
+                "the multigrid of HMC on the CPU is in double precision above the coarse lattice (leave it out, or double; single is on the device)",
             );
         }
         if mg.basis_precision_given.is_some() {
@@ -800,6 +806,7 @@ impl FermionActionBlock {
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 coarse_double: mg.coarse_precision() == PrecisionType::Double,
+                fine_single: mg.fine_precision_given == Some(PrecisionType::Single),
                 rebuild_growth: match h.rebuild_iteration_growth {
                     Some(g) if g.is_nan() || g <= 1.0 => {
                         return invalid(format!(

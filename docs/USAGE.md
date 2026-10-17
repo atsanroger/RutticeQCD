@@ -174,9 +174,10 @@ With `preconditioner_type : MG` the action has a `MultiGrid` section beside its 
 with `block_size`, `number_of_test_vectors` and the coarse solvers, `Setup`, `Smoother`), so a
 multigrid tuned on propagators is copied over as it is. The domain-wall coarse solves are in
 single precision unless `coarse_precision : double`, as in the propagator files; the rest of
-the cycle is in double precision, and `fine_precision : single` is refused for now, as are the
-levels below the coarse lattice, `basis_precision` and `Setup.checkpoint`, which are not in
-HMC yet. What only HMC has is in `MultiGrid_HMC`:
+the cycle is in double precision unless `fine_precision : single`, which is on the device only
+(the cycle on the operators in single precision, the outer GCR in double). The levels below
+the coarse lattice, `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
+refused. What only HMC has is in `MultiGrid_HMC`:
 
 | `MultiGrid_HMC` key | Values |
 |---|---|

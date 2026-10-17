@@ -1747,6 +1747,15 @@ fn hmc_with_the_domain_wall_multigrid_on_the_device() {
             cg.clone(),
             mg.clone() + "  MultiGrid_HMC:\n    rebuild_iteration_growth : 1.5\n",
         ),
+        // The cycle in single precision, the outer GCR in double.
+        (
+            "hmc_mg_fine_single",
+            cg.clone(),
+            mg.replace(
+                "  MultiGrid:\n",
+                "  MultiGrid:\n    fine_precision : single\n",
+            ),
+        ),
     ] {
         let reference = run_with_backend(&cg, "cpu", name);
         let gpu = run_with_backend(&mg, "cuda_bridge", name);
