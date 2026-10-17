@@ -63,6 +63,18 @@ pub struct HmcTrajectory {
     pub plaquette: f64,
 }
 
+/// What `Hmc::reversibility` found.
+#[derive(Clone, Debug)]
+pub struct Reversibility {
+    /// ΔH of the trajectory.
+    pub delta_h: f64,
+    /// H after the trajectory and back − H at the start: zero for a reversible integrator.
+    pub delta_h_back: f64,
+    /// The largest difference of a real of the links, and of the momenta, from the start.
+    pub max_link: f64,
+    pub max_momentum: f64,
+}
+
 impl<'a, U: LinkField> Hmc<'a, U> {
     pub fn new(
         terms: Vec<Term<'a, U>>,
@@ -143,6 +155,61 @@ impl<'a, U: LinkField> Hmc<'a, U> {
                 }
                 self.update_p(level, eps * lambda, p, u);
             }
+        }
+    }
+
+    /// The reversibility of the molecular dynamics from `u` (which is not changed): momenta and
+    /// pseudofermions drawn as for a trajectory, the trajectory, P → −P, the trajectory again,
+    /// P → −P. A reversible integrator is back at (U, P) and at H, to rounding and the tolerance
+    /// of the solves; the initial guess of the force solves (`Chrono`) breaks it at the level of
+    /// that tolerance.
+    pub fn reversibility(&mut self, u: &U, rng: &mut Mseries) -> Reversibility {
+        let lat = u.lattice().clone();
+        let mut trial = u.duplicate();
+        self.invalidate();
+        let mut p = U::draw_momenta(&lat, rng);
+        let p0 = p.duplicate();
+        let energy = |hmc: &mut Self, links: &U, p: &U| -> f64 {
+            let l = Links::new(links, &hmc.smeared);
+            p.kinetic_energy()
+                + hmc
+                    .terms
+                    .iter_mut()
+                    .map(|t| t.action.hamiltonian(&l))
+                    .sum::<f64>()
+        };
+        let h0 = {
+            let links = Links::new(&trial, &self.smeared);
+            p.kinetic_energy()
+                + self
+                    .terms
+                    .iter_mut()
+                    .map(|t| t.action.langevin(&links, rng))
+                    .sum::<f64>()
+        };
+        self.evolve(0, self.trajectory_length, &mut p, &mut trial);
+        let h1 = energy(self, &trial, &p);
+        let flip = |p: &mut U| {
+            let q = p.duplicate();
+            p.add_scaled(-2.0, &q);
+        };
+        flip(&mut p);
+        self.evolve(0, self.trajectory_length, &mut p, &mut trial);
+        flip(&mut p);
+        let h2 = energy(self, &trial, &p);
+        let worst = |a: &U, b: &U| {
+            a.to_host()
+                .as_slice()
+                .iter()
+                .zip(b.to_host().as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+        };
+        self.invalidate();
+        Reversibility {
+            delta_h: h1 - h0,
+            delta_h_back: h2 - h0,
+            max_link: worst(&trial, u),
+            max_momentum: worst(&p, &p0),
         }
     }
 

@@ -27,7 +27,7 @@ pub use gauge_action::{
     RectangleAction, Step,
 };
 pub use guess::Chrono;
-pub use integrator::{Hmc, HmcTrajectory, MdAction, Scheme, Term};
+pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, Term};
 pub use link_field::LinkField;
 pub use links::{Links, SmearingCache};
 pub use mseries::Mseries;
@@ -1026,6 +1026,91 @@ mod tests {
             |w| ratio.hamiltonian(&Links::new(w, &SmearingCache::new())),
             1e-7,
         );
+    }
+
+    /// The molecular dynamics is reversible, for the ratio of domain-wall fermions over
+    /// Pauli-Villars fields on all sites and even-odd, on stout links with the rectangle action,
+    /// on two levels of Omelyan's integrator: forward, P → −P, back gives the links and momenta
+    /// of the start to rounding and H to the solves.
+    #[test]
+    fn molecular_dynamics_is_reversible() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::gauge::smearing::Stout;
+        use crate::gauge::{GaugeSmearing, Smear};
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let u = random_gauge(&lat, 37);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-30,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let smearing = Some(GaugeSmearing {
+            smear: Smear::Stout(Stout::uniform(0.1)),
+            steps: 1,
+        });
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        let actions: [Box<dyn MdAction>; 2] = [
+            Box::new(TwoFlavorRatio::new(
+                mdwf(params),
+                mdwf(params.pauli_villars()),
+                smearing,
+                stop,
+                stop,
+            )),
+            Box::new(TwoFlavorRatioEo::new(
+                mdwf(params),
+                mdwf(params.pauli_villars()),
+                smearing,
+                stop,
+                stop,
+            )),
+        ];
+        for (name, fermions) in ["all sites", "even-odd"].into_iter().zip(actions) {
+            let gauge = RectangleAction {
+                beta: 2.3,
+                c_plaq: 3.648,
+                c_rect: -0.331,
+            };
+            let mut hmc = Hmc::new(
+                vec![
+                    Term {
+                        level: 0,
+                        action: fermions,
+                    },
+                    Term {
+                        level: 1,
+                        action: Box::new(gauge),
+                    },
+                ],
+                Scheme::Omelyan {
+                    lambda: 0.1931833275,
+                },
+                vec![3, 2],
+                12,
+                0.5,
+            );
+            let r = hmc.reversibility(&u, &mut Mseries::new(11));
+            eprintln!("{name}: {r:?}");
+            assert!(
+                r.max_link < 1e-12 && r.max_momentum < 1e-10,
+                "{name}: {r:?}"
+            );
+            assert!(r.delta_h_back.abs() < 1e-8, "{name}: {r:?}");
+        }
     }
 
     /// The even-odd ratio over Pauli-Villars fields (Bridge++'s `Action_F_alt_Ratio_eo`), of
