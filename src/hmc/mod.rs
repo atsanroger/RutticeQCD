@@ -1184,6 +1184,81 @@ mod tests {
         assert!((h_cg - h_double).abs() < 1e-9 * h_cg.abs(), "{h_double}");
     }
 
+    /// The multigrid as a cache (P and the coarse parts kept from solve to solve, rebuilt when
+    /// the iterations grow) gives the energy and the force of CG on links that moved.
+    #[test]
+    fn multigrid_cache_gives_the_action_and_force_of_cg() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 53);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.05,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-24,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        let cache = SmearingCache::new();
+        let mut setup = DwfMultigridSetup::new(
+            [2, 2, 2, 2],
+            8,
+            PvEoParams::default(),
+            Stop::simple(1e-10, 200),
+        );
+        setup.rebuild_growth = 1.5;
+        let mut mg =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(setup)));
+        let mut cg =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop);
+        let links = Links::new(&u, &cache);
+        mg.langevin(&links, &mut Mseries::new(23));
+        cg.langevin(&links, &mut Mseries::new(23));
+        // The links move a little from solve to solve, as in a trajectory.
+        let mut v = random_gauge(&lat, 53);
+        let mut worst_h = 0.0f64;
+        let mut worst_f = 0.0f64;
+        let mut rng = Mseries::new(29);
+        for _ in 0..4 {
+            let p = draw_momenta(&lat, &mut rng);
+            exp_update(0.02, &p, &mut v, 8);
+            let links = Links::new(&v, &cache);
+            let (h_mg, h_cg) = (mg.hamiltonian(&links), cg.hamiltonian(&links));
+            let (f_mg, f_cg) = (mg.force(&links), cg.force(&links));
+            let size = f_cg.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+            let df = f_cg
+                .as_slice()
+                .iter()
+                .zip(f_mg.as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+            worst_h = worst_h.max((h_mg - h_cg).abs() / h_cg.abs());
+            worst_f = worst_f.max(df / size);
+        }
+        let Preconditioner::DomainWallMultigrid(setup) = &mg.preconditioner else {
+            unreachable!()
+        };
+        eprintln!(
+            "cache: H {worst_h:e}, force {worst_f:e} relative; rebuilds {}, reuses {}, solves on the even sites {}",
+            setup.rebuilds, setup.reuses, setup.inner_solves
+        );
+        assert!(worst_h < 1e-9 && worst_f < 1e-8);
+        assert!(setup.reuses > 0, "the coarse parts are reused");
+    }
+
     /// Mixed precision, CG in single precision corrected in double, gives the energy and the
     /// force of CG in double precision, for the Ratio action on all sites and even-odd.
     #[test]

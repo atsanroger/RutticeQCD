@@ -6,6 +6,13 @@
 //! made again for the links of every solve, and y itself is improved (the bootstrap, from the y
 //! of before) when the pseudofermions are drawn and after every `refresh_every` force solves.
 //!
+//! With `rebuild_growth` the multigrid is a cache instead: P and the coarse parts of both cycles
+//! (`CoarseParts`: the coarse operators, the inverses of their blocks, the tops of the
+//! smoothers) are kept from solve to solve and the cycles made from them for the new links, the
+//! smoothers and GCR working with the operators of the new links; they are made again when the
+//! vectors change (a bootstrap) or when the GCR iterations per solve on the even sites have
+//! grown to `rebuild_growth` times those after the last rebuild.
+//!
 //! The even-odd Ratio action solves K†K on the even sites, K = T_ee⁻¹ Ŝ (the left
 //! `SchurFactor`): K⁻† r = T_ee† Ŝ⁻† r and K⁻¹ w = Ŝ⁻¹ T_ee w, where Ŝ⁻¹ u is the even part of
 //! the solution of D x = (u, 0) and Ŝ⁻† that of D† (`normal_solve_half`), the same two solves.
@@ -19,7 +26,7 @@ use crate::fermion::{
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseKrylov,
-    LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+    CoarseParts, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
 use crate::{extract_parity, insert_parity, Lattice, LinearFn, LinearOp, Parity, Vector, C64, ND};
@@ -45,8 +52,20 @@ pub struct DwfMultigridSetup {
     /// The bootstrap is run again after every this many force solves (and when the
     /// pseudofermions are drawn); 0: only then.
     pub refresh_every: usize,
+    /// Keep P and the coarse parts from solve to solve and make them again when the GCR
+    /// iterations per solve on the even sites have grown to this many times those after the last
+    /// rebuild (module documentation); 0: make them for every solve.
+    pub rebuild_growth: f64,
     vectors: Option<HalfPsi>,
     since: usize,
+    cache: Option<Cache>,
+    /// GCR iterations per solve on the even sites after the last rebuild, and whether the next
+    /// solve rebuilds.
+    baseline: Option<f64>,
+    rebuild_due: bool,
+    /// Rebuilds of P and the coarse parts for new links, and solves that reused them.
+    pub rebuilds: usize,
+    pub reuses: usize,
     /// Full setups, bootstraps from the vectors of before, and solves on the even sites so far.
     pub setups: usize,
     pub refreshes: usize,
@@ -79,8 +98,14 @@ impl DwfMultigridSetup {
             directions: 8,
             inner,
             refresh_every: 0,
+            rebuild_growth: 0.0,
             vectors: None,
             since: 0,
+            cache: None,
+            baseline: None,
+            rebuild_due: false,
+            rebuilds: 0,
+            reuses: 0,
             setups: 0,
             refreshes: 0,
             inner_solves: 0,
@@ -100,7 +125,7 @@ impl DwfMultigridSetup {
     ) -> PvEoBasis<f64> {
         let start = std::time::Instant::now();
         let agg = Aggregation::new(lat, self.block);
-        let due = fresh || (self.refresh_every > 0 && self.since >= self.refresh_every);
+        let due = self.due(fresh);
         let setup = due || self.vectors.is_none();
         let ok = "the multigrid setup succeeds";
         let basis = match (self.vectors.as_mut(), due) {
@@ -130,6 +155,53 @@ impl DwfMultigridSetup {
             false => self.seconds.rebuild += elapsed,
         }
         basis
+    }
+
+    /// A bootstrap is due: the first solve since the pseudofermions were drawn, or
+    /// `refresh_every` force solves since the last.
+    fn due(&self, fresh: bool) -> bool {
+        fresh || (self.refresh_every > 0 && self.since >= self.refresh_every)
+    }
+}
+
+/// What the cache keeps: P, and the coarse parts of the cycles of Ã and Ã†.
+struct Cache {
+    basis: PvEoBasis<f64>,
+    parts: Parts,
+}
+
+enum Parts {
+    Single(CoarseParts<f32>, CoarseParts<f32>),
+    Double(CoarseParts<f64>, CoarseParts<f64>),
+}
+
+/// The cycles of Ã (M) and of Ã† (M†) of one solve, with the coarse solves in single or in
+/// double precision.
+enum Cycles<'c, G: GammaRepre> {
+    Single(PvEoCycle<'c, G, f32>, PvEoCycle<'c, G, f32>),
+    Double(PvEoCycle<'c, G, f64>, PvEoCycle<'c, G, f64>),
+}
+
+impl<G: GammaRepre> Cycles<'_, G> {
+    fn m(&mut self) -> &mut dyn LinearFn<HalfPsi> {
+        match self {
+            Cycles::Single(m, _) => m,
+            Cycles::Double(m, _) => m,
+        }
+    }
+
+    fn m_dag(&mut self) -> &mut dyn LinearFn<HalfPsi> {
+        match self {
+            Cycles::Single(_, m) => m,
+            Cycles::Double(_, m) => m,
+        }
+    }
+
+    fn into_parts(self) -> Parts {
+        match self {
+            Cycles::Single(m, d) => Parts::Single(m.into_parts(), d.into_parts()),
+            Cycles::Double(m, d) => Parts::Double(m.into_parts(), d.into_parts()),
+        }
     }
 }
 
@@ -182,32 +254,6 @@ fn with_solves<G: GammaRepre>(
         op.alpha() == 1.0 && pv.alpha() == 1.0,
         "the multigrid of HMC takes D without Neff's α"
     );
-    let basis = setup.basis(op, pv, lat, (fresh, md));
-    let start = std::time::Instant::now();
-    let made = "the cycle is made";
-    let double = setup.coarse_double;
-    let cycle = match double {
-        false => Box::new(
-            PvEoCycle::<G, f32>::with_coarse_storage(
-                op,
-                pv,
-                (op, pv, EoForm::Right),
-                &basis,
-                setup.cycle,
-            )
-            .expect(made),
-        ) as Box<dyn LinearFn<HalfPsi>>,
-        true => Box::new(
-            PvEoCycle::<G, f64>::with_coarse_storage(
-                op,
-                pv,
-                (op, pv, EoForm::Right),
-                &basis,
-                setup.cycle,
-            )
-            .expect(made),
-        ),
-    };
     // In M† the second factor is P†D†P, of the quark operator: its exact adjoint by BiCGStab
     // took fewer iterations than MINRES on its Γ5 form on the v2 16⁴ configuration (17 against
     // 18 with stout links at M5 1.0, 57 against 76 at M5 1.8, m 0.001), while in M (P†D_PV P,
@@ -216,14 +262,40 @@ fn with_solves<G: GammaRepre>(
         pv_solver: CoarseKrylov::BiCgStab,
         ..setup.cycle
     };
-    let cycle_dag = match double {
-        false => Box::new(
-            PvEoCycle::<G, f32>::with_coarse_storage(pv, op, (pv, op, EoForm::Right), &basis, dual)
-                .expect(made),
-        ) as Box<dyn LinearFn<HalfPsi>>,
-        true => Box::new(
-            PvEoCycle::<G, f64>::with_coarse_storage(pv, op, (pv, op, EoForm::Right), &basis, dual)
-                .expect(made),
+    let caching = setup.rebuild_growth > 0.0;
+    let reuse = caching && setup.cache.is_some() && !setup.rebuild_due && !setup.due(fresh);
+    let (basis, parts) = match setup.cache.take().filter(|_| reuse) {
+        Some(Cache { basis, parts }) => {
+            if md {
+                setup.since += 1;
+            }
+            setup.reuses += 1;
+            (basis, Some(parts))
+        }
+        None => {
+            setup.rebuilds += 1;
+            (setup.basis(op, pv, lat, (fresh, md)), None)
+        }
+    };
+    let start = std::time::Instant::now();
+    let made = "the cycle is made";
+    let (outer, outer_dag) = ((op, pv, EoForm::Right), (pv, op, EoForm::Right));
+    let mut cycles = match (parts, setup.coarse_double) {
+        (Some(Parts::Single(m, d)), _) => Cycles::Single(
+            PvEoCycle::from_parts(op, pv, outer, &basis, setup.cycle, m),
+            PvEoCycle::from_parts(pv, op, outer_dag, &basis, dual, d),
+        ),
+        (Some(Parts::Double(m, d)), _) => Cycles::Double(
+            PvEoCycle::from_parts(op, pv, outer, &basis, setup.cycle, m),
+            PvEoCycle::from_parts(pv, op, outer_dag, &basis, dual, d),
+        ),
+        (None, false) => Cycles::Single(
+            PvEoCycle::with_coarse_storage(op, pv, outer, &basis, setup.cycle).expect(made),
+            PvEoCycle::with_coarse_storage(pv, op, outer_dag, &basis, dual).expect(made),
+        ),
+        (None, true) => Cycles::Double(
+            PvEoCycle::with_coarse_storage(op, pv, outer, &basis, setup.cycle).expect(made),
+            PvEoCycle::with_coarse_storage(pv, op, outer_dag, &basis, dual).expect(made),
         ),
     };
     setup.seconds.rebuild += start.elapsed().as_secs_f64();
@@ -237,16 +309,33 @@ fn with_solves<G: GammaRepre>(
         index: &index,
         like,
         gcr: Gcr::new(setup.inner, setup.directions),
-        cycle,
-        cycle_dag,
+        cycles: &mut cycles,
         inner: 0,
         count: 0,
     };
     let result = run(&mut solves);
-    setup.inner_solves += solves.count;
+    let (inner, count) = (solves.inner, solves.count);
+    drop(solves);
+    setup.inner_solves += count;
     setup.seconds.solve += start.elapsed().as_secs_f64();
+    if caching {
+        // Rebuild for the next solve once the iterations per solve have grown.
+        let per_solve = inner as f64 / count.max(1) as f64;
+        match reuse {
+            false => {
+                setup.baseline = Some(per_solve);
+                setup.rebuild_due = false;
+            }
+            true => {
+                let base = setup.baseline.unwrap_or(per_solve);
+                setup.rebuild_due = per_solve > setup.rebuild_growth * base;
+            }
+        }
+        let parts = cycles.into_parts();
+        setup.cache = Some(Cache { basis, parts });
+    }
     result.map(|mut info| {
-        info.iterations = solves.inner;
+        info.iterations = inner;
         info
     })
 }
@@ -258,8 +347,7 @@ struct Solves<'a, 'c, G: GammaRepre> {
     index: &'a crate::EvenOddIndex,
     like: HalfPsi,
     gcr: Gcr<HalfPsi>,
-    cycle: Box<dyn LinearFn<HalfPsi> + 'c>,
-    cycle_dag: Box<dyn LinearFn<HalfPsi> + 'c>,
+    cycles: &'a mut Cycles<'c, G>,
     /// GCR iterations and solves so far.
     inner: usize,
     count: usize,
@@ -280,9 +368,7 @@ impl<G: GammaRepre> Solves<'_, '_, G> {
         let mut a = PvEvenOdd::new(self.op, self.pv, EoForm::Right, &self.like);
         let (mut rhs, mut y) = (self.like.zeros_like(), self.like.zeros_like());
         a.right_hand_side(&mut rhs, r);
-        let info = self
-            .gcr
-            .solve(&mut a, Some(self.cycle.as_mut()), &mut y, &rhs);
+        let info = self.gcr.solve(&mut a, Some(self.cycles.m()), &mut y, &rhs);
         a.solution(e, &y, r);
         self.counted(info)
     }
@@ -294,7 +380,7 @@ impl<G: GammaRepre> Solves<'_, '_, G> {
         adjoint_right_hand_side(self.op, self.index, &mut rhs, r);
         let info = self
             .gcr
-            .solve(&mut a_dag, Some(self.cycle_dag.as_mut()), &mut y, &rhs);
+            .solve(&mut a_dag, Some(self.cycles.m_dag()), &mut y, &rhs);
         adjoint_solution(self.op, self.pv, self.index, e, &y, r);
         self.counted(info)
     }

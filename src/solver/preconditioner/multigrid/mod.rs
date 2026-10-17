@@ -22,8 +22,8 @@ pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_even_odd::{
     bootstrap_round, bootstrap_vector, coarse_solve, low_modes, orthonormalise_all, pv_eo_basis,
     pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, pv_eo_start, random_even,
-    BootstrapParams, CoarseKrylov, CycleLayout, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
-    SharedOperator,
+    BootstrapParams, CoarseKrylov, CoarseParts, CycleLayout, LowModeParams, PvEoBasis, PvEoCycle,
+    PvEoParams, SharedOperator,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::Sap;
