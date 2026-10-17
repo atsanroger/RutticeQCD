@@ -211,6 +211,11 @@ pub struct GeneralBlock {
     pub trajectory_length: f64,
     #[serde(rename = "Metropolis_test", default = "yes")]
     pub metropolis_test: bool,
+    /// Not in Bridge++: checks of the reversibility of the molecular dynamics from the first
+    /// configuration before the trajectories (`hmc::Hmc::reversibility`), with random numbers
+    /// of their own; the trajectories are as without them.
+    #[serde(default)]
+    pub reversibility_checks: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -515,6 +520,7 @@ impl HmcParams {
                     exp_order: self.integrator.order_of_exp_ip,
                 },
                 metropolis: self.general.metropolis_test,
+                reversibility_checks: self.general.reversibility_checks,
             },
             actions,
             output: HmcOutput {

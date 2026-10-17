@@ -79,6 +79,8 @@ pub struct HmcBlock {
     pub trajectory_length: f64,
     pub integrator: IntegratorConfig,
     pub metropolis: bool,
+    /// Checks of the reversibility before the trajectories (`HMC_General.reversibility_checks`).
+    pub reversibility_checks: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1266,6 +1268,25 @@ fn chain<U: LinkField>(
             "# trajectory  plaquette  dH  exp(-dH)  accepted  seconds"
         )
         .map_err(io)?;
+    }
+    // The reversibility checks, from the first configuration, with random numbers of their own.
+    let mut check_rng = Mseries::new(first.wrapping_add(0x5eed_0000));
+    for k in 0..config.hmc.reversibility_checks {
+        let start = Instant::now();
+        let r = hmc.reversibility(&u, &mut check_rng);
+        if root {
+            writeln!(
+                out,
+                "# reversibility {}: dH {:+.6e}, H back - H {:+.3e}, max |dU| {:.3e}, max |dP| {:.3e} ({:.1} s)",
+                k + 1,
+                r.delta_h,
+                r.delta_h_back,
+                r.max_link,
+                r.max_momentum,
+                start.elapsed().as_secs_f64()
+            )
+            .map_err(io)?;
+        }
     }
     let mut report = HmcReport {
         plaquette_start,
