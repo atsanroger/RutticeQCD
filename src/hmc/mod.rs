@@ -1101,6 +1101,72 @@ mod tests {
         assert_eq!(setup.setups, 1, "the test vectors are kept");
     }
 
+    /// The even-odd Ratio action of domain-wall fermions with the multigrid, (K†K)⁻¹ through
+    /// the two solves of D† and D on the even sites, gives the energy and the force of CG.
+    #[test]
+    fn domain_wall_multigrid_of_the_even_odd_ratio_gives_those_of_cg() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 43);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.05,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-24,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+        let mut cg =
+            TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop);
+        cg.langevin(&links, &mut Mseries::new(17));
+        let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
+        let setup = DwfMultigridSetup::new(
+            [2, 2, 2, 2],
+            8,
+            PvEoParams::default(),
+            Stop::simple(1e-10, 200),
+        );
+        let mut mg =
+            TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_solver(NormalSolver::Gcr(8))
+                .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(setup)));
+        mg.langevin(&links, &mut Mseries::new(17));
+        let (h_mg, f_mg) = (mg.hamiltonian(&links), mg.force(&links));
+        let worst = |a: &Field<f64, Gauge>, b: &Field<f64, Gauge>| {
+            a.as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+        };
+        let size = f_cg.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        eprintln!(
+            "H: CG {h_cg}, multigrid {h_mg}; forces differ by {:e} of {size:e}",
+            worst(&f_cg, &f_mg)
+        );
+        assert!((h_cg - h_mg).abs() < 1e-9 * h_cg.abs());
+        assert!(worst(&f_cg, &f_mg) < 1e-8 * size);
+        let Preconditioner::DomainWallMultigrid(setup) = &mg.preconditioner else {
+            unreachable!()
+        };
+        assert_eq!(setup.setups, 1, "the test vectors are kept");
+        assert!(setup.inner_solves >= 4, "two solves of each kind at least");
+    }
+
     /// The molecular dynamics is reversible, for the ratio of domain-wall fermions over
     /// Pauli-Villars fields on all sites and even-odd, on stout links with the rectangle action,
     /// on two levels of Omelyan's integrator: forward, P → −P, back gives the links and momenta

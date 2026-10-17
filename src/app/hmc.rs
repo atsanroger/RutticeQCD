@@ -584,9 +584,10 @@ impl HmcConfig {
                         else {
                             unreachable!()
                         };
-                        if *even_odd || denominator.is_some() || solver.neff_alpha != 1.0 {
+                        let _ = even_odd;
+                        if denominator.is_some() || solver.neff_alpha != 1.0 {
                             return invalid(format!(
-                                "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action on all sites (Lexical) over Pauli-Villars fields, without Fopr.neff_alpha"
+                                "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action over Pauli-Villars fields, without Fopr.neff_alpha"
                             ));
                         }
                         if solver.kind != Some(HmcSolverKind::Gcr) {
@@ -680,9 +681,11 @@ impl HmcConfig {
                             "{at}.Fopr.neff_alpha: not with the even-odd Ratio yet"
                         ));
                     }
-                    if solver.asks_for(HmcPreconditioner::Multigrid) {
+                    if solver.asks_for(HmcPreconditioner::Multigrid)
+                        && !matches!(fermion, HmcFermion::DomainWall { .. })
+                    {
                         return invalid(format!(
-                            "{at}.Solver.preconditioner_type: None or Chebyshev for the even-odd Ratio (no multigrid yet)"
+                            "{at}.Solver.preconditioner_type: None or Chebyshev for the even-odd Ratio of Wilson fermions (the multigrid is that of domain-wall fermions)"
                         ));
                     }
                 }

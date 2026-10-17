@@ -1285,6 +1285,10 @@ Action_F_1:
         )
     ));
     assert!(!ok(wall, even_odd, &with("solver_type : GCR", &mg)));
+    // The even-odd Ratio of domain-wall fermions takes the multigrid too; of clover fermions not.
+    let ratio_eo = "  action_type : Ratio\n  operator_type : Even_odd\n";
+    assert!(ok(wall, ratio_eo, &with("solver_type : GCR", &mg)));
+    assert!(!ok(clover, ratio_eo, &with("solver_type : GCR", &mg)));
     // The old place of the multigrid, in the Solver, is refused with where it went.
     let old = file(
         clover,
