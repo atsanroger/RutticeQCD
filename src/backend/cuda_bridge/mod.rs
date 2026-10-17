@@ -22,6 +22,7 @@ mod field;
 mod gauge;
 mod levels;
 mod mdwf;
+pub mod multigrid;
 mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};

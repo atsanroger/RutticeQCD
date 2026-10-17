@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The setup and the cycle of the domain-wall multigrid on the device are in the library
+  (`backend::cuda_bridge::multigrid`: the filtered test vectors, the bootstrap, the top of the
+  smoother, the two-grid cycle), for any program; `ruttice` uses them and prints the same
+  numbers to the bit.
 - The gradient flow (`gauge::flow`): the Wilson flow by Lüscher's third-order Runge-Kutta
   scheme, the energy density (plaquette and clover) and the topological charge (clover and
   improved), as Bridge++ and checked against its tests; `ruttice-flow` and `ruttice-flow-mpi`

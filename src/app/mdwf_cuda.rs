@@ -18,22 +18,20 @@
 use super::mdwf::{iterations_text, load, multigrid_cycle, write_measurements, Preconditioner};
 use super::memory_line;
 use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
+use crate::backend::cuda_bridge::multigrid::{
+    bootstrap, device_correction, filtered_test_vectors, top_of, Stage,
+};
 use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceBasis, DeviceCoarse, DeviceCorrection, DeviceParities, DeviceReal,
     DeviceSpinor, LevelReal,
 };
-use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio, SplitParity};
+use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio};
 use crate::measure::{point_source, NUM_SOURCES};
-use crate::solver::preconditioner::multigrid::{
-    bootstrap_vector, low_modes, orthonormalise_all, pv_eo_basis, random_even, Aggregation,
-    PvEoBasis, PvEoCycle, TwoGrid,
-};
-use crate::solver::{
-    largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop,
-};
+use crate::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation, PvEoBasis, PvEoCycle};
+use crate::solver::{BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop};
 use crate::{
-    random_spinor, Aos, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Normal, Parity,
-    Spinor, Vector, C64,
+    random_spinor, Aos, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor,
+    Vector, C64,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -164,21 +162,6 @@ fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> F {
     b
 }
 
-/// 1.1 |λ_max| of `a`, the top of the interval of a smoother: by the power iteration from the
-/// random vector of `seed`, as on the CPU.
-fn top_of<T: DeviceReal, A: LinearFn<DeviceSpinor<T>>>(
-    a: &mut A,
-    lat: &Arc<Lattice>,
-    even: &DeviceSpinor<T>,
-    seed: u64,
-    steps: usize,
-) -> Result<f64, CudaError> {
-    let mut start = even.zeros_with(1);
-    let random = DeviceSpinor::<T>::from_host(&random_fifth(lat, even.ls(), seed))?;
-    DeviceParities.extract(&mut start, &random, Parity::Even);
-    Ok(1.1 * largest_magnitude(a, &mut start, steps))
-}
-
 /// The vectors on the even sites the multigrid is built from: from a checkpoint, or filtered
 /// here, and improved by the bootstrap if the file asks. The multigrid of the bootstrap is on
 /// the device unless its settings are on the CPU only: then its basis and its coarse
@@ -200,7 +183,52 @@ fn test_vectors<T: DeviceReal>(
     let ls = even.ls();
     let keep = mg.level1.test_vectors(true) / 2;
     let half = mg.basis_precision == BasisPrecision::Half;
-    let ratio = || PvRatio::new(device.0, device.1, EoForm::Right, even, odd);
+    // What the setup reports: the times and Ritz values, and with RUTTICE_CHECKSUM the
+    // checksums of every stage, as the run always printed them.
+    let mut failed: Option<Box<dyn Error>> = None;
+    let mut report = |stage: Stage<'_, T>| {
+        let line = match stage {
+            Stage::Filtered { theta, vectors } => writeln!(
+                out,
+                "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s); {}",
+                theta[0],
+                theta[theta.len() - 1],
+                start.elapsed().as_secs_f64(),
+                memory()
+            )
+            .map_err(Box::<dyn Error>::from)
+            .and_then(|()| checksum_line(out, "the filtered vectors", || vectors.checksum())),
+            Stage::Top(hi) => checksum_line(out, "the top of the smoother", || Ok(hi.to_bits())),
+            Stage::Vector {
+                round,
+                index,
+                vector,
+            } if index < 2 => checksum_line(
+                out,
+                &format!("vector {index} of round {}", round + 1),
+                || vector.checksum(),
+            ),
+            Stage::Vector { .. } => Ok(()),
+            Stage::Round { round, vectors } => checksum_line(
+                out,
+                &format!("the vectors after round {}", round + 1),
+                || vectors.checksum(),
+            )
+            .and_then(|()| {
+                writeln!(
+                    out,
+                    "  bootstrap round {}: {:.0} s; {}",
+                    round + 1,
+                    start.elapsed().as_secs_f64(),
+                    memory()
+                )
+                .map_err(Box::<dyn Error>::from)
+            }),
+        };
+        if let Err(e) = line {
+            failed.get_or_insert(e);
+        }
+    };
     let mut y = match &mg.setup.checkpoint {
         Some(path) => {
             let mut like = H::with_shape(lat, 24, ls, 1, 1);
@@ -208,96 +236,49 @@ fn test_vectors<T: DeviceReal>(
             let path = file.parent().map_or(path.clone(), |dir| dir.join(path));
             DeviceSpinor::<T>::from_host_half(&load(&path, &like, keep)?, index)?
         }
-        None => {
-            let random = random_even(lat, index, ls, low.vectors, low.seed);
-            let x = DeviceSpinor::<T>::from_host_half(&random, index)?;
-            let (x, theta) = low_modes(|c: &DeviceSpinor<T>| Normal::new(ratio(), c), x, low);
-            writeln!(
-                out,
-                "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s); {}",
-                theta[0],
-                theta[theta.len() - 1],
-                start.elapsed().as_secs_f64(),
-                memory()
-            )?;
-            checksum_line(out, "the filtered vectors", || x.checksum())?;
-            x.select(&(0..keep).collect::<Vec<_>>())
-        }
+        None => filtered_test_vectors(device, (even, odd), lat, index, low, keep, &mut report)?,
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
-    for round in 0..boot.rounds {
-        let stash = {
-            // The cycle on the current vectors: on the device, or its coarse part on the CPU.
-            let (mut on_device, mut cpu_basis, mut cpu_cycle) = (None, None, None);
-            if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
-                on_device = Some(DeviceCorrection::<T, f32>::new(
-                    DeviceBasis::pv_eo(device.0, device.1, &agg, &y, half)?,
-                    device,
-                    device,
-                    EoForm::Right,
-                    boot.cycle,
-                    even,
-                )?);
-            } else {
-                let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
-                let basis = cpu_basis.insert(pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?);
-                let outer = (d, pv, EoForm::Right);
-                cpu_cycle = Some(PvEoCycle::new(d, pv, outer, basis, boot.cycle)?);
-            }
-            let hi = match &cpu_cycle {
-                Some(cycle) => cycle.top(),
-                None => top_of(
-                    &mut ratio(),
-                    lat,
-                    even,
-                    boot.cycle.seed,
-                    boot.cycle.power_steps,
-                )?,
-            };
-            checksum_line(out, "the top of the smoother", || Ok(hi.to_bits()))?;
-            let smoother = Chebyshev::new(
-                ratio(),
-                boot.cycle.chebyshev_steps,
-                hi / boot.cycle.chebyshev_ratio,
-                hi,
-                even,
-            );
-            let correction: Correction<T> = match (on_device.as_mut(), cpu_cycle.as_mut()) {
-                (Some(c), _) => Box::new(|e, r| c.correct(e, r)),
-                (None, Some(cycle)) => {
-                    Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r)))
-                }
-                (None, None) => unreachable!("one of them was made"),
-            };
-            let mut two_grid = TwoGrid::new(smoother, correction, even);
-            // The vectors wait on the host while the cycle works on one at a time.
-            let mut stash = y.stash()?;
-            let mut a = ratio();
-            for j in 0..stash.num_vectors() {
-                let x = bootstrap_vector(&mut a, &mut two_grid, &stash.vector(j)?, boot.steps);
-                if j < 2 {
-                    checksum_line(out, &format!("vector {j} of round {}", round + 1), || {
-                        x.checksum()
-                    })?;
-                }
-                stash.set_vector(j, &x)?;
-            }
-            stash
-        };
-        y = stash.restore()?;
-        orthonormalise_all(&mut y);
-        checksum_line(
-            out,
-            &format!("the vectors after round {}", round + 1),
-            || y.checksum(),
+    if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
+        let mut on_device = device_correction(device, &agg, boot.cycle, even, half);
+        bootstrap(
+            device,
+            (even, odd),
+            lat,
+            &mut y,
+            boot,
+            &mut on_device,
+            &mut report,
         )?;
-        writeln!(
-            out,
-            "  bootstrap round {}: {:.0} s; {}",
-            round + 1,
-            start.elapsed().as_secs_f64(),
-            memory()
+    } else {
+        // The coarse part of the cycle on the CPU, the rest on the device.
+        let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
+        let mut on_cpu_correction =
+            |y: DeviceSpinor<T>,
+             round: &mut crate::backend::cuda_bridge::multigrid::Round<'_, T>|
+             -> crate::backend::cuda_bridge::multigrid::Grown<T> {
+                let basis = pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?;
+                let mut cycle = PvEoCycle::new(d, pv, (d, pv, EoForm::Right), &basis, boot.cycle)?;
+                let hi = cycle.top();
+                round(
+                    Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r))),
+                    Some(hi),
+                    y,
+                )
+            };
+        bootstrap(
+            device,
+            (even, odd),
+            lat,
+            &mut y,
+            boot,
+            &mut on_cpu_correction,
+            &mut report,
         )?;
+    }
+    drop(report);
+    if let Some(e) = failed {
+        return Err(e);
     }
     Ok(y)
 }
@@ -352,24 +333,7 @@ fn two_grid<'a, T: DeviceReal>(
     let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
     let (cycle_params, _, _) = params.multigrid().ok_or("no multigrid")?;
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
-    let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
-    let hi = match &cpu_cycle {
-        Some(cycle) => cycle.top(),
-        None => top_of(
-            &mut operator(),
-            lat,
-            even,
-            cycle_params.seed,
-            cycle_params.power_steps,
-        )?,
-    };
-    let smoother = Chebyshev::new(
-        operator(),
-        cycle_params.chebyshev_steps,
-        hi / cycle_params.chebyshev_ratio,
-        hi,
-        even,
-    );
+    let hi = cpu_cycle.as_ref().map(|cycle| cycle.top());
     let count = Rc::new(Cell::new(0));
     let counted = count.clone();
     let correction: Correction<'a, T> = match cpu_cycle {
@@ -418,7 +382,16 @@ fn two_grid<'a, T: DeviceReal>(
             }
         }
     };
-    Ok((TwoGrid::new(smoother, correction, even), count))
+    let cycle = crate::backend::cuda_bridge::multigrid::two_grid(
+        outer,
+        form,
+        (even, odd),
+        lat,
+        cycle_params,
+        correction,
+        hi,
+    )?;
+    Ok((cycle, count))
 }
 
 pub(super) fn run(
