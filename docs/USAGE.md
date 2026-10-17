@@ -103,7 +103,8 @@ stages made (the test vectors, P, the coarse operators, the solutions), to compa
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard (Lexical) and Ratio
 (Lexical or Even_odd) actions on the device, the Ratio action with the multigrid too (its test
 vectors, P in half precision, the coarse operators and the cycles there; not yet with
-`MultiGrid_HMC.rebuild_iteration_growth`, nor mixed-precision CG). Not on the device yet: the
+`MultiGrid_HMC.rebuild_iteration_growth`), and mixed-precision CG with the operator in single
+precision on the device. Not on the device yet: the
 multigrid of Wilson and clover fermions, several processes, boundary phases other than ±1 and 0.
 
 ### SIMD
@@ -160,7 +161,7 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
 | `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
 | `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action on all sites over Pauli-Villars fields |
-| `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio actions, CG without a preconditioner, on the CPU |
+| `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio actions, CG without a preconditioner, on the CPU and on the device |
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |

@@ -1760,6 +1760,67 @@ fn hmc_with_the_domain_wall_multigrid_on_the_device() {
     }
 }
 
+/// HMC with mixed precision on the device (CG in single precision corrected in double), for
+/// the Ratio action on all sites and even-odd and the Standard action: the trajectories of CG
+/// in double precision on the CPU.
+#[test]
+fn hmc_with_mixed_precision_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let cg = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF")
+        .replace("number_of_trajectories  : 1", "number_of_trajectories  : 2");
+    let mixed = |text: &str| {
+        text.replace(
+            "    convergence_criterion_squared : 1.0e-28",
+            "    convergence_criterion_squared : 1.0e-28\n    precision                     : mixed",
+        )
+    };
+    let rows = |out: &str| -> Vec<(f64, f64)> {
+        out.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some((f[1].parse().ok()?, f[2].parse().ok()?))
+            })
+            .collect()
+    };
+    let even_odd = cg.replace(
+        "action_type     : Ratio",
+        "action_type     : Ratio\n  operator_type   : Even_odd",
+    );
+    let standard = cg.replace("action_type     : Ratio", "action_type     : Standard");
+    assert_ne!(mixed(&cg), cg);
+    for (name, text) in [
+        ("hmc_mixed_lex", cg.clone()),
+        ("hmc_mixed_eo", even_odd),
+        ("hmc_mixed_standard", standard),
+    ] {
+        let reference = run_with_backend(&text, "cpu", name);
+        let gpu = run_with_backend(&mixed(&text), "cuda_bridge", name);
+        let (a, b) = (rows(&reference), rows(&gpu));
+        assert!(a.len() == 2 && a.len() == b.len(), "\n{reference}\n{gpu}");
+        for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+            eprintln!("{name}: plaquette {p} and {q}, ΔH {dh} and {dk}");
+            assert!(
+                (p - q).abs() < 1e-12,
+                "{name}: plaquette {p} in double, {q} mixed"
+            );
+            assert!(
+                (dh - dk).abs() < 1e-7,
+                "{name}: ΔH {dh} in double, {dk} mixed"
+            );
+        }
+    }
+}
+
 /// HMC with the domain-wall Ratio action on the device (`Main.backend : cuda_bridge`): Bridge++'s
 /// test_HMC_Domainwall_Nf2_PV (stout links, Iwasaki action) gives the trajectories of the CPU,
 /// the plaquette to rounding and ΔH to the tolerance of the solves.
