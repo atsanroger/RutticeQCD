@@ -1500,6 +1500,10 @@ fn chain<U: LinkField>(
             .map_err(io)?;
         }
     }
+    // The cost of the solves is that of each trajectory: what the checks cost is left out.
+    for term in hmc.terms.iter_mut() {
+        term.action.take_cost();
+    }
     let mut report = HmcReport {
         plaquette_start,
         trajectories: Vec::new(),
@@ -1523,6 +1527,27 @@ fn chain<U: LinkField>(
                 start.elapsed().as_secs_f64()
             )
             .map_err(io)?;
+        }
+        for (i, term) in hmc.terms.iter_mut().enumerate() {
+            let Some(c) = term.action.take_cost() else {
+                continue;
+            };
+            if root {
+                let name = config.action_names.get(i).map_or("action", String::as_str);
+                let multigrid = match c.rebuilds + c.reuses {
+                    0 => String::new(),
+                    _ => format!(
+                        "; multigrid setup {:.2} s, rebuild {:.2} s, {} rebuilds, {} reuses",
+                        c.setup_seconds, c.rebuild_seconds, c.rebuilds, c.reuses
+                    ),
+                };
+                writeln!(
+                    out,
+                    "# cost {n:8} {name}: {} solves, {} iterations, {:.2} s{multigrid}",
+                    c.solves, c.iterations, c.seconds
+                )
+                .map_err(io)?;
+            }
         }
         report
             .trajectories

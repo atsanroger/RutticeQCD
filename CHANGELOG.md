@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- HMC runs print what the solves of each fermion action cost in every trajectory
+  (`# cost  n  Action_F_1: solves, iterations, seconds; multigrid setup, rebuild, rebuilds,
+  reuses`), from `MdAction::take_cost` (`SolveCost`): the numbers of a comparison of solvers.
 - HMC: mixed precision on the device too (`backend::cuda_bridge::hmc_mixed::SingleCuda`, the
   operator in single precision on the links of the device; on all sites and for K of the
   even-odd Ratio action). Two trajectories of the Bridge++ example, the Ratio action on all

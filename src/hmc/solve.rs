@@ -295,6 +295,37 @@ impl MultigridSetup {
     }
 }
 
+/// The cost of an action's solves, kept until it is taken (`MdAction::take_cost`).
+#[derive(Default)]
+pub(super) struct CostMeter {
+    cost: super::SolveCost,
+    /// The multigrid's seconds and counts when the cost was last taken.
+    seen: (super::Seconds, usize, usize),
+}
+
+impl CostMeter {
+    /// A solve that began at `start` and took `iterations`.
+    pub(super) fn add(&mut self, start: std::time::Instant, iterations: usize) {
+        self.cost.solves += 1;
+        self.cost.iterations += iterations;
+        self.cost.seconds += start.elapsed().as_secs_f64();
+    }
+
+    /// The cost so far, with what the multigrid of `pre` made, and a fresh start.
+    pub(super) fn take(&mut self, pre: &Preconditioner) -> super::SolveCost {
+        let mut cost = std::mem::take(&mut self.cost);
+        if let Preconditioner::DomainWallMultigrid(s) = pre {
+            let (seconds, rebuilds, reuses) = self.seen;
+            cost.setup_seconds = s.seconds.setup - seconds.setup;
+            cost.rebuild_seconds = s.seconds.rebuild - seconds.rebuild;
+            cost.rebuilds = s.rebuilds - rebuilds;
+            cost.reuses = s.reuses - reuses;
+            self.seen = (s.seconds, s.rebuilds, s.reuses);
+        }
+        cost
+    }
+}
+
 /// The preconditioner of an action's solves.
 #[derive(Default)]
 pub enum Preconditioner {

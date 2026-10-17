@@ -598,6 +598,7 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     pub guess: Chrono<O::Half>,
     /// Mixed precision: K in single precision (`with_single`).
     single: Option<Box<dyn super::SingleNormal<O::Half, O::Links>>>,
+    meter: super::solve::CostMeter,
 }
 
 impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
@@ -616,6 +617,7 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             md_iterations: 0,
             guess: Chrono::new(0),
             single: None,
+            meter: Default::default(),
         }
     }
 
@@ -731,6 +733,7 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             md,
         );
         let ops = (&self.op, Some(&self.pv));
+        let start = std::time::Instant::now();
         let info = match self.single.as_mut() {
             Some(single) => {
                 assert!(
@@ -744,6 +747,7 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             None => Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop),
         }
         .expect("the solve with the operator converges");
+        self.meter.add(start, info.iterations);
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -777,8 +781,10 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             Preconditioner::DomainWallMultigrid(_) => NormalSolver::Cg,
             _ => self.solver,
         };
-        Self::solve(solver, ops, lat, none, &mut v1, &v2, self.stop_h)
+        let start = std::time::Instant::now();
+        let info = Self::solve(solver, ops, lat, none, &mut v1, &v2, self.stop_h)
             .expect("the solve with the denominator converges");
+        self.meter.add(start, info.iterations);
         let k1 = Self::factor(&self.pv, lat, &v1, Dagger::No);
         self.phi = Some(Self::gamma5(&self.pv, &k1));
         self.fresh = true;
@@ -836,5 +842,8 @@ impl<O: EvenOddHalves> MdAction<O::Links> for TwoFlavorRatioEo<O> {
     }
     fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavorRatioEo::force(self, links)
+    }
+    fn take_cost(&mut self) -> Option<super::SolveCost> {
+        Some(self.meter.take(&self.preconditioner))
     }
 }

@@ -13,6 +13,29 @@ pub trait MdAction<U: LinkField = Field<f64, Gauge>> {
     fn hamiltonian(&mut self, links: &Links<U>) -> f64;
     /// The force on the momenta.
     fn force(&mut self, links: &Links<U>) -> U;
+    /// What the solves of the action have cost since the last time this was asked; None for
+    /// an action without solves.
+    fn take_cost(&mut self) -> Option<SolveCost> {
+        None
+    }
+}
+
+/// What the solves of an action cost (`MdAction::take_cost`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SolveCost {
+    /// Solves: for the forces, the energies and the heat bath.
+    pub solves: usize,
+    /// Iterations of the solvers: CG, GCR on the even sites with the multigrid, the CG in
+    /// single precision with mixed precision.
+    pub iterations: usize,
+    /// Seconds in the solves.
+    pub seconds: f64,
+    /// The multigrid: seconds of its setups and bootstraps, and of making P and the coarse
+    /// parts for new links (both within `seconds`); how often those were made and reused.
+    pub setup_seconds: f64,
+    pub rebuild_seconds: f64,
+    pub rebuilds: usize,
+    pub reuses: usize,
 }
 
 /// The scheme of every level.

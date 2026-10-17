@@ -521,6 +521,7 @@ pub struct TwoFlavor<O: ForceOp> {
     pub guess: Chrono<O::Field>,
     /// Mixed precision: the operator in single precision (`with_single`).
     single: Option<Single<O>>,
+    meter: super::solve::CostMeter,
 }
 
 impl<O: ForceOp> TwoFlavor<O> {
@@ -540,6 +541,7 @@ impl<O: ForceOp> TwoFlavor<O> {
             clover: None,
             guess: Chrono::new(0),
             single: None,
+            meter: Default::default(),
         }
     }
 
@@ -611,7 +613,9 @@ impl<O: ForceOp> TwoFlavor<O> {
         let flags = (std::mem::take(&mut self.fresh), md);
         let pre = &mut self.preconditioner;
         let single = self.single.as_mut();
+        let start = std::time::Instant::now();
         let info = normal_solve((a, None), self.solver, pre, single, flags, &mut z, &b, stop)?;
+        self.meter.add(start, info.iterations);
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -684,6 +688,7 @@ pub struct TwoFlavorRatio<O: ForceOp> {
     clover: Option<(f64, f64)>,
     /// Mixed precision: the operator in single precision (`with_single`).
     single: Option<Single<O>>,
+    meter: super::solve::CostMeter,
 }
 
 impl<O: ForceOp> TwoFlavorRatio<O> {
@@ -701,6 +706,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             phi: None,
             clover: None,
             single: None,
+            meter: Default::default(),
         }
     }
 
@@ -761,13 +767,13 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         flags: (bool, bool),
         b: &O::Field,
         stop: Stop,
-    ) -> O::Field {
+    ) -> (O::Field, usize) {
         let (mut rb, mut z, mut x) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
         op.right(&mut rb, b);
-        normal_solve((op, pv), solver, pre, single, flags, &mut z, &rb, stop)
+        let info = normal_solve((op, pv), solver, pre, single, flags, &mut z, &rb, stop)
             .expect("the solve converges");
         op.right(&mut x, &z);
-        x
+        (x, info.iterations)
     }
 
     /// (D†D)⁻¹ b for the operator of the action, with its preconditioner.
@@ -776,7 +782,8 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         let op = self.conditioned.as_ref().unwrap_or(&self.op);
         let pre = &mut self.preconditioner;
         let single = self.single.as_mut();
-        Self::solve(
+        let start = std::time::Instant::now();
+        let (x, iterations) = Self::solve(
             self.solver,
             (op, Some(&self.pv)),
             pre,
@@ -784,7 +791,9 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             flags,
             b,
             stop,
-        )
+        );
+        self.meter.add(start, iterations);
+        x
     }
 
     fn apply(op: &O, v: &O::Field, variant: Variant) -> O::Field {
@@ -813,7 +822,8 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             Preconditioner::DomainWallMultigrid(_) => NormalSolver::Cg,
             _ => self.solver,
         };
-        let v1 = Self::solve(
+        let start = std::time::Instant::now();
+        let (v1, iterations) = Self::solve(
             solver,
             (&self.pv, None),
             none,
@@ -822,6 +832,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             &v2,
             self.stop_h,
         );
+        self.meter.add(start, iterations);
         self.fresh = true;
         self.phi = Some(Self::apply(&self.pv, &v1, Variant::Gamma5D));
         let mut n = [0.0];
@@ -869,6 +880,9 @@ impl<O: ForceOp> MdAction<O::Links> for TwoFlavor<O> {
     fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavor::force(self, links)
     }
+    fn take_cost(&mut self) -> Option<super::SolveCost> {
+        Some(self.meter.take(&self.preconditioner))
+    }
 }
 
 impl<O: ForceOp> MdAction<O::Links> for TwoFlavorRatio<O> {
@@ -880,5 +894,8 @@ impl<O: ForceOp> MdAction<O::Links> for TwoFlavorRatio<O> {
     }
     fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavorRatio::force(self, links)
+    }
+    fn take_cost(&mut self) -> Option<super::SolveCost> {
+        Some(self.meter.take(&self.preconditioner))
     }
 }
