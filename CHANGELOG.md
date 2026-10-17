@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `examples/preconditioned_fov` and `preconditioned_fov_device`: the field of values of Ã and
+  of Ã M (M the two-grid cycle) by Lanczos on their Hermitian parts, M† the cycle of Ã† on the
+  same P with the same top of the smoother's interval (`CoarseParts::with_top`; with tops of
+  their own ⟨z, Ã M w⟩ and ⟨M† Ã† z, w⟩ differed by 3e-6, now by 1e-11) and both coarse
+  factors solved on their exact adjoints. The two agree on 4³×8 (Ã M in [0.772, 1.222]). On
+  the v2 12⁴ configuration at m 0.001 the field of values of Ã M reaches far into the left half
+  plane: [−23.9, 30.8] with stout links at M5 1.0, [−1.49, 4.17] at M5 1.8 (Ã itself:
+  [−0.0046, 1.98] and [−0.050, 4.46]).
 - HMC runs print what the solves of each fermion action cost in every trajectory
   (`# cost  n  Action_F_1: solves, iterations, seconds; multigrid setup, rebuild, rebuilds,
   reuses`), from `MdAction::take_cost` (`SolveCost`): the numbers of a comparison of solvers.

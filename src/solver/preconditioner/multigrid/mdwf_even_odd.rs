@@ -451,6 +451,13 @@ impl<CT: Storage> CoarseParts<CT> {
     pub fn top(&self) -> f64 {
         self.hi
     }
+
+    /// The same parts with the smoother on [hi / ratio, hi] for this `hi`: the cycle of Ã† with
+    /// the top of that of Ã makes the adjoint of that cycle exactly (the polynomials the same).
+    pub fn with_top(mut self, hi: f64) -> Self {
+        self.hi = hi;
+        self
+    }
 }
 
 /// A `BlockMap` the correction applies and the cycle keeps.
