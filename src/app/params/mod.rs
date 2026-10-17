@@ -228,7 +228,7 @@ convergence_criterion_squared = 1e-18
             let (cycle, _, _) = p.multigrid().unwrap();
             assert_eq!(cycle.pv_solver, CoarseKrylov::Gcr { k: 2 }, "{name}");
             let mg = p.multigrid.as_ref().unwrap();
-            assert_eq!(mg.coarse_precision, PrecisionType::Double, "{name}");
+            assert_eq!(mg.coarse_precision(), PrecisionType::Double, "{name}");
             assert_eq!(mg.level1.block_size, [2; ND], "{name}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
@@ -238,14 +238,28 @@ convergence_criterion_squared = 1e-18
     #[test]
     fn precision_spellings() {
         use super::keywords::BasisPrecision;
-        for w in ["single", "Single", "SINGLE", "float", "f32", "FP32", "fp32", "Float32", "SP"] {
-            assert_eq!(PrecisionType::from_keyword(w), Some(PrecisionType::Single), "{w}");
+        for w in [
+            "single", "Single", "SINGLE", "float", "f32", "FP32", "fp32", "Float32", "SP",
+        ] {
+            assert_eq!(
+                PrecisionType::from_keyword(w),
+                Some(PrecisionType::Single),
+                "{w}"
+            );
         }
         for w in ["double", "Double", "f64", "FP64", "fp_64", "float64", "DP"] {
-            assert_eq!(PrecisionType::from_keyword(w), Some(PrecisionType::Double), "{w}");
+            assert_eq!(
+                PrecisionType::from_keyword(w),
+                Some(PrecisionType::Double),
+                "{w}"
+            );
         }
         for w in ["half", "Half", "f16", "FP16", "float16"] {
-            assert_eq!(BasisPrecision::from_keyword(w), Some(BasisPrecision::Half), "{w}");
+            assert_eq!(
+                BasisPrecision::from_keyword(w),
+                Some(BasisPrecision::Half),
+                "{w}"
+            );
         }
         assert_eq!(PrecisionType::from_keyword("half"), None);
     }
