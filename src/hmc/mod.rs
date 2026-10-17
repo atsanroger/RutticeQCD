@@ -30,7 +30,7 @@ pub use gauge_action::{
     RectangleAction, Step,
 };
 pub use guess::Chrono;
-pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, Term};
+pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, SolveCost, Term};
 pub use link_field::LinkField;
 pub use links::{Links, SmearingCache};
 pub use mixed::{mixed_normal, SingleMdwf, SingleMdwfEo, SingleNormal};

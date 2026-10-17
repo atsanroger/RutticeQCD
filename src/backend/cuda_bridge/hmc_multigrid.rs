@@ -185,7 +185,8 @@ fn with_coarse<CT: LevelReal>(
         Some(k) => {
             setup.count_solve_for_refresh(false, md);
             setup.count_reuse();
-            *k
+            let (parts, parts_dag, hi, hi_dag) = *k;
+            (parts, parts_dag, hi, hi_dag, 0.0)
         }
         None => {
             // The test vectors: a full setup the first time, a bootstrap from those of before
@@ -235,6 +236,7 @@ fn with_coarse<CT: LevelReal>(
             };
             setup.count_solve_for_refresh(due, md);
             setup.count_rebuild();
+            let parts_start = std::time::Instant::now();
             // P, shared by the corrections of Ã and Ã†, the coarse parts and the tops of the
             // smoothers.
             let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &made, true)?);
@@ -265,12 +267,19 @@ fn with_coarse<CT: LevelReal>(
             )?;
             let mut a_dag = PvRatio::new(pv, d, EoForm::Right, &even, &odd);
             let hi_dag = top_of(&mut a_dag, lat, &even, dual.seed, dual.power_steps)?;
-            (c.parts(), c_dag.parts(), hi, hi_dag)
+            (
+                c.parts(),
+                c_dag.parts(),
+                hi,
+                hi_dag,
+                parts_start.elapsed().as_secs_f64(),
+            )
         }
     };
-    let setup_seconds = start.elapsed().as_secs_f64();
+    // P and the coarse parts count as the rebuild, the vectors as the setup.
+    let (parts, parts_dag, hi, hi_dag, parts_seconds) = kept;
+    let setup_seconds = start.elapsed().as_secs_f64() - parts_seconds;
     let start = std::time::Instant::now();
-    let (parts, parts_dag, hi, hi_dag) = kept;
     let mut c = DeviceCorrection::<f64, CT>::from_parts(
         parts.clone(),
         (d, pv),
@@ -305,7 +314,7 @@ fn with_coarse<CT: LevelReal>(
         Box::new(move |e, r| c_dag.correct(e, r)),
         Some(hi_dag),
     )?;
-    let rebuild_seconds = start.elapsed().as_secs_f64();
+    let rebuild_seconds = parts_seconds + start.elapsed().as_secs_f64();
     let start = std::time::Instant::now();
     let mut solves = DeviceSolves {
         d,
