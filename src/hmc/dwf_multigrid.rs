@@ -20,8 +20,7 @@
 use super::fermion_action::Psi;
 use super::HalfPsi;
 use crate::fermion::{
-    adjoint_right_hand_side, adjoint_solution, Dagger, EoForm, EvenOdd, Mdwf, PvEvenOdd,
-    SchurFactor,
+    adjoint_right_hand_side, adjoint_solution, Dagger, EoForm, Mdwf, PvEvenOdd, SchurFactor,
 };
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
@@ -29,7 +28,7 @@ use crate::solver::preconditioner::multigrid::{
     CoarseParts, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
-use crate::{extract_parity, insert_parity, Lattice, LinearFn, LinearOp, Parity, Vector, C64, ND};
+use crate::{Lattice, LinearFn, LinearOp, Parity, Vector, C64, ND};
 use std::sync::Arc;
 
 /// The setup of the multigrid of an action and what it keeps along a trajectory.
@@ -66,6 +65,9 @@ pub struct DwfMultigridSetup {
     /// Rebuilds of P and the coarse parts for new links, and solves that reused them.
     pub rebuilds: usize,
     pub reuses: usize,
+    /// What the multigrid keeps on the device, for an operator there.
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) device: Option<crate::backend::cuda_bridge::hmc_multigrid::DeviceState>,
     /// Full setups, bootstraps from the vectors of before, and solves on the even sites so far.
     pub setups: usize,
     pub refreshes: usize,
@@ -106,6 +108,8 @@ impl DwfMultigridSetup {
             rebuild_due: false,
             rebuilds: 0,
             reuses: 0,
+            #[cfg(feature = "cuda-bridge")]
+            device: None,
             setups: 0,
             refreshes: 0,
             inner_solves: 0,
@@ -161,6 +165,38 @@ impl DwfMultigridSetup {
     /// `refresh_every` force solves since the last.
     fn due(&self, fresh: bool) -> bool {
         fresh || (self.refresh_every > 0 && self.since >= self.refresh_every)
+    }
+
+    /// The bookkeeping of a setup made elsewhere (on a device), as `basis` keeps it here.
+    pub(crate) fn bootstrap_due(&self, fresh: bool) -> bool {
+        self.due(fresh)
+    }
+
+    pub(crate) fn count_setup(&mut self) {
+        self.setups += 1;
+    }
+
+    pub(crate) fn count_refresh(&mut self) {
+        self.refreshes += 1;
+    }
+
+    /// After the vectors of a solve: the force solves since the last bootstrap.
+    pub(crate) fn count_solve_for_refresh(&mut self, due: bool, md: bool) {
+        if due {
+            self.since = 0;
+        }
+        if md {
+            self.since += 1;
+        }
+    }
+
+    /// The seconds of a solve made elsewhere, and its solves on the even sites.
+    pub(crate) fn record(&mut self, setup: f64, rebuild: f64, solve: f64, solves: usize) {
+        self.seconds.setup += setup;
+        self.seconds.rebuild += rebuild;
+        self.seconds.solve += solve;
+        self.inner_solves += solves;
+        self.rebuilds += 1;
     }
 }
 
@@ -235,8 +271,9 @@ pub fn normal_solve_half<G: GammaRepre>(
     b: &HalfPsi,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    with_solves(op, pv, setup, flags, b.lattice(), |solves| {
-        two_solves_half(op, solves, z, b, stop)
+    let lat = b.lattice().clone();
+    with_solves(op, pv, setup, flags, &lat, |solves| {
+        two_solves_half(op, &lat, solves, z, b, stop)
     })
 }
 
@@ -386,13 +423,29 @@ impl<G: GammaRepre> Solves<'_, '_, G> {
     }
 }
 
+/// The two solves on the even sites a solve of D†D is made of, for fields `V` of the whole
+/// lattice: D e = r through Ã and its cycle, D† e = r through Ã† and its cycle.
+pub(crate) trait EvenSolves<V> {
+    fn forward(&mut self, e: &mut V, r: &V) -> Result<(), SolveError>;
+    fn adjoint(&mut self, e: &mut V, r: &V) -> Result<(), SolveError>;
+}
+
+impl<G: GammaRepre> EvenSolves<Psi> for Solves<'_, '_, G> {
+    fn forward(&mut self, e: &mut Psi, r: &Psi) -> Result<(), SolveError> {
+        Solves::forward(self, e, r)
+    }
+    fn adjoint(&mut self, e: &mut Psi, r: &Psi) -> Result<(), SolveError> {
+        Solves::adjoint(self, e, r)
+    }
+}
+
 /// D†D x = b by solving D† w = r and D e = w on the residual r until |r|²/|b|² is below the
 /// tolerance (at most `stop.max_restarts` + 1 times).
-fn two_solves<G: GammaRepre>(
-    op: &Mdwf<f64, G>,
-    solves: &mut Solves<'_, '_, G>,
-    x: &mut Psi,
-    b: &Psi,
+pub(crate) fn two_solves<O: super::ForceOp>(
+    op: &O,
+    solves: &mut dyn EvenSolves<O::Field>,
+    x: &mut O::Field,
+    b: &O::Field,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     use crate::fermion::{Bound, Variant};
@@ -400,12 +453,7 @@ fn two_solves<G: GammaRepre>(
     let mut b_norm = vec![0.0; n];
     b.norm_sqr(&mut b_norm);
     let mut d = Bound::new(op, Variant::D);
-    let (mut t, mut r, mut w, mut e) = (
-        b.zeros_like(),
-        b.zeros_like(),
-        b.zeros_like(),
-        b.zeros_like(),
-    );
+    let [mut t, mut r, mut w, mut e] = std::array::from_fn(|_| b.zeros_like());
     let mut info = SolveInfo {
         iterations: 0,
         restarts: 0,
@@ -436,26 +484,23 @@ fn two_solves<G: GammaRepre>(
 /// K†K z = b on the even sites, K = T_ee⁻¹ Ŝ, by w = T_ee† Ŝ⁻† r and e = Ŝ⁻¹ T_ee w on the
 /// residual r, each Ŝ⁻¹ (Ŝ⁻†) the even part of a solve of D (D†) with no source on the odd
 /// sites, until |r|²/|b|² is below the tolerance (at most `stop.max_restarts` + 1 times).
-fn two_solves_half<G: GammaRepre>(
-    op: &Mdwf<f64, G>,
-    solves: &mut Solves<'_, '_, G>,
-    z: &mut HalfPsi,
-    b: &HalfPsi,
+pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
+    op: &O,
+    lat: &Arc<Lattice>,
+    solves: &mut dyn EvenSolves<O::Field>,
+    z: &mut O::Half,
+    b: &O::Half,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    use super::ForceOp;
     let n = b.num_vectors();
     assert_eq!(n, 1, "one right-hand side");
-    let lat = b.lattice().clone();
-    let index = solves.index;
-    let mut odd = b.zeros_like();
-    odd.set_parity(Parity::Odd);
+    let odd = op.new_half(lat, Parity::Odd);
     let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
     let mut work = op.even_odd_work();
     let mut b_norm = vec![0.0; n];
     b.norm_sqr(&mut b_norm);
     let [mut t, mut r, mut s, mut w, mut e] = std::array::from_fn(|_| b.zeros_like());
-    let (mut source, mut whole) = (op.new_field(&lat), op.new_field(&lat));
+    let (mut source, mut whole) = (op.new_field(lat), op.new_field(lat));
     let mut info = SolveInfo {
         iterations: 0,
         restarts: 0,
@@ -478,16 +523,16 @@ fn two_solves_half<G: GammaRepre>(
         }
         // w = T_ee† Ŝ⁻† r.
         source.set_zero();
-        insert_parity(&mut source, &r, index);
+        op.put_half(&mut source, &r);
         solves.adjoint(&mut whole, &source)?;
-        extract_parity(&mut s, &whole, index, Parity::Even);
+        op.half_of(&mut s, &whole, Parity::Even);
         op.diag(&mut work, &mut w, &s, Parity::Even, Dagger::Yes);
         // e = Ŝ⁻¹ T_ee w.
         op.diag(&mut work, &mut s, &w, Parity::Even, Dagger::No);
         source.set_zero();
-        insert_parity(&mut source, &s, index);
+        op.put_half(&mut source, &s);
         solves.forward(&mut whole, &source)?;
-        extract_parity(&mut e, &whole, index, Parity::Even);
+        op.half_of(&mut e, &whole, Parity::Even);
         z.axpy(&vec![C64::new(1.0, 0.0); n], &e);
     }
     Err(SolveError::NotConverged(info))

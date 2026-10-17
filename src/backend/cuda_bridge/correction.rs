@@ -18,7 +18,7 @@ type OnDevice<'a, F, CT> = Correction<
     DeviceCoarse<F>,
     DeviceCoarse<CT>,
     CudaMdwf<F>,
-    DeviceBasis,
+    Rc<DeviceBasis>,
     Rc<DeviceCoarseOp<CT>>,
 >;
 
@@ -45,6 +45,18 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     /// are in the operator that is solved (with Neff's α); `like`: a field on the even sites.
     pub fn new(
         device: DeviceBasis,
+        plain: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
+        outer: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
+        form: EoForm,
+        params: PvEoParams,
+        like: &DeviceSpinor<F>,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::shared(Rc::new(device), plain, outer, form, params, like)
+    }
+
+    /// `new` with a prolongation that other corrections share (that of Ã and of Ã†).
+    pub fn shared(
+        device: Rc<DeviceBasis>,
         plain: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
         outer: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
         form: EoForm,
