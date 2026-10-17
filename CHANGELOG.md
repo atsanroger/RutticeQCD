@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- HMC with the multigrid on the device: `MultiGrid.fine_precision : single` puts the cycle
+  (smoother, residuals, P and the corrections) on the operators in single precision, made from
+  the links of the double ones on the device (`CudaMdwf::converted_from`), the outer GCR in double
+  precision; the coarse parts (and the cache) are those of the double operators.
 - `examples/preconditioned_fov` and `preconditioned_fov_device`: the field of values of Ã and
   of Ã M (M the two-grid cycle) by Lanczos on their Hermitian parts, M† the cycle of Ã† on the
   same P with the same top of the smoother's interval (`CoarseParts::with_top`; with tops of

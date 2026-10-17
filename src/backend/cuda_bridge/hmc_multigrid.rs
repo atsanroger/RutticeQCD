@@ -9,19 +9,21 @@
 //! bootstrap when the pseudofermions are drawn and after every `refresh_every` force solves, as
 //! on the CPU. With `rebuild_growth` they are kept from solve to solve (`DeviceParts` and the
 //! tops) and made again as on the CPU: after a bootstrap, or once the GCR iterations per solve
-//! have grown by that factor. The fine fields are in double precision, P in half precision as in the
-//! propagator runs, the coarse solves in single precision unless `coarse_double`.
+//! have grown by that factor. P is in half precision as in the propagator runs, the coarse solves in single
+//! precision unless `coarse_double`, the cycle in double precision unless `fine_single` (then on
+//! the operators in single precision, the links converted on the device; the outer GCR stays
+//! in double precision).
 
-use super::multigrid::{
-    bootstrap, device_correction, filtered_test_vectors, top_of, two_grid, DeviceCycle,
-};
+use super::multigrid::{bootstrap, device_correction, filtered_test_vectors, top_of, two_grid};
 use super::{CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor, LevelReal};
 use crate::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, PvRatio};
 use crate::hmc::dwf_multigrid::{two_solves, two_solves_half, EvenSolves};
 use crate::hmc::DwfMultigridSetup;
 use crate::solver::preconditioner::multigrid::{Aggregation, CoarseKrylov, PvEoParams};
-use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
-use crate::{EvenOddIndex, Lattice, Parity, Vector};
+use crate::solver::{Convert, Gcr, SolveError, SolveInfo, Solver, Stop};
+use crate::{EvenOddIndex, Lattice, LinearFn, Parity, Vector};
+
+type V = DeviceSpinor<f64>;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -81,8 +83,8 @@ struct DeviceSolves<'a> {
     even: &'a DeviceSpinor<f64>,
     odd: &'a DeviceSpinor<f64>,
     gcr: Gcr<DeviceSpinor<f64>>,
-    m: DeviceCycle<'a, f64>,
-    m_dag: DeviceCycle<'a, f64>,
+    m: Box<dyn LinearFn<DeviceSpinor<f64>> + 'a>,
+    m_dag: Box<dyn LinearFn<DeviceSpinor<f64>> + 'a>,
     inner: usize,
     count: usize,
 }
@@ -109,7 +111,7 @@ impl EvenSolves<DeviceSpinor<f64>> for DeviceSolves<'_> {
         let mut rhs = self.even.zeros_with(r.num_vectors());
         a.right_hand_side(&DeviceParities, &mut rhs, r);
         let mut y = rhs.zeros_like();
-        let info = self.gcr.solve(&mut a, Some(&mut self.m), &mut y, &rhs);
+        let info = self.gcr.solve(&mut a, Some(self.m.as_mut()), &mut y, &rhs);
         a.solution(&DeviceParities, e, &y, r);
         self.counted(info)
     }
@@ -126,7 +128,7 @@ impl EvenSolves<DeviceSpinor<f64>> for DeviceSolves<'_> {
         let mut y = rhs.zeros_like();
         let info = self
             .gcr
-            .solve(&mut a_dag, Some(&mut self.m_dag), &mut y, &rhs);
+            .solve(&mut a_dag, Some(self.m_dag.as_mut()), &mut y, &rhs);
         adjoint_solution(self.d, self.pv, &DeviceParities, e, &y, r);
         self.counted(info)
     }
@@ -280,40 +282,94 @@ fn with_coarse<CT: LevelReal>(
     let (parts, parts_dag, hi, hi_dag, parts_seconds) = kept;
     let setup_seconds = start.elapsed().as_secs_f64() - parts_seconds;
     let start = std::time::Instant::now();
-    let mut c = DeviceCorrection::<f64, CT>::from_parts(
-        parts.clone(),
-        (d, pv),
-        (d, pv),
-        EoForm::Right,
-        setup.cycle,
-        &even,
-    )?;
-    let mut c_dag = DeviceCorrection::<f64, CT>::from_parts(
-        parts_dag.clone(),
-        (pv, d),
-        (pv, d),
-        EoForm::Right,
-        dual,
-        &even,
-    )?;
-    let m = two_grid(
-        (d, pv),
-        EoForm::Right,
-        (&even, &odd),
-        lat,
-        setup.cycle,
-        Box::new(move |e, r| c.correct(e, r)),
-        Some(hi),
-    )?;
-    let m_dag = two_grid(
-        (pv, d),
-        EoForm::Right,
-        (&even, &odd),
-        lat,
-        dual,
-        Box::new(move |e, r| c_dag.correct(e, r)),
-        Some(hi_dag),
-    )?;
+    // The cycles, on the operators in double precision or, with `fine_single`, on those in
+    // single precision with the fields converted at their ends (the coarse parts are the same).
+    let (d32, pv32, even32, odd32);
+    let (m, m_dag): (Box<dyn LinearFn<V> + '_>, Box<dyn LinearFn<V> + '_>) = match setup.fine_single
+    {
+        false => {
+            let mut c = DeviceCorrection::<f64, CT>::from_parts(
+                parts.clone(),
+                (d, pv),
+                (d, pv),
+                EoForm::Right,
+                setup.cycle,
+                &even,
+            )?;
+            let mut c_dag = DeviceCorrection::<f64, CT>::from_parts(
+                parts_dag.clone(),
+                (pv, d),
+                (pv, d),
+                EoForm::Right,
+                dual,
+                &even,
+            )?;
+            let m = two_grid(
+                (d, pv),
+                EoForm::Right,
+                (&even, &odd),
+                lat,
+                setup.cycle,
+                Box::new(move |e, r| c.correct(e, r)),
+                Some(hi),
+            )?;
+            let m_dag = two_grid(
+                (pv, d),
+                EoForm::Right,
+                (&even, &odd),
+                lat,
+                dual,
+                Box::new(move |e, r| c_dag.correct(e, r)),
+                Some(hi_dag),
+            )?;
+            (Box::new(m), Box::new(m_dag))
+        }
+        true => {
+            d32 = CudaMdwf::<f32>::converted_from(d, *d.params())?;
+            pv32 = CudaMdwf::<f32>::converted_from(pv, *pv.params())?;
+            even32 = DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Even)?;
+            odd32 = DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Odd)?;
+            let (d32, pv32) = (&d32, &pv32);
+            let mut c = DeviceCorrection::<f32, CT>::from_parts(
+                parts.clone(),
+                (d32, pv32),
+                (d32, pv32),
+                EoForm::Right,
+                setup.cycle,
+                &even32,
+            )?;
+            let mut c_dag = DeviceCorrection::<f32, CT>::from_parts(
+                parts_dag.clone(),
+                (pv32, d32),
+                (pv32, d32),
+                EoForm::Right,
+                dual,
+                &even32,
+            )?;
+            let m = two_grid(
+                (d32, pv32),
+                EoForm::Right,
+                (&even32, &odd32),
+                lat,
+                setup.cycle,
+                Box::new(move |e, r| c.correct(e, r)),
+                Some(hi),
+            )?;
+            let m_dag = two_grid(
+                (pv32, d32),
+                EoForm::Right,
+                (&even32, &odd32),
+                lat,
+                dual,
+                Box::new(move |e, r| c_dag.correct(e, r)),
+                Some(hi_dag),
+            )?;
+            (
+                Box::new(Convert::new(m, &even32)),
+                Box::new(Convert::new(m_dag, &even32)),
+            )
+        }
+    };
     let rebuild_seconds = parts_seconds + start.elapsed().as_secs_f64();
     let start = std::time::Instant::now();
     let mut solves = DeviceSolves {

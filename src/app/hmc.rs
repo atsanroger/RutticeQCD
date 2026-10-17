@@ -252,6 +252,8 @@ pub enum HmcMultigrid {
         coarse_double: bool,
         /// Keep P and the coarse parts until the iterations grow this much; 0: never kept.
         rebuild_growth: f64,
+        /// The cycle in single precision (on the device).
+        fine_single: bool,
     },
 }
 
@@ -352,6 +354,7 @@ impl HmcSolver {
                     inner_tolerance_squared,
                     coarse_double,
                     rebuild_growth,
+                    fine_single,
                 }),
             ) => {
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
@@ -362,6 +365,7 @@ impl HmcSolver {
                 setup.refresh_every = refresh_every;
                 setup.coarse_double = coarse_double;
                 setup.rebuild_growth = rebuild_growth;
+                setup.fine_single = fine_single;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),

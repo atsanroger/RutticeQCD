@@ -42,9 +42,11 @@ pub struct DwfMultigridSetup {
     /// The cycle of Ã; that of Ã† is the same with the roles exchanged, its second factor (then
     /// P†D†P) by BiCGStab on the exact adjoint.
     pub cycle: PvEoParams,
-    /// The coarse solves in double precision; false (the default): in single precision. The
-    /// fine part of the cycle is in double precision either way.
+    /// The coarse solves in double precision; false (the default): in single precision.
     pub coarse_double: bool,
+    /// On the device: the cycle (smoother, residuals, P) in single precision, the outer GCR in
+    /// double; false (the default, and always on the CPU): in double precision.
+    pub fine_single: bool,
     /// GCR of each solve on the even sites: directions kept, and when it stops.
     pub directions: usize,
     pub inner: Stop,
@@ -97,6 +99,7 @@ impl DwfMultigridSetup {
             },
             cycle,
             coarse_double: false,
+            fine_single: false,
             directions: 8,
             inner,
             refresh_every: 0,

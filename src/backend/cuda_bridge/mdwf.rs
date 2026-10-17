@@ -278,6 +278,35 @@ impl<T: DeviceReal> CudaMdwf<T> {
         })
     }
 
+    /// The operator of `params` on the links of `other` in the precision `T` (converted on the
+    /// device, into links of its own): the single-precision operator of a cycle whose outer
+    /// solver is in double precision.
+    pub fn converted_from<U: DeviceReal>(
+        other: &CudaMdwf<U>,
+        params: MdwfParams,
+    ) -> Result<Self, CudaError> {
+        assert!(
+            (2..=MAX_LS).contains(&params.ls),
+            "the fifth dimension must have between 2 and {MAX_LS} sites"
+        );
+        let mut geometry = geometry(&other.gauge.lat, params.boundary, params.ls);
+        geometry.link_rows = other.geometry.link_rows;
+        let mut links = DeviceBuffer::<T>::uninitialised(other.gauge.links.len)?;
+        super::convert(&mut links, &other.gauge.links);
+        Ok(Self {
+            params,
+            geometry,
+            gauge: Rc::new(DeviceGauge {
+                lat: other.gauge.lat.clone(),
+                links,
+                rows: other.gauge.rows,
+            }),
+            alpha: 1.0,
+            matrices: Matrices::new(&params, 1.0)?,
+            tf32: false,
+        })
+    }
+
     /// `set_gauge` with links that are on the device already (smeared there, say), kept whole.
     pub fn set_gauge_on_device(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
         if Rc::get_mut(&mut self.gauge).is_none() {
