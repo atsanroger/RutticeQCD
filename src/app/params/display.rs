@@ -109,7 +109,7 @@ impl fmt::Display for Params {
                     mg.setup.rounds(false),
                     coarse.solver_type,
                     coarse.convergence_criterion_squared,
-                    mg.coarse_precision,
+                    mg.coarse_precision(),
                 )
             }
             (PreconditionerType::Multigrid, Some(mg)) => {
@@ -124,8 +124,8 @@ impl fmt::Display for Params {
                     l.solver_pv().solver_type,
                     if operator == OperatorType::NormalLeft { "P†D†P" } else { "P†D_PV†P" },
                     l.solver_pv().convergence_criterion_squared,
-                    mg.coarse_precision,
-                    mg.fine_precision,
+                    mg.coarse_precision(),
+                    mg.fine_precision(),
                     mg.smoother.number_of_steps.unwrap_or(cheb_steps()),
                     mg.smoother.interval_ratio
                 )?;

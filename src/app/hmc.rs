@@ -13,13 +13,16 @@ use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParam
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
+use crate::hmc::DwfMultigridSetup;
 use crate::hmc::{
     cold_start, EvenOddForceOp, EvenOddHalves, ForceOp, Hmc, LinkField, MdAction, Mseries,
     MultigridSetup, NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction,
     Scheme, Term, TwoFlavor, TwoFlavorEo, TwoFlavorRatio, TwoFlavorRatioEo,
 };
 use crate::numerics::{RationalApprox, RationalSpec};
-use crate::solver::preconditioner::multigrid::MultigridParams;
+use crate::solver::preconditioner::multigrid::{
+    BootstrapParams, LowModeParams, MultigridParams, PvEoParams,
+};
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Field, Gauge, Lattice, Stencil, ND};
 use std::io::Write;
@@ -38,6 +41,8 @@ pub struct HmcConfig {
     pub gauge_smearing: Option<GaugeSmearingConfig>,
     pub hmc: HmcBlock,
     pub actions: Vec<ActionConfig>,
+    /// The section of each action in the file (`Action_G`, `Action_F_1`, ...), for messages.
+    pub action_names: Vec<String>,
     pub output: HmcOutput,
     /// The Wilson flow measured along the run.
     pub flow: Option<FlowMonitor>,
@@ -220,18 +225,39 @@ impl Default for HmcChebyshev {
     }
 }
 
+/// The multigrid of an action's solves.
 #[derive(Debug, Clone, Copy)]
-pub struct HmcMultigrid {
-    /// The blocks of the coarse lattice; they must divide the lattice of a process.
-    pub block: [usize; ND],
-    pub test_vectors: usize,
-    pub setup_iterations: usize,
-    /// Set up again after this many force solves; 0: only when a trajectory starts.
-    pub refresh_every: usize,
-    /// Start every setup but the first from the test vectors of the one before (the links are
-    /// close), improved `reuse_iterations` times; false: always from random vectors.
-    pub reuse_vectors: bool,
-    pub reuse_iterations: usize,
+pub enum HmcMultigrid {
+    /// Wilson and clover fermions (`hmc::MultigridSetup`): set up again after `refresh_every`
+    /// force solves (0: when a trajectory starts), from the test vectors of the setup before
+    /// improved `reuse` times, or from random vectors.
+    Wilson {
+        params: MultigridParams,
+        refresh_every: usize,
+        reuse: Option<usize>,
+    },
+    /// Domain-wall fermions over Pauli-Villars fields (`hmc::DwfMultigridSetup`): `test_vectors`
+    /// kept (P has twice as many columns), each solve on the even sites to
+    /// `inner_tolerance_squared`.
+    DomainWall {
+        block: [usize; ND],
+        test_vectors: usize,
+        cycle: PvEoParams,
+        low: LowModeParams,
+        boot: BootstrapParams,
+        refresh_every: usize,
+        inner_tolerance_squared: f64,
+    },
+}
+
+impl HmcMultigrid {
+    /// The aggregates of the coarse lattice.
+    pub fn block(&self) -> [usize; ND] {
+        match self {
+            HmcMultigrid::Wilson { params, .. } => params.block,
+            HmcMultigrid::DomainWall { block, .. } => *block,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -293,17 +319,39 @@ impl HmcSolver {
     /// The preconditioner the file asks for.
     fn preconditioner(&self) -> Preconditioner {
         match (self.preconditioner, self.multigrid) {
-            (Some(HmcPreconditioner::Multigrid), Some(mg)) => {
-                let params = MultigridParams {
-                    num_test_vectors: mg.test_vectors,
-                    setup_iterations: mg.setup_iterations,
-                    ..MultigridParams::bridge(mg.block)
-                };
-                let mut setup = MultigridSetup::new(params, mg.refresh_every);
-                if mg.reuse_vectors {
-                    setup = setup.reusing_vectors(mg.reuse_iterations);
+            (
+                Some(HmcPreconditioner::Multigrid),
+                Some(HmcMultigrid::Wilson {
+                    params,
+                    refresh_every,
+                    reuse,
+                }),
+            ) => {
+                let mut setup = MultigridSetup::new(params, refresh_every);
+                if let Some(iterations) = reuse {
+                    setup = setup.reusing_vectors(iterations);
                 }
                 Preconditioner::multigrid(setup)
+            }
+            (
+                Some(HmcPreconditioner::Multigrid),
+                Some(HmcMultigrid::DomainWall {
+                    block,
+                    test_vectors,
+                    cycle,
+                    low,
+                    boot,
+                    refresh_every,
+                    inner_tolerance_squared,
+                }),
+            ) => {
+                let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
+                let mut setup = DwfMultigridSetup::new(block, test_vectors, cycle, inner);
+                setup.low_modes = low;
+                setup.bootstrap = boot;
+                setup.directions = self.restart;
+                setup.refresh_every = refresh_every;
+                Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),
         }
@@ -320,11 +368,13 @@ impl HmcSolver {
             None | Some(HmcPreconditioner::None) => Ok(()),
             Some(HmcPreconditioner::Chebyshev) => {
                 if !matches!(self.kind, None | Some(HmcSolverKind::Cg)) {
-                    return Err("preconditioner chebyshev goes with type cg".into());
+                    return Err("preconditioner_type Chebyshev goes with solver_type CG".into());
                 }
                 let c = self.chebyshev;
                 if c.steps < 2 || c.ratio.is_nan() || c.ratio <= 1.0 {
-                    return Err("chebyshev: steps at least 2 and ratio above 1".into());
+                    return Err(
+                        "Chebyshev: number_of_steps at least 2 and interval_ratio above 1".into(),
+                    );
                 }
                 Ok(())
             }
@@ -334,25 +384,29 @@ impl HmcSolver {
                     Some(HmcSolverKind::Bicgstab | HmcSolverKind::Fgmres | HmcSolverKind::Gcr)
                 ) {
                     return Err(
-                        "preconditioner multigrid goes with type bicgstab, fgmres or gcr".into(),
+                        "preconditioner_type MG goes with solver_type BiCGStab, FGMRES or GCR"
+                            .into(),
                     );
                 }
                 if !wilson_like || !all_sites {
-                    return Err("preconditioner multigrid: for Wilson and clover fermions".into());
+                    return Err("preconditioner_type MG: for Wilson and clover fermions, and the domain-wall Ratio action on all sites".into());
                 }
                 let Some(mg) = self.multigrid else {
-                    return Err("preconditioner multigrid needs multigrid: {block: [..]}".into());
+                    return Err("preconditioner_type MG needs a MultiGrid section".into());
                 };
-                if (0..ND).any(|mu| mg.block[mu] == 0 || !lattice[mu].is_multiple_of(mg.block[mu]))
-                {
+                let block = mg.block();
+                if (0..ND).any(|mu| block[mu] == 0 || !lattice[mu].is_multiple_of(block[mu])) {
                     return Err(format!(
-                        "multigrid.block {:?} must divide the lattice {lattice:?}",
-                        mg.block
+                        "MultiGrid.MultiGrid_Level1.block_size {block:?} must divide the lattice {lattice:?}"
                     ));
                 }
-                let most = 6 * mg.block.iter().product::<usize>();
-                if mg.test_vectors == 0 || mg.test_vectors > most {
-                    return Err(format!("multigrid.test_vectors: between 1 and {most}"));
+                if let HmcMultigrid::Wilson { params, .. } = mg {
+                    let most = 6 * block.iter().product::<usize>();
+                    if params.num_test_vectors == 0 || params.num_test_vectors > most {
+                        return Err(format!(
+                            "MultiGrid.MultiGrid_Level1.number_of_test_vectors: between 1 and {most}"
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -447,12 +501,13 @@ impl HmcConfig {
     fn check(&self) -> Result<(), CliError> {
         let levels = self.hmc.integrator.steps.len();
         if levels == 0 {
-            return invalid("hmc.integrator.steps: at least one level".into());
+            return invalid("Builder_Integrator.number_of_steps: at least one level".into());
         }
         if self.actions.is_empty() {
-            return invalid("actions: at least one".into());
+            return invalid("Action_G, Action_F_1, ...: at least one action".into());
         }
         for (i, a) in self.actions.iter().enumerate() {
+            let at = &self.action_names[i];
             let (level, smeared, ratio) = match a {
                 ActionConfig::Plaquette { level, .. } | ActionConfig::Rectangle { level, .. } => {
                     (*level, false, None)
@@ -469,18 +524,18 @@ impl HmcConfig {
                 } => {
                     if matches!(fermion, HmcFermion::DomainWall { .. }) {
                         return invalid(format!(
-                            "actions[{i}]: rational: Wilson or clover fermions (domain-wall fermions need the ratio over Pauli-Villars fields)"
+                            "{at}: Rational is for Wilson or clover fermions (domain-wall fermions need the Ratio over Pauli-Villars fields)"
                         ));
                     }
                     let [p, q] = *power;
                     if !(p > 0 && q > p) {
                         return invalid(format!(
-                            "actions[{i}]: rational: power [{p}, {q}] must be a fraction p/q in (0, 1)"
+                            "{at}.Rational: exponent_numerator/exponent_denominator {p}/{q} must be in (0, 1)"
                         ));
                     }
                     if *poles == 0 || !(bounds[0] > 0.0 && bounds[1] > bounds[0]) {
                         return invalid(format!(
-                            "actions[{i}]: rational: poles > 0 and 0 < bounds[0] < bounds[1]"
+                            "{at}.Rational: number_of_poles > 0 and 0 < lower_bound < upper_bound"
                         ));
                     }
                     (*level, *smeared, None)
@@ -495,7 +550,7 @@ impl HmcConfig {
             };
             if level >= levels {
                 return invalid(format!(
-                    "actions[{i}].level {level}: the integrator has {levels} levels"
+                    "{at}.level_of_action {level}: Builder_Integrator.number_of_steps has {levels} levels"
                 ));
             }
             let _ = smeared;
@@ -504,11 +559,11 @@ impl HmcConfig {
                 | ActionConfig::TwoFlavorRatio { solver, .. } => {
                     if solver.kind == Some(HmcSolverKind::MultishiftCg) {
                         return invalid(format!(
-                            "actions[{i}].solver.type: cg, bicgstab, fgmres or gcr (multishift_cg is for rational)"
+                            "{at}.Solver.solver_type: CG, BiCGStab, FGMRES or GCR"
                         ));
                     }
                     if solver.neff_alpha.is_nan() || solver.neff_alpha <= 0.0 {
-                        return invalid(format!("actions[{i}].solver.neff_alpha: positive"));
+                        return invalid(format!("{at}.Fopr.neff_alpha: positive"));
                     }
                     // The multigrid of domain-wall fermions: the Ratio action on all sites over
                     // Pauli-Villars fields, without Neff's α, with GCR on the even sites.
@@ -531,12 +586,12 @@ impl HmcConfig {
                         };
                         if *even_odd || denominator.is_some() || solver.neff_alpha != 1.0 {
                             return invalid(format!(
-                                "actions[{i}].solver.preconditioner: the multigrid of domain-wall fermions is for the Ratio action on all sites (Lexical) over Pauli-Villars fields, without neff_alpha"
+                                "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action on all sites (Lexical) over Pauli-Villars fields, without Fopr.neff_alpha"
                             ));
                         }
                         if solver.kind != Some(HmcSolverKind::Gcr) {
                             return invalid(format!(
-                                "actions[{i}].solver.type: gcr with the multigrid of domain-wall fermions"
+                                "{at}.Solver.solver_type: GCR with the multigrid of domain-wall fermions"
                             ));
                         }
                     }
@@ -556,10 +611,12 @@ impl HmcConfig {
                     if let Err(e) =
                         solver.check_preconditioner(self.lattice, wilson_like, all_sites)
                     {
-                        return invalid(format!("actions[{i}].solver: {e}"));
+                        return invalid(format!("{at}.Solver: {e}"));
                     }
                     if solver.restart == 0 {
-                        return invalid(format!("actions[{i}].solver.restart: at least 1"));
+                        return invalid(format!(
+                            "{at}.Solver.number_of_kept_directions: at least 1"
+                        ));
                     }
                     let domain_wall = matches!(
                         a,
@@ -572,30 +629,30 @@ impl HmcConfig {
                         }
                     );
                     if !domain_wall && solver.neff_alpha != 1.0 {
-                        return invalid(format!(
-                            "actions[{i}].solver.neff_alpha: for domain-wall fermions"
-                        ));
+                        return invalid(format!("{at}.Fopr.neff_alpha: for domain-wall fermions"));
                     }
                     if domain_wall
                         && !dwf_multigrid
                         && !matches!(solver.kind, None | Some(HmcSolverKind::Cg))
                     {
                         return invalid(format!(
-                            "actions[{i}].solver.type: cg for domain-wall fermions (BiCGStab, FGMRES and GCR do not converge on D itself)"
+                            "{at}.Solver.solver_type: CG for domain-wall fermions (BiCGStab, FGMRES and GCR do not converge on D itself)"
                         ));
                     }
                 }
                 ActionConfig::Rational { solver, .. } => {
                     if solver.asks_for(HmcPreconditioner::Chebyshev) {
                         return invalid(format!(
-                            "actions[{i}].solver.preconditioner: multigrid (with bicgstab, fgmres or gcr) or none for rational"
+                            "{at}.Solver.preconditioner_type: MG (with BiCGStab, FGMRES or GCR) or None for Rational"
                         ));
                     }
                     if let Err(e) = solver.check_preconditioner(self.lattice, true, true) {
-                        return invalid(format!("actions[{i}].solver: {e}"));
+                        return invalid(format!("{at}.Solver: {e}"));
                     }
                     if solver.restart == 0 {
-                        return invalid(format!("actions[{i}].solver.restart: at least 1"));
+                        return invalid(format!(
+                            "{at}.Solver.number_of_kept_directions: at least 1"
+                        ));
                     }
                 }
                 _ => {}
@@ -609,23 +666,23 @@ impl HmcConfig {
             {
                 if solver.initial_guess > 0 && !even_odd {
                     return invalid(format!(
-                        "actions[{i}].solver.initial_guess: for two_flavor actions and the even-odd ratio"
+                        "{at}.Solver.number_of_initial_guess: for the Standard actions and the even-odd Ratio"
                     ));
                 }
                 if *even_odd {
                     if matches!(fermion, HmcFermion::Clover { .. }) {
                         return invalid(format!(
-                            "actions[{i}]: the even-odd ratio of clover fermions (its det T term) is not written"
+                            "{at}: the even-odd Ratio of clover fermions (its det T term) is not written"
                         ));
                     }
                     if solver.neff_alpha != 1.0 {
                         return invalid(format!(
-                            "actions[{i}].solver.neff_alpha: not with the even-odd ratio yet"
+                            "{at}.Fopr.neff_alpha: not with the even-odd Ratio yet"
                         ));
                     }
                     if solver.asks_for(HmcPreconditioner::Multigrid) {
                         return invalid(format!(
-                            "actions[{i}].solver.preconditioner: none or chebyshev for the even-odd ratio (no multigrid yet)"
+                            "{at}.Solver.preconditioner_type: None or Chebyshev for the even-odd Ratio (no multigrid yet)"
                         ));
                     }
                 }
@@ -635,12 +692,12 @@ impl HmcConfig {
                     (HmcFermion::DomainWall { .. }, None) => {}
                     (_, None) => {
                         return invalid(format!(
-                            "actions[{i}]: a ratio of Wilson or clover fermions needs a denominator"
+                            "{at}: a Ratio of Wilson or clover fermions needs Fopr_denominator"
                         ))
                     }
                     (a, Some(b)) if std::mem::discriminant(a) != std::mem::discriminant(b) => {
                         return invalid(format!(
-                            "actions[{i}]: the denominator must be the same kind of fermion"
+                            "{at}.Fopr_denominator: the same kind of fermion as Fopr"
                         ))
                     }
                     _ => {}
@@ -648,7 +705,9 @@ impl HmcConfig {
             }
         }
         if self.output.save_every.is_some() != self.output.file.is_some() {
-            return invalid("output: save_every and file go together".into());
+            return invalid(
+                "HMC: save_config_interval and config_filename_output go together".into(),
+            );
         }
         Ok(())
     }
@@ -668,10 +727,11 @@ impl HmcConfig {
             ) else {
                 continue;
             };
-            if (0..ND).any(|mu| !local[mu].is_multiple_of(mg.block[mu])) {
+            let block = mg.block();
+            if (0..ND).any(|mu| !local[mu].is_multiple_of(block[mu])) {
                 return invalid(format!(
-                    "actions[{i}].solver.multigrid.block {:?} must divide the lattice {local:?} of a process",
-                    mg.block
+                    "{}.MultiGrid.MultiGrid_Level1.block_size {block:?} must divide the lattice {local:?} of a process",
+                    self.action_names[i]
                 ));
             }
         }
@@ -781,7 +841,7 @@ impl HmcConfig {
                                     solver.asks_for(HmcPreconditioner::Multigrid),
                                     solver.multigrid,
                                 ) {
-                                    (true, Some(mg)) => dwf_multigrid_ratio(ops, mg, c),
+                                    (true, Some(_)) => ratio(ops, None, None, c),
                                     _ => ratio(ops, None, with_alpha(lat, p, solver.neff_alpha), c),
                                 }
                             }
@@ -1024,37 +1084,6 @@ fn ratio<O: ForceOp + 'static>(
         a = a.with_conditioned(o);
     }
     Box::new(a)
-}
-
-/// The Ratio action of domain-wall fermions over Pauli-Villars fields with the multigrid in its
-/// solves (`hmc::DwfMultigridSetup`): the aggregates, test vectors and refreshes of `mg`, the
-/// Chebyshev smoother of the solver's `chebyshev` (steps, ratio), each solve on the even sites by
-/// GCR keeping `restart` directions to |r|²/|b|² < 1e-10.
-fn dwf_multigrid_ratio(
-    (op, pv): (Mdwf<f64>, Mdwf<f64>),
-    mg: HmcMultigrid,
-    c: Common,
-) -> Box<dyn MdAction> {
-    use crate::hmc::DwfMultigridSetup;
-    use crate::solver::preconditioner::multigrid::PvEoParams;
-    let s = c.solver;
-    let cycle = PvEoParams {
-        chebyshev_steps: s.chebyshev.steps,
-        chebyshev_ratio: s.chebyshev.ratio,
-        ..PvEoParams::default()
-    };
-    let mut setup = DwfMultigridSetup::new(
-        mg.block,
-        mg.test_vectors,
-        cycle,
-        Stop::simple(1e-10, s.max_iterations),
-    );
-    setup.directions = s.restart;
-    setup.refresh_every = mg.refresh_every;
-    Box::new(
-        TwoFlavorRatio::new(op, pv, c.smearing, c.md, c.h)
-            .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(setup))),
-    )
 }
 
 /// Two flavours of the first operator over two of the second, even-odd.

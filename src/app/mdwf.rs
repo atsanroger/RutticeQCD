@@ -194,7 +194,7 @@ pub(super) fn multigrid_cycle<'a, L: CycleLayout<T>, T: Storage>(
     let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
     let coarse_flops = 72.0 * dim * dim * coarse_sites;
     let map = L::map(lat).ok_or("the lattice cannot be cut for the SIMD layout")?;
-    let mut cycle = match mg.coarse_precision {
+    let mut cycle = match mg.coarse_precision() {
         PrecisionType::Single => {
             Preconditioner::Single(Box::new(PvEoCycle::<Dirac, f32, L, T>::with_layout(
                 op,
@@ -455,7 +455,7 @@ where
         && params
             .multigrid
             .as_ref()
-            .is_some_and(|mg| mg.fine_precision == PrecisionType::Single);
+            .is_some_and(|mg| mg.fine_precision() == PrecisionType::Single);
     let (double_ops, single_ops) = match (mg_settings.is_some(), single) {
         (false, _) => (None, None),
         (true, false) => (

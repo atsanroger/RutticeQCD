@@ -158,7 +158,7 @@ fn test_vectors<T: DeviceReal>(
     let (even, odd, device) = (&ops.even, &ops.odd, ops.plain()?);
     let ls = even.ls();
     let keep = mg.level1.test_vectors(true) / 2;
-    let half = mg.basis_precision == BasisPrecision::Half;
+    let half = mg.basis_precision() == BasisPrecision::Half;
     // What the setup reports: the times and Ritz values, and with RUTTICE_CHECKSUM the
     // checksums of every stage, as the run always printed them.
     let mut failed: Option<Box<dyn Error>> = None;
@@ -282,7 +282,7 @@ fn two_grid<'a, T: DeviceReal>(
     let count = Rc::new(Cell::new(0));
     let counted = count.clone();
     let device = ops.plain()?;
-    let correction: Correction<'a, T> = match mg.coarse_precision {
+    let correction: Correction<'a, T> = match mg.coarse_precision() {
         PrecisionType::Single => {
             let mut c =
                 DeviceCorrection::<T, f32>::new(basis, device, outer, form, cycle_params, even)?;
@@ -345,7 +345,7 @@ pub(super) fn run(
     }
     // Above the coarse lattice it is in single precision, with operators of its own, or in
     // double precision with those of the outer solver.
-    let single = settings.is_some_and(|(_, _, mg)| mg.fine_precision == PrecisionType::Single);
+    let single = settings.is_some_and(|(_, _, mg)| mg.fine_precision() == PrecisionType::Single);
     let ops = Operators::<f64>::new(params, lat, u, settings.is_some() && !single)?;
     let ops_single = match single {
         true => Some(Operators::<f32>::new(params, lat, u, true)?),
@@ -368,7 +368,7 @@ pub(super) fn run(
     let mut device_basis = match settings {
         Some((_, _, mg)) => {
             let agg = Aggregation::new(lat, mg.level1.block_size);
-            let half = mg.basis_precision == BasisPrecision::Half;
+            let half = mg.basis_precision() == BasisPrecision::Half;
             Some(match (&ops_single, &y_single, &y_double) {
                 (Some(o), Some(y), _) => {
                     let (d, pv) = o.plain()?;

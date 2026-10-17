@@ -1,5 +1,6 @@
 //! Reading a parameter file, checking it, and what it asks the program to run.
 
+use super::blocks::MultigridBlock;
 use super::*;
 
 /// Whether a file is a parameter file in the style of Bridge++: one with a `Main` section.
@@ -193,55 +194,7 @@ impl Params {
             .filter(|_| s.preconditioner_type == PreconditionerType::Multigrid)
         {
             let normal = operator == OperatorType::NormalLeft;
-            let level = &mg.level1;
-            if let Some(t) = mg
-                .smoother
-                .smoother_type
-                .filter(|t| *t != SmootherType::Chebyshev)
-            {
-                return Err(invalid(format!(
-                    "MultiGrid.Smoother: {t} is for Wilson and clover fermions; the domain-wall smoother is Chebyshev"
-                )));
-            }
-            level.solver_d(true).check_coarse(
-                "MultiGrid.MultiGrid_Level1.Coarse_Solver_D",
-                false,
-                normal,
-            )?;
-            level.solver_pv().check_coarse(
-                "MultiGrid.MultiGrid_Level1.Coarse_Solver_PV",
-                true,
-                normal,
-            )?;
-            let n = level.test_vectors(true);
-            if !n.is_multiple_of(2) || n / 2 > mg.setup.filter_number_of_vectors {
-                return Err(invalid(
-                    "MultiGrid.MultiGrid_Level1: number_of_test_vectors must be even and at most twice Setup.filter_number_of_vectors".into(),
-                ));
-            }
-            let levels = mg.super_blocks();
-            let given = [&mg.level2, &mg.level3, &mg.level4]
-                .iter()
-                .filter(|l| l.is_some())
-                .count();
-            if given != levels.len() {
-                return Err(invalid(
-                    "MultiGrid: MultiGrid_Level3 needs MultiGrid_Level2, and MultiGrid_Level4 needs MultiGrid_Level3".into(),
-                ));
-            }
-            let mut ext: Vec<usize> = (0..ND)
-                .map(|mu| self.main.lattice_size[mu] / level.block_size[mu])
-                .collect();
-            for (k, &sb) in levels.iter().enumerate() {
-                if sb == 0 || ext.iter().any(|e| e % sb != 0) {
-                    return Err(invalid(format!(
-                        "MultiGrid.MultiGrid_Level{}: super_block_size {sb} does not divide the extent {ext:?} of level {}",
-                        k + 2,
-                        k + 1
-                    )));
-                }
-                ext.iter_mut().for_each(|e| *e /= sb);
-            }
+            mg.check_domain_wall("MultiGrid", self.main.lattice_size, normal)?;
         }
         Ok(())
     }
@@ -462,47 +415,7 @@ impl Params {
             .as_ref()
             .filter(|_| s.preconditioner_type == PreconditionerType::Multigrid)
         {
-            if mg.smoother.smoother_type == Some(SmootherType::Chebyshev) {
-                return Err(invalid(format!(
-                    "MultiGrid.Smoother: Chebyshev is the domain-wall smoother; use SAP or GMRES for {name}"
-                )));
-            }
-            match mg.level1.solver_d(false).solver_type {
-                SolverType::BiCgStab | SolverType::Fgmres => {}
-                other => {
-                    return Err(invalid(format!(
-                        "MultiGrid.MultiGrid_Level1.Coarse_Solver_D: {other} is not available for {name}; use BiCGStab or GMRES"
-                    )))
-                }
-            }
-            if mg.level1.coarse_pv.is_some() {
-                notes.push(format!(
-                    "MultiGrid.MultiGrid_Level1.Coarse_Solver_PV is for domain-wall fermions; not used for {name}"
-                ));
-            }
-            if mg.level4.is_some() {
-                return Err(invalid(format!(
-                    "MultiGrid.MultiGrid_Level4: {name} fermions take levels down to MultiGrid_Level3"
-                )));
-            }
-            if mg.level3.is_some() && mg.level2.is_none() {
-                return Err(invalid(
-                    "MultiGrid: MultiGrid_Level3 needs MultiGrid_Level2".into(),
-                ));
-            }
-            let mut ext: Vec<usize> = (0..ND)
-                .map(|mu| self.main.lattice_size[mu] / mg.level1.block_size[mu].max(1))
-                .collect();
-            for (k, sb) in mg.super_blocks().into_iter().enumerate() {
-                if sb == 0 || ext.iter().any(|e| e % sb != 0) {
-                    return Err(invalid(format!(
-                        "MultiGrid.MultiGrid_Level{}: super_block_size {sb} does not divide the extent {ext:?} of level {}",
-                        k + 2,
-                        k + 1
-                    )));
-                }
-                ext.iter_mut().for_each(|e| *e /= sb);
-            }
+            mg.check_wilson("MultiGrid", name, self.main.lattice_size, notes)?;
         }
         Ok(())
     }
@@ -541,40 +454,7 @@ impl Params {
             .multigrid
             .as_ref()
             .filter(|_| s.preconditioner_type == PreconditionerType::Multigrid)
-            .map(|mg| {
-                let (l, sm) = (&mg.level1, &mg.smoother);
-                let coarse = l.solver_d(false);
-                let gmres = sm.smoother_type == Some(SmootherType::Gmres);
-                MultigridConfig {
-                    block: l.block_size,
-                    test_vectors: l.test_vectors(false),
-                    setup_iterations: mg.setup.rounds(false),
-                    coarse_solver: match coarse.solver_type {
-                        SolverType::Fgmres => CoarseSolverKind::Gmres,
-                        _ => CoarseSolverKind::Bicgstab,
-                    },
-                    coarse_tolerance_squared: coarse.convergence_criterion_squared,
-                    coarse_max_iterations: coarse.maximum_number_of_iteration,
-                    precondition_coarse_diagonal: l.precondition_diagonal,
-                    smoother: if gmres {
-                        SmootherKind::Gmres
-                    } else {
-                        SmootherKind::Sap
-                    },
-                    pre_smoothing: sm.pre_smoothing,
-                    smoother_cycles: sm.number_of_cycles.unwrap_or(4),
-                    smoother_block_steps: sm.number_of_steps.unwrap_or(6),
-                    smoother_iterations: sm.number_of_steps.unwrap_or(4),
-                    smoother_tolerance_squared: sm.convergence_criterion_squared.unwrap_or(1e-3),
-                    precision: match mg.coarse_precision {
-                        PrecisionType::Single => Precision::Single,
-                        PrecisionType::Double => Precision::Double,
-                    },
-                    seed: mg.setup.seed,
-                    level2_super_block: mg.level2.map(|l| l.super_block_size),
-                    level3_super_block: mg.level3.map(|l| l.super_block_size),
-                }
-            });
+            .map(MultigridBlock::wilson);
         let first = quark(&self.fopr, self.source.as_ref().expect("checked"));
         let more = self
             .more_quarks()
@@ -673,12 +553,18 @@ impl Params {
         if self.solver.preconditioner_type != PreconditionerType::Multigrid {
             return None;
         }
-        let mg = self.multigrid.as_ref()?;
-        let level = &mg.level1;
+        self.multigrid.as_ref().map(MultigridBlock::domain_wall)
+    }
+}
+
+impl MultigridBlock {
+    /// The cycle, the filter and the bootstrap of the domain-wall multigrid of this block.
+    pub fn domain_wall(&self) -> (PvEoParams, LowModeParams, BootstrapParams) {
+        let level = &self.level1;
         let (coarse_d, coarse_pv) = (level.solver_d(true), level.solver_pv());
         let cycle = PvEoParams {
-            chebyshev_steps: mg.smoother.number_of_steps.unwrap_or(cheb_steps()),
-            chebyshev_ratio: mg.smoother.interval_ratio,
+            chebyshev_steps: self.smoother.number_of_steps.unwrap_or(cheb_steps()),
+            chebyshev_ratio: self.smoother.interval_ratio,
             coarse_tolerance_sqr: coarse_d.convergence_criterion_squared,
             coarse_max_iterations: coarse_d.maximum_number_of_iteration,
             pv_tolerance_sqr: coarse_pv.convergence_criterion_squared,
@@ -688,16 +574,167 @@ impl Params {
             ..PvEoParams::default()
         };
         let low = LowModeParams {
-            vectors: mg.setup.filter_number_of_vectors,
-            rounds: mg.setup.filter_number_of_rounds,
-            chunk: mg.setup.filter_number_in_block,
-            seed: mg.setup.seed,
+            vectors: self.setup.filter_number_of_vectors,
+            rounds: self.setup.filter_number_of_rounds,
+            chunk: self.setup.filter_number_in_block,
+            seed: self.setup.seed,
         };
         let boot = BootstrapParams {
-            rounds: mg.setup.rounds(true),
-            steps: mg.setup.bootstrap_number_of_steps,
+            rounds: self.setup.rounds(true),
+            steps: self.setup.bootstrap_number_of_steps,
             cycle,
         };
-        Some((cycle, low, boot))
+        (cycle, low, boot)
+    }
+
+    /// The multigrid of Wilson and clover fermions of this block.
+    pub fn wilson(&self) -> MultigridConfig {
+        let (l, sm) = (&self.level1, &self.smoother);
+        let coarse = l.solver_d(false);
+        let gmres = sm.smoother_type == Some(SmootherType::Gmres);
+        MultigridConfig {
+            block: l.block_size,
+            test_vectors: l.test_vectors(false),
+            setup_iterations: self.setup.rounds(false),
+            coarse_solver: match coarse.solver_type {
+                SolverType::Fgmres => CoarseSolverKind::Gmres,
+                _ => CoarseSolverKind::Bicgstab,
+            },
+            coarse_tolerance_squared: coarse.convergence_criterion_squared,
+            coarse_max_iterations: coarse.maximum_number_of_iteration,
+            precondition_coarse_diagonal: l.precondition_diagonal,
+            smoother: if gmres {
+                SmootherKind::Gmres
+            } else {
+                SmootherKind::Sap
+            },
+            pre_smoothing: sm.pre_smoothing,
+            smoother_cycles: sm.number_of_cycles.unwrap_or(4),
+            smoother_block_steps: sm.number_of_steps.unwrap_or(6),
+            smoother_iterations: sm.number_of_steps.unwrap_or(4),
+            smoother_tolerance_squared: sm.convergence_criterion_squared.unwrap_or(1e-3),
+            precision: match self.coarse_precision() {
+                PrecisionType::Single => Precision::Single,
+                PrecisionType::Double => Precision::Double,
+            },
+            seed: self.setup.seed,
+            level2_super_block: self.level2.map(|l| l.super_block_size),
+            level3_super_block: self.level3.map(|l| l.super_block_size),
+        }
+    }
+
+    /// The block divides `lattice` and each level below the coarse lattice the one above.
+    fn check_levels(&self, at: &str, lattice: [usize; ND]) -> Result<(), CliError> {
+        let block = self.level1.block_size;
+        if (0..ND).any(|mu| block[mu] == 0 || !lattice[mu].is_multiple_of(block[mu])) {
+            return Err(invalid(format!(
+                "{at}.MultiGrid_Level1.block_size {block:?} must divide the lattice {lattice:?}"
+            )));
+        }
+        let given = [&self.level2, &self.level3, &self.level4]
+            .iter()
+            .filter(|l| l.is_some())
+            .count();
+        let levels = self.super_blocks();
+        if given != levels.len() {
+            return Err(invalid(format!(
+                "{at}: MultiGrid_Level3 needs MultiGrid_Level2, and MultiGrid_Level4 needs MultiGrid_Level3"
+            )));
+        }
+        let mut ext: Vec<usize> = (0..ND).map(|mu| lattice[mu] / block[mu]).collect();
+        for (k, &sb) in levels.iter().enumerate() {
+            if sb == 0 || ext.iter().any(|e| e % sb != 0) {
+                return Err(invalid(format!(
+                    "{at}.MultiGrid_Level{}: super_block_size {sb} does not divide the extent {ext:?} of level {}",
+                    k + 2,
+                    k + 1
+                )));
+            }
+            ext.iter_mut().for_each(|e| *e /= sb);
+        }
+        Ok(())
+    }
+
+    /// The block as the multigrid of domain-wall fermions on `lattice` takes it, the block
+    /// being called `at` in messages; `normal`: for the normal equations (CGNE).
+    pub fn check_domain_wall(
+        &self,
+        at: &str,
+        lattice: [usize; ND],
+        normal: bool,
+    ) -> Result<(), CliError> {
+        let level = &self.level1;
+        if let Some(t) = self
+            .smoother
+            .smoother_type
+            .filter(|t| *t != SmootherType::Chebyshev)
+        {
+            return Err(invalid(format!(
+                "{at}.Smoother: {t} is for Wilson and clover fermions; the domain-wall smoother is Chebyshev"
+            )));
+        }
+        level.solver_d(true).check_coarse(
+            &format!("{at}.MultiGrid_Level1.Coarse_Solver_D"),
+            false,
+            normal,
+        )?;
+        level.solver_pv().check_coarse(
+            &format!("{at}.MultiGrid_Level1.Coarse_Solver_PV"),
+            true,
+            normal,
+        )?;
+        let n = level.test_vectors(true);
+        if !n.is_multiple_of(2) || n / 2 > self.setup.filter_number_of_vectors {
+            return Err(invalid(format!(
+                "{at}.MultiGrid_Level1: number_of_test_vectors must be even and at most twice Setup.filter_number_of_vectors"
+            )));
+        }
+        self.check_levels(at, lattice)
+    }
+
+    /// The block as the multigrid of Wilson and clover fermions (`name`) on `lattice` takes it;
+    /// what it does not use goes into `notes`.
+    pub fn check_wilson(
+        &self,
+        at: &str,
+        name: FermionType,
+        lattice: [usize; ND],
+        notes: &mut Vec<String>,
+    ) -> Result<(), CliError> {
+        if self.smoother.smoother_type == Some(SmootherType::Chebyshev) {
+            return Err(invalid(format!(
+                "{at}.Smoother: Chebyshev is the domain-wall smoother; use SAP or GMRES for {name}"
+            )));
+        }
+        match self.level1.solver_d(false).solver_type {
+            SolverType::BiCgStab | SolverType::Fgmres => {}
+            other => {
+                return Err(invalid(format!(
+                    "{at}.MultiGrid_Level1.Coarse_Solver_D: {other} is not available for {name}; use BiCGStab or GMRES"
+                )))
+            }
+        }
+        if self.level4.is_some() {
+            return Err(invalid(format!(
+                "{at}.MultiGrid_Level4: {name} fermions take levels down to MultiGrid_Level3"
+            )));
+        }
+        for (key, given) in [
+            (
+                "MultiGrid_Level1.Coarse_Solver_PV",
+                self.level1.coarse_pv.is_some(),
+            ),
+            ("fine_precision", self.fine_precision_given.is_some()),
+            ("basis_precision", self.basis_precision_given.is_some()),
+            ("levels_for_pauli_villars", self.levels_for_pauli_villars),
+            ("Setup.checkpoint", self.setup.checkpoint.is_some()),
+        ] {
+            if given {
+                notes.push(format!(
+                    "{at}.{key} is for domain-wall fermions; not used for {name}"
+                ));
+            }
+        }
+        self.check_levels(at, lattice)
     }
 }
