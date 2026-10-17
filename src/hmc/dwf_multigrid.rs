@@ -25,8 +25,8 @@ pub struct DwfMultigridSetup {
     pub test_vectors: usize,
     pub low_modes: LowModeParams,
     pub bootstrap: BootstrapParams,
-    /// The cycle of Ã; that of Ã† is the same with the roles exchanged, its second factor by
-    /// MINRES.
+    /// The cycle of Ã; that of Ã† is the same with the roles exchanged, its second factor (then
+    /// P†D†P) by BiCGStab on the exact adjoint.
     pub cycle: PvEoParams,
     /// GCR of each solve on the even sites: directions kept, and when it stops.
     pub directions: usize,
@@ -40,6 +40,17 @@ pub struct DwfMultigridSetup {
     pub setups: usize,
     pub refreshes: usize,
     pub inner_solves: usize,
+    /// Seconds so far: of the setups and bootstraps; of making P and the cycles again for new
+    /// links; of the solves on the even sites (the cycles' applications included).
+    pub seconds: Seconds,
+}
+
+/// Where the time of the multigrid went (`DwfMultigridSetup::seconds`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Seconds {
+    pub setup: f64,
+    pub rebuild: f64,
+    pub solve: f64,
 }
 
 impl DwfMultigridSetup {
@@ -61,6 +72,7 @@ impl DwfMultigridSetup {
             setups: 0,
             refreshes: 0,
             inner_solves: 0,
+            seconds: Seconds::default(),
         }
     }
 
@@ -74,8 +86,10 @@ impl DwfMultigridSetup {
         lat: &std::sync::Arc<crate::Lattice>,
         (fresh, md): (bool, bool),
     ) -> PvEoBasis<f64> {
+        let start = std::time::Instant::now();
         let agg = Aggregation::new(lat, self.block);
         let due = fresh || (self.refresh_every > 0 && self.since >= self.refresh_every);
+        let setup = due || self.vectors.is_none();
         let ok = "the multigrid setup succeeds";
         let basis = match (self.vectors.as_mut(), due) {
             (Some(y), false) => pv_eo_basis(op, pv, &agg, y).expect(ok),
@@ -98,6 +112,11 @@ impl DwfMultigridSetup {
         if md {
             self.since += 1;
         }
+        let elapsed = start.elapsed().as_secs_f64();
+        match setup {
+            true => self.seconds.setup += elapsed,
+            false => self.seconds.rebuild += elapsed,
+        }
         basis
     }
 }
@@ -105,7 +124,7 @@ impl DwfMultigridSetup {
 /// x = (D†D)⁻¹ b for `op` with the multigrid of `setup` (module documentation); `pv` is D_PV
 /// (mass 1) on the same links. `x` holds the initial guess.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn normal_solve<G: GammaRepre>(
+pub fn normal_solve<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
     setup: &mut DwfMultigridSetup,
@@ -120,14 +139,21 @@ pub(super) fn normal_solve<G: GammaRepre>(
     );
     let lat = b.lattice().clone();
     let basis = setup.basis(op, pv, &lat, (fresh, md));
+    let start = std::time::Instant::now();
     let cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, setup.cycle)
         .expect("the cycle is made");
+    // In M† the second factor is P†D†P, of the quark operator: its exact adjoint by BiCGStab
+    // took fewer iterations than MINRES on its Γ5 form on the v2 16⁴ configuration (17 against
+    // 18 with stout links at M5 1.0, 57 against 76 at M5 1.8, m 0.001), while in M (P†D_PV P,
+    // well conditioned) MINRES is far better.
     let dual = PvEoParams {
-        pv_solver: CoarseKrylov::Minres,
+        pv_solver: CoarseKrylov::BiCgStab,
         ..setup.cycle
     };
     let cycle_dag = PvEoCycle::new(pv, op, (pv, op, EoForm::Right), &basis, dual)
         .expect("the adjoint cycle is made");
+    setup.seconds.rebuild += start.elapsed().as_secs_f64();
+    let start = std::time::Instant::now();
     let index = op.even_odd_index().expect("even extents").clone();
     let mut like = HalfPsi::with_shape(&lat, 24, op.params().ls, 1, 1);
     like.set_parity(crate::Parity::Even);
@@ -144,6 +170,7 @@ pub(super) fn normal_solve<G: GammaRepre>(
     };
     let result = two_solves(op, &mut solves, x, b, stop);
     setup.inner_solves += solves.count;
+    setup.seconds.solve += start.elapsed().as_secs_f64();
     result.map(|mut info| {
         info.iterations = solves.inner;
         info
