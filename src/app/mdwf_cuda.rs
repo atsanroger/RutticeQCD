@@ -6,18 +6,17 @@
 //! prolongation, the coarse operators, and the cycle with its coarse solves; above the
 //! coarse lattice in single precision unless `MultiGrid.fine_precision` says double (the
 //! outer solver is in double precision either way), and so are levels below the coarse
-//! lattice. With another solver of the second factor than MINRES, the basis, the coarse
-//! operators and the coarse correction are those of the CPU (`mdwf`), the residual and the
-//! correction crossing over in every cycle.
+//! lattice.
 //!
 //! The five-dimensional source, the residual of the solution (by the operator on the whole
 //! lattice, not the one that was solved) and its four-dimensional fields are made on the
 //! device as well: the CPU has the four-dimensional source, the random right-hand sides and
 //! the contractions.
 
-use super::mdwf::{iterations_text, load, multigrid_cycle, write_measurements, Preconditioner};
+use super::mdwf::{iterations_text, load, write_measurements};
 use super::memory_line;
 use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
+use crate::backend::cuda_bridge::multigrid::Correction;
 use crate::backend::cuda_bridge::multigrid::{
     bootstrap, device_correction, filtered_test_vectors, top_of, Stage,
 };
@@ -25,13 +24,12 @@ use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceBasis, DeviceCoarse, DeviceCorrection, DeviceParities, DeviceReal,
     DeviceSpinor, LevelReal,
 };
-use crate::fermion::{EoForm, FermionOp, Mdwf, PvRatio};
+use crate::fermion::{EoForm, FermionOp, PvRatio};
 use crate::measure::{point_source, NUM_SOURCES};
-use crate::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation, PvEoBasis, PvEoCycle};
+use crate::solver::preconditioner::multigrid::Aggregation;
 use crate::solver::{BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop};
 use crate::{
-    random_spinor, Aos, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor,
-    Vector, C64,
+    random_spinor, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -136,24 +134,6 @@ impl<T: DeviceReal> Operators<T> {
     }
 }
 
-/// A coarse correction of the CPU as one on the device: the residual to the CPU, its
-/// correction back.
-fn on_cpu<'c, T: DeviceReal>(
-    index: &'c EvenOddIndex,
-    mut correction: impl FnMut(&mut H, &H) + 'c,
-) -> impl FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T>) + 'c {
-    move |e, r| {
-        let r = r.to_host_half(index).expect("the residual from the device");
-        let mut e_host = r.zeros_like();
-        correction(&mut e_host, &r);
-        let back = DeviceSpinor::<T>::from_host_half(&e_host, index);
-        e.copy_from(&back.expect("the correction to the device"));
-    }
-}
-
-/// A correction as `TwoGrid` takes it, of either kind.
-type Correction<'c, T> = Box<dyn FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T>) + 'c>;
-
 /// A random field with `ls` spinors per site.
 fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> F {
     let mut b = F::with_shape(lat, 24, ls, 1, 1);
@@ -163,15 +143,11 @@ fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> F {
 }
 
 /// The vectors on the even sites the multigrid is built from: from a checkpoint, or filtered
-/// here, and improved by the bootstrap if the file asks. The multigrid of the bootstrap is on
-/// the device unless its settings are on the CPU only: then its basis and its coarse
-/// correction are made with the operators `cpu`.
-#[allow(clippy::too_many_arguments)]
+/// here, and improved by the bootstrap if the file asks.
 fn test_vectors<T: DeviceReal>(
     params: &Params,
     file: &Path,
     lat: &Arc<Lattice>,
-    cpu: Option<Pair<'_, Mdwf<f64>>>,
     ops: &Operators<T>,
     index: &EvenOddIndex,
     start: Instant,
@@ -239,43 +215,16 @@ fn test_vectors<T: DeviceReal>(
         None => filtered_test_vectors(device, (even, odd), lat, index, low, keep, &mut report)?,
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
-    if DeviceCorrection::<T, f32>::supports(&boot.cycle) {
-        let mut on_device = device_correction(device, &agg, boot.cycle, even, half);
-        bootstrap(
-            device,
-            (even, odd),
-            lat,
-            &mut y,
-            boot,
-            &mut on_device,
-            &mut report,
-        )?;
-    } else {
-        // The coarse part of the cycle on the CPU, the rest on the device.
-        let (d, pv) = cpu.ok_or("the operators of the CPU were not made")?;
-        let mut on_cpu_correction =
-            |y: DeviceSpinor<T>,
-             round: &mut crate::backend::cuda_bridge::multigrid::Round<'_, T>|
-             -> crate::backend::cuda_bridge::multigrid::Grown<T> {
-                let basis = pv_eo_basis(d, pv, &agg, &y.to_host_half(index)?)?;
-                let mut cycle = PvEoCycle::new(d, pv, (d, pv, EoForm::Right), &basis, boot.cycle)?;
-                let hi = cycle.top();
-                round(
-                    Box::new(on_cpu(index, |e, r| cycle.coarse_correction(e, r))),
-                    Some(hi),
-                    y,
-                )
-            };
-        bootstrap(
-            device,
-            (even, odd),
-            lat,
-            &mut y,
-            boot,
-            &mut on_cpu_correction,
-            &mut report,
-        )?;
-    }
+    let mut on_device = device_correction(device, &agg, boot.cycle, even, half);
+    bootstrap(
+        device,
+        (even, odd),
+        lat,
+        &mut y,
+        boot,
+        &mut on_device,
+        &mut report,
+    )?;
     drop(report);
     if let Some(e) = failed {
         return Err(e);
@@ -314,72 +263,47 @@ fn add_levels<T: DeviceReal, CT: LevelReal>(
     Ok(())
 }
 
-/// The cycle of the multigrid for the operator of `ops`: with the coarse correction of the
-/// CPU's cycle if there is one, else all of it on the device, with the prolongation `basis`
-/// and levels below the coarse lattice from `level_vectors`; and the applications of the
-/// coarse operators so far, after every cycle.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+/// The cycle of the multigrid for the operator of `ops`, all of it on the device, with the
+/// prolongation `basis` and levels below the coarse lattice from `level_vectors`; and the
+/// applications of the coarse operators so far, after every cycle.
+#[allow(clippy::type_complexity)]
 fn two_grid<'a, T: DeviceReal>(
     params: &Params,
     lat: &Arc<Lattice>,
     ops: &'a Operators<T>,
-    basis: Option<DeviceBasis>,
+    basis: DeviceBasis,
     level_vectors: Option<&DeviceCoarse<f64>>,
     form: EoForm,
-    cpu_cycle: Option<&'a mut Preconditioner<'_, Aos>>,
-    index: &'a EvenOddIndex,
     out: &mut dyn Write,
 ) -> Result<(impl LinearFn<DeviceSpinor<T>> + 'a, Rc<Cell<usize>>), Box<dyn Error>> {
     let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
     let (cycle_params, _, _) = params.multigrid().ok_or("no multigrid")?;
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
-    let hi = cpu_cycle.as_ref().map(|cycle| cycle.top());
     let count = Rc::new(Cell::new(0));
     let counted = count.clone();
-    let correction: Correction<'a, T> = match cpu_cycle {
-        Some(cycle) => Box::new(on_cpu(index, move |e, r| {
-            cycle.coarse_correction(e, r);
-            counted.set(cycle.coarse_applications());
-        })),
-        None => {
-            let device = ops.plain()?;
-            let basis = basis.ok_or("the prolongation was not made")?;
-            match mg.coarse_precision {
-                PrecisionType::Single => {
-                    let mut c = DeviceCorrection::<T, f32>::new(
-                        basis,
-                        device,
-                        outer,
-                        form,
-                        cycle_params,
-                        even,
-                    )?;
-                    if let Some(v) = level_vectors {
-                        add_levels(&mut c, mg, v, out)?;
-                    }
-                    Box::new(move |e, r| {
-                        c.correct(e, r);
-                        counted.set(c.coarse_applications());
-                    })
-                }
-                PrecisionType::Double => {
-                    let mut c = DeviceCorrection::<T, f64>::new(
-                        basis,
-                        device,
-                        outer,
-                        form,
-                        cycle_params,
-                        even,
-                    )?;
-                    if let Some(v) = level_vectors {
-                        add_levels(&mut c, mg, v, out)?;
-                    }
-                    Box::new(move |e, r| {
-                        c.correct(e, r);
-                        counted.set(c.coarse_applications());
-                    })
-                }
+    let device = ops.plain()?;
+    let correction: Correction<'a, T> = match mg.coarse_precision {
+        PrecisionType::Single => {
+            let mut c =
+                DeviceCorrection::<T, f32>::new(basis, device, outer, form, cycle_params, even)?;
+            if let Some(v) = level_vectors {
+                add_levels(&mut c, mg, v, out)?;
             }
+            Box::new(move |e, r| {
+                c.correct(e, r);
+                counted.set(c.coarse_applications());
+            })
+        }
+        PrecisionType::Double => {
+            let mut c =
+                DeviceCorrection::<T, f64>::new(basis, device, outer, form, cycle_params, even)?;
+            if let Some(v) = level_vectors {
+                add_levels(&mut c, mg, v, out)?;
+            }
+            Box::new(move |e, r| {
+                c.correct(e, r);
+                counted.set(c.coarse_applications());
+            })
         }
     };
     let cycle = crate::backend::cuda_bridge::multigrid::two_grid(
@@ -389,7 +313,7 @@ fn two_grid<'a, T: DeviceReal>(
         lat,
         cycle_params,
         correction,
-        hi,
+        None,
     )?;
     Ok((cycle, count))
 }
@@ -404,18 +328,21 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn Error>> {
     let fo = &params.fopr;
     let ls = fo.ls();
-    let (form, normal) = params.form();
+    let (form, _) = params.form();
     let s = &params.solver;
     let start = Instant::now();
 
-    // The multigrid. Its settings, and whether its coarse correction is on the device: not
-    // with another solver of the Pauli-Villars factor than MINRES, which is on the CPU only.
+    // The multigrid, all of it on the device.
     let settings = match (params.multigrid(), &params.multigrid) {
         (Some((cycle, _, boot)), Some(mg)) => Some((cycle, boot, mg)),
         _ => None,
     };
-    let on_device =
-        settings.is_some_and(|(cycle, _, _)| DeviceCorrection::<f64, f32>::supports(&cycle));
+    if settings.is_some_and(|(cycle, boot, _)| {
+        !DeviceCorrection::<f64, f32>::supports(&cycle)
+            || !DeviceCorrection::<f64, f32>::supports(&boot.cycle)
+    }) {
+        return Err("the coarse solvers of this multigrid are not on the device".into());
+    }
     // Above the coarse lattice it is in single precision, with operators of its own, or in
     // double precision with those of the outer solver.
     let single = settings.is_some_and(|(_, _, mg)| mg.fine_precision == PrecisionType::Single);
@@ -424,70 +351,22 @@ pub(super) fn run(
         true => Some(Operators::<f32>::new(params, lat, u, true)?),
         false => None,
     };
-    // For what of it is on the CPU, the operators there: D and D_PV, plain and with α.
-    let on_cpu_too = settings.is_some_and(|(_, boot, _)| {
-        !on_device || (boot.rounds > 0 && !DeviceCorrection::<f64, f32>::supports(&boot.cycle))
-    });
-    let cpu_ops = if on_cpu_too {
-        let cpu = |mass: f64, alpha: f64| -> Result<Mdwf<f64>, Box<dyn Error>> {
-            let mut op = Mdwf::<f64>::new(lat, params.mdwf_params(mass));
-            op.set_gauge(u)?;
-            op.set_alpha(alpha);
-            Ok(op)
-        };
-        let m_pv = fo.quark_mass_pauli_villars;
-        Some([
-            cpu(fo.mass(), 1.0)?,
-            cpu(m_pv, 1.0)?,
-            cpu(fo.mass(), fo.neff_alpha)?,
-            cpu(m_pv, fo.neff_alpha_pauli_villars)?,
-        ])
-    } else {
-        None
-    };
-    // The normal equations have D in place of D_PV.
-    let cpu_pairs = cpu_ops.as_ref().map(|[d, pv, d_a, pv_a]| {
-        if normal {
-            ((d, d), (d_a, d_a))
-        } else {
-            ((d, pv), (d_a, pv_a))
-        }
-    });
-    let cpu_plain = cpu_pairs.map(|(plain, _)| plain);
     let index = EvenOddIndex::new(lat);
     // The test vectors, in the precision of the multigrid.
     let (y_single, y_double) = match (settings, &ops_single) {
         (None, _) => (None, None),
         (Some(_), Some(o)) => (
-            Some(test_vectors(
-                params, file, lat, cpu_plain, o, &index, start, out,
-            )?),
+            Some(test_vectors(params, file, lat, o, &index, start, out)?),
             None,
         ),
         (Some(_), None) => (
             None,
-            Some(test_vectors(
-                params, file, lat, cpu_plain, &ops, &index, start, out,
-            )?),
+            Some(test_vectors(params, file, lat, &ops, &index, start, out)?),
         ),
     };
-    // The basis and the cycle of the CPU, where the coarse correction is its.
-    let cpu_basis: Option<(PvEoBasis, H)> = match (settings, cpu_pairs) {
-        (Some((_, _, mg)), Some(((d, pv), _))) if !on_device => {
-            let agg = Aggregation::new(lat, mg.level1.block_size);
-            let y = match (&y_single, &y_double) {
-                (Some(y), _) => y.to_host_half(&index)?,
-                (None, Some(y)) => y.to_host_half(&index)?,
-                (None, None) => return Err("no test vectors".into()),
-            };
-            Some((pv_eo_basis(d, pv, &agg, &y)?, y))
-        }
-        _ => None,
-    };
-    // The prolongation on the device, where the coarse correction is there; the test vectors
-    // are not needed after it.
-    let mut device_basis = match (settings, on_device) {
-        (Some((_, _, mg)), true) => {
+    // The prolongation on the device; the test vectors are not needed after it.
+    let mut device_basis = match settings {
+        Some((_, _, mg)) => {
             let agg = Aggregation::new(lat, mg.level1.block_size);
             let half = mg.basis_precision == BasisPrecision::Half;
             Some(match (&ops_single, &y_single, &y_double) {
@@ -526,23 +405,6 @@ pub(super) fn run(
         _ => None,
     };
     drop((y_single, y_double));
-    let mut cpu_cycle = match (&cpu_basis, settings, cpu_pairs) {
-        (Some((basis, y)), Some((cycle_params, _, _)), Some((plain, (d_a, pv_a)))) => Some(
-            multigrid_cycle::<Aos, f64>(
-                params,
-                lat,
-                plain,
-                (d_a, pv_a, form),
-                (d_a, pv_a),
-                basis,
-                y,
-                cycle_params,
-                out,
-            )?
-            .0,
-        ),
-        _ => None,
-    };
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
     let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
     // The applications of the coarse operators by the multigrid so far.
@@ -561,18 +423,16 @@ pub(super) fn run(
         }
         PreconditionerType::None => None,
         PreconditionerType::Multigrid => {
-            let (basis, cpu) = (device_basis.take(), cpu_cycle.as_mut());
+            let basis = device_basis.take().ok_or("the prolongation was not made")?;
             let levels = level_vectors.as_ref();
             match &ops_single {
                 Some(o) => {
-                    let (cycle, count) =
-                        two_grid(params, lat, o, basis, levels, form, cpu, &index, out)?;
+                    let (cycle, count) = two_grid(params, lat, o, basis, levels, form, out)?;
                     coarse_count = Some(count);
                     Some(Box::new(Convert::new(cycle, &o.even)))
                 }
                 None => {
-                    let (cycle, count) =
-                        two_grid(params, lat, &ops, basis, levels, form, cpu, &index, out)?;
+                    let (cycle, count) = two_grid(params, lat, &ops, basis, levels, form, out)?;
                     coarse_count = Some(count);
                     Some(Box::new(cycle))
                 }

@@ -234,6 +234,22 @@ convergence_criterion_squared = 1e-18
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The precisions in any of their usual spellings and cases.
+    #[test]
+    fn precision_spellings() {
+        use super::keywords::BasisPrecision;
+        for w in ["single", "Single", "SINGLE", "float", "f32", "FP32", "fp32", "Float32", "SP"] {
+            assert_eq!(PrecisionType::from_keyword(w), Some(PrecisionType::Single), "{w}");
+        }
+        for w in ["double", "Double", "f64", "FP64", "fp_64", "float64", "DP"] {
+            assert_eq!(PrecisionType::from_keyword(w), Some(PrecisionType::Double), "{w}");
+        }
+        for w in ["half", "Half", "f16", "FP16", "float16"] {
+            assert_eq!(BasisPrecision::from_keyword(w), Some(BasisPrecision::Half), "{w}");
+        }
+        assert_eq!(PrecisionType::from_keyword("half"), None);
+    }
+
     #[test]
     fn wilson_and_clover_files() {
         let p = parse(include_str!("../../../examples/clover_mg.yaml")).unwrap();
