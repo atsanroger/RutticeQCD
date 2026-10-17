@@ -102,7 +102,7 @@ With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksum
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard (Lexical) and Ratio
 (Lexical or Even_odd) actions on the device, the Ratio action with the multigrid too (its test
-vectors, P in half precision, the coarse operators and the cycles there; not yet with
+vectors, P in half precision, the coarse operators and the cycles there, and the cache of
 `MultiGrid_HMC.rebuild_iteration_growth`), and mixed-precision CG with the operator in single
 precision on the device. Not on the device yet: the
 multigrid of Wilson and clover fermions, several processes, boundary phases other than ±1 and 0.

@@ -196,7 +196,34 @@ impl DwfMultigridSetup {
         self.seconds.rebuild += rebuild;
         self.seconds.solve += solve;
         self.inner_solves += solves;
+    }
+
+    pub(crate) fn count_rebuild(&mut self) {
         self.rebuilds += 1;
+    }
+
+    pub(crate) fn count_reuse(&mut self) {
+        self.reuses += 1;
+    }
+
+    /// The iterations have grown: the next solve makes P and the coarse parts again.
+    pub(crate) fn rebuild_is_due(&self) -> bool {
+        self.rebuild_due
+    }
+
+    /// After a solve with the cache: the iterations per solve on the even sites set the
+    /// baseline when the parts were just made, and are compared with it when they were reused.
+    pub(crate) fn after_solve(&mut self, reused: bool, per_solve: f64) {
+        match reused {
+            false => {
+                self.baseline = Some(per_solve);
+                self.rebuild_due = false;
+            }
+            true => {
+                let base = self.baseline.unwrap_or(per_solve);
+                self.rebuild_due = per_solve > self.rebuild_growth * base;
+            }
+        }
     }
 }
 
@@ -357,17 +384,7 @@ fn with_solves<G: GammaRepre>(
     setup.seconds.solve += start.elapsed().as_secs_f64();
     if caching {
         // Rebuild for the next solve once the iterations per solve have grown.
-        let per_solve = inner as f64 / count.max(1) as f64;
-        match reuse {
-            false => {
-                setup.baseline = Some(per_solve);
-                setup.rebuild_due = false;
-            }
-            true => {
-                let base = setup.baseline.unwrap_or(per_solve);
-                setup.rebuild_due = per_solve > setup.rebuild_growth * base;
-            }
-        }
+        setup.after_solve(reuse, inner as f64 / count.max(1) as f64);
         let parts = cycles.into_parts();
         setup.cache = Some(Cache { basis, parts });
     }

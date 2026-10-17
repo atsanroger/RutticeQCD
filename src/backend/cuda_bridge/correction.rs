@@ -30,6 +30,30 @@ pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
     coarse_d: Rc<DeviceCoarseOp<CT>>,
     coarse_pv: Rc<DeviceCoarseOp<CT>>,
     coarse: Arc<Lattice>,
+    parts: DeviceParts<CT>,
+}
+
+/// What a correction is made of on the device besides its operators: P, the coarse operators
+/// and the matrices on their sites. A clone (it is all shared) makes the correction for other
+/// links again without building any of it (`DeviceCorrection::from_parts`): the coarse
+/// correction is then that of the links it was built for, still a fixed map.
+pub struct DeviceParts<CT: DeviceReal> {
+    basis: Rc<DeviceBasis>,
+    coarse_d: Rc<DeviceCoarseOp<CT>>,
+    coarse_pv: Rc<DeviceCoarseOp<CT>>,
+    /// |H_xx|⁻¹ of the second factor, for MINRES.
+    abs: Option<Rc<DeviceBuffer<CT>>>,
+}
+
+impl<CT: DeviceReal> Clone for DeviceParts<CT> {
+    fn clone(&self) -> Self {
+        Self {
+            basis: self.basis.clone(),
+            coarse_d: self.coarse_d.clone(),
+            coarse_pv: self.coarse_pv.clone(),
+            abs: self.abs.clone(),
+        }
+    }
 }
 
 impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
@@ -64,7 +88,16 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         like: &DeviceSpinor<F>,
     ) -> Result<Self, Box<dyn Error>> {
         assert!(Self::supports(&params));
-        assert_eq!(like.parity(), Some(Parity::Even));
+        let parts = Self::build(device, plain, params)?;
+        Self::from_parts(parts, plain, outer, form, params, like)
+    }
+
+    /// P†DP and the second factor on `device`, and the matrices on their sites.
+    fn build(
+        device: Rc<DeviceBasis>,
+        plain: (&CudaMdwf<F>, &CudaMdwf<F>),
+        params: PvEoParams,
+    ) -> Result<DeviceParts<CT>, Box<dyn Error>> {
         let even_odd = params.coarse_even_odd;
         let build = |op: &CudaMdwf<F>| -> Result<_, Box<dyn Error>> {
             DeviceCoarseOp::<CT>::new(&op.coarse_operator(&device)?, even_odd)
@@ -83,27 +116,59 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 op.checksums().map(|c| c.1)
             });
         }
+        let abs = match minres {
+            true => {
+                let abs = coarse_pv.abs_inverse_of_a_gamma5()?;
+                trace_checksum("|H_xx|⁻¹", || abs.checksum());
+                Some(Rc::new(abs))
+            }
+            false => None,
+        };
+        Ok(DeviceParts {
+            basis: device,
+            coarse_d,
+            coarse_pv,
+            abs,
+        })
+    }
+
+    /// The correction of `parts` (`parts()` of a correction with the same settings) for the
+    /// operators given: nothing is built.
+    pub fn from_parts(
+        parts: DeviceParts<CT>,
+        plain: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
+        outer: (&'a CudaMdwf<F>, &'a CudaMdwf<F>),
+        form: EoForm,
+        params: PvEoParams,
+        like: &DeviceSpinor<F>,
+    ) -> Result<Self, Box<dyn Error>> {
+        assert!(Self::supports(&params));
+        assert_eq!(like.parity(), Some(Parity::Even));
+        assert_eq!(
+            parts.abs.is_some(),
+            params.pv_solver == CoarseKrylov::Minres,
+            "parts made for another solver of the second factor"
+        );
+        let (coarse_d, coarse_pv) = (parts.coarse_d.clone(), parts.coarse_pv.clone());
         // The matrices on the coarse sites: the inverses of the blocks of P†DP, and of the
         // second factor |H_xx|⁻¹ for MINRES, else the inverses of the blocks of the adjoint.
         let (d, pv) = (coarse_d.clone(), coarse_pv.clone());
         let blocks_d = FnMap(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
             d.apply_blocks(out, inp, d.block_inverses());
         });
-        let blocks_pv: Box<dyn LinearFn<DeviceCoarse<CT>> + 'a> = if minres {
-            let abs = coarse_pv.abs_inverse_of_a_gamma5()?;
-            trace_checksum("|H_xx|⁻¹", || abs.checksum());
-            Box::new(FnMap(
+        let blocks_pv: Box<dyn LinearFn<DeviceCoarse<CT>> + 'a> = match parts.abs.clone() {
+            Some(abs) => Box::new(FnMap(
                 move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
                     pv.apply_blocks(out, inp, &abs);
                 },
-            ))
-        } else {
-            Box::new(FnMap(
+            )),
+            None => Box::new(FnMap(
                 move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
                     pv.apply_blocks(out, inp, pv.block_inverses());
                 },
-            ))
+            )),
         };
+        let device = parts.basis.clone();
         let coarse_like = device.coarse_field::<CT>(1);
         let coarse = device.coarse.clone();
         Ok(Self {
@@ -121,7 +186,13 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             coarse_d,
             coarse_pv,
             coarse,
+            parts,
         })
+    }
+
+    /// What the correction is made of, to make it again for other links.
+    pub fn parts(&self) -> DeviceParts<CT> {
+        self.parts.clone()
     }
 
     /// Coarse-operator applications so far (both factors).

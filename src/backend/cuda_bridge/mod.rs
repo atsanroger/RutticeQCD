@@ -28,7 +28,7 @@ pub mod multigrid;
 mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
-pub use correction::DeviceCorrection;
+pub use correction::{DeviceCorrection, DeviceParts};
 pub use field::{DeviceParities, DeviceSpinor, Stashed};
 pub use gauge::DeviceLinks;
 pub use levels::{DeviceAbsMultilevel, DeviceMultilevel, LevelReal};
