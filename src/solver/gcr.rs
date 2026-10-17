@@ -11,6 +11,9 @@ pub struct Gcr<V> {
     /// The pairs (z, q), q = A z normalised, oldest first; one more than `k`.
     pairs: Vec<(V, V)>,
     r: Option<V>,
+    /// With `recording`: |r|²/|b|² of every vector before every step (the residual of the
+    /// recurrence), and after the last one, of every solve.
+    pub history: Option<Vec<Vec<f64>>>,
 }
 
 impl<V: Vector> Gcr<V> {
@@ -20,7 +23,14 @@ impl<V: Vector> Gcr<V> {
             k,
             pairs: Vec::new(),
             r: None,
+            history: None,
         }
+    }
+
+    /// Keep the residual history (`history`).
+    pub fn recording(mut self) -> Self {
+        self.history = Some(Vec::new());
+        self
     }
 }
 
@@ -57,6 +67,13 @@ impl<V: Vector> Solver<V> for Gcr<V> {
             let mut in_cycle = 0;
             while in_cycle < self.stop.max_iterations && iterations < limit {
                 r.norm_sqr(&mut rr);
+                if let Some(h) = self.history.as_mut() {
+                    h.push(
+                        (0..nv)
+                            .map(|j| rr[j] / b_norm[j].max(f64::MIN_POSITIVE))
+                            .collect(),
+                    );
+                }
                 let active: Vec<bool> = (0..nv).map(|j| rr[j] > tol * b_norm[j]).collect();
                 if !active.iter().any(|a| *a) {
                     break;

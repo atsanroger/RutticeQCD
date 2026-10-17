@@ -426,6 +426,10 @@ where
     let lat = lat.clone();
     let fo = &params.fopr;
     let s = &params.solver;
+    let detailed = matches!(
+        params.main.verbose_level,
+        super::params::VerboseLevel::Detailed | super::params::VerboseLevel::Paranoiac
+    );
     // The operator of the outer solver, in double precision, with the Pauli-Villars one (the
     // normal equations are the operator with D in place of D_PV).
     let outer = Pair::<f64, L>::new(params, &lat, u, true)?;
@@ -582,6 +586,7 @@ where
         };
         let mut sol = rhs.zeros_like();
         let start = Instant::now();
+        let mut history: Option<Vec<Vec<f64>>> = None;
         let result: Result<SolveInfo, SolveError> = {
             let mut counted_a = Counted {
                 a: &mut a,
@@ -594,7 +599,15 @@ where
             let mut counted_pre = m.map(|m| Counted { a: m, n: &applied });
             let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
             match s.solver_type {
-                SolverType::Gcr => Gcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs),
+                SolverType::Gcr => {
+                    let mut g = Gcr::new(stop, k);
+                    if detailed {
+                        g = g.recording();
+                    }
+                    let solved = g.solve(&mut counted_a, m, &mut sol, &rhs);
+                    history = g.history.take();
+                    solved
+                }
                 SolverType::BlockGcr => {
                     BlockGcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs)
                 }
@@ -636,6 +649,7 @@ where
             2 * applications,
             memory_line()
         );
+        super::history_lines(out, label, history);
         x
     };
 

@@ -330,6 +330,10 @@ pub(super) fn run(
     let ls = fo.ls();
     let (form, _) = params.form();
     let s = &params.solver;
+    let detailed = matches!(
+        params.main.verbose_level,
+        super::params::VerboseLevel::Detailed | super::params::VerboseLevel::Paranoiac
+    );
     let start = Instant::now();
 
     // The multigrid, all of it on the device.
@@ -467,8 +471,17 @@ pub(super) fn run(
         let m = pre
             .as_mut()
             .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
+        let mut history: Option<Vec<Vec<f64>>> = None;
         let result = match s.solver_type {
-            SolverType::Gcr => Gcr::new(stop, k).solve(&mut a, m, &mut sol, &rhs),
+            SolverType::Gcr => {
+                let mut g = Gcr::new(stop, k);
+                if detailed {
+                    g = g.recording();
+                }
+                let solved = g.solve(&mut a, m, &mut sol, &rhs);
+                history = g.history.take();
+                solved
+            }
             SolverType::BlockGcr => BlockGcr::new(stop, k).solve(&mut a, m, &mut sol, &rhs),
             SolverType::BiCgStab => BiCgStab::new(stop).solve(&mut a, m, &mut sol, &rhs),
             SolverType::Fgmres => Fgmres::new(Stop {
@@ -513,6 +526,7 @@ pub(super) fn run(
             iterations_text(&result),
             memory()
         )?;
+        super::history_lines(out, label, history);
         Ok(x)
     };
 

@@ -343,3 +343,15 @@ pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write
         }
     }
 }
+
+/// With `Main.verbose_level : Detailed`: the residual history of GCR, one line per step.
+pub(crate) fn history_lines(out: &mut dyn Write, label: &str, history: Option<Vec<Vec<f64>>>) {
+    for (i, r) in history.into_iter().flatten().enumerate() {
+        let values: Vec<String> = r.iter().map(|x| format!("{x:.3e}")).collect();
+        let _ = writeln!(
+            out,
+            "    {label} GCR step {i:4}: |r|^2/|b|^2 {}",
+            values.join(" ")
+        );
+    }
+}

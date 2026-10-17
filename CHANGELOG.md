@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `Main.verbose_level : Detailed` (or `Paranoiac`) prints the residual history of GCR in the
+  propagator runs, on the CPU and on the device: |r|²/|b|² before every step (`Gcr::recording`).
+- `preconditioned_fov_device --parts`: the smoother S and the coarse correction E of the cycle
+  apart, the field of values and ‖I − Ã X‖₂ of Ã S, Ã E and Ã M, and the vector at λ_min of the
+  Hermitian part of Ã M dissected. On the v2 12⁴ configuration at m 0.001, with the coarse
+  factors solved exactly, ‖I − Ã E‖₂ = 1.9e4 (stout, M5 1.0) and 2.9e3 (M5 1.8) against 18.5 on
+  4³×8, the smoother's ‖I − Ã S‖₂ about 1: the coarse correction is the factor that amplifies.
 - HMC with the multigrid on the device: `MultiGrid.fine_precision : single` puts the cycle
   (smoother, residuals, P and the corrections) on the operators in single precision, made from
   the links of the double ones on the device (`CudaMdwf::converted_from`), the outer GCR in double

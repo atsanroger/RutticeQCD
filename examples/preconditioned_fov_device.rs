@@ -9,8 +9,12 @@
 //! ```text
 //! cargo run --release --features cuda-bridge --example preconditioned_fov_device --
 //!     L T FORMAT FILE M5 MASS SMEAR [--block B] [--vectors N] [--steps S] [--ratio R]
-//!     [--coarse T] [--tol T] [--dim D]
+//!     [--coarse T] [--tol T] [--dim D] [--parts]
 //! ```
+//!
+//! `--parts`: the smoother S and the coarse correction E apart as well, the field of values and
+//! ‖I − Ã X‖₂ of Ã S, Ã E and Ã M (I − Ã M = (I − Ã S)(I − Ã E)(I − Ã S)), and the vector at
+//! λ_min of the Hermitian part of Ã M: its part in the range of P and its Rayleigh quotients.
 //!
 //! L³×T lattice, Ls 8, b 1.5, c 0.5; SMEAR 1 for stout 0.1 × 3. Setup as the solver's: 16
 //! vectors filtered in 2 rounds, the bootstrap 2 × 4, P in half precision. Defaults: blocks of
@@ -33,15 +37,18 @@ mod device {
         bootstrap, device_correction, filtered_test_vectors, top_of, two_grid, DeviceCycle, Stage,
     };
     use ruttice::backend::cuda_bridge::{
-        CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor,
+        CudaMdwf, DeviceBasis, DeviceCoarse, DeviceCorrection, DeviceParities, DeviceParts,
+        DeviceSpinor,
     };
     use ruttice::eigen::{lowest, LanczosParams};
     use ruttice::fermion::{EoForm, FermionOp, MdwfParams, PvRatio, SplitParity};
     use ruttice::gauge::smearing::{uniform, Stout};
     use ruttice::gauge::{GaugeSmearing, Smear};
+    use ruttice::solver::preconditioner::multigrid::Transfer;
     use ruttice::solver::preconditioner::multigrid::{
         Aggregation, BootstrapParams, CoarseKrylov, LowModeParams, PvEoParams,
     };
+    use ruttice::solver::Chebyshev;
     use ruttice::{
         random_spinor, Boundary, EvenOddIndex, Field, Lattice, LinearFn, Parity, Spinor, Vector,
         C64,
@@ -199,13 +206,14 @@ mod device {
             &even,
         )?;
         let mut c_dag = DeviceCorrection::<f64, f64>::shared(
-            basis,
+            basis.clone(),
             (pv, d),
             (pv, d),
             EoForm::Right,
             exact,
             &even,
         )?;
+        let (parts, parts_dag) = (c.parts(), c_dag.parts());
         let hi = top_of(
             &mut PvRatio::new(d, pv, EoForm::Right, &even, &odd),
             &lat,
@@ -277,14 +285,18 @@ mod device {
             chebyshev: None,
         };
         let x0 = random_even(63)?;
+        let mut lowest_of_am: Option<V> = None;
         for preconditioned in [false, true] {
             let mut ends = Vec::new();
             let t = Instant::now();
             for sign in [1.0, -1.0] {
                 let cycles = preconditioned.then_some((&mut m, &mut m_dag));
                 let mut h = part((d, pv), (&even, &odd), cycles, sign);
-                let e = lowest(&mut h, &x0, lanczos);
+                let mut e = lowest(&mut h, &x0, lanczos);
                 ends.push((sign * e.values[0], e.converged, e.restarts));
+                if preconditioned && sign > 0.0 {
+                    lowest_of_am = e.vectors.drain(..).next();
+                }
             }
             println!(
                 "{}: Re of the field of values in [{:+.6e}, {:+.6e}]  (converged {} {}, {} + {} restarts, {:.0} s){}",
@@ -299,6 +311,204 @@ mod device {
                 if ends[0].0 < 0.0 { "  lambda_min < 0" } else { "  in the right half plane" }
             );
         }
+        if args.iter().any(|a| a == "--parts") {
+            let x = lowest_of_am.ok_or("the vector at lambda_min of A~ M")?;
+            dissect(
+                (d, pv),
+                (&even, &odd),
+                &lat,
+                &basis,
+                (parts, parts_dag),
+                (exact, hi),
+                (&x0, &x, lanczos),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A map of fields on the even sites.
+    type Map<'a> = Box<dyn FnMut(&mut V, &V) + 'a>;
+
+    /// B and B† as maps, for any product of Ã with a part of the cycle.
+    struct Pair<'a> {
+        b: Map<'a>,
+        b_dag: Map<'a>,
+    }
+
+    /// s (B + B†)/2.
+    struct Herm<'p, 'a>(&'p mut Pair<'a>, f64);
+
+    impl LinearFn<V> for Herm<'_, '_> {
+        fn mult(&mut self, out: &mut V, inp: &V) {
+            let mut t = inp.zeros_like();
+            (self.0.b)(out, inp);
+            (self.0.b_dag)(&mut t, inp);
+            out.axpy(&[C64::new(1.0, 0.0)], &t);
+            out.scale(&[0.5 * self.1]);
+        }
+    }
+
+    /// −R†R, R = I − B: its lowest eigenvalue is −‖I − B‖².
+    struct MinusNorm<'p, 'a>(&'p mut Pair<'a>);
+
+    impl LinearFn<V> for MinusNorm<'_, '_> {
+        fn mult(&mut self, out: &mut V, inp: &V) {
+            let (mut r, mut s) = (inp.zeros_like(), inp.zeros_like());
+            (self.0.b)(&mut r, inp);
+            r.aypx(&[C64::new(-1.0, 0.0)], inp); // r = x − B x
+            (self.0.b_dag)(&mut s, &r);
+            s.aypx(&[C64::new(-1.0, 0.0)], &r); // s = r − B† r
+            out.copy_from(&s);
+            out.scale(&[-1.0]);
+        }
+    }
+
+    /// Ã X and X† Ã† for a part X of the cycle and its adjoint.
+    fn product<'a>(
+        (d, pv): (&'a CudaMdwf<f64>, &'a CudaMdwf<f64>),
+        (even, odd): (&'a V, &'a V),
+        mut x: Map<'a>,
+        mut x_dag: Map<'a>,
+    ) -> Pair<'a> {
+        let mut a = PvRatio::new(d, pv, EoForm::Right, even, odd);
+        let mut a_dag = PvRatio::new(pv, d, EoForm::Right, even, odd);
+        Pair {
+            b: Box::new(move |out: &mut V, inp: &V| {
+                let mut t = inp.zeros_like();
+                x(&mut t, inp);
+                a.mult(out, &t);
+            }),
+            b_dag: Box::new(move |out: &mut V, inp: &V| {
+                let mut t = inp.zeros_like();
+                a_dag.mult(&mut t, inp);
+                x_dag(out, &t);
+            }),
+        }
+    }
+
+    /// Re x† B x for a normalised x.
+    fn rayleigh(pair: &mut Pair<'_>, x: &V) -> f64 {
+        let mut bx = x.zeros_like();
+        (pair.b)(&mut bx, x);
+        let mut d = [C64::ZERO];
+        x.dot(&bx, &mut d);
+        d[0].re
+    }
+
+    /// The smoother S and the coarse correction E of the cycle apart: for Ã S, Ã E and Ã M the
+    /// field of values and ‖I − Ã X‖₂ (I − Ã M = (I − Ã S)(I − Ã E)(I − Ã S)), and the vector
+    /// x at λ_min of the Hermitian part of Ã M: its part in the range of P and its Rayleigh
+    /// quotients.
+    fn dissect(
+        (d, pv): (&CudaMdwf<f64>, &CudaMdwf<f64>),
+        (even, odd): (&V, &V),
+        lat: &std::sync::Arc<Lattice>,
+        basis: &Rc<DeviceBasis>,
+        (parts, parts_dag): (DeviceParts<f64>, DeviceParts<f64>),
+        (exact, hi): (PvEoParams, f64),
+        (x0, x, lanczos): (&V, &V, LanczosParams),
+    ) -> Result<(), Box<dyn Error>> {
+        let ratio = |a, b| PvRatio::new(a, b, EoForm::Right, even, odd);
+        let smoother = |a, b| {
+            Chebyshev::new(
+                ratio(a, b),
+                exact.chebyshev_steps,
+                hi / exact.chebyshev_ratio,
+                hi,
+                even,
+            )
+        };
+        let correction = |p: &DeviceParts<f64>, a, b| {
+            DeviceCorrection::<f64, f64>::from_parts(
+                p.clone(),
+                (a, b),
+                (a, b),
+                EoForm::Right,
+                exact,
+                even,
+            )
+        };
+        let (mut s, mut s_dag) = (smoother(d, pv), smoother(pv, d));
+        let mut with_s = product(
+            (d, pv),
+            (even, odd),
+            Box::new(move |o, i| s.mult(o, i)),
+            Box::new(move |o, i| s_dag.mult(o, i)),
+        );
+        let (mut e, mut e_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
+        let mut with_e = product(
+            (d, pv),
+            (even, odd),
+            Box::new(move |o, i| e.correct(o, i)),
+            Box::new(move |o, i| e_dag.correct(o, i)),
+        );
+        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
+        let mut m = two_grid(
+            (d, pv),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut m_dag = two_grid(
+            (pv, d),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm_dag.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut with_m = product(
+            (d, pv),
+            (even, odd),
+            Box::new(move |o, i| m.mult(o, i)),
+            Box::new(move |o, i| m_dag.mult(o, i)),
+        );
+        for (name, pair) in [
+            ("A~ S", &mut with_s),
+            ("A~ E", &mut with_e),
+            ("A~ M", &mut with_m),
+        ] {
+            let t = Instant::now();
+            let lo = lowest(&mut Herm(pair, 1.0), x0, lanczos);
+            let up = lowest(&mut Herm(pair, -1.0), x0, lanczos);
+            let norm = lowest(&mut MinusNorm(pair), x0, lanczos);
+            println!(
+                "parts {name}: Re W in [{:+.6e}, {:+.6e}], |I - {name}|_2 = {:.6e}  (converged {} {} {}, {:.0} s)",
+                lo.values[0],
+                -up.values[0],
+                (-norm.values[0]).max(0.0).sqrt(),
+                lo.converged,
+                up.converged,
+                norm.converged,
+                t.elapsed().as_secs_f64()
+            );
+        }
+        // The vector at λ_min of the Hermitian part of Ã M.
+        let mut coarse: DeviceCoarse<f64> =
+            Transfer::<V, DeviceCoarse<f64>>::coarse_field(&**basis, 1);
+        Transfer::restrict(&**basis, &mut coarse, x);
+        let mut px = x.zeros_like();
+        Transfer::prolong(&**basis, &mut px, &coarse);
+        let (mut nx, mut npx) = ([0.0], [0.0]);
+        x.norm_sqr(&mut nx);
+        px.norm_sqr(&mut npx);
+        let mut a = ratio(d, pv);
+        let mut ax = x.zeros_like();
+        a.mult(&mut ax, x);
+        let mut dax = [C64::ZERO];
+        x.dot(&ax, &mut dax);
+        println!(
+            "parts: the vector at lambda_min of A~ M: |P P^dag x|/|x| = {:.4}; Re x^dag A~ x = {:+.4e}, A~ S x {:+.4e}, A~ E x {:+.4e}, A~ M x {:+.4e}",
+            (npx[0] / nx[0]).sqrt(),
+            dax[0].re,
+            rayleigh(&mut with_s, x),
+            rayleigh(&mut with_e, x),
+            rayleigh(&mut with_m, x)
+        );
         Ok(())
     }
 }
