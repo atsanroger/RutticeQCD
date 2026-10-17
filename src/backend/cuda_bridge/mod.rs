@@ -20,6 +20,7 @@ mod columns;
 mod correction;
 mod field;
 mod gauge;
+pub mod hmc_multigrid;
 mod levels;
 mod mdwf;
 pub mod multigrid;

@@ -165,6 +165,19 @@ pub trait Transfer<V, G> {
     fn prolong(&self, fine: &mut V, coarse: &G);
 }
 
+/// A P shared by several corrections (the cycles of Ã and Ã† in HMC).
+impl<V, G, T: Transfer<V, G>> Transfer<V, G> for std::rc::Rc<T> {
+    fn coarse_field(&self, vectors: usize) -> G {
+        (**self).coarse_field(vectors)
+    }
+    fn restrict(&self, coarse: &mut G, fine: &V) {
+        (**self).restrict(coarse, fine)
+    }
+    fn prolong(&self, fine: &mut V, coarse: &G) {
+        (**self).prolong(fine, coarse)
+    }
+}
+
 /// A domain-wall operator as the correction needs it: the even-odd blocks, and Neff's Q.
 pub trait NeffQ<V>: EvenOdd<V> {
     /// `out = Q inp`, or `Q⁻¹ inp`.

@@ -227,6 +227,13 @@ impl CudaMdwf<f32> {
     }
 }
 
+impl<T> CudaMdwf<T> {
+    /// The parameters of the operator, as `Mdwf::params`.
+    pub fn params(&self) -> &MdwfParams {
+        &self.params
+    }
+}
+
 /// Scratch fields of `CudaMdwf`, made on first use.
 pub type Work<T> = [Option<DeviceSpinor<T>>; 2];
 
@@ -926,6 +933,19 @@ impl crate::hmc::ForceOp for CudaMdwf<f64> {
     fn right(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
         self.mult_q(out, inp, false);
     }
+    fn domain_wall_multigrid(
+        &self,
+        pv: &Self,
+        setup: &mut crate::hmc::DwfMultigridSetup,
+        flags: (bool, bool),
+        x: &mut DeviceSpinor<f64>,
+        b: &DeviceSpinor<f64>,
+        stop: crate::solver::Stop,
+    ) -> Option<Result<crate::solver::SolveInfo, crate::solver::SolveError>> {
+        Some(super::hmc_multigrid::normal_solve(
+            self, pv, setup, flags, x, b, stop,
+        ))
+    }
 }
 
 /// The even-odd actions of HMC on the device (`hmc::TwoFlavorRatioEo`): the fields of one
@@ -946,5 +966,18 @@ impl crate::hmc::EvenOddHalves for CudaMdwf<f64> {
     }
     fn put_half(&self, whole: &mut DeviceSpinor<f64>, half: &DeviceSpinor<f64>) {
         crate::fermion::SplitParity::insert(&super::DeviceParities, whole, half);
+    }
+    fn domain_wall_multigrid_half(
+        &self,
+        pv: &Self,
+        setup: &mut crate::hmc::DwfMultigridSetup,
+        flags: (bool, bool),
+        z: &mut DeviceSpinor<f64>,
+        b: &DeviceSpinor<f64>,
+        stop: crate::solver::Stop,
+    ) -> Option<Result<crate::solver::SolveInfo, crate::solver::SolveError>> {
+        Some(super::hmc_multigrid::normal_solve_half(
+            self, pv, setup, flags, z, b, stop,
+        ))
     }
 }

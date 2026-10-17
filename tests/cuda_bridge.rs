@@ -1701,6 +1701,65 @@ fn d_dagger_through_the_adjoint_pv_operator_on_the_device() {
     assert!(left[0] < 1e-20 * size[0]);
 }
 
+/// HMC with the multigrid of domain-wall fermions in the solves of the Ratio action on the
+/// device, on all sites and even-odd: the trajectories of CG on the CPU, the plaquette to
+/// rounding and ΔH to the tolerance of the solves.
+#[test]
+fn hmc_with_the_domain_wall_multigrid_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let cg = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF")
+        .replace("number_of_trajectories  : 1", "number_of_trajectories  : 2");
+    let mg = cg.replace(
+        "    solver_type                   : CG",
+        "    solver_type                   : GCR\n    preconditioner_type           : MG\n    number_of_kept_directions     : 8",
+    ) + "  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n";
+    assert_ne!(mg, cg);
+    let rows = |out: &str| -> Vec<(f64, f64)> {
+        out.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some((f[1].parse().ok()?, f[2].parse().ok()?))
+            })
+            .collect()
+    };
+    let even_odd = |text: &str| {
+        text.replace(
+            "action_type     : Ratio",
+            "action_type     : Ratio\n  operator_type   : Even_odd",
+        )
+    };
+    for (name, cg, mg) in [
+        ("hmc_mg_lex", cg.clone(), mg.clone()),
+        ("hmc_mg_eo", even_odd(&cg), even_odd(&mg)),
+    ] {
+        let reference = run_with_backend(&cg, "cpu", name);
+        let gpu = run_with_backend(&mg, "cuda_bridge", name);
+        let (a, b) = (rows(&reference), rows(&gpu));
+        assert!(a.len() == 2 && a.len() == b.len(), "\n{reference}\n{gpu}");
+        for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+            eprintln!("{name}: plaquette {p} and {q}, ΔH {dh} and {dk}");
+            assert!(
+                (p - q).abs() < 1e-12,
+                "{name}: plaquette {p} by CG, {q} by the multigrid"
+            );
+            assert!(
+                (dh - dk).abs() < 1e-7,
+                "{name}: ΔH {dh} by CG, {dk} by the multigrid"
+            );
+        }
+    }
+}
+
 /// HMC with the domain-wall Ratio action on the device (`Main.backend : cuda_bridge`): Bridge++'s
 /// test_HMC_Domainwall_Nf2_PV (stout links, Iwasaki action) gives the trajectories of the CPU,
 /// the plaquette to rounding and ΔH to the tolerance of the solves.
