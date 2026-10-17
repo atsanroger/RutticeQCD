@@ -36,6 +36,9 @@ pub struct DwfMultigridSetup {
     /// The cycle of Ã; that of Ã† is the same with the roles exchanged, its second factor (then
     /// P†D†P) by BiCGStab on the exact adjoint.
     pub cycle: PvEoParams,
+    /// The coarse solves in double precision; false (the default): in single precision. The
+    /// fine part of the cycle is in double precision either way.
+    pub coarse_double: bool,
     /// GCR of each solve on the even sites: directions kept, and when it stops.
     pub directions: usize,
     pub inner: Stop,
@@ -72,6 +75,7 @@ impl DwfMultigridSetup {
                 ..BootstrapParams::default()
             },
             cycle,
+            coarse_double: false,
             directions: 8,
             inner,
             refresh_every: 0,
@@ -180,8 +184,30 @@ fn with_solves<G: GammaRepre>(
     );
     let basis = setup.basis(op, pv, lat, (fresh, md));
     let start = std::time::Instant::now();
-    let cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, setup.cycle)
-        .expect("the cycle is made");
+    let made = "the cycle is made";
+    let double = setup.coarse_double;
+    let cycle = match double {
+        false => Box::new(
+            PvEoCycle::<G, f32>::with_coarse_storage(
+                op,
+                pv,
+                (op, pv, EoForm::Right),
+                &basis,
+                setup.cycle,
+            )
+            .expect(made),
+        ) as Box<dyn LinearFn<HalfPsi>>,
+        true => Box::new(
+            PvEoCycle::<G, f64>::with_coarse_storage(
+                op,
+                pv,
+                (op, pv, EoForm::Right),
+                &basis,
+                setup.cycle,
+            )
+            .expect(made),
+        ),
+    };
     // In M† the second factor is P†D†P, of the quark operator: its exact adjoint by BiCGStab
     // took fewer iterations than MINRES on its Γ5 form on the v2 16⁴ configuration (17 against
     // 18 with stout links at M5 1.0, 57 against 76 at M5 1.8, m 0.001), while in M (P†D_PV P,
@@ -190,8 +216,16 @@ fn with_solves<G: GammaRepre>(
         pv_solver: CoarseKrylov::BiCgStab,
         ..setup.cycle
     };
-    let cycle_dag = PvEoCycle::new(pv, op, (pv, op, EoForm::Right), &basis, dual)
-        .expect("the adjoint cycle is made");
+    let cycle_dag = match double {
+        false => Box::new(
+            PvEoCycle::<G, f32>::with_coarse_storage(pv, op, (pv, op, EoForm::Right), &basis, dual)
+                .expect(made),
+        ) as Box<dyn LinearFn<HalfPsi>>,
+        true => Box::new(
+            PvEoCycle::<G, f64>::with_coarse_storage(pv, op, (pv, op, EoForm::Right), &basis, dual)
+                .expect(made),
+        ),
+    };
     setup.seconds.rebuild += start.elapsed().as_secs_f64();
     let start = std::time::Instant::now();
     let index = op.even_odd_index().expect("even extents").clone();
@@ -224,8 +258,8 @@ struct Solves<'a, 'c, G: GammaRepre> {
     index: &'a crate::EvenOddIndex,
     like: HalfPsi,
     gcr: Gcr<HalfPsi>,
-    cycle: PvEoCycle<'c, G>,
-    cycle_dag: PvEoCycle<'c, G>,
+    cycle: Box<dyn LinearFn<HalfPsi> + 'c>,
+    cycle_dag: Box<dyn LinearFn<HalfPsi> + 'c>,
     /// GCR iterations and solves so far.
     inner: usize,
     count: usize,
@@ -246,7 +280,9 @@ impl<G: GammaRepre> Solves<'_, '_, G> {
         let mut a = PvEvenOdd::new(self.op, self.pv, EoForm::Right, &self.like);
         let (mut rhs, mut y) = (self.like.zeros_like(), self.like.zeros_like());
         a.right_hand_side(&mut rhs, r);
-        let info = self.gcr.solve(&mut a, Some(&mut self.cycle), &mut y, &rhs);
+        let info = self
+            .gcr
+            .solve(&mut a, Some(self.cycle.as_mut()), &mut y, &rhs);
         a.solution(e, &y, r);
         self.counted(info)
     }
@@ -258,7 +294,7 @@ impl<G: GammaRepre> Solves<'_, '_, G> {
         adjoint_right_hand_side(self.op, self.index, &mut rhs, r);
         let info = self
             .gcr
-            .solve(&mut a_dag, Some(&mut self.cycle_dag), &mut y, &rhs);
+            .solve(&mut a_dag, Some(self.cycle_dag.as_mut()), &mut y, &rhs);
         adjoint_solution(self.op, self.pv, self.index, e, &y, r);
         self.counted(info)
     }

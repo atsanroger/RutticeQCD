@@ -21,8 +21,9 @@
   multigrid's seed is `Setup.seed`, 21 by default, 1 before). The domain-wall smoother is
   `MultiGrid.Smoother`, no longer `Solver.Chebyshev`, and `number_of_test_vectors` counts the
   columns of P as in the propagator files (twice the vectors kept). What HMC does not have yet
-  is refused rather than ignored: single precision, levels below the coarse lattice,
-  `basis_precision`, `Setup.checkpoint`.
+  is refused rather than ignored: `fine_precision : single`, levels below the coarse lattice,
+  `basis_precision`, `Setup.checkpoint`. The coarse solves of the domain-wall multigrid are in
+  single precision by default as they always were, `coarse_precision : double` for double.
 - HMC files: `Solver.operator_type`, as in the propagator files, accepting what the action
   solves (`Lexical`, `Even_odd`, `Normal_left`, `PV_right`).
 - HMC files: the messages about an action name its section and keys in the file

@@ -735,16 +735,13 @@ impl FermionActionBlock {
         let at = format!("{name}.MultiGrid");
         let h = &self.multigrid_hmc;
         let refused = |what: &str, why: &str| invalid(format!("{at}.{what}: {why}"));
-        for (what, single) in [
-            ("coarse_precision", mg.coarse_precision_given),
-            ("fine_precision", mg.fine_precision_given),
-        ] {
-            if single == Some(PrecisionType::Single) {
-                return refused(
-                    what,
-                    "the multigrid of HMC is in double precision (leave it out, or double)",
-                );
-            }
+        // The coarse solves in either precision, as in the propagator files; the rest of the
+        // cycle in double precision.
+        if mg.fine_precision_given == Some(PrecisionType::Single) {
+            return refused(
+                "fine_precision",
+                "the multigrid of HMC is in double precision above the coarse lattice (leave it out, or double)",
+            );
         }
         if mg.basis_precision_given.is_some() {
             return refused(
@@ -780,6 +777,7 @@ impl FermionActionBlock {
                 boot,
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
+                coarse_double: mg.coarse_precision() == PrecisionType::Double,
             })
         } else {
             if h.convergence_criterion_squared_inner.is_some() {

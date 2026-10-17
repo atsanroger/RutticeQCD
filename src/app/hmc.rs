@@ -247,6 +247,8 @@ pub enum HmcMultigrid {
         boot: BootstrapParams,
         refresh_every: usize,
         inner_tolerance_squared: f64,
+        /// The coarse solves in double precision (single by default).
+        coarse_double: bool,
     },
 }
 
@@ -343,6 +345,7 @@ impl HmcSolver {
                     boot,
                     refresh_every,
                     inner_tolerance_squared,
+                    coarse_double,
                 }),
             ) => {
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
@@ -351,6 +354,7 @@ impl HmcSolver {
                 setup.bootstrap = boot;
                 setup.directions = self.restart;
                 setup.refresh_every = refresh_every;
+                setup.coarse_double = coarse_double;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),

@@ -1165,6 +1165,21 @@ mod tests {
         };
         assert_eq!(setup.setups, 1, "the test vectors are kept");
         assert!(setup.inner_solves >= 4, "two solves of each kind at least");
+        // The coarse solves in double precision give the same.
+        let mut double = DwfMultigridSetup::new(
+            [2, 2, 2, 2],
+            8,
+            PvEoParams::default(),
+            Stop::simple(1e-10, 200),
+        );
+        double.coarse_double = true;
+        let mut mg =
+            TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_solver(NormalSolver::Gcr(8))
+                .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(double)));
+        mg.langevin(&links, &mut Mseries::new(17));
+        let h_double = mg.hamiltonian(&links);
+        assert!((h_cg - h_double).abs() < 1e-9 * h_cg.abs(), "{h_double}");
     }
 
     /// The molecular dynamics is reversible, for the ratio of domain-wall fermions over
