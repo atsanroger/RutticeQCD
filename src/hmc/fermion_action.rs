@@ -435,17 +435,26 @@ impl<O: ForceOp> LinearFn<O::Field> for Gamma5<'_, O> {
 /// preconditioner; `pv`: the Pauli-Villars operator of a ratio, which the domain-wall
 /// multigrid is made over. `fresh`: the first solve since the pseudofermions were drawn; `md`:
 /// a solve for the force.
+/// `single`: mixed precision, CG in single precision corrected in double (`hmc::mixed`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn normal_solve<O: ForceOp>(
     (op, pv): (&O, Option<&O>),
     solver: NormalSolver,
     pre: &mut Preconditioner,
+    single: Option<&mut Single<O>>,
     (fresh, md): (bool, bool),
     z: &mut O::Field,
     b: &O::Field,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     let mut d = Bound::new(op, Variant::D);
+    if let Some(single) = single {
+        assert!(
+            solver == NormalSolver::Cg && matches!(pre, Preconditioner::None),
+            "mixed precision is for CG without a preconditioner"
+        );
+        return super::mixed_normal(&mut d, single.as_mut(), z, b, stop);
+    }
     match pre {
         Preconditioner::None => solver.solve(&mut d, Pre::None, z, b, stop),
         Preconditioner::Chebyshev { steps, ratio, hi } => chebyshev_cg(
@@ -484,6 +493,9 @@ pub(super) fn normal_solve<O: ForceOp>(
     }
 }
 
+/// The single-precision operator of an action, for mixed precision.
+pub type Single<O> = Box<dyn super::SingleNormal<<O as ForceOp>::Field, <O as ForceOp>::Links>>;
+
 /// Two degenerate flavours, S = φ† (D†D)⁻¹ φ, with D the operator `op` on the links smeared
 /// by `smearing` (none: the links themselves). (D†D)⁻¹ by CG to |r|²/|b|² < `stop`.
 pub struct TwoFlavor<O: ForceOp> {
@@ -507,6 +519,8 @@ pub struct TwoFlavor<O: ForceOp> {
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
     pub guess: Chrono<O::Field>,
+    /// Mixed precision: the operator in single precision (`with_single`).
+    single: Option<Single<O>>,
 }
 
 impl<O: ForceOp> TwoFlavor<O> {
@@ -525,7 +539,15 @@ impl<O: ForceOp> TwoFlavor<O> {
             md_iterations: 0,
             clover: None,
             guess: Chrono::new(0),
+            single: None,
         }
+    }
+
+    /// Mixed precision: CG in single precision with `single` (the operator that is solved, in
+    /// single precision), corrected in double; with CG and no preconditioner.
+    pub fn with_single(mut self, single: Single<O>) -> Self {
+        self.single = Some(single);
+        self
     }
 
     pub fn with_solver(mut self, solver: NormalSolver) -> Self {
@@ -570,6 +592,9 @@ impl<O: ForceOp> TwoFlavor<O> {
             a.set_links(levels.last().unwrap_or(links.thin))
                 .expect("the links suit the operator");
         }
+        if let Some(s) = self.single.as_mut() {
+            s.set_links(levels.last().unwrap_or(links.thin));
+        }
         levels
     }
 
@@ -585,7 +610,8 @@ impl<O: ForceOp> TwoFlavor<O> {
         }
         let flags = (std::mem::take(&mut self.fresh), md);
         let pre = &mut self.preconditioner;
-        let info = normal_solve((a, None), self.solver, pre, flags, &mut z, &b, stop)?;
+        let single = self.single.as_mut();
+        let info = normal_solve((a, None), self.solver, pre, single, flags, &mut z, &b, stop)?;
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -656,6 +682,8 @@ pub struct TwoFlavorRatio<O: ForceOp> {
     phi: Option<O::Field>,
     /// κ c_SW of the operator and of the denominator when they have a clover term.
     clover: Option<(f64, f64)>,
+    /// Mixed precision: the operator in single precision (`with_single`).
+    single: Option<Single<O>>,
 }
 
 impl<O: ForceOp> TwoFlavorRatio<O> {
@@ -672,7 +700,16 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             fresh: true,
             phi: None,
             clover: None,
+            single: None,
         }
+    }
+
+    /// Mixed precision in the solves with the operator: CG in single precision with `single`
+    /// (the operator that is solved, in single precision), corrected in double; with CG and no
+    /// preconditioner.
+    pub fn with_single(mut self, single: Single<O>) -> Self {
+        self.single = Some(single);
+        self
     }
 
     pub fn with_solver(mut self, solver: NormalSolver) -> Self {
@@ -708,21 +745,27 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         if let Some(a) = self.conditioned.as_mut() {
             a.set_links(v).expect("the links suit the operator");
         }
+        if let Some(s) = self.single.as_mut() {
+            s.set_links(v);
+        }
         levels
     }
 
     /// (D†D)⁻¹ b for the operator `op` (over `pv` for the domain-wall multigrid).
+    #[allow(clippy::too_many_arguments)]
     fn solve(
         solver: NormalSolver,
         (op, pv): (&O, Option<&O>),
         pre: &mut Preconditioner,
+        single: Option<&mut Single<O>>,
         flags: (bool, bool),
         b: &O::Field,
         stop: Stop,
     ) -> O::Field {
         let (mut rb, mut z, mut x) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
         op.right(&mut rb, b);
-        normal_solve((op, pv), solver, pre, flags, &mut z, &rb, stop).expect("the solve converges");
+        normal_solve((op, pv), solver, pre, single, flags, &mut z, &rb, stop)
+            .expect("the solve converges");
         op.right(&mut x, &z);
         x
     }
@@ -732,7 +775,16 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         let flags = (std::mem::take(&mut self.fresh), md);
         let op = self.conditioned.as_ref().unwrap_or(&self.op);
         let pre = &mut self.preconditioner;
-        Self::solve(self.solver, (op, Some(&self.pv)), pre, flags, b, stop)
+        let single = self.single.as_mut();
+        Self::solve(
+            self.solver,
+            (op, Some(&self.pv)),
+            pre,
+            single,
+            flags,
+            b,
+            stop,
+        )
     }
 
     fn apply(op: &O, v: &O::Field, variant: Variant) -> O::Field {
@@ -765,6 +817,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
             solver,
             (&self.pv, None),
             none,
+            None,
             (false, false),
             &v2,
             self.stop_h,

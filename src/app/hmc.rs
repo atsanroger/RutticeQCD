@@ -13,12 +13,13 @@ use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParam
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
-use crate::hmc::DwfMultigridSetup;
 use crate::hmc::{
     cold_start, EvenOddForceOp, EvenOddHalves, ForceOp, Hmc, LinkField, MdAction, Mseries,
     MultigridSetup, NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction,
     Scheme, Term, TwoFlavor, TwoFlavorEo, TwoFlavorRatio, TwoFlavorRatioEo,
 };
+use crate::hmc::{DwfMultigridSetup, HalfPsi, Single, SingleMdwf, SingleMdwfEo, SingleNormal};
+use crate::kernel::Dirac;
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::{
     BootstrapParams, LowModeParams, MultigridParams, PvEoParams,
@@ -276,6 +277,8 @@ pub struct HmcSolver {
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
     pub energy_tolerance_squared: f64,
     pub max_iterations: usize,
+    /// Mixed precision: CG in single precision to this |r|²/|b|², corrected in double.
+    pub mixed: Option<f64>,
     /// Start each force solve from the best combination of the solutions of the last this
     /// many force solves of the trajectory (`hmc::Chrono`); 0 (the default): from zero, as
     /// Bridge++ does, so that its runs are repeated number by number. Two flavours only.
@@ -426,6 +429,7 @@ impl Default for HmcSolver {
             multigrid: None,
             kind: None,
             restart: restart(),
+            mixed: None,
             neff_alpha: 1.0,
             tolerance_squared: md_tolerance(),
             energy_tolerance_squared: md_tolerance(),
@@ -623,6 +627,35 @@ impl HmcConfig {
                             "{at}.Solver.number_of_kept_directions: at least 1"
                         ));
                     }
+                    if solver.mixed.is_some() {
+                        let standard_eo =
+                            matches!(a, ActionConfig::TwoFlavor { even_odd: true, .. });
+                        let wall = matches!(
+                            a,
+                            ActionConfig::TwoFlavor {
+                                fermion: HmcFermion::DomainWall { .. },
+                                ..
+                            } | ActionConfig::TwoFlavorRatio {
+                                fermion: HmcFermion::DomainWall { .. },
+                                ..
+                            }
+                        );
+                        if !wall || standard_eo || self.device {
+                            return invalid(format!(
+                                "{at}.Solver.precision: mixed is for the domain-wall Standard (Lexical) and Ratio actions on the CPU"
+                            ));
+                        }
+                        if !matches!(solver.kind, None | Some(HmcSolverKind::Cg))
+                            || !matches!(
+                                solver.preconditioner,
+                                None | Some(HmcPreconditioner::None)
+                            )
+                        {
+                            return invalid(format!(
+                                "{at}.Solver.precision: mixed goes with solver_type CG and no preconditioner"
+                            ));
+                        }
+                    }
                     let domain_wall = matches!(
                         a,
                         ActionConfig::TwoFlavor {
@@ -792,7 +825,7 @@ impl HmcConfig {
                         };
                         let action = match *fermion {
                             HmcFermion::Wilson { kappa, boundary: b } => {
-                                two_flavor(wilson(lat, kappa, &b), None, None, *even_odd, c)
+                                two_flavor(wilson(lat, kappa, &b), None, None, None, *even_odd, c)
                             }
                             HmcFermion::Clover {
                                 kappa,
@@ -800,12 +833,20 @@ impl HmcConfig {
                                 boundary: b,
                             } => {
                                 let op = clover(lat, kappa, csw, &b);
-                                two_flavor(op, Some(kappa * csw), None, *even_odd, c)
+                                two_flavor(op, Some(kappa * csw), None, None, *even_odd, c)
                             }
                             HmcFermion::DomainWall { .. } => {
                                 let p = mdwf_params(fermion);
                                 let alpha = with_alpha(lat, p, solver.neff_alpha);
-                                two_flavor(Mdwf::<f64>::new(lat, p), None, alpha, *even_odd, c)
+                                let single = single_mdwf(lat, p, solver);
+                                two_flavor(
+                                    Mdwf::<f64>::new(lat, p),
+                                    None,
+                                    alpha,
+                                    single,
+                                    *even_odd,
+                                    c,
+                                )
                             }
                         };
                         (*level, action)
@@ -829,7 +870,8 @@ impl HmcConfig {
                             (HmcFermion::DomainWall { .. }, d) if *even_odd => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
-                                ratio_eo((Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd)), c)
+                                let ops = (Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd));
+                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), c)
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -838,7 +880,7 @@ impl HmcConfig {
                                     boundary: bd,
                                 }),
                             ) if *even_odd => {
-                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), c)
+                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), None, c)
                             }
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
@@ -848,8 +890,12 @@ impl HmcConfig {
                                     solver.asks_for(HmcPreconditioner::Multigrid),
                                     solver.multigrid,
                                 ) {
-                                    (true, Some(_)) => ratio(ops, None, None, c),
-                                    _ => ratio(ops, None, with_alpha(lat, p, solver.neff_alpha), c),
+                                    (true, Some(_)) => ratio(ops, None, None, None, c),
+                                    _ => {
+                                        let alpha = with_alpha(lat, p, solver.neff_alpha);
+                                        let single = single_mdwf(lat, p, solver);
+                                        ratio(ops, None, alpha, single, c)
+                                    }
                                 }
                             }
                             (
@@ -860,6 +906,7 @@ impl HmcConfig {
                                 }),
                             ) => ratio(
                                 (wilson(lat, kappa, &b), wilson(lat, kd, &bd)),
+                                None,
                                 None,
                                 None,
                                 c,
@@ -877,7 +924,7 @@ impl HmcConfig {
                                 }),
                             ) => {
                                 let ops = (clover(lat, kappa, csw, &b), clover(lat, kd, cd, &bd));
-                                ratio(ops, Some((kappa * csw, kd * cd)), None, c)
+                                ratio(ops, Some((kappa * csw, kd * cd)), None, None, c)
                             }
                             _ => unreachable!("checked when the file is read"),
                         };
@@ -1043,11 +1090,13 @@ fn two_flavor<O: EvenOddForceOp + 'static>(
     op: O,
     clover: Option<f64>,
     conditioned: Option<O>,
+    single: Option<Box<dyn SingleNormal<O::Field, O::Links>>>,
     even_odd: bool,
     c: Common,
 ) -> Box<dyn MdAction> {
     let s = c.solver;
     if even_odd {
+        assert!(single.is_none(), "refused when the file is read");
         let mut a = TwoFlavorEo::new(op, c.smearing, c.md, c.h)
             .with_guess(s.initial_guess)
             .with_solver(s.normal())
@@ -1067,6 +1116,9 @@ fn two_flavor<O: EvenOddForceOp + 'static>(
         if let Some(kc) = clover {
             a = a.with_clover(kc);
         }
+        if let Some(s) = single {
+            a = a.with_single(s);
+        }
         if let Some(o) = conditioned {
             a = a.with_conditioned(o);
         }
@@ -1079,6 +1131,7 @@ fn ratio<O: ForceOp + 'static>(
     (op, denominator): (O, O),
     clover: Option<(f64, f64)>,
     conditioned: Option<O>,
+    single: Option<Box<dyn SingleNormal<O::Field, O::Links>>>,
     c: Common,
 ) -> Box<dyn MdAction<O::Links>> {
     let mut a = TwoFlavorRatio::new(op, denominator, c.smearing, c.md, c.h)
@@ -1090,21 +1143,44 @@ fn ratio<O: ForceOp + 'static>(
     if let Some(o) = conditioned {
         a = a.with_conditioned(o);
     }
+    if let Some(s) = single {
+        a = a.with_single(s);
+    }
     Box::new(a)
 }
 
 /// Two flavours of the first operator over two of the second, even-odd.
 fn ratio_eo<O: EvenOddHalves + 'static>(
     (op, denominator): (O, O),
+    single: Option<Box<dyn SingleNormal<O::Half, O::Links>>>,
     c: Common,
 ) -> Box<dyn MdAction<O::Links>> {
     let s = c.solver;
-    Box::new(
-        TwoFlavorRatioEo::new(op, denominator, c.smearing, c.md, c.h)
-            .with_guess(s.initial_guess)
-            .with_solver(s.normal())
-            .with_preconditioner(s.preconditioner()),
-    )
+    let mut a = TwoFlavorRatioEo::new(op, denominator, c.smearing, c.md, c.h)
+        .with_guess(s.initial_guess)
+        .with_solver(s.normal())
+        .with_preconditioner(s.preconditioner());
+    if let Some(s) = single {
+        a = a.with_single(s);
+    }
+    Box::new(a)
+}
+
+/// The domain-wall operator `p` (with Neff's α of the solver) in single precision on all sites,
+/// when the solver asks for mixed precision.
+fn single_mdwf(lat: &Arc<Lattice>, p: MdwfParams, s: &HmcSolver) -> Option<Single<Mdwf<f64>>> {
+    s.mixed
+        .map(|tol| Box::new(SingleMdwf::<Dirac>::new(lat, p, s.neff_alpha, tol)) as Box<_>)
+}
+
+/// The same on the even sites, for the even-odd Ratio action.
+fn single_mdwf_eo(
+    lat: &Arc<Lattice>,
+    p: MdwfParams,
+    s: &HmcSolver,
+) -> Option<Box<dyn SingleNormal<HalfPsi, Field<f64, Gauge>>>> {
+    s.mixed
+        .map(|tol| Box::new(SingleMdwfEo::<Dirac>::new(lat, p, tol)) as Box<_>)
 }
 
 /// `ratio` of domain-wall operators on the device: D of `p` over D of `pd`, solved with Neff's
@@ -1128,7 +1204,7 @@ fn device_ratio(
         }
         false => None,
     };
-    Ok(ratio((make(p)?, make(pd)?), None, conditioned, c))
+    Ok(ratio((make(p)?, make(pd)?), None, conditioned, None, c))
 }
 
 /// `ratio_eo` of domain-wall operators on the device: D of `p` over D of `pd`, even-odd.
@@ -1142,7 +1218,7 @@ fn device_ratio_eo(
     let make = |p: MdwfParams| {
         CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
     };
-    Ok(ratio_eo((make(p)?, make(pd)?), c))
+    Ok(ratio_eo((make(p)?, make(pd)?), None, c))
 }
 
 /// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`

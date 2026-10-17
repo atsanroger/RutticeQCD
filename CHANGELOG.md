@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- HMC: mixed precision for domain-wall fermions (`Solver.precision : mixed`, the Standard
+  (Lexical) and Ratio actions, on all sites or even-odd, CG without a preconditioner, on the
+  CPU): defect correction on the residual of D†D (K†K) in double precision, each correction by
+  CG in single precision on the same operator on the same links (`hmc::SingleNormal`,
+  `SingleMdwf`, `SingleMdwfEo`) to `Solver.convergence_criterion_squared_inner` (1e-10). It
+  gives the energy and the force of CG in double precision.
 - The even-odd Ratio action of domain-wall fermions takes the multigrid
   (`operator_type : Even_odd` with `Solver.preconditioner_type : MG`): (K†K)⁻¹ on the even sites,
   K = T_ee⁻¹ Ŝ, through the same two solves on the even sites as the action on all sites

@@ -157,6 +157,8 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
 | `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
 | `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action on all sites over Pauli-Villars fields |
+| `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio actions, CG without a preconditioner, on the CPU |
+| `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
 | `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves |

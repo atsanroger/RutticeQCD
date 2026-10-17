@@ -1306,6 +1306,38 @@ Action_F_1:
     let refused = HmcConfig::from_yaml(&old).unwrap_err().to_string();
     assert!(refused.contains("MultiGrid_HMC"), "{refused}");
     assert!(ok(wall, standard, &["operator_type : Lexical"]));
+    // Mixed precision: domain-wall fermions, CG, no preconditioner, on the CPU.
+    assert!(ok(wall, ratio, &["precision : mixed"]));
+    assert!(ok(
+        wall,
+        ratio_eo,
+        &[
+            "precision : Mixed",
+            "convergence_criterion_squared_inner : 1.0e-9"
+        ]
+    ));
+    assert!(ok(wall, standard, &["precision : mixed"]));
+    assert!(ok(wall, ratio, &["precision : FP64"]));
+    assert!(!ok(wall, even_odd, &["precision : mixed"]));
+    assert!(!ok(clover, standard, &["precision : mixed"]));
+    assert!(!ok(
+        wall,
+        ratio,
+        &["precision : mixed", "preconditioner_type : Chebyshev"]
+    ));
+    assert!(!ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&["precision : mixed"][..], &mg].concat()
+        )
+    ));
+    assert!(!ok(
+        wall,
+        ratio,
+        &["convergence_criterion_squared_inner : 1.0e-9"]
+    ));
     assert!(!ok(wall, standard, &["operator_type : Normal_left"]));
     assert!(!ok(wall, standard, &["solver_type : BiCGStab"]));
     assert!(!ok(wall, standard, &with("solver_type : BiCGStab", &mg)));
