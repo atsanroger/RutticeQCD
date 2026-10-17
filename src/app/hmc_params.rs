@@ -37,6 +37,10 @@
 //!     solver_type : CG
 //!     convergence_criterion_squared : 1.0e-24
 //! ```
+//!
+//! With `Solver.preconditioner_type : MG` the action has the `MultiGrid` section of the
+//! propagator files (`MultiGrid_Level1`, `Setup`, `Smoother`, the coarse solvers), and
+//! `MultiGrid_HMC` for what only HMC has: when the multigrid is set up again.
 
 use super::config::GaugeFormat;
 use super::hmc::{
@@ -46,7 +50,7 @@ use super::hmc::{
 };
 use super::params::{
     Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
-    OperatorType, PreconditionerType, SolverType,
+    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverType,
 };
 use super::CliError;
 use crate::gauge::flow::WilsonFlow;
@@ -259,6 +263,12 @@ pub struct FermionActionBlock {
     pub fopr_denominator: Option<FoprBlock>,
     #[serde(rename = "Solver", default)]
     pub solver: HmcSolverBlock,
+    /// The multigrid of `Solver.preconditioner_type : MG`: the `MultiGrid` section of the
+    /// propagator files.
+    #[serde(rename = "MultiGrid")]
+    pub multigrid: Option<MultigridBlock>,
+    #[serde(rename = "MultiGrid_HMC", default)]
+    pub multigrid_hmc: MultigridHmcBlock,
     #[serde(rename = "Rational")]
     pub rational: Option<RationalBlock>,
 }
@@ -284,12 +294,18 @@ pub struct HmcSolverBlock {
     /// `Standard`: start each force solve from the last this many solutions.
     #[serde(default)]
     pub number_of_initial_guess: usize,
+    /// What the solver works on, as in the propagator files; only what the action solves is
+    /// accepted (`Lexical`, `Even_odd`, `Normal_left` for the even-odd domain-wall ratio,
+    /// `PV_right` for the domain-wall multigrid).
+    pub operator_type: Option<OperatorType>,
     #[serde(default = "no_preconditioner")]
     pub preconditioner_type: PreconditionerType,
+    /// The polynomial preconditioner of CG (the smoother of the multigrid is in `MultiGrid`).
     #[serde(rename = "Chebyshev")]
     pub chebyshev: Option<ChebyshevBlock>,
+    /// The place of the multigrid before it moved to the action: refused, with where it went.
     #[serde(rename = "MultiGrid")]
-    pub multigrid: Option<HmcMultigridBlock>,
+    pub moved_multigrid: Option<serde::de::IgnoredAny>,
 }
 
 impl Default for HmcSolverBlock {
@@ -301,32 +317,44 @@ impl Default for HmcSolverBlock {
             maximum_number_of_iteration: md_iterations(),
             number_of_kept_directions: kept(),
             number_of_initial_guess: 0,
+            operator_type: None,
             preconditioner_type: PreconditionerType::None,
             chebyshev: None,
-            multigrid: None,
+            moved_multigrid: None,
         }
     }
 }
 
-/// The multigrid of Wilson and clover fermions in the two-step solves.
+/// What only HMC has of the multigrid.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HmcMultigridBlock {
-    /// The blocks of the coarse lattice; they must divide the lattice of a process.
-    pub block_size: [usize; ND],
-    #[serde(default = "mg_vectors")]
-    pub number_of_test_vectors: usize,
-    #[serde(default = "mg_setup")]
-    pub number_of_setup_iterations: usize,
-    /// Improve the test vectors again after this many force solves; 0: only when a
-    /// trajectory starts.
+pub struct MultigridHmcBlock {
+    /// Improve the test vectors again after this many force solves; 0: only when the
+    /// pseudofermions are drawn (a trajectory starts).
     #[serde(default)]
     pub refresh_interval: usize,
-    /// Start every setup but the first from the test vectors of the one before.
+    /// Wilson and clover: start every setup but the first from the test vectors of the one
+    /// before, improved `number_of_reuse_iterations` times; false: from random vectors.
+    /// Domain-wall fermions always go on from their vectors (by the bootstrap of `Setup`).
     #[serde(default = "yes")]
     pub reuse_vectors: bool,
     #[serde(default)]
     pub number_of_reuse_iterations: usize,
+    /// Domain-wall fermions: where each of the two solves on the even sites (through Ã† and
+    /// Ã) stops, |r|²/|b|² (1e-10); then they are repeated on the residual of D†D until
+    /// `Solver.convergence_criterion_squared`.
+    pub convergence_criterion_squared_inner: Option<f64>,
+}
+
+impl Default for MultigridHmcBlock {
+    fn default() -> Self {
+        Self {
+            refresh_interval: 0,
+            reuse_vectors: true,
+            number_of_reuse_iterations: 0,
+            convergence_criterion_squared_inner: None,
+        }
+    }
 }
 
 /// det(D†D)^(numerator/denominator) by a rational approximation with `number_of_poles` poles
@@ -368,12 +396,6 @@ fn kept() -> usize {
 }
 fn no_preconditioner() -> PreconditionerType {
     PreconditionerType::None
-}
-fn mg_vectors() -> usize {
-    16
-}
-fn mg_setup() -> usize {
-    4
 }
 fn one_i() -> i32 {
     1
@@ -431,8 +453,9 @@ impl HmcParams {
                 })?,
             },
         };
-        let mut actions = Vec::new();
+        let (mut actions, mut names) = (Vec::new(), Vec::new());
         if let Some(g) = self.action_g {
+            names.push("Action_G".to_string());
             actions.push(match g.action_type {
                 GaugeActionType::Plaquette => ActionConfig::Plaquette {
                     beta: g.beta,
@@ -468,7 +491,10 @@ impl HmcParams {
                 Some(_) if ended => {
                     return invalid(format!("{name}: Action_F_{i} is missing"));
                 }
-                Some(f) => actions.push(f.to_config(&name)?),
+                Some(f) => {
+                    actions.push(f.to_config(&name, self.main.lattice_size)?);
+                    names.push(name);
+                }
                 None => ended = true,
             }
         }
@@ -493,8 +519,8 @@ impl HmcParams {
                     } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
                     _ => {
                         return invalid(format!(
-                            "fermion action {}: with Main.backend cuda_bridge only the Standard (Lexical) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions, without the multigrid, are on the device",
-                            i
+                            "{}: with Main.backend cuda_bridge only the Standard (Lexical) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions, without the multigrid, are on the device",
+                            names[i]
                         ))
                     }
                 }
@@ -523,6 +549,7 @@ impl HmcParams {
                 reversibility_checks: self.general.reversibility_checks,
             },
             actions,
+            action_names: names,
             output: HmcOutput {
                 save_every: run.save_config_interval,
                 file: run.config_filename_output.clone(),
@@ -566,8 +593,13 @@ fn fermion(f: &FoprBlock, name: &str) -> Result<HmcFermion, CliError> {
 }
 
 impl FermionActionBlock {
-    fn to_config(&self, name: &str) -> Result<ActionConfig, CliError> {
+    fn to_config(&self, name: &str, lattice: [usize; ND]) -> Result<ActionConfig, CliError> {
         let s = &self.solver;
+        if s.moved_multigrid.is_some() {
+            return invalid(format!(
+                "{name}.Solver.MultiGrid: the multigrid is the section {name}.MultiGrid now, that of the propagator files (MultiGrid_Level1: block_size, number_of_test_vectors; Setup: bootstrap_number_of_rounds for the setup iterations), and {name}.MultiGrid_HMC has refresh_interval, reuse_vectors and number_of_reuse_iterations"
+            ));
+        }
         let kind = match s.solver_type {
             None => None,
             Some(SolverType::Cg) => Some(HmcSolverKind::Cg),
@@ -594,14 +626,22 @@ impl FermionActionBlock {
                 PreconditionerType::Multigrid => HmcPreconditioner::Multigrid,
             }),
             chebyshev,
-            multigrid: s.multigrid.map(|m| HmcMultigrid {
-                block: m.block_size,
-                test_vectors: m.number_of_test_vectors,
-                setup_iterations: m.number_of_setup_iterations,
-                refresh_every: m.refresh_interval,
-                reuse_vectors: m.reuse_vectors,
-                reuse_iterations: m.number_of_reuse_iterations,
-            }),
+            multigrid: match (&self.multigrid, s.preconditioner_type) {
+                (Some(mg), PreconditionerType::Multigrid) => {
+                    Some(self.hmc_multigrid(mg, name, lattice)?)
+                }
+                (None, PreconditionerType::Multigrid) => {
+                    return invalid(format!(
+                        "{name}.Solver.preconditioner_type: MG needs the section {name}.MultiGrid"
+                    ))
+                }
+                (Some(_), _) => {
+                    return invalid(format!(
+                        "{name}.MultiGrid: for Solver.preconditioner_type MG"
+                    ))
+                }
+                (None, _) => None,
+            },
             kind,
             neff_alpha: self.fopr.neff_alpha,
             restart: s.number_of_kept_directions,
@@ -623,6 +663,18 @@ impl FermionActionBlock {
                 ))
             }
         };
+        let domain_wall = self.fopr.fermion_type.is_domain_wall();
+        let solved = match (domain_wall, even_odd, s.preconditioner_type) {
+            (true, _, PreconditionerType::Multigrid) => OperatorType::PvRight,
+            (true, true, _) => OperatorType::NormalLeft,
+            (false, true, _) => OperatorType::EvenOdd,
+            _ => OperatorType::Lexical,
+        };
+        if let Some(o) = s.operator_type.filter(|o| *o != solved) {
+            return invalid(format!(
+                "{name}.Solver.operator_type: this action solves {solved}, not {o}"
+            ));
+        }
         if even_odd && self.action_type == FermionActionType::Rational {
             return invalid(format!(
                 "{name}.operator_type: Even_odd is for action_type Standard or Ratio"
@@ -669,5 +721,82 @@ impl FermionActionBlock {
                 }
             }
         })
+    }
+}
+
+impl FermionActionBlock {
+    /// The multigrid of the action from its `MultiGrid` and `MultiGrid_HMC` sections.
+    fn hmc_multigrid(
+        &self,
+        mg: &MultigridBlock,
+        name: &str,
+        lattice: [usize; ND],
+    ) -> Result<HmcMultigrid, CliError> {
+        let at = format!("{name}.MultiGrid");
+        let h = &self.multigrid_hmc;
+        let refused = |what: &str, why: &str| invalid(format!("{at}.{what}: {why}"));
+        for (what, single) in [
+            ("coarse_precision", mg.coarse_precision_given),
+            ("fine_precision", mg.fine_precision_given),
+        ] {
+            if single == Some(PrecisionType::Single) {
+                return refused(
+                    what,
+                    "the multigrid of HMC is in double precision (leave it out, or double)",
+                );
+            }
+        }
+        if mg.basis_precision_given.is_some() {
+            return refused(
+                "basis_precision",
+                "for the multigrid on a device, which HMC does not have yet",
+            );
+        }
+        if mg.setup.checkpoint.is_some() {
+            return refused(
+                "Setup.checkpoint",
+                "HMC makes its test vectors for the links of each trajectory",
+            );
+        }
+        if self.fopr.fermion_type.is_domain_wall() {
+            if !mg.super_blocks().is_empty() || mg.levels_for_pauli_villars {
+                return refused(
+                    "MultiGrid_Level2",
+                    "levels below the coarse lattice are not in HMC yet",
+                );
+            }
+            if !h.reuse_vectors || h.number_of_reuse_iterations != 0 {
+                return invalid(format!(
+                    "{name}.MultiGrid_HMC: reuse_vectors and number_of_reuse_iterations are for Wilson and clover fermions; domain-wall fermions go on from their test vectors by the bootstrap of {at}.Setup"
+                ));
+            }
+            mg.check_domain_wall(&at, lattice, false)?;
+            let (cycle, low, boot) = mg.domain_wall();
+            Ok(HmcMultigrid::DomainWall {
+                block: mg.level1.block_size,
+                test_vectors: mg.level1.test_vectors(true) / 2,
+                cycle,
+                low,
+                boot,
+                refresh_every: h.refresh_interval,
+                inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
+            })
+        } else {
+            if h.convergence_criterion_squared_inner.is_some() {
+                return invalid(format!(
+                    "{name}.MultiGrid_HMC.convergence_criterion_squared_inner: for domain-wall fermions"
+                ));
+            }
+            let mut unused = Vec::new();
+            mg.check_wilson(&at, self.fopr.fermion_type, lattice, &mut unused)?;
+            if let Some(note) = unused.into_iter().next() {
+                return Err(CliError::Invalid(note));
+            }
+            Ok(HmcMultigrid::Wilson {
+                params: mg.wilson().params(false),
+                refresh_every: h.refresh_interval,
+                reuse: h.reuse_vectors.then_some(h.number_of_reuse_iterations),
+            })
+        }
     }
 }

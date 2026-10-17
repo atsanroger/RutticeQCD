@@ -837,10 +837,12 @@ Action_F_1:
     solver_type : BiCGStab
     convergence_criterion_squared : 1.0e-24
     preconditioner_type : MG
-    MultiGrid:
+  MultiGrid:
+    Setup:
+      bootstrap_number_of_rounds : 2
+    MultiGrid_Level1:
       block_size : {block}
       number_of_test_vectors : 8
-      number_of_setup_iterations : 2
 "
         )
     };
@@ -1164,11 +1166,19 @@ Action_F_1:
 {fopr}    boundary_condition : [1, 1, 1, -1]
 "
         );
-        if !solver.is_empty() {
+        // The lines from `MultiGrid` on are a section of the action, beside its Solver.
+        let split = solver
+            .iter()
+            .position(|l| l.starts_with("MultiGrid"))
+            .unwrap_or(solver.len());
+        if split > 0 {
             text += "  Solver:\n";
-            for line in solver {
+            for line in &solver[..split] {
                 text += &format!("    {line}\n");
             }
+        }
+        for line in &solver[split..] {
+            text += &format!("  {line}\n");
         }
         text
     };
@@ -1181,7 +1191,8 @@ Action_F_1:
     let mg = [
         "preconditioner_type : MG",
         "MultiGrid:",
-        "  block_size : [2, 2, 2, 2]",
+        "  MultiGrid_Level1:",
+        "    block_size : [2, 2, 2, 2]",
     ];
     let with = |first: &'static str, more: &[&'static str]| -> Vec<&'static str> {
         [&[first][..], more].concat()
@@ -1234,9 +1245,56 @@ Action_F_1:
             "solver_type : BiCGStab",
             "preconditioner_type : MG",
             "MultiGrid:",
-            "  block_size : [3, 2, 2, 2]"
+            "  MultiGrid_Level1:",
+            "    block_size : [3, 2, 2, 2]"
         ]
     ));
+    // The domain-wall multigrid: the Ratio action over Pauli-Villars fields, GCR, PV_right.
+    let ratio = "  action_type : Ratio\n";
+    assert!(ok(wall, ratio, &with("solver_type : GCR", &mg)));
+    assert!(ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&["operator_type : PV_right"][..], &mg].concat()
+        )
+    ));
+    assert!(!ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&["operator_type : PV_left"][..], &mg].concat()
+        )
+    ));
+    assert!(!ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&mg[..], &["  coarse_precision : single"]].concat()
+        )
+    ));
+    assert!(ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&mg[..], &["  coarse_precision : FP64"]].concat()
+        )
+    ));
+    assert!(!ok(wall, even_odd, &with("solver_type : GCR", &mg)));
+    // The old place of the multigrid, in the Solver, is refused with where it went.
+    let old = file(
+        clover,
+        standard,
+        &["solver_type : BiCGStab", "preconditioner_type : MG"],
+    ) + "    MultiGrid:\n      block_size : [2, 2, 2, 2]\n";
+    let refused = HmcConfig::from_yaml(&old).unwrap_err().to_string();
+    assert!(refused.contains("MultiGrid_HMC"), "{refused}");
+    assert!(ok(wall, standard, &["operator_type : Lexical"]));
+    assert!(!ok(wall, standard, &["operator_type : Normal_left"]));
     assert!(!ok(wall, standard, &["solver_type : BiCGStab"]));
     assert!(!ok(wall, standard, &with("solver_type : BiCGStab", &mg)));
     assert!(!ok(clover, rational, &with("solver_type : CG", &mg)));

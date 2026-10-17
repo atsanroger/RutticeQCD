@@ -155,18 +155,33 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `Solver` key | Values |
 |---|---|
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
-| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`). `MG`, with `BiCGStab`, `FGMRES` or `GCR`, for Wilson and clover fermions (`MultiGrid: {block_size: [2, 2, 2, 2], number_of_test_vectors: 16, number_of_setup_iterations: 4, refresh_interval: 0}`) |
+| `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
+| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action on all sites over Pauli-Villars fields |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
 | `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves |
 
-`Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α.
+`Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α (CG only).
+
+With `preconditioner_type : MG` the action has a `MultiGrid` section beside its `Solver`: the
+`MultiGrid` section of the propagator files, the same keys and defaults (`MultiGrid_Level1`
+with `block_size`, `number_of_test_vectors` and the coarse solvers, `Setup`, `Smoother`), so a
+multigrid tuned on propagators is copied over as it is. HMC's multigrid is in double precision
+for now: `coarse_precision` and `fine_precision` are refused when they say single; the levels
+below the coarse lattice, `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
+refused too. What only HMC has is in `MultiGrid_HMC`:
+
+| `MultiGrid_HMC` key | Values |
+|---|---|
+| `refresh_interval` | improve the test vectors again after this many force solves (0: when a trajectory starts) |
+| `reuse_vectors`, `number_of_reuse_iterations` | Wilson and clover: start each setup but the first from the vectors before, improved this many times (`false`: from random vectors) |
+| `convergence_criterion_squared_inner` | domain-wall fermions: where each of the two solves on the even sites stops (1e-10), before they are repeated on the residual of D†D |
 
 The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
-from them for the operator on the links of that solve. The vectors are improved when a
-trajectory starts and again after every `refresh_interval` force solves, starting from the
-vectors before (`reuse_vectors: false`: from random vectors). Domain-wall fermions have no
-multigrid in HMC, and no solver but CG: BiCGStab and GMRES do not converge on D itself.
+from them for the operator on the links of that solve. The domain-wall multigrid solves
+(D†D)⁻¹ as D† through the Pauli-Villars operator with D and D_PV exchanged and D through Ã,
+both by GCR on the even sites. Without the multigrid, domain-wall fermions are solved by CG:
+BiCGStab and GMRES do not converge on D itself.
 
 The momenta, the pseudofermions and the Metropolis test use the random numbers of
 Bridge++, in its order, so a run of Bridge++'s `HMC_General` can be repeated number by

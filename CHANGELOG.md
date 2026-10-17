@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- HMC files: the multigrid of an action is the `MultiGrid` section of the propagator files,
+  beside its `Solver` (the same keys and defaults: `MultiGrid_Level1`, `Setup`, `Smoother`, the
+  coarse solvers), for Wilson and clover fermions and for domain-wall fermions alike; what
+  only HMC has is in `MultiGrid_HMC` (`refresh_interval`, `reuse_vectors`,
+  `number_of_reuse_iterations`, and `convergence_criterion_squared_inner` of the domain-wall
+  solves on the even sites). **The old place, `Solver.MultiGrid`, is refused** with where its
+  keys went (`number_of_setup_iterations` is `Setup.bootstrap_number_of_rounds`; the Wilson
+  multigrid's seed is `Setup.seed`, 21 by default, 1 before). The domain-wall smoother is
+  `MultiGrid.Smoother`, no longer `Solver.Chebyshev`, and `number_of_test_vectors` counts the
+  columns of P as in the propagator files (twice the vectors kept). What HMC does not have yet
+  is refused rather than ignored: single precision, levels below the coarse lattice,
+  `basis_precision`, `Setup.checkpoint`.
+- HMC files: `Solver.operator_type`, as in the propagator files, accepting what the action
+  solves (`Lexical`, `Even_odd`, `Normal_left`, `PV_right`).
+- HMC files: the messages about an action name its section and keys in the file
+  (`Action_F_1.Solver.solver_type`), not the internal index, which counted `Action_G` too.
+- The checks and the conversions of the `MultiGrid` section are methods of the section
+  (`MultigridBlock::check_domain_wall`, `check_wilson`, `domain_wall`, `wilson`), shared by the
+  propagator and HMC files; the Wilson check now also refuses blocks that do not divide the
+  lattice and notes the domain-wall keys it does not use.
 - Precisions are read in their usual spellings, in any case: `single`, `float`, `f32`, `FP32`,
   `float32`; `double`, `f64`, `FP64`, `float64`; `half`, `f16`, `FP16`.
 - `ruttice` with `backend : cuda_bridge` no longer has a path that made the coarse correction of

@@ -326,16 +326,17 @@ impl Default for ChebyshevBlock {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MultigridBlock {
-    #[serde(default = "single")]
-    pub coarse_precision: PrecisionType,
+    /// The precision of the coarse solves (`coarse_precision()`), as the file gives it.
+    #[serde(rename = "coarse_precision")]
+    pub coarse_precision_given: Option<PrecisionType>,
     /// The precision of the multigrid above the coarse lattice, its setup and its cycle (the
-    /// outer solver is in double precision either way).
-    #[serde(default = "single")]
-    pub fine_precision: PrecisionType,
+    /// outer solver is in double precision either way), as given (`fine_precision()`).
+    #[serde(rename = "fine_precision")]
+    pub fine_precision_given: Option<PrecisionType>,
     /// On a device: how the prolongation is kept, the largest thing of the multigrid: in half
     /// precision unless this says single. The coarse operators are built from it as it is kept.
-    #[serde(default = "basis_default")]
-    pub basis_precision: BasisPrecision,
+    #[serde(rename = "basis_precision")]
+    pub basis_precision_given: Option<BasisPrecision>,
     #[serde(rename = "Setup", default)]
     pub setup: SetupBlock,
     #[serde(rename = "Smoother", default)]
@@ -356,6 +357,20 @@ pub struct MultigridBlock {
 }
 
 impl MultigridBlock {
+    /// Single unless the file says double.
+    pub fn coarse_precision(&self) -> PrecisionType {
+        self.coarse_precision_given.unwrap_or(PrecisionType::Single)
+    }
+
+    pub fn fine_precision(&self) -> PrecisionType {
+        self.fine_precision_given.unwrap_or(PrecisionType::Single)
+    }
+
+    /// Half unless the file says single.
+    pub fn basis_precision(&self) -> BasisPrecision {
+        self.basis_precision_given.unwrap_or(BasisPrecision::Half)
+    }
+
     /// The super-block sizes of the levels below the coarse lattice, in order.
     pub fn super_blocks(&self) -> Vec<usize> {
         [&self.level2, &self.level3, &self.level4]
@@ -593,12 +608,6 @@ fn iterations() -> usize {
 }
 fn no_preconditioner() -> PreconditionerType {
     PreconditionerType::None
-}
-fn basis_default() -> BasisPrecision {
-    BasisPrecision::Half
-}
-fn single() -> PrecisionType {
-    PrecisionType::Single
 }
 pub(super) fn cheb_steps() -> usize {
     PvEoParams::default().chebyshev_steps
