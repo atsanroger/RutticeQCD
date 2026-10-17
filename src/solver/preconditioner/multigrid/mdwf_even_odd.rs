@@ -429,6 +429,37 @@ pub struct PvEoCycle<
 > {
     cycle: Cycle<'a, G, CT, L, F>,
     hi: f64,
+    /// The inverses of the blocks of the coarse operators, shared with the correction so that
+    /// `into_parts` gets them back.
+    blocks: (Rc<RefCell<BlockMap>>, Rc<RefCell<BlockMap>>),
+}
+
+/// What a cycle is built from besides its operators and its prolongation: the coarse
+/// operators as the coarse systems are solved, the inverses of their blocks, and the top of the
+/// smoother's interval. Taken back from a cycle (`PvEoCycle::into_parts`), they make the cycle
+/// for other links again without building any of it (`PvEoCycle::from_parts`): the coarse
+/// correction is then that of the links it was built for, still a fixed map, and the solver it
+/// preconditions works with the operator of the new links.
+pub struct CoarseParts<CT: Storage> {
+    coarse: (CoarseOp<CT>, CoarseOp<CT>),
+    blocks: (BlockMap, BlockMap),
+    hi: f64,
+}
+
+impl<CT: Storage> CoarseParts<CT> {
+    /// The top of the smoother's interval they were built with.
+    pub fn top(&self) -> f64 {
+        self.hi
+    }
+}
+
+/// A `BlockMap` the correction applies and the cycle keeps.
+struct SharedBlocks(Rc<RefCell<BlockMap>>);
+
+impl<T: Storage> LinearFn<Field<T, Coarse>> for SharedBlocks {
+    fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+        self.0.borrow_mut().mult(out, inp);
+    }
 }
 
 /// A zero field on the coarse lattice of `basis`, stored as `T`.
@@ -459,6 +490,19 @@ impl<'a, G: GammaRepre, F: Storage> PvEoCycle<'a, G, f32, Aos, F> {
 }
 
 impl<'a, G: GammaRepre, CT: Storage, F: Storage> PvEoCycle<'a, G, CT, Aos, F> {
+    /// The cycle of `parts` (taken from a cycle of the same `basis` and settings, for other
+    /// links) for the operators given: nothing is built.
+    pub fn from_parts(
+        op: &'a Mdwf<F, G>,
+        pv: &'a Mdwf<F, G>,
+        outer: (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
+        basis: &'a PvEoBasis<F>,
+        params: PvEoParams,
+        parts: CoarseParts<CT>,
+    ) -> Self {
+        Self::assemble(op, pv, outer, (outer.0, outer.1), (), basis, params, parts)
+    }
+
     /// The cycle with the coarse solves stored as `CT`.
     pub fn with_coarse_storage(
         op: &'a Mdwf<F, G>,
@@ -497,20 +541,35 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
     pub fn with_layout(
         op: &'a Mdwf<F, G>,
         pv: &'a Mdwf<F, G>,
-        (op_a, pv_a, form): (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
-        (op_l, pv_l): (&'a Mdwf<F, G, L>, &'a Mdwf<F, G, L>),
+        outer: (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
+        layout: (&'a Mdwf<F, G, L>, &'a Mdwf<F, G, L>),
         map: L::Map,
         basis: &'a PvEoBasis<F>,
         params: PvEoParams,
     ) -> Result<Self, MultigridError> {
+        let parts = Self::parts(op, pv, layout, outer.2, &map, basis, params)?;
+        Ok(Self::assemble(
+            op, pv, outer, layout, map, basis, params, parts,
+        ))
+    }
+
+    /// The coarse operators of `op` and `pv` on `basis`, the inverses of their blocks, and the
+    /// top of the smoother's interval for the operator of `outer_l`.
+    fn parts(
+        op: &Mdwf<F, G>,
+        pv: &Mdwf<F, G>,
+        (op_l, pv_l): (&Mdwf<F, G, L>, &Mdwf<F, G, L>),
+        form: EoForm,
+        map: &L::Map,
+        basis: &PvEoBasis<F>,
+        params: PvEoParams,
+    ) -> Result<CoarseParts<CT>, MultigridError> {
         let index = op
             .even_odd_index()
             .expect("an even-odd decomposition")
             .clone();
         let lat = basis.aggregation().fine_lattice().clone();
         let ls = op.params().ls;
-        let mut like = HalfField::<Aos, F>::with_shape(&lat, 24, ls, 1, 1);
-        like.set_parity(Parity::Even);
         // The coarse operators, with the even-odd form where they are solved in it, and the
         // matrices on the coarse sites that precondition their solves.
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
@@ -533,9 +592,53 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
             true => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
             false => BlockMap::inverse_diagonal(&coarse_pv)?,
         };
-        let coarse = (
-            RefCell::new(coarse_d.to_storage::<CT>()),
-            RefCell::new(coarse_pv.to_storage::<CT>()),
+        // The smoother's interval [hi / ratio, hi], hi = 1.1 |λ_max| of the operator.
+        let start_sites = random_even::<F>(&lat, &index, ls, 1, params.seed);
+        let mut like_l = HalfField::<L, F>::with_shape(&lat, 24, ls, 1, 1);
+        like_l.set_parity(Parity::Even);
+        let mut start = like_l.zeros_like();
+        L::from_sites(map, &mut start, &start_sites);
+        let hi = 1.1
+            * largest_magnitude(
+                &mut PvEvenOdd::new(op_l, pv_l, form, &like_l),
+                &mut start,
+                params.power_steps,
+            );
+        Ok(CoarseParts {
+            coarse: (coarse_d.to_storage::<CT>(), coarse_pv.to_storage::<CT>()),
+            blocks: (blocks_d, blocks_pv),
+            hi,
+        })
+    }
+
+    /// The cycle of `parts` for the operators given.
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        op: &'a Mdwf<F, G>,
+        pv: &'a Mdwf<F, G>,
+        (op_a, pv_a, form): (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
+        (op_l, pv_l): (&'a Mdwf<F, G, L>, &'a Mdwf<F, G, L>),
+        map: L::Map,
+        basis: &'a PvEoBasis<F>,
+        params: PvEoParams,
+        parts: CoarseParts<CT>,
+    ) -> Self {
+        let index = op
+            .even_odd_index()
+            .expect("an even-odd decomposition")
+            .clone();
+        let lat = basis.aggregation().fine_lattice().clone();
+        let ls = op.params().ls;
+        let mut like = HalfField::<Aos, F>::with_shape(&lat, 24, ls, 1, 1);
+        like.set_parity(Parity::Even);
+        let CoarseParts {
+            coarse: (coarse_d, coarse_pv),
+            blocks: (blocks_d, blocks_pv),
+            hi,
+        } = parts;
+        let blocks = (
+            Rc::new(RefCell::new(blocks_d)),
+            Rc::new(RefCell::new(blocks_pv)),
         );
         let correction = Correction::new(
             (op, pv),
@@ -545,24 +648,17 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 basis,
                 index: index.clone(),
             },
-            coarse,
-            (Box::new(blocks_d), Box::new(blocks_pv)),
+            (RefCell::new(coarse_d), RefCell::new(coarse_pv)),
+            (
+                Box::new(SharedBlocks(blocks.0.clone())),
+                Box::new(SharedBlocks(blocks.1.clone())),
+            ),
             params,
             &like,
             &coarse_field::<CT, F>(basis, 1),
         );
-        // The smoother, on [hi / ratio, hi] with hi = 1.1 |λ_max| of the operator.
-        let start_sites = random_even::<F>(&lat, &index, ls, 1, params.seed);
         let mut like_l = HalfField::<L, F>::with_shape(&lat, 24, ls, 1, 1);
         like_l.set_parity(Parity::Even);
-        let mut start = like_l.zeros_like();
-        L::from_sites(&map, &mut start, &start_sites);
-        let hi = 1.1
-            * largest_magnitude(
-                &mut PvEvenOdd::new(op_l, pv_l, form, &like_l),
-                &mut start,
-                params.power_steps,
-            );
         let smoother = Chebyshev::new(
             SharedOperator::new(PvEvenOdd::new(op_l, pv_l, form, &like_l)),
             params.chebyshev_steps,
@@ -576,10 +672,30 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
             map,
             lat,
         };
-        Ok(Self {
+        Self {
             cycle: TwoGrid::new(smoother, in_layout, &like_l),
             hi,
-        })
+            blocks,
+        }
+    }
+
+    /// What the cycle was built from (`CoarseParts`), the cycle given up. Not for a cycle with
+    /// levels below the coarse lattice, which are not kept.
+    pub fn into_parts(self) -> CoarseParts<CT> {
+        let PvEoCycle { cycle, hi, blocks } = self;
+        let correction = cycle.into_correction().correction;
+        let (coarse_d, coarse_pv) = correction.into_coarse();
+        let back = |b: Rc<RefCell<BlockMap>>| {
+            Rc::try_unwrap(b)
+                .ok()
+                .expect("the correction that shared the blocks is gone")
+                .into_inner()
+        };
+        CoarseParts {
+            coarse: (coarse_d.into_inner(), coarse_pv.into_inner()),
+            blocks: (back(blocks.0), back(blocks.1)),
+            hi,
+        }
     }
 
     /// The operator the cycle approximates the inverse of, to be used by the solver it

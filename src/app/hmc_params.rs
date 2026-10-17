@@ -351,6 +351,10 @@ pub struct MultigridHmcBlock {
     /// Ã) stops, |r|²/|b|² (1e-10); then they are repeated on the residual of D†D until
     /// `Solver.convergence_criterion_squared`.
     pub convergence_criterion_squared_inner: Option<f64>,
+    /// Domain-wall fermions: keep P and the coarse operators from solve to solve, and make them
+    /// again when the GCR iterations per solve have grown to this many times those after the
+    /// last rebuild (`hmc::DwfMultigridSetup::rebuild_growth`); left out: for every solve.
+    pub rebuild_iteration_growth: Option<f64>,
 }
 
 impl Default for MultigridHmcBlock {
@@ -360,6 +364,7 @@ impl Default for MultigridHmcBlock {
             reuse_vectors: true,
             number_of_reuse_iterations: 0,
             convergence_criterion_squared_inner: None,
+            rebuild_iteration_growth: None,
         }
     }
 }
@@ -796,11 +801,21 @@ impl FermionActionBlock {
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 coarse_double: mg.coarse_precision() == PrecisionType::Double,
+                rebuild_growth: match h.rebuild_iteration_growth {
+                    Some(g) if g.is_nan() || g <= 1.0 => {
+                        return invalid(format!(
+                            "{name}.MultiGrid_HMC.rebuild_iteration_growth: above 1"
+                        ))
+                    }
+                    g => g.unwrap_or(0.0),
+                },
             })
         } else {
-            if h.convergence_criterion_squared_inner.is_some() {
+            if h.convergence_criterion_squared_inner.is_some()
+                || h.rebuild_iteration_growth.is_some()
+            {
                 return invalid(format!(
-                    "{name}.MultiGrid_HMC.convergence_criterion_squared_inner: for domain-wall fermions"
+                    "{name}.MultiGrid_HMC: convergence_criterion_squared_inner and rebuild_iteration_growth are for domain-wall fermions"
                 ));
             }
             let mut unused = Vec::new();

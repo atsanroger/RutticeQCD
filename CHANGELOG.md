@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- HMC: the domain-wall multigrid as a cache (`MultiGrid_HMC.rebuild_iteration_growth`): P and
+  the coarse parts of the cycles of Ã and Ã† (`CoarseParts`: the coarse operators, the inverses
+  of their blocks, the top of the smoother) are kept from solve to solve and the cycles made
+  from them for the links of each solve (`PvEoCycle::from_parts`, `into_parts`), and built again
+  only after a bootstrap or when the GCR iterations per solve have grown by the factor given.
+  The outer GCR and the smoothers work with the operators of the current links, so the solves
+  are those of CG still (4³×8, links moved by MD steps: 1e-14 and 2e-11 relative, one rebuild
+  in eight solves). What it saves on large lattices is not measured yet.
 - HMC: mixed precision for domain-wall fermions (`Solver.precision : mixed`, the Standard
   (Lexical) and Ratio actions, on all sites or even-odd, CG without a preconditioner, on the
   CPU): defect correction on the residual of D†D (K†K) in double precision, each correction by
