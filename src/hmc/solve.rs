@@ -309,6 +309,9 @@ pub enum Preconditioner {
     },
     /// For the two-step solvers of Wilson and clover fermions.
     Multigrid(Box<MultigridSetup>),
+    /// The multigrid of domain-wall fermions over Pauli-Villars fields (`hmc::dwf_multigrid`):
+    /// for the Ratio action of D over D_PV of mass 1, without Neff's α.
+    DomainWallMultigrid(Box<super::DwfMultigridSetup>),
 }
 
 impl Preconditioner {

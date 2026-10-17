@@ -404,6 +404,9 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
                 };
                 self.solver.solve(&mut schur, pre, &mut z, &b, stop)?
             }
+            Preconditioner::DomainWallMultigrid(_) => {
+                panic!("the domain-wall multigrid is for the Ratio action on all sites")
+            }
         };
         self.last_iterations = info.iterations;
         if md {
@@ -569,7 +572,10 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
     /// None or Chebyshev: the multigrid of K is not written yet.
     pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         assert!(
-            !matches!(preconditioner, Preconditioner::Multigrid(_)),
+            !matches!(
+                preconditioner,
+                Preconditioner::Multigrid(_) | Preconditioner::DomainWallMultigrid(_)
+            ),
             "the even-odd ratio action has no multigrid yet"
         );
         self.preconditioner = preconditioner;
@@ -632,7 +638,9 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
                 b,
                 stop,
             ),
-            Preconditioner::Multigrid(_) => unreachable!("refused by with_preconditioner"),
+            Preconditioner::Multigrid(_) | Preconditioner::DomainWallMultigrid(_) => {
+                unreachable!("refused by with_preconditioner")
+            }
         }
     }
 

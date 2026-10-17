@@ -1,6 +1,7 @@
 //! Hybrid Monte Carlo: gauge configurations from the momenta, the actions and their forces,
 //! a molecular-dynamics integrator and the Metropolis test.
 
+mod dwf_multigrid;
 mod even_odd;
 mod fermion_action;
 mod gauge_action;
@@ -12,6 +13,7 @@ mod mseries;
 mod rational;
 mod solve;
 
+pub use dwf_multigrid::DwfMultigridSetup;
 pub use rational::Rational;
 pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 
@@ -1026,6 +1028,77 @@ mod tests {
             |w| ratio.hamiltonian(&Links::new(w, &SmearingCache::new())),
             1e-7,
         );
+    }
+
+    /// The Ratio action of domain-wall fermions over Pauli-Villars fields with the multigrid in
+    /// its solves (D† through Ã† and M†, D through Ã and M) gives the energy and the force of CG
+    /// to the tolerance of the solves, and keeps its test vectors along the solves.
+    #[test]
+    fn domain_wall_multigrid_gives_the_action_and_force_of_cg() {
+        use crate::fermion::{Mdwf, MdwfParams};
+        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::Stop;
+        let lat = Lattice::single_node([4, 4, 4, 8]);
+        let u = random_gauge(&lat, 41);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.6,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: [
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Periodic,
+                Boundary::Antiperiodic,
+            ],
+        };
+        let stop = Stop {
+            tolerance_sqr: 1e-24,
+            max_iterations: 4000,
+            max_restarts: 10,
+        };
+        let mdwf = |p| Mdwf::<f64>::new(&lat, p);
+        let cache = SmearingCache::new();
+        let links = Links::new(&u, &cache);
+        let mut cg =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop);
+        cg.langevin(&links, &mut Mseries::new(13));
+        let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
+        let setup = DwfMultigridSetup::new(
+            [2, 2, 2, 2],
+            8,
+            PvEoParams::default(),
+            Stop::simple(1e-10, 200),
+        );
+        let mut mg =
+            TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
+                .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(setup)));
+        mg.langevin(&links, &mut Mseries::new(13));
+        let (h_mg, f_mg) = (mg.hamiltonian(&links), mg.force(&links));
+        let f2 = mg.force(&links);
+        let worst = |a: &Field<f64, Gauge>, b: &Field<f64, Gauge>| {
+            a.as_slice()
+                .iter()
+                .zip(b.as_slice())
+                .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()))
+        };
+        let size = f_cg.as_slice().iter().fold(0.0f64, |m, x| m.max(x.abs()));
+        eprintln!(
+            "H: CG {h_cg}, multigrid {h_mg}; forces differ by {:e} of {size:e}, a second force by {:e}",
+            worst(&f_cg, &f_mg),
+            worst(&f_cg, &f2)
+        );
+        assert!((h_cg - h_mg).abs() < 1e-9 * h_cg.abs());
+        assert!(worst(&f_cg, &f_mg) < 1e-8 * size && worst(&f_cg, &f2) < 1e-8 * size);
+        let Preconditioner::DomainWallMultigrid(setup) = &mg.preconditioner else {
+            unreachable!()
+        };
+        eprintln!(
+            "setups {}, bootstraps again {}, solves on the even sites {}",
+            setup.setups, setup.refreshes, setup.inner_solves
+        );
+        assert_eq!(setup.setups, 1, "the test vectors are kept");
     }
 
     /// The molecular dynamics is reversible, for the ratio of domain-wall fermions over
