@@ -2,13 +2,18 @@
 
 ## Unreleased
 
+- HMC: mixed precision on the device too (`backend::cuda_bridge::hmc_mixed::SingleCuda`, the
+  operator in single precision on the links of the device; on all sites and for K of the
+  even-odd Ratio action). Two trajectories of the Bridge++ example, the Ratio action on all
+  sites and even-odd and the Standard action: the plaquettes of CG in double precision on the
+  CPU to the last digit, ΔH to 1e-9.
 - HMC with the domain-wall multigrid on the device (`backend : cuda_bridge`, the Ratio action on
   all sites and even-odd): the test vectors, P (half precision, shared by the cycles of Ã and
   Ã†), the coarse operators and both cycles on the device (`backend::cuda_bridge::hmc_multigrid`,
   over `backend::cuda_bridge::multigrid`); the sweeps on D†D and K†K are those of the CPU,
   written once for both (`EvenSolves`). Two trajectories of the Bridge++ example (stout, 4³×8):
   the plaquettes of CG on the CPU to the last digit, ΔH to 1e-9. Not yet on the device: the
-  cache (`rebuild_iteration_growth`) and mixed-precision CG.
+  cache (`rebuild_iteration_growth`).
 - HMC: the domain-wall multigrid as a cache (`MultiGrid_HMC.rebuild_iteration_growth`): P and
   the coarse parts of the cycles of Ã and Ã† (`CoarseParts`: the coarse operators, the inverses
   of their blocks, the top of the smoother) are kept from solve to solve and the cycles made

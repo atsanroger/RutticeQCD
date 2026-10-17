@@ -644,9 +644,9 @@ impl HmcConfig {
                                 ..
                             }
                         );
-                        if !wall || standard_eo || self.device {
+                        if !wall || standard_eo {
                             return invalid(format!(
-                                "{at}.Solver.precision: mixed is for the domain-wall Standard (Lexical) and Ratio actions on the CPU"
+                                "{at}.Solver.precision: mixed is for the domain-wall Standard (Lexical) and Ratio actions"
                             ));
                         }
                         if !matches!(solver.kind, None | Some(HmcSolverKind::Cg))
@@ -1208,7 +1208,28 @@ fn device_ratio(
         }
         false => None,
     };
-    Ok(ratio((make(p)?, make(pd)?), None, conditioned, None, c))
+    let single = device_single(lat, p, alpha, c.solver, false)?;
+    Ok(ratio((make(p)?, make(pd)?), None, conditioned, single, c))
+}
+
+/// The domain-wall operator `p` in single precision on the device, when the solver asks for
+/// mixed precision (`even_odd`: for K of the even-odd Ratio action).
+#[cfg(feature = "cuda-bridge")]
+fn device_single(
+    lat: &Arc<Lattice>,
+    p: MdwfParams,
+    alpha: f64,
+    s: &HmcSolver,
+    even_odd: bool,
+) -> Result<Option<Single<crate::backend::cuda_bridge::CudaMdwf<f64>>>, CliError> {
+    use crate::backend::cuda_bridge::hmc_mixed::SingleCuda;
+    s.mixed
+        .map(|tol| {
+            SingleCuda::new(lat, p, alpha, tol, even_odd)
+                .map(|op| Box::new(op) as Single<crate::backend::cuda_bridge::CudaMdwf<f64>>)
+                .map_err(|e| CliError::Invalid(format!("the device: {e}")))
+        })
+        .transpose()
 }
 
 /// `ratio_eo` of domain-wall operators on the device: D of `p` over D of `pd`, even-odd.
@@ -1222,7 +1243,8 @@ fn device_ratio_eo(
     let make = |p: MdwfParams| {
         CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
     };
-    Ok(ratio_eo((make(p)?, make(pd)?), None, c))
+    let single = device_single(lat, p, 1.0, c.solver, true)?;
+    Ok(ratio_eo((make(p)?, make(pd)?), single, c))
 }
 
 /// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`
@@ -1247,6 +1269,9 @@ fn device_two_flavor(
         let mut op = make(p)?;
         op.set_alpha(alpha);
         a = a.with_conditioned(op);
+    }
+    if let Some(single) = device_single(lat, p, alpha, s, false)? {
+        a = a.with_single(single);
     }
     Ok(Box::new(a))
 }
