@@ -1639,6 +1639,68 @@ fn domain_wall_force_on_the_device() {
     }
 }
 
+/// D† x = b through Ã† on the device (`adjoint_right_hand_side`, `adjoint_solution` with the
+/// fields of the device): the right-hand side is that of the CPU, and the x of the device
+/// solves D† x = b on the CPU.
+#[test]
+fn d_dagger_through_the_adjoint_pv_operator_on_the_device() {
+    use ruttice::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, PvRatio};
+    use ruttice::solver::{Gcr, Solver};
+    use ruttice::Half;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 481);
+    let params = MdwfParams {
+        ls: 6,
+        m5: 1.4,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cpu, gpu) = mdwf_pair(&lat, &u, params);
+    let (_, gpu_pv) = mdwf_pair(&lat, &u, params.pauli_villars());
+    let b = random_fifth(&lat, 6, 482);
+    let index = cpu.even_odd_index().unwrap().clone();
+    let mut even = Field::<f64, Spinor, Half>::with_shape(&lat, 24, 6, 1, 1);
+    even.set_parity(Parity::Even);
+    let mut cpu_rhs = even.zeros_like();
+    adjoint_right_hand_side(&cpu, &*index, &mut cpu_rhs, &b);
+    let b_dev = DeviceSpinor::from_host(&b).unwrap();
+    let (e, o) = (
+        DeviceSpinor::<f64>::shape_half(&lat, 6, Parity::Even).unwrap(),
+        DeviceSpinor::<f64>::shape_half(&lat, 6, Parity::Odd).unwrap(),
+    );
+    let mut rhs = e.zeros_with(1);
+    adjoint_right_hand_side(&gpu, &DeviceParities, &mut rhs, &b_dev);
+    let host_rhs = rhs.to_host_half(&index).unwrap();
+    let d = host_rhs
+        .as_slice()
+        .iter()
+        .zip(cpu_rhs.as_slice())
+        .fold(0.0f64, |m, (x, y)| m.max((x - y).abs()));
+    assert!(d < 1e-12, "the right-hand sides differ by {d:e}");
+    let mut a_dag = PvRatio::new(&gpu_pv, &gpu, EoForm::Right, &e, &o);
+    let mut y = rhs.zeros_like();
+    let info = Gcr::new(Stop::simple(1e-26, 4000), 8)
+        .solve(&mut a_dag, None, &mut y, &rhs)
+        .unwrap();
+    let mut x = b_dev.zeros_like();
+    adjoint_solution(&gpu, &gpu_pv, &DeviceParities, &mut x, &y, &b_dev);
+    let x = x.to_host().unwrap();
+    let mut r = x.zeros_like();
+    cpu.mult(&mut cpu.work(), &mut r, &x, Variant::Dagger);
+    r.aypx(&[C64::new(-1.0, 0.0)], &b);
+    let (mut left, mut size) = ([0.0], [0.0]);
+    r.norm_sqr(&mut left);
+    b.norm_sqr(&mut size);
+    eprintln!(
+        "Ã† on the device: GCR(8) {} iterations, |D† x - b|²/|b|² = {:e} (on the CPU)",
+        info.iterations,
+        left[0] / size[0]
+    );
+    assert!(left[0] < 1e-20 * size[0]);
+}
+
 /// HMC with the domain-wall Ratio action on the device (`Main.backend : cuda_bridge`): Bridge++'s
 /// test_HMC_Domainwall_Nf2_PV (stout links, Iwasaki action) gives the trajectories of the CPU,
 /// the plaquette to rounding and ΔH to the tolerance of the solves.

@@ -553,6 +553,83 @@ fn even_odd_solve_solves_the_full_system() {
     assert!(info.iterations < whole.iterations);
 }
 
+/// D† x = b through Ã†, the Pauli-Villars operator with the roles of D and D_PV exchanged
+/// (`adjoint_right_hand_side`, `adjoint_solution`): GCR on Ã† y = rhs, then x from y, solves
+/// D† x = b; and Ã† is the adjoint of Ã.
+#[test]
+fn adjoint_pv_operator_solves_d_dagger() {
+    use ruttice::fermion::{adjoint_right_hand_side, adjoint_solution, PvRatio};
+    type H = Field<f64, Spinor, Half>;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 35);
+    let op = operator(&lat, MOBIUS, &u);
+    let pv = operator(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..MOBIUS
+        },
+        &u,
+    );
+    let index = op.even_odd_index().unwrap().clone();
+    let mut even = H::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    even.set_parity(Parity::Even);
+    let mut odd = even.zeros_like();
+    odd.set_parity(Parity::Odd);
+    let b = random(&lat, MOBIUS.ls, 1, 36);
+    let mut rhs = even.zeros_like();
+    adjoint_right_hand_side(&op, &*index, &mut rhs, &b);
+    let mut a_dag = PvRatio::new(&pv, &op, EoForm::Right, &even, &odd);
+    let stop = Stop {
+        tolerance_sqr: 1e-26,
+        max_iterations: 4000,
+        max_restarts: 0,
+    };
+    let mut y = even.zeros_like();
+    let info = Gcr::new(stop, 8)
+        .solve(&mut a_dag, None, &mut y, &rhs)
+        .unwrap();
+    let mut x = b.zeros_like();
+    adjoint_solution(&op, &pv, &*index, &mut x, &y, &b);
+    let mut r = mult(&op, &x, Variant::Dagger);
+    r.aypx(&[C64::new(-1.0, 0.0)], &b);
+    let (mut left, mut size) = ([0.0], [0.0]);
+    r.norm_sqr(&mut left);
+    b.norm_sqr(&mut size);
+    eprintln!(
+        "Ã†: GCR(8) {} iterations, |D† x - b|²/|b|² = {:e}",
+        info.iterations,
+        left[0] / size[0]
+    );
+    assert!(left[0] < 1e-20 * size[0], "{:e}", left[0] / size[0]);
+
+    // <z, Ã w> = <Ã† z, w>.
+    let mut a = PvRatio::new(&op, &pv, EoForm::Right, &even, &odd);
+    let (mut z, mut w) = (even.zeros_like(), even.zeros_like());
+    extract_parity(
+        &mut z,
+        &random(&lat, MOBIUS.ls, 1, 37),
+        &index,
+        Parity::Even,
+    );
+    extract_parity(
+        &mut w,
+        &random(&lat, MOBIUS.ls, 1, 38),
+        &index,
+        Parity::Even,
+    );
+    let (mut aw, mut adz) = (even.zeros_like(), even.zeros_like());
+    a.mult(&mut aw, &w);
+    a_dag.mult(&mut adz, &z);
+    let (mut l, mut rr) = ([C64::ZERO], [C64::ZERO]);
+    z.dot(&aw, &mut l);
+    adz.dot(&w, &mut rr);
+    assert!(
+        (l[0] - rr[0]).norm_sqr() < 1e-24 * l[0].norm_sqr(),
+        "{l:?} {rr:?}"
+    );
+}
+
 /// The frozen polynomial of A: it is the minimal-residual polynomial of its sample, so on
 /// the sample it leaves what GMRES of the same length leaves; it is the same linear map for
 /// every input; further passes reduce the residual further; and BiCGStab preconditioned by
