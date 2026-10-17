@@ -46,6 +46,21 @@ pub trait EvenOddHalves: ForceOp + EvenOdd<Self::Half> {
     fn half_of(&self, half: &mut Self::Half, whole: &Self::Field, parity: Parity);
     /// The sites of the parity of `half` in `whole` = `half`.
     fn put_half(&self, whole: &mut Self::Field, half: &Self::Half);
+    /// (K†K)⁻¹ b on the even sites (K the left `SchurFactor`) with the domain-wall multigrid
+    /// `setup` over the Pauli-Villars operator `pv`, from the guess in `z`, for an operator that
+    /// has it (as `ForceOp::domain_wall_multigrid` on the whole lattice); None otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn domain_wall_multigrid_half(
+        &self,
+        _pv: &Self,
+        _setup: &mut super::DwfMultigridSetup,
+        _flags: (bool, bool),
+        _z: &mut Self::Half,
+        _b: &Self::Half,
+        _stop: Stop,
+    ) -> Option<Result<SolveInfo, SolveError>> {
+        None
+    }
 }
 
 /// What the even-odd two-flavour action needs besides: the clover term and the multigrid,
@@ -85,6 +100,19 @@ pub trait EvenOddSites: ForceOp<Field = Psi, Links = Field<f64, Gauge>> + EvenOd
         out.copy_from(inp);
     }
     fn gamma5_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi);
+    /// `EvenOddHalves::domain_wall_multigrid_half`.
+    #[allow(clippy::too_many_arguments)]
+    fn multigrid_on_half(
+        &self,
+        _pv: &Self,
+        _setup: &mut super::DwfMultigridSetup,
+        _flags: (bool, bool),
+        _z: &mut HalfPsi,
+        _b: &HalfPsi,
+        _stop: Stop,
+    ) -> Option<Result<SolveInfo, SolveError>> {
+        None
+    }
 }
 
 impl<G, D> EvenOddSites for crate::fermion::WilsonOp<f64, G, D>
@@ -130,6 +158,19 @@ impl<G: crate::kernel::GammaRepre> EvenOddSites for crate::fermion::Mdwf<f64, G>
     fn gamma5_on_half(&self, out: &mut HalfPsi, inp: &HalfPsi) {
         self.mult_gamma5_on(out, inp);
     }
+    fn multigrid_on_half(
+        &self,
+        pv: &Self,
+        setup: &mut super::DwfMultigridSetup,
+        flags: (bool, bool),
+        z: &mut HalfPsi,
+        b: &HalfPsi,
+        stop: Stop,
+    ) -> Option<Result<SolveInfo, SolveError>> {
+        Some(super::dwf_multigrid::normal_solve_half(
+            self, pv, setup, flags, z, b, stop,
+        ))
+    }
 }
 
 impl<O: EvenOddSites> EvenOddHalves for O {
@@ -148,6 +189,17 @@ impl<O: EvenOddSites> EvenOddHalves for O {
     }
     fn put_half(&self, whole: &mut Psi, half: &HalfPsi) {
         insert_parity(whole, half, self.eo_index());
+    }
+    fn domain_wall_multigrid_half(
+        &self,
+        pv: &Self,
+        setup: &mut super::DwfMultigridSetup,
+        flags: (bool, bool),
+        z: &mut HalfPsi,
+        b: &HalfPsi,
+        stop: Stop,
+    ) -> Option<Result<SolveInfo, SolveError>> {
+        self.multigrid_on_half(pv, setup, flags, z, b, stop)
     }
 }
 
@@ -535,7 +587,7 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     /// How (K†K)⁻¹ is computed (CG by default); the solve with the denominator in the heat
     /// bath uses it with no preconditioner.
     pub solver: NormalSolver,
-    /// None or Chebyshev.
+    /// None, Chebyshev, or the domain-wall multigrid.
     pub preconditioner: Preconditioner,
     fresh: bool,
     phi: Option<O::Half>,
@@ -569,14 +621,12 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         self
     }
 
-    /// None or Chebyshev: the multigrid of K is not written yet.
+    /// None, Chebyshev, or the domain-wall multigrid (`EvenOddHalves::domain_wall_multigrid_half`);
+    /// the multigrid of Wilson fermions is not written for K.
     pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         assert!(
-            !matches!(
-                preconditioner,
-                Preconditioner::Multigrid(_) | Preconditioner::DomainWallMultigrid(_)
-            ),
-            "the even-odd ratio action has no multigrid yet"
+            !matches!(preconditioner, Preconditioner::Multigrid(_)),
+            "the even-odd ratio action has no Wilson multigrid"
         );
         self.preconditioner = preconditioner;
         self
@@ -615,12 +665,14 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         out
     }
 
-    /// (K†K)⁻¹ b for the operator `op`, from `z`.
+    /// (K†K)⁻¹ b for the operator `op` (over `pv` for the domain-wall multigrid), from `z`.
+    /// `fresh`: the first solve since the pseudofermions were drawn; `md`: a force solve.
+    #[allow(clippy::too_many_arguments)]
     fn solve(
         solver: NormalSolver,
-        op: &O,
+        (op, pv): (&O, Option<&O>),
         lat: &Arc<Lattice>,
-        (pre, fresh): (&mut Preconditioner, bool),
+        (pre, fresh, md): (&mut Preconditioner, bool, bool),
         z: &mut O::Half,
         b: &O::Half,
         stop: Stop,
@@ -638,9 +690,17 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
                 b,
                 stop,
             ),
-            Preconditioner::Multigrid(_) | Preconditioner::DomainWallMultigrid(_) => {
-                unreachable!("refused by with_preconditioner")
-            }
+            Preconditioner::DomainWallMultigrid(setup) => op
+                .domain_wall_multigrid_half(
+                    pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
+                    setup,
+                    (fresh, md),
+                    z,
+                    b,
+                    stop,
+                )
+                .expect("an operator with the domain-wall multigrid"),
+            Preconditioner::Multigrid(_) => unreachable!("refused by with_preconditioner"),
         }
     }
 
@@ -652,8 +712,13 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             let mut k = SchurFactor::new(&self.op, EoForm::Left, v1, &odd);
             self.guess.guess(&mut Normal::new(&mut k, v1), v1, &mut z);
         }
-        let flags = (&mut self.preconditioner, std::mem::take(&mut self.fresh));
-        let info = Self::solve(self.solver, &self.op, lat, flags, &mut z, v1, stop)
+        let flags = (
+            &mut self.preconditioner,
+            std::mem::take(&mut self.fresh),
+            md,
+        );
+        let ops = (&self.op, Some(&self.pv));
+        let info = Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop)
             .expect("the solve with the operator converges");
         self.last_iterations = info.iterations;
         if md {
@@ -680,8 +745,15 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         self.op.half_of(&mut xi_e, &xi, Parity::Even);
         let v2 = Self::factor(&self.op, lat, &Self::gamma5(&self.op, &xi_e), Dagger::Yes);
         let mut v1 = v2.zeros_like();
-        let none = (&mut Preconditioner::None, false);
-        Self::solve(self.solver, &self.pv, lat, none, &mut v1, &v2, self.stop_h)
+        let none = (&mut Preconditioner::None, false, false);
+        let ops = (&self.pv, None);
+        // CG for the denominator, whatever the operator's solver: the two-step solvers do
+        // not converge on the domain-wall operator itself.
+        let solver = match self.preconditioner {
+            Preconditioner::DomainWallMultigrid(_) => NormalSolver::Cg,
+            _ => self.solver,
+        };
+        Self::solve(solver, ops, lat, none, &mut v1, &v2, self.stop_h)
             .expect("the solve with the denominator converges");
         let k1 = Self::factor(&self.pv, lat, &v1, Dagger::No);
         self.phi = Some(Self::gamma5(&self.pv, &k1));

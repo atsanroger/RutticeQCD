@@ -5,17 +5,25 @@
 //! made from the test vectors y; along a trajectory y is kept and P and the coarse operators are
 //! made again for the links of every solve, and y itself is improved (the bootstrap, from the y
 //! of before) when the pseudofermions are drawn and after every `refresh_every` force solves.
+//!
+//! The even-odd Ratio action solves K†K on the even sites, K = T_ee⁻¹ Ŝ (the left
+//! `SchurFactor`): K⁻† r = T_ee† Ŝ⁻† r and K⁻¹ w = Ŝ⁻¹ T_ee w, where Ŝ⁻¹ u is the even part of
+//! the solution of D x = (u, 0) and Ŝ⁻† that of D† (`normal_solve_half`), the same two solves.
 
 use super::fermion_action::Psi;
 use super::HalfPsi;
-use crate::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, Mdwf, PvEvenOdd};
+use crate::fermion::{
+    adjoint_right_hand_side, adjoint_solution, Dagger, EoForm, EvenOdd, Mdwf, PvEvenOdd,
+    SchurFactor,
+};
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseKrylov,
     LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
-use crate::{LinearFn, LinearOp, Vector, C64, ND};
+use crate::{extract_parity, insert_parity, Lattice, LinearFn, LinearOp, Parity, Vector, C64, ND};
+use std::sync::Arc;
 
 /// The setup of the multigrid of an action and what it keeps along a trajectory.
 pub struct DwfMultigridSetup {
@@ -128,17 +136,49 @@ pub fn normal_solve<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
     setup: &mut DwfMultigridSetup,
-    (fresh, md): (bool, bool),
+    flags: (bool, bool),
     x: &mut Psi,
     b: &Psi,
     stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    with_solves(op, pv, setup, flags, b.lattice(), |solves| {
+        two_solves(op, solves, x, b, stop)
+    })
+}
+
+/// z = (K†K)⁻¹ b on the even sites for K = T_ee⁻¹ Ŝ of `op` (the left `SchurFactor`, the
+/// operator of the even-odd Ratio action) with the multigrid of `setup` (module
+/// documentation). `z` holds the initial guess.
+#[allow(clippy::too_many_arguments)]
+pub fn normal_solve_half<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    setup: &mut DwfMultigridSetup,
+    flags: (bool, bool),
+    z: &mut HalfPsi,
+    b: &HalfPsi,
+    stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    with_solves(op, pv, setup, flags, b.lattice(), |solves| {
+        two_solves_half(op, solves, z, b, stop)
+    })
+}
+
+/// `run` with the solves on the even sites of `setup`'s multigrid for the current links, and
+/// the bookkeeping of the setup; the iterations of the result are the GCR iterations.
+fn with_solves<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    setup: &mut DwfMultigridSetup,
+    (fresh, md): (bool, bool),
+    lat: &Arc<Lattice>,
+    run: impl FnOnce(&mut Solves<'_, '_, G>) -> Result<SolveInfo, SolveError>,
 ) -> Result<SolveInfo, SolveError> {
     assert!(
         op.alpha() == 1.0 && pv.alpha() == 1.0,
         "the multigrid of HMC takes D without Neff's α"
     );
-    let lat = b.lattice().clone();
-    let basis = setup.basis(op, pv, &lat, (fresh, md));
+    let basis = setup.basis(op, pv, lat, (fresh, md));
     let start = std::time::Instant::now();
     let cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, setup.cycle)
         .expect("the cycle is made");
@@ -155,8 +195,8 @@ pub fn normal_solve<G: GammaRepre>(
     setup.seconds.rebuild += start.elapsed().as_secs_f64();
     let start = std::time::Instant::now();
     let index = op.even_odd_index().expect("even extents").clone();
-    let mut like = HalfPsi::with_shape(&lat, 24, op.params().ls, 1, 1);
-    like.set_parity(crate::Parity::Even);
+    let mut like = HalfPsi::with_shape(lat, 24, op.params().ls, 1, 1);
+    like.set_parity(Parity::Even);
     let mut solves = Solves {
         op,
         pv,
@@ -168,7 +208,7 @@ pub fn normal_solve<G: GammaRepre>(
         inner: 0,
         count: 0,
     };
-    let result = two_solves(op, &mut solves, x, b, stop);
+    let result = run(&mut solves);
     setup.inner_solves += solves.count;
     setup.seconds.solve += start.elapsed().as_secs_f64();
     result.map(|mut info| {
@@ -267,6 +307,66 @@ fn two_solves<G: GammaRepre>(
         solves.adjoint(&mut w, &r)?;
         solves.forward(&mut e, &w)?;
         x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
+    }
+    Err(SolveError::NotConverged(info))
+}
+
+/// K†K z = b on the even sites, K = T_ee⁻¹ Ŝ, by w = T_ee† Ŝ⁻† r and e = Ŝ⁻¹ T_ee w on the
+/// residual r, each Ŝ⁻¹ (Ŝ⁻†) the even part of a solve of D (D†) with no source on the odd
+/// sites, until |r|²/|b|² is below the tolerance (at most `stop.max_restarts` + 1 times).
+fn two_solves_half<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    solves: &mut Solves<'_, '_, G>,
+    z: &mut HalfPsi,
+    b: &HalfPsi,
+    stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    use super::ForceOp;
+    let n = b.num_vectors();
+    assert_eq!(n, 1, "one right-hand side");
+    let lat = b.lattice().clone();
+    let index = solves.index;
+    let mut odd = b.zeros_like();
+    odd.set_parity(Parity::Odd);
+    let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
+    let mut work = op.even_odd_work();
+    let mut b_norm = vec![0.0; n];
+    b.norm_sqr(&mut b_norm);
+    let [mut t, mut r, mut s, mut w, mut e] = std::array::from_fn(|_| b.zeros_like());
+    let (mut source, mut whole) = (op.new_field(&lat), op.new_field(&lat));
+    let mut info = SolveInfo {
+        iterations: 0,
+        restarts: 0,
+        residual_sqr: vec![0.0; n],
+    };
+    for sweep in 0..=stop.max_restarts {
+        info.restarts = sweep;
+        k.mult(&mut t, z);
+        k.mult_dag(&mut r, &t);
+        r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
+        r.norm_sqr(&mut info.residual_sqr);
+        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
+            *r = if *b > 0.0 { *r / b } else { 0.0 };
+        }
+        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
+            return Ok(info);
+        }
+        if sweep == stop.max_restarts {
+            break;
+        }
+        // w = T_ee† Ŝ⁻† r.
+        source.set_zero();
+        insert_parity(&mut source, &r, index);
+        solves.adjoint(&mut whole, &source)?;
+        extract_parity(&mut s, &whole, index, Parity::Even);
+        op.diag(&mut work, &mut w, &s, Parity::Even, Dagger::Yes);
+        // e = Ŝ⁻¹ T_ee w.
+        op.diag(&mut work, &mut s, &w, Parity::Even, Dagger::No);
+        source.set_zero();
+        insert_parity(&mut source, &s, index);
+        solves.forward(&mut whole, &source)?;
+        extract_parity(&mut e, &whole, index, Parity::Even);
+        z.axpy(&vec![C64::new(1.0, 0.0); n], &e);
     }
     Err(SolveError::NotConverged(info))
 }

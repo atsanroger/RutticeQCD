@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The even-odd Ratio action of domain-wall fermions takes the multigrid
+  (`operator_type : Even_odd` with `Solver.preconditioner_type : MG`): (K†K)⁻¹ on the even sites,
+  K = T_ee⁻¹ Ŝ, through the same two solves on the even sites as the action on all sites
+  (Ŝ⁻¹ u is the even part of the solve of D x = (u, 0)), repeated on the residual of K†K. It
+  gives the energy and the force of CG (4³×8: 6e-15 and 1e-11 relative).
+- One way to the solves of the pseudofermion actions: the domain-wall multigrid is a
+  preconditioner of `normal_solve` like the others, given the Pauli-Villars operator, instead
+  of a case of its own in the Ratio action. The denominator's solve in the heat bath is CG with
+  the multigrid as without it.
 - HMC files: the multigrid of an action is the `MultiGrid` section of the propagator files,
   beside its `Solver` (the same keys and defaults: `MultiGrid_Level1`, `Setup`, `Smoother`, the
   coarse solvers), for Wilson and clover fermions and for domain-wall fermions alike; what

@@ -432,10 +432,12 @@ impl<O: ForceOp> LinearFn<O::Field> for Gamma5<'_, O> {
 }
 
 /// (A†A)⁻¹ b for A = `op`, from the guess in `z`, with an action's solver and
-/// preconditioner. `fresh`: the first solve since the pseudofermions were drawn; `md`: a solve
-/// for the force.
+/// preconditioner; `pv`: the Pauli-Villars operator of a ratio, which the domain-wall
+/// multigrid is made over. `fresh`: the first solve since the pseudofermions were drawn; `md`:
+/// a solve for the force.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn normal_solve<O: ForceOp>(
-    op: &O,
+    (op, pv): (&O, Option<&O>),
     solver: NormalSolver,
     pre: &mut Preconditioner,
     (fresh, md): (bool, bool),
@@ -469,9 +471,16 @@ pub(super) fn normal_solve<O: ForceOp>(
             };
             solver.solve(&mut d, pre, z, b, stop)
         }
-        Preconditioner::DomainWallMultigrid(_) => {
-            unreachable!("the Ratio action of domain-wall fermions solves with it itself")
-        }
+        Preconditioner::DomainWallMultigrid(setup) => op
+            .domain_wall_multigrid(
+                pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
+                setup,
+                (fresh, md),
+                z,
+                b,
+                stop,
+            )
+            .expect("an operator with the domain-wall multigrid"),
     }
 }
 
@@ -576,7 +585,7 @@ impl<O: ForceOp> TwoFlavor<O> {
         }
         let flags = (std::mem::take(&mut self.fresh), md);
         let pre = &mut self.preconditioner;
-        let info = normal_solve(a, self.solver, pre, flags, &mut z, &b, stop)?;
+        let info = normal_solve((a, None), self.solver, pre, flags, &mut z, &b, stop)?;
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -702,10 +711,10 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         levels
     }
 
-    /// (D†D)⁻¹ b for the operator `op`.
+    /// (D†D)⁻¹ b for the operator `op` (over `pv` for the domain-wall multigrid).
     fn solve(
         solver: NormalSolver,
-        op: &O,
+        (op, pv): (&O, Option<&O>),
         pre: &mut Preconditioner,
         flags: (bool, bool),
         b: &O::Field,
@@ -713,7 +722,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     ) -> O::Field {
         let (mut rb, mut z, mut x) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
         op.right(&mut rb, b);
-        normal_solve(op, solver, pre, flags, &mut z, &rb, stop).expect("the solve converges");
+        normal_solve((op, pv), solver, pre, flags, &mut z, &rb, stop).expect("the solve converges");
         op.right(&mut x, &z);
         x
     }
@@ -721,18 +730,9 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     /// (D†D)⁻¹ b for the operator of the action, with its preconditioner.
     fn solve_op(&mut self, b: &O::Field, stop: Stop, md: bool) -> O::Field {
         let flags = (std::mem::take(&mut self.fresh), md);
-        if let Preconditioner::DomainWallMultigrid(setup) = &mut self.preconditioner {
-            assert!(self.conditioned.is_none(), "the multigrid without Neff's α");
-            let mut x = b.zeros_like();
-            self.op
-                .domain_wall_multigrid(&self.pv, setup, flags, &mut x, b, stop)
-                .expect("an operator with the domain-wall multigrid")
-                .expect("the solve with the multigrid converges");
-            return x;
-        }
         let op = self.conditioned.as_ref().unwrap_or(&self.op);
         let pre = &mut self.preconditioner;
-        Self::solve(self.solver, op, pre, flags, b, stop)
+        Self::solve(self.solver, (op, Some(&self.pv)), pre, flags, b, stop)
     }
 
     fn apply(op: &O, v: &O::Field, variant: Variant) -> O::Field {
@@ -755,9 +755,15 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
         // H† ξ = D† Γ5 ξ.
         let v2 = Self::apply(&self.op, &Self::gamma5(&self.op, &xi), Variant::Dagger);
         let none = &mut Preconditioner::None;
+        // CG for the denominator with the domain-wall multigrid: the two-step solvers do not
+        // converge on the domain-wall operator itself.
+        let solver = match self.preconditioner {
+            Preconditioner::DomainWallMultigrid(_) => NormalSolver::Cg,
+            _ => self.solver,
+        };
         let v1 = Self::solve(
-            self.solver,
-            &self.pv,
+            solver,
+            (&self.pv, None),
             none,
             (false, false),
             &v2,
