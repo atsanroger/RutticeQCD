@@ -510,6 +510,36 @@ impl HmcConfig {
                     if solver.neff_alpha.is_nan() || solver.neff_alpha <= 0.0 {
                         return invalid(format!("actions[{i}].solver.neff_alpha: positive"));
                     }
+                    // The multigrid of domain-wall fermions: the Ratio action on all sites over
+                    // Pauli-Villars fields, without Neff's α, with GCR on the even sites.
+                    let dwf_multigrid = solver.asks_for(HmcPreconditioner::Multigrid)
+                        && matches!(
+                            a,
+                            ActionConfig::TwoFlavorRatio {
+                                fermion: HmcFermion::DomainWall { .. },
+                                ..
+                            }
+                        );
+                    if dwf_multigrid {
+                        let ActionConfig::TwoFlavorRatio {
+                            denominator,
+                            even_odd,
+                            ..
+                        } = a
+                        else {
+                            unreachable!()
+                        };
+                        if *even_odd || denominator.is_some() || solver.neff_alpha != 1.0 {
+                            return invalid(format!(
+                                "actions[{i}].solver.preconditioner: the multigrid of domain-wall fermions is for the Ratio action on all sites (Lexical) over Pauli-Villars fields, without neff_alpha"
+                            ));
+                        }
+                        if solver.kind != Some(HmcSolverKind::Gcr) {
+                            return invalid(format!(
+                                "actions[{i}].solver.type: gcr with the multigrid of domain-wall fermions"
+                            ));
+                        }
+                    }
                     let (wilson_like, all_sites) = match a {
                         ActionConfig::TwoFlavor {
                             fermion, even_odd, ..
@@ -517,9 +547,10 @@ impl HmcConfig {
                             let _ = even_odd;
                             (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
                         }
-                        ActionConfig::TwoFlavorRatio { fermion, .. } => {
-                            (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
-                        }
+                        ActionConfig::TwoFlavorRatio { fermion, .. } => (
+                            dwf_multigrid || !matches!(fermion, HmcFermion::DomainWall { .. }),
+                            true,
+                        ),
                         _ => unreachable!(),
                     };
                     if let Err(e) =
@@ -545,7 +576,10 @@ impl HmcConfig {
                             "actions[{i}].solver.neff_alpha: for domain-wall fermions"
                         ));
                     }
-                    if domain_wall && !matches!(solver.kind, None | Some(HmcSolverKind::Cg)) {
+                    if domain_wall
+                        && !dwf_multigrid
+                        && !matches!(solver.kind, None | Some(HmcSolverKind::Cg))
+                    {
                         return invalid(format!(
                             "actions[{i}].solver.type: cg for domain-wall fermions (BiCGStab, FGMRES and GCR do not converge on D itself)"
                         ));
@@ -743,7 +777,13 @@ impl HmcConfig {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
                                 let ops = (Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd));
-                                ratio(ops, None, with_alpha(lat, p, solver.neff_alpha), c)
+                                match (
+                                    solver.asks_for(HmcPreconditioner::Multigrid),
+                                    solver.multigrid,
+                                ) {
+                                    (true, Some(mg)) => dwf_multigrid_ratio(ops, mg, c),
+                                    _ => ratio(ops, None, with_alpha(lat, p, solver.neff_alpha), c),
+                                }
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -984,6 +1024,37 @@ fn ratio<O: ForceOp + 'static>(
         a = a.with_conditioned(o);
     }
     Box::new(a)
+}
+
+/// The Ratio action of domain-wall fermions over Pauli-Villars fields with the multigrid in its
+/// solves (`hmc::DwfMultigridSetup`): the aggregates, test vectors and refreshes of `mg`, the
+/// Chebyshev smoother of the solver's `chebyshev` (steps, ratio), each solve on the even sites by
+/// GCR keeping `restart` directions to |r|²/|b|² < 1e-10.
+fn dwf_multigrid_ratio(
+    (op, pv): (Mdwf<f64>, Mdwf<f64>),
+    mg: HmcMultigrid,
+    c: Common,
+) -> Box<dyn MdAction> {
+    use crate::hmc::DwfMultigridSetup;
+    use crate::solver::preconditioner::multigrid::PvEoParams;
+    let s = c.solver;
+    let cycle = PvEoParams {
+        chebyshev_steps: s.chebyshev.steps,
+        chebyshev_ratio: s.chebyshev.ratio,
+        ..PvEoParams::default()
+    };
+    let mut setup = DwfMultigridSetup::new(
+        mg.block,
+        mg.test_vectors,
+        cycle,
+        Stop::simple(1e-10, s.max_iterations),
+    );
+    setup.directions = s.restart;
+    setup.refresh_every = mg.refresh_every;
+    Box::new(
+        TwoFlavorRatio::new(op, pv, c.smearing, c.md, c.h)
+            .with_preconditioner(Preconditioner::DomainWallMultigrid(Box::new(setup))),
+    )
 }
 
 /// Two flavours of the first operator over two of the second, even-odd.
