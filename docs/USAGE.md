@@ -166,10 +166,11 @@ The `Solver` section of a fermion action says how its forces and energies are so
 With `preconditioner_type : MG` the action has a `MultiGrid` section beside its `Solver`: the
 `MultiGrid` section of the propagator files, the same keys and defaults (`MultiGrid_Level1`
 with `block_size`, `number_of_test_vectors` and the coarse solvers, `Setup`, `Smoother`), so a
-multigrid tuned on propagators is copied over as it is. HMC's multigrid is in double precision
-for now: `coarse_precision` and `fine_precision` are refused when they say single; the levels
-below the coarse lattice, `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
-refused too. What only HMC has is in `MultiGrid_HMC`:
+multigrid tuned on propagators is copied over as it is. The domain-wall coarse solves are in
+single precision unless `coarse_precision : double`, as in the propagator files; the rest of
+the cycle is in double precision, and `fine_precision : single` is refused for now, as are the
+levels below the coarse lattice, `basis_precision` and `Setup.checkpoint`, which are not in
+HMC yet. What only HMC has is in `MultiGrid_HMC`:
 
 | `MultiGrid_HMC` key | Values |
 |---|---|

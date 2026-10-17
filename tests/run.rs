@@ -1268,12 +1268,20 @@ Action_F_1:
             &[&["operator_type : PV_left"][..], &mg].concat()
         )
     ));
-    assert!(!ok(
+    assert!(ok(
         wall,
         ratio,
         &with(
             "solver_type : GCR",
             &[&mg[..], &["  coarse_precision : single"]].concat()
+        )
+    ));
+    assert!(!ok(
+        wall,
+        ratio,
+        &with(
+            "solver_type : GCR",
+            &[&mg[..], &["  fine_precision : single"]].concat()
         )
     ));
     assert!(ok(
