@@ -225,7 +225,12 @@ matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor
 $Q$ and changes the conditioning of the even-odd system.
 
 \paragraph{This note.}
-We describe a two-grid method for $A'$. The outer system is the usual even-odd
+We describe a two-grid method for $A'$. It is an adaptive aggregation-based
+multigrid in the sense of Refs.~\cite{Brannick,DDalphaAMG,BridgeMG}: the coarse space
+is built from computed near-null vectors, cut into aggregates, and the coarse
+operators are Galerkin projections of fine operators, not a rediscretization; it
+differs from these methods in that the coarse-grid correction is factorized
+rather than the Galerkin correction of the operator that is solved. The outer system is the usual even-odd
 reduced one, as in HDCG, but the coarse-grid correction is \emph{factorized}: the inverses of the quark
 operator and of the adjoint Pauli--Villars operator are replaced by two
 separate Galerkin inverses, each with a nearest-neighbor coarse stencil and an
