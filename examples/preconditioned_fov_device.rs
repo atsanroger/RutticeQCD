@@ -625,8 +625,8 @@ mod device {
         Ok(())
     }
 
-    /// The points of `--pseudo`: those of every `--contour cx,cy,r,n` (n points on the circle
-    /// |z − (cx + i cy)| = r) and `--points x0,x1,..` on the real axis; without either, the real
+    /// The points of `--pseudo`: those of every `--contour cx,cy,r,n[,k0,k1]` (n points on the
+    /// circle |z − (cx + i cy)| = r, or only points k0..k1 of them) and `--points x0,x1,..` on the real axis; without either, the real
     /// axis at −0.5, 0, 0.25, 0.5, 0.7 and 8 points on |z − 1| = 0.8.
     fn contour_points(args: &[String]) -> Result<Vec<C64>, Box<dyn Error>> {
         let lists = |flag: &str| -> Result<Vec<Vec<f64>>, Box<dyn Error>> {
@@ -649,10 +649,13 @@ mod device {
             contours.push(vec![1.0, 0.0, 0.8, 8.0]);
         }
         for c in contours {
-            let [cx, cy, r, n] = c[..] else {
-                return Err("--contour cx,cy,r,n".into());
+            // `cx,cy,r,n[,k0,k1]`: points k0..k1 of the n (all by default), to resume a run.
+            let (cx, cy, r, n, k0, k1) = match c[..] {
+                [cx, cy, r, n] => (cx, cy, r, n, 0, n as usize),
+                [cx, cy, r, n, k0, k1] => (cx, cy, r, n, k0 as usize, k1 as usize),
+                _ => return Err("--contour cx,cy,r,n[,k0,k1]".into()),
             };
-            for k in 0..n as usize {
+            for k in k0..k1.min(n as usize) {
                 let phi = 2.0 * std::f64::consts::PI * k as f64 / n;
                 points.push(C64::new(cx + r * phi.cos(), cy + r * phi.sin()));
             }
