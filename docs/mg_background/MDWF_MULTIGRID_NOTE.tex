@@ -756,7 +756,13 @@ x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
 d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1},
 \end{equation}
 the last step only updating $x$; $\nu$ steps cost $\nu-1$ applications of
-$\tilde A$. Only a real focal interval is used.
+$\tilde A$. Only a real focal interval is used. The ratio $\kappa_s$ is not derived
+from the operator and has to be chosen for it: the polynomial damps the part of the
+spectrum above $\lambda_{\rm lo}$ and leaves the rest to the coarse correction, and
+too wide or too narrow an interval can make the outer solve stagnate.\ifresults{}
+The two setups of Sec.~\ref{sec:results} need $\kappa_s\approx10$ ($M_5=1$, stout)
+and $\kappa_s\approx30$ ($M_5=1.8$), and each stagnates with the other's
+(Sec.~\ref{sec:sensitivity}).\fi
 
 \subsection{Cycle}
 \begin{algorithm}
@@ -781,15 +787,26 @@ iterations stopped by a residual test, $\mathcal M$ is not a fixed linear map.
 
 The outer iteration solves $\tilde Ay=\rho$ with the cycle as right
 preconditioner, and $\psi$ is reconstructed as in Sec.~\ref{sec:eo}. Since
-$\mathcal M$ varies from one application to the next, flexible methods are the
-ones with a theoretical footing: restarted FGMRES and truncated flexible GCR,
-which keep the preconditioned directions; BiCGStab with the cycle as
-preconditioner is also available but has no flexible counterpart of its
-convergence theory. Block variants treat several right-hand sides together.
+$\mathcal M$ varies from one application to the next, the outer method has to be
+flexible: FGMRES or flexible GCR, which keep the preconditioned directions;
+BiCGStab with the cycle as preconditioner is also available but has no flexible
+counterpart of its convergence theory. Flexibility alone gives no convergence
+guarantee. For a fixed $\mathcal M$, restarted or truncated methods converge for
+every restart length if the field of values of $\tilde A\mathcal M$ lies in the right
+half-plane~\cite{ESS}; otherwise only the full method is covered, by the spectrum
+and the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a
+truncated one can stagnate~\cite{Embree}.\ifresults{} For the present cycle the
+field of values is not in the right half-plane, the pseudospectra do bound the
+full method, and GCR(2) converges only because the coarse solves are inexact
+(Secs.~\ref{sec:fov}--\ref{sec:gcrk}).\fi{} Block variants treat several
+right-hand sides together.
 Convergence is monitored on the even-odd system; the residual of the original
 equation, $\|D\psi-\eta\|/\|\eta\|$, is evaluated with the plain $D$ after
 reconstruction. The reference solver is CG on the normal equation of the
-even-odd operator, which is robust but squares the condition number.
+even-odd operator $\Ce^{-1}S$ (CGNE), which is robust but squares the condition
+number; it runs in double precision or in mixed precision, by defect correction in
+double precision with CG in single precision, each inner solve stopped where the
+outer tolerance is met.
 
 \ifresults
 \input{results}
@@ -805,7 +822,11 @@ The following are questions of theory and algorithm, not findings.
 for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
 that would be needed differs from $\hat t$ by site-local factors (second remark
 of Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
-once, and what is lost by using the right-form basis for the left form, is open.
+once, and what is lost by using the right-form basis for the left form, is open.\ifresults{}
+Numerically the loss is small for the setups of Sec.~\ref{sec:results}: with the
+right-form basis, $\AL\mathcal M$ and $\AR\mathcal M$ have the same spectrum to
+three digits (Table~\ref{tab:spectrum}) and the iterations differ by one to three
+(Table~\ref{tab:gcrk}).\fi
 
 \item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
 Eq.~\eqref{eq:g5herm}, $\Gfive D\Gfive\neq D\dg$ at $O(c)$. MINRES on
@@ -820,7 +841,9 @@ $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
 spectral radius, whereas the setup works with singular values (eigenvalues of
 $\AR\dg\AR$). For a non-normal $\tilde A$ these need not agree. Which part of
 the low end is left to the smoother after the coarse correction, and whether an
-ellipse with complex foci should replace the real interval, are open.
+ellipse with complex foci should replace the real interval, are open.\ifresults{}
+That the choice matters is shown in Table~\ref{tab:sensitivity}: with GCR(2), a
+ratio three times too large or too small stagnates.\fi
 
 \item \textbf{Even-odd smoother and coarse space.} Boyle and
 Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
