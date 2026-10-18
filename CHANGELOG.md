@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `eigen` is one module per method: `lanczos` (the lowest eigenpairs of a Hermitian positive
+  operator, as before), `arnoldi`, `schur`, `transform` (`Shifted`: A − z; `ShiftInvert`: a
+  given solve as (A − σ)⁻¹) and `singular` (`smallest_singular`: σ_min(A) by Lanczos on A†A;
+  `resolvent_norms`: σ_min(z − A) at given points, the norm of the resolvent, for the
+  ε-pseudospectrum and the pseudospectral bound of GMRES). The public names are re-exported from
+  `eigen` unchanged.
 - `eigen::arnoldi`: eigenpairs of a non-Hermitian operator by the Krylov-Schur method
   (Stewart 2001) on any `Vector`, at the end of the spectrum asked for (`Which`: smallest or
   largest real part, largest or smallest magnitude); `eigen::schur`: the complex Schur form of a

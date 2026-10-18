@@ -7,6 +7,7 @@
 //! pairs are checked by |A x − θ x| itself.
 
 use super::schur::{move_to, schur, triangular_eigenvector};
+use super::{combine, dot, norm};
 use crate::{LinearFn, Vector, C64};
 
 /// Which end of the spectrum.
@@ -59,27 +60,6 @@ pub struct NonHermitianPairs<V> {
     /// All the Ritz values of the last projection (`max_dim` of them): a picture of the
     /// spectrum, converged or not.
     pub ritz: Vec<C64>,
-}
-
-fn dot<V: Vector>(a: &V, b: &V) -> C64 {
-    let mut d = [C64::ZERO];
-    a.dot(b, &mut d);
-    d[0]
-}
-
-fn norm<V: Vector>(a: &V) -> f64 {
-    let mut n = [0.0];
-    a.norm_sqr(&mut n);
-    n[0].sqrt()
-}
-
-/// Σ_j basis[j] c[j].
-fn combine<V: Vector>(basis: &[V], c: impl Fn(usize) -> C64) -> V {
-    let mut x = basis[0].zeros_like();
-    for (j, v) in basis.iter().enumerate() {
-        x.axpy(&[c(j)], v);
-    }
-    x
 }
 
 /// `params.wanted` eigenpairs of `a` at the end of the spectrum `params.which`, from the start
