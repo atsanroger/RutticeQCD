@@ -4,6 +4,12 @@
 
 MultiGrid:
   coarse_precision : single
+  # The smoother has to suit the setup (it is not chosen from the operator):
+  #   M5 = 1.0 with stout 0.1 x 3: number_of_steps 8, interval_ratio 10 (the default)
+  #   M5 = 1.8 without smearing:   number_of_steps 12, interval_ratio 30
+  # Smoother:
+  #   number_of_steps : 12
+  #   interval_ratio  : 30
   MultiGrid_Level1:
     block_size             : [4, 4, 4, 4]
     number_of_test_vectors : 32

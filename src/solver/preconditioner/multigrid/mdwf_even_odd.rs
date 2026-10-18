@@ -220,12 +220,15 @@ pub struct PvEoParams {
 }
 
 impl Default for PvEoParams {
-    /// The settings of the 12⁴ and 16⁴ runs in the log: Chebyshev 5 steps on [hi/30, hi],
+    /// The settings of the M5 = 1.0 (stout 0.1 × 3) runs: Chebyshev 8 steps on [hi/10, hi],
     /// coarse solves to 1e-2, the quark factor by BiCGStab, the Pauli-Villars one by MINRES.
+    /// M5 = 1.8 without smearing takes 12 steps on [hi/30, hi]; the smoother is not chosen
+    /// from the operator: with 5 steps on [hi/30, hi] the stout 12⁴ solves at m = 0.001
+    /// stagnate (|r|² about 1e-5 after 2000 GCR(32) steps, 13 with 8 on [hi/10, hi]).
     fn default() -> Self {
         Self {
-            chebyshev_steps: 5,
-            chebyshev_ratio: 30.0,
+            chebyshev_steps: 8,
+            chebyshev_ratio: 10.0,
             coarse_tolerance_sqr: 1e-2,
             coarse_max_iterations: 2000,
             pv_tolerance_sqr: 1e-2,

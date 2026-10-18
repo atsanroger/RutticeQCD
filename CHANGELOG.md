@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The default smoother of the domain-wall multigrid is that of M5 = 1.0 with stout 0.1 × 3:
+  Chebyshev 8 steps on [hi/10, hi] (was 5 on [hi/30, hi], with which the stout 12⁴ solves at
+  m = 0.001 stagnate, |r|² about 1e-5 after 2000 GCR(32) steps; 13 steps with 8 on [hi/10, hi]).
+  M5 = 1.8 without smearing takes 12 on [hi/30, hi]; the smoother is not chosen from the operator,
+  and the example files say so. The Chebyshev preconditioner of the outer solver keeps 5 on
+  [hi/30, hi]. GCR(2) against GCR(32) with the multigrid of the 24³×48 mass scan on 12⁴ at
+  m = 0.001: 14/12 (stout, PV_left), 12/11 (PV_right), 14/13 and 15/14 (M5 1.8); point source
+  15–19 against 13–14.
 - Propagator files: `Solver.precision : mixed` for CGNE (CG on `Normal_left` without a
   preconditioner) on `cuda_bridge`: defect correction in double precision with CG on K†K in
   single precision (K the left Schur factor, on the links of the double operator), each to

@@ -313,20 +313,29 @@ pub struct SourceBlock {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChebyshevBlock {
-    #[serde(default = "cheb_steps")]
+    #[serde(default = "preconditioner_steps")]
     pub number_of_steps: usize,
     /// The polynomial is small on [hi/ratio, hi], hi = 1.1 |λ_max|.
-    #[serde(default = "cheb_ratio")]
+    #[serde(default = "preconditioner_ratio")]
     pub interval_ratio: f64,
 }
 
 impl Default for ChebyshevBlock {
     fn default() -> Self {
         Self {
-            number_of_steps: cheb_steps(),
-            interval_ratio: cheb_ratio(),
+            number_of_steps: preconditioner_steps(),
+            interval_ratio: preconditioner_ratio(),
         }
     }
+}
+
+/// The Chebyshev preconditioner of the outer solver: 5 steps on [hi/30, hi] (the multigrid
+/// smoother has defaults of its own).
+fn preconditioner_steps() -> usize {
+    5
+}
+fn preconditioner_ratio() -> f64 {
+    30.0
 }
 
 #[derive(Debug, Clone, Deserialize)]
