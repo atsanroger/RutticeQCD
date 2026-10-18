@@ -351,6 +351,63 @@ B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
 No run shows a plateau (Table~\ref{tab:history}); the first step reduces $|r|^2$ by
 about $10^{-5}$ in every run.
 
+\subsection{$\Gfive$-Hermiticity for $c\neq0$}
+\label{sec:herm}
+
+\begin{table}[t]
+\centering
+\caption{$\delta(v)=\|\Sigma X\Sigma v-X\dg v\|/\|X\dg v\|$ for the coarse operators
+$X=\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\Pro$, $X\dg$ the exact adjoint, $\Sigma$ the coarse
+$\Gfive$; $b=1+c$, $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
+components; $12^4$: $4^4$, 64). Random $v$ (four) and the right singular vectors of the four
+smallest singular values. \texttt{examples/coarse\_hermiticity}. $^*$Lanczos on $X\dg X$ not
+converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vectors.}
+\label{tab:herm}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{$\Pro\dg D\Pro$} & \multicolumn{2}{c}{$\Pro\dg\Dpv\Pro$}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & random & low & random & low\\
+\midrule
+$4^3\times8$, $M_5=1$, $c=0$ & $3.8\times10^{-16}$ & $9\times10^{-16}$ & $4.0\times10^{-16}$ & $9\times10^{-16}$\\
+$4^3\times8$, $M_5=1$, $c=0.5$ & $0.041$ & $0.065$--$0.074$ & $0.050$ & $0.090$--$0.095$\\
+$12^4$ S, $c=0.25$ & $0.012$ & $0.034$--$0.050^*$ & $0.030$ & $0.023$--$0.031$\\
+$12^4$ S, $c=0.5$ & $0.023$ & $0.067$--$0.099^*$ & $0.053$ & $0.041$--$0.054$\\
+$12^4$ B, $c=0.5$ & $0.030$ & $0.140$--$0.146$ & $0.055$ & $0.053$--$0.066$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations (coarse applications) with the Pauli--Villars factor solved
+by MINRES on $\Hc$, which assumes $\delta=0$, or by BiCGStab on the exact adjoint, both to
+$10^{-2}$; $12^4$, $m=0.001$, $\AL$, otherwise Table~\ref{tab:setups}.}
+\label{tab:minres}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{$c=0.5$, $b=1.5$} & \multicolumn{2}{c}{$c=0$, $b=1$}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & MINRES & BiCGStab & MINRES & BiCGStab\\
+\midrule
+setup S & $14$ ($3098$) & $373$ ($192892$) & $13$ ($3061$) & $24$ ($7276$)\\
+setup B & $14$ ($2351$) & $19$ ($3876$) & $15$ ($2103$) & $28$ ($3540$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For $c=0$ the coarse operators are $\Sigma$-Hermitian to rounding; for $c\neq0$ they
+are not, by a few per cent in random directions and up to $14\%$ in the
+directions of the smallest singular values, growing linearly with $c$
+(Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. This does not hurt the
+method: MINRES on $\Hc$ for the Pauli--Villars factor needs the same outer iterations
+at $c=0.5$ as at $c=0$, where it is exact, and it is better than BiCGStab on the
+exact adjoint in every case (Table~\ref{tab:minres}); with BiCGStab the stout setup
+nearly stagnates. The non-Hermitian part of $\Hc$ is small enough for MINRES stopped
+at $10^{-2}$; why BiCGStab is so much worse, also at $c=0$, has not been studied.
+
 \subsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
 

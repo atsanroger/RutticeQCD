@@ -834,7 +834,11 @@ $\Hc=\Dcpv\Sigma$, the absolute-value block preconditioner (built from the
 Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoint
 in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
 operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
-the non-Hermitian part is on the coarse space, and how to treat it, is open.
+the non-Hermitian part is on the coarse space, and how to treat it, is open.\ifresults{}
+On the coarse space it is a few per cent, up to $14\%$ in the lowest singular
+directions, linear in $c$; MINRES on $\Hc$ is nevertheless as effective at
+$c=0.5$ as at $c=0$ (Sec.~\ref{sec:herm}). Its effect on the other components
+listed here has not been measured separately.\fi
 
 \item \textbf{Smoother interval for a non-normal operator.} The interval
 $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
