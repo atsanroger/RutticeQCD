@@ -503,30 +503,53 @@ mod device {
         }
         if let Some(c) = far_from {
             // The eigenvalues of Ã M − c of largest magnitude: every other eigenvalue of Ã M is
-            // in the disc around c through the last of them.
-            let fl = arnoldi(
+            // in the disc around c through the last of them. The left eigenvectors from
+            // (Ã M)† − c̄ give the condition numbers 1/|y†x| (‖P‖ of the spectral projector,
+            // what an outlier deflated by the GMRES polynomial costs in the bound).
+            let far = ArnoldiParams {
+                wanted: 4,
+                which: Which::LargestMagnitude,
+                ..params
+            };
+            let right = arnoldi(
                 &mut ruttice::eigen::Shifted {
                     a: Apply(&mut pair, false),
                     z: c,
                 },
                 x0,
-                ArnoldiParams {
-                    wanted: 4,
-                    which: Which::LargestMagnitude,
-                    ..params
-                },
+                far,
             );
-            for (k, theta) in fl.values.iter().enumerate() {
+            let left = arnoldi(
+                &mut ruttice::eigen::Shifted {
+                    a: Apply(&mut pair, true),
+                    z: c.conj(),
+                },
+                x0,
+                far,
+            );
+            for (k, (theta, x)) in right.values.iter().zip(&right.vectors).enumerate() {
                 let lambda = *theta + c;
+                let j = (0..left.values.len())
+                    .min_by(|&p, &q| {
+                        (left.values[p].conj() - *theta)
+                            .norm_sqr()
+                            .total_cmp(&(left.values[q].conj() - *theta).norm_sqr())
+                    })
+                    .expect("left pairs");
+                let mut d = [C64::ZERO];
+                left.vectors[j].dot(x, &mut d);
                 println!(
-                    "arnoldi   largest |lambda - ({:+.3} {:+.3}i)| = {:.6e}: lambda = {:+.6e} {:+.6e}i  (|A x - l x| {:.1e}, converged {})",
+                    "arnoldi   largest |lambda - ({:+.3} {:+.3}i)| = {:.6e}: lambda = {:+.6e} {:+.6e}i  (|A x - l x| {:.1e}, converged {} {}; kappa = 1/|y^dag x| = {:.3e}, left value off by {:.1e})",
                     c.re,
                     c.im,
                     theta.norm_sqr().sqrt(),
                     lambda.re,
                     lambda.im,
-                    fl.residuals[k],
-                    fl.converged
+                    right.residuals[k],
+                    right.converged,
+                    left.converged,
+                    1.0 / d[0].norm_sqr().sqrt(),
+                    (left.values[j].conj() - *theta).norm_sqr().sqrt()
                 );
             }
         }
