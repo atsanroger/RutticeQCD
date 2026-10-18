@@ -58,6 +58,7 @@ impl SingleNormal<DeviceSpinor<f64>, DeviceLinks> for SingleCuda {
         &mut self,
         e: &mut DeviceSpinor<f64>,
         r: &DeviceSpinor<f64>,
+        tolerance_sqr: f64,
         max_iterations: usize,
     ) -> usize {
         let (lat, ls) = (r.lat.clone(), self.op.params().ls);
@@ -70,7 +71,7 @@ impl SingleNormal<DeviceSpinor<f64>, DeviceLinks> for SingleCuda {
         let mut r32 = like.zeros_with(r.num_vectors());
         r32.convert_from(r);
         let mut e32 = r32.zeros_like();
-        let stop = Stop::simple(self.tolerance_sqr, max_iterations);
+        let stop = Stop::simple(self.tolerance_sqr.max(tolerance_sqr), max_iterations);
         let info = match self.even_odd {
             false => {
                 let mut d = Bound::new(&self.op, Variant::D);

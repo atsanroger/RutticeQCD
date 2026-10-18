@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Mixed precision (CGNE in propagator files and the HMC solves): each inner CG in single
+  precision stops where the outer tolerance is met (half of it relative to the residual it starts
+  from), or at the inner tolerance if that comes first. Before, every inner solve went to the
+  inner tolerance and the last overshot: on 24³×48 the solves ended at |Dx−b|² 1e-19 to 1e-26
+  against a target of 1e-18, with 1.2–1.9 times the iterations of double precision. The
+  SingleNormal::normal of the inner solves takes the tolerance.
 - The default smoother of the domain-wall multigrid is that of M5 = 1.0 with stout 0.1 × 3:
   Chebyshev 8 steps on [hi/10, hi] (was 5 on [hi/30, hi], with which the stout 12⁴ solves at
   m = 0.001 stagnate, |r|² about 1e-5 after 2000 GCR(32) steps; 13 steps with 8 on [hi/10, hi]).

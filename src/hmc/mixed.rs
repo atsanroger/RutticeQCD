@@ -16,9 +16,10 @@ use std::sync::Arc;
 pub trait SingleNormal<V, L> {
     /// Takes the links the operator of the action has now.
     fn set_links(&mut self, links: &L);
-    /// e ≈ (A†A)⁻¹ r by CG in single precision from zero, to the tolerance of the inner solves;
-    /// its iterations.
-    fn normal(&mut self, e: &mut V, r: &V, max_iterations: usize) -> usize;
+    /// e ≈ (A†A)⁻¹ r by CG in single precision from zero, to |r − A†A e|²/|r|² below
+    /// `tolerance_sqr` or the tolerance of the inner solves, whichever is larger; its
+    /// iterations.
+    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize;
 }
 
 /// The domain-wall operator in single precision, D (or Neff's D Q) on all sites, CG on D†D to
@@ -43,7 +44,7 @@ impl<G: GammaRepre> SingleNormal<Psi, Field<f64, Gauge>> for SingleMdwf<G> {
             .expect("the links suit the operator");
     }
 
-    fn normal(&mut self, e: &mut Psi, r: &Psi, max_iterations: usize) -> usize {
+    fn normal(&mut self, e: &mut Psi, r: &Psi, tolerance_sqr: f64, max_iterations: usize) -> usize {
         let mut r32 = Field::<f32, Spinor>::with_shape(
             r.lattice(),
             24,
@@ -54,7 +55,7 @@ impl<G: GammaRepre> SingleNormal<Psi, Field<f64, Gauge>> for SingleMdwf<G> {
         r32.convert_from(r);
         let mut e32 = r32.zeros_like();
         let mut d = Bound::new(&self.op, Variant::D);
-        let stop = Stop::simple(self.tolerance_sqr, max_iterations);
+        let stop = Stop::simple(self.tolerance_sqr.max(tolerance_sqr), max_iterations);
         let iterations =
             iterations(Cg::new(stop).solve(&mut Normal::new(&mut d, &r32), None, &mut e32, &r32));
         e.convert_from(&e32);
@@ -85,7 +86,13 @@ impl<G: GammaRepre> SingleNormal<HalfPsi, Field<f64, Gauge>> for SingleMdwfEo<G>
             .expect("the links suit the operator");
     }
 
-    fn normal(&mut self, e: &mut HalfPsi, r: &HalfPsi, max_iterations: usize) -> usize {
+    fn normal(
+        &mut self,
+        e: &mut HalfPsi,
+        r: &HalfPsi,
+        tolerance_sqr: f64,
+        max_iterations: usize,
+    ) -> usize {
         let mut r32 = Field::<f32, Spinor, Half>::with_shape(
             r.lattice(),
             24,
@@ -99,7 +106,7 @@ impl<G: GammaRepre> SingleNormal<HalfPsi, Field<f64, Gauge>> for SingleMdwfEo<G>
         odd.set_parity(Parity::Odd);
         let mut e32 = r32.zeros_like();
         let mut k = SchurFactor::new(&self.op, EoForm::Left, &r32, &odd);
-        let stop = Stop::simple(self.tolerance_sqr, max_iterations);
+        let stop = Stop::simple(self.tolerance_sqr.max(tolerance_sqr), max_iterations);
         let iterations =
             iterations(Cg::new(stop).solve(&mut Normal::new(&mut k, &r32), None, &mut e32, &r32));
         e.convert_from(&e32);
@@ -117,7 +124,10 @@ fn iterations(info: Result<SolveInfo, SolveError>) -> usize {
 
 /// A†A x = b by defect correction: e = (A†A)⁻¹ r in single precision on the residual r of
 /// double precision, until |r|²/|b|² < `stop.tolerance_sqr` (at most `stop.max_restarts` + 1
-/// residuals). `x` holds the initial guess; the iterations are those of the inner CG.
+/// residuals). Each inner solve goes no further than the outer tolerance needs (half of it
+/// relative to the residual it starts from), or to the inner tolerance where that is reached
+/// first, so that the last one does not overshoot. `x` holds the initial guess; the iterations
+/// are those of the inner CG.
 pub fn mixed_normal<V: Vector, L>(
     a: &mut dyn LinearOp<V>,
     single: &mut dyn SingleNormal<V, L>,
@@ -149,7 +159,9 @@ pub fn mixed_normal<V: Vector, L>(
         if sweep == stop.max_restarts {
             break;
         }
-        info.iterations += single.normal(&mut e, &r, stop.max_iterations);
+        let worst = info.residual_sqr.iter().fold(0.0f64, |m, r| m.max(*r));
+        let needed = (0.5 * stop.tolerance_sqr / worst).min(1e-2);
+        info.iterations += single.normal(&mut e, &r, needed, stop.max_iterations);
         x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
     }
     Err(SolveError::NotConverged(info))
