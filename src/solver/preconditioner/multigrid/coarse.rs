@@ -426,7 +426,7 @@ impl<T: Storage> CoarseOp<T> {
     }
 
     /// Γ5 on the coarse lattice: +1 on the first half of the components, -1 on the second.
-    pub(super) fn gamma5(&self, v: &mut Field<T, Coarse>) {
+    pub fn gamma5(&self, v: &mut Field<T, Coarse>) {
         let dim = self.dim;
         let site_len = v.site_len();
         for_sites(v.slab_mut(0), site_len, |_, s| {
