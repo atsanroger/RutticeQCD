@@ -29,7 +29,7 @@ use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::Aggregation;
 use crate::solver::{BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop};
 use crate::{
-    random_spinor, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
+    random_fifth, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
 };
 use std::cell::Cell;
 use std::error::Error;
@@ -38,8 +38,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
-
-type F = Field<f64, Spinor>;
 
 /// With `RUTTICE_CHECKSUM` set, a line with the checksum of what a stage of the run made, to
 /// compare runs bit by bit and find where they part.
@@ -132,14 +130,6 @@ impl<T: DeviceReal> Operators<T> {
             .ok_or("the plain operators were not made")?;
         Ok((d, self.plain_pv.as_ref().unwrap_or(d)))
     }
-}
-
-/// A random field with `ls` spinors per site.
-fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> F {
-    let mut b = F::with_shape(lat, 24, ls, 1, 1);
-    b.as_mut_slice()
-        .copy_from_slice(random_spinor(lat, ls, seed).as_slice());
-    b
 }
 
 /// The vectors on the even sites the multigrid is built from: from a checkpoint, or filtered

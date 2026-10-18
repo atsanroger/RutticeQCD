@@ -3,52 +3,23 @@
 //! on Wilson, clover and domain-wall fermions, printed as a table.
 
 use super::params::{EigenParams, EigensolverType, MultMode};
-use super::{gauge_file, CliError};
+use super::CliError;
 use crate::eigen::{arnoldi, lanczos};
 use crate::fermion::{
     Bound, Clover, CloverParams, EoForm, FermionOp, Mdwf, PvEvenOdd, Variant, Wilson, WilsonParams,
 };
-use crate::field::random::TestRng;
 use crate::kernel::Dirac;
 use crate::solver::preconditioner::multigrid::random_even;
 use crate::{
-    random_spinor, Comm, Field, Gauge, Lattice, Lexical, LinearFn, LinearOp, Normal, Parity,
-    Spinor, Vector, C64, ND,
+    random_fifth, random_spinor, Adjoint, Comm, Lattice, LinearOp, Normal, Parity, Vector, C64, ND,
 };
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// An operator with its adjoint behind a pointer.
-struct Dyn<'a, V>(Box<dyn LinearOp<V> + 'a>);
-
-impl<V: Vector> LinearFn<V> for Dyn<'_, V> {
-    fn mult(&mut self, out: &mut V, inp: &V) {
-        self.0.mult(out, inp);
-    }
-}
-
-impl<V: Vector> LinearOp<V> for Dyn<'_, V> {
-    fn mult_dag(&mut self, out: &mut V, inp: &V) {
-        self.0.mult_dag(out, inp);
-    }
-}
-
-/// A†.
-struct Adjoint<A>(A);
-
-impl<V: Vector, A: LinearOp<V>> LinearFn<V> for Adjoint<A> {
-    fn mult(&mut self, out: &mut V, inp: &V) {
-        self.0.mult_dag(out, inp);
-    }
-}
-
-impl<V: Vector, A: LinearOp<V>> LinearOp<V> for Adjoint<A> {
-    fn mult_dag(&mut self, out: &mut V, inp: &V) {
-        self.0.mult(out, inp);
-    }
-}
+/// An operator with its adjoint.
+type Dyn<'a, V> = Box<dyn LinearOp<V> + 'a>;
 
 /// The operator of the mode made of `d` (`h`: γ5 D, when the mode is H).
 fn of_mode<'a, V: Vector + 'a>(
@@ -57,13 +28,13 @@ fn of_mode<'a, V: Vector + 'a>(
     h: Option<Box<dyn LinearOp<V> + 'a>>,
     like: &V,
 ) -> Dyn<'a, V> {
-    Dyn(match mode {
+    match mode {
         MultMode::D => Box::new(d),
         MultMode::Ddag => Box::new(Adjoint(d)),
         MultMode::DdagD => Box::new(Normal::new(d, like)),
         MultMode::DDdag => Box::new(Normal::new(Adjoint(d), like)),
         MultMode::H => h.expect("H is refused where it is not defined"),
-    })
+    }
 }
 
 /// One eigenpair as printed.
@@ -82,10 +53,11 @@ struct Found {
 }
 
 fn solve<V: Vector>(p: &EigenParams, a: &mut Dyn<'_, V>, start: &V) -> Found {
+    let mut a: &mut dyn LinearOp<V> = a.as_mut();
     let e = &p.eigensolver;
     match e.eigensolver_type {
         EigensolverType::Lanczos => {
-            let r = lanczos(a, start, e.lanczos());
+            let r = lanczos(&mut a, start, e.lanczos());
             Found {
                 rows: r
                     .values
@@ -103,7 +75,7 @@ fn solve<V: Vector>(p: &EigenParams, a: &mut Dyn<'_, V>, start: &V) -> Found {
             }
         }
         EigensolverType::Arnoldi => {
-            let r = arnoldi(a, start, e.arnoldi());
+            let r = arnoldi(&mut a, start, e.arnoldi());
             Found {
                 rows: r
                     .values
@@ -121,23 +93,6 @@ fn solve<V: Vector>(p: &EigenParams, a: &mut Dyn<'_, V>, start: &V) -> Found {
             }
         }
     }
-}
-
-/// Five-dimensional random spinors: the spinors of `ls` slices on every site drawn in the
-/// order of the whole lattice (`random_spinor` with `ls` reals × 24 per site).
-fn random_five(lat: &Arc<Lattice>, ls: usize, seed: u64) -> Field<f64, Spinor, Lexical> {
-    let mut x = Field::<f64, Spinor, Lexical>::with_shape(lat, 24, ls, 1, 1);
-    let mut rng = TestRng::new(seed);
-    let mut reals = vec![0.0; x.site_len()];
-    for global in 0..lat.num_global_sites() {
-        for r in reals.iter_mut() {
-            *r = rng.uniform();
-        }
-        if let Some(site) = lat.local_site(lat.global_site_coords(global)) {
-            x.site_mut(0, site).copy_from_slice(&reals);
-        }
-    }
-    x
 }
 
 /// Run an eigensolver file on the processes of `comm`; only rank 0 should be given a real
@@ -158,26 +113,7 @@ pub fn run_on(
     let requested = (p.main.grid_size != [1; ND]).then_some(p.main.grid_size);
     let grid = super::grid_for(size, requested, comm.size())?;
     let lat = Lattice::new(size, grid, comm);
-    let format = super::config::GaugeFormat::from(p.gauge.gauge_config_type_input);
-    let u: Field<f64, Gauge> = gauge_file(format)?
-        .read(&relative(&p.gauge.config_filename_input), &lat)
-        .map_err(CliError::Gauge)?;
-    let u = match &p.gauge_smearing {
-        None => u,
-        Some(g) => {
-            let st = crate::Stencil::nearest(&lat, [crate::Boundary::Periodic; ND]);
-            let v = g.to_config().smearing().apply(&u);
-            writeln!(
-                out,
-                "gauge smearing {:?}: plaquette {:.15} → {:.15}",
-                g.to_config(),
-                crate::gauge::plaquette(&u, &st),
-                crate::gauge::plaquette(&v, &st)
-            )
-            .map_err(run)?;
-            v
-        }
-    };
+    let u = super::load_links(&lat, &p.gauge, p.gauge_smearing.as_ref(), file, out)?;
     let e = &p.eigensolver;
     let f = &p.fopr;
     let mode = e.fermion_mult_mode;
@@ -193,7 +129,7 @@ pub fn run_on(
             let d = make(f.mass(), f.neff_alpha)?;
             match e.operator() {
                 crate::app::params::OperatorType::Lexical => {
-                    let x0 = random_five(&lat, f.ls(), e.seed);
+                    let x0 = random_fifth(&lat, f.ls(), e.seed);
                     let h: Box<dyn LinearOp<_>> = Box::new(Bound::new(&d, Variant::Gamma5D));
                     let mut a = of_mode(mode, Bound::new(&d, Variant::D), Some(h), &x0);
                     solve(p, &mut a, &x0)

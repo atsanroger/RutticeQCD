@@ -3,7 +3,7 @@
 //! These random numbers only build inputs for tests and checks. They are not the
 //! generators of the physics code and make no attempt to match any other program.
 
-use crate::{Field, Lattice, Spinor};
+use crate::{Field, Lattice, Lexical, Spinor};
 use std::sync::Arc;
 
 /// SplitMix64.
@@ -24,6 +24,15 @@ impl TestRng {
     pub fn uniform(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 / (1u64 << 52) as f64 - 1.0
     }
+}
+
+/// A five-dimensional spinor field, `ls` spinors per site, every real uniform in (-1, 1): the
+/// reals of `random_spinor(lat, ls, seed)` in the shape of one field with `ls` slices.
+pub fn random_fifth(lat: &Arc<Lattice>, ls: usize, seed: u64) -> Field<f64, Spinor, Lexical> {
+    let mut b = Field::<f64, Spinor, Lexical>::with_shape(lat, 24, ls, 1, 1);
+    b.as_mut_slice()
+        .copy_from_slice(random_spinor(lat, ls, seed).as_slice());
+    b
 }
 
 /// `num_vectors` spinor fields with every real uniform in (-1, 1). The numbers are drawn in the

@@ -398,6 +398,40 @@ mod device {
         }
     }
 
+    /// M and M† (D and D_PV exchanged on the same P, the same top of the smoother's interval)
+    /// of the exact cycle, rebuilt from the coarse parts.
+    fn exact_cycles<'a>(
+        (d, pv): (&'a CudaMdwf<f64>, &'a CudaMdwf<f64>),
+        (even, odd): (&'a V, &'a V),
+        lat: &std::sync::Arc<Lattice>,
+        (parts, parts_dag): (&DeviceParts<f64>, &DeviceParts<f64>),
+        (exact, hi): (PvEoParams, f64),
+    ) -> Result<(DeviceCycle<'a, f64>, DeviceCycle<'a, f64>), Box<dyn Error>> {
+        let correction = |p: &DeviceParts<f64>, a, b| {
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
+        };
+        let (mut cm, mut cm_dag) = (correction(parts, d, pv)?, correction(parts_dag, pv, d)?);
+        let m = two_grid(
+            (d, pv),
+            form(),
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm.correct(e, r)),
+            Some(hi),
+        )?;
+        let m_dag = two_grid(
+            (pv, d),
+            form(),
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm_dag.correct(e, r)),
+            Some(hi),
+        )?;
+        Ok((m, m_dag))
+    }
+
     /// The spectrum of Ã M by the Krylov-Schur method: the eigenvalues of smallest real part
     /// with the condition number 1/|y† x| of each (x and y the right and left eigenvectors,
     /// y from M† Ã†), the eigenvalue of largest magnitude, and where the Ritz values of the last
@@ -411,28 +445,8 @@ mod device {
         (x0, dim, tol, far_from): (&V, usize, f64, Option<C64>),
     ) -> Result<(), Box<dyn Error>> {
         use ruttice::eigen::{arnoldi, ArnoldiParams, Which};
-        let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
-        };
-        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
-        let mut m = two_grid(
-            (d, pv),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm.correct(e, r)),
-            Some(hi),
-        )?;
-        let mut m_dag = two_grid(
-            (pv, d),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm_dag.correct(e, r)),
-            Some(hi),
-        )?;
+        let (mut m, mut m_dag) =
+            exact_cycles((d, pv), (even, odd), lat, (&parts, &parts_dag), (exact, hi))?;
         let mut pair = product(
             (d, pv),
             (even, odd),
@@ -578,28 +592,8 @@ mod device {
         (x0, lanczos, points): (&V, LanczosParams, Vec<C64>),
     ) -> Result<(), Box<dyn Error>> {
         use ruttice::eigen::resolvent_norms;
-        let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
-        };
-        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
-        let mut m = two_grid(
-            (d, pv),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm.correct(e, r)),
-            Some(hi),
-        )?;
-        let mut m_dag = two_grid(
-            (pv, d),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm_dag.correct(e, r)),
-            Some(hi),
-        )?;
+        let (mut m, mut m_dag) =
+            exact_cycles((d, pv), (even, odd), lat, (&parts, &parts_dag), (exact, hi))?;
         let mut pair = product(
             (d, pv),
             (even, odd),
@@ -790,25 +784,8 @@ mod device {
             Box::new(move |o, i| e.correct(o, i)),
             Box::new(move |o, i| e_dag.correct(o, i)),
         );
-        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
-        let mut m = two_grid(
-            (d, pv),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm.correct(e, r)),
-            Some(hi),
-        )?;
-        let mut m_dag = two_grid(
-            (pv, d),
-            form(),
-            (even, odd),
-            lat,
-            exact,
-            Box::new(move |e, r| cm_dag.correct(e, r)),
-            Some(hi),
-        )?;
+        let (mut m, mut m_dag) =
+            exact_cycles((d, pv), (even, odd), lat, (&parts, &parts_dag), (exact, hi))?;
         let mut with_m = product(
             (d, pv),
             (even, odd),

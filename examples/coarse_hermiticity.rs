@@ -71,12 +71,9 @@ fn defect(x: &mut CoarseOp<f64>, v: &V) -> f64 {
 
 fn random_like(like: &V, seed: u64) -> V {
     let mut v = like.zeros_like();
-    let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let mut rng = ruttice::TestRng::new(seed);
     for r in v.as_mut_slice() {
-        s ^= s << 13;
-        s ^= s >> 7;
-        s ^= s << 17;
-        *r = (s >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+        *r = rng.uniform();
     }
     v
 }

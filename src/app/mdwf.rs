@@ -293,30 +293,18 @@ pub fn run_on(
     out: &mut dyn Write,
     comm: Arc<dyn Comm>,
 ) -> Result<(), Box<dyn Error>> {
-    let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
     let size = params.main.lattice_size;
     let requested = (params.main.grid_size != [1; ND]).then_some(params.main.grid_size);
     let grid = super::grid_for(size, requested, comm.size())?;
     let lat = Lattice::new(size, grid, comm);
-    let format = super::config::GaugeFormat::from(params.gauge.gauge_config_type_input);
-    let u =
-        super::gauge_file(format)?.read(&relative(&params.gauge.config_filename_input), &lat)?;
     // Gauge smearing: the operators are made of the smeared links.
-    let u = match &params.gauge_smearing {
-        None => u,
-        Some(g) => {
-            let st = crate::Stencil::nearest(&lat, [crate::Boundary::Periodic; ND]);
-            let v = g.to_config().smearing().apply(&u);
-            writeln!(
-                out,
-                "gauge smearing {:?}: plaquette {:.15} → {:.15}",
-                g.to_config(),
-                crate::gauge::plaquette(&u, &st),
-                crate::gauge::plaquette(&v, &st)
-            )?;
-            v
-        }
-    };
+    let u = super::load_links(
+        &lat,
+        &params.gauge,
+        params.gauge_smearing.as_ref(),
+        file,
+        out,
+    )?;
     match (params.main.backend, params.main.simd_lanes) {
         (Backend::Simd, 2) => run_in::<Aosoa<2>>(params, file, &lat, &u, seeds, out),
         (Backend::Simd, 4) => run_in::<Aosoa<4>>(params, file, &lat, &u, seeds, out),

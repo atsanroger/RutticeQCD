@@ -148,6 +148,40 @@ pub fn read_gauge_named(
     gauge_file(format)?.read(path, lat).map_err(CliError::Gauge)
 }
 
+/// The links of a parameter file: those of `gauge` (relative to the directory of `file`), smeared
+/// as `smearing` says, with the plaquette before and after printed to `out`.
+pub(crate) fn load_links(
+    lat: &Arc<Lattice>,
+    gauge: &params::GaugeBlock,
+    smearing: Option<&params::GaugeSmearingBlock>,
+    file: &Path,
+    out: &mut dyn Write,
+) -> Result<Field<f64, Gauge>, CliError> {
+    let path = file
+        .parent()
+        .map_or(gauge.config_filename_input.clone(), |d| {
+            d.join(&gauge.config_filename_input)
+        });
+    let format = GaugeFormat::from(gauge.gauge_config_type_input);
+    let u = gauge_file(format)?
+        .read(&path, lat)
+        .map_err(CliError::Gauge)?;
+    let Some(g) = smearing else {
+        return Ok(u);
+    };
+    let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
+    let v = g.to_config().smearing().apply(&u);
+    writeln!(
+        out,
+        "gauge smearing {:?}: plaquette {:.15} → {:.15}",
+        g.to_config(),
+        plaquette(&u, &st),
+        plaquette(&v, &st)
+    )
+    .map_err(|e| CliError::Run(e.to_string()))?;
+    Ok(v)
+}
+
 /// The reader and writer of the gauge-field format `f`.
 pub(crate) fn gauge_file(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
     Ok(match f {
