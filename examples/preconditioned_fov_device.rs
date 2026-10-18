@@ -12,6 +12,9 @@
 //!     [--coarse T] [--tol T] [--dim D] [--parts]
 //! ```
 //!
+//! `--arnoldi`: the eigenvalues of Ã M of smallest real part by the Krylov-Schur method, with
+//! their condition numbers (the left eigenvectors from M† Ã†), and that of largest magnitude.
+//!
 //! `--parts`: the smoother S and the coarse correction E apart as well, the field of values and
 //! ‖I − Ã X‖₂ of Ã S, Ã E and Ã M (I − Ã M = (I − Ã S)(I − Ã E)(I − Ã S)), and the vector at
 //! λ_min of the Hermitian part of Ã M: its part in the range of P and its Rayleigh quotients.
@@ -311,6 +314,16 @@ mod device {
                 if ends[0].0 < 0.0 { "  lambda_min < 0" } else { "  in the right half plane" }
             );
         }
+        if args.iter().any(|a| a == "--arnoldi") {
+            spectrum(
+                (d, pv),
+                (&even, &odd),
+                &lat,
+                (parts.clone(), parts_dag.clone()),
+                (exact, hi),
+                (&x0, dim.max(32), tol),
+            )?;
+        }
         if args.iter().any(|a| a == "--parts") {
             let x = lowest_of_am.ok_or("the vector at lambda_min of A~ M")?;
             dissect(
@@ -322,6 +335,139 @@ mod device {
                 (exact, hi),
                 (&x0, &x, lanczos),
             )?;
+        }
+        Ok(())
+    }
+
+    /// B (or B†) of a pair as an operator.
+    struct Apply<'p, 'a>(&'p mut Pair<'a>, bool);
+
+    impl LinearFn<V> for Apply<'_, '_> {
+        fn mult(&mut self, out: &mut V, inp: &V) {
+            match self.1 {
+                false => (self.0.b)(out, inp),
+                true => (self.0.b_dag)(out, inp),
+            }
+        }
+    }
+
+    /// The spectrum of Ã M by the Krylov-Schur method: the eigenvalues of smallest real part
+    /// with the condition number 1/|y† x| of each (x and y the right and left eigenvectors,
+    /// y from M† Ã†), the eigenvalue of largest magnitude, and where the Ritz values of the last
+    /// projection lie.
+    fn spectrum(
+        (d, pv): (&CudaMdwf<f64>, &CudaMdwf<f64>),
+        (even, odd): (&V, &V),
+        lat: &std::sync::Arc<Lattice>,
+        (parts, parts_dag): (DeviceParts<f64>, DeviceParts<f64>),
+        (exact, hi): (PvEoParams, f64),
+        (x0, dim, tol): (&V, usize, f64),
+    ) -> Result<(), Box<dyn Error>> {
+        use ruttice::eigen::{arnoldi, ArnoldiParams, Which};
+        let correction = |p: &DeviceParts<f64>, a, b| {
+            DeviceCorrection::<f64, f64>::from_parts(
+                p.clone(),
+                (a, b),
+                (a, b),
+                EoForm::Right,
+                exact,
+                even,
+            )
+        };
+        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
+        let mut m = two_grid(
+            (d, pv),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut m_dag = two_grid(
+            (pv, d),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm_dag.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut pair = product(
+            (d, pv),
+            (even, odd),
+            Box::new(|o, i| m.mult(o, i)),
+            Box::new(|o, i| m_dag.mult(o, i)),
+        );
+        let params = ArnoldiParams {
+            wanted: 6,
+            keep: 12,
+            max_dim: dim,
+            tolerance: tol.min(1e-6),
+            max_restarts: 400,
+            which: Which::SmallestReal,
+        };
+        let t = Instant::now();
+        let right = arnoldi(&mut Apply(&mut pair, false), x0, params);
+        let left = arnoldi(&mut Apply(&mut pair, true), x0, params);
+        println!(
+            "arnoldi A~ M, smallest real parts (converged {} {}, {} + {} restarts, {} applications, {:.0} s):",
+            right.converged,
+            left.converged,
+            right.restarts,
+            left.restarts,
+            right.applications + left.applications,
+            t.elapsed().as_secs_f64()
+        );
+        for (k, (theta, x)) in right.values.iter().zip(&right.vectors).enumerate() {
+            // The left eigenvector: that of M† Ã† for the conjugate eigenvalue.
+            let j = (0..left.values.len())
+                .min_by(|&p, &q| {
+                    (left.values[p].conj() - *theta)
+                        .norm_sqr()
+                        .total_cmp(&(left.values[q].conj() - *theta).norm_sqr())
+                })
+                .expect("left pairs");
+            let mut d = [C64::ZERO];
+            left.vectors[j].dot(x, &mut d);
+            let mismatch = (left.values[j].conj() - *theta).norm_sqr().sqrt();
+            println!(
+                "arnoldi   lambda_{k} = {:+.6e} {:+.6e}i  |A x - l x| {:.1e}  kappa = 1/|y^dag x| = {:.3e}  (left value off by {:.1e})",
+                theta.re,
+                theta.im,
+                right.residuals[k],
+                1.0 / d[0].norm_sqr().sqrt(),
+                mismatch
+            );
+        }
+        let far = right
+            .ritz
+            .iter()
+            .map(|z| (*z - C64::new(1.0, 0.0)).norm_sqr().sqrt())
+            .fold(0.0f64, f64::max);
+        let leftmost = right
+            .ritz
+            .iter()
+            .map(|z| z.re)
+            .fold(f64::INFINITY, f64::min);
+        println!(
+            "arnoldi   Ritz values of the last projection ({}): Re >= {leftmost:+.4e}, |theta - 1| <= {far:.4e}",
+            right.ritz.len()
+        );
+        let lm = arnoldi(
+            &mut Apply(&mut pair, false),
+            x0,
+            ArnoldiParams {
+                wanted: 2,
+                which: Which::LargestMagnitude,
+                ..params
+            },
+        );
+        for (k, theta) in lm.values.iter().enumerate() {
+            println!(
+                "arnoldi   largest |lambda|: {:+.6e} {:+.6e}i  (|A x - l x| {:.1e}, converged {})",
+                theta.re, theta.im, lm.residuals[k], lm.converged
+            );
         }
         Ok(())
     }

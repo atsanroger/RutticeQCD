@@ -12,6 +12,11 @@
 //! Every Lanczos vector is kept and made orthogonal to all the others twice (no loss of
 //! orthogonality): the memory is `max_dim` + `keep` vectors at a restart.
 
+mod arnoldi;
+pub mod schur;
+
+pub use arnoldi::{arnoldi, ArnoldiParams, NonHermitianPairs, Which};
+
 use crate::numerics::hermitian_eigen;
 use crate::{LinearFn, Vector, C64};
 

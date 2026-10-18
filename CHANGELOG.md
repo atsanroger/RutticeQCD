@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `eigen::arnoldi`: eigenpairs of a non-Hermitian operator by the Krylov-Schur method
+  (Stewart 2001) on any `Vector`, at the end of the spectrum asked for (`Which`: smallest or
+  largest real part, largest or smallest magnitude); `eigen::schur`: the complex Schur form of a
+  small dense matrix (Householder to Hessenberg, the shifted QR algorithm), its reordering and
+  the eigenvectors of the triangular factor.
+- `preconditioned_fov_device --arnoldi`: the eigenvalues of Ã M of smallest real part with their
+  condition numbers 1/|y†x| (the left eigenvectors from M† Ã†), and of largest magnitude. On the
+  v2 12⁴ configuration at m 0.001 every eigenvalue lies at Re ≥ 0.868 (stout, M5 1.0) and
+  Re ≥ 0.831 (M5 1.8), with condition numbers 6–20 and |λ| at most 5.9 and 1.75: the spectrum
+  is far from the origin although the field of values is not.
 - `Main.verbose_level : Detailed` (or `Paranoiac`) prints the residual history of GCR in the
   propagator runs, on the CPU and on the device: |r|²/|b|² before every step (`Gcr::recording`).
 - `preconditioned_fov_device --parts`: the smoother S and the coarse correction E of the cycle

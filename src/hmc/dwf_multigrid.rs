@@ -171,19 +171,23 @@ impl DwfMultigridSetup {
     }
 
     /// The bookkeeping of a setup made elsewhere (on a device), as `basis` keeps it here.
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn bootstrap_due(&self, fresh: bool) -> bool {
         self.due(fresh)
     }
 
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn count_setup(&mut self) {
         self.setups += 1;
     }
 
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn count_refresh(&mut self) {
         self.refreshes += 1;
     }
 
     /// After the vectors of a solve: the force solves since the last bootstrap.
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn count_solve_for_refresh(&mut self, due: bool, md: bool) {
         if due {
             self.since = 0;
@@ -194,6 +198,7 @@ impl DwfMultigridSetup {
     }
 
     /// The seconds of a solve made elsewhere, and its solves on the even sites.
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn record(&mut self, setup: f64, rebuild: f64, solve: f64, solves: usize) {
         self.seconds.setup += setup;
         self.seconds.rebuild += rebuild;
@@ -201,15 +206,18 @@ impl DwfMultigridSetup {
         self.inner_solves += solves;
     }
 
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn count_rebuild(&mut self) {
         self.rebuilds += 1;
     }
 
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn count_reuse(&mut self) {
         self.reuses += 1;
     }
 
     /// The iterations have grown: the next solve makes P and the coarse parts again.
+    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn rebuild_is_due(&self) -> bool {
         self.rebuild_due
     }
