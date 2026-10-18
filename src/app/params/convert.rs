@@ -188,6 +188,7 @@ impl Params {
         }
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
+        s.check_precision("Solver", self.main.backend == Backend::CudaBridge)?;
         let operator = s.operator();
         if matches!(operator, OperatorType::EvenOdd | OperatorType::Lexical) {
             return Err(invalid(format!(
@@ -409,6 +410,11 @@ impl Params {
         }
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
+        if s.precision == Some(SolverPrecision::Mixed) {
+            return Err(invalid(format!(
+                "Solver.precision mixed: for domain-wall fermions so far, not {name}"
+            )));
+        }
         match s.solver_type {
             SolverType::Cg | SolverType::BiCgStab | SolverType::Fgmres => {}
             other => {

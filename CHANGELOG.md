@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Propagator files: `Solver.precision : mixed` for CGNE (CG on `Normal_left` without a
+  preconditioner) on `cuda_bridge`: defect correction in double precision with CG on K†K in
+  single precision (K the left Schur factor, on the links of the double operator), each to
+  `convergence_criterion_squared_inner` (1e-10). On 4³×8 (M5 1.8, m 0.01, α 0.6) the
+  correlator agrees with the double-precision CGNE to 1e-10 (218 single against 151 double
+  iterations). For the comparison of the multigrid with CGNE on equal terms.
 - Eigensolver files: a parameter file with an `Eigensolver` section (in place of `Solver`) prints
   the eigenvalues of the fermion operator, with the keys of Bridge++'s eigensolver:
   `eigensolver_type` (IRLanczos, IRArnoldi), `fermion_mult_mode` (D, Ddag, DdagD, DDdag, H = γ5 D),

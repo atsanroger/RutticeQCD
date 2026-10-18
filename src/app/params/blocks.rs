@@ -223,6 +223,12 @@ pub struct SolverBlock {
     pub preconditioner_type: PreconditionerType,
     #[serde(rename = "Chebyshev")]
     pub chebyshev: Option<ChebyshevBlock>,
+    /// The outer solver, CG on `Normal_left` without a preconditioner, on `cuda_bridge`:
+    /// `mixed` corrects CG in single precision in double precision (defect correction); double
+    /// by default.
+    pub precision: Option<SolverPrecision>,
+    /// Mixed precision: where each CG in single precision stops, |r|²/|b|² (1e-10).
+    pub convergence_criterion_squared_inner: Option<f64>,
 }
 
 /// A file holding only the multigrid block.
@@ -648,6 +654,8 @@ fn coarse_block(solver_type: SolverType) -> SolverBlock {
         convergence_criterion_squared: PvEoParams::default().coarse_tolerance_sqr,
         preconditioner_type: PreconditionerType::None,
         chebyshev: None,
+        precision: None,
+        convergence_criterion_squared_inner: None,
     }
 }
 fn coarse_d() -> SolverBlock {
@@ -702,6 +710,40 @@ impl SolverBlock {
         Ok(())
     }
 
+    /// Mixed precision: the tolerance of the inner CG in single precision, `None` in double
+    /// precision.
+    pub fn mixed(&self) -> Option<f64> {
+        (self.precision == Some(SolverPrecision::Mixed))
+            .then(|| self.convergence_criterion_squared_inner.unwrap_or(1e-10))
+    }
+
+    /// The precision keys: mixed for CG on `Normal_left` without a preconditioner, on a
+    /// backend that has it (`device`).
+    pub(super) fn check_precision(&self, name: &str, device: bool) -> Result<(), CliError> {
+        if self.mixed().is_none() {
+            if self.convergence_criterion_squared_inner.is_some() {
+                return Err(invalid(format!(
+                    "{name}.convergence_criterion_squared_inner: for precision mixed"
+                )));
+            }
+            return Ok(());
+        }
+        if self.solver_type != SolverType::Cg
+            || self.operator() != OperatorType::NormalLeft
+            || self.preconditioner_type != PreconditionerType::None
+        {
+            return Err(invalid(format!(
+                "{name}.precision mixed: for CG on Normal_left without a preconditioner (CGNE)"
+            )));
+        }
+        if !device {
+            return Err(invalid(format!(
+                "{name}.precision mixed: on Main.backend cuda_bridge only so far"
+            )));
+        }
+        Ok(())
+    }
+
     /// The Chebyshev preconditioner's settings (the defaults without a block).
     pub fn chebyshev_settings(&self) -> ChebyshevBlock {
         self.chebyshev.unwrap_or_default()
@@ -718,6 +760,11 @@ impl SolverBlock {
         if self.operator_type.is_some() {
             return Err(invalid(format!(
                 "{name}: operator_type belongs to the outer solver only"
+            )));
+        }
+        if self.precision.is_some() || self.convergence_criterion_squared_inner.is_some() {
+            return Err(invalid(format!(
+                "{name}: precision belongs to the outer solver; the coarse precision is MultiGrid.coarse_precision"
             )));
         }
         if self.preconditioner_type != PreconditionerType::None || self.chebyshev.is_some() {

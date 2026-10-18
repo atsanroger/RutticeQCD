@@ -36,6 +36,17 @@ impl SingleCuda {
     }
 }
 
+impl SingleCuda {
+    /// On an operator in single precision made elsewhere (`CudaMdwf::converted_from`).
+    pub fn from_operator(op: CudaMdwf<f32>, tolerance_sqr: f64, even_odd: bool) -> Self {
+        Self {
+            op,
+            tolerance_sqr,
+            even_odd,
+        }
+    }
+}
+
 impl SingleNormal<DeviceSpinor<f64>, DeviceLinks> for SingleCuda {
     fn set_links(&mut self, links: &DeviceLinks) {
         self.op

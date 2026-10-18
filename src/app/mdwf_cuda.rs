@@ -453,6 +453,24 @@ pub(super) fn run(
     let op = &ops.op;
     let mut a = operator();
     let stop: Stop = s.stop();
+    // Mixed precision (CGNE only): CG in single precision on K†K, K the left Schur factor of the
+    // operator in single precision on the links of `op`, corrected in double precision.
+    let mut single = match s.mixed() {
+        Some(inner) => {
+            let mut op32 = CudaMdwf::<f32>::converted_from(op, params.mdwf_params(fo.mass()))?;
+            op32.set_alpha(op.alpha());
+            Some(
+                crate::backend::cuda_bridge::hmc_mixed::SingleCuda::from_operator(
+                    op32, inner, true,
+                ),
+            )
+        }
+        None => None,
+    };
+    let mixed_stop = Stop {
+        max_restarts: s.maximum_number_of_restart.max(50),
+        ..stop
+    };
     let k = s.number_of_kept_directions;
     let mut source_work = op.work();
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
@@ -472,26 +490,32 @@ pub(super) fn run(
             .as_mut()
             .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
         let mut history: Option<Vec<Vec<f64>>> = None;
-        let result = match s.solver_type {
-            SolverType::Gcr => {
-                let mut g = Gcr::new(stop, k);
-                if detailed {
-                    g = g.recording();
-                }
-                let solved = g.solve(&mut a, m, &mut sol, &rhs);
-                history = g.history.take();
-                solved
+        let result = match (s.solver_type, single.as_mut()) {
+            (SolverType::Cg, Some(sc)) => {
+                let mut k = crate::fermion::SchurFactor::new(op, EoForm::Left, even, odd);
+                crate::hmc::mixed_normal(&mut k, sc, &mut sol, &rhs, mixed_stop)
             }
-            SolverType::BlockGcr => BlockGcr::new(stop, k).solve(&mut a, m, &mut sol, &rhs),
-            SolverType::BiCgStab => BiCgStab::new(stop).solve(&mut a, m, &mut sol, &rhs),
-            SolverType::Fgmres => Fgmres::new(Stop {
-                max_iterations: k,
-                max_restarts: stop.max_iterations / k.max(1),
-                ..stop
-            })
-            .solve(&mut a, m, &mut sol, &rhs),
-            SolverType::Cg => Cg::new(stop).solve(&mut a, m, &mut sol, &rhs),
-            SolverType::Minres => unreachable!("refused when the file is read"),
+            (t, _) => match t {
+                SolverType::Gcr => {
+                    let mut g = Gcr::new(stop, k);
+                    if detailed {
+                        g = g.recording();
+                    }
+                    let solved = g.solve(&mut a, m, &mut sol, &rhs);
+                    history = g.history.take();
+                    solved
+                }
+                SolverType::BlockGcr => BlockGcr::new(stop, k).solve(&mut a, m, &mut sol, &rhs),
+                SolverType::BiCgStab => BiCgStab::new(stop).solve(&mut a, m, &mut sol, &rhs),
+                SolverType::Fgmres => Fgmres::new(Stop {
+                    max_iterations: k,
+                    max_restarts: stop.max_iterations / k.max(1),
+                    ..stop
+                })
+                .solve(&mut a, m, &mut sol, &rhs),
+                SolverType::Cg => Cg::new(stop).solve(&mut a, m, &mut sol, &rhs),
+                SolverType::Minres => unreachable!("refused when the file is read"),
+            },
         };
         let seconds = start.elapsed().as_secs_f64();
         let coarse = match (&coarse_count, coarse_before) {
@@ -521,8 +545,9 @@ pub(super) fn run(
         };
         writeln!(
             out,
-            "  {label}: {} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
+            "  {label}: {}{} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
             s.solver_type,
+            if single.is_some() { " (mixed precision)" } else { "" },
             iterations_text(&result),
             memory()
         )?;
