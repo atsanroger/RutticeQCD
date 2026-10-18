@@ -1,0 +1,386 @@
+% Numerical results of the factorised Pauli--Villars multigrid (input by MDWF_MULTIGRID_NOTE.tex
+% with \resultstrue). Every number is from a log named in the text; [TODO] marks what is still
+% being measured.
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+% ============================================================
+\section{Implementation in RutticeQCD}
+\label{sec:impl}
+
+The method is implemented in RutticeQCD (Rust; branch \texttt{cuda-bridge}), on
+the CPU and on NVIDIA GPUs through CUDA kernels of the Wilson and M\"obius
+operators taken from Bridge++. On the device the fine operators, the
+prolongation (stored in half precision unless asked otherwise), the coarse
+operators and the coarse Krylov solvers all stay on the GPU. The cycle above the
+coarse lattice runs in single precision on operators converted on the device
+from the links of the double-precision ones; the outer solver is in double
+precision. The coarse solvers are BiCGStab for the quark factor and MINRES on
+$\Hc$ for the Pauli--Villars factor (Sec.~\ref{sec:coarse}), both stopped at
+$|r|^2/|b|^2<10^{-2}$ unless stated, on the even coarse sites. The numbers
+below come from the parameter-file program \texttt{ruttice} and from the
+examples \texttt{preconditioned\_fov} (CPU) and \texttt{preconditioned\_fov\_device}
+(GPU), whose options are given with each result. The eigensolvers (thick-restart
+Lanczos, Krylov--Schur Arnoldi~\cite{Stewart} with left eigenvectors, and
+$\sigma_{\min}(z-X)$ by Lanczos on $(z-X)\dg(z-X)$) are in the module
+\texttt{eigen} and are checked against Bridge++'s eigensolver test.
+
+% ============================================================
+\section{Numerical results}
+\label{sec:results}
+
+\subsection{Setups}
+\label{sec:setups}
+
+\begin{table}[t]
+\centering
+\caption{The two setups and the multigrid of the mass scan. All runs: M\"obius
+$(b,c)=(1.5,0.5)$, $L_s=8$, $m_{\rm PV}=1$, $\alpha_{\rm PV}=1$, boundary
+$(1,1,1,-1)$, $\alpha=0.6$ unless stated. Configurations: the v2 quenched test
+configurations on $12^4$, $16^4$ and $24^3\times48$ (the $12^4$ one has one unpaired
+near-zero mode, $Q=+1$).}
+\label{tab:setups}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & setup S (stout) & setup B (bare) \\
+\midrule
+$M_5$ & $1.0$ & $1.8$ \\
+gauge smearing & stout, $\rho=0.1$, 3 steps & none \\
+Chebyshev smoother $\nu$, $\kappa_s$ & $8$, $10$ & $12$, $30$ \\
+\midrule
+\multicolumn{3}{@{}l}{multigrid (both setups)}\\
+aggregates & \multicolumn{2}{l}{$4^4$ ($24^3\times48$: levels below with super-blocks $2$, $3$)} \\
+test vectors & \multicolumn{2}{l}{$32$ ($16$ filtered low modes of $\AR\dg\AR$, lifted to $\{s,\hat t\}$)} \\
+setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps} \\
+coarse solves & \multicolumn{2}{l}{single precision, $|r|^2/|b|^2<10^{-2}$} \\
+outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Timings are from an NVIDIA A30; an RTX~3080 was used for iteration counts and
+spectral quantities only. Table~\ref{tab:setups} lists the setups. The smoother
+interval is not chosen from the operator: setup~S needs $\kappa_s\approx10$ and
+setup~B $\kappa_s\approx30$, and the wrong one makes the solve stagnate
+(Sec.~\ref{sec:sensitivity}).
+
+\subsection{Comparison with CGNE}
+\label{sec:massscan}
+
+\begin{table}[t]
+\centering
+\caption{Mass scan on $24^3\times48$, A30, one random right-hand side to
+$|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double precision
+against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and $\alpha=1$ for the
+multigrid; iterations, solve time in seconds, coarse-operator applications, and
+$N_{\rm rhs}$, the number of right-hand sides at which the multigrid setup
+(376--394\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm MG})$. Final
+$|D\psi-\eta|^2/|\eta|^2$: $10^{-17}$--$3\times10^{-16}$ (CGNE),
+$2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB, MG
+$19.9$\,GB ($\alpha=0.6$). RutticeQCD \texttt{535c9ef}.}
+\label{tab:massscan}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}l rr rrr rr r@{}}
+\toprule
+ & \multicolumn{2}{c}{CGNE} & \multicolumn{3}{c}{MG, $\alpha=0.6$} & \multicolumn{2}{c}{MG, $\alpha=1$} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}\cmidrule(lr){7-8}
+$m$ & it & s & it & s & coarse & it & s & $N_{\rm rhs}$\\
+\midrule
+\multicolumn{9}{@{}l}{setup S ($M_5=1.0$, stout)}\\
+$0.1$   & 173  & 5.7   & 13 & 11.2 & 1160 & 15 & 12.1 & ---\\
+$0.05$  & 291  & 9.5   & 13 & 9.5  & 734  & 15 & 11.0 & ---\\
+$0.02$  & 644  & 21.0  & 14 & 10.4 & 810  & 14 & 10.5 & 36\\
+$0.01$  & 1166 & 37.9  & 15 & 11.7 & 1006 & 15 & 11.9 & 15\\
+$0.005$ & 2067 & 67.1  & 18 & 13.7 & 1134 & 18 & 14.8 & 7.2\\
+$0.002$ & 3419 & 110.9 & 23 & 19.6 & 1942 & 22 & 20.3 & 4.3\\
+$0.001$ & 3602 & 116.8 & 26 & 24.9 & 2875 & 27 & 27.1 & 4.3\\
+\midrule
+\multicolumn{9}{@{}l}{setup B ($M_5=1.8$)}\\
+$0.1$   & 231  & 7.6   & 7  & 5.5  & 190  & 9  & 6.9  & 184\\
+$0.05$  & 402  & 13.1  & 10 & 8.1  & 315  & 12 & 9.5  & 78\\
+$0.02$  & 857  & 27.8  & 13 & 10.5 & 428  & 15 & 12.2 & 22\\
+$0.01$  & 1447 & 46.9  & 15 & 12.5 & 568  & 17 & 14.1 & 11\\
+$0.005$ & 2299 & 74.5  & 18 & 15.1 & 722  & 21 & 17.9 & 6.6\\
+$0.002$ & 3473 & 112.5 & 23 & 19.8 & 1056 & 25 & 21.5 & 4.2\\
+$0.001$ & 4228 & 137.0 & 26 & 22.8 & 1278 & 27 & 23.4 & 3.4\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:massscan} is the mass scan on $24^3\times48$. The CGNE iterations grow
+by a factor of $21$ (S) and $18$ (B) from $m=0.1$ to $m=0.001$, the multigrid
+iterations by $2$ (S) and $3.7$ (B). At $m=0.001$ the multigrid solve is $4.7$ times
+(S) and $6.0$ times (B) faster; with the setup of about $390$\,s it pays for itself
+after $4$ (S) and $3.4$ (B) right-hand sides, i.e.\ within one point-source
+propagator (12 columns) for $m\le0.005$ (S) and $m\le0.01$ (B). For $m\ge0.05$ in setup~S the multigrid is
+not faster at all. The multigrid needs three times the device memory of CGNE; on
+the $24$\,GB A30 this excludes GCR($k$) with $k\ge8$ (out of memory after the
+setup). Neff's $\alpha=0.6$ against $\alpha=1$ in the left form: equal for S, one to
+three iterations fewer for B. Runs of the same parameter file with two builds
+(\texttt{535c9ef}, \texttt{ca1e892}) differ by up to two iterations in three of
+eight cases; the cause (code change or non-determinism of the device reductions)
+is not established.
+
+\paragraph{Mixed-precision CGNE.} For a comparison on equal terms the reference
+solver also exists in mixed precision (defect correction in double precision,
+CG in single precision on the normal equation of $\Ce^{-1}S$). A first scan,
+setup~S on $24^3\times48$ (double: iterations / s; mixed: iterations / s):
+$m=0.1$: $173/5.7$, $200/4.7$; $0.05$: $291/9.5$, $341/7.8$; $0.02$: $644/21.0$,
+$1197/26.9$; $0.01$: $1166/37.9$, $2079/46.4$; $0.005$: $2067/67.1$, $3432/76.4$.
+These runs overshot the tolerance (final $|D\psi-\eta|^2$ of $10^{-19}$ to
+$10^{-26}$), which has since been corrected; on $12^4$ setup~S, $m=0.01$, the
+corrected scheme needs $301$ single-precision iterations against $212$ in double.
+\todo{the corrected mixed-precision scan, both setups, all masses.}
+
+\subsection{Field of values}
+\label{sec:fov}
+
+The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
+linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
+with the exact adjoints, and $\mathcal M\dg$ built with the same $\Pro$ and the
+same smoother interval, so that $\langle z,\AR\mathcal M w\rangle$ and
+$\langle\mathcal M\dg\AR\dg z,w\rangle$ agree to $10^{-10}$. The cycle was also
+taken apart: the smoother alone, $S=p(\AR)$, the coarse correction alone, $E$
+of Eq.~\eqref{eq:corr}, and the cycle $\mathcal M$ (Table~\ref{tab:fov}).
+
+\begin{table}[t]
+\centering
+\caption{Real part of the field of values $W(X)$ and $\|I-X\|_2$ for $X=\AR S$,
+$\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
+aggregates, 8 test vectors), $m=0.001$ otherwise; 16 test vectors.
+\texttt{preconditioned\_fov\_device --parts}.}
+\label{tab:fov}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & $\Re W(\AR)$ & $\|I-\AR S\|$ & $\|I-\AR E\|$ & $\Re W(\AR\mathcal M)$ & $\|I-\AR\mathcal M\|$\\
+\midrule
+$4^3\times8$, $M_5=1$ & $[-5.0\times10^{-3},2.26]$ & & $18.5$ & $[0.772,1.222]$ & \\
+$12^4$ S & $[-4.59\times10^{-3},1.98]$ & $1.018$ & $1.94\times10^4$ & $[-23.9,30.8]$ & $54.8$\\
+$12^4$ B & $[-5.02\times10^{-2},4.46]$ & $1.112$ & $2.86\times10^3$ & $[-1.49,4.17]$ & $5.64$\\
+$16^4$ S & & & $1.54\times10^4$ & $[-15.6,27.1]$ & \\
+$16^4$ B & & & $2.5\times10^3$ & $[-1.42,4.27]$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On $4^3\times8$ the field of values of $\AR\mathcal M$ lies in the right half-plane;
+on $12^4$ and $16^4$ it does not. The smoother is harmless ($\|I-\AR S\|\approx1$);
+the factor that amplifies is the coarse correction, $\|I-\AR E\|$ of order $10^3$
+to $10^4$ against $18.5$ on $4^3\times8$: the factorised correction, exact on the
+vectors it is built from, is a strongly oblique projection. The bound of
+Ref.~\cite{ESS} for GCR therefore does not apply (open problem~\ref{op:fov}).
+Replacing $E$ by the Galerkin correction of $\AR$ itself,
+$\Pro(\Pro\dg\AR\Pro)^{-1}\Pro\dg$ (built densely), brings the field of values of setup~B
+into the right half-plane, $[0.121,1.99]$, and reduces $\|I-\AR\mathcal M\|$ to
+$1.84$ (setup~S: $[-3.62,13.1]$, $16.8$); but GCR(8) to $10^{-16}$ then needs more
+iterations, $16$ against $13$ (B) and $12$ against $10$ (S). The field of values is
+not what decides the iteration count.
+
+\subsection{Spectrum}
+\label{sec:spectrum}
+
+\begin{table}[t]
+\centering
+\caption{Eigenvalues of $\tilde A\mathcal M$ (exact coarse solves) by Krylov--Schur:
+the smallest real part, the condition numbers $\kappa=1/|y\dg x|$ of the six
+eigenvalues of smallest real part (left eigenvectors from $\mathcal M\dg\tilde A\dg$),
+the eigenvalues farthest from $1$ with their $\kappa$, and the radius about $1$ of
+the disc that holds all the others. $m=0.001$. \texttt{preconditioned\_fov\_device
+--arnoldi --far 1,0} (\texttt{--left} for $\AL$).}
+\label{tab:spectrum}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & $\min\Re\lambda$ & $\kappa$ (6 lowest) & outliers ($\kappa$) & others: $|\lambda-1|\le$\\
+\midrule
+$4^3\times8$, $m=0.05$, R & $0.857$ & $2$--$4$ & & \\
+$4^3\times8$, $m=0.05$, L & $0.854$ & $2.8$ & & $0.156$ (Ritz)\\
+$12^4$ S, R & $0.868$ & $6.3$--$14.5$ & $5.86+0.86i$ ($11.2$) & $0.434$\\
+$12^4$ S, L & $0.861$ & $7.2$--$26.2$ & $5.40+0.89i$ ($13.9$) & $0.455$\\
+$12^4$ B, R & $0.831$ & $9.4$--$20.3$ & & $0.753$\\
+$12^4$ B, L & $0.830$ & & & $0.747$\\
+$16^4$ S, R & $0.794$ & $6.2$--$12.8$ & $10.63+0.19i$ ($4.38$), $3.13+0.02i$ ($4.74$) & $0.474$\\
+$16^4$ B, R & $0.783$ & $13.5$--$42.9$ & & $0.840$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Although the field of values reaches far into the left half-plane, every eigenvalue
+lies at $\Re\lambda\ge0.78$ (Table~\ref{tab:spectrum}), with moderate condition
+numbers. Setup~S has one ($12^4$) or two ($16^4$) isolated outliers of large
+modulus that grow with the volume; all other eigenvalues lie within $0.43$--$0.47$ of
+$1$. The left and right forms have the same spectrum to the precision shown. At
+$m=0.005$ on $16^4$ the lowest real parts are $0.802$ (S) and $0.790$ (B).
+
+\subsection{Pseudospectra and a bound for GMRES}
+\label{sec:pseudo}
+
+For a non-normal operator the eigenvalues alone do not bound the convergence of
+GMRES; the $\varepsilon$-pseudospectrum, the set where $\sigma_{\min}(z-X)<\varepsilon$,
+does~\cite{NRT,TrefethenEmbree}. If a contour $\Gamma$ of length $L$ encloses the
+spectrum of $X$ but not the origin and $\sigma_{\min}(z-X)\ge\varepsilon$ on it, then
+for any polynomial $p_k$ with $p_k(0)=1$,
+\begin{equation}
+\frac{\|r_k\|}{\|r_0\|}\le\|p_k(X)\|\le\frac{L}{2\pi\varepsilon}\max_{z\in\Gamma}|p_k(z)| .
+\label{eq:pseudobound}
+\end{equation}
+An isolated outlier $\lambda_o$ outside $\Gamma$ is removed by the factor
+$(1-z/\lambda_o)$ of $p_k$: then $p_k(X)=p_k(X)(I-P_o)$ with $P_o$ the spectral
+projector, $\|(z-X)^{-1}(I-P_o)\|\le\kappa_o/\varepsilon$, and with a circle
+$|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
+\begin{equation}
+\frac{\|r_k\|}{\|r_0\|}\le\kappa_o\,\frac{r}{\varepsilon}\,
+\frac{|\lambda_o-c|+r}{|\lambda_o|}\Big(\frac rc\Big)^{k-1}.
+\label{eq:outlierbound}
+\end{equation}
+
+\begin{table}[t]
+\centering
+\caption{$\min_\Gamma\sigma_{\min}(z-\AR\mathcal M)$ on circles $|z-c|=r$ (16 points
+each), and the bound~\eqref{eq:pseudobound} or~\eqref{eq:outlierbound}: the factor
+per iteration $r/c$, the constant, and the iterations it guarantees for
+$\|r_k\|/\|r_0\|<10^{-9}$. Lanczos to $10^{-3}$ relative in $\sigma^2$.
+\texttt{preconditioned\_fov\_device --pseudo}.}
+\label{tab:pseudo}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & $c$ & $r$ & $\min\sigma_{\min}$ & $r/c$ & constant & $k$ for $10^{-9}$\\
+\midrule
+$12^4$ S & $1$ & $0.6$ & $0.0285$ & $0.6$ & $220$ & $53$\\
+$12^4$ S & $1$ & $0.5$ & $0.0107$ & $0.5$ & $480$ & $40$\\
+$12^4$ B & $1.4$ & $0.93$ & $0.0985$ & $0.66$ & $9.4$ & $57$\\
+$12^4$ B & $1.3$ & $0.87$ & $0.0860$ & $0.67$ & $10.1$ & $58$\\
+$16^4$ S & $1$ & $0.6$ & $0.0262$ & $0.6$ & $190$ & $53$\\
+$16^4$ S & $1$ & $0.55$ & $0.0135$ & $0.55$ & $350$ & $46$\\
+$16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On $16^4$ setup~S has two outliers; the factor $\kappa_o$ is then replaced by
+$\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the
+form $(|\lambda_o-c|+r)/|\lambda_o|$. On the real axis between the origin and the
+spectrum, $\sigma_{\min}(z-\AR\mathcal M)\ge0.024$ (S) and $\ge0.031$ (B) on
+$12^4$ ($z=-0.5\ldots0.7$), and $0.107$ (S), $0.271$ (B) at the origin.
+
+The bound guarantees convergence at a fixed rate, $r/c$ per iteration, without
+stagnation; it is pessimistic by a factor of $3$--$5$ in iterations (GCR needs
+$10$--$17$ with exact coarse solves, Sec.~\ref{sec:gcrk}), and its rate is that
+measured on $24^3\times48$, where the median factor per GCR step of $|r|^2$ is
+$0.23$--$0.34$ (Table~\ref{tab:history}), i.e.\ $0.48$--$0.58$ in $|r|$, against
+$r/c=0.5$--$0.6$ for setup~S. Setup~B is not worse between $12^4$ and $16^4$
+($\min\sigma$ grows from $0.098$ to $0.13$); in setup~S the outliers grow but
+their condition numbers fall and $\varepsilon$ stays the same.
+
+\paragraph{What is not yet rigorous.} (i) $\sigma_{\min}$ is known at 16 points per
+circle, spaced by more than $\varepsilon$; since $\sigma_{\min}(z-X)$ is
+$1$-Lipschitz in $z$, a lower bound on the whole circle needs a spacing below
+$\varepsilon$. \todo{the dense contours on $12^4$ (160 and 96 points), running.}
+(ii) Lanczos approaches $\sigma_{\min}^2$ from above; a rigorous lower bound needs
+an inclusion theorem (Kato--Temple) with a bound on the second singular value.
+(iii) That the disc holds all eigenvalues but the outliers rests on the four
+eigenvalues farthest from $c$ found by Arnoldi. (iv) The bound is for full GMRES
+with a fixed linear $\mathcal M$ (Sec.~\ref{sec:gcrk}). (v) The FOV and spectra
+are not available on $24^3\times48$: the eigensolvers do not fit in the memory of
+the A30.
+
+\subsection{Truncated GCR}
+\label{sec:gcrk}
+
+\begin{table}[t]
+\centering
+\caption{GCR($k$) iterations to $|r|^2/|b|^2<10^{-18}$, $12^4$, $m=0.001$, the
+multigrid of Table~\ref{tab:setups} (no levels below the coarse lattice), one
+random right-hand side; the point source: range over its $12$ columns.}
+\label{tab:gcrk}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & coarse solves & $k=2$ & $8$ & $16$ & $32$ & $64$\\
+\midrule
+S, $\AL$ & $10^{-2}$ & $14$ & & & $12$ & \\
+S, $\AR$ & $10^{-2}$ & $12$ & & & $11$ & \\
+B, $\AL$ & $10^{-2}$ & $14$ & & & $13$ & \\
+B, $\AR$ & $10^{-2}$ & $15$ & & & $14$ & \\
+S, $\AL$, point source & $10^{-2}$ & $15$--$19$ & & & $13$--$14$ & \\
+S, $\AL$ & $10^{-8}$ & no conv. & $26$ & $17$ & $17$ & $17$\\
+S, $\AL$ & $10^{-4}$ & $18$ & & & $16$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the usual coarse solves to $10^{-2}$, GCR(2) needs one to five iterations more
+than the full method (Table~\ref{tab:gcrk}). With accurate coarse solves, where
+$\mathcal M$ is close to the fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo},
+GCR(2) stagnates ($|r|^2\approx3\times10^{-8}$ after 1000 iterations) while GCR(8)
+converges in $26$ and GCR($\ge16$) in $17$. This is what the analysis predicts:
+the pseudospectra guarantee the full method; a truncated or restarted one has no
+such guarantee when the field of values contains the origin~\cite{ESS,Embree}. The
+truncated solver works in practice because the inexact coarse solves do not let
+the correction amplify as $E$ does, an empirical fact without a proof.
+On $24^3\times48$ the full method cannot be run on the A30: GCR(8) and GCR(16) run
+out of device memory after the setup (GCR(2) peaks at $19.9$ of $24$\,GB, and every
+further direction is another fine-grid vector).
+
+\begin{table}[t]
+\centering
+\caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
+Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
+the longest stretch of steps with a factor above $1/2$.}
+\label{tab:history}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+setup & $m$, $\alpha$ & steps & median & worst & slow stretch\\
+\midrule
+S & $0.001$, $0.6$ & $28$ & $0.315$ & $0.564$ & 2 steps\\
+S & $0.001$, $1.0$ & $27$ & $0.338$ & $0.479$ & none\\
+S & $0.002$, $0.6$ & $23$ & $0.233$ & $0.426$ & none\\
+S & $0.002$, $1.0$ & $23$ & $0.253$ & $0.354$ & none\\
+B & $0.001$, $0.6$ & $26$ & $0.299$ & $0.357$ & none\\
+B & $0.001$, $1.0$ & $28$ & $0.317$ & $0.403$ & none\\
+B & $0.002$, $0.6$ & $23$ & $0.246$ & $0.300$ & none\\
+B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No run shows a plateau (Table~\ref{tab:history}); the first step reduces $|r|^2$ by
+about $10^{-5}$ in every run.
+
+\subsection{Sensitivity to the parameters}
+\label{sec:sensitivity}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
+$12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $14$ in both setups);
+``stag.'': not converged in 1000 iterations. Setup times in seconds where they
+change much.}
+\label{tab:sensitivity}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lll@{}}
+\toprule
+change & setup S & setup B\\
+\midrule
+aggregates $2^4$ / $3^4$ / $6^4$ & $9$ ($89$\,s) / $12$ / $23$ & $9$ ($61$\,s) / $11$ / $20$\\
+test vectors $8$ / $16$ / $24$ / $48$ & stag. / $27$ / $22$ / $10$ ($40$\,s) & $39$ / $19$ / $16$ / $11$ ($30$\,s)\\
+smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $31$ / $18$ / $14$ / $12$ / $9$ & stag. / $84$ / $26$ / $14$ / $13$\\
+interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $22$ / $14$ / stag. / stag. & stag. / $31$ / $14$ / stag.\\
+coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $23$ / $14$ / $18$ / stag. & $19$ / $14$ / $16$ / $17$\\
+bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $16$ / $14$ / $23$ & $249$ / $47$ / $14$ / $12$\\
+right form $\AR$ & $12$ & $15$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The method is robust within a window of each parameter and fails outside it
+(Table~\ref{tab:sensitivity}). The smoother interval must suit the setup; the
+bootstrap is necessary; more accurate coarse solves are not better, and with
+GCR(2) accurate ones stagnate (Sec.~\ref{sec:gcrk}). Larger setups (smaller
+aggregates, more test vectors) buy fewer iterations at a setup cost that only
+many right-hand sides repay. Every stagnation is of GCR(2).
+\todo{timings of this table on the A30; the local coherence of the test vectors.}

@@ -91,7 +91,7 @@
 
 % Implementation and numerical-results sections; off = theory-only note.
 \newif\ifresults
-\resultsfalse
+\resultstrue
 
 \title{A factorised Pauli--Villars multigrid method\\
 for the M\"obius domain-wall operator}
@@ -117,8 +117,11 @@ approximate low modes for which the correction is exact on the vectors it is
 made from; the smoother is a fixed Chebyshev polynomial. We state the
 operator and its forms (with Neff's $\alpha$), the correction, the coarse
 solvers, the setup, the smoother, the outer solver, and the questions that are
-open. No numerical results of the method are given: they are still being
-obtained.
+open. The results (Sec.~\ref{sec:results}) are a mass scan on $24^3\times48$
+against even-odd CGNE, the spectrum and pseudospectra of the preconditioned
+operator on $12^4$ and $16^4$ with the bound for GMRES they give, the behaviour of
+truncated GCR, and the sensitivity to the parameters; parts still being measured
+are marked.
 \end{abstract}
 
 \vspace{0.4ex}\hrule\vspace{1ex}
@@ -789,16 +792,7 @@ reconstruction. The reference solver is CG on the normal equation of the
 even-odd operator, which is robust but squares the condition number.
 
 \ifresults
-% ============================================================
-\section{Implementation in RutticeQCD}
-\label{sec:impl}
-% TODO: data layout, kernels and solver interfaces in RutticeQCD.
-
-% ============================================================
-\section{Numerical results}
-\label{sec:results}
-% TODO: 24^3x48 tests once MG tuning is finished.
-
+\input{results}
 \fi
 % ============================================================
 \section{Open problems}
@@ -838,17 +832,23 @@ absent by construction; but the coarse operators are Galerkin projections of
 $D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
 preferable to the full-lattice $A'$ for this method has not been established.
 
-\item \textbf{Field of values versus real parts of eigenvalues.}
+\item \label{op:fov}\textbf{Field of values versus real parts of eigenvalues.}
 Section~\ref{sec:spectra} shows $\Re\lambda>0$ for $A'$. The GCR bound~\cite{ESS}
 needs a positive definite Hermitian part, i.e.\ a field of values in the right
 half-plane, which is a stronger condition. Whether it holds for $A'$, $\AR$ and
 $\AL$, and whether a shift of the kind used in Ref.~\cite{BoyleOare} is needed,
-is not known.
+is not known.\ifresults{} For the preconditioned operator $\AR\mathcal M$ it does
+not hold on $12^4$ and $16^4$ (Sec.~\ref{sec:fov}); the spectrum stays at
+$\Re\lambda\ge0.78$ and the pseudospectra give a bound for full GMRES
+(Sec.~\ref{sec:pseudo}), but not for truncated GCR (Sec.~\ref{sec:gcrk}).\fi
 
 \item \textbf{Outer solver with a varying preconditioner.} Because the coarse
 solves are truncated, $\mathcal M$ is nonlinear and depends on the right-hand
 side. FGMRES and flexible GCR allow this; BiCGStab does not, and its behaviour
-with $\mathcal M$ as preconditioner has no theoretical justification.
+with $\mathcal M$ as preconditioner has no theoretical justification.\ifresults{} The
+truncated GCR(2) used in practice converges with coarse solves to $10^{-2}$ and
+stagnates with accurate ones (Sec.~\ref{sec:gcrk}); why the inexact correction
+behaves better is open.\fi
 
 \item \textbf{Solving with $D\dg$.} The method is built for $D\psi=\eta$. A
 solve with $D\dg$, as needed for the normal equations in HMC, requires the dual
@@ -903,6 +903,11 @@ SIAM J.\ Sci.\ Comput.\ \textbf{35} (2013) A696.
 \bibitem{Manteuffel} T.~A.~Manteuffel, \emph{The Tchebychev iteration for nonsymmetric linear systems},
 Numer.\ Math.\ \textbf{28} (1977) 307.
 \bibitem{Saad} Y.~Saad, \emph{Iterative Methods for Sparse Linear Systems}, 2nd ed., SIAM, Philadelphia (2003).
+\bibitem{Stewart} G.~W.~Stewart, \emph{A Krylov--Schur algorithm for large eigenproblems},
+SIAM J.\ Matrix Anal.\ Appl.\ \textbf{23} (2001) 601.
+\bibitem{TrefethenEmbree} L.~N.~Trefethen and M.~Embree, \emph{Spectra and Pseudospectra: The Behavior of Nonnormal Matrices and Operators}, Princeton University Press (2005).
+\bibitem{Embree} M.~Embree, \emph{The tortoise and the hare restart GMRES},
+SIAM Rev.\ \textbf{45} (2003) 259.
 \end{thebibliography}
 
 \end{document}
