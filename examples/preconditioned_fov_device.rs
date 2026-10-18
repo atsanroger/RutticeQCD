@@ -15,6 +15,8 @@
 //! `--arnoldi`: the eigenvalues of Ã M of smallest real part by the Krylov-Schur method, with
 //! their condition numbers (the left eigenvectors from M† Ã†), and that of largest magnitude.
 //!
+//! `--left`: everything in the left even-odd form (PV_left) instead of the right one.
+//!
 //! `--pseudo`: σ_min(z − Ã M), the norm of the resolvent, at the points of `--contour
 //! cx,cy,r,n` (n on a circle, repeatable) and `--points x0,x1,..` (on the real axis); by default
 //! on the real axis from −0.5 to 0.7 and on the circle |z − 1| = 0.8. With `--arnoldi`,
@@ -106,8 +108,8 @@ mod device {
         sign: f64,
     ) -> HermitianPart<'a, 'c> {
         HermitianPart {
-            a: PvRatio::new(d, pv, EoForm::Right, even, odd),
-            a_dag: PvRatio::new(pv, d, EoForm::Right, even, odd),
+            a: PvRatio::new(d, pv, form(), even, odd),
+            a_dag: PvRatio::new(pv, d, form(), even, odd),
             cycles,
             sign,
         }
@@ -122,8 +124,23 @@ mod device {
         }
     }
 
+    /// The even-odd form of Ã and of the cycle: right (PV_right) unless `--left` (PV_left).
+    static LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    fn form() -> EoForm {
+        if LEFT.load(std::sync::atomic::Ordering::Relaxed) {
+            EoForm::Left
+        } else {
+            EoForm::Right
+        }
+    }
+
     pub fn main() -> Result<(), Box<dyn Error>> {
         let args: Vec<String> = std::env::args().skip(1).collect();
+        LEFT.store(
+            args.iter().any(|a| a == "--left"),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         if args.len() < 7 {
             return Err("L T FORMAT FILE M5 MASS SMEAR [--block B] [--vectors N] [--steps S] [--ratio R] [--coarse T] [--tol T] [--dim D]".into());
         }
@@ -221,7 +238,7 @@ mod device {
             basis.clone(),
             (d, pv),
             (d, pv),
-            EoForm::Right,
+            form(),
             exact,
             &even,
         )?;
@@ -229,13 +246,13 @@ mod device {
             basis.clone(),
             (pv, d),
             (pv, d),
-            EoForm::Right,
+            form(),
             exact,
             &even,
         )?;
         let (parts, parts_dag) = (c.parts(), c_dag.parts());
         let hi = top_of(
-            &mut PvRatio::new(d, pv, EoForm::Right, &even, &odd),
+            &mut PvRatio::new(d, pv, form(), &even, &odd),
             &lat,
             &even,
             exact.seed,
@@ -243,7 +260,7 @@ mod device {
         )?;
         let mut m = two_grid(
             (d, pv),
-            EoForm::Right,
+            form(),
             (&even, &odd),
             &lat,
             exact,
@@ -252,7 +269,7 @@ mod device {
         )?;
         let mut m_dag = two_grid(
             (pv, d),
-            EoForm::Right,
+            form(),
             (&even, &odd),
             &lat,
             exact,
@@ -395,19 +412,12 @@ mod device {
     ) -> Result<(), Box<dyn Error>> {
         use ruttice::eigen::{arnoldi, ArnoldiParams, Which};
         let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(
-                p.clone(),
-                (a, b),
-                (a, b),
-                EoForm::Right,
-                exact,
-                even,
-            )
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
         };
         let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
         let mut m = two_grid(
             (d, pv),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
@@ -416,7 +426,7 @@ mod device {
         )?;
         let mut m_dag = two_grid(
             (pv, d),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
@@ -569,19 +579,12 @@ mod device {
     ) -> Result<(), Box<dyn Error>> {
         use ruttice::eigen::resolvent_norms;
         let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(
-                p.clone(),
-                (a, b),
-                (a, b),
-                EoForm::Right,
-                exact,
-                even,
-            )
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
         };
         let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
         let mut m = two_grid(
             (d, pv),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
@@ -590,7 +593,7 @@ mod device {
         )?;
         let mut m_dag = two_grid(
             (pv, d),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
@@ -722,8 +725,8 @@ mod device {
         mut x: Map<'a>,
         mut x_dag: Map<'a>,
     ) -> Pair<'a> {
-        let mut a = PvRatio::new(d, pv, EoForm::Right, even, odd);
-        let mut a_dag = PvRatio::new(pv, d, EoForm::Right, even, odd);
+        let mut a = PvRatio::new(d, pv, form(), even, odd);
+        let mut a_dag = PvRatio::new(pv, d, form(), even, odd);
         Pair {
             b: Box::new(move |out: &mut V, inp: &V| {
                 let mut t = inp.zeros_like();
@@ -760,7 +763,7 @@ mod device {
         (exact, hi): (PvEoParams, f64),
         (x0, x, lanczos): (&V, &V, LanczosParams),
     ) -> Result<(), Box<dyn Error>> {
-        let ratio = |a, b| PvRatio::new(a, b, EoForm::Right, even, odd);
+        let ratio = |a, b| PvRatio::new(a, b, form(), even, odd);
         let smoother = |a, b| {
             Chebyshev::new(
                 ratio(a, b),
@@ -771,14 +774,7 @@ mod device {
             )
         };
         let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(
-                p.clone(),
-                (a, b),
-                (a, b),
-                EoForm::Right,
-                exact,
-                even,
-            )
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
         };
         let (mut s, mut s_dag) = (smoother(d, pv), smoother(pv, d));
         let mut with_s = product(
@@ -797,7 +793,7 @@ mod device {
         let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
         let mut m = two_grid(
             (d, pv),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
@@ -806,7 +802,7 @@ mod device {
         )?;
         let mut m_dag = two_grid(
             (pv, d),
-            EoForm::Right,
+            form(),
             (even, odd),
             lat,
             exact,
