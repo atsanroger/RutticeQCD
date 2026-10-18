@@ -37,10 +37,12 @@
 mod blocks;
 mod convert;
 mod display;
+mod eigen;
 mod keywords;
 
 pub use blocks::*;
 pub use convert::is_bridge_style;
+pub use eigen::*;
 pub use keywords::*;
 
 use super::config::{

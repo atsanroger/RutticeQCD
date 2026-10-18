@@ -7,7 +7,7 @@
 //! pairs are checked by |A x − θ x| itself.
 
 use super::schur::{move_to, schur, triangular_eigenvector};
-use super::{combine, dot, norm};
+use super::{combine, dot, norm, Tolerance};
 use crate::{LinearFn, Vector, C64};
 
 /// Which end of the spectrum.
@@ -20,6 +20,17 @@ pub enum Which {
 }
 
 impl Which {
+    /// Whether `z` lies at or beyond the threshold `t` (a real part for `SmallestReal` and
+    /// `LargestReal`, a magnitude otherwise; Bridge++'s `threshold_value`).
+    pub fn beyond(self, z: C64, t: f64) -> bool {
+        match self {
+            Which::SmallestReal => z.re >= t,
+            Which::LargestReal => z.re <= t,
+            Which::LargestMagnitude => z.norm_sqr().sqrt() <= t,
+            Which::SmallestMagnitude => z.norm_sqr().sqrt() >= t,
+        }
+    }
+
     /// Lower is wanted first.
     fn score(self, z: C64) -> f64 {
         match self {
@@ -40,10 +51,13 @@ pub struct ArnoldiParams {
     pub keep: usize,
     /// Arnoldi vectors before a restart (more than `keep`).
     pub max_dim: usize,
-    /// Converged when the residual of every wanted pair is at most tolerance |θ|.
-    pub tolerance: f64,
+    /// When a wanted pair has converged (judged by the estimate of its residual).
+    pub tolerance: Tolerance,
     pub max_restarts: usize,
     pub which: Which,
+    /// Stop as soon as the wanted pairs up to the first one at or beyond this (`Which::beyond`)
+    /// have converged; without it, when all have.
+    pub threshold: Option<f64>,
 }
 
 /// The eigenpairs found, in the order of `which`.
@@ -53,6 +67,8 @@ pub struct NonHermitianPairs<V> {
     pub vectors: Vec<V>,
     /// |A x − θ x| of each.
     pub residuals: Vec<f64>,
+    /// The pairs before the threshold (all of them without one).
+    pub within_threshold: usize,
     pub converged: bool,
     pub restarts: usize,
     /// Applications of A.
@@ -76,6 +92,7 @@ pub fn arnoldi<V: Vector, A: LinearFn<V>>(
         tolerance,
         max_restarts,
         which,
+        threshold,
     } = params;
     assert_eq!(start.num_vectors(), 1);
     assert!(wanted >= 1 && keep >= wanted && m > keep + 1);
@@ -133,14 +150,21 @@ pub fn arnoldi<V: Vector, A: LinearFn<V>>(
                 (t[k * m + k], y, r)
             })
             .collect();
-        let converged = estimates
+        let within = threshold.map_or(wanted, |t| {
+            estimates
+                .iter()
+                .position(|(theta, _, _)| which.beyond(*theta, t))
+                .unwrap_or(wanted)
+        });
+        let converged = estimates[..(within + 1).min(wanted)]
             .iter()
-            .all(|(theta, _, r)| *r <= tolerance * theta.norm_sqr().sqrt().max(f64::MIN_POSITIVE));
+            .all(|(theta, _, r)| tolerance.met(*r, theta.norm_sqr().sqrt().max(f64::MIN_POSITIVE)));
         if converged || restarts == max_restarts {
             let mut out = NonHermitianPairs {
                 values: Vec::new(),
                 vectors: Vec::new(),
                 residuals: Vec::new(),
+                within_threshold: within,
                 converged,
                 restarts,
                 applications,
@@ -246,7 +270,8 @@ mod tests {
             wanted: 3,
             keep: 10,
             max_dim: 40,
-            tolerance: 1e-9,
+            tolerance: (1e-9).into(),
+            threshold: None,
             max_restarts: 500,
             which: Which::SmallestReal,
         };

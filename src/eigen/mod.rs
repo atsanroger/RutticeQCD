@@ -3,13 +3,15 @@
 //!
 //! | what | method | module |
 //! |---|---|---|
-//! | the lowest eigenpairs of a Hermitian positive A | thick-restart Lanczos, optionally on a Chebyshev polynomial of A | [`lanczos`] ([`lowest`]) |
+//! | eigenpairs of a Hermitian A: the lowest, the highest, or those of smallest or largest magnitude of an indefinite one (γ5 D) | thick-restart Lanczos on A or A², optionally on a Chebyshev polynomial | [`lanczos`] ([`lanczos()`], [`lowest`]) |
 //! | eigenpairs of a non-Hermitian A at an end of its spectrum | Krylov-Schur | [`arnoldi`] ([`arnoldi()`]) |
 //! | the smallest singular value of A, and σ_min(z − A) for points z (the norm of the resolvent, 1/‖(z − A)⁻¹‖: the ε-pseudospectrum is where it is below ε) | Lanczos on (z − A)†(z − A) | [`singular`] |
 //! | spectral transforms: A − z, and (A − σ)⁻¹ by a given solve (shift and invert, for eigenvalues in the interior or a crowded low end) | | [`transform`] |
 //!
 //! The small dense problems inside (the Schur form of a projection, its reordering, triangular
-//! eigenvectors) are in [`schur`]; Hermitian ones use `numerics::hermitian_eigen`. Every
+//! eigenvectors) are in [`schur`]; Hermitian ones use `numerics::hermitian_eigen`. Both
+//! iterations stop by a [`Tolerance`] on |A x − λ x| (relative, or Bridge++'s absolute
+//! `convergence_criterion_squared`) and optionally at a threshold (`threshold_value`). Every
 //! method keeps all its Krylov vectors and orthogonalises twice (no loss of orthogonality): the
 //! memory is the Krylov dimension in vectors.
 
@@ -20,7 +22,7 @@ pub mod singular;
 pub mod transform;
 
 pub use arnoldi::{arnoldi, ArnoldiParams, NonHermitianPairs, Which};
-pub use lanczos::{lowest, Chebyshev, Eigenpairs, LanczosParams};
+pub use lanczos::{lanczos, lowest, Chebyshev, Eigenpairs, LanczosParams, Order, Tolerance};
 pub use singular::{resolvent_norms, smallest_singular, Resolvent, Singular};
 pub use transform::{ShiftInvert, Shifted};
 

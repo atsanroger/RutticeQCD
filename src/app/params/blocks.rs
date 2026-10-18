@@ -546,6 +546,20 @@ impl FoprBlock {
             .expect("checked for domain-wall fermions")
     }
 
+    /// The domain-wall operator at `mass` (α = 1; set α with `Mdwf::set_alpha`).
+    pub fn mdwf(&self, mass: f64) -> MdwfParams {
+        MdwfParams {
+            ls: self.ls(),
+            m5: self
+                .domain_wall_height
+                .expect("checked for domain-wall fermions"),
+            mass,
+            b: self.coefficient_b,
+            c: self.coefficient_c,
+            boundary: self.boundary(),
+        }
+    }
+
     /// The boundary conditions as the internal parameter structures hold them.
     pub(in crate::app) fn boundary_config(&self) -> [BoundaryConfig; ND] {
         self.boundary().map(|b| match b {

@@ -115,7 +115,26 @@ impl Params {
         if !self.fopr.fermion_type.is_domain_wall() {
             return self.check_wilson(notes);
         }
-        let f = &self.fopr;
+        Self::check_domain_wall_fopr(&self.fopr, "Fopr", notes)?;
+        self.check_domain_wall(notes)
+    }
+
+    /// What a domain-wall quark needs of its `Fopr`.
+    pub(super) fn check_domain_wall_fopr(
+        f: &FoprBlock,
+        at: &str,
+        notes: &mut Vec<String>,
+    ) -> Result<(), CliError> {
+        if f.gamma_matrix_type != GammaType::Dirac {
+            return Err(invalid(format!(
+                "{at}.gamma_matrix_type: only Dirac is implemented"
+            )));
+        }
+        if let Some(b) = f.boundary_condition.iter().find(|b| b.abs() != 1) {
+            return Err(invalid(format!(
+                "{at}.boundary_condition: 1 (periodic) or -1 (antiperiodic), not {b}"
+            )));
+        }
         for (key, missing) in [
             ("quark_mass", f.quark_mass.is_none()),
             ("domain_wall_height", f.domain_wall_height.is_none()),
@@ -126,7 +145,7 @@ impl Params {
         ] {
             if missing {
                 return Err(invalid(format!(
-                    "Fopr.{key} is needed for domain-wall fermions"
+                    "{at}.{key} is needed for domain-wall fermions"
                 )));
             }
         }
@@ -136,10 +155,15 @@ impl Params {
         ] {
             if given {
                 notes.push(format!(
-                    "Fopr.{key} is for Wilson and clover fermions; not used"
+                    "{at}.{key} is for Wilson and clover fermions; not used"
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// The rest of a domain-wall file: the backend and the solver.
+    fn check_domain_wall(&self, notes: &mut Vec<String>) -> Result<(), CliError> {
         match self.main.backend {
             Backend::Cpu => {}
             Backend::Simd => {
@@ -308,7 +332,11 @@ impl Params {
     }
 
     /// What a Wilson or clover quark needs of its `Fopr`.
-    fn check_wilson_fopr(f: &FoprBlock, at: &str, notes: &mut Vec<String>) -> Result<(), CliError> {
+    pub(super) fn check_wilson_fopr(
+        f: &FoprBlock,
+        at: &str,
+        notes: &mut Vec<String>,
+    ) -> Result<(), CliError> {
         let name = f.fermion_type;
         if name.is_domain_wall() {
             return Err(invalid(format!(
@@ -512,18 +540,7 @@ impl Params {
 
     /// The domain-wall operator of `Fopr` (α = 1; set α with `Mdwf::set_alpha`).
     pub fn mdwf_params(&self, mass: f64) -> MdwfParams {
-        let f = &self.fopr;
-        let boundary = f.boundary();
-        MdwfParams {
-            ls: f.ls(),
-            m5: f
-                .domain_wall_height
-                .expect("checked for domain-wall fermions"),
-            mass,
-            b: f.coefficient_b,
-            c: f.coefficient_c,
-            boundary,
-        }
+        self.fopr.mdwf(mass)
     }
 
     /// The operator the outer solver works on: by default `Normal_left` for CG and

@@ -15,6 +15,11 @@
 //! `--arnoldi`: the eigenvalues of Ã M of smallest real part by the Krylov-Schur method, with
 //! their condition numbers (the left eigenvectors from M† Ã†), and that of largest magnitude.
 //!
+//! `--pseudo`: σ_min(z − Ã M), the norm of the resolvent, at the points of `--contour
+//! cx,cy,r,n` (n on a circle, repeatable) and `--points x0,x1,..` (on the real axis); by default
+//! on the real axis from −0.5 to 0.7 and on the circle |z − 1| = 0.8. With `--arnoldi`,
+//! `--far cx,cy` adds the eigenvalues farthest from cx + i cy.
+//!
 //! `--parts`: the smoother S and the coarse correction E apart as well, the field of values and
 //! ‖I − Ã X‖₂ of Ã S, Ã E and Ã M (I − Ã M = (I − Ã S)(I − Ã E)(I − Ã S)), and the vector at
 //! λ_min of the Hermitian part of Ã M: its part in the range of P and its Rayleigh quotients.
@@ -136,6 +141,18 @@ mod device {
         let coarse = value("--coarse", 1e-20)?;
         let tol = value("--tol", 1e-4)?;
         let dim = value("--dim", 24.0)? as usize;
+        let far_from = match args.iter().position(|a| a == "--far") {
+            Some(i) => {
+                let c: Vec<f64> = args
+                    .get(i + 1)
+                    .ok_or("--far cx,cy")?
+                    .split(',')
+                    .map(str::parse)
+                    .collect::<Result<_, _>>()?;
+                Some(C64::new(c[0], *c.get(1).unwrap_or(&0.0)))
+            }
+            None => None,
+        };
         let start = Instant::now();
         let lat = Lattice::single_node([l, l, l, nt]);
         let mut u = ruttice::app::read_gauge_named(&args[2], Path::new(&args[3]), &lat)?;
@@ -283,7 +300,9 @@ mod device {
             wanted: 1,
             keep: 6.min(dim - 2),
             max_dim: dim,
-            tolerance: tol,
+            tolerance: (tol).into(),
+            order: ruttice::eigen::Order::Ascending,
+            threshold: None,
             max_restarts: 2000,
             chebyshev: None,
         };
@@ -321,7 +340,18 @@ mod device {
                 &lat,
                 (parts.clone(), parts_dag.clone()),
                 (exact, hi),
-                (&x0, dim.max(32), tol),
+                (&x0, dim, tol, far_from),
+            )?;
+        }
+        if args.iter().any(|a| a == "--pseudo") {
+            let points = contour_points(&args)?;
+            pseudospectrum(
+                (d, pv),
+                (&even, &odd),
+                &lat,
+                (parts.clone(), parts_dag.clone()),
+                (exact, hi),
+                (&x0, lanczos, points),
             )?;
         }
         if args.iter().any(|a| a == "--parts") {
@@ -361,7 +391,7 @@ mod device {
         lat: &std::sync::Arc<Lattice>,
         (parts, parts_dag): (DeviceParts<f64>, DeviceParts<f64>),
         (exact, hi): (PvEoParams, f64),
-        (x0, dim, tol): (&V, usize, f64),
+        (x0, dim, tol, far_from): (&V, usize, f64, Option<C64>),
     ) -> Result<(), Box<dyn Error>> {
         use ruttice::eigen::{arnoldi, ArnoldiParams, Which};
         let correction = |p: &DeviceParts<f64>, a, b| {
@@ -399,11 +429,13 @@ mod device {
             Box::new(|o, i| m.mult(o, i)),
             Box::new(|o, i| m_dag.mult(o, i)),
         );
+        // At most `dim` vectors on the device (--dim), 6 wanted.
         let params = ArnoldiParams {
             wanted: 6,
-            keep: 12,
-            max_dim: dim,
-            tolerance: tol.min(1e-6),
+            keep: (2 * dim / 5).clamp(7, dim.saturating_sub(2).max(7)),
+            max_dim: dim.max(10),
+            tolerance: (tol.min(1e-6)).into(),
+            threshold: None,
             max_restarts: 400,
             which: Which::SmallestReal,
         };
@@ -469,7 +501,158 @@ mod device {
                 theta.re, theta.im, lm.residuals[k], lm.converged
             );
         }
+        if let Some(c) = far_from {
+            // The eigenvalues of Ã M − c of largest magnitude: every other eigenvalue of Ã M is
+            // in the disc around c through the last of them.
+            let fl = arnoldi(
+                &mut ruttice::eigen::Shifted {
+                    a: Apply(&mut pair, false),
+                    z: c,
+                },
+                x0,
+                ArnoldiParams {
+                    wanted: 4,
+                    which: Which::LargestMagnitude,
+                    ..params
+                },
+            );
+            for (k, theta) in fl.values.iter().enumerate() {
+                let lambda = *theta + c;
+                println!(
+                    "arnoldi   largest |lambda - ({:+.3} {:+.3}i)| = {:.6e}: lambda = {:+.6e} {:+.6e}i  (|A x - l x| {:.1e}, converged {})",
+                    c.re,
+                    c.im,
+                    theta.norm_sqr().sqrt(),
+                    lambda.re,
+                    lambda.im,
+                    fl.residuals[k],
+                    fl.converged
+                );
+            }
+        }
         Ok(())
+    }
+
+    /// The norm of the resolvent of Ã M, σ_min(z − Ã M), on the real axis between the origin
+    /// and the spectrum and on a circle around 1 (Lanczos on (z − Ã M)†(z − Ã M)): the
+    /// ε-pseudospectrum is where it is below ε.
+    fn pseudospectrum(
+        (d, pv): (&CudaMdwf<f64>, &CudaMdwf<f64>),
+        (even, odd): (&V, &V),
+        lat: &std::sync::Arc<Lattice>,
+        (parts, parts_dag): (DeviceParts<f64>, DeviceParts<f64>),
+        (exact, hi): (PvEoParams, f64),
+        (x0, lanczos, points): (&V, LanczosParams, Vec<C64>),
+    ) -> Result<(), Box<dyn Error>> {
+        use ruttice::eigen::resolvent_norms;
+        let correction = |p: &DeviceParts<f64>, a, b| {
+            DeviceCorrection::<f64, f64>::from_parts(
+                p.clone(),
+                (a, b),
+                (a, b),
+                EoForm::Right,
+                exact,
+                even,
+            )
+        };
+        let (mut cm, mut cm_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
+        let mut m = two_grid(
+            (d, pv),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut m_dag = two_grid(
+            (pv, d),
+            EoForm::Right,
+            (even, odd),
+            lat,
+            exact,
+            Box::new(move |e, r| cm_dag.correct(e, r)),
+            Some(hi),
+        )?;
+        let mut pair = product(
+            (d, pv),
+            (even, odd),
+            Box::new(|o, i| m.mult(o, i)),
+            Box::new(|o, i| m_dag.mult(o, i)),
+        );
+        // σ_min² to 1e-3 relative (σ_min to 5e-4) is ample for a bound; each point is printed
+        // as it is done.
+        let params = LanczosParams {
+            wanted: 1,
+            tolerance: (1e-3).into(),
+            max_restarts: 400,
+            ..lanczos
+        };
+        let mut op = PairOp(&mut pair);
+        for z in points {
+            let t = Instant::now();
+            let r = resolvent_norms(&mut op, &[z], x0, params)[0];
+            println!(
+                "pseudo z = {:+.3} {:+.3}i: sigma_min(z - A~ M) = {:.6e}  (converged {}, {} applications of the normal operator, {:.0} s)",
+                r.z.re,
+                r.z.im,
+                r.sigma_min,
+                r.converged,
+                r.applications,
+                t.elapsed().as_secs_f64()
+            );
+        }
+        Ok(())
+    }
+
+    /// The points of `--pseudo`: those of every `--contour cx,cy,r,n` (n points on the circle
+    /// |z − (cx + i cy)| = r) and `--points x0,x1,..` on the real axis; without either, the real
+    /// axis at −0.5, 0, 0.25, 0.5, 0.7 and 8 points on |z − 1| = 0.8.
+    fn contour_points(args: &[String]) -> Result<Vec<C64>, Box<dyn Error>> {
+        let lists = |flag: &str| -> Result<Vec<Vec<f64>>, Box<dyn Error>> {
+            let mut out = Vec::new();
+            for (i, a) in args.iter().enumerate() {
+                if a == flag {
+                    let s = args.get(i + 1).ok_or("a value")?;
+                    out.push(s.split(',').map(str::parse).collect::<Result<_, _>>()?);
+                }
+            }
+            Ok(out)
+        };
+        let (mut contours, reals) = (lists("--contour")?, lists("--points")?);
+        let mut points: Vec<C64> = reals.concat().iter().map(|&x| C64::new(x, 0.0)).collect();
+        if contours.is_empty() && points.is_empty() {
+            points = [-0.5, 0.0, 0.25, 0.5, 0.7]
+                .iter()
+                .map(|&x| C64::new(x, 0.0))
+                .collect();
+            contours.push(vec![1.0, 0.0, 0.8, 8.0]);
+        }
+        for c in contours {
+            let [cx, cy, r, n] = c[..] else {
+                return Err("--contour cx,cy,r,n".into());
+            };
+            for k in 0..n as usize {
+                let phi = 2.0 * std::f64::consts::PI * k as f64 / n;
+                points.push(C64::new(cx + r * phi.cos(), cy + r * phi.sin()));
+            }
+        }
+        Ok(points)
+    }
+
+    /// A pair as an operator with its adjoint.
+    struct PairOp<'p, 'a>(&'p mut Pair<'a>);
+
+    impl LinearFn<V> for PairOp<'_, '_> {
+        fn mult(&mut self, out: &mut V, inp: &V) {
+            (self.0.b)(out, inp);
+        }
+    }
+
+    impl ruttice::LinearOp<V> for PairOp<'_, '_> {
+        fn mult_dag(&mut self, out: &mut V, inp: &V) {
+            (self.0.b_dag)(out, inp);
+        }
     }
 
     /// A map of fields on the even sites.

@@ -3,6 +3,7 @@
 
 mod bench;
 mod config;
+pub mod eigen;
 pub mod flow;
 pub mod hmc;
 pub mod hmc_params;
@@ -261,6 +262,16 @@ pub fn run_file_on(
         let out: &mut dyn Write = if root { stdout } else { &mut sink };
         return hmc::run_on(&config, base, out, comm).map(|_| ());
     }
+    if params::EigenParams::is_eigen_file(path)? {
+        let p = params::EigenParams::load(path)?;
+        set_threads(p.main.cpu_thread)?;
+        let mut sink = std::io::sink();
+        let out: &mut dyn Write = if root { stdout } else { &mut sink };
+        for line in p.to_string().lines() {
+            writeln!(out, "# {line}").map_err(io_error)?;
+        }
+        return eigen::run_on(&p, path, out, comm);
+    }
     if !params::is_bridge_style(path)? {
         return invalid(format!(
             "{}: no Main section. A parameter file has the sections of Bridge++ (Main, Gauge, \
@@ -311,7 +322,8 @@ usage: ruttice PARAMETER_FILE
 
 Reads a parameter file (.yaml, .yml or .toml) in the style of Bridge++ and solves for the
 quark propagators it describes (Wilson, clover or domain-wall fermions), printing meson
-two-point functions; or an HMC file, and generates gauge configurations. See examples/.";
+two-point functions; with an Eigensolver section, the eigenvalues of the fermion operator; or
+an HMC file, and generates gauge configurations. See examples/.";
 
 /// The whole program: interpret the command line (without the program name), run, and
 /// return the exit code. Every process of `comm` makes this call; only rank 0 prints.

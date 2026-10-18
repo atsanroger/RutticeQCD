@@ -1,0 +1,32 @@
+# The eigenvalues of H = γ5 D of smallest magnitude for clover fermions: Bridge++'s test
+# Eigensolver (tests/ParameterFiles/Eigensolver/test_Eigensolver.yaml) with the sections of
+# Ruttice. Bridge++'s expected_result, the first eigenvalue, is 0.15203194923405.
+#
+#   ruttice examples/eigen_clover.yaml
+#
+# Bridge++'s Eigensolver_Chebyshev test is the same with
+#   Chebyshev:
+#     degree_of_polynomial : 40
+#     threshold_value      : 0.16
+#     upper_bound          : 2.50
+# in the Eigensolver section (Lanczos on T_40 of H², small on [0.16², 2.5²]).
+Main:
+  lattice_size : [4, 4, 4, 8]
+Gauge:
+  gauge_config_type_input : Text
+  config_filename_input   : ./conf_04040408.txt
+Fopr:
+  fermion_type       : Clover
+  gamma_matrix_type  : Dirac
+  hopping_parameter  : 0.12
+  clover_coefficient : 1.0
+  boundary_condition : [1, 1, 1, -1]
+Eigensolver:
+  eigensolver_type               : IRLanczos
+  fermion_mult_mode              : H
+  eigensolver_mode               : abs_ascending
+  number_of_wanted_eigenvectors  : 20
+  number_of_working_eigenvectors : 50
+  convergence_criterion_squared  : 1.0e-24
+  maximum_number_of_iteration    : 500
+  threshold_value                : 0.15

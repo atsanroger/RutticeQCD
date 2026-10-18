@@ -1,0 +1,27 @@
+# The eigenvalues of smallest real part of the even-odd Pauli-Villars operator Ã of Möbius
+# domain-wall fermions (operator_type PV_right, the operator of the multigrid), by Krylov-Schur
+# Arnoldi; with fermion_mult_mode DdagD and IRLanczos, its smallest singular values squared.
+#
+#   ruttice examples/eigen_mdwf_arnoldi.yaml
+Main:
+  lattice_size : [4, 4, 4, 8]
+Gauge:
+  gauge_config_type_input : Text
+  config_filename_input   : ./conf_04040408.txt
+Fopr:
+  fermion_type            : Mobius
+  quark_mass              : 0.01
+  domain_wall_height      : 1.8
+  extent_of_5th_dimension : 8
+  coefficient_b           : 1.5
+  coefficient_c           : 0.5
+  boundary_condition      : [1, 1, 1, -1]
+Eigensolver:
+  eigensolver_type               : IRArnoldi
+  fermion_mult_mode              : D
+  operator_type                  : PV_right
+  eigensolver_mode               : ascending
+  number_of_wanted_eigenvectors  : 6
+  number_of_working_eigenvectors : 24
+  convergence_criterion_squared  : 1.0e-20
+  maximum_number_of_iteration    : 500

@@ -123,7 +123,9 @@ mod tests {
             wanted: 1,
             keep: 6,
             max_dim: 30,
-            tolerance: 1e-10,
+            tolerance: (1e-10).into(),
+            order: crate::eigen::Order::Ascending,
+            threshold: None,
             max_restarts: 400,
             chebyshev: None,
         };

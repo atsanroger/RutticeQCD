@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Eigensolver files: a parameter file with an `Eigensolver` section (in place of `Solver`) prints
+  the eigenvalues of the fermion operator, with the keys of Bridge++'s eigensolver:
+  `eigensolver_type` (IRLanczos, IRArnoldi), `fermion_mult_mode` (D, Ddag, DdagD, DDdag, H = γ5 D),
+  `eigensolver_mode` (ascending, descending, abs_ascending, abs_descending),
+  `number_of_wanted_eigenvectors`, `number_of_working_eigenvectors`,
+  `convergence_criterion_squared` (|A x − λ x|²), `maximum_number_of_iteration`,
+  `threshold_value`, and a `Chebyshev` sub-section with the keys of `Fopr_Chebyshev`. The
+  operator is D on the whole lattice (Wilson, clover; five-dimensional for domain-wall fermions)
+  or, with `operator_type: PV_right` or `PV_left`, the even-odd Pauli-Villars operator Ã. H of
+  Möbius fermions with c ≠ 0 is not Hermitian and is refused for Lanczos. CPU only so far.
+  Bridge++'s test `Eigensolver` (`examples/eigen_clover.yaml`) gives 0.15203194923408772, its
+  expected result 0.15203194923405 (with Chebyshev 0.15203194923405683); a test checks it.
+- `eigen::lanczos`: the four orders of Bridge++'s `eigensolver_mode` (`Order`), the smallest or
+  largest magnitudes of an indefinite operator by Lanczos on A² and the Rayleigh-Ritz procedure
+  of A; `Tolerance` (relative, or Bridge++'s absolute `convergence_criterion_squared`) and a
+  `threshold`, also for `eigen::arnoldi` (`Which::beyond`). `LanczosParams` and `ArnoldiParams`
+  have the new fields; `lowest` is `lanczos` with `Order::Ascending`.
+- `preconditioned_fov_device --pseudo`: σ_min(z − Ã M) at the points of `--contour cx,cy,r,n`
+  and `--points x0,x1,..` (by default the real axis −0.5 … 0.7 and |z − 1| = 0.8), one line per
+  point; `--arnoldi --far cx,cy` adds the eigenvalues farthest from cx + i cy (Arnoldi on
+  Ã M − c, `eigen::Shifted`).
 - `eigen` is one module per method: `lanczos` (the lowest eigenpairs of a Hermitian positive
   operator, as before), `arnoldi`, `schur`, `transform` (`Shifted`: A − z; `ShiftInvert`: a
   given solve as (A − σ)⁻¹) and `singular` (`smallest_singular`: σ_min(A) by Lanczos on A†A;

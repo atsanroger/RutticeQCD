@@ -67,6 +67,34 @@ The channels are named after the gamma matrices at the sink and at the source:
 All but `A4_A4` were checked against Bridge++; `A4_A4` is not in Bridge++ and has no
 reference values from another program.
 
+### Eigenvalues
+
+A file with an `Eigensolver` section in place of `Solver` prints eigenvalues of the fermion
+operator instead of propagators (`Main`, `Gauge`, `GaugeSmearing` and `Fopr` as above). The keys
+are those of Bridge++'s `Eigensolver`:
+
+| Key | Values |
+|---|---|
+| `eigensolver_type` | `IRLanczos` (thick-restart Lanczos; Hermitian modes) or `IRArnoldi` (Krylov-Schur; any) |
+| `fermion_mult_mode` | `D`, `Ddag`, `DdagD`, `DDdag`, `H` (γ5 D; for domain-wall fermions Γ5 D, Γ5 = γ5 R, Hermitian for `coefficient_c: 0` only) |
+| `operator_type` | `Lexical` (default: D on the whole lattice, five-dimensional for domain-wall fermions); for domain-wall fermions `PV_right` or `PV_left`, the even-odd Pauli-Villars operator Ã |
+| `eigensolver_mode` | `ascending`, `descending` (by the real part with Arnoldi), `abs_ascending`, `abs_descending` |
+| `number_of_wanted_eigenvectors` | Nk |
+| `number_of_working_eigenvectors` | Np: the Krylov space holds Nk + Np vectors |
+| `number_of_kept_vectors` | kept at a restart, Nk + Np/2 by default (not in Bridge++) |
+| `convergence_criterion_squared` | converged when \|A x − λ x\|² is below it |
+| `maximum_number_of_iteration` | restarts |
+| `threshold_value` | stop once the eigenvalues up to the first one at or beyond it have converged |
+| `seed` | of the random start vector |
+| `Chebyshev` | Lanczos on T_d of the operator, small on [`threshold_value`, `upper_bound`] (`degree_of_polynomial`, even); for `abs_ascending` on H², on [t², u²], as Bridge++'s `Fopr_Chebyshev` on D†D |
+
+The magnitudes of an indefinite H come from Lanczos on H² followed by the Rayleigh-Ritz
+procedure of H. The table has λ (Re and Im with Arnoldi) and \|A x − λ x\|² of each pair; with
+`Output.file` it is also written there. `examples/eigen_clover.yaml` is Bridge++'s test
+`Eigensolver` (expected result 0.15203194923405; Ruttice 0.15203194923408772);
+`examples/eigen_mdwf_arnoldi.yaml` is Ã of Möbius fermions by Arnoldi. CPU only so far; the
+eigenvectors are not written.
+
 ### Threads
 
 A run uses every core of the machine unless told otherwise, by `Main.cpu_thread` in the

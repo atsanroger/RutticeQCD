@@ -199,7 +199,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         wanted: 1,
         keep: 8,
         max_dim: 40,
-        tolerance: tol,
+        tolerance: (tol).into(),
+        order: ruttice::eigen::Order::Ascending,
+        threshold: None,
         max_restarts: 2000,
         chebyshev: None,
     };
