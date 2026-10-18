@@ -108,7 +108,17 @@ $0.001$ & 4228 & 137.0 & 26 & 22.8 & 1278 & 27 & 23.4 & 3.4\\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:massscan} is the mass scan on $24^3\times48$. The CGNE iterations grow
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_massscan}
+\caption{The mass scan of Table~\ref{tab:massscan} and the mixed-precision CGNE: iterations
+(top) and seconds per right-hand side (bottom) against the quark mass, $24^3\times48$, A30.
+``Solve + setup/12'': the setup spread over the 12 columns of one point-source
+propagator. \texttt{data/massscan\_24.tsv}, \texttt{figures.py}.}
+\label{fig:massscan}
+\end{figure}
+
+Table~\ref{tab:massscan} and Fig.~\ref{fig:massscan} are the mass scan on $24^3\times48$. The CGNE iterations grow
 by a factor of $21$ (S) and $18$ (B) from $m=0.1$ to $m=0.001$, the multigrid
 iterations by $2$ (S) and $3.7$ (B). At $m=0.001$ the multigrid solve is $4.7$ times
 (S) and $6.0$ times (B) faster; with the setup of about $390$\,s it pays for itself
@@ -123,15 +133,16 @@ eight cases; the cause (code change or non-determinism of the device reductions)
 is not established.
 
 \paragraph{Mixed-precision CGNE.} For a comparison on equal terms the reference
-solver also exists in mixed precision (defect correction in double precision,
-CG in single precision on the normal equation of $\Ce^{-1}S$). A first scan,
-setup~S on $24^3\times48$ (double: iterations / s; mixed: iterations / s):
-$m=0.1$: $173/5.7$, $200/4.7$; $0.05$: $291/9.5$, $341/7.8$; $0.02$: $644/21.0$,
-$1197/26.9$; $0.01$: $1166/37.9$, $2079/46.4$; $0.005$: $2067/67.1$, $3432/76.4$.
-These runs overshot the tolerance (final $|D\psi-\eta|^2$ of $10^{-19}$ to
-$10^{-26}$), which has since been corrected; on $12^4$ setup~S, $m=0.01$, the
-corrected scheme needs $301$ single-precision iterations against $212$ in double.
-\todo{the corrected mixed-precision scan, both setups, all masses.}
+solver also runs in mixed precision (defect correction in double precision, CG in
+single precision on the normal equation of $\Ce^{-1}S$, each inner solve stopped
+where the outer tolerance is met; RutticeQCD \texttt{49bcf37}). It needs $1.0$--$1.2$
+times the iterations of double precision and $0.65$--$0.75$ times the time, with the
+same final residuals ($2\times10^{-18}$--$2\times10^{-16}$) and $10.1$\,GB of device
+memory (Fig.~\ref{fig:massscan}; e.g.\ $m=0.001$: $4017$ iterations, $89.3$\,s (S);
+$4334$, $96.4$\,s (B)). Against it the multigrid solve at $m=0.001$ is $3.6$ (S) and
+$4.2$ (B) times faster, and the setup is paid back after $6$ (S) and $5$ (B)
+right-hand sides; for $m\ge0.05$ (S) the mixed-precision CGNE solve is the faster
+one, and at $m=0.1$ (B) the two take the same time.
 
 \subsection{Field of values}
 \label{sec:fov}
@@ -260,6 +271,19 @@ $16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_spectrum}
+\caption{$12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
+$\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
+$\sigma_{\min}(z-\AR\mathcal M)$ (colour) at the points where it was computed: the real
+axis, the contours of Table~\ref{tab:pseudo} and, for setup~S, the dense circle
+$|z-1|=0.6$. The field of values reaches far into the left half-plane (its real
+range in the corner), the spectrum does not. \texttt{data/pseudo\_*.tsv},
+\texttt{data/spectrum\_*.tsv}.}
+\label{fig:spectrum}
+\end{figure}
+
 On $16^4$ setup~S has two outliers; the factor $\kappa_o$ is then replaced by
 $\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the
 form $(|\lambda_o-c|+r)/|\lambda_o|$. On the real axis between the origin and the
@@ -348,7 +372,15 @@ B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
 \end{tabular}
 \end{table}
 
-No run shows a plateau (Table~\ref{tab:history}); the first step reduces $|r|^2$ by
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_history}
+\caption{The GCR(2) residual histories of Table~\ref{tab:history}, $24^3\times48$.
+\texttt{data/gcr\_steps\_24.tsv}.}
+\label{fig:history}
+\end{figure}
+
+No run shows a plateau (Table~\ref{tab:history}, Fig.~\ref{fig:history}); the first step reduces $|r|^2$ by
 about $10^{-5}$ in every run.
 
 \subsection{$\Gfive$-Hermiticity for $c\neq0$}

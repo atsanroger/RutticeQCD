@@ -1,0 +1,13 @@
+re	im	kind
++8.308982e-1	+3.820693e-2	smallest_re
++8.445648e-1	-6.715440e-2	smallest_re
++8.522412e-1	-5.238226e-2	smallest_re
++8.540778e-1	+3.687352e-2	smallest_re
++8.541154e-1	-3.593450e-4	smallest_re
++8.614754e-1	+5.651013e-2	smallest_re
++1.751882e0	-3.624226e-2	farthest_from_1
++1.610364e0	+2.856234e-1	farthest_from_1
++1.653199e0	+2.191467e-2	farthest_from_1
++1.510614e0	+3.513801e-1	farthest_from_1
+-1.488710e0	0	fov_min
++4.165064e0	0	fov_max
