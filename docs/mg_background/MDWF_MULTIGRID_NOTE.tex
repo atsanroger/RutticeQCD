@@ -93,7 +93,7 @@
 \newif\ifresults
 \resultstrue
 
-\title{A factorised Pauli--Villars multigrid method\\
+\title{A factorized Pauli--Villars multigrid method\\
 for the M\"obius domain-wall operator}
 \author{Wei-Lun Chen\\[0.3ex]{\small\itshape draft}}
 \date{\today}
@@ -108,9 +108,9 @@ Kanamori, Chen and Matsufuru showed that preconditioning with the
 Pauli--Villars operator together with the site-diagonal part of the operator,
 $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves the spectrum into the right half-plane
 and gives the smallest condition number among the operators they examined. This note
-describes a two-grid method for $A'$. The coarse-grid correction is factorised
+describes a two-grid method for $A'$. The coarse-grid correction is factorized
 into one Galerkin solve for the quark operator and one for the adjoint
-Pauli--Villars operator, both with a nearest-neighbour coarse stencil, so that
+Pauli--Villars operator, both with a nearest-neighbor coarse stencil, so that
 the outer system can be taken on the even sites without enlarging the coarse
 stencil; the prolongation is built from lifted
 approximate low modes for which the correction is exact on the vectors it is
@@ -137,8 +137,8 @@ volume; Sec.~\ref{sec:reproduce} describes how to extend them.\fi
 \section{Introduction}
 \label{sec:intro}
 
-Lattice computations of flavour physics and of the hadronic contributions to
-precision observables need a fermion discretisation whose chiral symmetry is
+Lattice computations of flavor physics and of the hadronic contributions to
+precision observables need a fermion discretization whose chiral symmetry is
 broken only mildly at finite lattice spacing. The overlap
 operator~\cite{NarayananNeuberger,Neuberger} has an exact lattice chiral
 symmetry. Domain-wall fermions~\cite{Kaplan,Shamir,FurmanShamir} approximate it
@@ -146,7 +146,7 @@ at a lower cost by adding a fifth dimension of extent $L_s$, in which modes of
 opposite chirality are bound to the two boundaries by a large negative Wilson
 mass $-M_5$; the residual chiral symmetry breaking is suppressed as $L_s$
 grows, and the effective four-dimensional operator is a rational approximation
-of the overlap operator. The M\"obius generalisation~\cite{BNO0,BNO1,BNO}
+of the overlap operator. The M\"obius generalization~\cite{BNO0,BNO1,BNO}
 introduces two coefficients $(b,c)$ and improves this approximation at fixed
 $L_s$; $c=0$ is Shamir's operator.
 
@@ -171,10 +171,10 @@ unpreconditioned operator, with blocks covering the whole fifth dimension, and
 noted that its coarse operator reaches two hops. HDCG~\cite{HDCG} accelerates
 the best standard solver, CG on the normal equation of the red-black (even-odd)
 operator, and coarsens that squared Schur complement; its coarse stencil is
-next-to-next-to-next-to-nearest neighbour, $81$ points for blocks of at least
-$4^4$. HDCR~\cite{HDCR} works instead directly on the nearest-neighbour
+next-to-next-to-next-to-nearest neighbor, $81$ points for blocks of at least
+$4^4$. HDCR~\cite{HDCR} works instead directly on the nearest-neighbor
 Hermitian indefinite operator $\gamma_5R_5D$ at $c=0$, so that the coarse
-operator stays nearest neighbour, explicitly to make re-evaluation along an HMC
+operator stays nearest neighbor, explicitly to make re-evaluation along an HMC
 trajectory affordable. Brower, Clark, Howarth and Weinberg~\cite{BCHW} pointed
 out that the Pauli--Villars preconditioned operator $\Dpv^{-1}D$, not $D$,
 carries the physical four-dimensional degrees of freedom, solved the
@@ -205,7 +205,7 @@ forming the $81$-point coarse operator, and that a single solve on a new gauge
 field, as in HMC, does not profit from many right-hand sides---and presented
 a multigrid that directly coarsens the two-hop operator
 $\Dpv\dg D$ with blocks that contain the whole fifth dimension, which gives a
-$33$-point coarse stencil. They emphasised that $\Dpv\dg D$ is non-normal: its field of values
+$33$-point coarse stencil. They emphasized that $\Dpv\dg D$ is non-normal: its field of values
 can extend into the left half-plane although its spectrum does not, the
 bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is then lost, and they
 introduced a shift in the smoothers. The coarse solve dominated the cost; a
@@ -226,9 +226,9 @@ $Q$ and changes the conditioning of the even-odd system.
 
 \paragraph{This note.}
 We describe a two-grid method for $A'$. The outer system is the usual even-odd
-reduced one, as in HDCG, but the coarse-grid correction is \emph{factorised}: the inverses of the quark
+reduced one, as in HDCG, but the coarse-grid correction is \emph{factorized}: the inverses of the quark
 operator and of the adjoint Pauli--Villars operator are replaced by two
-separate Galerkin inverses, each with a nearest-neighbour coarse stencil and an
+separate Galerkin inverses, each with a nearest-neighbor coarse stencil and an
 aggregation that is compatible with the five-dimensional chirality. The
 prolongation is built from approximate low modes lifted to the whole lattice in
 two ways, which makes the correction exact on these vectors for the right form
@@ -236,13 +236,13 @@ of the operator. The smoother is a fixed Chebyshev polynomial and the setup
 combines Chebyshev filtering with a bootstrap.\ifresults{} The note states the
 method and gives first numerical results: a mass scan against even-odd CGNE, the
 field of values, spectrum and pseudospectra of the preconditioned operator, the
-behaviour of truncated GCR, and the sensitivity to the parameters.\else{} The note
+behavior of truncated GCR, and the sensitivity to the parameters.\else{} The note
 states the method; it does not assess its performance.\fi
 
 Section~\ref{sec:spectra} recalls the spectra on which the construction rests.
 Sections~\ref{sec:operator}--\ref{sec:outer} describe the method: the operator
 and its Pauli--Villars preconditioning, its even-odd forms, the
-factorised correction and the prolongation, the coarse solvers, the setup, the
+factorized correction and the prolongation, the coarse solvers, the setup, the
 smoother and the outer solver.\ifresults{} Section~\ref{sec:impl} sketches the
 implementation, Sec.~\ref{sec:results} gives the results, and
 Sec.~\ref{sec:reproduce} how to reproduce and extend them.\fi{}
@@ -282,7 +282,7 @@ Reproduced from Ref.~\cite{KCM2024}, Fig.~1.}
 
 \paragraph{The unpreconditioned operator.}
 The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into
-$\Re\lambda<0$. On a $2+1$-flavour configuration at the physical point
+$\Re\lambda<0$. On a $2+1$-flavor configuration at the physical point
 (Fig.~\ref{fig:pv}, top left) the real parts lie in $[-1.29,13.2]$. Conjugate
 gradients and BiCGStab therefore do not apply to $D$ itself, and the practical
 choice has been CG on a positive definite squared operator.
@@ -318,7 +318,7 @@ its Galerkin coarse operator (Sec.~\ref{sec:correction}).
 \centering
 \includegraphics[width=\linewidth]{spectrum_fig3.png}
 \caption{Low and high ends of the spectrum of the M\"obius operator on a
-JLQCD $2+1$-flavour configuration at the physical point, with preconditioners.
+JLQCD $2+1$-flavor configuration at the physical point, with preconditioners.
 Left column: $D$, $DC^{-1}$, $(C^{-1}D)\dg C^{-1}D$. Right column:
 $\Dpv\dg D$, $\Bpv\dg D$, $\Bpv^{-1}D$, where $\Bpv$ is the block-diagonal
 approximation of $\Dpv$ (inverted approximately in the last panel). The text of
@@ -474,17 +474,17 @@ $\psi^{(\alpha)}_e=\Ce^{-1}y$ (right) or $y$ (left),
 $\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alpha)}$.
 
 % ============================================================
-\section{The factorised coarse-grid correction and the prolongation}
+\section{The factorized coarse-grid correction and the prolongation}
 \label{sec:correction}
 
-\subsection{Why factorise}
+\subsection{Why factorize}
 Solving on the even sites halves the problem and improves the conditioning, but
 in the literature it has come at a price: the Schur complement is a two-hop
 operator, so HDCG, which coarsens the squared Schur complement, has an $81$-point
 coarse stencil~\cite{HDCG}, while the methods with a more compact coarse
 operator coarsen something other than the Schur complement: $\gamma_5R_5D$
 (HDCR~\cite{HDCR}) or $\Dpv\dg D$~\cite{BCHW,BoyleOare}. The
-factorised correction avoids this choice: the outer operator is the even-odd one,
+factorized correction avoids this choice: the outer operator is the even-odd one,
 while the coarse operators are those of $D$ and $\Dpv$ themselves.
 By $S^{-1}=\pi D^{-1}\iota$, the inverse of the right form is
 \begin{equation}
@@ -495,8 +495,8 @@ By $S^{-1}=\pi D^{-1}\iota$, the inverse of the right form is
 a product of two inverses of one-hop operators with site-local factors. The
 Galerkin operator of $\AR$ itself, a four-hop operator on the fine lattice, would
 have a much larger coarse stencil; the Galerkin operators of $D$ and $\Dpv$ are
-nearest-neighbour, because $D$ is
-nearest-neighbour in four dimensions and every aggregate contains the whole
+nearest-neighbor, because $D$ is
+nearest-neighbor in four dimensions and every aggregate contains the whole
 fifth dimension. We therefore replace each inverse by its Galerkin
 approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. For both forms and any
 $\alpha$, the correction of a residual $r$ on the even sites is
@@ -532,7 +532,7 @@ left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$
 The fine lattice is divided into rectangular four-dimensional blocks; each block
 contains the whole fifth dimension and becomes one coarse site. Each test vector
 $v$ is split into its $\Gfive$ eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$, and
-within each block the $+$ parts and the $-$ parts are orthonormalised separately.
+within each block the $+$ parts and the $-$ parts are orthonormalized separately.
 With $n_v$ test vectors a coarse site carries $2n_v$ components, the first $n_v$
 of positive and the last $n_v$ of negative $\Gfive$-chirality. Writing
 $\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf 1_{n_v})$ on each coarse site,
@@ -591,7 +591,7 @@ holds only up to the rounding of the reduced-precision storage of $\Pro$;
 $\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse} equals it only if
 $\Gfive\Dpv\Gfive=\Dpv\dg$, which by Eq.~\eqref{eq:g5herm} fails for $c\neq0$;
 (iii) exact coarse solves, whereas they are stopped at a loose tolerance. How
-much each departure costs has not been analysed.\ifresults{} Numerically (ii) costs
+much each departure costs has not been analyzed.\ifresults{} Numerically (ii) costs
 nothing measurable (Sec.~\ref{sec:herm}), and (iii) helps: with GCR(2), accurate
 coarse solves need more iterations or stagnate (Secs.~\ref{sec:gcrk},
 \ref{sec:sensitivity}).\fi
@@ -614,7 +614,7 @@ needs one to three iterations more or fewer (Secs.~\ref{sec:spectrum},
 
 \subsection{The coarse operators}
 $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ are assembled from the hops of
-the fine operator between neighbouring blocks and from its block-internal part:
+the fine operator between neighboring blocks and from its block-internal part:
 on each coarse site a $2n_v\times2n_v$ diagonal block and one link block per
 direction, nine blocks in all. The adjoint factor $\Pro\dg\Dpv\dg\Pro$ is not
 assembled; it is applied either exactly, as the conjugate transpose $(\Dcpv)\dg$
@@ -673,8 +673,8 @@ Eq.~\eqref{eq:coarseeo}, and sets $w=\Sigma u$.
 Both factors may be preconditioned by further levels. The coarse sites are
 grouped into super-blocks; on each super-block, local vectors are formed from
 the coarse test vectors $\Pro\dg s_j$ and $\Pro\dg\hat t_j$, split by $\Sigma$
-and orthonormalised (Gram--Schmidt applied twice); the level operators are
-obtained by probing the nearest-neighbour stencil; the last level is inverted
+and orthonormalized (Gram--Schmidt applied twice); the level operators are
+obtained by probing the nearest-neighbor stencil; the last level is inverted
 densely. With $Q_{\ell}$ the prolongation into level $\ell-1$ and $B_\ell$ the
 diagonal blocks of level $\ell$:
 
@@ -723,7 +723,7 @@ recurrence.
 \State $\lambda_{\rm hi}\gets$ a bound slightly above $\lambda_{\max}(H_n)$ (power iteration);\quad $\lambda_{\rm lo}\gets$ a small fraction of $\lambda_{\rm hi}$
 \For{each round}
   \State $d\gets$ a degree proportional to $\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$, within fixed bounds
-  \State $X\gets T_d(\ell(H_n))\,X$;\quad orthonormalise $X$ through its Gram matrix
+  \State $X\gets T_d(\ell(H_n))\,X$;\quad orthonormalize $X$ through its Gram matrix
   \State $G\gets X\dg H_nX=V\Theta V\dg$;\quad $X\gets XV$ \Comment{Rayleigh--Ritz}
   \State $\lambda_{\rm lo}\gets\theta_{\max}$ \Comment{largest Ritz value}
 \EndFor
@@ -735,7 +735,7 @@ recurrence.
 Each bootstrap round builds the basis and the two-grid cycle of
 Sec.~\ref{sec:smoother} from the current $y$, replaces every $y_j$ by the result
 of a fixed small number of FGMRES steps on $\AR x=y_j$ from $x=0$ preconditioned
-by that cycle, and orthonormalises the new $y$ through their Gram matrix
+by that cycle, and orthonormalizes the new $y$ through their Gram matrix
 ($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$). The cycle damps the
 components it already handles, so the new vectors are enriched in what it does not.
 
@@ -749,9 +749,9 @@ components it already handles, so the new vectors are enriched in what it does n
   \For{$j=1,\dots,n$}
     \State $y_j\gets$ a few FGMRES steps on $\AR x=y_j$, preconditioned by $\mathcal M$
   \EndFor
-  \State orthonormalise $y$
+  \State orthonormalize $y$
 \EndFor
-\State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalise per block $\to\Pro$
+\State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalize per block $\to\Pro$
 \State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
 \State optionally, build the levels below from $\Pro\dg s_j$, $\Pro\dg\hat t_j$
 \end{algorithmic}
@@ -857,7 +857,7 @@ Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoin
 in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
 operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
 the non-Hermitian part is on the coarse space, and how to treat it, is open.\ifresults{}
-On the coarse space it is a few per cent, up to $14\%$ in the lowest singular
+On the coarse space it is a few percent, up to $14\%$ in the lowest singular
 directions, linear in $c$; MINRES on $\Hc$ is nevertheless as effective at
 $c=0.5$ as at $c=0$ (Sec.~\ref{sec:herm}). Its effect on the other components
 listed here has not been measured separately.\fi
@@ -894,7 +894,7 @@ $\Re\lambda\ge0.78$ and the pseudospectra give a bound for full GMRES
 
 \item \textbf{Outer solver with a varying preconditioner.} Because the coarse
 solves are truncated, $\mathcal M$ is nonlinear and depends on the right-hand
-side. FGMRES and flexible GCR allow this; BiCGStab does not, and its behaviour
+side. FGMRES and flexible GCR allow this; BiCGStab does not, and its behavior
 with $\mathcal M$ as preconditioner has no theoretical justification.\ifresults{} The
 truncated GCR(2) used in practice converges with coarse solves to $10^{-2}$ and
 stagnates with accurate ones (Sec.~\ref{sec:gcrk}); why the inexact correction

@@ -1,4 +1,4 @@
-% Numerical results of the factorised Pauli--Villars multigrid (input by MDWF_MULTIGRID_NOTE.tex
+% Numerical results of the factorized Pauli--Villars multigrid (input by MDWF_MULTIGRID_NOTE.tex
 % with \resultstrue). Every number is from a log named in the text; [TODO] marks what is still
 % being measured.
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
@@ -278,7 +278,7 @@ $16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
 \includegraphics[width=\linewidth]{fig_spectrum}
 \caption{$12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
-$\sigma_{\min}(z-\AR\mathcal M)$ (colour) at the points where it was computed: the real
+$\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the real
 axis, the contours of Table~\ref{tab:pseudo} and, for setup~S, the dense circle
 $|z-1|=0.6$. The field of values reaches far into the left half-plane (its real
 range in the corner), the spectrum does not. \texttt{data/pseudo\_*.tsv},
@@ -435,7 +435,7 @@ setup B & $14$ ($2351$) & $19$ ($3876$) & $15$ ($2103$) & $28$ ($3540$)\\
 \end{table}
 
 For $c=0$ the coarse operators are $\Sigma$-Hermitian to rounding; for $c\neq0$ they
-are not, by a few per cent in random directions and up to $14\%$ in the
+are not, by a few percent in random directions and up to $14\%$ in the
 directions of the smallest singular values, growing linearly with $c$
 (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. This does not hurt the
 method: with MINRES on $\Hc$ for the Pauli--Villars factor the outer iterations at
