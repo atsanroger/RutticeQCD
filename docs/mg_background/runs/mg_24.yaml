@@ -1,0 +1,68 @@
+# The multigrid solve of the 24^3x48 mass scan (MDWF_MULTIGRID_NOTE, Table massscan), setup S
+# (M5 = 1.0, stout 0.1 x 3). For setup B: domain_wall_height 1.8, delete the GaugeSmearing
+# section, and Smoother number_of_steps 12, interval_ratio 30. Change quark_mass for the scan.
+# Without a Source section one random right-hand side (seed 91) is solved; with
+#   Source:
+#     source_position : [0, 0, 0, 0]
+# the 12 columns of a point-source propagator, and the pion correlator is printed.
+#
+#   ruttice mg_24.yaml        (built with --features cuda-bridge; about 20 GB of device memory)
+Main:
+  lattice_size  : [24, 24, 24, 48]
+  backend       : cuda_bridge
+Gauge:
+  gauge_config_type_input : Binary          # or Text, NERSC, ILDG, SciDAC
+  config_filename_input   : ./conf_24x24x24x48.bin
+Fopr:
+  fermion_type             : Domainwall_5din
+  gamma_matrix_type        : Dirac
+  quark_mass               : 0.001
+  quark_mass_PauliVillars  : 1.0
+  domain_wall_height       : 1.0
+  extent_of_5th_dimension  : 8
+  coefficient_b            : 1.5
+  coefficient_c            : 0.5
+  boundary_condition       : [1, 1, 1, -1]
+  neff_alpha               : 0.6
+  neff_alpha_PauliVillars  : 1.0
+Solver:
+  solver_type                   : GCR
+  operator_type                 : PV_left
+  number_of_kept_directions     : 2
+  maximum_number_of_iteration   : 2000
+  maximum_number_of_restart     : 0
+  convergence_criterion_squared : 1.0e-18
+  preconditioner_type           : MG
+MultiGrid:
+  coarse_precision : single
+  Setup:
+    filter_number_of_vectors   : 16
+    filter_number_of_rounds    : 2
+    filter_number_in_block     : 4
+    bootstrap_number_of_rounds : 2
+    bootstrap_number_of_steps  : 4
+    seed                       : 21
+  Smoother:
+    smoother_type   : Chebyshev
+    number_of_steps : 8
+    interval_ratio  : 10
+  MultiGrid_Level1:
+    block_size             : [4, 4, 4, 4]
+    number_of_test_vectors : 32
+    Coarse_Solver_D:
+      solver_type                   : BiCGStab
+      maximum_number_of_iteration   : 2000
+      convergence_criterion_squared : 1.0e-2
+    Coarse_Solver_PV:
+      solver_type                   : MINRES
+      maximum_number_of_iteration   : 2000
+      convergence_criterion_squared : 1.0e-2
+  # Levels below the coarse lattice: they must divide its extent (24^3x48 / 4^4 = 6^3x12).
+  MultiGrid_Level2:
+    super_block_size : 2
+  MultiGrid_Level3:
+    super_block_size : 3
+GaugeSmearing:
+  smear_type         : Stout
+  rho_uniform        : 0.1
+  number_of_smearing : 3

@@ -1,0 +1,33 @@
+# The reference solve of the 24^3x48 mass scan: even-odd CGNE (CG on the normal equation of
+# the left Schur factor), setup S. For setup B: domain_wall_height 1.8 and no GaugeSmearing.
+# precision : mixed for the mixed-precision CGNE (double for the double-precision one).
+#
+#   ruttice cgne_24.yaml       (about 7 GB of device memory in double, 10 GB mixed)
+Main:
+  lattice_size  : [24, 24, 24, 48]
+  backend       : cuda_bridge
+Gauge:
+  gauge_config_type_input : Binary
+  config_filename_input   : ./conf_24x24x24x48.bin
+Fopr:
+  fermion_type             : Domainwall_5din
+  gamma_matrix_type        : Dirac
+  quark_mass               : 0.001
+  quark_mass_PauliVillars  : 1.0
+  domain_wall_height       : 1.0
+  extent_of_5th_dimension  : 8
+  coefficient_b            : 1.5
+  coefficient_c            : 0.5
+  boundary_condition       : [1, 1, 1, -1]
+  neff_alpha               : 0.6
+  neff_alpha_PauliVillars  : 1.0
+Solver:
+  solver_type                   : CG
+  operator_type                 : Normal_left
+  maximum_number_of_iteration   : 50000
+  convergence_criterion_squared : 1.0e-18
+  precision                     : mixed
+GaugeSmearing:
+  smear_type         : Stout
+  rho_uniform        : 0.1
+  number_of_smearing : 3

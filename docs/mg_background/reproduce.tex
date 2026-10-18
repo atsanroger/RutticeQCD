@@ -1,0 +1,78 @@
+% How to reproduce the measurements and extend them to more configurations (input by
+% MDWF_MULTIGRID_NOTE.tex with \resultstrue).
+
+% ============================================================
+\section{Reproducing and extending the measurements}
+\label{sec:reproduce}
+\begingroup\sloppy
+
+All numbers of Sec.~\ref{sec:results} come from one configuration per volume; the
+most useful extensions are more configurations, a larger volume and dynamical
+ensembles. This section gives what is needed to run them.
+
+\paragraph{Code.} RutticeQCD, \url{https://github.com/atsanroger/RutticeQCD}, branch
+\texttt{cuda-bridge} (the commit of each result is given with it; later commits give
+the same iterations, up to the two-iteration differences between builds noted in
+Sec.~\ref{sec:massscan}). It needs Rust (stable) and, for the GPU, CUDA~12:
+{\small
+\begin{verbatim}
+  export CUDA_HOME=/usr/local/cuda
+  cargo build --release --features cuda-bridge
+  ./target/release/ruttice mg_24.yaml
+\end{verbatim}}
+The GPU backend runs on one GPU. The parameter files are in the style of Bridge++
+and are documented in \texttt{docs/USAGE.md}; gauge configurations are read in the
+Bridge++ text and binary formats, NERSC, ILDG and SciDAC.
+
+\paragraph{The mass scan (Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}).} The
+parameter files are \texttt{docs/mg\_background/runs/mg\_24.yaml} (the multigrid) and
+\texttt{runs/cgne\_24.yaml} (the reference, double or mixed precision); the comments
+in them say how to switch to setup~B and to a point source. Each run prints a line
+{\small
+\begin{verbatim}
+  seed 91: GCR 26 iterations on the device; 2875 coarse applications;
+      worst |Dx-b|^2 2e-18; 24.9 s; ... device 19.91 GB
+\end{verbatim}}
+and, for the multigrid, \texttt{setup on the device: 393 s}. These, per mass and
+setup, are what Table~\ref{tab:massscan} lists. On an A30 one configuration takes about
+$1.5$ hours for the multigrid (seven masses, both setups; the setup dominates) and
+about $40$ minutes for the two CGNE scans.
+
+\paragraph{Memory and volume.} On $24^3\times48$ the multigrid needs $19.9$\,GB of
+device memory (CGNE $6.9$\,GB in double, $10.1$\,GB mixed), roughly proportional to the
+volume: $32^3\times64$ needs about $63$\,GB (an $80$\,GB GPU), $48^3\times96$ more
+than one GPU has. The aggregates, $4^4$, must divide the lattice, and each level
+below the coarse lattice must divide the extent of the level above
+(\texttt{MultiGrid\_Level2}, \texttt{\_Level3}; on $32^3\times64$, for instance,
+super-blocks $2$ and $2$).
+
+\paragraph{The spectral quantities (Secs.~\ref{sec:fov}--\ref{sec:pseudo}).} The
+example \texttt{preconditioned\_fov\_device} computes, with exact coarse solves, the
+field of values, the parts of the cycle, the eigenvalues with their condition
+numbers, and $\sigma_{\min}(z-\tilde A\mathcal M)$ on contours, e.g.
+{\small
+\begin{verbatim}
+  cargo run --release --features cuda-bridge \
+      --example preconditioned_fov_device -- \
+      16 16 binary conf.bin 1.0 0.001 1 --ratio 10 \
+      --arnoldi --far 1,0 --pseudo --contour 1,0,0.6,16
+\end{verbatim}}
+(arguments: $L$, $T$, format, file, $M_5$, $m$, stout $0/1$). It fits $16^4$ in $24$\,GB
+and takes about an hour there; $24^3\times48$ does not fit. The CPU examples
+\texttt{preconditioned\_fov} and \texttt{coarse\_hermiticity} need no GPU.
+
+\paragraph{What would help most.}
+\begin{enumerate}
+\item The mass scan of Table~\ref{tab:massscan} on three to five further
+$24^3\times48$ configurations, for the spread of the iterations and of the
+speed-up.
+\item The same on a larger volume ($32^3\times64$ on an $80$\,GB GPU), for the volume
+dependence of the multigrid iterations and of the setup.
+\item The mass scan on a dynamical ($2+1$-flavour) ensemble, e.g.\ that of
+Ref.~\cite{KCM2024}, where the spectra of Sec.~\ref{sec:spectra} were taken.
+\item The spectral run above on further $16^4$ configurations, for how the outliers
+of setup~S and the pseudospectra vary between configurations.
+\end{enumerate}
+For each run, the result lines above and the commit of the build are enough; the
+logs contain everything else.
+\endgroup

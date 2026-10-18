@@ -61,8 +61,8 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 Timings are from an NVIDIA A30; an RTX~3080 was used for iteration counts and
 spectral quantities only. Table~\ref{tab:setups} lists the setups. The smoother
 interval is not chosen from the operator: setup~S needs $\kappa_s\approx10$ and
-setup~B $\kappa_s\approx30$, and the wrong one makes the solve stagnate
-(Sec.~\ref{sec:sensitivity}).
+setup~B $\kappa_s\approx30$; with B's interval setup~S stagnates, with S's setup~B
+needs twice the iterations (Sec.~\ref{sec:sensitivity}).
 
 \subsection{Comparison with CGNE}
 \label{sec:massscan}
@@ -159,8 +159,9 @@ of Eq.~\eqref{eq:corr}, and the cycle $\mathcal M$ (Table~\ref{tab:fov}).
 \centering
 \caption{Real part of the field of values $W(X)$ and $\|I-X\|_2$ for $X=\AR S$,
 $\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
-aggregates, 8 test vectors), $m=0.001$ otherwise; 16 test vectors.
-\texttt{preconditioned\_fov\_device --parts}.}
+aggregates, 8 filtered low modes), $m=0.001$ otherwise, with the multigrid of the
+mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
+but no levels below the coarse lattice. \texttt{preconditioned\_fov\_device --parts}.}
 \label{tab:fov}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lccccc@{}}
@@ -179,8 +180,9 @@ $16^4$ B & & & $2.5\times10^3$ & $[-1.42,4.27]$ & \\
 On $4^3\times8$ the field of values of $\AR\mathcal M$ lies in the right half-plane;
 on $12^4$ and $16^4$ it does not. The smoother is harmless ($\|I-\AR S\|\approx1$);
 the factor that amplifies is the coarse correction, $\|I-\AR E\|$ of order $10^3$
-to $10^4$ against $18.5$ on $4^3\times8$: the factorised correction, exact on the
-vectors it is built from, is a strongly oblique projection. The bound of
+to $10^4$ against $18.5$ on $4^3\times8$: $\AR E$ is the identity on the vectors the
+correction is built from (Proposition~\ref{prop:exact}) but amplifies other directions
+by three to four orders of magnitude, like a strongly oblique projection. The bound of
 Ref.~\cite{ESS} for GCR therefore does not apply (open problem~\ref{op:fov}).
 Replacing $E$ by the Galerkin correction of $\AR$ itself,
 $\Pro(\Pro\dg\AR\Pro)^{-1}\Pro\dg$ (built densely), brings the field of values of setup~B
@@ -212,7 +214,7 @@ $12^4$ S, R & $0.868$ & $6.3$--$14.5$ & $5.86+0.86i$ ($11.2$) & $0.434$\\
 $12^4$ S, L & $0.861$ & $7.2$--$26.2$ & $5.40+0.89i$ ($13.9$) & $0.455$\\
 $12^4$ B, R & $0.831$ & $9.4$--$20.3$ & & $0.753$\\
 $12^4$ B, L & $0.830$ & & & $0.747$\\
-$16^4$ S, R & $0.794$ & $6.2$--$12.8$ & $10.63+0.19i$ ($4.38$), $3.13+0.02i$ ($4.74$) & $0.474$\\
+$16^4$ S, R & $0.794$ & $6.2$--$12.8$ & \begin{tabular}[t]{@{}c@{}}$10.63+0.19i$ ($4.38$)\\ $3.13+0.02i$ ($4.74$)\end{tabular} & $0.474$\\
 $16^4$ B, R & $0.783$ & $13.5$--$42.9$ & & $0.840$\\
 \bottomrule
 \end{tabular}
@@ -265,7 +267,7 @@ $12^4$ S & $1$ & $0.5$ & $0.0107$ & $0.5$ & $480$ & $40$\\
 $12^4$ B & $1.4$ & $0.93$ & $0.0985$ & $0.66$ & $9.4$ & $57$\\
 $12^4$ B & $1.3$ & $0.87$ & $0.0860$ & $0.67$ & $10.1$ & $58$\\
 $16^4$ S & $1$ & $0.6$ & $0.0262$ & $0.6$ & $190$ & $53$\\
-$16^4$ S & $1$ & $0.55$ & $0.0135$ & $0.55$ & $350$ & $46$\\
+$16^4$ S & $1$ & $0.55$ & $0.0135$ & $0.55$ & $340$ & $47$\\
 $16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
 \bottomrule
 \end{tabular}
@@ -342,9 +344,11 @@ $\mathcal M$ is close to the fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo},
 GCR(2) stagnates ($|r|^2\approx3\times10^{-8}$ after 1000 iterations) while GCR(8)
 converges in $26$ and GCR($\ge16$) in $17$. This is what the analysis predicts:
 the pseudospectra guarantee the full method; a truncated or restarted one has no
-such guarantee when the field of values contains the origin~\cite{ESS,Embree}. The
-truncated solver works in practice because the inexact coarse solves do not let
-the correction amplify as $E$ does, an empirical fact without a proof.
+such guarantee when the field of values contains the origin~\cite{ESS,Embree}. That
+the truncated solver works with inexact coarse solves is an empirical fact; a
+plausible reason, not shown here, is that a coarse Krylov solve stopped at
+$10^{-2}$ does not resolve the directions in which the exact correction $E$
+amplifies.
 On $24^3\times48$ the full method cannot be run on the A30: GCR(8) and GCR(16) run
 out of device memory after the setup (GCR(2) peaks at $19.9$ of $24$\,GB, and every
 further direction is another fine-grid vector).
@@ -434,9 +438,10 @@ For $c=0$ the coarse operators are $\Sigma$-Hermitian to rounding; for $c\neq0$ 
 are not, by a few per cent in random directions and up to $14\%$ in the
 directions of the smallest singular values, growing linearly with $c$
 (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. This does not hurt the
-method: MINRES on $\Hc$ for the Pauli--Villars factor needs the same outer iterations
-at $c=0.5$ as at $c=0$, where it is exact, and it is better than BiCGStab on the
-exact adjoint in every case (Table~\ref{tab:minres}); with BiCGStab the stout setup
+method: with MINRES on $\Hc$ for the Pauli--Villars factor the outer iterations at
+$c=0.5$ are those of the Shamir operator ($c=0$, a different operator, for which
+MINRES is exact), and MINRES is better than BiCGStab on the exact adjoint in every
+case (Table~\ref{tab:minres}); with BiCGStab the stout setup
 nearly stagnates. The non-Hermitian part of $\Hc$ is small enough for MINRES stopped
 at $10^{-2}$; why BiCGStab is so much worse, also at $c=0$, has not been studied.
 
@@ -471,5 +476,8 @@ The method is robust within a window of each parameter and fails outside it
 bootstrap is necessary; more accurate coarse solves are not better, and with
 GCR(2) accurate ones stagnate (Sec.~\ref{sec:gcrk}). Larger setups (smaller
 aggregates, more test vectors) buy fewer iterations at a setup cost that only
-many right-hand sides repay. Every stagnation is of GCR(2).
-\todo{timings of this table on the A30; the local coherence of the test vectors.}
+many right-hand sides repay. All runs of the table use GCR(2); the stagnations
+are of the kind of Sec.~\ref{sec:gcrk}, and whether full GCR would remove them has
+not been tested. The table gives iterations only (RTX~3080); its timings on the A30,
+and Lüscher's test of local coherence for these test vectors, have not been
+measured.

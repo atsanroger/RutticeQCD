@@ -87,6 +87,12 @@ impl fmt::Display for Params {
             },
             s.convergence_criterion_squared
         )?;
+        if let Some(inner) = s.mixed() {
+            write!(
+                f,
+                ", in mixed precision (CG in single precision, each to the outer tolerance or {inner:e})"
+            )?;
+        }
         match (s.preconditioner_type, &self.multigrid) {
             (PreconditionerType::Multigrid, Some(mg)) if !fo.fermion_type.is_domain_wall() => {
                 let (l, sm) = (&mg.level1, &mg.smoother);

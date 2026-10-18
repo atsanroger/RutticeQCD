@@ -117,11 +117,16 @@ approximate low modes for which the correction is exact on the vectors it is
 made from; the smoother is a fixed Chebyshev polynomial. We state the
 operator and its forms (with Neff's $\alpha$), the correction, the coarse
 solvers, the setup, the smoother, the outer solver, and the questions that are
-open. The results (Sec.~\ref{sec:results}) are a mass scan on $24^3\times48$
-against even-odd CGNE, the spectrum and pseudospectra of the preconditioned
-operator on $12^4$ and $16^4$ with the bound for GMRES they give, the behaviour of
-truncated GCR, and the sensitivity to the parameters; parts still being measured
-are marked.
+open.\ifresults{} On a quenched $24^3\times48$ configuration the multigrid
+iterations grow by a factor of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for
+even-odd CGNE, and at $m=0.001$ the solve is $4.7$--$6.0$ times faster than CGNE in
+double precision and $3.6$--$4.2$ times faster than in mixed precision, the setup
+being paid back after $3$--$6$ right-hand sides. Although the field of values of the
+preconditioned operator reaches far into the left half-plane, its eigenvalues stay
+at $\Re\lambda\ge0.78$, and its pseudospectra on $12^4$ and $16^4$ bound the
+convergence of full GMRES; the truncated GCR used in practice converges only
+because the coarse solves are inexact. The results are from one configuration per
+volume; Sec.~\ref{sec:reproduce} describes how to extend them.\fi
 \end{abstract}
 
 \vspace{0.4ex}\hrule\vspace{1ex}
@@ -202,7 +207,7 @@ a multigrid that directly coarsens the two-hop operator
 $\Dpv\dg D$ with blocks that contain the whole fifth dimension, which gives a
 $33$-point coarse stencil. They emphasised that $\Dpv\dg D$ is non-normal: its field of values
 can extend into the left half-plane although its spectrum does not, the
-Eisenstat--Elman--Schultz bound~\cite{ESS} for GCR is then lost, and they
+bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is then lost, and they
 introduced a shift in the smoothers. The coarse solve dominated the cost; a
 three-level multiple right-hand-side version performs similarly to
 multiple right-hand-side HDCG, and an exact dense inverse on a further coarse
@@ -228,14 +233,20 @@ aggregation that is compatible with the five-dimensional chirality. The
 prolongation is built from approximate low modes lifted to the whole lattice in
 two ways, which makes the correction exact on these vectors for the right form
 of the operator. The smoother is a fixed Chebyshev polynomial and the setup
-combines Chebyshev filtering with a bootstrap. The note states the method; it
-does not assess its performance.
+combines Chebyshev filtering with a bootstrap.\ifresults{} The note states the
+method and gives first numerical results: a mass scan against even-odd CGNE, the
+field of values, spectrum and pseudospectra of the preconditioned operator, the
+behaviour of truncated GCR, and the sensitivity to the parameters.\else{} The note
+states the method; it does not assess its performance.\fi
 
 Section~\ref{sec:spectra} recalls the spectra on which the construction rests.
 Sections~\ref{sec:operator}--\ref{sec:outer} describe the method: the operator
 and its Pauli--Villars preconditioning, its even-odd forms, the
 factorised correction and the prolongation, the coarse solvers, the setup, the
-smoother and the outer solver. Section~\ref{sec:open} lists the open problems.
+smoother and the outer solver.\ifresults{} Section~\ref{sec:impl} sketches the
+implementation, Sec.~\ref{sec:results} gives the results, and
+Sec.~\ref{sec:reproduce} how to reproduce and extend them.\fi{}
+Section~\ref{sec:open} lists the open problems.
 Statements that are our own derivations and have not been checked
 independently are marked \unverified.
 
@@ -337,7 +348,10 @@ bound of GCR~\cite{ESS} requires the Hermitian part $(A+A\dg)/2$ to be positive
 definite, which can fail while every eigenvalue lies in the right half-plane;
 this is the mechanism discussed for $\Dpv\dg D$ in Ref.~\cite{BoyleOare}.
 Whether it occurs for $A'$ and its even-odd forms is open
-(Sec.~\ref{sec:open}).
+(Sec.~\ref{sec:open}).\ifresults{} For $\AR$ itself the field of values reaches just
+below zero on $12^4$ ($\Re W\ge-4.6\times10^{-3}$ with stout smearing,
+$-5.0\times10^{-2}$ without), and for the multigrid-preconditioned $\AR\mathcal M$ far
+below (Sec.~\ref{sec:fov}).\fi
 
 % ============================================================
 \section{The operator and Pauli--Villars preconditioning}
@@ -577,7 +591,10 @@ holds only up to the rounding of the reduced-precision storage of $\Pro$;
 $\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse} equals it only if
 $\Gfive\Dpv\Gfive=\Dpv\dg$, which by Eq.~\eqref{eq:g5herm} fails for $c\neq0$;
 (iii) exact coarse solves, whereas they are stopped at a loose tolerance. How
-much each departure costs has not been analysed.
+much each departure costs has not been analysed.\ifresults{} Numerically (ii) costs
+nothing measurable (Sec.~\ref{sec:herm}), and (iii) helps: with GCR(2), accurate
+coarse solves need more iterations or stagnate (Secs.~\ref{sec:gcrk},
+\ref{sec:sensitivity}).\fi
 \end{remark}
 
 \begin{remark}[Left form] \unverified\
@@ -589,7 +606,10 @@ $\alpha=1$ and $y'=\Ce^{-1}y$ one has $s'=s$, but
 $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that
 mixes $s$ and spin, so $\hat t'$ is in general not in the span of the
 right-form vectors. We therefore expect the correction not to be exact for the
-left form with the basis above, but this has not been verified.
+left form with the basis above, but this has not been verified.\ifresults{} In
+practice the left form with this basis has the spectrum of the right form and
+needs one to three iterations more or fewer (Secs.~\ref{sec:spectrum},
+\ref{sec:gcrk}).\fi
 \end{remark}
 
 \subsection{The coarse operators}
@@ -639,7 +659,8 @@ and solve the equivalent system
 with MINRES. $\Hc$ is Hermitian (indefinite) exactly when
 $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, i.e.\ for $c=0$ by Eqs.~\eqref{eq:g5herm} and
 \eqref{eq:GP}; for $c\neq0$ MINRES is applied to a non-Hermitian matrix and has
-no guarantee. The preconditioner must be Hermitian positive definite; we use the
+no guarantee.\ifresults{} In practice it is better than the exact adjoint with
+BiCGStab for $c=0.5$ as for $c=0$ (Sec.~\ref{sec:herm}).\fi The preconditioner must be Hermitian positive definite; we use the
 absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
 V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
 on each coarse site. On a coarse lattice with even extents, the Schur
@@ -761,8 +782,8 @@ from the operator and has to be chosen for it: the polynomial damps the part of 
 spectrum above $\lambda_{\rm lo}$ and leaves the rest to the coarse correction, and
 too wide or too narrow an interval can make the outer solve stagnate.\ifresults{}
 The two setups of Sec.~\ref{sec:results} need $\kappa_s\approx10$ ($M_5=1$, stout)
-and $\kappa_s\approx30$ ($M_5=1.8$), and each stagnates with the other's
-(Sec.~\ref{sec:sensitivity}).\fi
+and $\kappa_s\approx30$ ($M_5=1.8$); the first stagnates with the second's interval,
+the second needs twice the iterations with the first's (Sec.~\ref{sec:sensitivity}).\fi
 
 \subsection{Cycle}
 \begin{algorithm}
@@ -810,6 +831,7 @@ outer tolerance is met.
 
 \ifresults
 \input{results}
+\input{reproduce}
 \fi
 % ============================================================
 \section{Open problems}
@@ -847,7 +869,8 @@ $\AR\dg\AR$). For a non-normal $\tilde A$ these need not agree. Which part of
 the low end is left to the smoother after the coarse correction, and whether an
 ellipse with complex foci should replace the real interval, are open.\ifresults{}
 That the choice matters is shown in Table~\ref{tab:sensitivity}: with GCR(2), a
-ratio three times too large or too small stagnates.\fi
+ratio three times too large stagnates in both setups, and too small ones cost up to
+twice the iterations or, six times too small, stagnate.\fi
 
 \item \textbf{Even-odd smoother and coarse space.} Boyle and
 Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
@@ -864,8 +887,8 @@ Section~\ref{sec:spectra} shows $\Re\lambda>0$ for $A'$. The GCR bound~\cite{ESS
 needs a positive definite Hermitian part, i.e.\ a field of values in the right
 half-plane, which is a stronger condition. Whether it holds for $A'$, $\AR$ and
 $\AL$, and whether a shift of the kind used in Ref.~\cite{BoyleOare} is needed,
-is not known.\ifresults{} For the preconditioned operator $\AR\mathcal M$ it does
-not hold on $12^4$ and $16^4$ (Sec.~\ref{sec:fov}); the spectrum stays at
+is not known.\ifresults{} It fails slightly for $\AR$ itself and strongly for the
+preconditioned operator $\AR\mathcal M$ on $12^4$ and $16^4$ (Sec.~\ref{sec:fov}); the spectrum stays at
 $\Re\lambda\ge0.78$ and the pseudospectra give a bound for full GMRES
 (Sec.~\ref{sec:pseudo}), but not for truncated GCR (Sec.~\ref{sec:gcrk}).\fi
 
@@ -880,7 +903,11 @@ behaves better is open.\fi
 \item \textbf{Solving with $D\dg$.} The method is built for $D\psi=\eta$. A
 solve with $D\dg$, as needed for the normal equations in HMC, requires the dual
 correction (the two factors and the roles of the lifts exchanged), and its
-basis and exactness have not been derived.
+basis and exactness have not been derived.\ifresults{} A cycle with $D$ and $\Dpv$ exchanged on the same $\Pro$ is
+implemented; with exact coarse solves it is the adjoint of $\mathcal M$
+(Sec.~\ref{sec:fov}), and RutticeQCD uses it for the solves with $\AR\dg$ in HMC.
+How good the basis built for $D$ is for this dual correction has not been
+studied.\fi
 \end{enumerate}
 
 % ============================================================
