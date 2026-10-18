@@ -478,6 +478,42 @@ GCR(2) accurate ones stagnate (Sec.~\ref{sec:gcrk}). Larger setups (smaller
 aggregates, more test vectors) buy fewer iterations at a setup cost that only
 many right-hand sides repay. All runs of the table use GCR(2); the stagnations
 are of the kind of Sec.~\ref{sec:gcrk}, and whether full GCR would remove them has
-not been tested. The table gives iterations only (RTX~3080); its timings on the A30,
-and Lüscher's test of local coherence for these test vectors, have not been
-measured.
+not been tested. Lüscher's test of local coherence for these test vectors has not
+been made.
+
+\begin{table}[t]
+\centering
+\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the A30:
+iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
+right-hand side, RutticeQCD \texttt{a147871}. The iterations agree with those of
+Table~\ref{tab:sensitivity} (RTX~3080) to one iteration.}
+\label{tab:costs}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+change & setup S & setup B\\
+\midrule
+base & $14$ / $18$ / $1.1$ & $14$ / $17$ / $1.0$\\
+aggregates $2^4$ & $8$ / $68$ / $4.2$ & $9$ / $56$ / $3.5$\\
+aggregates $3^4$ & $12$ / $21$ / $1.3$ & $11$ / $20$ / $1.1$\\
+aggregates $6^4$ & $23$ / $33$ / $1.7$ & $20$ / $34$ / $1.5$\\
+test vectors $16$ & $27$ / $9$ / $1.4$ & $19$ / $10$ / $0.9$\\
+test vectors $24$ & $22$ / $13$ / $1.5$ & $16$ / $14$ / $1.0$\\
+test vectors $48$ & $10$ / $36$ / $1.5$ & $11$ / $31$ / $1.6$\\
+smoother $\nu=4$ & $31$ / $20$ / $2.8$ & stag.\\
+smoother $\nu=6$ & $18$ / $18$ / $1.4$ & $84$ / $17$ / $5.3$\\
+smoother $\nu=12$ & $12$ / $19$ / $1.1$ & (base)\\
+smoother $\nu=16$ & $9$ / $20$ / $1.0$ & $13$ / $19$ / $1.2$\\
+bootstrap rounds $1$ & $16$ / $11$ / $1.2$ & $47$ / $12$ / $2.3$\\
+bootstrap rounds $3$ & $23$ / $25$ / $2.2$ & $12$ / $26$ / $1.2$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggregates
+need $8$--$9$ iterations but a larger coarse lattice, so the solve takes three to four
+times as long and the setup three to four times as long as with $4^4$; $48$ test
+vectors save a third of the iterations and lose in setup and in time per iteration.
+The base setting is close to the time optimum for one right-hand side; only more
+smoother steps ($\nu=16$ for setup~S) are slightly faster. All runs use one setup seed,
+so differences of a few iterations may be within the variation between seeds.

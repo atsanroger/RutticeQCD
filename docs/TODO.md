@@ -121,7 +121,7 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 - The dense contour of setup B on 12⁴ (`--contour 1.4,0,0.93,96`) for the Lipschitz lower bound;
   then update `fig_spectrum`, Table `tab:pseudo` and remove the last `\todo` in `results.tex`.
 - Not measured, listed in the note: more configurations (the main request to whoever has GPUs:
-  see `reproduce.tex`), A30 timings of the sensitivity table, Lüscher's coherence test for the
+  see `reproduce.tex`), Lüscher's coherence test for the
   mass-scan basis, a rigorous lower bound on `sigma_min` (Kato–Temple), the spectrum on
   `24^3x48` (does not fit in 24 GB).
 
