@@ -108,21 +108,17 @@ still run: to know that the comparisons ran, look for `SKIPPED` in the output of
 
 ## Status and plans
 
-Version 0.1.0. See [CHANGELOG.md](../CHANGELOG.md).
+Version 0.2.0. See [CHANGELOG.md](../CHANGELOG.md). What is known and not done (structure,
+performance, continuous integration, the multigrid paper, open questions) is listed with the
+reasons and how to check it in [TODO.md](TODO.md).
 
 Not there yet:
 
-- On the GPU (`backend::cuda_bridge`): the multigrids and HMC. A field on the device is a
-  `Vector` and the operators there are `FermionOp` and `EvenOdd`, so what is written on those
-  traits runs on the device as it is; what is written on `Field` does not.
-- HMC on another layout or backend: the actions reach their fields only through the operator
-  (`hmc::ForceOp::Field`, `hmc::EvenOddForceOp::Half`), and the operators of the usual layout
-  are the only ones that implement it so far
-- a multigrid for domain-wall fermions in HMC
-- the multigrids on lattices larger than 16⁴: they have been developed and measured on 12⁴
-  and 16⁴, where a multigrid has little to gain; what they save on physical volumes is not
-  known yet
 - Landau gauge fixing; baryons
+- the device backend (`backend::cuda_bridge`) on more than one GPU, and the Wilson and clover
+  multigrids on the device
+- the domain-wall multigrid measured on volumes beyond 24³×48, and on more than one
+  configuration per volume
 
 The repository holds programs that time the kernels (`ruttice-bench`,
 `examples/*_bench.rs`), not timings: those depend on the machine.
