@@ -102,6 +102,18 @@ pub(super) fn aypx<T: DeviceReal>(
     };
 }
 
+/// Reals of one vector of a set; the vectors of `x` and `y` of the same size.
+fn reals<T>(x: &DeviceBuffer<T>, y: &DeviceBuffer<T>, vectors: usize) -> i32 {
+    assert!(vectors > 0 && x.len == y.len);
+    (x.len / vectors) as i32
+}
+
+/// The complex numbers `a` as (re, im).
+fn reals_of(a: &[C64], vectors: usize) -> *const f64 {
+    assert!(a.len() >= vectors);
+    a.as_ptr().cast()
+}
+
 /// `out_v = <x_v|y_v>`, all of them fetched from the device together.
 pub(super) fn dot<T: DeviceReal>(
     x: &DeviceBuffer<T>,
@@ -109,21 +121,20 @@ pub(super) fn dot<T: DeviceReal>(
     vectors: usize,
     out: &mut [C64],
 ) {
-    assert!(out.len() >= vectors && x.len == y.len);
+    assert!(out.len() >= vectors);
+    let n = reals(x, y, vectors);
     let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
-    // SAFETY: two buffers of `vectors` vectors of the same size, and places for that many
-    // results.
-    unsafe {
+    // SAFETY: two buffers of `vectors` vectors of `n` reals, and places for that many results.
+    must(check(unsafe {
         T::dotc(
             re.as_mut_ptr(),
             im.as_mut_ptr(),
             x.ptr,
             y.ptr,
-            (x.len / vectors) as i32,
+            n,
             vectors as i32,
-        );
-    }
-    finish();
+        )
+    }));
     for (out, (re, im)) in out.iter_mut().zip(re.into_iter().zip(im)) {
         *out = C64::new(re, im);
     }
@@ -131,20 +142,188 @@ pub(super) fn dot<T: DeviceReal>(
 
 pub(super) fn norm_sqr<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, out: &mut [f64]) {
     assert!(out.len() >= vectors);
+    let n = reals(x, x, vectors);
     // SAFETY: a buffer of `vectors` vectors, and places for that many results.
-    unsafe {
-        T::norm2(
-            out.as_mut_ptr(),
+    must(check(unsafe {
+        T::norm2(out.as_mut_ptr(), x.ptr, n, vectors as i32)
+    }));
+}
+
+/// `y_v += a_v x_v`, then `out_v = |y_v|²`, in one pass.
+pub(super) fn axpy_norm_sqr<T: DeviceReal>(
+    y: &DeviceBuffer<T>,
+    x: &DeviceBuffer<T>,
+    vectors: usize,
+    a: &[C64],
+    out: &mut [f64],
+) {
+    assert!(out.len() >= vectors);
+    let n = reals(x, y, vectors);
+    // SAFETY: two buffers of `vectors` vectors of `n` reals, not the same one (the caller
+    // borrows `y` mutably), a coefficient and a place for the result of each.
+    must(check(unsafe {
+        T::axpy_norm2(
+            y.ptr,
             x.ptr,
-            (x.len / vectors) as i32,
+            reals_of(a, vectors),
+            out.as_mut_ptr(),
+            n,
             vectors as i32,
-        );
+        )
+    }));
+}
+
+/// `s_v = x_v + a_v y_v`, then `norm_v = |s_v|²` and `dot_v = <z_v|s_v>`, in one pass.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn xpay_norm_sqr_dot<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    x: &DeviceBuffer<T>,
+    a: &[C64],
+    y: &DeviceBuffer<T>,
+    z: &DeviceBuffer<T>,
+    vectors: usize,
+    norm: &mut [f64],
+    dot: &mut [C64],
+) {
+    assert!(norm.len() >= vectors && dot.len() >= vectors);
+    let n = reals(s, x, vectors);
+    assert!(y.len == s.len && z.len == s.len);
+    let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
+    // SAFETY: four buffers of `vectors` vectors of `n` reals, `s` none of the others (the
+    // caller borrows it mutably), and places for the results.
+    must(check(unsafe {
+        T::xpay_norm2_dot(
+            s.ptr,
+            x.ptr,
+            reals_of(a, vectors),
+            y.ptr,
+            z.ptr,
+            norm.as_mut_ptr(),
+            re.as_mut_ptr(),
+            im.as_mut_ptr(),
+            n,
+            vectors as i32,
+        )
+    }));
+    for (out, (re, im)) in dot.iter_mut().zip(re.into_iter().zip(im)) {
+        *out = C64::new(re, im);
     }
-    finish();
+}
+
+/// `dot_v = <s_v|x_v>`, `norm_v = |s_v|²` and `norm_x_v = |x_v|²`, in one pass.
+pub(super) fn dot_norms<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    x: &DeviceBuffer<T>,
+    vectors: usize,
+    dot: &mut [C64],
+    norm: &mut [f64],
+    norm_x: &mut [f64],
+) {
+    assert!(dot.len() >= vectors && norm.len() >= vectors && norm_x.len() >= vectors);
+    let n = reals(s, x, vectors);
+    let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
+    // SAFETY: two buffers of `vectors` vectors of `n` reals, and places for the results.
+    must(check(unsafe {
+        T::dot_norms(
+            s.ptr,
+            x.ptr,
+            re.as_mut_ptr(),
+            im.as_mut_ptr(),
+            norm.as_mut_ptr(),
+            norm_x.as_mut_ptr(),
+            n,
+            vectors as i32,
+        )
+    }));
+    for (out, (re, im)) in dot.iter_mut().zip(re.into_iter().zip(im)) {
+        *out = C64::new(re, im);
+    }
+}
+
+/// `s_v = x_v + a_v y_v`.
+pub(super) fn xpay<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    x: &DeviceBuffer<T>,
+    a: &[C64],
+    y: &DeviceBuffer<T>,
+    vectors: usize,
+) {
+    let n = reals(s, x, vectors);
+    assert!(y.len == s.len);
+    // SAFETY: three buffers of `vectors` vectors of `n` reals, `s` neither of the others, and
+    // a coefficient for each vector.
+    unsafe { T::xpay(s.ptr, x.ptr, reals_of(a, vectors), y.ptr, n, vectors as i32) };
+}
+
+/// `s_v += a_v x_v + b_v y_v`.
+pub(super) fn axpy2<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    a: &[C64],
+    x: &DeviceBuffer<T>,
+    b: &[C64],
+    y: &DeviceBuffer<T>,
+    vectors: usize,
+) {
+    let n = reals(s, x, vectors);
+    assert!(y.len == s.len);
+    // SAFETY: as in `xpay`.
+    unsafe {
+        T::axpy2(
+            s.ptr,
+            reals_of(a, vectors),
+            x.ptr,
+            reals_of(b, vectors),
+            y.ptr,
+            n,
+            vectors as i32,
+        )
+    };
+}
+
+/// `s_v = y_v + b_v (s_v + a_v x_v)`.
+pub(super) fn axpy_aypx<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    a: &[C64],
+    x: &DeviceBuffer<T>,
+    b: &[C64],
+    y: &DeviceBuffer<T>,
+    vectors: usize,
+) {
+    let n = reals(s, x, vectors);
+    assert!(y.len == s.len);
+    // SAFETY: as in `xpay`.
+    unsafe {
+        T::axpy_aypx(
+            s.ptr,
+            reals_of(a, vectors),
+            x.ptr,
+            reals_of(b, vectors),
+            y.ptr,
+            n,
+            vectors as i32,
+        )
+    };
 }
 
 /// The most vectors `rotate` takes.
 pub(super) const ROTATE_VECTORS: usize = 32;
+
+/// `out_j = Σ_i x_i c[i n + j]` for the n vectors of `x` into the n of `out`, any number of
+/// them: for a rotation of more vectors than `rotate` takes, with one more set and no others.
+pub(super) fn combine<T: DeviceReal>(
+    out: &DeviceBuffer<T>,
+    x: &DeviceBuffer<T>,
+    vectors: usize,
+    c: &[C64],
+) {
+    assert!(c.len() == vectors * vectors && out.len == x.len);
+    let reals: Vec<f64> = c.iter().flat_map(|z| [z.re, z.im]).collect();
+    let c = must(DeviceBuffer::<f64>::from_host(&reals));
+    let (n, v) = ((x.len / vectors) as i32, vectors as i32);
+    // SAFETY: two sets of `vectors` vectors of `n` reals, not the same buffer, and the
+    // coefficients of that many.
+    unsafe { T::combine(out.ptr, x.ptr, c.ptr, n, v, v) };
+}
 
 /// `x_j ← Σ_i x_i c[i n + j]` for the n vectors of the set, in place.
 pub(super) fn rotate<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, c: &[C64]) {

@@ -105,7 +105,9 @@ extern "C" {
 /// functions of `cuda_bridge/include/bridge_cuda.h`; the pointers are device memory of the
 /// sizes those read and write.
 #[allow(clippy::too_many_arguments, clippy::missing_safety_doc)]
-pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
+pub trait DeviceReal:
+    super::blas::DeviceBlas + Copy + Default + PartialEq + std::fmt::Debug + 'static
+{
     fn from_f64(x: f64) -> Self;
     fn to_f64(self) -> f64;
 
@@ -289,22 +291,13 @@ pub trait DeviceReal: Copy + Default + PartialEq + std::fmt::Debug + 'static {
     unsafe fn scal(x: *mut Self, a: *const f64, n: i32, vectors: i32);
     unsafe fn caxpy(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
     unsafe fn caypx(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32);
-    unsafe fn norm2(out: *mut f64, x: *const Self, n: i32, vectors: i32);
-    unsafe fn dotc(
-        re: *mut f64,
-        im: *mut f64,
-        x: *const Self,
-        y: *const Self,
-        n: i32,
-        vectors: i32,
-    );
 }
 
 /// `DeviceReal` for one type, on the functions of that precision.
 macro_rules! device_real {
     ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
      $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
-     $caxpy:ident, $caypx:ident, $norm2:ident, $dotc:ident, $walls:ident, $restrict:ident, $prolong:ident, $pass:ident,
+     $caxpy:ident, $caypx:ident, $walls:ident, $restrict:ident, $prolong:ident, $pass:ident,
      $coarse_gamma5:ident, $hop_split:ident, $fill:ident, $rotate:ident) => {
         extern "C" {
             fn $wilson(
@@ -523,16 +516,6 @@ macro_rules! device_real {
                 y: *mut $t,
                 x: *const $t,
                 a: *const f64,
-                n: i32,
-                vectors: i32,
-                stream: *mut c_void,
-            );
-            fn $norm2(out: *mut f64, x: *const $t, n: i32, vectors: i32, stream: *mut c_void);
-            fn $dotc(
-                re: *mut f64,
-                im: *mut f64,
-                x: *const $t,
-                y: *const $t,
                 n: i32,
                 vectors: i32,
                 stream: *mut c_void,
@@ -821,19 +804,6 @@ macro_rules! device_real {
             unsafe fn caypx(y: *mut Self, x: *const Self, a: *const f64, n: i32, vectors: i32) {
                 $caypx(y, x, a, n, vectors, STREAM)
             }
-            unsafe fn norm2(out: *mut f64, x: *const Self, n: i32, vectors: i32) {
-                $norm2(out, x, n, vectors, STREAM)
-            }
-            unsafe fn dotc(
-                re: *mut f64,
-                im: *mut f64,
-                x: *const Self,
-                y: *const Self,
-                n: i32,
-                vectors: i32,
-            ) {
-                $dotc(re, im, x, y, n, vectors, STREAM)
-            }
         }
     };
 }
@@ -842,7 +812,7 @@ device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
     bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
     bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_hop_gemm_f32, bridge_cuda_gamma5_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
-    bridge_cuda_blas_caypx_f32, bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32,
+    bridge_cuda_blas_caypx_f32, 
     bridge_cuda_walls_f32, bridge_cuda_fold_restrict_f32, bridge_cuda_fold_prolong_f32,
     bridge_cuda_coarse_pass_f32, bridge_cuda_coarse_gamma5_f32, bridge_cuda_hop_split_f32,
     bridge_cuda_fold_fill_f32, bridge_cuda_blas_rotate_f32);
@@ -850,7 +820,7 @@ device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
     bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
-    bridge_cuda_blas_caypx_f64, bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64,
+    bridge_cuda_blas_caypx_f64, 
     bridge_cuda_walls_f64, bridge_cuda_fold_restrict_f64, bridge_cuda_fold_prolong_f64,
     bridge_cuda_coarse_pass_f64, bridge_cuda_coarse_gamma5_f64, bridge_cuda_hop_split_f64,
     bridge_cuda_fold_fill_f64, bridge_cuda_blas_rotate_f64);

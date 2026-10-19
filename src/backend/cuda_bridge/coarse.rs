@@ -293,6 +293,53 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
     fn norm_sqr(&self, out: &mut [f64]) {
         columns::norm_sqr(&self.data, self.vectors, out);
     }
+
+    fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
+        assert!(self.same_shape(x));
+        columns::axpy_norm_sqr(&self.data, &x.data, self.vectors, a, out);
+    }
+
+    fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        columns::xpay(&self.data, &x.data, a, &y.data, self.vectors);
+    }
+
+    fn xpay_norm_sqr_dot(
+        &mut self,
+        x: &Self,
+        a: &[C64],
+        y: &Self,
+        norm: &mut [f64],
+        z: &Self,
+        dot: &mut [C64],
+    ) {
+        assert!(self.same_shape(x) && self.same_shape(y) && self.same_shape(z));
+        columns::xpay_norm_sqr_dot(
+            &self.data,
+            &x.data,
+            a,
+            &y.data,
+            &z.data,
+            self.vectors,
+            norm,
+            dot,
+        );
+    }
+
+    fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        columns::axpy2(&self.data, a, &x.data, b, &y.data, self.vectors);
+    }
+
+    fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        columns::axpy_aypx(&self.data, a, &x.data, b, &y.data, self.vectors);
+    }
+
+    fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
+        assert!(self.same_shape(x));
+        columns::dot_norms(&self.data, &x.data, self.vectors, dot, norm, norm_x);
+    }
 }
 
 /// From one precision to another, on the device.

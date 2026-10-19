@@ -745,6 +745,118 @@ fn pauli_villars_preconditioned_operator_on_the_device() {
     }
 }
 
+/// The fused operations of `Vector` on the device (one pass, the sums finished on the device)
+/// against those of the CPU, for more vectors than one launch takes coefficients for (16).
+#[test]
+fn fused_vector_operations_on_the_device() {
+    let lat = Lattice::single_node([4, 4, 2, 6]);
+    let (ls, nv) = (4, 19);
+    let many = |seed| {
+        let flat = random_spinor(&lat, ls * nv, seed);
+        let mut psi = Psi::with_shape(&lat, 24, ls, nv, 1);
+        psi.as_mut_slice().copy_from_slice(flat.as_slice());
+        psi
+    };
+    let (mut s, x, y, z) = (many(501), many(502), many(503), many(504));
+    let up = |f: &Psi| DeviceSpinor::from_host(f).unwrap();
+    let (mut ds, dx, dy, dz) = (up(&s), up(&x), up(&y), up(&z));
+    let a: Vec<C64> = (0..nv)
+        .map(|v| C64::new(0.3 - 0.1 * v as f64, 1.1 - 0.05 * v as f64))
+        .collect();
+    let b: Vec<C64> = (0..nv)
+        .map(|v| C64::new(-0.7 + 0.04 * v as f64, 0.2 * v as f64 - 1.0))
+        .collect();
+    let close = |what: &str, cpu: &[f64], gpu: &[f64]| {
+        for (v, (c, g)) in cpu.iter().zip(gpu).enumerate() {
+            assert!(
+                (c - g).abs() <= 1e-12 * c.abs().max(1.0),
+                "{what}, vector {v}: {c:e} on the CPU, {g:e} on the device"
+            );
+        }
+    };
+    let close_c = |what: &str, cpu: &[C64], gpu: &[C64]| {
+        let re: Vec<f64> = cpu.iter().map(|z| z.re).collect();
+        let im: Vec<f64> = cpu.iter().map(|z| z.im).collect();
+        close(
+            &format!("{what} (re)"),
+            &re,
+            &gpu.iter().map(|z| z.re).collect::<Vec<_>>(),
+        );
+        close(
+            &format!("{what} (im)"),
+            &im,
+            &gpu.iter().map(|z| z.im).collect::<Vec<_>>(),
+        );
+    };
+    let same = |what: &str, ds: &DeviceSpinor, s: &Psi| {
+        let d = worst(&ds.to_host().unwrap(), s);
+        assert!(d < 1e-13, "{what} differs by {d:e}");
+    };
+
+    let (mut n_cpu, mut n_gpu) = (vec![0.0; nv], vec![0.0; nv]);
+    s.axpy_norm_sqr(&a, &x, &mut n_cpu);
+    ds.axpy_norm_sqr(&a, &dx, &mut n_gpu);
+    same("axpy_norm_sqr", &ds, &s);
+    close("axpy_norm_sqr", &n_cpu, &n_gpu);
+
+    let (mut d_cpu, mut d_gpu) = (vec![C64::ZERO; nv], vec![C64::ZERO; nv]);
+    s.xpay_norm_sqr_dot(&x, &b, &y, &mut n_cpu, &z, &mut d_cpu);
+    ds.xpay_norm_sqr_dot(&dx, &b, &dy, &mut n_gpu, &dz, &mut d_gpu);
+    same("xpay_norm_sqr_dot", &ds, &s);
+    close("xpay_norm_sqr_dot |s|²", &n_cpu, &n_gpu);
+    close_c("xpay_norm_sqr_dot <z|s>", &d_cpu, &d_gpu);
+
+    s.xpay(&y, &a, &z);
+    ds.xpay(&dy, &a, &dz);
+    same("xpay", &ds, &s);
+
+    s.axpy2(&a, &x, &b, &y);
+    ds.axpy2(&a, &dx, &b, &dy);
+    same("axpy2", &ds, &s);
+
+    s.axpy_aypx(&b, &z, &a, &x);
+    ds.axpy_aypx(&b, &dz, &a, &dx);
+    same("axpy_aypx", &ds, &s);
+
+    let (mut m_cpu, mut m_gpu) = (vec![0.0; nv], vec![0.0; nv]);
+    s.dot_norms(&y, &mut d_cpu, &mut n_cpu, &mut m_cpu);
+    ds.dot_norms(&dy, &mut d_gpu, &mut n_gpu, &mut m_gpu);
+    close_c("dot_norms <s|y>", &d_cpu, &d_gpu);
+    close("dot_norms |s|²", &n_cpu, &n_gpu);
+    close("dot_norms |y|²", &m_cpu, &m_gpu);
+
+    // The plain reductions, through the same two stages.
+    s.dot(&z, &mut d_cpu);
+    ds.dot(&dz, &mut d_gpu);
+    close_c("dot", &d_cpu, &d_gpu);
+    s.norm_sqr(&mut n_cpu);
+    ds.norm_sqr(&mut n_gpu);
+    close("norm_sqr", &n_cpu, &n_gpu);
+
+    // A change of basis of more vectors than the in-place kernel takes (32).
+    {
+        use ruttice::Subspace;
+        let nv = 37;
+        let flat = random_spinor(&lat, ls * nv, 505);
+        let mut x = Psi::with_shape(&lat, 24, ls, nv, 1);
+        x.as_mut_slice().copy_from_slice(flat.as_slice());
+        let mut dx = up(&x);
+        let c: Vec<C64> = (0..nv * nv)
+            .map(|k| C64::new((0.37 * k as f64).sin(), (0.11 * k as f64).cos()))
+            .collect();
+        let mut expected = x.zeros_like();
+        for i in 0..nv {
+            expected.axpy(&c[i * nv..(i + 1) * nv], &x.select(&vec![i; nv]));
+        }
+        dx.rotate(&c);
+        let d = worst(&dx.to_host().unwrap(), &expected);
+        assert!(
+            d < 1e-12,
+            "the change of basis of {nv} vectors differs by {d:e}"
+        );
+    }
+}
+
 /// Several vectors in one field on the device: the linear algebra with a coefficient for each,
 /// taking some out and putting them back, the operators, and a solve of all of them together.
 #[test]

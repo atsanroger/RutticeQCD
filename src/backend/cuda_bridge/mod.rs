@@ -15,6 +15,7 @@
 //! error to return and panic if the CUDA runtime fails; a kernel that fails is noticed at the
 //! next reduction or transfer, not where it was launched.
 
+mod blas;
 mod coarse;
 mod columns;
 mod correction;

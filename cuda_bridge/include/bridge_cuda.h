@@ -629,17 +629,36 @@ void bridge_cuda_blas_caypx_f64(double* y, const double* x, const double* a, int
 // device, (re, im), row-major. At most 32 vectors.
 void bridge_cuda_blas_rotate_f32(float* x, const double* c, int n, int vectors, cudaStream_t stream);
 void bridge_cuda_blas_rotate_f64(double* x, const double* c, int n, int vectors, cudaStream_t stream);
+// out_j = sum_i x_i c[i n_out + j] for the n_in vectors of x and the n_out of out (another set),
+// any number of them; c on the device as in rotate.
+void bridge_cuda_blas_combine_f32(float* out, const float* x, const double* c, int n, int n_in, int n_out, cudaStream_t stream);
+void bridge_cuda_blas_combine_f64(double* out, const double* x, const double* c, int n, int n_in, int n_out, cudaStream_t stream);
 
-// |x_v|^2 and <x_v|y_v> = sum conj(x_v) y_v for `vectors` vectors of n reals one after the other.
-// The sums of the CUDA blocks of all of them are fetched together and summed on the host in a
-// fixed order: deterministic, and one wait for the device.
-void bridge_cuda_blas_norm2_f32(double* out, const float* x, int n, int vectors, cudaStream_t stream);
-void bridge_cuda_blas_dotc_f32(double* re, double* im, const float* x, const float* y, int n, int vectors, cudaStream_t stream);
-void bridge_cuda_blas_norm2_f64(double* out, const double* x, int n, int vectors, cudaStream_t stream);
-void bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const double* y, int n, int vectors, cudaStream_t stream);
+// Reductions over `vectors` vectors of n reals one after the other, in one pass over the
+// fields: |x_v|^2; <x_v|y_v> = sum conj(x_v) y_v; y_v += a_v x_v then |y_v|^2; s_v = x_v + a_v y_v
+// then |s_v|^2 and <z_v|s_v>; <s_v|x_v>, |s_v|^2 and |x_v|^2. Summed on the device in two
+// stages in a fixed order (deterministic); only the results come to the host (out, re, im and
+// the norms: host memory, `vectors` doubles each), one wait for the stream. Return a
+// cudaError_t (0: success).
+int bridge_cuda_blas_norm2_f32(double* out, const float* x, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_dotc_f32(double* re, double* im, const float* x, const float* y, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_axpy_norm2_f32(float* y, const float* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_xpay_norm2_dot_f32(float* s, const float* x, const double* a, const float* y, const float* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_dot_norms_f32(const float* s, const float* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_norm2_f64(double* out, const double* x, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const double* y, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_axpy_norm2_f64(double* y, const double* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_xpay_norm2_dot_f64(double* s, const double* x, const double* a, const double* y, const double* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream);
 
-void bridge_cuda_blas_norm2_partial_f32(float* block_sums, const float* x, int n, int grid_size, cudaStream_t stream);
-void bridge_cuda_blas_norm2_partial_f64(double* block_sums, const double* x, int n, int grid_size, cudaStream_t stream);
+// In one pass: s_v = x_v + a_v y_v; s_v += a_v x_v + b_v y_v; s_v = y_v + b_v (s_v + a_v x_v).
+// Coefficients complex, (re, im) for each vector, on the host.
+void bridge_cuda_blas_xpay_f32(float* s, const float* x, const double* a, const float* y, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_axpy2_f32(float* s, const double* a, const float* x, const double* b, const float* y, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_axpy_aypx_f32(float* s, const double* a, const float* x, const double* b, const float* y, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_xpay_f64(double* s, const double* x, const double* a, const double* y, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_axpy2_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_axpy_aypx_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream);
 
 void bridge_cuda_cast_f64_to_f32(float* dst, const double* src, int total_elements, cudaStream_t stream);
 void bridge_cuda_cast_f32_to_f64(double* dst, const float* src, int total_elements, cudaStream_t stream);

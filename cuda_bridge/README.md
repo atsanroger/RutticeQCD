@@ -115,10 +115,19 @@ Conventions:
   the kernels are templates in `namespace bridge_cuda`.
 - Fields are in blocks of 32 sites (`base/aosoa.cuh`); a field on one parity has site
   (x, y, z, t) at x/2 + (nx/2)(y + ny (z + nz t)).
-- Reductions (plaquette, norm) are deterministic tree reductions, and no kernel uses atomics.
-  Even so, on an A30 the domain-wall multigrid on 28^4 and 24^3x48 gave different last digits
-  from run to run (from the first round of the bootstrap on; not on 12^4, and not on an
-  RTX 3080): not understood yet.
+- Reductions (plaquette, norms, dot products) are deterministic tree reductions, and no kernel
+  uses atomics. The linear algebra of sets of vectors (`linalg/blas.cu`) reduces in two stages
+  on the device, in double precision for either field precision, and brings only the results
+  to the host (page-locked, one wait for the stream); the fused operations of `Vector`
+  (`axpy_norm_sqr`, `xpay_norm_sqr_dot`, `dot_norms`, `xpay`, `axpy2`, `axpy_aypx`) are one pass
+  each.
+- On an A30 the domain-wall multigrid on 28^4 and 24^3x48 gave different last digits from run
+  to run, from the first round of the bootstrap on. A data race is the likely cause, fixed on
+  2026-10-19: in the Jacobi kernel of `|H_xx|^-1` (`multigrid/fold.cuh`,
+  `blocks_abs_inverse_gamma5_kernel`) thread p overwrote a_pq while the other warps of the
+  block (dim > 32) could still be reading it. It never showed on an RTX 3080 (the results there
+  are the same bit for bit with and without the fix); whether the A30 runs are now
+  reproducible has not been checked yet.
 
 ---
 

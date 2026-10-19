@@ -3,7 +3,6 @@
 #include "../../include/linalg/cast.cuh"
 #include "../../include/base/gamma.cuh"
 #include <algorithm>
-#include <vector>
 
 namespace {
     constexpr int BLOCK_SIZE = 256;
@@ -21,18 +20,190 @@ namespace {
         return static_cast<int>(std::min<size_t>(grid, MAX_GRID));
     }
 
-    // Device memory for the sums of the CUDA blocks of the reductions of `vectors` vectors,
-    // kept between calls: one for each thread, so that threads may reduce at the same time.
-    template <typename Float>
-    Float* block_sums(int vectors) {
-        static thread_local Float* sums = nullptr;
-        static thread_local int held = 0;
-        if (vectors > held) {
-            if (sums != nullptr) cudaFree(sums);
-            cudaMalloc(&sums, static_cast<size_t>(vectors) * 2 * MAX_GRID * sizeof(Float));
-            held = vectors;
+    // Device memory for the sums of the CUDA blocks of a reduction and for its results, and
+    // page-locked host memory the results are copied to, kept between calls and grown as
+    // needed: one set for each thread, so that threads may reduce at the same time.
+    struct Reduction {
+        double* sums = nullptr;
+        size_t sums_held = 0;
+        double* results = nullptr;
+        double* host = nullptr;
+        size_t results_held = 0;
+    };
+    thread_local Reduction reduction;
+
+    // Room for `sums` and `results` doubles; a cudaError_t.
+    int reserve(size_t sums, size_t results) {
+        Reduction& r = reduction;
+        if (sums > r.sums_held) {
+            if (r.sums != nullptr) cudaFree(r.sums);
+            r.sums = nullptr;
+            r.sums_held = 0;
+            const cudaError_t e = cudaMalloc(&r.sums, sums * sizeof(double));
+            if (e != cudaSuccess) {
+                r.sums = nullptr;
+                return e;
+            }
+            r.sums_held = sums;
         }
-        return sums;
+        if (results > r.results_held) {
+            if (r.results != nullptr) cudaFree(r.results);
+            if (r.host != nullptr) cudaFreeHost(r.host);
+            r.results = r.host = nullptr;
+            r.results_held = 0;
+            cudaError_t e = cudaMalloc(&r.results, results * sizeof(double));
+            if (e == cudaSuccess) e = cudaMallocHost(&r.host, results * sizeof(double));
+            if (e != cudaSuccess) {
+                if (r.results != nullptr) cudaFree(r.results);
+                r.results = r.host = nullptr;
+                return e;
+            }
+            r.results_held = results;
+        }
+        return cudaSuccess;
+    }
+
+    // Coefficients `first` .. `first + count` of the complex numbers a (re, im).
+    template <typename Float>
+    bridge_cuda::BlasCoefficients<Float> coefficients(const double* a, int first, int count) {
+        bridge_cuda::BlasCoefficients<Float> c{};
+        for (int k = 0; k < count; ++k) {
+            c.re[k] = static_cast<Float>(a[2 * (first + k)]);
+            c.im[k] = static_cast<Float>(a[2 * (first + k) + 1]);
+        }
+        return c;
+    }
+
+    // A reduction of NQ quantities of each of `vectors` vectors of `pairs` complex numbers:
+    // make(first, count) is the operation on the vectors first .. first + count (at most
+    // BlasVectors, for the coefficients of a launch). On success `*results` is host memory
+    // with quantity q of vector v at q * vectors + v, until the next reduction of the thread.
+    template <int NQ, typename Make>
+    int reduce(int pairs, int vectors, cudaStream_t stream, Make make, const double** results) {
+        const int per = get_grid_size(pairs);
+        const size_t count_all = static_cast<size_t>(NQ) * vectors;
+        int e = reserve(count_all * per, count_all);
+        if (e != cudaSuccess) return e;
+        for (int first = 0; first < vectors; first += bridge_cuda::BlasVectors) {
+            const int count = std::min(bridge_cuda::BlasVectors, vectors - first);
+            bridge_cuda::blas_reduce_kernel<NQ><<<count * per, BLOCK_SIZE, 0, stream>>>(
+                make(first, count), reduction.sums, pairs, count, first, vectors);
+        }
+        bridge_cuda::blas_finish_kernel<<<static_cast<int>(count_all), BLOCK_SIZE, 0, stream>>>(
+            reduction.results, reduction.sums, per);
+        e = cudaGetLastError();
+        if (e != cudaSuccess) return e;
+        e = cudaMemcpyAsync(reduction.host, reduction.results, count_all * sizeof(double),
+                            cudaMemcpyDeviceToHost, stream);
+        if (e != cudaSuccess) return e;
+        e = cudaStreamSynchronize(stream);
+        if (e != cudaSuccess) return e;
+        *results = reduction.host;
+        return cudaSuccess;
+    }
+
+    // An operation without a result on `vectors` vectors, BlasVectors at a time.
+    template <typename Make>
+    void map(int pairs, int vectors, cudaStream_t stream, Make make) {
+        for (int first = 0; first < vectors; first += bridge_cuda::BlasVectors) {
+            const int count = std::min(bridge_cuda::BlasVectors, vectors - first);
+            bridge_cuda::blas_map_kernel<<<get_grid_size(pairs, count), BLOCK_SIZE, 0, stream>>>(
+                make(first, count), pairs, count);
+        }
+    }
+
+    template <typename Float>
+    int norm2(double* out, const Float* x, int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<1>(n / 2, vectors, stream, [=](int first, int) {
+            return bridge_cuda::BlasNorm<Float>{x + static_cast<size_t>(first) * n};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, out);
+        return cudaSuccess;
+    }
+
+    template <typename Float>
+    int dotc(double* re, double* im, const Float* x, const Float* y, int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<2>(n / 2, vectors, stream, [=](int first, int) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasDot<Float>{x + at, y + at};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, re);
+        std::copy(r + vectors, r + 2 * vectors, im);
+        return cudaSuccess;
+    }
+
+    template <typename Float>
+    int axpy_norm2(Float* y, const Float* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<1>(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasAxpyNorm<Float>{y + at, x + at, coefficients<Float>(a, first, count)};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, norm);
+        return cudaSuccess;
+    }
+
+    template <typename Float>
+    int xpay_norm2_dot(Float* s, const Float* x, const double* a, const Float* y, const Float* z,
+                       double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<3>(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasXpayNormDot<Float>{s + at, x + at, y + at, z + at,
+                                                       coefficients<Float>(a, first, count)};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, norm);
+        std::copy(r + vectors, r + 2 * vectors, re);
+        std::copy(r + 2 * vectors, r + 3 * vectors, im);
+        return cudaSuccess;
+    }
+
+    template <typename Float>
+    int dot_norms(const Float* s, const Float* x, double* re, double* im, double* norm_s, double* norm_x,
+                  int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<4>(n / 2, vectors, stream, [=](int first, int) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasDotNorms<Float>{s + at, x + at};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, re);
+        std::copy(r + vectors, r + 2 * vectors, im);
+        std::copy(r + 2 * vectors, r + 3 * vectors, norm_s);
+        std::copy(r + 3 * vectors, r + 4 * vectors, norm_x);
+        return cudaSuccess;
+    }
+
+    template <typename Float>
+    void xpay(Float* s, const Float* x, const double* a, const Float* y, int n, int vectors, cudaStream_t stream) {
+        map(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasXpay<Float>{s + at, x + at, y + at, coefficients<Float>(a, first, count)};
+        });
+    }
+
+    template <typename Float>
+    void axpy2(Float* s, const double* a, const Float* x, const double* b, const Float* y, int n, int vectors, cudaStream_t stream) {
+        map(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasAxpy2<Float>{s + at, x + at, y + at, coefficients<Float>(a, first, count),
+                                                 coefficients<Float>(b, first, count)};
+        });
+    }
+
+    template <typename Float>
+    void axpy_aypx(Float* s, const double* a, const Float* x, const double* b, const Float* y, int n, int vectors, cudaStream_t stream) {
+        map(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasAxpyAypx<Float>{s + at, x + at, y + at, coefficients<Float>(a, first, count),
+                                                    coefficients<Float>(b, first, count)};
+        });
     }
 }
 
@@ -48,72 +219,53 @@ void bridge_cuda_blas_axpy_f64(double* y, const double* x, double a, int n, cuda
     bridge_cuda::blas_axpy_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(y, x, a, n);
 }
 
-void bridge_cuda_blas_norm2_partial_f32(float* block_sums, const float* x, int n, int grid_size, cudaStream_t stream) {
-    bridge_cuda::blas_norm2_partial_kernel<float><<<grid_size, BLOCK_SIZE, 0, stream>>>(block_sums, x, n, 1);
+int bridge_cuda_blas_norm2_f32(double* out, const float* x, int n, int vectors, cudaStream_t stream) {
+    return norm2(out, x, n, vectors, stream);
 }
-
-void bridge_cuda_blas_norm2_partial_f64(double* block_sums, const double* x, int n, int grid_size, cudaStream_t stream) {
-    bridge_cuda::blas_norm2_partial_kernel<double><<<grid_size, BLOCK_SIZE, 0, stream>>>(block_sums, x, n, 1);
+int bridge_cuda_blas_norm2_f64(double* out, const double* x, int n, int vectors, cudaStream_t stream) {
+    return norm2(out, x, n, vectors, stream);
 }
-
-void bridge_cuda_blas_norm2_f32(double* out, const float* x, int n, int vectors, cudaStream_t stream) {
-    int grid = get_grid_size(n);
-    float* sums = block_sums<float>(vectors);
-    bridge_cuda::blas_norm2_partial_kernel<float><<<vectors * grid, BLOCK_SIZE, 0, stream>>>(sums, x, n, vectors);
-    std::vector<float> host(static_cast<size_t>(vectors) * grid);
-    cudaMemcpy(host.data(), sums, host.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    for (int v = 0; v < vectors; ++v) {
-        double total = 0.0;
-        for (int b = 0; b < grid; ++b) total += host[static_cast<size_t>(v) * grid + b];
-        out[v] = total;
-    }
+int bridge_cuda_blas_dotc_f32(double* re, double* im, const float* x, const float* y, int n, int vectors, cudaStream_t stream) {
+    return dotc(re, im, x, y, n, vectors, stream);
 }
-
-void bridge_cuda_blas_dotc_f32(double* re, double* im, const float* x, const float* y, int n, int vectors, cudaStream_t stream) {
-    int grid = get_grid_size(n / 2);
-    float* sums = block_sums<float>(vectors);
-    bridge_cuda::blas_dotc_partial_kernel<float><<<vectors * grid, BLOCK_SIZE, 0, stream>>>(sums, x, y, n / 2, vectors);
-    std::vector<float> host(static_cast<size_t>(vectors) * 2 * grid);
-    cudaMemcpy(host.data(), sums, host.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    for (int v = 0; v < vectors; ++v) {
-        double tr = 0.0, ti = 0.0;
-        for (int b = 0; b < grid; ++b) {
-            tr += host[static_cast<size_t>(v) * grid + b];
-            ti += host[static_cast<size_t>(vectors + v) * grid + b];
-        }
-        re[v] = tr;
-        im[v] = ti;
-    }
+int bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const double* y, int n, int vectors, cudaStream_t stream) {
+    return dotc(re, im, x, y, n, vectors, stream);
 }
-
-void bridge_cuda_blas_norm2_f64(double* out, const double* x, int n, int vectors, cudaStream_t stream) {
-    int grid = get_grid_size(n);
-    double* sums = block_sums<double>(vectors);
-    bridge_cuda::blas_norm2_partial_kernel<double><<<vectors * grid, BLOCK_SIZE, 0, stream>>>(sums, x, n, vectors);
-    std::vector<double> host(static_cast<size_t>(vectors) * grid);
-    cudaMemcpy(host.data(), sums, host.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    for (int v = 0; v < vectors; ++v) {
-        double total = 0.0;
-        for (int b = 0; b < grid; ++b) total += host[static_cast<size_t>(v) * grid + b];
-        out[v] = total;
-    }
+int bridge_cuda_blas_axpy_norm2_f32(float* y, const float* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream) {
+    return axpy_norm2(y, x, a, norm, n, vectors, stream);
 }
-
-void bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const double* y, int n, int vectors, cudaStream_t stream) {
-    int grid = get_grid_size(n / 2);
-    double* sums = block_sums<double>(vectors);
-    bridge_cuda::blas_dotc_partial_kernel<double><<<vectors * grid, BLOCK_SIZE, 0, stream>>>(sums, x, y, n / 2, vectors);
-    std::vector<double> host(static_cast<size_t>(vectors) * 2 * grid);
-    cudaMemcpy(host.data(), sums, host.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    for (int v = 0; v < vectors; ++v) {
-        double tr = 0.0, ti = 0.0;
-        for (int b = 0; b < grid; ++b) {
-            tr += host[static_cast<size_t>(v) * grid + b];
-            ti += host[static_cast<size_t>(vectors + v) * grid + b];
-        }
-        re[v] = tr;
-        im[v] = ti;
-    }
+int bridge_cuda_blas_axpy_norm2_f64(double* y, const double* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream) {
+    return axpy_norm2(y, x, a, norm, n, vectors, stream);
+}
+int bridge_cuda_blas_xpay_norm2_dot_f32(float* s, const float* x, const double* a, const float* y, const float* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream) {
+    return xpay_norm2_dot(s, x, a, y, z, norm, re, im, n, vectors, stream);
+}
+int bridge_cuda_blas_xpay_norm2_dot_f64(double* s, const double* x, const double* a, const double* y, const double* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream) {
+    return xpay_norm2_dot(s, x, a, y, z, norm, re, im, n, vectors, stream);
+}
+int bridge_cuda_blas_dot_norms_f32(const float* s, const float* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream) {
+    return dot_norms(s, x, re, im, norm_s, norm_x, n, vectors, stream);
+}
+int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream) {
+    return dot_norms(s, x, re, im, norm_s, norm_x, n, vectors, stream);
+}
+void bridge_cuda_blas_xpay_f32(float* s, const float* x, const double* a, const float* y, int n, int vectors, cudaStream_t stream) {
+    xpay(s, x, a, y, n, vectors, stream);
+}
+void bridge_cuda_blas_xpay_f64(double* s, const double* x, const double* a, const double* y, int n, int vectors, cudaStream_t stream) {
+    xpay(s, x, a, y, n, vectors, stream);
+}
+void bridge_cuda_blas_axpy2_f32(float* s, const double* a, const float* x, const double* b, const float* y, int n, int vectors, cudaStream_t stream) {
+    axpy2(s, a, x, b, y, n, vectors, stream);
+}
+void bridge_cuda_blas_axpy2_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream) {
+    axpy2(s, a, x, b, y, n, vectors, stream);
+}
+void bridge_cuda_blas_axpy_aypx_f32(float* s, const double* a, const float* x, const double* b, const float* y, int n, int vectors, cudaStream_t stream) {
+    axpy_aypx(s, a, x, b, y, n, vectors, stream);
+}
+void bridge_cuda_blas_axpy_aypx_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream) {
+    axpy_aypx(s, a, x, b, y, n, vectors, stream);
 }
 
 void bridge_cuda_blas_scal_f32(float* x, const double* a, int n, int vectors, cudaStream_t stream) {
@@ -194,6 +346,20 @@ void bridge_cuda_blas_rotate_f32(float* x, const double* c, int n, int vectors, 
 
 void bridge_cuda_blas_rotate_f64(double* x, const double* c, int n, int vectors, cudaStream_t stream) {
     bridge_cuda::blas_rotate_kernel<double><<<get_grid_size(n / 2), BLOCK_SIZE, 0, stream>>>(x, c, n / 2, vectors);
+}
+
+void bridge_cuda_blas_combine_f32(float* out, const float* x, const double* c, int n, int n_in, int n_out, cudaStream_t stream) {
+    for (int j0 = 0; j0 < n_out; j0 += bridge_cuda::RotateVectors) {
+        const int count = std::min(bridge_cuda::RotateVectors, n_out - j0);
+        bridge_cuda::blas_combine_kernel<float><<<get_grid_size(n / 2), BLOCK_SIZE, 0, stream>>>(out, x, c, n / 2, n_in, n_out, j0, count);
+    }
+}
+
+void bridge_cuda_blas_combine_f64(double* out, const double* x, const double* c, int n, int n_in, int n_out, cudaStream_t stream) {
+    for (int j0 = 0; j0 < n_out; j0 += bridge_cuda::RotateVectors) {
+        const int count = std::min(bridge_cuda::RotateVectors, n_out - j0);
+        bridge_cuda::blas_combine_kernel<double><<<get_grid_size(n / 2), BLOCK_SIZE, 0, stream>>>(out, x, c, n / 2, n_in, n_out, j0, count);
+    }
 }
 
 void bridge_cuda_cast_f64_to_f32(float* dst, const double* src, int total_elements, cudaStream_t stream) {
