@@ -42,13 +42,10 @@ split inside the dispatch.
 - **Effort.** Medium. Mechanical apart from the second point.
 - **Check.** `cargo test --release --test hmc`, and `--features cuda-bridge` for the device terms.
 
-### 4. Move the CUDA FFI declarations out of `src/backend/cuda_bridge/mod.rs`
+### 4. Move the CUDA FFI declarations out of `src/backend/cuda_bridge/mod.rs` (done 2026-10-19)
 
-- **Why.** About 750 of its 1290 lines are the `DeviceReal` trait with the `extern` functions of
-  the kernels; the rest is buffers, geometry and helpers.
-- **How.** `cuda_bridge/ffi.rs`. Purely moving code.
-- **Effort.** Small.
-- **Check.** `cargo clippy --all-targets --features cuda-bridge`; `--test cuda_bridge`.
+`cuda_bridge/ffi.rs` holds the `extern` functions, the `#[repr(C)]` structures and `DeviceReal`;
+`mod.rs` (450 lines) keeps the buffers, geometry and helpers.
 
 ### 5. Argument parsing of the examples
 
