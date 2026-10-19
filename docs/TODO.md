@@ -101,6 +101,16 @@ tests.
 Not worth doing on the CPU: the prolongation in half precision; reading it once for several
 vectors (the CPU already loops over the vectors inside a site).
 
+## Ideas from the literature (to evaluate later)
+
+- **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
+  PoS LATTICE2025 048): their coarse low modes, interpolated, as the starting vectors of the
+  filter and bootstrap, to cut the setup (about 390 s on 24³×48), above all for HMC.
+- **Chiral SVD truncation of a larger set of test vectors** (Whyte, Stathopoulos, Romero,
+  arXiv:2505.14399): more vectors truncated per aggregate and Γ5 chirality to the present
+  coarse size, streamed to save device memory. It breaks the exactness of the correction on
+  {s, t̂}; measure whether the gain outweighs it.
+
 ## Continuous integration
 
 There is none (`.github/` does not exist; note that `.gitignore` ignores every top-level entry

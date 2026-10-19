@@ -214,6 +214,18 @@ three-level multiple right-hand-side version performs similarly to
 multiple right-hand-side HDCG, and an exact dense inverse on a further coarse
 level is planned.
 
+\paragraph{Setup cost and ensemble generation.}
+The setup of a multigrid, and of deflation, is paid once per gauge field, which is
+affordable for propagators but not for the solves of Hybrid Monte Carlo, where the field
+changes at every step. Eick and Mawhinney~\cite{EickMawhinney} avoid the setup by
+renormalization-group blocking: a fine M\"obius ensemble ($a^{-1}=2$\,GeV) is blocked to a
+coarse lattice ($a^{-1}=1$\,GeV) whose native domain-wall operator approximates the low
+modes of the fine one, and the coarse solve corrects a CG on the normal equations. They
+find that the interpolated correction carries high modes that the fine operator amplifies
+by four orders of magnitude, and that a Chebyshev low-pass filter of degree $150$--$300$ is
+needed to make the correction useful; they also find the fifth-dimensional profiles of the
+fine and coarse low modes to differ.
+
 \paragraph{Site-diagonal and Pauli--Villars preconditioning.}
 Kanamori, Chen and Matsufuru~\cite{KCM2024} examined the spectra of several
 preconditioned M\"obius operators. Combining the Pauli--Villars factor with the
@@ -1003,6 +1015,8 @@ SIAM J.\ Matrix Anal.\ Appl.\ \textbf{23} (2001) 601.
 \bibitem{TrefethenEmbree} L.~N.~Trefethen and M.~Embree, \emph{Spectra and Pseudospectra: The Behavior of Nonnormal Matrices and Operators}, Princeton University Press (2005).
 \bibitem{Embree} M.~Embree, \emph{The tortoise and the hare restart GMRES},
 SIAM Rev.\ \textbf{45} (2003) 259.
+\bibitem{EickMawhinney} J.~Eick and R.~Mawhinney, \emph{Toward a renormalization-group preconditioned conjugate gradient for domain wall fermions}, PoS \textbf{LATTICE2025} (2025) 048.
+\bibitem{WhyteSVD} T.~Whyte, A.~Stathopoulos and E.~Romero, \emph{Accelerating multigrid with streaming chiral SVD for Wilson fermions in lattice QCD}, arXiv:2505.14399.
 \end{thebibliography}
 
 \end{document}

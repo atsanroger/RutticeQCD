@@ -220,7 +220,15 @@ on $12^4$ and $16^4$ it does not. The smoother is harmless ($\|I-\AR S\|\approx1
 the factor that amplifies is the coarse correction, $\|I-\AR E\|$ of order $10^3$
 to $10^4$ against $18.5$ on $4^3\times8$: $\AR E$ is the identity on the vectors the
 correction is built from (Proposition~\ref{prop:exact}) but amplifies other directions
-by three to four orders of magnitude, like a strongly oblique projection. The bound of
+by three to four orders of magnitude, like a strongly oblique projection. This is the
+same amplification of high modes by a coarse-grid correction that Eick and
+Mawhinney~\cite{EickMawhinney} find for a renormalization-group coarse lattice of
+M\"obius fermions (four orders of magnitude, through the fine operator), where a
+Chebyshev low-pass filter of degree $150$--$300$ is needed. Here the post-smoothing,
+a Chebyshev polynomial of degree $7$--$11$ on the upper part of the spectrum, plays a
+similar role, and the cycle as a whole keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$
+(B); how much of the remaining amplification the post-smoothing removes has not been
+separated. The bound of
 Ref.~\cite{ESS} for GCR therefore does not apply (Sec.~\ref{sec:spectra}).
 Replacing $E$ by the Galerkin correction of $\AR$ itself,
 $\Pro(\Pro\dg\AR\Pro)^{-1}\Pro\dg$ (built densely), brings the field of values of setup~B
@@ -438,7 +446,7 @@ about $10^{-5}$ in every run.
 \centering
 \caption{$\delta(v)=\|\Sigma X\Sigma v-X\dg v\|/\|X\dg v\|$ for the coarse operators
 $X=\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\Pro$, $X\dg$ the exact adjoint, $\Sigma$ the coarse
-$\Gfive$; $b=1+c$, $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
+$\Gfive$; $b-c=1$ throughout (as usual for M\"obius fermions), $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
 components; $12^4$: $4^4$, 64). Random $v$ (four) and the right singular vectors of the four
 smallest singular values. \texttt{examples/coarse\_hermiticity}. $^*$Lanczos on $X\dg X$ not
 converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vectors.}
@@ -450,11 +458,11 @@ converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vector
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
  & random & low & random & low\\
 \midrule
-$4^3\times8$, $M_5=1$, $c=0$ & $3.8\times10^{-16}$ & $9\times10^{-16}$ & $4.0\times10^{-16}$ & $9\times10^{-16}$\\
-$4^3\times8$, $M_5=1$, $c=0.5$ & $0.041$ & $0.065$--$0.074$ & $0.050$ & $0.090$--$0.095$\\
-$12^4$ S, $c=0.25$ & $0.012$ & $0.034$--$0.050^*$ & $0.030$ & $0.023$--$0.031$\\
-$12^4$ S, $c=0.5$ & $0.023$ & $0.067$--$0.099^*$ & $0.053$ & $0.041$--$0.054$\\
-$12^4$ B, $c=0.5$ & $0.030$ & $0.140$--$0.146$ & $0.055$ & $0.053$--$0.066$\\
+$4^3\times8$, $M_5=1$, $(b,c)=(1,0)$ & $3.8\times10^{-16}$ & $9\times10^{-16}$ & $4.0\times10^{-16}$ & $9\times10^{-16}$\\
+$4^3\times8$, $M_5=1$, $(b,c)=(1.5,0.5)$ & $0.041$ & $0.065$--$0.074$ & $0.050$ & $0.090$--$0.095$\\
+$12^4$ S, $(b,c)=(1.25,0.25)$ & $0.012$ & $0.034$--$0.050^*$ & $0.030$ & $0.023$--$0.031$\\
+$12^4$ S, $(b,c)=(1.5,0.5)$ & $0.023$ & $0.067$--$0.099^*$ & $0.053$ & $0.041$--$0.054$\\
+$12^4$ B, $(b,c)=(1.5,0.5)$ & $0.030$ & $0.140$--$0.146$ & $0.055$ & $0.053$--$0.066$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -558,6 +566,13 @@ Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggrega
 need $8$--$9$ iterations but a larger coarse lattice, so the solve takes three to four
 times as long and the setup three to four times as long as with $4^4$; $48$ test
 vectors save a third of the iterations and lose in setup and in time per iteration.
+For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of
+more test vectors at the coarse size of fewer: they generate more, truncate them by a
+singular value decomposition on each aggregate and chirality (as $\Pro$ is split here
+by $\Gfive$), and stream the decomposition to save device memory. Applied here, the
+truncated basis would no longer contain $s$ and $\hat t$ exactly, so the exactness of
+Proposition~\ref{prop:exact} would be lost; whether the gain outweighs that has not been
+tried.
 The base setting is close to the time optimum for one right-hand side; only more
 smoother steps ($\nu=16$ for setup~S) are slightly faster. All runs use one setup seed,
 so differences of a few iterations may be within the variation between seeds.
