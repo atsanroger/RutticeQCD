@@ -23,16 +23,12 @@ first; the structural items after it, in the order given. Last reviewed 2026-10-
 - **Check.** `cargo test --release --features cuda-bridge --test run --test mdwf --test cuda_bridge`;
   the iteration counts of `examples/mdwf_pv_eo_mg.yaml` on the CPU and the device unchanged.
 
-### 2. One solver dispatch
+### 2. One solver dispatch (done 2026-10-19)
 
-- **Why.** The `match` on `SolverType` that builds GCR, Block GCR, BiCGStab, FGMRES or CG is
-  written three times (`src/app/mdwf.rs`, `src/app/mdwf_cuda.rs`, `src/app/wilson.rs`), including
-  details such as how FGMRES's `number_of_kept_directions` becomes its restart length. A change
-  made in one place is easily missed in the others.
-- **How.** One function in `src/solver/` (or `app/`) from the solver block to a solve on any
-  `Vector`, used by the three.
-- **Effort.** Small. Do it before item 1, which then uses it.
-- **Check.** `cargo test --release --test run --test wilson --test mdwf`.
+`SolverBlock::solve` (`src/app/params/blocks.rs`) is the one `match` on `SolverType`; the CPU and
+device propagator drivers call it, and item 1 should too. `src/app/wilson.rs` keeps its own: it
+reads another configuration (`SolverConfig`, `SolverKind`) with other solvers and the even-odd
+split inside the dispatch.
 
 ### 3. Split `src/app/hmc.rs`
 

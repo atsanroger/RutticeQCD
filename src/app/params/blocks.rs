@@ -691,6 +691,47 @@ impl SolverBlock {
         }
     }
 
+    /// Solve A x = b with the solver this block names, `m` its preconditioner; `x` holds the
+    /// initial guess. With `record`, GCR keeps the residual history of every step, returned
+    /// beside the result (`None` for the other solvers).
+    pub fn solve<V: crate::Vector>(
+        &self,
+        a: &mut dyn crate::LinearFn<V>,
+        m: Option<&mut dyn crate::LinearFn<V>>,
+        x: &mut V,
+        b: &V,
+        record: bool,
+    ) -> (
+        Result<crate::solver::SolveInfo, crate::solver::SolveError>,
+        Option<Vec<Vec<f64>>>,
+    ) {
+        use crate::solver::{BiCgStab, BlockGcr, Cg, Fgmres, Gcr, Solver};
+        let stop = self.stop();
+        let k = self.number_of_kept_directions;
+        let solved = match self.solver_type {
+            SolverType::Gcr => {
+                let mut g = Gcr::new(stop, k);
+                if record {
+                    g = g.recording();
+                }
+                let solved = g.solve(a, m, x, b);
+                return (solved, g.history.take());
+            }
+            SolverType::BlockGcr => BlockGcr::new(stop, k).solve(a, m, x, b),
+            SolverType::BiCgStab => BiCgStab::new(stop).solve(a, m, x, b),
+            // FGMRES restarts after k directions; its iterations count the restarts.
+            SolverType::Fgmres => Fgmres::new(Stop {
+                max_iterations: k,
+                max_restarts: stop.max_iterations / k.max(1),
+                ..stop
+            })
+            .solve(a, m, x, b),
+            SolverType::Cg => Cg::new(stop).solve(a, m, x, b),
+            SolverType::Minres => unreachable!("refused when the file is read"),
+        };
+        (solved, None)
+    }
+
     /// The block of the preconditioner chosen must be there; the blocks of the others may
     /// stay in the file (switching is one keyword) and are named in the notes.
     pub(super) fn check_preconditioner(

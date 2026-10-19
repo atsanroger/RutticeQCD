@@ -27,7 +27,7 @@ use crate::backend::cuda_bridge::{
 use crate::fermion::{EoForm, FermionOp, PvRatio};
 use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::Aggregation;
-use crate::solver::{BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, Solver, Stop};
+use crate::solver::{Chebyshev, Convert, Stop};
 use crate::{
     random_fifth, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
 };
@@ -461,7 +461,6 @@ pub(super) fn run(
         max_restarts: s.maximum_number_of_restart.max(50),
         ..stop
     };
-    let k = s.number_of_kept_directions;
     let mut source_work = op.work();
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let mut solve = |b: DeviceSpinor,
@@ -479,33 +478,13 @@ pub(super) fn run(
         let m = pre
             .as_mut()
             .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
-        let mut history: Option<Vec<Vec<f64>>> = None;
-        let result = match (s.solver_type, single.as_mut()) {
+        let (result, history) = match (s.solver_type, single.as_mut()) {
             (SolverType::Cg, Some(sc)) => {
                 let mut k = crate::fermion::SchurFactor::new(op, EoForm::Left, even, odd);
-                crate::hmc::mixed_normal(&mut k, sc, &mut sol, &rhs, mixed_stop)
+                let solved = crate::hmc::mixed_normal(&mut k, sc, &mut sol, &rhs, mixed_stop);
+                (solved, None)
             }
-            (t, _) => match t {
-                SolverType::Gcr => {
-                    let mut g = Gcr::new(stop, k);
-                    if detailed {
-                        g = g.recording();
-                    }
-                    let solved = g.solve(&mut a, m, &mut sol, &rhs);
-                    history = g.history.take();
-                    solved
-                }
-                SolverType::BlockGcr => BlockGcr::new(stop, k).solve(&mut a, m, &mut sol, &rhs),
-                SolverType::BiCgStab => BiCgStab::new(stop).solve(&mut a, m, &mut sol, &rhs),
-                SolverType::Fgmres => Fgmres::new(Stop {
-                    max_iterations: k,
-                    max_restarts: stop.max_iterations / k.max(1),
-                    ..stop
-                })
-                .solve(&mut a, m, &mut sol, &rhs),
-                SolverType::Cg => Cg::new(stop).solve(&mut a, m, &mut sol, &rhs),
-                SolverType::Minres => unreachable!("refused when the file is read"),
-            },
+            _ => s.solve(&mut a, m, &mut sol, &rhs, detailed),
         };
         let seconds = start.elapsed().as_secs_f64();
         let coarse = match (&coarse_count, coarse_before) {

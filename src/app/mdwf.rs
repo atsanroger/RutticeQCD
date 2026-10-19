@@ -4,7 +4,7 @@
 //! `mdwf_pv_eo_mg`, which can choose the seeds of random right-hand sides).
 
 use super::memory_line;
-use super::params::{Backend, Params, PrecisionType, PreconditionerType, SolverType};
+use super::params::{Backend, Params, PrecisionType, PreconditionerType};
 use crate::fermion::{EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd, Variant};
 use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
@@ -14,10 +14,7 @@ use crate::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even, Aggregation,
     CycleLayout, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
-use crate::solver::{
-    largest_magnitude, BiCgStab, BlockGcr, Cg, Chebyshev, Convert, Fgmres, Gcr, SolveError,
-    SolveInfo, Solver, Stop,
-};
+use crate::solver::{largest_magnitude, Chebyshev, Convert, SolveError, SolveInfo};
 use crate::{
     random_spinor, Aos, Aosoa, Comm, ConvertFrom, EvenOddIndex, Field, Gauge, Half, Lattice,
     Lexical, LinearFn, Parity, SingleComm, Spinor, Storage, Vector, C64, ND,
@@ -559,8 +556,6 @@ where
         })
     };
     let fine_flops = 2.0 * (op_l.flops_per_site() * lat.num_sites()) as f64;
-    let stop: Stop = s.stop();
-    let k = s.number_of_kept_directions;
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let mut solve = |b: &F<L>, label: &str, out: &mut dyn Write| -> F<L> {
         let nv = b.num_vectors();
@@ -574,8 +569,7 @@ where
         };
         let mut sol = rhs.zeros_like();
         let start = Instant::now();
-        let mut history: Option<Vec<Vec<f64>>> = None;
-        let result: Result<SolveInfo, SolveError> = {
+        let (result, history): (Result<SolveInfo, SolveError>, _) = {
             let mut counted_a = Counted {
                 a: &mut a,
                 n: &outer,
@@ -586,31 +580,7 @@ where
             };
             let mut counted_pre = m.map(|m| Counted { a: m, n: &applied });
             let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
-            match s.solver_type {
-                SolverType::Gcr => {
-                    let mut g = Gcr::new(stop, k);
-                    if detailed {
-                        g = g.recording();
-                    }
-                    let solved = g.solve(&mut counted_a, m, &mut sol, &rhs);
-                    history = g.history.take();
-                    solved
-                }
-                SolverType::BlockGcr => {
-                    BlockGcr::new(stop, k).solve(&mut counted_a, m, &mut sol, &rhs)
-                }
-                SolverType::BiCgStab => {
-                    BiCgStab::new(stop).solve(&mut counted_a, m, &mut sol, &rhs)
-                }
-                SolverType::Fgmres => Fgmres::new(Stop {
-                    max_iterations: k,
-                    max_restarts: stop.max_iterations / k.max(1),
-                    ..stop
-                })
-                .solve(&mut counted_a, m, &mut sol, &rhs),
-                SolverType::Cg => Cg::new(stop).solve(&mut counted_a, m, &mut sol, &rhs),
-                SolverType::Minres => unreachable!("refused when the file is read"),
-            }
+            s.solve(&mut counted_a, m, &mut sol, &rhs, detailed)
         };
         let seconds = start.elapsed().as_secs_f64();
         let iterations = iterations_text(&result);
