@@ -13,7 +13,7 @@
 //! device as well: the CPU has the four-dimensional source, the random right-hand sides and
 //! the contractions.
 
-use super::mdwf::{iterations_text, load, write_measurements};
+use super::mdwf::{iterations_text, load, solve_sources, SourceFields};
 use super::memory_line;
 use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::multigrid::Correction;
@@ -25,7 +25,6 @@ use crate::backend::cuda_bridge::{
     DeviceSpinor, LevelReal,
 };
 use crate::fermion::{EoForm, FermionOp, PvRatio};
-use crate::measure::{point_source, NUM_SOURCES};
 use crate::solver::preconditioner::multigrid::Aggregation;
 use crate::solver::{Chebyshev, Convert, Stop};
 use crate::{
@@ -313,7 +312,7 @@ pub(super) fn run(
     file: &Path,
     lat: &Arc<Lattice>,
     u: &Field<f64, Gauge>,
-    (seed_lo, seed_hi): (u64, u64),
+    seeds: (u64, u64),
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
     let fo = &params.fopr;
@@ -461,11 +460,10 @@ pub(super) fn run(
         max_restarts: s.maximum_number_of_restart.max(50),
         ..stop
     };
-    let mut source_work = op.work();
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
-    let mut solve = |b: DeviceSpinor,
-                     label: &str,
-                     out: &mut dyn Write|
+    let solve = |b: DeviceSpinor,
+                 label: &str,
+                 out: &mut dyn Write|
      -> Result<DeviceSpinor, Box<dyn Error>> {
         let nv = b.num_vectors();
         let mut rhs = even.zeros_with(nv);
@@ -524,35 +522,48 @@ pub(super) fn run(
         Ok(x)
     };
 
-    let Some(src) = &params.source else {
-        for seed in seed_lo..=seed_hi {
-            let b = DeviceSpinor::from_host(&random_fifth(lat, ls, seed))?;
-            solve(b, &format!("seed {seed}"), out)?;
-        }
-        return Ok(());
+    let mut fields = DeviceFields {
+        lat,
+        op,
+        work: op.work(),
+        ls,
     };
+    solve_sources(params, lat, seeds, &mut fields, solve, out)
+}
 
-    // The propagator from the point source, `number_of_rhs_per_solve` columns at a time: the
-    // four-dimensional quark field and the midpoint field of every column.
-    let eta = point_source::<f64>(lat, src.source_position);
-    let (mut prop, mut mid) = (eta.zeros_like(), eta.zeros_like());
-    let columns: Vec<usize> = (0..NUM_SOURCES).collect();
-    for chunk in columns.chunks(src.number_of_rhs_per_solve) {
-        let eta_c = DeviceSpinor::from_host(&eta.select(chunk))?;
-        let mut b = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(chunk.len());
-        op.source_5d(&mut source_work, &mut b, &eta_c);
-        let psi = solve(b, &format!("columns {chunk:?}"), out)?;
-        let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
-        op.propagator_4d(&mut q, &psi);
-        op.midpoint_4d(&mut m, &psi);
-        prop.assign(chunk, &q.to_host()?);
-        mid.assign(chunk, &m.to_host()?);
+/// The fields of a run on the device, made with the operator `op` (its plain part).
+struct DeviceFields<'a> {
+    lat: &'a Arc<Lattice>,
+    op: &'a CudaMdwf<f64>,
+    work: <CudaMdwf<f64> as FermionOp<DeviceSpinor>>::Work,
+    ls: usize,
+}
+
+impl SourceFields for DeviceFields<'_> {
+    type Fifth = DeviceSpinor;
+
+    fn random(&mut self, seed: u64) -> Result<DeviceSpinor, Box<dyn Error>> {
+        Ok(DeviceSpinor::from_host(&random_fifth(
+            self.lat, self.ls, seed,
+        ))?)
     }
-    write_measurements(
-        src.source_position,
-        params.main.lattice_size[3],
-        &prop,
-        &mid,
-        out,
-    )
+
+    fn source(&mut self, eta: &Field<f64, Spinor>) -> Result<DeviceSpinor, Box<dyn Error>> {
+        let eta = DeviceSpinor::from_host(eta)?;
+        let mut b = DeviceSpinor::zeros_fifth(self.lat, self.ls)?.zeros_with(eta.num_vectors());
+        self.op.source_5d(&mut self.work, &mut b, &eta);
+        Ok(b)
+    }
+
+    fn project(
+        &mut self,
+        psi: &DeviceSpinor,
+        eta: &Field<f64, Spinor>,
+    ) -> Result<(Field<f64, Spinor>, Field<f64, Spinor>), Box<dyn Error>> {
+        let like = DeviceSpinor::from_host(eta)?;
+        let (mut q, mut m) = (like.zeros_like(), like.zeros_like());
+        self.op.propagator_4d(&mut q, psi);
+        self.op.midpoint_4d(&mut m, psi);
+        Ok((q.to_host()?, m.to_host()?))
+    }
 }

@@ -401,7 +401,7 @@ fn run_in<L: CycleLayout<f64> + CycleLayout<f32>>(
     file: &Path,
     lat: &Arc<Lattice>,
     u: &Field<f64, Gauge>,
-    (seed_lo, seed_hi): (u64, u64),
+    seeds: (u64, u64),
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>>
 where
@@ -557,7 +557,8 @@ where
     };
     let fine_flops = 2.0 * (op_l.flops_per_site() * lat.num_sites()) as f64;
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
-    let mut solve = |b: &F<L>, label: &str, out: &mut dyn Write| -> F<L> {
+    let solve = |b: F<L>, label: &str, out: &mut dyn Write| -> Result<F<L>, Box<dyn Error>> {
+        let b = &b;
         let nv = b.num_vectors();
         let mut rhs = like_l.zeros_with(nv);
         a.right_hand_side(&mut rhs, b);
@@ -599,49 +600,76 @@ where
         r.norm_sqr(&mut rr);
         b.norm_sqr(&mut bb);
         let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
-        let _ = writeln!(
+        writeln!(
             out,
             "  {label}: {} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
             s.solver_type,
             applied.get() / nv,
             2 * applications,
             memory_line()
-        );
+        )?;
         super::history_lines(out, label, history);
-        x
+        Ok(x)
     };
+    let mut fields = CpuFields {
+        lat: &lat,
+        op: op_check,
+        ls,
+    };
+    solve_sources(params, &lat, seeds, &mut fields, solve, out)
+}
 
+/// The iterations of a solve as the report shows them: with `!` if it did not converge.
+pub(super) fn iterations_text(result: &Result<SolveInfo, SolveError>) -> String {
+    match result {
+        Ok(i) => format!("{}", i.iterations),
+        Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
+        Err(e) => format!("failed: {e}"),
+    }
+}
+
+/// Where a backend keeps the five-dimensional fields of a propagator run, and how it makes
+/// them: the right-hand sides and the four-dimensional fields of the solutions, which the
+/// host collects (`solve_sources`).
+pub(super) trait SourceFields {
+    /// A five-dimensional field of right-hand sides or solutions.
+    type Fifth;
+    /// The random right-hand side of `seed`.
+    fn random(&mut self, seed: u64) -> Result<Self::Fifth, Box<dyn Error>>;
+    /// The five-dimensional source of the four-dimensional columns `eta`.
+    fn source(&mut self, eta: &F) -> Result<Self::Fifth, Box<dyn Error>>;
+    /// The four-dimensional quark field and the midpoint field of `psi`, shaped like `eta`.
+    fn project(&mut self, psi: &Self::Fifth, eta: &F) -> Result<(F, F), Box<dyn Error>>;
+}
+
+/// What a propagator run does once its operators and preconditioner are made, on any backend:
+/// without a `Source` block, `solve` (which solves D ψ = b and reports it in one line under its
+/// label) on the random right-hand sides of the seeds `seeds` (inclusive); with one, on the
+/// point source, `number_of_rhs_per_solve` columns at a time, and the meson correlators and
+/// the residual mass of the propagator.
+pub(super) fn solve_sources<S: SourceFields>(
+    params: &Params,
+    lat: &Arc<Lattice>,
+    (seed_lo, seed_hi): (u64, u64),
+    fields: &mut S,
+    mut solve: impl FnMut(S::Fifth, &str, &mut dyn Write) -> Result<S::Fifth, Box<dyn Error>>,
+    out: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
     let Some(src) = &params.source else {
         for seed in seed_lo..=seed_hi {
-            let mut b = F::with_shape(&lat, 24, ls, 1, 1);
-            b.as_mut_slice()
-                .copy_from_slice(random_spinor(&lat, ls, seed).as_slice());
-            let mut b_l = F::<L>::with_shape(&lat, 24, ls, 1, 1);
-            b_l.convert_from(&b);
-            drop(b);
-            solve(&b_l, &format!("seed {seed}"), out);
+            let b = fields.random(seed)?;
+            solve(b, &format!("seed {seed}"), out)?;
         }
         return Ok(());
     };
-
-    // The propagator from the point source, `number_of_rhs_per_solve` columns at a time:
-    // the four-dimensional quark field and the midpoint field of every column.
-    let eta = point_source::<f64>(&lat, src.source_position);
+    let eta = point_source::<f64>(lat, src.source_position);
     let (mut prop, mut mid) = (eta.zeros_like(), eta.zeros_like());
     let columns: Vec<usize> = (0..NUM_SOURCES).collect();
     for chunk in columns.chunks(src.number_of_rhs_per_solve) {
         let eta_c = eta.select(chunk);
-        let mut eta_l = F::<L>::with_shape(&lat, 24, 1, chunk.len(), 1);
-        eta_l.convert_from(&eta_c);
-        let mut b = F::<L>::with_shape(&lat, 24, ls, chunk.len(), 1);
-        op_check.source_5d(&mut op_check.work(), &mut b, &eta_l);
-        let psi = solve(&b, &format!("columns {chunk:?}"), out);
-        let (mut q_l, mut m_l) = (eta_l.zeros_like(), eta_l.zeros_like());
-        op_check.propagator_4d(&mut q_l, &psi);
-        op_check.midpoint_4d(&mut m_l, &psi);
-        let (mut q, mut m) = (eta_c.zeros_like(), eta_c.zeros_like());
-        q.convert_from(&q_l);
-        m.convert_from(&m_l);
+        let b = fields.source(&eta_c)?;
+        let psi = solve(b, &format!("columns {chunk:?}"), out)?;
+        let (q, m) = fields.project(&psi, &eta_c)?;
         prop.assign(chunk, &q);
         mid.assign(chunk, &m);
     }
@@ -651,16 +679,50 @@ where
         &prop,
         &mid,
         out,
-    )?;
-    Ok(())
+    )
 }
 
-/// The iterations of a solve as the report shows them: with `!` if it did not converge.
-pub(super) fn iterations_text(result: &Result<SolveInfo, SolveError>) -> String {
-    match result {
-        Ok(i) => format!("{}", i.iterations),
-        Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
-        Err(e) => format!("failed: {e}"),
+/// The fields of a run on the CPU, in the layout `L`, made with the plain operator `op`.
+struct CpuFields<'a, L: MdwfLayout<f64>> {
+    lat: &'a Arc<Lattice>,
+    op: &'a Mdwf<f64, Dirac, L>,
+    ls: usize,
+}
+
+impl<L: MdwfLayout<f64>> SourceFields for CpuFields<'_, L>
+where
+    F<L>: ConvertFrom<F>,
+    F: ConvertFrom<F<L>>,
+{
+    type Fifth = F<L>;
+
+    fn random(&mut self, seed: u64) -> Result<F<L>, Box<dyn Error>> {
+        let mut b = F::with_shape(self.lat, 24, self.ls, 1, 1);
+        b.as_mut_slice()
+            .copy_from_slice(random_spinor(self.lat, self.ls, seed).as_slice());
+        let mut b_l = F::<L>::with_shape(self.lat, 24, self.ls, 1, 1);
+        b_l.convert_from(&b);
+        Ok(b_l)
+    }
+
+    fn source(&mut self, eta: &F) -> Result<F<L>, Box<dyn Error>> {
+        let n = eta.num_vectors();
+        let mut eta_l = F::<L>::with_shape(self.lat, 24, 1, n, 1);
+        eta_l.convert_from(eta);
+        let mut b = F::<L>::with_shape(self.lat, 24, self.ls, n, 1);
+        self.op.source_5d(&mut self.op.work(), &mut b, &eta_l);
+        Ok(b)
+    }
+
+    fn project(&mut self, psi: &F<L>, eta: &F) -> Result<(F, F), Box<dyn Error>> {
+        let like = F::<L>::with_shape(self.lat, 24, 1, eta.num_vectors(), 1);
+        let (mut q_l, mut m_l) = (like.zeros_like(), like);
+        self.op.propagator_4d(&mut q_l, psi);
+        self.op.midpoint_4d(&mut m_l, psi);
+        let (mut q, mut m) = (eta.zeros_like(), eta.zeros_like());
+        q.convert_from(&q_l);
+        m.convert_from(&m_l);
+        Ok((q, m))
     }
 }
 

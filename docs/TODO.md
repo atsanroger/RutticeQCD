@@ -9,17 +9,17 @@ first; the structural items after it, in the order given. Last reviewed 2026-10-
 
 ## Structure
 
-### 1. One propagator driver for the CPU and the device
+### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
 
-- **Why.** `src/app/mdwf.rs::run_in` (about 290 lines) and `src/app/mdwf_cuda.rs::run` (about 270)
-  are parallel copies: build the operators, set up the multigrid or the Chebyshev
-  preconditioner, a `solve` closure that dispatches the solver and prints one line, then the
-  random right-hand sides or the point-source propagator and `write_measurements`. A feature
-  added to one is missing from the other (mixed-precision CGNE exists on the device only).
-- **How.** A backend trait for what differs (field types, operators, the multigrid cycle, host
-  and device copies of the source and solution); the driver written once on it. The device
-  types are already `Vector`, `FermionOp`, `EvenOdd`.
-- **Effort.** Medium to large.
+- **Done.** What follows the setup is written once: `solve_sources` (`src/app/mdwf.rs`) runs the
+  random right-hand sides or the point-source propagator and the measurements; each backend
+  gives the fields through `SourceFields` (`CpuFields`, `DeviceFields`) and its own `solve`
+  closure. The solver dispatch is shared (item 2).
+- **Left.** The setup (operators, test vectors, the multigrid cycle or Chebyshev) and the
+  `solve` closures are still two: `src/app/mdwf.rs::run_in` and `src/app/mdwf_cuda.rs::run`.
+  Their data differ (layouts and an f32 `Convert` on the CPU; device bases, levels and
+  counters on the GPU), so a common trait there would carry most of both; do it only when a
+  feature needs it on both sides. Mixed-precision CGNE is still on the device only.
 - **Check.** `cargo test --release --features cuda-bridge --test run --test mdwf --test cuda_bridge`;
   the iteration counts of `examples/mdwf_pv_eo_mg.yaml` on the CPU and the device unchanged.
 
