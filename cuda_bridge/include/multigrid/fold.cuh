@@ -617,6 +617,9 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
             for (int q = p + 1; q < n; ++q) {
                 const double gr = h[2 * (p * n + q)], gi = h[2 * (p * n + q) + 1];
                 const double g = sqrt(gr * gr + gi * gi);
+                // Every thread has read a_pq before thread p overwrites it below (h is in global
+                // memory and the block may be several warps); all of them then take the same branch.
+                __syncthreads();
                 if (g <= 1e-300) continue;
                 // d = conj(a_pq) / |a_pq|: column q of H and V times d, then row q of H times conj(d).
                 const double dr = gr / g, di = -gi / g;
