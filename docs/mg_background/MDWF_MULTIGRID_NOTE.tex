@@ -357,7 +357,10 @@ Whether it occurs for $A'$ and its even-odd forms is open
 (Sec.~\ref{sec:open}).\ifresults{} For $\AR$ itself the field of values reaches just
 below zero on $12^4$ ($\Re W\ge-4.6\times10^{-3}$ with stout smearing,
 $-5.0\times10^{-2}$ without), and for the multigrid-preconditioned $\AR\mathcal M$ far
-below (Sec.~\ref{sec:fov}).\fi
+below (Sec.~\ref{sec:fov}). The bound of Ref.~\cite{ESS} is then lost, but the
+spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.78$ and its pseudospectra bound
+full GMRES (Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}); truncated GCR is not covered
+(Sec.~\ref{sec:gcrk}).\fi
 
 % ============================================================
 \section{The operator and Pauli--Villars preconditioning}
@@ -615,7 +618,8 @@ right-form vectors. We therefore expect the correction not to be exact for the
 left form with the basis above, but this has not been verified.\ifresults{} In
 practice the left form with this basis has the spectrum of the right form and
 needs one to three iterations more or fewer (Secs.~\ref{sec:spectrum},
-\ref{sec:gcrk}).\fi
+\ref{sec:gcrk}); whether a basis exact for both forms at once exists is left
+open.\fi
 \end{remark}
 
 \subsection{The coarse operators}
@@ -665,8 +669,13 @@ and solve the equivalent system
 with MINRES. $\Hc$ is Hermitian (indefinite) exactly when
 $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, i.e.\ for $c=0$ by Eqs.~\eqref{eq:g5herm} and
 \eqref{eq:GP}; for $c\neq0$ MINRES is applied to a non-Hermitian matrix and has
-no guarantee.\ifresults{} In practice it is better than the exact adjoint with
-BiCGStab for $c=0.5$ as for $c=0$ (Sec.~\ref{sec:herm}).\fi The preconditioner must be Hermitian positive definite; we use the
+no guarantee.\ifresults{} On the coarse space the non-Hermitian part is a few
+percent, up to $14\%$ in the directions of the smallest singular values, and linear in
+$c$; MINRES on $\Hc$ nevertheless needs the same outer iterations at $c=0.5$ as for
+the Shamir operator and is better than the exact adjoint with BiCGStab
+(Sec.~\ref{sec:herm}). The absolute-value block preconditioner and the additive level
+preconditioner below, also exact only for $c=0$, are used as they are; their losses
+were not measured separately.\fi The preconditioner must be Hermitian positive definite; we use the
 absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
 V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
 on each coarse site. On a coarse lattice with even extents, the Schur
@@ -833,7 +842,10 @@ reconstruction. The reference solver is CG on the normal equation of the
 even-odd operator $\Ce^{-1}S$ (CGNE), which is robust but squares the condition
 number; it runs in double precision or in mixed precision, by defect correction in
 double precision with CG in single precision, each inner solve stopped where the
-outer tolerance is met.
+outer tolerance is met.\ifresults{} For the systems with $\AR\dg$ (the normal
+equations of HMC) RutticeQCD uses the cycle with $D$ and $\Dpv$ exchanged on the same
+$\Pro$ and the same smoother interval; with exact coarse solves it is the adjoint of
+$\mathcal M$ (Sec.~\ref{sec:fov}).\fi
 
 \ifresults
 \input{results}
@@ -843,40 +855,21 @@ outer tolerance is met.
 \section{Open problems}
 \label{sec:open}
 
-The following are questions of theory and algorithm, not findings.
+\ifresults
+The following questions remain open. Those the measurements answer are discussed where
+they arise: the left form in Sec.~\ref{sec:basis}, $c\neq0$ in Secs.~\ref{sec:coarse}
+and \ref{sec:herm}, the field of values in Secs.~\ref{sec:spectra} and
+\ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
-\item \textbf{Exactness for the left form.} Proposition~\ref{prop:exact} holds
-for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
-that would be needed differs from $\hat t$ by site-local factors (second remark
-of Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
-once, and what is lost by using the right-form basis for the left form, is open.\ifresults{}
-Numerically the loss is small for the setups of Sec.~\ref{sec:results}: with the
-right-form basis, $\AL\mathcal M$ and $\AR\mathcal M$ have the same spectrum to
-three digits (Table~\ref{tab:spectrum}) and the iterations differ by one to three
-(Table~\ref{tab:gcrk}).\fi
-
-\item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
-Eq.~\eqref{eq:g5herm}, $\Gfive D\Gfive\neq D\dg$ at $O(c)$. MINRES on
-$\Hc=\Dcpv\Sigma$, the absolute-value block preconditioner (built from the
-Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoint
-in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
-operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
-the non-Hermitian part is on the coarse space, and how to treat it, is open.\ifresults{}
-On the coarse space it is a few percent, up to $14\%$ in the lowest singular
-directions, linear in $c$; MINRES on $\Hc$ is nevertheless as effective at
-$c=0.5$ as at $c=0$ (Sec.~\ref{sec:herm}). Its effect on the other components
-listed here has not been measured separately.\fi
-
-\item \textbf{Smoother interval for a non-normal operator.} The interval
+\item \textbf{Choosing the smoother interval.} The interval
 $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
-spectral radius, whereas the setup works with singular values (eigenvalues of
-$\AR\dg\AR$). For a non-normal $\tilde A$ these need not agree. Which part of
-the low end is left to the smoother after the coarse correction, and whether an
-ellipse with complex foci should replace the real interval, are open.\ifresults{}
-That the choice matters is shown in Table~\ref{tab:sensitivity}: with GCR(2), a
-ratio three times too large stagnates in both setups, and too small ones cost up to
-twice the iterations or, six times too small, stagnate.\fi
+spectral radius and a ratio chosen per setup, and the wrong ratio makes the solve
+stagnate (Sec.~\ref{sec:sensitivity}); the setup works with singular values of $\AR$,
+which for a non-normal operator need not match its eigenvalues. How to choose the
+interval from the operator, which part of the low end is left to the smoother after the
+coarse correction, and whether an ellipse with complex foci should replace the real
+interval, are open.
 
 \item \textbf{Even-odd smoother and coarse space.} Boyle and
 Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
@@ -888,34 +881,76 @@ absent by construction; but the coarse operators are Galerkin projections of
 $D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
 preferable to the full-lattice $A'$ for this method has not been established.
 
-\item \label{op:fov}\textbf{Field of values versus real parts of eigenvalues.}
+\item \textbf{Truncated GCR with inexact coarse solves.} GCR(2) converges when the
+coarse solves are stopped at $10^{-2}$ and stagnates when they are accurate
+(Sec.~\ref{sec:gcrk}), while the pseudospectral bound covers only the full method
+with a fixed $\mathcal M$. Why the inexact correction behaves better, and whether a
+convergence guarantee can be given for the truncated method with it, are open.
+
+\item \textbf{A rigorous bound, and larger volumes.} The pseudospectral bound rests on
+Lanczos estimates of $\sigma_{\min}$, which approach it from above, and on the
+eigenvalues farthest from the centre found by Arnoldi (Sec.~\ref{sec:pseudo}). A
+bound from an inclusion theorem, and how the outliers of setup~S and the
+pseudospectra develop beyond $16^4$, are open.
+
+\item \textbf{Solving with $D\dg$.} The dual cycle used for $\AR\dg$
+(Sec.~\ref{sec:outer}) uses the basis built for $D$. Whether the dual correction is
+exact on it, and how good that basis is for $D\dg$, have not been derived or measured.
+\end{enumerate}
+\else
+The following are questions of theory and algorithm, not findings.
+
+\begin{enumerate}
+\item \textbf{Exactness for the left form.} Proposition~\ref{prop:exact} holds
+for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
+that would be needed differs from $\hat t$ by site-local factors (second remark
+of Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
+once, and what is lost by using the right-form basis for the left form, is open.
+
+\item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
+Eq.~\eqref{eq:g5herm}, $\Gfive D\Gfive\neq D\dg$ at $O(c)$. MINRES on
+$\Hc=\Dcpv\Sigma$, the absolute-value block preconditioner (built from the
+Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoint
+in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
+operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
+the non-Hermitian part is on the coarse space, and how to treat it, is open.
+
+\item \textbf{Smoother interval for a non-normal operator.} The interval
+$[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
+spectral radius, whereas the setup works with singular values (eigenvalues of
+$\AR\dg\AR$). For a non-normal $\tilde A$ these need not agree. Which part of
+the low end is left to the smoother after the coarse correction, and whether an
+ellipse with complex foci should replace the real interval, are open.
+
+\item \textbf{Even-odd smoother and coarse space.} Boyle and
+Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
+coarse correction was not effective, and attributed it to the eigenvectors of
+the red-black operator and of $\gamma_5R_5D$ not being aligned. In the present
+method the smoother and the correction both approximate $\tilde A^{-1}$ and the
+coarse space is built from low modes of $\AR$, so that particular mismatch is
+absent by construction; but the coarse operators are Galerkin projections of
+$D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
+preferable to the full-lattice $A'$ for this method has not been established.
+
+\item \textbf{Field of values versus real parts of eigenvalues.}
 Section~\ref{sec:spectra} shows $\Re\lambda>0$ for $A'$. The GCR bound~\cite{ESS}
 needs a positive definite Hermitian part, i.e.\ a field of values in the right
 half-plane, which is a stronger condition. Whether it holds for $A'$, $\AR$ and
 $\AL$, and whether a shift of the kind used in Ref.~\cite{BoyleOare} is needed,
-is not known.\ifresults{} It fails slightly for $\AR$ itself and strongly for the
-preconditioned operator $\AR\mathcal M$ on $12^4$ and $16^4$ (Sec.~\ref{sec:fov}); the spectrum stays at
-$\Re\lambda\ge0.78$ and the pseudospectra give a bound for full GMRES
-(Sec.~\ref{sec:pseudo}), but not for truncated GCR (Sec.~\ref{sec:gcrk}).\fi
+is not known.
 
 \item \textbf{Outer solver with a varying preconditioner.} Because the coarse
 solves are truncated, $\mathcal M$ is nonlinear and depends on the right-hand
 side. FGMRES and flexible GCR allow this; BiCGStab does not, and its behavior
-with $\mathcal M$ as preconditioner has no theoretical justification.\ifresults{} The
-truncated GCR(2) used in practice converges with coarse solves to $10^{-2}$ and
-stagnates with accurate ones (Sec.~\ref{sec:gcrk}); why the inexact correction
-behaves better is open.\fi
+with $\mathcal M$ as preconditioner has no theoretical justification.
 
 \item \textbf{Solving with $D\dg$.} The method is built for $D\psi=\eta$. A
 solve with $D\dg$, as needed for the normal equations in HMC, requires the dual
 correction (the two factors and the roles of the lifts exchanged), and its
-basis and exactness have not been derived.\ifresults{} A cycle with $D$ and $\Dpv$ exchanged on the same $\Pro$ is
-implemented; with exact coarse solves it is the adjoint of $\mathcal M$
-(Sec.~\ref{sec:fov}), and RutticeQCD uses it for the solves with $\AR\dg$ in HMC.
-How good the basis built for $D$ is for this dual correction has not been
-studied.\fi
+basis and exactness have not been derived.
 \end{enumerate}
 
+\fi
 % ============================================================
 \begin{thebibliography}{99}
 \bibitem{NarayananNeuberger} R.~Narayanan and H.~Neuberger, \emph{Infinitely many regulator fields for chiral fermions},
