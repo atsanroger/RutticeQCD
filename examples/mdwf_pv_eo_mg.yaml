@@ -2,7 +2,11 @@
 #
 #   cargo run --release --bin ruttice -- examples/mdwf_pv_eo_mg.yaml
 #
-# on a 12^4 configuration (not part of the repository) next to this file. The sections and
+# on the v2 12^4 configuration (quenched, beta 6.0; not part of the repository) next to this
+# file. This is setup S of docs/mg_background/MDWF_MULTIGRID_NOTE.pdf: M5 = 1.0 on stout
+# links 0.1 x 3. For setup B: domain_wall_height 1.8, the GaugeSmearing section removed, and
+# Smoother number_of_steps 12, interval_ratio 30. These are the only two domain-wall setups
+# the multigrid was tuned and measured for. The sections and
 # keys are those of Bridge++. Keywords (values of choices) may be written in any case and
 # with or without `_`: CGNE, cgne and Cg_Ne are the same. Keys are spelt as below.
 # Every key with a default is shown with it.
@@ -17,15 +21,15 @@ Main:
   verbose_level : General
 
 Gauge:
-  gauge_config_type_input : Text
+  gauge_config_type_input : Binary
   ## relative paths are taken from this file's directory
-  config_filename_input   : conf_12x12x12x12.txt
+  config_filename_input   : conf_quench_12x12x12x12_v2.bin
 
 Fopr:
   ## fermion_type = {Domainwall_5din (Mobius)}
   fermion_type             : Domainwall_5din
   gamma_matrix_type        : Dirac
-  quark_mass               : 0.005
+  quark_mass               : 0.001
   quark_mass_PauliVillars  : 1.0
   domain_wall_height       : 1.0
   extent_of_5th_dimension  : 8
@@ -110,3 +114,9 @@ MultiGrid:
   #   super_block_size : 2
   # MultiGrid_Level3:
   #   super_block_size : 2
+
+## Gauge smearing: the operators are made of the smeared links (setup S; remove for setup B).
+GaugeSmearing:
+  smear_type         : Stout
+  rho_uniform        : 0.1
+  number_of_smearing : 3

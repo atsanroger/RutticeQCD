@@ -9,11 +9,12 @@ lattice_size = [12, 12, 12, 12]
 backend = "cpu"
 
 [Gauge]
-config_filename_input = "conf_12x12x12x12.txt"
+gauge_config_type_input = "Binary"
+config_filename_input = "conf_quench_12x12x12x12_v2.bin"
 
 [Fopr]
 fermion_type = "Mobius"
-quark_mass = 0.005
+quark_mass = 0.001
 domain_wall_height = 1.0
 extent_of_5th_dimension = 8
 neff_alpha = 0.6
@@ -23,3 +24,9 @@ solver_type = "gcr"
 operator_type = "pv_left"
 convergence_criterion_squared = 1e-18
 preconditioner_type = "mg"
+
+# Setup S: M5 = 1.0 on stout links (see examples/mdwf_pv_eo_mg.yaml for setup B).
+[GaugeSmearing]
+smear_type = "Stout"
+rho_uniform = 0.1
+number_of_smearing = 3
