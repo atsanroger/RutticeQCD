@@ -9,17 +9,19 @@
 
 namespace {
 
+// The handles, one for each thread (a handle is not to be shared by threads that call at the
+// same time); null if it could not be made, which the calls report as their error.
 cusolverDnHandle_t solver()
 {
-    static cusolverDnHandle_t handle = nullptr;
-    if (handle == nullptr) cusolverDnCreate(&handle);
+    static thread_local cusolverDnHandle_t handle = nullptr;
+    if (handle == nullptr && cusolverDnCreate(&handle) != CUSOLVER_STATUS_SUCCESS) handle = nullptr;
     return handle;
 }
 
 cublasHandle_t blas()
 {
-    static cublasHandle_t handle = nullptr;
-    if (handle == nullptr) cublasCreate(&handle);
+    static thread_local cublasHandle_t handle = nullptr;
+    if (handle == nullptr && cublasCreate(&handle) != CUBLAS_STATUS_SUCCESS) handle = nullptr;
     return handle;
 }
 
@@ -64,10 +66,11 @@ __global__ void scale_columns_kernel(cuDoubleComplex* out, const cuDoubleComplex
     out[i] = make_cuDoubleComplex(s * v[i].x, s * v[i].y);
 }
 
+// The info of a cuSOLVER call; -1 if it cannot be read.
 int info_of(const int* d_info)
 {
     int info = 0;
-    cudaMemcpy(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
+    if (cudaMemcpy(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost) != cudaSuccess) return -1;
     return info;
 }
 
@@ -94,8 +97,13 @@ int bridge_cuda_dense_inverse(double* d_inverse, const double* d_a, int n)
         result = -1;
         goto done;
     }
-    cudaMemcpy(lu, d_a, count * sizeof(cuDoubleComplex), cudaMemcpyDeviceToDevice);
+    if (solver() == nullptr) { result = -100 - static_cast<int>(CUSOLVER_STATUS_NOT_INITIALIZED); goto done; }
+    if (cudaMemcpy(lu, d_a, count * sizeof(cuDoubleComplex), cudaMemcpyDeviceToDevice) != cudaSuccess) {
+        result = -1;
+        goto done;
+    }
     identity_kernel<<<blocks_for(count), THREADS>>>(inverse, n);
+    if (cudaGetLastError() != cudaSuccess) { result = -1; goto done; }
     status = cusolverDnZgetrf_bufferSize(solver(), n, n, lu, n, &lwork);
     if (status != CUSOLVER_STATUS_SUCCESS) { result = -100 - static_cast<int>(status); goto done; }
     if (cudaMalloc(&work, static_cast<size_t>(lwork) * sizeof(cuDoubleComplex)) != cudaSuccess) {
@@ -110,7 +118,7 @@ int bridge_cuda_dense_inverse(double* d_inverse, const double* d_a, int n)
     if (status != CUSOLVER_STATUS_SUCCESS) { result = -100 - static_cast<int>(status); goto done; }
     result = info_of(d_info);
 done:
-    cudaDeviceSynchronize();
+    if (cudaDeviceSynchronize() != cudaSuccess && result == 0) result = -1;
     cudaFree(work);
     cudaFree(d_info);
     cudaFree(pivots);
@@ -142,7 +150,10 @@ int bridge_cuda_dense_abs_inverse(double* d_out, const double* d_a, int n, doubl
         result = -1;
         goto done;
     }
+    if (solver() == nullptr) { result = -100 - static_cast<int>(CUSOLVER_STATUS_NOT_INITIALIZED); goto done; }
+    if (blas() == nullptr) { result = -200 - static_cast<int>(CUBLAS_STATUS_NOT_INITIALIZED); goto done; }
     hermitian_part_kernel<<<blocks_for(count), THREADS>>>(h, reinterpret_cast<const cuDoubleComplex*>(d_a), n);
+    if (cudaGetLastError() != cudaSuccess) { result = -1; goto done; }
     status = cusolverDnZheevd_bufferSize(solver(), CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
                                          n, h, n, lambda, &lwork);
     if (status != CUSOLVER_STATUS_SUCCESS) { result = -100 - static_cast<int>(status); goto done; }
@@ -158,11 +169,12 @@ int bridge_cuda_dense_abs_inverse(double* d_out, const double* d_a, int n, doubl
     // h now holds the eigenvectors V (columns): out = (V w) V^dag.
     weights_kernel<<<1, 1>>>(weights, lambda, n, cutoff);
     scale_columns_kernel<<<blocks_for(count), THREADS>>>(scaled, h, weights, n);
+    if (cudaGetLastError() != cudaSuccess) { result = -1; goto done; }
     blas_status = cublasZgemm(blas(), CUBLAS_OP_N, CUBLAS_OP_C, n, n, n, &one, scaled, n, h, n, &zero,
                               reinterpret_cast<cuDoubleComplex*>(d_out), n);
     if (blas_status != CUBLAS_STATUS_SUCCESS) result = -200 - static_cast<int>(blas_status);
 done:
-    cudaDeviceSynchronize();
+    if (cudaDeviceSynchronize() != cudaSuccess && result == 0) result = -1;
     cudaFree(work);
     cudaFree(d_info);
     cudaFree(weights);
