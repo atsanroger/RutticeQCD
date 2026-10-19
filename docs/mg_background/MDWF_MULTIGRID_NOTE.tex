@@ -121,7 +121,8 @@ open.\ifresults{} On a quenched $24^3\times48$ configuration the multigrid
 iterations grow by a factor of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for
 even-odd CGNE, and at $m=0.001$ the solve is $4.7$--$6.0$ times faster than CGNE in
 double precision and $3.6$--$4.2$ times faster than in mixed precision, the setup
-being paid back after $3$--$6$ right-hand sides. Although the field of values of the
+being paid back after $3$--$6$ right-hand sides; a whole point-source propagator at
+$m=0.001$ takes half the time of the mixed-precision CGNE, setup included. Although the field of values of the
 preconditioned operator reaches far into the left half-plane, its eigenvalues stay
 at $\Re\lambda\ge0.78$, and its pseudospectra on $12^4$ and $16^4$ bound the
 convergence of full GMRES; the truncated GCR used in practice converges only

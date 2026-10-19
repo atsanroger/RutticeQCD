@@ -1,0 +1,9 @@
+setup	mass	solver	setup_s	iterations_per_column	seconds_per_column	wall_s	worst_Dx-b_sq	device_peak_GB	commit
+S	0.001	MG	393	29	27.8	755	1e-18	21.93	a147871
+S	0.001	CGNE_mixed		5262-5951	117.0-132.2	1498	4e-17	12.10	a147871
+B	0.001	MG	386	29-30	25.2-26.4	719	1e-18	21.93	a147871
+B	0.001	CGNE_mixed		5390-5609	119.8-126.4	1499	7e-17	12.10	a147871
+S	0.01	MG	381	17	12.5-12.6	555	1e-18	21.93	a147871
+S	0.01	CGNE_mixed		1407-1454	31.5-32.5	410	3e-17	12.10	a147871
+B	0.01	MG	388	17	14.1	578	1e-18	21.93	a147871
+B	0.01	CGNE_mixed		1731-1803	38.7-40.3	494	3e-17	12.10	a147871

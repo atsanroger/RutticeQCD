@@ -144,6 +144,44 @@ $4.2$ (B) times faster, and the setup is paid back after $6$ (S) and $5$ (B)
 right-hand sides; for $m\ge0.05$ (S) the mixed-precision CGNE solve is the faster
 one, and at $m=0.1$ (B) the two take the same time.
 
+\paragraph{A point-source propagator.} The break-even estimates are confirmed by
+whole propagators, the $12$ columns of a point source (Table~\ref{tab:pointsource}).
+At $m=0.001$ the multigrid takes half the wall time of the mixed-precision CGNE
+including its setup, the solve per column being $4.5$ times faster; at $m=0.01$ the
+setup is not paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$20$ predicts.
+A point source needs more iterations than a random right-hand side, with either
+solver. The pseudoscalar correlators of the two agree to $10^{-7}$--$10^{-9}$ except for
+setup~S at $m=0.001$, where they differ by $3$--$4\times10^{-6}$ with the same sign at all
+times. Both solutions have $|D\psi-\eta|^2/|\eta|^2<10^{-16}$; a relative residual of
+$6\times10^{-9}$ (CGNE) allows an error of this size if the condition number of $D$ is a
+few hundred, which is plausible at this mass, and the multigrid solution, with a forty
+times smaller residual, is then the more accurate one. This explanation has not been
+checked.
+
+\begin{table}[t]
+\centering
+\caption{Point-source propagators (12 columns) on $24^3\times48$, A30: the multigrid
+(setup seconds, iterations and seconds per column) against the mixed-precision CGNE
+(iterations and seconds per column), the wall time of the whole propagator, and the
+largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
+\texttt{a147871}; \texttt{data/pointsource\_24.tsv}.}
+\label{tab:pointsource}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lc ccc cc cc c@{}}
+\toprule
+ & & \multicolumn{3}{c}{MG} & \multicolumn{2}{c}{CGNE, mixed} & \multicolumn{2}{c}{wall (s)} & \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+ & $m$ & setup & it & s & it & s & MG & CGNE & $|\Delta C|/C$\\
+\midrule
+S & $0.001$ & $393$ & $29$ & $27.8$ & $5262$--$5951$ & $117$--$132$ & $755$ & $1498$ & $4\times10^{-6}$\\
+B & $0.001$ & $386$ & $29$--$30$ & $25.2$--$26.4$ & $5390$--$5609$ & $120$--$126$ & $719$ & $1499$ & $2\times10^{-7}$\\
+S & $0.01$ & $381$ & $17$ & $12.5$ & $1407$--$1454$ & $31.5$--$32.5$ & $555$ & $410$ & $3\times10^{-7}$\\
+B & $0.01$ & $388$ & $17$ & $14.1$ & $1731$--$1803$ & $38.7$--$40.3$ & $578$ & $494$ & $7\times10^{-9}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Field of values}
 \label{sec:fov}
 
