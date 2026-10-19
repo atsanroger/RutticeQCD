@@ -12,7 +12,7 @@ far = re.compile(r'lambda = ([+-]\S+) ([+-]\S+)i')
 fov = re.compile(r'A~ M : Re of the field of values in \[(\S+), (\S+)\]')
 for setup, files in {
     'S12': ['pseudo_12_stout.txt', 'pseudo3_12_stout.txt', 'dense_12_stout.txt'],
-    'B12': ['pseudo_12_m18.txt', 'pseudo3_12_m18.txt', 'dense_12_m18.txt'],
+    'B12': ['pseudo_12_m18.txt', 'pseudo3_12_m18.txt', 'dense_12_m18.txt', 'dense_12_m18_b.txt'],
 }.items():
     with open(f'{D}/pseudo_{setup}.tsv', 'w') as out:
         out.write('re\tim\tsigma_min\tsource\n')

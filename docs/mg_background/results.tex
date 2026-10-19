@@ -252,10 +252,12 @@ $|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
 \begin{table}[t]
 \centering
 \caption{$\min_\Gamma\sigma_{\min}(z-\AR\mathcal M)$ on circles $|z-c|=r$ (16 points
-each), and the bound~\eqref{eq:pseudobound} or~\eqref{eq:outlierbound}: the factor
-per iteration $r/c$, the constant, and the iterations it guarantees for
-$\|r_k\|/\|r_0\|<10^{-9}$. Lanczos to $10^{-3}$ relative in $\sigma^2$.
-\texttt{preconditioned\_fov\_device --pseudo}.}
+each, or the number given), and the bound~\eqref{eq:pseudobound} or~\eqref{eq:outlierbound}:
+the factor per iteration $r/c$, the constant, and the iterations it guarantees for
+$\|r_k\|/\|r_0\|<10^{-9}$. For the dense circles $\varepsilon$ is the lower bound
+$\min_i\sigma_{\min}(z_i)-h/2$ on the whole circle, $h$ the spacing of the points
+($\sigma_{\min}$ is $1$-Lipschitz in $z$); otherwise the smallest sampled value. Lanczos
+to $10^{-3}$ relative in $\sigma^2$. \texttt{preconditioned\_fov\_device --pseudo}.}
 \label{tab:pseudo}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccccc@{}}
@@ -263,8 +265,10 @@ $\|r_k\|/\|r_0\|<10^{-9}$. Lanczos to $10^{-3}$ relative in $\sigma^2$.
  & $c$ & $r$ & $\min\sigma_{\min}$ & $r/c$ & constant & $k$ for $10^{-9}$\\
 \midrule
 $12^4$ S & $1$ & $0.6$ & $0.0285$ & $0.6$ & $220$ & $53$\\
+$12^4$ S, 160 points & $1$ & $0.6$ & $0.0281$, $\ge0.0164$ & $0.6$ & $380$ & $54$\\
 $12^4$ S & $1$ & $0.5$ & $0.0107$ & $0.5$ & $480$ & $40$\\
 $12^4$ B & $1.4$ & $0.93$ & $0.0985$ & $0.66$ & $9.4$ & $57$\\
+$12^4$ B, 96 points & $1.4$ & $0.93$ & $0.0980$, $\ge0.0676$ & $0.66$ & $13.8$ & $58$\\
 $12^4$ B & $1.3$ & $0.87$ & $0.0860$ & $0.67$ & $10.1$ & $58$\\
 $16^4$ S & $1$ & $0.6$ & $0.0262$ & $0.6$ & $190$ & $53$\\
 $16^4$ S & $1$ & $0.55$ & $0.0135$ & $0.55$ & $340$ & $47$\\
@@ -279,8 +283,8 @@ $16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
 \caption{$12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
 $\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the real
-axis, the contours of Table~\ref{tab:pseudo} and, for setup~S, the dense circle
-$|z-1|=0.6$. The field of values reaches far into the left half-plane (its real
+axis, the contours of Table~\ref{tab:pseudo} and the dense circles $|z-1|=0.6$ (S) and
+$|z-1.4|=0.93$ (B). The field of values reaches far into the left half-plane (its real
 range in the corner), the spectrum does not. \texttt{data/pseudo\_*.tsv},
 \texttt{data/spectrum\_*.tsv}.}
 \label{fig:spectrum}
@@ -301,10 +305,12 @@ $r/c=0.5$--$0.6$ for setup~S. Setup~B is not worse between $12^4$ and $16^4$
 ($\min\sigma$ grows from $0.098$ to $0.13$); in setup~S the outliers grow but
 their condition numbers fall and $\varepsilon$ stays the same.
 
-\paragraph{What is not yet rigorous.} (i) $\sigma_{\min}$ is known at 16 points per
-circle, spaced by more than $\varepsilon$; since $\sigma_{\min}(z-X)$ is
-$1$-Lipschitz in $z$, a lower bound on the whole circle needs a spacing below
-$\varepsilon$. \todo{the dense contours on $12^4$ (160 and 96 points), running.}
+\paragraph{What is not yet rigorous.} (i) With 16 points per circle the spacing is
+larger than $\varepsilon$, and the sampled minimum says nothing about the points in
+between. On the two dense circles of $12^4$ the spacing is below $\varepsilon$, and since
+$\sigma_{\min}(z-X)$ is $1$-Lipschitz in $z$ the bound holds on the whole circle,
+$\sigma_{\min}\ge0.0164$ (S) and $\ge0.0676$ (B); the guaranteed iterations change from
+$53$ to $54$ and from $57$ to $58$. The circles of $16^4$ have only the 16 points.
 (ii) Lanczos approaches $\sigma_{\min}^2$ from above; a rigorous lower bound needs
 an inclusion theorem (Kato--Temple) with a bound on the second singular value.
 (iii) That the disc holds all eigenvalues but the outliers rests on the four
