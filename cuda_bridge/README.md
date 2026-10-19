@@ -126,8 +126,8 @@ Conventions:
   2026-10-19: in the Jacobi kernel of `|H_xx|^-1` (`multigrid/fold.cuh`,
   `blocks_abs_inverse_gamma5_kernel`) thread p overwrote a_pq while the other warps of the
   block (dim > 32) could still be reading it. It never showed on an RTX 3080 (the results there
-  are the same bit for bit with and without the fix); whether the A30 runs are now
-  reproducible has not been checked yet.
+  are the same bit for bit with and without the fix). With the fix (462a423) two runs of
+  24^3x48 on the A30 gave the same 29 checksums, for both domain-wall setups (2026-10-19).
 
 ---
 

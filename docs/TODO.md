@@ -128,10 +128,10 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Device robustness
 
-- **Check on the A30 that the multigrid is now reproducible.** The run-to-run differences of
-  28⁴ and 24³×48 are most likely the data race fixed on 2026-10-19 in
-  `blocks_abs_inverse_gamma5_kernel` (`cuda_bridge/README.md`). Two runs of a 24³×48 file with
-  `RUTTICE_CHECKSUM=1`; their checksum lines must be the same.
+- **The 24³×48 setup on the A30 is about 30% slower than in the mass scan** (505–511 s at
+  462a423 against 389–393 s at 535c9ef, setup S and B; the solve is unchanged within an
+  iteration). Being bisected (d665b50, b72bb75). The run-to-run differences are gone: two
+  runs at 462a423 gave the same checksums (`cuda_bridge/README.md`).
 - **Running out of device memory panics.** `Vector` has no `Result`, so `zeros_like`,
   `zeros_with` and `select` of the device fields panic (`must`) when the device refuses; the
   message is the CUDA error. A solver that narrows its vectors (`Narrowed::narrow`) holds the
@@ -141,9 +141,6 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Known, not understood
 
-- Two builds (`535c9ef`, `ca1e892`) give up to two iterations difference for the same
-  parameter file on the A30 in three of eight runs: a code change or the data race fixed on
-  2026-10-19 (see Device robustness).
 - With the multigrid, BiCGStab on the exact adjoint for the Pauli-Villars coarse factor is far
   worse than MINRES on `H_c`, also for `c = 0` (373 against 14 outer iterations, stout 12⁴).
 - The Bridge++ `alt_eo` reference for the domain-wall even-odd Pauli-Villars ratio differs from
