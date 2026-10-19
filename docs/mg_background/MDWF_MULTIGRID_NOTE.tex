@@ -571,6 +571,21 @@ transfer operators are $\Pro\dg\iota$ and $\pi\Pro$.
 
 \subsection{The basis $\{s,\hat t\}$}
 \label{sec:basis}
+\paragraph{Why two lifts.} The outer system lives on the even sites, the coarse
+operators $\Dc$ and $\Dcpv$ are Galerkin projections of operators on the whole
+lattice, and $\Pro$ acts on the whole lattice. A low mode $y$ of $\AR$ on the even
+sites must therefore be extended, or \emph{lifted}, to the whole lattice before it can
+go into $\Pro$. Setting the odd sites to zero is not enough: what matters is that the
+fine operator applied to the lifted vector reproduces the even-odd quantity, so the
+odd sites are filled to make the image vanish there, as $\psi_o$ is reconstructed
+from $\psi_e$ after an even-odd solve. The correction~\eqref{eq:corr} contains two
+Galerkin solves, one with $\Dpv\dg$ and then one with $D$, and a Galerkin solve is
+exact on a vector only if that vector lies in $\operatorname{range}\Pro$ (the
+principle of algebraic multigrid that the near-null vectors must be interpolated
+exactly). Each solve therefore needs its own lift: $s$, the lift through $D$, is what
+the second solve must return, and $\hat t$, the lift through $\Dpv\dg$, is what the
+first returns. The two are chained, $\hat t$ being made from $D s$.
+
 The prolongation is built from vectors $y_j$ on the even sites that approximate
 low modes of $\AR$ (Sec.~\ref{sec:setup}). Each $y$ is lifted in two ways:
 \begin{align}
@@ -604,6 +619,14 @@ returns $\pi\hat t=a=\pi Ds$. With $O_M=1$ the second has
 $\Pro\dg\iota\pi Ds=\Pro\dg Ds$ on the right, since $Ds$ vanishes on the odd sites,
 and returns $\pi s=\Ce^{-1}y$; $O_L=\Ce$ gives $y$.
 \end{proof}
+
+In words: the first coarse solve meets $\Dpv\dg\hat t$ and, $\hat t$ being in
+$\operatorname{range}\Pro$, returns $\hat t$; the second meets $D s$ and returns $s$.
+Each factor of the correction is exact on the vector it is given, so their product is
+exact on $y$. With only the $y$ themselves (or only one of the lifts) in the basis, each
+factor is an approximation and the errors of the two multiply. The construction is
+akin to moment matching in model reduction, where the vectors at which a reduced model
+must be exact are put into the projection space.
 
 \begin{remark}[Conditions in practice] \unverified\
 The proposition needs (i) $s,\hat t$ in the range of the stored $\Pro$, which
