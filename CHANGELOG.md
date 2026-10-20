@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- ILDG files are written with the record `ildg-data-lfn` (the logical file name, here the
-  file's name), which the ILDG format asks for: Grid's reader refused our files without it.
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
   single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the
@@ -14,6 +12,12 @@
   On the A30 (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
   smearing on the device saves nothing there yet: the CPU smeared in about 2 s (the 11.7 s
   that was the reason came from a run under nsys).
+
+## 0.3.1 (2026-10-21)
+
+- ILDG files are written with the record `ildg-data-lfn` (the logical file name, here the
+  file's name), which the ILDG format asks for: Grid's reader refused our files without it.
+  Files written before can still be read by Ruttice and QUDA; for Grid, write them again.
 
 ## 0.3.0 (2026-10-20)
 
