@@ -294,14 +294,16 @@ pub fn run_on(
     let requested = (params.main.grid_size != [1; ND]).then_some(params.main.grid_size);
     let grid = super::grid_for(size, requested, comm.size())?;
     let lat = Lattice::new(size, grid, comm);
-    // Gauge smearing: the operators are made of the smeared links.
-    let u = super::load_links(
-        &lat,
-        &params.gauge,
-        params.gauge_smearing.as_ref(),
-        file,
-        out,
-    )?;
+    // Gauge smearing: the operators are made of the smeared links (stout on the device for
+    // `cuda_bridge`).
+    let smearing = params.gauge_smearing.as_ref();
+    let u = match params.main.backend {
+        #[cfg(feature = "cuda-bridge")]
+        Backend::CudaBridge => {
+            super::load_links_on_device(&lat, &params.gauge, smearing, file, out)?
+        }
+        _ => super::load_links(&lat, &params.gauge, smearing, file, out)?,
+    };
     match (params.main.backend, params.main.simd_lanes) {
         (Backend::Simd, 2) => run_in::<Aosoa<2>>(params, file, &lat, &u, seeds, out),
         (Backend::Simd, 4) => run_in::<Aosoa<4>>(params, file, &lat, &u, seeds, out),

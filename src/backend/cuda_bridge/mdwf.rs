@@ -182,6 +182,9 @@ struct Matrices<T> {
     inv_post: DeviceBuffer<T>,
     /// Q and Q⁻¹.
     q: [DeviceBuffer<T>; 2],
+    /// The unit matrix: hops with nothing after them through the kernel of `hops_then` (two
+    /// blocks an SM, the field subtracted from read early) rather than the plain hop kernel.
+    unit: DeviceBuffer<T>,
 }
 
 impl<T: DeviceReal> Matrices<T> {
@@ -206,6 +209,7 @@ impl<T: DeviceReal> Matrices<T> {
             inv_post: inv.adjoint().times(&post).on_device()?,
             post: post.on_device()?,
             q: [q.on_device()?, q.inverse().on_device()?],
+            unit: FifthMatrix::linear(ls, 1.0, 0.0, mass).on_device()?,
         })
     }
 }
@@ -764,18 +768,23 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
         let [_, t] = work;
         scratch.parity = Some(to);
         match (dagger, then.site_inv) {
-            (Dagger::No, false) => self.hop_forward(t, out, inp, then.from, Some(to)),
-            (Dagger::No, true) => {
-                let inv = &self.matrices.inv[0];
+            // Without C⁻¹ after the hops the unit matrix: the kernel of `hops_then`, not the
+            // plain hop kernel.
+            (Dagger::No, site_inv) => {
+                let m = if site_inv {
+                    &self.matrices.inv[0]
+                } else {
+                    &self.matrices.unit
+                };
                 match &self.matrices.pre {
                     None => {
                         let bc = (self.params.b, self.params.c);
-                        self.hops_then(scratch, out, inp, then.from, bc, false, to, inv);
+                        self.hops_then(scratch, out, inp, then.from, bc, false, to, m);
                     }
                     Some(pre) => {
                         let t = super::wilson::scratch(t, inp);
                         self.gemm(t, inp, pre, None);
-                        self.hops_then(scratch, out, t, then.from, (1.0, 0.0), false, to, inv);
+                        self.hops_then(scratch, out, t, then.from, (1.0, 0.0), false, to, m);
                     }
                 }
             }

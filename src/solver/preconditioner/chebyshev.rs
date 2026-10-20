@@ -145,21 +145,21 @@ impl<A: LinearFn<V>, V: Vector> LinearFn<V> for Chebyshev<A, V> {
         self.d.copy_from(inp);
         self.d.scale(&vec![1.0 / theta; nv]);
         out.set_zero();
-        let one = vec![C64::new(1.0, 0.0); nv];
-        let minus_one = vec![C64::new(-1.0, 0.0); nv];
-        for step in 0..self.steps {
-            out.axpy(&one, &self.d);
-            if step + 1 == self.steps {
-                break;
-            }
+        // `out += d` waits until after A d (which leaves d alone), so that it, the update of
+        // the residual and that of d are one pass over the vectors.
+        for _ in 1..self.steps {
             self.a.mult(&mut self.ad, &self.d);
-            self.r.axpy(&minus_one, &self.ad);
             let rho_next = 1.0 / (2.0 * sigma - rho);
-            self.d.scale(&vec![rho_next * rho; nv]);
-            self.d
-                .axpy(&vec![C64::new(2.0 * rho_next / delta, 0.0); nv], &self.r);
+            out.chebyshev_step(
+                &mut self.d,
+                &mut self.r,
+                &self.ad,
+                &vec![rho_next * rho; nv],
+                &vec![C64::new(2.0 * rho_next / delta, 0.0); nv],
+            );
             rho = rho_next;
         }
+        out.axpy(&vec![C64::new(1.0, 0.0); nv], &self.d);
     }
 }
 

@@ -345,7 +345,7 @@ int bridge_cuda_hop_gemm_f64(
     int lanes = bridge_cuda::WarpSize;
     for (; lanes >= 4; lanes /= 2) {
         const size_t tile = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(double);
-        if (lanes * Ls <= MAX_THREADS && tile + matrix <= MAX_SHARED && (!true || (lanes * Ls) % 32 == 0)) break;
+        if (lanes * Ls <= bridge_cuda::HopGemmThreadsDouble && tile + matrix <= MAX_SHARED && (!true || (lanes * Ls) % 32 == 0)) break;
     }
     if (lanes < 4 || nt > 8) return 0;
     const size_t shared = static_cast<size_t>(2 * Ls) * 12 * lanes * sizeof(double) + matrix;

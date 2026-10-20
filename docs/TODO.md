@@ -256,11 +256,21 @@ the solution and the residual made again in double precision each time |r|² fal
 (`solver::reliable_cg`, `SingleCuda::reliable_normal`; `convergence_criterion_squared_inner`).
 16⁴ point source, RTX 3080: at m = 0.001 365–374 iterations a column, the same as double
 precision (404–495 before), |Dx−b|² 4e-18–8e-18 as in double (8e-20–7e-17 before), PS 2e-11
-from double (2.5e-8 before), 0.9 s a column against 5.6 in double. The A30 numbers are to be
-taken. HMC keeps the defect correction (`hmc::mixed`).
+from double (2.5e-8 before), 0.9 s a column against 5.6 in double. HMC keeps the defect
+correction (`hmc::mixed`).
 
-What to try: the norm of `mult_dot` in the last pass of the operator; x of CG updated in the
-pass that updates p (one read of p fewer).
+On the A30 (24³×48, m = 0.001, 6bbfa74) only half of it holds. The point source at α = 0.6:
+4220–4574 iterations a column (5261–5951 before, 3613–3619 in double), 65 s (80.7), 804 s for
+the 12 columns (994), PS 2e-7 from the multigrid (3e-6); but |Dx−b|² ends at 5e-17–3e-16, not
+1e-18. One random right-hand side: α = 1 6802 iterations, 98.9 s (old mixed 6157, 89.6 s;
+double 5576), α = 0.6 4091 (4012; double 3602). On this condition number CG in single
+precision loses the conjugacy of its directions, and the rule on the residual of K†K lets an
+error in the low modes through. QUDA does the same: CG with sloppy single 6360 iterations
+against 5580 in double, its own check of the true residual |r|/|b| 1.8e-8 against 3.4e-9
+(ours: |Dx−b|² 4e-16, |r|/|b| 2e-8). What to try (item 17).
+
+What to try in CG: the norm of `mult_dot` in the last pass of the operator; x of CG updated in
+the pass that updates p (one read of p fewer).
 
 ### 15. CPU: Neff's α in the sweeps (done 2026-10-20)
 
@@ -301,6 +311,92 @@ pass of its own.
 - `RUTTICE_CHECKSUM`: the checksums are taken inside the timed setup, by downloading the whole
   buffer and an FNV-1a over its bytes (about 0.9 GB/s); about 56 GB on 24³×48. Timings of runs
   with it are not those of the setup.
+
+### 17. Where to look next (collected 2026-10-20)
+
+From the A30 runs (24³×48 setup S, m = 0.001, 12 columns of a point source) and the comparison
+with QUDA develop e75ee88 on the same links. The final benchmarks are for the A100 of the
+collaborators; these say where the time goes.
+
+End to end, the 12 columns: multigrid 584 s (setup 311, solves 251, the rest 22), mixed CGNE
+α 0.6 804 s, double CGNE 1333 s. QUDA, one random right-hand side, α 1 (it has no α): CG double
+5580 iterations 133.5 s (23.9 ms an iteration; ours 30.7), sloppy single 6360 76.6 s (12.0
+ms; ours 14.5), sloppy half 11074 96.6 s (8.7 ms).
+
+Where the multigrid's time goes (nsys, one solve at m = 0.001, 6bbfa74). The solve, 18.4 s
+busy of 18.7: the coarse operator `coarse_pass_kernel` 30% (370 launches a GCR iteration,
+558 µs each), restriction and prolongation 26% (`fold_restrict<float,half>` only 2 launches an
+iteration but 32.5 ms each, `fold_prolong` 15 ms, `level_restrict` 11%), the fine hops 25%
+(`hop_gemm` float 22%, double 3%), BLAS 12%. The setup, 314 s: `fold_restrict` about 82 s
+(3800 launches of 21.7 ms; 1280 in each bootstrap round), `hop_split` 29 s, `coarse_pass`
+28 s, the unfused `hop_kernel<float, many>` 15.8 s of the filter's 46 s (34%),
+`fold_orthonormalise` about 12 s; about 19 s of host work before the first kernel and about
+40 s of the GPU idle between the phases.
+
+**Priorities (2026-10-20): the multigrid first.** CGNE gets the fix of the double hop kernel
+(one block an SM, item b) and is then left as it is.
+
+The multigrid, in this order:
+1. *Restriction and prolongation* (`fold_restrict`, `fold_prolong`): 82 s of the setup and 14%
+   of the solve. A launch takes 21–32 ms where reading P once in half precision should take a
+   few: why is in the ncu asked of the A30. Then the bootstrap's 1280 restrictions a round one
+   vector at a time (item 11): several vectors for one read of P.
+2. *The coarse operator* (`coarse_pass_kernel`): 30% of the solve, 370 launches a GCR
+   iteration (about 107 coarse applications), 558 µs each; how far from the bandwidth, and
+   whether fewer, larger launches (several vectors) are possible.
+3. *The setup's host time and idle GPU*: 19 s before the first kernel and about 40 s between
+   the phases (the nsys trace says which calls).
+4. *The filter's unfused hops* (done 2026-10-20): `hop_kernel<float, many>` (34% of the
+   filter) was the last hop of `hop_then` without C⁻¹, which now goes through `hop_gemm` with
+   the unit matrix (bit for bit the same; the 16⁴ filter on the RTX 3080 7 → 5 s).
+5. *Fewer instructions in the hop kernel* (item 14): 735 warp-instructions a 5D site and CG
+   iteration against QUDA's 343 (ncu, A30); `hop_gemm` 366–401 million a launch, DRAM 39–46%.
+   Every one of the Ls threads of a site rebuilds the third row of the same links and repeats
+   the neighbours' index arithmetic: links of three rows (the bytes are no longer the limit),
+   or links and indices once a site. It is 22% of the multigrid's solve, and its filter and
+   bootstrap. Then the chunked order of the blocks again (DRAM read −48% on the A30, no time
+   gained while the kernel issues).
+6. *Half precision* where the result is approximate anyway: the smoother and the coarse
+   correction (QUDA's half is 27% faster an iteration than its single).
+7. *`level_restrict`* (11% of the solve).
+8. *Launch parameters by measurement* (QUDA autotunes every kernel): nvcc gave the same kernel
+   128 or 168 registers by architecture and by small changes.
+9. *Multi-GPU*, later: the CPU side has the communicator and the halo exchange; the device
+   kernels need an interior and a boundary part and their own streams (QUDA's pattern),
+   splitting in t first.
+
+CGNE:
+- (b) *The double hop kernel* (done 2026-10-20, not yet timed on the A30):
+  `hop_gemm_kernel<double>` used 254 registers, one block of 256 threads an SM (8 warps); a
+  bound of 128 spilled 4 KB. Now the legs one at a time in double and blocks of 192 threads
+  with two blocks an SM: 168 registers, no spill, 12 warps. The last change to CGNE.
+- Not pursued: the mixed CG at this condition number (iterations 13–22% above double,
+  |Dx−b|² 1e-16; stop on |ρ − K x|, or the direction in double), the `B Q` pass with α (1.11 ms
+  an iteration), the BLAS of CG (4 kernels, caxpy and caypx each reading and writing 0.8 GB).
+
+More directions, decided 2026-10-20:
+- *Several right-hand sides a solve*: a YAML/TOML parameter, never fixed in the code (a fixed
+  number may not fit the memory of a larger lattice); measure 2/4/6/12 on the A30 with the
+  memory.
+- *The Chebyshev smoother* (done 2026-10-20): `out += d`, `r −= A d` and `d = c d + a r` one
+  pass over the vectors (`Vector::chebyshev_step`), bit for bit the same.
+- *Stout smearing on the device* (done 2026-10-20): `load_links_on_device` for the
+  `cuda_bridge` backend (it was on the device only for HMC); agrees with the CPU to rounding,
+  not bit for bit. APE stays on the CPU.
+- *Bootstrap and filter parameters* (rounds, steps, the interval): tune on the A30.
+- *`hop_split`* (29 s of the setup): look at it with the hop kernel.
+- *`blocks_abs_inverse_gamma5_kernel`*: one launch a setup (Jacobi with many block
+  synchronisations); low priority.
+- Not pursued: the setup reused across masses (not how the propagators are used), CUDA graphs
+  (not now).
+
+What QUDA has for domain-wall fermions (its source, develop e75ee88): CG with reliable updates in
+mixed precision, MSPCG as PCG with an MR preconditioner in half precision and additive Schwarz
+(no domain splitting on one GPU), the MADWF accelerator (reduced Ls 4 with a trained transfer),
+fused 4d dslash with M5⁻¹ and M5 on tensor cores, EOFA, eigCG; no multigrid for domain-wall
+fermions in develop, but an unmerged branch `feature/dwf-pv-operator` (E. Weinberg, 2024-10 to
+2026-01: a two-level `dwf_4d / PV† dwf_4d` multigrid, the line of Brower, Clark, Howarth and
+Weinberg). Grid (Boyle) has HDCG in production.
 
 ## Ideas from the literature (to evaluate later)
 

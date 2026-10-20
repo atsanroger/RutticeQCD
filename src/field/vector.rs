@@ -84,6 +84,15 @@ pub trait Vector: Sized {
         self.axpy(a, x);
         self.aypx(b, y);
     }
+    /// `self_j += d_j`, `r_j −= ad_j`, then `d_j = c_j d_j + a_j r_j`: a step of the Chebyshev
+    /// iteration for A x = b, with `self` the iterate, `r` the residual and `ad` = A d.
+    fn chebyshev_step(&mut self, d: &mut Self, r: &mut Self, ad: &Self, c: &[f64], a: &[C64]) {
+        let nv = self.num_vectors();
+        self.axpy(&vec![C64::new(1.0, 0.0); nv], d);
+        r.axpy(&vec![C64::new(-1.0, 0.0); nv], ad);
+        d.scale(c);
+        d.axpy(a, r);
+    }
     /// `dot_j = <self_j | x_j>`, `norm_j = |self_j|^2` and `norm_x_j = |x_j|^2`.
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
         self.dot(x, dot);

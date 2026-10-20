@@ -120,14 +120,37 @@ pub trait DeviceBlas: Sized {
         n: i32,
         vectors: i32,
     );
+    /// `out += d`, `r −= ad`, `d = c d + a r` (c real): a step of Chebyshev iteration.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn chebyshev_step(
+        out: *mut Self,
+        d: *mut Self,
+        r: *mut Self,
+        ad: *const Self,
+        c: *const f64,
+        a: *const f64,
+        n: i32,
+        vectors: i32,
+    );
 }
 
 /// `DeviceBlas` for one type, on the functions of that precision.
 macro_rules! device_blas {
     ($t:ty: $norm2:ident, $dotc:ident, $axpy_norm2:ident, $xpay_norm2_dot:ident, $dot_norms:ident,
      $gram:ident, $scale_axpy2_norm2:ident, $xpay:ident, $axpy2:ident, $axpy_aypx:ident,
-     $combine:ident, $units:ident, $columns:ident) => {
+     $chebyshev_step:ident, $combine:ident, $units:ident, $columns:ident) => {
         extern "C" {
+            fn $chebyshev_step(
+                out: *mut $t,
+                d: *mut $t,
+                r: *mut $t,
+                ad: *const $t,
+                c: *const f64,
+                a: *const f64,
+                n: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
             fn $units(
                 v: *mut $t,
                 n_coarse: i32,
@@ -402,6 +425,18 @@ macro_rules! device_blas {
             ) {
                 $axpy_aypx(s, a, x, b, y, n, vectors, STREAM)
             }
+            unsafe fn chebyshev_step(
+                out: *mut Self,
+                d: *mut Self,
+                r: *mut Self,
+                ad: *const Self,
+                c: *const f64,
+                a: *const f64,
+                n: i32,
+                vectors: i32,
+            ) {
+                $chebyshev_step(out, d, r, ad, c, a, n, vectors, STREAM)
+            }
         }
     };
 }
@@ -410,11 +445,11 @@ device_blas!(f32: bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32,
     bridge_cuda_blas_axpy_norm2_f32, bridge_cuda_blas_xpay_norm2_dot_f32,
     bridge_cuda_blas_dot_norms_f32, bridge_cuda_blas_gram_f32, bridge_cuda_blas_scale_axpy2_norm2_f32,
     bridge_cuda_blas_xpay_f32, bridge_cuda_blas_axpy2_f32,
-    bridge_cuda_blas_axpy_aypx_f32, bridge_cuda_blas_combine_f32,
+    bridge_cuda_blas_axpy_aypx_f32, bridge_cuda_blas_chebyshev_step_f32, bridge_cuda_blas_combine_f32,
     bridge_cuda_coarse_units_f32, bridge_cuda_coarse_columns_f32);
 device_blas!(f64: bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64,
     bridge_cuda_blas_axpy_norm2_f64, bridge_cuda_blas_xpay_norm2_dot_f64,
     bridge_cuda_blas_dot_norms_f64, bridge_cuda_blas_gram_f64, bridge_cuda_blas_scale_axpy2_norm2_f64,
     bridge_cuda_blas_xpay_f64, bridge_cuda_blas_axpy2_f64,
-    bridge_cuda_blas_axpy_aypx_f64, bridge_cuda_blas_combine_f64,
+    bridge_cuda_blas_axpy_aypx_f64, bridge_cuda_blas_chebyshev_step_f64, bridge_cuda_blas_combine_f64,
     bridge_cuda_coarse_units_f64, bridge_cuda_coarse_columns_f64);

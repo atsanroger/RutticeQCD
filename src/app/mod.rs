@@ -182,6 +182,40 @@ pub(crate) fn load_links(
     Ok(v)
 }
 
+/// `load_links` with stout smearing on the device (`GaugeSmearing::levels_on_device`), for the
+/// `cuda_bridge` backend: on the CPU it took most of the start of a 24³×48 run (11.7 s with the
+/// GPU idle on the A30). The links agree with those smeared on the CPU to 1e-13 a step
+/// (`tests/cuda_bridge.rs`), not bit for bit. APE smearing stays on the CPU.
+#[cfg(feature = "cuda-bridge")]
+pub(crate) fn load_links_on_device(
+    lat: &Arc<Lattice>,
+    gauge: &params::GaugeBlock,
+    smearing: Option<&params::GaugeSmearingBlock>,
+    file: &Path,
+    out: &mut dyn Write,
+) -> Result<Field<f64, Gauge>, Box<dyn std::error::Error>> {
+    let config = smearing.map(|g| g.to_config());
+    let on_device = matches!(config, Some(GaugeSmearingConfig::Stout { .. }));
+    if !on_device {
+        return Ok(load_links(lat, gauge, smearing, file, out)?);
+    }
+    let u = load_links(lat, gauge, None, file, out)?;
+    let g = config.expect("stout smearing");
+    let device_u = crate::backend::cuda_bridge::DeviceLinks::from_host(&u)?;
+    let Some(last) = g.smearing().levels_on_device(&device_u)?.pop() else {
+        return Ok(u);
+    };
+    let v = last.to_host()?;
+    let st = Stencil::nearest(lat, [Boundary::Periodic; ND]);
+    writeln!(
+        out,
+        "gauge smearing {g:?} on the device: plaquette {:.15} → {:.15}",
+        plaquette(&u, &st),
+        plaquette(&v, &st)
+    )?;
+    Ok(v)
+}
+
 /// The reader and writer of the gauge-field format `f`.
 pub(crate) fn gauge_file(f: GaugeFormat) -> Result<Box<dyn GaugeFile>, CliError> {
     Ok(match f {

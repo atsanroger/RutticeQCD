@@ -339,6 +339,11 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
         columns::axpy_aypx(&self.data, a, &x.data, b, &y.data, self.vectors);
     }
 
+    fn chebyshev_step(&mut self, d: &mut Self, r: &mut Self, ad: &Self, c: &[f64], a: &[C64]) {
+        assert!(self.same_shape(d) && self.same_shape(r) && self.same_shape(ad));
+        columns::chebyshev_step(&self.data, &d.data, &r.data, &ad.data, c, a, self.vectors);
+    }
+
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
         assert!(self.same_shape(x));
         columns::dot_norms(&self.data, &x.data, self.vectors, dot, norm, norm_x);

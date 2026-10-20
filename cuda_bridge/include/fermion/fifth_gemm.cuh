@@ -294,11 +294,15 @@ __global__ void fifth_gemm_columns_kernel(
 //
 // Registers: in single precision at most 128, two blocks of 256 threads on an SM. Left alone,
 // nvcc gives the kernel 168 for sm_80 (one block, 8 warps of the A30's 64) and 128 or 168 for
-// sm_86 depending on small changes; at 128 it spills nothing (ptxas -v). In double precision a
-// bound of 128 spills 4 KB a thread: none there.
+// sm_86 depending on small changes; at 128 it spills nothing (ptxas -v). In double precision at
+// most 168 with blocks of at most HopGemmThreadsDouble threads (128 for Ls 8: three blocks, 12
+// warps, where 254 registers left 8); no spill with the legs one after the other (`hops`). 128
+// would spill 4 KB.
 // -------------------------------------------------------------------------
+constexpr int HopGemmThreadsDouble = 192;
+
 template <typename Float, int NT>
-__global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_gemm_kernel(
+__global__ void __launch_bounds__(sizeof(Float) == 4 ? 256 : HopGemmThreadsDouble, 2) hop_gemm_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_gauge, int link_rows,

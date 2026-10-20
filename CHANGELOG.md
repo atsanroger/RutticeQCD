@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Propagator files on `cuda_bridge`: stout smearing runs on the device
+  (`app::load_links_on_device`, the kernels HMC already used). The links agree with those of the
+  CPU to rounding, not bit for bit, so results move in the last digits (16⁴: the plaquette
+  after smearing the same to the 15 digits printed, CGNE the same iterations and residual). APE
+  stays on the CPU.
+- `cuda_bridge` multigrid: the filter's last hop without C⁻¹ goes through the fused `hop_gemm`
+  (with the unit matrix) instead of `hop_kernel`, and the Chebyshev smoother updates the
+  iterate, the residual and the direction in one pass (`Vector::chebyshev_step`); both bit for
+  bit the same. `hop_gemm` in double precision takes blocks of 192 threads, the legs one at a
+  time: 168 registers instead of 254, 12 warps an SM instead of 8.
 - Propagator files, `Solver.precision : mixed` (CGNE on `cuda_bridge`): one CG in single
   precision with reliable updates in double precision (`solver::reliable_cg`,
   `SingleCuda::reliable_normal`), instead of the defect correction whose every inner CG
@@ -12,7 +22,9 @@
   the true residual |Dx−b|² of two of the 12 columns stopped at 4e-15 for a target of 1e-18
   (the stopping rule is on the residual of K†K, which a solution with its error in the low
   modes meets while |Dx−b| does not), their correlator 3e-6 off. HMC keeps the defect
-  correction (`hmc::mixed`).
+  correction (`hmc::mixed`). On 16⁴ the iterations and |Dx−b|² are now those of double
+  precision; on that 24³×48 4220–4574 iterations, 65 s a column (80.7 before), PS 2e-7 from the
+  multigrid (3e-6), but |Dx−b|² still 5e-17–3e-16 (docs/TODO.md, items 14 and 17).
 - Mixed precision (CGNE in propagator files and the HMC solves): each inner CG in single
   precision stops where the outer tolerance is met (half of it relative to the residual it starts
   from), or at the inner tolerance if that comes first. Before, every inner solve went to the

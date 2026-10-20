@@ -261,6 +261,26 @@ __device__ __forceinline__ void hops(
         const Float sign_f = wrap_f ? bc[mu] : static_cast<Float>(1.0);
         const Float sign_b = wrap_b ? bc[mu] : static_cast<Float>(1.0);
 
+        if constexpr (sizeof(Float) == 8) {
+            // In double precision the two legs one after the other: the spinor and the link of
+            // one leg live at a time, not those of both (what lets hop_gemm_kernel<double> keep
+            // to 168 registers, three blocks an SM). The sums into acc are in the same order.
+            if (legs & (1 << mu)) {
+                Float w[Nspin][Nc][Ncomplex];
+                fifth_term<Float>(w, d_in, is, Ls, in_f, mass, b5, -c5, false);
+                Float u_r[Nc][Nc], u_i[Nc][Nc];
+                load_link<Float>(u_r, u_i, d_gauge, mu, site, link_rows);
+                hop_leg<Float>(acc, w, u_r, u_i, false, mu, sign, -kappa * sign_f);
+            }
+            if (legs & (16 << mu)) {
+                Float w[Nspin][Nc][Ncomplex];
+                fifth_term<Float>(w, d_in, is, Ls, in_b, mass, b5, -c5, false);
+                Float u_r[Nc][Nc], u_i[Nc][Nc];
+                load_link<Float>(u_r, u_i, d_gauge, mu, site_b, link_rows);
+                hop_leg<Float>(acc, w, u_r, u_i, true, mu, -sign, -kappa * sign_b);
+            }
+            continue;
+        }
         Float w_f[Nspin][Nc][Ncomplex], w_b[Nspin][Nc][Ncomplex];
         fifth_term<Float>(w_f, d_in, is, Ls, in_f, mass, b5, -c5, false);
         fifth_term<Float>(w_b, d_in, is, Ls, in_b, mass, b5, -c5, false);

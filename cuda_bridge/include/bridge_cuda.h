@@ -677,6 +677,11 @@ void bridge_cuda_blas_xpay_f64(double* s, const double* x, const double* a, cons
 void bridge_cuda_blas_axpy2_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream);
 void bridge_cuda_blas_axpy_aypx_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream);
 
+// A step of Chebyshev iteration in one pass: out_v += d_v, r_v -= ad_v, d_v = c_v d_v + a_v r_v;
+// c real (one for each vector), a complex (re, im), on the host.
+void bridge_cuda_blas_chebyshev_step_f32(float* out, float* d, float* r, const float* ad, const double* c, const double* a, int n, int vectors, cudaStream_t stream);
+void bridge_cuda_blas_chebyshev_step_f64(double* out, double* d, double* r, const double* ad, const double* c, const double* a, int n, int vectors, cudaStream_t stream);
+
 void bridge_cuda_cast_f64_to_f32(float* dst, const double* src, int total_elements, cudaStream_t stream);
 void bridge_cuda_cast_f32_to_f64(double* dst, const float* src, int total_elements, cudaStream_t stream);
 

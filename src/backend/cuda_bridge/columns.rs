@@ -365,6 +365,34 @@ pub(super) fn axpy_aypx<T: DeviceReal>(
     };
 }
 
+/// `out_v += d_v`, `r_v −= ad_v`, `d_v = c_v d_v + a_v r_v`.
+pub(super) fn chebyshev_step<T: DeviceReal>(
+    out: &DeviceBuffer<T>,
+    d: &DeviceBuffer<T>,
+    r: &DeviceBuffer<T>,
+    ad: &DeviceBuffer<T>,
+    c: &[f64],
+    a: &[C64],
+    vectors: usize,
+) {
+    let n = reals(out, d, vectors);
+    assert!(r.len == out.len && ad.len == out.len && c.len() >= vectors);
+    // SAFETY: four distinct buffers of `vectors` vectors of `n` reals, and coefficients for
+    // each vector.
+    unsafe {
+        T::chebyshev_step(
+            out.ptr,
+            d.ptr,
+            r.ptr,
+            ad.ptr,
+            c.as_ptr(),
+            reals_of(a, vectors),
+            n,
+            vectors as i32,
+        )
+    };
+}
+
 /// The most vectors `rotate` takes.
 pub(super) const ROTATE_VECTORS: usize = 32;
 

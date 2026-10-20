@@ -321,6 +321,41 @@ struct BlasAxpyAypx {  // s_v = y_v + b_v (s_v + a_v x_v)
     }
 };
 
+// A step of Chebyshev iteration (solver Chebyshev): out_v += d_v, r_v -= ad_v, then
+// d_v = c_v d_v + a_v r_v (c_v real: c.re), in one pass where the four kernels it replaces
+// (caxpy, caxpy, scal, caxpy) made four: 7 reads and writes of a field against 11. The
+// arithmetic is theirs, with `one` = 1 and `minus_one` = -1 as coefficients as they had them,
+// so that the result is the same to the bit. c d is rounded as the store of scal rounded it:
+// a plain product would be contracted with the sum after it into an FMA.
+__device__ __forceinline__ float blas_mul_rounded(float x, float y) { return __fmul_rn(x, y); }
+__device__ __forceinline__ double blas_mul_rounded(double x, double y) { return __dmul_rn(x, y); }
+
+template <typename Float>
+struct BlasChebyshevStep {
+    Float* out;
+    Float* d;
+    Float* r;
+    const Float* ad;
+    BlasCoefficients<Float> one, minus_one, c, a;
+    __device__ void operator()(int v, size_t kr, size_t ki) const {
+        Float dr = d[kr], di = d[ki];
+        out[kr] += one.re[v] * dr - one.im[v] * di;
+        out[ki] += one.re[v] * di + one.im[v] * dr;
+        const Float adr = ad[kr], adi = ad[ki];
+        Float rr = r[kr], ri = r[ki];
+        rr += minus_one.re[v] * adr - minus_one.im[v] * adi;
+        ri += minus_one.re[v] * adi + minus_one.im[v] * adr;
+        r[kr] = rr;
+        r[ki] = ri;
+        dr = blas_mul_rounded(dr, c.re[v]);
+        di = blas_mul_rounded(di, c.re[v]);
+        dr += a.re[v] * rr - a.im[v] * ri;
+        di += a.re[v] * ri + a.im[v] * rr;
+        d[kr] = dr;
+        d[ki] = di;
+    }
+};
+
 // x_j <- sum_i x_i c[i n + j] for the n vectors of a set, in place: a thread for each complex
 // number, which reads it of every vector, then writes it. c: n^2 complex numbers (re, im),
 // row-major. n at most RotateVectors.

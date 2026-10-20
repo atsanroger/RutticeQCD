@@ -267,6 +267,26 @@ namespace {
                                                     coefficients<Float>(b, first, count)};
         });
     }
+
+    // The coefficient `value` (real) for `count` vectors.
+    template <typename Float>
+    bridge_cuda::BlasCoefficients<Float> constant(double value, int count) {
+        bridge_cuda::BlasCoefficients<Float> c{};
+        for (int k = 0; k < count; ++k) c.re[k] = static_cast<Float>(value);
+        return c;
+    }
+
+    template <typename Float>
+    void chebyshev_step(Float* out, Float* d, Float* r, const Float* ad, const double* c, const double* a,
+                        int n, int vectors, cudaStream_t stream) {
+        map(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasChebyshevStep<Float>{out + at, d + at, r + at, ad + at,
+                                                         constant<Float>(1.0, count), constant<Float>(-1.0, count),
+                                                         real_coefficients<Float>(c, first, count),
+                                                         coefficients<Float>(a, first, count)};
+        });
+    }
 }
 
 extern "C" {
@@ -340,6 +360,12 @@ void bridge_cuda_blas_axpy_aypx_f32(float* s, const double* a, const float* x, c
 }
 void bridge_cuda_blas_axpy_aypx_f64(double* s, const double* a, const double* x, const double* b, const double* y, int n, int vectors, cudaStream_t stream) {
     axpy_aypx(s, a, x, b, y, n, vectors, stream);
+}
+void bridge_cuda_blas_chebyshev_step_f32(float* out, float* d, float* r, const float* ad, const double* c, const double* a, int n, int vectors, cudaStream_t stream) {
+    chebyshev_step(out, d, r, ad, c, a, n, vectors, stream);
+}
+void bridge_cuda_blas_chebyshev_step_f64(double* out, double* d, double* r, const double* ad, const double* c, const double* a, int n, int vectors, cudaStream_t stream) {
+    chebyshev_step(out, d, r, ad, c, a, n, vectors, stream);
 }
 
 void bridge_cuda_blas_scal_f32(float* x, const double* a, int n, int vectors, cudaStream_t stream) {
