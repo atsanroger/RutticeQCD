@@ -21,8 +21,8 @@ pub use mdwf::{
 };
 
 pub use wilson::{
-    fifth_hop, After, DiagTerm, Fifth, LinkFormat, UnitDiag, Wilson, WilsonLayout, WilsonOp,
-    WilsonParams, WilsonSimd, WilsonWork,
+    fifth_hop, neff_q, After, DiagTerm, Fifth, LinkFormat, UnitDiag, Wilson, WilsonLayout,
+    WilsonOp, WilsonParams, WilsonSimd, WilsonWork,
 };
 
 use crate::{Field, Gauge, LinearFn, LinearOp, Vector};

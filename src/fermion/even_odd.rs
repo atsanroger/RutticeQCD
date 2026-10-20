@@ -51,7 +51,8 @@ pub trait EvenOdd<H> {
     /// blocks): the part of a Schur factor that goes through the odd sites, `o1`, `o2` scratch
     /// on the odd sites and `e` on the even ones. By default two `hop_then`
     /// (`inverse_hops_twice_of`); an operator whose hops act on a matrix within a site of their
-    /// input can fold that matrix of the second hops into the first (`CudaMdwf` with Neff's α).
+    /// input can fold that matrix of the second hops into the first (`Mdwf` and `CudaMdwf` with
+    /// Neff's α).
     fn inverse_hops_twice(
         &self,
         work: &mut Self::Work,

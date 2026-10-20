@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::fermion::{hop_then_of_blocks, schur_factor, EoForm, Then};
+use crate::fermion::{schur_factor, EoForm, Then};
 
 type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
 
@@ -153,8 +153,8 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// The factor in the fifth dimension that goes with the hop: B = (4 − M5)(b − c Y), on
     /// the input of the Wilson kernel for D_pq = M_pq B, on its output for
-    /// (D†)_pq = B† M†_pq.
-    fn hop_factor(&self, dagger: Dagger) -> Fifth {
+    /// (D†)_pq = B† M†_pq; with `q` ≠ 1 B Q on the input (Q of Neff's α = `q`).
+    fn hop_factor(&self, dagger: Dagger, q: f64) -> Fifth {
         let MdwfParams {
             ls, m5, b, c, mass, ..
         } = self.params;
@@ -165,12 +165,26 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
             y: -height * c,
             mass,
             dagger: dagger == Dagger::Yes,
+            q,
+        }
+    }
+
+    /// Q on the input and on the output of a block of D^(α) = D Q for `hop_plain`: the hop is
+    /// M B Q, its adjoint Q B† M†; after C^(α)⁻¹ (`site_inv`) Q⁻¹ C⁻¹ M B Q and C†⁻¹ B† M†.
+    fn q_around(&self, dagger: Dagger, site_inv: bool) -> (f64, f64) {
+        match (dagger, site_inv) {
+            (Dagger::No, false) => (self.alpha, 1.0),
+            (Dagger::No, true) => (self.alpha, 1.0 / self.alpha),
+            (Dagger::Yes, false) => (1.0, self.alpha),
+            (Dagger::Yes, true) => (1.0, 1.0),
         }
     }
 
     /// `out = D_pq inp` (or `(D†)_pq inp`) of the plain operator (α = 1), then `then` on each site
-    /// of it while the sweep has it in the cache: `out = [from −] [C⁻¹] D_pq inp` in one pass over
-    /// the fields.
+    /// of it while the sweep has it in the cache: `out = [from −] Q' [C⁻¹] D_pq Q inp` in one pass
+    /// over the fields, Q at `q.0` and Q' at `q.1` (`neff_q`, 1 for none; Q on the input only
+    /// without `dagger`).
+    #[allow(clippy::too_many_arguments)]
     fn hop_plain(
         &self,
         work: &mut WilsonWork<T>,
@@ -179,6 +193,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         to: Parity,
         dagger: Dagger,
         then: Then<'_, HalfSpinorField<T, L>>,
+        (q_in, q_out): (f64, f64),
     ) {
         assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
         if let Some(from) = then.from {
@@ -186,8 +201,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         }
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let constants = self.substitution(self.params.mass);
-        let fifth = self.hop_factor(dagger);
         let adjoint = dagger == Dagger::Yes;
+        assert!(!adjoint || q_in == 1.0, "Q on the input of the adjoint hop");
+        let fifth = self.hop_factor(dagger, q_in);
         let after = |x: usize, o: &mut [T]| {
             if adjoint {
                 Self::factor_in_place(&fifth, o);
@@ -197,6 +213,9 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
                     Self::site_inv_in_place(&constants, v, ls, adjoint);
                 }
             }
+            if q_out != 1.0 {
+                Self::q_in_place(q_out, o, ls);
+            }
             if let Some(from) = then.from {
                 for (o, f) in o.iter_mut().zip(block(from, x)) {
                     *o = T::store(f.load() - o.load());
@@ -205,7 +224,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         };
         // The hop alone leaves nothing to do after the kernel of M, which may then write its
         // result past the cache.
-        let after: After<'_, T> = if adjoint || then.site_inv || then.from.is_some() {
+        let after: After<'_, T> = if adjoint || then.site_inv || q_out != 1.0 || then.from.is_some()
+        {
             Some(&after)
         } else {
             None
@@ -256,23 +276,11 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearOp<HalfSpinorField<T, L>
     }
 }
 
-/// Scratch space of the even-odd blocks of `Mdwf`: one field on each parity, made on first
-/// use.
+/// Scratch space of the even-odd blocks of `Mdwf`: that of the Wilson kernel (Neff's Q goes
+/// into the sweeps, with no field of its own).
 pub struct MdwfHalfWork<T: Storage, L: Layout = Aos> {
     wilson: WilsonWork<T>,
-    fields: [Option<Field<T, Spinor, Half, L>>; 2],
-}
-
-/// The scratch field on the parity of `like`, in its shape.
-fn half_scratch<'w, T: Storage, L: Layout>(
-    fields: &'w mut [Option<Field<T, Spinor, Half, L>>; 2],
-    like: &Field<T, Spinor, Half, L>,
-) -> &'w mut Field<T, Spinor, Half, L> {
-    let slot = &mut fields[like.parity().index()];
-    if !slot.as_ref().is_some_and(|f| f.same_shape(like)) {
-        *slot = Some(like.zeros_like());
-    }
-    slot.as_mut().expect("the field was just made")
+    layout: std::marker::PhantomData<L>,
 }
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
@@ -294,7 +302,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
     fn even_odd_work(&self) -> MdwfHalfWork<T, L> {
         MdwfHalfWork {
             wilson: L::work_of(&self.wilson),
-            fields: [None, None],
+            layout: std::marker::PhantomData,
         }
     }
 
@@ -306,30 +314,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
         to: Parity,
         dagger: Dagger,
     ) {
-        assert_eq!(inp.ls(), self.params.ls, "the field has another Ls");
-        let kernel = &mut work.wilson;
-        match dagger {
-            Dagger::No => {
-                // (D Q)_pq = D_pq Q_q.
-                if self.has_alpha() {
-                    let q = half_scratch(&mut work.fields, inp);
-                    self.mult_q(q, inp, false);
-                    self.hop_plain(kernel, out, q, to, dagger, Then::NOTHING);
-                } else {
-                    self.hop_plain(kernel, out, inp, to, dagger, Then::NOTHING);
-                }
-            }
-            Dagger::Yes => {
-                // ((D Q)†)_pq = Q_p (D†)_pq.
-                if self.has_alpha() {
-                    let v = half_scratch(&mut work.fields, out);
-                    self.hop_plain(kernel, v, inp, to, dagger, Then::NOTHING);
-                    self.mult_q(out, v, false);
-                } else {
-                    self.hop_plain(kernel, out, inp, to, dagger, Then::NOTHING);
-                }
-            }
-        }
+        let q = self.q_around(dagger, false);
+        self.hop_plain(&mut work.wilson, out, inp, to, dagger, Then::NOTHING, q);
     }
 
     fn diag(
@@ -344,8 +330,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
         self.mult_site(out, inp, self.params.mass, dagger == Dagger::Yes);
     }
 
-    /// In one pass over the fields for the plain operator (the hop, and C⁻¹ and the
-    /// subtraction on its result while the sweep has it in the cache).
+    /// In one pass over the fields (the hop, and C⁻¹ and the subtraction on its result while
+    /// the sweep has it in the cache), Neff's Q in the same pass.
     fn hop_then(
         &self,
         work: &mut MdwfHalfWork<T, L>,
@@ -354,13 +340,37 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> EvenOdd<Field<T, Spinor, Half,
         to: Parity,
         dagger: Dagger,
         then: Then<'_, Field<T, Spinor, Half, L>>,
-        scratch: &mut Field<T, Spinor, Half, L>,
+        _scratch: &mut Field<T, Spinor, Half, L>,
     ) {
-        if self.has_alpha() {
-            hop_then_of_blocks(self, work, out, inp, to, dagger, then, scratch);
-        } else {
-            self.hop_plain(&mut work.wilson, out, inp, to, dagger, then);
-        }
+        let q = self.q_around(dagger, then.site_inv);
+        self.hop_plain(&mut work.wilson, out, inp, to, dagger, then, q);
+    }
+
+    /// The Q of the first hop and the Q⁻¹ of the second cancel: `inp − Q⁻¹ C⁻¹ M B C⁻¹ M B Q inp`
+    /// (with the adjoint hops no Q is left at all).
+    fn inverse_hops_twice(
+        &self,
+        work: &mut MdwfHalfWork<T, L>,
+        (_o1, o2, _e): (
+            &mut Field<T, Spinor, Half, L>,
+            &mut Field<T, Spinor, Half, L>,
+            &mut Field<T, Spinor, Half, L>,
+        ),
+        out: &mut Field<T, Spinor, Half, L>,
+        inp: &Field<T, Spinor, Half, L>,
+        dagger: Dagger,
+    ) {
+        let (first, second) = match dagger {
+            Dagger::No => ((self.alpha, 1.0), (1.0, 1.0 / self.alpha)),
+            Dagger::Yes => ((1.0, 1.0), (1.0, 1.0)),
+        };
+        let inverse = Then {
+            site_inv: true,
+            from: Some(inp),
+        };
+        let kernel = &mut work.wilson;
+        self.hop_plain(kernel, o2, inp, Parity::Odd, dagger, Then::INVERSE, first);
+        self.hop_plain(kernel, out, o2, Parity::Even, dagger, inverse, second);
     }
 
     fn diag_inv(

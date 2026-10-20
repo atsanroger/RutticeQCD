@@ -154,7 +154,8 @@ pub(super) enum Hop<'a, T: Storage, R: LinkRepr> {
 }
 
 /// A factor that acts within a site and tridiagonally in the fifth dimension: `a φ_s + y (Y φ)_s`,
-/// or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per site and vector.
+/// or with Y† (`dagger`), at mass `mass`, on fields with `ls` spinors per site and vector; with
+/// `q` ≠ 1 on Q φ (`neff_q`, Neff's α = `q`) instead of φ.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fifth {
     pub ls: usize,
@@ -162,6 +163,32 @@ pub struct Fifth {
     pub y: f64,
     pub mass: f64,
     pub dagger: bool,
+    pub q: f64,
+}
+
+/// (Q φ)_s of Neff's Q at α = `a`: P- + a P+ at s = 0, a inside, P+ + a P- at s = ls − 1 (Q⁻¹
+/// at a = 1/α).
+#[inline(always)]
+pub fn neff_q<N: Number, G: GammaRepre>(
+    a: f64,
+    s: usize,
+    ls: usize,
+    p: &SiteSpinor<N>,
+) -> SiteSpinor<N> {
+    let number = <N as Number>::from_f64;
+    if s == 0 || s == ls - 1 {
+        // (1 + a)/2 ± (a − 1)/2 γ5
+        let k = if s == 0 {
+            0.5 * (a - 1.0)
+        } else {
+            0.5 * (1.0 - a)
+        };
+        SiteSpinor::zero()
+            .sub_scaled(number(-0.5 * (1.0 + a)), p)
+            .sub_scaled(number(-k), &G::GAMMA5.apply(p))
+    } else {
+        SiteSpinor::zero().sub_scaled(number(-a), p)
+    }
 }
 
 /// (Y φ)_s, or (Y† φ)_s, at mass `mass`, from φ_(s+1) (`above`) and φ_(s−1) (`below`), the
@@ -199,6 +226,16 @@ impl Fifth {
         above: &SiteSpinor<N>,
     ) -> SiteSpinor<N> {
         let number = <N as Number>::from_f64;
+        if self.q != 1.0 {
+            let ls = self.ls;
+            let q = |k: usize, p: &SiteSpinor<N>| neff_q::<N, G>(self.q, k, ls, p);
+            let (b, h, a) = (
+                q((s + ls - 1) % ls, below),
+                q(s, here),
+                q((s + 1) % ls, above),
+            );
+            return Fifth { q: 1.0, ..*self }.apply::<N, G>(s, &b, &h, &a);
+        }
         let result = SiteSpinor::zero().sub_scaled(number(-self.a), here);
         if self.y == 0.0 {
             return result;

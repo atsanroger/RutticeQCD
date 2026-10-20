@@ -29,8 +29,8 @@
 //!   Q_0 = P- + α P+,   Q_s = α (0 < s < Ls-1),   Q_(Ls-1) = P+ + α P-,
 
 use super::{
-    fifth_hop, After, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag, Variant,
-    Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonWork,
+    fifth_hop, neff_q, After, Dagger, EvenOdd, FermionOp, Fifth, GaugeError, HopTerms, UnitDiag,
+    Variant, Wilson, WilsonLayout, WilsonOp, WilsonParams, WilsonWork,
 };
 use crate::kernel::{
     Cplx, Dirac, GammaRepre, Lane, LaneOf, Number, Spinor as SiteSpinor, NC, NS, SPINOR_REALS,

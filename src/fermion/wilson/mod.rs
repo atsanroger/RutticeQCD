@@ -124,7 +124,7 @@ mod sweep_blocks;
 mod sweep_sites;
 
 pub use site::{DiagTerm, UnitDiag};
-pub use sweep::{fifth_hop, After, Fifth, LinkFormat};
+pub use sweep::{fifth_hop, neff_q, After, Fifth, LinkFormat};
 pub use sweep_blocks::BlockState;
 
 use sweep::*;

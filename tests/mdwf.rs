@@ -4,8 +4,8 @@ mod common;
 
 use common::{bridge_test_file, BRIDGE_TESTS_ENV};
 use ruttice::fermion::{
-    solve_even_odd, Bound, Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfParams,
-    PvEvenOdd, PvPreconditioned, SchurFactor, Variant,
+    hop_then_of_blocks, inverse_hops_twice_of, solve_even_odd, Bound, Dagger, EoForm, EvenOdd,
+    FermionOp, HopTerms, Mdwf, MdwfParams, PvEvenOdd, PvPreconditioned, SchurFactor, Then, Variant,
 };
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
@@ -178,6 +178,13 @@ fn several_processes_give_the_same_bits() {
             );
         }
     }
+}
+
+fn max_half_diff(a: &Field<f64, Spinor, Half>, b: &Field<f64, Spinor, Half>) -> f64 {
+    a.as_slice()
+        .iter()
+        .zip(b.as_slice())
+        .fold(0.0, |m, (x, y)| m.max((x - y).abs()))
 }
 
 fn max_diff(a: &V, b: &V) -> f64 {
@@ -384,6 +391,83 @@ fn even_odd_blocks_add_up_to_the_operator() {
     for alpha in [1.0, 0.5] {
         op.set_alpha(alpha);
         even_odd_blocks_of(&lat, &op);
+    }
+}
+
+/// The fused hops (`hop_then`, `inverse_hops_twice`: Neff's Q inside the sweeps) are the blocks
+/// one after the other.
+#[test]
+fn fused_hops_are_the_blocks() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let mut op = operator(&lat, MOBIUS, &random_gauge(&lat, 35));
+    let index = op.even_odd_index().unwrap().clone();
+    let x = random(&lat, MOBIUS.ls, 2, 36);
+    let half = |parity: Parity| {
+        let mut h = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+        h.set_parity(parity);
+        h
+    };
+    let (mut even, mut odd) = (half(Parity::Even), half(Parity::Odd));
+    extract_parity(&mut even, &x, &index, Parity::Even);
+    extract_parity(&mut odd, &x, &index, Parity::Odd);
+    for alpha in [1.0, 0.6] {
+        op.set_alpha(alpha);
+        let mut work = op.even_odd_work();
+        for dagger in [Dagger::No, Dagger::Yes] {
+            for (site_inv, subtract) in [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let then = || Then {
+                    site_inv,
+                    from: subtract.then_some(&even),
+                };
+                let (mut fused, mut blocks, mut scratch) =
+                    (half(Parity::Even), half(Parity::Even), half(Parity::Even));
+                op.hop_then(
+                    &mut work,
+                    &mut fused,
+                    &odd,
+                    Parity::Even,
+                    dagger,
+                    then(),
+                    &mut scratch,
+                );
+                hop_then_of_blocks(
+                    &op,
+                    &mut work,
+                    &mut blocks,
+                    &odd,
+                    Parity::Even,
+                    dagger,
+                    then(),
+                    &mut scratch,
+                );
+                let diff = max_half_diff(&fused, &blocks);
+                assert!(
+                    diff < 1e-13,
+                    "α {alpha} {dagger:?} C⁻¹ {site_inv} from {subtract}: {diff:e}"
+                );
+            }
+            let (mut o1, mut o2, mut e) =
+                (half(Parity::Odd), half(Parity::Odd), half(Parity::Even));
+            let (mut fused, mut blocks) = (half(Parity::Even), half(Parity::Even));
+            op.inverse_hops_twice(
+                &mut work,
+                (&mut o1, &mut o2, &mut e),
+                &mut fused,
+                &even,
+                dagger,
+            );
+            inverse_hops_twice_of(
+                &op,
+                &mut work,
+                (&mut o1, &mut o2, &mut e),
+                &mut blocks,
+                &even,
+                dagger,
+            );
+            let diff = max_half_diff(&fused, &blocks);
+            assert!(diff < 1e-13, "α {alpha} {dagger:?} twice: {diff:e}");
+        }
     }
 }
 

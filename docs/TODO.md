@@ -184,7 +184,7 @@ kernels there), one iteration:
   `(C Q)⁻†` before K†, passes of their own. **Done 2026-10-20:** two of them. `B Q (C Q)⁻¹ =
   B C⁻¹`, so the matrix of the second hops of K goes into the product after the first
   (`EvenOdd::inverse_hops_twice`, overridden by `CudaMdwf` with α; `Matrices::pre_inv`): two
-  a K†K, 355 iterations as before, about 85 µs an iteration less (16⁴ mixed 0.7 s against
+  passes fewer a K†K, 355 iterations as before, about 85 µs an iteration less (16⁴ mixed 0.7 s against
   0.6 s). Without α there was no such pass. Every Schur factor of the left form with α on the
   device has it (the outer operator of the multigrid too).
 - `blas_caxpy`, `blas_caypx`, `reduce<AxpyNorm>` at 84–88% of the bandwidth;
@@ -218,6 +218,11 @@ the bytes it needs it would take about 1–1.5 ms instead of 5.4, and an iterati
 time. That is the next step for CGNE (and for the smoother and outer operator of the multigrid,
 which use the same kernel); see above for the means.
 
+On the A30 at bc32f92 (24³×48 setup S, point source, 12 columns, 2026-10-20): CGNE in double at
+m = 0.001 3613–3619 iterations a column, 109 s each (30.2 ms an iteration), 1333 s in all; the
+multigrid 637 s (setup 329 s, 23.8 s a column), so 2.1 times faster with its setup. PS of the
+two agree to about 1e-8; CGNE at t = 0 is Bridge++ 2.1.3's to the digits printed.
+
 Careful when timing it: with `precision : mixed`, `Solver.maximum_number_of_iteration` caps
 each inner single-precision CG, and the defect correction repeats it up to
 `maximum_number_of_restart.max(50)` times; 400 gave 20000 iterations, not converged.
@@ -227,7 +232,33 @@ pass that updates p (one read of p fewer); mixed precision by reliable updates i
 restarts (each inner CG of the defect correction starts from zero; 355 against 349 iterations
 in double on 16⁴, so little to gain there).
 
-### 15. Smaller ones
+### 15. CPU: Neff's α in the sweeps (done 2026-10-20)
+
+With α ≠ 1 the even-odd blocks of `Mdwf` were made of passes of their own: Q on the input of
+every hop, the hop without C⁻¹ and the subtraction in its sweep (`hop_then_of_blocks`), and
+C^(α)⁻¹ through a temporary field. CGNE (Normal_left) took 87 ms an iteration on 12⁴ against 40
+without α. Now Q goes into the factor B of the hop's input (`Fifth::q`, `neff_q`), Q or Q⁻¹ on
+its output and C⁻¹ into the same sweep, the Q⁻¹ and Q between the two hops of K cancel
+(`inverse_hops_twice`, as on the device), and C⁻¹ takes Q⁻¹ in its pass: 42 ms an iteration.
+
+Against Bridge++ (with_alpha 5540a26, core code: the QXS code has no α; -O3, OpenMP) on the
+same CPU (i9-12900), 12⁴ setup S stout 0.1×3, m = 0.01, point source, 12 columns, 1e-18, even-odd
+CG on the normal equation: the plaquette after smearing, the iterations of every column and the
+PS correlator (to about 1e-11) are the same.
+
+| α | Bridge++ (16 threads, its best) | RutticeQCD cpu (16 rayon threads) |
+|---|---|---|
+| 1.0 | 3974 iterations, 323.6 s, 81.4 ms | 3974, 158.9 s, 40.0 ms |
+| 0.6 | 2597 iterations, 214.6 s, 82.6 ms | 2597, 109.9 s, 42.3 ms (227.0 s before) |
+
+Bridge++ with 24 threads (with the E-cores) took 3253 ms an iteration: a barrier after every
+four-dimensional operation of each slice. The `simd` backend is 10% slower than `cpu` here
+(both built without `-C target-cpu`).
+
+The lexical operator (`lexical.rs`) and `mult_site` (C^(α), used by `Schur`) still apply Q in a
+pass of its own.
+
+### 16. Smaller ones
 
 - `DeviceBasis::pv_eo_coarse_vectors` computes s and t̂ again that `pv_eo` has just made; they
   could be restricted there.
@@ -278,7 +309,7 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 - **The 24³×48 setup on the A30 was about 30% slower than in the mass scan** (505–511 s at
   462a423 against 389–393 s at 535c9ef, setup S and B; the solve is unchanged within an
   iteration). Not the code: the runs at 462a423 were those with `RUTTICE_CHECKSUM=1`
-  (29 checksums), and the checksums are taken inside the timed setup (item 15). Measured on the
+  (29 checksums), and the checksums are taken inside the timed setup (item 16). Measured on the
   A30 on 2026-10-20: 462a423 without the variable 391 s, a fresh build of 535c9ef 395 s; with it
   d665b50, b72bb75, dd484b3, a5dc425 and 462a423 all 509–512 s (+118 s, all in the two
   bootstrap rounds). The barrier of b72bb75 costs nothing measurable (2592 blocks of dim 64:

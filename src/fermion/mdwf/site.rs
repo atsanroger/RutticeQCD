@@ -29,10 +29,6 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         } else {
             self.alpha
         };
-        let number = <L::Num as Number>::from_f64;
-        // P- + a P+ = (1 + a)/2 + (a - 1)/2 γ5; P+ + a P- = (1 + a)/2 + (1 - a)/2 γ5.
-        let (even, odd) = (number(0.5 * (1.0 + a)), number(0.5 * (a - 1.0)));
-        let inside = number(a);
         let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
             for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
@@ -42,18 +38,24 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
                     .zip(from.chunks_exact(sp))
                     .enumerate()
                 {
-                    let p = L::load(in_reals);
-                    let q = if s == 0 || s == ls - 1 {
-                        let g = G::GAMMA5.apply(&p);
-                        let k = if s == 0 { odd } else { -odd };
-                        SiteSpinor::zero().sub_scaled(-even, &p).sub_scaled(-k, &g)
-                    } else {
-                        SiteSpinor::zero().sub_scaled(-inside, &p)
-                    };
+                    let q = neff_q::<L::Num, G>(a, s, ls, &L::load(in_reals));
                     L::store(&q, out_reals);
                 }
             }
         });
+    }
+
+    /// Q at α = `a` (`neff_q`) on the spinors of one site, `ls` per vector, in place: for a
+    /// result in the cache, in the pass that made it.
+    #[inline(always)]
+    pub(super) fn q_in_place(a: f64, site: &mut [T], ls: usize) {
+        let sp = SPINOR_REALS * L::LANES;
+        for v in site.chunks_exact_mut(ls * sp) {
+            for (s, reals) in v.chunks_exact_mut(sp).enumerate() {
+                let q = neff_q::<L::Num, G>(a, s, ls, &L::load(reals));
+                L::store(&q, reals);
+            }
+        }
     }
 
     pub(super) fn has_alpha(&self) -> bool {
@@ -251,28 +253,21 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         dagger: bool,
     ) {
         assert!(inp.ls() == self.params.ls && out.same_shape(inp));
-        if self.has_alpha() {
-            // (C Q)⁻¹ = Q⁻¹ C⁻¹ and (Q C†)⁻¹ = C†⁻¹ Q⁻¹.
-            let mut t = inp.zeros_like();
-            if dagger {
-                self.mult_q(&mut t, inp, true);
-                self.site_inv_plain(out, &t, mass, true);
-            } else {
-                self.site_inv_plain(&mut t, inp, mass, false);
-                self.mult_q(out, &t, true);
-            }
-            return;
-        }
-        self.site_inv_plain(out, inp, mass, dagger);
+        // (C Q)⁻¹ = Q⁻¹ C⁻¹ and (Q C†)⁻¹ = C†⁻¹ Q⁻¹, Q⁻¹ in the same pass.
+        let a = 1.0 / self.alpha;
+        let q = if dagger { (a, 1.0) } else { (1.0, a) };
+        self.site_inv_plain(out, inp, mass, dagger, q);
     }
 
-    /// C⁻¹ or C†⁻¹ of the plain operator (α = 1).
+    /// C⁻¹ or C†⁻¹ of the plain operator (α = 1), between Q at `q.0` on its input and Q at `q.1`
+    /// on its output (`neff_q`; 1 for none).
     fn site_inv_plain<S: Sites>(
         &self,
         out: &mut Field<T, Spinor, S, L>,
         inp: &Field<T, Spinor, S, L>,
         mass: f64,
         dagger: bool,
+        (q_in, q_out): (f64, f64),
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let number = <L::Num as Number>::from_f64;
@@ -295,7 +290,10 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
                     let at = |i: usize| if up { i } else { ls - 1 - i };
                     // (1 + sign γ5) / 2 of the spinor at row i
                     let r = |i: usize| {
-                        let phi = L::load(&from[at(i) * sp..(at(i) + 1) * sp]);
+                        let mut phi = L::load(&from[at(i) * sp..(at(i) + 1) * sp]);
+                        if q_in != 1.0 {
+                            phi = neff_q::<L::Num, G>(q_in, at(i), ls, &phi);
+                        }
                         let both = phi.sub_scaled(number(-sign), &G::GAMMA5.apply(&phi));
                         scaled(number(0.5), &both)
                     };
@@ -313,7 +311,11 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
                         if i > 0 {
                             p = step(i, &p);
                         }
-                        let x_i = p.sub_scaled(number(-power), &first);
+                        let mut x_i = p.sub_scaled(number(-power), &first);
+                        // x_i has one chirality, which Q only scales.
+                        if q_out != 1.0 {
+                            x_i = neff_q::<L::Num, G>(q_out, at(i), ls, &x_i);
+                        }
                         let reals = &mut o[at(i) * sp..(at(i) + 1) * sp];
                         if pass == 0 {
                             L::store(&x_i, reals);
