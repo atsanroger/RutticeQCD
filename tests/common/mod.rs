@@ -13,13 +13,17 @@ use std::path::PathBuf;
 /// (`conf_04040408.txt`).
 pub const BRIDGE_TESTS_ENV: &str = "RUTTICE_BRIDGE_TESTS";
 
+/// A Bridge++ test input: in the directory `BRIDGE_TESTS_ENV` names if it is set, else in
+/// `run/` or, failing that, in `examples/` (which has `conf_04040408.txt`).
 pub fn bridge_test_file(name: &str) -> Option<PathBuf> {
-    let dir = match std::env::var_os(BRIDGE_TESTS_ENV) {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("run"),
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dirs = match std::env::var_os(BRIDGE_TESTS_ENV) {
+        Some(dir) => vec![PathBuf::from(dir)],
+        None => vec![root.join("run"), root.join("examples")],
     };
-    let path = dir.join(name);
-    path.is_file().then_some(path)
+    dirs.into_iter()
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file())
 }
 
 /// U_mu(x) -> G(x) U_mu(x) G(x+mu)^†, with periodic neighbours.

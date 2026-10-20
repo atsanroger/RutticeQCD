@@ -94,9 +94,9 @@ in [docs/COMPARISON.md](COMPARISON.md). They are our comparisons with the number
 prints; the Bridge++ developers have not reviewed them. What Bridge++ does not compute (the
 domain-wall multigrid, the low-mode probe, `A4_A4`) has only the checks above.
 
-The comparisons read a Bridge++ test configuration, `conf_04040408.txt`, that ships with
-Bridge++ and is not part of this repository. Put it in `run/` and `cargo test` finds it;
-or keep it elsewhere and name the directory:
+The comparisons read a Bridge++ test configuration, `conf_04040408.txt` (4³ × 8), that ships
+with Bridge++ under the GPL; a copy is in `examples/`, where `cargo test` finds it. A file of
+the same name in `run/` takes its place, and a directory of your own can be named instead:
 
 ```bash
 RUTTICE_BRIDGE_TESTS=/path/to/that/directory cargo test

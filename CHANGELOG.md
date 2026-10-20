@@ -1,249 +1,125 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-20)
 
-- Propagator files on `cuda_bridge`: stout smearing runs on the device
-  (`app::load_links_on_device`, the kernels HMC already used). The links agree with those of the
-  CPU to rounding, not bit for bit, so results move in the last digits (16⁴: the plaquette
-  after smearing the same to the 15 digits printed, CGNE the same iterations and residual). APE
-  stays on the CPU.
-- `cuda_bridge` multigrid: the filter's last hop without C⁻¹ goes through the fused `hop_gemm`
-  (with the unit matrix) instead of `hop_kernel`, and the Chebyshev smoother updates the
-  iterate, the residual and the direction in one pass (`Vector::chebyshev_step`); both bit for
-  bit the same. `hop_gemm` in double precision takes blocks of 192 threads, the legs one at a
-  time: 168 registers instead of 254, 12 warps an SM instead of 8.
+**Fixed: the known issue of 0.2.0.** The domain-wall multigrid on an A30 gave different last
+digits from run to run on large lattices: a race in the Jacobi kernel of |H_xx|⁻¹ (threads of
+different warps for blocks of dimension above 32, without a barrier before a_pq was
+overwritten). Runs of the same program now agree to the bit on the A30 too.
+
+### Changes that affect existing parameter files or results
+
+- HMC files: the multigrid of an action is the `MultiGrid` section, as in the propagator files;
+  what only HMC has is in `MultiGrid_HMC`. **`Solver.MultiGrid` is refused** with where its keys
+  went (`number_of_setup_iterations` is `Setup.bootstrap_number_of_rounds`; the Wilson
+  multigrid's `Setup.seed` is 21 by default, 1 before). The domain-wall smoother is
+  `MultiGrid.Smoother`, not `Solver.Chebyshev`; `number_of_test_vectors` counts the columns of P
+  as in the propagator files. What HMC does not have yet is refused rather than ignored.
 - Propagator files, `Solver.precision : mixed` (CGNE on `cuda_bridge`): one CG in single
-  precision with reliable updates in double precision (`solver::reliable_cg`,
-  `SingleCuda::reliable_normal`), instead of the defect correction whose every inner CG
-  started from zero. `convergence_criterion_squared_inner` is now the fall of |r|² in single
-  precision after which the solution and the residual are made again in double precision (1e-2;
-  was the tolerance of each inner CG, 1e-10). The restarts lost what CG had built: on 24³×48
-  at m = 0.001 (point source) 5261–5951 iterations against 3613–3619 in double precision, and
-  the true residual |Dx−b|² of two of the 12 columns stopped at 4e-15 for a target of 1e-18
-  (the stopping rule is on the residual of K†K, which a solution with its error in the low
-  modes meets while |Dx−b| does not), their correlator 3e-6 off. HMC keeps the defect
-  correction (`hmc::mixed`). On 16⁴ the iterations and |Dx−b|² are now those of double
-  precision; on that 24³×48 4220–4574 iterations, 65 s a column (80.7 before), PS 2e-7 from the
-  multigrid (3e-6), but |Dx−b|² still 5e-17–3e-16 (docs/TODO.md, items 14 and 17).
-- Mixed precision (CGNE in propagator files and the HMC solves): each inner CG in single
-  precision stops where the outer tolerance is met (half of it relative to the residual it starts
-  from), or at the inner tolerance if that comes first. Before, every inner solve went to the
-  inner tolerance and the last overshot: on 24³×48 the solves ended at |Dx−b|² 1e-19 to 1e-26
-  against a target of 1e-18, with 1.2–1.9 times the iterations of double precision. The
-  SingleNormal::normal of the inner solves takes the tolerance.
-- The default smoother of the domain-wall multigrid is that of M5 = 1.0 with stout 0.1 × 3:
-  Chebyshev 8 steps on [hi/10, hi] (was 5 on [hi/30, hi], with which the stout 12⁴ solves at
-  m = 0.001 stagnate, |r|² about 1e-5 after 2000 GCR(32) steps; 13 steps with 8 on [hi/10, hi]).
-  M5 = 1.8 without smearing takes 12 on [hi/30, hi]; the smoother is not chosen from the operator,
-  and the example files say so. The Chebyshev preconditioner of the outer solver keeps 5 on
-  [hi/30, hi]. GCR(2) against GCR(32) with the multigrid of the 24³×48 mass scan on 12⁴ at
-  m = 0.001: 14/12 (stout, PV_left), 12/11 (PV_right), 14/13 and 15/14 (M5 1.8); point source
-  15–19 against 13–14.
-- Propagator files: `Solver.precision : mixed` for CGNE (CG on `Normal_left` without a
-  preconditioner) on `cuda_bridge`: defect correction in double precision with CG on K†K in
-  single precision (K the left Schur factor, on the links of the double operator), each to
-  `convergence_criterion_squared_inner` (1e-10). On 4³×8 (M5 1.8, m 0.01, α 0.6) the
-  correlator agrees with the double-precision CGNE to 1e-10 (218 single against 151 double
-  iterations). For the comparison of the multigrid with CGNE on equal terms.
-- Eigensolver files: a parameter file with an `Eigensolver` section (in place of `Solver`) prints
-  the eigenvalues of the fermion operator, with the keys of Bridge++'s eigensolver:
-  `eigensolver_type` (IRLanczos, IRArnoldi), `fermion_mult_mode` (D, Ddag, DdagD, DDdag, H = γ5 D),
-  `eigensolver_mode` (ascending, descending, abs_ascending, abs_descending),
-  `number_of_wanted_eigenvectors`, `number_of_working_eigenvectors`,
-  `convergence_criterion_squared` (|A x − λ x|²), `maximum_number_of_iteration`,
-  `threshold_value`, and a `Chebyshev` sub-section with the keys of `Fopr_Chebyshev`. The
-  operator is D on the whole lattice (Wilson, clover; five-dimensional for domain-wall fermions)
-  or, with `operator_type: PV_right` or `PV_left`, the even-odd Pauli-Villars operator Ã. H of
-  Möbius fermions with c ≠ 0 is not Hermitian and is refused for Lanczos. CPU only so far.
-  Bridge++'s test `Eigensolver` (`examples/eigen_clover.yaml`) gives 0.15203194923408772, its
-  expected result 0.15203194923405 (with Chebyshev 0.15203194923405683); a test checks it.
-- `eigen::lanczos`: the four orders of Bridge++'s `eigensolver_mode` (`Order`), the smallest or
-  largest magnitudes of an indefinite operator by Lanczos on A² and the Rayleigh-Ritz procedure
-  of A; `Tolerance` (relative, or Bridge++'s absolute `convergence_criterion_squared`) and a
-  `threshold`, also for `eigen::arnoldi` (`Which::beyond`). `LanczosParams` and `ArnoldiParams`
-  have the new fields; `lowest` is `lanczos` with `Order::Ascending`.
-- `preconditioned_fov_device --pseudo`: σ_min(z − Ã M) at the points of `--contour cx,cy,r,n`
-  and `--points x0,x1,..` (by default the real axis −0.5 … 0.7 and |z − 1| = 0.8), one line per
-  point; `--arnoldi --far cx,cy` adds the eigenvalues farthest from cx + i cy (Arnoldi on
-  Ã M − c, `eigen::Shifted`).
-- `eigen` is one module per method: `lanczos` (the lowest eigenpairs of a Hermitian positive
-  operator, as before), `arnoldi`, `schur`, `transform` (`Shifted`: A − z; `ShiftInvert`: a
-  given solve as (A − σ)⁻¹) and `singular` (`smallest_singular`: σ_min(A) by Lanczos on A†A;
-  `resolvent_norms`: σ_min(z − A) at given points, the norm of the resolvent, for the
-  ε-pseudospectrum and the pseudospectral bound of GMRES). The public names are re-exported from
-  `eigen` unchanged.
-- `eigen::arnoldi`: eigenpairs of a non-Hermitian operator by the Krylov-Schur method
-  (Stewart 2001) on any `Vector`, at the end of the spectrum asked for (`Which`: smallest or
-  largest real part, largest or smallest magnitude); `eigen::schur`: the complex Schur form of a
-  small dense matrix (Householder to Hessenberg, the shifted QR algorithm), its reordering and
-  the eigenvectors of the triangular factor.
-- `preconditioned_fov_device --arnoldi`: the eigenvalues of Ã M of smallest real part with their
-  condition numbers 1/|y†x| (the left eigenvectors from M† Ã†), and of largest magnitude. On the
-  v2 12⁴ configuration at m 0.001 every eigenvalue lies at Re ≥ 0.868 (stout, M5 1.0) and
-  Re ≥ 0.831 (M5 1.8), with condition numbers 6–20 and |λ| at most 5.9 and 1.75: the spectrum
-  is far from the origin although the field of values is not.
-- `Main.verbose_level : Detailed` (or `Paranoiac`) prints the residual history of GCR in the
-  propagator runs, on the CPU and on the device: |r|²/|b|² before every step (`Gcr::recording`).
-- `preconditioned_fov_device --parts`: the smoother S and the coarse correction E of the cycle
-  apart, the field of values and ‖I − Ã X‖₂ of Ã S, Ã E and Ã M, and the vector at λ_min of the
-  Hermitian part of Ã M dissected. On the v2 12⁴ configuration at m 0.001, with the coarse
-  factors solved exactly, ‖I − Ã E‖₂ = 1.9e4 (stout, M5 1.0) and 2.9e3 (M5 1.8) against 18.5 on
-  4³×8, the smoother's ‖I − Ã S‖₂ about 1: the coarse correction is the factor that amplifies.
-- HMC with the multigrid on the device: `MultiGrid.fine_precision : single` puts the cycle
-  (smoother, residuals, P and the corrections) on the operators in single precision, made from
-  the links of the double ones on the device (`CudaMdwf::converted_from`), the outer GCR in double
-  precision; the coarse parts (and the cache) are those of the double operators.
-- `examples/preconditioned_fov` and `preconditioned_fov_device`: the field of values of Ã and
-  of Ã M (M the two-grid cycle) by Lanczos on their Hermitian parts, M† the cycle of Ã† on the
-  same P with the same top of the smoother's interval (`CoarseParts::with_top`; with tops of
-  their own ⟨z, Ã M w⟩ and ⟨M† Ã† z, w⟩ differed by 3e-6, now by 1e-11) and both coarse
-  factors solved on their exact adjoints. The two agree on 4³×8 (Ã M in [0.772, 1.222]). On
-  the v2 12⁴ configuration at m 0.001 the field of values of Ã M reaches far into the left half
-  plane: [−23.9, 30.8] with stout links at M5 1.0, [−1.49, 4.17] at M5 1.8 (Ã itself:
-  [−0.0046, 1.98] and [−0.050, 4.46]).
-- HMC runs print what the solves of each fermion action cost in every trajectory
-  (`# cost  n  Action_F_1: solves, iterations, seconds; multigrid setup, rebuild, rebuilds,
-  reuses`), from `MdAction::take_cost` (`SolveCost`): the numbers of a comparison of solvers.
-- HMC: mixed precision on the device too (`backend::cuda_bridge::hmc_mixed::SingleCuda`, the
-  operator in single precision on the links of the device; on all sites and for K of the
-  even-odd Ratio action). Two trajectories of the Bridge++ example, the Ratio action on all
-  sites and even-odd and the Standard action: the plaquettes of CG in double precision on the
-  CPU to the last digit, ΔH to 1e-9.
-- HMC with the domain-wall multigrid on the device (`backend : cuda_bridge`, the Ratio action on
-  all sites and even-odd): the test vectors, P (half precision, shared by the cycles of Ã and
-  Ã†), the coarse operators and both cycles on the device (`backend::cuda_bridge::hmc_multigrid`,
-  over `backend::cuda_bridge::multigrid`); the sweeps on D†D and K†K are those of the CPU,
-  written once for both (`EvenSolves`). Two trajectories of the Bridge++ example (stout, 4³×8):
-  the plaquettes of CG on the CPU to the last digit, ΔH to 1e-9. The cache
-  (`rebuild_iteration_growth`) is on the device as well: `DeviceParts` (P, the coarse operators,
-  |H_xx|⁻¹), shared, make the corrections for new links (`DeviceCorrection::from_parts`), the
-  tops of the smoothers kept with them; the cached trajectories are those of CG too.
-- HMC: the domain-wall multigrid as a cache (`MultiGrid_HMC.rebuild_iteration_growth`): P and
-  the coarse parts of the cycles of Ã and Ã† (`CoarseParts`: the coarse operators, the inverses
-  of their blocks, the top of the smoother) are kept from solve to solve and the cycles made
-  from them for the links of each solve (`PvEoCycle::from_parts`, `into_parts`), and built again
-  only after a bootstrap or when the GCR iterations per solve have grown by the factor given.
-  The outer GCR and the smoothers work with the operators of the current links, so the solves
-  are those of CG still (4³×8, links moved by MD steps: 1e-14 and 2e-11 relative, one rebuild
-  in eight solves). What it saves on large lattices is not measured yet.
-- HMC: mixed precision for domain-wall fermions (`Solver.precision : mixed`, the Standard
-  (Lexical) and Ratio actions, on all sites or even-odd, CG without a preconditioner, on the
-  CPU): defect correction on the residual of D†D (K†K) in double precision, each correction by
-  CG in single precision on the same operator on the same links (`hmc::SingleNormal`,
-  `SingleMdwf`, `SingleMdwfEo`) to `Solver.convergence_criterion_squared_inner` (1e-10). It
-  gives the energy and the force of CG in double precision.
-- The even-odd Ratio action of domain-wall fermions takes the multigrid
-  (`operator_type : Even_odd` with `Solver.preconditioner_type : MG`): (K†K)⁻¹ on the even sites,
-  K = T_ee⁻¹ Ŝ, through the same two solves on the even sites as the action on all sites
-  (Ŝ⁻¹ u is the even part of the solve of D x = (u, 0)), repeated on the residual of K†K. It
-  gives the energy and the force of CG (4³×8: 6e-15 and 1e-11 relative).
-- One way to the solves of the pseudofermion actions: the domain-wall multigrid is a
-  preconditioner of `normal_solve` like the others, given the Pauli-Villars operator, instead
-  of a case of its own in the Ratio action. The denominator's solve in the heat bath is CG with
-  the multigrid as without it.
-- HMC files: the multigrid of an action is the `MultiGrid` section of the propagator files,
-  beside its `Solver` (the same keys and defaults: `MultiGrid_Level1`, `Setup`, `Smoother`, the
-  coarse solvers), for Wilson and clover fermions and for domain-wall fermions alike; what
-  only HMC has is in `MultiGrid_HMC` (`refresh_interval`, `reuse_vectors`,
-  `number_of_reuse_iterations`, and `convergence_criterion_squared_inner` of the domain-wall
-  solves on the even sites). **The old place, `Solver.MultiGrid`, is refused** with where its
-  keys went (`number_of_setup_iterations` is `Setup.bootstrap_number_of_rounds`; the Wilson
-  multigrid's seed is `Setup.seed`, 21 by default, 1 before). The domain-wall smoother is
-  `MultiGrid.Smoother`, no longer `Solver.Chebyshev`, and `number_of_test_vectors` counts the
-  columns of P as in the propagator files (twice the vectors kept). What HMC does not have yet
-  is refused rather than ignored: `fine_precision : single`, levels below the coarse lattice,
-  `basis_precision`, `Setup.checkpoint`. The coarse solves of the domain-wall multigrid are in
-  single precision by default as they always were, `coarse_precision : double` for double.
-- HMC files: `Solver.operator_type`, as in the propagator files, accepting what the action
-  solves (`Lexical`, `Even_odd`, `Normal_left`, `PV_right`).
-- HMC files: the messages about an action name its section and keys in the file
-  (`Action_F_1.Solver.solver_type`), not the internal index, which counted `Action_G` too.
-- The checks and the conversions of the `MultiGrid` section are methods of the section
-  (`MultigridBlock::check_domain_wall`, `check_wilson`, `domain_wall`, `wilson`), shared by the
-  propagator and HMC files; the Wilson check now also refuses blocks that do not divide the
-  lattice and notes the domain-wall keys it does not use.
-- Precisions are read in their usual spellings, in any case: `single`, `float`, `f32`, `FP32`,
-  `float32`; `double`, `f64`, `FP64`, `float64`; `half`, `f16`, `FP16`.
-- `ruttice` with `backend : cuda_bridge` no longer has a path that made the coarse correction of
-  the multigrid on the CPU: no file could reach it (the coarse solvers it was for are refused
-  when the file is read), and everything of the multigrid is on the device.
-- The setup and the cycle of the domain-wall multigrid on the device are in the library
-  (`backend::cuda_bridge::multigrid`: the filtered test vectors, the bootstrap, the top of the
-  smoother, the two-grid cycle), for any program; `ruttice` uses them and prints the same
-  numbers to the bit.
-- The gradient flow (`gauge::flow`): the Wilson flow by Lüscher's third-order Runge-Kutta
-  scheme, the energy density (plaquette and clover) and the topological charge (clover and
-  improved), as Bridge++ and checked against its tests; `ruttice-flow` and `ruttice-flow-mpi`
-  print t0 and the charge of saved configurations.
-- HMC measures t0 and the charge by the flow every `GradientFlow.measurement_interval`
-  trajectories; `skip_trajectories` (`ruttice-flow --skip`) leaves the thermalization out of
-  the analysis.
-- The Γ-method of Wolff (`numerics::gamma_method`): the error of a mean and the integrated
-  autocorrelation time, printed for t0 and the charges at the end of an HMC run and of
-  `ruttice-flow`.
-- The force of the plaquette action walks its staples site by site: the same numbers, faster.
-- The Chebyshev filter of the test vectors of the domain-wall multigrid no longer overflows in
-  single precision: on stout-smeared links its setup panicked ("the subspace lost rank").
-- The levels below the coarse lattice of the domain-wall multigrid (`MultiGrid_Level2` and on,
-  and `levels_for_pauli_villars`) are on the device as well, the last level of any size
-  (cuSOLVER); the solves print the applications of the coarse operators they took. So is
-  the exact adjoint of the Pauli-Villars coarse operator (`Coarse_Solver_PV` other than
-  MINRES): the whole domain-wall multigrid of the CPU is on the device. On both, that
-  adjoint is now an operator of its own (`CoarseOp::adjoint`), solved in its even-odd form on
-  the coarse lattice as the quark factor is, not on the whole coarse lattice.
-- Stout smearing and the chain rule of its force on the device (`DeviceLinks`,
-  `GaugeSmearing::levels_on_device`, `chain_on_device`).
-- HMC with `Main.backend : cuda_bridge`: the domain-wall Ratio action with its solves and the
-  derivative by the links on the device (`ForceOp` for `CudaMdwf`); the trajectories of Bridge++'s
-  test_HMC_Domainwall_Nf2_PV are those of the CPU.
-- HMC is written once for links on the host or on a device (`hmc::LinkField`): with
-  `Main.backend : cuda_bridge` the links, the momenta, the integrator, the gauge actions and the
-  smearing are on the device too (`gauge/links.cuh`), and the links cross over only for the
-  flow and to be saved.
-- `eigen::lowest`: the lowest eigenpairs of a Hermitian positive operator by thick-restart
-  Lanczos, optionally on a Chebyshev polynomial, for fields on the host or on a device;
-  `measure::chirality`; `ruttice-low-modes` (feature `cuda-bridge`): the lowest singular
-  values of the even-odd Pauli-Villars domain-wall operator on the GPU and the chirality of
-  their vectors, the topological near-zero modes. Bridge++ has no counterpart to compare with.
-- The even-odd ratio of two flavours over two Pauli-Villars (or Hasenbusch) flavours,
-  `hmc::TwoFlavorRatioEo`, as Bridge++'s `Action_F_alt_Ratio_eo`: H = Γ5 K on the even sites,
-  K = 1 − T_ee⁻¹ M_eo T_oo⁻¹ M_oe (`fermion::SchurFactor`, the left form). Wilson and domain-wall
-  fermions (not clover), with CG or Chebyshev and the initial guess of the force solves; on the
-  CPU and, with `Main.backend : cuda_bridge`, on the device (`hmc::EvenOddHalves` for
-  `CudaMdwf`): `action_type : Ratio` with `operator_type : Even_odd`. Checked: the force is the
-  derivative of the action and S = |ξ_e|² after the heat bath (domain-wall and Wilson); K, K† and
-  Γ5 on the even sites against the blocks and the whole lattice; Bridge++'s
-  test_HMC_Wilson_Nf2_alt_eo_ratio (8⁴) to 1e-11; the trajectories of the device are those of
-  the CPU. **Not agreeing**: Bridge++'s domain-wall tests test_HMC_Domainwall_Nf2_PV_alt_eo and
-  _nosmr (8⁴) end 7e-6 and 1e-5 from their expected plaquettes, while the lexical ratio of the
-  same operator on the same lattice agrees to 1e-11. Not understood: Bridge++'s numbers inside
-  the trajectory are not at hand (its even-odd domain-wall HMC runs only on QXS fields, which
-  neither Bridge++ tree here builds). The two tests are `#[ignore]` with the numbers.
-- The Bridge++ tests of its alternative code with domain-wall fermions over Pauli-Villars
-  fields on all sites (test_HMC_Domainwall_Nf2_PV_alt and _nosmr, 8⁴) agree to 1e-11, and so
-  does test_HMC_Domainwall_Moebius_Nf2_PV of Bridge++ 2.1.3 (Möbius b = 1.5, c = 0.5). Bridge++
-  2.1.3 itself has no even-odd ratio any more (`Action_F_Ratio_eo` and `test_alt_hmc` are gone).
-- D† x = b through Ã†, the Pauli-Villars operator with the roles of D and D_PV exchanged
-  (`fermion::adjoint_right_hand_side`, `adjoint_solution`; Ã† = `PvRatio::new(pv, op, ..)`, its
-  cycle M† = `PvEoCycle::new(pv, op, ..)` on the P of Ã), on the CPU and on the device: what the
-  multigrid needs in the force solves of HMC. Checked: D† x = b to 4e-27 on both.
-- `Hmc::reversibility` and `HMC_General.reversibility_checks`: forward, P → −P, back. On the
-  device for the 8⁴ domain-wall ratio on all sites and even-odd, |ΔU| ≤ 5e-13 and H back − H ≤
-  9e-10 of H ≈ 2.5e5.
-- `ruttice-low-modes`: `--coherence` (Lüscher's test of local coherence with the prolongation
-  of the multigrid, right, left and cross), `--fov` (the distance of Ã and D from
-  Γ5-Hermiticity, and [λ_min, λ_max] of (Ã + Ã†)/2), and its memory printed first.
-- The CUDA kernels are compiled for the architectures 80 and 86 by default (A100 and A30, RTX
-  30 series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
-- The README, `docs/DEVELOPMENT.md` and the 0.1.0 entry below no longer say that everything is
-  checked against Bridge++: the comparisons are ours, where Bridge++ computes the same thing,
-  and its developers have not reviewed Ruttice.
+  precision with reliable updates in double precision. `convergence_criterion_squared_inner` is
+  now the fall of |r|² after which the solution and residual are made again in double precision
+  (1e-2), no longer the tolerance of an inner CG (1e-10).
+- The default smoother of the domain-wall multigrid is Chebyshev 8 steps on [hi/10, hi] (was 5
+  on [hi/30, hi], with which stout-smeared 12⁴ solves at m = 0.001 stagnated). M5 = 1.8 without
+  smearing takes 12 steps on [hi/30, hi]; the example files say so.
+- `cuda_bridge`: stout smearing of the propagator runs is done on the device; the links agree
+  with those of the CPU to rounding, not to the bit. The coarse operator kernel sums in
+  another order than in 0.2.0, so the multigrid's results move in the last digits (the
+  iterations the same or within one).
+- The CUDA kernels are compiled for the architectures 80 and 86 by default (A100, A30, RTX 30
+  series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
+- Precisions are read in their usual spellings, in any case (`single`, `float`, `f32`, `FP32`,
+  `double`, `f64`, `FP64`, `half`, `f16`, …).
+
+### HMC
+
+- HMC on the device (`Main.backend : cuda_bridge`): links, momenta, integrator, gauge actions,
+  stout smearing and its chain rule, and the domain-wall Ratio action with its solves and force;
+  the links cross over only for the flow and to be saved. Bridge++'s
+  test_HMC_Domainwall_Nf2_PV gives the trajectories of the CPU.
+- The even-odd ratio of two flavours over two Pauli-Villars (or Hasenbusch) flavours
+  (`hmc::TwoFlavorRatioEo`, as Bridge++'s `Action_F_alt_Ratio_eo`), Wilson and domain-wall, on
+  the CPU and the device. Bridge++'s test_HMC_Wilson_Nf2_alt_eo_ratio agrees to 1e-11.
+- The domain-wall multigrid in HMC, on the CPU and on the device, for the Ratio action on all
+  sites and even-odd; kept as a cache from solve to solve and rebuilt when the iterations grow
+  (`MultiGrid_HMC.rebuild_iteration_growth`); the cycle in single precision on the device
+  (`fine_precision : single`). D† x = b through Ã† for the force solves.
+- Mixed precision for the domain-wall actions (`Solver.precision : mixed`), on the CPU and the
+  device: the energy and force of CG in double precision.
+- Every trajectory prints what the solves of each fermion action cost (solves, iterations,
+  seconds, multigrid setups and reuses). `HMC_General.reversibility_checks`.
+- The gradient flow (`gauge::flow`, Lüscher's RK3): t0, the energy density and the
+  topological charge, as Bridge++ and checked against its tests; measured during HMC
+  (`GradientFlow`) and by `ruttice-flow` / `ruttice-flow-mpi`, with the error by Wolff's
+  Γ-method (`numerics::gamma_method`).
+- The force of the plaquette action is faster (staples walked site by site), same numbers.
+
+### Propagators and solvers
+
+- Eigensolver files: an `Eigensolver` section prints eigenvalues of the fermion operator with
+  the keys of Bridge++ (IRLanczos, IRArnoldi; D, D†, D†D, DD†, H; the four orders; Chebyshev).
+  Bridge++'s `Eigensolver` test agrees to 1e-13. CPU only.
+- The whole domain-wall multigrid is on the device, levels below the coarse lattice and the
+  exact adjoint of the Pauli-Villars coarse operator included, and in the library
+  (`backend::cuda_bridge::multigrid`) for any program.
+- `Main.verbose_level : Detailed` prints the residual history of GCR.
+- The Chebyshev filter of the test vectors no longer overflows in single precision (it
+  panicked on stout-smeared links).
+
+### Performance
+
+On an A30, 24³×48, Möbius m = 0.001 with stout links, a point-source two-point function (12
+columns): the multigrid 584 s with its setup, mixed CGNE 804 s, double CGNE 1333 s.
+
+- Device hop kernel: two blocks of 256 threads an SM in single precision (128 registers; sm_80
+  gave 168), the field it is subtracted from read early, the matrix of Neff's α folded into
+  the next hop. A30 mixed CGNE at α = 0.6: 83.1 → 59.1 s. In double precision blocks of 192
+  threads with the legs one at a time (168 registers instead of 254).
+- Device multigrid: the coarse operator kernel reads a row per warp (3.6 → 1.1 ms an
+  application on an RTX 3080); work fields from the stream-ordered memory pool; the Gram
+  matrix in one pass; the coarse operators made on the device; reductions finished on the
+  device; the Chebyshev filter and smoother steps and the filter's last hop fused.
+- CPU: Neff's α inside the even-odd sweeps, CGNE on 12⁴ 87 → 42 ms an iteration (Bridge++'s
+  core code: 82 ms on the same i9-12900, the same iterations and correlator); the coarse
+  operator build 6.0 → 3.7 s (8⁴ benchmark).
+
+### Analysis tools
+
+- `eigen`: Krylov-Schur Arnoldi for non-Hermitian operators, the complex Schur form,
+  shifted and shift-invert transforms, smallest singular values and resolvent norms
+  (ε-pseudospectra); the orders, tolerances and thresholds of Bridge++ for Lanczos.
+- `preconditioned_fov` and `preconditioned_fov_device`: the field of values of Ã and of Ã M,
+  their eigenvalues with condition numbers (`--arnoldi`), pseudospectra (`--pseudo`), the
+  smoother and coarse correction apart (`--parts`).
+- `ruttice-low-modes` (feature `cuda-bridge`): the lowest singular values of the even-odd
+  Pauli-Villars operator and their chirality; `--coherence` (Lüscher's local coherence),
+  `--fov`.
+- `examples/smeared_ildg`: a configuration stout-smeared as a run does it, written as ILDG.
+
+### Documentation
+
+- `docs/mg_background/MDWF_MULTIGRID_NOTE`: the domain-wall multigrid, its construction and
+  results. `docs/CONVENTIONS.md`: the notation against Brower-Neff-Orginos, Kanamori et al. and
+  Bridge++. `docs/TODO.md`: what is known and not done.
+- The README asks users to cite Bridge++; it and `docs/DEVELOPMENT.md` say the comparisons with
+  Bridge++ are ours. `cargo test` finds the Bridge++ test configuration in `examples/`.
+
+### Known issues
+
+- Mixed CGNE on 24³×48 at m = 0.001 (A30): |Dx−b|² ends at 5e-17–3e-16 for a target of 1e-18;
+  the correlator is 2e-7 from that of the multigrid. Use double precision where the true
+  residual matters. QUDA's sloppy CG shows the same.
+- Bridge++'s even-odd domain-wall HMC tests test_HMC_Domainwall_Nf2_PV_alt_eo and _nosmr (8⁴)
+  end 7e-6 and 1e-5 from their plaquettes while the lexical ratio agrees to 1e-11; not
+  understood (`#[ignore]` with the numbers).
+- Running out of device memory panics.
 
 ## 0.2.0 (2026-10-14)
 
 Known issue: on an A30, the domain-wall multigrid on large lattices (28^4, 24^3x48) gives
 different last digits from run to run of the same program, from the first round of the
-bootstrap on; not on 12^4, and not on an RTX 3080. Not understood yet.
+bootstrap on; not on 12^4, and not on an RTX 3080. Not understood yet. (Fixed in 0.3.0: a race
+in the Jacobi kernel of |H_xx|⁻¹.)
 
 - `backend : cuda_bridge`: Wilson, clover and domain-wall propagators on an NVIDIA GPU with
   the CUDA kernels extracted from Bridge++ (feature `cuda-bridge`), in double, single and

@@ -205,6 +205,10 @@ general. But without Bridge++ there would be no Ruttice.
 The CUDA kernels under `cuda_bridge/` are taken from Bridge++, and its developers have agreed
 to their release here. They have not reviewed Ruttice; its errors are ours.
 
+If Ruttice is of use in your research, please cite Bridge++ as its developers ask of its own
+users: J. Phys. Conf. Ser. 523 (2014) 012046 and J. Phys. Conf. Ser. 2207 (2022) 012053, and
+its website, <https://bridge.kek.jp/Lattice-code/>.
+
 ## License
 
 GPL-3.0-or-later; see [LICENSE](LICENSE).
