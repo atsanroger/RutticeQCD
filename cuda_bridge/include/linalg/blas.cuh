@@ -206,6 +206,22 @@ struct BlasXpayNormDot {  // s_v = x_v + a_v y_v, then |s_v|^2 and <z_v|s_v>
 };
 
 template <typename Float>
+struct BlasScaleAxpy2Norm {  // s_v = c_v s_v + a_v x_v + b_v y_v (c_v real: c.re), then |s_v|^2
+    Float* s;
+    const Float* x;
+    const Float* y;
+    BlasCoefficients<Float> c, a, b;
+    __device__ void operator()(int v, size_t r, size_t i, double* acc) const {
+        const Float xr = x[r], xi = x[i], yr = y[r], yi = y[i];
+        const Float sr = c.re[v] * s[r] + a.re[v] * xr - a.im[v] * xi + b.re[v] * yr - b.im[v] * yi;
+        const Float si = c.re[v] * s[i] + a.re[v] * xi + a.im[v] * xr + b.re[v] * yi + b.im[v] * yr;
+        s[r] = sr;
+        s[i] = si;
+        acc[0] += static_cast<double>(sr) * sr + static_cast<double>(si) * si;
+    }
+};
+
+template <typename Float>
 struct BlasXpay {  // s_v = x_v + a_v y_v
     Float* s;
     const Float* x;

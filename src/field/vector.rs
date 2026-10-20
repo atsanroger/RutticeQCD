@@ -64,6 +64,21 @@ pub trait Vector: Sized {
         self.axpy(a, x);
         self.axpy(b, y);
     }
+    /// `self_j = c_j self_j + a_j x_j + b_j y_j`, then `out_j = |self_j|^2`: a step of a
+    /// Chebyshev recurrence.
+    fn scale_axpy2_norm_sqr(
+        &mut self,
+        c: &[f64],
+        a: &[C64],
+        x: &Self,
+        b: &[C64],
+        y: &Self,
+        out: &mut [f64],
+    ) {
+        self.scale(c);
+        self.axpy2(a, x, b, y);
+        self.norm_sqr(out);
+    }
     /// `self_j = y_j + b_j (self_j + a_j x_j)`.
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
         self.axpy(a, x);
@@ -443,6 +458,38 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
                 axpy_block(d, coefficient(b[j]), y, L::LANES);
             },
         );
+    }
+
+    fn scale_axpy2_norm_sqr(
+        &mut self,
+        c: &[f64],
+        a: &[C64],
+        x: &Self,
+        b: &[C64],
+        y: &Self,
+        out: &mut [f64],
+    ) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        let nv = Field::num_vectors(self);
+        assert!(c.len() == nv && a.len() == nv && b.len() == nv && out.len() == nv);
+        let (site_len, vector_len) = (self.block_len(), vector_len(self));
+        let (x, y) = (x.as_slice(), y.as_slice());
+        let sums = reduce_sites_mut(self.as_mut_slice(), site_len, nv, |i, d, acc| {
+            let range = i * site_len..(i + 1) * site_len;
+            let (x, y) = (&x[range.clone()], &y[range]);
+            for (j, d) in d.chunks_exact_mut(vector_len).enumerate() {
+                let at = j * vector_len..(j + 1) * vector_len;
+                let k = T::Compute::from_f64(c[j]);
+                for v in d.iter_mut() {
+                    *v = T::store(v.load() * k);
+                }
+                axpy_block(d, coefficient(a[j]), &x[at.clone()], L::LANES);
+                axpy_block(d, coefficient(b[j]), &y[at], L::LANES);
+                norm_block(&mut acc[j], d);
+            }
+        });
+        out.copy_from_slice(&sums);
+        self.lattice().comm.sum(out);
     }
 
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {

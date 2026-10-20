@@ -354,6 +354,20 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
         columns::axpy2(&self.data, a, &x.data, b, &y.data, self.vectors);
     }
 
+    fn scale_axpy2_norm_sqr(
+        &mut self,
+        c: &[f64],
+        a: &[C64],
+        x: &Self,
+        b: &[C64],
+        y: &Self,
+        out: &mut [f64],
+    ) {
+        assert!(self.same_shape(x) && self.same_shape(y));
+        let v = self.vectors;
+        columns::scale_axpy2_norm_sqr(&self.data, c, a, &x.data, b, &y.data, v, out);
+    }
+
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
         assert!(self.same_shape(x) && self.same_shape(y));
         columns::axpy_aypx(&self.data, a, &x.data, b, &y.data, self.vectors);

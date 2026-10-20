@@ -2,6 +2,7 @@
 #include "../../include/linalg/blas.cuh"
 #include "../../include/linalg/cast.cuh"
 #include "../../include/base/gamma.cuh"
+#include "../../include/base/alloc.cuh"
 #include <algorithm>
 
 namespace {
@@ -39,7 +40,7 @@ namespace {
             if (r.sums != nullptr) cudaFree(r.sums);
             r.sums = nullptr;
             r.sums_held = 0;
-            const cudaError_t e = cudaMalloc(&r.sums, sums * sizeof(double));
+            const cudaError_t e = bridge_cuda::malloc_or_trim(&r.sums, sums * sizeof(double));
             if (e != cudaSuccess) {
                 r.sums = nullptr;
                 return e;
@@ -51,7 +52,7 @@ namespace {
             if (r.host != nullptr) cudaFreeHost(r.host);
             r.results = r.host = nullptr;
             r.results_held = 0;
-            cudaError_t e = cudaMalloc(&r.results, results * sizeof(double));
+            cudaError_t e = bridge_cuda::malloc_or_trim(&r.results, results * sizeof(double));
             if (e == cudaSuccess) e = cudaMallocHost(&r.host, results * sizeof(double));
             if (e != cudaSuccess) {
                 if (r.results != nullptr) cudaFree(r.results);
@@ -142,6 +143,30 @@ namespace {
         const int e = reduce<1>(n / 2, vectors, stream, [=](int first, int count) {
             const size_t at = static_cast<size_t>(first) * n;
             return bridge_cuda::BlasAxpyNorm<Float>{y + at, x + at, coefficients<Float>(a, first, count)};
+        }, &r);
+        if (e != cudaSuccess) return e;
+        std::copy(r, r + vectors, norm);
+        return cudaSuccess;
+    }
+
+    // Coefficients `first` .. `first + count` of the reals c, as complex numbers.
+    template <typename Float>
+    bridge_cuda::BlasCoefficients<Float> real_coefficients(const double* c, int first, int count) {
+        bridge_cuda::BlasCoefficients<Float> r{};
+        for (int k = 0; k < count; ++k) r.re[k] = static_cast<Float>(c[first + k]);
+        return r;
+    }
+
+    template <typename Float>
+    int scale_axpy2_norm2(Float* s, const double* c, const double* a, const Float* x, const double* b,
+                          const Float* y, double* norm, int n, int vectors, cudaStream_t stream) {
+        const double* r = nullptr;
+        const int e = reduce<1>(n / 2, vectors, stream, [=](int first, int count) {
+            const size_t at = static_cast<size_t>(first) * n;
+            return bridge_cuda::BlasScaleAxpy2Norm<Float>{s + at, x + at, y + at,
+                                                          real_coefficients<Float>(c, first, count),
+                                                          coefficients<Float>(a, first, count),
+                                                          coefficients<Float>(b, first, count)};
         }, &r);
         if (e != cudaSuccess) return e;
         std::copy(r, r + vectors, norm);
@@ -248,6 +273,12 @@ int bridge_cuda_blas_dot_norms_f32(const float* s, const float* x, double* re, d
 }
 int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream) {
     return dot_norms(s, x, re, im, norm_s, norm_x, n, vectors, stream);
+}
+int bridge_cuda_blas_scale_axpy2_norm2_f32(float* s, const double* c, const double* a, const float* x, const double* b, const float* y, double* norm, int n, int vectors, cudaStream_t stream) {
+    return scale_axpy2_norm2(s, c, a, x, b, y, norm, n, vectors, stream);
+}
+int bridge_cuda_blas_scale_axpy2_norm2_f64(double* s, const double* c, const double* a, const double* x, const double* b, const double* y, double* norm, int n, int vectors, cudaStream_t stream) {
+    return scale_axpy2_norm2(s, c, a, x, b, y, norm, n, vectors, stream);
 }
 void bridge_cuda_blas_xpay_f32(float* s, const float* x, const double* a, const float* y, int n, int vectors, cudaStream_t stream) {
     xpay(s, x, a, y, n, vectors, stream);

@@ -5,7 +5,7 @@ rediscovering it. Each item says why, where, how, how much, and how to check it.
 changes results; items marked *performance* change speed, the others only the structure.
 
 Priorities: finishing the multigrid paper (`docs/mg_background/MDWF_MULTIGRID_NOTE.tex`) comes
-first; the structural items after it, in the order given. Last reviewed 2026-10-18.
+first; the structural items after it, in the order given. Last reviewed 2026-10-20.
 
 ## Structure
 
@@ -94,6 +94,61 @@ tests.
 Not worth doing on the CPU: the prolongation in half precision; reading it once for several
 vectors (the CPU already loops over the vectors inside a site).
 
+### 9. Device: the coarse operator kernel (done 2026-10-20)
+
+`coarse_pass_kernel` had a thread for each row of a site's matrices and read the rows of a warp
+2 dim reals apart; it now has a warp for each row (`cuda_bridge/README.md`): 3.59 ms against
+1.13 ms per application on 2592 sites of dim 64 in single precision on an RTX 3080. Setup of
+16⁴ with Level2 + Level3 of 2: 45 s against 35 s; 12⁴: 18 s against 17 s, the solve 1.2 s
+(15 iterations) against 0.9 s (14). **Not measured on the A30**: rerun `mg_24.yaml` there.
+The checksums differ from earlier runs from the first bootstrap vector on (another order of the
+sums); runs agree with each other.
+
+### 10. Device: the work fields from a memory pool (done 2026-10-20)
+
+Every `DeviceBuffer` was a `cudaMalloc`, and every drop a `cudaDeviceSynchronize` and `cudaFree`;
+the cycles make and drop several for every application of a preconditioner (`solve_shared`,
+`DeviceMultilevel::vcycle`, a solver made for every coarse solve). They now come from the
+stream-ordered pool of the device (`src/backend/cuda_bridge/mod.rs`, `pool`). 12⁴ setup and
+one solve: 5340 `cudaMalloc` (2.6 s) and 5357 `cudaDeviceSynchronize` against 5319
+`cudaMallocAsync` (0.19 s) and 21; setup of 16⁴ with levels 35 s against 30 s, of 12⁴ 17 s
+against 15 s; the checksums the same bit for bit. Not seen to run: the path where the device
+refuses and the pool gives back what it keeps (WSL pages device memory to the host instead).
+
+### 11. Device: the bootstrap one vector at a time
+
+- **Why.** `bootstrap` (`src/backend/cuda_bridge/multigrid.rs`) runs FGMRES with the cycle on
+  one test vector after the other, so P (8 GB in half precision on 24³×48), the coarse matrices
+  and the links are read once per vector; the kernels take several vectors in one launch. The
+  bootstrap is about two thirds of the setup (12⁴: rounds of 7–8 s in 18 s).
+- **How.** Two to four vectors at a time (the solvers already take sets with a coefficient per
+  vector). Device memory on 24³×48 (about 22 of 24 GB) limits how many; the cycle in single
+  precision helps.
+- **Check.** Setup time; the test vectors to the tolerance of the solves.
+
+### 12. The Gram matrix one pair at a time
+
+- **Why.** `gram` (`src/solver/preconditioner/multigrid/mdwf_even_odd.rs`) copies a vector with
+  `select` for every pair and reduces each pair alone: 1024 dot products of two fine vectors and
+  1024 copies for 32 vectors, about 2 s on the A30 for each of the six Gram matrices of a setup
+  (estimated, not measured). The CPU does the same.
+- **How.** ⟨x_i, y_j⟩ for all i at once (`x.dot` against y_j repeated, or an X†Y kernel that reads
+  every vector once).
+
+### 13. Smaller ones
+
+- `DeviceBasis::pv_eo_coarse_vectors` computes s and t̂ again that `pv_eo` has just made; they
+  could be restricted there.
+- (Done 2026-10-20.) A step of `ChebyshevFilter` was the operator and five passes over the
+  vectors (scale, axpy, scale, axpy, norm: 11 reads and writes of a field); it is now the
+  operator and `Vector::scale_axpy2_norm_sqr` (4), on the CPU and the device. Below the one
+  second the setup is reported in on 12⁴ and 16⁴; the Ritz values the same to the digits
+  printed. The smoother (`Chebyshev`) has the same kind of passes (8 a step besides the
+  operator) and is in every cycle: not done.
+- `RUTTICE_CHECKSUM`: the checksums are taken inside the timed setup, by downloading the whole
+  buffer and an FNV-1a over its bytes (about 0.9 GB/s); about 56 GB on 24³×48. Timings of runs
+  with it are not those of the setup.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
@@ -128,10 +183,15 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Device robustness
 
-- **The 24³×48 setup on the A30 is about 30% slower than in the mass scan** (505–511 s at
+- **The 24³×48 setup on the A30 was about 30% slower than in the mass scan** (505–511 s at
   462a423 against 389–393 s at 535c9ef, setup S and B; the solve is unchanged within an
-  iteration). Being bisected (d665b50, b72bb75). The run-to-run differences are gone: two
-  runs at 462a423 gave the same checksums (`cuda_bridge/README.md`).
+  iteration). Most likely not the code: the runs at 462a423 were those with
+  `RUTTICE_CHECKSUM=1` (29 checksums), and the checksums are taken inside the timed setup
+  (item 13; about 56 GB hashed at about 0.9 GB/s on 24³×48; 12⁴ on an RTX 3080 with them 24 s,
+  without 22 s). The barrier of b72bb75 costs nothing measurable (2592 blocks of dim 64: 12 s
+  either way on the RTX 3080). **Check:** 24³×48 on the A30 without `RUTTICE_CHECKSUM`. The
+  run-to-run differences are gone: two runs at 462a423 gave the same checksums
+  (`cuda_bridge/README.md`).
 - **Running out of device memory panics.** `Vector` has no `Result`, so `zeros_like`,
   `zeros_with` and `select` of the device fields panic (`must`) when the device refuses; the
   message is the CUDA error. A solver that narrows its vectors (`Narrowed::narrow`) holds the

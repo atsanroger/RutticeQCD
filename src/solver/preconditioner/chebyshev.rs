@@ -55,16 +55,25 @@ impl<H: LinearFn<V>, V: Vector> LinearFn<V> for ChebyshevFilter<H, V> {
         // T_0 = 1, T_1 = ℓ.
         self.previous.copy_from(inp);
         Self::mapped(&mut self.h, self.lo, self.hi, &mut self.current, inp);
-        let two = vec![2.0; nv];
+        // T_(k+1) = 2 ℓ T_k − T_(k−1) = (4 / (hi − lo)) H T_k − 2 (hi + lo) / (hi − lo) T_k − T_(k−1):
+        // after H, one pass over the vectors with the norm (`scale_axpy2_norm_sqr`).
+        let (lo, hi) = (self.lo, self.hi);
+        let scale = vec![4.0 / (hi - lo); nv];
+        let shift = vec![C64::new(-2.0 * (hi + lo) / (hi - lo), 0.0); nv];
         let minus_one = vec![C64::new(-1.0, 0.0); nv];
         let mut norms = vec![0.0; nv];
         for _ in 1..self.degree {
-            Self::mapped(&mut self.h, self.lo, self.hi, &mut self.next, &self.current);
-            self.next.scale(&two);
-            self.next.axpy(&minus_one, &self.previous);
+            self.h.mult(&mut self.next, &self.current);
+            self.next.scale_axpy2_norm_sqr(
+                &scale,
+                &shift,
+                &self.current,
+                &minus_one,
+                &self.previous,
+                &mut norms,
+            );
             std::mem::swap(&mut self.previous, &mut self.current);
             std::mem::swap(&mut self.current, &mut self.next);
-            self.current.norm_sqr(&mut norms);
             if norms.iter().any(|n| *n > RESCALE * RESCALE) {
                 let s: Vec<f64> = norms
                     .iter()

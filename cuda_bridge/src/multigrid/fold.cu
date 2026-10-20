@@ -149,7 +149,8 @@ void bridge_cuda_coarse_pass_f32(
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
 {
     dim3 grid(n_coarse, vectors);
-    bridge_cuda::coarse_pass_kernel<float><<<grid, dim, 2 * dim * sizeof(float), stream>>>(
+    const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
+    bridge_cuda::coarse_pass_kernel<float><<<grid, threads, 2 * dim * sizeof(float), stream>>>(
         d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
         n_coarse, dim, parity, minus ? -1 : 1, gamma5);
 }
@@ -167,7 +168,8 @@ void bridge_cuda_coarse_pass_f64(
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
 {
     dim3 grid(n_coarse, vectors);
-    bridge_cuda::coarse_pass_kernel<double><<<grid, dim, 2 * dim * sizeof(double), stream>>>(
+    const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
+    bridge_cuda::coarse_pass_kernel<double><<<grid, threads, 2 * dim * sizeof(double), stream>>>(
         d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
         n_coarse, dim, parity, minus ? -1 : 1, gamma5);
 }

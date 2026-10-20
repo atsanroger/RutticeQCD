@@ -650,6 +650,10 @@ int bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const dou
 int bridge_cuda_blas_axpy_norm2_f64(double* y, const double* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream);
 int bridge_cuda_blas_xpay_norm2_dot_f64(double* s, const double* x, const double* a, const double* y, const double* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream);
 int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream);
+// s_v = c_v s_v + a_v x_v + b_v y_v, then |s_v|^2 (a step of a Chebyshev recurrence); c real
+// (one double for each vector), a and b complex (re, im). As the reductions above.
+int bridge_cuda_blas_scale_axpy2_norm2_f32(float* s, const double* c, const double* a, const float* x, const double* b, const float* y, double* norm, int n, int vectors, cudaStream_t stream);
+int bridge_cuda_blas_scale_axpy2_norm2_f64(double* s, const double* c, const double* a, const double* x, const double* b, const double* y, double* norm, int n, int vectors, cudaStream_t stream);
 
 // In one pass: s_v = x_v + a_v y_v; s_v += a_v x_v + b_v y_v; s_v = y_v + b_v (s_v + a_v x_v).
 // Coefficients complex, (re, im) for each vector, on the host.

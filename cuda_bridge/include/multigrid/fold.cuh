@@ -360,9 +360,28 @@ __global__ void fold_orthonormalise_kernel(
 // Gamma_5 (+1 on the first half of the components of a site, -1 on the second) acts on d and
 // h and on the result: Gamma_5 D_c Gamma_5, the adjoint of D_c.
 //
-// A block of threads for each (coarse site, vector), a thread for each row; blockIdx.y the
-// vector. out must be none of the fields. Shared memory: 2 dim reals.
+// A block of threads for each (coarse site, vector), blockIdx.y the vector, of
+// coarse_pass_warps(dim) warps: a warp for each row (warp w the rows w, w + warps, ...), its
+// lanes the columns lane, lane + 32, ..., so that a warp reads a row of a matrix as one
+// stretch of memory (a thread for each row read the rows 2 dim reals apart: about a third of
+// the bandwidth on 2592 sites of dim 64). The sum of a row is the lanes' parts added in a
+// fixed order (the butterfly of coarse_pass_sum), so the result does not depend on timing.
+// out must be none of the fields. Shared memory: 2 dim reals.
 // -------------------------------------------------------------------------
+
+// Warps in a block of coarse_pass_kernel: one for each row, at most 8.
+__host__ __device__ __forceinline__ int coarse_pass_warps(int dim) {
+    return dim < 8 ? dim : 8;
+}
+
+// The sum over the lanes of a warp, in every lane.
+template <typename Float>
+__device__ __forceinline__ Float coarse_pass_sum(Float x) {
+    #pragma unroll
+    for (int step = WarpSize / 2; step > 0; step >>= 1) x += __shfl_xor_sync(0xffffffffu, x, step);
+    return x;
+}
+
 template <typename Float>
 __global__ void coarse_pass_kernel(
     Float* __restrict__ d_out,
@@ -379,21 +398,24 @@ __global__ void coarse_pass_kernel(
 {
     extern __shared__ unsigned char shared_bytes[];
     Float* sum = reinterpret_cast<Float*>(shared_bytes);
-    const int X = blockIdx.x, row = threadIdx.x;
+    const int X = blockIdx.x;
+    const int lane = threadIdx.x % WarpSize, warp = threadIdx.x / WarpSize, warps = blockDim.x / WarpSize;
     const size_t first = blockIdx.y * coarse_reals(n_coarse, dim);
     const size_t matrix = static_cast<size_t>(dim) * dim;
-    const size_t at = first + coarse_index(static_cast<size_t>(X) * dim + row);
+    auto at_row = [&](int row) { return first + coarse_index(static_cast<size_t>(X) * dim + row); };
     // The whole block of threads leaves, or none of it.
     if (parity >= 0 && static_cast<int>(d_odd[X]) != parity) {
-        d_out[at] = 0;
-        d_out[at + WarpSize] = 0;
+        for (int row = threadIdx.x; row < dim; row += blockDim.x) {
+            d_out[at_row(row)] = 0;
+            d_out[at_row(row) + WarpSize] = 0;
+        }
         return;
     }
 
-    // (m v)_row for the matrix m and the site Y of the field v.
-    auto times = [&](const Float* m, const Float* v, int Y, Float& re, Float& im) {
+    // This lane's part of (m v)_row for the matrix m and the site Y of the field v: its columns.
+    auto times = [&](const Float* m, const Float* v, int Y, int row, Float& re, Float& im) {
         const Float* m_row = m + 2 * static_cast<size_t>(dim) * row;
-        for (int col = 0; col < dim; ++col) {
+        for (int col = lane; col < dim; col += WarpSize) {
             const size_t q = first + coarse_index(static_cast<size_t>(Y) * dim + col);
             const Float flip = (gamma5 && col >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
             const Float xr = flip * v[q], xi = flip * v[q + WarpSize];
@@ -402,40 +424,56 @@ __global__ void coarse_pass_kernel(
             im += a * xi + b * xr;
         }
     };
+    // The row as it leaves the kernel: Gamma_5 on it with `gamma5`.
+    auto store = [&](int row, Float re, Float im) {
+        const Float flip = (gamma5 && row >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
+        d_out[at_row(row)] = flip * re;
+        d_out[at_row(row) + WarpSize] = flip * im;
+    };
 
-    Float re = 0, im = 0;
-    if (d_diag_of != nullptr) {
-        times(d_diag + 2 * matrix * X, d_diag_of, X, re, im);
-    }
-    if (d_hops_of != nullptr) {
-        Float hr = 0, hi = 0;
-        for (int dir = 0; dir < 8; ++dir) {
-            const size_t link = static_cast<size_t>(dir) * n_coarse + X;
-            times(d_links + 2 * matrix * link, d_hops_of, d_neighbours[link], hr, hi);
+    for (int row = warp; row < dim; row += warps) {
+        Float re = 0, im = 0;
+        if (d_diag_of != nullptr) {
+            times(d_diag + 2 * matrix * X, d_diag_of, X, row, re, im);
         }
-        re += sign * hr;
-        im += sign * hi;
+        if (d_hops_of != nullptr) {
+            Float hr = 0, hi = 0;
+            for (int dir = 0; dir < 8; ++dir) {
+                const size_t link = static_cast<size_t>(dir) * n_coarse + X;
+                times(d_links + 2 * matrix * link, d_hops_of, d_neighbours[link], row, hr, hi);
+            }
+            re += sign * hr;
+            im += sign * hi;
+        }
+        re = coarse_pass_sum(re);
+        im = coarse_pass_sum(im);
+        if (d_base != nullptr) {
+            re += d_base[at_row(row)];
+            im += d_base[at_row(row) + WarpSize];
+        }
+        if (d_inverse != nullptr) {
+            if (lane == 0) {
+                sum[row] = re;
+                sum[dim + row] = im;
+            }
+        } else if (lane == 0) {
+            store(row, re, im);
+        }
     }
-    if (d_base != nullptr) {
-        re += d_base[at];
-        im += d_base[at + WarpSize];
-    }
-    if (d_inverse != nullptr) {
-        sum[row] = re;
-        sum[dim + row] = im;
-        __syncthreads();
-        re = 0;
-        im = 0;
+    if (d_inverse == nullptr) return;
+    __syncthreads();
+    for (int row = warp; row < dim; row += warps) {
+        Float re = 0, im = 0;
         const Float* m_row = d_inverse + 2 * (matrix * X + static_cast<size_t>(dim) * row);
-        for (int col = 0; col < dim; ++col) {
+        for (int col = lane; col < dim; col += WarpSize) {
             const Float a = m_row[2 * col], b = m_row[2 * col + 1];
             re += a * sum[col] - b * sum[dim + col];
             im += a * sum[dim + col] + b * sum[col];
         }
+        re = coarse_pass_sum(re);
+        im = coarse_pass_sum(im);
+        if (lane == 0) store(row, re, im);
     }
-    const Float flip = (gamma5 && row >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
-    d_out[at] = flip * re;
-    d_out[at + WarpSize] = flip * im;
 }
 
 // v = Gamma_5 v on the coarse lattice, every vector.

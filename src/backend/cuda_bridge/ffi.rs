@@ -49,9 +49,24 @@ pub(super) const DEVICE_TO_DEVICE: i32 = 3;
 /// The default stream.
 pub(super) const STREAM: *mut c_void = std::ptr::null_mut();
 
+/// `cudaDevAttrMemoryPoolsSupported` and `cudaMemPoolAttrReleaseThreshold` of the runtime.
+pub(super) const MEMORY_POOLS_SUPPORTED: i32 = 115;
+pub(super) const POOL_RELEASE_THRESHOLD: i32 = 4;
+
 extern "C" {
     pub(super) fn cudaMalloc(ptr: *mut *mut c_void, bytes: usize) -> i32;
     pub(super) fn cudaFree(ptr: *mut c_void) -> i32;
+    pub(super) fn cudaMallocAsync(ptr: *mut *mut c_void, bytes: usize, stream: *mut c_void) -> i32;
+    pub(super) fn cudaFreeAsync(ptr: *mut c_void, stream: *mut c_void) -> i32;
+    pub(super) fn cudaGetDevice(device: *mut i32) -> i32;
+    pub(super) fn cudaDeviceGetAttribute(value: *mut i32, attribute: i32, device: i32) -> i32;
+    pub(super) fn cudaDeviceGetDefaultMemPool(pool: *mut *mut c_void, device: i32) -> i32;
+    pub(super) fn cudaMemPoolSetAttribute(
+        pool: *mut c_void,
+        attribute: i32,
+        value: *mut c_void,
+    ) -> i32;
+    pub(super) fn cudaMemPoolTrimTo(pool: *mut c_void, keep: usize) -> i32;
     pub(super) fn cudaMemcpy(dst: *mut c_void, src: *const c_void, bytes: usize, kind: i32) -> i32;
     pub(super) fn cudaMemset(ptr: *mut c_void, value: i32, bytes: usize) -> i32;
     pub(super) fn cudaDeviceSynchronize() -> i32;

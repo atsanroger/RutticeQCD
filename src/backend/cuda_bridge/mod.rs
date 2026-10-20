@@ -91,14 +91,72 @@ fn finish() {
 static IN_USE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
-/// `bytes` bytes on the device, counted for `device_memory`.
+/// The stream-ordered memory pool of the device the fields are allocated from, made to keep
+/// what is freed for the next allocation (by default it gives it back at every
+/// synchronisation); null where the device has no pools, and then every field is a
+/// `cudaMalloc` of its own and freeing one waits for the device.
+///
+/// The solvers and cycles make and drop work fields all the time (a few for every application
+/// of a preconditioner): a `cudaMalloc` and a `cudaDeviceSynchronize` with `cudaFree` for each
+/// cost about 0.65 ms for a coarse field of 24³×48 on an RTX 3080 under WSL, against about
+/// 17 µs from the pool, and every free stopped the queue of kernels.
+fn pool() -> *mut c_void {
+    static POOL: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let pool = *POOL.get_or_init(|| {
+        let (mut device, mut supported) = (0, 0);
+        let mut pool: *mut c_void = std::ptr::null_mut();
+        // SAFETY: places for the results.
+        let usable = unsafe {
+            cudaGetDevice(&mut device) == 0
+                && cudaDeviceGetAttribute(&mut supported, MEMORY_POOLS_SUPPORTED, device) == 0
+                && supported != 0
+                && cudaDeviceGetDefaultMemPool(&mut pool, device) == 0
+        };
+        if !usable {
+            // SAFETY: no arguments; the failed query is not an error of the kernels.
+            unsafe { cudaGetLastError() };
+            return 0;
+        }
+        let mut keep = u64::MAX;
+        let value: *mut c_void = (&mut keep as *mut u64).cast();
+        // SAFETY: the attribute is a u64.
+        if unsafe { cudaMemPoolSetAttribute(pool, POOL_RELEASE_THRESHOLD, value) } != 0 {
+            // SAFETY: as above.
+            unsafe { cudaGetLastError() };
+        }
+        pool as usize
+    });
+    pool as *mut c_void
+}
+
+/// `bytes` bytes on the device, counted for `device_memory`: from the pool (`pool`), in the
+/// order of the default stream. If the device refuses, what the pool keeps unused is given
+/// back and the allocation tried once more.
 fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
     let mut ptr: *mut c_void = std::ptr::null_mut();
     if bytes == 0 {
         return Ok(ptr);
     }
-    // SAFETY: `ptr` is a valid place for the pointer.
-    check(unsafe { cudaMalloc(&mut ptr, bytes) })?;
+    let pool = pool();
+    let code = if pool.is_null() {
+        // SAFETY: `ptr` is a valid place for the pointer.
+        unsafe { cudaMalloc(&mut ptr, bytes) }
+    } else {
+        // SAFETY: `ptr` is a valid place for the pointer; the pool is the device's.
+        unsafe {
+            match cudaMallocAsync(&mut ptr, bytes, STREAM) {
+                0 => 0,
+                _ => {
+                    // The refusal is not an error of the kernels: not for `finish` to find.
+                    cudaGetLastError();
+                    cudaDeviceSynchronize();
+                    cudaMemPoolTrimTo(pool, 0);
+                    cudaMallocAsync(&mut ptr, bytes, STREAM)
+                }
+            }
+        }
+    };
+    check(code)?;
     PEAK.fetch_max(
         IN_USE.fetch_add(bytes, Ordering::Relaxed) + bytes,
         Ordering::Relaxed,
@@ -106,7 +164,9 @@ fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
     Ok(ptr)
 }
 
-/// Frees what `device_alloc` gave for `bytes` bytes, after the kernels that may still use it.
+/// Frees what `device_alloc` gave for `bytes` bytes, after the kernels that may still use it:
+/// in the order of the default stream, which all of them are launched on (without a pool, by
+/// waiting for the device).
 ///
 /// # Safety
 /// `ptr` came from `device_alloc(bytes)` and is not used afterwards.
@@ -114,8 +174,12 @@ unsafe fn device_free(ptr: *mut c_void, bytes: usize) {
     if bytes == 0 {
         return;
     }
-    cudaDeviceSynchronize();
-    cudaFree(ptr);
+    if pool().is_null() {
+        cudaDeviceSynchronize();
+        cudaFree(ptr);
+    } else {
+        cudaFreeAsync(ptr, STREAM);
+    }
     IN_USE.fetch_sub(bytes, Ordering::Relaxed);
 }
 

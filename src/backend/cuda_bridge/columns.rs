@@ -240,6 +240,38 @@ pub(super) fn dot_norms<T: DeviceReal>(
     }
 }
 
+/// `s_v = c_v s_v + a_v x_v + b_v y_v`, then `norm_v = |s_v|²`, in one pass.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn scale_axpy2_norm_sqr<T: DeviceReal>(
+    s: &DeviceBuffer<T>,
+    c: &[f64],
+    a: &[C64],
+    x: &DeviceBuffer<T>,
+    b: &[C64],
+    y: &DeviceBuffer<T>,
+    vectors: usize,
+    norm: &mut [f64],
+) {
+    assert!(c.len() >= vectors && norm.len() >= vectors);
+    let n = reals(s, x, vectors);
+    assert!(y.len == s.len);
+    // SAFETY: three buffers of `vectors` vectors of `n` reals, `s` neither of the others (the
+    // caller borrows it mutably), coefficients and a place for the result of each vector.
+    must(check(unsafe {
+        T::scale_axpy2_norm2(
+            s.ptr,
+            c.as_ptr(),
+            reals_of(a, vectors),
+            x.ptr,
+            reals_of(b, vectors),
+            y.ptr,
+            norm.as_mut_ptr(),
+            n,
+            vectors as i32,
+        )
+    }));
+}
+
 /// `s_v = x_v + a_v y_v`.
 pub(super) fn xpay<T: DeviceReal>(
     s: &DeviceBuffer<T>,

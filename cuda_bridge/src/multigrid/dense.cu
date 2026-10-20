@@ -3,6 +3,7 @@
 // read as column-major they are the transposes, which is accounted for below.
 
 #include "bridge_cuda.h"
+#include "base/alloc.cuh"
 #include <cublas_v2.h>
 #include <cuComplex.h>
 #include <cusolverDn.h>
@@ -91,9 +92,9 @@ int bridge_cuda_dense_inverse(double* d_inverse, const double* d_a, int n)
     int lwork = 0;
     cusolverStatus_t status;
     auto* inverse = reinterpret_cast<cuDoubleComplex*>(d_inverse);
-    if (cudaMalloc(&lu, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
-        cudaMalloc(&pivots, n * sizeof(int)) != cudaSuccess ||
-        cudaMalloc(&d_info, sizeof(int)) != cudaSuccess) {
+    if (bridge_cuda::malloc_or_trim(&lu, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&pivots, n * sizeof(int)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&d_info, sizeof(int)) != cudaSuccess) {
         result = -1;
         goto done;
     }
@@ -106,7 +107,7 @@ int bridge_cuda_dense_inverse(double* d_inverse, const double* d_a, int n)
     if (cudaGetLastError() != cudaSuccess) { result = -1; goto done; }
     status = cusolverDnZgetrf_bufferSize(solver(), n, n, lu, n, &lwork);
     if (status != CUSOLVER_STATUS_SUCCESS) { result = -100 - static_cast<int>(status); goto done; }
-    if (cudaMalloc(&work, static_cast<size_t>(lwork) * sizeof(cuDoubleComplex)) != cudaSuccess) {
+    if (bridge_cuda::malloc_or_trim(&work, static_cast<size_t>(lwork) * sizeof(cuDoubleComplex)) != cudaSuccess) {
         result = -1;
         goto done;
     }
@@ -142,11 +143,11 @@ int bridge_cuda_dense_abs_inverse(double* d_out, const double* d_a, int n, doubl
     cusolverStatus_t status;
     cublasStatus_t blas_status;
     const cuDoubleComplex one = make_cuDoubleComplex(1.0, 0.0), zero = make_cuDoubleComplex(0.0, 0.0);
-    if (cudaMalloc(&h, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
-        cudaMalloc(&scaled, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
-        cudaMalloc(&lambda, n * sizeof(double)) != cudaSuccess ||
-        cudaMalloc(&weights, n * sizeof(double)) != cudaSuccess ||
-        cudaMalloc(&d_info, sizeof(int)) != cudaSuccess) {
+    if (bridge_cuda::malloc_or_trim(&h, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&scaled, count * sizeof(cuDoubleComplex)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&lambda, n * sizeof(double)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&weights, n * sizeof(double)) != cudaSuccess ||
+        bridge_cuda::malloc_or_trim(&d_info, sizeof(int)) != cudaSuccess) {
         result = -1;
         goto done;
     }
@@ -157,7 +158,7 @@ int bridge_cuda_dense_abs_inverse(double* d_out, const double* d_a, int n, doubl
     status = cusolverDnZheevd_bufferSize(solver(), CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
                                          n, h, n, lambda, &lwork);
     if (status != CUSOLVER_STATUS_SUCCESS) { result = -100 - static_cast<int>(status); goto done; }
-    if (cudaMalloc(&work, static_cast<size_t>(lwork) * sizeof(cuDoubleComplex)) != cudaSuccess) {
+    if (bridge_cuda::malloc_or_trim(&work, static_cast<size_t>(lwork) * sizeof(cuDoubleComplex)) != cudaSuccess) {
         result = -1;
         goto done;
     }
