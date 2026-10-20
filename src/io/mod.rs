@@ -308,6 +308,14 @@ mod tests {
         dir.join(name)
     }
 
+    /// `name` in a directory of its own for `run`: files that hold their own name (the
+    /// logical file name of ILDG) are then the same bytes.
+    fn scratch_in(run: &str, name: &str) -> PathBuf {
+        let path = scratch(run).join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        path
+    }
+
     /// The bytes of a file with the date of the SciDAC record blanked out: it is the time
     /// of writing. The date always has the same length, so nothing else moves.
     fn without_date(path: &Path) -> Vec<u8> {
@@ -328,13 +336,13 @@ mod tests {
         let mut whole = random_gauge(&whole_lat, 4242);
         // A negative zero must come through the gather with its sign.
         whole.site_mut(2, 17)[5] = -0.0;
-        let reference = scratch(&format!("{name}_1"));
+        let reference = scratch_in("1", name);
         format.write(&reference, &whole).unwrap();
         let read_whole = format.read(&reference, &whole_lat).unwrap();
 
         for grid in GRIDS {
             let [a, b, c, d] = grid;
-            let path = scratch(&format!("{name}_{a}{b}{c}{d}"));
+            let path = scratch_in(&format!("{a}{b}{c}{d}"), name);
             let results = LocalComm::run(GLOBAL, grid, |lat| {
                 format
                     .write(&path, &local_part(&whole, &lat))
@@ -394,6 +402,18 @@ mod tests {
         ] {
             same_file_on_every_grid(name, &Ildg { precision }, true);
         }
+        // The logical file name, which Grid's reader asks for.
+        let path = scratch("ildg_lfn.lime");
+        let u = random_gauge(&Lattice::single_node(GLOBAL), 3);
+        Ildg {
+            precision: FilePrecision::Double,
+        }
+        .write(&path, &u)
+        .unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let has = |what: &[u8]| bytes.windows(what.len()).any(|w| w == what);
+        assert!(has(b"ildg-data-lfn") && has(b"ildg_lfn.lime"));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

@@ -183,9 +183,10 @@ pub(crate) fn load_links(
 }
 
 /// `load_links` with stout smearing on the device (`GaugeSmearing::levels_on_device`), for the
-/// `cuda_bridge` backend: on the CPU it took most of the start of a 24³×48 run (11.7 s with the
-/// GPU idle on the A30). The links agree with those smeared on the CPU to 1e-13 a step
-/// (`tests/cuda_bridge.rs`), not bit for bit. APE smearing stays on the CPU.
+/// `cuda_bridge` backend. On 24³×48 (A30) it saves nothing yet: the CPU smeared in about 2 s,
+/// and the device's first CUDA call (its context) now comes here; it scales with the volume and
+/// the steps, where the CPU does not keep up. The links agree with those smeared on the CPU to
+/// 1e-13 a step (`tests/cuda_bridge.rs`), not bit for bit. APE smearing stays on the CPU.
 #[cfg(feature = "cuda-bridge")]
 pub(crate) fn load_links_on_device(
     lat: &Arc<Lattice>,

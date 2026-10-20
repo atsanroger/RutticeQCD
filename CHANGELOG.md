@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- ILDG files are written with the record `ildg-data-lfn` (the logical file name, here the
+  file's name), which the ILDG format asks for: Grid's reader refused our files without it.
+- `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
+  for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
+  single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the
+  setup 32 → 25 s, the solve 0.7 → 0.6 s, the same iterations; the sums are in another order,
+  so the last digits move.
+- Corrections to 0.3.0: the double-precision `hop_gemm` at Ls 8 runs blocks of 128 threads
+  (192 is the bound of its launch), three an SM with 168 registers where two fitted with 255.
+  On the A30 (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
+  smearing on the device saves nothing there yet: the CPU smeared in about 2 s (the 11.7 s
+  that was the reason came from a run under nsys).
+
 ## 0.3.0 (2026-10-20)
 
 **Fixed: the known issue of 0.2.0.** The domain-wall multigrid on an A30 gave different last

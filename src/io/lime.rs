@@ -18,6 +18,7 @@ const MESSAGE_END: u16 = 1 << 14;
 const TEXT_LIMIT: u64 = 1 << 20;
 
 const ILDG_FORMAT: &str = "ildg-format";
+const ILDG_LFN: &str = "ildg-data-lfn";
 const ILDG_DATA: &str = "ildg-binary-data";
 const SCIDAC_DATA: &str = "scidac-binary-data";
 const SCIDAC_FILE: &str = "scidac-private-file-xml";
@@ -407,7 +408,11 @@ fn write(
         u,
         || {
             let mut out = BufWriter::new(File::create(path)?);
-            begin(&mut out, lat.global, precision, flavour, len)?;
+            let lfn = path.file_name().map_or_else(
+                || "unknown".to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            begin(&mut out, lat.global, precision, flavour, len, &lfn)?;
             Ok((out, Checksum::default()))
         },
         |(out, sum), t, slice| {
@@ -446,13 +451,14 @@ fn write(
 }
 
 /// The records before the links, and the header of the record of the links (`len`
-/// bytes).
+/// bytes). `lfn`: the logical file name of an ILDG file.
 fn begin(
     out: &mut impl Write,
     dims: [usize; ND],
     precision: FilePrecision,
     flavour: Flavour,
     len: u64,
+    lfn: &str,
 ) -> Result<(), IoError> {
     let [lx, ly, lz, lt] = dims;
     let real = precision.bytes();
@@ -492,6 +498,9 @@ fn begin(
                  <lx>{lx}</lx><ly>{ly}</ly><lz>{lz}</lz><lt>{lt}</lt></ildgFormat>"
             );
             text_record(out, ILDG_FORMAT, &format, 0)?;
+            // The ILDG format asks for the logical file name; Grid's reader refuses a file
+            // without it.
+            text_record(out, ILDG_LFN, lfn, 0)?;
             ILDG_DATA
         }
     };
@@ -500,8 +509,8 @@ fn begin(
 }
 
 /// Write a gauge configuration as an ILDG file, the way QIO writes one: the SciDAC records
-/// that describe the file and the record, `ildg-format`, `ildg-binary-data` and the
-/// checksum.
+/// that describe the file and the record, `ildg-format`, `ildg-data-lfn` (the file's name),
+/// `ildg-binary-data` and the checksum.
 pub fn write_ildg(
     path: &Path,
     u: &Field<f64, Gauge>,

@@ -10,7 +10,7 @@ namespace {
     void restrict_any(Float* d_out, const Float* d_v, const Float* d_q, const unsigned* d_members,
                       int n_blocks, int nq, int bs, int n_parent, int pd, int vectors, cudaStream_t stream)
     {
-        dim3 grid(blocks_for(n_blocks * nq), vectors);
+        dim3 grid(blocks_for(n_blocks * nq * bridge_cuda::WarpSize), vectors);
         bridge_cuda::level_restrict_kernel<Float><<<grid, BLOCK_SIZE, 0, stream>>>(
             d_out, d_v, d_q, d_members, n_blocks, nq, bs, n_parent, pd);
     }
