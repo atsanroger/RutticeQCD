@@ -291,9 +291,14 @@ __global__ void fifth_gemm_columns_kernel(
 // lanes: a multiple of 4, and lanes * Ls a multiple of 32 in double precision (whole warps).
 // Shared memory: 2 Ls * 12 lanes reals, then the matrix as the kernel of the precision keeps
 // it (8 NT * K16 doubles, or 8 NT * K4 floats).
+//
+// Registers: in single precision at most 128, two blocks of 256 threads on an SM. Left alone,
+// nvcc gives the kernel 168 for sm_80 (one block, 8 warps of the A30's 64) and 128 or 168 for
+// sm_86 depending on small changes; at 128 it spills nothing (ptxas -v). In double precision a
+// bound of 128 spills 4 KB a thread: none there.
 // -------------------------------------------------------------------------
 template <typename Float, int NT>
-__global__ void hop_gemm_kernel(
+__global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_gemm_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_gauge, int link_rows,
@@ -402,6 +407,16 @@ __global__ void hop_gemm_kernel(
             }
         }
     } else {
+        // What the result is subtracted from, read before the product so that its latency
+        // passes while the product is summed rather than after it.
+        Float from_upper[12], from_lower[12];
+        if (d_from != nullptr && live) {
+            #pragma unroll
+            for (int c = 0; c < 12; ++c) {
+                from_upper[c] = d_from[in_field(2 * is, c * lanes + lane)];
+                from_lower[c] = d_from[in_field(2 * is + 1, c * lanes + lane)];
+            }
+        }
         Float upper[12], lower[12];
         #pragma unroll
         for (int c = 0; c < 12; ++c) { upper[c] = 0; lower[c] = 0; }
@@ -418,8 +433,8 @@ __global__ void hop_gemm_kernel(
             #pragma unroll
             for (int c = 0; c < 12; ++c) {
                 const int ku = in_field(2 * is, c * lanes + lane), kl = in_field(2 * is + 1, c * lanes + lane);
-                d_out[ku] = (d_from != nullptr) ? d_from[ku] - upper[c] : upper[c];
-                d_out[kl] = (d_from != nullptr) ? d_from[kl] - lower[c] : lower[c];
+                d_out[ku] = (d_from != nullptr) ? from_upper[c] - upper[c] : upper[c];
+                d_out[kl] = (d_from != nullptr) ? from_lower[c] - lower[c] : lower[c];
             }
         }
     }

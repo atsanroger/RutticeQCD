@@ -223,6 +223,30 @@ m = 0.001 3613–3619 iterations a column, 109 s each (30.2 ms an iteration), 13
 multigrid 637 s (setup 329 s, 23.8 s a column), so 2.1 times faster with its setup. PS of the
 two agree to about 1e-8; CGNE at t = 0 is Bridge++ 2.1.3's to the digits printed.
 
+**Done 2026-10-20, the hop kernel on the A30.** Its stalls (`ncu`, A30, 24³×48 mixed CGNE): nvcc
+gave `hop_gemm_kernel<float>` 168 registers for sm_80 (128 for sm_86, by chance), so one block of
+256 threads on an SM, 8 warps of 64; and the second hop of K, the one with `d_from`, took 6.79
+ms against 4.13 for the first (long scoreboard 4.0 against 1.0): `d_from` was read when the
+result was written, its latency after everything else. Now: `__launch_bounds__(256, 2)` for
+the float kernel (128 registers, no spill for sm_80 and sm_86 by `ptxas -v`; in double 128
+spills 4 KB, so none there), `d_from` read before the product of the fifth dimension, and
+without α `B C⁻¹` as the matrix of the first hops of K (`Matrices::pre_inv`), so the second
+read one spinor of a neighbour and not three. A30, mixed CGNE, one right-hand side: α = 0.6
+83.1 → 59.1 s (4012 iterations both, 14.7 ms an iteration), α = 1 130.3 → 89.6 s (6237 → 6157
+iterations: B in the matrix rounds differently in single precision). A launch 4.13/6.79 → 3.18/
+3.37 ms, active warps 12 → 25%. It is no longer waiting on DRAM (39–46% of it): it issues
+(math pipe throttle 1.35, not selected 1.55), 367 million instructions a launch. Next: fewer
+instructions (every one of the Ls threads of a site rebuilds the third row of the same links;
+the index arithmetic), then the fields in half precision.
+
+Tried and not kept (A30):
+- The blocks in chunks of time slices, so that the neighbours in t are still in L2: DRAM read
+  of a launch 894 → 464 MB, L2 hits 60 → 74%, the time the same. Worth trying again once the
+  kernel waits on DRAM.
+- Q made by the hop kernel as it reads (`(b − c Y) Q ψ`), instead of the `B Q` pass before the
+  first hops of K with α: that hop 3.18 → 4.52 ms against the 1.11 ms of the pass saved, so
+  2.6–3.8% slower in all (mixed α 0.6 and 1, double α 0.6), though 1.2 GB less device memory.
+
 Careful when timing it: with `precision : mixed`, `Solver.maximum_number_of_iteration` caps
 each inner single-precision CG, and the defect correction repeats it up to
 `maximum_number_of_restart.max(50)` times; 400 gave 20000 iterations, not converged.
