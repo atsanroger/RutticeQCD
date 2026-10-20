@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 (2026-10-21)
+
+- ILDG files are written with the record `ildg-data-lfn` (the logical file name, here the
+  file's name), which the ILDG format asks for: Grid's reader refused our files without it.
+  Files written before can still be read by Ruttice and QUDA; for Grid, write them again.
+
 ## 0.3.0 (2026-10-20)
 
 **Fixed: the known issue of 0.2.0.** The domain-wall multigrid on an A30 gave different last
