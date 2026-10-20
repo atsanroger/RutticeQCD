@@ -12,7 +12,9 @@
 
 use super::wilson::{gamma5, scratch};
 use super::*;
-use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
+use crate::fermion::{
+    inverse_hops_twice_of, Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant,
+};
 use crate::kernel::NC;
 use crate::solver::preconditioner::multigrid::{CoarseOp, NeffQ};
 use crate::{Parity, Vector};
@@ -171,6 +173,9 @@ struct Matrices<T> {
     inv: [DeviceBuffer<T>; 2],
     /// `B Q`, what the hops act on. Without α the hop kernel makes `B ψ` as it reads.
     pre: Option<DeviceBuffer<T>>,
+    /// `B Q (C Q)⁻¹ = B C⁻¹`: the inverse within a site followed by what the next hops act on,
+    /// for two hops of `D^(α)` in a row (`schur_twice`); with α only, as `pre`.
+    pre_inv: Option<DeviceBuffer<T>>,
     /// `(B Q)†`, what follows the adjoint hops.
     post: DeviceBuffer<T>,
     /// `(C Q)†⁻¹ (B Q)†`: the adjoint hop followed by the inverse within the site.
@@ -196,6 +201,11 @@ impl<T: DeviceReal> Matrices<T> {
                 None
             } else {
                 Some(pre.on_device()?)
+            },
+            pre_inv: if alpha == 1.0 {
+                None
+            } else {
+                Some(pre.times(&inv).on_device()?)
             },
             inv_post: inv.adjoint().times(&post).on_device()?,
             post: post.on_device()?,
@@ -782,6 +792,37 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaMdwf<T> {
                 self.hops_then(scratch, out, inp, then.from, (1.0, 0.0), true, to, m);
             }
         }
+    }
+
+    /// With α: `B Q (C Q)_o⁻¹ = B C_o⁻¹`, so the matrix the second hops act on goes into the
+    /// product after the first, `inp − (C Q)_e⁻¹ H B C_o⁻¹ H B Q inp`: one pass over the fields
+    /// fewer than two `hop_then` (each with `B Q` before its hops). Otherwise two `hop_then`.
+    fn inverse_hops_twice(
+        &self,
+        work: &mut Self::Work,
+        (o1, o2, e): (
+            &mut DeviceSpinor<T>,
+            &mut DeviceSpinor<T>,
+            &mut DeviceSpinor<T>,
+        ),
+        out: &mut DeviceSpinor<T>,
+        inp: &DeviceSpinor<T>,
+        dagger: Dagger,
+    ) {
+        let (Dagger::No, Some(pre), Some(pre_inv)) =
+            (dagger, &self.matrices.pre, &self.matrices.pre_inv)
+        else {
+            return inverse_hops_twice_of(self, work, (o1, o2, e), out, inp, dagger);
+        };
+        let (odd, even) = (Parity::Odd, Parity::Even);
+        let [_, t] = work;
+        let t = super::wilson::scratch(t, inp);
+        self.gemm(t, inp, pre, None);
+        o1.parity = Some(odd);
+        self.hops_then(o1, o2, t, None, (1.0, 0.0), false, odd, pre_inv);
+        e.parity = Some(even);
+        let inv = &self.matrices.inv[0];
+        self.hops_then(e, out, o2, Some(inp), (1.0, 0.0), false, even, inv);
     }
 }
 

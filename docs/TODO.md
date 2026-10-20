@@ -180,17 +180,52 @@ kernels there), one iteration:
 
 - `hop_gemm_kernel` four times, 215 µs each, 112 MB from DRAM where about 62 MB is needed
   (input, output, links): the neighbours read again from DRAM.
-- `fifth_gemm_columns_kernel` about three times, 85 µs: the fifth dimension of `diag_inv` and
-  of the inverse after a hop as passes of their own.
+- `fifth_gemm_columns_kernel` about three times, 85 µs: `B Q` before the hops of K (twice) and
+  `(C Q)⁻†` before K†, passes of their own. **Done 2026-10-20:** two of them. `B Q (C Q)⁻¹ =
+  B C⁻¹`, so the matrix of the second hops of K goes into the product after the first
+  (`EvenOdd::inverse_hops_twice`, overridden by `CudaMdwf` with α; `Matrices::pre_inv`): two
+  a K†K, 355 iterations as before, about 85 µs an iteration less (16⁴ mixed 0.7 s against
+  0.6 s). Without α there was no such pass. Every Schur factor of the left form with α on the
+  device has it (the outer operator of the multigrid too).
 - `blas_caxpy`, `blas_caypx`, `reduce<AxpyNorm>` at 84–88% of the bandwidth;
-  `reduce<Norm>` (|A p|² of `Normal::mult_dot`) at 30%: 114 µs for 25 MB.
+  `reduce<Norm>` (|A p|² of `Normal::mult_dot`) at 30%: 114 µs for 25 MB. Probably the
+  RTX 3080's FP64 (1/64 of FP32: two conversions and two FMAs in double for every complex
+  number), as `reduce<AxpyNorm>` takes as long for three times the bytes; not expected on the
+  A30.
 - The kernels make about 1.7 of the 2.0 ms; the rest is launches and the waits of the
   reductions.
 
-What to try: more loads in flight in `blas_reduce_kernel` (several elements a thread per
-step); the norm of `mult_dot` in the last pass of the operator; the inverse in the fifth
-dimension inside the hop kernels; mixed precision by reliable updates instead of restarts
-(each inner CG of the defect correction starts from zero).
+`hop_gemm_kernel` itself (`ncu`, 16⁴): 128 registers a thread, 256 threads and 25.6 KB of shared
+memory a block, so two blocks on an SM: 16 warps, a third of the RTX 3080's 48 (a quarter of the
+A30's 64), 70% of the bandwidth; 74–104 MB read where 38–63 MB is needed (L2 hits 53–63%), 5.3
+sectors a request (coalesced). Fewer registers by `-maxrregcount` spill and are slower (96: 2.5
+times, 80: 5.6 times the time): for a kernel that waits on memory, more warps bought with local
+or shared memory move more bytes and gain little. What helps is fewer bytes (the neighbours
+read again from DRAM: an order of the sites that keeps them in L2; the fields in half precision
+in the inner solve; the links of several right-hand sides read once) and more loads in flight
+from each thread (all the neighbour loads of a site issued before the arithmetic, wider loads).
+
+On the A30 (24³×48 setup S, m = 0.001, 1a58b1f, 2026-10-20; `ncu` locks the clocks and flushes
+the caches, so its times are longer than those of a plain run): 21.7 ms an iteration in a plain
+run (about the RTX 3080's 2.0 ms on 16⁴ times the volume). `hop_gemm_kernel` 5.4 ms a launch at
+27% of the DRAM bandwidth, 12% active warps, 1.30 GB a launch, L2 hits 55%: four of them are
+about three quarters of an iteration. `fifth_gemm_columns_kernel` 1.12 ms at 48%; the BLAS
+kernels at 73–85% (`reduce<Norm>` too: its 30% on the RTX 3080 was the FP64 of that card). So
+on the A30 the hop kernel is the whole question: it waits on memory, at 27% of the bandwidth
+and with 1.30 GB a launch where about 0.64–0.89 GB is needed (input, output, links, and the
+field it is subtracted from where there is one). At the bandwidth of the BLAS kernels and with
+the bytes it needs it would take about 1–1.5 ms instead of 5.4, and an iteration about half its
+time. That is the next step for CGNE (and for the smoother and outer operator of the multigrid,
+which use the same kernel); see above for the means.
+
+Careful when timing it: with `precision : mixed`, `Solver.maximum_number_of_iteration` caps
+each inner single-precision CG, and the defect correction repeats it up to
+`maximum_number_of_restart.max(50)` times; 400 gave 20000 iterations, not converged.
+
+What to try: the norm of `mult_dot` in the last pass of the operator; x of CG updated in the
+pass that updates p (one read of p fewer); mixed precision by reliable updates instead of
+restarts (each inner CG of the defect correction starts from zero; 355 against 349 iterations
+in double on 16⁴, so little to gain there).
 
 ### 15. Smaller ones
 

@@ -46,6 +46,41 @@ pub trait EvenOdd<H> {
     {
         hop_then_of_blocks(self, work, out, inp, to, dagger, then, scratch);
     }
+
+    /// `out = inp − M_ee⁻¹ M_eo M_oo⁻¹ M_oe inp` on the even sites (or with the adjoint hops and
+    /// blocks): the part of a Schur factor that goes through the odd sites, `o1`, `o2` scratch
+    /// on the odd sites and `e` on the even ones. By default two `hop_then`
+    /// (`inverse_hops_twice_of`); an operator whose hops act on a matrix within a site of their
+    /// input can fold that matrix of the second hops into the first (`CudaMdwf` with Neff's α).
+    fn inverse_hops_twice(
+        &self,
+        work: &mut Self::Work,
+        (o1, o2, e): (&mut H, &mut H, &mut H),
+        out: &mut H,
+        inp: &H,
+        dagger: Dagger,
+    ) where
+        H: Vector,
+    {
+        inverse_hops_twice_of(self, work, (o1, o2, e), out, inp, dagger);
+    }
+}
+
+/// `EvenOdd::inverse_hops_twice` by two `hop_then`.
+pub fn inverse_hops_twice_of<F: EvenOdd<H> + ?Sized, H: Vector>(
+    op: &F,
+    work: &mut F::Work,
+    (o1, o2, e): (&mut H, &mut H, &mut H),
+    out: &mut H,
+    inp: &H,
+    dagger: Dagger,
+) {
+    let inverse = Then {
+        site_inv: true,
+        from: Some(inp),
+    };
+    op.hop_then(work, o2, inp, Parity::Odd, dagger, Then::INVERSE, o1);
+    op.hop_then(work, out, o2, Parity::Even, dagger, inverse, e);
 }
 
 /// What `EvenOdd::hop_then` does to the result of the hop.
@@ -194,12 +229,7 @@ pub fn schur_factor<F: EvenOdd<H>, H: Vector>(
         op.hop_then(work, o2, e, odd, dagger, Then::INVERSE, o1);
         op.hop_then(work, out, o2, even, dagger, subtract, e);
     } else {
-        let inverse = Then {
-            site_inv: true,
-            from: Some(inp),
-        };
-        op.hop_then(work, o2, inp, odd, dagger, Then::INVERSE, o1);
-        op.hop_then(work, out, o2, even, dagger, inverse, e);
+        op.inverse_hops_twice(work, (o1, o2, e), out, inp, dagger);
     }
 }
 
