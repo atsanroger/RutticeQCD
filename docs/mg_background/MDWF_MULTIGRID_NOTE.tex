@@ -274,7 +274,9 @@ $R$ reverses the fifth dimension, $(R\psi)_s=\psi_{L_s-1-s}$, and $\Gfive=\gamma
 Subscripts $e$ and $o$ denote blocks on the even and odd four-dimensional sites;
 $X_{pq}$ maps parity $q$ to parity $p$. The injection $\iota$ puts a field on the
 even sites onto the whole lattice (zero on the odd sites), and $\pi=\iota\dg$
-takes the even sites.
+takes the even sites. The operator and its parts $C$ and $Q$ are defined in
+Sec.~\ref{sec:operator}; Table~\ref{tab:notation} relates them to the notation of
+Refs.~\cite{BNO,KCM2024} and of Bridge++~\cite{Bridge}.
 
 % ============================================================
 \section{Spectra of preconditioned M\"obius operators}
@@ -411,7 +413,8 @@ Since $\Gfive K\Gfive=K\dg$, $\Gfive Y\Gfive=Y\dg$ and $\Gfive C\Gfive=C\dg$,
 The commutator is non-zero because $K$ contains $\gamma_\mu$ and $Y$ contains
 $P_\pm$. Thus $\Gfive D\Gfive=D\dg$ holds for Shamir's operator and fails at
 $O(c)$ for $c\neq0$; the Hermitian operator of the M\"obius case is
-$\Gfive D_-^{-1}D$ with $D_-=1-cW$~\cite{BNO}, which involves an inverse that is
+$\Gfive D_-^{-1}D$ with $D_-=cW-1$~\cite{BNO} (Ref.~\cite{BNO} includes $D_-^{-1}$ in its
+$\Gamma_5$; Table~\ref{tab:notation}), which involves an inverse that is
 not local. This matters for the coarse solvers (Sec.~\ref{sec:coarse}).
 
 \subsection{The site-diagonal part and its inverse}
@@ -459,6 +462,67 @@ of $DQ$ is $CQ$, with $(CQ)^{-1}=Q^{-1}C^{-1}$ and $(CQ)\dg=QC\dg$. The solution
 of $D\psi=\eta$ is $\psi=Q\psi^{(\alpha)}$ with $D^{(\alpha)}\psi^{(\alpha)}=\eta$.
 The factor may be applied to the quark operator alone or to the Pauli--Villars
 operator as well; we write $\Dpv^{(\alpha)}=\Dpv Q$ in the latter case.
+
+\subsection{Other notations}
+\label{sec:notation}
+Table~\ref{tab:notation} relates Eqs.~\eqref{eq:Y}--\eqref{eq:Q} to Brower, Neff
+and Orginos~\cite{BNO}, to Kanamori, Chen and Matsufuru~\cite{KCM2024} and to the
+code of Bridge++~\cite{Bridge} (\texttt{Fopr\_Domainwall}, \texttt{Fopr\_Domainwall\_eo},
+with Neff's $\alpha$ as \texttt{parameter\_alpha}). Writing out Eq.~\eqref{eq:D} slice by
+slice,
+\begin{equation}
+(D\psi)_s=(1+bW)\psi_s+(cW-1)\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),
+\qquad \psi_{L_s}\equiv-m\psi_0,\ \psi_{-1}\equiv-m\psi_{L_s-1},
+\label{eq:Dslices}
+\end{equation}
+which is the tridiagonal matrix of Ref.~\cite{BNO}, Eq.~(2.20), and of
+Ref.~\cite{KCM2024}, Eq.~(1), with $D_+=1+bW$ on the diagonal, $D_-\Pp$ below and
+$D_-\Pm$ above it, $-mD_-P_\pm$ in the corners, and $s$ shifted by one. The
+operators $D$, $C$ and $D^{(\alpha)}$ are thus the same in all four; the differences
+are names and signs:
+\begin{itemize}
+\item $D_-=cW-1$ in Refs.~\cite{BNO,KCM2024}. Here it enters through $Y$ as
+$-(1-cW)$, so $d_-=1-c(4-M_5)$ is minus the site part of their $D_-$; the comments of
+RutticeQCD on the five-dimensional source call $1-cW$ ``$D_-$'', which is $-D_-$ (the
+source is that of the Bridge++ domain-wall test, sign included).
+\item The height $M_5>0$ here is $M_0$ in Ref.~\cite{KCM2024} and in Bridge++
+(\texttt{domain\_wall\_height}); Ref.~\cite{BNO} writes $M_5$ for the Wilson mass,
+$M_5^{\mathrm{BNO}}=-M_5$, Eq.~(2.13). The caption of Fig.~1 of Ref.~\cite{KCM2024}
+gives $M_0=-1$ for the height $1$ of its text.
+\item The $\alpha$ of Ref.~\cite{BNO}, $(b+c)/(b-c)$, is the scale factor of the
+M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), not Neff's $\alpha$ of Eq.~\eqref{eq:Q}.
+\item $\Gamma_5=\gamma_5RD_-^{-1}$ in Ref.~\cite{BNO}, Eq.~(2.22); here $\Gfive=\gamma_5R$.
+\end{itemize}
+$D^{(\alpha)}$ here and the operator of Bridge++ with \texttt{parameter\_alpha} were
+compared on a $12^4$ configuration with stout links, $L_s=8$, $m=0.01$: at $\alpha=0.6$
+and $\alpha=1$ CG on the even-odd normal equation took the same number of iterations
+for every column of a point source, and the pseudoscalar correlators agree to
+$10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
+
+\begin{table}[t]
+\centering
+\caption{The notation of this note (and of RutticeQCD) and that of other references.
+Equation numbers are those of the references; ``the same'' means the same operator.}
+\label{tab:notation}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}>{\raggedright}p{1.7cm}>{\raggedright}p{3.0cm}>{\raggedright}p{3.1cm}>{\raggedright}p{2.9cm}>{\raggedright\arraybackslash}p{3.6cm}@{}}
+\toprule
+ & This note & Ref.~\cite{BNO} & Ref.~\cite{KCM2024} & Bridge++ code\\
+\midrule
+Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
+Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
+Wilson part & $W=(4-M_5)-\tfrac12K$ & $D^{\mathrm{Wilson}}(M_5)$ (2.13) & $D_{\mathrm W}(-M_0)$ & $\frac1{2\kappa}D_{\mathrm W}$, $\kappa=1/(8-2M_0)$\\
+$D_\pm$ & $1+bW$; $-(1-cW)$ & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & ---\\
+$D$ & Eq.~\eqref{eq:D} & $D_{\mathrm{DW}}(m)$ (2.20) & $D(m)$ (1) & \texttt{Fopr\_Domainwall}, mode \texttt{D}\\
+$C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & --- & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
+Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & --- (its $\alpha=\frac{b+c}{b-c}$) & --- & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
+$\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
+4d quark & $\Pm\psi_0+\Pp\psi_{L_s-1}$ & $P_-\Psi_1$, $P_+\Psi_{L_s}$ & --- & the same\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ============================================================
 \section{Even-odd forms}
@@ -1008,6 +1072,8 @@ Phys.\ Rev.\ Lett.\ \textbf{100} (2008) 041601 [arXiv:0707.4018].
 \bibitem{DDalphaAMG} A.~Frommer, K.~Kahl, S.~Krieg, B.~Leder and M.~Rottmann, \emph{Adaptive aggregation-based domain decomposition multigrid for the lattice Wilson--Dirac operator},
 SIAM J.\ Sci.\ Comput.\ \textbf{36} (2014) A1581 [arXiv:1303.1377].
 \bibitem{BridgeMG} I.~Kanamori, K.-I.~Ishikawa and H.~Matsufuru, \emph{Object-oriented implementation of algebraic multi-grid solver for lattice QCD on SIMD architectures and GPU clusters}, in \emph{Computational Science and Its Applications -- ICCSA 2021}, Lecture Notes in Computer Science \textbf{12953}, Springer (2021), pp.~218--233, doi:10.1007/978-3-030-86976-2\_15 [arXiv:2111.05012].
+\bibitem{Bridge} Y.~Akahoshi, S.~Aoki, T.~Aoyama, I.~Kanamori, K.~Kanaya \emph{et al.}, \emph{General purpose lattice QCD code set Bridge++ 2.0 for high performance computing},
+J.\ Phys.\ Conf.\ Ser.\ \textbf{2207} (2022) 012053 [arXiv:2111.04457].
 \bibitem{NRT} N.~M.~Nachtigal, S.~C.~Reddy and L.~N.~Trefethen, \emph{How fast are nonsymmetric matrix iterations?},
 SIAM J.\ Matrix Anal.\ Appl.\ \textbf{13} (1992) 778.
 \bibitem{BoyleMRHS} P.~A.~Boyle, \emph{Multiple right hand side multigrid for domain wall fermions with a multigrid preconditioned block conjugate gradient algorithm}, arXiv:2409.03904.

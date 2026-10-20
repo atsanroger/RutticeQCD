@@ -494,8 +494,8 @@ impl<T: DeviceReal> CudaMdwf<T> {
     }
 
     /// The five-dimensional right-hand side for a four-dimensional source η (`eta`, one spinor
-    /// per site): `out = D₋ b`, b = P+ η at s = 0 and P− η at s = Ls−1, D₋ = 1 − c W, as
-    /// `Mdwf::source_5d`. With H the hops, `D₋ b = (1 − c (4 − M5)) b − c H b`.
+    /// per site): `out = D₋ b`, b = P+ η at s = 0 and P− η at s = Ls−1, D₋ = 1 − c W (minus
+    /// the D₋ of Brower, Neff and Orginos), as `Mdwf::source_5d`. With H the hops, `D₋ b = (1 − c (4 − M5)) b − c H b`.
     pub fn source_5d(&self, work: &mut Work<T>, out: &mut DeviceSpinor<T>, eta: &DeviceSpinor<T>) {
         let MdwfParams { ls, m5, c, .. } = self.params;
         assert!(eta.is(out, 1, None) && out.ls == ls && out.vectors == eta.vectors);
