@@ -443,22 +443,20 @@ pub(super) fn run(
     let mut a = operator();
     let stop: Stop = s.stop();
     // Mixed precision (CGNE only): CG in single precision on K†K, K the left Schur factor of the
-    // operator in single precision on the links of `op`, corrected in double precision.
+    // operator in single precision on the links of `op`, with reliable updates in double
+    // precision each time |r|² has fallen by `drop_sqr`.
     let mut single = match s.mixed() {
-        Some(inner) => {
+        Some(drop_sqr) => {
             let mut op32 = CudaMdwf::<f32>::converted_from(op, params.mdwf_params(fo.mass()))?;
             op32.set_alpha(op.alpha());
-            Some(
+            Some((
                 crate::backend::cuda_bridge::hmc_mixed::SingleCuda::from_operator(
-                    op32, inner, true,
+                    op32, drop_sqr, true,
                 ),
-            )
+                drop_sqr,
+            ))
         }
         None => None,
-    };
-    let mixed_stop = Stop {
-        max_restarts: s.maximum_number_of_restart.max(50),
-        ..stop
     };
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let solve = |b: DeviceSpinor,
@@ -477,9 +475,8 @@ pub(super) fn run(
             .as_mut()
             .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
         let (result, history) = match (s.solver_type, single.as_mut()) {
-            (SolverType::Cg, Some(sc)) => {
-                let mut k = crate::fermion::SchurFactor::new(op, EoForm::Left, even, odd);
-                let solved = crate::hmc::mixed_normal(&mut k, sc, &mut sol, &rhs, mixed_stop);
+            (SolverType::Cg, Some((sc, drop_sqr))) => {
+                let solved = sc.reliable_normal(&mut a, &mut sol, &rhs, stop, *drop_sqr);
                 (solved, None)
             }
             _ => s.solve(&mut a, m, &mut sol, &rhs, detailed),

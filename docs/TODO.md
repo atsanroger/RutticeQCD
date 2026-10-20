@@ -247,14 +247,20 @@ Tried and not kept (A30):
   first hops of K with α: that hop 3.18 → 4.52 ms against the 1.11 ms of the pass saved, so
   2.6–3.8% slower in all (mixed α 0.6 and 1, double α 0.6), though 1.2 GB less device memory.
 
-Careful when timing it: with `precision : mixed`, `Solver.maximum_number_of_iteration` caps
-each inner single-precision CG, and the defect correction repeats it up to
-`maximum_number_of_restart.max(50)` times; 400 gave 20000 iterations, not converged.
+**Done 2026-10-20, mixed precision by reliable updates.** The defect correction restarted CG
+from zero at each correction: on 24³×48 at m = 0.001 (point source, 8f4fd7e) 5261–5951
+iterations a column against 3613–3619 in double precision, and two of the 12 columns stopped at
+|Dx−b|² 4e-15 for a target of 1e-18 (the rule is on the residual of K†K; an error in the low
+modes meets it while |Dx−b| does not), their PS 3e-6 off. Now one CG in single precision with
+the solution and the residual made again in double precision each time |r|² falls by 1e-2
+(`solver::reliable_cg`, `SingleCuda::reliable_normal`; `convergence_criterion_squared_inner`).
+16⁴ point source, RTX 3080: at m = 0.001 365–374 iterations a column, the same as double
+precision (404–495 before), |Dx−b|² 4e-18–8e-18 as in double (8e-20–7e-17 before), PS 2e-11
+from double (2.5e-8 before), 0.9 s a column against 5.6 in double. The A30 numbers are to be
+taken. HMC keeps the defect correction (`hmc::mixed`).
 
 What to try: the norm of `mult_dot` in the last pass of the operator; x of CG updated in the
-pass that updates p (one read of p fewer); mixed precision by reliable updates instead of
-restarts (each inner CG of the defect correction starts from zero; 355 against 349 iterations
-in double on 16⁴, so little to gain there).
+pass that updates p (one read of p fewer).
 
 ### 15. CPU: Neff's α in the sweeps (done 2026-10-20)
 

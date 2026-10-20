@@ -87,10 +87,10 @@ impl fmt::Display for Params {
             },
             s.convergence_criterion_squared
         )?;
-        if let Some(inner) = s.mixed() {
+        if let Some(drop) = s.mixed() {
             write!(
                 f,
-                ", in mixed precision (CG in single precision, each to the outer tolerance or {inner:e})"
+                ", in mixed precision (CG in single precision, reliable updates in double precision at each fall of |r|² by {drop:e})"
             )?;
         }
         match (s.preconditioner_type, &self.multigrid) {

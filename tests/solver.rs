@@ -7,7 +7,9 @@ use ruttice::fermion::{Bound, FermionOp, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::random_spinor;
-use ruttice::solver::{BiCgStab, Cg, Convert, Refine, Solve, SolveError, Solver, Stop};
+use ruttice::solver::{
+    reliable_cg, BiCgStab, Cg, Convert, Refine, Solve, SolveError, Solver, Stop,
+};
 use ruttice::{
     Adjoint, Boundary, ConvertFrom, Field, Gauge, Lattice, LinearFn, Product, Spinor, Vector, ND,
 };
@@ -270,6 +272,54 @@ fn mixed_precision_reaches_double_accuracy() {
     );
     let r = residual_sqr(&mut a, &x, &b);
     assert!(r[0] <= 1.1e-24, "true residual {:e}", r[0]);
+}
+
+/// CG in single precision with reliable updates in double precision: the true residual of
+/// double precision, in about the iterations of CG in double precision (no restarts from zero),
+/// on several vectors, one of them zero.
+#[test]
+fn reliable_updates_reach_double_accuracy_in_cg_iterations() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 6);
+    let (op64, op32) = (wilson::<f64>(&lat, &u), wilson::<f32>(&lat, &u));
+    let mut b = random_spinor(&lat, 3, 8);
+    let zero = b.select(&[1]).zeros_like();
+    b.assign(&[1], &zero);
+    let like32 = V32::spinor(&lat, 1);
+    let tol = 1e-24;
+    let mut a = ddag_d(&op64, &b);
+
+    let mut plain = b.zeros_like();
+    let cg = Cg::new(Stop::simple(tol, 2000))
+        .solve(&mut a, None, &mut plain, &b)
+        .unwrap();
+    let mut x = b.zeros_like();
+    let mut low = ddag_d(&op32, &like32);
+    let info = reliable_cg(
+        &mut a,
+        &mut low,
+        &like32,
+        &mut x,
+        &b,
+        Stop::simple(tol, 2000),
+        1e-2,
+    )
+    .unwrap();
+    eprintln!(
+        "CG in double precision {} iterations; in single with reliable updates {} iterations, {} updates",
+        cg.iterations, info.iterations, info.restarts
+    );
+    for r in residual_sqr(&mut a, &x, &b) {
+        assert!(r <= 1.1 * tol, "true residual {r:e}");
+    }
+    assert!(
+        info.iterations * 10 <= cg.iterations * 13 + 100,
+        "{} iterations against {} of CG in double precision",
+        info.iterations,
+        cg.iterations
+    );
+    assert!(max_abs_diff(&x, &plain) < 1e-9);
+    assert!(x.select(&[1]).as_slice().iter().all(|v| *v == 0.0));
 }
 
 /// The ownership pattern in use: an outer and an inner solver share

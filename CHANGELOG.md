@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Propagator files, `Solver.precision : mixed` (CGNE on `cuda_bridge`): one CG in single
+  precision with reliable updates in double precision (`solver::reliable_cg`,
+  `SingleCuda::reliable_normal`), instead of the defect correction whose every inner CG
+  started from zero. `convergence_criterion_squared_inner` is now the fall of |r|² in single
+  precision after which the solution and the residual are made again in double precision (1e-2;
+  was the tolerance of each inner CG, 1e-10). The restarts lost what CG had built: on 24³×48
+  at m = 0.001 (point source) 5261–5951 iterations against 3613–3619 in double precision, and
+  the true residual |Dx−b|² of two of the 12 columns stopped at 4e-15 for a target of 1e-18
+  (the stopping rule is on the residual of K†K, which a solution with its error in the low
+  modes meets while |Dx−b| does not), their correlator 3e-6 off. HMC keeps the defect
+  correction (`hmc::mixed`).
 - Mixed precision (CGNE in propagator files and the HMC solves): each inner CG in single
   precision stops where the outer tolerance is met (half of it relative to the residual it starts
   from), or at the inner tolerance if that comes first. Before, every inner solve went to the

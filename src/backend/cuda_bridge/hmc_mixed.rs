@@ -1,12 +1,13 @@
-//! Mixed precision in the solves of HMC on the device (`hmc::mixed`): the domain-wall operator
-//! in single precision on the links of the device, CG on D†D or on K†K (K = T_ee⁻¹ Ŝ, the
-//! even-odd Ratio action) there, the corrections of the defect correction in double precision.
+//! Mixed precision on the device: the domain-wall operator in single precision on the links of
+//! the device, CG on D†D or on K†K (K = T_ee⁻¹ Ŝ, the even-odd Ratio action) there. In the solves
+//! of HMC (`hmc::mixed`) the corrections of a defect correction in double precision; in the
+//! CGNE of the propagators one CG with reliable updates (`SingleCuda::reliable_normal`).
 
 use super::{CudaError, CudaMdwf, DeviceLinks, DeviceSpinor};
 use crate::fermion::{Bound, EoForm, MdwfParams, SchurFactor, Variant};
 use crate::hmc::SingleNormal;
-use crate::solver::{Cg, SolveError, Solver, Stop};
-use crate::{ConvertFrom, Lattice, Normal, Parity, Vector};
+use crate::solver::{reliable_cg, Cg, SolveError, SolveInfo, Solver, Stop};
+use crate::{ConvertFrom, Lattice, LinearFn, Normal, Parity, Vector};
 use std::sync::Arc;
 
 /// The domain-wall operator in single precision on the device: CG on D†D (`even_odd`: on K†K
@@ -43,6 +44,43 @@ impl SingleCuda {
             op,
             tolerance_sqr,
             even_odd,
+        }
+    }
+}
+
+impl SingleCuda {
+    /// `a x = b`, `a` the normal operator in double precision of which this one is the single
+    /// precision (D†D, or K†K on the even sites): CG in single precision with reliable updates
+    /// (`solver::reliable_cg`), each when |r|² has fallen by `drop_sqr`. `x` holds the initial
+    /// guess.
+    pub fn reliable_normal(
+        &mut self,
+        a: &mut dyn LinearFn<DeviceSpinor<f64>>,
+        x: &mut DeviceSpinor<f64>,
+        b: &DeviceSpinor<f64>,
+        stop: Stop,
+        drop_sqr: f64,
+    ) -> Result<SolveInfo, SolveError> {
+        let (lat, ls) = (b.lat.clone(), self.op.params().ls);
+        let made = "fields on the device";
+        let like = match self.even_odd {
+            false => DeviceSpinor::<f32>::zeros_fifth(&lat, ls),
+            true => DeviceSpinor::<f32>::zeros_half(&lat, ls, Parity::Even),
+        }
+        .expect(made)
+        .zeros_with(b.num_vectors());
+        match self.even_odd {
+            false => {
+                let mut d = Bound::new(&self.op, Variant::D);
+                let mut low = Normal::new(&mut d, &like);
+                reliable_cg(a, &mut low, &like, x, b, stop, drop_sqr)
+            }
+            true => {
+                let odd = DeviceSpinor::<f32>::zeros_half(&lat, ls, Parity::Odd).expect(made);
+                let mut k = SchurFactor::new(&self.op, EoForm::Left, &like, &odd);
+                let mut low = Normal::new(&mut k, &like);
+                reliable_cg(a, &mut low, &like, x, b, stop, drop_sqr)
+            }
         }
     }
 }

@@ -224,10 +224,11 @@ pub struct SolverBlock {
     #[serde(rename = "Chebyshev")]
     pub chebyshev: Option<ChebyshevBlock>,
     /// The outer solver, CG on `Normal_left` without a preconditioner, on `cuda_bridge`:
-    /// `mixed` corrects CG in single precision in double precision (defect correction); double
-    /// by default.
+    /// `mixed` is CG in single precision with reliable updates in double precision; double by
+    /// default.
     pub precision: Option<SolverPrecision>,
-    /// Mixed precision: where each CG in single precision stops, |r|²/|b|² (1e-10).
+    /// Mixed precision: the fall of |r|² in single precision after which the solution and the
+    /// residual are made again in double precision (a reliable update), 1e-2.
     pub convergence_criterion_squared_inner: Option<f64>,
 }
 
@@ -760,11 +761,10 @@ impl SolverBlock {
         Ok(())
     }
 
-    /// Mixed precision: the tolerance of the inner CG in single precision, `None` in double
-    /// precision.
+    /// Mixed precision: the fall of |r|² between reliable updates, `None` in double precision.
     pub fn mixed(&self) -> Option<f64> {
         (self.precision == Some(SolverPrecision::Mixed))
-            .then(|| self.convergence_criterion_squared_inner.unwrap_or(1e-10))
+            .then(|| self.convergence_criterion_squared_inner.unwrap_or(1e-2))
     }
 
     /// The precision keys: mixed for CG on `Normal_left` without a preconditioner, on a

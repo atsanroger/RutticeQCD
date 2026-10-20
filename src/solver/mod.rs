@@ -16,7 +16,7 @@ pub use cg::Cg;
 pub use fgmres::Fgmres;
 pub use gcr::Gcr;
 pub use minres::Minres;
-pub use mixed::{Convert, Refine, Solve};
+pub use mixed::{reliable_cg, Convert, Refine, Solve};
 pub use multishift::MultiShiftCg;
 pub use preconditioner::{largest_magnitude, Chebyshev, ChebyshevFilter, Polynomial};
 
