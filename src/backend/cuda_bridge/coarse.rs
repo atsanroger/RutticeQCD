@@ -1008,6 +1008,8 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         gamma5: bool,
     ) {
         assert!((out.sites, out.dim) == (self.sites, self.dim));
+        // The kernel reads the matrices two columns at a time.
+        assert!(self.dim % 2 == 0, "coarse_pass needs an even dimension");
         let field = |f: Option<&DeviceCoarse<T>>| match f {
             Some(f) => {
                 assert!(f.same_shape(out));

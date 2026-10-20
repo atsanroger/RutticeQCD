@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `cuda_bridge` multigrid: the restriction P† reads P coalesced (`fold_restrict_tiled_kernel`):
+  a block for each coarse site reads the P of two fine sites at a time in 16-byte words into
+  shared memory, and the fine spinors folded by chirality, where a thread for each output read
+  its own row of P one number at a time (11% of the bandwidth on the A30). RTX 3080, 16⁴:
+  4.64 → 1.31 ms a launch, setup 25 → 21 s, solve 0.6 → 0.5 s, the same iterations; the sums
+  are in another order, so the last digits move. The old kernel stays for where the new one's
+  shared memory does not fit.
+- `cuda_bridge` coarse operator (`coarse_pass_kernel`): the fields at a coarse site and its
+  eight neighbours, the same for every row, are read once into shared memory instead of once a
+  row, and the matrices two columns at a time in 16-byte words, the eight links of a row read
+  before they are used. RTX 3080, 16⁴: 82.5 → 62.6 µs a pass with the hops, DRAM 62 → 82%,
+  instructions −42%; the coarse dimension must be even (it is twice the test vectors).
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
   single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the

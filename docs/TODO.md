@@ -449,10 +449,17 @@ the A30: 24³×48, m = 0.001, point source, 12 columns, setup included; 584 s at
 
 | | now | near the bandwidth (estimate) | saved |
 |---|---|---|---|
-| `fold_restrict` (setup 3800 launches, solve 2 an iteration) | 32.5 ms, DRAM 11% | about 5 ms | setup −65 s, solves −17 s |
-| `coarse_pass` (30% of a solve, 28 s of the setup) | DRAM 22–37% | DRAM 60–70% | solves −38 s, setup −14 s |
+| `fold_restrict` (setup 3800 launches, solve 2 an iteration) | 32.5 ms, DRAM 11% | about 5 ms (done: P read coalesced through shared memory; RTX 3080 16⁴ 4.64 → 1.31 ms, DRAM 31% with 256 blocks for 68 SMs; A30 to measure) | setup −65 s, solves −17 s |
+| `coarse_pass` (30% of a solve, 28 s of the setup) | DRAM 22–37% | DRAM 60–70% (done: fields in shared memory, 16-byte matrix loads; RTX 3080 16⁴ 82.5 → 62.6 µs, DRAM 62 → 82%; A30 to measure) | solves −38 s, setup −14 s |
 | setup host time and idle GPU | 19 + 40 s under nsys; the 19 s before the first kernel is nsys's own (plain run: smearing done at 1.9 s) | to be measured in a plain run | unknown |
-| `level_restrict` (11% of a solve) | 47 single-block launches an iteration, 1.2 ms each (8.4%) | a warp an output (done, RTX 3080: 187 → 11 µs, 16⁴ setup 32 → 25 s; A30 to measure) | −20 s |
+| `level_restrict` (11% of a solve) | 47 single-block launches an iteration, 1.2 ms each (8.4%) | a warp an output (done; RTX 3080: 187 → 11 µs, 16⁴ setup 32 → 25 s) | A30, 046567d: solves 251.2 → 215.5 s with a22f8c5's hop, setup unchanged |
+
+`level_restrict` on the A30 at 046567d (ncu): the last level 1.2 ms → 133 µs (16 blocks, still
+latency-bound, but under 1% of a solve now), the grid-41 level 392 → 140 µs at 67% of the DRAM
+bandwidth: done.
+
+Measured on the A30 (12 columns, one run): 6bbfa74 584 s; 046567d **535.9 s** (setup 298 s,
+solves 215.5 s, the rest 22 s; 362 GCR iterations as before, PS within 7.3e-9).
 | `fold_prolong` | DRAM 31% | | −6 s |
 | `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | the block in shared memory | −11 s |
 | `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, as `hop_gemm` | about −8 s |
