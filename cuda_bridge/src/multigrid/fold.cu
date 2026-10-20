@@ -180,6 +180,36 @@ void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vecto
     bridge_cuda::coarse_gamma5_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim);
 }
 
+void bridge_cuda_coarse_units_f32(float* d_v, int n_coarse, int dim, int first, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_units_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim, first);
+}
+
+void bridge_cuda_coarse_units_f64(double* d_v, int n_coarse, int dim, int first, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_units_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_v, n_coarse, dim, first);
+}
+
+void bridge_cuda_coarse_columns_f32(void* d_target, int target_single, const float* d_c, int n_coarse, int dim, int first, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    if (target_single)
+        bridge_cuda::coarse_columns_kernel<float, float><<<grid, BLOCK_SIZE, 0, stream>>>(static_cast<float*>(d_target), d_c, n_coarse, dim, first);
+    else
+        bridge_cuda::coarse_columns_kernel<float, double><<<grid, BLOCK_SIZE, 0, stream>>>(static_cast<double*>(d_target), d_c, n_coarse, dim, first);
+}
+
+void bridge_cuda_coarse_columns_f64(void* d_target, int target_single, const double* d_c, int n_coarse, int dim, int first, int vectors, cudaStream_t stream)
+{
+    dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    if (target_single)
+        bridge_cuda::coarse_columns_kernel<double, float><<<grid, BLOCK_SIZE, 0, stream>>>(static_cast<float*>(d_target), d_c, n_coarse, dim, first);
+    else
+        bridge_cuda::coarse_columns_kernel<double, double><<<grid, BLOCK_SIZE, 0, stream>>>(static_cast<double*>(d_target), d_c, n_coarse, dim, first);
+}
+
 void bridge_cuda_blocks_inverse(
     double* d_out, const double* d_a, double* d_scratch, unsigned* d_fail,
     int n_sites, int dim, cudaStream_t stream)

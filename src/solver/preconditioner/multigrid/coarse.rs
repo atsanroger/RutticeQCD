@@ -21,6 +21,21 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
     (3, Direction::Backward),
 ];
 
+/// The sites the eight hops of every site of the coarse lattice `lat` come from, in the order of
+/// the links (`CoarseOp::neighbours` without an operator, for coarse operators made elsewhere);
+/// on one process.
+pub fn coarse_neighbours(lat: &Lattice) -> Vec<[usize; 2 * ND]> {
+    let stencil = Stencil::nearest(lat, [Boundary::Periodic; ND]);
+    (0..lat.num_sites())
+        .map(|x| {
+            DIRECTIONS.map(|(mu, dir)| match stencil.source(x, mu, dir) {
+                Source::Local { site, .. } => site,
+                _ => panic!("a coarse lattice on one process"),
+            })
+        })
+        .collect()
+}
+
 /// The Galerkin coarse operator `P† D P` for a nearest-neighbour fine operator D.
 ///
 /// The hops join coarse sites of opposite parity (when every extent of the coarse lattice is even),
@@ -126,12 +141,11 @@ impl<T: Storage> CoarseOp<T> {
     /// Build `P† D P`, a few columns at a time as the vectors of the fields: P of the coarse
     /// unit vectors of one component on every coarse site at once, and of that
     ///
-    /// - each of the eight hops where it comes from another block, for the links. With φ kept
-    ///   on the face of every block that the hop comes from and zero elsewhere, D of it on
-    ///   the opposite face is that hop and nothing else (in blocks of more than two sites:
-    ///   the part within a site stays on the first face, the other hops do not reach the
-    ///   second), so this is the operator itself, in one sweep; in blocks of one or two sites
-    ///   it is the hop of `HopTerms`. P† reads the one face;
+    /// - each of the eight hops of `HopTerms`, for the links: P† of it where it comes from
+    ///   another block (the face of the block it arrives on) times the coefficient of the hops.
+    ///   (Until 2026-10-20 blocks of more than two sites took D of φ kept on the face the hop
+    ///   comes from instead, a whole application of D for each hop: the same numbers, about
+    ///   three times the time of the build.)
     /// - D of all of φ: P† of it less the eight links is the block within the coarse site.
     pub fn build<F, S: Storage>(op: &F, work: &mut F::Work, basis: &Basis<T, S>) -> Self
     where
@@ -154,15 +168,15 @@ impl<T: Storage> CoarseOp<T> {
         F: HopTerms<Field<T, Spinor>>,
     {
         let agg = basis.aggregation();
-        let (fine_lat, lat) = (agg.fine_lattice(), agg.coarse_lattice().clone());
-        let (dim, block) = (basis.coarse_dim(), agg.block());
+        let lat = agg.coarse_lattice().clone();
+        let dim = basis.coarse_dim();
         let n_coarse = lat.num_sites();
         let matrix = 2 * dim * dim;
         let mut diag = vec![T::default(); n_coarse * matrix];
         let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
         let one = T::store(T::Compute::ONE);
 
-        // As many columns at a time as keep the five fine fields (three here, two in the
+        // As many columns at a time as keep five fine fields (two here, the rest in the
         // operator) within about a GB, eight at most (P is read once for all of them).
         let reals = basis.fine_field(1).as_slice().len();
         let batch = ((1usize << 30) / (5 * reals * size_of::<T>())).clamp(1, 8.min(dim));
@@ -179,8 +193,6 @@ impl<T: Storage> CoarseOp<T> {
                 }
             }
         };
-        // Where a site is in its block, in direction mu.
-        let in_block = |x: usize, mu: usize| fine_lat.coords(x)[mu] % block[mu];
 
         for first in (0..dim).step_by(batch) {
             let nv = batch.min(dim - first);
@@ -197,42 +209,28 @@ impl<T: Storage> CoarseOp<T> {
                 r.mult(&mut phi_right, &phi);
                 phi = phi_right;
             }
-            let (mut masked, mut out) = (phi.zeros_like(), phi.zeros_like());
-            let (mut restricted, mut inside) = (unit.zeros_like(), unit.zeros_like());
-            let site_len = phi.site_len();
+            let mut out = phi.zeros_like();
+            let mut inside = unit.zeros_like();
 
             op.mult(work, &mut out, &phi, Variant::D);
             basis.restrict(&mut inside, &out);
-            for (d, (mu, dir)) in DIRECTIONS.into_iter().enumerate() {
-                // The hop comes from the face `from` of a block onto the face `onto` of the
-                // block before or after it.
-                let last = block[mu] - 1;
-                let (from, onto) = match dir {
-                    Direction::Forward => (0, last),
-                    Direction::Backward => (last, 0),
-                };
-                if block[mu] > 2 {
-                    for_sites(masked.slab_mut(0), site_len, |x, m| {
-                        if in_block(x, mu) == from {
-                            m.copy_from_slice(phi.site(0, x));
-                        } else {
-                            m.fill(T::default());
-                        }
-                    });
-                    op.mult(work, &mut out, &masked, Variant::D);
-                    basis.restrict_where(&mut restricted, &out, |x| in_block(x, mu) == onto);
-                } else {
-                    out.as_mut_slice().fill(T::default());
-                    match dir {
-                        Direction::Forward => op.hop_forward(work, mu, &mut out, &phi),
-                        Direction::Backward => op.hop_backward(work, mu, &mut out, &phi),
-                    }
-                    basis.restrict_where(&mut restricted, &out, |x| agg.crosses(x, mu, dir));
-                    restricted.scale(&vec![op.hop_coefficient(); nv]);
-                }
+            // P† of each hop where it comes from another block, in the order of DIRECTIONS
+            // whatever order `each_hop` takes them in.
+            let mut legs: Vec<Field<T, Coarse>> = (0..2 * ND).map(|_| unit.zeros_like()).collect();
+            let coefficient = vec![op.hop_coefficient(); nv];
+            let faces = |mu: usize, dir: Direction, x: usize| agg.crosses(x, mu, dir);
+            op.each_hop(work, &mut out, &phi, &faces, &mut |mu, dir, hop| {
+                let d = DIRECTIONS
+                    .iter()
+                    .position(|&leg| leg == (mu, dir))
+                    .expect("one of the eight hops");
+                basis.restrict_where(&mut legs[d], hop, |x| agg.crosses(x, mu, dir));
+                legs[d].scale(&coefficient);
+            });
+            for (d, restricted) in legs.iter().enumerate() {
                 let range = d * n_coarse * matrix..(d + 1) * n_coarse * matrix;
-                store_columns(&mut links[range], first, &restricted);
-                inside.axpy(&vec![C64::new(-1.0, 0.0); nv], &restricted);
+                store_columns(&mut links[range], first, restricted);
+                inside.axpy(&vec![C64::new(-1.0, 0.0); nv], restricted);
             }
             store_columns(&mut diag, first, &inside);
         }

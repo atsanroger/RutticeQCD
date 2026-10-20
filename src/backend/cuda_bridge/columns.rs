@@ -240,6 +240,34 @@ pub(super) fn dot_norms<T: DeviceReal>(
     }
 }
 
+/// `<x_i|y_j>` for the `nx` vectors of `x` and the `ny` of `y` (of the same size), row-major.
+pub(super) fn gram<T: DeviceReal>(
+    x: &DeviceBuffer<T>,
+    nx: usize,
+    y: &DeviceBuffer<T>,
+    ny: usize,
+) -> Vec<C64> {
+    assert!(nx > 0 && ny > 0 && x.len / nx == y.len / ny);
+    let n = (x.len / nx) as i32;
+    let (mut re, mut im) = (vec![0.0; nx * ny], vec![0.0; nx * ny]);
+    // SAFETY: two sets of `nx` and `ny` vectors of `n` reals, and places for nx ny results.
+    must(check(unsafe {
+        T::gram(
+            re.as_mut_ptr(),
+            im.as_mut_ptr(),
+            x.ptr,
+            y.ptr,
+            n,
+            nx as i32,
+            ny as i32,
+        )
+    }));
+    re.into_iter()
+        .zip(im)
+        .map(|(re, im)| C64::new(re, im))
+        .collect()
+}
+
 /// `s_v = c_v s_v + a_v x_v + b_v y_v`, then `norm_v = |s_v|²`, in one pass.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn scale_axpy2_norm_sqr<T: DeviceReal>(

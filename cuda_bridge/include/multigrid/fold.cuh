@@ -487,6 +487,39 @@ __global__ void coarse_gamma5_kernel(Float* __restrict__ d_v, int n_coarse, int 
     d_v[at + WarpSize] = -d_v[at + WarpSize];
 }
 
+// The coarse unit vectors of the components first .. first + vectors: vector v (blockIdx.y) is 1
+// at component first + v of every coarse site and 0 at the others. A thread for each (site,
+// component); the padding of the field is left as it is (zero).
+template <typename Float>
+__global__ void coarse_units_kernel(Float* __restrict__ d_v, int n_coarse, int dim, int first)
+{
+    const int q = blockIdx.x * blockDim.x + threadIdx.x;
+    if (q >= n_coarse * dim) return;
+    const int v = blockIdx.y;
+    const size_t at = static_cast<size_t>(v) * coarse_reals(n_coarse, dim) + coarse_index(q);
+    d_v[at] = (q % dim == first + v) ? static_cast<Float>(1) : static_cast<Float>(0);
+    d_v[at + WarpSize] = 0;
+}
+
+// Column first + v of the matrix of every coarse site (dim x dim, row-major (re, im), in the
+// precision Target: the layout of coarse_pass_kernel) = vector v (blockIdx.y) of the coarse field
+// d_c, whose component row at site X is entry (row, first + v) of the matrix of X. A thread for
+// each (site, row): the coarse operator is put together on the device as it is made, in the
+// precision it is kept in.
+template <typename Float, typename Target>
+__global__ void coarse_columns_kernel(Target* __restrict__ d_target, const Float* __restrict__ d_c,
+                                      int n_coarse, int dim, int first)
+{
+    const int q = blockIdx.x * blockDim.x + threadIdx.x;
+    if (q >= n_coarse * dim) return;
+    const int v = blockIdx.y;
+    const size_t at = static_cast<size_t>(v) * coarse_reals(n_coarse, dim) + coarse_index(q);
+    const size_t k = 2 * (static_cast<size_t>(q) * dim + first + v);
+    // Through double, as the matrices made on the host and converted on the device were.
+    d_target[k] = static_cast<Target>(static_cast<double>(d_c[at]));
+    d_target[k + 1] = static_cast<Target>(static_cast<double>(d_c[at + WarpSize]));
+}
+
 // -------------------------------------------------------------------------
 // Dense matrices on the coarse sites, dim x dim complex numbers each, row-major (re, im), in
 // double precision. A block of dim threads for each site (dim at most 1024).

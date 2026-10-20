@@ -392,6 +392,12 @@ impl<T: DeviceReal> crate::Subspace for DeviceSpinor<T> {
         columns::combine(&out.data, &self.data, n, c);
         *self = out;
     }
+
+    /// All the pairs in one reduction (`columns::gram`), no vector copied.
+    fn gram(&self, y: &Self) -> Vec<C64> {
+        assert!(Arc::ptr_eq(&self.lat, &y.lat) && self.ls == y.ls && self.parity == y.parity);
+        columns::gram(&self.data, self.vectors, &y.data, y.vectors)
+    }
 }
 
 /// From one precision to another, on the device.

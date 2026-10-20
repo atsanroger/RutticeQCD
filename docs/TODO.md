@@ -76,8 +76,16 @@ tests.
 - **How.** Several components at once as the vectors of the fields, the sorting in parallel
   (`for_sites`), the restriction of a crossing hop reading only the faces of the aggregates (as
   the device does).
+- **Partly done 2026-10-20.** Blocks of more than two sites took D of φ kept on one face for
+  each of the eight hops (nine applications of D a batch); now the hops of `HopTerms` like the
+  smaller blocks, through `HopTerms::each_hop`, which `Mdwf` overrides to make w = b ψ − c Y ψ
+  once for the eight and to compute each hop on the face it is restricted from only
+  (`WilsonOp::hop_term_where`). `examples/coarse_build_bench.rs` (8⁴, 4⁴ blocks, Ls 8, dim 64,
+  24 threads): 6.0 s against 3.7 s a build, D_c the same bit for bit. Left (perf): the one
+  application of D (15%), Q and the fifth dimension of w (21%), the hops (11%), the
+  restrictions (10%).
 - **Check.** Coarse operators equal to rounding (`--test multigrid`); setup time of
-  `examples/mdwf_pv_eo_mg.yaml`.
+  `examples/mdwf_pv_eo_mg.yaml`; `cargo run --release --example coarse_build_bench`.
 
 ### 8. CPU multigrid in single precision above the coarse lattice
 
@@ -100,9 +108,12 @@ vectors (the CPU already loops over the vectors inside a site).
 2 dim reals apart; it now has a warp for each row (`cuda_bridge/README.md`): 3.59 ms against
 1.13 ms per application on 2592 sites of dim 64 in single precision on an RTX 3080. Setup of
 16⁴ with Level2 + Level3 of 2: 45 s against 35 s; 12⁴: 18 s against 17 s, the solve 1.2 s
-(15 iterations) against 0.9 s (14). **Not measured on the A30**: rerun `mg_24.yaml` there.
-The checksums differ from earlier runs from the first bootstrap vector on (another order of the
-sums); runs agree with each other.
+(15 iterations) against 0.9 s (14). The checksums differ from earlier runs from the first
+bootstrap vector on (another order of the sums); runs agree with each other. On the A30
+(24³×48 setup S, 14359e1 = items 9, 10 and the filter step of 15, without `RUTTICE_CHECKSUM`,
+one run each, 2026-10-20): setup 391 s against 368 s (filter 85 s either way; bootstrap rounds
+106 and 125 s against 101 and 111 s; levels 15 against 11 s), solve 25.4 s (27 iterations)
+against 21.5 s (27).
 
 ### 10. Device: the work fields from a memory pool (done 2026-10-20)
 
@@ -126,16 +137,62 @@ refuses and the pool gives back what it keeps (WSL pages device memory to the ho
   precision helps.
 - **Check.** Setup time; the test vectors to the tolerance of the solves.
 
-### 12. The Gram matrix one pair at a time
+### 12. The Gram matrix one pair at a time (done 2026-10-20)
 
-- **Why.** `gram` (`src/solver/preconditioner/multigrid/mdwf_even_odd.rs`) copies a vector with
-  `select` for every pair and reduces each pair alone: 1024 dot products of two fine vectors and
-  1024 copies for 32 vectors, about 2 s on the A30 for each of the six Gram matrices of a setup
-  (estimated, not measured). The CPU does the same.
-- **How.** ⟨x_i, y_j⟩ for all i at once (`x.dot` against y_j repeated, or an X†Y kernel that reads
-  every vector once).
+`gram` copied a vector with `select` for every pair and reduced each pair alone (1024 dot
+products and 1024 copies of fine vectors for 32 vectors). It is now `Subspace::gram`: on the
+CPU one sweep over the sites (a site holds every vector of a set), on the device
+`blas_gram_kernel`, tiles of 4 × 4 pairs in double precision in a fixed order (a vector read
+once for every four of the other set). 16⁴ with levels: setup 30 s against 29 s, the same
+iterations; tests `gram_matrix_in_one_sweep` (`tests/multigrid.rs`) and in
+`tests/cuda_bridge.rs`. Not measured on the A30 (estimated about 2 s for each of the six Gram
+matrices of a setup before).
 
-### 13. Smaller ones
+### 13. Device: the coarse operator made on the host (done 2026-10-20)
+
+`CudaMdwf::coarse_operator` brought P† of each of the eight hops and of the block to the host
+for every batch of components (`DeviceCoarse::values`), put them into the matrices there, and
+`DeviceCoarseOp::new` sent them back (in double precision, then converted); the unit vectors
+of a batch were made on the host too. Now `coarse_operator_on_device`: the matrices are written
+on the device as they are made (`coarse_columns_kernel`, the links directly in the precision of
+the coarse solves; `coarse_units_kernel`), and only the tables of the coarse lattice (its
+neighbours and parities) go up from the host. The checksums of P†DP and of the whole run the
+same bit for bit; setup of 16⁴ with levels 29 s against 27 s, of 12⁴ 15 s against 14 s. The
+device holds the links while the fine fields of the build are there: peak of the bootstrap on
+16⁴ 1.76 GB against 1.68 GB (estimated about 0.3 GB more on 24³×48). `coarse_operator` (on the
+host, for the tests) is the same matrices brought down once.
+
+What the setup and the solves still move between host and device, on purpose: the test vectors
+wait on the host during each bootstrap round (`Stashed`, to leave the device to P and the cycle:
+about 16 GB a round on 24³×48 over pageable memory; page-locked memory would make it faster);
+the right-hand side of a solve waits on the host during it (one field); the results of every
+reduction (a few numbers); the tables of the coarse lattices and the coefficients of a change of
+basis (kilobytes); sources and propagators.
+
+### 14. Device: CGNE
+
+Mixed CGNE on 16⁴ (setup S, m = 0.01, RTX 3080): 355 iterations, 0.7 s, about 2.0 ms an
+iteration; in double 349 iterations, 4.7 s (the RTX 3080 has little FP64). What an iteration
+should move (four passes of the Schur factor and the vectors of CG) is about 0.5 GB, 0.66 ms
+at the bandwidth of the card: it runs at about a third of it (on the A30, 24³×48: about 21–24 ms
+an iteration against about 5.5 ms). Nsight Compute (`ncu` works under WSL; nsys does not trace
+kernels there), one iteration:
+
+- `hop_gemm_kernel` four times, 215 µs each, 112 MB from DRAM where about 62 MB is needed
+  (input, output, links): the neighbours read again from DRAM.
+- `fifth_gemm_columns_kernel` about three times, 85 µs: the fifth dimension of `diag_inv` and
+  of the inverse after a hop as passes of their own.
+- `blas_caxpy`, `blas_caypx`, `reduce<AxpyNorm>` at 84–88% of the bandwidth;
+  `reduce<Norm>` (|A p|² of `Normal::mult_dot`) at 30%: 114 µs for 25 MB.
+- The kernels make about 1.7 of the 2.0 ms; the rest is launches and the waits of the
+  reductions.
+
+What to try: more loads in flight in `blas_reduce_kernel` (several elements a thread per
+step); the norm of `mult_dot` in the last pass of the operator; the inverse in the fifth
+dimension inside the hop kernels; mixed precision by reliable updates instead of restarts
+(each inner CG of the defect correction starts from zero).
+
+### 15. Smaller ones
 
 - `DeviceBasis::pv_eo_coarse_vectors` computes s and t̂ again that `pv_eo` has just made; they
   could be restricted there.
@@ -185,13 +242,13 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 - **The 24³×48 setup on the A30 was about 30% slower than in the mass scan** (505–511 s at
   462a423 against 389–393 s at 535c9ef, setup S and B; the solve is unchanged within an
-  iteration). Most likely not the code: the runs at 462a423 were those with
-  `RUTTICE_CHECKSUM=1` (29 checksums), and the checksums are taken inside the timed setup
-  (item 13; about 56 GB hashed at about 0.9 GB/s on 24³×48; 12⁴ on an RTX 3080 with them 24 s,
-  without 22 s). The barrier of b72bb75 costs nothing measurable (2592 blocks of dim 64: 12 s
-  either way on the RTX 3080). **Check:** 24³×48 on the A30 without `RUTTICE_CHECKSUM`. The
-  run-to-run differences are gone: two runs at 462a423 gave the same checksums
-  (`cuda_bridge/README.md`).
+  iteration). Not the code: the runs at 462a423 were those with `RUTTICE_CHECKSUM=1`
+  (29 checksums), and the checksums are taken inside the timed setup (item 15). Measured on the
+  A30 on 2026-10-20: 462a423 without the variable 391 s, a fresh build of 535c9ef 395 s; with it
+  d665b50, b72bb75, dd484b3, a5dc425 and 462a423 all 509–512 s (+118 s, all in the two
+  bootstrap rounds). The barrier of b72bb75 costs nothing measurable (2592 blocks of dim 64:
+  12 s either way on the RTX 3080). The run-to-run differences are gone: two runs at 462a423
+  gave the same checksums (`cuda_bridge/README.md`).
 - **Running out of device memory panics.** `Vector` has no `Result`, so `zeros_like`,
   `zeros_with` and `select` of the device fields panic (`must`) when the device refuses; the
   message is the CUDA error. A solver that narrows its vectors (`Narrowed::narrow`) holds the

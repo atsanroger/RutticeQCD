@@ -36,6 +36,23 @@ pub fn fit<V: Vector>(tmp: &mut V, like: &V) {
 pub trait Subspace: Vector {
     /// `x_j ← Σ_i x_i c[i n + j]` for the n vectors of the set, c row-major.
     fn rotate(&mut self, c: &[C64]);
+
+    /// `⟨self_i, y_j⟩` for all i, j, row-major (the vectors of `self` the rows). By default one
+    /// pair of vectors at a time, each taken out of its set (`select`): a set that can do
+    /// better reads every vector once.
+    fn gram(&self, y: &Self) -> Vec<C64> {
+        let (nx, ny) = (self.num_vectors(), y.num_vectors());
+        let mut g = vec![C64::new(0.0, 0.0); nx * ny];
+        let mut d = [C64::new(0.0, 0.0)];
+        for j in 0..ny {
+            let yj = y.select(&[j]);
+            for i in 0..nx {
+                self.select(&[i]).dot(&yj, &mut d);
+                g[i * ny + j] = d[0];
+            }
+        }
+        g
+    }
 }
 
 /// A linear map that also knows its Hermitian conjugate.

@@ -482,14 +482,30 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
     ) {
+        self.hop_term_where(work, mu, dir, out, inp, None);
+    }
+
+    /// `hop_term` on the sites x with `keep(x)` only (all of them without `keep`); `out` is
+    /// left as it is on the others.
+    pub(crate) fn hop_term_where(
+        &self,
+        work: &mut WilsonWork<T>,
+        mu: usize,
+        dir: Direction,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        keep: Option<&(dyn Fn(usize) -> bool + Sync)>,
+    ) {
         match self.state.links {
-            LinkStore::Full(_) => self.hop_term_with::<FullLinks>(work, mu, dir, out, inp),
-            LinkStore::TwoRows(_) => self.hop_term_with::<TwoRowLinks>(work, mu, dir, out, inp),
+            LinkStore::Full(_) => self.hop_term_with::<FullLinks>(work, mu, dir, out, inp, keep),
+            LinkStore::TwoRows(_) => {
+                self.hop_term_with::<TwoRowLinks>(work, mu, dir, out, inp, keep)
+            }
             LinkStore::Unset => panic!("set_gauge must be called before the operator is applied"),
         }
     }
 
-    /// `hop_term` for one representation of the links.
+    /// `hop_term_where` for one representation of the links.
     fn hop_term_with<R: LinkRepr>(
         &self,
         work: &mut WilsonWork<T>,
@@ -497,6 +513,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         dir: Direction,
         out: &mut Field<T, Spinor>,
         inp: &Field<T, Spinor>,
+        keep: Option<&(dyn Fn(usize) -> bool + Sync)>,
     ) {
         let geo = &self.state.full;
         self.check(geo, out, inp);
@@ -508,6 +525,9 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         let spinors: &[[T; SPINOR_REALS]] = inp.slab(0).as_chunks().0;
         let face = received[Stencil::leg(mu, dir)];
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
+            if keep.is_some_and(|keep| !keep(x)) {
+                return;
+            }
             let hop = Self::resolve(geo, &fixed, x, mu, dir);
             for (r, o) in o.as_chunks_mut::<SPINOR_REALS>().0.iter_mut().enumerate() {
                 let input = Input {

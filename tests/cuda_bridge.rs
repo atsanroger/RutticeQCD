@@ -854,6 +854,26 @@ fn fused_vector_operations_on_the_device() {
             d < 1e-12,
             "the change of basis of {nv} vectors differs by {d:e}"
         );
+
+        // The Gram matrix with another set (tiles of 4: neither 37 nor 6 a multiple) and of
+        // the set with itself, against the pairwise inner products on the CPU.
+        let ny = 6;
+        let flat = random_spinor(&lat, ls * ny, 506);
+        let mut y = Psi::with_shape(&lat, 24, ls, ny, 1);
+        y.as_mut_slice().copy_from_slice(flat.as_slice());
+        let (dx, dy) = (up(&x), up(&y));
+        for (a, b, da, db) in [(&x, &y, &dx, &dy), (&y, &y, &dy, &dy)] {
+            let (na, nb) = (a.num_vectors(), b.num_vectors());
+            let mut expected = vec![C64::ZERO; na * nb];
+            let mut d = [C64::ZERO];
+            for i in 0..na {
+                for j in 0..nb {
+                    a.select(&[i]).dot(&b.select(&[j]), &mut d);
+                    expected[i * nb + j] = d[0];
+                }
+            }
+            close_c(&format!("gram {na} x {nb}"), &expected, &da.gram(db));
+        }
     }
 }
 

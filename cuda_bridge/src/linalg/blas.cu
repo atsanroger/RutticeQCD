@@ -173,6 +173,43 @@ namespace {
         return cudaSuccess;
     }
 
+    // <x_i|y_j> into re[i ny + j], im[i ny + j]: blas_gram_kernel, then the sums of its CUDA
+    // blocks added on the device; one wait for the stream.
+    template <typename Float>
+    int gram(double* re, double* im, const Float* x, const Float* y, int n, int nx, int ny, cudaStream_t stream) {
+        constexpr int T = bridge_cuda::GramTile, NQ = 2 * T * T;
+        const int pairs = n / 2, tiles_y = (ny + T - 1) / T;
+        const int tiles = ((nx + T - 1) / T) * tiles_y;
+        // Enough CUDA blocks over all the tiles to fill the device, at least one for each.
+        const int per = std::max(1, std::min(get_grid_size(pairs), 2048 / tiles));
+        const size_t count_all = static_cast<size_t>(tiles) * NQ;
+        int e = reserve(count_all * per, count_all);
+        if (e != cudaSuccess) return e;
+        bridge_cuda::blas_gram_kernel<Float><<<dim3(per, tiles), BLOCK_SIZE, 0, stream>>>(
+            reduction.sums, x, y, pairs, nx, ny);
+        bridge_cuda::blas_finish_kernel<<<static_cast<int>(count_all), BLOCK_SIZE, 0, stream>>>(
+            reduction.results, reduction.sums, per);
+        e = cudaGetLastError();
+        if (e != cudaSuccess) return e;
+        e = cudaMemcpyAsync(reduction.host, reduction.results, count_all * sizeof(double),
+                            cudaMemcpyDeviceToHost, stream);
+        if (e != cudaSuccess) return e;
+        e = cudaStreamSynchronize(stream);
+        if (e != cudaSuccess) return e;
+        for (int tile = 0; tile < tiles; ++tile) {
+            const int i0 = (tile / tiles_y) * T, j0 = (tile % tiles_y) * T;
+            for (int a = 0; a < T && i0 + a < nx; ++a) {
+                for (int c = 0; c < T && j0 + c < ny; ++c) {
+                    const size_t q = static_cast<size_t>(tile) * NQ + 2 * (a * T + c);
+                    const size_t at = static_cast<size_t>(i0 + a) * ny + j0 + c;
+                    re[at] = reduction.host[q];
+                    im[at] = reduction.host[q + 1];
+                }
+            }
+        }
+        return cudaSuccess;
+    }
+
     template <typename Float>
     int xpay_norm2_dot(Float* s, const Float* x, const double* a, const Float* y, const Float* z,
                        double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream) {
@@ -273,6 +310,12 @@ int bridge_cuda_blas_dot_norms_f32(const float* s, const float* x, double* re, d
 }
 int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream) {
     return dot_norms(s, x, re, im, norm_s, norm_x, n, vectors, stream);
+}
+int bridge_cuda_blas_gram_f32(double* re, double* im, const float* x, const float* y, int n, int nx, int ny, cudaStream_t stream) {
+    return gram(re, im, x, y, n, nx, ny, stream);
+}
+int bridge_cuda_blas_gram_f64(double* re, double* im, const double* x, const double* y, int n, int nx, int ny, cudaStream_t stream) {
+    return gram(re, im, x, y, n, nx, ny, stream);
 }
 int bridge_cuda_blas_scale_axpy2_norm2_f32(float* s, const double* c, const double* a, const float* x, const double* b, const float* y, double* norm, int n, int vectors, cudaStream_t stream) {
     return scale_axpy2_norm2(s, c, a, x, b, y, norm, n, vectors, stream);

@@ -443,6 +443,14 @@ void bridge_cuda_coarse_pass_f64(
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream
 );
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
+// The coarse unit vectors of the components first .. first + vectors, in a field of that many
+// vectors that is zero; and column first + v of the matrices of every coarse site (the layout
+// of bridge_cuda_coarse_pass_*, float with target_single, else double) from vector v of a
+// coarse field: the coarse operator put together on the device (multigrid/fold.cuh).
+void bridge_cuda_coarse_units_f32(float* d_v, int n_coarse, int dim, int first, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_units_f64(double* d_v, int n_coarse, int dim, int first, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_columns_f32(void* d_target, int target_single, const float* d_c, int n_coarse, int dim, int first, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_columns_f64(void* d_target, int target_single, const double* d_c, int n_coarse, int dim, int first, int vectors, cudaStream_t stream);
 
 // The derivative of a fermion action by the links for the hops of the Wilson kernel
 // (fermion/force.cuh), in double precision: M of -2 Re zeta^dag dD eta with eta the field the
@@ -650,6 +658,11 @@ int bridge_cuda_blas_dotc_f64(double* re, double* im, const double* x, const dou
 int bridge_cuda_blas_axpy_norm2_f64(double* y, const double* x, const double* a, double* norm, int n, int vectors, cudaStream_t stream);
 int bridge_cuda_blas_xpay_norm2_dot_f64(double* s, const double* x, const double* a, const double* y, const double* z, double* norm, double* re, double* im, int n, int vectors, cudaStream_t stream);
 int bridge_cuda_blas_dot_norms_f64(const double* s, const double* x, double* re, double* im, double* norm_s, double* norm_x, int n, int vectors, cudaStream_t stream);
+// <x_i|y_j> for the nx vectors of x and the ny of y (sets of their own, vectors of n reals):
+// re[i ny + j], im[i ny + j], host memory. Every vector read once for every few of the other
+// set (linalg/blas.cuh, blas_gram_kernel). As the reductions above.
+int bridge_cuda_blas_gram_f32(double* re, double* im, const float* x, const float* y, int n, int nx, int ny, cudaStream_t stream);
+int bridge_cuda_blas_gram_f64(double* re, double* im, const double* x, const double* y, int n, int nx, int ny, cudaStream_t stream);
 // s_v = c_v s_v + a_v x_v + b_v y_v, then |s_v|^2 (a step of a Chebyshev recurrence); c real
 // (one double for each vector), a and b complex (re, im). As the reductions above.
 int bridge_cuda_blas_scale_axpy2_norm2_f32(float* s, const double* c, const double* a, const float* x, const double* b, const float* y, double* norm, int n, int vectors, cudaStream_t stream);

@@ -13,7 +13,7 @@ mod wilson;
 
 pub use aggregation::Aggregation;
 pub use basis::{Basis, BasisBuilder, Reflection};
-pub use coarse::CoarseOp;
+pub use coarse::{coarse_neighbours, CoarseOp};
 pub use correction::{
     solve_shared, CoarseOperator, CoarseSolve, Correction, FnMap, Levels, NeffQ, Transfer,
 };

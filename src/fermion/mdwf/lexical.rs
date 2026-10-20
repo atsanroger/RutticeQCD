@@ -207,6 +207,30 @@ impl<T: Storage, G: GammaRepre> HopTerms<Field<T, Spinor>> for Mdwf<T, G> {
     fn hop_coefficient(&self) -> f64 {
         -(4.0 - self.params.m5) / (8.0 - 2.0 * self.params.m5)
     }
+
+    /// w = b ψ − c Y ψ (of Q ψ) made once, then the eight hops of the kernel on it, each on the
+    /// sites wanted only (the faces of the blocks of a multigrid: a quarter of the sites for
+    /// blocks of four).
+    fn each_hop(
+        &self,
+        work: &mut MdwfWork<T>,
+        out: &mut Field<T, Spinor>,
+        inp: &Field<T, Spinor>,
+        wanted: &(dyn Fn(usize, crate::Direction, usize) -> bool + Sync),
+        leg: &mut dyn FnMut(usize, crate::Direction, &Field<T, Spinor>),
+    ) {
+        let MdwfWork { wilson, fields } = work;
+        let w = self.before_kernel(fields, inp);
+        for mu in 0..crate::ND {
+            for dir in [crate::Direction::Forward, crate::Direction::Backward] {
+                out.set_zero();
+                let keep = |x: usize| wanted(mu, dir, x);
+                self.wilson
+                    .hop_term_where(wilson, mu, dir, out, w, Some(&keep));
+                leg(mu, dir, out);
+            }
+        }
+    }
 }
 
 impl<T: Storage, G: GammaRepre> Mdwf<T, G> {

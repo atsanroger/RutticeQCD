@@ -176,31 +176,20 @@ impl<T: DeviceReal> DeviceCoarse<T> {
         first: usize,
         vectors: usize,
     ) -> Result<Self, CudaError> {
-        let one = Self::reals_of(sites, dim);
-        let mut host = vec![0.0; vectors * one];
-        for v in 0..vectors {
-            for x in 0..sites {
-                host[v * one + at(0, x * dim + first + v, 2)] = 1.0;
-            }
+        assert!(first + vectors <= dim);
+        let units = Self::zeros(sites, dim, vectors)?;
+        // SAFETY: a zero field of `vectors` vectors of `sites` sites of `dim` components, and
+        // components `first ..first + vectors` of a site.
+        unsafe {
+            T::coarse_units(
+                units.data.ptr,
+                sites as i32,
+                dim as i32,
+                first as i32,
+                vectors as i32,
+            );
         }
-        Ok(Self {
-            data: DeviceBuffer::from_host(&host)?,
-            sites,
-            dim,
-            vectors,
-        })
-    }
-
-    /// The complex numbers of the field, `[vector][site][component]`.
-    pub(super) fn values(&self) -> Result<Vec<C64>, CudaError> {
-        let (count, one) = (self.sites * self.dim, Self::reals_of(self.sites, self.dim));
-        let host = self.data.download()?;
-        Ok((0..self.vectors * count)
-            .map(|k| {
-                let (v, q) = (k / count, k % count);
-                C64::new(host[v * one + at(0, q, 2)], host[v * one + at(1, q, 2)])
-            })
-            .collect())
+        Ok(units)
     }
 
     /// The field in the precision `U`.
@@ -778,6 +767,9 @@ pub struct DeviceCoarseOp<T = f64> {
     /// The site every hop of every site comes from, and whether each site is odd.
     neighbours: DeviceTable,
     odd: DeviceTable,
+    /// The same on the host, for what is made of this operator (`adjoint`) without reading
+    /// them back from the device.
+    tables: (Vec<u32>, Vec<u32>),
     sites: usize,
     dim: usize,
 }
@@ -808,23 +800,48 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         );
         let reals = |m: &[S]| -> Vec<f64> { m.iter().map(|x| x.load().to_f64()).collect() };
         let (diag, links) = a.blocks();
+        debug_assert!({
+            let table = crate::solver::preconditioner::multigrid::coarse_neighbours(a.lattice());
+            (0..sites).all(|x| table[x] == a.neighbours(x))
+        });
+        Self::on_lattice(
+            a.lattice(),
+            DeviceBuffer::<f64>::from_host(&reals(diag))?,
+            in_precision(&DeviceBuffer::<f64>::from_host(&reals(links))?)?,
+            dim,
+            even_odd,
+        )
+    }
+
+    /// The operator of the blocks (double precision) and links (in the precision `T`), on the
+    /// device in the layout of `coarse_pass_kernel`, of the coarse lattice `lat`, with its
+    /// tables: the site every hop comes from and the parity of every site. `even_odd` as in
+    /// `new`.
+    pub(super) fn on_lattice(
+        lat: &Lattice,
+        diag_f64: DeviceBuffer<f64>,
+        links: DeviceBuffer<T>,
+        dim: usize,
+        even_odd: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let sites = lat.num_sites();
         let mut neighbours = vec![0u32; 8 * sites];
-        for x in 0..sites {
-            for (d, y) in a.neighbours(x).into_iter().enumerate() {
-                neighbours[d * sites + x] = y as u32;
+        let table = crate::solver::preconditioner::multigrid::coarse_neighbours(lat);
+        for (x, hops) in table.iter().enumerate() {
+            for (d, y) in hops.iter().enumerate() {
+                neighbours[d * sites + x] = *y as u32;
             }
         }
-        let coords = |x| a.lattice().global_coords(x);
         let odd: Vec<u32> = (0..sites)
-            .map(|x| (coords(x).iter().sum::<usize>() % 2) as u32)
+            .map(|x| (lat.global_coords(x).iter().sum::<usize>() % 2) as u32)
             .collect();
-        Self::from_parts(
-            DeviceBuffer::<f64>::from_host(&reals(diag))?,
-            &DeviceBuffer::<f64>::from_host(&reals(links))?,
+        Self::from_device_links(
+            diag_f64,
+            links,
             &neighbours,
             &odd,
             dim,
-            even_odd && a.lattice().global.iter().all(|l| l % 2 == 0),
+            even_odd && lat.global.iter().all(|l| l % 2 == 0),
         )
     }
 
@@ -894,6 +911,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             even_odd,
             neighbours: DeviceTable::from_host(neighbours)?,
             odd: DeviceTable::from_host(odd)?,
+            tables: (neighbours.to_vec(), odd.to_vec()),
             sites,
             dim,
         })
@@ -903,12 +921,10 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         &self.links
     }
 
-    pub(super) fn neighbour_table(&self) -> &DeviceTable {
-        &self.neighbours
-    }
-
-    pub(super) fn odd_table(&self) -> &DeviceTable {
-        &self.odd
+    /// The site every hop of every site comes from (`[direction][site]`), and whether each site
+    /// is odd: the tables the device has, as they were made on the host.
+    pub(super) fn tables(&self) -> (&[u32], &[u32]) {
+        (&self.tables.0, &self.tables.1)
     }
 
     /// Complex numbers per site.

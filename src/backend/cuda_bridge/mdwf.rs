@@ -15,7 +15,7 @@ use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant};
 use crate::kernel::NC;
 use crate::solver::preconditioner::multigrid::{CoarseOp, NeffQ};
-use crate::{Parity, Vector, C64};
+use crate::{Parity, Vector};
 use std::rc::Rc;
 
 extern "C" {
@@ -550,12 +550,40 @@ impl<T: DeviceReal> CudaMdwf<T> {
         self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
     }
 
-    /// The coarse operator `P† D P` of this operator (plain: without Neff's α), as
-    /// `CoarseOp::build` makes it on the CPU: for every component of a coarse site, P of the
-    /// unit vectors of that component, the part of D within a site and each of the eight
-    /// hops, sorted by whether the hop stays inside its aggregate, and P† of each. Several
-    /// components at a time, as the vectors of the fields.
+    /// The coarse operator `P† D P` of this operator (plain: without Neff's α) on the host, as
+    /// `CoarseOp::build` makes it on the CPU: `coarse_blocks`, brought to the host once.
     pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
+        let (diag, links) = self.coarse_blocks::<f64>(basis)?;
+        Ok(CoarseOp::from_parts(
+            &basis.coarse,
+            basis.coarse_dim(),
+            diag.download()?,
+            links.download()?,
+        ))
+    }
+
+    /// The same coarse operator as it is used, on the device in the precision `CT`: made there
+    /// and kept there (what `DeviceCoarseOp::new` of `coarse_operator` gives, without bringing
+    /// the matrices to the host and back). `even_odd` as in `DeviceCoarseOp::new`.
+    pub fn coarse_operator_on_device<CT: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+        even_odd: bool,
+    ) -> Result<DeviceCoarseOp<CT>, Box<dyn std::error::Error>> {
+        let (diag, links) = self.coarse_blocks::<CT>(basis)?;
+        DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
+    }
+
+    /// The blocks (double precision) and the links (in the precision `L` they are kept in) of
+    /// the coarse operator on the device, in the layout of `coarse_pass_kernel`: for every
+    /// component of a coarse site, P of the unit vectors of that component, the part of D within
+    /// a site and each of the eight hops, sorted by whether the hop stays inside its aggregate,
+    /// and P† of each, written into the matrices as they are made (`coarse_columns_kernel`).
+    /// Several components at a time, as the vectors of the fields.
+    fn coarse_blocks<L: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+    ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
         assert!(
             self.alpha == 1.0,
             "the coarse operator is that of the plain operator"
@@ -563,23 +591,30 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let MdwfParams { mass, b, c, .. } = self.params;
         let (sites, dim) = (basis.coarse_sites, basis.coarse_dim());
         let matrix = 2 * dim * dim;
-        let mut diag = vec![0.0; sites * matrix];
-        let mut links = vec![0.0; 8 * sites * matrix];
+        let diag = DeviceBuffer::<f64>::zeros(sites * matrix)?;
+        let links = DeviceBuffer::<L>::zeros(8 * sites * matrix)?;
+        let links_single = std::any::TypeId::of::<L>() == std::any::TypeId::of::<f32>();
         // As many components at a time as keep the three fine fields within half a GB: whole
         // groups of the vectors P is read once for, if that is several.
         let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
         let fit = ((1 << 29) / (3 * phi.data.bytes())).clamp(1, dim);
         let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
-        // Column `first + v` of every site's matrix from vector v of a coarse field.
-        let store = |target: &mut [f64], first: usize, values: &[C64]| {
-            for (v, part) in values.chunks_exact(sites * dim).enumerate() {
-                for (site, rows) in part.chunks_exact(dim).enumerate() {
-                    for (row, z) in rows.iter().enumerate() {
-                        let k = site * matrix + 2 * (dim * row + first + v);
-                        target[k] = z.re;
-                        target[k + 1] = z.im;
-                    }
-                }
+        // Columns `first ..` of the matrices from `target` on (f32 with `single`, else f64) from
+        // the vectors of a coarse field.
+        let columns = |to: *mut c_void, single: bool, first: usize, v: &DeviceCoarse<T>| {
+            // SAFETY: `to` has the matrices of `sites` sites of `dim` x `dim` complex numbers in
+            // that precision; `v` is a coarse field of as many sites and components, whose
+            // vectors are columns `first ..` of those (`first + vectors <= dim`).
+            unsafe {
+                T::coarse_columns(
+                    to,
+                    i32::from(single),
+                    v.data.ptr,
+                    sites as i32,
+                    dim as i32,
+                    first as i32,
+                    v.vectors as i32,
+                );
             }
         };
         for first in (0..dim).step_by(batch) {
@@ -612,13 +647,14 @@ impl<T: DeviceReal> CudaMdwf<T> {
                     );
                 }
                 basis.restrict_leg(&mut restricted, &cross, Some(leg));
-                let range = leg * sites * matrix..(leg + 1) * sites * matrix;
-                store(&mut links[range], first, &restricted.values()?);
+                // SAFETY: the links of `leg` are those from `leg sites matrix` on.
+                let at = unsafe { links.ptr.add(leg * sites * matrix) };
+                columns(at.cast(), links_single, first, &restricted);
             }
             basis.restrict(&mut restricted, &inside);
-            store(&mut diag, first, &restricted.values()?);
+            columns(diag.ptr.cast(), false, first, &restricted);
         }
-        Ok(CoarseOp::from_parts(&basis.coarse, dim, diag, links))
+        Ok((diag, links))
     }
 
     /// `out = D inp` of the plain operator, without Neff's Q whatever α is, on the whole lattice

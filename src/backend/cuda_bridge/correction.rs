@@ -99,8 +99,9 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         params: PvEoParams,
     ) -> Result<DeviceParts<CT>, Box<dyn Error>> {
         let even_odd = params.coarse_even_odd;
+        // Made on the device and kept there.
         let build = |op: &CudaMdwf<F>| -> Result<_, Box<dyn Error>> {
-            DeviceCoarseOp::<CT>::new(&op.coarse_operator(&device)?, even_odd)
+            op.coarse_operator_on_device::<CT>(&device, even_odd)
         };
         let minres = params.pv_solver == CoarseKrylov::Minres;
         let coarse_d = Rc::new(build(plain.0)?);

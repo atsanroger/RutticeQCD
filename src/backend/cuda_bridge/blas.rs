@@ -52,6 +52,30 @@ pub trait DeviceBlas: Sized {
         n: i32,
         vectors: i32,
     ) -> i32;
+    /// The coarse unit vectors of the components `first ..`, `vectors` of them, into a zero
+    /// coarse field (`multigrid/fold.cuh`).
+    unsafe fn coarse_units(v: *mut Self, n_coarse: i32, dim: i32, first: i32, vectors: i32);
+    /// Column `first + v` of every coarse site's matrix (`f32` with `target_single`, else `f64`)
+    /// from vector `v` of the coarse field `c`.
+    unsafe fn coarse_columns(
+        target: *mut c_void,
+        target_single: i32,
+        c: *const Self,
+        n_coarse: i32,
+        dim: i32,
+        first: i32,
+        vectors: i32,
+    );
+    /// `<x_i|y_j>` for the `nx` vectors of `x` and the `ny` of `y`, at `i ny + j`.
+    unsafe fn gram(
+        re: *mut f64,
+        im: *mut f64,
+        x: *const Self,
+        y: *const Self,
+        n: i32,
+        nx: i32,
+        ny: i32,
+    ) -> i32;
     /// `s = c s + a x + b y` (`c` real), then `|s|²`.
     unsafe fn scale_axpy2_norm2(
         s: *mut Self,
@@ -101,8 +125,37 @@ pub trait DeviceBlas: Sized {
 /// `DeviceBlas` for one type, on the functions of that precision.
 macro_rules! device_blas {
     ($t:ty: $norm2:ident, $dotc:ident, $axpy_norm2:ident, $xpay_norm2_dot:ident, $dot_norms:ident,
-     $scale_axpy2_norm2:ident, $xpay:ident, $axpy2:ident, $axpy_aypx:ident, $combine:ident) => {
+     $gram:ident, $scale_axpy2_norm2:ident, $xpay:ident, $axpy2:ident, $axpy_aypx:ident,
+     $combine:ident, $units:ident, $columns:ident) => {
         extern "C" {
+            fn $units(
+                v: *mut $t,
+                n_coarse: i32,
+                dim: i32,
+                first: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $columns(
+                target: *mut c_void,
+                target_single: i32,
+                c: *const $t,
+                n_coarse: i32,
+                dim: i32,
+                first: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $gram(
+                re: *mut f64,
+                im: *mut f64,
+                x: *const $t,
+                y: *const $t,
+                n: i32,
+                nx: i32,
+                ny: i32,
+                stream: *mut c_void,
+            ) -> i32;
             fn $scale_axpy2_norm2(
                 s: *mut $t,
                 c: *const f64,
@@ -254,6 +307,46 @@ macro_rules! device_blas {
             ) -> i32 {
                 $dot_norms(s, x, re, im, norm_s, norm_x, n, vectors, STREAM)
             }
+            unsafe fn coarse_units(
+                v: *mut Self,
+                n_coarse: i32,
+                dim: i32,
+                first: i32,
+                vectors: i32,
+            ) {
+                $units(v, n_coarse, dim, first, vectors, STREAM)
+            }
+            unsafe fn coarse_columns(
+                target: *mut c_void,
+                target_single: i32,
+                c: *const Self,
+                n_coarse: i32,
+                dim: i32,
+                first: i32,
+                vectors: i32,
+            ) {
+                $columns(
+                    target,
+                    target_single,
+                    c,
+                    n_coarse,
+                    dim,
+                    first,
+                    vectors,
+                    STREAM,
+                )
+            }
+            unsafe fn gram(
+                re: *mut f64,
+                im: *mut f64,
+                x: *const Self,
+                y: *const Self,
+                n: i32,
+                nx: i32,
+                ny: i32,
+            ) -> i32 {
+                $gram(re, im, x, y, n, nx, ny, STREAM)
+            }
             unsafe fn scale_axpy2_norm2(
                 s: *mut Self,
                 c: *const f64,
@@ -315,11 +408,13 @@ macro_rules! device_blas {
 
 device_blas!(f32: bridge_cuda_blas_norm2_f32, bridge_cuda_blas_dotc_f32,
     bridge_cuda_blas_axpy_norm2_f32, bridge_cuda_blas_xpay_norm2_dot_f32,
-    bridge_cuda_blas_dot_norms_f32, bridge_cuda_blas_scale_axpy2_norm2_f32,
+    bridge_cuda_blas_dot_norms_f32, bridge_cuda_blas_gram_f32, bridge_cuda_blas_scale_axpy2_norm2_f32,
     bridge_cuda_blas_xpay_f32, bridge_cuda_blas_axpy2_f32,
-    bridge_cuda_blas_axpy_aypx_f32, bridge_cuda_blas_combine_f32);
+    bridge_cuda_blas_axpy_aypx_f32, bridge_cuda_blas_combine_f32,
+    bridge_cuda_coarse_units_f32, bridge_cuda_coarse_columns_f32);
 device_blas!(f64: bridge_cuda_blas_norm2_f64, bridge_cuda_blas_dotc_f64,
     bridge_cuda_blas_axpy_norm2_f64, bridge_cuda_blas_xpay_norm2_dot_f64,
-    bridge_cuda_blas_dot_norms_f64, bridge_cuda_blas_scale_axpy2_norm2_f64,
+    bridge_cuda_blas_dot_norms_f64, bridge_cuda_blas_gram_f64, bridge_cuda_blas_scale_axpy2_norm2_f64,
     bridge_cuda_blas_xpay_f64, bridge_cuda_blas_axpy2_f64,
-    bridge_cuda_blas_axpy_aypx_f64, bridge_cuda_blas_combine_f64);
+    bridge_cuda_blas_axpy_aypx_f64, bridge_cuda_blas_combine_f64,
+    bridge_cuda_coarse_units_f64, bridge_cuda_coarse_columns_f64);

@@ -136,6 +136,65 @@ __global__ void blas_finish_kernel(double* __restrict__ out, const double* __res
     if (tid == 0) out[blockIdx.x] = s[0];
 }
 
+// <x_i|y_j> for every vector x_i of one set and y_j of another, by tiles of GramTile x GramTile
+// pairs, blockIdx.y the tile (those of y fastest): a thread reads the GramTile numbers of
+// either side at its places once for all the pairs of the tile, so a vector is read once for
+// every GramTile vectors of the other set (one pair at a time, it was read for each, and
+// copied). gridDim.x CUDA blocks for each tile; the sum of block b of quantity q of the tile
+// (2 (a GramTile + c), + 1 for the imaginary part, of x_(i0 + a) and y_(j0 + c)) goes to
+// block_sums[(tile 2 GramTile^2 + q) gridDim.x + b], for blas_finish_kernel. In double
+// precision, the lanes and then the warps added in a fixed order.
+constexpr int GramTile = 4;
+
+template <typename Float, int BLOCK_SIZE = 256>
+__global__ void blas_gram_kernel(double* __restrict__ block_sums, const Float* __restrict__ x,
+                                 const Float* __restrict__ y, int pairs, int nx, int ny) {
+    constexpr int NQ = 2 * GramTile * GramTile, WARPS = BLOCK_SIZE / BRIDGE_CUDA_WARP_SIZE;
+    __shared__ double s[WARPS][NQ];
+    const int per = gridDim.x, b = blockIdx.x, tile = blockIdx.y;
+    const int tiles_y = (ny + GramTile - 1) / GramTile;
+    const int i0 = (tile / tiles_y) * GramTile, j0 = (tile % tiles_y) * GramTile;
+    const size_t n = 2 * static_cast<size_t>(pairs);
+    double acc[NQ];
+    #pragma unroll
+    for (int q = 0; q < NQ; ++q) acc[q] = 0.0;
+    for (int p = b * BLOCK_SIZE + threadIdx.x; p < pairs; p += BLOCK_SIZE * per) {
+        const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
+        double xr[GramTile], xi[GramTile];
+        #pragma unroll
+        for (int a = 0; a < GramTile; ++a) {
+            const bool in = i0 + a < nx;
+            xr[a] = in ? static_cast<double>(x[(i0 + a) * n + kr]) : 0.0;
+            xi[a] = in ? static_cast<double>(x[(i0 + a) * n + ki]) : 0.0;
+        }
+        #pragma unroll
+        for (int c = 0; c < GramTile; ++c) {
+            const bool in = j0 + c < ny;
+            const double yr = in ? static_cast<double>(y[(j0 + c) * n + kr]) : 0.0;
+            const double yi = in ? static_cast<double>(y[(j0 + c) * n + ki]) : 0.0;
+            #pragma unroll
+            for (int a = 0; a < GramTile; ++a) {
+                acc[2 * (a * GramTile + c)] += xr[a] * yr + xi[a] * yi;
+                acc[2 * (a * GramTile + c) + 1] += xr[a] * yi - xi[a] * yr;
+            }
+        }
+    }
+    const int lane = threadIdx.x % BRIDGE_CUDA_WARP_SIZE, warp = threadIdx.x / BRIDGE_CUDA_WARP_SIZE;
+    #pragma unroll
+    for (int q = 0; q < NQ; ++q) {
+        double v = acc[q];
+        #pragma unroll
+        for (int step = BRIDGE_CUDA_WARP_SIZE / 2; step > 0; step >>= 1) v += __shfl_xor_sync(0xffffffffu, v, step);
+        if (lane == 0) s[warp][q] = v;
+    }
+    __syncthreads();
+    if (threadIdx.x < NQ) {
+        double t = 0.0;
+        for (int w = 0; w < WARPS; ++w) t += s[w][threadIdx.x];
+        block_sums[(static_cast<size_t>(tile) * NQ + threadIdx.x) * per + b] = t;
+    }
+}
+
 // The operations. Coefficients a, b: one complex number for each vector of the launch.
 template <typename Float>
 struct BlasNorm {  // |x_v|^2

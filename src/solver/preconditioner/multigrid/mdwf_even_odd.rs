@@ -845,25 +845,42 @@ fn rotate<F: Storage>(x: &mut HalfField<Aos, F>, c: &[C64]) {
     });
 }
 
+/// ⟨x_i, y_j⟩ for all i, j (row-major, x rows) in one sweep over the sites: a site holds its
+/// part of every vector of a set, so each vector is read once (instead of a copy and a dot
+/// product for every pair).
+fn gram<F: Storage>(x: &HalfField<Aos, F>, y: &HalfField<Aos, F>) -> Vec<C64> {
+    let (nx, ny) = (x.num_vectors(), y.num_vectors());
+    let reals = x.site_len() / nx;
+    assert!(x.num_sites() == y.num_sites() && y.site_len() / ny == reals);
+    assert!(x.outer() == 1 && y.outer() == 1);
+    let mut sums = crate::reduce_sites_dyn(x.num_sites(), 2 * nx * ny, |site, acc| {
+        let (a, b) = (x.site(0, site), y.site(0, site));
+        for (i, ai) in a.chunks_exact(reals).enumerate() {
+            for (j, bj) in b.chunks_exact(reals).enumerate() {
+                let (mut re, mut im) = (0.0, 0.0);
+                for (p, q) in ai.chunks_exact(2).zip(bj.chunks_exact(2)) {
+                    let (pr, pi) = (p[0].load().to_f64(), p[1].load().to_f64());
+                    let (qr, qi) = (q[0].load().to_f64(), q[1].load().to_f64());
+                    re += pr * qr + pi * qi;
+                    im += pr * qi - pi * qr;
+                }
+                acc[2 * (i * ny + j)] += re;
+                acc[2 * (i * ny + j) + 1] += im;
+            }
+        }
+    });
+    x.lattice().comm.sum(&mut sums);
+    sums.chunks_exact(2).map(|s| C64::new(s[0], s[1])).collect()
+}
+
 impl<F: Storage> Subspace for HalfField<Aos, F> {
     fn rotate(&mut self, c: &[C64]) {
         rotate(self, c);
     }
-}
 
-/// ⟨x_i, y_j⟩ for all i, j (row-major, x rows), one pair of vectors at a time.
-fn gram<V: Vector>(x: &V, y: &V) -> Vec<C64> {
-    let (nx, ny) = (x.num_vectors(), y.num_vectors());
-    let mut g = vec![C64::ZERO; nx * ny];
-    let mut d = [C64::ZERO];
-    for j in 0..ny {
-        let yj = y.select(&[j]);
-        for i in 0..nx {
-            x.select(&[i]).dot(&yj, &mut d);
-            g[i * ny + j] = d[0];
-        }
+    fn gram(&self, y: &Self) -> Vec<C64> {
+        gram(self, y)
     }
-    g
 }
 
 /// Eigenvalues ascending, with the eigenvectors (columns) in the same order.
@@ -883,7 +900,7 @@ fn sorted_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
 /// Orthonormalise the vectors of x through their Gram matrix (Löwdin, x ← x G^-1/2 V).
 pub fn orthonormalise_all<V: Subspace>(x: &mut V) {
     let n = x.num_vectors();
-    let (values, mut c) = sorted_eigen(n, &gram(x, x));
+    let (values, mut c) = sorted_eigen(n, &x.gram(x));
     for (j, l) in values.iter().enumerate() {
         assert!(*l > 1e-13 * values[n - 1], "the subspace lost rank");
         for i in 0..n {
@@ -970,7 +987,7 @@ pub fn low_modes<V: Subspace, N: LinearFn<V>>(
             let xc = x.select(c);
             let mut w = xc.zeros_like();
             normal(&xc).mult(&mut w, &xc);
-            let part = gram(&x, &w);
+            let part = x.gram(&w);
             for i in 0..m {
                 for (k, j) in c.iter().enumerate() {
                     g[i * m + j] = part[i * c.len() + k];

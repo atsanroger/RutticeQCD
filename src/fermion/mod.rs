@@ -114,6 +114,34 @@ pub trait HopTerms<V>: FermionOp<V> {
     fn mult_gamma5(&self, work: &mut Self::Work, out: &mut V, inp: &V);
     /// The coefficient of the hopping terms in D: `D = diag + hop_coefficient * Σ hops`.
     fn hop_coefficient(&self) -> f64;
+    /// The eight hops of `inp` one after the other: `leg(mu, dir, hop)`, `hop` that hop of `inp`
+    /// alone (`hop_forward` or `hop_backward` from zero), made in `out`, as far as it is wanted:
+    /// on the sites x with `wanted(mu, dir, x)` (it may be anything on the others). An operator
+    /// whose hops act on a field made from `inp` (`Mdwf`: b − c Y of it) makes that field once
+    /// for all eight, and may leave out the sites not wanted.
+    fn each_hop(
+        &self,
+        work: &mut Self::Work,
+        out: &mut V,
+        inp: &V,
+        wanted: &(dyn Fn(usize, crate::Direction, usize) -> bool + Sync),
+        leg: &mut dyn FnMut(usize, crate::Direction, &V),
+    ) where
+        V: Vector,
+    {
+        // Every site: what is wanted is there.
+        let _ = wanted;
+        for mu in 0..crate::ND {
+            for dir in [crate::Direction::Forward, crate::Direction::Backward] {
+                out.set_zero();
+                match dir {
+                    crate::Direction::Forward => self.hop_forward(work, mu, out, inp),
+                    crate::Direction::Backward => self.hop_backward(work, mu, out, inp),
+                }
+                leg(mu, dir, out);
+            }
+        }
+    }
 }
 
 /// A fermion operator fixed to one variant, with its own scratch space. This is what

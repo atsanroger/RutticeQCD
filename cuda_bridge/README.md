@@ -74,14 +74,16 @@ for periodic, antiperiodic and Dirichlet boundaries:
   of the Wilson and clover operators. `bridge_cuda_parity_copy`.
 - `bridge_cuda_gamma5`; `bridge_cuda_blas_*`: axpy, scal, complex axpy and aypx, norm and
   inner product, and the rotation of a set of vectors (`bridge_cuda_blas_rotate_*`), for any
-  number of vectors in one call.
+  number of vectors in one call; the Gram matrix of two sets (`bridge_cuda_blas_gram_*`, 37 × 6
+  and 6 × 6 vectors) against the inner products of the pairs.
 - `bridge_cuda_fifth_gemm_tf32_f32`: the product in the fifth dimension in TF32, to what TF32
   allows.
 - The domain-wall multigrid (`multigrid/fold.cuh`): P folded on the fifth dimension, made from
   test vectors and orthonormalised on the device (`bridge_cuda_fold_fill_*`,
   `bridge_cuda_fold_orthonormalise`), the restriction and prolongation
   (`bridge_cuda_fold_restrict_*`, `bridge_cuda_fold_prolong_*`), with P in single or half
-  precision; the coarse operators built on the device (`bridge_cuda_hop_split_*`), applied
+  precision; the coarse operators built on the device (`bridge_cuda_hop_split_*`, put together
+  there by `bridge_cuda_coarse_units_*` and `bridge_cuda_coarse_columns_*`), applied
   (`bridge_cuda_coarse_pass_*`, `bridge_cuda_coarse_gamma5_*`), the inverses of their blocks
   and |H_xx|^-1 (`bridge_cuda_blocks_inverse`, `bridge_cuda_blocks_abs_inverse_gamma5`); the
   four-dimensional fields of a five-dimensional one (`bridge_cuda_walls_*`). The coarse
@@ -148,6 +150,13 @@ Conventions:
   unused is given back and the allocation tried once more, as the Rust side does for its own.
   Under WSL the device takes more than it has (it pages to the host), so that path has not
   been seen to run.
+- The coarse operator of the domain-wall multigrid is made and kept on the device: P† of each
+  hop and of the block goes into the matrices there (`coarse_columns_kernel`, the links in the
+  precision of the coarse solves), and only the tables of the coarse lattice come from the host
+  (until 2026-10-20 the matrices went to the host for every batch of components and back).
+- The Gram matrix of two sets of vectors (`blas_gram_kernel`, `linalg/blas.cuh`) is made by
+  tiles of 4 × 4 pairs, in double precision and in a fixed order, so a vector is read once for
+  every four of the other set.
 
 ---
 

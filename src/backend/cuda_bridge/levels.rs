@@ -926,7 +926,7 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
     /// (A(X)⁻¹)†.
     pub fn adjoint(&self) -> Result<Self, Box<dyn Error>> {
         let (sites, dim) = (self.sites(), self.dim());
-        let neighbours = self.neighbour_table().download(2 * ND * sites)?;
+        let (neighbours, odd) = self.tables();
         // Every hop is a permutation of the sites: Y = its inverse at X.
         let mut from = vec![0u32; 2 * ND * sites];
         for d in 0..2 * ND {
@@ -957,7 +957,6 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
                 dim as i32,
             );
         }
-        let odd = self.odd_table().download(sites)?;
-        Self::from_device_links(diag, links, &from, &odd, dim, self.has_even_odd())
+        Self::from_device_links(diag, links, &from, odd, dim, self.has_even_odd())
     }
 }

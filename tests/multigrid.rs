@@ -38,6 +38,36 @@ fn lattice() -> Arc<Lattice> {
     Lattice::single_node([4, 4, 4, 8])
 }
 
+/// The Gram matrix of sets of vectors on the even sites, in one sweep over the sites, is that
+/// of the inner products of every pair: of two sets of different sizes, and of a set with
+/// itself.
+#[test]
+fn gram_matrix_in_one_sweep() {
+    use ruttice::solver::preconditioner::multigrid::random_even;
+    use ruttice::{EvenOddIndex, Subspace};
+    let lat = lattice();
+    let index = EvenOddIndex::new(&lat);
+    let x = random_even::<f64>(&lat, &index, 4, 7, 61);
+    let y = random_even::<f64>(&lat, &index, 4, 3, 62);
+    for (a, b) in [(&x, &y), (&x, &x)] {
+        let (na, nb) = (a.num_vectors(), b.num_vectors());
+        let g = a.gram(b);
+        let mut d = [C64::ZERO];
+        for i in 0..na {
+            for j in 0..nb {
+                a.select(&[i]).dot(&b.select(&[j]), &mut d);
+                let e = (g[i * nb + j] - d[0]).norm_sqr().sqrt();
+                assert!(
+                    e <= 1e-12 * d[0].norm_sqr().sqrt(),
+                    "<x_{i}, y_{j}> of {na} x {nb}: {:?} against {:?}",
+                    g[i * nb + j],
+                    d[0]
+                );
+            }
+        }
+    }
+}
+
 fn wilson<T: Storage>(lat: &Arc<Lattice>, u: &Field<f64, Gauge>) -> Wilson<T> {
     let mut op = Wilson::new(
         lat,
