@@ -441,6 +441,9 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   (`Grid/algorithms/multigrid/PVdagM*`); not run, same memory constraints.
 - The figures `fig_massscan.pdf` and `fig_history.pdf` are regenerated then; until now they
   are kept out of the commits.
+- With the A30 numbers (decided 2026-10-21): the results section in the order of the
+  abstract, the analysis of why it converges first (field of values, spectrum,
+  pseudospectra, truncated GCR), then the comparison with CGNE (mass scan, point source).
 - Readability, with the same pass (from a review of the PDF, checked against the text; done
   2026-10-21: Fig. 4, Table 2, "Why both forms", the roadmap of Sec. XI.C, and the figures
   placed `[tbp]` — Fig. 3 had drifted to page 26):
