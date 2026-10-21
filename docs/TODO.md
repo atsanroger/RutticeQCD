@@ -441,7 +441,9 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   (`Grid/algorithms/multigrid/PVdagM*`); not run, same memory constraints.
 - The figures `fig_massscan.pdf` and `fig_history.pdf` are regenerated then; until now they
   are kept out of the commits.
-- Readability, with the same pass (from a review of the PDF, checked against the text):
+- Readability, with the same pass (from a review of the PDF, checked against the text; done
+  2026-10-21: Fig. 4, Table 2, "Why both forms", the roadmap of Sec. XI.C, and the figures
+  placed `[tbp]` — Fig. 3 had drifted to page 26):
   (a) a figure of one factorized coarse correction, Eq. (5.2) read from the right: the even
   sites, the whole lattice and the coarse lattice as three lanes, the first coarse solve
   returning t̂, whose even part a is the right-hand side of the second (Proposition 1); drawn
@@ -488,6 +490,15 @@ aim. Its ncu: `coarse_pass` with hops 810/884–916 → 540/590–603 µs (DRAM 
 done), without 140/242 → 129/223 µs; `fold_restrict` −15% everywhere (long scoreboard 2.6 →
 0.7, DRAM 34%; a 96-byte stack frame, 0.5 GB of local loads a solve launch, mostly L1 hits);
 |H|⁻¹ 1.2 → 0.37 s a launch.
+fbc8f00 (no run-time indexing of the fold kernels' geometry: `fold_restrict` without its stack
+frame; the prolongation by pairs) **401.1 s** (filter 58 s, setup 207 s, solves 170.1 s, the
+rest 24 s against 21 before; iterations, residuals and PS bit for bit those of 3358dd2). From
+6bbfa74: −31%, setup 311 → 207 s, solves 251 → 170 s. Its ncu: `fold_restrict` without local
+memory (0.26–0.5 GB of loads before), 3% faster on the A30, now held up by wait and short
+scoreboard at 35% of the DRAM bandwidth; `fold_prolong` 17.4 ms a solve launch (19.9 at
+6bbfa74), still long scoreboard 14. **The kernel work of this phase ends here (2026-10-21,
+the aim taken as met).** Left for later: `fold_restrict` and `fold_prolong` at 27–35% of the
+bandwidth, the filter (58 s, its cost the number of operator applications).
 The ncu of 74e7775 (A30, ncu times): `hop_split` 13.5 → 7.9–8.6 ms (DRAM 39–41%, warps 24%,
 long scoreboard); |H|⁻¹ 4.8 → 1.2 s a launch, now latency-bound (2 blocks of 64 an SM, 6% warps,
 waiting on V in global memory: V in shared memory too fits the A30's 164 kB, not the RTX

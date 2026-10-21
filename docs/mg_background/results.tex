@@ -62,7 +62,7 @@ Timings are from an NVIDIA A30; an RTX~3080 was used for iteration counts and
 spectral quantities only. Table~\ref{tab:setups} lists the setups. The smoother
 interval is not chosen from the operator: setup~S needs $\kappa_s\approx10$ and
 setup~B $\kappa_s\approx30$; with B's interval setup~S stagnates, with S's setup~B
-needs twice the iterations (Sec.~\ref{sec:sensitivity}).
+needs nearly three times the iterations (Sec.~\ref{sec:sensitivity}).
 
 \subsection{Comparison with CGNE}
 \label{sec:massscan}
@@ -182,8 +182,27 @@ B & $0.01$ & $388$ & $17$ & $14.1$ & $1731$--$1803$ & $38.7$--$40.3$ & $578$ & $
 \end{tabular}
 \end{table}
 
-\subsection{Field of values}
+\subsection{Field of values: the coarse correction amplifies}
 \label{sec:fov}
+
+The next four subsections ask why the method converges although the usual theory
+does not apply. Two notions from non-Hermitian linear algebra are used. The \emph{field
+of values} $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the
+smallest eigenvalue of the Hermitian part $(X+X\dg)/2$; GCR is guaranteed to converge at
+every restart length when $W$ lies in the right half-plane~\cite{ESS}. The
+\emph{$\varepsilon$-pseudospectrum} is the set of $z$ where $\sigma_{\min}(z-X)<\varepsilon$,
+i.e.\ where $\|(z-X)^{-1}\|>1/\varepsilon$; for a normal $X$ it is the
+$\varepsilon$-neighborhood of the spectrum, for a non-normal one it can be much larger,
+and it bounds the convergence of full GMRES~\cite{TrefethenEmbree}.
+
+The coarse correction amplifies some vectors by $10^3$--$10^4$, and
+the field of values of the preconditioned operator reaches into the left half-plane
+(this subsection), so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is
+lost. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$
+(Sec.~\ref{sec:spectrum}), and its pseudospectra bound the convergence of full GMRES
+(Sec.~\ref{sec:pseudo}). The truncated GCR used in practice is not covered by that
+bound: it converges because the coarse solves are inexact, and with accurate coarse
+solves it needs more iterations or stagnates (Sec.~\ref{sec:gcrk}).
 
 The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
 linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
@@ -244,7 +263,7 @@ $1.84$ (setup~S: $[-3.62,13.1]$, $16.8$); but GCR(8) to $10^{-16}$ then needs mo
 iterations, $16$ against $13$ (B) and $12$ against $10$ (S). The field of values is
 not what decides the iteration count.
 
-\subsection{Spectrum}
+\subsection{Spectrum: far from the origin}
 \label{sec:spectrum}
 
 \begin{table}[t]
@@ -373,7 +392,7 @@ FOV of $\AR\mathcal M$, are not available on $24^4$ and $24^3\times48$: the
 eigensolvers do not fit in the memory of the A30. This is a limit of the hardware
 used here, not of the method.
 
-\subsection{Truncated GCR}
+\subsection{Truncated GCR: inexact coarse solves}
 \label{sec:gcrk}
 
 \begin{table}[t]
@@ -511,22 +530,22 @@ at $10^{-2}$; why BiCGStab is so much worse, also at $c=0$, has not been studied
 \begin{table}[t]
 \centering
 \caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
-$12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $14$ in both setups);
-``stag.'': not converged in 1000 iterations. Setup times in seconds where they
-change much.}
+$12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $16$ in setup~S, $14$ in
+setup~B); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
+change much. RTX~3080, RutticeQCD \texttt{fbc8f00}; \texttt{data/sensitivity\_12.tsv}.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
 \toprule
 change & setup S & setup B\\
 \midrule
-aggregates $2^4$ / $3^4$ / $6^4$ & $9$ ($89$\,s) / $12$ / $23$ & $9$ ($61$\,s) / $11$ / $20$\\
-test vectors $8$ / $16$ / $24$ / $48$ & stag. / $27$ / $22$ / $10$ ($40$\,s) & $39$ / $19$ / $16$ / $11$ ($30$\,s)\\
-smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $31$ / $18$ / $14$ / $12$ / $9$ & stag. / $84$ / $26$ / $14$ / $13$\\
-interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $22$ / $14$ / stag. / stag. & stag. / $31$ / $14$ / stag.\\
-coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $23$ / $14$ / $18$ / stag. & $19$ / $14$ / $16$ / $17$\\
-bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $16$ / $14$ / $23$ & $249$ / $47$ / $14$ / $12$\\
-right form $\AR$ & $12$ & $15$\\
+aggregates $2^4$ / $3^4$ / $6^4$ & $8$ ($22$\,s) / $12$ / $23$ & $9$ ($15$\,s) / $11$ / $21$\\
+test vectors $8$ / $16$ / $24$ / $48$ & stag. / $21$ / $26$ / $10$ ($17$\,s) & $38$ / $18$ / $15$ / $11$ ($14$\,s)\\
+smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $28$ / $18$ / $16$ / $11$ / $9$ & stag. / $96$ / $27$ / $14$ / $13$\\
+interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $23$ / $16$ / stag. / stag. & stag. / $38$ / $14$ / stag.\\
+coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $23$ / $16$ / $18$ / stag. & $20$ / $14$ / $16$ / $17$\\
+bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $15$ / $16$ / $22$ & $249$ / $46$ / $14$ / $12$\\
+right form $\AR$ & $11$ & $15$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -545,35 +564,36 @@ been made.
 \centering
 \caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the A30:
 iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
-right-hand side, RutticeQCD \texttt{a147871}. The iterations agree with those of
-Table~\ref{tab:sensitivity} (RTX~3080) to one iteration.}
+right-hand side, RutticeQCD \texttt{fbc8f00}; \texttt{data/costs\_12.tsv}. The iterations
+are those of Table~\ref{tab:sensitivity} (RTX~3080, the same build) in every row; with
+an earlier build they differed by up to six, the device kernels adding in other orders.}
 \label{tab:costs}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabular}{@{}lcc@{}}
 \toprule
 change & setup S & setup B\\
 \midrule
-base & $14$ / $18$ / $1.1$ & $14$ / $17$ / $1.0$\\
-aggregates $2^4$ & $8$ / $68$ / $4.2$ & $9$ / $56$ / $3.5$\\
-aggregates $3^4$ & $12$ / $21$ / $1.3$ & $11$ / $20$ / $1.1$\\
-aggregates $6^4$ & $23$ / $33$ / $1.7$ & $20$ / $34$ / $1.5$\\
-test vectors $16$ & $27$ / $9$ / $1.4$ & $19$ / $10$ / $0.9$\\
-test vectors $24$ & $22$ / $13$ / $1.5$ & $16$ / $14$ / $1.0$\\
-test vectors $48$ & $10$ / $36$ / $1.5$ & $11$ / $31$ / $1.6$\\
-smoother $\nu=4$ & $31$ / $20$ / $2.8$ & stag.\\
-smoother $\nu=6$ & $18$ / $18$ / $1.4$ & $84$ / $17$ / $5.3$\\
-smoother $\nu=12$ & $12$ / $19$ / $1.1$ & (base)\\
-smoother $\nu=16$ & $9$ / $20$ / $1.0$ & $13$ / $19$ / $1.2$\\
-bootstrap rounds $1$ & $16$ / $11$ / $1.2$ & $47$ / $12$ / $2.3$\\
-bootstrap rounds $3$ & $23$ / $25$ / $2.2$ & $12$ / $26$ / $1.2$\\
+base & $16$ / $8$ / $0.7$ & $14$ / $7$ / $0.5$\\
+aggregates $2^4$ & $8$ / $18$ / $1.4$ & $9$ / $12$ / $1.2$\\
+aggregates $3^4$ & $12$ / $8$ / $0.5$ & $11$ / $7$ / $0.5$\\
+aggregates $6^4$ & $23$ / $10$ / $0.6$ & $21$ / $10$ / $0.6$\\
+test vectors $16$ & $21$ / $4$ / $0.5$ & $18$ / $4$ / $0.4$\\
+test vectors $24$ & $26$ / $6$ / $0.9$ & $15$ / $6$ / $0.4$\\
+test vectors $48$ & $10$ / $16$ / $0.7$ & $11$ / $13$ / $0.8$\\
+smoother $\nu=4$ & $28$ / $8$ / $1.2$ & stag.\\
+smoother $\nu=6$ & $18$ / $7$ / $0.6$ & $96$ / $6$ / $3.1$\\
+smoother $\nu=12$ & $11$ / $8$ / $0.5$ & (base)\\
+smoother $\nu=16$ & $9$ / $8$ / $0.4$ & $13$ / $7$ / $0.5$\\
+bootstrap rounds $1$ & $15$ / $5$ / $0.5$ & $46$ / $5$ / $1.1$\\
+bootstrap rounds $3$ & $22$ / $10$ / $1.0$ & $12$ / $10$ / $0.5$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggregates
-need $8$--$9$ iterations but a larger coarse lattice, so the solve takes three to four
-times as long and the setup three to four times as long as with $4^4$; $48$ test
-vectors save a third of the iterations and lose in setup and in time per iteration.
+need $8$--$9$ iterations but a larger coarse lattice, so the solve and the setup take
+about twice as long as with $4^4$; $48$ test vectors save a third of the iterations and
+lose in setup and in time per iteration.
 For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of
 more test vectors at the coarse size of fewer: they generate more, truncate them by a
 singular value decomposition on each aggregate and chirality (as $\Pro$ is split here
@@ -581,6 +601,10 @@ by $\Gfive$), and stream the decomposition to save device memory. Applied here, 
 truncated basis would no longer contain $s$ and $\hat t$ exactly, so the exactness of
 Proposition~\ref{prop:exact} would be lost; whether the gain outweighs that has not been
 tried.
-The base setting is close to the time optimum for one right-hand side; only more
-smoother steps ($\nu=16$ for setup~S) are slightly faster. All runs use one setup seed,
-so differences of a few iterations may be within the variation between seeds.
+With the setup as fast as it is now, the base setting is no longer the time optimum on
+$12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
+no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
+setup. Whether this carries over to $24^3\times48$, whose results follow the base setting,
+has not been measured. All runs use one setup seed, and the iterations move by a few
+between builds that add in other orders, so differences of a few iterations are within
+that variation.
