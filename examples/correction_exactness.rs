@@ -10,11 +10,12 @@
 //!
 //! ```text
 //! cargo run --release --example correction_exactness -- L FORMAT FILE M5 MASS SMEAR [--t T]
-//!     [--block B] [--vectors N]
+//!     [--block B] [--vectors N] [--steps S] [--ratio R] [--gcr-only]
 //! ```
 //!
 //! Ls 8, b 1.5, c 0.5; SMEAR 1 for stout 0.1 × 3. Setup as the solver's (16 vectors filtered in
-//! 2 rounds, the bootstrap 2 × 4). Defaults: blocks of 2⁴, all 16 vectors.
+//! 2 rounds, the bootstrap 2 × 4). Defaults: blocks of 2⁴, all 16 vectors; the smoother of the
+//! GCR(2) solves S Chebyshev steps on [hi/R, hi], 8 and 10 (setup S; setup B: 12 and 30).
 
 use ruttice::fermion::{Dagger, EoForm, EvenOdd, FermionOp, Mdwf, MdwfParams, PvEvenOdd};
 use ruttice::gauge::smearing::{uniform, Stout};
@@ -60,7 +61,10 @@ fn summary(v: &mut [f64]) -> String {
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 6 {
-        return Err("L FORMAT FILE M5 MASS SMEAR [--t T] [--block B] [--vectors N]".into());
+        return Err(
+            "L FORMAT FILE M5 MASS SMEAR [--t T] [--block B] [--vectors N] [--steps S] [--ratio R]"
+                .into(),
+        );
     }
     let value = |name: &str, default: f64| -> Result<f64, Box<dyn Error>> {
         match args.iter().position(|a| a == name) {
@@ -146,75 +150,80 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let ys: Vec<H> = (0..vectors).map(|j| y.select(&[j])).collect();
     let randoms: Vec<H> = (0..4).map(|k| random_even(100 + k)).collect();
-
-    // Right form: Proposition 1.
-    let mut right = PvEoCycle::<Dirac, f64>::with_coarse_storage(
-        &op,
-        &pv,
-        (&op, &pv, EoForm::Right),
-        &basis,
-        exact,
-    )?;
     let mut a_right = PvEvenOdd::new(&op, &pv, EoForm::Right, &like);
-    println!(
-        "right form, r = A_R y:         {}",
-        summary(&mut check(&mut right, &mut a_right, &ys))
-    );
-    println!(
-        "right form, r = A_R z, z random: {}",
-        summary(&mut check(&mut right, &mut a_right, &randoms))
-    );
-
-    // Left form, alpha = 1: y' = C_e^-1 y.
-    let mut left = PvEoCycle::<Dirac, f64>::with_coarse_storage(
-        &op,
-        &pv,
-        (&op, &pv, EoForm::Left),
-        &basis,
-        exact,
-    )?;
-    let mut a_left = PvEvenOdd::new(&op, &pv, EoForm::Left, &like);
-    let mut work = op.even_odd_work();
-    let primed: Vec<H> = ys
-        .iter()
-        .map(|yj| {
-            let mut out = yj.zeros_like();
-            op.diag_inv(&mut work, &mut out, yj, Parity::Even, Dagger::No);
-            out
-        })
-        .collect();
-    println!(
-        "left form, r = A_L C_e^-1 y:   {}",
-        summary(&mut check(&mut left, &mut a_left, &primed))
-    );
-    println!(
-        "left form, r = A_L z, z random: {}",
-        summary(&mut check(&mut left, &mut a_left, &randoms))
-    );
-
-    // The dual correction (D and D_PV exchanged on the same P), as the cycle for A_R^dag.
-    let mut dual = PvEoCycle::<Dirac, f64>::with_coarse_storage(
-        &pv,
-        &op,
-        (&pv, &op, EoForm::Right),
-        &basis,
-        exact,
-    )?;
     let mut a_dag = PvEvenOdd::new(&pv, &op, EoForm::Right, &like);
-    println!(
-        "dual, r = A_R^dag y:           {}",
-        summary(&mut check(&mut dual, &mut a_dag, &ys))
-    );
-    println!(
-        "dual, r = A_R^dag z, z random: {}",
-        summary(&mut check(&mut dual, &mut a_dag, &randoms))
-    );
+
+    // --gcr-only: the GCR(2) solves below without the exactness checks.
+    if !args.iter().any(|a| a == "--gcr-only") {
+        // Right form: Proposition 1.
+        let mut right = PvEoCycle::<Dirac, f64>::with_coarse_storage(
+            &op,
+            &pv,
+            (&op, &pv, EoForm::Right),
+            &basis,
+            exact,
+        )?;
+        println!(
+            "right form, r = A_R y:         {}",
+            summary(&mut check(&mut right, &mut a_right, &ys))
+        );
+        println!(
+            "right form, r = A_R z, z random: {}",
+            summary(&mut check(&mut right, &mut a_right, &randoms))
+        );
+
+        // Left form, alpha = 1: y' = C_e^-1 y.
+        let mut left = PvEoCycle::<Dirac, f64>::with_coarse_storage(
+            &op,
+            &pv,
+            (&op, &pv, EoForm::Left),
+            &basis,
+            exact,
+        )?;
+        let mut a_left = PvEvenOdd::new(&op, &pv, EoForm::Left, &like);
+        let mut work = op.even_odd_work();
+        let primed: Vec<H> = ys
+            .iter()
+            .map(|yj| {
+                let mut out = yj.zeros_like();
+                op.diag_inv(&mut work, &mut out, yj, Parity::Even, Dagger::No);
+                out
+            })
+            .collect();
+        println!(
+            "left form, r = A_L C_e^-1 y:   {}",
+            summary(&mut check(&mut left, &mut a_left, &primed))
+        );
+        println!(
+            "left form, r = A_L z, z random: {}",
+            summary(&mut check(&mut left, &mut a_left, &randoms))
+        );
+
+        // The dual correction (D and D_PV exchanged on the same P), as the cycle for A_R^dag.
+        let mut dual = PvEoCycle::<Dirac, f64>::with_coarse_storage(
+            &pv,
+            &op,
+            (&pv, &op, EoForm::Right),
+            &basis,
+            exact,
+        )?;
+        println!(
+            "dual, r = A_R^dag y:           {}",
+            summary(&mut check(&mut dual, &mut a_dag, &ys))
+        );
+        println!(
+            "dual, r = A_R^dag z, z random: {}",
+            summary(&mut check(&mut dual, &mut a_dag, &randoms))
+        );
+    }
 
     // What the inexactness costs in a solve: GCR(2) on A_R with M and on A_R^dag with the dual
     // cycle, the coarse solves as the solver stops them (1e-2; BiCGStab for both factors in both
     // directions, for a like comparison), to |r|^2/|b|^2 < 1e-18 from the same random b.
     let solver = PvEoParams {
         pv_solver: CoarseKrylov::BiCgStab,
+        chebyshev_steps: value("--steps", 8.0)? as usize,
+        chebyshev_ratio: value("--ratio", 10.0)?,
         ..PvEoParams::default()
     };
     let b = random_even(200);

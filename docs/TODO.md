@@ -449,7 +449,9 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   after 2.4/2.1 rhs against double, 4.4/4.3 against mixed), point source (wall 396/409 s
   against 810/918 s at m 0.001; 305/331 against 264/324 at m 0.01), the abstract; the
   implementation and the reproduction in Appendix B, the precision row in Table setups. The
-  regenerated `fig_massscan.pdf` waits for an OK before it is committed.
+  regenerated `fig_massscan.pdf` committed with the OK (02f44c9). Fewer test vectors on
+  24³×48 (S, m 0.001, point source, A30): 16 stagnate (910–940 iterations or the 2000 cap),
+  24 need 162 for column 0; 32 stay (29–32). In the sensitivity text.
 - Readability, with the same pass (from a review of the PDF, checked against the text; done
   2026-10-21: Fig. 4, Table 2, "Why both forms", the roadmap of Sec. XI.C, and the figures
   placed `[tbp]` — Fig. 3 had drifted to page 26):
@@ -554,11 +556,21 @@ as a parameter (item 17) only if the A30 memory test allows it.
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
   PoS LATTICE2025 048): their coarse low modes, interpolated, as the starting vectors of the
-  filter and bootstrap, to cut the setup (about 390 s on 24³×48), above all for HMC.
+  filter and bootstrap, to cut the setup (207 s on 24³×48 at fbc8f00), above all for HMC.
 - **Chiral SVD truncation of a larger set of test vectors** (Whyte, Stathopoulos, Romero,
   arXiv:2505.14399): more vectors truncated per aggregate and Γ5 chirality to the present
   coarse size, streamed to save device memory. It breaks the exactness of the correction on
   {s, t̂}; measure whether the gain outweighs it.
+- **The fifth-dimensional structure of the low modes** (from Eick and Mawhinney: their coarse
+  low modes fall off more slowly in s and are more jagged than the fine ones). Two steps:
+  (a) look first — the s-profile of our filtered low modes per aggregate, and how many
+  different profiles a block sees (the singular values of a test vector's restriction to one
+  aggregate, arranged as s × (sites, spin, colour)); (b) if there are several, split each
+  test vector in s as it is split in chirality now (the walls apart from the bulk), which
+  enlarges the coarse space without more setup vectors and keeps s and t̂ in the span
+  (Proposition 1 still exact); the coarse operator grows as the square of its dimension.
+  Motivation: on 24³×48 (S, m 0.001) 16 test vectors stagnate and 24 need 162 iterations
+  against 29–32 with 32 (A30, fbc8f00), while 16 suffice on 12⁴.
 
 ## Continuous integration
 
@@ -601,6 +613,17 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   one after the other; since 2026-10-19 it needs one more set only.)
 
 ## Known, not understood
+
+- **The dual cycle on 12⁴** (`examples/correction_exactness`, CPU, 2026-10-21): setup S,
+  m 0.001, GCR(2) on Ã_R with M converges in 23 iterations, on Ã_R† with the dual cycle not
+  in 1000. The HMC multigrid (`src/hmc/dwf_multigrid.rs`) uses this dual cycle for the
+  normal equations; its comment reports 17 (S) and 57 (B) iterations on 16⁴. To check: the
+  dual on 16⁴ with the example, and a basis for D† (low modes of Ã_R Ã_R†, or closed under Γ5).
+- **The example's GCR(2) does not converge in setup B on 12⁴**, with either cycle, even with
+  B's smoother (`--steps 12 --ratio 30`), where the solver of the note needs 15 (Ã_R, Table
+  gcrk). Its differences from the solver: both coarse factors by BiCGStab (the note's B with
+  BiCGStab on the Pauli-Villars factor: 19, on Ã_L), the cycle in double precision, no levels
+  below, Ã_R, `PvEoParams::default()` otherwise.
 
 - With the multigrid, BiCGStab on the exact adjoint for the Pauli-Villars coarse factor is far
   worse than MINRES on `H_c`, also for `c = 0` (373 against 14 outer iterations, stout 12⁴).

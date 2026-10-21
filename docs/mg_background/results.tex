@@ -63,8 +63,8 @@ the field of values of the preconditioned operator reaches into the left half-pl
 lost. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$
 (Sec.~\ref{sec:spectrum}), and its pseudospectra bound the convergence of full GMRES
 (Sec.~\ref{sec:pseudo}). The truncated GCR used in practice is not covered by that
-bound: it converges only when the coarse solves are inexact, and with accurate coarse
-solves it needs more iterations or stagnates (Sec.~\ref{sec:gcrk}).
+bound: it converges best when the coarse solves are inexact, and with accurate coarse
+solves it needs more iterations (setup~B) or stagnates (setup~S; Sec.~\ref{sec:gcrk}).
 
 The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
 linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
@@ -108,14 +108,19 @@ goes from $-4.6\times10^{-3}$ to $-1.3\times10^{-2}$ (S) and stays at $-5\times1
 the factor that amplifies is the coarse correction, $\|I-\AR E\|$ of order $10^3$
 to $10^4$ against $18.5$ on $4^3\times8$: $\AR E$ is the identity on the vectors the
 correction is built from (Proposition~\ref{prop:exact}) but amplifies other directions
-by three to four orders of magnitude, like a strongly oblique projection. This is the
-same amplification of high modes by a coarse-grid correction that Eick and
-Mawhinney~\cite{EickMawhinney} find for a renormalization-group coarse lattice of
-M\"obius fermions (four orders of magnitude, through the fine operator), where a
-Chebyshev low-pass filter of degree $150$--$300$ is needed. Here the post-smoothing,
-a Chebyshev polynomial of degree $7$--$11$ on the upper part of the spectrum, plays a
-similar role, and the cycle as a whole keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$
-(B); how much of the remaining amplification the post-smoothing removes has not been
+by three to four orders of magnitude, like a strongly oblique projection. The mechanism
+is the one Eick and Mawhinney~\cite{EickMawhinney} describe for a renormalization-group
+coarse lattice of M\"obius fermions: the coarse inverse is large on the low modes of the
+coarse operator, the interpolated correction is not exactly a low mode of the fine
+operator, and the part that misses comes back amplified. There the fine operator is
+$D\dg D$, whose spectrum reaches $520$ against $0.05$ for its lowest thousand modes; it
+supplies the four orders of magnitude, and a Chebyshev low-pass filter of degree
+$150$--$300$ is needed. Here $\AR$, with the Pauli--Villars operator dividing out the high
+modes, is close to the identity on them, and its field of values ends at $2$ (S) and
+$4.5$ (B); the large factor is the coarse inverse itself. The post-smoothing, a Chebyshev
+polynomial of degree $7$--$11$ on the upper part of the spectrum, plays the role of the
+filter, and the cycle as a whole keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$ (B);
+how much of the remaining amplification the post-smoothing removes has not been
 separated. The bound of
 Ref.~\cite{ESS} for GCR therefore does not apply (Sec.~\ref{sec:spectra}).
 Replacing $E$ by the Galerkin correction of $\AR$ itself,
@@ -304,7 +309,9 @@ further direction is another fine-grid vector).
 \centering
 \caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
 Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
-the longest stretch of steps with a factor above $1/2$.}
+the longest stretch of steps with a factor above $1/2$. From an earlier build than the
+mass scan; the steps differ from those of Table~\ref{tab:massscan} (\texttt{fbc8f00}) by
+at most one.}
 \label{tab:history}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lccccc@{}}
@@ -340,8 +347,8 @@ numerically: GCR(2) with the coarse solves stopped at $10^{-2}$ converged in eve
 this section, without plateaus, at the rate that the pseudospectral bound of
 Sec.~\ref{sec:pseudo} gives for the full method. A guarantee for a truncated method whose
 preconditioner varies from step to step is not available for flexible Krylov methods with
-multigrid preconditioners in general. That accurate coarse solves make GCR(2) stagnate is
-an observation of its own; since the loose solves do not avoid the amplifying directions,
+multigrid preconditioners in general. That accurate coarse solves make GCR(2) slower, and
+in setup~S stagnate, is an observation of its own; since the loose solves do not avoid the amplifying directions,
 the variation of the cycle with its input is the candidate, which a fixed but inaccurate
 linear coarse solve, or the exact cycle perturbed at random, would test.
 
@@ -555,9 +562,9 @@ right form $\AR$ & $11$ & $15$\\
 The method is robust within a window of each parameter and fails outside it
 (Table~\ref{tab:sensitivity}). The smoother interval must suit the setup; the
 bootstrap is necessary; more accurate coarse solves are not better, and with
-GCR(2) accurate ones stagnate (Sec.~\ref{sec:gcrk}). Larger setups (smaller
-aggregates, more test vectors) buy fewer iterations at a setup cost that only
-many right-hand sides repay. All runs of the table use GCR(2); the stagnations
+GCR(2) the most accurate ones stagnate in setup~S (Sec.~\ref{sec:gcrk}). Larger setups
+(smaller aggregates, more test vectors) buy fewer iterations, but on $12^4$ not less
+time (Table~\ref{tab:costs}). All runs of the table use GCR(2); the stagnations
 are of the kind of Sec.~\ref{sec:gcrk}, and whether full GCR would remove them has
 not been tested. Lüscher's test of local coherence for these test vectors has not
 been made.
@@ -606,7 +613,10 @@ tried.
 With the setup as fast as it is now, the base setting is no longer the time optimum on
 $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
 no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
-setup. Whether this carries over to $24^3\times48$, whose results follow the base setting,
-has not been measured. All runs use one setup seed, and the iterations move by a few
+setup. On $24^3\times48$ the fewer test vectors do not carry over (setup~S, $m=0.001$,
+point source, A30, \texttt{fbc8f00}): $16$ halve the setup there too ($116$ against
+$207$\,s), but the columns that converge need $910$--$940$ iterations and the others stop
+at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the first column,
+against $29$--$32$ with $32$. More smoother steps have not been tried there. All runs use one setup seed, and the iterations move by a few
 between builds that add in other orders, so differences of a few iterations are within
 that variation.

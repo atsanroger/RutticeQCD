@@ -123,7 +123,8 @@ Why the method converges is not obvious: the field of values of the precondition
 operator reaches far into the left half-plane, so the usual convergence bound of GCR
 does not apply. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$, and its
 pseudospectra on $12^4$ and $16^4$ bound the convergence of full GMRES; the truncated
-GCR used in practice converges only when the coarse solves are inexact. On a quenched
+GCR used in practice converges best when the coarse solves are inexact, and with
+accurate ones it can stagnate. On a quenched
 $24^3\times48$ configuration the multigrid iterations grow by a factor of $2$--$4$
 from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE, and at $m=0.001$ the solve
 is $7.5$--$9.0$ times faster than CGNE in double precision and $4.5$--$4.8$ times
@@ -257,9 +258,10 @@ prolongation is built from approximate low modes lifted to the whole lattice in
 two ways, which makes the correction exact on these vectors for the right form
 of the operator. The smoother is a fixed Chebyshev polynomial and the setup
 combines Chebyshev filtering with a bootstrap.\ifresults{} The note states the
-method and gives first numerical results: a mass scan against even-odd CGNE, the
-field of values, spectrum and pseudospectra of the preconditioned operator, the
-behavior of truncated GCR, and the sensitivity to the parameters.\else{} The note
+method and gives first numerical results: the field of values, spectrum and
+pseudospectra of the preconditioned operator, the behavior of truncated GCR, a mass
+scan and point-source propagators against even-odd CGNE, and the sensitivity to the
+parameters.\else{} The note
 states the method; it does not assess its performance.\fi
 
 Section~\ref{sec:overview} describes the method in words.
@@ -428,14 +430,14 @@ positivity of the field of values. For a non-normal operator the convergence
 bound of GCR~\cite{ESS} requires the Hermitian part $(A+A\dg)/2$ to be positive
 definite, which can fail while every eigenvalue lies in the right half-plane;
 this is the mechanism discussed for $\Dpv\dg D$ in Ref.~\cite{BoyleOare}.
-Whether it occurs for $A'$ and its even-odd forms is open
-(Sec.~\ref{sec:open}).\ifresults{} For $\AR$ itself the field of values reaches just
+\ifresults{}It occurs for the even-odd form: for $\AR$ itself the field of values reaches just
 below zero on $12^4$ ($\Re W\ge-4.6\times10^{-3}$ with stout smearing,
 $-5.0\times10^{-2}$ without), and for the multigrid-preconditioned $\AR\mathcal M$ far
 below (Sec.~\ref{sec:fov}). The bound of Ref.~\cite{ESS} is then lost, but the
 spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.78$ and its pseudospectra bound
 full GMRES (Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}); truncated GCR is not covered
-(Sec.~\ref{sec:gcrk}).\fi
+(Sec.~\ref{sec:gcrk}). For the full-lattice $A'$ it has not been measured.\else{}Whether
+it occurs for $A'$ and its even-odd forms is open (Sec.~\ref{sec:open}).\fi
 
 % ============================================================
 \section{The operator and Pauli--Villars preconditioning}
@@ -569,8 +571,8 @@ form is the even-odd counterpart of $A'$, and the factorized correction of
 Sec.~\ref{sec:correction} is exact for it on the lifted basis
 (Proposition~\ref{prop:exact}); but $Q$ cancels in it, so it cannot use Neff's
 $\alpha$. The left form keeps $\alpha$ and is the one the outer solver uses in
-practice: the basis is not exact for it, yet it converges like the right form, and
-with $\alpha$ it can save iterations.\ifresults{} The measurements of
+practice: the basis is not exact for it, yet it converges within a few iterations
+of the right form, and with $\alpha$ it can save iterations.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
 % ============================================================
@@ -1031,8 +1033,8 @@ half-plane~\cite{ESS}; otherwise only the full method is covered, by the spectru
 and the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a
 truncated one can stagnate~\cite{Embree}.\ifresults{} For the present cycle the
 field of values is not in the right half-plane, the pseudospectra do bound the
-full method, and GCR(2) converges only when the coarse solves are inexact
-(Secs.~\ref{sec:fov}--\ref{sec:gcrk}).\fi{} Block variants treat several
+full method, and GCR(2) needs the coarse solves inexact: with accurate ones it needs
+more iterations or stagnates (Secs.~\ref{sec:fov}--\ref{sec:gcrk}).\fi{} Block variants treat several
 right-hand sides together.
 Convergence is monitored on the even-odd system; the residual of the original
 equation, $\|D\psi-\eta\|/\|\eta\|$, is evaluated with the plain $D$ after
@@ -1042,7 +1044,8 @@ number; it runs in double precision or in mixed precision, CG in single precisio
 with reliable updates in double precision.\ifresults{} For the systems with $\AR\dg$ (the normal
 equations of HMC) RutticeQCD uses the cycle with $D$ and $\Dpv$ exchanged on the same
 $\Pro$ and the same smoother interval; with exact coarse solves it is the adjoint of
-$\mathcal M$ (Sec.~\ref{sec:fov}).\fi
+$\mathcal M$ (Sec.~\ref{sec:fov}). How well it converges is an open problem
+(Sec.~\ref{sec:open}).\fi
 
 \ifresults
 \input{results}
@@ -1087,9 +1090,29 @@ iteration does not. A GPU with more memory would answer it with the programs of
 Sec.~\ref{sec:reproduce} unchanged; so would the CPU, with enough memory, once the
 Arnoldi and pseudospectrum options are carried over to the CPU version of the program.
 
+\item \textbf{How many test vectors.} Local coherence suggests that the number of test
+vectors an aggregate needs does not grow with the volume, yet $16$ suffice on $12^4$ and
+on $24^3\times48$ even $24$ do not (Sec.~\ref{sec:sensitivity}). Whether the $16$ lowest
+modes of a larger lattice cover too narrow a part of the spectrum, or whether the low
+modes vary in the fifth dimension more than one vector per aggregate can follow (Eick and
+Mawhinney~\cite{EickMawhinney} find the fifth-dimensional profiles of low modes to differ
+between lattices), is open; a test vector split in $s$ as it is now split in
+chirality would keep $s$ and $\hat t$ in the range of $\Pro$, and Lüscher's coherence
+test would measure what the coarse space captures.
+
 \item \textbf{Solving with $D\dg$.} The dual cycle used for $\AR\dg$
-(Sec.~\ref{sec:outer}) uses the basis built for $D$. Whether the dual correction is
-exact on it, and how good that basis is for $D\dg$, have not been derived or measured.
+(Sec.~\ref{sec:outer}) uses the basis built for $D$, and the dual correction is not
+exact on it: for $r=\AR\dg y_j$ it misses $y_j$ by $4$--$90$ on $4^3\times8$ and by
+$20$--$2\times10^3$ (S) and $10^2$--$2\times10^4$ (B) on $12^4$, more than it misses
+random vectors (medians $12$, $75$, $830$ against $4.5$, $13$, $90$; exact coarse solves,
+as in the remarks after Proposition~\ref{prop:exact}). On $4^3\times8$ GCR(2) needs about
+the same iterations with it on $\AR\dg$ as with $\mathcal M$ on $\AR$ ($16$ against
+$15$); on $12^4$, setup~S, $m=0.001$, it does not converge in $1000$ iterations where
+$\mathcal M$ on $\AR$ takes $23$ (both coarse factors by BiCGStab to $10^{-2}$, double
+precision, no levels below the coarse lattice). In setup~B this program converged with
+neither cycle, unlike the solver of Sec.~\ref{sec:results}, so it gives no comparison
+there. A basis for $D\dg$, from the low modes of $\AR\AR\dg$ or closed under $\Gfive$,
+and how the dual cycle behaves in the solves of HMC, are open.
 \end{enumerate}
 \else
 The following are questions of theory and algorithm, not findings.

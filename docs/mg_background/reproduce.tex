@@ -86,8 +86,9 @@ and takes about an hour there; $24^3\times48$ does not fit. The CPU examples
       12 binary conf.bin 1.0 0.001 1 --block 4
 \end{verbatim}}
 \noindent prints $\|e(r)-y\|/\|y\|$ for the right form, the left form and the dual
-correction, and the GCR(2) iterations of $\AR$ and $\AR\dg$ (about $15$ minutes on
-$12^4$ on a desktop CPU).
+correction, and the GCR(2) iterations of $\AR$ and $\AR\dg$ (the smoother of setup~S
+by default, \texttt{--steps 12 --ratio 30} for setup~B; the exactness checks take about
+$12$ minutes on $12^4$ on a desktop CPU).
 
 \paragraph{What would help most.}
 \begin{enumerate}
