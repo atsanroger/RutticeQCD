@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-21)
+
+Faster device kernels for the MDWF multigrid; no new features and no change to parameter
+files. Some kernels add in another order, so the last digits, and at times an iteration or
+two, move. On the A30 (24³×48, m 0.001, a point-source
+propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 s, the solves
+251 → 170 s, the same iterations.
+
 - `cuda_bridge` multigrid: the restriction P† reads P coalesced (`fold_restrict_tiled_kernel`):
   a block for each coarse site reads the P of two fine sites at a time in 16-byte words into
   shared memory, and the fine spinors folded by chirality, where a thread for each output read
@@ -50,6 +58,13 @@
   cycle does to it at several coarse tolerances.
 - MG note: the timings again at fbc8f00 on the A30 (mass scan, point-source propagators), the
   results in the order of the abstract, the implementation in an appendix.
+
+### Known issues
+
+- The dual multigrid cycle for Ã_R† (used by the HMC multigrid for the normal equations) did
+  not converge in GCR(2) on the 12⁴ test configuration, setup S, m 0.001, where the cycle for
+  Ã_R needs 23 iterations (`examples/correction_exactness`); being investigated. Propagators
+  use the cycle for Ã_R or Ã_L and are not affected.
 
 ## 0.3.1 (2026-10-21)
 
