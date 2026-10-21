@@ -123,11 +123,11 @@ Why the method converges is not obvious: the field of values of the precondition
 operator reaches far into the left half-plane, so the usual convergence bound of GCR
 does not apply. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$, and its
 pseudospectra on $12^4$ and $16^4$ bound the convergence of full GMRES; the truncated
-GCR used in practice converges because the coarse solves are inexact. On a quenched
+GCR used in practice converges only when the coarse solves are inexact. On a quenched
 $24^3\times48$ configuration the multigrid iterations grow by a factor of $2$--$4$
 from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE, and at $m=0.001$ the solve
-is $4.7$--$6.0$ times faster than CGNE in double precision and $3.6$--$4.2$ times
-faster than in mixed precision, the setup being paid back after $3$--$6$ right-hand
+is $7.5$--$9.0$ times faster than CGNE in double precision and $4.5$--$4.8$ times
+faster than in mixed precision, the setup being paid back after $2$--$5$ right-hand
 sides; a whole point-source propagator at $m=0.001$ takes half the time of the
 mixed-precision CGNE, setup included. The results are from one configuration per
 volume; Sec.~\ref{sec:reproduce} describes how to extend them.\else{} We state the
@@ -267,12 +267,11 @@ Section~\ref{sec:spectra} recalls the spectra on which the construction rests.
 Sections~\ref{sec:operator}--\ref{sec:outer} describe the method: the operator
 and its Pauli--Villars preconditioning, its even-odd forms, the
 factorized correction and the prolongation, the coarse solvers, the setup, the
-smoother and the outer solver.\ifresults{} Section~\ref{sec:impl} sketches the
-implementation, Sec.~\ref{sec:results} gives the results, and
-Sec.~\ref{sec:reproduce} how to reproduce and extend them.\fi{}
-Section~\ref{sec:open} lists the open problems.
-Statements that are our own derivations and have not been checked
-independently are marked \unverified.
+smoother and the outer solver.\ifresults{} Section~\ref{sec:results} gives the
+results: first why the method converges, then its cost against CGNE.\fi{}
+Section~\ref{sec:open} lists the open problems. Appendix~\ref{sec:notation} relates the
+notation to that of other references\ifresults{}, and Appendix~\ref{sec:impl} sketches
+the implementation and how to reproduce and extend the results\fi.
 
 \paragraph{Conventions.}
 Five-dimensional fields are $\psi_s(x)$, $s=0,\dots,L_s-1$; $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
@@ -777,20 +776,26 @@ $\Pro\dg\iota\pi Ds=\Pro\dg Ds$ on the right, since $Ds$ vanishes on the odd sit
 and returns $\pi s=\Ce^{-1}y$; $O_L=\Ce$ gives $y$.
 \end{proof}
 
-\begin{remark}[Conditions in practice] \unverified\
+\begin{remark}[Conditions in practice]
 The proposition needs (i) $s,\hat t$ in the range of the stored $\Pro$, which
 holds only up to the rounding of the reduced-precision storage of $\Pro$;
 (ii) the exact adjoint of the Pauli--Villars coarse factor---the $\Sigma$-adjoint
 $\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse} equals it only if
 $\Gfive\Dpv\Gfive=\Dpv\dg$, which by Eq.~\eqref{eq:g5herm} fails for $c\neq0$;
-(iii) exact coarse solves, whereas they are stopped at a loose tolerance. How
-much each departure costs has not been analyzed.\ifresults{} Numerically (ii) costs
-nothing measurable (Sec.~\ref{sec:herm}), and (iii) helps: with GCR(2), accurate
-coarse solves need more iterations or stagnate (Secs.~\ref{sec:gcrk},
-\ref{sec:sensitivity}).\fi
+(iii) exact coarse solves, whereas they are stopped at a loose tolerance.\ifresults{}
+Numerically, with both coarse factors solved on their exact adjoints to
+$|r|^2/|b|^2<10^{-24}$ in double precision and $\Pro$ in half precision as the solver
+stores it, the right-form correction of $r=\AR y_j$ returns $y_j$ to
+$\|e-y_j\|/\|y_j\|=3\times10^{-4}$--$5\times10^{-4}$ on $4^3\times8$ ($2^4$ aggregates,
+$M_5=1.8$, $m=0.05$) and $3\times10^{-4}$--$2.5\times10^{-3}$ on $12^4$ (setup~S,
+$m=0.001$), against $3$--$37$ for random vectors: the proposition holds to the rounding
+of the stored $\Pro$, so (i) costs about $10^{-3}$. (ii) costs nothing measurable
+(Sec.~\ref{sec:herm}), and (iii) helps: with GCR(2), accurate coarse solves need more
+iterations or stagnate (Secs.~\ref{sec:gcrk}, \ref{sec:sensitivity}).\else{} How
+much each departure costs has not been analyzed.\fi
 \end{remark}
 
-\begin{remark}[Left form] \unverified\
+\begin{remark}[Left form]
 For the left form with $\alpha$ in both operators, the same argument requires
 the quark lift $s'$ of $Q_ey'$ and the Pauli--Villars lift $\hat t'$ of
 $u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ to lie in
@@ -798,12 +803,15 @@ $\operatorname{range}\Pro$ (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For
 $\alpha=1$ and $y'=\Ce^{-1}y$ one has $s'=s$, but
 $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that
 mixes $s$ and spin, so $\hat t'$ is in general not in the span of the
-right-form vectors. We therefore expect the correction not to be exact for the
-left form with the basis above, but this has not been verified.\ifresults{} In
-practice the left form with this basis has the spectrum of the right form and
-needs one to five iterations more or fewer (Secs.~\ref{sec:spectrum},
-\ref{sec:gcrk}, \ref{sec:sensitivity}); whether a basis exact for both forms at once exists is left
-open.\fi
+right-form vectors, and the correction is not exact for the left form with the basis
+above.\ifresults{} Numerically (as in the previous remark, $\alpha=1$), for
+$r=\AL y'$ with $y'=\Ce^{-1}y_j$ the correction misses $y'$ by
+$\|e-y'\|/\|y'\|=0.05$--$0.18$ on $4^3\times8$ and $1.6$--$24$ on $12^4$, the latter
+not much better than random vectors ($8$--$35$). The left form converges nonetheless:
+it has the spectrum of the right form and needs one to five iterations more or fewer
+(Secs.~\ref{sec:spectrum}, \ref{sec:gcrk}, \ref{sec:sensitivity}), so the exactness of
+Proposition~\ref{prop:exact} is not needed for the cycle to work; whether a basis exact for
+both forms at once exists is left open.\fi
 \end{remark}
 
 \subsection{The coarse operators}
@@ -1023,23 +1031,21 @@ half-plane~\cite{ESS}; otherwise only the full method is covered, by the spectru
 and the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a
 truncated one can stagnate~\cite{Embree}.\ifresults{} For the present cycle the
 field of values is not in the right half-plane, the pseudospectra do bound the
-full method, and GCR(2) converges only because the coarse solves are inexact
+full method, and GCR(2) converges only when the coarse solves are inexact
 (Secs.~\ref{sec:fov}--\ref{sec:gcrk}).\fi{} Block variants treat several
 right-hand sides together.
 Convergence is monitored on the even-odd system; the residual of the original
 equation, $\|D\psi-\eta\|/\|\eta\|$, is evaluated with the plain $D$ after
 reconstruction. The reference solver is CG on the normal equation of the
 even-odd operator $\Ce^{-1}S$ (CGNE), which is robust but squares the condition
-number; it runs in double precision or in mixed precision, by defect correction in
-double precision with CG in single precision, each inner solve stopped where the
-outer tolerance is met.\ifresults{} For the systems with $\AR\dg$ (the normal
+number; it runs in double precision or in mixed precision, CG in single precision
+with reliable updates in double precision.\ifresults{} For the systems with $\AR\dg$ (the normal
 equations of HMC) RutticeQCD uses the cycle with $D$ and $\Dpv$ exchanged on the same
 $\Pro$ and the same smoother interval; with exact coarse solves it is the adjoint of
 $\mathcal M$ (Sec.~\ref{sec:fov}).\fi
 
 \ifresults
 \input{results}
-\input{reproduce}
 \fi
 % ============================================================
 \section{Open problems}
@@ -1070,12 +1076,6 @@ coarse space is built from low modes of $\AR$, so that particular mismatch is
 absent by construction; but the coarse operators are Galerkin projections of
 $D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
 preferable to the full-lattice $A'$ for this method has not been established.
-
-\item \textbf{Truncated GCR with inexact coarse solves.} GCR(2) converges when the
-coarse solves are stopped at $10^{-2}$ and stagnates when they are accurate
-(Sec.~\ref{sec:gcrk}), while the pseudospectral bound covers only the full method
-with a fixed $\mathcal M$. Why the inexact correction behaves better, and whether a
-convergence guarantee can be given for the truncated method with it, are open.
 
 \item \textbf{A rigorous bound, and larger volumes.} The pseudospectral bound rests on
 Lanczos estimates of $\sigma_{\min}$, which approach it from above, and on the
@@ -1209,6 +1209,10 @@ $\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\ifresults
+\input{reproduce}
+\fi
 
 % ============================================================
 \begin{thebibliography}{99}

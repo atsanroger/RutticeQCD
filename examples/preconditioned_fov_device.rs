@@ -837,6 +837,71 @@ mod device {
             rayleigh(&mut with_e, x),
             rayleigh(&mut with_m, x)
         );
+        // The same correction and cycle with the coarse solves stopped early, as the solver
+        // stops them (1e-2), on x and on a random vector v (|x| = |v| = 1): whether a loose
+        // coarse solve leaves out the directions in which the exact correction amplifies.
+        let unit = |v: &V| {
+            let mut n = [0.0];
+            v.norm_sqr(&mut n);
+            let mut u = v.zeros_like();
+            u.copy_from(v);
+            u.scale(&[1.0 / n[0].sqrt()]);
+            u
+        };
+        let (ux, uv) = (unit(x), unit(x0));
+        for tol in [exact.coarse_tolerance_sqr, 1e-8, 1e-4, 1e-2] {
+            let loose = PvEoParams {
+                coarse_tolerance_sqr: tol,
+                pv_tolerance_sqr: tol,
+                ..exact
+            };
+            let new_correction = || {
+                DeviceCorrection::<f64, f64>::from_parts(
+                    parts.clone(),
+                    (d, pv),
+                    (d, pv),
+                    form(),
+                    loose,
+                    even,
+                )
+            };
+            let mut corr = new_correction()?;
+            let mut in_cycle = new_correction()?;
+            let mut cycle = two_grid(
+                (d, pv),
+                form(),
+                (even, odd),
+                lat,
+                loose,
+                Box::new(move |e, r| in_cycle.correct(e, r)),
+                Some(hi),
+            )?;
+            let mut line = format!("regulator: coarse solves to {tol:.0e}:");
+            for (name, v) in [("x", &ux), ("v", &uv)] {
+                let (mut ev, mut aev) = (v.zeros_like(), v.zeros_like());
+                corr.correct(&mut ev, v);
+                a.mult(&mut aev, &ev);
+                let mut re_e = [C64::ZERO];
+                v.dot(&aev, &mut re_e);
+                let mut rest = v.zeros_like();
+                rest.copy_from(v);
+                rest.axpy(&[C64::new(-1.0, 0.0)], &aev);
+                let mut n_rest = [0.0];
+                rest.norm_sqr(&mut n_rest);
+                let (mut mv, mut amv) = (v.zeros_like(), v.zeros_like());
+                cycle.mult(&mut mv, v);
+                a.mult(&mut amv, &mv);
+                let mut re_m = [C64::ZERO];
+                v.dot(&amv, &mut re_m);
+                line += &format!(
+                    "  {name}: Re {name}^dag A~ E {name} {:+.4e}, |(I - A~ E) {name}| {:.4e}, Re {name}^dag A~ M {name} {:+.4e};",
+                    re_e[0].re,
+                    n_rest[0].sqrt(),
+                    re_m[0].re
+                );
+            }
+            println!("{line}");
+        }
         Ok(())
     }
 }

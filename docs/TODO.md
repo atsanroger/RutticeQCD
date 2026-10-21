@@ -444,6 +444,12 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
 - With the A30 numbers (decided 2026-10-21): the results section in the order of the
   abstract, the analysis of why it converges first (field of values, spectrum,
   pseudospectra, truncated GCR), then the comparison with CGNE (mass scan, point source).
+  **Done 2026-10-21 at fbc8f00**: mass scan (MG 13–28 / 7–26 iterations, at m 0.001 7.5× (S)
+  and 9.0× (B) faster than double CGNE, 4.5× and 4.8× than mixed; setup 200–237 s, paid back
+  after 2.4/2.1 rhs against double, 4.4/4.3 against mixed), point source (wall 396/409 s
+  against 810/918 s at m 0.001; 305/331 against 264/324 at m 0.01), the abstract; the
+  implementation and the reproduction in Appendix B, the precision row in Table setups. The
+  regenerated `fig_massscan.pdf` waits for an OK before it is committed.
 - Readability, with the same pass (from a review of the PDF, checked against the text; done
   2026-10-21: Fig. 4, Table 2, "Why both forms", the roadmap of Sec. XI.C, and the figures
   placed `[tbp]` — Fig. 3 had drifted to page 26):

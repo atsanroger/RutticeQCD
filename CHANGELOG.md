@@ -43,6 +43,13 @@
   On the A30 (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
   smearing on the device saves nothing there yet: the CPU smeared in about 2 s (the 11.7 s
   that was the reason came from a run under nsys).
+- Example `correction_exactness` (CPU): how exact the factorized coarse correction is on the
+  vectors its prolongation is made from, for the right form, the left form and the dual
+  correction, and GCR(2) on Ã_R with the cycle against Ã_R† with the dual cycle.
+  `preconditioned_fov_device` prints, for the leftmost vector of the field of values, what the
+  cycle does to it at several coarse tolerances.
+- MG note: the timings again at fbc8f00 on the A30 (mass scan, point-source propagators), the
+  results in the order of the abstract, the implementation in an appendix.
 
 ## 0.3.1 (2026-10-21)
 
