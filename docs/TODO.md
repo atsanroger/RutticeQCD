@@ -573,6 +573,57 @@ Not in this phase: multi-GPU, autotuning, CUDA graphs, half precision, a QUDA ba
 cuda-rust, CGNE (the double `hop_gemm` was the last change). Several right-hand sides a solve
 as a parameter (item 17) only if the A30 memory test allows it.
 
+### 19. CPU multigrid: the next optimization phase (decided 2026-10-21)
+
+After the dual cycle ("Known, not understood") is settled: that work runs long CPU jobs (12⁴
+runs of 87 min on about 8 cores), and CPU timings taken next to it are not to be trusted.
+The device phase (items 9–18) is the model: measure, change one thing, keep it only if it
+gains, results the same to rounding.
+
+**The measure.** 12⁴, setup S (stout 0.1×3, M5 1.0), m 0.001 and 0.01, a point source of 12
+columns, setup included, i9-12900 with 16 rayon threads on the P-cores (Bridge++ with 24 threads,
+the E-cores included, took 40 times longer an iteration: check our scaling at 16 and 24 too).
+`examples/mdwf_pv_eo_mg.yaml` as the run. The reference is our CPU even-odd CGNE on the same
+propagator (m 0.01: 158.9 s, α 1; 109.9 s, α 0.6; item 15) — Bridge++ has no domain-wall
+multigrid. **Aim:** the multigrid with its setup faster than that CGNE at m 0.01, and clearly
+faster at m 0.001. First step: a `perf` profile of setup and solve, as the ncu profiles were
+for the device, to put the items below in order.
+
+**Directions,** roughly in the order expected to pay:
+1. **Build flags.** `-C target-cpu=native` (AVX2 and FMA on the i9-12900; Alder Lake has no
+   AVX-512) for the `cpu` and the `simd` backend; `simd` was 10% slower than `cpu` without it
+   (item 15). A proposed session, "CPU SIMD backend with target-cpu=native vs Bridge++", has
+   the brief. Decide whether release builds of `ruttice` should default to it (portability of
+   the binary).
+2. **The coarse operator build** (item 7): most of the CPU setup. Left after the partial fix:
+   the one application of D (15%), Q and the fifth dimension of w (21%), the hops (11%), the
+   restrictions (10%); the hop sorting is a serial loop over the fine sites.
+3. **Fused vector passes.** The CPU `Field` takes the default `Vector::chebyshev_step` (axpy,
+   axpy, scale, axpy: four passes over the vectors), where the device does one (2026-10-20);
+   the smoother is in every cycle. Same for any other default `Vector` method that `Field`
+   does not override: list them, fuse those in the cycle and the setup. Memory-bound on the
+   CPU as on the GPU, so the gain is the passes saved.
+4. **Single precision above the coarse lattice** (item 8): the fine fields of `PvEoCycle`, the
+   filter and the bootstrap in f32 doubles the SIMD width and halves the traffic; on the device
+   it kept the outer iterations and the correlators. Making `mdwf_even_odd.rs` generic over the
+   fine storage also brings the CPU and the device onto one cycle (`TwoGrid`).
+5. **Restriction and prolongation** (`basis.rs`, `restrict_site`, `prolong_site`): the device
+   gained most from reading P in the order it is stored (`fold_restrict`, 32.5 → 12 ms).
+   On the CPU check that a thread walks P of one aggregate contiguously and that all vectors
+   of a site are done in one pass; P in f32 (not half: item 8's note).
+6. **The coarse operator apply** (`coarse.rs`): on the device, reading a coarse site's and
+   its neighbours' fields once and the matrices in wide words gave 25–35%. On the CPU: the
+   nine 2n_v × 2n_v blocks as a small complex GEMV per neighbour, vectorized (or a small GEMM
+   when several right-hand sides are solved together), the neighbour fields kept in cache by
+   the site order.
+7. **The levels below and the small coarse solves.** On the device the last level was a single
+   block until each output got a warp; on the CPU the analogue is rayon overhead on tiny
+   levels: below a size threshold, serial. The dense inverse of the last level and the |H|⁻¹
+   of the blocks (setup, once) only if the profile shows them.
+
+**Rules** (as item 18): a change that gains less than 5% end to end is reverted; iterations
+and the PS correlator as before, to rounding; the commit and the numbers in this item.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
