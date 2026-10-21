@@ -441,6 +441,20 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   (`Grid/algorithms/multigrid/PVdagM*`); not run, same memory constraints.
 - The figures `fig_massscan.pdf` and `fig_history.pdf` are regenerated then; until now they
   are kept out of the commits.
+- Readability, with the same pass (from a review of the PDF, checked against the text):
+  (a) a figure of one factorized coarse correction, Eq. (5.2) read from the right: the even
+  sites, the whole lattice and the coarse lattice as three lanes, the first coarse solve
+  returning t̂, whose even part a is the right-hand side of the second (Proposition 1); drawn
+  from the equation, in TikZ. (b) The abstract's long sentence split, and a table in Sec. I or
+  V.A: outer system, operator coarsened, coarse stencil (HDCG: the squared Schur complement,
+  81 points; HDCR: nearest neighbor on the whole lattice; D_PV†D: two hops, 1 + 8 + 24 = 33
+  points for blocks of at least 2, to be derived in the text; ours: D and D_PV apart, 9 points
+  each), with device memory once the A100 comparison is there. (c) The end of Sec. IV: why
+  both forms — Ã_R gives the exact factorized correction on the lifted basis, only Ã_L keeps
+  Neff's α (Q cancels in D Q (C Q)⁻¹). (d) A roadmap at the start of Sec. XI.C: the coarse
+  correction amplifies by 10³–10⁴ and the field of values leaves the right half-plane, yet the
+  eigenvalues stay at Re λ ≥ 0.78 and the pseudospectra bound full GMRES, and truncated GCR(2)
+  converges because the coarse solves stop at 10⁻²; subsection titles that say so.
 
 **The aim and the end of the optimization.** The measure is the whole two-point function on
 the A30: 24³×48, m = 0.001, point source, 12 columns, setup included; 584 s at 6bbfa74 (setup
@@ -458,12 +472,27 @@ the A30: 24³×48, m = 0.001, point source, 12 columns, setup included; 584 s at
 latency-bound, but under 1% of a solve now), the grid-41 level 392 → 140 µs at 67% of the DRAM
 bandwidth: done.
 
-Measured on the A30 (12 columns, one run): 6bbfa74 584 s; 046567d **535.9 s** (setup 298 s,
-solves 215.5 s, the rest 22 s; 362 GCR iterations as before, PS within 7.3e-9).
+Measured on the A30 (12 columns, one run): 6bbfa74 584 s; 046567d 535.9 s (setup 298 s,
+solves 215.5 s, the rest 22 s; 362 GCR iterations as before, PS within 7.3e-9); d01d2bb
+(`fold_restrict` coalesced, `coarse_pass` fields in shared memory) **460.9 s** (setup 244 s:
+bootstrap rounds 83 → 67 and 94 → 75 s; solves 191.6 s; the rest 25 s; 365 GCR iterations;
+worst |Dx−b|² 2e-18 in one column, the others ≤ 1e-18; PS within 1.85e-8 of 046567d). 61 s
+from the aim.
 | `fold_prolong` | DRAM 31% | | −6 s |
-| `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | the block in shared memory | −11 s |
-| `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, as `hop_gemm` | about −8 s |
+| `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | H in shared memory, rounds of disjoint pairs (done; RTX 3080 0.70 → 0.10 s; A30 to measure) | −11 s |
+| `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, 128 registers (done; RTX 3080 −20%, DRAM 88%; A30 to measure) | about −8 s |
 | `fold_orthonormalise` | 42 blocks on 56 SMs, 12% warps active | more blocks | a few s |
+
+`fold_restrict_tiled_kernel` on the A30 (d01d2bb): 11.6–12.2 ms in a solve (was 32.5), 5.8 ms in
+the bootstrap (was 21.7), DRAM 29–34%, warps active 30%: shared memory (28 kB a block) allows 5
+blocks an SM, and it waits on its loads (long scoreboard, wait). Tried on the RTX 3080 and not
+kept: four loads of a thread issued before their stores (72 registers instead of 56, 10–15%
+slower); P read straight into registers, no tiles (31% warps active, but the half-used sectors
+are fetched again from DRAM: 307 → 510 MB a launch, the heavy shape 5.0 → 5.4 ms). Left:
+copies to shared memory that do not go through registers (`cp.async`, sm_80), double-buffered.
+`coarse_pass_kernel` on the A30 (d01d2bb): the passes with the hops 19–21% faster (DRAM 37 →
+46%), those without 18% slower (128 registers for the unrolled links, warps 35 → 24%); now a
+kernel of its own without the hops (RTX 3080: 70 → 44 registers, 19 → 16 µs).
 
 The ncu of the setup (A30, 6bbfa74): the filter's `hop_kernel<float, many>` (728 launches, 15.8 s)
 was the Chebyshev step's last hop, which a22f8c5 sends through `hop_gemm`. `fold_restrict` in the

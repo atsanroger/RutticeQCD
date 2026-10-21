@@ -14,6 +14,15 @@
   row, and the matrices two columns at a time in 16-byte words, the eight links of a row read
   before they are used. RTX 3080, 16⁴: 82.5 → 62.6 µs a pass with the hops, DRAM 62 → 82%,
   instructions −42%; the coarse dimension must be even (it is twice the test vectors).
+  A pass without the hops is a kernel of its own, without the registers of the unrolled links
+  (on the A30 those passes had become 18% slower): RTX 3080, 70 → 44 registers, 19 → 16 µs.
+- `cuda_bridge`: `hop_split_kernel` in single precision runs two blocks an SM (128 registers,
+  no spill, where nvcc chose 168): RTX 3080, 16⁴, 1.9–2.1 → 1.5–1.6 ms a launch, DRAM 66 → 88%.
+- `cuda_bridge`: |H|⁻¹ of the coarse blocks (`blocks_abs_inverse_gamma5_rounds_kernel`) by the
+  cyclic Jacobi method in rounds of disjoint pairs at once, with H in shared memory, where the
+  pairs went one at a time with H and V in global memory (3.8 s a launch on the A30, 1.15 TB of
+  DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s a launch. The old kernel stays where the shared
+  memory does not fit.
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
   single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the

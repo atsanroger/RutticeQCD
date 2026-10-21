@@ -565,13 +565,14 @@ __global__ void fold_orthonormalise_kernel(
 // (Gamma_5 applied); the eight links of a row are read before they are used. The sum of a row
 // is the lanes' parts added in a fixed order (the butterfly of coarse_pass_sum), so the result
 // does not depend on timing. out must be none of the fields. dim is even.
-// Shared memory: coarse_pass_shared(dim) bytes.
+// Shared memory: coarse_pass_shared(dim, hops) bytes.
 // -------------------------------------------------------------------------
 
 template <typename Float>
-__host__ __device__ __forceinline__ size_t coarse_pass_shared(int dim) {
-    // The sums of the rows (2 dim), then the fields at X and its eight neighbours (9 x 2 dim).
-    return static_cast<size_t>(20) * dim * sizeof(Float);
+__host__ __device__ __forceinline__ size_t coarse_pass_shared(int dim, bool hops) {
+    // The sums of the rows (2 dim), then the fields at X and, with the hops, its eight
+    // neighbours (9 x 2 dim).
+    return static_cast<size_t>(hops ? 20 : 4) * dim * sizeof(Float);
 }
 
 // Columns 2c and 2c + 1 of a row of a matrix (re, im, re, im), 16 bytes at a time.
@@ -597,7 +598,10 @@ __device__ __forceinline__ Float coarse_pass_sum(Float x) {
     return x;
 }
 
-template <typename Float>
+// Hops: whether d_hops_of is given. A pass without the hops is a kernel of its own, so that it
+// does not carry the registers of the eight links unrolled (128 against about 80: on the A30
+// its occupancy fell from 35 to 24% and the passes without hops took 18% longer).
+template <typename Float, bool Hops>
 __global__ void coarse_pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_base,
@@ -629,7 +633,7 @@ __global__ void coarse_pass_kernel(
         return;
     }
 
-    for (int e = threadIdx.x; e < 9 * dim; e += blockDim.x) {
+    for (int e = threadIdx.x; e < (Hops ? 9 : 1) * dim; e += blockDim.x) {
         const int s = e / dim, col = e % dim;
         const Float* v = (s == 0) ? d_diag_of : d_hops_of;
         if (v == nullptr) continue;
@@ -667,7 +671,7 @@ __global__ void coarse_pass_kernel(
         if (d_diag_of != nullptr) {
             times(d_diag + 2 * matrix * X, 0, row, re, im);
         }
-        if (d_hops_of != nullptr) {
+        if constexpr (Hops) {
             Float hr = 0, hi = 0;
             #pragma unroll
             for (int dir = 0; dir < 8; ++dir) {
@@ -991,6 +995,174 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
             const double w = (cutoff > 0) ? ((l > cutoff * top) ? 1.0 / l : 0.0) : 1.0 / fmax(l, 1e-300);
             const double xr = v[2 * (k * n + j)], xi = v[2 * (k * n + j) + 1];
             const double yr = v[2 * (col * n + j)], yi = v[2 * (col * n + j) + 1];
+            re += (xr * yr + xi * yi) * w;
+            im += (xi * yr - xr * yi) * w;
+        }
+        out[2 * (k * n + col)] = re;
+        out[2 * (k * n + col) + 1] = im;
+    }
+}
+
+// -------------------------------------------------------------------------
+// blocks_abs_inverse_gamma5_kernel with the rotations of disjoint pairs at the same time and H
+// in shared memory. The pairs (p, q) of a sweep in the round-robin order: n - 1 rounds of n/2
+// pairs that share no index (a dummy index, never rotated, when n is odd), so that in a round
+// every pair's phase and rotation act on columns (then rows) no other pair touches; the entry
+// (p, q) after a round is that of its own rotation alone, and is set to zero as there.
+// (blocks_abs_inverse_gamma5_kernel went through the pairs one at a time with H and V in global
+// memory: 3.8 s a launch for 2592 sites of dim 64 on the A30, 1.15 TB of DRAM traffic.)
+//
+// H in shared memory, rows abs_inverse_stride(n) doubles apart (an odd number, so that the
+// threads of a warp, one row each, read different banks); V in d_scratch as before.
+// Shared memory: abs_inverse_shared(n).
+// -------------------------------------------------------------------------
+__host__ __device__ __forceinline__ int abs_inverse_stride(int n) { return 2 * n + 1; }
+
+__host__ __device__ __forceinline__ size_t abs_inverse_shared(int n)
+{
+    // H, then per pair of a round its index pair, phase (2), cosine and sine.
+    return static_cast<size_t>(n) * abs_inverse_stride(n) * sizeof(double) +
+           static_cast<size_t>((n + 1) / 2) * (2 * sizeof(int) + 4 * sizeof(double)) +
+           static_cast<size_t>(n + 2) * sizeof(double);
+}
+
+__global__ void blocks_abs_inverse_gamma5_rounds_kernel(
+    double* __restrict__ d_out,
+    const double* __restrict__ d_a,
+    double* __restrict__ d_scratch,
+    int dim, int gamma5, double cutoff)
+{
+    extern __shared__ __align__(16) unsigned char abs_shared[];
+    const int k = threadIdx.x, n = dim, ld = abs_inverse_stride(n);
+    const int m = n + (n & 1), pairs = m / 2;
+    const size_t site = blockIdx.x;
+    double* h = reinterpret_cast<double*>(abs_shared);
+    double* pair_d = h + static_cast<size_t>(n) * ld;  // re, im
+    double* pair_c = pair_d + 2 * pairs;
+    double* pair_s = pair_c + pairs;
+    double* part = pair_s + pairs;                      // n + 2
+    int* pair_p = reinterpret_cast<int*>(part + n + 2);
+    int* pair_q = pair_p + pairs;
+    double* v = d_scratch + site * n * n * 4 + static_cast<size_t>(n) * n * 2;
+    const double* a = d_a + site * n * n * 2;
+    auto H = [&](int r, int c) -> double* { return h + static_cast<size_t>(r) * ld + 2 * c; };
+    auto V = [&](int r, int c) -> double* { return v + 2 * (static_cast<size_t>(r) * n + c); };
+    auto flip = [&](int col) { return (gamma5 && col >= n / 2) ? -1.0 : 1.0; };
+    for (int c = 0; c < n; ++c) {
+        // ((A Gamma_5) + (A Gamma_5)^dag) / 2
+        H(k, c)[0] = 0.5 * (flip(c) * a[2 * (k * n + c)] + flip(k) * a[2 * (c * n + k)]);
+        H(k, c)[1] = 0.5 * (flip(c) * a[2 * (k * n + c) + 1] - flip(k) * a[2 * (c * n + k) + 1]);
+        V(k, c)[0] = (k == c) ? 1.0 : 0.0;
+        V(k, c)[1] = 0.0;
+    }
+    __syncthreads();
+    // The sum over the threads of one number each, in thread order, for all of them.
+    auto total = [&](double x) {
+        part[k] = x;
+        __syncthreads();
+        if (k == 0) {
+            double t = 0;
+            for (int i = 0; i < n; ++i) t += part[i];
+            part[n] = t;
+        }
+        __syncthreads();
+        const double t = part[n];
+        __syncthreads();
+        return t;
+    };
+    double row_all = 0;
+    for (int c = 0; c < n; ++c) row_all += H(k, c)[0] * H(k, c)[0] + H(k, c)[1] * H(k, c)[1];
+    const double all = total(row_all);
+
+    for (int sweep = 0; sweep < 100; ++sweep) {
+        double row_off = 0;
+        for (int c = k + 1; c < n; ++c) row_off += H(k, c)[0] * H(k, c)[0] + H(k, c)[1] * H(k, c)[1];
+        if (sqrt(total(row_off)) <= 1e-15 * sqrt(all)) break;
+        for (int round = 0; round < m - 1; ++round) {
+            // The pairs of this round and their phases and rotations.
+            if (k < pairs) {
+                int x = (k == 0) ? round : (round + k) % (m - 1);
+                int y = (k == 0) ? m - 1 : (round + m - 1 - k) % (m - 1);
+                const int p = x < y ? x : y, q = x < y ? y : x;
+                double dr = 1, di = 0, c = 1, s = 0;
+                bool rotate = false;
+                if (q < n) {
+                    const double gr = H(p, q)[0], gi = H(p, q)[1];
+                    const double g = sqrt(gr * gr + gi * gi);
+                    if (g > 1e-300) {
+                        rotate = true;
+                        // d = conj(a_pq) / |a_pq|; theta from the diagonal, which the phase leaves.
+                        dr = gr / g;
+                        di = -gi / g;
+                        const double theta = (H(q, q)[0] - H(p, p)[0]) / (2.0 * g);
+                        const double t = ((theta >= 0.0) ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
+                        c = 1.0 / sqrt(t * t + 1.0);
+                        s = t * c;
+                    }
+                }
+                pair_p[k] = p;
+                pair_q[k] = rotate ? q : -1;
+                pair_d[2 * k] = dr;
+                pair_d[2 * k + 1] = di;
+                pair_c[k] = c;
+                pair_s[k] = s;
+            }
+            __syncthreads();
+            // Columns: q times d, then (p, q) rotated, in row k of H and of V.
+            for (int t = 0; t < pairs; ++t) {
+                const int p = pair_p[t], q = pair_q[t];
+                if (q < 0) continue;
+                const double dr = pair_d[2 * t], di = pair_d[2 * t + 1], c = pair_c[t], s = pair_s[t];
+                #pragma unroll
+                for (int which = 0; which < 2; ++which) {
+                    double* xp = which == 0 ? H(k, p) : V(k, p);
+                    double* xq = which == 0 ? H(k, q) : V(k, q);
+                    const double qr = xq[0] * dr - xq[1] * di, qi = xq[0] * di + xq[1] * dr;
+                    const double pr = xp[0], pi = xp[1];
+                    xp[0] = c * pr - s * qr;
+                    xp[1] = c * pi - s * qi;
+                    xq[0] = s * pr + c * qr;
+                    xq[1] = s * pi + c * qi;
+                }
+            }
+            __syncthreads();
+            // Rows: q times conj(d), then (p, q) rotated, in column k of H.
+            for (int t = 0; t < pairs; ++t) {
+                const int p = pair_p[t], q = pair_q[t];
+                if (q < 0) continue;
+                const double dr = pair_d[2 * t], di = pair_d[2 * t + 1], c = pair_c[t], s = pair_s[t];
+                double* xp = H(p, k);
+                double* xq = H(q, k);
+                const double qr = xq[0] * dr + xq[1] * di, qi = xq[1] * dr - xq[0] * di;
+                const double pr = xp[0], pi = xp[1];
+                xp[0] = c * pr - s * qr;
+                xp[1] = c * pi - s * qi;
+                xq[0] = s * pr + c * qr;
+                xq[1] = s * pi + c * qi;
+            }
+            __syncthreads();
+            if (k < pairs && pair_q[k] >= 0) {
+                const int p = pair_p[k], q = pair_q[k];
+                H(p, q)[0] = 0.0;
+                H(p, q)[1] = 0.0;
+                H(q, p)[0] = 0.0;
+                H(q, p)[1] = 0.0;
+            }
+            __syncthreads();
+        }
+    }
+
+    // out_ik = sum_j v_ij conj(v_kj) / |lambda_j|, row i = k of the thread.
+    double top = 0;
+    for (int j = 0; j < n; ++j) top = fmax(top, fabs(H(j, j)[0]));
+    double* out = d_out + site * n * n * 2;
+    for (int col = 0; col < n; ++col) {
+        double re = 0, im = 0;
+        for (int j = 0; j < n; ++j) {
+            const double l = fabs(H(j, j)[0]);
+            const double w = (cutoff > 0) ? ((l > cutoff * top) ? 1.0 / l : 0.0) : 1.0 / fmax(l, 1e-300);
+            const double xr = V(k, j)[0], xi = V(k, j)[1];
+            const double yr = V(col, j)[0], yi = V(col, j)[1];
             re += (xr * yr + xi * yi) * w;
             im += (xi * yr - xr * yi) * w;
         }

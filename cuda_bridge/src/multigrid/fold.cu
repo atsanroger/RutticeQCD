@@ -64,8 +64,55 @@ namespace {
             d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors, per_site, g);
     }
 
-    // One pass of the coarse operator (coarse_pass_kernel), its shared memory allowed above
-    // the default 48 kB where dim asks for it.
+    // One pass of the coarse operator (coarse_pass_kernel, with or without the hops), its shared
+    // memory allowed above the default 48 kB where dim asks for it.
+    template <typename Float, bool Hops>
+    void coarse_pass_launch_as(Float* d_out, const Float* d_base, const Float* d_diag_of, const Float* d_hops_of,
+                               const Float* d_diag, const Float* d_links, const Float* d_inverse,
+                               const unsigned* d_neighbours, const unsigned* d_odd,
+                               int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+                               cudaStream_t stream)
+    {
+        const size_t shared = bridge_cuda::coarse_pass_shared<Float>(dim, Hops);
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::coarse_pass_kernel<Float, Hops>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        dim3 grid(n_coarse, vectors);
+        const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
+        bridge_cuda::coarse_pass_kernel<Float, Hops><<<grid, threads, shared, stream>>>(
+            d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
+            n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+    }
+
+    // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs, with H in shared memory,
+    // where that fits; else the one of the pairs one at a time.
+    void abs_inverse_launch(double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim,
+                            int gamma5, double cutoff, cudaStream_t stream)
+    {
+        static int most = -1;
+        static size_t allowed = 48 * 1024;
+        if (most < 0) {
+            int device = 0;
+            cudaGetDevice(&device);
+            cudaDeviceGetAttribute(&most, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+        }
+        const size_t shared = bridge_cuda::abs_inverse_shared(dim);
+        if (dim > 1024 || shared > static_cast<size_t>(most)) {
+            bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, gamma5, cutoff);
+            return;
+        }
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<<<n_sites, dim, shared, stream>>>(
+            d_out, d_a, d_scratch, dim, gamma5, cutoff);
+    }
+
     template <typename Float>
     void coarse_pass_launch(Float* d_out, const Float* d_base, const Float* d_diag_of, const Float* d_hops_of,
                             const Float* d_diag, const Float* d_links, const Float* d_inverse,
@@ -73,18 +120,13 @@ namespace {
                             int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
                             cudaStream_t stream)
     {
-        const size_t shared = bridge_cuda::coarse_pass_shared<Float>(dim);
-        static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::coarse_pass_kernel<Float>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
+        if (d_hops_of != nullptr) {
+            coarse_pass_launch_as<Float, true>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+        } else {
+            coarse_pass_launch_as<Float, false>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                                                d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
         }
-        dim3 grid(n_coarse, vectors);
-        const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
-        bridge_cuda::coarse_pass_kernel<Float><<<grid, threads, shared, stream>>>(
-            d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
-            n_coarse, dim, parity, minus ? -1 : 1, gamma5);
     }
 }
 
@@ -268,14 +310,14 @@ void bridge_cuda_blocks_inverse(
 void bridge_cuda_blocks_abs_inverse_gamma5(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream)
 {
-    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 1, 0.0);
+    abs_inverse_launch(d_out, d_a, d_scratch, n_sites, dim, 1, 0.0, stream);
 }
 
 void bridge_cuda_blocks_abs_inverse(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, double cutoff,
     cudaStream_t stream)
 {
-    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 0, cutoff);
+    abs_inverse_launch(d_out, d_a, d_scratch, n_sites, dim, 0, cutoff, stream);
 }
 
 } // extern "C"
