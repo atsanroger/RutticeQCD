@@ -480,6 +480,14 @@ worst |Dx−b|² 2e-18 in one column, the others ≤ 1e-18; PS within 1.85e-8 of
 (|H|⁻¹ by rounds, `hop_split` two blocks an SM, `coarse_pass` without hops apart) **433.8 s**
 (filter 61 s, bootstrap rounds 59 and 68 s, setup 225 s; solves 186.5 s; the rest 22 s; 364
 GCR iterations; one column at 2e-18; PS within 1.17e-8 of d01d2bb). 34 s from the aim.
+3358dd2 (`coarse_pass` with hops ≤ 85 registers — 62 with CUDA 13, no spill —, `fold_restrict`
+by `cp.async`, |H|⁻¹ with V in shared memory) **404.6 s** (filter 60 s, bootstrap rounds 56 and
+63 s, levels 6 s, setup 212 s; solves 171.1 s; the rest 21 s; every column's iterations,
+coarse applications and residual as at 74e7775, the PS bit for bit the same). 4.6 s from the
+aim. Its ncu: `coarse_pass` with hops 810/884–916 → 540/590–603 µs (DRAM 68–70%, warps 47%:
+done), without 140/242 → 129/223 µs; `fold_restrict` −15% everywhere (long scoreboard 2.6 →
+0.7, DRAM 34%; a 96-byte stack frame, 0.5 GB of local loads a solve launch, mostly L1 hits);
+|H|⁻¹ 1.2 → 0.37 s a launch.
 The ncu of 74e7775 (A30, ncu times): `hop_split` 13.5 → 7.9–8.6 ms (DRAM 39–41%, warps 24%,
 long scoreboard); |H|⁻¹ 4.8 → 1.2 s a launch, now latency-bound (2 blocks of 64 an SM, 6% warps,
 waiting on V in global memory: V in shared memory too fits the A30's 164 kB, not the RTX

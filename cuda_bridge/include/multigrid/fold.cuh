@@ -49,6 +49,27 @@ __device__ __forceinline__ float from_stored(__half x) { return __half2float(x);
 __device__ __forceinline__ void to_stored(float& slot, float x) { slot = x; }
 __device__ __forceinline__ void to_stored(__half& slot, float x) { slot = __float2half(x); }
 
+// Entry a of one of the arrays of FoldGeometry, without indexing it at run time: an index known
+// only at run time puts the whole struct (a kernel argument) on the stack, in local memory
+// (fold_restrict_tiled_kernel had a 96-byte stack frame and 0.5 GB of local loads a launch).
+__device__ __forceinline__ int fold_pick(const int (&v)[4], int a) {
+    return a == 0 ? v[0] : a == 1 ? v[1] : a == 2 ? v[2] : v[3];
+}
+
+// The complex number (re, im) of P at p, an even index: one 4-byte (half) or 8-byte (float) load.
+template <typename Float>
+__device__ __forceinline__ void fold_load_pair(const __half* p, Float& re, Float& im) {
+    const __half2 h = *reinterpret_cast<const __half2*>(p);
+    re = __low2float(h);
+    im = __high2float(h);
+}
+template <typename Float>
+__device__ __forceinline__ void fold_load_pair(const float* p, Float& re, Float& im) {
+    const float2 f = *reinterpret_cast<const float2*>(p);
+    re = f.x;
+    im = f.y;
+}
+
 __host__ __device__ __forceinline__ size_t coarse_index(size_t q) {
     return (q / WarpSize) * 2 * WarpSize + q % WarpSize;
 }
@@ -231,8 +252,9 @@ __global__ void fold_restrict_tiled_kernel(
                         at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
                     }
                     if (take && g.leg >= 0) {
-                        const int mu = g.leg % 4, in_block = xc[mu] % g.block[mu];
-                        take = in_block == (g.leg < 4 ? g.block[mu] - 1 : 0);
+                        const int mu = g.leg % 4, extent = fold_pick(g.block, mu);
+                        const int in_block = fold_pick(xc, mu) % extent;
+                        take = in_block == (g.leg < 4 ? extent - 1 : 0);
                     }
                 }
             }
@@ -282,7 +304,7 @@ __global__ void fold_restrict_tiled_kernel(
             const int s = e / 24, q = (e % 24) / 2, ri = e % 2, a = q / Nc, colour = q % Nc;
             const Float* f = fine + v * fine_reals;
             const Float near = f[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, at)];
-            const Float far = g.sign[a] * f[aosoa_5d_spinor_idx(colour, g.col[a], ri, Ls - 1 - s, Ls, at)];
+            const Float far = fold_pick(g.sign, a) * f[aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), ri, Ls - 1 - s, Ls, at)];
             Float* to = f_sh + ((static_cast<size_t>(s_slot) * per_site + v) * 2) * kept + e;
             to[0] = near + far;
             to[kept] = near - far;
@@ -378,8 +400,8 @@ __global__ void fold_prolong_kernel(
         }
         for (int i = 0; i < n; ++i) {
             const size_t q = coarse_index(first + c * n + i);
-            const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e;
-            const Float br = from_stored(b[0]), bi = from_stored(b[1]);
+            Float br, bi;
+            fold_load_pair(d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e, br, bi);
             for (int v = 0; v < count; ++v) {
                 const Float cr = coarse[v * reals + q], ci = coarse[v * reals + q + WarpSize];
                 ar[c][v] += cr * br - ci * bi;
@@ -394,7 +416,7 @@ __global__ void fold_prolong_kernel(
     for (int row = 0; row < Nspin; ++row) {
         if (g.col[row] == a) to = row;
     }
-    const Float sign = g.sign[to];
+    const Float sign = fold_pick(g.sign, to);
     for (int v = 0; v < count; ++v) {
         Float* fine = d_fine + (first_vector + v) * vector_reals(sites, Ls);
         fine[aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at)] = ar[0][v] + ar[1][v];
@@ -427,7 +449,7 @@ __global__ void fold_fill_kernel(
     for (int ri = 0; ri < Ncomplex; ++ri) {
         // (Gamma_5 v)_s = gamma_5 v_(Ls-1-s)
         const Float near = fine[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, x)];
-        const Float far = g.sign[a] * fine[aosoa_5d_spinor_idx(colour, g.col[a], ri, Ls - 1 - s, Ls, x)];
+        const Float far = fold_pick(g.sign, a) * fine[aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), ri, Ls - 1 - s, Ls, x)];
         Stored* b = d_p + (static_cast<size_t>(x) * n + first + blockIdx.y) * 2 * kept + 2 * e + ri;
         to_stored(b[0], static_cast<float>(static_cast<Float>(0.5) * (near + far)));
         to_stored(b[kept], static_cast<float>(static_cast<Float>(0.5) * (near - far)));

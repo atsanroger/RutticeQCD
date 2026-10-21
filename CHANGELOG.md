@@ -28,6 +28,11 @@
 - `cuda_bridge`: the coarse operator with the hops at most 85 registers (`__launch_bounds__(256,
   3)`; CUDA 13 gave 128 for sm_80, 24% warps active on the A30), and the restriction copies P to
   shared memory with `cp.async`, its copies in flight while the fine fields are folded.
+- `cuda_bridge`: the kernels of P read the entries of their geometry (γ5's columns and signs,
+  the blocks) without an index known only at run time, which had put the whole kernel argument
+  on the stack (a 96-byte frame and 0.5 GB of local loads a launch of the restriction on the
+  A30); the prolongation reads P a complex number at a time. RTX 3080, 16⁴: restriction 1.29 →
+  1.15 ms, prolongation 2.93 → 2.85 ms; the results the same bit for bit.
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
   single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the
