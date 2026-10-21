@@ -7,6 +7,7 @@
 #include "../fermion/hops.cuh"
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_pipeline.h>
 
 // The prolongation P of the multigrid of domain-wall fermions and its adjoint.
 //
@@ -47,6 +48,27 @@ __device__ __forceinline__ float from_stored(float x) { return x; }
 __device__ __forceinline__ float from_stored(__half x) { return __half2float(x); }
 __device__ __forceinline__ void to_stored(float& slot, float x) { slot = x; }
 __device__ __forceinline__ void to_stored(__half& slot, float x) { slot = __float2half(x); }
+
+// Entry a of one of the arrays of FoldGeometry, without indexing it at run time: an index known
+// only at run time puts the whole struct (a kernel argument) on the stack, in local memory
+// (fold_restrict_tiled_kernel had a 96-byte stack frame and 0.5 GB of local loads a launch).
+__device__ __forceinline__ int fold_pick(const int (&v)[4], int a) {
+    return a == 0 ? v[0] : a == 1 ? v[1] : a == 2 ? v[2] : v[3];
+}
+
+// The complex number (re, im) of P at p, an even index: one 4-byte (half) or 8-byte (float) load.
+template <typename Float>
+__device__ __forceinline__ void fold_load_pair(const __half* p, Float& re, Float& im) {
+    const __half2 h = *reinterpret_cast<const __half2*>(p);
+    re = __low2float(h);
+    im = __high2float(h);
+}
+template <typename Float>
+__device__ __forceinline__ void fold_load_pair(const float* p, Float& re, Float& im) {
+    const float2 f = *reinterpret_cast<const float2*>(p);
+    re = f.x;
+    im = f.y;
+}
 
 __host__ __device__ __forceinline__ size_t coarse_index(size_t q) {
     return (q / WarpSize) * 2 * WarpSize + q % WarpSize;
@@ -142,6 +164,199 @@ __global__ void fold_restrict_kernel(
 }
 
 // -------------------------------------------------------------------------
+// coarse = P^dag fine as fold_restrict_kernel, with P read coalesced: a block for each coarse
+// site, `groups` = blockDim.x / dim of its fine sites at a time. The block reads the P of those
+// sites (dim rows of `kept` numbers each, one after the other in d_p) in 16-byte words into
+// shared memory, its rows fold_row_stride apart so that the threads of a warp, one row each,
+// read different banks; and the fine spinors of the sites folded by chirality,
+// f_s +- gamma_5 f_(Ls-1-s), which every thread of a group reads alike. Thread (group, k) adds
+// row k against them; at the end the groups are added in order, so the result does not depend
+// on the timing. (A thread for each output read its own row of P one number at a time, its
+// neighbours 192 bytes away: on the A30 11% of the bandwidth, held up by the load units.)
+//
+// Shared memory: groups dim fold_row_stride Stored, then groups `per_site` 2 kept Float (the
+// folded fine fields of up to `per_site` vectors), then the active sites (x and its index in
+// the field) of the coarse site: fold_restrict_shared.
+// -------------------------------------------------------------------------
+template <typename Stored>
+__host__ __device__ __forceinline__ int fold_row_stride(int kept)
+{
+    // An odd number of 4-byte words: kept is a multiple of 24.
+    return sizeof(Stored) == 2 ? kept + 2 : kept + 1;
+}
+
+__host__ __device__ __forceinline__ size_t fold_align(size_t bytes) { return (bytes + 15) / 16 * 16; }
+
+// The first part: P of `groups` sites, which at the end holds the sums of the groups.
+template <typename Float, typename Stored>
+__host__ __device__ __forceinline__ size_t fold_restrict_p_bytes(int groups, int dim, int kept)
+{
+    const size_t p = static_cast<size_t>(groups) * dim * fold_row_stride<Stored>(kept) * sizeof(Stored);
+    const size_t sums = static_cast<size_t>(groups) * dim * FoldVectors * 2 * sizeof(Float);
+    return fold_align(p > sums ? p : sums);
+}
+
+template <typename Float, typename Stored>
+__host__ __device__ __forceinline__ size_t fold_restrict_shared(int groups, int dim, int kept, int per_site, int block_volume)
+{
+    return fold_restrict_p_bytes<Float, Stored>(groups, dim, kept) +
+           fold_align(static_cast<size_t>(groups) * per_site * 2 * kept * sizeof(Float)) +
+           static_cast<size_t>(2) * block_volume * sizeof(int);
+}
+
+template <typename Float, typename Stored>
+__global__ void fold_restrict_tiled_kernel(
+    Float* __restrict__ d_coarse,
+    const Float* __restrict__ d_fine,
+    const Stored* __restrict__ d_p,
+    const unsigned* __restrict__ d_sites,
+    int n_coarse, int block_volume, int n, int vectors, int per_site,
+    FoldGeometry g)
+{
+    extern __shared__ __align__(16) unsigned char fold_shared[];
+    const int dim = 2 * n, Ls = g.Ls, kept = 12 * Ls;
+    const int groups = blockDim.x / dim, stride = fold_row_stride<Stored>(kept);
+    const int tid = threadIdx.x, slot = tid / dim, k = tid % dim;
+    const int X = blockIdx.x;
+    const bool half = (g.parity >= 0);
+    const int sites = (half ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
+    const int first = blockIdx.y * FoldVectors;
+    const int count = (vectors - first < FoldVectors) ? vectors - first : FoldVectors;
+    const size_t fine_reals = vector_reals(sites, Ls);
+    const Float* fine = d_fine + first * fine_reals;
+
+    Stored* p_sh = reinterpret_cast<Stored*>(fold_shared);
+    const size_t p_bytes = fold_restrict_p_bytes<Float, Stored>(groups, dim, kept);
+    Float* f_sh = reinterpret_cast<Float*>(fold_shared + p_bytes);
+    const size_t f_bytes = fold_align(static_cast<size_t>(groups) * per_site * 2 * kept * sizeof(Float));
+    int* active_x = reinterpret_cast<int*>(fold_shared + p_bytes + f_bytes);
+    int* active_at = active_x + block_volume;
+    __shared__ int n_active;
+
+    // The sites of the aggregate that take part, in their order: warp 0, 32 at a time.
+    if (tid < WarpSize) {
+        int found = 0;
+        for (int base = 0; base < block_volume; base += WarpSize) {
+            const int j = base + tid;
+            bool take = false;
+            int x = 0, at = 0;
+            if (j < block_volume) {
+                x = d_sites[static_cast<size_t>(X) * block_volume + j];
+                at = x;
+                take = true;
+                if (half || g.leg >= 0) {
+                    int xc[4];
+                    site_to_coords(x, xc[0], xc[1], xc[2], xc[3], g.nx, g.ny, g.nz, g.nt);
+                    if (half) {
+                        take = ((xc[0] + xc[1] + xc[2] + xc[3]) & 1) == g.parity;
+                        at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
+                    }
+                    if (take && g.leg >= 0) {
+                        const int mu = g.leg % 4, extent = fold_pick(g.block, mu);
+                        const int in_block = fold_pick(xc, mu) % extent;
+                        take = in_block == (g.leg < 4 ? extent - 1 : 0);
+                    }
+                }
+            }
+            const unsigned mask = __ballot_sync(0xffffffffu, take);
+            if (take) {
+                const int to = found + __popc(mask & ((1u << tid) - 1u));
+                active_x[to] = x;
+                active_at[to] = at;
+            }
+            found += __popc(mask);
+        }
+        if (tid == 0) n_active = found;
+    }
+    __syncthreads();
+
+    const int c = k / n, i = k % n, row = 2 * i + c;
+    Float zr[FoldVectors], zi[FoldVectors];
+    #pragma unroll
+    for (int v = 0; v < FoldVectors; ++v) {
+        zr[v] = 0;
+        zi[v] = 0;
+    }
+    constexpr int per_word = 16 / sizeof(Stored);
+    const int words = dim * kept / per_word;
+    for (int a0 = 0; a0 < n_active; a0 += groups) {
+        const int here = (n_active - a0 < groups) ? n_active - a0 : groups;
+        // P of the sites, a 16-byte word at a time, copied to shared memory without going
+        // through registers (cp.async), so that all of a thread's copies are in flight at once
+        // and the folding of the fine fields below runs while they arrive. The rows are 4-byte
+        // aligned (stride and col even for half precision): four 4-byte copies a word.
+        for (int w = tid; w < here * words; w += blockDim.x) {
+            const int s_slot = w / words, word = w % words;
+            const size_t x = active_x[a0 + s_slot];
+            const unsigned* from = reinterpret_cast<const unsigned*>(
+                reinterpret_cast<const uint4*>(d_p + x * dim * kept) + word);
+            const int e0 = word * per_word, r = e0 / kept, col = e0 % kept;
+            unsigned* to = reinterpret_cast<unsigned*>(p_sh + (static_cast<size_t>(s_slot) * dim + r) * stride + col);
+            #pragma unroll
+            for (int m = 0; m < 4; ++m) __pipeline_memcpy_async(to + m, from + m, sizeof(unsigned));
+        }
+        __pipeline_commit();
+        // The fine fields folded by chirality.
+        for (int w = tid; w < here * count * kept; w += blockDim.x) {
+            const int s_slot = w / (count * kept), rest = w % (count * kept);
+            const int v = rest / kept, e = rest % kept;
+            const int at = active_at[a0 + s_slot];
+            const int s = e / 24, q = (e % 24) / 2, ri = e % 2, a = q / Nc, colour = q % Nc;
+            const Float* f = fine + v * fine_reals;
+            const Float near = f[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, at)];
+            const Float far = fold_pick(g.sign, a) * f[aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), ri, Ls - 1 - s, Ls, at)];
+            Float* to = f_sh + ((static_cast<size_t>(s_slot) * per_site + v) * 2) * kept + e;
+            to[0] = near + far;
+            to[kept] = near - far;
+        }
+        __pipeline_wait_prior(0);
+        __syncthreads();
+        if (slot < here) {
+            const Stored* b = p_sh + (static_cast<size_t>(slot) * dim + row) * stride;
+            const Float* fs = f_sh + (static_cast<size_t>(slot) * per_site * 2 + c) * kept;
+            for (int e = 0; e < kept; e += 2) {
+                const Float br = from_stored(b[e]), bi = from_stored(b[e + 1]);
+                #pragma unroll
+                for (int v = 0; v < FoldVectors; ++v) {
+                    if (v < count) {
+                        const Float fr = fs[v * 2 * kept + e], fi = fs[v * 2 * kept + e + 1];
+                        zr[v] += br * fr + bi * fi;
+                        zi[v] += br * fi - bi * fr;
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // The groups added in order, through the space of P.
+    Float* part = reinterpret_cast<Float*>(fold_shared);
+    if (slot < groups) {
+        #pragma unroll
+        for (int v = 0; v < FoldVectors; ++v) {
+            if (v < count) {
+                part[((static_cast<size_t>(slot) * dim + k) * FoldVectors + v) * 2] = zr[v];
+                part[((static_cast<size_t>(slot) * dim + k) * FoldVectors + v) * 2 + 1] = zi[v];
+            }
+        }
+    }
+    __syncthreads();
+    if (slot == 0) {
+        const size_t q = coarse_index(static_cast<size_t>(X) * dim + k);
+        for (int v = 0; v < count; ++v) {
+            Float re = 0, im = 0;
+            for (int s_slot = 0; s_slot < groups; ++s_slot) {
+                re += part[((static_cast<size_t>(s_slot) * dim + k) * FoldVectors + v) * 2];
+                im += part[((static_cast<size_t>(s_slot) * dim + k) * FoldVectors + v) * 2 + 1];
+            }
+            Float* coarse = d_coarse + (first + v) * coarse_reals(n_coarse, dim);
+            coarse[q] = re;
+            coarse[q + WarpSize] = im;
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // fine = P coarse. A thread for each (fine site, s < Ls/2, spin, colour), which writes the
 // spinor at s and its mirror at Ls - 1 - s.
 // d_coarse_of: the coarse site of every site of the whole lattice.
@@ -185,8 +400,8 @@ __global__ void fold_prolong_kernel(
         }
         for (int i = 0; i < n; ++i) {
             const size_t q = coarse_index(first + c * n + i);
-            const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e;
-            const Float br = from_stored(b[0]), bi = from_stored(b[1]);
+            Float br, bi;
+            fold_load_pair(d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e, br, bi);
             for (int v = 0; v < count; ++v) {
                 const Float cr = coarse[v * reals + q], ci = coarse[v * reals + q + WarpSize];
                 ar[c][v] += cr * br - ci * bi;
@@ -201,7 +416,7 @@ __global__ void fold_prolong_kernel(
     for (int row = 0; row < Nspin; ++row) {
         if (g.col[row] == a) to = row;
     }
-    const Float sign = g.sign[to];
+    const Float sign = fold_pick(g.sign, to);
     for (int v = 0; v < count; ++v) {
         Float* fine = d_fine + (first_vector + v) * vector_reals(sites, Ls);
         fine[aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at)] = ar[0][v] + ar[1][v];
@@ -234,7 +449,7 @@ __global__ void fold_fill_kernel(
     for (int ri = 0; ri < Ncomplex; ++ri) {
         // (Gamma_5 v)_s = gamma_5 v_(Ls-1-s)
         const Float near = fine[aosoa_5d_spinor_idx(colour, a, ri, s, Ls, x)];
-        const Float far = g.sign[a] * fine[aosoa_5d_spinor_idx(colour, g.col[a], ri, Ls - 1 - s, Ls, x)];
+        const Float far = fold_pick(g.sign, a) * fine[aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), ri, Ls - 1 - s, Ls, x)];
         Stored* b = d_p + (static_cast<size_t>(x) * n + first + blockIdx.y) * 2 * kept + 2 * e + ri;
         to_stored(b[0], static_cast<float>(static_cast<Float>(0.5) * (near + far)));
         to_stored(b[kept], static_cast<float>(static_cast<Float>(0.5) * (near - far)));
@@ -362,12 +577,32 @@ __global__ void fold_orthonormalise_kernel(
 //
 // A block of threads for each (coarse site, vector), blockIdx.y the vector, of
 // coarse_pass_warps(dim) warps: a warp for each row (warp w the rows w, w + warps, ...), its
-// lanes the columns lane, lane + 32, ..., so that a warp reads a row of a matrix as one
-// stretch of memory (a thread for each row read the rows 2 dim reals apart: about a third of
-// the bandwidth on 2592 sites of dim 64). The sum of a row is the lanes' parts added in a
-// fixed order (the butterfly of coarse_pass_sum), so the result does not depend on timing.
-// out must be none of the fields. Shared memory: 2 dim reals.
+// lanes the pairs of columns (2 lane, 2 lane + 1), (2 lane + 64, ...), ..., so that a warp reads
+// a row of a matrix as one stretch of memory in 16-byte words (a thread for each row read the
+// rows 2 dim reals apart: about a third of the bandwidth on 2592 sites of dim 64). The fields
+// at X and its eight neighbours, the same for every row, are read once into shared memory
+// (Gamma_5 applied); the eight links of a row are read before they are used. The sum of a row
+// is the lanes' parts added in a fixed order (the butterfly of coarse_pass_sum), so the result
+// does not depend on timing. out must be none of the fields. dim is even.
+// Shared memory: coarse_pass_shared(dim, hops) bytes.
 // -------------------------------------------------------------------------
+
+template <typename Float>
+__host__ __device__ __forceinline__ size_t coarse_pass_shared(int dim, bool hops) {
+    // The sums of the rows (2 dim), then the fields at X and, with the hops, its eight
+    // neighbours (9 x 2 dim).
+    return static_cast<size_t>(hops ? 20 : 4) * dim * sizeof(Float);
+}
+
+// Columns 2c and 2c + 1 of a row of a matrix (re, im, re, im), 16 bytes at a time.
+__device__ __forceinline__ void coarse_pass_pair(const float* p, float& a0, float& b0, float& a1, float& b1) {
+    const float4 t = *reinterpret_cast<const float4*>(p);
+    a0 = t.x; b0 = t.y; a1 = t.z; b1 = t.w;
+}
+__device__ __forceinline__ void coarse_pass_pair(const double* p, double& a0, double& b0, double& a1, double& b1) {
+    const double2 t0 = reinterpret_cast<const double2*>(p)[0], t1 = reinterpret_cast<const double2*>(p)[1];
+    a0 = t0.x; b0 = t0.y; a1 = t1.x; b1 = t1.y;
+}
 
 // Warps in a block of coarse_pass_kernel: one for each row, at most 8.
 __host__ __device__ __forceinline__ int coarse_pass_warps(int dim) {
@@ -382,8 +617,13 @@ __device__ __forceinline__ Float coarse_pass_sum(Float x) {
     return x;
 }
 
-template <typename Float>
-__global__ void coarse_pass_kernel(
+// Hops: whether d_hops_of is given. A pass without the hops is a kernel of its own, so that it
+// does not carry the registers of the eight links unrolled (128 against about 80: on the A30
+// its occupancy fell from 35 to 24% and the passes without hops took 18% longer).
+// With the hops at most 85 registers, three blocks an SM: CUDA 13 gave it 128 for sm_80 (two
+// blocks, 24% warps active on the A30); CUDA 12.5 gives 62 under this bound, without spills.
+template <typename Float, bool Hops>
+__global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_base,
     const Float* __restrict__ d_diag_of,
@@ -396,8 +636,10 @@ __global__ void coarse_pass_kernel(
     int n_coarse, int dim,
     int parity, Float sign, int gamma5)
 {
-    extern __shared__ unsigned char shared_bytes[];
+    extern __shared__ __align__(16) unsigned char shared_bytes[];
     Float* sum = reinterpret_cast<Float*>(shared_bytes);
+    // Site s (0: X, 1 + dir: the neighbour of hop dir): re at fields[2 s dim + col], im dim further.
+    Float* fields = sum + 2 * dim;
     const int X = blockIdx.x;
     const int lane = threadIdx.x % WarpSize, warp = threadIdx.x / WarpSize, warps = blockDim.x / WarpSize;
     const size_t first = blockIdx.y * coarse_reals(n_coarse, dim);
@@ -412,16 +654,30 @@ __global__ void coarse_pass_kernel(
         return;
     }
 
-    // This lane's part of (m v)_row for the matrix m and the site Y of the field v: its columns.
-    auto times = [&](const Float* m, const Float* v, int Y, int row, Float& re, Float& im) {
+    for (int e = threadIdx.x; e < (Hops ? 9 : 1) * dim; e += blockDim.x) {
+        const int s = e / dim, col = e % dim;
+        const Float* v = (s == 0) ? d_diag_of : d_hops_of;
+        if (v == nullptr) continue;
+        const size_t Y = (s == 0) ? X : d_neighbours[static_cast<size_t>(s - 1) * n_coarse + X];
+        const size_t q = first + coarse_index(Y * dim + col);
+        const Float flip = (gamma5 && col >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
+        fields[2 * s * dim + col] = flip * v[q];
+        fields[(2 * s + 1) * dim + col] = flip * v[q + WarpSize];
+    }
+    __syncthreads();
+
+    // This lane's part of (m v)_row for the matrix m and the field of site s: its pairs of columns.
+    auto times = [&](const Float* m, int s, int row, Float& re, Float& im) {
         const Float* m_row = m + 2 * static_cast<size_t>(dim) * row;
-        for (int col = lane; col < dim; col += WarpSize) {
-            const size_t q = first + coarse_index(static_cast<size_t>(Y) * dim + col);
-            const Float flip = (gamma5 && col >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
-            const Float xr = flip * v[q], xi = flip * v[q + WarpSize];
-            const Float a = m_row[2 * col], b = m_row[2 * col + 1];
-            re += a * xr - b * xi;
-            im += a * xi + b * xr;
+        const Float* xr = fields + 2 * s * dim;
+        const Float* xi = xr + dim;
+        for (int col = 2 * lane; col < dim; col += 2 * WarpSize) {
+            Float a0, b0, a1, b1;
+            coarse_pass_pair(m_row + 2 * col, a0, b0, a1, b1);
+            re += a0 * xr[col] - b0 * xi[col];
+            im += a0 * xi[col] + b0 * xr[col];
+            re += a1 * xr[col + 1] - b1 * xi[col + 1];
+            im += a1 * xi[col + 1] + b1 * xr[col + 1];
         }
     };
     // The row as it leaves the kernel: Gamma_5 on it with `gamma5`.
@@ -434,13 +690,14 @@ __global__ void coarse_pass_kernel(
     for (int row = warp; row < dim; row += warps) {
         Float re = 0, im = 0;
         if (d_diag_of != nullptr) {
-            times(d_diag + 2 * matrix * X, d_diag_of, X, row, re, im);
+            times(d_diag + 2 * matrix * X, 0, row, re, im);
         }
-        if (d_hops_of != nullptr) {
+        if constexpr (Hops) {
             Float hr = 0, hi = 0;
+            #pragma unroll
             for (int dir = 0; dir < 8; ++dir) {
                 const size_t link = static_cast<size_t>(dir) * n_coarse + X;
-                times(d_links + 2 * matrix * link, d_hops_of, d_neighbours[link], row, hr, hi);
+                times(d_links + 2 * matrix * link, 1 + dir, row, hr, hi);
             }
             re += sign * hr;
             im += sign * hi;
@@ -465,10 +722,13 @@ __global__ void coarse_pass_kernel(
     for (int row = warp; row < dim; row += warps) {
         Float re = 0, im = 0;
         const Float* m_row = d_inverse + 2 * (matrix * X + static_cast<size_t>(dim) * row);
-        for (int col = lane; col < dim; col += WarpSize) {
-            const Float a = m_row[2 * col], b = m_row[2 * col + 1];
-            re += a * sum[col] - b * sum[dim + col];
-            im += a * sum[dim + col] + b * sum[col];
+        for (int col = 2 * lane; col < dim; col += 2 * WarpSize) {
+            Float a0, b0, a1, b1;
+            coarse_pass_pair(m_row + 2 * col, a0, b0, a1, b1);
+            re += a0 * sum[col] - b0 * sum[dim + col];
+            im += a0 * sum[dim + col] + b0 * sum[col];
+            re += a1 * sum[col + 1] - b1 * sum[dim + col + 1];
+            im += a1 * sum[dim + col + 1] + b1 * sum[col + 1];
         }
         re = coarse_pass_sum(re);
         im = coarse_pass_sum(im);
@@ -756,6 +1016,184 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
             const double w = (cutoff > 0) ? ((l > cutoff * top) ? 1.0 / l : 0.0) : 1.0 / fmax(l, 1e-300);
             const double xr = v[2 * (k * n + j)], xi = v[2 * (k * n + j) + 1];
             const double yr = v[2 * (col * n + j)], yi = v[2 * (col * n + j) + 1];
+            re += (xr * yr + xi * yi) * w;
+            im += (xi * yr - xr * yi) * w;
+        }
+        out[2 * (k * n + col)] = re;
+        out[2 * (k * n + col) + 1] = im;
+    }
+}
+
+// -------------------------------------------------------------------------
+// blocks_abs_inverse_gamma5_kernel with the rotations of disjoint pairs at the same time and H
+// in shared memory. The pairs (p, q) of a sweep in the round-robin order: n - 1 rounds of n/2
+// pairs that share no index (a dummy index, never rotated, when n is odd), so that in a round
+// every pair's phase and rotation act on columns (then rows) no other pair touches; the entry
+// (p, q) after a round is that of its own rotation alone, and is set to zero as there.
+// (blocks_abs_inverse_gamma5_kernel went through the pairs one at a time with H and V in global
+// memory: 3.8 s a launch for 2592 sites of dim 64 on the A30, 1.15 TB of DRAM traffic.)
+//
+// H in shared memory, rows abs_inverse_stride(n) doubles apart (an odd number, so that the
+// threads of a warp, one row each, read different banks); V there too with VShared (it fits
+// the 164 kB of an A30 at n = 64, not the 99 kB of an RTX 3080; in global memory the warps
+// waited on it: 6% warps active, long scoreboard), else in d_scratch as before.
+// Shared memory: abs_inverse_shared(n, VShared).
+// -------------------------------------------------------------------------
+__host__ __device__ __forceinline__ int abs_inverse_stride(int n) { return 2 * n + 1; }
+
+__host__ __device__ __forceinline__ size_t abs_inverse_shared(int n, bool v_shared)
+{
+    // H (and V), then per pair of a round its index pair, phase (2), cosine and sine.
+    return static_cast<size_t>(v_shared ? 2 : 1) * n * abs_inverse_stride(n) * sizeof(double) +
+           static_cast<size_t>((n + 1) / 2) * (2 * sizeof(int) + 4 * sizeof(double)) +
+           static_cast<size_t>(n + 2) * sizeof(double);
+}
+
+template <bool VShared>
+__global__ void blocks_abs_inverse_gamma5_rounds_kernel(
+    double* __restrict__ d_out,
+    const double* __restrict__ d_a,
+    double* __restrict__ d_scratch,
+    int dim, int gamma5, double cutoff)
+{
+    extern __shared__ __align__(16) unsigned char abs_shared[];
+    const int k = threadIdx.x, n = dim, ld = abs_inverse_stride(n);
+    const int m = n + (n & 1), pairs = m / 2;
+    const size_t site = blockIdx.x;
+    double* h = reinterpret_cast<double*>(abs_shared);
+    double* v_shared = h + static_cast<size_t>(n) * ld;
+    double* pair_d = h + static_cast<size_t>(VShared ? 2 : 1) * n * ld;  // re, im
+    double* pair_c = pair_d + 2 * pairs;
+    double* pair_s = pair_c + pairs;
+    double* part = pair_s + pairs;                      // n + 2
+    int* pair_p = reinterpret_cast<int*>(part + n + 2);
+    int* pair_q = pair_p + pairs;
+    double* v = d_scratch + site * n * n * 4 + static_cast<size_t>(n) * n * 2;
+    const double* a = d_a + site * n * n * 2;
+    auto H = [&](int r, int c) -> double* { return h + static_cast<size_t>(r) * ld + 2 * c; };
+    auto V = [&](int r, int c) -> double* {
+        if constexpr (VShared) {
+            return v_shared + static_cast<size_t>(r) * ld + 2 * c;
+        } else {
+            return v + 2 * (static_cast<size_t>(r) * n + c);
+        }
+    };
+    auto flip = [&](int col) { return (gamma5 && col >= n / 2) ? -1.0 : 1.0; };
+    for (int c = 0; c < n; ++c) {
+        // ((A Gamma_5) + (A Gamma_5)^dag) / 2
+        H(k, c)[0] = 0.5 * (flip(c) * a[2 * (k * n + c)] + flip(k) * a[2 * (c * n + k)]);
+        H(k, c)[1] = 0.5 * (flip(c) * a[2 * (k * n + c) + 1] - flip(k) * a[2 * (c * n + k) + 1]);
+        V(k, c)[0] = (k == c) ? 1.0 : 0.0;
+        V(k, c)[1] = 0.0;
+    }
+    __syncthreads();
+    // The sum over the threads of one number each, in thread order, for all of them.
+    auto total = [&](double x) {
+        part[k] = x;
+        __syncthreads();
+        if (k == 0) {
+            double t = 0;
+            for (int i = 0; i < n; ++i) t += part[i];
+            part[n] = t;
+        }
+        __syncthreads();
+        const double t = part[n];
+        __syncthreads();
+        return t;
+    };
+    double row_all = 0;
+    for (int c = 0; c < n; ++c) row_all += H(k, c)[0] * H(k, c)[0] + H(k, c)[1] * H(k, c)[1];
+    const double all = total(row_all);
+
+    for (int sweep = 0; sweep < 100; ++sweep) {
+        double row_off = 0;
+        for (int c = k + 1; c < n; ++c) row_off += H(k, c)[0] * H(k, c)[0] + H(k, c)[1] * H(k, c)[1];
+        if (sqrt(total(row_off)) <= 1e-15 * sqrt(all)) break;
+        for (int round = 0; round < m - 1; ++round) {
+            // The pairs of this round and their phases and rotations.
+            if (k < pairs) {
+                int x = (k == 0) ? round : (round + k) % (m - 1);
+                int y = (k == 0) ? m - 1 : (round + m - 1 - k) % (m - 1);
+                const int p = x < y ? x : y, q = x < y ? y : x;
+                double dr = 1, di = 0, c = 1, s = 0;
+                bool rotate = false;
+                if (q < n) {
+                    const double gr = H(p, q)[0], gi = H(p, q)[1];
+                    const double g = sqrt(gr * gr + gi * gi);
+                    if (g > 1e-300) {
+                        rotate = true;
+                        // d = conj(a_pq) / |a_pq|; theta from the diagonal, which the phase leaves.
+                        dr = gr / g;
+                        di = -gi / g;
+                        const double theta = (H(q, q)[0] - H(p, p)[0]) / (2.0 * g);
+                        const double t = ((theta >= 0.0) ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
+                        c = 1.0 / sqrt(t * t + 1.0);
+                        s = t * c;
+                    }
+                }
+                pair_p[k] = p;
+                pair_q[k] = rotate ? q : -1;
+                pair_d[2 * k] = dr;
+                pair_d[2 * k + 1] = di;
+                pair_c[k] = c;
+                pair_s[k] = s;
+            }
+            __syncthreads();
+            // Columns: q times d, then (p, q) rotated, in row k of H and of V.
+            for (int t = 0; t < pairs; ++t) {
+                const int p = pair_p[t], q = pair_q[t];
+                if (q < 0) continue;
+                const double dr = pair_d[2 * t], di = pair_d[2 * t + 1], c = pair_c[t], s = pair_s[t];
+                #pragma unroll
+                for (int which = 0; which < 2; ++which) {
+                    double* xp = which == 0 ? H(k, p) : V(k, p);
+                    double* xq = which == 0 ? H(k, q) : V(k, q);
+                    const double qr = xq[0] * dr - xq[1] * di, qi = xq[0] * di + xq[1] * dr;
+                    const double pr = xp[0], pi = xp[1];
+                    xp[0] = c * pr - s * qr;
+                    xp[1] = c * pi - s * qi;
+                    xq[0] = s * pr + c * qr;
+                    xq[1] = s * pi + c * qi;
+                }
+            }
+            __syncthreads();
+            // Rows: q times conj(d), then (p, q) rotated, in column k of H.
+            for (int t = 0; t < pairs; ++t) {
+                const int p = pair_p[t], q = pair_q[t];
+                if (q < 0) continue;
+                const double dr = pair_d[2 * t], di = pair_d[2 * t + 1], c = pair_c[t], s = pair_s[t];
+                double* xp = H(p, k);
+                double* xq = H(q, k);
+                const double qr = xq[0] * dr + xq[1] * di, qi = xq[1] * dr - xq[0] * di;
+                const double pr = xp[0], pi = xp[1];
+                xp[0] = c * pr - s * qr;
+                xp[1] = c * pi - s * qi;
+                xq[0] = s * pr + c * qr;
+                xq[1] = s * pi + c * qi;
+            }
+            __syncthreads();
+            if (k < pairs && pair_q[k] >= 0) {
+                const int p = pair_p[k], q = pair_q[k];
+                H(p, q)[0] = 0.0;
+                H(p, q)[1] = 0.0;
+                H(q, p)[0] = 0.0;
+                H(q, p)[1] = 0.0;
+            }
+            __syncthreads();
+        }
+    }
+
+    // out_ik = sum_j v_ij conj(v_kj) / |lambda_j|, row i = k of the thread.
+    double top = 0;
+    for (int j = 0; j < n; ++j) top = fmax(top, fabs(H(j, j)[0]));
+    double* out = d_out + site * n * n * 2;
+    for (int col = 0; col < n; ++col) {
+        double re = 0, im = 0;
+        for (int j = 0; j < n; ++j) {
+            const double l = fabs(H(j, j)[0]);
+            const double w = (cutoff > 0) ? ((l > cutoff * top) ? 1.0 / l : 0.0) : 1.0 / fmax(l, 1e-300);
+            const double xr = V(k, j)[0], xi = V(k, j)[1];
+            const double yr = V(col, j)[0], yi = V(col, j)[1];
             re += (xr * yr + xi * yi) * w;
             im += (xi * yr - xr * yi) * w;
         }

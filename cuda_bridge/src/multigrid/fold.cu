@@ -26,6 +26,118 @@ namespace {
         }
         return g;
     }
+
+    // coarse = P^dag fine: fold_restrict_tiled_kernel, a block for each coarse site with about
+    // 128 threads (dim of them for each of its sites at a time), or fold_restrict_kernel where
+    // its shared memory would not fit.
+    template <typename Float, typename Stored>
+    void restrict_launch(Float* d_coarse, const Float* d_fine, const Stored* d_p, const unsigned* d_sites,
+                         int n_coarse, int block_volume, int n, int vectors,
+                         const bridge_cuda::FoldGeometry& g, cudaStream_t stream)
+    {
+        const int dim = 2 * n, kept = 12 * g.Ls;
+        const int sites_at_once = dim < 128 ? 128 / dim : 1;
+        const int threads = sites_at_once * dim;
+        const int per_site = vectors < bridge_cuda::FoldVectors ? vectors : bridge_cuda::FoldVectors;
+        const size_t shared =
+            bridge_cuda::fold_restrict_shared<Float, Stored>(sites_at_once, dim, kept, per_site, block_volume);
+        static int most = -1;
+        static size_t allowed = 48 * 1024;
+        if (most < 0) {
+            int device = 0;
+            cudaGetDevice(&device);
+            cudaDeviceGetAttribute(&most, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+        }
+        if (threads > 1024 || shared > static_cast<size_t>(most)) {
+            dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, groups(vectors));
+            bridge_cuda::fold_restrict_kernel<Float, Stored><<<grid, BLOCK_SIZE, 0, stream>>>(
+                d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors, g);
+            return;
+        }
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::fold_restrict_tiled_kernel<Float, Stored>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        dim3 grid(n_coarse, groups(vectors));
+        bridge_cuda::fold_restrict_tiled_kernel<Float, Stored><<<grid, threads, shared, stream>>>(
+            d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors, per_site, g);
+    }
+
+    // One pass of the coarse operator (coarse_pass_kernel, with or without the hops), its shared
+    // memory allowed above the default 48 kB where dim asks for it.
+    template <typename Float, bool Hops>
+    void coarse_pass_launch_as(Float* d_out, const Float* d_base, const Float* d_diag_of, const Float* d_hops_of,
+                               const Float* d_diag, const Float* d_links, const Float* d_inverse,
+                               const unsigned* d_neighbours, const unsigned* d_odd,
+                               int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+                               cudaStream_t stream)
+    {
+        const size_t shared = bridge_cuda::coarse_pass_shared<Float>(dim, Hops);
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::coarse_pass_kernel<Float, Hops>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        dim3 grid(n_coarse, vectors);
+        const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
+        bridge_cuda::coarse_pass_kernel<Float, Hops><<<grid, threads, shared, stream>>>(
+            d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
+            n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+    }
+
+    // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs with H and V in shared
+    // memory, or H alone, where that fits; else the one of the pairs one at a time.
+    template <bool VShared>
+    void abs_inverse_rounds(double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim,
+                            int gamma5, double cutoff, size_t shared, cudaStream_t stream)
+    {
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared><<<n_sites, dim, shared, stream>>>(
+            d_out, d_a, d_scratch, dim, gamma5, cutoff);
+    }
+
+    void abs_inverse_launch(double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim,
+                            int gamma5, double cutoff, cudaStream_t stream)
+    {
+        static int most = -1;
+        if (most < 0) {
+            int device = 0;
+            cudaGetDevice(&device);
+            cudaDeviceGetAttribute(&most, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+        }
+        const size_t both = bridge_cuda::abs_inverse_shared(dim, true);
+        const size_t h_only = bridge_cuda::abs_inverse_shared(dim, false);
+        if (dim <= 1024 && both <= static_cast<size_t>(most)) {
+            abs_inverse_rounds<true>(d_out, d_a, d_scratch, n_sites, dim, gamma5, cutoff, both, stream);
+        } else if (dim <= 1024 && h_only <= static_cast<size_t>(most)) {
+            abs_inverse_rounds<false>(d_out, d_a, d_scratch, n_sites, dim, gamma5, cutoff, h_only, stream);
+        } else {
+            bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, gamma5, cutoff);
+        }
+    }
+
+    template <typename Float>
+    void coarse_pass_launch(Float* d_out, const Float* d_base, const Float* d_diag_of, const Float* d_hops_of,
+                            const Float* d_diag, const Float* d_links, const Float* d_inverse,
+                            const unsigned* d_neighbours, const unsigned* d_odd,
+                            int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+                            cudaStream_t stream)
+    {
+        if (d_hops_of != nullptr) {
+            coarse_pass_launch_as<Float, true>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+        } else {
+            coarse_pass_launch_as<Float, false>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                                                d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+        }
+    }
 }
 
 extern "C" {
@@ -35,14 +147,11 @@ void bridge_cuda_fold_restrict_f32(
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* fold,
     int leg, const int* block, int vectors, cudaStream_t stream)
 {
-    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, groups(vectors));
     const auto g = geometry(dims, Ls, parity, fold, leg, block);
     if (fold[8]) {
-        bridge_cuda::fold_restrict_kernel<float, __half><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_coarse, d_fine, static_cast<const __half*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g);
+        restrict_launch(d_coarse, d_fine, static_cast<const __half*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g, stream);
     } else {
-        bridge_cuda::fold_restrict_kernel<float, float><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_coarse, d_fine, static_cast<const float*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g);
+        restrict_launch(d_coarse, d_fine, static_cast<const float*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g, stream);
     }
 }
 
@@ -84,14 +193,11 @@ void bridge_cuda_fold_restrict_f64(
     int n_coarse, int block_volume, int n, const int* dims, int Ls, int parity, const int* fold,
     int leg, const int* block, int vectors, cudaStream_t stream)
 {
-    dim3 grid((n_coarse * 2 * n + BLOCK_SIZE - 1) / BLOCK_SIZE, groups(vectors));
     const auto g = geometry(dims, Ls, parity, fold, leg, block);
     if (fold[8]) {
-        bridge_cuda::fold_restrict_kernel<double, __half><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_coarse, d_fine, static_cast<const __half*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g);
+        restrict_launch(d_coarse, d_fine, static_cast<const __half*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g, stream);
     } else {
-        bridge_cuda::fold_restrict_kernel<double, float><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_coarse, d_fine, static_cast<const float*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g);
+        restrict_launch(d_coarse, d_fine, static_cast<const float*>(d_p), d_sites, n_coarse, block_volume, n, vectors, g, stream);
     }
 }
 
@@ -148,11 +254,8 @@ void bridge_cuda_coarse_pass_f32(
     const unsigned* d_neighbours, const unsigned* d_odd,
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
 {
-    dim3 grid(n_coarse, vectors);
-    const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
-    bridge_cuda::coarse_pass_kernel<float><<<grid, threads, 2 * dim * sizeof(float), stream>>>(
-        d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
-        n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+    coarse_pass_launch<float>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                              d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
 }
 
 void bridge_cuda_coarse_gamma5_f32(float* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)
@@ -167,11 +270,8 @@ void bridge_cuda_coarse_pass_f64(
     const unsigned* d_neighbours, const unsigned* d_odd,
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream)
 {
-    dim3 grid(n_coarse, vectors);
-    const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
-    bridge_cuda::coarse_pass_kernel<double><<<grid, threads, 2 * dim * sizeof(double), stream>>>(
-        d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
-        n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+    coarse_pass_launch<double>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
 }
 
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)
@@ -220,14 +320,14 @@ void bridge_cuda_blocks_inverse(
 void bridge_cuda_blocks_abs_inverse_gamma5(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, cudaStream_t stream)
 {
-    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 1, 0.0);
+    abs_inverse_launch(d_out, d_a, d_scratch, n_sites, dim, 1, 0.0, stream);
 }
 
 void bridge_cuda_blocks_abs_inverse(
     double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim, double cutoff,
     cudaStream_t stream)
 {
-    bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, 0, cutoff);
+    abs_inverse_launch(d_out, d_a, d_scratch, n_sites, dim, 0, cutoff, stream);
 }
 
 } // extern "C"

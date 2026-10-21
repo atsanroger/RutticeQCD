@@ -427,8 +427,8 @@ void bridge_cuda_fold_orthonormalise(
 
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
 // out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
-// one parity, the others set to zero (parity < 0: all); every part may be null. dim at most
-// 1024. And Gamma_5 of a coarse field, in place.
+// one parity, the others set to zero (parity < 0: all); every part may be null. dim even and at
+// most 1024. And Gamma_5 of a coarse field, in place.
 void bridge_cuda_coarse_pass_f32(
     float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
     const float* d_diag, const float* d_links, const float* d_inverse,

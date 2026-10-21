@@ -355,10 +355,12 @@ __global__ void hop_kernel(
 // 4 + mu: the backward one), sorted by whether it comes from another block of the lattice
 // (blocks of bx by bz bt sites: the aggregates of a multigrid): cross = the leg where it
 // does and zero elsewhere, and inside += the leg elsewhere. For the coarse operator.
-// The fibres of a site as in hop_kernel.
+// The fibres of a site as in hop_kernel. In single precision two blocks of 256 an SM (128
+// registers, no spill): with the 168 nvcc chose, one block, 8 warps, at 25% of the bandwidth on
+// the A30. In double precision 128 registers spill 700 bytes, so it keeps its 168.
 // -------------------------------------------------------------------------
 template <typename Float>
-__global__ void hop_split_kernel(
+__global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_kernel(
     Float* __restrict__ d_cross,
     Float* __restrict__ d_inside,
     const Float* __restrict__ d_in,

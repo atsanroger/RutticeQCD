@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+- `cuda_bridge` multigrid: the restriction P† reads P coalesced (`fold_restrict_tiled_kernel`):
+  a block for each coarse site reads the P of two fine sites at a time in 16-byte words into
+  shared memory, and the fine spinors folded by chirality, where a thread for each output read
+  its own row of P one number at a time (11% of the bandwidth on the A30). RTX 3080, 16⁴:
+  4.64 → 1.31 ms a launch, setup 25 → 21 s, solve 0.6 → 0.5 s, the same iterations; the sums
+  are in another order, so the last digits move. The old kernel stays for where the new one's
+  shared memory does not fit.
+- `cuda_bridge` coarse operator (`coarse_pass_kernel`): the fields at a coarse site and its
+  eight neighbours, the same for every row, are read once into shared memory instead of once a
+  row, and the matrices two columns at a time in 16-byte words, the eight links of a row read
+  before they are used. RTX 3080, 16⁴: 82.5 → 62.6 µs a pass with the hops, DRAM 62 → 82%,
+  instructions −42%; the coarse dimension must be even (it is twice the test vectors).
+  A pass without the hops is a kernel of its own, without the registers of the unrolled links
+  (on the A30 those passes had become 18% slower): RTX 3080, 70 → 44 registers, 19 → 16 µs.
+- `cuda_bridge`: `hop_split_kernel` in single precision runs two blocks an SM (128 registers,
+  no spill, where nvcc chose 168): RTX 3080, 16⁴, 1.9–2.1 → 1.5–1.6 ms a launch, DRAM 66 → 88%.
+- `cuda_bridge`: |H|⁻¹ of the coarse blocks (`blocks_abs_inverse_gamma5_rounds_kernel`) by the
+  cyclic Jacobi method in rounds of disjoint pairs at once, with H in shared memory, where the
+  pairs went one at a time with H and V in global memory (3.8 s a launch on the A30, 1.15 TB of
+  DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s a launch. The old kernel stays where the shared
+  memory does not fit. Where H and V both fit (the A30 and A100 at a coarse dimension of 64,
+  not the RTX 3080), V is in shared memory too: on the A30 the kernel with V in global memory
+  had 6% of its warps active, waiting on V.
+- `cuda_bridge`: the coarse operator with the hops at most 85 registers (`__launch_bounds__(256,
+  3)`; CUDA 13 gave 128 for sm_80, 24% warps active on the A30), and the restriction copies P to
+  shared memory with `cp.async`, its copies in flight while the fine fields are folded.
+- `cuda_bridge`: the kernels of P read the entries of their geometry (γ5's columns and signs,
+  the blocks) without an index known only at run time, which had put the whole kernel argument
+  on the stack (a 96-byte frame and 0.5 GB of local loads a launch of the restriction on the
+  A30); the prolongation reads P a complex number at a time. RTX 3080, 16⁴: restriction 1.29 →
+  1.15 ms, prolongation 2.93 → 2.85 ms; the results the same bit for bit.
+- `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
+  for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
+  single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the
+  setup 32 → 25 s, the solve 0.7 → 0.6 s, the same iterations; the sums are in another order,
+  so the last digits move.
+- Corrections to 0.3.0: the double-precision `hop_gemm` at Ls 8 runs blocks of 128 threads
+  (192 is the bound of its launch), three an SM with 168 registers where two fitted with 255.
+  On the A30 (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
+  smearing on the device saves nothing there yet: the CPU smeared in about 2 s (the 11.7 s
+  that was the reason came from a run under nsys).
+- Example `correction_exactness` (CPU): how exact the factorized coarse correction is on the
+  vectors its prolongation is made from, for the right form, the left form and the dual
+  correction, and GCR(2) on Ã_R with the cycle against Ã_R† with the dual cycle.
+  `preconditioned_fov_device` prints, for the leftmost vector of the field of values, what the
+  cycle does to it at several coarse tolerances.
+- MG note: the timings again at fbc8f00 on the A30 (mass scan, point-source propagators), the
+  results in the order of the abstract, the implementation in an appendix.
+
 ## 0.3.1 (2026-10-21)
 
 - ILDG files are written with the record `ildg-data-lfn` (the logical file name, here the

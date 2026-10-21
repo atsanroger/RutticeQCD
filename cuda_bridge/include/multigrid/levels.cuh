@@ -34,7 +34,11 @@ __host__ __device__ __forceinline__ size_t level_reals(int n_sites, int dim) {
 constexpr int LevelThreads = 256;
 
 // -------------------------------------------------------------------------
-// out = Q^dag v: a thread for each (super-block, local vector), blockIdx.y the vector.
+// out = Q^dag v: a warp for each (super-block, local vector), blockIdx.y the vector. The lanes
+// take every WarpSize-th of the bs pd terms, so that a warp reads consecutive entries of Q and
+// of v, and the sums are added across the warp. (A thread for each output summed its bs pd
+// terms alone: on the last level, with fewer outputs than a block, that was one block on one
+// SM, 1.2 ms a launch on the A30.)
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void level_restrict_kernel(
@@ -44,25 +48,32 @@ __global__ void level_restrict_kernel(
     const unsigned* __restrict__ d_members,
     int n_blocks, int nq, int bs, int n_parent, int pd)
 {
-    const int t = blockIdx.x * blockDim.x + threadIdx.x;
+    const int t = (blockIdx.x * blockDim.x + threadIdx.x) / WarpSize;
+    const int lane = threadIdx.x % WarpSize;
     if (t >= n_blocks * nq) return;
     const int S = t / nq;
     const Float* v = d_v + blockIdx.y * level_reals(n_parent, pd);
     const Float* q = d_q + 2 * static_cast<size_t>(t) * bs * pd;
     Float re = 0, im = 0;
-    for (int k = 0; k < bs; ++k) {
+    for (int e = lane; e < bs * pd; e += WarpSize) {
+        const int k = e / pd, i = e % pd;
         const size_t x = d_members[static_cast<size_t>(S) * bs + k];
-        for (int i = 0; i < pd; ++i) {
-            const Float a = q[2 * (k * pd + i)], b = q[2 * (k * pd + i) + 1];
-            const size_t at = level_at(x * pd + i);
-            const Float xr = v[at], xi = v[at + WarpSize];
-            re += a * xr + b * xi;
-            im += a * xi - b * xr;
-        }
+        const Float a = q[2 * e], b = q[2 * e + 1];
+        const size_t at = level_at(x * pd + i);
+        const Float xr = v[at], xi = v[at + WarpSize];
+        re += a * xr + b * xi;
+        im += a * xi - b * xr;
     }
-    const size_t at = blockIdx.y * level_reals(n_blocks, nq) + level_at(t);
-    d_out[at] = re;
-    d_out[at + WarpSize] = im;
+    #pragma unroll
+    for (int step = WarpSize / 2; step > 0; step >>= 1) {
+        re += __shfl_down_sync(0xffffffffu, re, step);
+        im += __shfl_down_sync(0xffffffffu, im, step);
+    }
+    if (lane == 0) {
+        const size_t at = blockIdx.y * level_reals(n_blocks, nq) + level_at(t);
+        d_out[at] = re;
+        d_out[at + WarpSize] = im;
+    }
 }
 
 // -------------------------------------------------------------------------
