@@ -114,24 +114,25 @@ $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves the spectrum into the right half-plane
 and gives the smallest condition number among the operators they examined. This note
 describes a two-grid method for $A'$ on the even sites. Its coarse-grid correction is
 factorized into one Galerkin solve for the quark operator and one for the adjoint
-Pauli--Villars operator, each with a nearest-neighbor coarse stencil. The outer
-system can therefore be the even-odd one without the $81$-point coarse stencil that
-coarsening the squared Schur complement gives. The prolongation is built from
+Pauli--Villars operator, each with a nearest-neighbor coarse stencil, so that the
+outer system can be the even-odd one while the coarse operators stay nearest-neighbor.
+The prolongation is built from
 approximate low modes lifted to the whole lattice, and the correction is exact on
-the vectors it is made from. The smoother is a fixed Chebyshev polynomial. We state the
-operator and its forms (with Neff's $\alpha$), the correction, the coarse
-solvers, the setup, the smoother, the outer solver, and the questions that are
-open.\ifresults{} On a quenched $24^3\times48$ configuration the multigrid
-iterations grow by a factor of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for
-even-odd CGNE, and at $m=0.001$ the solve is $4.7$--$6.0$ times faster than CGNE in
-double precision and $3.6$--$4.2$ times faster than in mixed precision, the setup
-being paid back after $3$--$6$ right-hand sides; a whole point-source propagator at
-$m=0.001$ takes half the time of the mixed-precision CGNE, setup included. Although the field of values of the
-preconditioned operator reaches far into the left half-plane, its eigenvalues stay
-at $\Re\lambda\ge0.78$, and its pseudospectra on $12^4$ and $16^4$ bound the
-convergence of full GMRES; the truncated GCR used in practice converges only
-because the coarse solves are inexact. The results are from one configuration per
-volume; Sec.~\ref{sec:reproduce} describes how to extend them.\fi
+the vectors it is made from. The smoother is a fixed Chebyshev polynomial.\ifresults{}
+Why the method converges is not obvious: the field of values of the preconditioned
+operator reaches far into the left half-plane, so the usual convergence bound of GCR
+does not apply. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$, and its
+pseudospectra on $12^4$ and $16^4$ bound the convergence of full GMRES; the truncated
+GCR used in practice converges because the coarse solves are inexact. On a quenched
+$24^3\times48$ configuration the multigrid iterations grow by a factor of $2$--$4$
+from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE, and at $m=0.001$ the solve
+is $4.7$--$6.0$ times faster than CGNE in double precision and $3.6$--$4.2$ times
+faster than in mixed precision, the setup being paid back after $3$--$6$ right-hand
+sides; a whole point-source propagator at $m=0.001$ takes half the time of the
+mixed-precision CGNE, setup included. The results are from one configuration per
+volume; Sec.~\ref{sec:reproduce} describes how to extend them.\else{} We state the
+operator and its forms (with Neff's $\alpha$), the correction, the coarse solvers, the
+setup, the smoother, the outer solver, and the questions that are open.\fi
 \end{abstract}
 
 \vspace{0.4ex}\hrule\vspace{1ex}
@@ -638,13 +639,13 @@ Sec.~\ref{sec:results} are on the left form unless stated.\fi
 \label{sec:correction}
 
 \subsection{Why factorize}
-Solving on the even sites halves the problem and improves the conditioning, but
-in the literature it has come at a price: the Schur complement is a two-hop
-operator, so HDCG, which coarsens the squared Schur complement, has an $81$-point
-coarse stencil~\cite{HDCG}, while the methods with a more compact coarse
-operator coarsen something other than the Schur complement: $\gamma_5R_5D$
-(HDCR~\cite{HDCR}) or $\Dpv\dg D$~\cite{BCHW,BoyleOare}. The
-factorized correction avoids this choice: the outer operator is the even-odd one,
+Solving on the even sites halves the problem and improves the conditioning. The
+Schur complement is a two-hop operator, so the methods in the literature make
+different choices: HDCG coarsens the squared Schur complement, with a larger coarse
+stencil~\cite{HDCG}, and the methods with a nearest-neighbor or two-hop coarse operator
+coarsen an operator on the whole lattice: $\gamma_5R_5D$ (HDCR~\cite{HDCR}) or
+$\Dpv\dg D$~\cite{BCHW,BoyleOare}. The factorized correction combines the two: the
+outer operator is the even-odd one,
 while the coarse operators are those of $D$ and $\Dpv$ themselves
 (Table~\ref{tab:approaches}).
 
