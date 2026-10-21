@@ -7,6 +7,7 @@
 #include "../fermion/hops.cuh"
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <cuda_pipeline.h>
 
 // The prolongation P of the multigrid of domain-wall fermions and its adjoint.
 //
@@ -258,26 +259,21 @@ __global__ void fold_restrict_tiled_kernel(
     const int words = dim * kept / per_word;
     for (int a0 = 0; a0 < n_active; a0 += groups) {
         const int here = (n_active - a0 < groups) ? n_active - a0 : groups;
-        // P of the sites, a 16-byte word at a time.
+        // P of the sites, a 16-byte word at a time, copied to shared memory without going
+        // through registers (cp.async), so that all of a thread's copies are in flight at once
+        // and the folding of the fine fields below runs while they arrive. The rows are 4-byte
+        // aligned (stride and col even for half precision): four 4-byte copies a word.
         for (int w = tid; w < here * words; w += blockDim.x) {
             const int s_slot = w / words, word = w % words;
             const size_t x = active_x[a0 + s_slot];
-            const uint4 bits = reinterpret_cast<const uint4*>(d_p + x * dim * kept)[word];
+            const unsigned* from = reinterpret_cast<const unsigned*>(
+                reinterpret_cast<const uint4*>(d_p + x * dim * kept) + word);
             const int e0 = word * per_word, r = e0 / kept, col = e0 % kept;
-            Stored* to = p_sh + (static_cast<size_t>(s_slot) * dim + r) * stride + col;
-            if constexpr (sizeof(Stored) == 2) {
-                // stride and col are even: four 4-byte words.
-                unsigned* words4 = reinterpret_cast<unsigned*>(to);
-                words4[0] = bits.x;
-                words4[1] = bits.y;
-                words4[2] = bits.z;
-                words4[3] = bits.w;
-            } else {
-                const Stored* from = reinterpret_cast<const Stored*>(&bits);
-                #pragma unroll
-                for (int m = 0; m < per_word; ++m) to[m] = from[m];
-            }
+            unsigned* to = reinterpret_cast<unsigned*>(p_sh + (static_cast<size_t>(s_slot) * dim + r) * stride + col);
+            #pragma unroll
+            for (int m = 0; m < 4; ++m) __pipeline_memcpy_async(to + m, from + m, sizeof(unsigned));
         }
+        __pipeline_commit();
         // The fine fields folded by chirality.
         for (int w = tid; w < here * count * kept; w += blockDim.x) {
             const int s_slot = w / (count * kept), rest = w % (count * kept);
@@ -291,6 +287,7 @@ __global__ void fold_restrict_tiled_kernel(
             to[0] = near + far;
             to[kept] = near - far;
         }
+        __pipeline_wait_prior(0);
         __syncthreads();
         if (slot < here) {
             const Stored* b = p_sh + (static_cast<size_t>(slot) * dim + row) * stride;
@@ -601,8 +598,10 @@ __device__ __forceinline__ Float coarse_pass_sum(Float x) {
 // Hops: whether d_hops_of is given. A pass without the hops is a kernel of its own, so that it
 // does not carry the registers of the eight links unrolled (128 against about 80: on the A30
 // its occupancy fell from 35 to 24% and the passes without hops took 18% longer).
+// With the hops at most 85 registers, three blocks an SM: CUDA 13 gave it 128 for sm_80 (two
+// blocks, 24% warps active on the A30); CUDA 12.5 gives 62 under this bound, without spills.
 template <typename Float, bool Hops>
-__global__ void coarse_pass_kernel(
+__global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_base,
     const Float* __restrict__ d_diag_of,
@@ -1013,19 +1012,22 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
 // memory: 3.8 s a launch for 2592 sites of dim 64 on the A30, 1.15 TB of DRAM traffic.)
 //
 // H in shared memory, rows abs_inverse_stride(n) doubles apart (an odd number, so that the
-// threads of a warp, one row each, read different banks); V in d_scratch as before.
-// Shared memory: abs_inverse_shared(n).
+// threads of a warp, one row each, read different banks); V there too with VShared (it fits
+// the 164 kB of an A30 at n = 64, not the 99 kB of an RTX 3080; in global memory the warps
+// waited on it: 6% warps active, long scoreboard), else in d_scratch as before.
+// Shared memory: abs_inverse_shared(n, VShared).
 // -------------------------------------------------------------------------
 __host__ __device__ __forceinline__ int abs_inverse_stride(int n) { return 2 * n + 1; }
 
-__host__ __device__ __forceinline__ size_t abs_inverse_shared(int n)
+__host__ __device__ __forceinline__ size_t abs_inverse_shared(int n, bool v_shared)
 {
-    // H, then per pair of a round its index pair, phase (2), cosine and sine.
-    return static_cast<size_t>(n) * abs_inverse_stride(n) * sizeof(double) +
+    // H (and V), then per pair of a round its index pair, phase (2), cosine and sine.
+    return static_cast<size_t>(v_shared ? 2 : 1) * n * abs_inverse_stride(n) * sizeof(double) +
            static_cast<size_t>((n + 1) / 2) * (2 * sizeof(int) + 4 * sizeof(double)) +
            static_cast<size_t>(n + 2) * sizeof(double);
 }
 
+template <bool VShared>
 __global__ void blocks_abs_inverse_gamma5_rounds_kernel(
     double* __restrict__ d_out,
     const double* __restrict__ d_a,
@@ -1037,7 +1039,8 @@ __global__ void blocks_abs_inverse_gamma5_rounds_kernel(
     const int m = n + (n & 1), pairs = m / 2;
     const size_t site = blockIdx.x;
     double* h = reinterpret_cast<double*>(abs_shared);
-    double* pair_d = h + static_cast<size_t>(n) * ld;  // re, im
+    double* v_shared = h + static_cast<size_t>(n) * ld;
+    double* pair_d = h + static_cast<size_t>(VShared ? 2 : 1) * n * ld;  // re, im
     double* pair_c = pair_d + 2 * pairs;
     double* pair_s = pair_c + pairs;
     double* part = pair_s + pairs;                      // n + 2
@@ -1046,7 +1049,13 @@ __global__ void blocks_abs_inverse_gamma5_rounds_kernel(
     double* v = d_scratch + site * n * n * 4 + static_cast<size_t>(n) * n * 2;
     const double* a = d_a + site * n * n * 2;
     auto H = [&](int r, int c) -> double* { return h + static_cast<size_t>(r) * ld + 2 * c; };
-    auto V = [&](int r, int c) -> double* { return v + 2 * (static_cast<size_t>(r) * n + c); };
+    auto V = [&](int r, int c) -> double* {
+        if constexpr (VShared) {
+            return v_shared + static_cast<size_t>(r) * ld + 2 * c;
+        } else {
+            return v + 2 * (static_cast<size_t>(r) * n + c);
+        }
+    };
     auto flip = [&](int col) { return (gamma5 && col >= n / 2) ? -1.0 : 1.0; };
     for (int c = 0; c < n; ++c) {
         // ((A Gamma_5) + (A Gamma_5)^dag) / 2

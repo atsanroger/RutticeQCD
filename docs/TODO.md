@@ -476,8 +476,16 @@ Measured on the A30 (12 columns, one run): 6bbfa74 584 s; 046567d 535.9 s (setup
 solves 215.5 s, the rest 22 s; 362 GCR iterations as before, PS within 7.3e-9); d01d2bb
 (`fold_restrict` coalesced, `coarse_pass` fields in shared memory) **460.9 s** (setup 244 s:
 bootstrap rounds 83 → 67 and 94 → 75 s; solves 191.6 s; the rest 25 s; 365 GCR iterations;
-worst |Dx−b|² 2e-18 in one column, the others ≤ 1e-18; PS within 1.85e-8 of 046567d). 61 s
-from the aim.
+worst |Dx−b|² 2e-18 in one column, the others ≤ 1e-18; PS within 1.85e-8 of 046567d); 74e7775
+(|H|⁻¹ by rounds, `hop_split` two blocks an SM, `coarse_pass` without hops apart) **433.8 s**
+(filter 61 s, bootstrap rounds 59 and 68 s, setup 225 s; solves 186.5 s; the rest 22 s; 364
+GCR iterations; one column at 2e-18; PS within 1.17e-8 of d01d2bb). 34 s from the aim.
+The ncu of 74e7775 (A30, ncu times): `hop_split` 13.5 → 7.9–8.6 ms (DRAM 39–41%, warps 24%,
+long scoreboard); |H|⁻¹ 4.8 → 1.2 s a launch, now latency-bound (2 blocks of 64 an SM, 6% warps,
+waiting on V in global memory: V in shared memory too fits the A30's 164 kB, not the RTX
+3080's); `coarse_pass` without hops 219/397 → 140/242 µs, with hops unchanged at 810–916 µs:
+128 registers there with CUDA 13 (96 with 12.5), warps 24% — `__launch_bounds__(256, 3)` gives
+62 registers without spills.
 | `fold_prolong` | DRAM 31% | | −6 s |
 | `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | H in shared memory, rounds of disjoint pairs (done; RTX 3080 0.70 → 0.10 s; A30 to measure) | −11 s |
 | `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, 128 registers (done; RTX 3080 −20%, DRAM 88%; A30 to measure) | about −8 s |

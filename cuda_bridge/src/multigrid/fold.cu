@@ -87,30 +87,40 @@ namespace {
             n_coarse, dim, parity, minus ? -1 : 1, gamma5);
     }
 
-    // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs, with H in shared memory,
-    // where that fits; else the one of the pairs one at a time.
+    // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs with H and V in shared
+    // memory, or H alone, where that fits; else the one of the pairs one at a time.
+    template <bool VShared>
+    void abs_inverse_rounds(double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim,
+                            int gamma5, double cutoff, size_t shared, cudaStream_t stream)
+    {
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared><<<n_sites, dim, shared, stream>>>(
+            d_out, d_a, d_scratch, dim, gamma5, cutoff);
+    }
+
     void abs_inverse_launch(double* d_out, const double* d_a, double* d_scratch, int n_sites, int dim,
                             int gamma5, double cutoff, cudaStream_t stream)
     {
         static int most = -1;
-        static size_t allowed = 48 * 1024;
         if (most < 0) {
             int device = 0;
             cudaGetDevice(&device);
             cudaDeviceGetAttribute(&most, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
         }
-        const size_t shared = bridge_cuda::abs_inverse_shared(dim);
-        if (dim > 1024 || shared > static_cast<size_t>(most)) {
+        const size_t both = bridge_cuda::abs_inverse_shared(dim, true);
+        const size_t h_only = bridge_cuda::abs_inverse_shared(dim, false);
+        if (dim <= 1024 && both <= static_cast<size_t>(most)) {
+            abs_inverse_rounds<true>(d_out, d_a, d_scratch, n_sites, dim, gamma5, cutoff, both, stream);
+        } else if (dim <= 1024 && h_only <= static_cast<size_t>(most)) {
+            abs_inverse_rounds<false>(d_out, d_a, d_scratch, n_sites, dim, gamma5, cutoff, h_only, stream);
+        } else {
             bridge_cuda::blocks_abs_inverse_gamma5_kernel<<<n_sites, dim, 0, stream>>>(d_out, d_a, d_scratch, dim, gamma5, cutoff);
-            return;
         }
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
-        bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<<<n_sites, dim, shared, stream>>>(
-            d_out, d_a, d_scratch, dim, gamma5, cutoff);
     }
 
     template <typename Float>

@@ -22,7 +22,12 @@
   cyclic Jacobi method in rounds of disjoint pairs at once, with H in shared memory, where the
   pairs went one at a time with H and V in global memory (3.8 s a launch on the A30, 1.15 TB of
   DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s a launch. The old kernel stays where the shared
-  memory does not fit.
+  memory does not fit. Where H and V both fit (the A30 and A100 at a coarse dimension of 64,
+  not the RTX 3080), V is in shared memory too: on the A30 the kernel with V in global memory
+  had 6% of its warps active, waiting on V.
+- `cuda_bridge`: the coarse operator with the hops at most 85 registers (`__launch_bounds__(256,
+  3)`; CUDA 13 gave 128 for sm_80, 24% warps active on the A30), and the restriction copies P to
+  shared memory with `cp.async`, its copies in flight while the fine fields are folded.
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
   single block. RTX 3080, 16⁴ with two levels below: 187 → 11 µs a launch on that level, the
