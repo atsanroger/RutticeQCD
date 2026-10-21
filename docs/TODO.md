@@ -5,7 +5,28 @@ rediscovering it. Each item says why, where, how, how much, and how to check it.
 changes results; items marked *performance* change speed, the others only the structure.
 
 Priorities: finishing the multigrid paper (`docs/mg_background/MDWF_MULTIGRID_NOTE.tex`) comes
-first; the structural items after it, in the order given. Last reviewed 2026-10-20.
+first; the structural items after it, in the order given. Last reviewed 2026-10-21 (the
+paper's numbers at fbc8f00, released as 0.3.2).
+
+## The aim of 1.0 (decided 2026-10-21)
+
+Production MDWF propagators and HMC, on one GPU and on several, that people outside can use
+with confidence:
+
+- **Parameter files**: the format frozen and documented in full (`docs/USAGE.md`); after 1.0
+  an incompatible change only in a major version.
+- **Correct**: propagators, HMC (ΔH, reversibility) and the ILDG I/O checked against Bridge++,
+  Grid and QUDA; the multigrid reliable for D and for D† (the dual cycle of "Known, not
+  understood" solved).
+- **Multi-GPU**: the device backend over several GPUs (halo exchange of the fine operator, the
+  coarse operators and the levels below), with the single-GPU results reproduced.
+- **Fast**: the multigrid clearly faster than mixed CGNE on one GPU, and on an A100 at least
+  comparable with Grid's HDCG, or a documented reason why not.
+- **Engineering**: CI green on the CPU paths; running out of device memory a readable error,
+  not a panic; published on crates.io.
+- **The paper**: the MG note on arXiv as the reference for the method.
+
+Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 
 ## Structure
 
