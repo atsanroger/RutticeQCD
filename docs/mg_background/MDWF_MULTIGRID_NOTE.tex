@@ -642,21 +642,27 @@ sites, is the right-hand side of the second.
 
 \begin{figure}[tbp]
 \centering
-\newcommand{\exactval}[1]{\\[-1pt]{\footnotesize\color{black!55}$#1$}}
+% Okabe--Ito colors, distinguishable with the common color-vision deficiencies.
+\definecolor{oiBlue}{HTML}{0072B2}
+\definecolor{oiOrange}{HTML}{E69F00}
+\definecolor{oiGreen}{HTML}{009E73}
+\newcommand{\exactval}[1]{\\[-1pt]{\footnotesize\color{oiBlue}$#1$}}
 \begin{tikzpicture}[x=0.88cm,y=1.55cm,>={Latex[length=2mm]},
   val/.style={font=\small,align=center,inner sep=2pt,fill=white},
-  solve/.style={draw,rounded corners=2pt,fill=black!6,inner sep=3pt,font=\small},
+  solve/.style={draw,rounded corners=2pt,line width=0.6pt,inner sep=3pt,font=\small},
+  pvsolve/.style={solve,draw=oiOrange,fill=oiOrange!18},
+  qsolve/.style={solve,draw=oiGreen,fill=oiGreen!15},
   lab/.style={font=\footnotesize,fill=white,inner sep=1pt},
   lane/.style={font=\footnotesize\itshape,text=black!60,anchor=east}]
   \foreach \y/\name in {0/even sites, -1/whole lattice, -2/coarse lattice}
     \draw[black!15] (-0.9,\y) -- (14.8,\y) node[pos=0,lane] {\name};
   \node[val]   (r)  at (0,0)       {$r$\exactval{=\AR y}};
   \node[val]   (w1) at (1.8,-1)    {$\iota O_R r$\exactval{=\Dpv\dg\hat t}};
-  \node[solve] (c1) at (3.6,-2)    {$(\Pro\dg\Dpv\dg\Pro)^{-1}$};
+  \node[pvsolve] (c1) at (3.6,-2)  {$(\Pro\dg\Dpv\dg\Pro)^{-1}$};
   \node[val]   (w2) at (5.4,-1)    {$u$\exactval{=\hat t}};
   \node[val]   (e2) at (7.2,0)     {$\pi u$\exactval{=a=\pi Ds}};
   \node[val]   (w3) at (9.0,-1)    {$\iota O_M\pi u$\exactval{=Ds}};
-  \node[solve] (c2) at (10.8,-2)   {$\Dc^{-1}$};
+  \node[qsolve] (c2) at (10.8,-2)  {$\Dc^{-1}$};
   \node[val]   (w4) at (12.6,-1)   {$v$\exactval{=s}};
   \node[val]   (e)  at (14.4,0)    {$e$\exactval{=y}};
   \draw[->] (r)  -- node[lab,sloped,above] {$\iota O_R$} (w1);
@@ -669,11 +675,12 @@ sites, is the right-hand side of the second.
   \draw[->] (w4) -- node[lab,sloped,above] {$O_L\pi$} (e);
 \end{tikzpicture}
 \caption{One factorized coarse correction, Eq.~\eqref{eq:corr} read from the right,
-on its three lattices: $u=\Pro(\Pro\dg\Dpv\dg\Pro)^{-1}\Pro\dg\iota O_Rr$ is the
+on its three lattices (the Pauli--Villars coarse solve in orange, the quark one in
+green): $u=\Pro(\Pro\dg\Dpv\dg\Pro)^{-1}\Pro\dg\iota O_Rr$ is the
 result of the first coarse solve, that of the adjoint Pauli--Villars operator, and
 its even part, with $O_M$, is the right-hand side of the second, that of the quark
 operator, whose result is $v=\Pro\Dc^{-1}\Pro\dg\iota O_M\pi u$; $e=O_L\pi v$. In
-gray, the values for $r=\AR y$ in the right form with exact coarse solves and
+blue, after ``$=$'', the values for $r=\AR y$ in the right form with exact coarse solves and
 $s,\hat t\in\operatorname{range}\Pro$ (Proposition~\ref{prop:exact}; $O_R=\Cpve\dg$,
 $O_M=1$, $O_L=\Ce$): the first solve returns the lift $\hat t$, whose even part is
 $a=\pi Ds$, the second returns the lift $s$, and the correction returns $y$.}
