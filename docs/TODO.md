@@ -729,9 +729,18 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   more memory than the shared P). The first lexical MDWF multigrid (6830b9c) had a Petrov-
   Galerkin restriction, but no coarse operator helped there (random test vectors), so it says
   nothing about this one.
-- **HMC keeps the test vectors in double precision on the device**: n × V/2 × Ls × 24 × 8 B,
-  16.3 GB for 32 vectors on 24³×48, which with P and the two coarse corrections does not fit
-  the A30. The propagator runs make them in single precision with `fine_precision : single`.
+- **Device memory of HMC with the multigrid** (2026-10-22, 24⁴, stout, m 0.01, 16 test vectors,
+  `fine_precision : single`, GCR(8)). Measured with the allocation counter (`device_memory`):
+  links, smeared levels, operators in f64 and f32, pseudofermion 3.5 GB; the test vectors
+  (f32) 2.2 GB, on the host between the solves since 19b8af9; P (f16, folded on the fifth
+  dimension) 4.1 GB; the coarse parts of Ã and Ã† 0.4 GB; the fields of the sweeps on D†D
+  (`two_solves_half`, f64) 3.3 GB; GCR(8), 19 vectors on the even sites in f64, 4.8 GB; the
+  work fields of one cycle about 1.5 GB (the cycles of Ã and Ã† made in turn since 19b8af9).
+  Solves 19.5 GB, peak 21.3 GB (the filter of the setup 12.3 GB). Per volume twice a propagator
+  run: two systems (D and D†), GCR(8) against GCR(2), the sweeps on D†D, the fields of HMC.
+  Left: GCR(8) is needed because the solves with D† stagnate with GCR(2) (a dual that
+  converges with GCR(2) would save 3 GB on 24⁴); the sweep fields in f64. 24³×48 needs about
+  twice all of it: not on the A30.
 - **The example's GCR(2) does not converge in setup B on 12⁴**, with either cycle, even with
   B's smoother (`--steps 12 --ratio 30`), where the solver of the note needs 15 (Ã_R, Table
   gcrk). Its differences from the solver: both coarse factors by BiCGStab (the note's B with
