@@ -7,12 +7,12 @@
 //! ```text
 //! cargo run --release --features cuda-bridge --example dual_basis -- L FORMAT FILE M5 SMEAR
 //!     [--steps S] [--ratio R] [--vectors N] [--tol T] [--max N] [--mass M] [--seed S]
-//!     [--lean 1] [--own 1]
+//!     [--lean 1] [--own 1] [--k K]
 //! ```
 //!
 //! On the L⁴ configuration FILE; SMEAR 1 for stout 0.1 × 3; m 0.001, Ls 8, b 1.5, c 0.5, blocks
 //! of 4⁴, 32 test vectors (16 filtered in 2 rounds, the bootstrap 2 × 4), Chebyshev 8 steps on
-//! [hi/10, hi] (setup S; B: `--steps 12 --ratio 30`), GCR(8) to 1e-12 with at most 1000
+//! [hi/10, hi] (setup S; B: `--steps 12 --ratio 30`), GCR(`--k`, 8) to 1e-12 with at most 1000
 //! iterations; `--lean 1` runs only the variants that fit on 24⁴.
 
 use ruttice::backend::cuda_bridge::multigrid::{
@@ -53,6 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let keep = value("--vectors", 32.0)? as usize;
     let tol = value("--tol", 1e-12)?;
     let max_it = value("--max", 1000.0)? as usize;
+    let k = value("--k", 8.0)? as usize;
     let lean = value("--lean", 0.0)? != 0.0;
     let cycle = PvEoParams {
         chebyshev_steps: value("--steps", 8.0)? as usize,
@@ -104,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let low = LowModeParams::default();
     let quiet = &mut |_: Stage<'_, f64>| {};
     println!(
-        "# {l}^4 M5 {m5} stout {smear}, m 0.001, Ls 8, b 1.5 c 0.5; {keep} vectors, blocks 4^4, Chebyshev {} on [hi/{}, hi]; GCR(8) to {tol:e}",
+        "# {l}^4 M5 {m5} stout {smear}, m 0.001, Ls 8, b 1.5 c 0.5; {keep} vectors, blocks 4^4, Chebyshev {} on [hi/{}, hi]; GCR({k}) to {tol:e}",
         cycle.chebyshev_steps, cycle.chebyshev_ratio
     );
 
@@ -167,7 +168,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let made = t.elapsed().as_secs_f64();
         let mut a = PvRatio::new(ops.0, ops.1, EoForm::Right, &even, &odd);
         let mut x = rhs.zeros_like();
-        let info = Gcr::new(Stop::simple(tol, max_it), 8).solve(
+        let info = Gcr::new(Stop::simple(tol, max_it), k).solve(
             &mut a,
             Some(&mut m as &mut dyn LinearFn<V>),
             &mut x,

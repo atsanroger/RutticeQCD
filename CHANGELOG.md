@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid on the device takes less memory: the test vectors are
+  kept on the host between the solves (`DeviceSpinor::stash`) and on the device only while P
+  is made or the bootstrap runs, and the cycles of Ã and Ã† are made for each solve on the even
+  sites and dropped after it, so that their work fields are not on the device at once. On 24⁴
+  (stout, m 0.01, 16 test vectors in single precision, GCR(8)) the solves went from out of
+  memory on the A30 to 19.5 GB, the peak to 21.3 GB; the iterations, ΔH and time unchanged.
+  HMC needs GCR(8) (`Solver.number_of_kept_directions : 8`): with GCR(2) the solves with D†
+  stagnate.
+
 - HMC with the domain-wall multigrid: `MultiGrid_HMC.dual_with_gamma5 : true` makes the P of
   the cycle of Ã† (the solves of D†) from the test vectors y and Γ5 y, with no setup of its
   own, instead of sharing the P of Ã. For Möbius fermions D† is not Γ5 D Γ5 (D- Γ5 D† =
