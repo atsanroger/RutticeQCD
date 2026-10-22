@@ -254,8 +254,6 @@ pub enum HmcMultigrid {
         rebuild_growth: f64,
         /// The cycle in single precision (on the device).
         fine_single: bool,
-        /// The P of Ã† from y and Γ5 y.
-        dual_gamma5: bool,
     },
 }
 
@@ -357,7 +355,6 @@ impl HmcSolver {
                     coarse_double,
                     rebuild_growth,
                     fine_single,
-                    dual_gamma5,
                 }),
             ) => {
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
@@ -369,7 +366,6 @@ impl HmcSolver {
                 setup.coarse_double = coarse_double;
                 setup.rebuild_growth = rebuild_growth;
                 setup.fine_single = fine_single;
-                setup.dual_gamma5 = dual_gamma5;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),

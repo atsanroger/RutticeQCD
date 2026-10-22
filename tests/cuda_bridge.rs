@@ -1879,12 +1879,6 @@ fn hmc_with_the_domain_wall_multigrid_on_the_device() {
             cg.clone(),
             mg.clone() + "  MultiGrid_HMC:\n    rebuild_iteration_growth : 1.5\n",
         ),
-        // The P of Ã† from y and Γ5 y.
-        (
-            "hmc_mg_dual_gamma5",
-            cg.clone(),
-            mg.clone() + "  MultiGrid_HMC:\n    dual_with_gamma5 : true\n",
-        ),
         // The cycle in single precision, the outer GCR in double.
         (
             "hmc_mg_fine_single",

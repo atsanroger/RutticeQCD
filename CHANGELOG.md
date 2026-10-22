@@ -2,22 +2,25 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid solves with D† by the multigrid of D: flexible GCR on K†
+  (K = C_e⁻¹ S) preconditioned by C_e† Γ5 M Γ5, M the cycle of Ã (`fermion::adjoint_by_gamma5`).
+  For Möbius fermions D† Γ5 D⁻¹ Γ5 = Γ5 (1 − c [Y, W] D⁻¹) Γ5 (the MG note, "Solving with
+  D†"). The cycle of Ã† on the P of Ã, its coarse operators and the top of its smoother are
+  gone: GCR(2) now converges where the old dual cycle needed GCR(8) or stagnated (16⁴, stout,
+  m 0.01, one short trajectory: 313 iterations in 60 s, against 306 iterations of GCR(8) in
+  73 s; the rebuild 24 → 15 s; ΔH the same), and on 12⁴ with stout links at m 0.001, where
+  the old dual cycle did not converge, a solve takes 10–20 iterations of GCR(8). On 24⁴
+  (m 0.01, GCR(2), 16 single-precision test vectors) a short trajectory takes 174 s and
+  20.5 GB on the A30.
 - HMC with the domain-wall multigrid on the device takes less memory: the test vectors are
   kept on the host between the solves (`DeviceSpinor::stash`) and on the device only while P
-  is made or the bootstrap runs, and the cycles of Ã and Ã† are made for each solve on the even
-  sites and dropped after it, so that their work fields are not on the device at once. On 24⁴
-  (stout, m 0.01, 16 test vectors in single precision, GCR(8)) the solves went from out of
-  memory on the A30 to 19.5 GB, the peak to 21.3 GB; the iterations, ΔH and time unchanged.
-  HMC needs GCR(8) (`Solver.number_of_kept_directions : 8`): with GCR(2) the solves with D†
-  stagnate.
-
-- HMC with the domain-wall multigrid: `MultiGrid_HMC.dual_with_gamma5 : true` makes the P of
-  the cycle of Ã† (the solves of D†) from the test vectors y and Γ5 y, with no setup of its
-  own, instead of sharing the P of Ã. For Möbius fermions D† is not Γ5 D Γ5 (D- Γ5 D† =
-  D Γ5 D-†, `docs/TODO.md`), and the shared P stalled on the v2 12⁴ configuration with stout
-  links (m 0.001: |r|² 1e-6 after 1000 GCR(8) iterations; 9–11 with the option, Ã 7–9).
-  Twice the vectors in P and four times the coarse operators; on 16⁴ and 24⁴ the shared P
-  converges (10–21) and is faster, so it stays the default.
+  is made or the bootstrap runs, and the cycle is made for each solve on the even sites and
+  dropped after it. On 24⁴ (stout, m 0.01) HMC went from out of memory on the A30 to fitting.
+- The coarse correction can solve its first factor by MINRES on the Γ5-Hermitian form
+  (`CoarseKrylov::Minres` as `d_solver`, for a cycle whose first operator is D_PV), and
+  `low_modes_pair` / `filtered_test_vector_pair` give the left singular vectors U = Ã V Σ⁻¹
+  with the right ones from one filter (one application of Ã a vector in the Rayleigh-Ritz
+  step). Neither is used by default; they are kept for a two-sided setup.
 
 ## 0.3.2 (2026-10-21)
 

@@ -355,11 +355,6 @@ pub struct MultigridHmcBlock {
     /// again when the GCR iterations per solve have grown to this many times those after the
     /// last rebuild (`hmc::DwfMultigridSetup::rebuild_growth`); left out: for every solve.
     pub rebuild_iteration_growth: Option<f64>,
-    /// Domain-wall fermions: make the P of the cycle of Ã† from the test vectors y and Γ5 y
-    /// (twice the coarse space) instead of sharing the P of Ã (`hmc::DwfMultigridSetup::
-    /// dual_gamma5`); for when the solves of D† stall.
-    #[serde(default)]
-    pub dual_with_gamma5: bool,
 }
 
 impl Default for MultigridHmcBlock {
@@ -370,7 +365,6 @@ impl Default for MultigridHmcBlock {
             number_of_reuse_iterations: 0,
             convergence_criterion_squared_inner: None,
             rebuild_iteration_growth: None,
-            dual_with_gamma5: false,
         }
     }
 }
@@ -821,15 +815,13 @@ impl FermionActionBlock {
                     }
                     g => g.unwrap_or(0.0),
                 },
-                dual_gamma5: h.dual_with_gamma5,
             })
         } else {
             if h.convergence_criterion_squared_inner.is_some()
                 || h.rebuild_iteration_growth.is_some()
-                || h.dual_with_gamma5
             {
                 return invalid(format!(
-                    "{name}.MultiGrid_HMC: convergence_criterion_squared_inner, rebuild_iteration_growth and dual_with_gamma5 are for domain-wall fermions"
+                    "{name}.MultiGrid_HMC: convergence_criterion_squared_inner and rebuild_iteration_growth are for domain-wall fermions"
                 ));
             }
             let mut unused = Vec::new();

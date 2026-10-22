@@ -13,8 +13,8 @@ use super::{
 };
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_vector, low_modes, orthonormalise_all, random_even, Aggregation, BootstrapParams,
-    LowModeParams, PvEoParams, TwoGrid,
+    bootstrap_vector, low_modes, low_modes_pair, orthonormalise_all, random_even, Aggregation,
+    BootstrapParams, LowModeParams, PvEoParams, TwoGrid,
 };
 use crate::solver::{largest_magnitude, Chebyshev};
 use crate::{
@@ -106,6 +106,35 @@ pub fn filtered_test_vectors<T: DeviceReal>(
         vectors: &x,
     });
     Ok(x.select(&(0..keep.min(x.num_vectors())).collect::<Vec<_>>()))
+}
+
+/// `filtered_test_vectors` for both sides (`low_modes_pair`): the right singular vectors V of
+/// Ã and the left ones U = Ã V Σ⁻¹, the first `keep` of each.
+#[allow(clippy::too_many_arguments)]
+pub fn filtered_test_vector_pair<T: DeviceReal>(
+    (d, pv): (&CudaMdwf<T>, &CudaMdwf<T>),
+    (even, odd): (&DeviceSpinor<T>, &DeviceSpinor<T>),
+    lat: &Arc<Lattice>,
+    index: &EvenOddIndex,
+    low: LowModeParams,
+    keep: usize,
+    report: &mut dyn FnMut(Stage<'_, T>),
+) -> Result<(DeviceSpinor<T>, DeviceSpinor<T>), CudaError> {
+    let random = random_even(lat, index, even.ls(), low.vectors, low.seed);
+    let x = DeviceSpinor::<T>::from_host_half(&random, index)?;
+    let ratio = || PvRatio::new(d, pv, EoForm::Right, even, odd);
+    let (v, u, theta) = low_modes_pair(
+        |c: &DeviceSpinor<T>| Normal::new(ratio(), c),
+        |_: &DeviceSpinor<T>| ratio(),
+        x,
+        low,
+    );
+    report(Stage::Filtered {
+        theta: &theta,
+        vectors: &v,
+    });
+    let first: Vec<usize> = (0..keep.min(v.num_vectors())).collect();
+    Ok((v.select(&first), u.select(&first)))
 }
 
 /// The coarse correction made on the device from the vectors `y` (`DeviceBasis::pv_eo`, P in

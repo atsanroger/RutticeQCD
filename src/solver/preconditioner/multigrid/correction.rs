@@ -178,6 +178,65 @@ impl<V, G, T: Transfer<V, G>> Transfer<V, G> for std::rc::Rc<T> {
     }
 }
 
+/// u = A⁻¹ g approximately for a coarse operator `a` that is nearly its own Γ5-adjoint
+/// (A† ≈ Γ5 A Γ5, the Pauli-Villars operator), by MINRES on the Hermitian form H = A Γ5,
+/// u = Γ5 w for H w = g: on the even coarse sites where `a` has the even-odd form (the Schur
+/// complement of H is S Γ5), else on the whole coarse lattice. `blocks` = |H_xx|⁻¹; with
+/// `levels` (Hermitian positive) the even sites of blocks plus levels on the whole coarse
+/// lattice. `n` counts the applications of `a`.
+#[allow(clippy::too_many_arguments)]
+pub fn minres_on_hermitian<C: Vector, D: CoarseOperator<C> + ?Sized>(
+    a: &D,
+    blocks: &mut dyn LinearFn<C>,
+    levels: Option<&Levels<'_, C>>,
+    n: &Cell<usize>,
+    stop: Stop,
+    u: &mut C,
+    g: &C,
+) {
+    let nv = g.num_vectors();
+    let mut blocks = FnMap(|out: &mut C, inp: &C| {
+        blocks.mult(out, inp);
+        if let Some(levels) = levels {
+            levels(out, inp);
+        }
+    });
+    if a.has_even_odd() {
+        // The blocks |H_xx|⁻¹ act within a site and keep a field on the even sites there.
+        let (mut source, mut odd) = (g.zeros_like(), g.zeros_like());
+        a.schur_source(&mut source, g, &mut odd);
+        let (mut turned, mut scratch) = (g.zeros_like(), g.zeros_like());
+        let mut h = FnMap(|out: &mut C, inp: &C| {
+            n.set(n.get() + inp.num_vectors());
+            fit(&mut turned, inp);
+            turned.copy_from(inp);
+            a.gamma5(&mut turned);
+            a.schur(out, &turned, &mut scratch);
+        });
+        let mut whole = g.zeros_like();
+        let mut m = FnMap(|out: &mut C, inp: &C| match levels {
+            None => blocks.mult(out, inp),
+            Some(_) => {
+                fit(&mut whole, inp);
+                blocks.mult(&mut whole, inp);
+                a.even_part(out, &whole);
+            }
+        });
+        coarse_solve(CoarseKrylov::Minres, stop, &mut h, Some(&mut m), u, &source);
+        a.gamma5(u);
+        a.schur_solution(u, g, &mut odd);
+        // The source and the odd sites of the solution: one application's work.
+        n.set(n.get() + nv);
+    } else {
+        let mut h = FnMap(|out: &mut C, inp: &C| {
+            n.set(n.get() + inp.num_vectors());
+            a.mult_hermitian(out, inp);
+        });
+        coarse_solve(CoarseKrylov::Minres, stop, &mut h, Some(&mut blocks), u, g);
+        a.gamma5(u);
+    }
+}
+
 /// A domain-wall operator as the correction needs it: the even-odd blocks, and Neff's Q.
 pub trait NeffQ<V>: EvenOdd<V> {
     /// `out = Q inp`, or `Q⁻¹ inp`.
@@ -192,8 +251,9 @@ pub trait NeffQ<V>: EvenOdd<V> {
 ///   the operator that is solved (with Neff's α);
 /// - P, `T`, into coarse fields `G`; the coarse systems are solved on fields `C`, which may
 ///   be of a lower precision;
-/// - the coarse operators `D`, the quark factor by `params.d_solver` (`solve_shared`), the
-///   second by MINRES on H = Γ5 (P†D_PV P)† with `blocks_pv` = |H_xx|⁻¹, on the even coarse
+/// - the coarse operators `D`, the quark factor by `params.d_solver` (`solve_shared`; MINRES on
+///   its Γ5-Hermitian form, `minres_on_hermitian`, only where `plain` is exchanged, D_PV first,
+///   as in the dual cycle for D†), the second by MINRES on H = Γ5 (P†D_PV P)† with `blocks_pv` = |H_xx|⁻¹, on the even coarse
 ///   sites where there is the even-odd form; or, with another solver, the second coarse
 ///   operator is the exact adjoint P†D_PV†P itself (`CoarseOp::adjoint`), solved as the first
 ///   (`solve_shared`, on the even coarse sites where it has the even-odd form) with
@@ -245,10 +305,6 @@ where
         like: &V,
         coarse_like: &C,
     ) -> Self {
-        assert!(
-            params.d_solver != CoarseKrylov::Minres,
-            "MINRES needs a Hermitian operator: not for the quark factor"
-        );
         Self {
             work: (plain.0.even_odd_work(), outer.0.even_odd_work()),
             plain,
@@ -348,69 +404,33 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
-        // w = (P†D_PV†P)⁻¹ g: by MINRES on H = Γ5 (Γ5 P†D_PV P Γ5) with H w = Γ5 g, or on the
-        // exact adjoint, which `coarse_pv` then is. Preconditioned by the blocks, and the
-        // levels below if there are any.
+        // w = (P†D_PV†P)⁻¹ g: by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its
+        // own Γ5-adjoint), or on the exact adjoint, which `coarse_pv` then is. Preconditioned
+        // by the blocks, and the levels below if there are any.
         w.set_zero();
-        let minres = params.pv_solver == CoarseKrylov::Minres;
-        let pv_solver = params.pv_solver;
-        if minres {
+        if params.pv_solver == CoarseKrylov::Minres {
             coarse_pv.gamma5(gc);
-        }
-        let levels = levels_pv.as_deref();
-        let mut blocks = FnMap(|out: &mut C, inp: &C| {
-            blocks_pv.mult(out, inp);
-            if let Some(levels) = levels {
-                levels(out, inp);
-            }
-        });
-        if !minres {
+            minres_on_hermitian(
+                coarse_pv,
+                &mut **blocks_pv,
+                levels_pv.as_deref(),
+                n,
+                pv_stop,
+                w,
+                gc,
+            );
+            coarse_pv.gamma5(w);
+        } else {
+            let pv_solver = params.pv_solver;
             solve_shared(
                 coarse_pv,
-                Some(&mut blocks),
-                None,
+                Some(&mut **blocks_pv),
+                levels_pv.as_deref(),
                 n,
                 &mut |a, m, x, b| coarse_solve(pv_solver, pv_stop, a, m, x, b),
                 w,
                 gc,
             );
-        } else if coarse_pv.has_even_odd() {
-            // H w = gc on the even coarse sites: H = D_c Γ5 for the stored D_c (taken as its
-            // own Γ5-adjoint), so u = Γ5 w solves D_c u = gc, and the Schur complement of H is
-            // S Γ5. The blocks |H_xx|⁻¹ act within a site and keep a field on the even sites
-            // there; with levels, the even sites of blocks plus levels on the whole coarse
-            // lattice (Hermitian positive either way).
-            let (mut source, mut odd) = (gc.zeros_like(), gc.zeros_like());
-            coarse_pv.schur_source(&mut source, gc, &mut odd);
-            let (mut turned, mut scratch) = (gc.zeros_like(), gc.zeros_like());
-            let mut a = FnMap(|out: &mut C, inp: &C| {
-                n.set(n.get() + inp.num_vectors());
-                fit(&mut turned, inp);
-                turned.copy_from(inp);
-                coarse_pv.gamma5(&mut turned);
-                coarse_pv.schur(out, &turned, &mut scratch);
-            });
-            let mut whole = gc.zeros_like();
-            let mut m = FnMap(|out: &mut C, inp: &C| match levels {
-                None => blocks.mult(out, inp),
-                Some(_) => {
-                    fit(&mut whole, inp);
-                    blocks.mult(&mut whole, inp);
-                    coarse_pv.even_part(out, &whole);
-                }
-            });
-            coarse_solve(params.pv_solver, pv_stop, &mut a, Some(&mut m), w, &source);
-            coarse_pv.gamma5(w);
-            coarse_pv.schur_solution(w, gc, &mut odd);
-            coarse_pv.gamma5(w);
-            // The source and the odd sites of the solution: one application's work.
-            n.set(n.get() + nv);
-        } else {
-            let mut a = FnMap(|out: &mut C, inp: &C| {
-                n.set(n.get() + inp.num_vectors());
-                coarse_pv.mult_hermitian(out, inp);
-            });
-            coarse_solve(params.pv_solver, pv_stop, &mut a, Some(&mut blocks), w, gc);
         }
 
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
@@ -423,18 +443,23 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
-        // c = (P†DP)⁻¹ g.
+        // c = (P†DP)⁻¹ g; by MINRES on its Γ5-Hermitian form where the first operator is D_PV
+        // (the dual cycle, `plain` exchanged), with `blocks_d` = |H_xx|⁻¹.
         c.set_zero();
         let d_solver = params.d_solver;
-        solve_shared(
-            &*coarse_d,
-            Some(&mut **blocks_d),
-            levels_d.as_deref(),
-            n,
-            &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
-            c,
-            gc,
-        );
+        if d_solver == CoarseKrylov::Minres {
+            minres_on_hermitian(&*coarse_d, &mut **blocks_d, None, n, stop, c, gc);
+        } else {
+            solve_shared(
+                &*coarse_d,
+                Some(&mut **blocks_d),
+                levels_d.as_deref(),
+                n,
+                &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
+                c,
+                gc,
+            );
+        }
 
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
         g.convert_from(c);

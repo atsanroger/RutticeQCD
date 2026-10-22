@@ -455,6 +455,108 @@ where
     split.insert(x, &x_o);
 }
 
+/// D† x = b by the multigrid of D (`m`, a cycle of Ã of `op` over `pv`, right form), without
+/// one of its own. For Möbius fermions D† = Γ5 D₋⁻¹ D Γ5 D₋† (D₋ = c W − 1), so
+/// D† Γ5 D⁻¹ Γ5 = Γ5 (1 − c [Y, W] D⁻¹) Γ5: Γ5 D⁻¹ Γ5 is a preconditioner of D† whose error is
+/// a term that is large only on the low modes of D and takes them out of their span (the note,
+/// Sec. "Solving with D†"). On the even sites, with S the Schur complement of D: S† x_e = b′_e,
+/// b′_e = b_e − (M_oe)† C_o⁻† b_o; put x_e = C_e⁻† z, so that K† z = b′_e for the left Schur
+/// factor K = C_e⁻¹ S; precondition with C_e† Γ5 S⁻¹ Γ5, since S⁻† = π D⁻† ι ≈ Γ5 S⁻¹ Γ5 (Γ5
+/// acts within a site). S⁻¹ c = C_e⁻¹ Ã⁻¹ X_PV† c (X_PV = S_PV C_PV,e⁻¹, the right-hand side of
+/// Ã for the source (c, 0)), with Ã⁻¹ one application of `m`. Then x_o = C_o⁻† (b_o −
+/// (M_eo)† x_e). `gamma5` is Γ5 on fields of one parity; `like` fields on the even and the odd
+/// sites; `op` and `pv` without Neff's α. Returns what `solver` returns for z.
+#[allow(clippy::too_many_arguments)]
+pub fn adjoint_by_gamma5<F, H, V, P>(
+    (op, pv): (&F, &F),
+    split: &P,
+    gamma5: &dyn Fn(&mut H, &H),
+    m: &mut dyn LinearFn<H>,
+    solver: &mut dyn crate::solver::Solver<H>,
+    (like_even, like_odd): (&H, &H),
+    x: &mut V,
+    b: &V,
+) -> Result<crate::solver::SolveInfo, crate::solver::SolveError>
+where
+    F: EvenOdd<H>,
+    H: Vector,
+    V: Vector,
+    P: SplitParity<V, H>,
+{
+    let (even, odd) = (Parity::Even, Parity::Odd);
+    let mut work = op.even_odd_work();
+    let nv = b.num_vectors();
+    let minus = vec![C64::new(-1.0, 0.0); nv];
+    // b′_e.
+    let (mut b_e, mut b_o) = (split.half_like(b, even), split.half_like(b, odd));
+    split.extract(&mut b_e, b, even);
+    split.extract(&mut b_o, b, odd);
+    let (mut t_o, mut rhs) = (split.half_like(b, odd), split.half_like(b, even));
+    op.diag_inv(&mut work, &mut t_o, &b_o, odd, Dagger::Yes);
+    op.hop(&mut work, &mut rhs, &t_o, even, Dagger::Yes);
+    rhs.aypx(&minus, &b_e);
+    // K† z = b′_e with the preconditioner C_e† Γ5 S⁻¹ Γ5.
+    let mut k = SchurFactor::new(op, EoForm::Left, like_even, like_odd);
+    let mut a = crate::Adjoint(&mut k);
+    struct Prec<'p, F: EvenOdd<H>, H, V, P> {
+        op: &'p F,
+        pv: &'p F,
+        split: &'p P,
+        gamma5: &'p dyn Fn(&mut H, &H),
+        m: &'p mut dyn LinearFn<H>,
+        like: (&'p H, &'p H),
+        whole: V,
+        work: F::Work,
+    }
+    impl<F: EvenOdd<H>, H: Vector, V: Vector, P: SplitParity<V, H>> LinearFn<H>
+        for Prec<'_, F, H, V, P>
+    {
+        fn mult(&mut self, out: &mut H, inp: &H) {
+            let even = Parity::Even;
+            let mut t = inp.zeros_like();
+            (self.gamma5)(&mut t, inp);
+            // ρ = X_PV† t: the right-hand side of Ã for the source (t, 0).
+            if self.whole.num_vectors() != inp.num_vectors() {
+                self.whole = self.whole.zeros_with(inp.num_vectors());
+            }
+            self.whole.set_zero();
+            self.split.insert(&mut self.whole, &t);
+            let mut ratio = PvRatio::new(self.op, self.pv, EoForm::Right, self.like.0, self.like.1);
+            let mut rho = inp.zeros_like();
+            ratio.right_hand_side(self.split, &mut rho, &self.whole);
+            let mut y = inp.zeros_like();
+            self.m.mult(&mut y, &rho);
+            // S⁻¹ t ≈ C_e⁻¹ y, then Γ5 and C_e†.
+            self.op
+                .diag_inv(&mut self.work, &mut t, &y, even, Dagger::No);
+            (self.gamma5)(&mut y, &t);
+            self.op.diag(&mut self.work, out, &y, even, Dagger::Yes);
+        }
+    }
+    let mut prec = Prec {
+        op,
+        pv,
+        split,
+        gamma5,
+        m,
+        like: (like_even, like_odd),
+        whole: b.zeros_like(),
+        work: op.even_odd_work(),
+    };
+    let mut z = rhs.zeros_like();
+    let info = solver.solve(&mut a, Some(&mut prec), &mut z, &rhs);
+    // x_e = C_e⁻† z, x_o = C_o⁻† (b_o − (M_eo)† x_e).
+    let mut x_e = rhs.zeros_like();
+    op.diag_inv(&mut work, &mut x_e, &z, even, Dagger::Yes);
+    op.hop(&mut work, &mut t_o, &x_e, odd, Dagger::Yes);
+    t_o.aypx(&minus, &b_o);
+    let mut x_o = b_o;
+    op.diag_inv(&mut work, &mut x_o, &t_o, odd, Dagger::Yes);
+    split.insert(x, &x_e);
+    split.insert(x, &x_o);
+    info
+}
+
 impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
     /// `out = Ã inp`: the factor of the operator, then the adjoint of the Pauli-Villars one.
     fn mult(&mut self, out: &mut H, inp: &H) {

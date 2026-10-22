@@ -210,7 +210,8 @@ pub struct PvEoParams {
     /// `CoarseOp`) where the coarse lattice allows it: the quark factor, with or without
     /// levels below it, and the second factor when it is solved by MINRES.
     pub coarse_even_odd: bool,
-    /// The solver of the quark factor P†DP (not `Minres`) ...
+    /// The solver of the quark factor P†DP (`Minres` only where the first operator is D_PV, as
+    /// in the cycle of Ã† for the normal equations) ...
     pub d_solver: CoarseKrylov,
     /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
     pub pv_solver: CoarseKrylov,
@@ -597,7 +598,11 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         if params.coarse_even_odd {
             coarse_pv.prepare_even_odd()?;
         }
-        let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
+        // MINRES for the first factor where it is D_PV (the dual cycle): |H_xx|⁻¹ of its blocks.
+        let blocks_d = match params.d_solver == CoarseKrylov::Minres {
+            true => BlockMap::abs_inverse_of_a_gamma5(&coarse_d),
+            false => BlockMap::inverse_diagonal(&coarse_d)?,
+        };
         let blocks_pv = match minres {
             true => BlockMap::abs_inverse_of_a_gamma5(&coarse_pv),
             false => BlockMap::inverse_diagonal(&coarse_pv)?,
@@ -1000,6 +1005,61 @@ pub fn low_modes<V: Subspace, N: LinearFn<V>>(
         lo = theta[m - 1];
     }
     (x, theta)
+}
+
+/// `low_modes` for both sides: the right singular vectors V of the smallest singular values of
+/// Ã (the operator of `a`) as `low_modes` makes them, and with them the left ones U = Ã V Σ⁻¹,
+/// the right singular vectors of Ã† (the low modes the solves with D† need). The Rayleigh-Ritz
+/// step takes W = Ã X and G = W†W = X†Ã†Ã X, one application of Ã a vector instead of the two
+/// of Ã†Ã, and U is W rotated as X and scaled. If v has the Ritz residual r = Ã†Ã v − σ² v,
+/// Ã† u − σ v = r / σ: u is as good as v. Returns (V, U, σ²).
+pub fn low_modes_pair<V: Subspace, N: LinearFn<V>, A: LinearFn<V>>(
+    mut normal: impl FnMut(&V) -> N,
+    mut a: impl FnMut(&V) -> A,
+    mut x: V,
+    params: LowModeParams,
+) -> (V, V, Vec<f64>) {
+    let m = x.num_vectors();
+    let like = x.select(&[0]);
+    let mut start = x.select(&[0]);
+    let hi = 1.1 * largest_magnitude(&mut normal(&like), &mut start, 50);
+    let mut lo = hi / 1000.0;
+    let mut theta = vec![0.0; m];
+    let chunks: Vec<Vec<usize>> = (0..m)
+        .collect::<Vec<_>>()
+        .chunks(params.chunk.max(1))
+        .map(<[usize]>::to_vec)
+        .collect();
+    let mut w = x.zeros_like();
+    for _ in 0..params.rounds {
+        let degree = ((1.5 * (hi / lo).sqrt()).ceil() as usize).clamp(40, 1000);
+        for c in &chunks {
+            let xc = x.select(c);
+            let mut y = xc.zeros_like();
+            crate::solver::ChebyshevFilter::new(normal(&xc), degree, lo, hi, &xc).mult(&mut y, &xc);
+            x.assign(c, &y);
+        }
+        orthonormalise_all(&mut x);
+        // W = Ã X, a chunk at a time; G = W†W.
+        for c in &chunks {
+            let xc = x.select(c);
+            let mut wc = xc.zeros_like();
+            a(&xc).mult(&mut wc, &xc);
+            w.assign(c, &wc);
+        }
+        let g = w.gram(&w);
+        let (values, v) = sorted_eigen(m, &g);
+        x.rotate(&v);
+        w.rotate(&v);
+        theta = values;
+        lo = theta[m - 1];
+    }
+    let scales: Vec<f64> = theta
+        .iter()
+        .map(|t| 1.0 / t.max(f64::MIN_POSITIVE).sqrt())
+        .collect();
+    w.scale(&scales);
+    (x, w, theta)
 }
 
 /// Approximate low modes of Ã (the right singular vectors of its smallest singular values,
