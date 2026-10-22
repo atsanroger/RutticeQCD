@@ -635,6 +635,26 @@ The result is an operator whose eigenvalues all have positive real part
 (Fig.~\ref{fig:A}), with the smallest condition number among those of
 Ref.~\cite{KCM2024}.
 
+\subsection{Link smearing}
+\label{sec:smearing}
+The fermion operator may be built from smeared links in place of $U_\mu(x)$; smearing
+integrates the surrounding gauge field into each link and suppresses the short-distance
+fluctuations that produce near-zero modes of $W$. We use the stout projection combined with
+the APE staples~\cite{MorningstarPeardon}:
+\begin{equation}
+C_\mu(x)=\sum_{\nu\neq\mu}\rho\Big[U_\nu(x)U_\mu(x+\hat\nu)U_\nu\dg(x+\hat\mu)
++U_\nu\dg(x-\hat\nu)U_\mu(x-\hat\nu)U_\nu(x-\hat\nu+\hat\mu)\Big],
+\end{equation}
+\begin{equation}
+U'_\mu(x)=\exp\!\Big(\big[C_\mu(x)U_\mu\dg(x)\big]_{\rm AT}\Big)\,U_\mu(x),
+\label{eq:stout}
+\end{equation}
+where $[\cdots]_{\rm AT}$ is the anti-Hermitian traceless part and $\rho$ a tunable parameter.
+The step~\eqref{eq:stout} is applied repeatedly; ``stout $\rho\times n$'' means $n$ steps with
+the same $\rho$. Only $W$ (through $K$) sees the smeared links; $Y$, $C$ and $Q$ do not depend
+on the gauge field. In HMC the force of the fermion action is taken with respect to the smeared
+links and carried back to $U$ through the derivative of Eq.~\eqref{eq:stout}.
+
 \subsection{Neff's \texorpdfstring{$\alpha$}{alpha}}
 Neff's form of the domain-wall matrix~\cite{Neff,CKMN} is $D^{(\alpha)}=DQ$ with a
 site-local $Q$, diagonal in the fifth dimension,
@@ -1542,6 +1562,8 @@ Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{140} (2005) 686 [hep-lat/0409118].
 Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{153} (2006) 191 [hep-lat/0511031].
 \bibitem{BNO} R.~C.~Brower, H.~Neff and K.~Orginos, \emph{The M\"obius domain wall fermion algorithm},
 Comput.\ Phys.\ Commun.\ \textbf{220} (2017) 1 [arXiv:1206.5214].
+\bibitem{MorningstarPeardon} C.~Morningstar and M.~J.~Peardon, \emph{Analytic smearing of SU(3) link variables in lattice QCD},
+Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 \bibitem{Luscher} M.~L\"uscher, \emph{Local coherence and deflation of the low quark modes in lattice QCD},
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
 \bibitem{Brannick} J.~Brannick, R.~C.~Brower, M.~A.~Clark, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for lattice QCD},

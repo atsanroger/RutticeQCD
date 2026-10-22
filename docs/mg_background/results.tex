@@ -14,8 +14,8 @@
 \centering
 \caption{The two setups and the multigrid of the mass scan. All runs: M\"obius
 $(b,c)=(1.5,0.5)$, $L_s=8$, $m_{\rm PV}=1$, $\alpha_{\rm PV}=1$, boundary
-$(1,1,1,-1)$, $\alpha=0.6$ unless stated. Configurations: the v2 quenched test
-configurations on $12^4$, $16^4$ and $24^3\times48$ (the $12^4$ one has one unpaired
+$(1,1,1,-1)$, $\alpha=0.6$ unless stated. Configurations: quenched, plaquette action at
+$\beta=6.0$, on $12^4$, $16^4$, $24^4$ and $24^3\times48$ (the $12^4$ one has one unpaired
 near-zero mode, $Q=+1$).}
 \label{tab:setups}
 \renewcommand{\arraystretch}{1.15}
@@ -38,39 +38,39 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 \end{tabular}
 \end{table}
 
-Timings are from an NVIDIA A30; an RTX~3080 was used for iteration counts and
-spectral quantities only. Table~\ref{tab:setups} lists the setups. The smoother
-interval is not chosen from the operator: setup~S needs $\kappa_s\approx10$ and
-setup~B $\kappa_s\approx30$; with B's interval setup~S stagnates, with S's setup~B
-needs nearly three times the iterations (Sec.~\ref{sec:sensitivity}).
-
-\paragraph{Why two setups.} The two setups are the two common ways of making the residual
-breaking of chiral symmetry small at moderate $L_s$, and they give the multigrid low modes of
-different character.
+\paragraph{Numerical setup.} The gauge configurations are quenched, generated with the
+plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about
+$0.1$~fm; the volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, one configuration each.
+On them two setups of the M\"obius operator are used (Table~\ref{tab:setups}), both with
+$(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD Collaborations, and $L_s=8$.
 \begin{itemize}
-\item \emph{What sets the breaking.} At finite $L_s$ the effective four-dimensional operator is
-a rational function of the M\"obius kernel
-$H_M=\gamma_5(b+c)W\,\big(2+(b-c)W\big)^{-1}$~\cite{BNO}, and the residual mass comes from
-the eigenvalues of $H_M$ near zero, where the rational approximation of the sign function is
-poor. These are the near-zero modes of the Wilson operator $W=D_W(-M_5)$, which on rough gauge
-fields come from small dislocations.
-\item \emph{Setup B} ($M_5=1.8$, no smearing) is the choice of most domain-wall ensembles on
-unsmeared links: on rough fields the additive renormalization of the Wilson mass shifts the
-physical branch of $D_W$, and $M_5\approx1.8$ puts the domain-wall height back between the
-physical branch and the doublers.
-\item \emph{Setup S} ($M_5=1.0$, stout $\rho=0.1$, three steps, with $b=1.5$, $c=0.5$) is the
-M\"obius action of the JLQCD ensembles: smearing removes most dislocations, so the near-zero
-modes of $D_W(-M_5)$ become rare and $M_5$ can sit near $1$, the value that is optimal for the
-free field.
+\item \emph{Setup B (bare links).} The domain-wall height $M_5=1.8$ is the value typical of
+practical simulations on unsmeared links, as adopted by the RBC/UKQCD Collaboration: on rough
+fields the lattice artifact of the Wilson kernel shifts the best value of $M_5$ above~$1$.
+\item \emph{Setup S (stout links).} Three steps of the stout smearing of
+Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion operator, the
+setup adopted by the JLQCD Collaboration. Then $M_5=1.0$ is used, since the smearing largely
+suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
-For the multigrid the difference shows in three measured places: the smoother needs the
-interval $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ in~S and $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$
-in~B (above); the field of values of $\AR$ reaches less far below zero with smearing
-($\Re W\ge-4.6\times10^{-3}$ against $-5.0\times10^{-2}$ on $12^4$,
-Sec.~\ref{sec:spectra}); and the test vectors of $\AR$ are much closer to null vectors of
-$\AR\dg$ in S than in B (Sec.~\ref{sec:dualbasis}: $\|\AR\dg y\|^2/\|y\|^2\approx0.015$ against
-$0.27$ on $12^4$ and $16^4$, while $\|\AR y\|^2/\|y\|^2\approx0.003$ in both), so which prolongation
-the solve with $D\dg$ needs depends on the setup (Table~\ref{tab:dualbasis}).
+The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are
+from an NVIDIA A30; an RTX~3080 was used for iteration counts and spectral quantities only.
+The implementation is described in Appendix~\ref{sec:impl}.
+
+\paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
+symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
+$H_M=\gamma_5(b+c)W\big(2+(b-c)W\big)^{-1}$~\cite{BNO}, that is from near-zero modes of
+$W=D_W(-M_5)$, which on rough gauge fields come from small dislocations. The two setups keep
+them small in two ways, smoothing the field (S) or moving $M_5$ (B), and so give the
+multigrid low modes of different character. It shows in three measured places: the smoother
+needs the interval $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ in~S and
+$[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$ in~B, and with B's interval setup~S stagnates, with
+S's setup~B needs nearly three times the iterations (Sec.~\ref{sec:sensitivity}); the field of
+values of $\AR$ reaches less far below zero with smearing ($\Re W\ge-4.6\times10^{-3}$
+against $-5.0\times10^{-2}$ on $12^4$, Sec.~\ref{sec:spectra}); and the test vectors of $\AR$
+are much closer to null vectors of $\AR\dg$ in S than in B ($\|\AR\dg y\|^2/\|y\|^2\approx0.015$
+against $0.27$ on $12^4$ and $16^4$, while $\|\AR y\|^2/\|y\|^2\approx0.003$ in both), so which
+prolongation the solve with $D\dg$ needs depends on the setup (Sec.~\ref{sec:dualbasis},
+Table~\ref{tab:dualbasis}).
 
 \subsection{Field of values: the coarse correction amplifies}
 \label{sec:fov}
