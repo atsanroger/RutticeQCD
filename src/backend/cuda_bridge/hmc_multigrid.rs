@@ -4,8 +4,9 @@
 //! D†D and K†K are those of the CPU (`two_solves`, `two_solves_half`), over the two solves on
 //! the even sites made here.
 //!
-//! Along a trajectory the test vectors are kept on the device; P, the coarse operators and the
-//! tops of the smoothers are made for the links of every solve, the vectors improved by the
+//! Along a trajectory the test vectors are kept on the device; P (and with `dual_gamma5` that of
+//! Ã† from y and Γ5 y, `hmc::dwf_multigrid::dual_vectors`), the coarse operators and the tops of
+//! the smoothers are made for the links of every solve, the vectors improved by the
 //! bootstrap when the pseudofermions are drawn and after every `refresh_every` force solves, as
 //! on the CPU. With `rebuild_growth` they are kept from solve to solve (`DeviceParts` and the
 //! tops) and made again as on the CPU: after a bootstrap, or once the GCR iterations per solve
@@ -15,9 +16,11 @@
 //! in double precision).
 
 use super::multigrid::{bootstrap, device_correction, filtered_test_vectors, top_of, two_grid};
-use super::{CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor, LevelReal};
+use super::{
+    CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor, LevelReal,
+};
 use crate::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, PvRatio};
-use crate::hmc::dwf_multigrid::{two_solves, two_solves_half, EvenSolves};
+use crate::hmc::dwf_multigrid::{dual_vectors, two_solves, two_solves_half, EvenSolves};
 use crate::hmc::DwfMultigridSetup;
 use crate::solver::preconditioner::multigrid::{Aggregation, CoarseKrylov, PvEoParams};
 use crate::solver::{Convert, Gcr, SolveError, SolveInfo, Solver, Stop};
@@ -35,9 +38,75 @@ type Run<'r> =
 #[derive(Default)]
 pub struct DeviceState {
     vectors: Option<DeviceSpinor<f64>>,
+    /// With `fine_single`: in single precision.
+    vectors32: Option<DeviceSpinor<f32>>,
     /// With the cache: the parts of the corrections of Ã and Ã† and the tops of their
     /// smoothers, `Kept<CT>` for the precision of the coarse solves.
     cache: Option<Box<dyn std::any::Any>>,
+}
+
+/// The test vectors `kept` in the precision of `ops`, taken out: a full setup the first time, a
+/// bootstrap from those of before when one is due, else as they are.
+fn test_vectors<T: DeviceReal>(
+    ops: (&CudaMdwf<T>, &CudaMdwf<T>),
+    (even, odd): (&DeviceSpinor<T>, &DeviceSpinor<T>),
+    lat: &Arc<Lattice>,
+    agg: &Arc<Aggregation>,
+    setup: &mut DwfMultigridSetup,
+    kept: &mut Option<DeviceSpinor<T>>,
+    due: bool,
+) -> Result<DeviceSpinor<T>, Box<dyn std::error::Error>> {
+    let quiet = &mut |_: super::multigrid::Stage<'_, T>| {};
+    let mut y = match kept.take() {
+        None => {
+            setup.count_setup();
+            let index = EvenOddIndex::new(lat);
+            filtered_test_vectors(
+                ops,
+                (even, odd),
+                lat,
+                &index,
+                setup.low_modes,
+                setup.test_vectors,
+                quiet,
+            )?
+        }
+        Some(y) if due => {
+            setup.count_refresh();
+            y
+        }
+        Some(y) => return Ok(y),
+    };
+    let mut with = device_correction(ops, agg, setup.bootstrap.cycle, even, true);
+    bootstrap(
+        ops,
+        (even, odd),
+        lat,
+        &mut y,
+        setup.bootstrap,
+        &mut with,
+        quiet,
+    )?;
+    Ok(y)
+}
+
+/// P from the test vectors `y`, and that of Ã†: the same, or with `dual_gamma5` made from y and
+/// Γ5 y (`dual_vectors`).
+fn bases<T: DeviceReal>(
+    (d, pv): (&CudaMdwf<T>, &CudaMdwf<T>),
+    agg: &Arc<Aggregation>,
+    y: &DeviceSpinor<T>,
+    dual_gamma5: bool,
+) -> Result<(Rc<DeviceBasis>, Rc<DeviceBasis>), Box<dyn std::error::Error>> {
+    let basis = Rc::new(DeviceBasis::pv_eo(d, pv, agg, y, true)?);
+    let basis_dag = match dual_gamma5 {
+        true => {
+            let both = dual_vectors(y, |g, y| d.mult_gamma5_on(g, y));
+            Rc::new(DeviceBasis::pv_eo(d, pv, agg, &both, true)?)
+        }
+        false => basis.clone(),
+    };
+    Ok((basis, basis_dag))
 }
 
 /// What the cache keeps on the device.
@@ -182,7 +251,17 @@ fn with_coarse<CT: LevelReal>(
         .filter(|_| caching && !due && !setup.rebuild_is_due())
         .and_then(|k| k.downcast::<Kept<CT>>().ok());
     let reuse = kept.is_some();
-    let quiet = &mut |_: super::multigrid::Stage<'_, f64>| {};
+    // With `fine_single` the operators in single precision, for the setup (the test vectors are
+    // made and kept in single precision, as in the propagator runs) and for the cycles.
+    let single = match setup.fine_single {
+        true => Some((
+            CudaMdwf::<f32>::converted_from(d, *d.params())?,
+            CudaMdwf::<f32>::converted_from(pv, *pv.params())?,
+            DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Even)?,
+            DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Odd)?,
+        )),
+        false => None,
+    };
     let kept = match kept {
         Some(k) => {
             setup.count_solve_for_refresh(false, md);
@@ -191,60 +270,45 @@ fn with_coarse<CT: LevelReal>(
             (parts, parts_dag, hi, hi_dag, 0.0)
         }
         None => {
-            // The test vectors: a full setup the first time, a bootstrap from those of before
-            // when one is due, else as they are.
-            let made = match state.vectors.take() {
+            let (basis, basis_dag, parts_start) = match &single {
+                Some((d32, pv32, even32, odd32)) => {
+                    let ops = (d32, pv32);
+                    let y = test_vectors(
+                        ops,
+                        (even32, odd32),
+                        lat,
+                        &agg,
+                        setup,
+                        &mut state.vectors32,
+                        due,
+                    )?;
+                    setup.count_solve_for_refresh(due, md);
+                    setup.count_rebuild();
+                    let parts_start = std::time::Instant::now();
+                    let (b, b_dag) = bases(ops, &agg, &y, setup.dual_gamma5)?;
+                    state.vectors32 = Some(y);
+                    (b, b_dag, parts_start)
+                }
                 None => {
-                    setup.count_setup();
-                    let index = EvenOddIndex::new(lat);
-                    let mut y = filtered_test_vectors(
+                    let y = test_vectors(
                         (d, pv),
                         (&even, &odd),
                         lat,
-                        &index,
-                        setup.low_modes,
-                        setup.test_vectors,
-                        quiet,
+                        &agg,
+                        setup,
+                        &mut state.vectors,
+                        due,
                     )?;
-                    let mut with =
-                        device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
-                    bootstrap(
-                        (d, pv),
-                        (&even, &odd),
-                        lat,
-                        &mut y,
-                        setup.bootstrap,
-                        &mut with,
-                        quiet,
-                    )?;
-                    y
+                    setup.count_solve_for_refresh(due, md);
+                    setup.count_rebuild();
+                    let parts_start = std::time::Instant::now();
+                    let (b, b_dag) = bases((d, pv), &agg, &y, setup.dual_gamma5)?;
+                    state.vectors = Some(y);
+                    (b, b_dag, parts_start)
                 }
-                Some(mut y) if due => {
-                    setup.count_refresh();
-                    let mut with =
-                        device_correction((d, pv), &agg, setup.bootstrap.cycle, &even, true);
-                    bootstrap(
-                        (d, pv),
-                        (&even, &odd),
-                        lat,
-                        &mut y,
-                        setup.bootstrap,
-                        &mut with,
-                        quiet,
-                    )?;
-                    y
-                }
-                Some(y) => y,
             };
-            setup.count_solve_for_refresh(due, md);
-            setup.count_rebuild();
-            let parts_start = std::time::Instant::now();
-            // P, shared by the corrections of Ã and Ã†, the coarse parts and the tops of the
-            // smoothers.
-            let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &made, true)?);
-            state.vectors = Some(made);
             let c = DeviceCorrection::<f64, CT>::shared(
-                basis.clone(),
+                basis,
                 (d, pv),
                 (d, pv),
                 EoForm::Right,
@@ -252,7 +316,7 @@ fn with_coarse<CT: LevelReal>(
                 &even,
             )?;
             let c_dag = DeviceCorrection::<f64, CT>::shared(
-                basis,
+                basis_dag,
                 (pv, d),
                 (pv, d),
                 EoForm::Right,
@@ -284,7 +348,6 @@ fn with_coarse<CT: LevelReal>(
     let start = std::time::Instant::now();
     // The cycles, on the operators in double precision or, with `fine_single`, on those in
     // single precision with the fields converted at their ends (the coarse parts are the same).
-    let (d32, pv32, even32, odd32);
     let (m, m_dag): (Box<dyn LinearFn<V> + '_>, Box<dyn LinearFn<V> + '_>) = match setup.fine_single
     {
         false => {
@@ -325,18 +388,14 @@ fn with_coarse<CT: LevelReal>(
             (Box::new(m), Box::new(m_dag))
         }
         true => {
-            d32 = CudaMdwf::<f32>::converted_from(d, *d.params())?;
-            pv32 = CudaMdwf::<f32>::converted_from(pv, *pv.params())?;
-            even32 = DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Even)?;
-            odd32 = DeviceSpinor::<f32>::shape_half(lat, ls, Parity::Odd)?;
-            let (d32, pv32) = (&d32, &pv32);
+            let (d32, pv32, even32, odd32) = single.as_ref().expect("made for fine_single");
             let mut c = DeviceCorrection::<f32, CT>::from_parts(
                 parts.clone(),
                 (d32, pv32),
                 (d32, pv32),
                 EoForm::Right,
                 setup.cycle,
-                &even32,
+                even32,
             )?;
             let mut c_dag = DeviceCorrection::<f32, CT>::from_parts(
                 parts_dag.clone(),
@@ -344,12 +403,12 @@ fn with_coarse<CT: LevelReal>(
                 (pv32, d32),
                 EoForm::Right,
                 dual,
-                &even32,
+                even32,
             )?;
             let m = two_grid(
                 (d32, pv32),
                 EoForm::Right,
-                (&even32, &odd32),
+                (even32, odd32),
                 lat,
                 setup.cycle,
                 Box::new(move |e, r| c.correct(e, r)),
@@ -358,15 +417,15 @@ fn with_coarse<CT: LevelReal>(
             let m_dag = two_grid(
                 (pv32, d32),
                 EoForm::Right,
-                (&even32, &odd32),
+                (even32, odd32),
                 lat,
                 dual,
                 Box::new(move |e, r| c_dag.correct(e, r)),
                 Some(hi_dag),
             )?;
             (
-                Box::new(Convert::new(m, &even32)),
-                Box::new(Convert::new(m_dag, &even32)),
+                Box::new(Convert::new(m, even32)),
+                Box::new(Convert::new(m_dag, even32)),
             )
         }
     };

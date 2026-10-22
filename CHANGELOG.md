@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid: `MultiGrid_HMC.dual_with_gamma5 : true` makes the P of
+  the cycle of Ã† (the solves of D†) from the test vectors y and Γ5 y, with no setup of its
+  own, instead of sharing the P of Ã. For Möbius fermions D† is not Γ5 D Γ5 (D- Γ5 D† =
+  D Γ5 D-†, `docs/TODO.md`), and the shared P stalled on the v2 12⁴ configuration with stout
+  links (m 0.001: |r|² 1e-6 after 1000 GCR(8) iterations; 9–11 with the option, Ã 7–9).
+  Twice the vectors in P and four times the coarse operators; on 16⁴ and 24⁴ the shared P
+  converges (10–21) and is faster, so it stays the default.
+
 ## 0.3.2 (2026-10-21)
 
 Faster device kernels for the MDWF multigrid; no new features and no change to parameter

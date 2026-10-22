@@ -212,6 +212,7 @@ refused. What only HMC has is in `MultiGrid_HMC`:
 | `refresh_interval` | improve the test vectors again after this many force solves (0: when a trajectory starts) |
 | `reuse_vectors`, `number_of_reuse_iterations` | Wilson and clover: start each setup but the first from the vectors before, improved this many times (`false`: from random vectors) |
 | `convergence_criterion_squared_inner` | domain-wall fermions: where each of the two solves on the even sites stops (1e-10), before they are repeated on the residual of D†D |
+| `dual_with_gamma5` | domain-wall fermions: make the P of the cycle of Ã† (the solves of D†) from the test vectors y and Γ5 y instead of sharing that of Ã: twice the vectors, four times the coarse operators; for when the solves of D† stall (`false`) |
 | `rebuild_iteration_growth` | domain-wall fermions: keep P and the coarse operators (and the tops of the smoothers) from solve to solve, the cycles made from them for the links of each solve, and make them again when the GCR iterations per solve have grown to this many times those after the last rebuild (above 1, e.g. 1.5); left out: made for every solve. The test vectors are improved, and everything made again, as `refresh_interval` says |
 
 The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
