@@ -680,8 +680,27 @@ conditioning of the even-odd operator~\cite{Neff,CKMN}.
 \section{Even-odd forms}
 \label{sec:eo}
 
-With $D=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix}$,
-$D_{pq}=-\tfrac12K_{pq}(b-cY)$, the Schur complement on the even sites is
+\paragraph{The diagonal blocks are $C$.} Order the sites so that the even ones come first.
+The hopping term $K$ connects nearest neighbors, which always have opposite parity, so it has
+no even--even or odd--odd block. In $D=C-\tfrac12K(b-cY)$ (Eq.~\eqref{eq:D}) the diagonal
+blocks therefore come from $C$ alone and the off-diagonal ones from the hop alone:
+\begin{equation}
+D=\begin{pmatrix}D_{ee}&D_{eo}\\D_{oe}&D_{oo}\end{pmatrix}
+=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix},\qquad
+D_{pq}=-\tfrac12K_{pq}(b-cY)\ \ (p\neq q),\qquad
+C=\begin{pmatrix}\Ce&0\\0&\Co\end{pmatrix}.
+\label{eq:Dblocks}
+\end{equation}
+So the $D_{ee}$ and $D_{oo}$ of the even-odd literature (Ref.~\cite{CKMN}, Eq.~(18);
+Ref.~\cite{KCM2024}, Eq.~(4)) \emph{are} the site-diagonal part: $D_{ee}=\Ce$ and
+$D_{oo}=\Co$ are the blocks of the same $C$ that appears in $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$,
+restricted to the even and to the odd sites. Since $C$ is the same $L_s\times L_s$ matrix
+on every site (Sec.~\ref{sec:C}), $\Ce$ and $\Co$ are also the same matrix, applied on
+different sites; the subscript only says where the field lives. We keep the letter $C$ for
+them to make this visible, and the letter $D$ for the off-diagonal blocks, which carry the
+gauge field. The same holds for $\Dpv$ with $\Cpve$, $\Cpvo$.
+
+With these blocks the Schur complement on the even sites is
 $S=\Ce-D_{eo}\Co^{-1}D_{oe}$, and $\Spv$ is that of $\Dpv$; note
 $S^{-1}=\pi D^{-1}\iota$ and $(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. In the same block
 notation the injection and the projection of the Conventions are
