@@ -32,8 +32,8 @@ Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 
 0.4.0 is released when HMC with the domain-wall multigrid is usable and compared fairly with CG:
 
-1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (now 21.3 GB peak
-   with GCR(8); a dual cycle that converges with GCR(2) would give 3 GB more).
+1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (20.5 GB with GCR(2)
+   since the solves with D† use Γ5 M Γ5, 2026-10-22).
 2. **Neff's α in the multigrid of HMC** (CG has it, so the comparison is not fair without it).
    The right form Ã_R, which HMC uses, does not depend on α (Sec. V of the note); the solves
    must move to the left form Ã_L^(α): for D the correction of the propagator runs with the
@@ -731,6 +731,13 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   about −(1 + c M5) (a number), so Γ5 v is close to a dual near-null vector up to its high
   modes: a possible reason why the dual on P converges in B but slowly, and stalls with stout
   links (not checked). For the note.
+- **Solved (2026-10-22): D† by Γ5 M Γ5.** D† Γ5 D⁻¹ Γ5 = Γ5 (1 − c [Y, W] D⁻¹) Γ5, so the
+  cycle of D between two Γ5 preconditions D†; on the even sites C_e† Γ5 M Γ5 for K† (MG note,
+  "Solving with D†"; `fermion::adjoint_by_gamma5`, `examples/dagger_precond`). 2–3 iterations
+  more than the solve with D, in S and B, on random and HMC-like right-hand sides; HMC uses it
+  with GCR(2). Open: the 12⁴ S configuration with Q = +1 at m 0.001 needs GCR(8) on the
+  residual of a sweep (topological mode?); a bound on ‖N²‖. The CPU path of HMC with it has
+  not been run (as13's CPU is shared). The items below record what was tried before.
 - **A P for D† from the test vectors of D** (2026-10-22, A30, `examples/dual_basis`;
   m 0.001, 32 vectors, blocks 4⁴, GCR(8) to 1e-12). The Galerkin P†ÃP needs both sides: for Ã† the left near-null vectors are y (those of D), the right ones close
   to Γ5 y. span(Γ5 y) is almost orthogonal to span(y) (0.001 of its norm in it). Iterations
@@ -758,9 +765,9 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   work fields of one cycle about 1.5 GB (the cycles of Ã and Ã† made in turn since 19b8af9).
   Solves 19.5 GB, peak 21.3 GB (the filter of the setup 12.3 GB). Per volume twice a propagator
   run: two systems (D and D†), GCR(8) against GCR(2), the sweeps on D†D, the fields of HMC.
-  Left: GCR(8) is needed because the solves with D† stagnate with GCR(2) (a dual that
-  converges with GCR(2) would save 3 GB on 24⁴); the sweep fields in f64. 24³×48 needs about
-  twice all of it: not on the A30.
+  Since then the solves with D† use Γ5 M Γ5 and GCR(2) (no cycle or coarse operator of Ã†):
+  20.5 GB on 24⁴ (nvidia-smi). Left: the sweep fields in f64. 24³×48 needs about twice all of
+  it: not on the A30.
 - **The example's GCR(2) does not converge in setup B on 12⁴**, with either cycle, even with
   B's smoother (`--steps 12 --ratio 30`), where the solver of the note needs 15 (Ã_R, Table
   gcrk). Its differences from the solver: both coarse factors by BiCGStab (the note's B with

@@ -23,9 +23,9 @@ whose options are given with each result; the remarks after
 Proposition~\ref{prop:exact} from the example \texttt{correction\_exactness} (CPU). The
 numbers of Sec.~\ref{sec:dagger} come from the examples \texttt{mobius\_gamma5\_check}
 (Eqs.~\eqref{eq:g5herm} and \eqref{eq:g5exact}, CPU), \texttt{dminus\_cost} (the inverse of
-$D_-$, GPU) and \texttt{dual\_basis} (Table~\ref{tab:dualbasis}, GPU). In HMC the
-prolongation of the solves with $D\dg$ is the shared $\Pro$ unless
-\texttt{MultiGrid\_HMC.dual\_with\_gamma5} is set, which makes it from $y\cup\Gfive y$.
+$D_-$, GPU), \texttt{dual\_basis} (prolongations for the dual cycle, GPU) and
+\texttt{dagger\_precond} (Table~\ref{tab:c4}, GPU). In HMC the solves with $D\dg$ use
+$\Gfive\mathcal M\Gfive$ (\texttt{fermion::adjoint\_by\_gamma5}).
 The eigensolvers (thick-restart Lanczos, Krylov--Schur Arnoldi~\cite{Stewart} with
 left eigenvectors, and $\sigma_{\min}(z-X)$ by Lanczos on $(z-X)\dg(z-X)$) are in the
 module \texttt{eigen} and are checked against Bridge++'s eigensolver test.
