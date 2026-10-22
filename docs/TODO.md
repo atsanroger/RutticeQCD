@@ -28,6 +28,26 @@ with confidence:
 
 Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 
+## Release 0.4.0: the multigrid in HMC (decided 2026-10-22)
+
+0.4.0 is released when HMC with the domain-wall multigrid is usable and compared fairly with CG:
+
+1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (now 21.3 GB peak
+   with GCR(8); a dual cycle that converges with GCR(2) would give 3 GB more).
+2. **Neff's α in the multigrid of HMC** (CG has it, so the comparison is not fair without it).
+   The right form Ã_R, which HMC uses, does not depend on α (Sec. V of the note); the solves
+   must move to the left form Ã_L^(α): for D the correction of the propagator runs with the
+   factors of Q (Table "factors"), for D† the dual correction of Ã_L^(α)† has to be derived
+   (lifts, factors, coarse solves) and implemented. Then the refusal in `hmc_params.rs`
+   ("without Fopr.neff_alpha") goes.
+3. **Faster**: on 24⁴, m 0.001, a trajectory with the multigrid (setup and rebuilds included)
+   faster than with mixed CG, both at α 0.6, measured. The setup (87 s on 24⁴) and the rebuilds
+   are part of that.
+4. **Correct**: the HMC tests with the multigrid give the trajectories of CG (plaquette, ΔH),
+   with α too.
+5. **Documented**: USAGE says how to set the multigrid of HMC (GCR(8) or what replaces it,
+   the cache, `fine_precision`, α); the note has the HMC results.
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
