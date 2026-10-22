@@ -683,7 +683,18 @@ conditioning of the even-odd operator~\cite{Neff,CKMN}.
 With $D=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix}$,
 $D_{pq}=-\tfrac12K_{pq}(b-cY)$, the Schur complement on the even sites is
 $S=\Ce-D_{eo}\Co^{-1}D_{oe}$, and $\Spv$ is that of $\Dpv$; note
-$S^{-1}=\pi D^{-1}\iota$ and $(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. The
+$S^{-1}=\pi D^{-1}\iota$ and $(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. In the same block
+notation the injection and the projection of the Conventions are
+\begin{equation}
+\iota y=\begin{pmatrix}y\\0\end{pmatrix},\qquad
+\pi\begin{pmatrix}\psi_e\\\psi_o\end{pmatrix}=\psi_e,\qquad
+\iota\pi\begin{pmatrix}\psi_e\\\psi_o\end{pmatrix}=\begin{pmatrix}\psi_e\\0\end{pmatrix},
+\label{eq:iotapi}
+\end{equation}
+so $\iota\pi$ sets the odd sites to zero and leaves a field that already vanishes there
+unchanged. $S^{-1}=\pi D^{-1}\iota$ follows: the solution of
+$D\psi=\iota\eta_e=(\eta_e,0)^{\mathsf T}$ has $\psi_o=-\Co^{-1}D_{oe}\psi_e$ from the odd rows,
+and the even rows then read $S\psi_e=\eta_e$. The
 site-diagonal factor can stand on either side of $S$, which gives the right and
 the left form,
 \begin{equation}

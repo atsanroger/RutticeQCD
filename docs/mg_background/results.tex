@@ -85,6 +85,19 @@ i.e.\ where $\|(z-X)^{-1}\|>1/\varepsilon$; for a normal $X$ it is the
 $\varepsilon$-neighborhood of the spectrum, for a non-normal one it can be much larger,
 and it bounds the convergence of full GMRES~\cite{TrefethenEmbree}.
 
+Why the eigenvalues alone do not decide, for readers used to Hermitian matrices: the
+eigenvectors of a non-normal matrix are not orthogonal, and can be nearly parallel. A vector
+then decomposes into eigenvectors with large coefficients of opposite sign that cancel; each
+component decays as its eigenvalue says, but the cancellation is lost along the way, and
+$\|p(X)z\|$ can grow for a while although every eigenvalue lies in the right half-plane. The
+field of values sees this ($z\dg Xz$ can be negative for such a $z$), and so does the
+pseudospectrum. How nearly parallel an eigenvector is to the others is measured by the
+condition number of its eigenvalue, $\kappa=1/|y\dg x|$ for the right eigenvector $x$ and
+the left eigenvector $y$ normalized to $\|x\|=\|y\|=1$: $\kappa=1$ for a normal matrix,
+and large $\kappa$ means the eigenvalue moves by $\kappa\varepsilon$ under a perturbation of
+size $\varepsilon$, which is what widens the pseudospectrum around it
+(Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}).
+
 The coarse correction amplifies some vectors by $10^3$--$10^4$, and
 the field of values of the preconditioned operator reaches into the left half-plane
 (this subsection), so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is
