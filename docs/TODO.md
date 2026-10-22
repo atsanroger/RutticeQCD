@@ -691,6 +691,47 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   in 1000. The HMC multigrid (`src/hmc/dwf_multigrid.rs`) uses this dual cycle for the
   normal equations; its comment reports 17 (S) and 57 (B) iterations on 16⁴. To check: the
   dual on 16⁴ with the example, and a basis for D† (low modes of Ã_R Ã_R†, or closed under Γ5).
+  Later (2026-10-22, a lost uncommitted fix of the example: the bootstrap with the run's
+  smoother, MINRES on the Pauli-Villars factor): primal 12 (S) and 15 (B), dual on the same P
+  27 (B, GCR(2); 23 GCR(8)), S stalls near 1e-3 also with MINRES or double coarse solves;
+  u_j = Ã y_j as the basis is worse.
+- **Why Γ5 does not give D† for Möbius (found 2026-10-22).** D = D+ − D- Y with
+  D+ = 1 + b W, D- = c W − 1 (Brower-Neff-Orginos) standing *left* of the fifth-dimension hop
+  Y. With Γ5 = γ5 R5 (`mult_gamma5`): Γ5 D Γ5 = D+† − D-† Y†, but D† = D+† − Y† D-†; W has γ_μ, which do not
+  commute with the P± in Y, so the two differ unless c = 0. The exact relation is
+  **D- Γ5 D† = D Γ5 D-†**, i.e. D† = Γ5 D-⁻¹ D Γ5 D-†, and a near-null vector v of D gives
+  the near-null vector (D-†)⁻¹ Γ5 v of D†. Checked on the 12⁴ v2 configuration, stout 0.1×3,
+  M5 1.0 (`examples/mobius_gamma5_check`): |Γ5DΓ5 b − D†b|/|D†b| =
+  0.147 (b 1.5, c 0.5), 0.22 (b 2, c 1), 0 (Shamir); the relation holds to 3e-16.
+  **D- cannot be inverted in practice:** D- = c (W − 1/c) is c times the Wilson operator at mass
+  −M5 − 1/c (−3 in S, −3.8 in B), deep among the doublers; its spectrum surrounds the origin.
+  On the A30 (12⁴, `examples/dminus_cost`), D- and D-† by GCR(8) stall at
+  |r|² 0.74 (S) and 0.96 (B) after 20000 iterations, BiCGStab diverges. So the exact map of
+  the basis, or solving D† through D, costs more than the solve itself. On smooth modes D- is
+  about −(1 + c M5) (a number), so Γ5 v is close to a dual near-null vector up to its high
+  modes: a possible reason why the dual on P converges in B but slowly, and stalls with stout
+  links (not checked). For the note.
+- **A P for D† from the test vectors of D** (2026-10-22, A30, `examples/dual_basis`;
+  m 0.001, 32 vectors, blocks 4⁴, GCR(8) to 1e-12). The Galerkin P†ÃP needs both sides: for Ã† the left near-null vectors are y (those of D), the right ones close
+  to Γ5 y. span(Γ5 y) is almost orthogonal to span(y) (0.001 of its norm in it). Iterations
+  (Ã with P(y): 7 S, 9 B on 12⁴; 7, 9 on 16⁴; 9, 13 on 24⁴):
+
+  | P of Ã† | S 12⁴ | B 12⁴ | S 16⁴ | B 16⁴ | S 24⁴ | B 24⁴ |
+  |---|---|---|---|---|---|---|
+  | P(y), shared | stall (1e-6) | 14 | 10 | 12 | 21 | 20 |
+  | P(Γ5 y) | 14 | 50 | 15 | 60 | | |
+  | P(y and Γ5 y), 64 vectors | 10 | 9 | 8 | 9 | out of memory | out of memory |
+
+  Half of y and half of Γ5 y (32) fails; a full setup of its own for Ã† stalls in S 12⁴ too
+  (only the right side). The 64 vectors cost 2–4× a solve of the shared P (four times the
+  coarse operators), so they are an option (`MultiGrid_HMC.dual_with_gamma5`), not the
+  default. Not tried: Petrov-Galerkin with P† as restriction and Γ5 P as prolongation (no
+  more memory than the shared P). The first lexical MDWF multigrid (d23c6e7) had a Petrov-
+  Galerkin restriction, but no coarse operator helped there (random test vectors), so it says
+  nothing about this one.
+- **HMC keeps the test vectors in double precision on the device**: n × V/2 × Ls × 24 × 8 B,
+  16.3 GB for 32 vectors on 24³×48, which with P and the two coarse corrections does not fit
+  the A30. The propagator runs make them in single precision with `fine_precision : single`.
 - **The example's GCR(2) does not converge in setup B on 12⁴**, with either cycle, even with
   B's smoother (`--steps 12 --ratio 30`), where the solver of the note needs 15 (Ã_R, Table
   gcrk). Its differences from the solver: both coarse factors by BiCGStab (the note's B with

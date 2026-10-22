@@ -443,94 +443,218 @@ it occurs for $A'$ and its even-odd forms is open (Sec.~\ref{sec:open}).\fi
 \section{The operator and Pauli--Villars preconditioning}
 \label{sec:operator}
 
-This section fixes the notation of the M\"obius operator and of its two preconditioning
-factors: the site-diagonal part $C$, whose inverse is exact and cheap, and the
-Pauli--Villars operator $\Dpv$. Readers who know them can go to Eq.~\eqref{eq:Aprime} and
-to Neff's $\alpha$; Appendix~\ref{sec:notation} translates the notation to that of
-other references and of Bridge++.
+This section defines the M\"obius operator in the form of Brower, Neff and
+Orginos~\cite{BNO} and derives from it the quantities the method is built on: the
+part $C$ of the operator that acts within a four-dimensional site and its inverse, the
+$\Gfive$-transformation of $D$, the Pauli--Villars preconditioned operator $A'$ of
+Ref.~\cite{KCM2024}, and Neff's $\alpha$. Every step is written out. The notation
+follows Ref.~\cite{BNO} except where stated; Appendix~\ref{sec:notation} relates it to
+Ref.~\cite{KCM2024} and to Bridge++ symbol by symbol.
 
 \subsection{The M\"obius operator}
-Let $K$ be the hopping term of the Wilson operator,
+\paragraph{Ingredients.} $\psi$ is a field on the four-dimensional lattice with an extra
+index $s=0,\dots,L_s-1$, the fifth dimension; $\psi_s$ is an ordinary Dirac field for each
+$s$. $P_\pm=\tfrac12(1\pm\gamma_5)$ are the chiral projectors. The Wilson hopping term is
 \begin{equation}
 (K\psi)(x)=\sum_{\mu=1}^{4}\Big[(1-\gamma_\mu)U_\mu(x)\psi(x+\hat\mu)
 +(1+\gamma_\mu)U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\Big],
 \end{equation}
-and $W=(4-M_5)-\tfrac12K$ the Wilson operator with mass $-M_5$ and hopping
-coefficient $\tfrac12$. The hop in the fifth dimension is
+and the Wilson operator with mass $-M_5$ (the domain-wall height $M_5>0$) is
 \begin{equation}
-(Y\psi)_s=-\Pm\psi_{s+1}-\Pp\psi_{s-1},\qquad
-\psi_{L_s}\equiv-m\,\psi_0,\quad \psi_{-1}\equiv-m\,\psi_{L_s-1},
+W=(4-M_5)-\tfrac12K .
+\label{eq:W}
+\end{equation}
+This is the usual $D_W(-M_5)$ with hopping coefficient $\tfrac12$; in the $\kappa$
+normalization $W=(4-M_5)(1-\kappa K)$ with $\kappa=1/(8-2M_5)$. $W$ acts on each slice
+$s$ in the same way and does not mix slices. Its free spectrum, needed in
+Sec.~\ref{sec:dagger}, is $\{-M_5+\sum_\mu(1-\cos p_\mu)\pm i(\sum_\mu\sin^2p_\mu)^{1/2}\}$.
+
+\paragraph{The operator.} With
+\begin{equation}
+D_+=1+bW,\qquad D_-=cW-1
+\label{eq:Dpm}
+\end{equation}
+(Ref.~\cite{BNO}, Eq.~(2.18)), the M\"obius operator at quark mass $m$ acts slice by slice as
+\begin{equation}
+(D\psi)_s=D_+\psi_s+D_-\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),\qquad
+\psi_{L_s}\equiv-m\,\psi_0,\quad \psi_{-1}\equiv-m\,\psi_{L_s-1}
+\label{eq:Dslice}
+\end{equation}
+(Ref.~\cite{BNO}, Eq.~(2.20), with $s$ counted from $0$). For $L_s=4$, as a matrix in $s$,
+\begin{equation}
+D=\begin{pmatrix}
+D_+ & D_-\Pm & 0 & -mD_-\Pp\\
+D_-\Pp & D_+ & D_-\Pm & 0\\
+0 & D_-\Pp & D_+ & D_-\Pm\\
+-mD_-\Pm & 0 & D_-\Pp & D_+
+\end{pmatrix}.
+\label{eq:Dmatrix}
+\end{equation}
+Shamir's operator is $b=1$, $c=0$; the results of this note use $b=1.5$, $c=0.5$
+($b-c=1$, $b+c=2$). The quark mass enters only through the two corners. The physical
+four-dimensional quark field is $q=\Pm\psi_0+\Pp\psi_{L_s-1}$.
+
+\paragraph{The hop in the fifth dimension.} Eq.~\eqref{eq:Dslice} separates into a part
+that hops in the fifth dimension and one that does not. Define
+\begin{equation}
+(Y\psi)_s=-\Pm\psi_{s+1}-\Pp\psi_{s-1}\qquad\text{(with the same wrap-around)},
 \label{eq:Y}
 \end{equation}
-where $m$ is the quark mass, which enters only through the wrap-around. The
-M\"obius operator is
+the off-diagonal part of Eq.~\eqref{eq:Dmatrix} without $D_-$ and with a minus sign. Then
+$D=D_+-D_-Y$. The order matters: $D_-$ stands to the \emph{left} of $Y$, since in
+Eq.~\eqref{eq:Dslice} $D_-$ acts on the shifted and projected field. Inserting
+Eqs.~\eqref{eq:W} and \eqref{eq:Dpm},
 \begin{equation}
-D=1+Y+W\,(b-cY)=C-\tfrac12K\,(b-cY),\qquad C=d_++d_-Y,
+D=1+bW-(cW-1)Y=1+Y+W\,(b-cY)=C-\tfrac12K\,(b-cY),\qquad C=d_++d_-Y,
 \label{eq:D}
 \end{equation}
-with $d_+=1+b(4-M_5)$ and $d_-=1-c(4-M_5)$. $K$ acts on each slice $s$ and does
-not commute with $\Pp$ and $\Pm$, so the order in Eq.~\eqref{eq:D} matters. The
-Pauli--Villars operator is the same operator at unit mass,
-$\Dpv=D|_{m=1}$, $\Cpv=C|_{m=1}$.
+with $d_+=1+b(4-M_5)$ and $d_-=1-c(4-M_5)$. In the last step $W=(4-M_5)-\frac12K$ was split
+into its site-local constant and its hop; the constant parts form $C$. Note
+$d_-=-(c(4-M_5)-1)$ is \emph{minus} the site-local part of $D_-$, because $Y$ carries the
+sign. The Pauli--Villars operator is the same operator at unit mass, $\Dpv=D|_{m=1}$,
+$\Cpv=C|_{m=1}$; $D_\pm$ and $K$ do not depend on $m$.
 
-\paragraph{$\Gfive$-Hermiticity.}
-Since $\Gfive K\Gfive=K\dg$, $\Gfive Y\Gfive=Y\dg$ and $\Gfive C\Gfive=C\dg$,
+\subsection{\texorpdfstring{$\Gfive$}{Gamma5}-transformation and the exact adjoint}
+\label{sec:g5}
+For the Wilson operator $\gamma_5W\gamma_5=W\dg$, so a solve with $W\dg$ is a solve with $W$
+between two multiplications by $\gamma_5$. The analogue for domain-wall fermions uses
 \begin{equation}
-\Gfive D\Gfive-D\dg=-\tfrac12\big[K\dg,\,b-cY\dg\big]=\tfrac{c}{2}\big[K\dg,Y\dg\big].
+\Gfive=\gamma_5R_5,\qquad (R_5\psi)_s=\psi_{L_s-1-s} .
+\end{equation}
+Each building block transforms as follows.
+\begin{enumerate}
+\item $W$, $D_+$, $D_-$: they act on every slice alike, so they commute with $R_5$, and
+$\gamma_5W\gamma_5=W\dg$. Hence $\Gfive W\Gfive=W\dg$, $\Gfive D_\pm\Gfive=D_\pm\dg$.
+\item $Y$: it has no hop in the four dimensions, so $\Gfive Y\Gfive$ can be read off
+Eq.~\eqref{eq:Y}. $\gamma_5$ commutes with $P_\pm$; $R_5$ turns the hop $s\to s+1$ into
+$s\to s-1$. So $\Gfive Y\Gfive$ has $-\Pm$ on the hop down and $-\Pp$ on the hop up,
+and the corner $-m$ moves to the other corner. This is the transpose of
+Eq.~\eqref{eq:Y} in $s$ with $P_\pm$ in place, which is $Y\dg$ since $P_\pm\dg=P_\pm$ and $m$
+is real: $\Gfive Y\Gfive=Y\dg$.
+\item $W$ and $Y$ do not commute: $\gamma_\mu$ in $K$ anticommutes with $\gamma_5$, so
+$\gamma_\mu P_\pm=P_\mp\gamma_\mu$, and the hop of $K$ exchanges the two projectors of $Y$.
+\end{enumerate}
+From $D=D_+-D_-Y$ it follows that
+\begin{equation}
+\Gfive D\Gfive=D_+\dg-D_-\dg Y\dg ,\qquad\text{whereas}\qquad D\dg=D_+\dg-Y\dg D_-\dg ,
+\label{eq:g5D}
+\end{equation}
+the adjoint reversing the order of the product. The difference is a commutator,
+\begin{equation}
+\Gfive D\Gfive-D\dg=Y\dg D_-\dg-D_-\dg Y\dg=c\,[Y\dg,W\dg]=\tfrac{c}{2}\big[K\dg,Y\dg\big],
 \label{eq:g5herm}
 \end{equation}
-The commutator is non-zero because $K$ contains $\gamma_\mu$ and $Y$ contains
-$P_\pm$. Thus $\Gfive D\Gfive=D\dg$ holds for Shamir's operator and fails at
-$O(c)$ for $c\neq0$; the Hermitian operator of the M\"obius case is
-$\Gfive D_-^{-1}D$ with $D_-=cW-1$~\cite{BNO} (Ref.~\cite{BNO} includes $D_-^{-1}$ in its
-$\Gamma_5$; Table~\ref{tab:notation}), which involves an inverse that is
-not local. This matters for the coarse solvers (Sec.~\ref{sec:coarse}).
+where $D_-\dg=cW\dg-1$ and $W\dg=(4-M_5)-\frac12K\dg$ were used. It vanishes for Shamir's
+operator ($c=0$) and is of order $c$ otherwise. Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
+fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating with $\Gfive$.
+\ifresults{} On a $12^4$ configuration with stout links ($M_5=1$, $m=0.001$),
+$\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$,
+and $0$ for $(1,0)$, for a random $b$.\fi
+
+\paragraph{The exact relation.} $D_+$ and $D_-$ are functions of the same $W$ and commute.
+Where $D_-$ is invertible, factor it out to the left:
+\begin{equation}
+D=D_-\,K_{D},\qquad K_{D}=D_-^{-1}D_+-Y .
+\end{equation}
+$K_D$ is $\Gfive$-Hermitian: by item 1, $\Gfive D_-^{-1}D_+\Gfive=(D_-\dg)^{-1}D_+\dg$, and
+this equals $(D_-^{-1}D_+)\dg=D_+\dg(D_-\dg)^{-1}$ because $D_+\dg$ and $D_-\dg$ commute;
+with item 2, $\Gfive K_D\Gfive=K_D\dg$. Then
+\begin{equation}
+D\dg=K_D\dg D_-\dg=\Gfive K_D\Gfive\,D_-\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg ,
+\end{equation}
+and multiplying by $D_-\Gfive$ from the left,
+\begin{equation}
+\boxed{\;D_-\,\Gfive\,D\dg=D\,\Gfive\,D_-\dg\;}
+\label{eq:g5exact}
+\end{equation}
+This form has no inverse, holds for any $m$ (so also for $\Dpv$, with the same $D_-$), and can
+be checked by applying both sides to a vector.\ifresults{} On the configuration above both sides
+agree to $3\times10^{-16}$ for $(b,c)=(1.5,0.5)$ and $(2,1)$.\fi{} The Hermitian operator
+of the M\"obius case is $\Gfive K_D=\Gfive D_-^{-1}D$; Ref.~\cite{BNO}, Eq.~(2.22), defines
+its $\Gamma_5$ as $\gamma_5R_5D_-^{-1}$ for that reason. It contains $D_-^{-1}$, whose cost
+is discussed in Sec.~\ref{sec:dagger}.
 
 \subsection{The site-diagonal part and its inverse}
 \label{sec:C}
-$C$ acts within a four-dimensional site, as an $L_s\times L_s$ matrix in the
-fifth dimension on each chirality. With $\psi^\pm=P_\pm\psi$, it is lower
-bidiagonal on $\psi^+$ and upper bidiagonal on $\psi^-$, each with one corner
-element from the mass:
+$C=d_++d_-Y$ of Eq.~\eqref{eq:D} is what remains of $D$ when the four-dimensional hops are
+dropped. It acts within one four-dimensional site, as an $L_s\times L_s$ matrix in $s$ times
+the identity in color, and it commutes with $P_\pm$ (only $Y$ is involved, and $Y$ maps
+$\Pp\psi$ to $\Pp\psi$ and $\Pm\psi$ to $\Pm\psi$). So it splits into a block on
+$\psi^+=\Pp\psi$ and one on $\psi^-=\Pm\psi$. From Eq.~\eqref{eq:Y}, $Y$ moves $\psi^+$ from
+$s-1$ to $s$ and $\psi^-$ from $s+1$ to $s$, with the factor $-1$, and the wrap-around gives
+$+m$:
 \begin{equation}
 (C\psi)^+_s=\begin{cases}d_+\psi^+_0+m\,d_-\psi^+_{L_s-1}, & s=0,\\
 d_+\psi^+_s-d_-\psi^+_{s-1}, & s\ge1,\end{cases}
 \label{eq:Cblocks}
 \end{equation}
-and the same for $\psi^-$ with $s\to L_s-1-s$. With $q=d_-/d_+$, the solution
-of $C^+x=r$ is a forward substitution $p_0=0$,
-$p_s=(r_s+d_-p_{s-1})/d_+$, followed by
+a lower bidiagonal matrix with one corner element; for $\psi^-$ the same with
+$s\to L_s-1-s$ (upper bidiagonal). For $L_s=4$ the block on $\psi^+$ is
 \begin{equation}
-x_0=\frac{r_0-m\,d_-\,p_{L_s-1}}{d_++m\,d_-\,q^{L_s-1}},\qquad x_s=p_s+q^{s}x_0 ;
+C^+=\begin{pmatrix}d_+&0&0&m\,d_-\\-d_-&d_+&0&0\\0&-d_-&d_+&0\\0&0&-d_-&d_+\end{pmatrix}.
+\end{equation}
+
+\paragraph{The inverse.} To solve $C^+x=r$, write the rows $s\ge1$ as
+$x_s=(r_s+d_-x_{s-1})/d_+$. Starting from an unknown $x_0$, each $x_s$ is affine in $x_0$:
+with $q=d_-/d_+$,
+\begin{equation}
+x_s=p_s+q^{s}x_0,\qquad p_0=0,\quad p_s=(r_s+d_-p_{s-1})/d_+ ,
+\end{equation}
+which is checked by induction: $(r_s+d_-(p_{s-1}+q^{s-1}x_0))/d_+=p_s+q^sx_0$. The row $s=0$,
+$d_+x_0+m\,d_-x_{L_s-1}=r_0$, with $x_{L_s-1}=p_{L_s-1}+q^{L_s-1}x_0$, fixes $x_0$:
+\begin{equation}
+x_0=\frac{r_0-m\,d_-\,p_{L_s-1}}{d_++m\,d_-\,q^{L_s-1}},\qquad x_s=p_s+q^{s}x_0 .
 \label{eq:Cinv}
 \end{equation}
-for $C^-$ the substitution runs from $s=L_s-1$ downwards, and for $C\dg$ the
-roles of the two chiralities are exchanged. $C^{-1}$ is thus exact and costs
-$O(L_s)$ per site. It does not depend on the gauge field~\cite{KCM2024}.
+For $C^-$ the substitution runs from $s=L_s-1$ downwards. $C\dg$ has the transposed blocks:
+on $\psi^+$ an upper bidiagonal matrix, solved like $C^-$, and on $\psi^-$ a lower one. $C^{-1}$
+is thus exact, costs $O(L_s)$ per site, and does not depend on the gauge field~\cite{KCM2024}.
+It exists unless $d_++m\,d_-q^{L_s-1}=0$.
 
 \subsection{The preconditioned operator}
-The operator of Ref.~\cite{KCM2024} is
+The spectrum of $D$ surrounds the origin (Sec.~\ref{sec:spectra}), so Krylov methods and
+polynomial smoothers cannot work on it directly. Ref.~\cite{KCM2024} multiplies $D\psi=\eta$
+from the left by $(\Dpv\Cpv^{-1})\dg$ and substitutes $\psi=C^{-1}y$:
 \begin{equation}
-A'=(\Dpv\Cpv^{-1})\dg\,D\,C^{-1},\qquad
-A'y=(\Dpv\Cpv^{-1})\dg\,\eta,\quad \psi=C^{-1}y,
+A'y=(\Dpv\Cpv^{-1})\dg\,\eta,\qquad A'=(\Dpv\Cpv^{-1})\dg\,D\,C^{-1},\qquad \psi=C^{-1}y .
 \label{eq:Aprime}
 \end{equation}
-for $D\psi=\eta$. For $m\to1$ it becomes the Hermitian positive operator
-$(\Dpv\Cpv^{-1})\dg(\Dpv\Cpv^{-1})$.
+Why these two factors:
+\begin{itemize}
+\item $DC^{-1}$ is $D$ with its site-local part divided out; its eigenvalues are much more
+compact than those of $D$ (Fig.~\ref{fig:pv}: real parts $[-0.22,2.22]$ against
+$[-1.29,13.2]$), but still on both sides of the origin.
+\item For $m=1$, $DC^{-1}=\Dpv\Cpv^{-1}$ and $A'=(\Dpv\Cpv^{-1})\dg(\Dpv\Cpv^{-1})$, which is
+Hermitian and positive definite. For $m<1$ the two factors differ only in the corners of
+Eq.~\eqref{eq:Dmatrix}, and $A'$ is a perturbation of a positive operator.
+\item $\Dpv^{-1}D$ approximates the overlap operator~\cite{BCHW}; $\Dpv\dg$ in place of
+$\Dpv^{-1}$ keeps the cost of one application of $A'$ at two applications of $D$ plus the
+site-local $C^{-1}$ and $\Cpv^{-1}$.
+\end{itemize}
+The result is an operator whose eigenvalues all have positive real part
+(Fig.~\ref{fig:A}), with the smallest condition number among those of
+Ref.~\cite{KCM2024}.
 
-\subsection{Neff's $\alpha$}
-Neff's form of the domain-wall matrix~\cite{Neff,CKMN} is $D^{(\alpha)}=DQ$ with
-a site-local $Q$, diagonal in the fifth dimension,
+\subsection{Neff's \texorpdfstring{$\alpha$}{alpha}}
+Neff's form of the domain-wall matrix~\cite{Neff,CKMN} is $D^{(\alpha)}=DQ$ with a
+site-local $Q$, diagonal in the fifth dimension,
 \begin{equation}
 Q_0=\Pm+\alpha\Pp,\qquad Q_s=\alpha\ \ (0<s<L_s-1),\qquad Q_{L_s-1}=\Pp+\alpha\Pm .
 \label{eq:Q}
 \end{equation}
-$Q$ is Hermitian, $Q^{-1}$ is Eq.~\eqref{eq:Q} with $\alpha\to1/\alpha$, and
-$Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ unchanged. The site-diagonal part
-of $DQ$ is $CQ$, with $(CQ)^{-1}=Q^{-1}C^{-1}$ and $(CQ)\dg=QC\dg$. The solution
-of $D\psi=\eta$ is $\psi=Q\psi^{(\alpha)}$ with $D^{(\alpha)}\psi^{(\alpha)}=\eta$.
-The factor may be applied to the quark operator alone or to the Pauli--Villars
-operator as well; we write $\Dpv^{(\alpha)}=\Dpv Q$ in the latter case.
+Properties used below, each read off Eq.~\eqref{eq:Q}:
+\begin{itemize}
+\item $Q$ is Hermitian, and $Q^{-1}$ is Eq.~\eqref{eq:Q} with $\alpha\to1/\alpha$.
+\item $Q$ leaves the components $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ unchanged, which make up the
+quark field $q$; so $D^{(\alpha)}$ and $D$ have the same four-dimensional propagator.
+\item The solution of $D\psi=\eta$ is $\psi=Q\psi^{(\alpha)}$ with
+$D^{(\alpha)}\psi^{(\alpha)}=\eta$, since $D^{(\alpha)}\psi^{(\alpha)}=DQ\psi^{(\alpha)}=D\psi$.
+\item $Q$ is site-local, so the site-diagonal part of $DQ$ is $CQ$, with
+$(CQ)^{-1}=Q^{-1}C^{-1}$ and $(CQ)\dg=QC\dg$.
+\end{itemize}
+The factor may be applied to the quark operator alone or to the Pauli--Villars operator as
+well; we write $\Dpv^{(\alpha)}=\Dpv Q$ in the latter case. For $\alpha<1$ it improves the
+conditioning of the even-odd operator~\cite{Neff,CKMN}.
 
 % ============================================================
 \section{Even-odd forms}
@@ -1047,6 +1171,172 @@ $\Pro$ and the same smoother interval; with exact coarse solves it is the adjoin
 $\mathcal M$ (Sec.~\ref{sec:fov}). How well it converges is an open problem
 (Sec.~\ref{sec:open}).\fi
 
+% ============================================================
+\section{Solving with \texorpdfstring{$D\dg$}{D-dagger}}
+\label{sec:dagger}
+
+HMC with the ratio action $\det(D\dg D)/\det(\Dpv\dg\Dpv)$ needs $x=(D\dg D)^{-1}b$ at every
+force evaluation, that is one solve with $D\dg$ and one with $D$. This section derives the
+system that the solve with $D\dg$ becomes on the even sites, shows why the exact relation
+of Sec.~\ref{sec:g5}, which replaces the shortcut $D\dg=\Gfive D\Gfive$ of Wilson fermions,
+cannot be used directly, and asks which prolongation the solve with $D\dg$ needs. Everything here is at $\alpha=1$.
+
+\subsection{The system on the even sites}
+The block form of $D\dg$ is
+\begin{equation}
+D\dg=\begin{pmatrix}\Ce\dg & D_{oe}\dg\\ D_{eo}\dg & \Co\dg\end{pmatrix},
+\end{equation}
+since the $(e,o)$ block of $D\dg$ is the adjoint of the $(o,e)$ block of $D$. Eliminating
+the odd sites of $D\dg w=r$ in the same way as for $D$ (Sec.~\ref{sec:eo}) gives
+\begin{equation}
+\big(\Ce\dg-D_{oe}\dg(\Co\dg)^{-1}D_{eo}\dg\big)\,w_e=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o ,
+\end{equation}
+and the matrix on the left is $S\dg$, the adjoint of the Schur complement of $D$:
+$S\dg=\Ce\dg-D_{oe}\dg(\Co\dg)^{-1}D_{eo}\dg$ term by term. Write
+\begin{equation}
+X=S\Ce^{-1},\qquad X_{\rm PV}=\Spv\Cpve^{-1},\qquad\text{so}\qquad \AR=X_{\rm PV}\dg X
+\label{eq:XXpv}
+\end{equation}
+by Eq.~\eqref{eq:AR}. With $S\dg=\Ce\dg X\dg$, the even-site equation is
+$X\dg w_e=(\Ce\dg)^{-1}r'_e$, $r'_e=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o$. Putting
+$w_e=X_{\rm PV}z$,
+\begin{equation}
+X\dg X_{\rm PV}\,z=(\Ce\dg)^{-1}r'_e,\qquad X\dg X_{\rm PV}=\big(X_{\rm PV}\dg X\big)\dg=\AR\dg ,
+\label{eq:ARdag}
+\end{equation}
+and $w_o=(\Co\dg)^{-1}(r_o-D_{eo}\dg w_e)$. Thus the solve with $D\dg$ is a solve with
+$\AR\dg$, and $\AR\dg$ is the right form~\eqref{eq:AR} with the roles of $D$ and $\Dpv$
+exchanged: the same code with its two operators swapped. Its inverse, as
+Eq.~\eqref{eq:ARinv},
+\begin{equation}
+(\AR\dg)^{-1}=X_{\rm PV}^{-1}(X\dg)^{-1}=\Cpve\,\Spv^{-1}\,(S\dg)^{-1}\,\Ce\dg
+=\Cpve\,\pi\Dpv^{-1}\iota\;\pi(D\dg)^{-1}\iota\;\Ce\dg ,
+\label{eq:ARdaginv}
+\end{equation}
+is again a product of two inverses of one-hop operators, now first $D\dg$ and then $\Dpv$,
+and the factorized correction~\eqref{eq:corr} carries over with
+$O_R=\Ce\dg$, $O_M=1$, $O_L=\Cpve$ and the coarse factors $\Pro\dg D\dg\Pro$ (first) and
+$\Pro\dg\Dpv\Pro$ (second).
+
+\subsection{The exact adjoint and why it cannot be used directly}
+\label{sec:g5fail}
+By Sec.~\ref{sec:g5}, $\Gfive D\Gfive\neq D\dg$ for $c\neq0$, and the exact relation
+Eq.~\eqref{eq:g5exact} gives $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$. Two consequences would
+make one multigrid serve both $D$ and $D\dg$:
+\begin{itemize}
+\item \emph{Null vectors.} If $Dv\approx0$, then $D\dg w\approx0$ for
+\begin{equation}
+w=(D_-\dg)^{-1}\Gfive v ,
+\label{eq:dualnull}
+\end{equation}
+because $D\dg w=\Gfive D_-^{-1}D\,\Gfive D_-\dg w=\Gfive D_-^{-1}Dv$. For $c=0$, $D_-=-1$ and
+$w\propto\Gfive v$, the Wilson case.
+\item \emph{Solves.} $D\dg w=r$ is equivalent to $Dz=D_-\Gfive r$, $w=(D_-\dg)^{-1}\Gfive z$:
+a solve with $D$, by the multigrid of $D$, followed by a solve with $D_-\dg$.
+\end{itemize}
+Both need an inverse of $D_-$.
+
+\paragraph{Why $D_-$ cannot be inverted.} $D_-=cW-1=c\,(W-1/c)$, and $W$ is the Wilson
+operator of mass $-M_5$ (Eq.~\eqref{eq:W}). So $D_-$ is, up to the factor $c$, the Wilson
+operator of mass $m_0=-M_5-1/c$: $-3$ in setup~S ($M_5=1$, $c=0.5$) and $-3.8$ in setup~B.
+Its free eigenvalues (Sec.~\ref{sec:operator})
+\begin{equation}
+m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2}
+\end{equation}
+have real parts filling $[m_0,m_0+8]$, here $[-3,5]$. The eigenvalues with real part near $0$
+are those with $\sum_\mu(1-\cos p_\mu)\approx3$, between the doubler corners with two and with
+four momenta at $\pi$, and they have imaginary parts of both signs: the spectrum surrounds
+the origin. A Krylov method builds polynomials $p$ with $p(0)=1$ that should be small on the
+spectrum; when the spectrum surrounds $0$ no such polynomial of low degree exists
+(Sec.~\ref{sec:spectra}), and GCR or BiCGStab make no progress. The gauge field does not
+change this picture.\ifresults{} On the A30 ($12^4$, as above), GCR(8) on $D_-$ and on
+$D_-\dg$ stops at $|r|^2/|b|^2=0.74$ (S) and $0.96$ (B) after $20000$ iterations, and
+BiCGStab diverges.\fi{} The inverse of $D_-$ is thus harder than the solve with $D$ it would
+serve, and neither route above is practical.
+
+What remains is the structure of Eq.~\eqref{eq:dualnull}. On smooth fields ($p\approx0$) the
+free $D_-$ is the number $-(1+cM_5)$, so for the smooth part of a low mode $v$,
+$w\approx-\Gfive v/(1+cM_5)$: $\Gfive v$ points along a null vector of $D\dg$ up to its rough
+components.
+
+\subsection{Which prolongation the solve with \texorpdfstring{$D\dg$}{D-dagger} needs}
+\label{sec:dualbasis}
+The correction for $\AR\dg$ is exact on the analogue of Proposition~\ref{prop:exact}, with
+the lifts of Eqs.~\eqref{eq:s} and \eqref{eq:that} made with $D$ and $\Dpv$ exchanged: for a
+vector $y'$ on the even sites,
+\begin{equation}
+s'=\big(\Cpve^{-1}y',\;-\Cpvo^{-1}D_{\mathrm{PV},oe}\Cpve^{-1}y'\big),\qquad
+\hat t'=\big(a',\;-(\Co\dg)^{-1}D_{eo}\dg a'\big),\quad a'=\pi\Dpv s' ,
+\end{equation}
+so that $\Dpv s'=\iota\Spv\Cpve^{-1}y'$ and $D\dg\hat t'=\iota S\dg a'$. If $r=\AR\dg y'$ and
+$s',\hat t'\in\operatorname{range}\Pro$, the correction returns $y'$, by the proof of
+Proposition~\ref{prop:exact} with the roles exchanged. The question is which $y'$.
+
+The test vectors $y_j$ of the setup approximate the right singular vectors of $\AR$ with small
+singular values: the filter works on $\AR\dg\AR$. The right singular vectors of $\AR\dg$ are
+the \emph{left} singular vectors of $\AR$: if $\AR v=\sigma u$ and $\AR\dg u=\sigma v$, then
+$u$ is a right singular vector of $\AR\dg$ with the same $\sigma$. So the $y'$ needed are the
+$u_j=\AR y_j/\sigma_j$, which the setup does not provide; computing them as $\AR y_j$
+multiplies the error of $y_j$ in the high modes by $\sigma_{\rm high}/\sigma_j$, which is why
+that basis is worse.\ifresults{} (Measured: worse than the $y_j$ themselves.)\fi{} For Wilson
+fermions, or here for $c=0$ on the whole lattice, $\Gfive$ maps right singular vectors of $D$
+to left ones, and a basis closed under $\Gfive$ contains both. With $c\neq0$
+Eq.~\eqref{eq:dualnull} replaces $\Gfive$ by $(D_-\dg)^{-1}\Gfive$, which is close to
+$\Gfive$ on smooth vectors; on the even sites the factors $\Ce$ and $X_{\rm PV}$ of
+Eq.~\eqref{eq:ARdag} enter as well. This suggests, without proving it, that the coarse space
+of $\AR\dg$ needs the vectors $\Gfive y_j$ in addition to the $y_j$.
+
+\paragraph{The chirality split does not provide it.} The prolongation is already closed under
+$\Gfive$, $\Gfive\Pro=\Pro\Sigma$ (Eq.~\eqref{eq:GP}): each lifted vector is split into its
+$\Gfive$ components before orthonormalization. This does not put the lifts of $\Gfive y_j$
+into $\operatorname{range}\Pro$, because the lifts do not commute with $\Gfive$:
+$\Ce^{-1}\Gfive y\neq\Gfive\Ce^{-1}y$, since $\Gfive\Ce\Gfive=\Ce\dg\neq\Ce$. For the same
+reason a Petrov--Galerkin correction with restriction $\Pro\dg$ and prolongation $\Gfive\Pro$
+is the Galerkin one: $\Gfive\Pro=\Pro\Sigma$ has the range of $\Pro$. A Petrov--Galerkin
+correction that differs would need a second set of stored vectors.
+
+\ifresults
+\paragraph{Measurements.} Table~\ref{tab:dualbasis} compares prolongations for $\AR\dg$ made
+from the test vectors of one setup for $D$ ($32$ test vectors,
+blocks $4^4$, the cycle of $\AR$ with the second coarse factor by BiCGStab, GCR(8) to
+$10^{-12}$, one random right-hand side, $m=0.001$). ``Lifts of $D$'' means
+Eqs.~\eqref{eq:s}--\eqref{eq:that}, ``lifts of $\AR\dg$'' the exchanged lifts above.
+\begin{table}[t]
+\centering
+\caption{GCR(8) iterations of the solve with $\AR\dg$ for prolongations made from the test
+vectors $y$ of the setup of $\AR$, without a setup of their own; the first row is the solve with
+$\AR$ for comparison. ``stall'': not converged in $1000$ ($|r|^2$ at the end in brackets);
+OOM: out of the $24$~GB of device memory of the A30.}
+\label{tab:dualbasis}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+& \multicolumn{2}{c}{$12^4$} & \multicolumn{2}{c}{$16^4$} & \multicolumn{2}{c}{$24^4$}\\
+prolongation & S & B & S & B & S & B\\
+\midrule
+$\AR$ with $\Pro(y)$ & 7 & 9 & 7 & 9 & 9 & 13\\
+$\Pro(y)$, shared & stall ($10^{-6}$) & 14 & 10 & 12 & 21 & 20\\
+$\Pro(\Gfive y)$, lifts of $\AR\dg$ & 13 & 85 & & & & \\
+$\Pro(\Gfive y)$, lifts of $D$ & 14 & 50 & 15 & 60 & & \\
+$\Pro(y\cup\Gfive y)$, lifts of $\AR\dg$ & 11 & 16 & & & & \\
+$\Pro(y\cup\Gfive y)$, lifts of $D$ & 10 & 9 & 8 & 9 & OOM & OOM\\
+\bottomrule
+\end{tabular}
+\end{table}
+The overlap of $\operatorname{span}\{\Gfive y_j\}$ with $\operatorname{span}\{y_j\}$ is
+$10^{-3}$ of the norm on $12^4$ and less on $16^4$: the two sets are nearly orthogonal. Half
+of each ($16+16$) does not converge on $12^4$, and a full setup of its own for $\AR\dg$
+(filter and bootstrap on $\AR\AR\dg$) stalls in setup~S on $12^4$ as well. The union
+$y\cup\Gfive y$ converges everywhere in about the iterations of $\AR$; the shared $\Pro(y)$
+converges on $16^4$ and $24^4$ in about twice those and fails only on $12^4$, setup~S, and
+there only at $m=0.001$ ($15$--$18$ iterations at $m=0.01$). That configuration is the one with an
+unpaired near-zero mode ($Q=+1$, Table~\ref{tab:setups}); whether the stall comes from it,
+whose left and right singular vectors differ in chirality, has not been checked. The union doubles the test vectors
+and quadruples the coarse operators, so a solve costs $2$--$4$ times one with the shared
+$\Pro$. The shared $\Pro$ is therefore the default, and the union an option for when the
+solves with $D\dg$ stall (Appendix~\ref{sec:impl}).
+\fi
+
 \ifresults
 \input{results}
 \fi
@@ -1169,7 +1459,10 @@ basis and exactness have not been derived.
 
 \fi
 % ============================================================
+\clearpage
 \appendix
+\begin{center}\Large\bfseries Appendices\end{center}
+\addcontentsline{toc}{section}{Appendices}
 \renewcommand{\theequation}{\thesection.\arabic{equation}}
 
 \section{The notation of other references}
@@ -1177,23 +1470,17 @@ basis and exactness have not been derived.
 Table~\ref{tab:notation} relates Eqs.~\eqref{eq:Y}--\eqref{eq:Q} to Brower, Neff
 and Orginos~\cite{BNO}, to Kanamori, Chen and Matsufuru~\cite{KCM2024} and to the
 code of Bridge++~\cite{Bridge} (\texttt{Fopr\_Domainwall}, \texttt{Fopr\_Domainwall\_eo},
-with Neff's $\alpha$ as \texttt{parameter\_alpha}). Writing out Eq.~\eqref{eq:D} slice by
-slice,
-\begin{equation}
-(D\psi)_s=(1+bW)\psi_s+(cW-1)\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),
-\qquad \psi_{L_s}\equiv-m\psi_0,\ \psi_{-1}\equiv-m\psi_{L_s-1},
-\label{eq:Dslices}
-\end{equation}
-which is the tridiagonal matrix of Ref.~\cite{BNO}, Eq.~(2.20), and of
-Ref.~\cite{KCM2024}, Eq.~(1), with $D_+=1+bW$ on the diagonal, $D_-\Pp$ below and
-$D_-\Pm$ above it, $-mD_-P_\pm$ in the corners, and $s$ shifted by one. The
-operators $D$, $C$ and $D^{(\alpha)}$ are thus the same in all four; the differences
-are names and signs:
+with Neff's $\alpha$ as \texttt{parameter\_alpha}). Eq.~\eqref{eq:Dslice} is the
+tridiagonal matrix of Ref.~\cite{BNO}, Eq.~(2.20), and of Ref.~\cite{KCM2024}, Eq.~(1), with
+$D_+=1+bW$ on the diagonal, $D_-\Pp$ below and $D_-\Pm$ above it, $-mD_-P_\pm$ in the corners,
+and $s$ shifted by one. The operators $D$, $C$ and $D^{(\alpha)}$ are thus the same in all four;
+the differences are names and signs:
 \begin{itemize}
-\item $D_-=cW-1$ in Refs.~\cite{BNO,KCM2024}. Here it enters through $Y$ as
-$-(1-cW)$, so $d_-=1-c(4-M_5)$ is minus the site part of their $D_-$; the comments of
-RutticeQCD on the five-dimensional source call $1-cW$ ``$D_-$'', which is $-D_-$ (the
-source is that of the Bridge++ domain-wall test, sign included).
+\item $D_\pm$ are those of Refs.~\cite{BNO,KCM2024}, $D_-=cW-1$. The hop $Y$ of
+Eq.~\eqref{eq:Y} carries a minus sign, so $D=D_+-D_-Y$ and $d_-=1-c(4-M_5)$ is minus the
+site part of $D_-$. The comments of RutticeQCD on the five-dimensional source call $1-cW$
+``$D_-$'', which is $-D_-$ (the source is that of the Bridge++ domain-wall test, sign
+included).
 \item The height $M_5>0$ here is $M_0$ in Ref.~\cite{KCM2024} and in Bridge++
 (\texttt{domain\_wall\_height}); Ref.~\cite{BNO} writes $M_5$ for the Wilson mass,
 $M_5^{\mathrm{BNO}}=-M_5$, Eq.~(2.13). The caption of Fig.~1 of Ref.~\cite{KCM2024}
@@ -1223,7 +1510,7 @@ Equation numbers are those of the references; ``the same'' means the same operat
 Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
 Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
 Wilson part & $W=(4-M_5)-\tfrac12K$ & $D^{\mathrm{Wilson}}(M_5)$ (2.13) & $D_{\mathrm W}(-M_0)$ & $\frac1{2\kappa}D_{\mathrm W}$, $\kappa=1/(8-2M_0)$\\
-$D_\pm$ & $1+bW$; $-(1-cW)$ & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & ---\\
+$D_\pm$ & $D_+=1+bW$, $D_-=cW-1$ (Eq.~\eqref{eq:Dpm}) & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & ---\\
 $D$ & Eq.~\eqref{eq:D} & $D_{\mathrm{DW}}(m)$ (2.20) & $D(m)$ (1) & \texttt{Fopr\_Domainwall}, mode \texttt{D}\\
 $C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & --- & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
 Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & --- (its $\alpha=\frac{b+c}{b-c}$) & --- & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
