@@ -351,7 +351,7 @@ further direction is another fine-grid vector).
 \caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
 Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
 the longest stretch of steps with a factor above $1/2$. From an earlier build than the
-mass scan; the steps differ from those of Table~\ref{tab:massscan} (\texttt{fbc8f00}) by
+mass scan; the steps differ from those of Table~\ref{tab:massscan} (\texttt{6d5bf18}) by
 at most one.}
 \label{tab:history}
 \renewcommand{\arraystretch}{1.15}
@@ -413,7 +413,7 @@ needs the iterations of the double-precision one, except at $m=0.001$ (S): $4090
 Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$3\times10^{-16}$ (CGNE, both),
 $2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
 (double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$). RutticeQCD
-\texttt{fbc8f00}; \texttt{data/massscan\_24.tsv}.}
+\texttt{6d5bf18}; \texttt{data/massscan\_24.tsv}.}
 \label{tab:massscan}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}
@@ -464,7 +464,7 @@ multigrid is not faster at all. The multigrid needs three times the device memor
 CGNE; on the $24$\,GB A30 this excludes GCR($k$) with $k\ge8$ (out of memory after the
 setup). Neff's $\alpha=0.6$ against $\alpha=1$ in the left form: equal within one
 iteration for S except at $m=0.1$ (three fewer), two to three iterations fewer for B.
-Against an earlier build (\texttt{535c9ef}) the iteration counts differ by one or two
+Against an earlier build (\texttt{6c7ff42}) the iteration counts differ by one or two
 in six of the 28 multigrid runs; the cause (code change or non-determinism of the
 device reductions) is not established.
 
@@ -498,7 +498,7 @@ $3\times10^{-16}$). The device memory is $21.8$\,GB (multigrid) and $9.1$\,GB
 (setup seconds, iterations and seconds per column) against the mixed-precision CGNE
 (iterations and seconds per column), the wall time of the whole propagator, and the
 largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
-\texttt{fbc8f00}; \texttt{data/pointsource\_24.tsv}.}
+\texttt{6d5bf18}; \texttt{data/pointsource\_24.tsv}.}
 \label{tab:pointsource}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -582,7 +582,7 @@ at $10^{-2}$; why BiCGStab is so much worse, also at $c=0$, has not been studied
 \caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
 $12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $16$ in setup~S, $14$ in
 setup~B); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
-change much. RTX~3080, RutticeQCD \texttt{fbc8f00}; \texttt{data/sensitivity\_12.tsv}.}
+change much. RTX~3080, RutticeQCD \texttt{6d5bf18}; \texttt{data/sensitivity\_12.tsv}.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
@@ -614,7 +614,7 @@ been made.
 \centering
 \caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the A30:
 iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
-right-hand side, RutticeQCD \texttt{fbc8f00}; \texttt{data/costs\_12.tsv}. The iterations
+right-hand side, RutticeQCD \texttt{6d5bf18}; \texttt{data/costs\_12.tsv}. The iterations
 are those of Table~\ref{tab:sensitivity} (RTX~3080, the same build) in every row; with
 an earlier build they differed by up to six, the device kernels adding in other orders.}
 \label{tab:costs}
@@ -655,7 +655,7 @@ With the setup as fast as it is now, the base setting is no longer the time opti
 $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
 no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
 setup. On $24^3\times48$ the fewer test vectors do not carry over (setup~S, $m=0.001$,
-point source, A30, \texttt{fbc8f00}): $16$ halve the setup there too ($116$ against
+point source, A30, \texttt{6d5bf18}): $16$ halve the setup there too ($116$ against
 $207$\,s), but the columns that converge need $910$--$940$ iterations and the others stop
 at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the first column,
 against $29$--$32$ with $32$. More smoother steps have not been tried there. All runs use one setup seed, and the iterations move by a few

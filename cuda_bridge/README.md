@@ -130,7 +130,7 @@ Conventions:
   `blocks_abs_inverse_gamma5_kernel`) thread p overwrote a_pq while the other warps of the
   block (dim > 32) could still be reading it. It never showed in the runs on an RTX 3080 (12^4,
   81 coarse sites: the same bit for bit with and without the fix), but it does there on 2592
-  random blocks of dim 64 (up to 6e-2 apart, 2026-10-20). With the fix (462a423) two runs of
+  random blocks of dim 64 (up to 6e-2 apart, 2026-10-20). With the fix (cbe655b) two runs of
   24^3x48 on the A30 gave the same 29 checksums, for both domain-wall setups (2026-10-19).
 - The coarse operator (`coarse_pass_kernel`, `multigrid/fold.cuh`) has a warp for each row of
   a site's matrices, its lanes the columns, so that a warp reads a row as one stretch of

@@ -64,7 +64,7 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   correction, and GCR(2) on Ã_R with the cycle against Ã_R† with the dual cycle.
   `preconditioned_fov_device` prints, for the leftmost vector of the field of values, what the
   cycle does to it at several coarse tolerances.
-- MG note: the timings again at fbc8f00 on the A30 (mass scan, point-source propagators), the
+- MG note: the timings again at 6d5bf18 on the A30 (mass scan, point-source propagators), the
   results in the order of the abstract, the implementation in an appendix.
 
 ### Known issues
