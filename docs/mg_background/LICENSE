@@ -1,0 +1,24 @@
+The multigrid note in this directory
+
+  MDWF_MULTIGRID_NOTE.tex, results.tex, reproduce.tex, MDWF_MULTIGRID_NOTE.pdf,
+  fig_history.pdf, fig_massscan.pdf, fig_spectrum.pdf and the data under data/ and runs/
+
+is licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0),
+https://creativecommons.org/licenses/by/4.0/ (full text:
+https://creativecommons.org/licenses/by/4.0/legalcode). Copyright (C) 2026 Wei-Lun Chen.
+
+This applies also to the note as it appeared in the earlier releases v0.3.0, v0.3.1 and
+v0.3.2, where the whole repository was marked GPL-3.0-or-later: those versions of the note
+are available under CC BY 4.0 as well as under the terms they were released with.
+
+Exceptions:
+
+- spectrum_fig1.png, spectrum_fig3.png and spectrum_fig4.png are Figs. 1, 3 and 4 of
+  I. Kanamori, W.-L. Chen and H. Matsufuru, "Spectrum of preconditioned Moebius domain-wall
+  operators", PoS LATTICE2024 (2025) 414, reproduced unchanged. They are licensed under the
+  terms of their original publication, Creative Commons Attribution-NonCommercial-NoDerivatives
+  4.0 International (CC BY-NC-ND 4.0), https://creativecommons.org/licenses/by-nc-nd/4.0/,
+  and are not covered by CC BY 4.0 or by the GPL of the repository, in this or in any earlier
+  release.
+- The scripts figures.py and collect_fov.py are code and, like the rest of the repository,
+  GPL-3.0-or-later.

@@ -211,4 +211,7 @@ its website, <https://bridge.kek.jp/Lattice-code/>.
 
 ## License
 
-GPL-3.0-or-later; see [LICENSE](LICENSE).
+The code is GPL-3.0-or-later; see [LICENSE](LICENSE). The multigrid note in
+`docs/mg_background/` (text, PDF, figures made here, data) is CC BY 4.0, also in the
+earlier releases, except three figures reproduced from PoS LATTICE2024 (2025) 414, which
+keep their CC BY-NC-ND 4.0; see [docs/mg_background/LICENSE](docs/mg_background/LICENSE).
