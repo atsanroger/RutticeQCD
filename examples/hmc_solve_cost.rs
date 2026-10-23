@@ -18,7 +18,7 @@ use ruttice::fermion::{Bound, FermionOp, Mdwf, MdwfParams, Variant};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::hmc::{dwf_multigrid_normal_solve, DwfMultigridSetup, LinkField, Mseries};
-use ruttice::solver::preconditioner::multigrid::PvEoParams;
+use ruttice::solver::preconditioner::multigrid::{MdwfMultigridSettings, PvEoParams};
 use ruttice::solver::{Cg, Solver, Stop};
 use ruttice::{random_spinor, Boundary, Field, Gauge, Lattice, Normal, Spinor, Vector, ND};
 use std::error::Error;
@@ -96,7 +96,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         cycle.chebyshev_ratio,
         -inner.log10()
     );
-    let mut setup = DwfMultigridSetup::new([block; ND], vectors, cycle, Stop::simple(inner, 4000));
+    let mut setup = DwfMultigridSetup::new(
+        MdwfMultigridSettings::new([block; ND], vectors, cycle),
+        Stop::simple(inner, 4000),
+    );
     let mut rng = Mseries::new(5);
     println!("# move  CG: iterations seconds  multigrid: setup rebuild solve seconds, solves on the even sites, GCR iterations");
     for k in 0..=moves {

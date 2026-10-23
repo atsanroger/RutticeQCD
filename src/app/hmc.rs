@@ -22,9 +22,8 @@ use crate::hmc::{
 use crate::hmc::{DwfMultigridSetup, HalfPsi, Single, SingleNormal};
 use crate::kernel::Dirac;
 use crate::numerics::{RationalApprox, RationalSpec};
-use crate::solver::preconditioner::multigrid::{
-    BootstrapParams, LowModeParams, MultigridParams, PvEoParams,
-};
+use crate::solver::preconditioner::multigrid::MdwfMultigridSettings;
+use crate::solver::preconditioner::multigrid::MultigridParams;
 use crate::solver::Stop;
 use crate::{Boundary, Comm, Field, Gauge, Lattice, Stencil, ND};
 use std::io::Write;
@@ -240,27 +239,15 @@ pub enum HmcMultigrid {
         refresh_every: usize,
         reuse: Option<usize>,
     },
-    /// Domain-wall fermions over Pauli-Villars fields (`hmc::DwfMultigridSetup`): `test_vectors`
-    /// kept (P has twice as many columns), each solve on the even sites to
-    /// `inner_tolerance_squared`.
+    /// Domain-wall fermions over Pauli-Villars fields (`hmc::DwfMultigridSetup`): the settings of
+    /// the propagator files, each solve on the even sites to `inner_tolerance_squared`, the
+    /// bootstrap again after `refresh_every` force solves.
     DomainWall {
-        block: [usize; ND],
-        test_vectors: usize,
-        cycle: PvEoParams,
-        low: LowModeParams,
-        boot: BootstrapParams,
+        settings: MdwfMultigridSettings,
         refresh_every: usize,
         inner_tolerance_squared: f64,
-        /// The coarse solves in double precision (single by default).
-        coarse_double: bool,
         /// Keep P and the coarse parts until the iterations grow this much; 0: never kept.
         rebuild_growth: f64,
-        /// The cycle in single precision.
-        fine_single: bool,
-        /// P kept in single precision (half by default).
-        basis_single: bool,
-        /// Levels below the coarse lattice.
-        levels: crate::hmc::CoarseLevels,
     },
 }
 
@@ -269,7 +256,7 @@ impl HmcMultigrid {
     pub fn block(&self) -> [usize; ND] {
         match self {
             HmcMultigrid::Wilson { params, .. } => params.block,
-            HmcMultigrid::DomainWall { block, .. } => *block,
+            HmcMultigrid::DomainWall { settings, .. } => settings.block,
         }
     }
 }
@@ -352,31 +339,17 @@ impl HmcSolver {
             (
                 Some(HmcPreconditioner::Multigrid),
                 Some(HmcMultigrid::DomainWall {
-                    block,
-                    test_vectors,
-                    cycle,
-                    low,
-                    boot,
+                    settings,
                     refresh_every,
                     inner_tolerance_squared,
-                    coarse_double,
                     rebuild_growth,
-                    fine_single,
-                    basis_single,
-                    levels,
                 }),
             ) => {
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
-                let mut setup = DwfMultigridSetup::new(block, test_vectors, cycle, inner);
-                setup.low_modes = low;
-                setup.bootstrap = boot;
+                let mut setup = DwfMultigridSetup::new(settings, inner);
                 setup.directions = self.restart;
                 setup.refresh_every = refresh_every;
-                setup.coarse_double = coarse_double;
                 setup.rebuild_growth = rebuild_growth;
-                setup.fine_single = fine_single;
-                setup.basis_single = basis_single;
-                setup.levels = levels;
                 setup.alpha = self.neff_alpha;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }

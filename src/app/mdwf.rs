@@ -4,9 +4,7 @@
 //! `mdwf_pv_eo_mg`, which can choose the seeds of random right-hand sides).
 
 use super::memory_line;
-use super::params::{
-    Backend, BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType,
-};
+use super::params::{Backend, Params, PrecisionType, PreconditionerType, SolverType};
 use crate::fermion::{
     EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd, SingleEven, SingleOperator, Variant,
 };
@@ -15,8 +13,8 @@ use crate::measure::{
     channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
 };
 use crate::solver::preconditioner::multigrid::{
-    pv_eo_basis_stored, pv_eo_bootstrap_stored, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
-    Aggregation, BasisStorage, CycleLayout, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
+    random_even, AnyParts, CpuParts, CycleLayout, MdwfBackend, OnCpu, PartsIn, PvEoBasis,
+    PvEoCycle, PvEoParams, SetupStage, SharedOperator,
 };
 use crate::solver::{largest_magnitude, Chebyshev, Convert, SolveError, SolveInfo};
 use crate::{
@@ -26,13 +24,11 @@ use crate::{
 use std::cell::Cell;
 use std::error::Error;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
 type H<L = Aos, T = f64> = Field<T, Spinor, Half, L>;
-/// The basis of a multigrid with the vectors it was built from.
-pub(super) type Tested<T = f64> = (PvEoBasis<T>, H<Aos, T>);
 type Smoother<'a, L, T> = Chebyshev<PvEvenOdd<'a, T, Dirac, L>, H<L, T>>;
 /// A cycle in single precision as a preconditioner of fields in double precision.
 type SinglePre<'a, L> = Convert<Preconditioner<'a, L, f32>, H<L, f32>>;
@@ -126,142 +122,47 @@ impl<L: CycleLayout<T>, T: Storage> LinearFn<H<L, T>> for Preconditioner<'_, L, 
     }
 }
 
-/// The vectors y on the even sites the multigrid is built from (from a checkpoint, or
-/// filtered here, and improved by the bootstrap if the file asks) with the basis on them, for
-/// the operators `op` and `pv` and stored as they are. `start`: when the setup began.
-pub(super) fn multigrid_basis<T: Storage>(
-    params: &Params,
-    file: &Path,
-    lat: &Arc<Lattice>,
-    (op, pv): (&Mdwf<T>, &Mdwf<T>),
-    start: Instant,
-    out: &mut dyn Write,
-) -> Result<Option<Tested<T>>, Box<dyn Error>> {
-    let relative = |p: &PathBuf| file.parent().map_or(p.clone(), |d| d.join(p));
-    let (Some((_, low, boot)), Some(mg)) = (params.multigrid(), &params.multigrid) else {
-        return Ok(None);
-    };
-    let keep = mg.level1.test_vectors(true) / 2;
-    let ls = op.params().ls;
-    let mut y = match &mg.setup.checkpoint {
-        Some(path) => {
-            // Checkpoints are in double precision.
-            let mut like = H::with_shape(lat, 24, ls, 1, 1);
-            like.set_parity(Parity::Even);
-            let read = load(&relative(path), &like, keep)?;
-            let mut y = H::<Aos, T>::with_shape(lat, 24, ls, read.num_vectors(), 1);
-            y.set_parity(Parity::Even);
-            y.convert_from(&read);
-            y
-        }
-        None => {
-            let (x, theta) = pv_eo_low_modes(op, pv, lat, low);
-            writeln!(
-                out,
-                "  filter: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
-                theta[0],
-                theta[theta.len() - 1],
-                start.elapsed().as_secs_f64()
-            )?;
-            x.select(&(0..keep).collect::<Vec<_>>())
-        }
-    };
-    let agg = Aggregation::new(lat, mg.level1.block_size);
-    let storage = match mg.basis_precision() {
-        BasisPrecision::Half => BasisStorage::Half,
-        BasisPrecision::Single => BasisStorage::Single,
-    };
-    let basis = if boot.rounds > 0 {
-        pv_eo_bootstrap_stored(op, pv, &agg, &mut y, boot, storage)?
-    } else {
-        pv_eo_basis_stored(op, pv, &agg, &y, storage)?
-    };
-    Ok(Some((basis, y)))
+/// The cycle of `parts` for `plain` and the operator `outer`, its smoother on the operators
+/// `layout` in the layout `L` (`map`).
+fn cycle_of<'a, L: CycleLayout<T>, T: Storage>(
+    plain: (&'a Mdwf<T>, &'a Mdwf<T>),
+    outer: (&'a Mdwf<T>, &'a Mdwf<T>, EoForm),
+    layout: (&'a Mdwf<T, Dirac, L>, &'a Mdwf<T, Dirac, L>),
+    map: L::Map,
+    p: &'a PartsIn<T>,
+    params: PvEoParams,
+) -> Preconditioner<'a, L, T> {
+    let (op, pv) = plain;
+    let hi = p.tops[0];
+    match &p.coarse {
+        AnyParts::Single(c) => Preconditioner::Single(Box::new(PvEoCycle::from_parts_in_layout(
+            op,
+            pv,
+            outer,
+            layout,
+            map,
+            &p.basis,
+            params,
+            c.clone().with_top(hi),
+        ))),
+        AnyParts::Double(c) => Preconditioner::Double(Box::new(PvEoCycle::from_parts_in_layout(
+            op,
+            pv,
+            outer,
+            layout,
+            map,
+            &p.basis,
+            params,
+            c.clone().with_top(hi),
+        ))),
+    }
 }
 
-/// The cycle on a basis of `multigrid_basis` for the operator `outer`, with the levels below
-/// the coarse lattice the file asks for, and the flops of one application of a coarse
-/// operator. `fine`: the operators of `outer` in the layout of the fine fields.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn multigrid_cycle<'a, L: CycleLayout<T>, T: Storage>(
-    params: &Params,
-    lat: &Lattice,
-    (op, pv): (&'a Mdwf<T>, &'a Mdwf<T>),
-    outer: (&'a Mdwf<T>, &'a Mdwf<T>, EoForm),
-    fine: (&'a Mdwf<T, Dirac, L>, &'a Mdwf<T, Dirac, L>),
-    basis: &'a PvEoBasis<T>,
-    y: &H<Aos, T>,
-    cycle_params: PvEoParams,
-    out: &mut dyn Write,
-) -> Result<(Preconditioner<'a, L, T>, f64), Box<dyn Error>> {
-    let mg = params.multigrid.as_ref().expect("multigrid() found it");
+/// The flops of one application of a coarse operator on `basis`.
+fn flops_of<T: Storage>(basis: &PvEoBasis<T>) -> f64 {
     let dim = basis.coarse_dim() as f64;
     let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
-    let coarse_flops = 72.0 * dim * dim * coarse_sites;
-    let map = L::map(lat).ok_or("the lattice cannot be cut for the SIMD layout")?;
-    let mut cycle = match mg.coarse_precision() {
-        PrecisionType::Single => {
-            Preconditioner::Single(Box::new(PvEoCycle::<Dirac, f32, L, T>::with_layout(
-                op,
-                pv,
-                outer,
-                fine,
-                map,
-                basis,
-                cycle_params,
-            )?))
-        }
-        PrecisionType::Double => {
-            Preconditioner::Double(Box::new(PvEoCycle::<Dirac, f64, L, T>::with_layout(
-                op,
-                pv,
-                outer,
-                fine,
-                map,
-                basis,
-                cycle_params,
-            )?))
-        }
-    };
-    let super_blocks = mg.super_blocks();
-    if !super_blocks.is_empty() {
-        let levels_start = Instant::now();
-        let vectors = pv_eo_coarse_vectors(op, pv, basis, y);
-        let applications = match &mut cycle {
-            Preconditioner::Single(c) => {
-                c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
-            }
-            Preconditioner::Double(c) => {
-                c.add_levels_with(&vectors, &super_blocks, &mg.level_bootstrap())?
-            }
-            _ => unreachable!(),
-        };
-        writeln!(
-    out,
-            "  levels below the coarse lattice {super_blocks:?} (refinement {:?}): {applications} coarse applications ({:.0} s)",
-            mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
-            levels_start.elapsed().as_secs_f64()
-        )?;
-        if mg.levels_for_pauli_villars {
-            if cycle_params.pv_solver
-                != crate::solver::preconditioner::multigrid::CoarseKrylov::Minres
-            {
-                return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
-            }
-            let levels_start = Instant::now();
-            let applications = match &mut cycle {
-                Preconditioner::Single(c) => c.add_pv_levels(&vectors, &super_blocks)?,
-                Preconditioner::Double(c) => c.add_pv_levels(&vectors, &super_blocks)?,
-                _ => unreachable!(),
-            };
-            writeln!(
-                out,
-                "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({:.0} s)",
-                levels_start.elapsed().as_secs_f64()
-            )?;
-        }
-    }
-    Ok((cycle, coarse_flops))
+    72.0 * dim * dim * coarse_sites
 }
 
 /// Counts the applications of the map it wraps.
@@ -448,76 +349,118 @@ where
         .ok_or("no even-odd decomposition")?
         .clone();
 
-    // The multigrid above the coarse lattice is stored as the file says, in single precision
-    // with operators of its own. They and the basis live as long as the cycle that borrows
-    // them.
+    // The multigrid: the test vectors (from a checkpoint, or filtered, and improved by the
+    // bootstrap), P, the levels and the coarse parts by the CPU's backend (`OnCpu`, as in HMC),
+    // then the cycle made of them with its smoother in the layout `L`, in single precision with
+    // operators of its own if the file says.
     let start = Instant::now();
     let mg_settings = params.multigrid();
-    let single = mg_settings.is_some()
-        && params
-            .multigrid
-            .as_ref()
-            .is_some_and(|mg| mg.fine_precision() == PrecisionType::Single);
-    let (double_ops, single_ops) = match (mg_settings.is_some(), single) {
-        (false, _) => (None, None),
-        (true, false) => (
-            Some(CycleOperators::<f64, L>::new(params, &lat, u, false)?),
-            None,
-        ),
-        (true, true) => (
-            None,
-            Some(CycleOperators::<f32, L>::new(params, &lat, u, true)?),
-        ),
+    let mg = params.multigrid.as_ref().filter(|_| mg_settings.is_some());
+    let settings = mg.map(|mg| mg.mdwf_settings(PrecisionType::Single));
+    // The plain operators the parts are made for and the outer operator, in the usual layout.
+    let aos = match settings {
+        Some(_) => Some((
+            Pair::<f64, Aos>::new(params, &lat, u, false)?,
+            Pair::<f64, Aos>::new(params, &lat, u, true)?,
+        )),
+        None => None,
     };
-    // The test vectors are dropped once the cycle is made from them.
-    let (double_basis, double_y) = match &double_ops {
-        Some(o) => multigrid_basis(params, file, &lat, o.plain.both(), start, out)?,
-        None => None,
-    }
-    .unzip();
-    let (single_basis, single_y) = match &single_ops {
-        Some(o) => multigrid_basis(params, file, &lat, o.plain.both(), start, out)?,
-        None => None,
-    }
-    .unzip();
+    let single_ops = match settings.is_some_and(|m| m.fine_single) {
+        true => Some(CycleOperators::<f32, L>::new(params, &lat, u, true)?),
+        false => None,
+    };
+    let parts = match (mg, &settings, &aos) {
+        (Some(mg), Some(m), Some((plain, alpha))) => {
+            let backend = OnCpu::<Dirac>::new(&plain.d);
+            let kept = match &mg.setup.checkpoint {
+                Some(path) => {
+                    let path = file.parent().map_or(path.clone(), |d| d.join(path));
+                    let mut like = H::with_shape(&lat, 24, ls, 1, 1);
+                    like.set_parity(Parity::Even);
+                    Some(backend.vectors_from_host(&load(&path, &like, m.test_vectors)?, m)?)
+                }
+                None => None,
+            };
+            let mut failed: Option<std::io::Error> = None;
+            let mut report = |stage: SetupStage<'_>| {
+                let line = match stage {
+                    SetupStage::Filtered(theta) => writeln!(
+                        out,
+                        "  filter: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s)",
+                        theta[0],
+                        theta[theta.len() - 1],
+                        start.elapsed().as_secs_f64()
+                    ),
+                    SetupStage::Levels {
+                        pauli_villars: false,
+                        applications,
+                        seconds,
+                    } => writeln!(
+                        out,
+                        "  levels below the coarse lattice {:?} (refinement {:?}): {applications} coarse applications ({seconds:.0} s)",
+                        mg.super_blocks(),
+                        mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
+                    ),
+                    SetupStage::Levels {
+                        pauli_villars: true,
+                        applications,
+                        seconds,
+                    } => writeln!(
+                        out,
+                        "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({seconds:.0} s)"
+                    ),
+                    SetupStage::Round(_) | SetupStage::Checksum(..) => Ok(()),
+                };
+                if let Err(e) = line {
+                    failed.get_or_insert(e);
+                }
+            };
+            let (d, pv) = alpha.both();
+            let outers = [(d, pv, form)];
+            let (_, parts, _) =
+                backend.rebuild(plain.both(), &outers, &lat, m, kept, true, &mut report)?;
+            if let Some(e) = failed {
+                return Err(e.into());
+            }
+            Some(parts)
+        }
+        _ => None,
+    };
     let (mut coarse_flops, mut steps) = (0.0, 1);
     let mut pre: Preconditioner<L> = Preconditioner::None;
     let mut single_pre: Option<SinglePre<L>> = None;
     match (s.preconditioner_type, &mg_settings) {
         (PreconditionerType::Multigrid, Some((cycle_params, _, _))) => {
             steps = cycle_params.chebyshev_steps;
-            if let (Some(o), Some(basis), Some(y)) = (&double_ops, &double_basis, &double_y) {
-                let (d, pv) = o.alpha.both();
-                (pre, coarse_flops) = multigrid_cycle(
-                    params,
-                    &lat,
-                    o.plain.both(),
-                    (d, pv, form),
-                    (op_l, pv_l),
-                    basis,
-                    y,
-                    *cycle_params,
-                    out,
-                )?;
-            }
-            if let (Some(o), Some(basis), Some(y)) = (&single_ops, &single_basis, &single_y) {
-                let (d, pv) = o.alpha.both();
-                let smoother = o.smoother.as_ref().expect("made with them");
-                let (cycle, flops) = multigrid_cycle(
-                    params,
-                    &lat,
-                    o.plain.both(),
-                    (d, pv, form),
-                    smoother.both(),
-                    basis,
-                    y,
-                    *cycle_params,
-                    out,
-                )?;
-                let mut like = H::<L, f32>::with_shape(&lat, 24, ls, 1, 1);
-                like.set_parity(Parity::Even);
-                single_pre = Some(Convert::new(cycle, &like));
-                coarse_flops = flops;
+            match (&parts, &aos, &single_ops) {
+                (Some(CpuParts::Double(p)), Some((plain, alpha)), _) => {
+                    let (d, pv) = alpha.both();
+                    let map = <L as CycleLayout<f64>>::map(&lat)
+                        .ok_or("the lattice cannot be cut for the SIMD layout")?;
+                    let outer = (d, pv, form);
+                    pre = cycle_of(plain.both(), outer, (op_l, pv_l), map, p, *cycle_params);
+                    coarse_flops = flops_of(&p.basis);
+                }
+                (Some(CpuParts::Single(p)), _, Some(o)) => {
+                    let (d, pv) = o.alpha.both();
+                    let smoother = o.smoother.as_ref().expect("made with them");
+                    let map = <L as CycleLayout<f32>>::map(&lat)
+                        .ok_or("the lattice cannot be cut for the SIMD layout")?;
+                    let outer = (d, pv, form);
+                    let cycle = cycle_of(
+                        o.plain.both(),
+                        outer,
+                        smoother.both(),
+                        map,
+                        p,
+                        *cycle_params,
+                    );
+                    let mut like = H::<L, f32>::with_shape(&lat, 24, ls, 1, 1);
+                    like.set_parity(Parity::Even);
+                    single_pre = Some(Convert::new(cycle, &like));
+                    coarse_flops = flops_of(&p.basis);
+                }
+                _ => unreachable!("the parts are made in the precision of the cycle"),
             }
         }
         (PreconditionerType::Chebyshev, _) => {
@@ -548,7 +491,6 @@ where
         }
         _ => {}
     }
-    drop((double_y, single_y));
     writeln!(
         out,
         "  setup: {:.0} s; {}",

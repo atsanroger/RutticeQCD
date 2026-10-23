@@ -58,23 +58,25 @@ nothing outside `solver::preconditioner::multigrid` knows about fermions.
 The CPU and the device (`backend::cuda_bridge`) do the same things because each algorithm is
 written once, against traits, and a backend supplies only the parts that touch its memory:
 operators, fields, kernels. A feature added to the algorithm is then on both; a backend refuses
-an option only where it lacks a kernel. For the domain-wall fermions (decided 2026-10-23):
+an option only where it lacks a kernel. For the domain-wall fermions (decided 2026-10-23, done
+2026-10-24):
 
 | Algorithm, written once | What a backend supplies |
 |---|---|
 | the operators of the even sites: `PvRatio`, `SchurFactor`, `AfterQ`, `adjoint_by_gamma5` (`fermion::even_odd`) | `EvenOdd` for its operator (`Mdwf`, `CudaMdwf`) |
 | the coarse correction and the cycle: `Correction`, `TwoGrid`, `Chebyshev` | P, the coarse operators, the levels below the coarse lattice |
-| the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid::with_solves`) | `Backend`: its fields, the test vectors, P and the coarse parts with their levels (in the precisions the file asks for), the cycles made of them (`OnCpu`, `OnDevice`) |
-| mixed precision: CG with reliable updates (`solver::reliable_cg`) on D†D or K†K, with Q for Neff's α (one `SingleNormal`, generic over the operator in single precision) | its operator in single precision |
+| the setup of the multigrid as the propagator runs and HMC take it: what the file asks (`MdwfMultigridSettings`, from `MultigridBlock::mdwf_settings` for both), the test vectors from a checkpoint or the filter and the bootstrap, P, the levels, the coarse parts, the tops of the smoothers, all of the cycle in its precision (`solver::preconditioner::multigrid::MdwfBackend::rebuild`) | `MdwfBackend`: its fields and the kernels of those steps, the cycles made of the parts (`OnCpu`, `cuda_bridge::mdwf_backend::OnDevice`) |
+| the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid::with_solves`) | — |
+| mixed precision: CG on D†D or K†K in single precision, with Q for Neff's α, for the defect correction of HMC and the reliable updates of the CGNE of the propagators (`fermion::SingleAll`, `SingleEven`) | `SingleOperator`: its operator in single precision |
 | the propagator run: sources, solves, the four-dimensional fields, the measurements (`app::mdwf::solve_sources`) | where the fields live |
-| what a parameter file asks of the multigrid (one settings struct for the propagator and HMC files) | — |
 
-The setup of the multigrid of the propagator runs is still written once per backend
-(`app::mdwf::run_in`, `app::mdwf_cuda::run`), with the same options on both; `Backend` is where it
-would go (TODO, Structure 1). Before this, the multigrid of HMC and the mixed solvers were
-written once per backend too, and the two copies had drifted apart (Neff's α, the levels and the
-precision of the cycle in the multigrid of HMC on the device only; mixed CGNE of the
-propagators on the device only).
+Before this (2026-10-24), the multigrid of HMC, the mixed solvers and the setup of the
+propagator runs were written once per backend, and the copies had drifted apart (Neff's α, the
+levels and the precision of the cycle in the multigrid of HMC on the device only; mixed CGNE of
+the propagators on the device only; the coarse operators of a cycle in single precision probed
+in single precision by the propagator runs and in double by HMC on the device). The propagator
+runs keep only what is theirs: the smoother of the CPU in the SIMD layouts
+(`PvEoCycle::from_parts_in_layout`) and their reports.
 
 ### Using it as a library
 

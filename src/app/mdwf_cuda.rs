@@ -15,28 +15,26 @@
 
 use super::mdwf::{iterations_text, load, solve_sources, SourceFields};
 use super::memory_line;
-use super::params::{BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType};
-use crate::backend::cuda_bridge::multigrid::Correction;
-use crate::backend::cuda_bridge::multigrid::{
-    bootstrap, device_correction, filtered_test_vectors, top_of, Stage,
-};
+use super::params::{Params, PrecisionType, PreconditionerType, SolverType};
+use crate::backend::cuda_bridge::mdwf_backend::OnDevice;
+use crate::backend::cuda_bridge::multigrid::top_of;
 use crate::backend::cuda_bridge::{
-    CudaError, CudaMdwf, DeviceBasis, DeviceCoarse, DeviceCorrection, DeviceParities, DeviceReal,
-    DeviceSpinor, LevelReal,
+    CudaError, CudaMdwf, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
 };
-use crate::fermion::{EoForm, FermionOp, PvRatio};
-use crate::solver::preconditioner::multigrid::Aggregation;
-use crate::solver::{Chebyshev, Convert, Stop};
-use crate::{
-    random_fifth, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64,
-};
-use std::cell::Cell;
+use crate::fermion::{FermionOp, PvRatio};
+use crate::solver::preconditioner::multigrid::{MdwfBackend, SetupStage};
+use crate::solver::{Chebyshev, Stop};
+use crate::{random_fifth, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64};
 use std::error::Error;
 use std::io::Write;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Whether `RUTTICE_CHECKSUM` asks for the checksums of the stages of a run.
+fn checksums() -> bool {
+    std::env::var_os("RUTTICE_CHECKSUM").is_some()
+}
 
 /// With `RUTTICE_CHECKSUM` set, a line with the checksum of what a stage of the run made, to
 /// compare runs bit by bit and find where they part.
@@ -45,7 +43,7 @@ fn checksum_line(
     what: &str,
     sum: impl FnOnce() -> Result<u64, CudaError>,
 ) -> Result<(), Box<dyn Error>> {
-    if std::env::var_os("RUTTICE_CHECKSUM").is_some() {
+    if checksums() {
         writeln!(out, "  checksum of {what}: {:016x}", sum()?)?;
     }
     Ok(())
@@ -131,182 +129,6 @@ impl<T: DeviceReal> Operators<T> {
     }
 }
 
-/// The vectors on the even sites the multigrid is built from: from a checkpoint, or filtered
-/// here, and improved by the bootstrap if the file asks.
-fn test_vectors<T: DeviceReal>(
-    params: &Params,
-    file: &Path,
-    lat: &Arc<Lattice>,
-    ops: &Operators<T>,
-    index: &EvenOddIndex,
-    start: Instant,
-    out: &mut dyn Write,
-) -> Result<DeviceSpinor<T>, Box<dyn Error>> {
-    let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
-    let (_, low, boot) = params.multigrid().ok_or("no multigrid")?;
-    let (even, odd, device) = (&ops.even, &ops.odd, ops.plain()?);
-    let ls = even.ls();
-    let keep = mg.level1.test_vectors(true) / 2;
-    let half = mg.basis_precision() == BasisPrecision::Half;
-    // What the setup reports: the times and Ritz values, and with RUTTICE_CHECKSUM the
-    // checksums of every stage, as the run always printed them.
-    let mut failed: Option<Box<dyn Error>> = None;
-    let mut report = |stage: Stage<'_, T>| {
-        let line = match stage {
-            Stage::Filtered { theta, vectors } => writeln!(
-                out,
-                "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s); {}",
-                theta[0],
-                theta[theta.len() - 1],
-                start.elapsed().as_secs_f64(),
-                memory()
-            )
-            .map_err(Box::<dyn Error>::from)
-            .and_then(|()| checksum_line(out, "the filtered vectors", || vectors.checksum())),
-            Stage::Top(hi) => checksum_line(out, "the top of the smoother", || Ok(hi.to_bits())),
-            Stage::Vector {
-                round,
-                index,
-                vector,
-            } if index < 2 => checksum_line(
-                out,
-                &format!("vector {index} of round {}", round + 1),
-                || vector.checksum(),
-            ),
-            Stage::Vector { .. } => Ok(()),
-            Stage::Round { round, vectors } => checksum_line(
-                out,
-                &format!("the vectors after round {}", round + 1),
-                || vectors.checksum(),
-            )
-            .and_then(|()| {
-                writeln!(
-                    out,
-                    "  bootstrap round {}: {:.0} s; {}",
-                    round + 1,
-                    start.elapsed().as_secs_f64(),
-                    memory()
-                )
-                .map_err(Box::<dyn Error>::from)
-            }),
-        };
-        if let Err(e) = line {
-            failed.get_or_insert(e);
-        }
-    };
-    let mut y = match &mg.setup.checkpoint {
-        Some(path) => {
-            let mut like = H::with_shape(lat, 24, ls, 1, 1);
-            like.set_parity(Parity::Even);
-            let path = file.parent().map_or(path.clone(), |dir| dir.join(path));
-            DeviceSpinor::<T>::from_host_half(&load(&path, &like, keep)?, index)?
-        }
-        None => filtered_test_vectors(device, (even, odd), lat, index, low, keep, &mut report)?,
-    };
-    let agg = Aggregation::new(lat, mg.level1.block_size);
-    let mut on_device = device_correction(device, &agg, boot.cycle, even, half);
-    bootstrap(
-        device,
-        (even, odd),
-        lat,
-        &mut y,
-        boot,
-        &mut on_device,
-        &mut report,
-    )?;
-    drop(report);
-    if let Some(e) = failed {
-        return Err(e);
-    }
-    Ok(y)
-}
-
-/// Levels below the coarse lattice for the solves of P†DP of `c`, from the test vectors
-/// `vectors` on the coarse lattice, as the file says.
-fn add_levels<T: DeviceReal, CT: LevelReal>(
-    c: &mut DeviceCorrection<'_, T, CT>,
-    mg: &super::params::MultigridBlock,
-    vectors: &DeviceCoarse<f64>,
-    out: &mut dyn Write,
-) -> Result<(), Box<dyn Error>> {
-    let start = Instant::now();
-    let (super_blocks, bootstrap) = (mg.super_blocks(), mg.level_bootstrap());
-    let applications = c.add_levels(vectors, &super_blocks, &bootstrap)?;
-    writeln!(
-        out,
-        "  levels below the coarse lattice {super_blocks:?} (refinement {:?}) on the device: {applications} coarse applications ({:.0} s); {}",
-        bootstrap.iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
-        start.elapsed().as_secs_f64(),
-        memory()
-    )?;
-    if mg.levels_for_pauli_villars {
-        let start = Instant::now();
-        let applications = c.add_pv_levels(vectors, &super_blocks)?;
-        writeln!(
-            out,
-            "  the same levels for the Pauli-Villars factor on the device: {applications} coarse applications ({:.0} s); {}",
-            start.elapsed().as_secs_f64(),
-            memory()
-        )?;
-    }
-    Ok(())
-}
-
-/// The cycle of the multigrid for the operator of `ops`, all of it on the device, with the
-/// prolongation `basis` and levels below the coarse lattice from `level_vectors`; and the
-/// applications of the coarse operators so far, after every cycle.
-#[allow(clippy::type_complexity)]
-fn two_grid<'a, T: DeviceReal>(
-    params: &Params,
-    lat: &Arc<Lattice>,
-    ops: &'a Operators<T>,
-    basis: DeviceBasis,
-    level_vectors: Option<&DeviceCoarse<f64>>,
-    form: EoForm,
-    out: &mut dyn Write,
-) -> Result<(impl LinearFn<DeviceSpinor<T>> + 'a, Rc<Cell<usize>>), Box<dyn Error>> {
-    let mg = params.multigrid.as_ref().ok_or("no MultiGrid section")?;
-    let (cycle_params, _, _) = params.multigrid().ok_or("no multigrid")?;
-    let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
-    let count = Rc::new(Cell::new(0));
-    let counted = count.clone();
-    let device = ops.plain()?;
-    let correction: Correction<'a, T> = match mg.coarse_precision() {
-        PrecisionType::Single => {
-            let mut c =
-                DeviceCorrection::<T, f32>::new(basis, device, outer, form, cycle_params, even)?;
-            if let Some(v) = level_vectors {
-                add_levels(&mut c, mg, v, out)?;
-            }
-            Box::new(move |e, r| {
-                c.correct(e, r);
-                counted.set(c.coarse_applications());
-            })
-        }
-        PrecisionType::Double => {
-            let mut c =
-                DeviceCorrection::<T, f64>::new(basis, device, outer, form, cycle_params, even)?;
-            if let Some(v) = level_vectors {
-                add_levels(&mut c, mg, v, out)?;
-            }
-            Box::new(move |e, r| {
-                c.correct(e, r);
-                counted.set(c.coarse_applications());
-            })
-        }
-    };
-    let cycle = crate::backend::cuda_bridge::multigrid::two_grid(
-        outer,
-        form,
-        (even, odd),
-        lat,
-        cycle_params,
-        correction,
-        None,
-    )?;
-    Ok((cycle, count))
-}
-
 pub(super) fn run(
     params: &Params,
     file: &Path,
@@ -325,83 +147,96 @@ pub(super) fn run(
     );
     let start = Instant::now();
 
-    // The multigrid, all of it on the device.
-    let settings = match (params.multigrid(), &params.multigrid) {
-        (Some((cycle, _, boot)), Some(mg)) => Some((cycle, boot, mg)),
+    // The multigrid, all of it on the device (`mdwf_backend::OnDevice`, as in HMC).
+    let mg = match (params.multigrid(), &params.multigrid) {
+        (Some(_), Some(mg)) => Some(mg),
         _ => None,
     };
-    if settings.is_some_and(|(cycle, boot, _)| {
-        !DeviceCorrection::<f64, f32>::supports(&cycle)
-            || !DeviceCorrection::<f64, f32>::supports(&boot.cycle)
+    let settings = mg.map(|mg| mg.mdwf_settings(PrecisionType::Single));
+    if settings.is_some_and(|m| {
+        !DeviceCorrection::<f64, f32>::supports(&m.cycle)
+            || !DeviceCorrection::<f64, f32>::supports(&m.bootstrap.cycle)
     }) {
         return Err("the coarse solvers of this multigrid are not on the device".into());
     }
-    // Above the coarse lattice it is in single precision, with operators of its own, or in
-    // double precision with those of the outer solver.
-    let single = settings.is_some_and(|(_, _, mg)| mg.fine_precision() == PrecisionType::Single);
-    let ops = Operators::<f64>::new(params, lat, u, settings.is_some() && !single)?;
-    let ops_single = match single {
-        true => Some(Operators::<f32>::new(params, lat, u, true)?),
-        false => None,
-    };
-    let index = EvenOddIndex::new(lat);
-    // The test vectors, in the precision of the multigrid.
-    let (y_single, y_double) = match (settings, &ops_single) {
-        (None, _) => (None, None),
-        (Some(_), Some(o)) => (
-            Some(test_vectors(params, file, lat, o, &index, start, out)?),
-            None,
-        ),
-        (Some(_), None) => (
-            None,
-            Some(test_vectors(params, file, lat, &ops, &index, start, out)?),
-        ),
-    };
-    // The prolongation on the device; the test vectors are not needed after it.
-    let mut device_basis = match settings {
-        Some((_, _, mg)) => {
-            let agg = Aggregation::new(lat, mg.level1.block_size);
-            let half = mg.basis_precision() == BasisPrecision::Half;
-            Some(match (&ops_single, &y_single, &y_double) {
-                (Some(o), Some(y), _) => {
-                    let (d, pv) = o.plain()?;
-                    DeviceBasis::pv_eo(d, pv, &agg, y, half)?
-                }
-                (_, _, Some(y)) => {
-                    let (d, pv) = ops.plain()?;
-                    DeviceBasis::pv_eo(d, pv, &agg, y, half)?
-                }
-                _ => return Err("no test vectors".into()),
-            })
-        }
-        _ => None,
-    };
-    if let Some(b) = &device_basis {
-        checksum_line(out, "P", || b.checksum())?;
-    }
-    // The test vectors of the levels below the coarse lattice on the device, P† of the vectors P
-    // was made of.
-    let level_vectors = match (&device_basis, settings) {
-        (Some(b), Some((_, _, mg))) if !mg.super_blocks().is_empty() => {
-            Some(match (&ops_single, &y_single, &y_double) {
-                (Some(o), Some(y), _) => {
-                    let (d, pv) = o.plain()?;
-                    b.pv_eo_coarse_vectors(d, pv, y)?.to_precision::<f64>()?
-                }
-                (_, _, Some(y)) => {
-                    let (d, pv) = ops.plain()?;
-                    b.pv_eo_coarse_vectors(d, pv, y)?
-                }
-                _ => return Err("no test vectors".into()),
-            })
-        }
-        _ => None,
-    };
-    drop((y_single, y_double));
+    let ops = Operators::<f64>::new(params, lat, u, settings.is_some())?;
     let (even, odd, outer) = (&ops.even, &ops.odd, ops.outer());
+    let outers = [(outer.0, outer.1, form)];
+    let backend = OnDevice;
+    // The test vectors from a checkpoint, or filtered; improved by the bootstrap, P, the levels
+    // and the coarse parts made of them; reported as they are made.
+    let built = match (mg, &settings) {
+        (Some(mg), Some(m)) => {
+            let kept = match &mg.setup.checkpoint {
+                Some(path) => {
+                    let mut like = H::with_shape(lat, 24, ls, 1, 1);
+                    like.set_parity(Parity::Even);
+                    let path = file.parent().map_or(path.clone(), |dir| dir.join(path));
+                    Some(backend.vectors_from_host(&load(&path, &like, m.test_vectors)?, m)?)
+                }
+                None => None,
+            };
+            let mut failed: Option<std::io::Error> = None;
+            let mut report = |stage: SetupStage<'_>| {
+                let line = match stage {
+                    SetupStage::Filtered(theta) => writeln!(
+                        out,
+                        "  filter on the device: Ritz values of Ã†Ã {:.3e} .. {:.3e} ({:.0} s); {}",
+                        theta[0],
+                        theta[theta.len() - 1],
+                        start.elapsed().as_secs_f64(),
+                        memory()
+                    ),
+                    SetupStage::Round(round) => writeln!(
+                        out,
+                        "  bootstrap round {}: {:.0} s; {}",
+                        round + 1,
+                        start.elapsed().as_secs_f64(),
+                        memory()
+                    ),
+                    SetupStage::Levels {
+                        pauli_villars: false,
+                        applications,
+                        seconds,
+                    } => writeln!(
+                        out,
+                        "  levels below the coarse lattice {:?} (refinement {:?}) on the device: {applications} coarse applications ({seconds:.0} s); {}",
+                        mg.super_blocks(),
+                        mg.level_bootstrap().iter().map(|b| (b.rounds, b.iterations)).collect::<Vec<_>>(),
+                        memory()
+                    ),
+                    SetupStage::Levels {
+                        pauli_villars: true,
+                        applications,
+                        seconds,
+                    } => writeln!(
+                        out,
+                        "  the same levels for the Pauli-Villars factor on the device: {applications} coarse applications ({seconds:.0} s); {}",
+                        memory()
+                    ),
+                    SetupStage::Checksum(what, sum) => match checksums() {
+                        true => writeln!(out, "  checksum of {what}: {:016x}", sum()),
+                        false => Ok(()),
+                    },
+                };
+                if let Err(e) = line {
+                    failed.get_or_insert(e);
+                }
+            };
+            let plain = ops.plain()?;
+            let (_, parts, _) = backend.rebuild(plain, &outers, lat, m, kept, true, &mut report)?;
+            if let Some(e) = failed {
+                return Err(e.into());
+            }
+            Some((parts, *m))
+        }
+        _ => None,
+    };
+    let cycles = match &built {
+        Some((parts, m)) => Some(backend.cycles(ops.plain()?, &outers, lat, m, parts)?),
+        None => None,
+    };
     let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
-    // The applications of the coarse operators by the multigrid so far.
-    let mut coarse_count: Option<Rc<Cell<usize>>> = None;
     let mut pre: Option<Box<dyn LinearFn<DeviceSpinor> + '_>> = match s.preconditioner_type {
         PreconditionerType::Chebyshev => {
             let c = s.chebyshev_settings();
@@ -415,22 +250,12 @@ pub(super) fn run(
             )))
         }
         PreconditionerType::None => None,
-        PreconditionerType::Multigrid => {
-            let basis = device_basis.take().ok_or("the prolongation was not made")?;
-            let levels = level_vectors.as_ref();
-            match &ops_single {
-                Some(o) => {
-                    let (cycle, count) = two_grid(params, lat, o, basis, levels, form, out)?;
-                    coarse_count = Some(count);
-                    Some(Box::new(Convert::new(cycle, &o.even)))
-                }
-                None => {
-                    let (cycle, count) = two_grid(params, lat, &ops, basis, levels, form, out)?;
-                    coarse_count = Some(count);
-                    Some(Box::new(cycle))
-                }
-            }
-        }
+        PreconditionerType::Multigrid => Some(
+            cycles
+                .as_ref()
+                .ok_or("the multigrid was not made")?
+                .cycle(0),
+        ),
     };
     writeln!(
         out,
@@ -467,7 +292,7 @@ pub(super) fn run(
         // b waits on the host during the solve.
         let b_host = b.stash()?;
         let mut sol = rhs.zeros_like();
-        let coarse_before = coarse_count.as_ref().map(|c| c.get());
+        let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
         let start = Instant::now();
         let m = pre
             .as_mut()
@@ -480,8 +305,10 @@ pub(super) fn run(
             _ => s.solve(&mut a, m, &mut sol, &rhs, detailed),
         };
         let seconds = start.elapsed().as_secs_f64();
-        let coarse = match (&coarse_count, coarse_before) {
-            (Some(c), Some(before)) => format!("; {} coarse applications", c.get() - before),
+        let coarse = match (&cycles, coarse_before) {
+            (Some(c), Some(before)) => {
+                format!("; {} coarse applications", c.coarse_applications() - before)
+            }
             _ => String::new(),
         };
         checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;

@@ -6,6 +6,7 @@ mod coarse;
 mod correction;
 mod cycle;
 mod levels;
+mod mdwf_backend;
 mod mdwf_even_odd;
 mod mdwf_lexical;
 mod sap;
@@ -19,6 +20,10 @@ pub use correction::{
 };
 pub use cycle::{Corrects, TwoGrid};
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
+pub use mdwf_backend::{
+    top_of as pv_eo_top, AnyParts, CoarseLevels, CpuParts, CpuVectors, Cycles, MdwfBackend,
+    MdwfMultigridSettings, OnCpu, Outer, PartsIn, SetupStage,
+};
 pub use mdwf_even_odd::{
     bootstrap_round, bootstrap_vector, coarse_solve, low_modes, orthonormalise_all, pv_eo_basis,
     pv_eo_basis_stored, pv_eo_bootstrap, pv_eo_bootstrap_stored, pv_eo_coarse_vectors,

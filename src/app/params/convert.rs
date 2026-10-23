@@ -2,6 +2,7 @@
 
 use super::blocks::MultigridBlock;
 use super::*;
+use crate::solver::preconditioner::multigrid::{CoarseLevels, MdwfMultigridSettings};
 
 /// Whether a file is a parameter file in the style of Bridge++: one with a `Main` section.
 pub fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
@@ -608,6 +609,28 @@ impl MultigridBlock {
             cycle,
         };
         (cycle, low, boot)
+    }
+
+    /// What the block asks of the domain-wall multigrid, the same for the propagator runs and
+    /// HMC; the cycle above the coarse lattice in `fine_default` unless `fine_precision` says (the
+    /// propagator files take single, HMC double).
+    pub fn mdwf_settings(&self, fine_default: PrecisionType) -> MdwfMultigridSettings {
+        let (cycle, low_modes, bootstrap) = self.domain_wall();
+        MdwfMultigridSettings {
+            block: self.level1.block_size,
+            test_vectors: self.level1.test_vectors(true) / 2,
+            low_modes,
+            bootstrap,
+            cycle,
+            coarse_double: self.coarse_precision() == PrecisionType::Double,
+            fine_single: self.fine_precision_given.unwrap_or(fine_default) == PrecisionType::Single,
+            basis_single: self.basis_precision() == BasisPrecision::Single,
+            levels: CoarseLevels::new(
+                &self.super_blocks(),
+                &self.level_bootstrap(),
+                self.levels_for_pauli_villars,
+            ),
+        }
     }
 
     /// The multigrid of Wilson and clover fermions of this block.

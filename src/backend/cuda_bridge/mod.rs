@@ -26,6 +26,7 @@ pub mod hmc_mixed;
 pub mod hmc_multigrid;
 mod levels;
 mod mdwf;
+pub mod mdwf_backend;
 pub mod multigrid;
 mod wilson;
 

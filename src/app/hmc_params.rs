@@ -49,9 +49,8 @@ use super::hmc::{
     StartConfig,
 };
 use super::params::{
-    Backend, BasisPrecision, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType,
-    MainBlock, MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision,
-    SolverType,
+    Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
+    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision, SolverType,
 };
 use super::CliError;
 use crate::gauge::flow::WilsonFlow;
@@ -792,23 +791,10 @@ impl FermionActionBlock {
                 ));
             }
             mg.check_domain_wall(&at, lattice, false)?;
-            let (cycle, low, boot) = mg.domain_wall();
             Ok(HmcMultigrid::DomainWall {
-                block: mg.level1.block_size,
-                test_vectors: mg.level1.test_vectors(true) / 2,
-                cycle,
-                low,
-                boot,
+                settings: mg.mdwf_settings(PrecisionType::Double),
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
-                coarse_double: mg.coarse_precision() == PrecisionType::Double,
-                fine_single: mg.fine_precision_given == Some(PrecisionType::Single),
-                basis_single: mg.basis_precision() == BasisPrecision::Single,
-                levels: crate::hmc::CoarseLevels::new(
-                    &mg.super_blocks(),
-                    &mg.level_bootstrap(),
-                    mg.levels_for_pauli_villars,
-                ),
                 rebuild_growth: match h.rebuild_iteration_growth {
                     Some(g) if g.is_nan() || g <= 1.0 => {
                         return invalid(format!(

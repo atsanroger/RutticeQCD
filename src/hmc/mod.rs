@@ -14,9 +14,7 @@ mod mseries;
 mod rational;
 mod solve;
 
-pub use dwf_multigrid::{
-    normal_solve as dwf_multigrid_normal_solve, CoarseLevels, DwfMultigridSetup, Seconds,
-};
+pub use dwf_multigrid::{normal_solve as dwf_multigrid_normal_solve, DwfMultigridSetup, Seconds};
 pub use rational::Rational;
 pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 
@@ -1040,7 +1038,7 @@ mod tests {
     #[test]
     fn domain_wall_multigrid_gives_the_action_and_force_of_cg() {
         use crate::fermion::{Mdwf, MdwfParams};
-        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::preconditioner::multigrid::{MdwfMultigridSettings, PvEoParams};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 8]);
         let u = random_gauge(&lat, 41);
@@ -1070,9 +1068,7 @@ mod tests {
         cg.langevin(&links, &mut Mseries::new(13));
         let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
         let setup = DwfMultigridSetup::new(
-            [2, 2, 2, 2],
-            8,
-            PvEoParams::default(),
+            MdwfMultigridSettings::new([2, 2, 2, 2], 8, PvEoParams::default()),
             Stop::simple(1e-10, 200),
         );
         let mut mg =
@@ -1110,7 +1106,7 @@ mod tests {
     #[test]
     fn domain_wall_multigrid_of_the_even_odd_ratio_gives_those_of_cg() {
         use crate::fermion::{Mdwf, MdwfParams};
-        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::preconditioner::multigrid::{MdwfMultigridSettings, PvEoParams};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 8]);
         let u = random_gauge(&lat, 43);
@@ -1140,9 +1136,7 @@ mod tests {
         cg.langevin(&links, &mut Mseries::new(17));
         let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
         let setup = DwfMultigridSetup::new(
-            [2, 2, 2, 2],
-            8,
-            PvEoParams::default(),
+            MdwfMultigridSettings::new([2, 2, 2, 2], 8, PvEoParams::default()),
             Stop::simple(1e-10, 200),
         );
         let mut mg =
@@ -1171,12 +1165,10 @@ mod tests {
         assert!(setup.inner_solves >= 4, "two solves of each kind at least");
         // The coarse solves in double precision give the same.
         let mut double = DwfMultigridSetup::new(
-            [2, 2, 2, 2],
-            8,
-            PvEoParams::default(),
+            MdwfMultigridSettings::new([2, 2, 2, 2], 8, PvEoParams::default()),
             Stop::simple(1e-10, 200),
         );
-        double.coarse_double = true;
+        double.mg.coarse_double = true;
         let mut mg =
             TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
                 .with_solver(NormalSolver::Gcr(8))
@@ -1191,7 +1183,7 @@ mod tests {
     #[test]
     fn multigrid_cache_gives_the_action_and_force_of_cg() {
         use crate::fermion::{Mdwf, MdwfParams};
-        use crate::solver::preconditioner::multigrid::PvEoParams;
+        use crate::solver::preconditioner::multigrid::{MdwfMultigridSettings, PvEoParams};
         use crate::solver::Stop;
         let lat = Lattice::single_node([4, 4, 4, 8]);
         let u = random_gauge(&lat, 53);
@@ -1216,9 +1208,7 @@ mod tests {
         let mdwf = |p| Mdwf::<f64>::new(&lat, p);
         let cache = SmearingCache::new();
         let mut setup = DwfMultigridSetup::new(
-            [2, 2, 2, 2],
-            8,
-            PvEoParams::default(),
+            MdwfMultigridSettings::new([2, 2, 2, 2], 8, PvEoParams::default()),
             Stop::simple(1e-10, 200),
         );
         setup.rebuild_growth = 1.5;

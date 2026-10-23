@@ -1276,13 +1276,22 @@ Action_F_1:
             &[&mg[..], &["  coarse_precision : single"]].concat()
         )
     ));
-    assert!(!ok(
-        wall,
+    // The multigrid of HMC takes the keys of the propagator files on the CPU as on the device.
+    for keys in [
+        &["  fine_precision : single"][..],
+        &["  basis_precision : single"],
+        &["  MultiGrid_Level2:", "    super_block_size : 2"],
+    ] {
+        assert!(ok(
+            wall,
+            ratio,
+            &with("solver_type : GCR", &[&mg[..], keys].concat())
+        ));
+    }
+    assert!(ok(
+        &format!("{wall}    neff_alpha : 0.6\n"),
         ratio,
-        &with(
-            "solver_type : GCR",
-            &[&mg[..], &["  fine_precision : single"]].concat()
-        )
+        &with("solver_type : GCR", &mg)
     ));
     assert!(ok(
         wall,

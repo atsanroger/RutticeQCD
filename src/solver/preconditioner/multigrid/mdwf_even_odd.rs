@@ -684,6 +684,23 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         ))
     }
 
+    /// The cycle of `parts` (made for the same `basis` and settings, by `MdwfBackend::rebuild`
+    /// or another cycle) for the operator `outer`, the smoother on its operators in the layout
+    /// `L` (`layout`, with `map = L::map(lattice)`): nothing is built.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts_in_layout(
+        op: &'a Mdwf<F, G>,
+        pv: &'a Mdwf<F, G>,
+        outer: (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
+        layout: (&'a Mdwf<F, G, L>, &'a Mdwf<F, G, L>),
+        map: L::Map,
+        basis: &'a PvEoBasis<F>,
+        params: PvEoParams,
+        parts: CoarseParts<CT>,
+    ) -> Self {
+        Self::assemble(op, pv, outer, layout, map, basis, params, parts)
+    }
+
     /// The coarse operators of `op` and `pv` on `basis`, the inverses of their blocks, and the
     /// top of the smoother's interval for the operator of `outer_l`.
     fn build_parts(

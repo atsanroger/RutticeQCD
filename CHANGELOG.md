@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-10-24)
 
 The domain-wall fermions the same on the CPU and on the device: each algorithm written once,
 against traits, a backend supplying operators, fields and kernels (docs/DEVELOPMENT.md, "One
 algorithm, two backends"). Every option of the propagator and HMC files for domain-wall
-fermions now does the same on both.
+fermions now does the same on both. Parameter files are unchanged; the library's interfaces of
+the mixed solvers and of the HMC multigrid setup changed (`DwfMultigridSetup::new` takes an
+`MdwfMultigridSettings`).
 
 - The multigrid of HMC has one driver (`hmc::dwf_multigrid::with_solves`): when to set up,
   bootstrap or rebuild, the cache, the retries before CG, and the solves with D (Neff's α by the
@@ -21,6 +23,16 @@ fermions now does the same on both.
   `SingleOperator`): the CPU gains the mixed CGNE of the propagators (with reliable updates, in
   the SIMD layouts too) and mixed CG with Neff's α on the even-odd Ratio; `SingleMdwf`,
   `SingleMdwfEo` and the device's `SingleCuda` are gone.
+- The setup of the multigrid is one for the propagator runs and HMC: the settings of the file
+  (`MdwfMultigridSettings`, `MultigridBlock::mdwf_settings`), and the test vectors (from a
+  checkpoint or the filter, the bootstrap), P, the levels, the coarse parts and the tops of the
+  smoothers by the backend (`MdwfBackend::rebuild`, `cycles`), the same steps on the CPU and the
+  device. The propagator runs give the same numbers as before (bit for bit on the device).
+- The device's multigrid of HMC with `fine_precision : single` probes the coarse operators and
+  takes the tops of the smoothers in single precision, as the propagator runs and the CPU did
+  (it probed in double before): on 16⁴ the same iterations, ΔH within 1e-7, the rebuild
+  2.75 → 1.64 s. With the cycle's operators converted to single precision, Neff's α is kept
+  (`CudaMdwf::converted_from` takes the parameters only).
 - The device gains the even-odd Standard action of domain-wall fermions (`TwoFlavorEo` over any
   links; `EvenOddForceOp` without the host links).
 - An HMC file with `Main.backend : cuda_bridge` is refused by a program built without the

@@ -70,33 +70,29 @@ on the CPU, the note's α discussion and HMC results, the walkthrough. Checked: 
 clippy-clean, the device HMC on 16⁴ gives ΔH and iterations of before bit for bit. Not run: the
 CPU paths (the retries and α on the CPU compile only), the HMC tests.
 
-**After 0.4.1 (2026-10-24)**: the domain-wall fermions the same on the CPU and the device
+**0.5.0 (2026-10-24)**: the domain-wall fermions the same on the CPU and the device
 (DEVELOPMENT.md, "One algorithm, two backends"). Checked on 4³×8 (`conf_04040408.txt`, Ls 4,
 4 CPU threads): the propagators (CGNE, mixed CGNE, the multigrid with P in half and in single
 precision) give the same iterations, coarse applications and residuals on both; HMC (CG, mixed CG
 with α on the even-odd Ratio, the even-odd Standard action, the multigrid with α, levels,
 `fine_precision : single`, `basis_precision : single` and the cache, Lexical and Even_odd) the
-same ΔH and iterations on both, the multigrid's ΔH that of CG to 1e-10. The device on 16⁴
-(`therm16/tune`) bit for bit as before.
+same ΔH and iterations on both, the multigrid's ΔH that of CG to 1e-10. The propagator runs as
+before (the device's checksums of every stage bit for bit). The device on 16⁴ (`therm16/tune`):
+CG bit for bit; the multigrid with `fine_precision : single` the same iterations, ΔH within 1e-7
+(its coarse operators now probed in single precision). Tests run: CPU lib, hmc, mdwf,
+multigrid, run, simd; device cuda_bridge — all pass.
 
 ## Structure
 
-### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
+### 1. One propagator driver for the CPU and the device (done 2026-10-24)
 
-- **Done.** What follows the setup is written once: `solve_sources` (`src/app/mdwf.rs`) runs the
-  random right-hand sides or the point-source propagator and the measurements; each backend
-  gives the fields through `SourceFields` (`CpuFields`, `DeviceFields`) and its own `solve`
-  closure. The solver dispatch is shared (item 2).
-- **Left.** The setup (operators, test vectors, the multigrid cycle or Chebyshev) and the
-  `solve` closures are still two: `src/app/mdwf.rs::run_in` and `src/app/mdwf_cuda.rs::run`.
-  Their data differ (layouts and an f32 `Convert` on the CPU; device bases, levels and
-  counters on the GPU), so a common trait there would carry most of both; do it only when a
-  feature needs it on both sides. Since 2026-10-24 the options are the same on both (mixed
-  CGNE, `basis_precision`), and the mixed solver is one (`fermion::SingleEven`); the HMC
-  multigrid has one driver over a backend trait (`hmc::dwf_multigrid::Backend`), which the
-  propagator setup could take over (its test vectors, P, levels and cycle are the same steps).
-- **Check.** `cargo test --release --features cuda-bridge --test run --test mdwf --test cuda_bridge`;
-  the iteration counts of `examples/mdwf_pv_eo_mg.yaml` on the CPU and the device unchanged.
+What follows the setup is written once (`solve_sources`, 2026-10-19), and since 2026-10-24 the
+setup too: the settings (`MultigridBlock::mdwf_settings`), the test vectors, P, the levels and
+the coarse parts by the backend (`MdwfBackend::rebuild`, `OnCpu`, `OnDevice`), the same as HMC.
+The drivers keep their reports and, on the CPU, the smoother in the SIMD layouts. Checked: the
+propagators on 4³×8 (CGNE, mixed, the multigrid in PV_left with α, Normal_left, the levels,
+P in half and single, the cycle in single, SIMD) the same iterations, coarse applications and
+residuals on the CPU and the same checksums of every stage on the device as before.
 
 ### 2. One solver dispatch (done 2026-10-19)
 
