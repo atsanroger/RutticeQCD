@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid on the device takes `Fopr.neff_alpha`: the solves with D
+  are those of D^(α) = D Q in the left form (Ã_L^(α), as in the propagator runs), x = Q x^(α),
+  with the setup, P and the coarse operators of D and the smoother on the range of the left
+  form; the solves with D† are unchanged (D^(α)† = Q D†). Also for the even-odd Ratio, where CG
+  still refuses α. On 24⁴ (stout, m 0.001, 20 test vectors, levels below) α = 0.6 gives the
+  same ΔH as α = 1 and about the same iterations (362 against 356), as α does in the
+  propagator runs. 20 test vectors are the fewest that converge there (16 stagnate, also
+  filtered from 24 or with the left vectors Ã y in P): setup 141 s, solves 63 s, 19.1 GB.
 - HMC with the domain-wall multigrid on the device takes the levels below the coarse lattice
   (`MultiGrid_Level2` and on, `levels_for_pauli_villars`), made with P and kept with the
   coarse parts (`DeviceParts`). On 24⁴ with stout links at m 0.001 (24 test vectors, levels

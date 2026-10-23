@@ -370,6 +370,7 @@ impl HmcSolver {
                 setup.rebuild_growth = rebuild_growth;
                 setup.fine_single = fine_single;
                 setup.levels = levels;
+                setup.alpha = self.neff_alpha;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),
@@ -605,9 +606,9 @@ impl HmcConfig {
                             unreachable!()
                         };
                         let _ = even_odd;
-                        if denominator.is_some() || solver.neff_alpha != 1.0 {
+                        if denominator.is_some() {
                             return invalid(format!(
-                                "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action over Pauli-Villars fields, without Fopr.neff_alpha"
+                                "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action over Pauli-Villars fields"
                             ));
                         }
                         if solver.kind != Some(HmcSolverKind::Gcr) {
@@ -725,9 +726,11 @@ impl HmcConfig {
                             "{at}: the even-odd Ratio of clover fermions (its det T term) is not written"
                         ));
                     }
-                    if solver.neff_alpha != 1.0 {
+                    if solver.neff_alpha != 1.0
+                        && !solver.asks_for(HmcPreconditioner::Multigrid)
+                    {
                         return invalid(format!(
-                            "{at}.Fopr.neff_alpha: not with the even-odd Ratio yet"
+                            "{at}.Fopr.neff_alpha: not with CG on the even-odd Ratio yet (the multigrid takes it)"
                         ));
                     }
                     if solver.asks_for(HmcPreconditioner::Multigrid)
@@ -1208,7 +1211,9 @@ fn device_ratio(
     let make = |p: MdwfParams| {
         CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
     };
-    let conditioned = match alpha != 1.0 {
+    // The multigrid takes Neff's α itself (`DwfMultigridSetup::alpha`), with the plain D.
+    let multigrid = c.solver.asks_for(HmcPreconditioner::Multigrid);
+    let conditioned = match alpha != 1.0 && !multigrid {
         true => {
             let mut op = make(p)?;
             op.set_alpha(alpha);

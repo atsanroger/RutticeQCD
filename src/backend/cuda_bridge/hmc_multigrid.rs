@@ -7,6 +7,11 @@
 //! The solves with D† use the cycle of D, between two Γ5 (`fermion::adjoint_by_gamma5`): there
 //! is no cycle of Ã† and no coarse operator of it.
 //!
+//! With Neff's α (`DwfMultigridSetup::alpha`) the solves with D are those of D^(α) = D Q in the
+//! left form, Ã_L^(α), as in the propagator runs, and x = Q x^(α): the setup, P and the coarse
+//! operators are those of D, and only the smoother has a range of its own. The solves with D†
+//! stay as they are: D^(α)† = Q D†, so α would only scale their right-hand side.
+//!
 //! Along a trajectory the test vectors are kept (on the host between the solves); P, the coarse
 //! operators and the top of the smoother are made for the links of every solve, the vectors improved by the
 //! bootstrap when the pseudofermions are drawn and after every `refresh_every` force solves, as
@@ -95,8 +100,15 @@ fn test_vectors<T: DeviceReal>(
     Ok(y)
 }
 
-/// What the cache keeps on the device.
-type Kept<CT> = (super::DeviceParts<CT>, f64);
+/// What the cache keeps on the device: the parts and the tops of Ã and of Ã_L^(α).
+type Kept<CT> = (super::DeviceParts<CT>, f64, f64);
+
+/// D^(α) on the links of `d`.
+fn with_alpha<T: DeviceReal>(d: &CudaMdwf<T>, alpha: f64) -> Result<CudaMdwf<T>, super::CudaError> {
+    let mut a = CudaMdwf::on_the_links_of(d, *d.params())?;
+    a.set_alpha(alpha);
+    Ok(a)
+}
 
 /// x = (D†D)⁻¹ b for `d` over the Pauli-Villars operator `pv` with the multigrid of `setup`,
 /// on the device; `x` holds the initial guess.
@@ -149,6 +161,9 @@ struct DeviceSolves<'a, CT: LevelReal> {
     odd: &'a DeviceSpinor<f64>,
     lat: &'a Arc<Lattice>,
     single: Option<&'a Single>,
+    /// With Neff's α: D^(α), in single precision too with `fine_single`, and the top of
+    /// Ã_L^(α).
+    alpha: Option<(&'a CudaMdwf<f64>, Option<&'a CudaMdwf<f32>>, f64)>,
     gcr: Gcr<DeviceSpinor<f64>>,
     parts: super::DeviceParts<CT>,
     params: PvEoParams,
@@ -158,53 +173,63 @@ struct DeviceSolves<'a, CT: LevelReal> {
 }
 
 impl<'a, CT: LevelReal> DeviceSolves<'a, CT> {
-    /// M: on the operators in double precision or, with `fine_single`, on those in single
-    /// precision with the fields converted at its ends.
-    fn cycle(&self) -> Box<dyn LinearFn<V> + 'a> {
-        self.try_cycle()
+    /// M of Ã, or with `neff` of Ã_L^(α): on the operators in double precision or, with
+    /// `fine_single`, on those in single precision with the fields converted at its ends.
+    fn cycle(&self, neff: bool) -> Box<dyn LinearFn<V> + 'a> {
+        self.try_cycle(neff)
             .unwrap_or_else(|e| panic!("the multigrid on the device failed: {e}"))
     }
 
-    fn try_cycle(&self) -> Result<Box<dyn LinearFn<V> + 'a>, Box<dyn std::error::Error>> {
+    fn try_cycle(&self, neff: bool) -> Result<Box<dyn LinearFn<V> + 'a>, Box<dyn std::error::Error>> {
+        let alpha = self.alpha.filter(|_| neff);
+        let (form, hi) = match alpha {
+            Some((_, _, hi)) => (EoForm::Left, hi),
+            None => (EoForm::Right, self.hi),
+        };
         Ok(match self.single {
             None => {
-                let ops = (self.d, self.pv);
+                let plain = (self.d, self.pv);
+                let outer = alpha.map_or(plain, |(d, ..)| (d, self.pv));
                 let mut corr = DeviceCorrection::<f64, CT>::from_parts(
                     self.parts.clone(),
-                    ops,
-                    ops,
-                    EoForm::Right,
+                    plain,
+                    outer,
+                    form,
                     self.params,
                     self.even,
                 )?;
                 Box::new(two_grid(
-                    ops,
-                    EoForm::Right,
+                    outer,
+                    form,
                     (self.even, self.odd),
                     self.lat,
                     self.params,
                     Box::new(move |e, r| corr.correct(e, r)),
-                    Some(self.hi),
+                    Some(hi),
                 )?)
             }
             Some((d32, pv32, even32, odd32)) => {
-                let ops = (d32, pv32);
+                let plain = (d32, pv32);
+                let outer = match alpha {
+                    Some((_, d, _)) => (d.expect("D^(α) in single precision"), pv32),
+                    None => plain,
+                };
                 let mut corr = DeviceCorrection::<f32, CT>::from_parts(
                     self.parts.clone(),
-                    ops,
-                    ops,
-                    EoForm::Right,
+                    plain,
+                    outer,
+                    form,
                     self.params,
                     even32,
                 )?;
                 let m = two_grid(
-                    ops,
-                    EoForm::Right,
+                    outer,
+                    form,
                     (even32, odd32),
                     self.lat,
                     self.params,
                     Box::new(move |e, r| corr.correct(e, r)),
-                    Some(self.hi),
+                    Some(hi),
                 )?;
                 Box::new(Convert::new(m, even32))
             }
@@ -222,20 +247,31 @@ impl<'a, CT: LevelReal> DeviceSolves<'a, CT> {
 }
 
 impl<CT: LevelReal> EvenSolves<DeviceSpinor<f64>> for DeviceSolves<'_, CT> {
-    /// D e = r through Ã and M.
+    /// D e = r through Ã and M, or with Neff's α through Ã_L^(α) and its M: e = Q e^(α).
     fn forward(
         &mut self,
         e: &mut DeviceSpinor<f64>,
         r: &DeviceSpinor<f64>,
     ) -> Result<(), SolveError> {
-        let mut a = PvRatio::new(self.d, self.pv, EoForm::Right, self.even, self.odd);
+        let (d, form) = match self.alpha {
+            Some((d, ..)) => (d, EoForm::Left),
+            None => (self.d, EoForm::Right),
+        };
+        let mut a = PvRatio::new(d, self.pv, form, self.even, self.odd);
         let mut rhs = self.even.zeros_with(r.num_vectors());
         a.right_hand_side(&DeviceParities, &mut rhs, r);
         let mut y = rhs.zeros_like();
-        let mut m = self.cycle();
+        let mut m = self.cycle(self.alpha.is_some());
         let info = self.gcr.solve(&mut a, Some(m.as_mut()), &mut y, &rhs);
         drop(m);
-        a.solution(&DeviceParities, e, &y, r);
+        match self.alpha {
+            Some(_) => {
+                let mut x = e.zeros_like();
+                a.solution(&DeviceParities, &mut x, &y, r);
+                d.mult_q(e, &x, false);
+            }
+            None => a.solution(&DeviceParities, e, &y, r),
+        }
         self.counted(info)
     }
 
@@ -245,7 +281,7 @@ impl<CT: LevelReal> EvenSolves<DeviceSpinor<f64>> for DeviceSolves<'_, CT> {
         e: &mut DeviceSpinor<f64>,
         r: &DeviceSpinor<f64>,
     ) -> Result<(), SolveError> {
-        let mut m = self.cycle();
+        let mut m = self.cycle(false);
         let d = self.d;
         let gamma5 = |out: &mut V, inp: &V| d.mult_gamma5_on(out, inp);
         let info = adjoint_by_gamma5(
@@ -307,6 +343,8 @@ fn with_coarse<CT: LevelReal>(
         .filter(|_| caching && !due && !setup.rebuild_is_due())
         .and_then(|k| k.downcast::<Kept<CT>>().ok());
     let reuse = kept.is_some();
+    let neff = setup.alpha != 1.0;
+    let d_alpha = neff.then(|| with_alpha(d, setup.alpha)).transpose()?;
     // With `fine_single` the operators in single precision, for the setup (the test vectors are
     // made and kept in single precision, as in the propagator runs) and for the cycles.
     let single = match setup.fine_single {
@@ -318,12 +356,16 @@ fn with_coarse<CT: LevelReal>(
         )),
         false => None,
     };
+    let d32_alpha = match (&single, neff) {
+        (Some((d32, ..)), true) => Some(with_alpha(d32, setup.alpha)?),
+        _ => None,
+    };
     let kept = match kept {
         Some(k) => {
             setup.count_solve_for_refresh(false, md);
             setup.count_reuse();
-            let (parts, hi) = *k;
-            (parts, hi, 0.0)
+            let (parts, hi, hi_alpha) = *k;
+            (parts, (hi, hi_alpha), 0.0)
         }
         None => {
             let (basis, level_vectors, parts_start) = match &single {
@@ -389,19 +431,20 @@ fn with_coarse<CT: LevelReal>(
                 }
             }
             drop(level_vectors);
-            let mut a = PvRatio::new(d, pv, EoForm::Right, &even, &odd);
-            let hi = top_of(
-                &mut a,
-                lat,
-                &even,
-                setup.cycle.seed,
-                setup.cycle.power_steps,
-            )?;
-            (c.parts(), hi, parts_start.elapsed().as_secs_f64())
+            let top = |d: &CudaMdwf<f64>, form: EoForm| {
+                let mut a = PvRatio::new(d, pv, form, &even, &odd);
+                top_of(&mut a, lat, &even, setup.cycle.seed, setup.cycle.power_steps)
+            };
+            let hi = top(d, EoForm::Right)?;
+            let hi_alpha = match &d_alpha {
+                Some(d) => top(d, EoForm::Left)?,
+                None => hi,
+            };
+            (c.parts(), (hi, hi_alpha), parts_start.elapsed().as_secs_f64())
         }
     };
     // P and the coarse parts count as the rebuild, the vectors as the setup.
-    let (parts, hi, parts_seconds) = kept;
+    let (parts, (hi, hi_alpha), parts_seconds) = kept;
     let setup_seconds = start.elapsed().as_secs_f64() - parts_seconds;
     let start = std::time::Instant::now();
     let rebuild_seconds = parts_seconds + start.elapsed().as_secs_f64();
@@ -413,6 +456,7 @@ fn with_coarse<CT: LevelReal>(
         odd: &odd,
         lat,
         single: single.as_ref(),
+        alpha: d_alpha.as_ref().map(|d| (d, d32_alpha.as_ref(), hi_alpha)),
         gcr: Gcr::new(setup.inner, setup.directions),
         parts: parts.clone(),
         params: setup.cycle,
@@ -425,7 +469,7 @@ fn with_coarse<CT: LevelReal>(
     drop(solves);
     if caching {
         setup.after_solve(reuse, inner as f64 / count.max(1) as f64);
-        let kept: Kept<CT> = (parts, hi);
+        let kept: Kept<CT> = (parts, hi, hi_alpha);
         state.cache = Some(Box::new(kept));
     }
     setup.device = Some(state);

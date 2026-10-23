@@ -195,7 +195,9 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
 | `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves |
 
-`Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α (CG only).
+`Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α: CG on all sites (not
+the even-odd Ratio yet), and the multigrid of the Ratio action on the device (its solves with D
+in the left form with α, the setup that of D).
 
 With `preconditioner_type : MG` the action has a `MultiGrid` section beside its `Solver`: the
 `MultiGrid` section of the propagator files, the same keys and defaults (`MultiGrid_Level1`

@@ -784,6 +784,12 @@ impl FermionActionBlock {
             );
         }
         if self.fopr.fermion_type.is_domain_wall() {
+            if self.fopr.neff_alpha != 1.0 && !device {
+                return refused(
+                    "Fopr.neff_alpha",
+                    "Neff's α with the multigrid of HMC is on the device only",
+                );
+            }
             if (!mg.super_blocks().is_empty() || mg.levels_for_pauli_villars) && !device {
                 return refused(
                     "MultiGrid_Level2",

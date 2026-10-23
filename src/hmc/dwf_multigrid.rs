@@ -85,6 +85,9 @@ pub struct DwfMultigridSetup {
     pub rebuild_growth: f64,
     /// Levels below the coarse lattice for the coarse solves (on the device); none by default.
     pub levels: CoarseLevels,
+    /// Neff's α of the solves with D (on the device): D^(α) in the left form, the setup that of
+    /// D; 1 (the default): D in the right form.
+    pub alpha: f64,
     vectors: Option<HalfPsi>,
     since: usize,
     cache: Option<Cache>,
@@ -133,6 +136,7 @@ impl DwfMultigridSetup {
             refresh_every: 0,
             rebuild_growth: 0.0,
             levels: CoarseLevels::default(),
+            alpha: 1.0,
             vectors: None,
             since: 0,
             cache: None,
