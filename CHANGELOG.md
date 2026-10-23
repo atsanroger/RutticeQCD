@@ -28,6 +28,9 @@ setup 141 → 113 s.
   iterations, whatever the file's limit for the GCR of the multigrid), with a warning. Found on
   a trajectory of length 1 from a quenched 24⁴ configuration at m 0.001 (ΔH 4e9, the links far
   from where P was made), where the sweeps stalled at |r|²/|b|² 7e-11 and the run panicked.
+  The same on the CPU.
+- CG with Neff's α on the even-odd Ratio on the CPU too, in double precision (0.4.0 had it on
+  the device only).
 - The note: why Neff's α helps CG more than the multigrid (K^(α) = Q_e⁻¹ K Q_e), over setups S
   and B.
 

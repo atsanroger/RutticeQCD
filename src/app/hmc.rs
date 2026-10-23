@@ -226,8 +226,10 @@ impl Default for HmcChebyshev {
     }
 }
 
-/// The multigrid of an action's solves.
+/// The multigrid of an action's solves. Read once from the file and copied into the
+/// preconditioner when the action is made: the size of the larger variant costs nothing.
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::large_enum_variant)]
 pub enum HmcMultigrid {
     /// Wilson and clover fermions (`hmc::MultigridSetup`): set up again after `refresh_every`
     /// force solves (0: when a trajectory starts), from the test vectors of the setup before
@@ -378,12 +380,7 @@ impl HmcSolver {
     }
 
     /// What is wrong with the preconditioner asked for, for an action of the given kind.
-    fn check_preconditioner(
-        &self,
-        lattice: [usize; ND],
-        wilson_like: bool,
-        all_sites: bool,
-    ) -> Result<(), String> {
+    fn check_preconditioner(&self, lattice: [usize; ND], wilson_like: bool) -> Result<(), String> {
         match self.preconditioner {
             None | Some(HmcPreconditioner::None) => Ok(()),
             Some(HmcPreconditioner::Chebyshev) => {
@@ -408,8 +405,8 @@ impl HmcSolver {
                             .into(),
                     );
                 }
-                if !wilson_like || !all_sites {
-                    return Err("preconditioner_type MG: for Wilson and clover fermions, and the domain-wall Ratio action on all sites".into());
+                if !wilson_like {
+                    return Err("preconditioner_type MG: for Wilson and clover fermions, and the domain-wall Ratio action".into());
                 }
                 let Some(mg) = self.multigrid else {
                     return Err("preconditioner_type MG needs a MultiGrid section".into());
@@ -529,14 +526,13 @@ impl HmcConfig {
         }
         for (i, a) in self.actions.iter().enumerate() {
             let at = &self.action_names[i];
-            let (level, smeared, ratio) = match a {
+            let (level, ratio) = match a {
                 ActionConfig::Plaquette { level, .. } | ActionConfig::Rectangle { level, .. } => {
-                    (*level, false, None)
+                    (*level, None)
                 }
-                ActionConfig::TwoFlavor { level, smeared, .. } => (*level, *smeared, None),
+                ActionConfig::TwoFlavor { level, .. } => (*level, None),
                 ActionConfig::Rational {
                     level,
-                    smeared,
                     fermion,
                     poles,
                     bounds,
@@ -559,22 +555,20 @@ impl HmcConfig {
                             "{at}.Rational: number_of_poles > 0 and 0 < lower_bound < upper_bound"
                         ));
                     }
-                    (*level, *smeared, None)
+                    (*level, None)
                 }
                 ActionConfig::TwoFlavorRatio {
                     level,
-                    smeared,
                     fermion,
                     denominator,
                     ..
-                } => (*level, *smeared, Some((fermion, denominator))),
+                } => (*level, Some((fermion, denominator))),
             };
             if level >= levels {
                 return invalid(format!(
                     "{at}.level_of_action {level}: Builder_Integrator.number_of_steps has {levels} levels"
                 ));
             }
-            let _ = smeared;
             match a {
                 ActionConfig::TwoFlavor { solver, .. }
                 | ActionConfig::TwoFlavorRatio { solver, .. } => {
@@ -597,15 +591,9 @@ impl HmcConfig {
                             }
                         );
                     if dwf_multigrid {
-                        let ActionConfig::TwoFlavorRatio {
-                            denominator,
-                            even_odd,
-                            ..
-                        } = a
-                        else {
+                        let ActionConfig::TwoFlavorRatio { denominator, .. } = a else {
                             unreachable!()
                         };
-                        let _ = even_odd;
                         if denominator.is_some() {
                             return invalid(format!(
                                 "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action over Pauli-Villars fields"
@@ -617,22 +605,16 @@ impl HmcConfig {
                             ));
                         }
                     }
-                    let (wilson_like, all_sites) = match a {
-                        ActionConfig::TwoFlavor {
-                            fermion, even_odd, ..
-                        } => {
-                            let _ = even_odd;
-                            (!matches!(fermion, HmcFermion::DomainWall { .. }), true)
+                    let wilson_like = match a {
+                        ActionConfig::TwoFlavor { fermion, .. } => {
+                            !matches!(fermion, HmcFermion::DomainWall { .. })
                         }
-                        ActionConfig::TwoFlavorRatio { fermion, .. } => (
-                            dwf_multigrid || !matches!(fermion, HmcFermion::DomainWall { .. }),
-                            true,
-                        ),
+                        ActionConfig::TwoFlavorRatio { fermion, .. } => {
+                            dwf_multigrid || !matches!(fermion, HmcFermion::DomainWall { .. })
+                        }
                         _ => unreachable!(),
                     };
-                    if let Err(e) =
-                        solver.check_preconditioner(self.lattice, wilson_like, all_sites)
-                    {
+                    if let Err(e) = solver.check_preconditioner(self.lattice, wilson_like) {
                         return invalid(format!("{at}.Solver: {e}"));
                     }
                     if solver.restart == 0 {
@@ -697,7 +679,7 @@ impl HmcConfig {
                             "{at}.Solver.preconditioner_type: MG (with BiCGStab, FGMRES or GCR) or None for Rational"
                         ));
                     }
-                    if let Err(e) = solver.check_preconditioner(self.lattice, true, true) {
+                    if let Err(e) = solver.check_preconditioner(self.lattice, true) {
                         return invalid(format!("{at}.Solver: {e}"));
                     }
                     if solver.restart == 0 {
@@ -884,13 +866,21 @@ impl HmcConfig {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
                                 let ops = (Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd));
-                                if solver.neff_alpha != 1.0 && !solver.asks_for(HmcPreconditioner::Multigrid) {
-                                    return Err(CliError::Invalid(format!(
-                                        "{}: Neff's α with CG on the even-odd Ratio is on the device only",
-                                        "Fopr.neff_alpha"
-                                    )));
+                                // CG with Neff's α on K Q_e (`TwoFlavorRatioEo::with_neff`);
+                                // the multigrid takes α itself.
+                                let q = with_alpha(lat, p, solver.neff_alpha)
+                                    .filter(|_| !solver.asks_for(HmcPreconditioner::Multigrid))
+                                    .map(|q| {
+                                        Box::new(move |out: &mut HalfPsi, inp: &HalfPsi, inverse| {
+                                            q.mult_q(out, inp, inverse)
+                                        }) as crate::hmc::NeffHalfQ<HalfPsi>
+                                    });
+                                if q.is_some() && solver.mixed.is_some() {
+                                    return Err(CliError::Invalid(
+                                        "Fopr.neff_alpha: Neff's α with mixed CG on the even-odd Ratio is on the device only (double precision here)".into(),
+                                    ));
                                 }
-                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), None, c)
+                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), q, c)
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },

@@ -166,6 +166,9 @@ type Single = (
     DeviceSpinor<f32>,
 );
 
+/// What `DeviceSolves` takes for Neff's α.
+type Alpha<'a> = (&'a CudaMdwf<f64>, Option<&'a CudaMdwf<f32>>, f64);
+
 /// The solves on the even sites of one solve of D†D, both with the cycle M of Ã, made for each
 /// solve from the coarse parts and dropped after it.
 struct DeviceSolves<'a, CT: LevelReal> {
@@ -177,7 +180,7 @@ struct DeviceSolves<'a, CT: LevelReal> {
     single: Option<&'a Single>,
     /// With Neff's α: D^(α), in single precision too with `fine_single`, and the top of
     /// Ã_L^(α).
-    alpha: Option<(&'a CudaMdwf<f64>, Option<&'a CudaMdwf<f32>>, f64)>,
+    alpha: Option<Alpha<'a>>,
     gcr: Gcr<DeviceSpinor<f64>>,
     parts: super::DeviceParts<CT>,
     params: PvEoParams,

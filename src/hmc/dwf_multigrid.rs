@@ -256,7 +256,6 @@ impl DwfMultigridSetup {
     }
 
     /// The next solve makes P and the coarse parts again, whatever the iterations say.
-    #[cfg(feature = "cuda-bridge")]
     pub(crate) fn force_rebuild(&mut self) {
         self.rebuild_due = true;
     }
@@ -353,14 +352,41 @@ fn with_solves<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
     setup: &mut DwfMultigridSetup,
-    (fresh, md): (bool, bool),
+    flags: (bool, bool),
     lat: &Arc<Lattice>,
-    run: impl FnOnce(&mut Solves<'_, '_, G>) -> Result<SolveInfo, SolveError>,
+    mut run: impl FnMut(&mut Solves<'_, '_, G>) -> Result<SolveInfo, SolveError>,
 ) -> Result<SolveInfo, SolveError> {
     assert!(
         op.alpha() == 1.0 && pv.alpha() == 1.0,
         "the multigrid of HMC takes D without Neff's α"
     );
+    let mut result = solves_once(op, pv, setup, flags, lat, &mut run);
+    // When the sweeps stall: P and the coarse parts again for the links of now (those kept may be
+    // of links far from them), then the test vectors improved by a bootstrap as well. Each goes
+    // on from the solution so far (`run` starts from it).
+    for (what, fresh) in [("P made again", flags.0), ("a bootstrap", true)] {
+        let Err(SolveError::NotConverged(info)) = &result else {
+            break;
+        };
+        eprintln!(
+            "the multigrid of HMC stalled at |r|²/|b|² {:.1e}: again with {what}",
+            info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
+        );
+        setup.force_rebuild();
+        result = solves_once(op, pv, setup, (fresh, flags.1), lat, &mut run);
+    }
+    result
+}
+
+/// One attempt of `with_solves`.
+fn solves_once<G: GammaRepre>(
+    op: &Mdwf<f64, G>,
+    pv: &Mdwf<f64, G>,
+    setup: &mut DwfMultigridSetup,
+    (fresh, md): (bool, bool),
+    lat: &Arc<Lattice>,
+    run: &mut impl FnMut(&mut Solves<'_, '_, G>) -> Result<SolveInfo, SolveError>,
+) -> Result<SolveInfo, SolveError> {
     let caching = setup.rebuild_growth > 0.0;
     let reuse = caching && setup.cache.is_some() && !setup.rebuild_due && !setup.due(fresh);
     let (basis, parts) = match setup.cache.take().filter(|_| reuse) {

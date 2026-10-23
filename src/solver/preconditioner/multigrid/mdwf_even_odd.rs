@@ -858,7 +858,7 @@ fn gram<F: Storage>(x: &HalfField<Aos, F>, y: &HalfField<Aos, F>) -> Vec<C64> {
         for (i, ai) in a.chunks_exact(reals).enumerate() {
             for (j, bj) in b.chunks_exact(reals).enumerate() {
                 let (mut re, mut im) = (0.0, 0.0);
-                for (p, q) in ai.chunks_exact(2).zip(bj.chunks_exact(2)) {
+                for (p, q) in ai.as_chunks::<2>().0.iter().zip(bj.as_chunks::<2>().0) {
                     let (pr, pi) = (p[0].load().to_f64(), p[1].load().to_f64());
                     let (qr, qi) = (q[0].load().to_f64(), q[1].load().to_f64());
                     re += pr * qr + pi * qi;
@@ -870,7 +870,11 @@ fn gram<F: Storage>(x: &HalfField<Aos, F>, y: &HalfField<Aos, F>) -> Vec<C64> {
         }
     });
     x.lattice().comm.sum(&mut sums);
-    sums.chunks_exact(2).map(|s| C64::new(s[0], s[1])).collect()
+    sums.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|[re, im]| C64::new(*re, *im))
+        .collect()
 }
 
 impl<F: Storage> Subspace for HalfField<Aos, F> {
