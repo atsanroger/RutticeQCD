@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+What the CPU and the device builds take, checked against each other:
+
+- An HMC file with `Main.backend : cuda_bridge` is refused by a program built without the
+  feature cuda-bridge, as the propagator files are. Before, it passed the checks of the device
+  (Neff's α and the levels in the multigrid) and ran on the CPU without them.
+- HMC with APE smearing on a smeared fermion action is refused when the file is read; the force
+  needs the derivative of the smearing, which stout has. Before, both builds panicked at the
+  first force.
+- A propagator file with `MultiGrid.basis_precision` on the CPU gets a note that it is for
+  cuda_bridge (the CPU keeps P in the precision of the cycle); the refusal of it in HMC says what
+  HMC does (half on the device, double on the CPU).
+
 ## 0.4.1 (2026-10-23)
 
 Faster setup and prolongation of the domain-wall multigrid on the device. HMC on 24⁴ with stout

@@ -445,11 +445,16 @@ impl HmcParams {
 
     /// The run the file describes.
     pub fn to_config(&self) -> Result<HmcConfig, CliError> {
-        let device = match self.main.backend {
-            Backend::Cpu => false,
-            Backend::CudaBridge => true,
-            _ => return invalid("Main.backend: HMC runs on cpu or cuda_bridge".into()),
-        };
+        let device =
+            match self.main.backend {
+                Backend::Cpu => false,
+                Backend::CudaBridge if cfg!(feature = "cuda-bridge") => true,
+                Backend::CudaBridge => return invalid(
+                    "Main.backend cuda_bridge needs a program built with the feature cuda-bridge"
+                        .into(),
+                ),
+                _ => return invalid("Main.backend: HMC runs on cpu or cuda_bridge".into()),
+            };
         let run = &self.hmc;
         let start = match run.gauge_config_status {
             StartStatus::Continue => StartConfig::File {
@@ -509,6 +514,24 @@ impl HmcParams {
                 }
                 None => ended = true,
             }
+        }
+        // The force through the smearing needs its derivative: stout only.
+        let ape = matches!(
+            self.gauge_smearing.map(|g| g.to_config()),
+            Some(super::config::GaugeSmearingConfig::Ape { .. })
+        );
+        if let Some(i) = actions.iter().position(|a| {
+            ape && matches!(
+                a,
+                ActionConfig::TwoFlavor { smeared: true, .. }
+                    | ActionConfig::TwoFlavorRatio { smeared: true, .. }
+                    | ActionConfig::Rational { smeared: true, .. }
+            )
+        }) {
+            return invalid(format!(
+                "{}: the force on smeared links needs stout smearing; GaugeSmearing.smear_type APE is not differentiable",
+                names[i]
+            ));
         }
         let grid = self.main.grid_size;
         if device {
@@ -774,7 +797,7 @@ impl FermionActionBlock {
         if mg.basis_precision_given.is_some() {
             return refused(
                 "basis_precision",
-                "for the multigrid on a device, which HMC does not have yet",
+                "HMC keeps P in half precision on the device and in double on the CPU",
             );
         }
         if mg.setup.checkpoint.is_some() {
