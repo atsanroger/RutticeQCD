@@ -4,7 +4,7 @@
 //! CGNE of the propagators one CG with reliable updates (`SingleCuda::reliable_normal`).
 
 use super::{CudaError, CudaMdwf, DeviceLinks, DeviceSpinor};
-use crate::fermion::{Bound, EoForm, MdwfParams, SchurFactor, Variant};
+use crate::fermion::{AfterQ, Bound, EoForm, MdwfParams, SchurFactor, Variant};
 use crate::hmc::SingleNormal;
 use crate::solver::{reliable_cg, Cg, SolveError, SolveInfo, Solver, Stop};
 use crate::{ConvertFrom, Lattice, LinearFn, Normal, Parity, Vector};
@@ -16,6 +16,8 @@ pub struct SingleCuda {
     op: CudaMdwf<f32>,
     pub tolerance_sqr: f64,
     even_odd: bool,
+    /// The operator with Neff's α whose Q the even-odd solves take (`with_neff`).
+    neff: Option<CudaMdwf<f32>>,
 }
 
 impl SingleCuda {
@@ -33,7 +35,17 @@ impl SingleCuda {
             op,
             tolerance_sqr,
             even_odd,
+            neff: None,
         })
+    }
+
+    /// The even-odd solves on K Q_e (Neff's `alpha`), as `TwoFlavorRatioEo::with_neff` asks.
+    pub fn with_neff(mut self, alpha: f64) -> Result<Self, CudaError> {
+        assert!(self.even_odd, "Neff's Q of the even-odd solves");
+        let mut q = CudaMdwf::<f32>::on_the_links_of(&self.op, *self.op.params())?;
+        q.set_alpha(alpha);
+        self.neff = Some(q);
+        Ok(self)
     }
 }
 
@@ -44,6 +56,7 @@ impl SingleCuda {
             op,
             tolerance_sqr,
             even_odd,
+            neff: None,
         }
     }
 }
@@ -118,7 +131,18 @@ impl SingleNormal<DeviceSpinor<f64>, DeviceLinks> for SingleCuda {
             true => {
                 let odd = DeviceSpinor::<f32>::zeros_half(&lat, ls, Parity::Odd).expect(made);
                 let mut k = SchurFactor::new(&self.op, EoForm::Left, &r32, &odd);
-                Cg::new(stop).solve(&mut Normal::new(&mut k, &r32), None, &mut e32, &r32)
+                match &self.neff {
+                    Some(n) => {
+                        let q = |out: &mut DeviceSpinor<f32>, inp: &DeviceSpinor<f32>, inverse| {
+                            n.mult_q(out, inp, inverse)
+                        };
+                        let mut a = AfterQ::new(&mut k, &q, &r32);
+                        Cg::new(stop).solve(&mut Normal::new(&mut a, &r32), None, &mut e32, &r32)
+                    }
+                    None => {
+                        Cg::new(stop).solve(&mut Normal::new(&mut k, &r32), None, &mut e32, &r32)
+                    }
+                }
             }
         };
         e.convert_from(&e32);

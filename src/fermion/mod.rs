@@ -10,7 +10,7 @@ pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 
 pub use even_odd::{
     adjoint_by_gamma5, adjoint_right_hand_side, adjoint_solution, hop_then_of_blocks,
-    inverse_hops_twice_of, schur_factor, solve_even_odd, Dagger, EoForm, EvenOdd, OnParity,
+    inverse_hops_twice_of, schur_factor, solve_even_odd, AfterQ, Dagger, EoForm, EvenOdd, OnParity,
     PvRatio, Schur, SchurFactor, SplitParity, Then,
 };
 pub use wilson::links_in_su3;

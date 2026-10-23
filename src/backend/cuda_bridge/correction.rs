@@ -43,8 +43,6 @@ pub struct DeviceParts<CT: DeviceReal> {
     coarse_pv: Rc<DeviceCoarseOp<CT>>,
     /// |H_xx|⁻¹ of the second factor, for MINRES.
     abs: Option<Rc<DeviceBuffer<CT>>>,
-    /// |H_xx|⁻¹ of the first, for MINRES there (the dual cycle, D_PV first).
-    abs_d: Option<Rc<DeviceBuffer<CT>>>,
     /// The levels below the coarse lattice of either factor (`add_levels`, `add_pv_levels`).
     levels_d: Option<Rc<Levels<'static, DeviceCoarse<CT>>>>,
     levels_pv: Option<Rc<Levels<'static, DeviceCoarse<CT>>>>,
@@ -57,7 +55,6 @@ impl<CT: DeviceReal> Clone for DeviceParts<CT> {
             coarse_d: self.coarse_d.clone(),
             coarse_pv: self.coarse_pv.clone(),
             abs: self.abs.clone(),
-            abs_d: self.abs_d.clone(),
             levels_d: self.levels_d.clone(),
             levels_pv: self.levels_pv.clone(),
         }
@@ -68,8 +65,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     /// Whether the correction with these settings is on the device: the quark factor not by
     /// MINRES, which is only for the Hermitian form of the second; that by MINRES on its
     /// Hermitian form or by another solver on its exact adjoint.
-    pub fn supports(_params: &PvEoParams) -> bool {
-        true
+    pub fn supports(params: &PvEoParams) -> bool {
+        params.d_solver != CoarseKrylov::Minres
     }
 
     /// With the prolongation `device`. `plain`: D and the second factor (D_PV, or D for the
@@ -133,16 +130,11 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             }
             false => None,
         };
-        let abs_d = match params.d_solver == CoarseKrylov::Minres {
-            true => Some(Rc::new(coarse_d.abs_inverse_of_a_gamma5()?)),
-            false => None,
-        };
         Ok(DeviceParts {
             basis: device,
             coarse_d,
             coarse_pv,
             abs,
-            abs_d,
             levels_d: None,
             levels_pv: None,
         })
@@ -165,27 +157,13 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             params.pv_solver == CoarseKrylov::Minres,
             "parts made for another solver of the second factor"
         );
-        assert_eq!(
-            parts.abs_d.is_some(),
-            params.d_solver == CoarseKrylov::Minres,
-            "parts made for another solver of the first factor"
-        );
         let (coarse_d, coarse_pv) = (parts.coarse_d.clone(), parts.coarse_pv.clone());
         // The matrices on the coarse sites: the inverses of the blocks of P†DP, and of the
         // second factor |H_xx|⁻¹ for MINRES, else the inverses of the blocks of the adjoint.
         let (d, pv) = (coarse_d.clone(), coarse_pv.clone());
-        let blocks_d: Box<dyn LinearFn<DeviceCoarse<CT>> + 'a> = match parts.abs_d.clone() {
-            Some(abs) => Box::new(FnMap(
-                move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
-                    d.apply_blocks(out, inp, &abs);
-                },
-            )),
-            None => Box::new(FnMap(
-                move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
-                    d.apply_blocks(out, inp, d.block_inverses());
-                },
-            )),
-        };
+        let blocks_d = FnMap(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
+            d.apply_blocks(out, inp, d.block_inverses());
+        });
         let blocks_pv: Box<dyn LinearFn<DeviceCoarse<CT>> + 'a> = match parts.abs.clone() {
             Some(abs) => Box::new(FnMap(
                 move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
@@ -209,7 +187,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 form,
                 device,
                 (coarse_d.clone(), coarse_pv.clone()),
-                (blocks_d, blocks_pv),
+                (Box::new(blocks_d), blocks_pv),
                 params,
                 &like.zeros_with(1),
                 &coarse_like,
@@ -220,10 +198,12 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             parts,
         };
         if let Some(l) = levels_d {
-            c.correction.set_levels_d(Box::new(move |out, inp| l(out, inp)));
+            c.correction
+                .set_levels_d(Box::new(move |out, inp| l(out, inp)));
         }
         if let Some(l) = levels_pv {
-            c.correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+            c.correction
+                .set_levels_pv(Box::new(move |out, inp| l(out, inp)));
         }
         Ok(c)
     }
@@ -260,9 +240,10 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         let levels =
             DeviceMultilevel::build(&self.coarse_d, &self.coarse, &v, super_blocks, bootstrap)?;
         let applications = levels.setup_applications;
-        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> = Rc::new(
-            move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.apply(out, inp),
-        );
+        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> =
+            Rc::new(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| {
+                levels.apply(out, inp)
+            });
         let l = levels.clone();
         self.correction
             .set_levels_d(Box::new(move |out, inp| l(out, inp)));
@@ -284,9 +265,8 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         let v = vectors.to_precision::<CT>()?;
         let levels = DeviceAbsMultilevel::build(&self.coarse_pv, &self.coarse, &v, super_blocks)?;
         let applications = levels.setup_applications;
-        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> = Rc::new(
-            move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.add(out, inp),
-        );
+        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> =
+            Rc::new(move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.add(out, inp));
         let l = levels.clone();
         self.correction
             .set_levels_pv(Box::new(move |out, inp| l(out, inp)));

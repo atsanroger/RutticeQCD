@@ -401,6 +401,43 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
     }
 }
 
+/// The operator `a` after Neff's Q (`q(out, inp, inverse)`, Hermitian, within a site): A Q, its
+/// adjoint Q A†. With K the left Schur factor of D and K^(α) that of D^(α) = D Q,
+/// K^(α) = Q_e⁻¹ K Q_e, so (K†K)⁻¹ = Q_e ((K Q_e)†(K Q_e))⁻¹ Q_e: CG on the normal equations of
+/// K Q_e solves those of K with Neff's better conditioned operator, the action unchanged.
+pub struct AfterQ<'a, H> {
+    pub a: &'a mut dyn LinearOp<H>,
+    pub q: &'a dyn Fn(&mut H, &H, bool),
+    t: H,
+}
+
+impl<'a, H: Vector> AfterQ<'a, H> {
+    /// `like`: a field of the shape of the operator's.
+    pub fn new(a: &'a mut dyn LinearOp<H>, q: &'a dyn Fn(&mut H, &H, bool), like: &H) -> Self {
+        Self {
+            a,
+            q,
+            t: like.zeros_like(),
+        }
+    }
+}
+
+impl<H: Vector> LinearFn<H> for AfterQ<'_, H> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        crate::fit(&mut self.t, inp);
+        (self.q)(&mut self.t, inp, false);
+        self.a.mult(out, &self.t);
+    }
+}
+
+impl<H: Vector> LinearOp<H> for AfterQ<'_, H> {
+    fn mult_dag(&mut self, out: &mut H, inp: &H) {
+        crate::fit(&mut self.t, inp);
+        self.a.mult_dag(&mut self.t, inp);
+        (self.q)(out, &self.t, false);
+    }
+}
+
 /// D† x = b by the adjoint of the Pauli-Villars operator: `PvRatio::new(pv, op, EoForm::Right,
 /// ..)` (the roles exchanged) is Ã† = C_e⁻† S† S_PV C_PV,e⁻¹, the adjoint of Ã of `op` over `pv`,
 /// and the cycle made the same way on the P of Ã (`PvEoCycle::new(pv, op, ..)`) is M†. The

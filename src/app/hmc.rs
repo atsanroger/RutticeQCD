@@ -586,8 +586,8 @@ impl HmcConfig {
                     if solver.neff_alpha.is_nan() || solver.neff_alpha <= 0.0 {
                         return invalid(format!("{at}.Fopr.neff_alpha: positive"));
                     }
-                    // The multigrid of domain-wall fermions: the Ratio action on all sites over
-                    // Pauli-Villars fields, without Neff's α, with GCR on the even sites.
+                    // The multigrid of domain-wall fermions: the Ratio action over Pauli-Villars
+                    // fields, with GCR on the even sites; Neff's α goes to its setup.
                     let dwf_multigrid = solver.asks_for(HmcPreconditioner::Multigrid)
                         && matches!(
                             a,
@@ -726,11 +726,9 @@ impl HmcConfig {
                             "{at}: the even-odd Ratio of clover fermions (its det T term) is not written"
                         ));
                     }
-                    if solver.neff_alpha != 1.0
-                        && !solver.asks_for(HmcPreconditioner::Multigrid)
-                    {
+                    if solver.neff_alpha != 1.0 && solver.asks_for(HmcPreconditioner::Chebyshev) {
                         return invalid(format!(
-                            "{at}.Fopr.neff_alpha: not with CG on the even-odd Ratio yet (the multigrid takes it)"
+                            "{at}.Fopr.neff_alpha: CG on the even-odd Ratio takes it without a preconditioner (or with the multigrid)"
                         ));
                     }
                     if solver.asks_for(HmcPreconditioner::Multigrid)
@@ -886,7 +884,13 @@ impl HmcConfig {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
                                 let ops = (Mdwf::<f64>::new(lat, p), Mdwf::<f64>::new(lat, pd));
-                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), c)
+                                if solver.neff_alpha != 1.0 && !solver.asks_for(HmcPreconditioner::Multigrid) {
+                                    return Err(CliError::Invalid(format!(
+                                        "{}: Neff's α with CG on the even-odd Ratio is on the device only",
+                                        "Fopr.neff_alpha"
+                                    )));
+                                }
+                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), None, c)
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -895,7 +899,7 @@ impl HmcConfig {
                                     boundary: bd,
                                 }),
                             ) if *even_odd => {
-                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), None, c)
+                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), None, None, c)
                             }
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
@@ -1056,7 +1060,7 @@ impl HmcConfig {
                         let p = mdwf_params(fermion);
                         let pd = denominator.map_or(p.pauli_villars(), |d| mdwf_params(&d));
                         let action = match even_odd {
-                            true => device_ratio_eo(lat, (p, pd), c)?,
+                            true => device_ratio_eo(lat, (p, pd), solver.neff_alpha, c)?,
                             false => device_ratio(lat, (p, pd), solver.neff_alpha, c)?,
                         };
                         (*level, action)
@@ -1168,6 +1172,7 @@ fn ratio<O: ForceOp + 'static>(
 fn ratio_eo<O: EvenOddHalves + 'static>(
     (op, denominator): (O, O),
     single: Option<Box<dyn SingleNormal<O::Half, O::Links>>>,
+    neff: Option<crate::hmc::NeffHalfQ<O::Half>>,
     c: Common,
 ) -> Box<dyn MdAction<O::Links>> {
     let s = c.solver;
@@ -1177,6 +1182,9 @@ fn ratio_eo<O: EvenOddHalves + 'static>(
         .with_preconditioner(s.preconditioner());
     if let Some(s) = single {
         a = a.with_single(s);
+    }
+    if let Some(q) = neff {
+        a = a.with_neff(q);
     }
     Box::new(a)
 }
@@ -1250,14 +1258,37 @@ fn device_single(
 fn device_ratio_eo(
     lat: &Arc<Lattice>,
     (p, pd): (MdwfParams, MdwfParams),
+    alpha: f64,
     c: Common,
 ) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
-    use crate::backend::cuda_bridge::CudaMdwf;
-    let make = |p: MdwfParams| {
-        CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
+    use crate::backend::cuda_bridge::hmc_mixed::SingleCuda;
+    use crate::backend::cuda_bridge::{CudaMdwf, DeviceSpinor};
+    let device =
+        |e: crate::backend::cuda_bridge::CudaError| CliError::Invalid(format!("the device: {e}"));
+    let make = |p: MdwfParams| CudaMdwf::<f64>::new(lat, p).map_err(device);
+    // CG with Neff's α on K Q_e (`TwoFlavorRatioEo::with_neff`); the multigrid takes α itself.
+    let neff = alpha != 1.0 && !c.solver.asks_for(HmcPreconditioner::Multigrid);
+    let single = match (c.solver.mixed, neff) {
+        (Some(tol), true) => Some(Box::new(
+            SingleCuda::new(lat, p, 1.0, tol, true)
+                .and_then(|s| s.with_neff(alpha))
+                .map_err(device)?,
+        ) as Single<CudaMdwf<f64>>),
+        _ => device_single(lat, p, 1.0, c.solver, true)?,
     };
-    let single = device_single(lat, p, 1.0, c.solver, true)?;
-    Ok(ratio_eo((make(p)?, make(pd)?), single, c))
+    let q = match neff {
+        true => {
+            let mut q = make(p)?;
+            q.set_alpha(alpha);
+            Some(
+                Box::new(move |out: &mut DeviceSpinor, inp: &DeviceSpinor, inverse| {
+                    q.mult_q(out, inp, inverse)
+                }) as crate::hmc::NeffHalfQ<DeviceSpinor>,
+            )
+        }
+        false => None,
+    };
+    Ok(ratio_eo((make(p)?, make(pd)?), single, q, c))
 }
 
 /// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`

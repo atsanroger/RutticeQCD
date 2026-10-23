@@ -180,7 +180,10 @@ impl<'a, CT: LevelReal> DeviceSolves<'a, CT> {
             .unwrap_or_else(|e| panic!("the multigrid on the device failed: {e}"))
     }
 
-    fn try_cycle(&self, neff: bool) -> Result<Box<dyn LinearFn<V> + 'a>, Box<dyn std::error::Error>> {
+    fn try_cycle(
+        &self,
+        neff: bool,
+    ) -> Result<Box<dyn LinearFn<V> + 'a>, Box<dyn std::error::Error>> {
         let alpha = self.alpha.filter(|_| neff);
         let (form, hi) = match alpha {
             Some((_, _, hi)) => (EoForm::Left, hi),
@@ -386,7 +389,10 @@ fn with_coarse<CT: LevelReal>(
                     let b = Rc::new(DeviceBasis::pv_eo(d32, pv32, &agg, &y, true)?);
                     let level_vectors = match setup.levels.count {
                         0 => None,
-                        _ => Some(b.pv_eo_coarse_vectors(d32, pv32, &y)?.to_precision::<f64>()?),
+                        _ => Some(
+                            b.pv_eo_coarse_vectors(d32, pv32, &y)?
+                                .to_precision::<f64>()?,
+                        ),
                     };
                     state.vectors32 = Some(y.stash()?);
                     (b, level_vectors, parts_start)
@@ -433,14 +439,24 @@ fn with_coarse<CT: LevelReal>(
             drop(level_vectors);
             let top = |d: &CudaMdwf<f64>, form: EoForm| {
                 let mut a = PvRatio::new(d, pv, form, &even, &odd);
-                top_of(&mut a, lat, &even, setup.cycle.seed, setup.cycle.power_steps)
+                top_of(
+                    &mut a,
+                    lat,
+                    &even,
+                    setup.cycle.seed,
+                    setup.cycle.power_steps,
+                )
             };
             let hi = top(d, EoForm::Right)?;
             let hi_alpha = match &d_alpha {
                 Some(d) => top(d, EoForm::Left)?,
                 None => hi,
             };
-            (c.parts(), (hi, hi_alpha), parts_start.elapsed().as_secs_f64())
+            (
+                c.parts(),
+                (hi, hi_alpha),
+                parts_start.elapsed().as_secs_f64(),
+            )
         }
     };
     // P and the coarse parts count as the rebuild, the vectors as the setup.

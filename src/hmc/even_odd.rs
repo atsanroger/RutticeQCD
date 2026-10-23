@@ -15,7 +15,7 @@ use super::fermion_action::{smeared_force, CloverInsertion, ForceOp, Gamma5};
 use super::solve::{chebyshev_cg, Pre};
 use super::{Chrono, LinkField, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
-use crate::fermion::{Dagger, EoForm, EvenOdd, OnParity, Schur, SchurFactor};
+use crate::fermion::{AfterQ, Dagger, EoForm, EvenOdd, OnParity, Schur, SchurFactor};
 use crate::gauge::GaugeSmearing;
 use crate::kernel::Cplx;
 use crate::solver::{SolveError, SolveInfo, Stop};
@@ -598,8 +598,13 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     pub guess: Chrono<O::Half>,
     /// Mixed precision: K in single precision (`with_single`).
     single: Option<Box<dyn super::SingleNormal<O::Half, O::Links>>>,
+    /// Neff's Q on the even sites (`with_neff`).
+    neff: Option<NeffHalfQ<O::Half>>,
     meter: super::solve::CostMeter,
 }
+
+/// Neff's Q on the fields of one parity: `q(out, inp, inverse)`.
+pub type NeffHalfQ<H> = Box<dyn Fn(&mut H, &H, bool)>;
 
 impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
     pub fn new(op: O, pv: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
@@ -617,12 +622,22 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
             md_iterations: 0,
             guess: Chrono::new(0),
             single: None,
+            neff: None,
             meter: Default::default(),
         }
     }
 
     pub fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
+        self
+    }
+
+    /// The solves with the operator by Neff's α, Q of D^(α) = D Q on the even sites: CG on the
+    /// normal equations of K Q_e (`fermion::AfterQ`), z = Q_e ((K Q_e)†(K Q_e))⁻¹ Q_e b; the
+    /// action and its force are those of K. Mixed precision (`with_single`) solves the same
+    /// equations in single precision. Not with a preconditioner.
+    pub fn with_neff(mut self, q: NeffHalfQ<O::Half>) -> Self {
+        self.neff = Some(q);
         self
     }
 
@@ -734,8 +749,27 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         );
         let ops = (&self.op, Some(&self.pv));
         let start = std::time::Instant::now();
-        let info = match self.single.as_mut() {
-            Some(single) => {
+        let info = match (self.neff.as_ref(), self.single.as_mut()) {
+            (Some(q), single) => {
+                assert!(
+                    self.solver == NormalSolver::Cg && matches!(flags.0, Preconditioner::None),
+                    "Neff's α is for CG without a preconditioner"
+                );
+                // z = Q_e y, (K Q_e)†(K Q_e) y = Q_e b.
+                let (mut b, mut y) = (v1.zeros_like(), z.zeros_like());
+                q(&mut b, v1, false);
+                q(&mut y, &z, true);
+                let odd = self.op.new_half(lat, Parity::Odd);
+                let mut k = SchurFactor::new(&self.op, EoForm::Left, v1, &odd);
+                let mut a = AfterQ::new(&mut k, q.as_ref(), v1);
+                let info = match single {
+                    Some(single) => super::mixed_normal(&mut a, single.as_mut(), &mut y, &b, stop),
+                    None => self.solver.solve(&mut a, Pre::None, &mut y, &b, stop),
+                };
+                q(&mut z, &y, false);
+                info
+            }
+            (None, Some(single)) => {
                 assert!(
                     self.solver == NormalSolver::Cg && matches!(flags.0, Preconditioner::None),
                     "mixed precision is for CG without a preconditioner"
@@ -744,7 +778,7 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
                 let mut k = SchurFactor::new(&self.op, EoForm::Left, v1, &odd);
                 super::mixed_normal(&mut k, single.as_mut(), &mut z, v1, stop)
             }
-            None => Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop),
+            (None, None) => Self::solve(self.solver, ops, lat, flags, &mut z, v1, stop),
         }
         .expect("the solve with the operator converges");
         self.meter.add(start, info.iterations);

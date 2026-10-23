@@ -67,6 +67,15 @@ required-features = ["mpi"]
 name = "mpirun"
 required-features = ["mpi"]
 
+# Examples on the device only.
+[[example]]
+name = "dminus_cost"
+required-features = ["cuda-bridge"]
+
+[[example]]
+name = "dual_basis"
+required-features = ["cuda-bridge"]
+
 [[test]]
 name = "mpi_program"
 required-features = ["mpi"]

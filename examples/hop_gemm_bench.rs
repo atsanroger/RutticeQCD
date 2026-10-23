@@ -62,10 +62,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let (even, odd) = (Parity::Even, Parity::Odd);
         let mut inp = DeviceParities.half_like(psi, odd);
         DeviceParities.extract(&mut inp, psi, odd);
-        let (mut out, mut scratch) = (DeviceParities.half_like(psi, even), DeviceParities.half_like(psi, even));
+        let (mut out, mut scratch) = (
+            DeviceParities.half_like(psi, even),
+            DeviceParities.half_like(psi, even),
+        );
         let mut work = op.even_odd_work();
         let mut apply = |out: &mut DeviceSpinor<T>| {
-            op.hop_then(&mut work, out, &inp, even, dagger, Then::INVERSE, &mut scratch)
+            op.hop_then(
+                &mut work,
+                out,
+                &inp,
+                even,
+                dagger,
+                Then::INVERSE,
+                &mut scratch,
+            )
         };
         apply(&mut out);
         let mut best = f64::INFINITY;

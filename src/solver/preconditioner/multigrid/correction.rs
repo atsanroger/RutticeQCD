@@ -251,9 +251,8 @@ pub trait NeffQ<V>: EvenOdd<V> {
 ///   the operator that is solved (with Neff's α);
 /// - P, `T`, into coarse fields `G`; the coarse systems are solved on fields `C`, which may
 ///   be of a lower precision;
-/// - the coarse operators `D`, the quark factor by `params.d_solver` (`solve_shared`; MINRES on
-///   its Γ5-Hermitian form, `minres_on_hermitian`, only where `plain` is exchanged, D_PV first,
-///   as in the dual cycle for D†), the second by MINRES on H = Γ5 (P†D_PV P)† with `blocks_pv` = |H_xx|⁻¹, on the even coarse
+/// - the coarse operators `D`, the quark factor by `params.d_solver` (`solve_shared`), the
+///   second by MINRES on H = Γ5 (P†D_PV P)† with `blocks_pv` = |H_xx|⁻¹, on the even coarse
 ///   sites where there is the even-odd form; or, with another solver, the second coarse
 ///   operator is the exact adjoint P†D_PV†P itself (`CoarseOp::adjoint`), solved as the first
 ///   (`solve_shared`, on the even coarse sites where it has the even-odd form) with
@@ -305,6 +304,10 @@ where
         like: &V,
         coarse_like: &C,
     ) -> Self {
+        assert!(
+            params.d_solver != CoarseKrylov::Minres,
+            "MINRES needs a Hermitian operator: not for the quark factor"
+        );
         Self {
             work: (plain.0.even_odd_work(), outer.0.even_odd_work()),
             plain,
@@ -443,23 +446,18 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
-        // c = (P†DP)⁻¹ g; by MINRES on its Γ5-Hermitian form where the first operator is D_PV
-        // (the dual cycle, `plain` exchanged), with `blocks_d` = |H_xx|⁻¹.
+        // c = (P†DP)⁻¹ g.
         c.set_zero();
         let d_solver = params.d_solver;
-        if d_solver == CoarseKrylov::Minres {
-            minres_on_hermitian(&*coarse_d, &mut **blocks_d, None, n, stop, c, gc);
-        } else {
-            solve_shared(
-                &*coarse_d,
-                Some(&mut **blocks_d),
-                levels_d.as_deref(),
-                n,
-                &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
-                c,
-                gc,
-            );
-        }
+        solve_shared(
+            &*coarse_d,
+            Some(&mut **blocks_d),
+            levels_d.as_deref(),
+            n,
+            &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
+            c,
+            gc,
+        );
 
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
         g.convert_from(c);

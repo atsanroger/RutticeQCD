@@ -21,7 +21,7 @@ pub use rational::Rational;
 pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 
 pub use even_odd::{
-    log_det_diag, EvenOddForceOp, EvenOddHalves, HalfPsi, TwoFlavorEo, TwoFlavorRatioEo,
+    log_det_diag, EvenOddForceOp, EvenOddHalves, HalfPsi, NeffHalfQ, TwoFlavorEo, TwoFlavorRatioEo,
 };
 pub use fermion_action::{
     clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
