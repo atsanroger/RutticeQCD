@@ -1,0 +1,803 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{xcolor}
+\geometry{a4paper,left=2.2cm,right=2.2cm,top=2.2cm,bottom=2.4cm}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6ex}
+\numberwithin{equation}{section}
+
+\newcommand{\dg}{^{\dagger}}
+\newcommand{\Dpv}{D_{\mathrm{PV}}}
+\newcommand{\Cpv}{C_{\mathrm{PV}}}
+\newcommand{\Spv}{S_{\mathrm{PV}}}
+\newcommand{\Pp}{P_{+}}
+\newcommand{\Pm}{P_{-}}
+\newcommand{\Gfive}{\Gamma_5}
+\newcommand{\AR}{\tilde A_{R}}
+\newcommand{\AL}{\tilde A_{L}}
+\newcommand{\Pro}{\mathcal P}
+\newcommand{\Dc}{\mathcal D_{\mathrm c}}
+\newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
+\newcommand{\Ce}{C_{e}}
+\newcommand{\Co}{C_{o}}
+\newcommand{\Cpve}{C_{\mathrm{PV},e}}
+\newcommand{\Cpvo}{C_{\mathrm{PV},o}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{The factorized Pauli--Villars multigrid of RutticeQCD,\\ from the solver to HMC:
+a step-by-step walkthrough}
+\author{Wei-Lun Chen}
+\date{\today\quad(internal note)}
+
+\begin{document}
+\maketitle
+
+This is an internal walkthrough of the multigrid method for the M\"obius domain-wall operator as
+it is implemented in RutticeQCD, written so that every formula can be followed line by line. It
+starts from the operator, goes through the solver of $D\psi=\eta$, the setup of the multigrid and
+the solves with $D\dg$, and ends with the solves of the HMC force. Nothing here is new with respect
+to the MG note (\code{docs/mg\_background/MDWF\_MULTIGRID\_NOTE.tex}); the note states the results,
+this walkthrough derives them step by step. The last section maps each step to the code.
+
+\tableofcontents
+
+% ======================================================================
+\section{The M\"obius domain-wall operator}
+
+\subsection{Ingredients}
+The field $\psi$ lives on the four-dimensional lattice and carries a fifth index
+$s=0,\dots,L_s-1$; each $\psi_s$ is a Dirac field. The chiral projectors are
+\begin{equation}
+P_\pm=\frac{1\pm\gamma_5}{2},\qquad P_\pm^2=P_\pm,\qquad P_+P_-=0,\qquad P_++P_-=1 .
+\end{equation}
+The Wilson hopping term and the Wilson operator of mass $-M_5$ are
+\begin{align}
+(K\psi)(x)&=\sum_{\mu=1}^{4}\Big[(1-\gamma_\mu)U_\mu(x)\psi(x+\hat\mu)
++(1+\gamma_\mu)U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\Big],\\
+W&=(4-M_5)-\tfrac12K .
+\end{align}
+$W$ acts on every slice $s$ alike and does not mix slices.
+
+\subsection{The operator in Brower--Neff--Orginos form}
+With $b$, $c$ the M\"obius parameters, define
+\begin{equation}
+D_+=1+bW,\qquad D_-=cW-1 .
+\end{equation}
+The operator at quark mass $m$ acts slice by slice as
+\begin{equation}
+(D\psi)_s=D_+\psi_s+D_-\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),
+\qquad \psi_{L_s}\equiv-m\psi_0,\qquad \psi_{-1}\equiv-m\psi_{L_s-1}.
+\label{eq:Dslice}
+\end{equation}
+For $L_s=4$ the matrix in $s$ is
+\begin{equation}
+D=\begin{pmatrix}
+D_+ & D_-\Pm & 0 & -mD_-\Pp\\
+D_-\Pp & D_+ & D_-\Pm & 0\\
+0 & D_-\Pp & D_+ & D_-\Pm\\
+-mD_-\Pm & 0 & D_-\Pp & D_+
+\end{pmatrix}.
+\end{equation}
+The physical quark field is $q=\Pm\psi_0+\Pp\psi_{L_s-1}$; the runs use $b=1.5$, $c=0.5$,
+$L_s=8$.
+
+\subsection{Splitting off the fifth-dimension hop}
+Define the hop in the fifth dimension, with a minus sign,
+\begin{equation}
+(Y\psi)_s=-\Pm\psi_{s+1}-\Pp\psi_{s-1}\qquad\text{(same wrap-around)}.
+\end{equation}
+Comparing with Eq.~\eqref{eq:Dslice}, the off-diagonal part of $D$ is $-D_-Y$, with $D_-$ on the
+\emph{left}:
+\begin{equation}
+D=D_+-D_-Y .
+\end{equation}
+Now insert $D_\pm$ and then $W$, one substitution per line:
+\begin{align}
+D&=(1+bW)-(cW-1)Y\\
+&=1+bW-cWY+Y\\
+&=1+Y+W\,(b-cY)\\
+&=1+Y+\Big[(4-M_5)-\tfrac12K\Big](b-cY)\\
+&=\underbrace{\big[1+b(4-M_5)\big]}_{d_+}+\underbrace{\big[1-c(4-M_5)\big]}_{d_-}Y
+-\tfrac12K\,(b-cY)\\
+&=C-\tfrac12K\,(b-cY),\qquad C\equiv d_++d_-Y .
+\label{eq:Dsplit}
+\end{align}
+$C$ contains no four-dimensional hop: it acts within one site, as an $L_s\times L_s$ matrix in
+$s$. All the gauge field sits in $-\frac12K(b-cY)$. The Pauli--Villars operator is the same
+operator at unit mass,
+\begin{equation}
+\Dpv=D\big|_{m=1},\qquad \Cpv=C\big|_{m=1}.
+\end{equation}
+
+\subsection{The site-diagonal part $C$ and its inverse}
+$Y$ maps $\Pp\psi$ to $\Pp\psi$ and $\Pm\psi$ to $\Pm\psi$, so $C$ splits into a block on
+$\psi^+=\Pp\psi$ and one on $\psi^-=\Pm\psi$. On $\psi^+$, $Y$ brings $\psi^+_{s-1}$ to slice $s$
+with the factor $-1$, and across the wall the factor is $-(-m)=+m$:
+\begin{equation}
+(C\psi)^+_s=\begin{cases}
+d_+\psi^+_0+m\,d_-\psi^+_{L_s-1}, & s=0,\\[2pt]
+d_+\psi^+_s-d_-\psi^+_{s-1}, & s\ge1 .
+\end{cases}
+\end{equation}
+To solve $C^+x=r$, take the rows $s\ge1$ first:
+\begin{equation}
+d_+x_s-d_-x_{s-1}=r_s\quad\Longrightarrow\quad x_s=\frac{r_s+d_-x_{s-1}}{d_+}.
+\end{equation}
+Each $x_s$ is then affine in the unknown $x_0$. With $q=d_-/d_+$ we claim
+\begin{equation}
+x_s=p_s+q^sx_0,\qquad p_0=0,\qquad p_s=\frac{r_s+d_-p_{s-1}}{d_+}.
+\end{equation}
+Check by induction:
+\begin{align}
+x_s&=\frac{r_s+d_-x_{s-1}}{d_+}\\
+&=\frac{r_s+d_-(p_{s-1}+q^{s-1}x_0)}{d_+}\\
+&=\frac{r_s+d_-p_{s-1}}{d_+}+\frac{d_-}{d_+}q^{s-1}x_0\\
+&=p_s+q^sx_0 .
+\end{align}
+The remaining row $s=0$ fixes $x_0$:
+\begin{align}
+d_+x_0+m\,d_-x_{L_s-1}&=r_0\\
+d_+x_0+m\,d_-\big(p_{L_s-1}+q^{L_s-1}x_0\big)&=r_0\\
+\big(d_++m\,d_-q^{L_s-1}\big)x_0&=r_0-m\,d_-p_{L_s-1}\\
+x_0&=\frac{r_0-m\,d_-p_{L_s-1}}{d_++m\,d_-q^{L_s-1}} .
+\end{align}
+The block on $\psi^-$ is the same with $s\to L_s-1-s$. So $C^{-1}$ costs $O(L_s)$ per site, is
+exact, and does not depend on the gauge field. $C\dg$ has the transposed blocks and is inverted
+the same way from the other end.
+
+\subsection{Neff's $\alpha$}
+Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
+\begin{equation}
+Q_0=\Pm+\alpha\Pp,\qquad Q_s=\alpha\ (0<s<L_s-1),\qquad Q_{L_s-1}=\Pp+\alpha\Pm .
+\end{equation}
+$Q$ is Hermitian and $Q^{-1}$ is the same with $\alpha\to1/\alpha$. If $D^{(\alpha)}\psi^{(\alpha)}=\eta$, then
+\begin{equation}
+\eta=D^{(\alpha)}\psi^{(\alpha)}=DQ\psi^{(\alpha)}\quad\Longrightarrow\quad\psi=Q\psi^{(\alpha)}
+\ \text{solves}\ D\psi=\eta .
+\end{equation}
+$Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ alone, so the quark propagator is unchanged.
+
+% ======================================================================
+\section{The even-odd system}
+
+\subsection{Blocks}
+Order the sites even first. $K$ connects nearest neighbours, which have opposite parity, so in
+Eq.~\eqref{eq:Dsplit} the diagonal blocks come from $C$ alone:
+\begin{equation}
+D=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix},\qquad
+D_{pq}=-\tfrac12K_{pq}(b-cY)\quad(p\neq q).
+\end{equation}
+$\Ce$ and $\Co$ are the same matrix $C$ on the even and the odd sites.
+
+\subsection{The Schur complement}
+Solve $D\psi=\eta$ block by block. The odd rows:
+\begin{align}
+D_{oe}\psi_e+\Co\psi_o&=\eta_o\\
+\psi_o&=\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big).
+\label{eq:psio}
+\end{align}
+Insert into the even rows:
+\begin{align}
+\Ce\psi_e+D_{eo}\psi_o&=\eta_e\\
+\Ce\psi_e+D_{eo}\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big)&=\eta_e\\
+\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\psi_e&=\eta_e-D_{eo}\Co^{-1}\eta_o\\
+S\psi_e&=\eta'_e,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad \eta'_e\equiv\eta_e-D_{eo}\Co^{-1}\eta_o .
+\label{eq:schur}
+\end{align}
+
+\subsection{$S^{-1}=\pi D^{-1}\iota$}
+Let $\iota$ put an even-site field on the whole lattice (zero on the odd sites) and $\pi$ take
+the even part:
+\begin{equation}
+\iota y=\begin{pmatrix}y\\0\end{pmatrix},\qquad
+\pi\begin{pmatrix}\psi_e\\\psi_o\end{pmatrix}=\psi_e .
+\end{equation}
+For $\eta=\iota\eta_e$ we have $\eta_o=0$, so $\eta'_e=\eta_e$ and Eq.~\eqref{eq:schur} reads
+$S\psi_e=\eta_e$. Hence
+\begin{equation}
+S^{-1}\eta_e=\psi_e=\pi D^{-1}\iota\eta_e\quad\Longrightarrow\quad S^{-1}=\pi D^{-1}\iota .
+\label{eq:Sinv}
+\end{equation}
+The same for $D\dg$: its block form is $\begin{pmatrix}\Ce\dg & D_{oe}\dg\\ D_{eo}\dg & \Co\dg\end{pmatrix}$,
+and elimination gives $\Ce\dg-D_{oe}\dg(\Co\dg)^{-1}D_{eo}\dg=S\dg$, so $S^{-\dagger}=\pi D^{-\dagger}\iota$.
+
+\subsection{The Pauli--Villars preconditioned forms}
+$S$ is not suitable for a Krylov method: its spectrum surrounds the origin. Following Kanamori,
+Chen and Matsufuru we multiply from the left by the adjoint of the Pauli--Villars factor and
+divide the site part out. Two placements of $\Ce$ give two forms:
+\begin{align}
+\AR&=(\Spv\Cpve^{-1})\dg\,(S\Ce^{-1}),\\
+\AL&=(\Cpve^{-1}\Spv)\dg\,(\Ce^{-1}S).
+\end{align}
+For $m=1$ both become $X\dg X$, Hermitian positive; for $m<1$ they are perturbations of it, with
+all eigenvalues in the right half-plane.
+
+\paragraph{Right form, step by step.} Start from $S\psi_e=\eta'_e$ and substitute $\psi_e=\Ce^{-1}y$:
+\begin{align}
+S\Ce^{-1}y&=\eta'_e\\
+(\Spv\Cpve^{-1})\dg S\Ce^{-1}y&=(\Spv\Cpve^{-1})\dg\eta'_e\\
+\AR\,y&=\rho_R,\qquad \rho_R\equiv(\Spv\Cpve^{-1})\dg\eta'_e,\\
+\psi_e&=\Ce^{-1}y,\qquad \psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e).
+\end{align}
+
+\paragraph{Left form with $\alpha$ in $D$ only.} For $DQ$ the blocks are $\Ce Q_e$, $D_{eo}Q_o$,
+$D_{oe}Q_e$, $\Co Q_o$, and the Schur complement is
+\begin{align}
+S^{(\alpha)}&=\Ce Q_e-D_{eo}Q_o(\Co Q_o)^{-1}D_{oe}Q_e\\
+&=\Ce Q_e-D_{eo}Q_oQ_o^{-1}\Co^{-1}D_{oe}Q_e\\
+&=\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)Q_e\\
+&=SQ_e .
+\end{align}
+So the left Schur factor of $DQ$ is
+\begin{equation}
+K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}\Ce^{-1}SQ_e=Q_e^{-1}KQ_e,\qquad K\equiv\Ce^{-1}S,
+\label{eq:Ksim}
+\end{equation}
+and the left form becomes $\AL^{(\alpha)}=(\Cpve^{-1}\Spv)\dg Q_e^{-1}(\Ce^{-1}S)Q_e$. In the right
+form the two $Q_e$ cancel: $SQ_e(\Ce Q_e)^{-1}=S\Ce^{-1}$, so $\AR$ does not see $\alpha$.
+
+% ======================================================================
+\section{The outer solver: flexible GCR}
+The outer iteration solves $\tilde Ay=\rho$ ($\tilde A=\AR$ or $\AL$) with a right preconditioner
+$\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves stopped by a
+residual test, it changes from one application to the next, so the method must be flexible: it
+keeps the preconditioned directions $z_i$ themselves.
+
+One step of GCR($k$), from the residual $r_i=\rho-\tilde Ay_i$:
+\begin{align}
+z_i&=\mathcal M r_i &&\text{(one cycle)}\\
+q_i&=\tilde Az_i &&\text{(one application of }\tilde A)\\
+q_i&\leftarrow q_i-\sum_{j}\frac{(q_j,q_i)}{(q_j,q_j)}q_j,\quad
+z_i\leftarrow z_i-\sum_{j}\frac{(q_j,q_i)}{(q_j,q_j)}z_j &&\text{(the last $k$ kept pairs)}\\
+\alpha_i&=\frac{(q_i,r_i)}{(q_i,q_i)}\\
+y_{i+1}&=y_i+\alpha_iz_i,\qquad r_{i+1}=r_i-\alpha_iq_i .
+\end{align}
+The coefficient $\alpha_i$ minimizes $\|r_i-\alpha q_i\|$, and the orthogonalization keeps
+$\tilde Az_i=q_i$ true after the update, so $r_{i+1}=\rho-\tilde Ay_{i+1}$ exactly. With $k=2$
+(GCR(2)) the code keeps $k+1=3$ pairs $(z,q)$ and the residual, seven fields on the even sites, at
+the price of no optimality over the whole Krylov space.
+
+% ======================================================================
+\section{The two-grid cycle}
+One cycle $y=\mathcal Mb$ is
+\begin{align}
+y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\\
+r&\leftarrow b-\tilde Ay\\
+y&\leftarrow y+e(r) &&\text{(coarse correction)}\\
+r&\leftarrow b-\tilde Ay\\
+y&\leftarrow y+p(\tilde A)\,r &&\text{(post-smoothing)}.
+\end{align}
+
+\subsection{The Chebyshev smoother, derived}
+The smoother is $\nu$ steps of Chebyshev iteration on $\tilde Ax=b$ from $x=0$. Choose the interval
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ that it damps ($\lambda_{\rm hi}$ slightly above the spectral
+radius from a power iteration, $\lambda_{\rm lo}=\lambda_{\rm hi}/\kappa_s$) and set
+\begin{equation}
+\theta=\tfrac12(\lambda_{\rm hi}+\lambda_{\rm lo}),\qquad
+\delta=\tfrac12(\lambda_{\rm hi}-\lambda_{\rm lo}),\qquad \sigma=\theta/\delta .
+\end{equation}
+The residual after $k$ steps is $r_k=R_k(\tilde A)r_0$ with the scaled Chebyshev polynomial
+\begin{equation}
+R_k(\lambda)=\frac{T_k\big((\theta-\lambda)/\delta\big)}{T_k(\sigma)},\qquad R_k(0)=1,
+\end{equation}
+which is at most $1/T_k(\sigma)$ in modulus on the interval. Write $t=(\theta-\lambda)/\delta$ and
+use $T_{k+1}(t)=2tT_k(t)-T_{k-1}(t)$:
+\begin{align}
+T_{k+1}(\sigma)R_{k+1}&=2t\,T_k(\sigma)R_k-T_{k-1}(\sigma)R_{k-1}\\
+R_{k+1}&=\rho_k\big[2t\,R_k-\rho_{k-1}R_{k-1}\big],\qquad \rho_k\equiv\frac{T_k(\sigma)}{T_{k+1}(\sigma)} .
+\end{align}
+The same recurrence at $t=\sigma$ gives the $\rho$'s:
+\begin{align}
+T_{k+1}(\sigma)&=2\sigma T_k(\sigma)-T_{k-1}(\sigma)\\
+\frac1{\rho_k}&=2\sigma-\rho_{k-1},\qquad \rho_0=\frac{T_0(\sigma)}{T_1(\sigma)}=\frac1\sigma .
+\end{align}
+Now split $2t=2\sigma-2\lambda/\delta$ and use $2\sigma=1/\rho_k+\rho_{k-1}$:
+\begin{align}
+R_{k+1}&=\rho_k\Big[\big(2\sigma-\tfrac{2\lambda}{\delta}\big)R_k-\rho_{k-1}R_{k-1}\Big]\\
+&=\rho_k\Big[\big(\tfrac1{\rho_k}+\rho_{k-1}\big)R_k-\tfrac{2\lambda}{\delta}R_k-\rho_{k-1}R_{k-1}\Big]\\
+&=R_k+\rho_k\rho_{k-1}\big(R_k-R_{k-1}\big)-\frac{2\rho_k}{\delta}\lambda R_k .
+\end{align}
+Apply to $r_0$, with $\lambda\to\tilde A$:
+\begin{equation}
+r_{k+1}-r_k=\rho_k\rho_{k-1}(r_k-r_{k-1})-\frac{2\rho_k}{\delta}\tilde Ar_k .
+\end{equation}
+Since $r=b-\tilde Ax$, a step $x_{k+1}=x_k+d_k$ changes the residual by $-\tilde Ad_k$. Matching
+the two sides,
+\begin{equation}
+d_k=\rho_k\rho_{k-1}\,d_{k-1}+\frac{2\rho_k}{\delta}\,r_k .
+\end{equation}
+The first step: $R_1=T_1(t)/T_1(\sigma)=t/\sigma=1-\lambda/\theta$, so $x_1=b/\theta$ and
+$d_0=r_0/\theta$. These are the updates of the code (\code{BlasChebyshevStep}): $\nu$ steps cost
+$\nu-1$ applications of $\tilde A$, and the polynomial is fixed, so the smoother is a linear map.
+The runs use $\nu=8$, $\kappa_s=10$ with stout links ($M_5=1$) and $\nu=12$, $\kappa_s=30$ without
+($M_5=1.8$).
+
+\subsection{The factorized coarse correction}
+\paragraph{The inverse of the right form.} Invert the product one factor at a time:
+\begin{align}
+\AR^{-1}&=\big[(\Spv\Cpve^{-1})\dg(S\Ce^{-1})\big]^{-1}\\
+&=(S\Ce^{-1})^{-1}\,\big[(\Spv\Cpve^{-1})\dg\big]^{-1}\\
+&=\Ce S^{-1}\,\big[(\Cpve^{-1})\dg\Spv\dg\big]^{-1}\\
+&=\Ce S^{-1}\,(\Spv\dg)^{-1}\Cpve\dg\\
+&=\Ce\;\pi D^{-1}\iota\;\;\pi(\Dpv\dg)^{-1}\iota\;\;\Cpve\dg ,
+\label{eq:ARinv}
+\end{align}
+where Eq.~\eqref{eq:Sinv} was used twice. The inverse is a product of the inverses of two
+\emph{one-hop} operators on the whole lattice, $D$ and $\Dpv\dg$, and site-local factors.
+
+\paragraph{Galerkin replacement.} With a prolongation $\Pro$ (coarse to whole lattice), replace
+each inverse by its Galerkin approximation:
+\begin{equation}
+X^{-1}\approx\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg .
+\end{equation}
+Both coarse operators $\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\dg\Pro$ are nearest-neighbour on the
+coarse lattice, because $D$ is one hop and every aggregate contains the whole fifth dimension.
+The correction of a residual $r$ (Eq.~\eqref{eq:ARinv} read from the right) is
+\begin{equation}
+e=O_L\,\pi\Pro\,\Dc^{-1}\Pro\dg\iota\;O_M\;\pi\Pro\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\iota\;O_R\,r
+\end{equation}
+with the site-local factors
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+form & $O_R$ & $O_M$ & $O_L$\\
+\midrule
+right, any $\alpha$ & $\Cpve\dg$ & $1$ & $\Ce$\\
+left, $\alpha$ in $D$ only & $1$ & $\Ce Q_e\Cpve\dg$ & $Q_e^{-1}$\\
+left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+In words: (i) put $O_Rr$ on the whole lattice, restrict, solve with the adjoint Pauli--Villars
+coarse operator, prolong; (ii) take the even part, multiply by $O_M$, put it back on the whole
+lattice, restrict, solve with the quark coarse operator, prolong; (iii) take the even part and
+multiply by $O_L$. The coarse operators are always those of the plain $D$ and $\Dpv$, so one setup
+serves both forms and every $\alpha$.
+
+\paragraph{The left form with $\alpha$, step by step.} For $\alpha$ in $D$ only,
+\begin{align}
+\AL^{(\alpha)\,-1}&=\big[(\Cpve^{-1}\Spv)\dg\,Q_e^{-1}\Ce^{-1}SQ_e\big]^{-1}\\
+&=\big(Q_e^{-1}\Ce^{-1}SQ_e\big)^{-1}\,\big[(\Cpve^{-1}\Spv)\dg\big]^{-1}\\
+&=Q_e^{-1}S^{-1}\Ce Q_e\,\big[\Spv\dg(\Cpve^{-1})\dg\big]^{-1}\\
+&=Q_e^{-1}S^{-1}\Ce Q_e\,\Cpve\dg\,(\Spv\dg)^{-1}\\
+&=\underbrace{Q_e^{-1}}_{O_L}\;\pi D^{-1}\iota\;\underbrace{\Ce Q_e\Cpve\dg}_{O_M}\;
+\pi(\Dpv\dg)^{-1}\iota\;\underbrace{1}_{O_R} .
+\end{align}
+Unlike the right form, the Galerkin factor of $\Dpv\dg$ acts on the plain residual, and
+$\Cpve\dg$ lands between the two coarse solves, in $O_M$.
+
+\subsection{Aggregation and the chirality split}
+The fine lattice is divided into $4^4$ blocks, each with the whole fifth dimension; each block is
+one coarse site. Every test vector $v$ is split by $\Gfive=\gamma_5R_5$, $(R_5\psi)_s=\psi_{L_s-1-s}$:
+\begin{equation}
+v_\pm=\tfrac12(1\pm\Gfive)v,\qquad \Gfive v_\pm=\pm v_\pm .
+\end{equation}
+With $n_v$ test vectors a coarse site has $2n_v$ components, the $+$ parts first. Each column of
+$\Pro$ is then an eigenvector of $\Gfive$, so with $\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf
+1_{n_v})$ per coarse site
+\begin{equation}
+\Gfive\Pro=\Pro\Sigma .
+\end{equation}
+\paragraph{Half the storage.} Write the condition $\Gfive v_\pm=\pm v_\pm$ out slice by slice:
+\begin{align}
+(\Gfive v_\pm)_s&=\gamma_5\,(R_5v_\pm)_s=\gamma_5\,v_\pm(L_s-1-s)\\
+\pm v_\pm(s)&=\gamma_5\,v_\pm(L_s-1-s)\\
+v_\pm(L_s-1-s)&=\pm\gamma_5\,v_\pm(s) .
+\end{align}
+So each part is fixed by its slices $s<L_s/2$; $\Pro$ is stored only there (``folded''), in half
+precision. Restriction and prolongation unfold on the fly: for the restriction of a fine field $f$,
+\begin{equation}
+\big(\Pro\dg f\big)_{X,k}=\sum_{x\in X}\sum_{s<L_s/2}\Pro_{x,s;k}^{\,*}\,
+\big(f_s\pm\gamma_5f_{L_s-1-s}\big)
+\end{equation}
+(the sign that of the chirality of column $k$), which is what \code{fold\_restrict\_tiled\_kernel}
+computes.
+
+\subsection{Orthonormalization per block: CholeskyQR2}
+In each block and chirality the columns $w_1,\dots,w_n$ ($n=2\times$ the number of filtered
+vectors, see below) are made orthonormal. Collect them as the columns of $W$ and write the QR
+decomposition with a positive diagonal of $R$:
+\begin{align}
+W&=QR\\
+W\dg W&=R\dg Q\dg QR=R\dg R\\
+G\equiv W\dg W&=R\dg R\quad\text{(Cholesky)}\\
+Q&=WR^{-1} .
+\end{align}
+So one Gram matrix ($n\times n$), one Cholesky factor and one triangular solve give $Q$; the
+factorization is unique, so this $Q$ equals what modified Gram--Schmidt produces. In floating
+point one pass loses orthogonality like the square of the condition number of $W$, so the pass
+is done twice (CholeskyQR2): the second $G$ is close to the identity and repairs the first. Each
+pass reads $W$ twice, against one sweep per pair of columns for Gram--Schmidt (800 sweeps for
+$n=40$). Where a pivot of the first pass falls below $10^{-12}$ of its diagonal (nearly dependent
+columns), the code falls back to Gram--Schmidt for those blocks.
+
+\subsection{The basis $\{s,\hat t\}$ and why the correction is exact}
+The setup produces vectors $y_j$ on the even sites (next section). Each is lifted to the whole
+lattice in two ways, one for each coarse solve:
+\begin{align}
+s&=\big(\Ce^{-1}y,\;-\Co^{-1}D_{oe}\Ce^{-1}y\big),\\
+\hat t&=\big(a,\;-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg a\big),\qquad a=\pi Ds .
+\end{align}
+\paragraph{$Ds$ vanishes on the odd sites.}
+\begin{align}
+Ds&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
+\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\\
+&=\begin{pmatrix}\Ce\Ce^{-1}y-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}y\\
+D_{oe}\Ce^{-1}y-\Co\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\\
+&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}y\\0\end{pmatrix}\\
+&=\iota\,S\Ce^{-1}y .
+\end{align}
+In the same way $\Dpv\dg\hat t=\iota\Spv\dg a$.
+\paragraph{Exactness of the right form.} Let $s,\hat t\in\operatorname{range}\Pro$ and solve both
+coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the identity on
+$\operatorname{range}\Pro$. Follow $r=\AR y$ through the correction ($O_R=\Cpve\dg$, $O_M=1$,
+$O_L=\Ce$):
+\begin{align}
+O_Rr&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}y\\
+&=\Cpve\dg(\Cpve^{-1})\dg\Spv\dg S\Ce^{-1}y\\
+&=\Spv\dg\,a,\qquad (a=S\Ce^{-1}y=\pi Ds)\\
+\iota O_Rr&=\iota\Spv\dg a=\Dpv\dg\hat t\\
+\Pro\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\,\Dpv\dg\hat t&=\hat t
+\qquad(\hat t\in\operatorname{range}\Pro)\\
+\pi\hat t&=a=\pi Ds\\
+\iota O_M\pi\hat t&=\iota\pi Ds=Ds\qquad(Ds\ \text{is zero on the odd sites})\\
+\Pro\Dc^{-1}\Pro\dg Ds&=s\qquad(s\in\operatorname{range}\Pro)\\
+e=O_L\pi s&=\Ce\Ce^{-1}y=y .
+\end{align}
+So the correction inverts $\AR$ exactly on the span of the $y_j$. In practice $\Pro$ is in half
+precision and the coarse solves are inexact (relative residual $10^{-1}$), and the left form is
+not exact at all; the cycle converges nonetheless.
+
+\subsection{The coarse operators by probing}
+$\Dc=\Pro\dg D\Pro$ has on each coarse site $X$ a $2n_v\times2n_v$ diagonal block $A(X)$ and one link
+block $B_\mu^\pm(X)$ per direction: nine blocks. They are found column by column. For component $k$,
+put a unit vector $\epsilon_k$ on \emph{every} coarse site and prolong:
+$\phi=\Pro\epsilon_k$. Split $D=C+H$ ($H$ the hops) and $H$ by leg (direction and sign), and split
+each leg into the part that stays inside its block and the part that crosses to the neighbour
+block:
+\begin{align}
+D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\\
+&=\underbrace{C\phi+\sum_lH_l^{\rm in}\phi}_{\text{stays in }X}
++\sum_l\underbrace{H_l^{\rm cross}\phi}_{\text{comes from }X\pm\hat\mu} .
+\end{align}
+Restricting, $\big(\Pro\dg(C\phi+\sum_lH^{\rm in}_l\phi)\big)_{X}$ is column $k$ of $A(X)$, and
+$\big(\Pro\dg H^{\rm cross}_l\phi\big)_X$ is column $k$ of the link block of leg $l$, since every
+coarse site carries the same unit vector and a crossing hop brings exactly the neighbour's
+contribution. Doing this for all $2n_v$ components fills all nine blocks (\code{coarse\_blocks},
+\code{hop\_split}, \code{restrict\_leg}). Several components are probed at a time, as many as a
+quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is read once for them.
+
+\subsection{The coarse solves}
+\paragraph{Quark factor.} $\Dc c=g$ by BiCGStab on its even-odd Schur complement, preconditioned by
+the inverse diagonal blocks. With $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on
+the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
+\begin{align}
+\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)c_e&=g_e-B_{eo}A_{oo}^{-1}g_o,\\
+c_o&=A_{oo}^{-1}\big(g_o-B_{oe}c_e\big).
+\end{align}
+\paragraph{Pauli--Villars factor.} $(\Pro\dg\Dpv\dg\Pro)w=g$. With $\Gfive\Pro=\Pro\Sigma$,
+\begin{align}
+\Pro\dg(\Gfive\Dpv\Gfive)\Pro&=\Pro\dg\Gfive\,\Dpv\,\Gfive\Pro\\
+&=(\Gfive\Pro)\dg\,\Dpv\,(\Gfive\Pro)\\
+&=\Sigma\Pro\dg\Dpv\Pro\Sigma=\Sigma\Dcpv\Sigma .
+\end{align}
+If $\Gfive\Dpv\Gfive=\Dpv\dg$ (true for $c=0$, off by $O(c)$ otherwise, Sec.~\ref{sec:dagger}),
+the adjoint coarse factor is $\Sigma\Dcpv\Sigma$, and
+\begin{align}
+\Sigma\Dcpv\Sigma\,w&=g\\
+\Dcpv\Sigma\,w&=\Sigma g\qquad(\Sigma^2=1)\\
+\mathcal H_c\,w&=\Sigma g,\qquad \mathcal H_c\equiv\Dcpv\Sigma ,
+\end{align}
+$\mathcal H_c$ Hermitian (indefinite) for $c=0$, solved by MINRES with the absolute value of the
+diagonal blocks as a positive preconditioner. Both factors stop at $|r|^2/|b|^2<10^{-2}$.
+
+\paragraph{Levels below.} At small masses the coarse solves themselves become expensive (on
+$24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse sites are then
+grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_j$, $\Pro\dg\hat
+t_j$, and a V-cycle preconditions the coarse Krylov solve: with $Q_\ell$ the prolongation into
+level $\ell-1$ and $B_\ell$ its diagonal blocks,
+\begin{equation}
+z=Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg r,\qquad M_\ell r=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big),
+\end{equation}
+the last level inverted densely. This brings the coarse cost down to about 50 applications per
+correction.
+
+% ======================================================================
+\section{Setup}
+The setup produces the vectors $y_j$, then $\{s_j,\hat t_j\}$, $\Pro$, the coarse operators and the
+levels. It always uses the right form.
+
+\subsection{Chebyshev-filtered subspace iteration}
+The $y_j$ should approximate the low right singular vectors of $\AR$, i.e.\ the low eigenvectors of
+$H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm
+hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. One round on a block
+$X$ of $m$ vectors:
+\begin{align}
+X&\leftarrow T_d\big(\ell(H_n)\big)X &&\text{(three-term recurrence, $d$ applications of $H_n$)}\\
+X&\leftarrow\text{orthonormalize }X\\
+G&=X\dg H_nX=V\Theta V\dg,\quad X\leftarrow XV &&\text{(Rayleigh--Ritz)}\\
+\lambda_{\rm lo}&\leftarrow\theta_{\max} .
+\end{align}
+The degree is $d=1.5\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$, between 40 and 1000; the first round
+uses $\lambda_{\rm lo}=\lambda_{\rm hi}/1000$. \emph{Observation} ($24^4$, $m=0.001$, 20 vectors): after
+the first round (degree 48) the largest Ritz value is still $0.34\,\lambda_{\rm hi}$, so the
+second round has degree 40 and damps only the top two thirds of the spectrum. The filter is weak;
+the bootstrap does most of the work.
+
+\subsection{Bootstrap}
+Each round: build $\Pro$ and the cycle $\mathcal M$ from the current $y$; replace every $y_j$ by four
+steps of FGMRES on $\AR x=y_j$ from $x=0$ preconditioned by $\mathcal M$; orthonormalize $y$ through
+its Gram matrix. Why it works: write $y_j$ in eigenvectors of the preconditioned operator. The
+cycle already handles the components inside its coarse space, and FGMRES with it removes them
+first; what remains, and is therefore amplified relative to the rest, is what the coarse space
+misses. In HMC the levels below are used from the second round on (in the first, on the filtered
+vectors, the coarse solves were as fast without them).
+
+\subsection{Cost and memory}
+On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$, A30): the filter about 35\,s and the bootstrap
+about 77\,s, the setup in all about 113\,s. A bootstrap round makes its correction ($\Pro$ 1.8\,s,
+the two coarse operators about 4.4\,s each, the inverse blocks 0.8\,s, the top of the smoother
+1.3\,s; the levels 7\,s more in the second round) and then improves the 20 vectors (about 20\,s in
+the first round, 26\,s in the second). $\Pro$ ($40$ columns, half precision, whole lattice) is the largest
+object, about 4.7\,GB.
+
+% ======================================================================
+\section{Solving with $D\dg$}
+\label{sec:dagger}
+HMC needs $(D\dg D)^{-1}$, so it solves with $D\dg$ as often as with $D$. A second setup for $D\dg$
+would double the cost. The tool that avoids it is an exact relation between $D$ and $D\dg$.
+
+\subsection{$\Gfive D\Gfive\neq D\dg$}
+Each building block transforms simply under $\Gfive=\gamma_5R_5$:
+\begin{align}
+\Gfive W\Gfive&=W\dg,\qquad \Gfive D_\pm\Gfive=D_\pm\dg,\qquad \Gfive Y\Gfive=Y\dg .
+\end{align}
+Then, from $D=D_+-D_-Y$,
+\begin{align}
+\Gfive D\Gfive&=\Gfive D_+\Gfive-\Gfive D_-\Gfive\,\Gfive Y\Gfive=D_+\dg-D_-\dg Y\dg,\\
+D\dg&=D_+\dg-(D_-Y)\dg=D_+\dg-Y\dg D_-\dg .
+\end{align}
+The order of the last product differs. Subtracting,
+\begin{align}
+\Gfive D\Gfive-D\dg&=Y\dg D_-\dg-D_-\dg Y\dg\\
+&=Y\dg(cW\dg-1)-(cW\dg-1)Y\dg\\
+&=c\,\big(Y\dg W\dg-W\dg Y\dg\big)=c\,[Y\dg,W\dg],
+\end{align}
+which is of order $c$ (zero for Shamir, $0.15$ relative on a $12^4$ stout configuration at
+$c=0.5$).
+
+\subsection{The exact relation}
+$D_+$ and $D_-$ are functions of $W$, so they commute. Factor $D_-$ out to the left (formally):
+\begin{equation}
+D=D_-K_D,\qquad K_D=D_-^{-1}D_+-Y .
+\end{equation}
+$K_D$ is $\Gfive$-Hermitian:
+\begin{align}
+\Gfive K_D\Gfive&=\Gfive D_-^{-1}\Gfive\,\Gfive D_+\Gfive-\Gfive Y\Gfive\\
+&=(D_-\dg)^{-1}D_+\dg-Y\dg\\
+&=D_+\dg(D_-\dg)^{-1}-Y\dg\qquad(D_\pm\dg\text{ commute})\\
+&=(D_-^{-1}D_+)\dg-Y\dg=K_D\dg .
+\end{align}
+So
+\begin{align}
+D\dg&=K_D\dg D_-\dg\\
+&=\Gfive K_D\Gfive\,D_-\dg\\
+&=\Gfive D_-^{-1}D\,\Gfive\,D_-\dg ,
+\end{align}
+and multiplying by $D_-\Gfive$ from the left,
+\begin{equation}
+\boxed{\;D_-\,\Gfive\,D\dg=D\,\Gfive\,D_-\dg\;}
+\end{equation}
+with no inverse left. $D_-$ itself cannot be inverted in practice: $D_-=c(W-1/c)$ is $c$ times a
+Wilson operator of mass $-M_5-1/c=-3$, whose spectrum surrounds the origin (GCR stalls at
+$|r|^2/|b|^2\approx0.74$).
+
+\subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$}
+Multiply $D\dg$ from the right by $\Gfive D^{-1}\Gfive$ and use the relation above in the form
+$D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$, together with $\Gfive D_-\dg\Gfive=D_-$:
+\begin{align}
+D\dg\,\Gfive D^{-1}\Gfive&=\Gfive D_-^{-1}D\,\Gfive D_-\dg\,\Gfive\,D^{-1}\Gfive\\
+&=\Gfive D_-^{-1}D\,D_-\,D^{-1}\,\Gfive\\
+&=\Gfive D_-^{-1}\big(D_-D+[D,D_-]\big)D^{-1}\Gfive\\
+&=\Gfive\big(1+D_-^{-1}[D,D_-]D^{-1}\big)\Gfive .
+\end{align}
+The commutator, with $D=D_+-D_-Y$ and $[D_+,D_-]=0$:
+\begin{align}
+[D,D_-]&=[D_+,D_-]-[D_-Y,D_-]\\
+&=-\big(D_-YD_--D_-D_-Y\big)=-D_-[Y,D_-]\\
+&=-D_-[Y,cW-1]=-c\,D_-[Y,W] .
+\end{align}
+The factor $D_-$ cancels against $D_-^{-1}$:
+\begin{equation}
+\boxed{\;D\dg\,\Gfive D^{-1}\Gfive=\Gfive\,(1-N)\,\Gfive,\qquad N=c\,[Y,W]\,D^{-1}\;}
+\end{equation}
+$[Y,W]=-\frac12[Y,K]$ is bounded (one hop in four dimensions, one in the fifth), so $N$ is large
+only on the low modes of $D$. There the commutator flips chirality and moves the mode to the other
+wall, out of the low-mode span, so $N^2$ is small and $(1-N)^{-1}\approx1+N$: GCR needs only a few
+more steps than for the identity. Measured: 2--3 iterations more than the solve with $D$.
+
+\subsection{On the even sites, step by step}
+The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
+and $\iota$, and with Eq.~\eqref{eq:Sinv}
+\begin{equation}
+S^{-\dagger}=\pi D^{-\dagger}\iota\approx\pi\Gfive D^{-1}\Gfive\iota=\Gfive\,\pi D^{-1}\iota\,\Gfive
+=\Gfive S^{-1}\Gfive .
+\end{equation}
+The solve of $D\dg w=r$:
+\begin{align}
+r'_e&=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o &&\text{so that }S\dg w_e=r'_e,\\
+w_e&=(\Ce\dg)^{-1}z &&\Longrightarrow\ S\dg(\Ce\dg)^{-1}z=r'_e\ \Longleftrightarrow\ K\dg z=r'_e,\\
+z&=\text{GCR on }K\dg\text{ with preconditioner }\Ce\dg\,\Gfive S^{-1}\Gfive,\\
+S^{-1}t&\approx\Ce^{-1}\,\mathcal M\,(\Spv\Cpve^{-1})\dg t &&\text{(one cycle of }\AR),\\
+w_e&=(\Ce\dg)^{-1}z,\qquad w_o=(\Co\dg)^{-1}\big(r_o-D_{eo}\dg w_e\big).
+\end{align}
+The line $K\dg z=r'_e$ uses $K=\Ce^{-1}S$: $K\dg=S\dg(\Ce\dg)^{-1}$. The approximation for $S^{-1}$
+comes from Eq.~\eqref{eq:ARinv}: $S^{-1}=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg$. In the
+preconditioner, $(\Spv\Cpve^{-1})\dg t$ is the right-hand side of $\AR$ for the source $(t,0)$ (no
+odd part), so it is applied directly as one adjoint Schur factor of $\Dpv$. Each GCR step costs
+one cycle, as for $D$.
+
+% ======================================================================
+\section{HMC}
+
+\subsection{The even-odd Ratio action}
+Two flavours over two Pauli--Villars flavours, as Bridge++ writes it (\code{Action\_F\_alt\_Ratio\_eo}):
+with $K=\Ce^{-1}S$ (the left Schur factor) and $H=\Gfive K$,
+\begin{equation}
+S_F=\phi_e\dg H_{\rm PV}\,(H\dg H)^{-1}H_{\rm PV}\dg\phi_e .
+\end{equation}
+Since $\Gfive$ is Hermitian and unitary,
+\begin{equation}
+H\dg H=K\dg\Gfive\Gfive K=K\dg K ,
+\end{equation}
+and with $v_1\equiv H_{\rm PV}\dg\phi_e=K_{\rm PV}\dg\Gfive\phi_e$,
+\begin{equation}
+S_F=v_1\dg\,(K\dg K)^{-1}\,v_1 .
+\end{equation}
+\paragraph{Heat bath.} Draw $\xi_e$ Gaussian and set
+$\phi_e=H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e$. Then, step by step,
+\begin{align}
+H_{\rm PV}\dg\phi_e&=H_{\rm PV}\dg H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e=H\dg\xi_e,\\
+S_F&=(H\dg\xi_e)\dg(H\dg H)^{-1}(H\dg\xi_e)\\
+&=\xi_e\dg H(H\dg H)^{-1}H\dg\xi_e\\
+&=\xi_e\dg HH^{-1}H^{-\dagger}H\dg\xi_e=|\xi_e|^2 ,
+\end{align}
+as required. The heat bath costs one solve with the Pauli--Villars operator (CG; it is well
+conditioned).
+
+\paragraph{Force.} Vary the links. With $\chi=\Gfive\phi_e$, $v_1=K_{\rm PV}\dg\chi$ and
+$v_2=(K\dg K)^{-1}v_1$:
+\begin{align}
+\delta S_F&=\delta v_1\dg\,v_2+v_2\dg\,\delta v_1+v_1\dg\,\delta\big[(K\dg K)^{-1}\big]v_1\\
+&=2\,\Re\,(\delta v_1)\dg v_2-v_1\dg(K\dg K)^{-1}\,\delta(K\dg K)\,(K\dg K)^{-1}v_1\\
+&=2\,\Re\,\chi\dg\,\delta K_{\rm PV}\,v_2-v_2\dg\big(\delta K\dg\,K+K\dg\,\delta K\big)v_2\\
+&=2\,\Re\,\chi\dg\,\delta K_{\rm PV}\,v_2-2\,\Re\,(Kv_2)\dg\,\delta K\,v_2 .
+\end{align}
+So every force evaluation needs one solve $v_2=(K\dg K)^{-1}v_1$, and every energy evaluation (at
+the start and the end of a trajectory) one more. The derivative of $K$ is that of the hops in $S$
+($\Ce$ does not depend on the links), taken with respect to the smeared links and carried back
+through the stout derivative.
+
+\subsection{$(K\dg K)^{-1}$ with the multigrid: two solves}
+Invert the product and use $K=\Ce^{-1}S$:
+\begin{align}
+(K\dg K)^{-1}&=K^{-1}K^{-\dagger}\\
+&=(\Ce^{-1}S)^{-1}\big[(\Ce^{-1}S)\dg\big]^{-1}\\
+&=S^{-1}\Ce\;\Ce\dg S^{-\dagger} .
+\end{align}
+So $z=(K\dg K)^{-1}r$ is computed as
+\begin{align}
+w&=\Ce\dg\,S^{-\dagger}r=\Ce\dg\,\pi D^{-\dagger}\iota\,r &&\text{(a solve with $D\dg$, Sec.~\ref{sec:dagger})},\\
+z&=S^{-1}\Ce\,w=\pi D^{-1}\iota\,\Ce w &&\text{(a solve with $D$)}.
+\end{align}
+Each solve stops at a relative residual $10^{-10}$. The normal equation must be solved much more
+accurately ($10^{-16}$ for the force, $10^{-24}$ for the energy), so the two solves are repeated on
+the residual (iterative refinement):
+\begin{align}
+r^{(k)}&=b-K\dg Kz^{(k)}\\
+z^{(k+1)}&=z^{(k)}+K^{-1}K^{-\dagger}r^{(k)}\qquad(\text{two solves to }10^{-10}),
+\end{align}
+each sweep gaining about ten digits, at most eleven sweeps.
+
+\paragraph{When the sweeps stall.} If the sweeps stop gaining (the coarse space no longer fits the
+links, as after large link changes), the solve is repeated from the current $z$ with $\Pro$ and the
+coarse operators rebuilt for the current links, then also after a bootstrap; if it still stalls,
+CG on $K\dg K$ finishes it from the current $z$ (with at least 50000 iterations), with a warning.
+A trajectory is never lost to the multigrid.
+
+\subsection{Neff's $\alpha$ in HMC}
+\paragraph{CG.} From Eq.~\eqref{eq:Ksim}, $K=Q_eK^{(\alpha)}Q_e^{-1}$. Then
+\begin{align}
+K\dg K&=Q_e^{-1}K^{(\alpha)\dagger}Q_eQ_eK^{(\alpha)}Q_e^{-1}\\
+&=Q_e^{-1}\big(Q_eK^{(\alpha)}\big)\dg\big(Q_eK^{(\alpha)}\big)Q_e^{-1}\\
+&=Q_e^{-1}\,(KQ_e)\dg(KQ_e)\,Q_e^{-1}\qquad(KQ_e=Q_eK^{(\alpha)}),\\
+(K\dg K)^{-1}&=Q_e\big[(KQ_e)\dg(KQ_e)\big]^{-1}Q_e .
+\end{align}
+So CG runs on the normal equation of $KQ_e$, whose singular values are close to those of
+$\alpha K^{(\alpha)}$, and the action and the force stay those of $K$. On $24^4$ at $m=0.001$ this
+cut the CG iterations by 22\%.
+
+\paragraph{Multigrid.} The solve with $D$ uses $D^{-1}=QD^{(\alpha)\,-1}$: the left form
+$\AL^{(\alpha)}$ with the factors of the table above and $\psi=Q\psi^{(\alpha)}$. The solve with $D\dg$ is
+unchanged: $D^{(\alpha)\dagger}=QD\dg$, so $\alpha$ would only rescale its right-hand side. The setup
+is that of $D$.
+
+\paragraph{Why $\alpha$ helps CG more than the multigrid.} $K^{(\alpha)}=Q_e^{-1}KQ_e$ has the
+eigenvalues of $K$ but other singular values ($Q_e$ is not unitary). CG on the normal equation sees
+the singular values, so it gains. The multigrid's iterations do not follow the whole condition
+number: the coarse grid takes the low modes and the smoother the rest, and $\alpha$ helps only the
+smoother's part. In the propagator mass scan this saves 2--3 iterations at every mass with
+$M_5=1.8$ (smoother interval $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, wide) and only at heavy
+masses with stout links ($[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$).
+
+\subsection{What is kept along a trajectory}
+\begin{itemize}
+\item The test vectors $y$: kept from solve to solve (on the host between solves), improved by a
+bootstrap (from the old $y$, not a new filter) when the pseudofermions are drawn.
+\item $\Pro$, the coarse operators, the top of the smoother's interval: kept from solve to solve
+while the links move, and rebuilt for the current links when the GCR iterations per solve have
+grown by half (\code{rebuild\_iteration\_growth}~$=1.5$) or after a bootstrap.
+\item The cycle itself is made for each solve from the kept parts and dropped after it.
+\end{itemize}
+
+\subsection{Memory (24$^4$, $m=0.001$, 20 vectors, levels below, A30)}
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+part & GB\\
+\midrule
+HMC itself (links, smeared levels, momenta, pseudofermion, operators) & 3.3\\
+multigrid kept between solves ($\Pro$ 4.75) & 6.6\\
+fields of the sweeps & 2.6\\
+the solve with $D\dg$ on top (GCR, Schur factors, cycle) & 6.4\\
+\midrule
+peak (live) & 19.1\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{What the measurements say so far}
+\begin{itemize}
+\item On a thermalized dynamical $16^4$ configuration the multigrid reproduces the trajectories
+of CG (plaquette to $10^{-11}$).
+\item There CG needs about 300 iterations per solve at $m=0.01$ and at $m=0.001$ alike: the low end
+of the spectrum is held up by the finite volume, not by the mass. The multigrid needs about 55
+iterations, but one of them (a whole cycle) costs about 24 CG iterations, so it is 3--4 times
+slower per trajectory. Tuning gains at most 6\%.
+\item On the quenched $24^4$ configuration CG needs about 6400 iterations and the multigrid wins,
+but a trajectory of length 1 there blows up. So there are no data yet that show the multigrid
+faster in HMC; it needs a volume where CG takes more than about 1300 iterations per solve.
+\end{itemize}
+
+% ======================================================================
+\section{Map to the code}
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.36\linewidth}p{0.6\linewidth}@{}}
+\toprule
+step & where\\
+\midrule
+$C$, $C^{-1}$, hops, $\Gfive$, $Q$ on the device & \code{src/backend/cuda\_bridge/mdwf.rs};\newline \code{cuda\_bridge/include/fermion/}\\
+even-odd forms, $\AR$, $\AL$ (\code{PvRatio}, \code{SchurFactor}, \code{AfterQ}) & \code{src/fermion/even\_odd.rs}\\
+GCR, FGMRES, BiCGStab, MINRES, CG & \code{src/solver/}\\
+Chebyshev smoother, two-grid cycle & \code{src/solver/preconditioner/multigrid/cycle.rs};\newline \code{src/backend/cuda\_bridge/multigrid.rs}\\
+factorized correction & \code{src/solver/preconditioner/multigrid/correction.rs};\newline \code{src/backend/cuda\_bridge/correction.rs}\\
+$\Pro$: fold, restrict, prolong, CholeskyQR2 & \code{src/backend/cuda\_bridge/coarse.rs};\newline \code{cuda\_bridge/include/multigrid/fold.cuh}\\
+coarse operators by probing & \code{CudaMdwf::coarse\_blocks} in\newline \code{src/backend/cuda\_bridge/mdwf.rs}\\
+levels below & \code{src/backend/cuda\_bridge/levels.rs}\\
+filter, bootstrap & \code{low\_modes} in\newline \code{src/solver/preconditioner/multigrid/mdwf\_even\_odd.rs};\newline \code{bootstrap} in \code{src/backend/cuda\_bridge/multigrid.rs}\\
+solve with $D\dg$ & \code{adjoint\_by\_gamma5} in \code{src/fermion/even\_odd.rs}\\
+HMC: two solves, sweeps, retries & \code{src/hmc/dwf\_multigrid.rs};\newline \code{src/backend/cuda\_bridge/hmc\_multigrid.rs}\\
+HMC: action, force, CG with $\alpha$, CG fallback & \code{src/hmc/even\_odd.rs}; \code{src/hmc/solve.rs}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
