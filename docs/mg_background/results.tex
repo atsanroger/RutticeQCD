@@ -462,11 +462,26 @@ solve is $7.5$ (S) and $9.0$ (B) times faster than double-precision CGNE. With a
 $210$\,s it pays for itself after $2$--$3$ right-hand sides, so within one point-source
 propagator (12 columns) for $m\le0.01$. At $m=0.1$ in setup~S the multigrid is not faster at all.
 It needs three times the device memory of CGNE, which on the $24$\,GB A30 excludes GCR($k$) with
-$k\ge8$. Neff's $\alpha=0.6$ against $\alpha=1$ in the left form: equal within one iteration for
-S except at $m=0.1$ (three fewer), and two to three iterations fewer for B. Against an earlier
+$k\ge8$. Against an earlier
 build (\texttt{6c7ff42}) the iteration counts differ by one or two in six of the 28 multigrid
 runs; whether a code change or the non-determinism of the device reductions causes this is not
 established.
+
+\paragraph{Neff's $\alpha$ in the two setups.} With $\alpha=0.6$ against $\alpha=1$ in the left
+form, the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
+$m=0.1$, from 28 to 26 at $m=0.001$). In setup~S it saves three at $m=0.1$, about one at
+$m=0.05$, and none from $m=0.01$ down (28 against 27 at $m=0.001$). The two setups differ in
+where the multigrid spends its iterations, and the smoother intervals of Table~\ref{tab:setups}
+say where. In~B the smoother must cover $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: a wide band of
+modes is left to it, at every mass, and $\alpha$, which reshapes the spectrum of $\AL^{(\alpha)}$
+(Sec.~\ref{sec:eo}), shortens that work. In~S the smoother covers only
+$[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$, and the coarse correction takes the rest. At heavy
+masses the smoother part still sets the iterations, and $\alpha$ helps as in~B; at light masses
+the low modes set them, they belong to the coarse space, and $\alpha$ has little left to
+improve. CG on the normal equation has no such split: every mode enters its condition number,
+so $\alpha$ pays at all masses (in HMC on $24^4$ at $m=0.001$ in setup~S, mixed-precision CG
+takes 31996 iterations at $\alpha=0.6$ against 40912 at $\alpha=1$, the multigrid 362 against
+356). This reading is consistent with the numbers but was not checked on the spectra.
 
 \paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
 precision: CG in single precision on the normal equation of $\Ce^{-1}S$, with reliable updates in

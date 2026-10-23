@@ -721,12 +721,8 @@ whole condition number: the coarse correction takes the smallest eigenvalues, wh
 cost at small masses, and leaves the rest to the smoother. A reading consistent with the
 measurements, not checked mode by mode, is that $\alpha$ can only improve what the smoother
 sees. It then saves a few iterations where that part matters, and little where the low modes
-dominate.\ifresults{} On $24^3\times48$ (Table~\ref{tab:massscan}) $\alpha=0.6$ saves the
-multigrid 2--3 iterations at every mass in setup B (26 against 28 at $m=0.001$, 7 against 9 at
-$m=0.1$), but in setup S only at the heavy masses (13 against 16 at $m=0.1$, none from $m=0.01$
-down: 28 against 27 at $m=0.001$). In the HMC solves on $24^4$ at $m=0.001$ with stout links,
-the corner of S, the multigrid takes 362 iterations against 356, while mixed-precision CG drops
-from 40912 to 31996.\fi
+dominate.\ifresults{} How much that is differs between the two setups of
+Sec.~\ref{sec:results}; Sec.~\ref{sec:massscan} compares them.\fi
 
 Eq.~\eqref{eq:Ksimilar} also lets CG use $\alpha$ in HMC without changing the action. The
 even-odd action needs $(K\dg K)^{-1}$, and with $K=Q_eK^{(\alpha)}Q_e^{-1}$,
