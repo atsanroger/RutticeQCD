@@ -261,6 +261,33 @@ void bridge_cuda_fold_orthonormalise(
     }
 }
 
+void bridge_cuda_fold_orthonormalise_cholesky(
+    void* d_p, int half, double* d_w, const unsigned* d_sites, unsigned* d_fail,
+    int first_site, int count, int block_volume, int n, int kept, double scale,
+    cudaStream_t stream)
+{
+    const size_t shared = bridge_cuda::fold_cholesky_shared(n);
+    if (half) {
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::fold_orthonormalise_cholesky_kernel<__half>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        bridge_cuda::fold_orthonormalise_cholesky_kernel<__half><<<2 * count, bridge_cuda::FoldThreads, shared, stream>>>(
+            static_cast<__half*>(d_p), d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
+    } else {
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::fold_orthonormalise_cholesky_kernel<float>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        bridge_cuda::fold_orthonormalise_cholesky_kernel<float><<<2 * count, bridge_cuda::FoldThreads, shared, stream>>>(
+            static_cast<float*>(d_p), d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
+    }
+}
+
 void bridge_cuda_coarse_pass_f32(
     float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
     const float* d_diag, const float* d_links, const float* d_inverse,

@@ -54,7 +54,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let index = EvenOddIndex::new(&lat);
     let y = DeviceSpinor::<f32>::from_host_half(&random_even(&lat, &index, ls, n, 11), &index)?;
     let agg = Aggregation::new(&lat, [4; ND]);
+    let start = Instant::now();
     let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y, true)?;
+    println!("P made in {:.2} s", start.elapsed().as_secs_f64());
     drop(y);
 
     // A coarse field that P has made: P† of a random fine field.

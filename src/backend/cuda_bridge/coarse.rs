@@ -509,7 +509,9 @@ impl DeviceBasis {
     }
 
     /// The chirality parts made orthonormal over every aggregate: P. As `BasisBuilder::finish`
-    /// on the CPU (modified Gram-Schmidt in double precision on the parts as they are kept).
+    /// on the CPU (modified Gram-Schmidt in double precision on the parts as they are kept), by
+    /// CholeskyQR2 where the vectors are far enough from dependent (the same Q, one sweep over
+    /// them a pass instead of one for each pair), else by Gram-Schmidt.
     pub fn finish(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let (n, kept) = (self.n, 12 * self.ls);
         let dim = self.block_volume * kept / 2;
@@ -519,17 +521,33 @@ impl DeviceBasis {
             );
         }
         // The vectors of an aggregate and chirality in double precision: as many coarse sites
-        // at a time as keep that within a quarter of a GB.
+        // at a time as an eighth of the room on the device holds, between a quarter of a GB and
+        // 2 GB (a quarter of a GB was 34 blocks a launch on 24⁴ with 20 test vectors, too few
+        // for CholeskyQR2 on the 56 SMs of an A30: P 2.9 s, against 1.8 s with 2 GB).
         let per_site = 2 * n * dim * 2;
-        let count = ((1 << 25) / per_site).clamp(1, self.coarse_sites);
+        let budget = (super::device_room() / 8).clamp(1 << 28, 1 << 31) / 8;
+        let count = (budget / per_site).clamp(1, self.coarse_sites);
         let scratch = DeviceBuffer::<f64>::uninitialised(count * per_site)?;
         let fail = DeviceTable::from_host(&vec![0; 2 * count])?;
         for first in (0..self.coarse_sites).step_by(count) {
             let sites = count.min(self.coarse_sites - first);
             // SAFETY: P and the sites of this basis, scratch and places for the results of
             // `sites` coarse sites.
-            unsafe {
-                bridge_cuda_fold_orthonormalise(
+            let run = |kernel: unsafe extern "C" fn(
+                *mut c_void,
+                i32,
+                *mut f64,
+                *const u32,
+                *mut u32,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                f64,
+                *mut c_void,
+            )| unsafe {
+                kernel(
                     self.p.ptr,
                     i32::from(self.p.half),
                     scratch.ptr,
@@ -543,8 +561,17 @@ impl DeviceBasis {
                     std::f64::consts::FRAC_1_SQRT_2,
                     STREAM,
                 );
+                finish();
+            };
+            let mut gram_schmidt = n > 48;
+            if !gram_schmidt {
+                run(bridge_cuda_fold_orthonormalise_cholesky);
+                // Where a block fell back, it left P alone: all of them again by Gram-Schmidt.
+                gram_schmidt = fail.download(2 * sites)?.contains(&u32::MAX);
             }
-            finish();
+            if gram_schmidt {
+                run(bridge_cuda_fold_orthonormalise);
+            }
             if let Some((k, vector)) = fail
                 .download(2 * sites)?
                 .into_iter()

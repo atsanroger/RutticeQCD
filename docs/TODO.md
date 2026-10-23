@@ -693,7 +693,10 @@ the probing of the coarse operators four columns at a time (6.5 → 4.4 s each).
 bootstrap's vectors (four at a time through FGMRES) gained nothing (136 → 138 s, +3.6 GB):
 `coarse_pass` reads the matrices again for every vector. Setup 141 → 117 s. Left: making the
 levels (7 s a round), P (4 s), the filter (35 s), and a `coarse_pass` that applies its matrices
-to several vectors in one pass (then batching pays, and the tensor cores fit).
+to several vectors in one pass (then batching pays, and the tensor cores fit). The filter cannot
+lose its second round: with one, HMC on 24⁴ at m 0.001 did not finish in 1500 s (the vectors too
+poor). P by CholeskyQR2 instead of Gram-Schmidt (800 sweeps over W for 40 columns): 4.0 → 1.8 s,
+P bitwise the same; HMC 210 → 203 s.
 
 **Next, by the profile:** P (`fold_prolong`/`fold_restrict` at 27–35% of the bandwidth: read
 it in the order it is stored, several columns a block; 2–2.5× on 20% of the time); the coarse

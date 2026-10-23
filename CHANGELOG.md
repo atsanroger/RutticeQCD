@@ -3,8 +3,8 @@
 ## Unreleased
 
 Faster setup and prolongation of the domain-wall multigrid on the device. HMC on 24⁴ with stout
-links at m 0.001 (one short trajectory, 20 test vectors, levels below, A30): 242 → 210 s, the
-setup 141 → 117 s.
+links at m 0.001 (one short trajectory, 20 test vectors, levels below, A30): 242 → 203 s, the
+setup 141 → 113 s.
 
 - The prolongation P for one vector (`fold_prolong_tiled_kernel`): a block for 32 fine sites, a
   site's threads reading P in 32-byte sectors, the field written whole through shared memory;
@@ -15,7 +15,15 @@ setup 141 → 117 s.
 - The coarse operators are probed with as many columns at a time as a quarter of the free device
   memory holds (between 0.5 and 3 GB; `device_room`), so that P is read once for several: on
   24⁴, P†DP in single precision 6.5 → 4.4 s.
-- The note: why Neff's α helps CG more than the multigrid (K^(α) = Q_e⁻¹ K Q_e).
+- P made orthonormal on its aggregates by CholeskyQR2 (`fold_orthonormalise_cholesky_kernel`:
+  twice the Gram matrix, its Cholesky factor and W R⁻¹, two sweeps over the vectors a pass
+  instead of one for every pair), with as many coarse sites a launch as an eighth of the free
+  device memory holds (up to 2 GB): the same Q as modified Gram-Schmidt, and P, kept in half
+  precision, bitwise the same on 24⁴. Where a pivot is below 1e-12 of its diagonal (nearly
+  dependent vectors), Gram-Schmidt does those sites. 24⁴, 20 test vectors (40 columns):
+  making P 4.0 → 1.8 s.
+- The note: why Neff's α helps CG more than the multigrid (K^(α) = Q_e⁻¹ K Q_e), over setups S
+  and B.
 
 ## 0.4.0 (2026-10-23)
 

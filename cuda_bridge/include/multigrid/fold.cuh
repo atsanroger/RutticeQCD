@@ -685,6 +685,188 @@ __global__ void fold_orthonormalise_kernel(
 }
 
 // -------------------------------------------------------------------------
+// fold_orthonormalise_kernel by CholeskyQR2: twice, the Gram matrix G = W^dag W of the n
+// vectors of a block, G = R^dag R (Cholesky), W = W R^-1. W is read twice a pass, where the
+// modified Gram-Schmidt procedure reads it once for every pair of vectors and is held up by
+// that (on 24^4 with 20 test vectors 46 ms a launch of 34 coarse sites, about 2 s for P). The
+// result is the Q of W = Q R with the positive diagonal of R, which modified Gram-Schmidt
+// gives too; only the rounding differs.
+//
+// The Cholesky factorisation in double precision loses what Gram-Schmidt keeps when the vectors
+// are nearly dependent (it squares their condition number). So where a pivot of the first pass
+// is below 1e-12 of its diagonal element, the block leaves P alone and sets d_fail to
+// FoldCholeskyFallback: then fold_orthonormalise_kernel is to be run again on these sites.
+// Shared memory: fold_cholesky_shared(n).
+// -------------------------------------------------------------------------
+constexpr unsigned FoldCholeskyFallback = 0xffffffffu;
+// The most vectors it takes (its shared memory), and the elements of a tile.
+constexpr int FoldCholeskyMost = 48;
+constexpr int FoldCholeskyTile = 32;
+__host__ __device__ __forceinline__ size_t fold_cholesky_shared(int n)
+{
+    // G (then R in its upper triangle), R^-1 (n x n complex each), the tile (n x tile complex),
+    // and a flag.
+    return (static_cast<size_t>(2) * n * n + static_cast<size_t>(n) * FoldCholeskyTile) * 2 * sizeof(double) +
+           sizeof(double);
+}
+
+template <typename Stored>
+__global__ void fold_orthonormalise_cholesky_kernel(
+    Stored* __restrict__ d_p,
+    double* __restrict__ d_w,
+    const unsigned* __restrict__ d_sites,
+    unsigned* __restrict__ d_fail,
+    int first_site, int block_volume, int n, int kept,
+    double scale)
+{
+    extern __shared__ __align__(16) unsigned char chol_shared[];
+    constexpr int tile = FoldCholeskyTile;
+    double* g = reinterpret_cast<double*>(chol_shared);         // n x n complex
+    double* r_inv = g + 2 * n * n;                                // n x n complex
+    double* t = r_inv + 2 * n * n;                                // n x tile complex
+    int* flag = reinterpret_cast<int*>(t + 2 * n * tile);
+    const int tid = threadIdx.x, threads = blockDim.x;
+    const int X = first_site + blockIdx.x / 2, c = blockIdx.x % 2;
+    const int per_site = kept / 2;
+    const int dim = block_volume * per_site;
+    double* w = d_w + static_cast<size_t>(blockIdx.x) * n * dim * 2;
+    auto in_p = [&](int i, int e) {
+        const size_t x = d_sites[static_cast<size_t>(X) * block_volume + e / per_site];
+        return ((x * n + i) * 2 + c) * kept + 2 * (e % per_site);
+    };
+    auto W = [&](int i, int e) { return w + 2 * (static_cast<size_t>(i) * dim + e); };
+    // The tile of the elements from e0 on, `here` of them, of every vector.
+    auto load_tile = [&](int e0, int here) {
+        for (int k = tid; k < n * tile; k += threads) {
+            const int i = k / tile, e = k % tile;
+            t[2 * k] = (e < here) ? W(i, e0 + e)[0] : 0.0;
+            t[2 * k + 1] = (e < here) ? W(i, e0 + e)[1] : 0.0;
+        }
+    };
+    for (int k = tid; k < n * dim; k += threads) {
+        const size_t at = in_p(k / dim, k % dim);
+        w[2 * k] = from_stored(d_p[at]);
+        w[2 * k + 1] = from_stored(d_p[at + 1]);
+    }
+    if (tid == 0) {
+        d_fail[blockIdx.x] = 0;
+        *flag = 0;
+    }
+    __syncthreads();
+
+    const int pairs = n * (n + 1) / 2;
+    for (int pass = 0; pass < 2; ++pass) {
+        // G_ij = sum_e conj(w_i(e)) w_j(e), i <= j: a thread for each pair, over tiles of
+        // the elements in shared memory.
+        for (int p = tid; p < n * n; p += threads) {
+            g[2 * p] = 0;
+            g[2 * p + 1] = 0;
+        }
+        __syncthreads();
+        for (int e0 = 0; e0 < dim; e0 += tile) {
+            const int here = (dim - e0 < tile) ? dim - e0 : tile;
+            load_tile(e0, here);
+            __syncthreads();
+            for (int p = tid; p < pairs; p += threads) {
+                // Pair p: row i, column j >= i.
+                int i = 0, rest = p;
+                while (rest >= n - i) {
+                    rest -= n - i;
+                    ++i;
+                }
+                const int j = i + rest;
+                double re = 0, im = 0;
+                for (int e = 0; e < here; ++e) {
+                    const double ar = t[2 * (i * tile + e)], ai = t[2 * (i * tile + e) + 1];
+                    const double br = t[2 * (j * tile + e)], bi = t[2 * (j * tile + e) + 1];
+                    re += ar * br + ai * bi;
+                    im += ar * bi - ai * br;
+                }
+                g[2 * (i * n + j)] += re;
+                g[2 * (i * n + j) + 1] += im;
+            }
+            __syncthreads();
+        }
+        // G = R^dag R in place (R in the upper triangle of g), and R^-1, by one thread.
+        if (tid == 0) {
+            for (int j = 0; j < n && *flag == 0; ++j) {
+                const double diagonal = g[2 * (j * n + j)];
+                double d = diagonal;
+                for (int k = 0; k < j; ++k) d -= g[2 * (k * n + j)] * g[2 * (k * n + j)] + g[2 * (k * n + j) + 1] * g[2 * (k * n + j) + 1];
+                if (!(d > 1e-12 * diagonal)) {
+                    *flag = 1;
+                    break;
+                }
+                const double rjj = sqrt(d);
+                g[2 * (j * n + j)] = rjj;
+                g[2 * (j * n + j) + 1] = 0;
+                for (int i = j + 1; i < n; ++i) {
+                    // R_ji = (G_ji - sum_k conj(R_kj) R_ki) / R_jj
+                    double re = g[2 * (j * n + i)], im = g[2 * (j * n + i) + 1];
+                    for (int k = 0; k < j; ++k) {
+                        const double ar = g[2 * (k * n + j)], ai = g[2 * (k * n + j) + 1];
+                        const double br = g[2 * (k * n + i)], bi = g[2 * (k * n + i) + 1];
+                        re -= ar * br + ai * bi;
+                        im -= ar * bi - ai * br;
+                    }
+                    g[2 * (j * n + i)] = re / rjj;
+                    g[2 * (j * n + i) + 1] = im / rjj;
+                }
+            }
+            if (*flag == 0) {
+                // R^-1, upper triangular: column by column, from the diagonal up.
+                for (int k = 0; k < 2 * n * n; ++k) r_inv[k] = 0;
+                for (int col = 0; col < n; ++col) {
+                    for (int row = col; row >= 0; --row) {
+                        double re = (row == col) ? 1.0 : 0.0, im = 0;
+                        for (int k = row + 1; k <= col; ++k) {
+                            const double ar = g[2 * (row * n + k)], ai = g[2 * (row * n + k) + 1];
+                            const double br = r_inv[2 * (k * n + col)], bi = r_inv[2 * (k * n + col) + 1];
+                            re -= ar * br - ai * bi;
+                            im -= ar * bi + ai * br;
+                        }
+                        const double rd = g[2 * (row * n + row)];
+                        r_inv[2 * (row * n + col)] = re / rd;
+                        r_inv[2 * (row * n + col) + 1] = im / rd;
+                    }
+                }
+            }
+        }
+        __syncthreads();
+        if (*flag != 0) {
+            if (tid == 0) d_fail[blockIdx.x] = FoldCholeskyFallback;
+            return;
+        }
+        // W = W R^-1, a tile at a time: element e of vector j = sum_{i <= j} w_i(e) (R^-1)_ij.
+        for (int e0 = 0; e0 < dim; e0 += tile) {
+            const int here = (dim - e0 < tile) ? dim - e0 : tile;
+            load_tile(e0, here);
+            __syncthreads();
+            for (int k = tid; k < n * tile; k += threads) {
+                const int j = k / tile, e = k % tile;
+                if (e >= here) continue;
+                double re = 0, im = 0;
+                for (int i = 0; i <= j; ++i) {
+                    const double xr = t[2 * (i * tile + e)], xi = t[2 * (i * tile + e) + 1];
+                    const double br = r_inv[2 * (i * n + j)], bi = r_inv[2 * (i * n + j) + 1];
+                    re += xr * br - xi * bi;
+                    im += xr * bi + xi * br;
+                }
+                W(j, e0 + e)[0] = re;
+                W(j, e0 + e)[1] = im;
+            }
+            __syncthreads();
+        }
+    }
+
+    for (int k = tid; k < n * dim; k += threads) {
+        const size_t at = in_p(k / dim, k % dim);
+        to_stored(d_p[at], static_cast<float>(scale * w[2 * k]));
+        to_stored(d_p[at + 1], static_cast<float>(scale * w[2 * k + 1]));
+    }
+}
+
+// -------------------------------------------------------------------------
 // The coarse operator D_c = P^dag D P: at every coarse site X a block A(X) and a link
 // B_dir(X) for each of the eight hops, dim x dim complex matrices, row-major (re, im):
 //

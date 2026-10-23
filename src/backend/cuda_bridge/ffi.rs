@@ -115,6 +115,20 @@ extern "C" {
         scale: f64,
         stream: *mut c_void,
     );
+    pub(super) fn bridge_cuda_fold_orthonormalise_cholesky(
+        p: *mut c_void,
+        half: i32,
+        w: *mut f64,
+        sites: *const u32,
+        fail: *mut u32,
+        first_site: i32,
+        count: i32,
+        block_volume: i32,
+        n: i32,
+        kept: i32,
+        scale: f64,
+        stream: *mut c_void,
+    );
 }
 
 /// A real of the device, `f32` or `f64`: the kernels in that precision. The methods are the

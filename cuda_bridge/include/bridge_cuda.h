@@ -424,6 +424,13 @@ void bridge_cuda_fold_orthonormalise(
     int first_site, int count, int block_volume, int n, int kept, double scale,
     cudaStream_t stream
 );
+// The same by CholeskyQR2 (fold_orthonormalise_cholesky_kernel), n <= 48: where d_fail is
+// 0xffffffff afterwards, P is left alone and bridge_cuda_fold_orthonormalise is to be run.
+void bridge_cuda_fold_orthonormalise_cholesky(
+    void* d_p, int half, double* d_w, const unsigned* d_sites, unsigned* d_fail,
+    int first_site, int count, int block_volume, int n, int kept, double scale,
+    cudaStream_t stream
+);
 
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
 // out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
