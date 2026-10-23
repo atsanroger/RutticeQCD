@@ -138,6 +138,27 @@ namespace {
                                                 d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
         }
     }
+
+    // fine = P coarse: fold_prolong_tiled_kernel for one vector where its entries split evenly
+    // and its tile fits the default shared memory, else fold_prolong_kernel.
+    template <typename Float, typename Stored>
+    void prolong_launch(Float* d_fine, const Float* d_coarse, const Stored* d_p, const unsigned* d_coarse_of,
+                        int n_coarse, int n, int vectors, const bridge_cuda::FoldGeometry& g, cudaStream_t stream)
+    {
+        const size_t sites = static_cast<size_t>(g.parity >= 0 ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
+        const int Ls = g.Ls;
+        const size_t tile = static_cast<size_t>(24) * Ls * bridge_cuda::WarpSize * sizeof(Float);
+        if (vectors == 1 && (6 * Ls) % bridge_cuda::FoldPerThread == 0 && tile <= 48 * 1024) {
+            const int threads = bridge_cuda::WarpSize * (6 * Ls / bridge_cuda::FoldPerThread);
+            const unsigned blocks = static_cast<unsigned>((sites + bridge_cuda::WarpSize - 1) / bridge_cuda::WarpSize);
+            bridge_cuda::fold_prolong_tiled_kernel<Float, Stored><<<blocks, threads, tile, stream>>>(
+                d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, g);
+            return;
+        }
+        dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), groups(vectors));
+        bridge_cuda::fold_prolong_kernel<Float, Stored><<<grid, BLOCK_SIZE, 0, stream>>>(
+            d_fine, d_coarse, d_p, d_coarse_of, n_coarse, n, vectors, g);
+    }
 }
 
 extern "C" {
@@ -160,15 +181,11 @@ void bridge_cuda_fold_prolong_f32(
     int n_coarse, int n, const int* dims, int Ls, int parity, const int* fold,
     int vectors, cudaStream_t stream)
 {
-    const size_t sites = static_cast<size_t>(parity >= 0 ? dims[0] / 2 : dims[0]) * dims[1] * dims[2] * dims[3];
-    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), groups(vectors));
     const auto g = geometry(dims, Ls, parity, fold);
     if (fold[8]) {
-        bridge_cuda::fold_prolong_kernel<float, __half><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_fine, d_coarse, static_cast<const __half*>(d_p), d_coarse_of, n_coarse, n, vectors, g);
+        prolong_launch(d_fine, d_coarse, static_cast<const __half*>(d_p), d_coarse_of, n_coarse, n, vectors, g, stream);
     } else {
-        bridge_cuda::fold_prolong_kernel<float, float><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_fine, d_coarse, static_cast<const float*>(d_p), d_coarse_of, n_coarse, n, vectors, g);
+        prolong_launch(d_fine, d_coarse, static_cast<const float*>(d_p), d_coarse_of, n_coarse, n, vectors, g, stream);
     }
 }
 
@@ -206,15 +223,11 @@ void bridge_cuda_fold_prolong_f64(
     int n_coarse, int n, const int* dims, int Ls, int parity, const int* fold,
     int vectors, cudaStream_t stream)
 {
-    const size_t sites = static_cast<size_t>(parity >= 0 ? dims[0] / 2 : dims[0]) * dims[1] * dims[2] * dims[3];
-    dim3 grid(static_cast<unsigned>((sites * 6 * Ls + BLOCK_SIZE - 1) / BLOCK_SIZE), groups(vectors));
     const auto g = geometry(dims, Ls, parity, fold);
     if (fold[8]) {
-        bridge_cuda::fold_prolong_kernel<double, __half><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_fine, d_coarse, static_cast<const __half*>(d_p), d_coarse_of, n_coarse, n, vectors, g);
+        prolong_launch(d_fine, d_coarse, static_cast<const __half*>(d_p), d_coarse_of, n_coarse, n, vectors, g, stream);
     } else {
-        bridge_cuda::fold_prolong_kernel<double, float><<<grid, BLOCK_SIZE, 0, stream>>>(
-            d_fine, d_coarse, static_cast<const float*>(d_p), d_coarse_of, n_coarse, n, vectors, g);
+        prolong_launch(d_fine, d_coarse, static_cast<const float*>(d_p), d_coarse_of, n_coarse, n, vectors, g, stream);
     }
 }
 

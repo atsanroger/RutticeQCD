@@ -678,6 +678,13 @@ One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below, A3
 What is left for it is a redesign (more sites a thread for independent loads, or the loads of
 the next leg in flight across the barrier), not a local change.
 
+**P (2026-10-23, `examples/fold_bench`, 24⁴ Ls 8, 20 test vectors):** prolong 15.9 → 7.3 ms
+(`fold_prolong_tiled_kernel`: a block for 32 sites, a site's threads together reading P in
+32-byte sectors, the field written whole through shared memory; bitwise the same; HMC on 24⁴
+242 → 230 s, the same iterations and ΔH). A site to each lane was slower (21 ms: 32 places of P
+7.7 kB apart). Restrict (12.8 ms) tried and reverted: six sites a round 11.5 ms (sums in another
+order, 10%), double-buffered rounds 29.6 ms (52 kB of shared memory, three blocks an SM).
+
 **Next, by the profile:** P (`fold_prolong`/`fold_restrict` at 27–35% of the bandwidth: read
 it in the order it is stored, several columns a block; 2–2.5× on 20% of the time); the coarse
 matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bootstrap in

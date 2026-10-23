@@ -70,6 +70,34 @@ __device__ __forceinline__ void fold_load_pair(const float* p, Float& re, Float&
     im = f.y;
 }
 
+// FoldPerThread = 8 complex numbers of P from p (16-byte aligned) in 16-byte words: two of half
+// precision, four of single.
+template <typename Float>
+__device__ __forceinline__ void fold_load_eight(const __half* p, Float (&re)[8], Float (&im)[8]) {
+    #pragma unroll
+    for (int w = 0; w < 2; ++w) {
+        const uint4 word = reinterpret_cast<const uint4*>(p)[w];
+        const unsigned parts[4] = {word.x, word.y, word.z, word.w};
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const __half2 h = *reinterpret_cast<const __half2*>(&parts[j]);
+            re[4 * w + j] = __low2float(h);
+            im[4 * w + j] = __high2float(h);
+        }
+    }
+}
+template <typename Float>
+__device__ __forceinline__ void fold_load_eight(const float* p, Float (&re)[8], Float (&im)[8]) {
+    #pragma unroll
+    for (int w = 0; w < 4; ++w) {
+        const float4 word = reinterpret_cast<const float4*>(p)[w];
+        re[2 * w] = word.x;
+        im[2 * w] = word.y;
+        re[2 * w + 1] = word.z;
+        im[2 * w + 1] = word.w;
+    }
+}
+
 __host__ __device__ __forceinline__ size_t coarse_index(size_t q) {
     return (q / WarpSize) * 2 * WarpSize + q % WarpSize;
 }
@@ -423,6 +451,104 @@ __global__ void fold_prolong_kernel(
         fine[aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at)] = ai[0][v] + ai[1][v];
         fine[aosoa_5d_spinor_idx(colour, to, 0, Ls - 1 - s, Ls, at)] = sign * (ar[0][v] - ar[1][v]);
         fine[aosoa_5d_spinor_idx(colour, to, 1, Ls - 1 - s, Ls, at)] = sign * (ai[0][v] - ai[1][v]);
+    }
+}
+
+// -------------------------------------------------------------------------
+// fine = P coarse as fold_prolong_kernel, for one vector, with P read in 32-byte sectors and
+// the fine field written whole: a block for each 32 sites of the fine field (one block of its
+// layout, base/aosoa.cuh), thread (lane, k) for site lane and the FoldPerThread entries
+// k FoldPerThread ... of its 6 Ls (s < Ls/2, spin, colour). A thread reads its entries of P for
+// every (i, c) at once, two 16-byte words of half precision; the results go into the shared
+// memory in the order of the field, which the block then writes as one stretch in 16-byte
+// words. (A thread for each entry read P 4 bytes at a time, and wrote the field 32 reals apart:
+// 15.9 ms for 20 test vectors on 24^4, Ls 8, on the A30, about 175 GB/s.) The sums are those of
+// fold_prolong_kernel in the same order. 6 Ls a multiple of FoldPerThread.
+// Shared memory: 24 Ls WarpSize Float.
+// -------------------------------------------------------------------------
+constexpr int FoldPerThread = 8;   // fold_load_eight
+
+template <typename Float, typename Stored>
+__global__ void fold_prolong_tiled_kernel(
+    Float* __restrict__ d_fine,
+    const Float* __restrict__ d_coarse,
+    const Stored* __restrict__ d_p,
+    const unsigned* __restrict__ d_coarse_of,
+    int n_coarse, int n,
+    FoldGeometry g)
+{
+    extern __shared__ __align__(16) unsigned char fold_shared[];
+    Float* tile = reinterpret_cast<Float*>(fold_shared);
+    const int dim = 2 * n, Ls = g.Ls, kept = 12 * Ls;
+    const bool half = (g.parity >= 0);
+    const int sites = (half ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
+    // The threads of a site next to each other, so that a warp reads P of a few sites, each as
+    // one stretch (with a site to each lane of a warp it read 32 places 7.7 kB apart: slower
+    // than fold_prolong_kernel).
+    const int per_site = blockDim.x / WarpSize;
+    const int lane = threadIdx.x / per_site, k = threadIdx.x % per_site;
+    const int at = blockIdx.x * WarpSize + lane;
+    const int e0 = k * FoldPerThread;
+
+    Float ar[2][FoldPerThread], ai[2][FoldPerThread];
+    #pragma unroll
+    for (int c = 0; c < 2; ++c) {
+        #pragma unroll
+        for (int j = 0; j < FoldPerThread; ++j) {
+            ar[c][j] = 0;
+            ai[c][j] = 0;
+        }
+    }
+    if (at < sites) {
+        int x = at;
+        if (half) {
+            int xc[4];
+            half_site_to_coords(at, g.parity, xc, g.nx, g.ny, g.nz);
+            x = coords_to_site(xc[0], xc[1], xc[2], xc[3], g.nx, g.ny, g.nz, g.nt);
+        }
+        const size_t first = static_cast<size_t>(d_coarse_of[x]) * dim;
+        #pragma unroll
+        for (int c = 0; c < 2; ++c) {
+            #pragma unroll 4
+            for (int i = 0; i < n; ++i) {
+                const size_t q = coarse_index(first + c * n + i);
+                const Float cr = d_coarse[q], ci = d_coarse[q + WarpSize];
+                const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept + 2 * e0;
+                Float br[FoldPerThread], bi[FoldPerThread];
+                fold_load_eight(b, br, bi);
+                #pragma unroll
+                for (int j = 0; j < FoldPerThread; ++j) {
+                    ar[c][j] += cr * br[j] - ci * bi[j];
+                    ai[c][j] += cr * bi[j] + ci * br[j];
+                }
+            }
+        }
+    }
+    // Into the tile in the order of the field: row (s 24 + component), column lane.
+    #pragma unroll
+    for (int j = 0; j < FoldPerThread; ++j) {
+        const int e = e0 + j;
+        const int s = e / 12, a = (e % 12) / Nc, colour = e % Nc;
+        int to = 0;
+        #pragma unroll
+        for (int row = 0; row < Nspin; ++row) {
+            if (g.col[row] == a) to = row;
+        }
+        const Float sign = fold_pick(g.sign, to);
+        const int near = (s * (Nspin * Nc * Ncomplex) + 2 * (colour + Nc * a)) * WarpSize + lane;
+        const int far = ((Ls - 1 - s) * (Nspin * Nc * Ncomplex) + 2 * (colour + Nc * to)) * WarpSize + lane;
+        tile[near] = ar[0][j] + ar[1][j];
+        tile[near + WarpSize] = ai[0][j] + ai[1][j];
+        tile[far] = sign * (ar[0][j] - ar[1][j]);
+        tile[far + WarpSize] = sign * (ai[0][j] - ai[1][j]);
+    }
+    __syncthreads();
+    // The block of the field, 16 bytes at a time (the sites past the last are zero).
+    constexpr int per_word = 16 / sizeof(Float);
+    const int words = Ls * (Nspin * Nc * Ncomplex) * WarpSize / per_word;
+    Float* out = d_fine + static_cast<size_t>(blockIdx.x) * Ls * (Nspin * Nc * Ncomplex) * WarpSize;
+    for (int w = threadIdx.x; w < words; w += blockDim.x) {
+        reinterpret_cast<uint4*>(out)[w] = reinterpret_cast<const uint4*>(tile)[w];
     }
 }
 

@@ -704,6 +704,33 @@ correction is not exact for it, yet it converges within a few iterations of the 
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
+\paragraph{Why $\alpha$ helps CG much more than the multigrid.} The left Schur factor of $DQ$ is
+a similarity transform of that of $D$:
+\begin{equation}
+K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}KQ_e,\qquad K=\Ce^{-1}S .
+\label{eq:Ksimilar}
+\end{equation}
+So $K^{(\alpha)}$ and $K$ have the same eigenvalues. Their singular values differ, because $Q_e$
+is not unitary: its entries are $\alpha$ in the bulk and $1$ on half of the wall components.
+The two solvers see different things. CG on the normal equation converges at a rate set by the
+condition number of $K^{(\alpha)\dagger}K^{(\alpha)}$, the ratio of the extreme singular values
+squared. Neff's $\alpha$ changes those, and the iterations drop. GCR with the multigrid sees the
+preconditioned operator: the coarse correction takes the smallest eigenvalues and the smoother
+the largest, so its iteration count no longer follows the condition number. What $\alpha$ still
+changes for it are the eigenvectors, which the outer iterations hardly feel. In short, $\alpha$
+treats the conditioning, and the multigrid has already removed it; the two gains do not add
+up.\ifresults{} On $24^3\times48$ at $m=0.001$ the multigrid takes 28 iterations with $\alpha=0.6$
+and 27 without (Table~\ref{tab:massscan}); in the HMC solves on $24^4$ at $m=0.001$, 362 against
+356, while mixed-precision CG drops from 40912 to 31996.\fi
+
+Eq.~\eqref{eq:Ksimilar} also lets CG use $\alpha$ in HMC without changing the action. The
+even-odd action needs $(K\dg K)^{-1}$, and with $K=Q_eK^{(\alpha)}Q_e^{-1}$,
+\begin{equation}
+(K\dg K)^{-1}=Q_e\big[(KQ_e)\dg(KQ_e)\big]^{-1}Q_e ,
+\end{equation}
+a normal equation of $KQ_e=Q_eK^{(\alpha)}$, whose singular values are close to those of
+$\alpha K^{(\alpha)}$ (they differ only by the wall components of $Q_e$).
+
 % ============================================================
 \section{The factorized coarse-grid correction and the prolongation}
 \label{sec:correction}
