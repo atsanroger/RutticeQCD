@@ -22,7 +22,9 @@
 //! the operators in single precision, the links converted on the device; the outer GCR stays
 //! in double precision).
 
-use super::multigrid::{bootstrap, device_correction, filtered_test_vectors, top_of, two_grid};
+use super::multigrid::{
+    bootstrap, device_correction_with_levels, filtered_test_vectors, top_of, two_grid,
+};
 use super::{
     CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor, LevelReal,
     Stashed,
@@ -87,7 +89,19 @@ fn test_vectors<T: DeviceReal>(
         }
         Some(y) => return Ok(y),
     };
-    let mut with = device_correction(ops, agg, setup.bootstrap.cycle, even, true);
+    let l = setup.levels;
+    let mut with = device_correction_with_levels(
+        ops,
+        agg,
+        setup.bootstrap.cycle,
+        even,
+        true,
+        (
+            &l.super_blocks[..l.count],
+            &l.bootstrap[..l.count],
+            l.for_pauli_villars,
+        ),
+    );
     bootstrap(
         ops,
         (even, odd),

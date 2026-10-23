@@ -604,10 +604,13 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let diag = DeviceBuffer::<f64>::zeros(sites * matrix)?;
         let links = DeviceBuffer::<L>::zeros(8 * sites * matrix)?;
         let links_single = std::any::TypeId::of::<L>() == std::any::TypeId::of::<f32>();
-        // As many components at a time as keep the three fine fields within half a GB: whole
-        // groups of the vectors P is read once for, if that is several.
+        // As many components at a time as keep the three fine fields within a quarter of the
+        // room on the device, between half a GB and 3 GB: P is read once for all of them
+        // (24⁴, Ls 8, 40 components in single precision: one at a time 6.5 s, four 4.4 s).
+        // Whole groups of the vectors P is read once for, if that is several.
         let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
-        let fit = ((1 << 29) / (3 * phi.data.bytes())).clamp(1, dim);
+        let budget = (super::device_room() / 4).clamp(1 << 29, 3 << 30);
+        let fit = (budget / (3 * phi.data.bytes())).clamp(1, dim);
         let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
         // Columns `first ..` of the matrices from `target` on (f32 with `single`, else f64) from
         // the vectors of a coarse field.

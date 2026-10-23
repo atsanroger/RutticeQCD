@@ -210,6 +210,19 @@ pub fn device_memory() -> (usize, usize) {
     (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
 }
 
+/// The bytes of the device not held by this program now: its total memory less `device_memory`
+/// (what the memory pool keeps unused counts as free, as the pool gives it out again).
+pub fn device_room() -> usize {
+    let (mut free, mut total) = (0usize, 0usize);
+    // SAFETY: places for the two numbers.
+    if unsafe { cudaMemGetInfo(&mut free, &mut total) } != 0 {
+        // SAFETY: no arguments; the failed query is not an error of the kernels.
+        unsafe { cudaGetLastError() };
+        return 0;
+    }
+    total.saturating_sub(IN_USE.load(Ordering::Relaxed))
+}
+
 /// Reals on the device.
 pub struct DeviceBuffer<T> {
     ptr: *mut T,

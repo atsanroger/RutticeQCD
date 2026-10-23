@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Faster setup and prolongation of the domain-wall multigrid on the device. HMC on 24⁴ with stout
+links at m 0.001 (one short trajectory, 20 test vectors, levels below, A30): 242 → 210 s, the
+setup 141 → 117 s.
+
+- The prolongation P for one vector (`fold_prolong_tiled_kernel`): a block for 32 fine sites, a
+  site's threads reading P in 32-byte sectors, the field written whole through shared memory;
+  bitwise the same results. `examples/fold_bench`, 24⁴, Ls 8, 20 test vectors: 15.9 → 7.3 ms.
+- The bootstrap of HMC takes the levels below the coarse lattice for its coarse solves, from its
+  second round on (`device_correction_with_levels`): the second round's vectors 45 → 26 s. In
+  the first round they gained nothing and cost 7 s to make.
+- The coarse operators are probed with as many columns at a time as a quarter of the free device
+  memory holds (between 0.5 and 3 GB; `device_room`), so that P is read once for several: on
+  24⁴, P†DP in single precision 6.5 → 4.4 s.
+- The note: why Neff's α helps CG more than the multigrid (K^(α) = Q_e⁻¹ K Q_e).
+
 ## 0.4.0 (2026-10-23)
 
 The multigrid in HMC. The domain-wall Ratio action over Pauli-Villars fields solves with the

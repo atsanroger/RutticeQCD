@@ -685,6 +685,16 @@ the next leg in flight across the barrier), not a local change.
 7.7 kB apart). Restrict (12.8 ms) tried and reverted: six sites a round 11.5 ms (sums in another
 order, 10%), double-buffered rounds 29.6 ms (52 kB of shared memory, three blocks an SM).
 
+**The setup (2026-10-23, 24⁴ m 0.001, 20 test vectors, levels below):** the filter 34.5 s, the
+bootstrap 101 s (two rounds: making the correction 18 s each — P 3.9, P†DP 6.5, P†D_PV P 6.0,
+|H|⁻¹ 0.8, the top 1.3 —, and the vectors 20 s and 45 s). Done: the levels below for the
+bootstrap from its second round (45 → 26 s; in the first they gained nothing for 7 s of making),
+the probing of the coarse operators four columns at a time (6.5 → 4.4 s each). Batching the
+bootstrap's vectors (four at a time through FGMRES) gained nothing (136 → 138 s, +3.6 GB):
+`coarse_pass` reads the matrices again for every vector. Setup 141 → 117 s. Left: making the
+levels (7 s a round), P (4 s), the filter (35 s), and a `coarse_pass` that applies its matrices
+to several vectors in one pass (then batching pays, and the tensor cores fit).
+
 **Next, by the profile:** P (`fold_prolong`/`fold_restrict` at 27–35% of the bandwidth: read
 it in the order it is stored, several columns a block; 2–2.5× on 20% of the time); the coarse
 matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bootstrap in
@@ -752,6 +762,13 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   one after the other; since 2026-10-19 it needs one more set only.)
 
 ## Known, not understood
+
+- **Where α acts on Ã_L^(α)** (2026-10-23). In the mass scan on 24³×48 α 0.6 saves the multigrid
+  2–3 iterations at every mass in setup B, but in S only at heavy masses (none from m 0.01 down;
+  HMC on 24⁴ at m 0.001: 362 against 356), while CG gains about 20%. The note reads it as α
+  improving only what the smoother sees (the coarse grid takes the low modes); not checked. To
+  check: the extreme eigenvalues (Arnoldi) and the field of values of Ã_L with and without α, and
+  of Ã_L M, in S and B.
 
 - **The dual cycle on 12⁴** (superseded 2026-10-22 by Γ5 M Γ5 below; the dual cycle is gone
   from HMC) (`examples/correction_exactness`, CPU, 2026-10-21): setup S,

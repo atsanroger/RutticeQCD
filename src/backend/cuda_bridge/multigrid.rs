@@ -14,7 +14,7 @@ use super::{
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
     bootstrap_vector, low_modes, orthonormalise_all, random_even, Aggregation, BootstrapParams,
-    LowModeParams, PvEoParams, TwoGrid,
+    LevelBootstrap, LowModeParams, PvEoParams, TwoGrid,
 };
 use crate::solver::{largest_magnitude, Chebyshev};
 use crate::{
@@ -112,21 +112,47 @@ pub fn filtered_test_vectors<T: DeviceReal>(
 /// half precision with `half`), with coarse solves in single precision: what `bootstrap` takes
 /// as `with_correction` when the device has the settings `cycle`.
 pub fn device_correction<'o, T: DeviceReal>(
-    (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
+    ops: (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
     cycle: PvEoParams,
     even: &'o DeviceSpinor<T>,
     half: bool,
 ) -> impl FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'o {
+    device_correction_with_levels(ops, agg, cycle, even, half, (&[], &[], false))
+}
+
+/// `device_correction` with the levels below the coarse lattice for its coarse solves
+/// (`DeviceCorrection::add_levels`, `add_pv_levels` with `for_pv`), from P† of the vectors of
+/// each round: super-blocks and refinements as the files give them. At small masses the coarse
+/// solves of the bootstrap are most of its time without them (24⁴, m 0.001: 65 of 101 s).
+pub fn device_correction_with_levels<'o, T: DeviceReal>(
+    (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
+    agg: &'o Arc<Aggregation>,
+    cycle: PvEoParams,
+    even: &'o DeviceSpinor<T>,
+    half: bool,
+    (super_blocks, refine, for_pv): (&'o [usize], &'o [LevelBootstrap], bool),
+) -> impl FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'o {
+    let mut rounds = 0;
     move |y, round| {
-        let mut c = DeviceCorrection::<T, f32>::new(
-            DeviceBasis::pv_eo(d, pv, agg, &y, half)?,
-            (d, pv),
-            (d, pv),
-            EoForm::Right,
-            cycle,
-            even,
-        )?;
+        let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half)?;
+        // From the second round on: the coarse solves of the first, on the filtered vectors,
+        // were as fast without them (24⁴, m 0.001: 19.8 s with, 19.7 s without, and 7 s to make
+        // them).
+        let level_vectors = match super_blocks.is_empty() || rounds == 0 {
+            true => None,
+            false => Some(basis.pv_eo_coarse_vectors(d, pv, &y)?),
+        };
+        rounds += 1;
+        let mut c =
+            DeviceCorrection::<T, f32>::new(basis, (d, pv), (d, pv), EoForm::Right, cycle, even)?;
+        if let Some(v) = &level_vectors {
+            c.add_levels(v, super_blocks, refine)?;
+            if for_pv {
+                c.add_pv_levels(v, super_blocks)?;
+            }
+        }
+        drop(level_vectors);
         round(Box::new(|e, r| c.correct(e, r)), None, y)
     }
 }
