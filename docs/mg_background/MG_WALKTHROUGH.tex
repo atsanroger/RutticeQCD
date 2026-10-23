@@ -7,6 +7,8 @@
 \usepackage{geometry}
 \usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
 \usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 \geometry{a4paper,left=2.2cm,right=2.2cm,top=2.2cm,bottom=2.4cm}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.6ex}
@@ -357,8 +359,55 @@ left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$
 In words: (i) put $O_Rr$ on the whole lattice, restrict, solve with the adjoint Pauli--Villars
 coarse operator, prolong; (ii) take the even part, multiply by $O_M$, put it back on the whole
 lattice, restrict, solve with the quark coarse operator, prolong; (iii) take the even part and
-multiply by $O_L$. The coarse operators are always those of the plain $D$ and $\Dpv$, so one setup
-serves both forms and every $\alpha$.
+multiply by $O_L$ (Fig.~\ref{fig:correction}). The coarse operators are always those of the plain
+$D$ and $\Dpv$, so one setup serves both forms and every $\alpha$.
+
+\begin{figure}[htbp]
+\centering
+% Okabe--Ito colors, distinguishable with the common color-vision deficiencies.
+\definecolor{oiBlue}{HTML}{0072B2}
+\definecolor{oiOrange}{HTML}{E69F00}
+\definecolor{oiGreen}{HTML}{009E73}
+\newcommand{\exactval}[1]{\\[-1pt]{\footnotesize\color{oiBlue}$#1$}}
+\begin{tikzpicture}[x=0.88cm,y=1.55cm,>={Latex[length=2mm]},
+  val/.style={font=\small,align=center,inner sep=2pt,fill=white},
+  solve/.style={draw,rounded corners=2pt,line width=0.6pt,inner sep=3pt,font=\small},
+  pvsolve/.style={solve,draw=oiOrange,fill=oiOrange!18},
+  qsolve/.style={solve,draw=oiGreen,fill=oiGreen!15},
+  lab/.style={font=\footnotesize,fill=white,inner sep=1pt},
+  lane/.style={font=\footnotesize\itshape,text=black!60,anchor=east}]
+  \foreach \y/\name in {0/even sites, -1/whole lattice, -2/coarse lattice}
+    \draw[black!15] (-0.9,\y) -- (14.8,\y) node[pos=0,lane] {\name};
+  \node[val]   (r)  at (0,0)       {$r$\exactval{=\AR y}};
+  \node[val]   (w1) at (1.8,-1)    {$\iota O_R r$\exactval{=\Dpv\dg\hat t}};
+  \node[pvsolve] (c1) at (3.6,-2)  {$(\Pro\dg\Dpv\dg\Pro)^{-1}$};
+  \node[val]   (w2) at (5.4,-1)    {$u$\exactval{=\hat t}};
+  \node[val]   (e2) at (7.2,0)     {$\pi u$\exactval{=a=\pi Ds}};
+  \node[val]   (w3) at (9.0,-1)    {$\iota O_M\pi u$\exactval{=Ds}};
+  \node[qsolve] (c2) at (10.8,-2)  {$\Dc^{-1}$};
+  \node[val]   (w4) at (12.6,-1)   {$v$\exactval{=s}};
+  \node[val]   (e)  at (14.4,0)    {$e$\exactval{=y}};
+  \draw[->] (r)  -- node[lab,sloped,above] {$\iota O_R$} (w1);
+  \draw[->] (w1) -- node[lab,sloped,above] {$\Pro\dg$} (c1);
+  \draw[->] (c1) -- node[lab,sloped,above] {$\Pro$} (w2);
+  \draw[->] (w2) -- node[lab,sloped,above] {$\pi$} (e2);
+  \draw[->] (e2) -- node[lab,sloped,above] {$\iota O_M$} (w3);
+  \draw[->] (w3) -- node[lab,sloped,above] {$\Pro\dg$} (c2);
+  \draw[->] (c2) -- node[lab,sloped,above] {$\Pro$} (w4);
+  \draw[->] (w4) -- node[lab,sloped,above] {$O_L\pi$} (e);
+\end{tikzpicture}
+\caption{One factorized coarse correction, read from the left, on its three lattices (the
+Pauli--Villars coarse solve in orange, the quark one in green):
+$u=\Pro(\Pro\dg\Dpv\dg\Pro)^{-1}\Pro\dg\iota O_Rr$ is the result of the first coarse solve, its
+even part times $O_M$ is the right-hand side of the second, whose result is
+$v=\Pro\Dc^{-1}\Pro\dg\iota O_M\pi u$, and $e=O_L\pi v$. In blue, after ``$=$'', the values for
+$r=\AR y$ in the right form with exact coarse solves and $s,\hat t\in\operatorname{range}\Pro$
+(Sec.~\ref{sec:exact}; $O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$): the first solve returns the lift
+$\hat t$, whose even part is $a=\pi Ds$, the second returns the lift $s$, and the correction
+returns $y$.}
+\label{fig:correction}
+\end{figure}
+
 
 \paragraph{The left form with $\alpha$, step by step.} For $\alpha$ in $D$ only,
 \begin{align}
@@ -418,6 +467,7 @@ $n=40$). Where a pivot of the first pass falls below $10^{-12}$ of its diagonal 
 columns), the code falls back to Gram--Schmidt for those blocks.
 
 \subsection{The basis $\{s,\hat t\}$ and why the correction is exact}
+\label{sec:exact}
 The setup produces vectors $y_j$ on the even sites (next section). Each is lifted to the whole
 lattice in two ways, one for each coarse solve:
 \begin{align}
