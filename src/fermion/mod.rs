@@ -4,9 +4,11 @@
 mod clover;
 mod even_odd;
 mod mdwf;
+mod single;
 mod wilson;
 
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
+pub use single::{SingleAll, SingleEven, SingleOperator};
 
 pub use even_odd::{
     adjoint_by_gamma5, adjoint_right_hand_side, adjoint_solution, hop_then_of_blocks,

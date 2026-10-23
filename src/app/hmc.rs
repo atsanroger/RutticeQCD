@@ -10,6 +10,7 @@ use super::config::{BoundaryConfig, GaugeFormat, GaugeSmearingConfig};
 use super::hmc_params::{is_hmc_text, HmcParams};
 use super::CliError;
 use crate::fermion::{Clover, CloverParams, Mdwf, MdwfParams, Wilson, WilsonParams};
+use crate::fermion::{SingleAll, SingleEven};
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow};
 use crate::gauge::GaugeSmearing;
 use crate::gauge::{plaquette, random_gauge};
@@ -18,7 +19,7 @@ use crate::hmc::{
     MultigridSetup, NormalSolver, PlaquetteAction, Preconditioner, Rational, RectangleAction,
     Scheme, Term, TwoFlavor, TwoFlavorEo, TwoFlavorRatio, TwoFlavorRatioEo,
 };
-use crate::hmc::{DwfMultigridSetup, HalfPsi, Single, SingleMdwf, SingleMdwfEo, SingleNormal};
+use crate::hmc::{DwfMultigridSetup, HalfPsi, Single, SingleNormal};
 use crate::kernel::Dirac;
 use crate::numerics::{RationalApprox, RationalSpec};
 use crate::solver::preconditioner::multigrid::{
@@ -254,9 +255,11 @@ pub enum HmcMultigrid {
         coarse_double: bool,
         /// Keep P and the coarse parts until the iterations grow this much; 0: never kept.
         rebuild_growth: f64,
-        /// The cycle in single precision (on the device).
+        /// The cycle in single precision.
         fine_single: bool,
-        /// Levels below the coarse lattice (on the device).
+        /// P kept in single precision (half by default).
+        basis_single: bool,
+        /// Levels below the coarse lattice.
         levels: crate::hmc::CoarseLevels,
     },
 }
@@ -359,6 +362,7 @@ impl HmcSolver {
                     coarse_double,
                     rebuild_growth,
                     fine_single,
+                    basis_single,
                     levels,
                 }),
             ) => {
@@ -371,6 +375,7 @@ impl HmcSolver {
                 setup.coarse_double = coarse_double;
                 setup.rebuild_growth = rebuild_growth;
                 setup.fine_single = fine_single;
+                setup.basis_single = basis_single;
                 setup.levels = levels;
                 setup.alpha = self.neff_alpha;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
@@ -833,7 +838,7 @@ impl HmcConfig {
                             HmcFermion::DomainWall { .. } => {
                                 let p = mdwf_params(fermion);
                                 let alpha = with_alpha(lat, p, solver.neff_alpha);
-                                let single = single_mdwf(lat, p, solver);
+                                let single = mixed_all(lat, p, solver);
                                 two_flavor(
                                     Mdwf::<f64>::new(lat, p),
                                     None,
@@ -871,16 +876,15 @@ impl HmcConfig {
                                 let q = with_alpha(lat, p, solver.neff_alpha)
                                     .filter(|_| !solver.asks_for(HmcPreconditioner::Multigrid))
                                     .map(|q| {
-                                        Box::new(move |out: &mut HalfPsi, inp: &HalfPsi, inverse| {
-                                            q.mult_q(out, inp, inverse)
-                                        }) as crate::hmc::NeffHalfQ<HalfPsi>
+                                        Box::new(
+                                            move |out: &mut HalfPsi, inp: &HalfPsi, inverse| {
+                                                q.mult_q(out, inp, inverse)
+                                            },
+                                        )
+                                            as crate::hmc::NeffHalfQ<HalfPsi>
                                     });
-                                if q.is_some() && solver.mixed.is_some() {
-                                    return Err(CliError::Invalid(
-                                        "Fopr.neff_alpha: Neff's α with mixed CG on the even-odd Ratio is on the device only (double precision here)".into(),
-                                    ));
-                                }
-                                ratio_eo(ops, single_mdwf_eo(lat, p, solver), q, c)
+                                let single = mixed_even(lat, p, solver, q.is_some());
+                                ratio_eo(ops, single, q, c)
                             }
                             (
                                 HmcFermion::Wilson { kappa, boundary: b },
@@ -888,9 +892,12 @@ impl HmcConfig {
                                     kappa: kd,
                                     boundary: bd,
                                 }),
-                            ) if *even_odd => {
-                                ratio_eo((wilson(lat, kappa, &b), wilson(lat, kd, &bd)), None, None, c)
-                            }
+                            ) if *even_odd => ratio_eo(
+                                (wilson(lat, kappa, &b), wilson(lat, kd, &bd)),
+                                None,
+                                None,
+                                c,
+                            ),
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
@@ -902,7 +909,7 @@ impl HmcConfig {
                                     (true, Some(_)) => ratio(ops, None, None, None, c),
                                     _ => {
                                         let alpha = with_alpha(lat, p, solver.neff_alpha);
-                                        let single = single_mdwf(lat, p, solver);
+                                        let single = mixed_all(lat, p, solver);
                                         ratio(ops, None, alpha, single, c)
                                     }
                                 }
@@ -1059,8 +1066,8 @@ impl HmcConfig {
                         fermion: fermion @ HmcFermion::DomainWall { .. },
                         level,
                         smeared,
+                        even_odd,
                         solver,
-                        ..
                     } => {
                         let stop = |t: f64| Stop {
                             tolerance_sqr: t,
@@ -1074,7 +1081,10 @@ impl HmcConfig {
                             solver,
                         };
                         let p = mdwf_params(fermion);
-                        (*level, device_two_flavor(lat, p, solver.neff_alpha, c)?)
+                        (
+                            *level,
+                            device_two_flavor(lat, p, solver.neff_alpha, *even_odd, c)?,
+                        )
                     }
                     _ => unreachable!("refused when the file is read"),
                 };
@@ -1102,7 +1112,7 @@ fn two_flavor<O: EvenOddForceOp + 'static>(
     single: Option<Box<dyn SingleNormal<O::Field, O::Links>>>,
     even_odd: bool,
     c: Common,
-) -> Box<dyn MdAction> {
+) -> Box<dyn MdAction<O::Links>> {
     let s = c.solver;
     if even_odd {
         assert!(single.is_none(), "refused when the file is read");
@@ -1181,19 +1191,32 @@ fn ratio_eo<O: EvenOddHalves + 'static>(
 
 /// The domain-wall operator `p` (with Neff's α of the solver) in single precision on all sites,
 /// when the solver asks for mixed precision.
-fn single_mdwf(lat: &Arc<Lattice>, p: MdwfParams, s: &HmcSolver) -> Option<Single<Mdwf<f64>>> {
-    s.mixed
-        .map(|tol| Box::new(SingleMdwf::<Dirac>::new(lat, p, s.neff_alpha, tol)) as Box<_>)
+fn mixed_all(lat: &Arc<Lattice>, p: MdwfParams, s: &HmcSolver) -> Option<Single<Mdwf<f64>>> {
+    s.mixed.map(|tol| {
+        Box::new(SingleAll::new(
+            crate::hmc::single_mdwf::<Dirac>(lat, p, s.neff_alpha),
+            lat,
+            tol,
+        )) as Box<_>
+    })
 }
 
-/// The same on the even sites, for the even-odd Ratio action.
-fn single_mdwf_eo(
+/// The same on the even sites, for the even-odd Ratio action; `neff`: on K Q_e with the Q of
+/// the solver's Neff's α.
+fn mixed_even(
     lat: &Arc<Lattice>,
     p: MdwfParams,
     s: &HmcSolver,
+    neff: bool,
 ) -> Option<Box<dyn SingleNormal<HalfPsi, Field<f64, Gauge>>>> {
-    s.mixed
-        .map(|tol| Box::new(SingleMdwfEo::<Dirac>::new(lat, p, tol)) as Box<_>)
+    s.mixed.map(|tol| {
+        let single = SingleEven::new(crate::hmc::single_mdwf::<Dirac>(lat, p, 1.0), lat, tol);
+        let single = match neff {
+            true => single.with_neff(crate::hmc::single_mdwf::<Dirac>(lat, p, s.neff_alpha)),
+            false => single,
+        };
+        Box::new(single) as Box<_>
+    })
 }
 
 /// `ratio` of domain-wall operators on the device: D of `p` over D of `pd`, solved with Neff's
@@ -1233,12 +1256,18 @@ fn device_single(
     s: &HmcSolver,
     even_odd: bool,
 ) -> Result<Option<Single<crate::backend::cuda_bridge::CudaMdwf<f64>>>, CliError> {
-    use crate::backend::cuda_bridge::hmc_mixed::SingleCuda;
+    use crate::backend::cuda_bridge::hmc_mixed::single_mdwf;
+    let device =
+        |e: crate::backend::cuda_bridge::CudaError| CliError::Invalid(format!("the device: {e}"));
     s.mixed
         .map(|tol| {
-            SingleCuda::new(lat, p, alpha, tol, even_odd)
-                .map(|op| Box::new(op) as Single<crate::backend::cuda_bridge::CudaMdwf<f64>>)
-                .map_err(|e| CliError::Invalid(format!("the device: {e}")))
+            let op = single_mdwf(lat, p, alpha).map_err(device)?;
+            Ok(match even_odd {
+                false => Box::new(SingleAll::new(op, lat, tol))
+                    as Single<crate::backend::cuda_bridge::CudaMdwf<f64>>,
+                true => Box::new(SingleEven::new(op, lat, tol))
+                    as Single<crate::backend::cuda_bridge::CudaMdwf<f64>>,
+            })
         })
         .transpose()
 }
@@ -1251,7 +1280,6 @@ fn device_ratio_eo(
     alpha: f64,
     c: Common,
 ) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
-    use crate::backend::cuda_bridge::hmc_mixed::SingleCuda;
     use crate::backend::cuda_bridge::{CudaMdwf, DeviceSpinor};
     let device =
         |e: crate::backend::cuda_bridge::CudaError| CliError::Invalid(format!("the device: {e}"));
@@ -1259,11 +1287,12 @@ fn device_ratio_eo(
     // CG with Neff's α on K Q_e (`TwoFlavorRatioEo::with_neff`); the multigrid takes α itself.
     let neff = alpha != 1.0 && !c.solver.asks_for(HmcPreconditioner::Multigrid);
     let single = match (c.solver.mixed, neff) {
-        (Some(tol), true) => Some(Box::new(
-            SingleCuda::new(lat, p, 1.0, tol, true)
-                .and_then(|s| s.with_neff(alpha))
-                .map_err(device)?,
-        ) as Single<CudaMdwf<f64>>),
+        (Some(tol), true) => {
+            use crate::backend::cuda_bridge::hmc_mixed::single_mdwf;
+            let op = single_mdwf(lat, p, 1.0).map_err(device)?;
+            let q = single_mdwf(lat, p, alpha).map_err(device)?;
+            Some(Box::new(SingleEven::new(op, lat, tol).with_neff(q)) as Single<CudaMdwf<f64>>)
+        }
         _ => device_single(lat, p, 1.0, c.solver, true)?,
     };
     let q = match neff {
@@ -1282,32 +1311,29 @@ fn device_ratio_eo(
 }
 
 /// Two flavours of the domain-wall operator of `p` on the device, solved with Neff's `alpha`
-/// if it is not 1: `two_flavor` on all sites.
+/// if it is not 1: `two_flavor`, on all sites or even-odd.
 #[cfg(feature = "cuda-bridge")]
 fn device_two_flavor(
     lat: &Arc<Lattice>,
     p: MdwfParams,
     alpha: f64,
+    even_odd: bool,
     c: Common,
 ) -> Result<Box<dyn MdAction<crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
     use crate::backend::cuda_bridge::CudaMdwf;
     let make = |p: MdwfParams| {
         CudaMdwf::<f64>::new(lat, p).map_err(|e| CliError::Invalid(format!("the device: {e}")))
     };
-    let s = c.solver;
-    let mut a = TwoFlavor::new(make(p)?, c.smearing, c.md, c.h)
-        .with_guess(s.initial_guess)
-        .with_solver(s.normal())
-        .with_preconditioner(s.preconditioner());
-    if alpha != 1.0 {
-        let mut op = make(p)?;
-        op.set_alpha(alpha);
-        a = a.with_conditioned(op);
-    }
-    if let Some(single) = device_single(lat, p, alpha, s, false)? {
-        a = a.with_single(single);
-    }
-    Ok(Box::new(a))
+    let conditioned = match alpha != 1.0 {
+        true => {
+            let mut op = make(p)?;
+            op.set_alpha(alpha);
+            Some(op)
+        }
+        false => None,
+    };
+    let single = device_single(lat, p, alpha, c.solver, false)?;
+    Ok(two_flavor(make(p)?, None, conditioned, single, even_odd, c))
 }
 
 /// A power of the determinant of `op` by the rational approximations of the action and of

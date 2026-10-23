@@ -3,13 +3,11 @@
 //! the same operator on the same links (`SingleNormal`), until the residual is below the
 //! tolerance of the solve.
 
-use super::even_odd::HalfPsi;
-use super::fermion_action::Psi;
-use crate::fermion::{Bound, EoForm, FermionOp, Mdwf, MdwfParams, SchurFactor, Variant};
-use crate::kernel::{Dirac, GammaRepre};
-use crate::solver::{Cg, SolveError, SolveInfo, Solver, Stop};
+use crate::fermion::{Mdwf, MdwfParams, SingleAll, SingleEven, SingleOperator};
+use crate::kernel::GammaRepre;
+use crate::solver::{SolveError, SolveInfo, Stop};
 use crate::C64;
-use crate::{ConvertFrom, Field, Gauge, Half, Lattice, LinearOp, Normal, Parity, Spinor, Vector};
+use crate::{ConvertFrom, Lattice, LinearOp, Vector};
 use std::sync::Arc;
 
 /// The operator of an action in single precision: the inner solves of mixed precision.
@@ -22,104 +20,48 @@ pub trait SingleNormal<V, L> {
     fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize;
 }
 
-/// The domain-wall operator in single precision, D (or Neff's D Q) on all sites, CG on D†D to
-/// |r|²/|b|² < `tolerance_sqr`.
-pub struct SingleMdwf<G: GammaRepre = Dirac> {
-    op: Mdwf<f32, G>,
-    pub tolerance_sqr: f64,
-}
+/// D†D on all sites in single precision (`fermion::SingleAll`), on any backend.
+impl<O, V> SingleNormal<V, O::Links> for SingleAll<O>
+where
+    O: SingleOperator,
+    V: Vector + ConvertFrom<O::Whole>,
+    O::Whole: ConvertFrom<V>,
+{
+    fn set_links(&mut self, links: &O::Links) {
+        SingleAll::set_links(self, links);
+    }
 
-impl<G: GammaRepre> SingleMdwf<G> {
-    pub fn new(lat: &Arc<Lattice>, params: MdwfParams, alpha: f64, tolerance_sqr: f64) -> Self {
-        let mut op = Mdwf::<f32, G>::new(lat, params);
-        op.set_alpha(alpha);
-        Self { op, tolerance_sqr }
+    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize {
+        SingleAll::normal(self, e, r, tolerance_sqr, max_iterations)
     }
 }
 
-impl<G: GammaRepre> SingleNormal<Psi, Field<f64, Gauge>> for SingleMdwf<G> {
-    fn set_links(&mut self, links: &Field<f64, Gauge>) {
-        self.op
-            .set_gauge(links)
-            .expect("the links suit the operator");
+/// K†K on the even sites in single precision, with Neff's Q if asked (`fermion::SingleEven`):
+/// the even-odd Ratio action.
+impl<O, V> SingleNormal<V, O::Links> for SingleEven<O>
+where
+    O: SingleOperator,
+    V: Vector + ConvertFrom<O::Half>,
+    O::Half: ConvertFrom<V>,
+{
+    fn set_links(&mut self, links: &O::Links) {
+        SingleEven::set_links(self, links);
     }
 
-    fn normal(&mut self, e: &mut Psi, r: &Psi, tolerance_sqr: f64, max_iterations: usize) -> usize {
-        let mut r32 = Field::<f32, Spinor>::with_shape(
-            r.lattice(),
-            24,
-            self.op.params().ls,
-            r.num_vectors(),
-            1,
-        );
-        r32.convert_from(r);
-        let mut e32 = r32.zeros_like();
-        let mut d = Bound::new(&self.op, Variant::D);
-        let stop = Stop::simple(self.tolerance_sqr.max(tolerance_sqr), max_iterations);
-        let iterations =
-            iterations(Cg::new(stop).solve(&mut Normal::new(&mut d, &r32), None, &mut e32, &r32));
-        e.convert_from(&e32);
-        iterations
+    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize {
+        SingleEven::normal(self, e, r, tolerance_sqr, max_iterations)
     }
 }
 
-/// The same for the even-odd Ratio action: K = T_ee⁻¹ Ŝ (the left `SchurFactor`) on the even
-/// sites, CG on K†K.
-pub struct SingleMdwfEo<G: GammaRepre = Dirac> {
-    op: Mdwf<f32, G>,
-    pub tolerance_sqr: f64,
-}
-
-impl<G: GammaRepre> SingleMdwfEo<G> {
-    pub fn new(lat: &Arc<Lattice>, params: MdwfParams, tolerance_sqr: f64) -> Self {
-        Self {
-            op: Mdwf::<f32, G>::new(lat, params),
-            tolerance_sqr,
-        }
-    }
-}
-
-impl<G: GammaRepre> SingleNormal<HalfPsi, Field<f64, Gauge>> for SingleMdwfEo<G> {
-    fn set_links(&mut self, links: &Field<f64, Gauge>) {
-        self.op
-            .set_gauge(links)
-            .expect("the links suit the operator");
-    }
-
-    fn normal(
-        &mut self,
-        e: &mut HalfPsi,
-        r: &HalfPsi,
-        tolerance_sqr: f64,
-        max_iterations: usize,
-    ) -> usize {
-        let mut r32 = Field::<f32, Spinor, Half>::with_shape(
-            r.lattice(),
-            24,
-            self.op.params().ls,
-            r.num_vectors(),
-            1,
-        );
-        r32.set_parity(Parity::Even);
-        r32.convert_from(r);
-        let mut odd = r32.zeros_like();
-        odd.set_parity(Parity::Odd);
-        let mut e32 = r32.zeros_like();
-        let mut k = SchurFactor::new(&self.op, EoForm::Left, &r32, &odd);
-        let stop = Stop::simple(self.tolerance_sqr.max(tolerance_sqr), max_iterations);
-        let iterations =
-            iterations(Cg::new(stop).solve(&mut Normal::new(&mut k, &r32), None, &mut e32, &r32));
-        e.convert_from(&e32);
-        iterations
-    }
-}
-
-/// The iterations of an inner solve; not reaching its tolerance is left to the outer residual.
-fn iterations(info: Result<SolveInfo, SolveError>) -> usize {
-    match info {
-        Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
-        Err(e) => panic!("the single-precision solve broke down: {e:?}"),
-    }
+/// The domain-wall operator `params` in single precision on the CPU, with Neff's `alpha`.
+pub fn single_mdwf<G: GammaRepre>(
+    lat: &Arc<Lattice>,
+    params: MdwfParams,
+    alpha: f64,
+) -> Mdwf<f32, G> {
+    let mut op = Mdwf::<f32, G>::new(lat, params);
+    op.set_alpha(alpha);
+    op
 }
 
 /// A†A x = b by defect correction: e = (A†A)⁻¹ r in single precision on the residual r of

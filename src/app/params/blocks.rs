@@ -767,9 +767,8 @@ impl SolverBlock {
             .then(|| self.convergence_criterion_squared_inner.unwrap_or(1e-2))
     }
 
-    /// The precision keys: mixed for CG on `Normal_left` without a preconditioner, on a
-    /// backend that has it (`device`).
-    pub(super) fn check_precision(&self, name: &str, device: bool) -> Result<(), CliError> {
+    /// The precision keys: mixed for CG on `Normal_left` without a preconditioner.
+    pub(super) fn check_precision(&self, name: &str) -> Result<(), CliError> {
         if self.mixed().is_none() {
             if self.convergence_criterion_squared_inner.is_some() {
                 return Err(invalid(format!(
@@ -784,11 +783,6 @@ impl SolverBlock {
         {
             return Err(invalid(format!(
                 "{name}.precision mixed: for CG on Normal_left without a preconditioner (CGNE)"
-            )));
-        }
-        if !device {
-            return Err(invalid(format!(
-                "{name}.precision mixed: on Main.backend cuda_bridge only so far"
             )));
         }
         Ok(())

@@ -1071,6 +1071,10 @@ impl crate::hmc::ForceOp for CudaMdwf<f64> {
     }
 }
 
+/// The even-odd two-flavour action on the device (`hmc::TwoFlavorEo`): domain-wall fermions have
+/// no clover term, and the multigrid of the whole operator is on the CPU.
+impl crate::hmc::EvenOddForceOp for CudaMdwf<f64> {}
+
 /// The even-odd actions of HMC on the device (`hmc::TwoFlavorRatioEo`): the fields of one
 /// parity are fields on the device too, Γ5 the kernel of the whole lattice.
 impl crate::hmc::EvenOddHalves for CudaMdwf<f64> {

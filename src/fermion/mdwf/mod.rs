@@ -295,6 +295,15 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     pub fn new(lat: &Arc<Lattice>, params: MdwfParams) -> Self {
         Self::in_layout(lat, params).expect("every lattice has the usual layout")
     }
+
+    /// The operator `op` stored as `T`: its parameters, its α, and its links converted (as
+    /// `CudaMdwf::converted_from` on the device).
+    pub fn converted_from<U: Storage>(op: &Mdwf<U, G>) -> Self {
+        let mut m = Self::new(op.wilson.lattice(), op.params);
+        m.wilson.take_links_of(&op.wilson);
+        m.alpha = op.alpha;
+        m
+    }
 }
 
 impl<T: Storage, G: GammaRepre, const W: usize> Mdwf<T, G, Aosoa<W>>

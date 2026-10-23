@@ -35,7 +35,7 @@ pub use guess::Chrono;
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, SolveCost, Term};
 pub use link_field::LinkField;
 pub use links::{Links, SmearingCache};
-pub use mixed::{mixed_normal, SingleMdwf, SingleMdwfEo, SingleNormal};
+pub use mixed::{mixed_normal, single_mdwf, SingleNormal};
 pub use mseries::Mseries;
 
 use crate::gauge::set_link;
@@ -1303,8 +1303,10 @@ mod tests {
         let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
         let mut mixed =
             TwoFlavorRatio::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
-                .with_single(Box::new(SingleMdwf::<crate::kernel::Dirac>::new(
-                    &lat, params, 1.0, 1e-10,
+                .with_single(Box::new(crate::fermion::SingleAll::new(
+                    single_mdwf::<crate::kernel::Dirac>(&lat, params, 1.0),
+                    &lat,
+                    1e-10,
                 )));
         mixed.langevin(&links, &mut Mseries::new(19));
         let (h_m, f_m) = (mixed.hamiltonian(&links), mixed.force(&links));
@@ -1322,8 +1324,10 @@ mod tests {
         let (h_cg, f_cg) = (cg.hamiltonian(&links), cg.force(&links));
         let mut mixed =
             TwoFlavorRatioEo::new(mdwf(params), mdwf(params.pauli_villars()), None, stop, stop)
-                .with_single(Box::new(SingleMdwfEo::<crate::kernel::Dirac>::new(
-                    &lat, params, 1e-10,
+                .with_single(Box::new(crate::fermion::SingleEven::new(
+                    single_mdwf::<crate::kernel::Dirac>(&lat, params, 1.0),
+                    &lat,
+                    1e-10,
                 )));
         mixed.langevin(&links, &mut Mseries::new(19));
         let (h_m, f_m) = (mixed.hamiltonian(&links), mixed.force(&links));
@@ -1459,7 +1463,7 @@ mod tests {
         });
         let sites = [(0, 9), (2, 77), (3, 250)];
         let cache = SmearingCache::new();
-        fn check<O: EvenOddForceOp>(
+        fn check<O: EvenOddForceOp<Links = Field<f64, Gauge>>>(
             mut a: TwoFlavorRatioEo<O>,
             u: &Field<f64, Gauge>,
             cache: &SmearingCache,

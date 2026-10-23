@@ -482,7 +482,7 @@ type CpuCorrection<'a, G, CT, F> = Correction<
     Field<CT, Coarse>,
     Mdwf<F, G>,
     HalfTransfer<'a, F>,
-    RefCell<CoarseOp<CT>>,
+    Rc<RefCell<CoarseOp<CT>>>,
 >;
 
 /// The coarse correction for an operator in the layout `L`: P and the coarse operators work in
@@ -534,10 +534,8 @@ pub struct PvEoCycle<
     F: Storage = f64,
 > {
     cycle: Cycle<'a, G, CT, L, F>,
-    hi: f64,
-    /// The inverses of the blocks of the coarse operators, shared with the correction so that
-    /// `into_parts` gets them back.
-    blocks: (Rc<RefCell<BlockMap>>, Rc<RefCell<BlockMap>>),
+    /// What the cycle is built from, shared with its correction.
+    parts: CoarseParts<CT>,
 }
 
 /// What a cycle is built from besides its operators and its prolongation: the coarse
@@ -547,9 +545,29 @@ pub struct PvEoCycle<
 /// correction is then that of the links it was built for, still a fixed map, and the solver it
 /// preconditions works with the operator of the new links.
 pub struct CoarseParts<CT: Storage> {
-    coarse: (CoarseOp<CT>, CoarseOp<CT>),
-    blocks: (BlockMap, BlockMap),
+    coarse: (SharedCoarse<CT>, SharedCoarse<CT>),
+    blocks: (Rc<RefCell<BlockMap>>, Rc<RefCell<BlockMap>>),
+    /// The levels below the coarse lattice of either factor, built on these coarse operators.
+    levels: (Option<SharedLevels<CT>>, Option<SharedLevels<CT>>),
     hi: f64,
+}
+
+/// A coarse operator shared by the cycles of the same parts.
+type SharedCoarse<CT> = Rc<RefCell<CoarseOp<CT>>>;
+
+/// Levels below the coarse lattice, shared by the cycles of the same parts.
+type SharedLevels<CT> = Rc<dyn Fn(&mut Field<CT, Coarse>, &Field<CT, Coarse>)>;
+
+/// Shared: the cycles made of the same parts read the same coarse operators and levels.
+impl<CT: Storage> Clone for CoarseParts<CT> {
+    fn clone(&self) -> Self {
+        Self {
+            coarse: (self.coarse.0.clone(), self.coarse.1.clone()),
+            blocks: (self.blocks.0.clone(), self.blocks.1.clone()),
+            levels: (self.levels.0.clone(), self.levels.1.clone()),
+            hi: self.hi,
+        }
+    }
 }
 
 impl<CT: Storage> CoarseParts<CT> {
@@ -660,7 +678,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         basis: &'a PvEoBasis<F>,
         params: PvEoParams,
     ) -> Result<Self, MultigridError> {
-        let parts = Self::parts(op, pv, layout, outer.2, &map, basis, params)?;
+        let parts = Self::build_parts(op, pv, layout, outer.2, &map, basis, params)?;
         Ok(Self::assemble(
             op, pv, outer, layout, map, basis, params, parts,
         ))
@@ -668,7 +686,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
 
     /// The coarse operators of `op` and `pv` on `basis`, the inverses of their blocks, and the
     /// top of the smoother's interval for the operator of `outer_l`.
-    fn parts(
+    fn build_parts(
         op: &Mdwf<F, G>,
         pv: &Mdwf<F, G>,
         (op_l, pv_l): (&Mdwf<F, G, L>, &Mdwf<F, G, L>),
@@ -718,8 +736,15 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 params.power_steps,
             );
         Ok(CoarseParts {
-            coarse: (coarse_d.to_storage::<CT>(), coarse_pv.to_storage::<CT>()),
-            blocks: (blocks_d, blocks_pv),
+            coarse: (
+                Rc::new(RefCell::new(coarse_d.to_storage::<CT>())),
+                Rc::new(RefCell::new(coarse_pv.to_storage::<CT>())),
+            ),
+            blocks: (
+                Rc::new(RefCell::new(blocks_d)),
+                Rc::new(RefCell::new(blocks_pv)),
+            ),
+            levels: (None, None),
             hi,
         })
     }
@@ -744,16 +769,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         let ls = op.params().ls;
         let mut like = HalfField::<Aos, F>::with_shape(&lat, 24, ls, 1, 1);
         like.set_parity(Parity::Even);
-        let CoarseParts {
-            coarse: (coarse_d, coarse_pv),
-            blocks: (blocks_d, blocks_pv),
-            hi,
-        } = parts;
-        let blocks = (
-            Rc::new(RefCell::new(blocks_d)),
-            Rc::new(RefCell::new(blocks_pv)),
-        );
-        let correction = Correction::new(
+        let mut correction = Correction::new(
             (op, pv),
             (op_a, pv_a),
             form,
@@ -761,15 +777,22 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 basis,
                 index: index.clone(),
             },
-            (RefCell::new(coarse_d), RefCell::new(coarse_pv)),
+            (parts.coarse.0.clone(), parts.coarse.1.clone()),
             (
-                Box::new(SharedBlocks(blocks.0.clone())),
-                Box::new(SharedBlocks(blocks.1.clone())),
+                Box::new(SharedBlocks(parts.blocks.0.clone())),
+                Box::new(SharedBlocks(parts.blocks.1.clone())),
             ),
             params,
             &like,
             &coarse_field::<CT, F>(basis, 1),
         );
+        if let Some(l) = parts.levels.0.clone() {
+            correction.set_levels_d(Box::new(move |out, inp| l(out, inp)));
+        }
+        if let Some(l) = parts.levels.1.clone() {
+            correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+        }
+        let hi = parts.hi;
         let mut like_l = HalfField::<L, F>::with_shape(&lat, 24, ls, 1, 1);
         like_l.set_parity(Parity::Even);
         let smoother = Chebyshev::new(
@@ -787,28 +810,20 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         };
         Self {
             cycle: TwoGrid::new(smoother, in_layout, &like_l),
-            hi,
-            blocks,
+            parts,
         }
     }
 
-    /// What the cycle was built from (`CoarseParts`), the cycle given up. Not for a cycle with
-    /// levels below the coarse lattice, which are not kept.
+    /// What the cycle was built from (`CoarseParts`, the levels below the coarse lattice
+    /// included), shared: a cycle for other links or another form is made of them
+    /// (`from_parts`) without building any of it.
+    pub fn parts(&self) -> CoarseParts<CT> {
+        self.parts.clone()
+    }
+
+    /// `parts`, the cycle given up.
     pub fn into_parts(self) -> CoarseParts<CT> {
-        let PvEoCycle { cycle, hi, blocks } = self;
-        let correction = cycle.into_correction().correction;
-        let (coarse_d, coarse_pv) = correction.into_coarse();
-        let back = |b: Rc<RefCell<BlockMap>>| {
-            Rc::try_unwrap(b)
-                .ok()
-                .expect("the correction that shared the blocks is gone")
-                .into_inner()
-        };
-        CoarseParts {
-            coarse: (coarse_d.into_inner(), coarse_pv.into_inner()),
-            blocks: (back(blocks.0), back(blocks.1)),
-            hi,
-        }
+        self.parts
     }
 
     /// The operator the cycle approximates the inverse of, to be used by the solver it
@@ -835,17 +850,20 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         super_blocks: &[usize],
         bootstrap: &[LevelBootstrap],
     ) -> Result<usize, MultigridError> {
-        let correction = &mut self.cycle.correction_mut().correction;
         let levels = SignedMultilevel::build_with(
-            correction.coarse_mut().0.get_mut(),
+            &mut self.parts.coarse.0.borrow_mut(),
             vectors,
             super_blocks,
             bootstrap,
         )?;
         let applications = levels.setup_applications;
-        correction.set_levels_d(Box::new(
+        let levels: SharedLevels<CT> = Rc::new(
             move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| levels.apply(out, inp),
-        ));
+        );
+        let l = levels.clone();
+        let correction = &mut self.cycle.correction_mut().correction;
+        correction.set_levels_d(Box::new(move |out, inp| l(out, inp)));
+        self.parts.levels.0 = Some(levels);
         Ok(applications)
     }
 
@@ -859,23 +877,26 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         vectors: &[CoarseField],
         super_blocks: &[usize],
     ) -> Result<usize, MultigridError> {
-        let correction = &mut self.cycle.correction_mut().correction;
         assert!(
-            correction.params().pv_solver == CoarseKrylov::Minres,
+            self.cycle.correction().correction.params().pv_solver == CoarseKrylov::Minres,
             "levels for the second factor go with MINRES"
         );
         let levels =
-            AbsMultilevel::build(correction.coarse_mut().1.get_mut(), vectors, super_blocks)?;
+            AbsMultilevel::build(&mut self.parts.coarse.1.borrow_mut(), vectors, super_blocks)?;
         let applications = levels.setup_applications;
-        correction.set_levels_pv(Box::new(
+        let levels: SharedLevels<CT> = Rc::new(
             move |out: &mut Field<CT, Coarse>, inp: &Field<CT, Coarse>| levels.add(out, inp),
-        ));
+        );
+        let l = levels.clone();
+        let correction = &mut self.cycle.correction_mut().correction;
+        correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+        self.parts.levels.1 = Some(levels);
         Ok(applications)
     }
 
     /// 1.1 |λ_max| of the operator, the top of the smoother's interval.
     pub fn top(&self) -> f64 {
-        self.hi
+        self.parts.hi
     }
 
     /// Coarse-operator applications so far (both factors, the preconditioners' included).

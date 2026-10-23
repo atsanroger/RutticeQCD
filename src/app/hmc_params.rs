@@ -49,8 +49,9 @@ use super::hmc::{
     StartConfig,
 };
 use super::params::{
-    Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
-    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision, SolverType,
+    Backend, BasisPrecision, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType,
+    MainBlock, MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision,
+    SolverType,
 };
 use super::CliError;
 use crate::gauge::flow::WilsonFlow;
@@ -509,7 +510,7 @@ impl HmcParams {
                     return invalid(format!("{name}: Action_F_{i} is missing"));
                 }
                 Some(f) => {
-                    actions.push(f.to_config(&name, self.main.lattice_size, device)?);
+                    actions.push(f.to_config(&name, self.main.lattice_size)?);
                     names.push(name);
                 }
                 None => ended = true,
@@ -547,13 +548,11 @@ impl HmcParams {
                     } => {}
                     ActionConfig::TwoFlavor {
                         fermion: HmcFermion::DomainWall { .. },
-                        even_odd: false,
-                        solver,
                         ..
-                    } if !solver.asks_for(HmcPreconditioner::Multigrid) => {}
+                    } => {}
                     _ => {
                         return invalid(format!(
-                            "{}: with Main.backend cuda_bridge only the Standard (Lexical, without the multigrid) and the Ratio (Lexical or Even_odd) actions of domain-wall fermions are on the device",
+                            "{}: with Main.backend cuda_bridge only the Standard and the Ratio actions of domain-wall fermions are on the device",
                             names[i]
                         ))
                     }
@@ -627,12 +626,7 @@ fn fermion(f: &FoprBlock, name: &str) -> Result<HmcFermion, CliError> {
 }
 
 impl FermionActionBlock {
-    fn to_config(
-        &self,
-        name: &str,
-        lattice: [usize; ND],
-        device: bool,
-    ) -> Result<ActionConfig, CliError> {
+    fn to_config(&self, name: &str, lattice: [usize; ND]) -> Result<ActionConfig, CliError> {
         let s = &self.solver;
         if s.moved_multigrid.is_some() {
             return invalid(format!(
@@ -667,7 +661,7 @@ impl FermionActionBlock {
             chebyshev,
             multigrid: match (&self.multigrid, s.preconditioner_type) {
                 (Some(mg), PreconditionerType::Multigrid) => {
-                    Some(self.hmc_multigrid(mg, name, lattice, device)?)
+                    Some(self.hmc_multigrid(mg, name, lattice)?)
                 }
                 (None, PreconditionerType::Multigrid) => {
                     return invalid(format!(
@@ -781,25 +775,10 @@ impl FermionActionBlock {
         mg: &MultigridBlock,
         name: &str,
         lattice: [usize; ND],
-        device: bool,
     ) -> Result<HmcMultigrid, CliError> {
         let at = format!("{name}.MultiGrid");
         let h = &self.multigrid_hmc;
         let refused = |what: &str, why: &str| invalid(format!("{at}.{what}: {why}"));
-        // The coarse solves in either precision, as in the propagator files; the rest of the
-        // cycle in double precision on the CPU, in either on the device.
-        if mg.fine_precision_given == Some(PrecisionType::Single) && !device {
-            return refused(
-                "fine_precision",
-                "the multigrid of HMC on the CPU is in double precision above the coarse lattice (leave it out, or double; single is on the device)",
-            );
-        }
-        if mg.basis_precision_given.is_some() {
-            return refused(
-                "basis_precision",
-                "HMC keeps P in half precision on the device and in double on the CPU",
-            );
-        }
         if mg.setup.checkpoint.is_some() {
             return refused(
                 "Setup.checkpoint",
@@ -807,18 +786,6 @@ impl FermionActionBlock {
             );
         }
         if self.fopr.fermion_type.is_domain_wall() {
-            if self.fopr.neff_alpha != 1.0 && !device {
-                return refused(
-                    "Fopr.neff_alpha",
-                    "Neff's α with the multigrid of HMC is on the device only",
-                );
-            }
-            if (!mg.super_blocks().is_empty() || mg.levels_for_pauli_villars) && !device {
-                return refused(
-                    "MultiGrid_Level2",
-                    "levels below the coarse lattice are on the device only",
-                );
-            }
             if !h.reuse_vectors || h.number_of_reuse_iterations != 0 {
                 return invalid(format!(
                     "{name}.MultiGrid_HMC: reuse_vectors and number_of_reuse_iterations are for Wilson and clover fermions; domain-wall fermions go on from their test vectors by the bootstrap of {at}.Setup"
@@ -836,6 +803,7 @@ impl FermionActionBlock {
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 coarse_double: mg.coarse_precision() == PrecisionType::Double,
                 fine_single: mg.fine_precision_given == Some(PrecisionType::Single),
+                basis_single: mg.basis_precision() == BasisPrecision::Single,
                 levels: crate::hmc::CoarseLevels::new(
                     &mg.super_blocks(),
                     &mg.level_bootstrap(),

@@ -186,19 +186,9 @@ impl Params {
                 ))
             }
         }
-        if self.main.backend != Backend::CudaBridge
-            && self
-                .multigrid
-                .as_ref()
-                .is_some_and(|mg| mg.basis_precision_given.is_some())
-        {
-            notes.push(
-                "MultiGrid.basis_precision is for cuda_bridge; on the CPU P is stored in the precision of the cycle (fine_precision)".into(),
-            );
-        }
         let s = &self.solver;
         s.check_preconditioner("Solver", self.multigrid.is_some(), notes)?;
-        s.check_precision("Solver", self.main.backend == Backend::CudaBridge)?;
+        s.check_precision("Solver")?;
         let operator = s.operator();
         if matches!(operator, OperatorType::EvenOdd | OperatorType::Lexical) {
             return Err(invalid(format!(

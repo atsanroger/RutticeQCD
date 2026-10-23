@@ -117,23 +117,23 @@ CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 it; the default is `80;86`, the A100 and A30 and the RTX 30 series. One architecture builds
 faster, e.g. `RUTTICE_CUDA_ARCH=86`.)
 Wilson and clover fermions take the solvers and operator types of the CPU; domain-wall fermions
-the outer solvers and operator types of the CPU, without a preconditioner, with `Chebyshev` or
-with the multigrid, which is on the device with its setup: above the coarse lattice in single
-precision as on the CPU (`MultiGrid.fine_precision : double` for double; the outer solver is in
-double precision either way), its prolongation kept in half precision as on the CPU
-(`basis_precision : single` for single, on the device only), which is most of its memory. `Setup.filter_number_in_block` vectors are filtered at a
-time: fewer take less memory. The levels below the coarse lattice (`MultiGrid_Level2` and on,
-`levels_for_pauli_villars`) are on the device too, the last of them inverted densely by
-cuSOLVER (any size that fits in memory), and so is the exact adjoint of the second factor
-(`Coarse_Solver_PV` other than `MINRES`).
+everything the CPU has: the outer solvers and operator types, mixed-precision CGNE, no
+preconditioner, `Chebyshev` or the multigrid with its setup, the same keys meaning the same
+thing (above the coarse lattice in single precision unless `MultiGrid.fine_precision : double`,
+the outer solver in double precision either way; the prolongation in half precision unless
+`basis_precision : single`, which is most of its memory). `Setup.filter_number_in_block`
+vectors are filtered at a time: fewer take less memory. The levels below the coarse lattice
+(`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
+inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
+second factor (`Coarse_Solver_PV` other than `MINRES`).
 With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
-by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard (Lexical) and Ratio
-(Lexical or Even_odd) actions on the device, the Ratio action with the multigrid too (its test
-vectors, P in half precision, the coarse operators and the cycles there, and the cache of
-`MultiGrid_HMC.rebuild_iteration_growth`), and mixed-precision CG with the operator in single
-precision on the device. Not on the device yet: the
-multigrid of Wilson and clover fermions, several processes, boundary phases other than ±1 and 0.
+by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and Ratio actions
+(Lexical or Even_odd) on the device with everything the CPU has for them: CG, mixed CG, Neff's
+α, `Chebyshev`, and for the Ratio action the multigrid (the same code as on the CPU, its test
+vectors, P, the coarse operators and the cycles on the device). Not on the device yet: Wilson
+and clover fermions in HMC and the Rational action, the multigrid of Wilson and clover fermions,
+the eigensolvers and the flow, several processes, boundary phases other than ±1 and 0.
 
 ### SIMD
 
@@ -188,8 +188,8 @@ The `Solver` section of a fermion action says how its forces and energies are so
 |---|---|
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
 | `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
-| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action on all sites over Pauli-Villars fields |
-| `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio actions, CG without a preconditioner, on the CPU and on the device |
+| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action over Pauli-Villars fields (Lexical or Even_odd) |
+| `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio (Lexical or Even_odd) actions, CG without a preconditioner |
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
@@ -197,20 +197,21 @@ The `Solver` section of a fermion action says how its forces and energies are so
 
 `Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α, the action unchanged:
 CG on all sites; CG on the even-odd Ratio (CG on the normal equations of K Q_e, no
-preconditioner; mixed precision on the device only); and the multigrid of the Ratio action on the device
-(its solves with D in the left form with α, the setup that of D).
+preconditioner, mixed precision too); and the multigrid of the Ratio action (its solves with D
+in the left form with α, the setup that of D).
 
 With `preconditioner_type : MG` the action has a `MultiGrid` section beside its `Solver`: the
 `MultiGrid` section of the propagator files, the same keys and defaults (`MultiGrid_Level1`
 with `block_size`, `number_of_test_vectors` and the coarse solvers, `Setup`, `Smoother`), so a
 multigrid tuned on propagators is copied over as it is. The domain-wall coarse solves are in
 single precision unless `coarse_precision : double`, as in the propagator files; the rest of
-the cycle is in double precision unless `fine_precision : single`, which is on the device only
-(the cycle on the operators in single precision, the outer GCR in double). The levels below
-the coarse lattice (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are on the device
-only, made with P and kept with it; at small masses on large lattices they are what keeps the
-coarse solves cheap. `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
-refused. What only HMC has is in `MultiGrid_HMC`:
+the cycle is in double precision unless `fine_precision : single` (the cycle on the operators in
+single precision, the outer GCR in double); P in half precision unless `basis_precision :
+single`. The levels below the coarse lattice (`MultiGrid_Level2` and on,
+`levels_for_pauli_villars`) are made with P and kept with it; at small masses on large lattices
+they are what keeps the coarse solves cheap. All of it is the same on the CPU and on the device.
+`Setup.checkpoint` is refused: HMC makes its test vectors for the links of each trajectory.
+What only HMC has is in `MultiGrid_HMC`:
 
 | `MultiGrid_HMC` key | Values |
 |---|---|

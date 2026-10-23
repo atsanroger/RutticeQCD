@@ -4,15 +4,19 @@
 //! `mdwf_pv_eo_mg`, which can choose the seeds of random right-hand sides).
 
 use super::memory_line;
-use super::params::{Backend, Params, PrecisionType, PreconditionerType};
-use crate::fermion::{EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd, Variant};
+use super::params::{
+    Backend, BasisPrecision, Params, PrecisionType, PreconditionerType, SolverType,
+};
+use crate::fermion::{
+    EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd, SingleEven, SingleOperator, Variant,
+};
 use crate::kernel::{Dirac, GammaRepre};
 use crate::measure::{
     channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
 };
 use crate::solver::preconditioner::multigrid::{
-    pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even, Aggregation,
-    CycleLayout, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
+    pv_eo_basis_stored, pv_eo_bootstrap_stored, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
+    Aggregation, BasisStorage, CycleLayout, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
 };
 use crate::solver::{largest_magnitude, Chebyshev, Convert, SolveError, SolveInfo};
 use crate::{
@@ -163,10 +167,14 @@ pub(super) fn multigrid_basis<T: Storage>(
         }
     };
     let agg = Aggregation::new(lat, mg.level1.block_size);
+    let storage = match mg.basis_precision() {
+        BasisPrecision::Half => BasisStorage::Half,
+        BasisPrecision::Single => BasisStorage::Single,
+    };
     let basis = if boot.rounds > 0 {
-        pv_eo_bootstrap(op, pv, &agg, &mut y, boot)?
+        pv_eo_bootstrap_stored(op, pv, &agg, &mut y, boot, storage)?
     } else {
-        pv_eo_basis(op, pv, &agg, &y)?
+        pv_eo_basis_stored(op, pv, &agg, &y, storage)?
     };
     Ok(Some((basis, y)))
 }
@@ -409,6 +417,9 @@ fn run_in<L: CycleLayout<f64> + CycleLayout<f32>>(
 where
     F<L>: ConvertFrom<F>,
     F: ConvertFrom<F<L>>,
+    Mdwf<f32, Dirac, L>: SingleOperator<Half = H<L, f32>>,
+    H<L>: ConvertFrom<H<L, f32>>,
+    H<L, f32>: ConvertFrom<H<L>>,
 {
     let lat = lat.clone();
     let fo = &params.fopr;
@@ -558,6 +569,16 @@ where
         })
     };
     let fine_flops = 2.0 * (op_l.flops_per_site() * lat.num_sites()) as f64;
+    // Mixed precision (CGNE only): CG in single precision on K†K, K the left Schur factor of the
+    // operator in single precision, with reliable updates in double precision each time |r|² has
+    // fallen by `drop_sqr` (`SingleEven::reliable_normal`, as on the device).
+    let mut single = match s.mixed() {
+        Some(drop_sqr) => {
+            let op32 = operator::<f32, L>(params, &lat, u, fo.mass(), fo.neff_alpha)?;
+            Some((SingleEven::new(op32, &lat, drop_sqr), drop_sqr))
+        }
+        None => None,
+    };
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let solve = |b: F<L>, label: &str, out: &mut dyn Write| -> Result<F<L>, Box<dyn Error>> {
         let b = &b;
@@ -583,7 +604,15 @@ where
             };
             let mut counted_pre = m.map(|m| Counted { a: m, n: &applied });
             let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
-            s.solve(&mut counted_a, m, &mut sol, &rhs, detailed)
+            match (s.solver_type, single.as_mut()) {
+                (SolverType::Cg, Some((sc, drop_sqr))) => {
+                    let stop = s.stop();
+                    let solved =
+                        sc.reliable_normal(&mut counted_a, &mut sol, &rhs, stop, *drop_sqr);
+                    (solved, None)
+                }
+                _ => s.solve(&mut counted_a, m, &mut sol, &rhs, detailed),
+            }
         };
         let seconds = start.elapsed().as_secs_f64();
         let iterations = iterations_text(&result);
@@ -604,8 +633,9 @@ where
         let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         writeln!(
             out,
-            "  {label}: {} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
+            "  {label}: {}{} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
             s.solver_type,
+            if single.is_some() { " (mixed precision)" } else { "" },
             applied.get() / nv,
             2 * applications,
             memory_line()

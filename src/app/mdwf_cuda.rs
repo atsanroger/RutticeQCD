@@ -450,9 +450,7 @@ pub(super) fn run(
             let mut op32 = CudaMdwf::<f32>::converted_from(op, params.mdwf_params(fo.mass()))?;
             op32.set_alpha(op.alpha());
             Some((
-                crate::backend::cuda_bridge::hmc_mixed::SingleCuda::from_operator(
-                    op32, drop_sqr, true,
-                ),
+                crate::fermion::SingleEven::new(op32, lat, drop_sqr),
                 drop_sqr,
             ))
         }

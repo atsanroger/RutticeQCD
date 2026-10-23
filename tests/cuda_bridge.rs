@@ -1616,8 +1616,9 @@ fn multigrid_levels_on_the_device() {
         }
 
         // The levels of the Pauli-Villars factor, added to a field that is not zero.
-        let mut coarse_pv =
-            basis.coarse_op(&cpu_pv, &mut cpu_pv.work()).to_storage::<f64>();
+        let mut coarse_pv = basis
+            .coarse_op(&cpu_pv, &mut cpu_pv.work())
+            .to_storage::<f64>();
         let device_pv = DeviceCoarseOp::<f64>::new(&coarse_pv, false).unwrap();
         let abs = AbsMultilevel::build(&mut coarse_pv, &vectors, &super_blocks).unwrap();
         let device_abs =

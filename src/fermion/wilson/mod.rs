@@ -86,6 +86,16 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T>> WilsonOp<T, 
     }
 }
 
+impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag, Aos> {
+    /// The links of `other`, an operator on the same lattice, converted to `T`: the operator in
+    /// another precision without the gauge field it was set from.
+    pub(crate) fn take_links_of<U: Storage>(&mut self, other: &WilsonOp<U, G, UnitDiag, Aos>) {
+        assert!(Arc::ptr_eq(&self.lat, &other.lat) || self.lat.local == other.lat.local);
+        self.state.links = other.state.links.converted();
+        self.link_format = other.link_format;
+    }
+}
+
 /// A layout the Wilson operator has a sweep for.
 pub trait WilsonLayout<T: Storage>: Layout {
     /// The geometry and the links of an operator for this layout.

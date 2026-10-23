@@ -2,17 +2,33 @@
 
 ## Unreleased
 
-What the CPU and the device builds take, checked against each other:
+The domain-wall fermions the same on the CPU and on the device: each algorithm written once,
+against traits, a backend supplying operators, fields and kernels (docs/DEVELOPMENT.md, "One
+algorithm, two backends"). Every option of the propagator and HMC files for domain-wall
+fermions now does the same on both.
 
+- The multigrid of HMC has one driver (`hmc::dwf_multigrid::with_solves`): when to set up,
+  bootstrap or rebuild, the cache, the retries before CG, and the solves with D (Neff's α by the
+  left form and Q) and with D† (Γ5 M Γ5). A backend (`Backend`: `OnCpu`, the device's
+  `OnDevice`) supplies the test vectors, P and the coarse parts, and the cycles made of them.
+  The CPU gains what only the device had: Neff's α, the levels below the coarse lattice (kept in
+  the cache with the coarse operators: `CoarseParts` shared, `PvEoCycle::parts`), and
+  `fine_precision : single` (the operators converted with `Mdwf::converted_from`).
+- `basis_precision` on both, in the propagator runs and in HMC: `PvEoBasis` keeps P in half or
+  single precision (`BasisStorage`); before, the CPU always kept it in half and HMC refused the
+  key.
+- Mixed precision written once (`fermion::SingleAll`, `fermion::SingleEven` over a backend's
+  `SingleOperator`): the CPU gains the mixed CGNE of the propagators (with reliable updates, in
+  the SIMD layouts too) and mixed CG with Neff's α on the even-odd Ratio; `SingleMdwf`,
+  `SingleMdwfEo` and the device's `SingleCuda` are gone.
+- The device gains the even-odd Standard action of domain-wall fermions (`TwoFlavorEo` over any
+  links; `EvenOddForceOp` without the host links).
 - An HMC file with `Main.backend : cuda_bridge` is refused by a program built without the
   feature cuda-bridge, as the propagator files are. Before, it passed the checks of the device
-  (Neff's α and the levels in the multigrid) and ran on the CPU without them.
+  and ran on the CPU without Neff's α and the levels.
 - HMC with APE smearing on a smeared fermion action is refused when the file is read; the force
   needs the derivative of the smearing, which stout has. Before, both builds panicked at the
   first force.
-- A propagator file with `MultiGrid.basis_precision` on the CPU gets a note that it is for
-  cuda_bridge (the CPU keeps P in the precision of the cycle); the refusal of it in HMC says what
-  HMC does (half on the device, double on the CPU).
 
 ## 0.4.1 (2026-10-23)
 

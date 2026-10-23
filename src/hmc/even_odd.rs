@@ -11,7 +11,7 @@
 //!
 //!   X = (η, −T_oo⁻¹ M_oe η),   Y = (ζ, −T_oo⁻† (M_eo)† ζ),
 
-use super::fermion_action::{smeared_force, CloverInsertion, ForceOp, Gamma5};
+use super::fermion_action::{CloverInsertion, ForceOp, Gamma5};
 use super::solve::{cg_after_multigrid, chebyshev_cg, Pre};
 use super::{Chrono, LinkField, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
@@ -63,30 +63,37 @@ pub trait EvenOddHalves: ForceOp + EvenOdd<Self::Half> {
     }
 }
 
-/// What the even-odd two-flavour action needs besides: the clover term and the multigrid,
-/// on the host.
-pub trait EvenOddForceOp: EvenOddHalves + ForceOp<Links = Field<f64, Gauge>> {
+/// What the even-odd two-flavour action needs besides: the clover term and the multigrid of
+/// Wilson and clover fermions, which the operators of the usual layout on the CPU have
+/// (`EvenOddSites`); the others panic, refused when the parameter file is read.
+pub trait EvenOddForceOp: EvenOddHalves {
     /// Σ over the sites x of `parity` of ln |det T(x)|, T the site-diagonal block of the
-    /// operator; summed over all processes.
-    fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64;
+    /// operator; summed over all processes. Only the clover term makes T depend on the links.
+    fn log_det_diag(&self, _lat: &Arc<Lattice>, _parity: Parity) -> f64 {
+        panic!("ln det T for an operator with a clover term")
+    }
     /// The clover term's part (coefficient κ c_SW) of the M of the even-odd action on the links
     /// `v`: that of −2 Re y† δD x, and that of the derivative of −2 ln |det T| on the sites
     /// of `parity`.
     fn clover_derivative_eo(
         &self,
-        kappa_csw: f64,
-        v: &Field<f64, Gauge>,
-        parity: Parity,
-        y: &Self::Field,
-        x: &Self::Field,
-    ) -> Field<f64, Gauge>;
+        _kappa_csw: f64,
+        _v: &Self::Links,
+        _parity: Parity,
+        _y: &Self::Field,
+        _x: &Self::Field,
+    ) -> Self::Links {
+        panic!("the clover term of an operator without one")
+    }
     /// A map on the even sites from one on all sites: the even sites of `inner` applied to a
-    /// field that is zero on the odd ones.
+    /// field that is zero on the odd ones (for the multigrid of the whole operator).
     fn on_even<'a>(
         &'a self,
-        inner: &'a mut dyn LinearFn<Self::Field>,
-        lat: &Arc<Lattice>,
-    ) -> Box<dyn LinearFn<Self::Half> + 'a>;
+        _inner: &'a mut dyn LinearFn<Self::Field>,
+        _lat: &Arc<Lattice>,
+    ) -> Box<dyn LinearFn<Self::Half> + 'a> {
+        panic!("the multigrid of the whole operator is on the CPU")
+    }
 }
 
 /// The operators of the usual layout: what `EvenOddForceOp` is made of for them.
@@ -386,14 +393,12 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         self
     }
 
-    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+    fn set_links(&mut self, links: &Links<O::Links>) -> Rc<Vec<O::Links>> {
         let levels = links.levels(self.smearing.as_ref());
-        self.op
-            .set_gauge(levels.last().unwrap_or(links.thin))
-            .expect("the links suit the operator");
+        let v = levels.last().unwrap_or(links.thin);
+        self.op.set_links(v).expect("the links suit the operator");
         if let Some(a) = self.conditioned.as_mut() {
-            a.set_gauge(levels.last().unwrap_or(links.thin))
-                .expect("the links suit the operator");
+            a.set_links(v).expect("the links suit the operator");
         }
         levels
     }
@@ -472,9 +477,9 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
 
     /// The heat bath: ξ Gaussian (variance ½ per real component) drawn on the whole lattice
     /// in Bridge++'s order, φ_e = Ŝ† ξ_e; returns |ξ_e|² (plus the det term), the action.
-    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+    pub fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         self.set_links(links);
-        let lat = links.thin.lattice();
+        let lat = LinkField::lattice(links.thin);
         let mut xi = self.op.new_field(lat);
         self.op.draw(&mut xi, rng);
         let mut xi_e = self.op.new_half(lat, Parity::Even);
@@ -493,19 +498,20 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
     }
 
     /// S = φ_e† (Ŝ†Ŝ)⁻¹ φ_e − 2 ln |det T_oo|.
-    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+    pub fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         self.set_links(links);
+        let lat = LinkField::lattice(links.thin);
         let v = self
-            .solve(links.thin.lattice(), self.stop_h, false)
+            .solve(lat, self.stop_h, false)
             .expect("the solve for the energy converges");
         let mut d = [C64::ZERO];
         v.dot(self.phi.as_ref().expect("drawn"), &mut d);
-        d[0].re + self.det_term(links.thin.lattice())
+        d[0].re + self.det_term(lat)
     }
 
-    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    pub fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         let levels = self.set_links(links);
-        let lat = links.thin.lattice();
+        let lat = LinkField::lattice(links.thin);
         let eta = self
             .solve(lat, self.stop_md, true)
             .expect("the solve for the force converges");
@@ -517,22 +523,20 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         if let Some(kc) = self.clover {
             let v = levels.last().unwrap_or(links.thin);
             let c = self.op.clover_derivative_eo(kc, v, Parity::Odd, &y, &x);
-            for (a, b) in m.as_mut_slice().iter_mut().zip(c.as_slice()) {
-                *a += b;
-            }
+            m.add_scaled(1.0, &c);
         }
-        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+        O::Links::smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
 
-impl<O: EvenOddForceOp> MdAction for TwoFlavorEo<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+impl<O: EvenOddForceOp> MdAction<O::Links> for TwoFlavorEo<O> {
+    fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         TwoFlavorEo::langevin(self, links, rng)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
+    fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         TwoFlavorEo::hamiltonian(self, links)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavorEo::force(self, links)
     }
 }

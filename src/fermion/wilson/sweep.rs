@@ -362,6 +362,28 @@ pub(super) enum LinkStore<T> {
     TwoRows(Vec<[T; TWO_ROW_REALS]>),
 }
 
+impl<T: Storage> LinkStore<T> {
+    /// The same links stored as `U`.
+    pub(super) fn converted<U: Storage>(&self) -> LinkStore<U> {
+        fn each<T: Storage, U: Storage, const N: usize>(links: &[[T; N]]) -> Vec<[U; N]> {
+            links
+                .par_iter()
+                .with_min_len(LINKS_PER_TASK)
+                .map(|l| {
+                    core::array::from_fn(|c| {
+                        U::store(Number::from_f64(crate::kernel::Real::to_f64(l[c].load())))
+                    })
+                })
+                .collect()
+        }
+        match self {
+            LinkStore::Unset => LinkStore::Unset,
+            LinkStore::Full(links) => LinkStore::Full(each(links)),
+            LinkStore::TwoRows(links) => LinkStore::TwoRows(each(links)),
+        }
+    }
+}
+
 pub(super) const FULL_LINK_REALS: usize = 2 * NC * NC;
 /// Links converted per task when the operator's copy is filled. It is filled by the
 /// threads of the pool so that its pages are spread over the memory nodes like those of

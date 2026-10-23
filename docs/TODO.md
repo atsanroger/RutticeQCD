@@ -70,6 +70,15 @@ on the CPU, the note's α discussion and HMC results, the walkthrough. Checked: 
 clippy-clean, the device HMC on 16⁴ gives ΔH and iterations of before bit for bit. Not run: the
 CPU paths (the retries and α on the CPU compile only), the HMC tests.
 
+**After 0.4.1 (2026-10-24)**: the domain-wall fermions the same on the CPU and the device
+(DEVELOPMENT.md, "One algorithm, two backends"). Checked on 4³×8 (`conf_04040408.txt`, Ls 4,
+4 CPU threads): the propagators (CGNE, mixed CGNE, the multigrid with P in half and in single
+precision) give the same iterations, coarse applications and residuals on both; HMC (CG, mixed CG
+with α on the even-odd Ratio, the even-odd Standard action, the multigrid with α, levels,
+`fine_precision : single`, `basis_precision : single` and the cache, Lexical and Even_odd) the
+same ΔH and iterations on both, the multigrid's ΔH that of CG to 1e-10. The device on 16⁴
+(`therm16/tune`) bit for bit as before.
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
@@ -82,7 +91,10 @@ CPU paths (the retries and α on the CPU compile only), the HMC tests.
   `solve` closures are still two: `src/app/mdwf.rs::run_in` and `src/app/mdwf_cuda.rs::run`.
   Their data differ (layouts and an f32 `Convert` on the CPU; device bases, levels and
   counters on the GPU), so a common trait there would carry most of both; do it only when a
-  feature needs it on both sides. Mixed-precision CGNE is still on the device only.
+  feature needs it on both sides. Since 2026-10-24 the options are the same on both (mixed
+  CGNE, `basis_precision`), and the mixed solver is one (`fermion::SingleEven`); the HMC
+  multigrid has one driver over a backend trait (`hmc::dwf_multigrid::Backend`), which the
+  propagator setup could take over (its test vectors, P, levels and cycle are the same steps).
 - **Check.** `cargo test --release --features cuda-bridge --test run --test mdwf --test cuda_bridge`;
   the iteration counts of `examples/mdwf_pv_eo_mg.yaml` on the CPU and the device unchanged.
 
