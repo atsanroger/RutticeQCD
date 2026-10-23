@@ -644,6 +644,39 @@ for the device, to put the items below in order.
 **Rules** (as item 18): a change that gains less than 5% end to end is reverted; iterations
 and the PS correlator as before, to rounding; the commit and the numbers in this item.
 
+### 20. Device: the HMC multigrid profiled (2026-10-23)
+
+One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below, A30), nsys and ncu
+(`/home/chen/red_gpu/ruttice_a30_20261016/prof/` on as13). 242 s wall, 211 s of it in kernels
+(87%): not launch latency, the kernels themselves. By GPU time: the fine hops 41%
+(`hop_gemm<float>` alone 27%), the coarse operator 29% (`coarse_pass<float,1>` 24%), P
+(restrict 12%, prolong 8%, orthonormalise 5%) 24%.
+
+| kernel | DRAM of peak | occupancy | what limits it |
+|---|---|---|---|
+| `hop_gemm<float>` | 28–44% | 25% (128 registers) | the FMA pipe (70%), issue; 5900 instructions a thread |
+| `coarse_pass<float,1>` | 55–62% | 47–50% | near enough to bandwidth |
+| `fold_prolong` | 27% | 49% | the access pattern, 10–20 ms a call |
+| `fold_restrict_tiled` | 35% | 34% | the same |
+| `coarse_pass` of the levels below | 13–25% | 18% | 81 blocks: too little to fill the device; small in total |
+
+**`hop_gemm<float>`: tried and reverted** (`examples/hop_gemm_bench`, 24⁴ Ls 8, D 1.53 ms, D†
+1.15 ms; the gap is c Y applied at the neighbours, three spinors read for each):
+- three blocks an SM (`__launch_bounds__(256, 3)`, 80 registers): 3.13 ms, a variant spills;
+- (b − c Y) with one sum per projector and multiply-adds instead of the projected spinors:
+  1.60 ms, double 2.94 ms (the compiler had folded the multiplications already);
+- the neighbours' Ls spinors through the shared memory, each read once (16 barriers): 1.98 ms,
+  bitwise the same results; the triple reads hit L1 (68%), and the barriers stop two blocks
+  from hiding the loads.
+What is left for it is a redesign (more sites a thread for independent loads, or the loads of
+the next leg in flight across the barrier), not a local change.
+
+**Next, by the profile:** P (`fold_prolong`/`fold_restrict` at 27–35% of the bandwidth: read
+it in the order it is stored, several columns a block; 2–2.5× on 20% of the time); the coarse
+matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bootstrap in
+batches of 4–5 vectors, which makes `coarse_pass` a block product (the tensor cores) and saves
+about a third of the setup (item 11).
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
