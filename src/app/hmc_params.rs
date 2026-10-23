@@ -784,10 +784,10 @@ impl FermionActionBlock {
             );
         }
         if self.fopr.fermion_type.is_domain_wall() {
-            if !mg.super_blocks().is_empty() || mg.levels_for_pauli_villars {
+            if (!mg.super_blocks().is_empty() || mg.levels_for_pauli_villars) && !device {
                 return refused(
                     "MultiGrid_Level2",
-                    "levels below the coarse lattice are not in HMC yet",
+                    "levels below the coarse lattice are on the device only",
                 );
             }
             if !h.reuse_vectors || h.number_of_reuse_iterations != 0 {
@@ -807,6 +807,11 @@ impl FermionActionBlock {
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 coarse_double: mg.coarse_precision() == PrecisionType::Double,
                 fine_single: mg.fine_precision_given == Some(PrecisionType::Single),
+                levels: crate::hmc::CoarseLevels::new(
+                    &mg.super_blocks(),
+                    &mg.level_bootstrap(),
+                    mg.levels_for_pauli_villars,
+                ),
                 rebuild_growth: match h.rebuild_iteration_growth {
                     Some(g) if g.is_nan() || g <= 1.0 => {
                         return invalid(format!(

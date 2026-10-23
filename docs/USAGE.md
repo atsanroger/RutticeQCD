@@ -204,7 +204,9 @@ multigrid tuned on propagators is copied over as it is. The domain-wall coarse s
 single precision unless `coarse_precision : double`, as in the propagator files; the rest of
 the cycle is in double precision unless `fine_precision : single`, which is on the device only
 (the cycle on the operators in single precision, the outer GCR in double). The levels below
-the coarse lattice, `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
+the coarse lattice (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are on the device
+only, made with P and kept with it; at small masses on large lattices they are what keeps the
+coarse solves cheap. `basis_precision` and `Setup.checkpoint` are not in HMC yet and are
 refused. What only HMC has is in `MultiGrid_HMC`:
 
 | `MultiGrid_HMC` key | Values |

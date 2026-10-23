@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid on the device takes the levels below the coarse lattice
+  (`MultiGrid_Level2` and on, `levels_for_pauli_villars`), made with P and kept with the
+  coarse parts (`DeviceParts`). On 24⁴ with stout links at m 0.001 (24 test vectors, levels
+  with super-blocks 2 and 3) a correction takes 46–67 applications of the coarse operator
+  instead of 2000–2900, and the solves of a short trajectory 61 s instead of 840 s. With 16
+  test vectors the solves of D there stagnate, levels or not: P lacks the lowest modes.
+- The solves with D† take less device memory: the preconditioner of `adjoint_by_gamma5`
+  applies X_PV† to its fields directly (the right-hand side of Ã for a source with nothing on
+  the odd sites) and makes its fields once, and the sweeps of `two_solves_half` reuse one work
+  field. On 24⁴ the peak of HMC went from 22.9 to 20.7 GB (24.1 to 21.9 GB with what the
+  memory pool keeps); iterations and ΔH unchanged.
 - HMC with the domain-wall multigrid solves with D† by the multigrid of D: flexible GCR on K†
   (K = C_e⁻¹ S) preconditioned by C_e† Γ5 M Γ5, M the cycle of Ã (`fermion::adjoint_by_gamma5`).
   For Möbius fermions D† Γ5 D⁻¹ Γ5 = Γ5 (1 − c [Y, W] D⁻¹) Γ5 (the MG note, "Solving with

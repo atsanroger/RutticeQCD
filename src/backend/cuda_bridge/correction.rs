@@ -5,7 +5,7 @@
 use super::*;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
-    CoarseKrylov, Correction, FnMap, LevelBootstrap, PvEoParams,
+    CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
 };
 use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
@@ -45,6 +45,9 @@ pub struct DeviceParts<CT: DeviceReal> {
     abs: Option<Rc<DeviceBuffer<CT>>>,
     /// |H_xx|⁻¹ of the first, for MINRES there (the dual cycle, D_PV first).
     abs_d: Option<Rc<DeviceBuffer<CT>>>,
+    /// The levels below the coarse lattice of either factor (`add_levels`, `add_pv_levels`).
+    levels_d: Option<Rc<Levels<'static, DeviceCoarse<CT>>>>,
+    levels_pv: Option<Rc<Levels<'static, DeviceCoarse<CT>>>>,
 }
 
 impl<CT: DeviceReal> Clone for DeviceParts<CT> {
@@ -55,6 +58,8 @@ impl<CT: DeviceReal> Clone for DeviceParts<CT> {
             coarse_pv: self.coarse_pv.clone(),
             abs: self.abs.clone(),
             abs_d: self.abs_d.clone(),
+            levels_d: self.levels_d.clone(),
+            levels_pv: self.levels_pv.clone(),
         }
     }
 }
@@ -138,6 +143,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             coarse_pv,
             abs,
             abs_d,
+            levels_d: None,
+            levels_pv: None,
         })
     }
 
@@ -194,7 +201,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         let device = parts.basis.clone();
         let coarse_like = device.coarse_field::<CT>(1);
         let coarse = device.coarse.clone();
-        Ok(Self {
+        let (levels_d, levels_pv) = (parts.levels_d.clone(), parts.levels_pv.clone());
+        let mut c = Self {
             correction: Correction::new(
                 plain,
                 outer,
@@ -210,7 +218,14 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             coarse_pv,
             coarse,
             parts,
-        })
+        };
+        if let Some(l) = levels_d {
+            c.correction.set_levels_d(Box::new(move |out, inp| l(out, inp)));
+        }
+        if let Some(l) = levels_pv {
+            c.correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+        }
+        Ok(c)
     }
 
     /// What the correction is made of, to make it again for other links.
@@ -245,9 +260,13 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         let levels =
             DeviceMultilevel::build(&self.coarse_d, &self.coarse, &v, super_blocks, bootstrap)?;
         let applications = levels.setup_applications;
-        self.correction.set_levels_d(Box::new(
+        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> = Rc::new(
             move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.apply(out, inp),
-        ));
+        );
+        let l = levels.clone();
+        self.correction
+            .set_levels_d(Box::new(move |out, inp| l(out, inp)));
+        self.parts.levels_d = Some(levels);
         Ok(applications)
     }
 
@@ -265,9 +284,13 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         let v = vectors.to_precision::<CT>()?;
         let levels = DeviceAbsMultilevel::build(&self.coarse_pv, &self.coarse, &v, super_blocks)?;
         let applications = levels.setup_applications;
-        self.correction.set_levels_pv(Box::new(
+        let levels: Rc<Levels<'static, DeviceCoarse<CT>>> = Rc::new(
             move |out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>| levels.add(out, inp),
-        ));
+        );
+        let l = levels.clone();
+        self.correction
+            .set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+        self.parts.levels_pv = Some(levels);
         Ok(applications)
     }
 }

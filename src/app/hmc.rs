@@ -254,6 +254,8 @@ pub enum HmcMultigrid {
         rebuild_growth: f64,
         /// The cycle in single precision (on the device).
         fine_single: bool,
+        /// Levels below the coarse lattice (on the device).
+        levels: crate::hmc::CoarseLevels,
     },
 }
 
@@ -355,6 +357,7 @@ impl HmcSolver {
                     coarse_double,
                     rebuild_growth,
                     fine_single,
+                    levels,
                 }),
             ) => {
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
@@ -366,6 +369,7 @@ impl HmcSolver {
                 setup.coarse_double = coarse_double;
                 setup.rebuild_growth = rebuild_growth;
                 setup.fine_single = fine_single;
+                setup.levels = levels;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
             _ => self.chebyshev(),

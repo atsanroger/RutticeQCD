@@ -14,7 +14,9 @@ mod mseries;
 mod rational;
 mod solve;
 
-pub use dwf_multigrid::{normal_solve as dwf_multigrid_normal_solve, DwfMultigridSetup, Seconds};
+pub use dwf_multigrid::{
+    normal_solve as dwf_multigrid_normal_solve, CoarseLevels, DwfMultigridSetup, Seconds,
+};
 pub use rational::Rational;
 pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
 

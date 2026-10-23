@@ -326,7 +326,7 @@ fn with_coarse<CT: LevelReal>(
             (parts, hi, 0.0)
         }
         None => {
-            let (basis, parts_start) = match &single {
+            let (basis, level_vectors, parts_start) = match &single {
                 Some((d32, pv32, even32, odd32)) => {
                     let ops = (d32, pv32);
                     let y = test_vectors(
@@ -342,8 +342,12 @@ fn with_coarse<CT: LevelReal>(
                     setup.count_rebuild();
                     let parts_start = std::time::Instant::now();
                     let b = Rc::new(DeviceBasis::pv_eo(d32, pv32, &agg, &y, true)?);
+                    let level_vectors = match setup.levels.count {
+                        0 => None,
+                        _ => Some(b.pv_eo_coarse_vectors(d32, pv32, &y)?.to_precision::<f64>()?),
+                    };
                     state.vectors32 = Some(y.stash()?);
-                    (b, parts_start)
+                    (b, level_vectors, parts_start)
                 }
                 None => {
                     let y = test_vectors(
@@ -359,11 +363,15 @@ fn with_coarse<CT: LevelReal>(
                     setup.count_rebuild();
                     let parts_start = std::time::Instant::now();
                     let b = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &y, true)?);
+                    let level_vectors = match setup.levels.count {
+                        0 => None,
+                        _ => Some(b.pv_eo_coarse_vectors(d, pv, &y)?),
+                    };
                     state.vectors = Some(y.stash()?);
-                    (b, parts_start)
+                    (b, level_vectors, parts_start)
                 }
             };
-            let c = DeviceCorrection::<f64, CT>::shared(
+            let mut c = DeviceCorrection::<f64, CT>::shared(
                 basis,
                 (d, pv),
                 (d, pv),
@@ -371,6 +379,16 @@ fn with_coarse<CT: LevelReal>(
                 setup.cycle,
                 &even,
             )?;
+            // The levels below the coarse lattice, from P† of the vectors P was made of; kept
+            // in the parts with the coarse operators they were built from.
+            if let Some(v) = &level_vectors {
+                let l = setup.levels;
+                c.add_levels(v, &l.super_blocks[..l.count], &l.bootstrap[..l.count])?;
+                if l.for_pauli_villars {
+                    c.add_pv_levels(v, &l.super_blocks[..l.count])?;
+                }
+            }
+            drop(level_vectors);
             let mut a = PvRatio::new(d, pv, EoForm::Right, &even, &odd);
             let hi = top_of(
                 &mut a,

@@ -495,56 +495,54 @@ where
     op.diag_inv(&mut work, &mut t_o, &b_o, odd, Dagger::Yes);
     op.hop(&mut work, &mut rhs, &t_o, even, Dagger::Yes);
     rhs.aypx(&minus, &b_e);
+    drop(b_e);
     // K† z = b′_e with the preconditioner C_e† Γ5 S⁻¹ Γ5.
     let mut k = SchurFactor::new(op, EoForm::Left, like_even, like_odd);
     let mut a = crate::Adjoint(&mut k);
-    struct Prec<'p, F: EvenOdd<H>, H, V, P> {
+    // Its fields are made once: the solves on 24⁴ are short of device memory.
+    struct Prec<'p, F: EvenOdd<H>, H> {
         op: &'p F,
-        pv: &'p F,
-        split: &'p P,
         gamma5: &'p dyn Fn(&mut H, &H),
         m: &'p mut dyn LinearFn<H>,
-        like: (&'p H, &'p H),
-        whole: V,
+        /// X_PV = S_PV C_PV,e⁻¹.
+        x_pv: SchurFactor<'p, F, H>,
+        t: H,
+        rho: H,
+        y: H,
         work: F::Work,
     }
-    impl<F: EvenOdd<H>, H: Vector, V: Vector, P: SplitParity<V, H>> LinearFn<H>
-        for Prec<'_, F, H, V, P>
-    {
+    impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for Prec<'_, F, H> {
         fn mult(&mut self, out: &mut H, inp: &H) {
             let even = Parity::Even;
-            let mut t = inp.zeros_like();
-            (self.gamma5)(&mut t, inp);
-            // ρ = X_PV† t: the right-hand side of Ã for the source (t, 0).
-            if self.whole.num_vectors() != inp.num_vectors() {
-                self.whole = self.whole.zeros_with(inp.num_vectors());
+            for f in [&mut self.t, &mut self.rho, &mut self.y] {
+                crate::fit(f, inp);
             }
-            self.whole.set_zero();
-            self.split.insert(&mut self.whole, &t);
-            let mut ratio = PvRatio::new(self.op, self.pv, EoForm::Right, self.like.0, self.like.1);
-            let mut rho = inp.zeros_like();
-            ratio.right_hand_side(self.split, &mut rho, &self.whole);
-            let mut y = inp.zeros_like();
-            self.m.mult(&mut y, &rho);
+            (self.gamma5)(&mut self.t, inp);
+            // ρ = X_PV† t: the right-hand side of Ã for the source (t, 0) (`PvRatio::
+            // right_hand_side`, with nothing on the odd sites).
+            self.x_pv.mult_dag(&mut self.rho, &self.t);
+            self.m.mult(&mut self.y, &self.rho);
             // S⁻¹ t ≈ C_e⁻¹ y, then Γ5 and C_e†.
             self.op
-                .diag_inv(&mut self.work, &mut t, &y, even, Dagger::No);
-            (self.gamma5)(&mut y, &t);
-            self.op.diag(&mut self.work, out, &y, even, Dagger::Yes);
+                .diag_inv(&mut self.work, &mut self.t, &self.y, even, Dagger::No);
+            (self.gamma5)(&mut self.y, &self.t);
+            self.op
+                .diag(&mut self.work, out, &self.y, even, Dagger::Yes);
         }
     }
     let mut prec = Prec {
         op,
-        pv,
-        split,
         gamma5,
         m,
-        like: (like_even, like_odd),
-        whole: b.zeros_like(),
+        x_pv: SchurFactor::new(pv, EoForm::Right, like_even, like_odd),
+        t: rhs.zeros_like(),
+        rho: rhs.zeros_like(),
+        y: rhs.zeros_like(),
         work: op.even_odd_work(),
     };
     let mut z = rhs.zeros_like();
     let info = solver.solve(&mut a, Some(&mut prec), &mut z, &rhs);
+    drop(prec);
     // x_e = C_e⁻† z, x_o = C_o⁻† (b_o − (M_eo)† x_e).
     let mut x_e = rhs.zeros_like();
     op.diag_inv(&mut work, &mut x_e, &z, even, Dagger::Yes);

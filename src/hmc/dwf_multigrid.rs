@@ -25,11 +25,37 @@ use crate::fermion::{adjoint_by_gamma5, Dagger, EoForm, Mdwf, PvEvenOdd, SchurFa
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseParts,
-    LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+    LevelBootstrap, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
 use crate::{Lattice, LinearFn, LinearOp, Parity, Vector, C64, ND};
 use std::sync::Arc;
+
+/// The levels below the coarse lattice (on the device only), as the propagator files give them:
+/// the first `count` super-blocks and refinements, and whether the Pauli-Villars factor has
+/// them too.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CoarseLevels {
+    pub count: usize,
+    pub super_blocks: [usize; 3],
+    pub bootstrap: [LevelBootstrap; 3],
+    pub for_pauli_villars: bool,
+}
+
+impl CoarseLevels {
+    /// From the lists of the file (at most three levels below the coarse one).
+    pub fn new(super_blocks: &[usize], bootstrap: &[LevelBootstrap], for_pv: bool) -> Self {
+        assert!(super_blocks.len() <= 3 && bootstrap.len() == super_blocks.len());
+        let mut l = Self {
+            count: super_blocks.len(),
+            for_pauli_villars: for_pv,
+            ..Self::default()
+        };
+        l.super_blocks[..l.count].copy_from_slice(super_blocks);
+        l.bootstrap[..l.count].copy_from_slice(bootstrap);
+        l
+    }
+}
 
 /// The setup of the multigrid of an action and what it keeps along a trajectory.
 pub struct DwfMultigridSetup {
@@ -57,6 +83,8 @@ pub struct DwfMultigridSetup {
     /// iterations per solve on the even sites have grown to this many times those after the last
     /// rebuild (module documentation); 0: make them for every solve.
     pub rebuild_growth: f64,
+    /// Levels below the coarse lattice for the coarse solves (on the device); none by default.
+    pub levels: CoarseLevels,
     vectors: Option<HalfPsi>,
     since: usize,
     cache: Option<Cache>,
@@ -104,6 +132,7 @@ impl DwfMultigridSetup {
             inner,
             refresh_every: 0,
             rebuild_growth: 0.0,
+            levels: CoarseLevels::default(),
             vectors: None,
             since: 0,
             cache: None,
@@ -515,7 +544,8 @@ pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
     let mut work = op.even_odd_work();
     let mut b_norm = vec![0.0; n];
     b.norm_sqr(&mut b_norm);
-    let [mut t, mut r, mut s, mut w, mut e] = std::array::from_fn(|_| b.zeros_like());
+    // t is also the work field of the two solves (the solves on 24⁴ are short of memory).
+    let [mut t, mut r, mut w] = std::array::from_fn(|_| b.zeros_like());
     let (mut source, mut whole) = (op.new_field(lat), op.new_field(lat));
     let mut info = SolveInfo {
         iterations: 0,
@@ -541,15 +571,15 @@ pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
         source.set_zero();
         op.put_half(&mut source, &r);
         solves.adjoint(&mut whole, &source)?;
-        op.half_of(&mut s, &whole, Parity::Even);
-        op.diag(&mut work, &mut w, &s, Parity::Even, Dagger::Yes);
-        // e = Ŝ⁻¹ T_ee w.
-        op.diag(&mut work, &mut s, &w, Parity::Even, Dagger::No);
+        op.half_of(&mut t, &whole, Parity::Even);
+        op.diag(&mut work, &mut w, &t, Parity::Even, Dagger::Yes);
+        // e = Ŝ⁻¹ T_ee w, in t.
+        op.diag(&mut work, &mut t, &w, Parity::Even, Dagger::No);
         source.set_zero();
-        op.put_half(&mut source, &s);
+        op.put_half(&mut source, &t);
         solves.forward(&mut whole, &source)?;
-        op.half_of(&mut e, &whole, Parity::Even);
-        z.axpy(&vec![C64::new(1.0, 0.0); n], &e);
+        op.half_of(&mut t, &whole, Parity::Even);
+        z.axpy(&vec![C64::new(1.0, 0.0); n], &t);
     }
     Err(SolveError::NotConverged(info))
 }
