@@ -150,7 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let like = basis.coarse_field(1);
     for (name, fine) in [("P^dag D P", &op), ("P^dag D_PV P", &pv)] {
-        let mut x = CoarseOp::<f64>::build(fine, &mut fine.work(), &basis);
+        let mut x = basis.coarse_op(fine, &mut fine.work());
         let random: Vec<f64> = (1..=4)
             .map(|s| defect(&mut x, &random_like(&like, s)))
             .collect();

@@ -53,6 +53,28 @@ A field is `Field<T, Kind, Sites, Layout>`: the storage type (`f32`, `f64`), wha
 blocks of W sites, one per SIMD lane). The solvers know only vectors and linear maps;
 nothing outside `solver::preconditioner::multigrid` knows about fermions.
 
+### One algorithm, two backends
+
+The CPU and the device (`backend::cuda_bridge`) do the same things because each algorithm is
+written once, against traits, and a backend supplies only the parts that touch its memory:
+operators, fields, kernels. A feature added to the algorithm is then on both; a backend refuses
+an option only where it lacks a kernel. For the domain-wall fermions (decided 2026-10-23):
+
+| Algorithm, written once | What a backend supplies |
+|---|---|
+| the operators of the even sites: `PvRatio`, `SchurFactor`, `AfterQ`, `adjoint_by_gamma5` (`fermion::even_odd`) | `EvenOdd` for its operator (`Mdwf`, `CudaMdwf`) |
+| the coarse correction and the cycle: `Correction`, `TwoGrid`, `Chebyshev` | P, the coarse operators, the levels below the coarse lattice |
+| the setup of the multigrid: test vectors, bootstrap, P and coarse parts, the cycle in the right or left form, the precisions of P, of the cycle and of the coarse solves (`solver::preconditioner::multigrid`, a trait for the backend) | the filter, the bootstrap and the building of P and the coarse operators on its fields |
+| the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid`) | — |
+| mixed precision: CG with reliable updates (`solver::reliable_cg`) on D†D or K†K, with Q for Neff's α (one `SingleNormal`, generic over the operator in single precision) | its operator in single precision |
+| the propagator run: sources, solves, the four-dimensional fields, the measurements (`app::mdwf::solve_sources`) | where the fields live |
+| what a parameter file asks of the multigrid (one settings struct for the propagator and HMC files) | — |
+
+Before this, the multigrid of HMC, the mixed solvers and the setup of the propagator runs were
+written once per backend, and the two copies had drifted apart (Neff's α, the levels and the
+precision of the cycle in the multigrid of HMC on the device only; mixed CGNE of the
+propagators on the device only).
+
 ### Using it as a library
 
 The program is a thin layer over the library; anything it does can be done from Rust code.

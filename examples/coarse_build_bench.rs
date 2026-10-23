@@ -12,7 +12,7 @@
 
 use ruttice::fermion::{FermionOp, Mdwf, MdwfParams};
 use ruttice::gauge::random_gauge;
-use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, random_even, Aggregation, CoarseOp};
+use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, random_even, Aggregation};
 use ruttice::{Boundary, Lattice, LinearFn, Vector, ND};
 use std::time::Instant;
 
@@ -57,7 +57,7 @@ fn main() {
     let mut coarse = None;
     for _ in 0..reps {
         let start = Instant::now();
-        coarse = Some(CoarseOp::build(&op, &mut op.work(), &basis));
+        coarse = Some(basis.coarse_op(&op, &mut op.work()));
         seconds.push(start.elapsed().as_secs_f64());
     }
     let mut c = coarse.expect("at least one build");

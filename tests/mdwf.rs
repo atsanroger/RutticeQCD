@@ -1385,7 +1385,7 @@ fn even_odd_pv_multigrid_on_several_processes() {
         let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
         let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
 
-        let mut coarse = CoarseOp::build(&op, &mut op.work(), &basis);
+        let mut coarse = basis.coarse_op(&op, &mut op.work());
         let v = match coarse_v {
             Some(v) => local_part(v, agg.coarse_lattice()),
             None => {

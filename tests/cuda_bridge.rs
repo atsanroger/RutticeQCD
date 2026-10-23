@@ -1207,7 +1207,7 @@ fn multigrid_transfers_on_the_device() {
     };
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = pv_eo_basis(&cpu, &pv, &agg, &half(Parity::Even, n, 432)).unwrap();
-    let device = DeviceBasis::new(&basis).unwrap();
+    let device = DeviceBasis::from_pv_eo(&basis).unwrap();
     let same = |a: &Field<f64, Coarse>, b: &DeviceCoarse, what: &str| {
         let b = b.to_host(a).unwrap();
         let d = a
@@ -1232,7 +1232,10 @@ fn multigrid_transfers_on_the_device() {
         );
         let y = DeviceSpinor::from_host_half(&half(Parity::Even, n, 432), &index).unwrap();
         let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y, false).unwrap();
-        let a: Vec<f32> = basis.stored().iter().map(|x| x.to_f32()).collect();
+        let ruttice::solver::preconditioner::multigrid::PvEoBasis::Half(stored) = &basis else {
+            panic!("pv_eo_basis keeps P in half precision");
+        };
+        let a: Vec<f32> = stored.stored().iter().map(|x| x.to_f32()).collect();
         let b = made.stored().unwrap();
         assert_eq!(a.len(), b.len());
         let size = a.iter().fold(0.0f64, |m, x| m.max(f64::from(x.abs())));
@@ -1278,9 +1281,9 @@ fn multigrid_transfers_on_the_device() {
     // The coarse operator, its adjoint and its even-odd form.
     {
         use ruttice::backend::cuda_bridge::DeviceCoarseOp;
-        use ruttice::solver::preconditioner::multigrid::{BlockMap, CoarseOp};
+        use ruttice::solver::preconditioner::multigrid::BlockMap;
         use ruttice::{LinearFn, LinearOp};
-        let mut op = CoarseOp::build(&cpu, &mut cpu.work(), &basis);
+        let mut op = basis.coarse_op(&cpu, &mut cpu.work());
         assert!(op.prepare_even_odd().unwrap());
         let device_op = DeviceCoarseOp::<f64>::new(&op, true).unwrap();
         // The coarse operator built on the device is the one built on the CPU.
@@ -1458,7 +1461,7 @@ fn multigrid_correction_on_the_device() {
         let mut expected = r.zeros_like();
         cycle.coarse_correction(&mut expected, &r);
         let mut correction = DeviceCorrection::<f64, f64>::new(
-            DeviceBasis::new(&basis).unwrap(),
+            DeviceBasis::from_pv_eo(&basis).unwrap(),
             (&gpu, &gpu_pv),
             gpu_outer,
             form,
@@ -1492,7 +1495,7 @@ fn multigrid_levels_on_the_device() {
         DeviceAbsMultilevel, DeviceBasis, DeviceCoarse, DeviceCoarseOp, DeviceMultilevel,
     };
     use ruttice::solver::preconditioner::multigrid::{
-        pv_eo_basis, pv_eo_coarse_vectors, AbsMultilevel, Aggregation, CoarseOp, LevelBootstrap,
+        pv_eo_basis, pv_eo_coarse_vectors, AbsMultilevel, Aggregation, LevelBootstrap,
         SignedMultilevel,
     };
     use ruttice::{extract_parity, Coarse};
@@ -1551,7 +1554,7 @@ fn multigrid_levels_on_the_device() {
         );
         let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
         let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &y).unwrap();
-        let device_basis = DeviceBasis::new(&basis).unwrap();
+        let device_basis = DeviceBasis::from_pv_eo(&basis).unwrap();
 
         // The test vectors.
         let vectors = pv_eo_coarse_vectors(&cpu, &cpu_pv, &basis, &y);
@@ -1571,7 +1574,7 @@ fn multigrid_levels_on_the_device() {
         }
 
         // The V-cycle, from the same vectors.
-        let mut coarse = CoarseOp::build(&cpu, &mut cpu.work(), &basis).to_storage::<f64>();
+        let mut coarse = basis.coarse_op(&cpu, &mut cpu.work()).to_storage::<f64>();
         let coarse_lat = coarse.lattice().clone();
         let device_op = DeviceCoarseOp::<f64>::new(&coarse, false).unwrap();
         let levels =
@@ -1614,7 +1617,7 @@ fn multigrid_levels_on_the_device() {
 
         // The levels of the Pauli-Villars factor, added to a field that is not zero.
         let mut coarse_pv =
-            CoarseOp::build(&cpu_pv, &mut cpu_pv.work(), &basis).to_storage::<f64>();
+            basis.coarse_op(&cpu_pv, &mut cpu_pv.work()).to_storage::<f64>();
         let device_pv = DeviceCoarseOp::<f64>::new(&coarse_pv, false).unwrap();
         let abs = AbsMultilevel::build(&mut coarse_pv, &vectors, &super_blocks).unwrap();
         let device_abs =

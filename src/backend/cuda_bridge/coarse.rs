@@ -397,6 +397,17 @@ fn to_unit_sites<T: DeviceReal>(v: &mut DeviceSpinor<T>) {
 }
 
 impl DeviceBasis {
+    /// The P of the CPU's domain-wall multigrid, kept as it is there.
+    pub fn from_pv_eo<T: Storage>(
+        basis: &crate::solver::preconditioner::multigrid::PvEoBasis<T>,
+    ) -> Result<Self, CudaError> {
+        use crate::solver::preconditioner::multigrid::PvEoBasis;
+        match basis {
+            PvEoBasis::Half(b) => Self::new(b),
+            PvEoBasis::Single(b) => Self::new(b),
+        }
+    }
+
     /// The P of the CPU, `basis`, kept as it is there: in half (`F16`) or single precision.
     pub fn new<T: Storage, S: Storage>(basis: &Basis<T, S>) -> Result<Self, CudaError> {
         let g = basis

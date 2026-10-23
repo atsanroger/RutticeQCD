@@ -58,8 +58,89 @@ use std::sync::Arc;
 type HalfField<L = Aos, F = f64> = Field<F, Spinor, Half, L>;
 type CoarseField<F = f64> = Field<F, Coarse>;
 
-/// P for fields stored as `F`, itself in half precision, folded on the fifth dimension.
-pub type PvEoBasis<F = f64> = Basis<F, F16>;
+/// P for fields stored as `F`, folded on the fifth dimension, its vectors kept in half
+/// precision (as on the device by default) or in single (`basis_precision : single`).
+pub enum PvEoBasis<F: Storage = f64> {
+    Half(Basis<F, F16>),
+    Single(Basis<F, f32>),
+}
+
+/// How P keeps its vectors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BasisStorage {
+    #[default]
+    Half,
+    Single,
+}
+
+/// `$e` with `$b` the `Basis` inside `$basis`, whichever its storage.
+macro_rules! on_basis {
+    ($basis:expr, $b:ident => $e:expr) => {
+        match $basis {
+            PvEoBasis::Half($b) => $e,
+            PvEoBasis::Single($b) => $e,
+        }
+    };
+}
+
+impl<F: Storage> PvEoBasis<F> {
+    pub fn aggregation(&self) -> &Arc<Aggregation> {
+        on_basis!(self, b => b.aggregation())
+    }
+
+    /// Complex numbers per coarse site.
+    pub fn coarse_dim(&self) -> usize {
+        on_basis!(self, b => b.coarse_dim())
+    }
+
+    pub fn num_test_vectors(&self) -> usize {
+        on_basis!(self, b => b.num_test_vectors())
+    }
+
+    /// Whether P keeps only half of the fifth dimension (always, as built here).
+    pub fn is_folded(&self) -> bool {
+        on_basis!(self, b => b.is_folded())
+    }
+
+    pub fn coarse_field(&self, num_vectors: usize) -> CoarseField<F> {
+        on_basis!(self, b => b.coarse_field(num_vectors))
+    }
+
+    pub fn restrict(&self, coarse: &mut CoarseField<F>, fine: &Field<F, Spinor>) {
+        on_basis!(self, b => b.restrict(coarse, fine))
+    }
+
+    pub fn restrict_half(
+        &self,
+        coarse: &mut CoarseField<F>,
+        half: &HalfField<Aos, F>,
+        index: &EvenOddIndex,
+    ) {
+        on_basis!(self, b => b.restrict_half(coarse, half, index))
+    }
+
+    pub fn prolong(&self, fine: &mut Field<F, Spinor>, coarse: &CoarseField<F>) {
+        on_basis!(self, b => b.prolong(fine, coarse))
+    }
+
+    pub fn prolong_half(
+        &self,
+        half: &mut HalfField<Aos, F>,
+        coarse: &CoarseField<F>,
+        index: &EvenOddIndex,
+    ) {
+        on_basis!(self, b => b.prolong_half(half, coarse, index))
+    }
+
+    /// P†AP for the operator `op` (`CoarseOp::build`).
+    pub fn coarse_op<O: HopTerms<Field<F, Spinor>>>(
+        &self,
+        op: &O,
+        work: &mut O::Work,
+    ) -> CoarseOp<F> {
+        on_basis!(self, b => CoarseOp::build(op, work, b))
+    }
+}
 
 /// The full-lattice vectors s_j and t̂_j of the vectors y_j on the even sites (see the top
 /// of the file), one j at a time: `visit(i, v)` gets s_j as i = j and t̂_j as i = n + j.
@@ -124,16 +205,38 @@ pub fn pv_eo_basis<F: Storage, G: GammaRepre>(
     agg: &Arc<Aggregation>,
     y: &HalfField<Aos, F>,
 ) -> Result<PvEoBasis<F>, MultigridError> {
-    let lat = agg.fine_lattice().clone();
-    let mut builder =
-        BasisBuilder::<F, F16>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
-    let mut work = op.work();
-    let mut g5 = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
-    lifted_vectors(op, pv, &lat, y, |i, v| {
-        op.mult_gamma5(&mut work, &mut g5, v);
-        builder.add(i, v, &g5);
-    });
-    builder.finish()
+    pv_eo_basis_stored(op, pv, agg, y, BasisStorage::Half)
+}
+
+/// `pv_eo_basis` with P kept as `storage` says.
+pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
+    op: &Mdwf<F, G>,
+    pv: &Mdwf<F, G>,
+    agg: &Arc<Aggregation>,
+    y: &HalfField<Aos, F>,
+    storage: BasisStorage,
+) -> Result<PvEoBasis<F>, MultigridError> {
+    fn built<F: Storage, S: Storage, G: GammaRepre>(
+        op: &Mdwf<F, G>,
+        pv: &Mdwf<F, G>,
+        agg: &Arc<Aggregation>,
+        y: &HalfField<Aos, F>,
+    ) -> Result<Basis<F, S>, MultigridError> {
+        let lat = agg.fine_lattice().clone();
+        let mut builder =
+            BasisBuilder::<F, S>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
+        let mut work = op.work();
+        let mut g5 = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
+        lifted_vectors(op, pv, &lat, y, |i, v| {
+            op.mult_gamma5(&mut work, &mut g5, v);
+            builder.add(i, v, &g5);
+        });
+        builder.finish()
+    }
+    Ok(match storage {
+        BasisStorage::Half => PvEoBasis::Half(built(op, pv, agg, y)?),
+        BasisStorage::Single => PvEoBasis::Single(built(op, pv, agg, y)?),
+    })
 }
 
 /// The vectors s_j and t̂_j the basis was built from, restricted to the coarse lattice
@@ -583,14 +686,14 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         // The coarse operators, with the even-odd form where they are solved in it, and the
         // matrices on the coarse sites that precondition their solves.
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
-        let mut coarse_d = CoarseOp::build(op, &mut op.work(), basis).to_storage::<f64>();
+        let mut coarse_d = basis.coarse_op(op, &mut op.work()).to_storage::<f64>();
         if params.coarse_even_odd {
             coarse_d.prepare_even_odd()?;
         }
         // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
         // adjoint P†D_PV†P, solved as the first factor is.
         let minres = params.pv_solver == CoarseKrylov::Minres;
-        let mut coarse_pv = CoarseOp::build(pv, &mut pv.work(), basis).to_storage::<f64>();
+        let mut coarse_pv = basis.coarse_op(pv, &mut pv.work()).to_storage::<f64>();
         if !minres {
             coarse_pv = coarse_pv.adjoint();
         }
@@ -1085,12 +1188,24 @@ pub fn pv_eo_bootstrap<F: Storage, G: GammaRepre>(
     y: &mut HalfField<Aos, F>,
     params: BootstrapParams,
 ) -> Result<PvEoBasis<F>, MultigridError> {
+    pv_eo_bootstrap_stored(op, pv, agg, y, params, BasisStorage::Half)
+}
+
+/// `pv_eo_bootstrap` with P kept as `storage` says, in its rounds too.
+pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
+    op: &Mdwf<F, G>,
+    pv: &Mdwf<F, G>,
+    agg: &Arc<Aggregation>,
+    y: &mut HalfField<Aos, F>,
+    params: BootstrapParams,
+    storage: BasisStorage,
+) -> Result<PvEoBasis<F>, MultigridError> {
     let like = y.select(&[0]);
     for _ in 0..params.rounds {
-        let basis = pv_eo_basis(op, pv, agg, y)?;
+        let basis = pv_eo_basis_stored(op, pv, agg, y, storage)?;
         let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
         let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
         bootstrap_round(&mut a, &mut cycle, y, params.steps);
     }
-    pv_eo_basis(op, pv, agg, y)
+    pv_eo_basis_stored(op, pv, agg, y, storage)
 }
