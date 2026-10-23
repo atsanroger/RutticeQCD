@@ -1,12 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-23)
 
+The multigrid in HMC. The domain-wall Ratio action over Pauli-Villars fields solves with the
+multigrid on the device: D† by the multigrid of D (no second setup), the levels below the
+coarse lattice, Neff's α, and the memory to run 24⁴ on the A30. On 24⁴ with stout links at
+m 0.001 (one short trajectory, 5 solves, 20 test vectors, levels below) the multigrid takes
+242 s with its setup (141 s), mixed CG on the even-odd Ratio 264 s at α 0.6 and 301 s at α 1;
+the solves alone 63 s against 264 s. ΔH the same.
+
+- CG on the even-odd Ratio takes `Fopr.neff_alpha` on the device: with K^(α) = Q_e⁻¹ K Q_e,
+  (K†K)⁻¹ = Q_e ((K Q_e)†(K Q_e))⁻¹ Q_e, CG on the normal equations of K Q_e
+  (`fermion::AfterQ`, `TwoFlavorRatioEo::with_neff`), mixed precision too; the action and its
+  force are those of K. 24⁴, stout, m 0.001, mixed CG: 40912 → 31996 iterations, 301 → 264 s
+  at α 0.6, ΔH the same to six digits. On the CPU refused.
 - HMC with the domain-wall multigrid on the device takes `Fopr.neff_alpha`: the solves with D
   are those of D^(α) = D Q in the left form (Ã_L^(α), as in the propagator runs), x = Q x^(α),
   with the setup, P and the coarse operators of D and the smoother on the range of the left
-  form; the solves with D† are unchanged (D^(α)† = Q D†). Also for the even-odd Ratio, where CG
-  still refuses α. On 24⁴ (stout, m 0.001, 20 test vectors, levels below) α = 0.6 gives the
+  form; the solves with D† are unchanged (D^(α)† = Q D†). Also for the even-odd Ratio. On 24⁴ (stout, m 0.001, 20 test vectors, levels below) α = 0.6 gives the
   same ΔH as α = 1 and about the same iterations (362 against 356), as α does in the
   propagator runs. 20 test vectors are the fewest that converge there (16 stagnate, also
   filtered from 24 or with the left vectors Ã y in P): setup 141 s, solves 63 s, 19.1 GB.
@@ -35,11 +46,10 @@
   kept on the host between the solves (`DeviceSpinor::stash`) and on the device only while P
   is made or the bootstrap runs, and the cycle is made for each solve on the even sites and
   dropped after it. On 24⁴ (stout, m 0.01) HMC went from out of memory on the A30 to fitting.
-- The coarse correction can solve its first factor by MINRES on the Γ5-Hermitian form
-  (`CoarseKrylov::Minres` as `d_solver`, for a cycle whose first operator is D_PV), and
-  `low_modes_pair` / `filtered_test_vector_pair` give the left singular vectors U = Ã V Σ⁻¹
-  with the right ones from one filter (one application of Ã a vector in the Rayleigh-Ritz
-  step). Neither is used by default; they are kept for a two-sided setup.
+- The examples on the device only (`dminus_cost`, `dual_basis`) need the feature
+  `cuda-bridge`, so that `cargo check --all-targets` passes without it.
+- `examples/hop_gemm_bench`: the even-odd hop of the Möbius operator on the device alone, its
+  time and checksums.
 
 ## 0.3.2 (2026-10-21)
 

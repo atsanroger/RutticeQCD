@@ -48,6 +48,13 @@ Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 5. **Documented**: USAGE says how to set the multigrid of HMC (GCR(8) or what replaces it,
    the cache, `fine_precision`, α); the note has the HMC results.
 
+**Released 2026-10-23** on the user's call, with: 1 done (19.1 GB live with 20 test vectors);
+2 done (the left form for D, D† unchanged; CG on the even-odd Ratio takes α too, on K Q_e);
+3 measured on one short trajectory only (24⁴, m 0.001, length 0.01: multigrid 242 s with its
+setup against mixed CG at α 0.6 264 s) — a trajectory of length 1 is still to be run; 4 by ΔH
+on the device runs only (the HMC tests with the multigrid and the CPU path were not run: as13's
+CPU is shared); 5 USAGE yes, the note's HMC results not yet. After 0.4.0: optimization (item 20).
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
@@ -739,9 +746,10 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Known, not understood
 
-- **The dual cycle on 12⁴** (`examples/correction_exactness`, CPU, 2026-10-21): setup S,
+- **The dual cycle on 12⁴** (superseded 2026-10-22 by Γ5 M Γ5 below; the dual cycle is gone
+  from HMC) (`examples/correction_exactness`, CPU, 2026-10-21): setup S,
   m 0.001, GCR(2) on Ã_R with M converges in 23 iterations, on Ã_R† with the dual cycle not
-  in 1000. The HMC multigrid (`src/hmc/dwf_multigrid.rs`) uses this dual cycle for the
+  in 1000. The HMC multigrid (`src/hmc/dwf_multigrid.rs`) used this dual cycle for the
   normal equations; its comment reports 17 (S) and 57 (B) iterations on 16⁴. To check: the
   dual on 16⁴ with the example, and a basis for D† (low modes of Ã_R Ã_R†, or closed under Γ5).
   Later (2026-10-22, a lost uncommitted fix of the example: the bootstrap with the run's
@@ -784,8 +792,8 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
   Half of y and half of Γ5 y (32) fails; a full setup of its own for Ã† stalls in S 12⁴ too
   (only the right side). The 64 vectors cost 2–4× a solve of the shared P (four times the
-  coarse operators), so they are an option (`MultiGrid_HMC.dual_with_gamma5`), not the
-  default. Not tried: Petrov-Galerkin with P† as restriction and Γ5 P as prolongation (no
+  coarse operators), so they were an option (`MultiGrid_HMC.dual_with_gamma5`, removed with the
+  dual cycle), not the default. Not tried: Petrov-Galerkin with P† as restriction and Γ5 P as prolongation (no
   more memory than the shared P). The first lexical MDWF multigrid (6830b9c) had a Petrov-
   Galerkin restriction, but no coarse operator helped there (random test vectors), so it says
   nothing about this one.
@@ -798,6 +806,12 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   work fields of one cycle about 1.5 GB (the cycles of Ã and Ã† made in turn since 19b8af9).
   Solves 19.5 GB, peak 21.3 GB (the filter of the setup 12.3 GB). Per volume twice a propagator
   run: two systems (D and D†), GCR(8) against GCR(2), the sweeps on D†D, the fields of HMC.
+  **2026-10-23** (m 0.001, 20 test vectors, levels below, GCR(2), Γ5 M Γ5 for D†, after the
+  savings of 2d07414): HMC 3.3 GB, the multigrid kept between the solves 6.6 GB (P 4.75 GB),
+  the sweeps 2.6 GB, the solve with D† on top 6.4 GB (GCR 1.7, the two Schur factors' work,
+  the preconditioner, the cycle); peak 19.1 GB live, 20.1 GB with the pool. Left to save:
+  one set of work fields for K, X_PV and the K of the residual (about 1.5 GB), the whole-
+  lattice fields of the sweeps (about 1 GB).
   Since then the solves with D† use Γ5 M Γ5 and GCR(2) (no cycle or coarse operator of Ã†):
   20.5 GB on 24⁴ (nvidia-smi). Left: the sweep fields in f64. 24³×48 needs about twice all of
   it: not on the A30.
