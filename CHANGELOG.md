@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (2026-10-23)
 
 Faster setup and prolongation of the domain-wall multigrid on the device. HMC on 24⁴ with stout
 links at m 0.001 (one short trajectory, 20 test vectors, levels below, A30): 242 → 203 s, the

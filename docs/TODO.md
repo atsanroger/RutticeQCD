@@ -64,6 +64,12 @@ setup against mixed CG at α 0.6 264 s) — a trajectory of length 1 is still to
 on the device runs only (the HMC tests with the multigrid and the CPU path were not run: as13's
 CPU is shared); 5 USAGE yes, the note's HMC results not yet. After 0.4.0: optimization (item 20).
 
+**0.4.1 (2026-10-23)**: the setup and prolongation faster (24⁴ short trajectory 242 → 203 s),
+the retries before CG where the multigrid stalls (device and CPU), CG with α on the even-odd Ratio
+on the CPU, the note's α discussion and HMC results, the walkthrough. Checked: both builds compile
+clippy-clean, the device HMC on 16⁴ gives ΔH and iterations of before bit for bit. Not run: the
+CPU paths (the retries and α on the CPU compile only), the HMC tests.
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (partly done 2026-10-19)
