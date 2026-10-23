@@ -255,6 +255,12 @@ impl DwfMultigridSetup {
         self.rebuild_due
     }
 
+    /// The next solve makes P and the coarse parts again, whatever the iterations say.
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) fn force_rebuild(&mut self) {
+        self.rebuild_due = true;
+    }
+
     /// After a solve with the cache: the iterations per solve on the even sites set the
     /// baseline when the parts were just made, and are compared with it when they were reused.
     pub(crate) fn after_solve(&mut self, reused: bool, per_solve: f64) {

@@ -22,6 +22,12 @@ setup 141 → 113 s.
   precision, bitwise the same on 24⁴. Where a pivot is below 1e-12 of its diagonal (nearly
   dependent vectors), Gram-Schmidt does those sites. 24⁴, 20 test vectors (40 columns):
   making P 4.0 → 1.8 s.
+- HMC with the domain-wall multigrid does not stop where the multigrid stalls: the solve is
+  done again with P and the coarse parts made for the links of now, then after a bootstrap as
+  well, each from the solution so far; if it still stalls, CG finishes it (at least 50000
+  iterations, whatever the file's limit for the GCR of the multigrid), with a warning. Found on
+  a trajectory of length 1 from a quenched 24⁴ configuration at m 0.001 (ΔH 4e9, the links far
+  from where P was made), where the sweeps stalled at |r|²/|b|² 7e-11 and the run panicked.
 - The note: why Neff's α helps CG more than the multigrid (K^(α) = Q_e⁻¹ K Q_e), over setups S
   and B.
 

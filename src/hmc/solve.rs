@@ -326,6 +326,37 @@ impl CostMeter {
     }
 }
 
+/// The result of the domain-wall multigrid, or where it stalled even after making its parts again
+/// (`hmc::dwf_multigrid`), CG on the normal equations of `a` from the solution so far, with a
+/// warning: a trajectory is not lost to the multigrid.
+pub(crate) fn cg_after_multigrid<V: Vector>(
+    a: &mut dyn LinearOp<V>,
+    result: Result<SolveInfo, SolveError>,
+    z: &mut V,
+    b: &V,
+    stop: Stop,
+) -> Result<SolveInfo, SolveError> {
+    let Err(SolveError::NotConverged(info)) = result else {
+        return result;
+    };
+    eprintln!(
+        "the multigrid of HMC did not converge (|r|²/|b|² {:.1e}); CG finishes the solve",
+        info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
+    );
+    // The iterations of the file are those of the multigrid's GCR (a few hundred): CG at a small
+    // mass needs thousands (24⁴, m 0.001: about 6400 a solve), so at least 50000 for it.
+    let stop = Stop {
+        max_iterations: stop.max_iterations.max(50_000),
+        ..stop
+    };
+    NormalSolver::Cg
+        .solve(a, Pre::None, z, b, stop)
+        .map(|mut done| {
+            done.iterations += info.iterations;
+            done
+        })
+}
+
 /// The preconditioner of an action's solves.
 #[derive(Default)]
 pub enum Preconditioner {

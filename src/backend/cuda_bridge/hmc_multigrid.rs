@@ -330,11 +330,29 @@ fn with_solves(
         d.alpha() == 1.0 && pv.alpha() == 1.0,
         "the multigrid of HMC takes D without Neff's α"
     );
-    let result = match setup.coarse_double {
-        false => with_coarse::<f32>(d, pv, setup, flags, lat, run),
-        true => with_coarse::<f64>(d, pv, setup, flags, lat, run),
+    let mut attempt = |setup: &mut DwfMultigridSetup, flags: (bool, bool)| {
+        let result = match setup.coarse_double {
+            false => with_coarse::<f32>(d, pv, setup, flags, lat, run),
+            true => with_coarse::<f64>(d, pv, setup, flags, lat, run),
+        };
+        result.unwrap_or_else(|e| panic!("the multigrid on the device failed: {e}"))
     };
-    result.unwrap_or_else(|e| panic!("the multigrid on the device failed: {e}"))
+    let mut result = attempt(setup, flags);
+    // When the sweeps stall: P and the coarse parts again for the links of now (those kept may be
+    // of links far from them), then the test vectors improved by a bootstrap as well. Each goes
+    // on from the solution so far (`run` starts from it).
+    for (what, fresh) in [("P made again", flags.0), ("a bootstrap", true)] {
+        let Err(SolveError::NotConverged(info)) = &result else {
+            break;
+        };
+        eprintln!(
+            "the multigrid of HMC stalled at |r|²/|b|² {:.1e}: again with {what}",
+            info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
+        );
+        setup.force_rebuild();
+        result = attempt(setup, (fresh, flags.1));
+    }
+    result
 }
 
 /// `with_solves` with the coarse solves in the precision `CT`.

@@ -766,6 +766,14 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Known, not understood
 
+- **The filter is weak** (2026-10-23, 24⁴ m 0.001, 20 test vectors). Its degree is
+  1.5 √(hi/lo) between 40 and 1000, lo = hi/1000 in the first round and the largest Ritz value
+  of the block after it. After the first round (degree 48) that Ritz value is still 0.34 hi, so
+  the second round has degree 40 and damps only the top two thirds of the spectrum: the filter
+  hardly separates the low modes, and the bootstrap does the work. To try: keep lo at hi/1000 (or
+  at the m-th Ritz value of a larger block) in the later rounds, more rounds; then whether 16
+  test vectors converge on 24⁴ (P 25% smaller) and the bootstrap can be shorter. With one round
+  instead of two, HMC there did not finish (1500 s).
 - **Where α acts on Ã_L^(α)** (2026-10-23). In the mass scan on 24³×48 α 0.6 saves the multigrid
   2–3 iterations at every mass in setup B, but in S only at heavy masses (none from m 0.01 down;
   HMC on 24⁴ at m 0.001: 362 against 356), while CG gains about 20%. The note reads it as α

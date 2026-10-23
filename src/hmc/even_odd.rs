@@ -12,7 +12,7 @@
 //!   X = (η, −T_oo⁻¹ M_oe η),   Y = (ζ, −T_oo⁻† (M_eo)† ζ),
 
 use super::fermion_action::{smeared_force, CloverInsertion, ForceOp, Gamma5};
-use super::solve::{chebyshev_cg, Pre};
+use super::solve::{cg_after_multigrid, chebyshev_cg, Pre};
 use super::{Chrono, LinkField, Links, MdAction, Mseries};
 use super::{NormalSolver, Preconditioner};
 use crate::fermion::{AfterQ, Dagger, EoForm, EvenOdd, OnParity, Schur, SchurFactor};
@@ -720,16 +720,19 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
                 b,
                 stop,
             ),
-            Preconditioner::DomainWallMultigrid(setup) => op
-                .domain_wall_multigrid_half(
-                    pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
-                    setup,
-                    (fresh, md),
-                    z,
-                    b,
-                    stop,
-                )
-                .expect("an operator with the domain-wall multigrid"),
+            Preconditioner::DomainWallMultigrid(setup) => {
+                let result = op
+                    .domain_wall_multigrid_half(
+                        pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
+                        setup,
+                        (fresh, md),
+                        z,
+                        b,
+                        stop,
+                    )
+                    .expect("an operator with the domain-wall multigrid");
+                cg_after_multigrid(&mut k, result, z, b, stop)
+            }
             Preconditioner::Multigrid(_) => unreachable!("refused by with_preconditioner"),
         }
     }

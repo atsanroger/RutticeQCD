@@ -480,16 +480,19 @@ pub(super) fn normal_solve<O: ForceOp>(
             };
             solver.solve(&mut d, pre, z, b, stop)
         }
-        Preconditioner::DomainWallMultigrid(setup) => op
-            .domain_wall_multigrid(
-                pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
-                setup,
-                (fresh, md),
-                z,
-                b,
-                stop,
-            )
-            .expect("an operator with the domain-wall multigrid"),
+        Preconditioner::DomainWallMultigrid(setup) => {
+            let result = op
+                .domain_wall_multigrid(
+                    pv.expect("the multigrid of the ratio over Pauli-Villars fields"),
+                    setup,
+                    (fresh, md),
+                    z,
+                    b,
+                    stop,
+                )
+                .expect("an operator with the domain-wall multigrid");
+            super::solve::cg_after_multigrid(&mut d, result, z, b, stop)
+        }
     }
 }
 
