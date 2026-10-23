@@ -527,6 +527,56 @@ B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $3
 \end{tabular}
 \end{table}
 
+\subsection{In HMC}
+\label{sec:hmcresults}
+
+In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(K\dg K)^{-1}$,
+as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
+until it is small enough. The test vectors are kept from solve to solve and improved by a
+bootstrap when a trajectory starts; P and the coarse operators are kept until the iterations
+grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers, on the A30.
+
+\paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the
+quenched one by mixed-precision CG: 60 trajectories at $m=0.05$ (acceptance $0.98$,
+$\langle e^{-\Delta H}\rangle=1.002$), then 40 at $m=0.01$ (acceptance $0.98$,
+$\langle e^{-\Delta H}\rangle=0.993$), trajectories of length~1 with Omelyan steps
+$[20,2]$; 10 steps were unstable at $m=0.01$ ($\Delta H\approx10^3$ with $\alpha=0.6$ and
+$\alpha=1$ alike). From it, five trajectories with the multigrid reproduce those of CG: the
+plaquette to $10^{-11}$, $\Delta H$ to three digits.
+
+\paragraph{Cost.} On this lattice the multigrid is the slower solver (Table~\ref{tab:hmc16}).
+CG needs about 300 iterations a solve at $m=0.01$ and still about 300 at $m=0.001$: on a
+dynamical configuration of this size the smallest eigenvalues are held up by the finite
+volume, not by the mass. The multigrid needs about 55 iterations, but one of them, a whole
+cycle, costs about as much as 24 of CG. Varying the smoother (4, 6 or 8 steps), the coarse and
+the inner tolerances, the bootstrap rounds and the directions of GCR changed its time by at most
+$6\%$. On the quenched $24^4$ configuration at $m=0.001$ the picture is the opposite: CG needs
+about 6400 iterations a solve, and the multigrid, setup included, is faster on a short trajectory
+(203\,s against 264\,s). But a trajectory of length~1 there blows up ($\Delta H\approx4\times10^9$),
+so that configuration is no test of HMC. Data that show the multigrid faster in HMC therefore do
+not exist yet: the dynamical volumes thermalized here are limited by the finite volume. They need
+a volume where CG takes more than about 1300 iterations a solve.
+
+\begin{table}[t]
+\centering
+\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$, A30:
+seconds a trajectory of length~1 (Omelyan $[20,2]$ at $m=0.01$, $[40,2]$ at $m=0.001$), with the
+iterations a solve. The multigrid: 16 filtered vectors, GCR(2), the cycle in single precision;
+its time includes its setup (a bootstrap a trajectory) and rebuilds.}
+\label{tab:hmc16}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{mixed CG} & \multicolumn{2}{c}{multigrid}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+$m$ & s & it/solve & s & it/solve\\
+\midrule
+$0.01$  & $23$ & $290$ & $79$  & $37$\\
+$0.001$ & $47$ & $305$ & $195$ & $55$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{$\Gfive$-Hermiticity for $c\neq0$}
 \label{sec:herm}
 

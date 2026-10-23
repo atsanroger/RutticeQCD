@@ -48,6 +48,15 @@ Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 5. **Documented**: USAGE says how to set the multigrid of HMC (GCR(8) or what replaces it,
    the cache, `fine_precision`, α); the note has the HMC results.
 
+**HMC cost, measured (2026-10-23):** on a dynamical 16⁴ configuration (thermalized from the
+quenched one: 60 trajectories at m 0.05, 40 at m 0.01, `therm16/` on as13) CG needs about 300
+iterations a solve at m 0.01 and at m 0.001 (finite volume), and the multigrid is 3.4 (m 0.01) and
+4.2 (m 0.001) times slower a trajectory; tuning (smoother 4/6/8, coarse 1e-1, inner 1e-14,
+bootstrap 1 round, GCR(4)) gains at most 6%. The 24⁴ quenched configuration, where CG needs 6400,
+blows up in a trajectory of length 1. So there are no data yet that the multigrid is faster in
+HMC: the volumes thermalized here are finite-volume limited (the note, "In HMC"). Next: a volume
+where CG needs more than about 1300 iterations a solve.
+
 **Released 2026-10-23** on the user's call, with: 1 done (19.1 GB live with 20 test vectors);
 2 done (the left form for D, D† unchanged; CG on the even-odd Ratio takes α too, on K Q_e);
 3 measured on one short trajectory only (24⁴, m 0.001, length 0.01: multigrid 242 s with its
