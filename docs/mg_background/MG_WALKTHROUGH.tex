@@ -695,109 +695,313 @@ odd part), so it is applied directly as one adjoint Schur factor of $\Dpv$. Each
 one cycle, as for $D$.
 
 % ======================================================================
-\section{HMC}
+\section{HMC, from the beginning}
+This section explains HMC for a reader who meets it for the first time, and then shows where the
+multigrid enters. Every step is written out.
 
-\subsection{The even-odd Ratio action}
-Two flavours over two Pauli--Villars flavours, as Bridge++ writes it (\code{Action\_F\_alt\_Ratio\_eo}):
-with $K=\Ce^{-1}S$ (the left Schur factor) and $H=\Gfive K$,
+\subsection{What we want to compute}
+Lattice QCD computes expectation values in the path integral,
 \begin{equation}
-S_F=\phi_e\dg H_{\rm PV}\,(H\dg H)^{-1}H_{\rm PV}\dg\phi_e .
+\langle\mathcal O\rangle=\frac1Z\int\mathcal DU\,\mathcal D\bar\psi\,\mathcal D\psi\;
+\mathcal O\,e^{-S_g[U]-\bar\psi D[U]\psi},\qquad
+Z=\int\mathcal DU\,\mathcal D\bar\psi\,\mathcal D\psi\;e^{-S_g[U]-\bar\psi D[U]\psi},
 \end{equation}
-Since $\Gfive$ is Hermitian and unitary,
+with $U$ the gauge links, $S_g$ the gauge action (here the plaquette action at $\beta=6.0$) and
+$\psi$ the quark field. The quark fields are Grassmann numbers, and their integral can be done
+exactly:
 \begin{equation}
-H\dg H=K\dg\Gfive\Gfive K=K\dg K ,
+\int\mathcal D\bar\psi\,\mathcal D\psi\;e^{-\bar\psi D\psi}=\det D .
 \end{equation}
-and with $v_1\equiv H_{\rm PV}\dg\phi_e=K_{\rm PV}\dg\Gfive\phi_e$,
+For two degenerate flavours (up and down) each flavour gives one $\det D$:
+\begin{align}
+Z&=\int\mathcal DU\;e^{-S_g[U]}\,\det D[U]\,\det D[U]\\
+&=\int\mathcal DU\;e^{-S_g[U]}\,\det\!\big(D\dg D\big)[U],
+\end{align}
+where the second line uses that $\det D$ is real, so $(\det D)^2=\det D^*\det D=\det(D\dg D)$.
+That $\det D$ is real follows from the exact relation $D_-\Gfive D\dg=D\Gfive D_-\dg$ of
+Sec.~\ref{sec:dagger}, taking determinants ($\det\Gfive=\pm1$ cancels on both sides):
+\begin{align}
+\det D_-\,\det D\dg&=\det D\,\det D_-\dg\\
+\det D_-\,(\det D)^*&=\det D\,(\det D_-)^*\\
+(\det D)^*&=\det D\qquad\big(\det D_-\ \text{is real: }D_-=cW-1\ \text{and}\ \gamma_5W\gamma_5=W\dg\big).
+\end{align}
+So the problem is to generate gauge fields $U$ with the probability
 \begin{equation}
-S_F=v_1\dg\,(K\dg K)^{-1}\,v_1 .
+P[U]\;\propto\;e^{-S_g[U]}\det\!\big(D\dg D\big)[U] .
 \end{equation}
-\paragraph{Heat bath.} Draw $\xi_e$ Gaussian and set
-$\phi_e=H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e$. Then, step by step,
+$\det(D\dg D)$ is the hard part: it couples all sites at once, and computing it directly costs
+$O(V^3)$.
+
+\paragraph{The Pauli--Villars ratio.} The domain-wall operator has $L_s$ slices. Only the modes bound
+to the walls are the physical quark; the modes in the bulk of the fifth dimension are heavy,
+unphysical, and their determinant diverges as $L_s\to\infty$. They are removed by dividing by the
+determinant of the same operator at unit mass, the Pauli--Villars operator, whose wall modes are
+heavy too:
+\begin{equation}
+\det\!\big(D\dg D\big)\;\longrightarrow\;\frac{\det\!\big(D\dg D\big)}{\det\!\big(\Dpv\dg\Dpv\big)} .
+\end{equation}
+This is the ``Ratio'' action.
+
+\subsection{Pseudofermions: a determinant as a Gaussian integral}
+\paragraph{One complex variable.} For a number $a>0$ and a complex variable $\phi=x+iy$,
+\begin{align}
+\int\frac{dx\,dy}{\pi}\;e^{-\phi^*a^{-1}\phi}
+&=\int\frac{dx\,dy}{\pi}\;e^{-(x^2+y^2)/a}\\
+&=\frac1\pi\Big(\int dx\,e^{-x^2/a}\Big)\Big(\int dy\,e^{-y^2/a}\Big)\\
+&=\frac1\pi\,\sqrt{\pi a}\,\sqrt{\pi a}=a .
+\end{align}
+\paragraph{Many variables.} For a Hermitian positive matrix $A=V\Lambda V\dg$ (eigenvalues
+$a_k>0$), change variables $\phi=V\chi$; the Jacobian of a unitary change is $1$:
+\begin{align}
+\int\mathcal D\phi\;e^{-\phi\dg A^{-1}\phi}
+&=\int\mathcal D\chi\;e^{-\chi\dg V\dg V\Lambda^{-1}V\dg V\chi}\\
+&=\int\mathcal D\chi\;e^{-\sum_k|\chi_k|^2/a_k}\\
+&=\prod_k a_k=\det A .
+\end{align}
+So a determinant is a Gaussian integral over \emph{bosonic} fields $\phi$, the pseudofermions:
+\begin{equation}
+\det A=\int\mathcal D\phi\;e^{-\phi\dg A^{-1}\phi} .
+\end{equation}
+\paragraph{The ratio.} Take $A$ such that $\det A$ is our ratio. With $H=\Gfive D$ (whose
+determinant has the modulus of $\det D$),
+\begin{align}
+A&=H_{\rm PV}\,(H\dg H)^{-1}\,H_{\rm PV}\dg,\\
+\det A&=\det H_{\rm PV}\,\det(H\dg H)^{-1}\,\det H_{\rm PV}\dg
+=\frac{\det(H_{\rm PV}\dg H_{\rm PV})}{\det(H\dg H)}.
+\end{align}
+Note this is the \emph{inverse} of the ratio; the action uses $A^{-1}$ in the exponent, so
+\begin{equation}
+\int\mathcal D\phi\;e^{-\phi\dg A\phi}=\det A^{-1}=\frac{\det(H\dg H)}{\det(H_{\rm PV}\dg H_{\rm PV})}
+=\frac{\det(D\dg D)}{\det(\Dpv\dg\Dpv)},
+\end{equation}
+and the pseudofermion action is
+\begin{equation}
+S_F[U,\phi]=\phi\dg A\phi=\phi\dg H_{\rm PV}(H\dg H)^{-1}H_{\rm PV}\dg\phi .
+\end{equation}
+The joint distribution of $(U,\phi)$ is $e^{-S_g-S_F}$; integrating out $\phi$ gives back $P[U]$.
+
+\subsection{Even-odd: only $K$ depends on the links}
+Factor $D$ into block triangular matrices (LDU):
+\begin{equation}
+\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
+=\begin{pmatrix}1&D_{eo}\Co^{-1}\\0&1\end{pmatrix}
+\begin{pmatrix}S&0\\0&\Co\end{pmatrix}
+\begin{pmatrix}1&0\\\Co^{-1}D_{oe}&1\end{pmatrix}.
+\end{equation}
+Check by multiplying out the last two factors and then the first:
+\begin{align}
+\begin{pmatrix}S&0\\0&\Co\end{pmatrix}\begin{pmatrix}1&0\\\Co^{-1}D_{oe}&1\end{pmatrix}
+&=\begin{pmatrix}S&0\\D_{oe}&\Co\end{pmatrix},\\
+\begin{pmatrix}1&D_{eo}\Co^{-1}\\0&1\end{pmatrix}\begin{pmatrix}S&0\\D_{oe}&\Co\end{pmatrix}
+&=\begin{pmatrix}S+D_{eo}\Co^{-1}D_{oe}&D_{eo}\\D_{oe}&\Co\end{pmatrix}
+=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}.
+\end{align}
+The triangular factors have determinant $1$, so
+\begin{align}
+\det D&=\det S\,\det\Co\\
+&=\det\big(\Ce K\big)\det\Co\qquad(K=\Ce^{-1}S)\\
+&=\det\Ce\,\det\Co\,\det K .
+\end{align}
+$\Ce$ and $\Co$ do not depend on the links (Sec.~1.4), so they are constants and drop out of
+$P[U]$. Only $\det K$ is needed, on the even sites alone, half the lattice. The action becomes
+\begin{equation}
+S_F=\phi_e\dg H_{\rm PV}(H\dg H)^{-1}H_{\rm PV}\dg\phi_e,\qquad H=\Gfive K,\ \ H_{\rm PV}=\Gfive K_{\rm PV},
+\end{equation}
+and since $\Gfive$ is Hermitian and unitary, $H\dg H=K\dg\Gfive\Gfive K=K\dg K$, so with
+$v_1=H_{\rm PV}\dg\phi_e=K_{\rm PV}\dg\Gfive\phi_e$,
+\begin{equation}
+\boxed{\;S_F=v_1\dg\,(K\dg K)^{-1}\,v_1\;}
+\end{equation}
+This is the action of the code (Bridge++'s \code{Action\_F\_alt\_Ratio\_eo}).
+
+\subsection{The idea of HMC}
+Sampling $U$ with $P[U]\propto e^{-S[U]}$, $S=S_g+S_F$, by small random changes is hopeless: each
+accepted change moves one link a little. HMC moves all links at once along a long path, and still
+samples $P[U]$ exactly.
+
+\paragraph{Fictitious momenta.} For every link introduce a momentum $\pi_\mu(x)$, a traceless
+Hermitian $3\times3$ matrix, and the Hamiltonian
+\begin{equation}
+\mathcal H[U,\pi]=\tfrac12\sum_{x,\mu}\operatorname{tr}\pi_\mu(x)^2+S[U] .
+\end{equation}
+The joint distribution $e^{-\mathcal H}=e^{-\frac12\sum\operatorname{tr}\pi^2}\,e^{-S[U]}$ is a
+product: the momenta are Gaussian and independent of $U$. Sampling $(U,\pi)$ from $e^{-\mathcal
+H}$ and forgetting $\pi$ samples $U$ from $e^{-S}$.
+
+\paragraph{One trajectory.}
+\begin{enumerate}
+\item Draw $\pi$ from its Gaussian and $\phi_e$ by the heat bath (below).
+\item Evolve $(U,\pi)$ for a fictitious time $\tau$ (here $\tau=1$) by Hamilton's equations,
+\begin{equation}
+\dot U_\mu(x)=i\,\pi_\mu(x)\,U_\mu(x),\qquad \dot\pi_\mu(x)=-F_\mu(x),
+\end{equation}
+with the force $F$ the derivative of $S$ with respect to $U$ (below). Exactly solved, these
+conserve $\mathcal H$.
+\item The numerical integration does not conserve $\mathcal H$ exactly. Accept the new $U$ with
+probability $\min(1,e^{-\Delta\mathcal H})$, $\Delta\mathcal H=\mathcal H_{\rm end}-\mathcal
+H_{\rm start}$; otherwise keep the old $U$ (the Metropolis test).
+\end{enumerate}
+\paragraph{Why the result is exact.} The test makes the method exact for any step size, provided
+the integrator has two properties: it is \emph{reversible} (running it with the momenta reversed
+brings $(U,-\pi)$ back) and it \emph{preserves volume} in $(U,\pi)$ space. Then the proposal
+$(U,\pi)\to(U',\pi')$ is as likely as its reverse, and the acceptance $\min(1,e^{-\Delta\mathcal H})$
+gives detailed balance with $e^{-\mathcal H}$:
+\begin{align}
+e^{-\mathcal H(U,\pi)}\min\big(1,e^{-[\mathcal H(U',\pi')-\mathcal H(U,\pi)]}\big)
+&=\min\big(e^{-\mathcal H(U,\pi)},e^{-\mathcal H(U',\pi')}\big)\\
+&=e^{-\mathcal H(U',\pi')}\min\big(1,e^{-[\mathcal H(U,\pi)-\mathcal H(U',\pi')]}\big),
+\end{align}
+which is symmetric in the two states. A small step size only raises the acceptance.
+
+\subsection{The integrator}
+\paragraph{Leapfrog.} Split a step of size $\epsilon$ into half a momentum update, a full link
+update, and half a momentum update:
+\begin{align}
+\pi&\leftarrow\pi-\tfrac\epsilon2F(U),\\
+U&\leftarrow e^{i\epsilon\pi}U,\\
+\pi&\leftarrow\pi-\tfrac\epsilon2F(U).
+\end{align}
+Each of the three updates changes only $U$ or only $\pi$ by an amount that depends on the other
+one, so each is volume preserving (a shear), and the product of shears is too. Reversing $\pi$
+and running the step again undoes it, update by update. The energy error after a trajectory is
+$O(\epsilon^2)$.
+
+\paragraph{Omelyan.} With a parameter $\lambda\approx0.193$,
+\begin{equation}
+\pi\leftarrow\pi-\lambda\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\pi}U,\quad
+\pi\leftarrow\pi-(1-2\lambda)\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\pi}U,\quad
+\pi\leftarrow\pi-\lambda\epsilon F .
+\end{equation}
+It is still reversible and volume preserving, and $\lambda$ is chosen to make the leading error
+term about ten times smaller than that of leapfrog, at two force evaluations per step instead of
+one. $e^{i\epsilon\pi}$ is evaluated by its Taylor series (order 8 in the runs).
+
+\paragraph{Nested steps.} The gauge force is cheap and the fermion force expensive. The runs use
+two levels: the fermion force with $n$ Omelyan steps, and within each of its link updates the gauge
+force with 2 steps of its own (``\code{number\_of\_steps: [n, 2]}'').
+
+\paragraph{How many solves.} At the fermion level, consecutive momentum updates of neighbouring
+steps merge into one ($\lambda\epsilon+\lambda\epsilon=2\lambda\epsilon$). Count the force
+evaluations of $n$ steps:
+\begin{equation}
+\underbrace{1}_{\lambda\epsilon\text{ at the start}}+\underbrace{n}_{(1-2\lambda)\epsilon}
++\underbrace{n-1}_{2\lambda\epsilon\text{ between steps}}+\underbrace{1}_{\lambda\epsilon\text{ at the end}}
+=2n+1 .
+\end{equation}
+Each needs one solve with $K\dg K$, and the energy at the start and the end one more each:
+\begin{equation}
+\text{solves per trajectory}=2n+3 .
+\end{equation}
+For $n=20$ this is 43 and for $n=40$ it is 83, the numbers the runs report.
+
+\paragraph{Step size and stability.} The force grows as the quark mass falls (the low modes of $K$
+come closer to zero). If $\epsilon$ times the largest force frequency exceeds a threshold, the
+integrator becomes unstable and $\Delta\mathcal H$ explodes rather than growing smoothly. On the
+dynamical $16^4$ configuration at $m=0.01$, $n=10$ gave $\Delta\mathcal H\approx10^3$ (every
+trajectory rejected), $n=20$ gave $|\Delta\mathcal H|\approx0.05$ (acceptance $0.98$), and
+$n=40$ gave $0.005$.
+
+\subsection{The heat bath for $\phi_e$}
+$\phi_e$ must be drawn from $e^{-S_F}$ at fixed $U$. Draw $\xi_e$ Gaussian, $P(\xi_e)\propto
+e^{-|\xi_e|^2}$, and set
+\begin{equation}
+\phi_e=H_{\rm PV}\,(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\,\xi_e .
+\end{equation}
+Then $S_F=|\xi_e|^2$, so $\phi_e$ has the right distribution:
 \begin{align}
 H_{\rm PV}\dg\phi_e&=H_{\rm PV}\dg H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e=H\dg\xi_e,\\
-S_F&=(H\dg\xi_e)\dg(H\dg H)^{-1}(H\dg\xi_e)\\
-&=\xi_e\dg H(H\dg H)^{-1}H\dg\xi_e\\
-&=\xi_e\dg HH^{-1}H^{-\dagger}H\dg\xi_e=|\xi_e|^2 ,
+S_F&=(H_{\rm PV}\dg\phi_e)\dg(H\dg H)^{-1}(H_{\rm PV}\dg\phi_e)\\
+&=(H\dg\xi_e)\dg(H\dg H)^{-1}(H\dg\xi_e)\\
+&=\xi_e\dg H\,H^{-1}H^{-\dagger}\,H\dg\xi_e\\
+&=\xi_e\dg\xi_e .
 \end{align}
-as required. The heat bath costs one solve with the Pauli--Villars operator (CG; it is well
-conditioned).
+This costs one solve with the Pauli--Villars operator ($H_{\rm PV}\dg H_{\rm PV}$, well conditioned:
+CG converges fast).
 
-\paragraph{Force.} Vary the links. With $\chi=\Gfive\phi_e$, $v_1=K_{\rm PV}\dg\chi$ and
-$v_2=(K\dg K)^{-1}v_1$:
+\subsection{The force}
+The force is the change of $S_F$ when the links change. Vary $U$; $\phi_e$ is fixed. With
+$\chi=\Gfive\phi_e$, $v_1=K_{\rm PV}\dg\chi$ and $v_2=(K\dg K)^{-1}v_1$, and using
+$\delta(M^{-1})=-M^{-1}(\delta M)M^{-1}$:
 \begin{align}
-\delta S_F&=\delta v_1\dg\,v_2+v_2\dg\,\delta v_1+v_1\dg\,\delta\big[(K\dg K)^{-1}\big]v_1\\
-&=2\,\Re\,(\delta v_1)\dg v_2-v_1\dg(K\dg K)^{-1}\,\delta(K\dg K)\,(K\dg K)^{-1}v_1\\
-&=2\,\Re\,\chi\dg\,\delta K_{\rm PV}\,v_2-v_2\dg\big(\delta K\dg\,K+K\dg\,\delta K\big)v_2\\
+\delta S_F&=\delta\big[v_1\dg(K\dg K)^{-1}v_1\big]\\
+&=(\delta v_1)\dg(K\dg K)^{-1}v_1+v_1\dg(K\dg K)^{-1}\delta v_1+v_1\dg\,\delta\big[(K\dg K)^{-1}\big]\,v_1\\
+&=(\delta v_1)\dg v_2+v_2\dg\,\delta v_1-v_1\dg(K\dg K)^{-1}\,\delta(K\dg K)\,(K\dg K)^{-1}v_1\\
+&=2\,\Re\,(\delta v_1)\dg v_2-v_2\dg\,\delta(K\dg K)\,v_2\\
+&=2\,\Re\,(\delta K_{\rm PV}\dg\chi)\dg v_2-v_2\dg\big(\delta K\dg\,K+K\dg\,\delta K\big)v_2\\
 &=2\,\Re\,\chi\dg\,\delta K_{\rm PV}\,v_2-2\,\Re\,(Kv_2)\dg\,\delta K\,v_2 .
 \end{align}
-So every force evaluation needs one solve $v_2=(K\dg K)^{-1}v_1$, and every energy evaluation (at
-the start and the end of a trajectory) one more. The derivative of $K$ is that of the hops in $S$
-($\Ce$ does not depend on the links), taken with respect to the smeared links and carried back
-through the stout derivative.
+So one force evaluation needs exactly one solve, $v_2=(K\dg K)^{-1}v_1$; the rest are
+multiplications. $\delta K$ comes from the hops in $S$ alone ($\Ce$ does not depend on the links):
+for a variation of one link, only the hops through that link contribute, and the two terms above
+become a local outer product of $v_2$, $Kv_2$ and $\chi$ at the two ends of the link. With stout
+smearing the operator sees the smeared links; the force is taken with respect to them and carried
+back to the thin links by the chain rule through the smearing steps.
 
-\subsection{$(K\dg K)^{-1}$ with the multigrid: two solves}
-Invert the product and use $K=\Ce^{-1}S$:
+\subsection{How precisely to solve}
+\paragraph{Energy.} $\mathcal H$ at the start and the end enters $\Delta\mathcal H$ directly, and an
+error there biases the Metropolis test. These solves are done to $|r|^2/|b|^2<10^{-24}$.
+\paragraph{Force.} An error in the force only changes the trajectory, which the test corrects,
+\emph{as long as the integrator stays reversible}. A solve from a zero initial guess is a fixed
+function of the links, so reversibility holds to its tolerance; $10^{-16}$ is ample. (Starting the
+force solves from the previous solutions, \code{number\_of\_initial\_guess}, saves iterations but
+breaks reversibility at the level of the tolerance; it is off by default.)
+
+\subsection{Solving $(K\dg K)^{-1}$}
+\paragraph{With CG.} $K\dg K$ is Hermitian positive, so CG solves it directly; each iteration costs
+two applications of $K$. Mixed precision runs CG in single precision with corrections in double.
+With Neff's $\alpha$, Eq.~\eqref{eq:Ksim} gives $K=Q_eK^{(\alpha)}Q_e^{-1}$ and
+\begin{align}
+K\dg K&=Q_e^{-1}K^{(\alpha)\dagger}Q_e\,Q_eK^{(\alpha)}Q_e^{-1}\\
+&=Q_e^{-1}\,(Q_eK^{(\alpha)})\dg(Q_eK^{(\alpha)})\,Q_e^{-1}\\
+&=Q_e^{-1}\,(KQ_e)\dg(KQ_e)\,Q_e^{-1}\qquad(Q_eK^{(\alpha)}=KQ_e),\\
+(K\dg K)^{-1}&=Q_e\big[(KQ_e)\dg(KQ_e)\big]^{-1}Q_e ,
+\end{align}
+so CG runs on the normal equation of $KQ_e$, better conditioned, while the action and the force stay
+those of $K$ (on $24^4$ at $m=0.001$: 22\% fewer iterations).
+
+\paragraph{With the multigrid: two solves.} The multigrid solves with $D$ and $D\dg$, not with
+$K\dg K$. Invert the product, with $K=\Ce^{-1}S$:
 \begin{align}
 (K\dg K)^{-1}&=K^{-1}K^{-\dagger}\\
 &=(\Ce^{-1}S)^{-1}\big[(\Ce^{-1}S)\dg\big]^{-1}\\
 &=S^{-1}\Ce\;\Ce\dg S^{-\dagger} .
 \end{align}
-So $z=(K\dg K)^{-1}r$ is computed as
+So $z=(K\dg K)^{-1}r$ is two solves:
 \begin{align}
-w&=\Ce\dg\,S^{-\dagger}r=\Ce\dg\,\pi D^{-\dagger}\iota\,r &&\text{(a solve with $D\dg$, Sec.~\ref{sec:dagger})},\\
-z&=S^{-1}\Ce\,w=\pi D^{-1}\iota\,\Ce w &&\text{(a solve with $D$)}.
+w&=\Ce\dg\,S^{-\dagger}r=\Ce\dg\,\pi D^{-\dagger}\iota\,r &&\text{(with $D\dg$, Sec.~\ref{sec:dagger})},\\
+z&=S^{-1}\Ce\,w=\pi D^{-1}\iota\,\Ce w &&\text{(with $D$)}.
 \end{align}
-Each solve stops at a relative residual $10^{-10}$. The normal equation must be solved much more
-accurately ($10^{-16}$ for the force, $10^{-24}$ for the energy), so the two solves are repeated on
-the residual (iterative refinement):
+Each solve stops at $10^{-10}$, while the normal equation needs $10^{-16}$ or $10^{-24}$. So the two
+solves are repeated on the residual of the normal equation (iterative refinement):
 \begin{align}
-r^{(k)}&=b-K\dg Kz^{(k)}\\
-z^{(k+1)}&=z^{(k)}+K^{-1}K^{-\dagger}r^{(k)}\qquad(\text{two solves to }10^{-10}),
+r^{(k)}&=b-K\dg Kz^{(k)},\\
+z^{(k+1)}&=z^{(k)}+K^{-1}K^{-\dagger}r^{(k)} ,
 \end{align}
-each sweep gaining about ten digits, at most eleven sweeps.
+each sweep gaining about ten digits, at most eleven sweeps. With $\alpha$ the solve with $D$ uses
+$D^{-1}=QD^{(\alpha)-1}$ (the left form $\AL^{(\alpha)}$); the solve with $D\dg$ is unchanged, since
+$D^{(\alpha)\dagger}=QD\dg$ only rescales its right-hand side.
 
 \paragraph{When the sweeps stall.} If the sweeps stop gaining (the coarse space no longer fits the
 links, as after large link changes), the solve is repeated from the current $z$ with $\Pro$ and the
-coarse operators rebuilt for the current links, then also after a bootstrap; if it still stalls,
-CG on $K\dg K$ finishes it from the current $z$ (with at least 50000 iterations), with a warning.
-A trajectory is never lost to the multigrid.
+coarse operators rebuilt for the current links, then also after a bootstrap; if it still stalls, CG
+finishes it from the current $z$, with a warning. A trajectory is never lost to the multigrid.
 
-\subsection{Neff's $\alpha$ in HMC}
-\paragraph{CG.} From Eq.~\eqref{eq:Ksim}, $K=Q_eK^{(\alpha)}Q_e^{-1}$. Then
-\begin{align}
-K\dg K&=Q_e^{-1}K^{(\alpha)\dagger}Q_eQ_eK^{(\alpha)}Q_e^{-1}\\
-&=Q_e^{-1}\big(Q_eK^{(\alpha)}\big)\dg\big(Q_eK^{(\alpha)}\big)Q_e^{-1}\\
-&=Q_e^{-1}\,(KQ_e)\dg(KQ_e)\,Q_e^{-1}\qquad(KQ_e=Q_eK^{(\alpha)}),\\
-(K\dg K)^{-1}&=Q_e\big[(KQ_e)\dg(KQ_e)\big]^{-1}Q_e .
-\end{align}
-So CG runs on the normal equation of $KQ_e$, whose singular values are close to those of
-$\alpha K^{(\alpha)}$, and the action and the force stay those of $K$. On $24^4$ at $m=0.001$ this
-cut the CG iterations by 22\%.
-
-\paragraph{Multigrid.} The solve with $D$ uses $D^{-1}=QD^{(\alpha)\,-1}$: the left form
-$\AL^{(\alpha)}$ with the factors of the table above and $\psi=Q\psi^{(\alpha)}$. The solve with $D\dg$ is
-unchanged: $D^{(\alpha)\dagger}=QD\dg$, so $\alpha$ would only rescale its right-hand side. The setup
-is that of $D$.
-
-\paragraph{Why $\alpha$ helps CG more than the multigrid.} $K^{(\alpha)}=Q_e^{-1}KQ_e$ has the
-eigenvalues of $K$ but other singular values ($Q_e$ is not unitary). CG on the normal equation sees
-the singular values, so it gains. The multigrid's iterations do not follow the whole condition
-number: the coarse grid takes the low modes and the smoother the rest, and $\alpha$ helps only the
-smoother's part. In the propagator mass scan this saves 2--3 iterations at every mass with
-$M_5=1.8$ (smoother interval $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, wide) and only at heavy
-masses with stout links ($[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$).
-
-\subsection{What is kept along a trajectory}
+\subsection{What the multigrid keeps along a trajectory}
+The links change a little at every step of the integrator, and the setup is expensive, so the
+multigrid is not rebuilt for every solve.
 \begin{itemize}
-\item The test vectors $y$: kept from solve to solve (on the host between solves), improved by a
-bootstrap (from the old $y$, not a new filter) when the pseudofermions are drawn.
-\item $\Pro$, the coarse operators, the top of the smoother's interval: kept from solve to solve
-while the links move, and rebuilt for the current links when the GCR iterations per solve have
-grown by half (\code{rebuild\_iteration\_growth}~$=1.5$) or after a bootstrap.
-\item The cycle itself is made for each solve from the kept parts and dropped after it.
+\item The test vectors $y$ are kept from solve to solve (on the host between solves) and improved by
+a bootstrap, from the old $y$, when the pseudofermions are drawn; the filter runs only for the
+first trajectory.
+\item $\Pro$, the coarse operators and the top of the smoother's interval are kept while the links
+move and rebuilt for the current links when the GCR iterations per solve have grown by half
+(\code{rebuild\_iteration\_growth}~$=1.5$) or after a bootstrap.
+\item The cycle is made for each solve from these parts and dropped after it.
 \end{itemize}
+A kept coarse space is the coarse space of slightly different links. It is still a good
+preconditioner; GCR on the operator of the current links keeps the solve exact.
 
-\subsection{Memory (24$^4$, $m=0.001$, 20 vectors, levels below, A30)}
+\subsection{Memory ($24^4$, $m=0.001$, 20 vectors, levels below, A30)}
 \begin{center}
 \begin{tabular}{@{}lr@{}}
 \toprule
@@ -812,21 +1016,23 @@ peak (live) & 19.1\\
 \bottomrule
 \end{tabular}
 \end{center}
+Mixed CG needs about 9\,GB on the same lattice.
 
 \subsection{What the measurements say so far}
 \begin{itemize}
-\item On a thermalized dynamical $16^4$ configuration the multigrid reproduces the trajectories
-of CG (plaquette to $10^{-11}$).
-\item There CG needs about 300 iterations per solve at $m=0.01$ and at $m=0.001$ alike: the low end
-of the spectrum is held up by the finite volume, not by the mass. The multigrid needs about 55
-iterations, but one of them (a whole cycle) costs about 24 CG iterations, so it is 3--4 times
-slower per trajectory. Tuning gains at most 6\%.
-\item On the quenched $24^4$ configuration CG needs about 6400 iterations and the multigrid wins,
-but a trajectory of length 1 there blows up. So there are no data yet that show the multigrid
-faster in HMC; it needs a volume where CG takes more than about 1300 iterations per solve.
+\item On a thermalized dynamical $16^4$ configuration (60 trajectories at $m=0.05$, then 40 at
+$m=0.01$ from the quenched one) the multigrid reproduces the trajectories of CG: the plaquette to
+$10^{-11}$, $\Delta\mathcal H$ to three digits. This checks that it solves the right equation.
+\item There CG needs about 300 iterations per solve at $m=0.01$ and at $m=0.001$ alike: on a lattice
+this small the lowest eigenvalues are held up by the finite volume, not by the mass. The multigrid
+needs about 55 iterations, but one of them (a whole cycle) costs about 24 CG iterations, so it is
+3--4 times slower per trajectory. Tuning gains at most 6\%.
+\item On the quenched $24^4$ configuration CG needs about 6400 iterations per solve and the
+multigrid wins, but a trajectory of length 1 there blows up ($\Delta\mathcal H\approx4\times10^9$),
+so it is no test of HMC. There are no data yet that show the multigrid faster in HMC; that needs a
+volume where CG takes more than about 1300 iterations per solve.
 \end{itemize}
 
-% ======================================================================
 \section{Map to the code}
 \begin{center}
 \small
