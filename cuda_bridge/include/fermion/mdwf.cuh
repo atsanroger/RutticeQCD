@@ -92,7 +92,8 @@ __global__ void mdwf_fifth_kernel(
     Float a1, Float y1, Float a2, Float y2,
     int dagger)
 {
-    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < sites; site += blockDim.x * gridDim.x) {
+    for (size_t at : GridStride(sites)) {
+        const int site = static_cast<int>(at);
         for (int is = 0; is < Ls; ++is) {
             Float acc[Nspin][Nc][Ncomplex];
             fifth_term<Float>(acc, d_x, is, Ls, site, mass, a1, y1, dagger != 0);
@@ -133,7 +134,8 @@ __global__ void gamma5_kernel(
     int Ls,
     int reflect)
 {
-    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < sites; site += blockDim.x * gridDim.x) {
+    for (size_t at : GridStride(sites)) {
+        const int site = static_cast<int>(at);
         for (int is = 0; is < Ls; ++is) {
             const int from = reflect ? Ls - 1 - is : is;
             Float phi[Nspin][Nc][Ncomplex], g[Nspin][Nc][Ncomplex];

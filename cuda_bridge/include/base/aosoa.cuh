@@ -64,28 +64,32 @@ __host__ __device__ __forceinline__ int coords_to_site(
 }
 
 // -------------------------------------------------------------------------
-// Grid-Stride Loop Helpers
+// The grid-stride loop: `for (size_t i : GridStride(n))` gives thread t of the grid the indices
+// t, t + T, t + 2T, ... below n, T the threads of the grid. A kernel over n independent
+// elements is launched with any grid (capped, e.g. at 1024 blocks) and still covers them all;
+// consecutive threads take consecutive indices, so the reads of a warp are coalesced. Indices
+// are size_t: n may be vectors times the reals of a field.
 // -------------------------------------------------------------------------
 struct GridStride {
-    int start;
-    int stride;
-    int total;
+    size_t start;
+    size_t stride;
+    size_t total;
 
-    __host__ __device__ __forceinline__ GridStride(int n)
-        : start(blockIdx.x * blockDim.x + threadIdx.x),
-          stride(blockDim.x * gridDim.x),
+    __device__ __forceinline__ explicit GridStride(size_t n)
+        : start(static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x),
+          stride(static_cast<size_t>(blockDim.x) * gridDim.x),
           total(n) {}
 
     struct Iterator {
-        int i;
-        int stride;
-        __host__ __device__ __forceinline__ int operator*() const { return i; }
-        __host__ __device__ __forceinline__ Iterator& operator++() { i += stride; return *this; }
-        __host__ __device__ __forceinline__ bool operator!=(const Iterator& o) const { return i < o.i; }
+        size_t i;
+        size_t stride;
+        __device__ __forceinline__ size_t operator*() const { return i; }
+        __device__ __forceinline__ Iterator& operator++() { i += stride; return *this; }
+        __device__ __forceinline__ bool operator!=(const Iterator& end) const { return i < end.i; }
     };
 
-    __host__ __device__ __forceinline__ Iterator begin() const { return {start, stride}; }
-    __host__ __device__ __forceinline__ Iterator end() const { return {total, stride}; }
+    __device__ __forceinline__ Iterator begin() const { return {start, stride}; }
+    __device__ __forceinline__ Iterator end() const { return {total, stride}; }
 };
 
 } // namespace bridge_cuda

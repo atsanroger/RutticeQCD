@@ -2,6 +2,7 @@
 #define BRIDGE_CUDA_LINALG_BLAS_CUH
 
 #include "../base/types.h"
+#include "../base/aosoa.cuh"
 #include <cuda_runtime.h>
 
 namespace bridge_cuda {
@@ -21,7 +22,7 @@ struct BlasCoefficients {
 template <typename Float>
 __global__ void blas_scal_kernel(Float* __restrict__ x, BlasCoefficients<Float> a, int n, int vectors) {
     const size_t all = static_cast<size_t>(n) * vectors;
-    for (size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < all; i += blockDim.x * gridDim.x) {
+    for (size_t i : GridStride(all)) {
         x[i] *= a.re[i / n];
     }
 }
@@ -37,7 +38,7 @@ __device__ __forceinline__ size_t blas_real_index(size_t pair) {
 template <typename Float>
 __global__ void blas_caxpy_kernel(Float* __restrict__ y, const Float* __restrict__ x, BlasCoefficients<Float> a, int pairs, int vectors) {
     const size_t all = static_cast<size_t>(pairs) * vectors;
-    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < all; p += blockDim.x * gridDim.x) {
+    for (size_t p : GridStride(all)) {
         const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
         const Float ar = a.re[p / pairs], ai = a.im[p / pairs];
         const Float xr = x[kr], xi = x[ki];
@@ -50,7 +51,7 @@ __global__ void blas_caxpy_kernel(Float* __restrict__ y, const Float* __restrict
 template <typename Float>
 __global__ void blas_caypx_kernel(Float* __restrict__ y, const Float* __restrict__ x, BlasCoefficients<Float> a, int pairs, int vectors) {
     const size_t all = static_cast<size_t>(pairs) * vectors;
-    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < all; p += blockDim.x * gridDim.x) {
+    for (size_t p : GridStride(all)) {
         const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
         const Float ar = a.re[p / pairs], ai = a.im[p / pairs];
         const Float yr = y[kr], yi = y[ki];
@@ -71,7 +72,7 @@ __global__ void blas_caypx_kernel(Float* __restrict__ y, const Float* __restrict
 template <typename Op>
 __global__ void blas_map_kernel(Op op, int pairs, int vectors) {
     const size_t all = static_cast<size_t>(pairs) * vectors;
-    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < all; p += blockDim.x * gridDim.x) {
+    for (size_t p : GridStride(all)) {
         const size_t kr = blas_real_index(p);
         op(static_cast<int>(p / pairs), kr, kr + BRIDGE_CUDA_WARP_SIZE);
     }
@@ -356,8 +357,7 @@ constexpr int RotateVectors = 32;
 
 template <typename Float>
 __global__ void blas_rotate_kernel(Float* __restrict__ x, const double* __restrict__ c, int pairs, int n) {
-    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < static_cast<size_t>(pairs);
-         p += blockDim.x * gridDim.x) {
+    for (size_t p : GridStride(pairs)) {
         const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
         Float re[RotateVectors], im[RotateVectors];
         for (int i = 0; i < n; ++i) {
@@ -383,8 +383,7 @@ __global__ void blas_rotate_kernel(Float* __restrict__ x, const double* __restri
 template <typename Float>
 __global__ void blas_combine_kernel(Float* __restrict__ out, const Float* __restrict__ x, const double* __restrict__ c,
                                     int pairs, int n_in, int n_out, int j0, int count) {
-    for (size_t p = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x; p < static_cast<size_t>(pairs);
-         p += blockDim.x * gridDim.x) {
+    for (size_t p : GridStride(pairs)) {
         const size_t kr = blas_real_index(p), ki = kr + BRIDGE_CUDA_WARP_SIZE;
         Float zr[RotateVectors], zi[RotateVectors];
         for (int j = 0; j < count; ++j) zr[j] = zi[j] = 0;
