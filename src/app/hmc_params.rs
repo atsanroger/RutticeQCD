@@ -536,9 +536,28 @@ impl HmcParams {
         let grid = self.main.grid_size;
         if device {
             if grid != [1; ND] {
-                return invalid("Main.backend: cuda_bridge runs on one process".into());
+                let local: Vec<usize> = (0..ND)
+                    .map(|mu| self.main.lattice_size[mu] / grid[mu].max(1))
+                    .collect();
+                if local.iter().any(|l| l % 2 != 0) {
+                    return invalid(format!(
+                        "Main.grid_size {grid:?}: the local lattice {local:?} of a process must have even extents on the device"
+                    ));
+                }
             }
             for (i, a) in actions.iter().enumerate() {
+                if grid != [1; ND] {
+                    if let ActionConfig::TwoFlavor { solver, .. }
+                    | ActionConfig::TwoFlavorRatio { solver, .. } = a
+                    {
+                        if solver.preconditioner == Some(HmcPreconditioner::Multigrid) {
+                            return invalid(format!(
+                                "{}: the multigrid on the device runs on one process so far; leave Main.grid_size out",
+                                names[i]
+                            ));
+                        }
+                    }
+                }
                 match a {
                     ActionConfig::Plaquette { .. } | ActionConfig::Rectangle { .. } => {}
                     ActionConfig::TwoFlavorRatio {

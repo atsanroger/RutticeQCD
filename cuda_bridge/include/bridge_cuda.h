@@ -296,6 +296,46 @@ void bridge_cuda_hop_f32(
     int dagger, int target_parity, int vectors, cudaStream_t stream
 );
 
+// Several processes (fermion/hops.cuh, Halo). The hops of bridge_cuda_hop and D of
+// bridge_cuda_mdwf_dslash_1pass on the interior of the output (part 1) or on its surface
+// (part 2, the legs from other processes from the buffers of `halo`); and the buffer of one
+// face out of the input field (on the whole lattice for in_parity < 0).
+void bridge_cuda_hop_part_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
+    cudaStream_t stream);
+void bridge_cuda_hop_part_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
+    cudaStream_t stream);
+void bridge_cuda_mdwf_dslash_part_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int vectors, const BridgeCudaHalo* halo, int part, cudaStream_t stream);
+void bridge_cuda_mdwf_dslash_part_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int vectors, const BridgeCudaHalo* halo, int part, cudaStream_t stream);
+// bridge_cuda_hop_split with the legs across a cut from the buffers of `halo`.
+void bridge_cuda_hop_split_halo_f32(
+    float* d_cross, float* d_inside, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, const BridgeCudaHalo* halo, cudaStream_t stream);
+void bridge_cuda_hop_split_halo_f64(
+    double* d_cross, double* d_inside, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, const BridgeCudaHalo* halo, cudaStream_t stream);
+void bridge_cuda_hop_pack_f32(
+    float* d_send, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int in_parity, int face, int vectors, cudaStream_t stream);
+void bridge_cuda_hop_pack_f64(
+    double* d_send, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int in_parity, int face, int vectors, cudaStream_t stream);
+
 // out = M in, or d_from - M in if d_from is not null: the operators within a site of the
 // domain-wall operator as a matrix product (fermion/fifth_gemm.cuh), M the padded
 // (2 Ls) x (2 Ls) matrix on the device. In double precision on the tensor cores.
@@ -432,6 +472,31 @@ void bridge_cuda_fold_orthonormalise_cholesky(
     cudaStream_t stream
 );
 
+// Several processes (multigrid/fold.cuh): the coarse pass with the neighbours Y >= n_coarse read
+// from d_ghost, a coarse field of n_ghost sites; the sites d_sites of a coarse field gathered
+// into a coarse field of n sites (a face to send); such a field placed at sites first .. of the
+// ghosts.
+void bridge_cuda_coarse_pass_ghost_f32(
+    float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
+    const float* d_diag, const float* d_links, const float* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+    const float* d_ghost, int n_ghost, cudaStream_t stream);
+void bridge_cuda_coarse_gather_f32(float* d_buf, const float* d_field, const unsigned* d_sites, int n, int n_coarse,
+                                  int dim, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_place_f32(float* d_ghost, const float* d_buf, int first, int n, int n_ghost, int dim, int vectors,
+                                 cudaStream_t stream);
+void bridge_cuda_coarse_pass_ghost_f64(
+    double* d_out, const double* d_base, const double* d_diag_of, const double* d_hops_of,
+    const double* d_diag, const double* d_links, const double* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+    const double* d_ghost, int n_ghost, cudaStream_t stream);
+void bridge_cuda_coarse_gather_f64(double* d_buf, const double* d_field, const unsigned* d_sites, int n, int n_coarse,
+                                  int dim, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_place_f64(double* d_ghost, const double* d_buf, int first, int n, int n_ghost, int dim, int vectors,
+                                 cudaStream_t stream);
+
 // One pass of the coarse operator of a multigrid (multigrid/fold.cuh, coarse_pass_kernel):
 // out(X) = [M(X)] (base(X) + A(X) d(X) -+ sum_dir B_dir(X) h(X + dir)) on the coarse sites of
 // one parity, the others set to zero (parity < 0: all); every part may be null. dim even and at
@@ -465,15 +530,26 @@ void bridge_cuda_coarse_columns_f64(void* d_target, int target_single, const dou
 void bridge_cuda_hop_force(
     double* d_m, const double* d_zeta, const double* d_eta, const double* d_g5zeta, const double* d_g5eta,
     const double* d_gauge, int link_rows, const int* dims, const int* bc, int Ls, double coef,
-    cudaStream_t stream);
+    const BridgeCudaHalo* h_eta, const BridgeCudaHalo* h_g5zeta, cudaStream_t stream);
 
 // Stout smearing (gauge/stout.cuh), in double precision, links whole: v = exp(iQ) u for one
-// step, and one step of the chain rule of its force (Sigma of u from Sigma' of v, with i Theta
-// as scratch). rho: the 4 x 4 weights, row-major.
+// step, and one step of the chain rule of its force (Sigma of u from Sigma' of v) in two
+// parts: the local one, which makes i Theta, and the terms of the staples, which read i Theta
+// at the neighbours. rho: the 4 x 4 weights, row-major. dims, here and below: the local
+// extents and the depths of the halo of the fields read at the neighbours (u, and i Theta in
+// the second part), which are extended (stout.cuh); 0 on one process.
 void bridge_cuda_stout_step(double* d_v, const double* d_u, const int* dims, const double* rho, cudaStream_t stream);
-void bridge_cuda_stout_chain(
+void bridge_cuda_stout_chain_local(
     double* d_sigma, double* d_itheta, const double* d_sigma_prime, const double* d_u,
     const int* dims, const double* rho, cudaStream_t stream);
+void bridge_cuda_stout_chain_staples(
+    double* d_sigma, const double* d_u, const double* d_itheta,
+    const int* dims, const double* rho, cudaStream_t stream);
+
+// The extended field of links (gauge/links.cuh): the local field into its interior, and the
+// layers first .. first + depth - 1 of direction mu to a buffer (pack) or from it.
+void bridge_cuda_links_extend(double* d_ext, const double* d_local, const int* dims, cudaStream_t stream);
+void bridge_cuda_links_layers(double* d_buf, double* d_ext, int mu, int first, int pack, const int* dims, cudaStream_t stream);
 
 // HMC on the device (gauge/links.cuh), fields of matrices as for stout smearing: y += a x
 // (n reals), U <- exp(eps iP) U (Taylor series to `order`, reunitarised), out = s TA(m),

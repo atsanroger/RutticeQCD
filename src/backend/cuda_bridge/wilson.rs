@@ -53,6 +53,7 @@ pub struct CudaWilson<T = f64> {
 
 impl<T: DeviceReal> CudaWilson<T> {
     pub fn new(lat: &Arc<Lattice>, params: WilsonParams) -> Result<Self, CudaError> {
+        one_process(lat, "the Wilson operator");
         Ok(Self {
             params,
             geometry: geometry(lat, params.boundary, 1),
@@ -179,6 +180,7 @@ pub struct CudaClover<T = f64> {
 
 impl<T: DeviceReal> CudaClover<T> {
     pub fn new(lat: &Arc<Lattice>, params: CloverParams) -> Result<Self, CudaError> {
+        one_process(lat, "the clover operator");
         let blocks = padded(lat.num_sites()) * CLOVER;
         Ok(Self {
             params,

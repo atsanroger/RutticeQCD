@@ -158,7 +158,21 @@ by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and 
 α, `Chebyshev`, and for the Ratio action the multigrid (the same code as on the CPU, its test
 vectors, P, the coarse operators and the cycles on the device). Not on the device yet: Wilson
 and clover fermions in HMC and the Rational action, the multigrid of Wilson and clover fermions,
-the eigensolvers and the flow, several processes, boundary phases other than ±1 and 0.
+the flow, boundary phases other than ±1 and 0.
+
+**Several GPUs.** `ruttice-mpi` (features `mpi` and `cuda-bridge`) runs domain-wall fermions on
+several processes, one GPU each (the rank within its node modulo the GPUs it sees, or
+`RUTTICE_DEVICE`), the lattice cut by `Main.grid_size` into local lattices of even extents:
+the propagator solves without the multigrid (CGNE, mixed CGNE, Chebyshev), the eigensolvers and
+pseudospectra, stout smearing, and HMC with the Standard and Ratio actions without the multigrid
+(smeared or not, Neff's α, Lexical or Even_odd, CG or mixed CG). The hops exchange the faces of
+the local lattice while the interior is computed; the gauge field's paths (staples, rectangles,
+the chain rule) read a halo of one or two layers, corners included. The faces go from GPU to GPU
+by NCCL with the feature `nccl` (`NCCL_HOME` to build), through the host otherwise, and through
+the host as well when NCCL cannot be had on every process; `RUTTICE_HALO=host` or `nccl`
+chooses. The operators give what one process gives bit for bit, the solvers the same up to the
+order of the sums over the processes. Not on several GPUs yet: the multigrid, Wilson and clover
+fermions.
 
 ### SIMD
 

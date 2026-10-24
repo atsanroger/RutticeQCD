@@ -125,7 +125,7 @@ __global__ void gauge_force_kernel(double* __restrict__ f, const double* __restr
     const size_t t = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= static_cast<size_t>(g.vol) * 4) return;
     const int mu = static_cast<int>(t / g.vol);
-    const size_t x = t % g.vol;
+    const size_t here = t % g.vol, x = extended(here, g);
     M3 sigma = m3_zero();
     for (int nu = 0; nu < 4; ++nu) {
         if (nu == mu) continue;
@@ -146,15 +146,16 @@ __global__ void gauge_force_kernel(double* __restrict__ f, const double* __restr
         }
     }
     const M3 m = mul(load(u, mu, x), adj(sigma));
-    store(f, mu, x, scale(traceless_antihermitian(m), -beta / 3.0));
+    store(f, mu, here, scale(traceless_antihermitian(m), -beta / 3.0));
 }
 
 // Per site: the sum of Re tr of the six plaquettes (mu < nu) and of the twelve rectangles
 // (2 mu x nu for every ordered pair), as RectangleAction::action walks them.
 __global__ void gauge_traces_kernel(double* __restrict__ plaq, double* __restrict__ rect, const double* __restrict__ u, int with_rect, StoutGeometry g)
 {
-    const size_t x = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (x >= static_cast<size_t>(g.vol)) return;
+    const size_t here = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (here >= static_cast<size_t>(g.vol)) return;
+    const size_t x = extended(here, g);
     double p = 0, r = 0;
     for (int mu = 0; mu < 4; ++mu) {
         for (int nu = 0; nu < 4; ++nu) {
@@ -169,8 +170,48 @@ __global__ void gauge_traces_kernel(double* __restrict__ plaq, double* __restric
             }
         }
     }
-    plaq[x] = p;
-    rect[x] = r;
+    plaq[here] = p;
+    rect[here] = r;
+}
+
+// The local field `local` into the interior of the extended one (see stout.cuh).
+__global__ void links_extend_kernel(double* __restrict__ ext, const double* __restrict__ local, StoutGeometry g)
+{
+    const size_t here = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (here >= static_cast<size_t>(g.vol)) return;
+    const size_t x = extended(here, g);
+    #pragma unroll 4
+    for (int c = 0; c < 72; ++c) ext[link_at(c, x)] = local[link_at(c, here)];
+}
+
+// The layers first .. first + depth[mu] - 1 of direction mu of the extended field, all of their
+// extent in the other directions (the halos filled so far with them), to the buffer (`pack`) or
+// from it. In the buffer site after site, numbered lexically over the layers, 72 reals each,
+// real fastest across a warp of sites: (c / 72 ...) as link_at with the layer's sites.
+__global__ void links_layers_kernel(double* __restrict__ buf, double* __restrict__ ext, int mu, int first, int pack, StoutGeometry g)
+{
+    int extent[4] = {g.dims[0], g.dims[1], g.dims[2], g.dims[3]};
+    extent[mu] = g.depth[mu];
+    const size_t sites = static_cast<size_t>(extent[0]) * extent[1] * extent[2] * extent[3];
+    const size_t s = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (s >= sites) return;
+    int c[4];
+    size_t r = s;
+    #pragma unroll
+    for (int nu = 0; nu < 4; ++nu) {
+        c[nu] = static_cast<int>(r % extent[nu]);
+        r /= extent[nu];
+    }
+    c[mu] += first;
+    const size_t x = c[0] + static_cast<size_t>(g.dims[0]) * (c[1] + static_cast<size_t>(g.dims[1]) * (c[2] + static_cast<size_t>(g.dims[2]) * c[3]));
+    #pragma unroll 4
+    for (int k = 0; k < 72; ++k) {
+        if (pack) {
+            buf[link_at(k, s)] = ext[link_at(k, x)];
+        } else {
+            ext[link_at(k, x)] = buf[link_at(k, s)];
+        }
+    }
 }
 
 // Per site: the sum of the squares of the reals of its four matrices.

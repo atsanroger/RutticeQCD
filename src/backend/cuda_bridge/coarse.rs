@@ -611,6 +611,7 @@ impl DeviceBasis {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
+        one_process(lat, "the multigrid");
         let mut basis = Self::empty(agg, ls, 2 * n, half)?;
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());

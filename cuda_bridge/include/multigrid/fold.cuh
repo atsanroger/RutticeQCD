@@ -942,7 +942,8 @@ __global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
     const unsigned* __restrict__ d_neighbours,
     const unsigned* __restrict__ d_odd,
     int n_coarse, int dim,
-    int parity, Float sign, int gamma5)
+    int parity, Float sign, int gamma5,
+    const Float* __restrict__ d_ghost = nullptr, int n_ghost = 0)
 {
     extern __shared__ __align__(16) unsigned char shared_bytes[];
     Float* sum = reinterpret_cast<Float*>(shared_bytes);
@@ -966,8 +967,17 @@ __global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
         const int s = e / dim, col = e % dim;
         const Float* v = (s == 0) ? d_diag_of : d_hops_of;
         if (v == nullptr) continue;
-        const size_t Y = (s == 0) ? X : d_neighbours[static_cast<size_t>(s - 1) * n_coarse + X];
-        const size_t q = first + coarse_index(Y * dim + col);
+        size_t Y = (s == 0) ? X : d_neighbours[static_cast<size_t>(s - 1) * n_coarse + X];
+        // On several processes a neighbour Y >= n_coarse is a ghost: site Y - n_coarse of
+        // d_ghost, a field of n_ghost sites (the faces of the neighbouring processes).
+        size_t q;
+        if (Y >= static_cast<size_t>(n_coarse)) {
+            Y -= n_coarse;
+            v = d_ghost;
+            q = blockIdx.y * coarse_reals(n_ghost, dim) + coarse_index(Y * dim + col);
+        } else {
+            q = first + coarse_index(Y * dim + col);
+        }
         const Float flip = (gamma5 && col >= dim / 2) ? static_cast<Float>(-1.0) : static_cast<Float>(1.0);
         fields[2 * s * dim + col] = flip * v[q];
         fields[(2 * s + 1) * dim + col] = flip * v[q + WarpSize];
@@ -1042,6 +1052,35 @@ __global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
         im = coarse_pass_sum(im);
         if (lane == 0) store(row, re, im);
     }
+}
+
+// Several processes: the sites d_sites[0 .. n) of a coarse field of n_coarse sites to d_buf, a
+// coarse field of n sites (a face to send), and such a field to sites first .. first + n of a
+// field of n_ghost sites (the ghosts of a face received). A thread for each complex number,
+// blockIdx.y the vector.
+template <typename Float>
+__global__ void coarse_gather_kernel(Float* __restrict__ d_buf, const Float* __restrict__ d_field,
+                                     const unsigned* __restrict__ d_sites, int n, int n_coarse, int dim)
+{
+    const size_t q = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (q >= static_cast<size_t>(n) * dim) return;
+    const size_t site = d_sites[q / dim], k = q % dim;
+    const size_t to = blockIdx.y * coarse_reals(n, dim) + coarse_index(q);
+    const size_t from = blockIdx.y * coarse_reals(n_coarse, dim) + coarse_index(site * dim + k);
+    d_buf[to] = d_field[from];
+    d_buf[to + WarpSize] = d_field[from + WarpSize];
+}
+
+template <typename Float>
+__global__ void coarse_place_kernel(Float* __restrict__ d_ghost, const Float* __restrict__ d_buf,
+                                    int first, int n, int n_ghost, int dim)
+{
+    const size_t q = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (q >= static_cast<size_t>(n) * dim) return;
+    const size_t from = blockIdx.y * coarse_reals(n, dim) + coarse_index(q);
+    const size_t to = blockIdx.y * coarse_reals(n_ghost, dim) + coarse_index(static_cast<size_t>(first) * dim + q);
+    d_ghost[to] = d_buf[from];
+    d_ghost[to + WarpSize] = d_buf[from + WarpSize];
 }
 
 // v = Gamma_5 v on the coarse lattice, every vector.

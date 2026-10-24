@@ -2181,3 +2181,320 @@ fn domain_wall_multigrid_runs_on_the_device() {
     assert_ne!(exact, levels);
     same_tables(&exact, "mdwf_mg_exact_adjoint", 1e-6);
 }
+
+/// What the domain-wall operator on the device gives for `psi` on the lattice of `lat`: D, D†,
+/// Γ5 D (`FermionOp`) on the whole lattice; the even-odd Pauli-Villars operator Ã in both forms
+/// on the even part of `psi`, and its adjoint; and |psi|², summed over the processes. The fields
+/// come back on the host, the even ones put into a whole field.
+fn mdwf_results(
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    psi: &Psi,
+    params: MdwfParams,
+    alpha: f64,
+) -> (Vec<Psi>, f64) {
+    use ruttice::fermion::SplitParity;
+    let mut d = CudaMdwf::<f64>::new(lat, params).unwrap();
+    d.set_gauge(u).unwrap();
+    d.set_alpha(alpha);
+    let mut pv = CudaMdwf::<f64>::new(
+        lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    )
+    .unwrap();
+    pv.set_gauge(u).unwrap();
+    pv.set_alpha(alpha);
+    let x = DeviceSpinor::from_host(psi).unwrap();
+    let mut out = Vec::new();
+    for variant in [Variant::D, Variant::Dagger, Variant::Gamma5D] {
+        let mut y = x.zeros_like();
+        Bound::new(&d, variant).mult(&mut y, &x);
+        out.push(y.to_host().unwrap());
+    }
+    let mut x_e = DeviceParities.half_like(&x, Parity::Even);
+    DeviceParities.extract(&mut x_e, &x, Parity::Even);
+    let odd = DeviceParities.half_like(&x, Parity::Odd);
+    for form in [EoForm::Right, EoForm::Left] {
+        let mut a = PvRatio::new(&d, &pv, form, &x_e, &odd);
+        let mut y = x_e.zeros_like();
+        a.mult(&mut y, &x_e);
+        let mut z = x_e.zeros_like();
+        a.mult_dag(&mut z, &x_e);
+        for half in [y, z] {
+            let mut whole = x.zeros_like();
+            DeviceParities.insert(&mut whole, &half);
+            out.push(whole.to_host().unwrap());
+        }
+    }
+    let mut n = [0.0];
+    x.norm_sqr(&mut n);
+    (out, n[0])
+}
+
+/// On several processes, each with its device (here threads of a `LocalComm` on one device),
+/// the domain-wall operator gives what it gives on one, bit for bit: the faces carry the half
+/// spinors of the legs and the surface sums every leg of a site in the order of one process.
+/// Cut along t, along x and t, and along every direction (local extents 2 in x, y, z).
+#[test]
+fn mdwf_on_several_processes_is_mdwf_on_one() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 411);
+    for (boundary, alpha) in [(ANTIPERIODIC_T, 1.0), (MIXED, 1.3)] {
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.8,
+            mass: 0.05,
+            b: 1.5,
+            c: 0.5,
+            boundary,
+        };
+        let psi = random_fifth(&whole, params.ls, 412);
+        let (one, norm) = mdwf_results(&whole, &u, &psi, params, alpha);
+        for grid in [[1, 1, 1, 2], [2, 1, 1, 2], [2, 2, 2, 2]] {
+            let parts = ruttice::LocalComm::run(global, grid, |lat| {
+                let u = ruttice::local_part(&u, &lat);
+                let psi = ruttice::local_part(&psi, &lat);
+                let (fields, n) = mdwf_results(&lat, &u, &psi, params, alpha);
+                (
+                    fields
+                        .iter()
+                        .map(|f| f.as_slice().to_vec())
+                        .collect::<Vec<_>>(),
+                    n,
+                    lat,
+                )
+            });
+            for (k, single) in one.iter().enumerate() {
+                let pieces: Vec<Psi> = parts
+                    .iter()
+                    .map(|(fields, _, lat)| {
+                        let mut f = Field::<f64, Spinor>::with_shape(lat, 24, params.ls, 1, 1);
+                        f.as_mut_slice().copy_from_slice(&fields[k]);
+                        f
+                    })
+                    .collect();
+                let several = ruttice::assemble(&whole, &pieces);
+                assert!(
+                    several.as_slice() == single.as_slice(),
+                    "result {k} on the grid {grid:?} ({boundary:?}, α {alpha}): differs by {}",
+                    worst(&several, single)
+                );
+            }
+            for (_, n, _) in &parts {
+                assert!(
+                    (n - norm).abs() <= 1e-13 * norm,
+                    "|psi|² {n} against {norm}"
+                );
+            }
+        }
+    }
+}
+
+/// CGNE on the even-odd Pauli-Villars operator (left form, α 1.3) from the even part of `b`:
+/// the iterations and the solution, put into a whole field on the host.
+fn mdwf_cgne(
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    b: &Psi,
+    params: MdwfParams,
+) -> (usize, Psi) {
+    use ruttice::fermion::SplitParity;
+    let mut d = CudaMdwf::<f64>::new(lat, params).unwrap();
+    d.set_gauge(u).unwrap();
+    d.set_alpha(1.3);
+    let mut pv = CudaMdwf::<f64>::new(
+        lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    )
+    .unwrap();
+    pv.set_gauge(u).unwrap();
+    pv.set_alpha(1.3);
+    let whole = DeviceSpinor::from_host(b).unwrap();
+    let mut b_e = DeviceParities.half_like(&whole, Parity::Even);
+    DeviceParities.extract(&mut b_e, &whole, Parity::Even);
+    let odd = DeviceParities.half_like(&whole, Parity::Odd);
+    let mut a = PvRatio::new(&d, &pv, EoForm::Left, &b_e, &odd);
+    let mut x = b_e.zeros_like();
+    let info = solve_cgne(
+        &mut Cg::new(Stop::simple(1e-22, 20000)),
+        &mut a,
+        &mut x,
+        &b_e,
+    )
+    .unwrap();
+    let mut out = whole.zeros_like();
+    DeviceParities.insert(&mut out, &x);
+    (info.iterations, out.to_host().unwrap())
+}
+
+/// The solvers on several processes: CGNE takes as many iterations as on one (but one), and its
+/// solution is that of one up to the order of the sums over the processes.
+#[test]
+fn cgne_on_several_processes_is_cgne_on_one() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 421);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let b = random_fifth(&whole, params.ls, 422);
+    let (iterations, x) = mdwf_cgne(&whole, &u, &b, params);
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = ruttice::LocalComm::run(global, grid, |lat| {
+            let u = ruttice::local_part(&u, &lat);
+            let b = ruttice::local_part(&b, &lat);
+            let (n, x) = mdwf_cgne(&lat, &u, &b, params);
+            (n, x.as_slice().to_vec(), lat)
+        });
+        let pieces: Vec<Psi> = parts
+            .iter()
+            .map(|(_, x, lat)| {
+                let mut f = Field::<f64, Spinor>::with_shape(lat, 24, params.ls, 1, 1);
+                f.as_mut_slice().copy_from_slice(x);
+                f
+            })
+            .collect();
+        let several = ruttice::assemble(&whole, &pieces);
+        let scale = x.as_slice().iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        let diff = worst(&several, &x);
+        eprintln!("grid {grid:?}: {} iterations (one process {iterations}), |Δx| {diff:.1e} of {scale:.1e}", parts[0].0);
+        // The sums over the processes are in another order, which can move the iteration at
+        // which |r|² first falls below the tolerance by one.
+        for (n, _, _) in &parts {
+            assert!(
+                n.abs_diff(iterations) <= 1,
+                "{n} iterations on the grid {grid:?}"
+            );
+        }
+        assert!(
+            diff < 1e-9 * scale,
+            "solution on the grid {grid:?}: differs by {diff}"
+        );
+    }
+}
+
+/// What HMC on the device does with the links, on the lattice of `lat`: two steps of stout
+/// smearing, the chain rule of the force through them (of a field of matrices `m`), the force
+/// of the rectangle action, the derivative of the domain-wall operator (α 1.3) for two spinors
+/// ζ, η; and the sums: plaquette, action, kinetic energy of `m`.
+fn hmc_parts(
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    m: &Field<f64, Gauge>,
+    zeta: &Psi,
+    eta: &Psi,
+    params: MdwfParams,
+) -> (Vec<Field<f64, Gauge>>, [f64; 3]) {
+    use ruttice::backend::cuda_bridge::DeviceLinks;
+    use ruttice::hmc::LinkField;
+    let smearing = ruttice::gauge::GaugeSmearing {
+        smear: ruttice::gauge::Smear::Stout(ruttice::gauge::smearing::Stout::uniform(0.1)),
+        steps: 2,
+    };
+    let du = <DeviceLinks as LinkField>::from_host(u);
+    let dm = <DeviceLinks as LinkField>::from_host(m);
+    let levels = du.smear_levels(&smearing);
+    let force = DeviceLinks::smeared_force(&dm, &du, Some(&smearing), &levels);
+    let gauge = du.gauge_force(2.3, 3.648, -0.331);
+    let mut d = CudaMdwf::<f64>::new(lat, params).unwrap();
+    d.set_gauge(u).unwrap();
+    d.set_alpha(1.3);
+    let derivative = d
+        .derivative_on_device(
+            &DeviceSpinor::from_host(zeta).unwrap(),
+            &DeviceSpinor::from_host(eta).unwrap(),
+        )
+        .unwrap();
+    let fields = [&levels[1], &force, &gauge, &derivative]
+        .iter()
+        .map(|f| LinkField::to_host(*f))
+        .collect();
+    let sums = [
+        du.plaquette(),
+        du.gauge_action(2.3, 3.648, -0.331),
+        dm.kinetic_energy(),
+    ];
+    (fields, sums)
+}
+
+/// HMC's operations on the links on several processes, each with its device: the fields are
+/// those of one process bit for bit (the halos of the extended links carry the neighbours,
+/// corners included), the sums the same up to their order.
+#[test]
+fn hmc_on_several_processes_is_hmc_on_one() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 431);
+    let m = random_gauge(&whole, 432);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: MIXED,
+    };
+    let (zeta, eta) = (random_fifth(&whole, 4, 433), random_fifth(&whole, 4, 434));
+    let (one, sums) = hmc_parts(&whole, &u, &m, &zeta, &eta, params);
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = ruttice::LocalComm::run(global, grid, |lat| {
+            let local = |f: &Field<f64, Gauge>| ruttice::local_part(f, &lat);
+            let (fields, s) = hmc_parts(
+                &lat,
+                &local(&u),
+                &local(&m),
+                &ruttice::local_part(&zeta, &lat),
+                &ruttice::local_part(&eta, &lat),
+                params,
+            );
+            (
+                fields
+                    .iter()
+                    .map(|f| f.as_slice().to_vec())
+                    .collect::<Vec<_>>(),
+                s,
+                lat,
+            )
+        });
+        for (k, single) in one.iter().enumerate() {
+            let pieces: Vec<Field<f64, Gauge>> = parts
+                .iter()
+                .map(|(fields, _, lat)| {
+                    let mut f = Field::<f64, Gauge>::gauge(lat);
+                    f.as_mut_slice().copy_from_slice(&fields[k]);
+                    f
+                })
+                .collect();
+            let several = ruttice::assemble(&whole, &pieces);
+            let diff = several
+                .as_slice()
+                .iter()
+                .zip(single.as_slice())
+                .fold(0.0f64, |w, (a, b)| w.max((a - b).abs()));
+            assert!(
+                diff == 0.0,
+                "field {k} on the grid {grid:?}: differs by {diff}"
+            );
+        }
+        for (_, s, _) in &parts {
+            for (a, b) in s.iter().zip(&sums) {
+                assert!(
+                    (a - b).abs() <= 1e-12 * b.abs(),
+                    "sums {s:?} against {sums:?}"
+                );
+            }
+        }
+    }
+}

@@ -196,7 +196,9 @@ pub(crate) fn load_links_on_device(
     out: &mut dyn Write,
 ) -> Result<Field<f64, Gauge>, Box<dyn std::error::Error>> {
     let config = smearing.map(|g| g.to_config());
-    let on_device = matches!(config, Some(GaugeSmearingConfig::Stout { .. }));
+    // On several processes on the CPU, which exchanges the links the staples need.
+    let on_device =
+        matches!(config, Some(GaugeSmearingConfig::Stout { .. })) && lat.comm.size() == 1;
     if !on_device {
         return Ok(load_links(lat, gauge, smearing, file, out)?);
     }

@@ -59,6 +59,16 @@ extern "C" {
     pub(super) fn cudaMallocAsync(ptr: *mut *mut c_void, bytes: usize, stream: *mut c_void) -> i32;
     pub(super) fn cudaFreeAsync(ptr: *mut c_void, stream: *mut c_void) -> i32;
     pub(super) fn cudaGetDevice(device: *mut i32) -> i32;
+    pub(super) fn cudaSetDevice(device: i32) -> i32;
+    pub(super) fn cudaGetDeviceCount(count: *mut i32) -> i32;
+    #[cfg(feature = "nccl")]
+    pub(super) fn cudaStreamCreateWithFlags(stream: *mut *mut c_void, flags: u32) -> i32;
+    #[cfg(feature = "nccl")]
+    pub(super) fn cudaEventCreateWithFlags(event: *mut *mut c_void, flags: u32) -> i32;
+    #[cfg(feature = "nccl")]
+    pub(super) fn cudaEventRecord(event: *mut c_void, stream: *mut c_void) -> i32;
+    #[cfg(feature = "nccl")]
+    pub(super) fn cudaStreamWaitEvent(stream: *mut c_void, event: *mut c_void, flags: u32) -> i32;
     pub(super) fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> i32;
     pub(super) fn cudaDeviceGetAttribute(value: *mut i32, attribute: i32, device: i32) -> i32;
     pub(super) fn cudaDeviceGetDefaultMemPool(pool: *mut *mut c_void, device: i32) -> i32;
@@ -136,7 +146,13 @@ extern "C" {
 /// sizes those read and write.
 #[allow(clippy::too_many_arguments, clippy::missing_safety_doc)]
 pub trait DeviceReal:
-    super::blas::DeviceBlas + Copy + Default + PartialEq + std::fmt::Debug + 'static
+    super::blas::DeviceBlas
+    + super::halo::SplitReal
+    + Copy
+    + Default
+    + PartialEq
+    + std::fmt::Debug
+    + 'static
 {
     fn from_f64(x: f64) -> Self;
     fn to_f64(self) -> f64;

@@ -89,6 +89,13 @@ with α 1.3, `PV_right` DD† after stout — the same restarts and applications
 1e-14. Still CPU only: the gradient flow, the Wilson and clover HMC and RHMC, the Wilson
 multigrid, MPI.
 
+**Several GPUs (2026-10-24)**: domain-wall fermions without the multigrid on several GPUs
+(CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is
+refused for ranks sharing a device and the host path runs), the speed of the exchanges. Next:
+the multigrid on several GPUs (the coarse operator's ghosts, the probing across processes; the
+levels and the exact adjoint of the second factor after), which the CPU's multigrid does not
+have either.
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (done 2026-10-24)

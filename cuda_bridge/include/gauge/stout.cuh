@@ -11,6 +11,14 @@
 // complex matrices, row-major (re, im), 18 reals for each direction: real c of direction mu at
 // site x is at link_at(18 mu + c, x), in blocks of W sites (fold.cuh's coarse fields are the
 // same with 2 reals). Sites are numbered x + nx (y + ny (z + nz t)), the lattice periodic.
+//
+// On several processes the fields a kernel reads at the neighbours of a site are extended: the
+// local lattice with a halo `depth[mu]` sites deep on both sides of every direction cut between
+// processes, corners included (gauge/paths.rs's Extended on the device; links.cuh fills it).
+// dims are the extents of the extended lattice, which shift walks periodically as before (a path
+// from a local site never leaves it); local the extents of the local lattice, whose sites the
+// kernels compute, vol their number, and the fields they write and the others they read at the
+// site itself are local. On one process depth is 0 and both lattices are the same.
 
 namespace bridge_cuda {
 
@@ -22,7 +30,20 @@ struct StoutGeometry {
     int dims[4];
     int vol;
     double rho[4][4];
+    int local[4];
+    int depth[4];
 };
+
+// The extended number of local site x.
+__host__ __device__ __forceinline__ size_t extended(size_t x, const StoutGeometry& g) {
+    int c[4];
+    #pragma unroll
+    for (int mu = 0; mu < 4; ++mu) {
+        c[mu] = static_cast<int>(x % g.local[mu]) + g.depth[mu];
+        x /= g.local[mu];
+    }
+    return c[0] + static_cast<size_t>(g.dims[0]) * (c[1] + static_cast<size_t>(g.dims[1]) * (c[2] + static_cast<size_t>(g.dims[2]) * c[3]));
+}
 
 struct M3 {
     double re[3][3], im[3][3];
@@ -329,10 +350,10 @@ __global__ void stout_step_kernel(double* __restrict__ v, const double* __restri
     const size_t t = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= static_cast<size_t>(g.vol) * 4) return;
     const int mu = static_cast<int>(t / g.vol);
-    const size_t x = t % g.vol;
+    const size_t here = t % g.vol, x = extended(here, g);
     const M3 link = load(u, mu, x);
     const StoutExp e(staples(u, mu, x, g), link);
-    store(v, mu, x, mul(e.exp(), link));
+    store(v, mu, here, mul(e.exp(), link));
 }
 
 // The local part of a step of the chain rule: Sigma = Sigma' exp(iQ) + C^dag i Lambda and
@@ -344,15 +365,16 @@ __global__ void stout_chain_local_kernel(
     const size_t t = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= static_cast<size_t>(g.vol) * 4) return;
     const int mu = static_cast<int>(t / g.vol);
-    const size_t x = t % g.vol;
-    const M3 link = load(u, mu, x), c = staples(u, mu, x, g), s = load(sigma_prime, mu, x);
+    const size_t here = t % g.vol, x = extended(here, g);
+    const M3 link = load(u, mu, x), c = staples(u, mu, x, g), s = load(sigma_prime, mu, here);
     const StoutExp e(c, link);
     const M3 lambda = e.lambda(s, link);
-    store(itheta, mu, x, mul(lambda, link));
-    store(sigma, mu, x, add(mul(s, e.exp()), mul(adj(c), lambda)));
+    store(itheta, mu, here, mul(lambda, link));
+    store(sigma, mu, here, add(mul(s, e.exp()), mul(adj(c), lambda)));
 }
 
-// The terms of Sigma from the links whose staples contain U_mu(x), added to it.
+// The terms of Sigma from the links whose staples contain U_mu(x), added to it (u and itheta
+// extended).
 __global__ void stout_chain_staples_kernel(
     double* __restrict__ sigma, const double* __restrict__ u, const double* __restrict__ itheta,
     StoutGeometry g)
@@ -360,8 +382,8 @@ __global__ void stout_chain_staples_kernel(
     const size_t t = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= static_cast<size_t>(g.vol) * 4) return;
     const int mu = static_cast<int>(t / g.vol);
-    const size_t x = t % g.vol;
-    M3 acc = load(sigma, mu, x);
+    const size_t here = t % g.vol, x = extended(here, g);
+    M3 acc = load(sigma, mu, here);
     for (int nu = 0; nu < 4; ++nu) {
         if (nu == mu) continue;
         const double r = g.rho[mu][nu];
@@ -382,7 +404,7 @@ __global__ void stout_chain_staples_kernel(
         each = add(each, mul(mul(vnu_xm, adj(load(itheta, mu, xn))), vnu_d));
         acc = add(acc, scale(each, r));
     }
-    store(sigma, mu, x, acc);
+    store(sigma, mu, here, acc);
 }
 
 } // namespace bridge_cuda

@@ -33,6 +33,17 @@ typedef struct {
     int32_t link_rows;// Rows of a link the operators read: 2 (the third rebuilt, links in SU(3)), else all 3
 } BridgeCudaGeometry;
 
+// Several processes (fermion/hops.cuh, Halo): what arrived on each face (forward in direction
+// mu: face mu, backward: 4 + mu), of the precision of the fields; the boundary factor of each
+// face; the directions cut between processes; the sites of the surface of the output.
+typedef struct {
+    const void* recv[8];
+    double bc[8];
+    int32_t cut[4];
+    const int32_t* surface;
+    int32_t surface_sites;
+} BridgeCudaHalo;
+
 // Wilson operator parameters - aligned with Ruttice WilsonParams
 typedef struct {
     double kappa;     // Hopping parameter

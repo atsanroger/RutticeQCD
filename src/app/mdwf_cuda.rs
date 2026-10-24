@@ -152,6 +152,12 @@ pub(super) fn run(
         (Some(_), Some(mg)) => Some(mg),
         _ => None,
     };
+    if mg.is_some() && lat.comm.size() > 1 {
+        return Err(
+            "Main.backend cuda_bridge: the multigrid on the device runs on one process so far"
+                .into(),
+        );
+    }
     let settings = mg.map(|mg| mg.mdwf_settings(PrecisionType::Single));
     if settings.is_some_and(|m| {
         !DeviceCorrection::<f64, f32>::supports(&m.cycle)

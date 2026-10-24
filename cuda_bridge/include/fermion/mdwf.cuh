@@ -27,9 +27,9 @@ namespace bridge_cuda {
 
 // -------------------------------------------------------------------------
 // out = D in on the whole lattice, in one pass. One thread for each (site, vector, s), as in
-// hop_kernel.
+// hop_kernel; with several processes its interior or its surface (`P`, as in hop_kernel).
 // -------------------------------------------------------------------------
-template <typename Float, bool Many>
+template <typename Float, bool Many, int P = Whole>
 __global__ void mdwf_dslash_1pass_kernel(
     Float* __restrict__ d_out,
     const Float* __restrict__ d_in,
@@ -37,11 +37,13 @@ __global__ void mdwf_dslash_1pass_kernel(
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     int Ls, int vectors,
-    Float M5, Float mass, Float b5, Float c5)
+    Float M5, Float mass, Float b5, Float c5,
+    Halo<Float> halo = {})
 {
-    const int site  = blockIdx.x * blockDim.x + threadIdx.x;
+    const int thread = blockIdx.x * blockDim.x + threadIdx.x;
     const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
-    if (site >= nx * ny * nz * nt || fibre >= Ls * vectors) return;
+    if (thread >= (P == Surface ? halo.surface_sites : nx * ny * nz * nt) || fibre >= Ls * vectors) return;
+    const int site = (P == Surface) ? halo.surface[thread] : thread;
     const int is = Many ? fibre % Ls : fibre;
     const size_t first = Many ? (fibre / Ls) * vector_reals(nx * ny * nz * nt, Ls) : 0;
     d_out += first;
@@ -51,13 +53,20 @@ __global__ void mdwf_dslash_1pass_kernel(
     const Float bc[4] = {bcx, bcy, bcz, bct};
     int xc[4];
     site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    if (P == Interior && on_surface(halo, xc, dims)) return;
     const Float d_plus  = static_cast<Float>(1.0) + b5 * (static_cast<Float>(4.0) - M5);
     const Float d_minus = static_cast<Float>(1.0) - c5 * (static_cast<Float>(4.0) - M5);
 
     Float acc[Nspin][Nc][Ncomplex];
     fifth_term<Float>(acc, d_in, is, Ls, site, mass, d_plus, d_minus, false);
-    hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, false, static_cast<Float>(1.0),
-                static_cast<Float>(0.5), mass, b5, c5);
+    if constexpr (P == Surface) {
+        hops<Float, true>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
+                          static_cast<Float>(1.0), static_cast<Float>(0.5), mass, b5, c5, 0xFF,
+                          &halo, Many ? fibre / Ls : 0);
+    } else {
+        hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, false, static_cast<Float>(1.0),
+                    static_cast<Float>(0.5), mass, b5, c5);
+    }
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {
         #pragma unroll

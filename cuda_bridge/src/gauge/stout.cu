@@ -4,17 +4,22 @@
 namespace {
     constexpr int BLOCK_SIZE = 128;
 
+    // dims: the local extents, then the depths of the halo (stout.cuh).
     bridge_cuda::StoutGeometry geometry(const int* dims, const double* rho)
     {
         bridge_cuda::StoutGeometry g;
         g.vol = 1;
         for (int mu = 0; mu < 4; ++mu) {
-            g.dims[mu] = dims[mu];
+            g.local[mu] = dims[mu];
+            g.depth[mu] = dims[4 + mu];
+            g.dims[mu] = dims[mu] + 2 * dims[4 + mu];
             g.vol *= dims[mu];
             for (int nu = 0; nu < 4; ++nu) g.rho[mu][nu] = rho[4 * mu + nu];
         }
         return g;
     }
+
+    const double ONE[16] = {0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0};
 
     inline int blocks_for(size_t n) { return static_cast<int>((n + BLOCK_SIZE - 1) / BLOCK_SIZE); }
 }
@@ -27,14 +32,36 @@ void bridge_cuda_stout_step(double* d_v, const double* d_u, const int* dims, con
     bridge_cuda::stout_step_kernel<<<blocks_for(4 * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(d_v, d_u, g);
 }
 
-void bridge_cuda_stout_chain(
+void bridge_cuda_stout_chain_local(
     double* d_sigma, double* d_itheta, const double* d_sigma_prime, const double* d_u,
     const int* dims, const double* rho, cudaStream_t stream)
 {
     const auto g = geometry(dims, rho);
     const int blocks = blocks_for(4 * static_cast<size_t>(g.vol));
     bridge_cuda::stout_chain_local_kernel<<<blocks, BLOCK_SIZE, 0, stream>>>(d_sigma, d_itheta, d_sigma_prime, d_u, g);
+}
+
+void bridge_cuda_stout_chain_staples(
+    double* d_sigma, const double* d_u, const double* d_itheta,
+    const int* dims, const double* rho, cudaStream_t stream)
+{
+    const auto g = geometry(dims, rho);
+    const int blocks = blocks_for(4 * static_cast<size_t>(g.vol));
     bridge_cuda::stout_chain_staples_kernel<<<blocks, BLOCK_SIZE, 0, stream>>>(d_sigma, d_u, d_itheta, g);
+}
+
+void bridge_cuda_links_extend(double* d_ext, const double* d_local, const int* dims, cudaStream_t stream)
+{
+    const auto g = geometry(dims, ONE);
+    bridge_cuda::links_extend_kernel<<<blocks_for(static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(d_ext, d_local, g);
+}
+
+void bridge_cuda_links_layers(double* d_buf, double* d_ext, int mu, int first, int pack, const int* dims, cudaStream_t stream)
+{
+    const auto g = geometry(dims, ONE);
+    size_t sites = static_cast<size_t>(g.depth[mu]);
+    for (int nu = 0; nu < 4; ++nu) if (nu != mu) sites *= g.dims[nu];
+    bridge_cuda::links_layers_kernel<<<blocks_for(sites), BLOCK_SIZE, 0, stream>>>(d_buf, d_ext, mu, first, pack, g);
 }
 
 void bridge_cuda_links_axpy(double* d_y, double a, const double* d_x, size_t n, cudaStream_t stream)
@@ -59,15 +86,13 @@ void bridge_cuda_links_mul(double* d_out, const double* d_a, const double* d_b, 
 
 void bridge_cuda_gauge_force(double* d_f, const double* d_u, double beta, double c_plaq, double c_rect, const int* dims, cudaStream_t stream)
 {
-    const double one[16] = {0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0};
-    const auto g = geometry(dims, one);
+    const auto g = geometry(dims, ONE);
     bridge_cuda::gauge_force_kernel<<<blocks_for(4 * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(d_f, d_u, beta, c_plaq, c_rect, g);
 }
 
 void bridge_cuda_gauge_traces(double* d_plaq, double* d_rect, const double* d_u, int with_rect, const int* dims, cudaStream_t stream)
 {
-    const double one[16] = {0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0};
-    const auto g = geometry(dims, one);
+    const auto g = geometry(dims, ONE);
     bridge_cuda::gauge_traces_kernel<<<blocks_for(static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(d_plaq, d_rect, d_u, with_rect, g);
 }
 

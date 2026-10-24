@@ -278,7 +278,9 @@ impl Params {
 
     /// What `backend : cuda_bridge` can do so far.
     fn check_cuda_bridge(&self) -> Result<(), CliError> {
-        self.main.check_cuda_bridge()?;
+        let several = self.fopr.fermion_type == FermionType::DomainWall
+            && self.solver.preconditioner_type != PreconditionerType::Multigrid;
+        self.main.check_cuda_bridge(several)?;
         if self.solver.preconditioner_type == PreconditionerType::Multigrid
             && !matches!(self.fopr.fermion_type, FermionType::DomainWall)
         {

@@ -52,4 +52,14 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=cusolver");
     println!("cargo:rustc-link-lib=dylib=cublas");
     println!("cargo:rustc-link-lib=dylib=stdc++");
+    // NCCL for the exchanges between the devices: NCCL_HOME (lib, include), or the system's.
+    if std::env::var_os("CARGO_FEATURE_NCCL").is_some() {
+        println!("cargo:rerun-if-env-changed=NCCL_HOME");
+        if let Some(home) = std::env::var_os("NCCL_HOME") {
+            let lib = PathBuf::from(home).join("lib");
+            println!("cargo:rustc-link-search=native={}", lib.display());
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib.display());
+        }
+        println!("cargo:rustc-link-lib=dylib=nccl");
+    }
 }

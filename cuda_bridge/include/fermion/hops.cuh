@@ -174,6 +174,74 @@ __device__ __forceinline__ void load_link(
 // h_a = w_a - s val[a] w_col[a], and its row col[a] is - s val[col[a]] h_a. gamma_4 is diagonal,
 // (1, 1, -1, -1): (1 - s gamma_4) w is 2 w on the rows 2, 3 for s = +1, on the rows 0, 1 for
 // s = -1, and zero on the others.
+//
+// In three steps, which the legs from other processes take apart (leg_half on the process that
+// sends, add_leg on the one that receives): the two colour vectors h_a (leg_half), the link on
+// each, and the four rows rebuilt from them (add_leg).
+
+// The two colour vectors h_0, h_1 of (1 - s gamma_mu) w.
+template <typename Float>
+__device__ __forceinline__ void leg_half(
+    Float h_r[2][Nc], Float h_i[2][Nc],
+    const Float w[Nspin][Nc][Ncomplex],
+    int mu, Float s)
+{
+    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
+    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
+    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
+    #pragma unroll
+    for (int a = 0; a < 2; ++a) {
+        if (mu < 3) {
+            const int other = col[mu][a];
+            const Float vr = s * static_cast<Float>(re[mu][a]);
+            const Float vi = s * static_cast<Float>(im[mu][a]);
+            #pragma unroll
+            for (int c = 0; c < Nc; ++c) {
+                h_r[a][c] = w[a][c][0] - (vr * w[other][c][0] - vi * w[other][c][1]);
+                h_i[a][c] = w[a][c][1] - (vr * w[other][c][1] + vi * w[other][c][0]);
+            }
+        } else {
+            const int row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
+            #pragma unroll
+            for (int c = 0; c < Nc; ++c) {
+                h_r[a][c] = static_cast<Float>(2.0) * w[row][c][0];
+                h_i[a][c] = static_cast<Float>(2.0) * w[row][c][1];
+            }
+        }
+    }
+}
+
+// acc += coef times the rows of (1 - s gamma_mu) w that t = U h_a (or U^dag h_a) gives.
+template <typename Float>
+__device__ __forceinline__ void add_leg(
+    Float acc[Nspin][Nc][Ncomplex],
+    const Float t_r[Nc], const Float t_i[Nc],
+    int mu, int a, Float s, Float coef)
+{
+    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
+    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
+    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
+    int row, other = -1;
+    Float fr = 0, fi = 0;
+    if (mu < 3) {
+        row = a;
+        other = col[mu][a];
+        fr = -s * static_cast<Float>(re[mu][other]);
+        fi = -s * static_cast<Float>(im[mu][other]);
+    } else {
+        row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
+    }
+    #pragma unroll
+    for (int c = 0; c < Nc; ++c) {
+        acc[row][c][0] += coef * t_r[c];
+        acc[row][c][1] += coef * t_i[c];
+        if (mu < 3) {
+            acc[other][c][0] += coef * (fr * t_r[c] - fi * t_i[c]);
+            acc[other][c][1] += coef * (fr * t_i[c] + fi * t_r[c]);
+        }
+    }
+}
+
 template <typename Float>
 __device__ __forceinline__ void hop_leg(
     Float acc[Nspin][Nc][Ncomplex],
@@ -181,58 +249,96 @@ __device__ __forceinline__ void hop_leg(
     const Float u_r[Nc][Nc], const Float u_i[Nc][Nc],
     bool adjoint, int mu, Float s, Float coef)
 {
-    // col[mu][row]; val as (re, im)
-    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
-    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
-    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
+    Float h_r[2][Nc], h_i[2][Nc];
+    leg_half<Float>(h_r, h_i, w, mu, s);
     #pragma unroll
     for (int a = 0; a < 2; ++a) {
-        // The row of the half spinor, and the other row it gives with the factor (fr, fi).
-        int row, other = -1;
-        Float h_r[Nc], h_i[Nc], fr = 0, fi = 0;
-        if (mu < 3) {
-            row = a;
-            other = col[mu][a];
-            const Float vr = s * static_cast<Float>(re[mu][a]);
-            const Float vi = s * static_cast<Float>(im[mu][a]);
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                h_r[c] = w[a][c][0] - (vr * w[other][c][0] - vi * w[other][c][1]);
-                h_i[c] = w[a][c][1] - (vr * w[other][c][1] + vi * w[other][c][0]);
-            }
-            fr = -s * static_cast<Float>(re[mu][other]);
-            fi = -s * static_cast<Float>(im[mu][other]);
-        } else {
-            row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                h_r[c] = static_cast<Float>(2.0) * w[row][c][0];
-                h_i[c] = static_cast<Float>(2.0) * w[row][c][1];
-            }
-        }
         Float t_r[Nc], t_i[Nc];
         if (adjoint) {
-            su3_dagger_mult_vec(t_r, t_i, u_r, u_i, h_r, h_i);
+            su3_dagger_mult_vec(t_r, t_i, u_r, u_i, h_r[a], h_i[a]);
         } else {
-            su3_mult_vec(t_r, t_i, u_r, u_i, h_r, h_i);
+            su3_mult_vec(t_r, t_i, u_r, u_i, h_r[a], h_i[a]);
         }
-        #pragma unroll
-        for (int c = 0; c < Nc; ++c) {
-            acc[row][c][0] += coef * t_r[c];
-            acc[row][c][1] += coef * t_i[c];
-            if (mu < 3) {
-                acc[other][c][0] += coef * (fr * t_r[c] - fi * t_i[c]);
-                acc[other][c][1] += coef * (fr * t_i[c] + fi * t_r[c]);
-            }
-        }
+        add_leg<Float>(acc, t_r, t_i, mu, a, s, coef);
     }
+}
+
+// -------------------------------------------------------------------------
+// Several processes (the lattice cut into local lattices along the directions `cut`): the
+// legs of a hop that come from another process arrive in the buffer of their face, one for
+// each face (forward in direction mu: face mu, backward: face 4 + mu, as comm::FACES). What
+// arrives is the half spinor of the leg, 2 colour vectors (12 reals) for every site of the face
+// and every fibre (s and vector): h = (1 - s gamma_mu) w of the forward leg, to which the
+// process that receives applies its link, and U^dag h of the backward leg, the link being the
+// one of the sending site. The receiver multiplies by bc[face], the boundary of the whole
+// lattice where the face crosses it and 1 elsewhere.
+//
+// A site of the face is numbered by its three other coordinates, lexically (d0 fastest); on
+// the sites of one parity d0/2 (the local extents are even, so a line in d0 holds one site of
+// each parity in every pair). Within a buffer: ((vector Ls + s) 12 + real) sites + site.
+//
+// The output of an operator splits into its interior, the sites none of whose legs comes from
+// another process, and its surface. The interior is computed while the faces travel; the
+// surface after, every leg of a site in the order of one process, so the result is that of one
+// process bit for bit.
+// -------------------------------------------------------------------------
+template <typename Float>
+struct Halo {
+    const Float* recv[8];
+    Float bc[8];
+    int cut[4];
+    // The sites of the surface, in the numbering of the output; their number.
+    const int* surface;
+    int surface_sites;
+};
+
+// Which part of the output a kernel computes.
+enum Part { Whole = 0, Interior = 1, Surface = 2 };
+
+// The number of site xc on the face of direction mu.
+__host__ __device__ __forceinline__ int face_site(const int xc[4], int mu, const int dims[4], bool half)
+{
+    int d[3], k = 0;
+    #pragma unroll
+    for (int n = 0; n < 4; ++n) if (n != mu) d[k++] = n;
+    const int rest = xc[d[1]] + dims[d[1]] * xc[d[2]];
+    return half ? xc[d[0]] / 2 + (dims[d[0]] / 2) * rest : xc[d[0]] + dims[d[0]] * rest;
+}
+
+// The sites of a face.
+__host__ __device__ __forceinline__ int face_sites(int mu, const int dims[4], bool half)
+{
+    const int all = dims[0] * dims[1] * dims[2] * dims[3] / dims[mu];
+    return half ? all / 2 : all;
+}
+
+// Where real k of colour vector a of fibre (vec, is) of face site f is in a buffer.
+__host__ __device__ __forceinline__ size_t in_face(int vec, int is, int Ls, int a, int k, int f, int sites)
+{
+    return (static_cast<size_t>(vec * Ls + is) * 12 + a * 6 + k) * sites + f;
+}
+
+// Whether a leg of the site xc comes from another process.
+template <typename Float>
+__device__ __forceinline__ bool on_surface(const Halo<Float>& halo, const int xc[4], const int dims[4])
+{
+    bool on = false;
+    #pragma unroll
+    for (int mu = 0; mu < 4; ++mu) {
+        on |= halo.cut[mu] && (xc[mu] == 0 || xc[mu] + 1 == dims[mu]);
+    }
+    return on;
 }
 
 // acc += H w at the site of coordinates xc and fifth coordinate `is`, with
 // w = (b - c Y) psi of d_in; `sign` -1 gives H^dag. With `half`, d_in holds the sites of the
 // parity opposite to that of xc. For a four-dimensional field: Ls = 1, b = 1, c = 0. The links
 // are kept as load_link says.
-template <typename Float>
+//
+// With `Split` (several processes), the legs across a cut direction come from the buffers of
+// `halo` (fibre `vec`, `is`), and every leg is taken one after the other, in the order of one
+// process: forward then backward, mu = 0 to 3, the same sums into acc.
+template <typename Float, bool Split = false>
 __device__ __forceinline__ void hops(
     Float acc[Nspin][Nc][Ncomplex],
     const Float* __restrict__ d_in,
@@ -241,10 +347,77 @@ __device__ __forceinline__ void hops(
     const int dims[4], const Float bc[4],
     bool half, Float sign, Float kappa,
     Float mass, Float b5, Float c5,
-    int legs = 0xFF)
+    int legs = 0xFF,
+    const Halo<Float>* halo = nullptr, int vec = 0)
 {
     const int nx = dims[0], ny = dims[1], nz = dims[2], nt = dims[3];
     const int site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    if constexpr (Split) {
+        #pragma unroll
+        for (int mu = 0; mu < Ndim; ++mu) {
+            int f[4] = {xc[0], xc[1], xc[2], xc[3]};
+            int b[4] = {xc[0], xc[1], xc[2], xc[3]};
+            const bool wrap_f = (xc[mu] + 1 == dims[mu]);
+            const bool wrap_b = (xc[mu] == 0);
+            const bool remote_f = halo->cut[mu] && wrap_f;
+            const bool remote_b = halo->cut[mu] && wrap_b;
+            f[mu] = wrap_f ? 0 : xc[mu] + 1;
+            b[mu] = wrap_b ? dims[mu] - 1 : xc[mu] - 1;
+            const int site_b = coords_to_site(b[0], b[1], b[2], b[3], nx, ny, nz, nt);
+            const int in_f = half ? f[0] / 2 + (nx / 2) * (f[1] + ny * (f[2] + nz * f[3]))
+                                  : coords_to_site(f[0], f[1], f[2], f[3], nx, ny, nz, nt);
+            const int in_b = half ? b[0] / 2 + (nx / 2) * (b[1] + ny * (b[2] + nz * b[3])) : site_b;
+            const int face = face_site(xc, mu, dims, half), sites = face_sites(mu, dims, half);
+            if (legs & (1 << mu)) {
+                Float u_r[Nc][Nc], u_i[Nc][Nc];
+                load_link<Float>(u_r, u_i, d_gauge, mu, site, link_rows);
+                if (remote_f) {
+                    const Float* buf = halo->recv[mu];
+                    const Float coef = -kappa * halo->bc[mu];
+                    #pragma unroll
+                    for (int a = 0; a < 2; ++a) {
+                        Float h_r[Nc], h_i[Nc], t_r[Nc], t_i[Nc];
+                        #pragma unroll
+                        for (int c = 0; c < Nc; ++c) {
+                            h_r[c] = buf[in_face(vec, is, Ls, a, 2 * c, face, sites)];
+                            h_i[c] = buf[in_face(vec, is, Ls, a, 2 * c + 1, face, sites)];
+                        }
+                        su3_mult_vec(t_r, t_i, u_r, u_i, h_r, h_i);
+                        add_leg<Float>(acc, t_r, t_i, mu, a, sign, coef);
+                    }
+                } else {
+                    Float w[Nspin][Nc][Ncomplex];
+                    fifth_term<Float>(w, d_in, is, Ls, in_f, mass, b5, -c5, false);
+                    const Float sign_f = wrap_f ? bc[mu] : static_cast<Float>(1.0);
+                    hop_leg<Float>(acc, w, u_r, u_i, false, mu, sign, -kappa * sign_f);
+                }
+            }
+            if (legs & (16 << mu)) {
+                if (remote_b) {
+                    const Float* buf = halo->recv[4 + mu];
+                    const Float coef = -kappa * halo->bc[4 + mu];
+                    #pragma unroll
+                    for (int a = 0; a < 2; ++a) {
+                        Float t_r[Nc], t_i[Nc];
+                        #pragma unroll
+                        for (int c = 0; c < Nc; ++c) {
+                            t_r[c] = buf[in_face(vec, is, Ls, a, 2 * c, face, sites)];
+                            t_i[c] = buf[in_face(vec, is, Ls, a, 2 * c + 1, face, sites)];
+                        }
+                        add_leg<Float>(acc, t_r, t_i, mu, a, -sign, coef);
+                    }
+                } else {
+                    Float w[Nspin][Nc][Ncomplex];
+                    fifth_term<Float>(w, d_in, is, Ls, in_b, mass, b5, -c5, false);
+                    Float u_r[Nc][Nc], u_i[Nc][Nc];
+                    load_link<Float>(u_r, u_i, d_gauge, mu, site_b, link_rows);
+                    const Float sign_b = wrap_b ? bc[mu] : static_cast<Float>(1.0);
+                    hop_leg<Float>(acc, w, u_r, u_i, true, mu, -sign, -kappa * sign_b);
+                }
+            }
+        }
+        return;
+    }
     #pragma unroll
     for (int mu = 0; mu < Ndim; ++mu) {
         int f[4] = {xc[0], xc[1], xc[2], xc[3]};
@@ -302,7 +475,10 @@ __device__ __forceinline__ void hops(
 // spare, and where the vector of a thread begins costs a launch with one vector a sixth of
 // its time: it is launched without.
 // -------------------------------------------------------------------------
-template <typename Float, bool Many>
+// With several processes (`P`, see Halo): the interior, the sites of the output none of whose
+// legs comes from another process (the others are left as they are), or the surface, the
+// sites halo.surface lists.
+template <typename Float, bool Many, int P = Whole>
 __global__ void hop_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
@@ -313,13 +489,15 @@ __global__ void hop_kernel(
     int Ls, int vectors,
     int target_parity,
     Float sign, Float kappa,
-    Float mass, Float b5, Float c5)
+    Float mass, Float b5, Float c5,
+    Halo<Float> halo = {})
 {
     const bool half = (target_parity >= 0);
     const int sites = (half ? nx / 2 : nx) * ny * nz * nt;
-    const int site  = blockIdx.x * blockDim.x + threadIdx.x;
+    const int thread = blockIdx.x * blockDim.x + threadIdx.x;
     const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
-    if (site >= sites || fibre >= Ls * vectors) return;
+    if (thread >= (P == Surface ? halo.surface_sites : sites) || fibre >= Ls * vectors) return;
+    const int site = (P == Surface) ? halo.surface[thread] : thread;
     const int is = Many ? fibre % Ls : fibre;
     const size_t first = Many ? (fibre / Ls) * vector_reals(sites, Ls) : 0;
     d_out += first;
@@ -334,9 +512,15 @@ __global__ void hop_kernel(
     } else {
         site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
     }
+    if (P == Interior && on_surface(halo, xc, dims)) return;
 
     Float acc[Nspin][Nc][Ncomplex] = {0};
-    hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
+    if constexpr (P == Surface) {
+        hops<Float, true>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa,
+                          mass, b5, c5, 0xFF, &halo, Many ? fibre / Ls : 0);
+    } else {
+        hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
+    }
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {
         #pragma unroll
@@ -351,6 +535,78 @@ __global__ void hop_kernel(
 }
 
 // -------------------------------------------------------------------------
+// The buffer of face `face` (see Halo) out of the field d_in on the whole lattice (in_parity
+// < 0) or on the sites of parity in_parity: for every site of the face and every fibre, the
+// half spinor the neighbour on the other side takes for its leg, w = (b - c Y) psi of d_in at
+// the site: (1 - sign gamma_mu) w for a face backward (the neighbour's forward leg), and
+// U_mu^dag (1 + sign gamma_mu) w for a face forward (its backward leg, on the link of this
+// site). The same arithmetic as hops, so the neighbour sums what one process would.
+// -------------------------------------------------------------------------
+template <typename Float>
+__global__ void hop_pack_kernel(
+    Float* __restrict__ d_send,
+    const Float* __restrict__ d_in,
+    const Float* __restrict__ d_gauge, int link_rows,
+    int nx, int ny, int nz, int nt,
+    int Ls, int vectors,
+    int in_parity, int face,
+    Float sign,
+    Float mass, Float b5, Float c5)
+{
+    const bool half = (in_parity >= 0);
+    const int dims[4] = {nx, ny, nz, nt};
+    const int mu = face % 4;
+    const bool forward = (face < 4);
+    const int sites = face_sites(mu, dims, half);
+    const int f = blockIdx.x * blockDim.x + threadIdx.x;
+    const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
+    if (f >= sites || fibre >= Ls * vectors) return;
+    const int is = fibre % Ls, vec = fibre / Ls;
+    const int field_sites = (half ? nx / 2 : nx) * ny * nz * nt;
+    d_in += vec * vector_reals(field_sites, Ls);
+
+    // The coordinates of face site f: the inverse of face_site, x_mu on the face.
+    int d[3], k = 0;
+    #pragma unroll
+    for (int n = 0; n < 4; ++n) if (n != mu) d[k++] = n;
+    int xc[4];
+    xc[mu] = forward ? dims[mu] - 1 : 0;
+    const int line = half ? dims[d[0]] / 2 : dims[d[0]];
+    int rest = f / line;
+    xc[d[1]] = rest % dims[d[1]];
+    xc[d[2]] = rest / dims[d[1]];
+    xc[d[0]] = f % line;
+    if (half) {
+        const int others = xc[mu] + xc[d[1]] + xc[d[2]];
+        xc[d[0]] = 2 * xc[d[0]] + ((in_parity + others) & 1);
+    }
+    const int site = coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
+    const int in = half ? xc[0] / 2 + (nx / 2) * (xc[1] + ny * (xc[2] + nz * xc[3])) : site;
+
+    Float w[Nspin][Nc][Ncomplex];
+    fifth_term<Float>(w, d_in, is, Ls, in, mass, b5, -c5, false);
+    Float h_r[2][Nc], h_i[2][Nc];
+    leg_half<Float>(h_r, h_i, w, mu, forward ? -sign : sign);
+    Float u_r[Nc][Nc], u_i[Nc][Nc];
+    if (forward) load_link<Float>(u_r, u_i, d_gauge, mu, site, link_rows);
+    #pragma unroll
+    for (int a = 0; a < 2; ++a) {
+        Float t_r[Nc], t_i[Nc];
+        if (forward) {
+            su3_dagger_mult_vec(t_r, t_i, u_r, u_i, h_r[a], h_i[a]);
+        } else {
+            #pragma unroll
+            for (int c = 0; c < Nc; ++c) { t_r[c] = h_r[a][c]; t_i[c] = h_i[a][c]; }
+        }
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            d_send[in_face(vec, is, Ls, a, 2 * c, f, sites)] = t_r[c];
+            d_send[in_face(vec, is, Ls, a, 2 * c + 1, f, sites)] = t_i[c];
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // One leg of H (b - c Y) in on the whole lattice (leg mu: the forward hop in direction mu,
 // 4 + mu: the backward one), sorted by whether it comes from another block of the lattice
 // (blocks of bx by bz bt sites: the aggregates of a multigrid): cross = the leg where it
@@ -358,8 +614,10 @@ __global__ void hop_kernel(
 // The fibres of a site as in hop_kernel. In single precision two blocks of 256 an SM (128
 // registers, no spill): with the 168 nvcc chose, one block, 8 warps, at 25% of the bandwidth on
 // the A30. In double precision 128 registers spill 700 bytes, so it keeps its 168.
+// With `Split` (several processes), a leg across a cut comes from the buffers of `halo`; a
+// block never spans two processes, so such a leg always crosses.
 // -------------------------------------------------------------------------
-template <typename Float>
+template <typename Float, bool Split = false>
 __global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_kernel(
     Float* __restrict__ d_cross,
     Float* __restrict__ d_inside,
@@ -371,7 +629,8 @@ __global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_ker
     int leg,
     int bx, int by, int bz, int bt,
     Float kappa,
-    Float mass, Float b5, Float c5)
+    Float mass, Float b5, Float c5,
+    Halo<Float> halo = {})
 {
     const int sites = nx * ny * nz * nt;
     const int site  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -386,8 +645,8 @@ __global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_ker
     int xc[4];
     site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
     Float acc[Nspin][Nc][Ncomplex] = {0};
-    hops<Float>(acc, d_in + first, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
-                static_cast<Float>(1.0), kappa, mass, b5, c5, 1 << leg);
+    hops<Float, Split>(acc, d_in + first, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
+                       static_cast<Float>(1.0), kappa, mass, b5, c5, 1 << leg, &halo, fibre / Ls);
     const int mu = leg % 4, at = xc[mu] % block[mu];
     const bool crosses = (leg < 4) ? (at == block[mu] - 1) : (at == 0);
     #pragma unroll

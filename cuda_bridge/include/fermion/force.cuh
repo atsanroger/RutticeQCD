@@ -12,9 +12,13 @@
 // a colour matrix (dS = Re tr X M for dU = X U), with eta the field the hops act on and the
 // boundary signs of the hops. In double precision; M in the layout of gauge/stout.cuh's
 // fields of matrices (real c of direction mu at site x at ((x / W) 72 + 18 mu + c) W + x % W).
+//
+// On several processes (`Split`), eta and gamma5 zeta at x + mu across a cut come from the
+// buffers of h_eta and h_g5zeta (hops.cuh, Halo): the half spinors of the forward legs.
 
 namespace bridge_cuda {
 
+template <bool Split = false>
 __global__ void hop_force_kernel(
     double* __restrict__ d_m,
     const double* __restrict__ d_zeta, const double* __restrict__ d_eta,
@@ -22,7 +26,8 @@ __global__ void hop_force_kernel(
     const double* __restrict__ d_gauge, int link_rows,
     int nx, int ny, int nz, int nt,
     double bcx, double bcy, double bcz, double bct,
-    int Ls, double coef)
+    int Ls, double coef,
+    Halo<double> h_eta = {}, Halo<double> h_g5zeta = {})
 {
     const int sites = nx * ny * nz * nt;
     const int site = blockIdx.x * blockDim.x + threadIdx.x;
@@ -45,8 +50,8 @@ __global__ void hop_force_kernel(
             // The forward hop of eta and of gamma5 zeta: U (1 - gamma_mu) w(x + mu), with the
             // boundary sign (kappa = -1 makes the coefficient of hops +1).
             double h1[Nspin][Nc][Ncomplex] = {{{0}}}, h2[Nspin][Nc][Ncomplex] = {{{0}}};
-            hops<double>(h1, d_eta, d_gauge, link_rows, xc, is, Ls, dims, bc, false, 1.0, -1.0, 0.0, 1.0, 0.0, 1 << mu);
-            hops<double>(h2, d_g5zeta, d_gauge, link_rows, xc, is, Ls, dims, bc, false, 1.0, -1.0, 0.0, 1.0, 0.0, 1 << mu);
+            hops<double, Split>(h1, d_eta, d_gauge, link_rows, xc, is, Ls, dims, bc, false, 1.0, -1.0, 0.0, 1.0, 0.0, 1 << mu, &h_eta);
+            hops<double, Split>(h2, d_g5zeta, d_gauge, link_rows, xc, is, Ls, dims, bc, false, 1.0, -1.0, 0.0, 1.0, 0.0, 1 << mu, &h_g5zeta);
             double z[Nspin][Nc][Ncomplex], e[Nspin][Nc][Ncomplex];
             load(z, d_zeta, is);
             load(e, d_g5eta, is);

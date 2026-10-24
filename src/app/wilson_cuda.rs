@@ -11,8 +11,15 @@ fn device(e: CudaError) -> CliError {
     CliError::Run(format!("Main.backend cuda_bridge: {e}"))
 }
 
-/// The boundaries the kernels take.
-fn check_boundary(boundary: &[Boundary; ND]) -> Result<(), CliError> {
+/// The boundaries the kernels take; one process (the Wilson and clover operators on the device
+/// do not exchange faces yet).
+fn check_boundary(lat: &Lattice, boundary: &[Boundary; ND]) -> Result<(), CliError> {
+    if lat.comm.size() > 1 {
+        return invalid(
+            "Main.backend cuda_bridge: Wilson and clover fermions on the device run on one process so far"
+                .to_string(),
+        );
+    }
     if boundary.iter().any(|b| matches!(b, Boundary::Phase(..))) {
         return invalid(
             "Main.backend cuda_bridge takes periodic, antiperiodic and Dirichlet boundaries"
@@ -50,7 +57,7 @@ pub(super) fn wilson(
     solver: &SolverConfig,
     quark: usize,
 ) -> Result<(f64, V, SolveInfo), CliError> {
-    check_boundary(&params.boundary)?;
+    check_boundary(lat, &params.boundary)?;
     let operator = |e| CliError::Operator { quark, source: e };
     let mut cpu = Wilson::<f64>::new(lat, params);
     cpu.set_gauge(u).map_err(operator)?;
@@ -67,7 +74,7 @@ pub(super) fn clover(
     solver: &SolverConfig,
     quark: usize,
 ) -> Result<(f64, V, SolveInfo), CliError> {
-    check_boundary(&params.boundary)?;
+    check_boundary(lat, &params.boundary)?;
     let operator = |e| CliError::Operator { quark, source: e };
     let mut cpu = Clover::<f64>::new(lat, params);
     cpu.set_gauge(u).map_err(operator)?;

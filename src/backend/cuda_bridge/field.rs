@@ -28,6 +28,23 @@ pub struct DeviceSpinor<T = f64> {
 }
 
 impl<T: DeviceReal> DeviceSpinor<T> {
+    /// The local sums of a reduction summed over the processes (nothing on one).
+    fn sum(&self, x: &mut [f64]) {
+        if self.lat.comm.size() > 1 {
+            self.lat.comm.sum(x);
+        }
+    }
+
+    fn sum_complex(&self, x: &mut [C64]) {
+        if self.lat.comm.size() > 1 {
+            let mut reals: Vec<f64> = x.iter().flat_map(|z| [z.re, z.im]).collect();
+            self.lat.comm.sum(&mut reals);
+            for (z, r) in x.iter_mut().zip(reals.as_chunks::<2>().0) {
+                *z = C64::new(r[0], r[1]);
+            }
+        }
+    }
+
     /// Zero fields on the whole lattice (`parity` none) or on one parity.
     fn new(
         lat: &Arc<Lattice>,
@@ -309,15 +326,18 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     fn dot(&self, x: &Self, out: &mut [C64]) {
         assert!(self.same_shape(x));
         columns::dot(&self.data, &x.data, self.vectors, out);
+        self.sum_complex(out);
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
         columns::norm_sqr(&self.data, self.vectors, out);
+        self.sum(out);
     }
 
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
         assert!(self.same_shape(x));
         columns::axpy_norm_sqr(&self.data, &x.data, self.vectors, a, out);
+        self.sum(out);
     }
 
     fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
@@ -347,6 +367,8 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
             dot,
         );
         self.parity = x.parity;
+        self.sum(norm);
+        self.sum_complex(dot);
     }
 
     fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
@@ -366,6 +388,7 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
         assert!(self.same_shape(x) && self.same_shape(y));
         let v = self.vectors;
         columns::scale_axpy2_norm_sqr(&self.data, c, a, &x.data, b, &y.data, v, out);
+        self.sum(out);
     }
 
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
@@ -381,6 +404,9 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
         assert!(self.same_shape(x));
         columns::dot_norms(&self.data, &x.data, self.vectors, dot, norm, norm_x);
+        self.sum_complex(dot);
+        self.sum(norm);
+        self.sum(norm_x);
     }
 }
 
@@ -401,7 +427,9 @@ impl<T: DeviceReal> crate::Subspace for DeviceSpinor<T> {
     /// All the pairs in one reduction (`columns::gram`), no vector copied.
     fn gram(&self, y: &Self) -> Vec<C64> {
         assert!(Arc::ptr_eq(&self.lat, &y.lat) && self.ls == y.ls && self.parity == y.parity);
-        columns::gram(&self.data, self.vectors, &y.data, y.vectors)
+        let mut g = columns::gram(&self.data, self.vectors, &y.data, y.vectors);
+        self.sum_complex(&mut g);
+        g
     }
 }
 

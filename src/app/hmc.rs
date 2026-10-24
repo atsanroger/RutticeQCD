@@ -1451,6 +1451,21 @@ pub fn run_on(
         hmc.metropolis = config.hmc.metropolis;
         hmc
     };
+    if config.device && lat.comm.size() > 1 {
+        let multigrid = config.actions.iter().any(|a| match a {
+            ActionConfig::TwoFlavor { solver, .. }
+            | ActionConfig::TwoFlavorRatio { solver, .. } => {
+                solver.preconditioner == Some(HmcPreconditioner::Multigrid)
+            }
+            _ => false,
+        });
+        if multigrid {
+            return Err(CliError::Run(
+                "Main.backend cuda_bridge: the multigrid on the device runs on one process so far"
+                    .into(),
+            ));
+        }
+    }
     if config.device {
         #[cfg(feature = "cuda-bridge")]
         {

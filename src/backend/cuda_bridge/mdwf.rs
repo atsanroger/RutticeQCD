@@ -10,6 +10,7 @@
 //! on the tensor cores). So `(C Q)⁻¹` is one pass, and so is `(C Q)†⁻¹ (B Q)†` after the
 //! adjoint hops.
 
+use super::halo::Halos;
 use super::wilson::{gamma5, scratch};
 use super::*;
 use crate::fermion::{
@@ -224,6 +225,8 @@ pub struct CudaMdwf<T = f64> {
     matrices: Matrices<T>,
     /// The matrix products in TF32 (`set_tf32`); single precision only.
     tf32: bool,
+    /// The exchanges of the hops on several processes; none on one.
+    halos: Option<Rc<Halos<T>>>,
 }
 
 impl CudaMdwf<f32> {
@@ -266,6 +269,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             alpha: 1.0,
             matrices: Matrices::new(&params, 1.0)?,
             tf32: false,
+            halos: Halos::of(lat, params.boundary),
         })
     }
 
@@ -285,6 +289,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             alpha: 1.0,
             matrices: Matrices::new(&params, 1.0)?,
             tf32: false,
+            halos: Halos::of(&other.gauge.lat, params.boundary),
         })
     }
 
@@ -314,6 +319,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             alpha: 1.0,
             matrices: Matrices::new(&params, 1.0)?,
             tf32: false,
+            halos: Halos::of(&other.gauge.lat, params.boundary),
         })
     }
 
@@ -410,15 +416,57 @@ impl<T: DeviceReal> CudaMdwf<T> {
             b,
             c,
         };
-        hops(
-            (&*self.gauge, &self.geometry),
-            out,
+        let Some(halos) = &self.halos else {
+            return hops(
+                (&*self.gauge, &self.geometry),
+                out,
+                inp,
+                from,
+                0.5,
+                fifth,
+                dagger,
+                to,
+            );
+        };
+        let ls = self.params.ls;
+        assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
+        assert_eq!(out.data.len, inp.data.len);
+        out.parity = to;
+        let from = match from {
+            Some(f) => {
+                assert!(f.is(out, ls, to) && f.data.len == out.data.len);
+                f.data.ptr.cast_const()
+            }
+            None => std::ptr::null(),
+        };
+        let fifth = [fifth.mass, fifth.b, fifth.c];
+        let gauge = self.gauge.links.ptr.cast_const();
+        halos.around(
+            &self.geometry,
+            gauge,
             inp,
-            from,
-            0.5,
+            to,
             fifth,
             dagger,
-            to,
+            |halo, part| {
+                // SAFETY: as in `hops`; the buffers of `halo` are those of this output.
+                unsafe {
+                    T::hop_part(
+                        out.data.ptr,
+                        inp.data.ptr,
+                        gauge,
+                        from,
+                        &self.geometry,
+                        0.5,
+                        fifth,
+                        i32::from(dagger),
+                        parity_number(to),
+                        inp.vectors as i32,
+                        halo,
+                        part,
+                    );
+                }
+            },
         );
     }
 
@@ -450,23 +498,25 @@ impl<T: DeviceReal> CudaMdwf<T> {
         };
         // SAFETY: the spinor buffers hold the sites of one parity each, as the kernel is told;
         // the links are those of the whole lattice; `out` is not `inp`; the matrix is the
-        // padded one of this `ls`; a null `from` is not read.
-        let done = unsafe {
-            T::hop_gemm(
-                out.data.ptr,
-                inp.data.ptr,
-                self.gauge.links.ptr,
-                from_ptr,
-                matrix.ptr,
-                &self.geometry,
-                self.params.mass,
-                b,
-                c,
-                i32::from(dagger),
-                to.index() as i32,
-                inp.vectors as i32,
-            )
-        };
+        // padded one of this `ls`; a null `from` is not read. Not on several processes, whose
+        // hops are those of `hops`.
+        let done = self.halos.is_none()
+            && unsafe {
+                T::hop_gemm(
+                    out.data.ptr,
+                    inp.data.ptr,
+                    self.gauge.links.ptr,
+                    from_ptr,
+                    matrix.ptr,
+                    &self.geometry,
+                    self.params.mass,
+                    b,
+                    c,
+                    i32::from(dagger),
+                    to.index() as i32,
+                    inp.vectors as i32,
+                )
+            };
         if !done {
             self.hops(scratch, inp, None, (b, c), dagger, Some(to));
             self.gemm(out, scratch, matrix, from);
@@ -595,6 +645,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
         basis: &DeviceBasis,
     ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
         assert!(
+            self.halos.is_none(),
+            "the multigrid on the device runs on one process so far"
+        );
+        assert!(
             self.alpha == 1.0,
             "the coarse operator is that of the plain operator"
         );
@@ -687,17 +741,45 @@ impl<T: DeviceReal> CudaMdwf<T> {
             b5: self.params.b,
             c5: self.params.c,
         };
-        // SAFETY: as in `CudaWilson::apply`, the spinor buffers holding `ls` spinors per site.
-        unsafe {
-            T::mdwf_dslash(
-                out.data.ptr,
-                inp.data.ptr,
-                self.gauge.links.ptr,
-                &self.geometry,
-                &params,
-                inp.vectors as i32,
-            );
-        }
+        let gauge = self.gauge.links.ptr.cast_const();
+        let Some(halos) = &self.halos else {
+            // SAFETY: as in `CudaWilson::apply`, the spinor buffers holding `ls` spinors per site.
+            unsafe {
+                T::mdwf_dslash(
+                    out.data.ptr,
+                    inp.data.ptr,
+                    gauge,
+                    &self.geometry,
+                    &params,
+                    inp.vectors as i32,
+                );
+            }
+            return;
+        };
+        let fifth = [self.params.mass, self.params.b, self.params.c];
+        halos.around(
+            &self.geometry,
+            gauge,
+            inp,
+            None,
+            fifth,
+            false,
+            |halo, part| {
+                // SAFETY: as above; the buffers of `halo` are those of this output.
+                unsafe {
+                    T::dslash_part(
+                        out.data.ptr,
+                        inp.data.ptr,
+                        gauge,
+                        &self.geometry,
+                        &params,
+                        inp.vectors as i32,
+                        halo,
+                        part,
+                    );
+                }
+            },
+        );
     }
 }
 
@@ -950,6 +1032,8 @@ extern "C" {
         bc: *const i32,
         ls: i32,
         coef: f64,
+        h_eta: *const super::halo::HaloArgs,
+        h_g5zeta: *const super::halo::HaloArgs,
         stream: *mut c_void,
     );
 }
@@ -995,8 +1079,23 @@ impl CudaMdwf<f64> {
         gamma5(&mut g5zeta, zeta, false);
         let m = DeviceLinks::zeros(&self.gauge.lat)?;
         let coef = -(4.0 - m5) / (8.0 - 2.0 * m5);
+        // On several processes the forward legs of w and γ5 ζ across a cut: their faces, the
+        // hops of b = 1, c = 0 (the fields are taken as they are).
+        let gauge = self.gauge.links.ptr.cast_const();
+        let faces = self.halos.as_ref().map(|h| {
+            let plain = [0.0, 1.0, 0.0];
+            (
+                h.exchanged(&self.geometry, gauge, &w, plain, 1),
+                h.exchanged(&self.geometry, gauge, &g5zeta, plain, 2),
+            )
+        });
+        let (h_eta, h_g5zeta) = faces
+            .as_ref()
+            .map_or((std::ptr::null(), std::ptr::null()), |(a, b)| {
+                (a as *const _, b as *const _)
+            });
         // SAFETY: four fields of the operator's shape, its links, and a field of matrices of
-        // its lattice.
+        // its lattice; the faces, if any, those of w and γ5 ζ.
         unsafe {
             bridge_cuda_hop_force(
                 m.data.ptr,
@@ -1010,6 +1109,8 @@ impl CudaMdwf<f64> {
                 self.geometry.bc.as_ptr(),
                 ls as i32,
                 coef,
+                h_eta,
+                h_g5zeta,
                 STREAM,
             );
         }

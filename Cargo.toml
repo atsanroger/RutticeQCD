@@ -89,6 +89,10 @@ hdf5 = ["dep:hdf5", "dep:ndarray"]
 # The CUDA kernels of `cuda_bridge/` (from Bridge++) and the backend on them
 # (`backend::cuda_bridge`). Needs the CUDA toolkit and cmake to build, and an NVIDIA GPU to run.
 cuda-bridge = []
+# The faces of the operators on several processes exchanged by NCCL between the devices
+# (`backend::cuda_bridge`, `halo`): NVLink or PCIe peer copies within a node, GPUDirect RDMA
+# between nodes. Needs NCCL (`NCCL_HOME`) to build; without it the faces go through the host.
+nccl = ["cuda-bridge"]
 
 [dependencies]
 rayon = "1"

@@ -1,6 +1,6 @@
 //! The CUDA kernels of `cuda_bridge/` (extracted from Bridge++): fields on the device and the
-//! operators on them. One process, the Dirac representation, single or double precision
-//! (`DeviceReal`).
+//! operators on them. The Dirac representation, single or double precision (`DeviceReal`). One
+//! process, or for the domain-wall operator several, each with its own device (`halo`).
 //!
 //! A device field is the AoSoA layout of the kernels, 32 sites to a block: component `c` of
 //! site `x` is at `((x / 32) * n + c) * 32 + x % 32` for `n` components per site, the number of
@@ -22,6 +22,7 @@ mod correction;
 mod ffi;
 mod field;
 mod gauge;
+mod halo;
 pub mod hmc_mixed;
 pub mod hmc_multigrid;
 mod levels;
@@ -35,12 +36,13 @@ pub use correction::{DeviceCorrection, DeviceParts};
 pub use ffi::{CloverKernelParams, DeviceReal, Geometry, MdwfKernelParams, WilsonKernelParams};
 pub use field::{DeviceParities, DeviceSpinor, Stashed};
 pub use gauge::DeviceLinks;
+pub use halo::SplitReal;
 pub use levels::{DeviceAbsMultilevel, DeviceMultilevel, LevelReal};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
 
 use crate::fermion::GaugeError;
-use crate::{Boundary, Field, Gauge, Lattice, Parity, ND};
+use crate::{Boundary, Field, Gauge, Lattice, Parity, Stencil, ND};
 use ffi::*;
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -130,10 +132,50 @@ fn pool() -> *mut c_void {
     pool as *mut c_void
 }
 
+/// The device of this process: `RUTTICE_DEVICE` if set, else its rank among the processes of
+/// its node (as the MPI launchers and Slurm tell it) modulo the devices it sees, so that the
+/// processes of a node take one device each. Chosen once for each thread, before its first
+/// allocation (the device is the runtime's state of a thread).
+pub fn device_of_this_process() -> i32 {
+    let mut count = 0;
+    // SAFETY: a place for the number.
+    if unsafe { cudaGetDeviceCount(&mut count) } != 0 || count < 1 {
+        // SAFETY: no arguments; the failed query is not an error of the kernels.
+        unsafe { cudaGetLastError() };
+        return 0;
+    }
+    let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i32>().ok());
+    if let Some(d) = var("RUTTICE_DEVICE") {
+        return d;
+    }
+    let local = [
+        "OMPI_COMM_WORLD_LOCAL_RANK",
+        "MV2_COMM_WORLD_LOCAL_RANK",
+        "MPI_LOCALRANKID",
+        "PMI_LOCAL_RANK",
+        "SLURM_LOCALID",
+    ]
+    .iter()
+    .find_map(|name| var(name))
+    .unwrap_or(0);
+    local % count
+}
+
+fn select_device() {
+    thread_local! {
+        static SELECTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if !SELECTED.with(|s| s.replace(true)) {
+        // SAFETY: a device number the runtime checks.
+        must(check(unsafe { cudaSetDevice(device_of_this_process()) }));
+    }
+}
+
 /// `bytes` bytes on the device, counted for `device_memory`: from the pool (`pool`), in the
 /// order of the default stream. If the device refuses, what the pool keeps unused is given
 /// back and the allocation tried once more.
 fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
+    select_device();
     let mut ptr: *mut c_void = std::ptr::null_mut();
     if bytes == 0 {
         return Ok(ptr);
@@ -348,9 +390,20 @@ fn in_blocks(host: &[f64], reals: usize) -> Vec<f64> {
     device
 }
 
-/// The geometry the kernels take for fields of `ls` spinors per site on `lat`.
+/// What runs on the device on one process only so far (the domain-wall operator exchanges the
+/// faces of its hops, `halo`; nothing else does yet).
+fn one_process(lat: &Lattice, what: &str) {
+    assert_eq!(
+        lat.comm.size(),
+        1,
+        "{what} on the device runs on one process so far"
+    );
+}
+
+/// The geometry the kernels take for fields of `ls` spinors per site on the local lattice of
+/// `lat` (on several processes the boundaries of the directions cut between them are those of
+/// `halo::Halos`).
 fn geometry(lat: &Lattice, boundary: [Boundary; ND], ls: usize) -> Geometry {
-    assert_eq!(lat.comm.size(), 1, "the CUDA backend runs on one process");
     let sites = lat.num_sites();
     let bc = boundary.map(|b| match b {
         Boundary::Periodic => 1,

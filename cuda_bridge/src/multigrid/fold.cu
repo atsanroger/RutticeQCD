@@ -71,7 +71,7 @@ namespace {
                                const Float* d_diag, const Float* d_links, const Float* d_inverse,
                                const unsigned* d_neighbours, const unsigned* d_odd,
                                int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
-                               cudaStream_t stream)
+                               const Float* d_ghost, int n_ghost, cudaStream_t stream)
     {
         const size_t shared = bridge_cuda::coarse_pass_shared<Float>(dim, Hops);
         static size_t allowed = 48 * 1024;
@@ -84,7 +84,7 @@ namespace {
         const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
         bridge_cuda::coarse_pass_kernel<Float, Hops><<<grid, threads, shared, stream>>>(
             d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse, d_neighbours, d_odd,
-            n_coarse, dim, parity, minus ? -1 : 1, gamma5);
+            n_coarse, dim, parity, minus ? -1 : 1, gamma5, d_ghost, n_ghost);
     }
 
     // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs with H and V in shared
@@ -128,14 +128,16 @@ namespace {
                             const Float* d_diag, const Float* d_links, const Float* d_inverse,
                             const unsigned* d_neighbours, const unsigned* d_odd,
                             int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
-                            cudaStream_t stream)
+                            cudaStream_t stream, const Float* d_ghost = nullptr, int n_ghost = 0)
     {
         if (d_hops_of != nullptr) {
             coarse_pass_launch_as<Float, true>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
-                                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+                                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors,
+                                               d_ghost, n_ghost, stream);
         } else {
             coarse_pass_launch_as<Float, false>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
-                                                d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+                                                d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors,
+                                                d_ghost, n_ghost, stream);
         }
     }
 
@@ -298,6 +300,34 @@ void bridge_cuda_coarse_pass_f32(
                               d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
 }
 
+void bridge_cuda_coarse_pass_ghost_f32(
+    float* d_out, const float* d_base, const float* d_diag_of, const float* d_hops_of,
+    const float* d_diag, const float* d_links, const float* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+    const float* d_ghost, int n_ghost, cudaStream_t stream)
+{
+    coarse_pass_launch<float>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                              d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream,
+                              d_ghost, n_ghost);
+}
+
+void bridge_cuda_coarse_gather_f32(float* d_buf, const float* d_field, const unsigned* d_sites, int n, int n_coarse,
+                                  int dim, int vectors, cudaStream_t stream)
+{
+    if (n == 0) return;
+    dim3 grid((n * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_gather_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(d_buf, d_field, d_sites, n, n_coarse, dim);
+}
+
+void bridge_cuda_coarse_place_f32(float* d_ghost, const float* d_buf, int first, int n, int n_ghost, int dim, int vectors,
+                                 cudaStream_t stream)
+{
+    if (n == 0) return;
+    dim3 grid((n * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_place_kernel<float><<<grid, BLOCK_SIZE, 0, stream>>>(d_ghost, d_buf, first, n, n_ghost, dim);
+}
+
 void bridge_cuda_coarse_gamma5_f32(float* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)
 {
     dim3 grid((n_coarse * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
@@ -312,6 +342,34 @@ void bridge_cuda_coarse_pass_f64(
 {
     coarse_pass_launch<double>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
                                d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream);
+}
+
+void bridge_cuda_coarse_pass_ghost_f64(
+    double* d_out, const double* d_base, const double* d_diag_of, const double* d_hops_of,
+    const double* d_diag, const double* d_links, const double* d_inverse,
+    const unsigned* d_neighbours, const unsigned* d_odd,
+    int n_coarse, int dim, int parity, int minus, int gamma5, int vectors,
+    const double* d_ghost, int n_ghost, cudaStream_t stream)
+{
+    coarse_pass_launch<double>(d_out, d_base, d_diag_of, d_hops_of, d_diag, d_links, d_inverse,
+                              d_neighbours, d_odd, n_coarse, dim, parity, minus, gamma5, vectors, stream,
+                              d_ghost, n_ghost);
+}
+
+void bridge_cuda_coarse_gather_f64(double* d_buf, const double* d_field, const unsigned* d_sites, int n, int n_coarse,
+                                  int dim, int vectors, cudaStream_t stream)
+{
+    if (n == 0) return;
+    dim3 grid((n * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_gather_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_buf, d_field, d_sites, n, n_coarse, dim);
+}
+
+void bridge_cuda_coarse_place_f64(double* d_ghost, const double* d_buf, int first, int n, int n_ghost, int dim, int vectors,
+                                 cudaStream_t stream)
+{
+    if (n == 0) return;
+    dim3 grid((n * dim + BLOCK_SIZE - 1) / BLOCK_SIZE, vectors);
+    bridge_cuda::coarse_place_kernel<double><<<grid, BLOCK_SIZE, 0, stream>>>(d_ghost, d_buf, first, n, n_ghost, dim);
 }
 
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream)

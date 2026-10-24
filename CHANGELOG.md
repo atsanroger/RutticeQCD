@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Several GPUs for domain-wall fermions (`ruttice-mpi` with `cuda-bridge`, one GPU a process):
+  the hops pack the faces of the local lattice into half spinors (`fermion/hops.cuh`, `Halo`),
+  which travel while the interior is computed, the surface summed in the order of one process,
+  so the operators give one process's result bit for bit; the reductions of the fields on the
+  device are summed over the processes. Stout smearing, its chain rule, the gauge force and
+  action and the fermion force read an extended field of links (`gauge/stout.cuh`, a halo of one
+  or two layers, corners included, as `gauge::paths::Extended`). The faces travel by NCCL
+  (feature `nccl`) or through the host (`backend::cuda_bridge::halo`), NCCL where every process
+  can have it. Propagator solves without the multigrid, eigensolvers, pseudospectra and HMC
+  without the multigrid on several processes; checked against one process with `LocalComm`
+  (up to 16 ranks on one GPU) and with two MPI processes (CG, mixed CG, eigenvalues, the HMC of
+  a smeared Ratio action with α: the same iterations and ΔH).
+
 - The eigensolver files on the device (`Main.backend : cuda_bridge`): Lanczos and Arnoldi on
   Wilson, clover and domain-wall fermions, every `fermion_mult_mode` and `operator_type` of the
   CPU (`PV_right`, `PV_left`, Neff's α). The run is written once (`app::eigen`), a backend

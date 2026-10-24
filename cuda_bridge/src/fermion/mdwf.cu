@@ -21,9 +21,144 @@ namespace {
 
     using bridge_cuda::site_block;
     using bridge_cuda::site_grid;
+
+    template <typename Float>
+    bridge_cuda::Halo<Float> halo_of(const BridgeCudaHalo* h) {
+        bridge_cuda::Halo<Float> halo{};
+        for (int f = 0; f < 8; ++f) {
+            halo.recv[f] = static_cast<const Float*>(h->recv[f]);
+            halo.bc[f] = static_cast<Float>(h->bc[f]);
+        }
+        for (int mu = 0; mu < 4; ++mu) halo.cut[mu] = h->cut[mu];
+        halo.surface = h->surface;
+        halo.surface_sites = h->surface_sites;
+        return halo;
+    }
+
+    // The hops (hop_kernel) on the interior (part 1) or the surface (part 2) of the output.
+    template <typename Float>
+    void hop_part(
+        Float* d_out, const Float* d_in, const Float* d_gauge, const Float* d_from,
+        const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+        int dagger, int target_parity, int vectors, const BridgeCudaHalo* h, int part,
+        cudaStream_t stream)
+    {
+        using namespace bridge_cuda;
+        const int sites = (target_parity >= 0) ? volume(geom) / 2 : volume(geom);
+        const int threads = (part == Surface) ? h->surface_sites : sites;
+        if (threads == 0) return;
+        auto kernel = (part == Surface)
+            ? ((vectors == 1) ? hop_kernel<Float, false, Surface> : hop_kernel<Float, true, Surface>)
+            : ((vectors == 1) ? hop_kernel<Float, false, Interior> : hop_kernel<Float, true, Interior>);
+        kernel<<<site_grid(threads, geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+            d_out, d_in, d_gauge, geom->link_rows, d_from,
+            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+            static_cast<Float>(geom->bc[0]), static_cast<Float>(geom->bc[1]),
+            static_cast<Float>(geom->bc[2]), static_cast<Float>(geom->bc[3]),
+            geom->Ls, vectors, target_parity,
+            static_cast<Float>(dagger ? -1 : 1), static_cast<Float>(kappa),
+            static_cast<Float>(mass), static_cast<Float>(b5), static_cast<Float>(c5),
+            halo_of<Float>(h));
+    }
+
+    // D in one pass (mdwf_dslash_1pass_kernel) on the interior or the surface.
+    template <typename Float>
+    void dslash_part(
+        Float* d_out, const Float* d_in, const Float* d_gauge,
+        const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+        int vectors, const BridgeCudaHalo* h, int part, cudaStream_t stream)
+    {
+        using namespace bridge_cuda;
+        const int threads = (part == Surface) ? h->surface_sites : volume(geom);
+        if (threads == 0) return;
+        auto kernel = (part == Surface)
+            ? ((vectors == 1) ? mdwf_dslash_1pass_kernel<Float, false, Surface> : mdwf_dslash_1pass_kernel<Float, true, Surface>)
+            : ((vectors == 1) ? mdwf_dslash_1pass_kernel<Float, false, Interior> : mdwf_dslash_1pass_kernel<Float, true, Interior>);
+        kernel<<<site_grid(threads, geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+            d_out, d_in, d_gauge, geom->link_rows,
+            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+            static_cast<Float>(geom->bc[0]), static_cast<Float>(geom->bc[1]),
+            static_cast<Float>(geom->bc[2]), static_cast<Float>(geom->bc[3]),
+            geom->Ls, vectors,
+            static_cast<Float>(params->M5), static_cast<Float>(params->mass),
+            static_cast<Float>(params->b5), static_cast<Float>(params->c5),
+            halo_of<Float>(h));
+    }
+
+    // The buffer of one face (hop_pack_kernel).
+    template <typename Float>
+    void hop_pack(
+        Float* d_send, const Float* d_in, const Float* d_gauge,
+        const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+        int dagger, int in_parity, int face, int vectors, cudaStream_t stream)
+    {
+        using namespace bridge_cuda;
+        const int sites = face_sites(face % 4, geom->dims, in_parity >= 0);
+        const int fibres = geom->Ls * vectors;
+        const dim3 block(32, 8);
+        const dim3 grid((sites + block.x - 1) / block.x, (fibres + block.y - 1) / block.y);
+        hop_pack_kernel<Float><<<grid, block, 0, stream>>>(
+            d_send, d_in, d_gauge, geom->link_rows,
+            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+            geom->Ls, vectors, in_parity, face,
+            static_cast<Float>(dagger ? -1 : 1),
+            static_cast<Float>(mass), static_cast<Float>(b5), static_cast<Float>(c5));
+    }
 }
 
 extern "C" {
+
+void bridge_cuda_hop_part_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
+    cudaStream_t stream)
+{
+    hop_part<float>(d_out, d_in, d_gauge, d_from, geom, kappa, mass, b5, c5, dagger,
+                    target_parity, vectors, halo, part, stream);
+}
+
+void bridge_cuda_hop_part_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
+    cudaStream_t stream)
+{
+    hop_part<double>(d_out, d_in, d_gauge, d_from, geom, kappa, mass, b5, c5, dagger,
+                     target_parity, vectors, halo, part, stream);
+}
+
+void bridge_cuda_mdwf_dslash_part_f32(
+    float* d_out, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int vectors, const BridgeCudaHalo* halo, int part, cudaStream_t stream)
+{
+    dslash_part<float>(d_out, d_in, d_gauge, geom, params, vectors, halo, part, stream);
+}
+
+void bridge_cuda_mdwf_dslash_part_f64(
+    double* d_out, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
+    int vectors, const BridgeCudaHalo* halo, int part, cudaStream_t stream)
+{
+    dslash_part<double>(d_out, d_in, d_gauge, geom, params, vectors, halo, part, stream);
+}
+
+void bridge_cuda_hop_pack_f32(
+    float* d_send, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int in_parity, int face, int vectors, cudaStream_t stream)
+{
+    hop_pack<float>(d_send, d_in, d_gauge, geom, mass, b5, c5, dagger, in_parity, face, vectors, stream);
+}
+
+void bridge_cuda_hop_pack_f64(
+    double* d_send, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double mass, double b5, double c5,
+    int dagger, int in_parity, int face, int vectors, cudaStream_t stream)
+{
+    hop_pack<double>(d_send, d_in, d_gauge, geom, mass, b5, c5, dagger, in_parity, face, vectors, stream);
+}
 
 void bridge_cuda_mdwf_dslash_1pass_f32(
     float* d_out, const float* d_in, const float* d_gauge,
@@ -37,7 +172,8 @@ void bridge_cuda_mdwf_dslash_1pass_f32(
         static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
         geom->Ls, vectors,
-        static_cast<float>(params->M5), static_cast<float>(params->mass), static_cast<float>(params->b5), static_cast<float>(params->c5)
+        static_cast<float>(params->M5), static_cast<float>(params->mass), static_cast<float>(params->b5), static_cast<float>(params->c5),
+        bridge_cuda::Halo<float>{}
     );
 }
 
@@ -63,7 +199,8 @@ void bridge_cuda_hop_f32(
         static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
         geom->Ls, vectors, target_parity,
         static_cast<float>(dagger ? -1 : 1), static_cast<float>(kappa),
-        static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5)
+        static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5),
+        bridge_cuda::Halo<float>{}
     );
 }
 
@@ -109,7 +246,8 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
         static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
         geom->Ls, vectors,
-        static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5)
+        static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5),
+        bridge_cuda::Halo<double>{}
     );
 }
 
@@ -135,7 +273,8 @@ void bridge_cuda_hop_f64(
         static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
         geom->Ls, vectors, target_parity,
         static_cast<double>(dagger ? -1 : 1), static_cast<double>(kappa),
-        static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5)
+        static_cast<double>(mass), static_cast<double>(b5), static_cast<double>(c5),
+        bridge_cuda::Halo<double>{}
     );
 }
 
@@ -228,6 +367,38 @@ void bridge_cuda_fifth_gemm_f64(
         case 16: bridge_cuda::fifth_gemm_mma_kernel<16><<<grid, 256, shared, stream>>>(d_out, d_in, d_from, d_m, blocks, Ls); break;
         default: break;  // Ls is at most 64
     }
+}
+
+void bridge_cuda_hop_split_halo_f32(
+    float* d_cross, float* d_inside, const float* d_in, const float* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, const BridgeCudaHalo* halo, cudaStream_t stream)
+{
+    bridge_cuda::hop_split_kernel<float, true><<<site_grid(volume(geom), geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+        d_cross, d_inside, d_in, d_gauge, geom->link_rows,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<float>(geom->bc[0]), static_cast<float>(geom->bc[1]),
+        static_cast<float>(geom->bc[2]), static_cast<float>(geom->bc[3]),
+        geom->Ls, vectors, leg, block[0], block[1], block[2], block[3],
+        static_cast<float>(kappa), static_cast<float>(mass), static_cast<float>(b5), static_cast<float>(c5),
+        halo_of<float>(halo)
+    );
+}
+
+void bridge_cuda_hop_split_halo_f64(
+    double* d_cross, double* d_inside, const double* d_in, const double* d_gauge,
+    const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
+    int leg, const int* block, int vectors, const BridgeCudaHalo* halo, cudaStream_t stream)
+{
+    bridge_cuda::hop_split_kernel<double, true><<<site_grid(volume(geom), geom->Ls, vectors), site_block(geom->Ls, vectors), 0, stream>>>(
+        d_cross, d_inside, d_in, d_gauge, geom->link_rows,
+        geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+        static_cast<double>(geom->bc[0]), static_cast<double>(geom->bc[1]),
+        static_cast<double>(geom->bc[2]), static_cast<double>(geom->bc[3]),
+        geom->Ls, vectors, leg, block[0], block[1], block[2], block[3],
+        kappa, mass, b5, c5,
+        halo_of<double>(halo)
+    );
 }
 
 void bridge_cuda_hop_split_f32(

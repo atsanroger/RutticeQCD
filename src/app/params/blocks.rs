@@ -82,8 +82,9 @@ pub struct MainBlock {
 }
 
 impl MainBlock {
-    /// What `backend : cuda_bridge` needs of every run.
-    pub(super) fn check_cuda_bridge(&self) -> Result<(), CliError> {
+    /// What `backend : cuda_bridge` needs of every run. `several`: whether the run can be on
+    /// several processes, each with its device.
+    pub(super) fn check_cuda_bridge(&self, several: bool) -> Result<(), CliError> {
         if !cfg!(feature = "cuda-bridge") {
             return Err(invalid(
                 "Main.backend cuda_bridge needs a program built with the feature cuda-bridge"
@@ -91,9 +92,20 @@ impl MainBlock {
             ));
         }
         if self.grid_size != [1; ND] {
-            return Err(invalid(
-                "Main.backend cuda_bridge runs on one process; leave Main.grid_size out".into(),
-            ));
+            if !several {
+                return Err(invalid(
+                    "Main.backend cuda_bridge: this run is on one process on the device so far (the domain-wall solves without the multigrid and the eigensolvers of domain-wall fermions run on several); leave Main.grid_size out".into(),
+                ));
+            }
+            let local: Vec<usize> = (0..ND)
+                .map(|mu| self.lattice_size[mu] / self.grid_size[mu].max(1))
+                .collect();
+            if local.iter().any(|l| l % 2 != 0) {
+                return Err(invalid(format!(
+                    "Main.grid_size {:?}: the local lattice {local:?} of a process must have even extents on the device",
+                    self.grid_size
+                )));
+            }
         }
         if !self.lattice_size[0].is_multiple_of(2) {
             return Err(invalid(

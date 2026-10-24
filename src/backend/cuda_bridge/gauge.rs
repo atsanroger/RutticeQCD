@@ -51,7 +51,7 @@ extern "C" {
         rho: *const f64,
         stream: *mut c_void,
     );
-    fn bridge_cuda_stout_chain(
+    fn bridge_cuda_stout_chain_local(
         sigma: *mut f64,
         itheta: *mut f64,
         sigma_prime: *const f64,
@@ -60,6 +60,49 @@ extern "C" {
         rho: *const f64,
         stream: *mut c_void,
     );
+    fn bridge_cuda_stout_chain_staples(
+        sigma: *mut f64,
+        u: *const f64,
+        itheta: *const f64,
+        dims: *const i32,
+        rho: *const f64,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_links_extend(
+        ext: *mut f64,
+        local: *const f64,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_links_layers(
+        buf: *mut f64,
+        ext: *mut f64,
+        mu: i32,
+        first: i32,
+        pack: i32,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+}
+
+/// A field of matrices as the kernels of `gauge/stout.cuh` read it at the neighbours of a site:
+/// on one process the field itself; on several the extended field, the local lattice with a halo
+/// `depth` sites deep on both sides of every direction cut between processes, corners included
+/// (`gauge::paths::Extended` of the CPU). `dims` is what the kernels take: the local extents and
+/// the depths.
+struct Neighbourhood<'a> {
+    field: &'a DeviceLinks,
+    extended: Option<DeviceBuffer<f64>>,
+    dims: [i32; 8],
+}
+
+impl Neighbourhood<'_> {
+    fn ptr(&self) -> *const f64 {
+        self.extended
+            .as_ref()
+            .map_or(self.field.data.ptr, |e| e.ptr)
+            .cast_const()
+    }
 }
 
 /// Reals of the matrices of one site, four directions of 18.
@@ -75,7 +118,6 @@ pub struct DeviceLinks {
 
 impl DeviceLinks {
     pub fn zeros(lat: &Arc<Lattice>) -> Result<Self, CudaError> {
-        assert_eq!(lat.comm.size(), 1, "the CUDA backend runs on one process");
         Ok(Self {
             lat: lat.clone(),
             data: DeviceBuffer::zeros(padded(lat.num_sites()) * SITE_REALS)?,
@@ -116,8 +158,96 @@ impl DeviceLinks {
         &self.lat
     }
 
-    fn dims(&self) -> [i32; ND] {
-        self.lat.local.map(|l| l as i32)
+    /// The local extents and the depth of the halo of an extended field: `depth` in the
+    /// directions cut between processes, 0 in the others (and everywhere on one process).
+    fn dims_with(&self, depth: usize) -> [i32; 8] {
+        core::array::from_fn(|k| {
+            if k < ND {
+                self.lat.local[k] as i32
+            } else if self.lat.grid[k - ND] > 1 {
+                depth as i32
+            } else {
+                0
+            }
+        })
+    }
+
+    /// The field with a halo `depth` sites deep, for the kernels that walk paths from a site (a
+    /// staple: 1; a rectangle: 2). The halo is filled one direction after the other, the layers
+    /// sent in a direction including the halos of the directions before it, so the corners are
+    /// filled too: the first `depth` layers of the interior go to the neighbour behind, the last
+    /// to the one ahead.
+    fn with_halo(&self, depth: usize) -> Neighbourhood<'_> {
+        let dims = self.dims_with(depth);
+        if self.lat.comm.size() == 1 {
+            return Neighbourhood {
+                field: self,
+                extended: None,
+                dims,
+            };
+        }
+        let local = self.lat.local;
+        let d: [usize; ND] = core::array::from_fn(|mu| dims[ND + mu] as usize);
+        assert!(
+            (0..ND).all(|mu| local[mu] >= d[mu]),
+            "a local extent {local:?} smaller than the halo depth {depth}"
+        );
+        let ext: [usize; ND] = core::array::from_fn(|mu| local[mu] + 2 * d[mu]);
+        let mut extended = must(DeviceBuffer::<f64>::zeros(
+            padded(ext.iter().product()) * SITE_REALS,
+        ));
+        // SAFETY: the local field and the extended one of these extents.
+        unsafe { bridge_cuda_links_extend(extended.ptr, self.data.ptr, dims.as_ptr(), STREAM) };
+        for mu in 0..ND {
+            if d[mu] == 0 {
+                continue;
+            }
+            let layers = d[mu]
+                * (0..ND)
+                    .filter(|&nu| nu != mu)
+                    .map(|nu| ext[nu])
+                    .product::<usize>();
+            let len = padded(layers) * SITE_REALS;
+            let buffers = |faces: [usize; 2]| -> Vec<Option<DeviceBuffer<f64>>> {
+                (0..2 * ND)
+                    .map(|f| faces.contains(&f).then(|| must(DeviceBuffer::zeros(len))))
+                    .collect()
+            };
+            let (forward, backward) = (mu, ND + mu);
+            let (send, recv) = (buffers([forward, backward]), buffers([forward, backward]));
+            let layers_of = |buf: &DeviceBuffer<f64>,
+                             first: usize,
+                             pack: bool,
+                             ext_buf: &mut DeviceBuffer<f64>| {
+                // SAFETY: the buffer holds the layers of this direction; the extended field
+                // has these extents.
+                unsafe {
+                    bridge_cuda_links_layers(
+                        buf.ptr,
+                        ext_buf.ptr,
+                        mu as i32,
+                        first as i32,
+                        i32::from(pack),
+                        dims.as_ptr(),
+                        STREAM,
+                    )
+                };
+            };
+            let sent = |f: usize| send[f].as_ref().expect("a buffer of the direction");
+            let got = |f: usize| recv[f].as_ref().expect("a buffer of the direction");
+            layers_of(sent(backward), d[mu], true, &mut extended);
+            layers_of(sent(forward), ext[mu] - 2 * d[mu], true, &mut extended);
+            super::halo::exchange_now(&self.lat, &send, &recv);
+            // What arrives from ahead is the neighbour's first layers, the halo above; from
+            // behind its last, the halo below.
+            layers_of(got(forward), ext[mu] - d[mu], false, &mut extended);
+            layers_of(got(backward), 0, false, &mut extended);
+        }
+        Neighbourhood {
+            field: self,
+            extended: Some(extended),
+            dims,
+        }
     }
 }
 
@@ -125,10 +255,10 @@ impl Stout {
     /// One step on the device: `Stout::apply`.
     pub fn apply_on_device(&self, u: &DeviceLinks) -> Result<DeviceLinks, CudaError> {
         let v = DeviceLinks::zeros(&u.lat)?;
-        let (dims, rho) = (u.dims(), flat(&self.rho));
-        // SAFETY: two fields of the links of this lattice.
+        let (n, rho) = (u.with_halo(1), flat(&self.rho));
+        // SAFETY: the links of this lattice, `n` extended as its dims say.
         unsafe {
-            bridge_cuda_stout_step(v.data.ptr, u.data.ptr, dims.as_ptr(), rho.as_ptr(), STREAM);
+            bridge_cuda_stout_step(v.data.ptr, n.ptr(), n.dims.as_ptr(), rho.as_ptr(), STREAM);
         }
         Ok(v)
     }
@@ -140,15 +270,28 @@ impl Stout {
         u: &DeviceLinks,
     ) -> Result<DeviceLinks, CudaError> {
         let (sigma, itheta) = (DeviceLinks::zeros(&u.lat)?, DeviceLinks::zeros(&u.lat)?);
-        let (dims, rho) = (u.dims(), flat(&self.rho));
-        // SAFETY: four fields of the links of this lattice.
+        let (n, rho) = (u.with_halo(1), flat(&self.rho));
+        // SAFETY: four fields of the links of this lattice, `n` extended as its dims say.
         unsafe {
-            bridge_cuda_stout_chain(
+            bridge_cuda_stout_chain_local(
                 sigma.data.ptr,
                 itheta.data.ptr,
                 sigma_prime.data.ptr,
-                u.data.ptr,
-                dims.as_ptr(),
+                n.ptr(),
+                n.dims.as_ptr(),
+                rho.as_ptr(),
+                STREAM,
+            );
+        }
+        // i Theta at the neighbours, with the same halo.
+        let t = itheta.with_halo(1);
+        // SAFETY: as above.
+        unsafe {
+            bridge_cuda_stout_chain_staples(
+                sigma.data.ptr,
+                n.ptr(),
+                t.ptr(),
+                n.dims.as_ptr(),
                 rho.as_ptr(),
                 STREAM,
             );
@@ -227,9 +370,19 @@ impl DeviceLinks {
         out
     }
 
-    /// A per-site quantity summed on the host, site after site.
-    fn site_sum(per_site: &DeviceBuffer<f64>, sites: usize) -> f64 {
-        must(per_site.download())[..sites].iter().sum()
+    /// A per-site quantity summed on the host, site after site, then over the processes.
+    fn site_sum(&self, per_site: &DeviceBuffer<f64>) -> f64 {
+        let sites = self.lat.num_sites();
+        let mut sum = [must(per_site.download())[..sites].iter().sum()];
+        if self.lat.comm.size() > 1 {
+            self.lat.comm.sum(&mut sum);
+        }
+        sum[0]
+    }
+
+    /// The sites of the whole lattice.
+    fn global_sites(&self) -> f64 {
+        self.lat.global.iter().product::<usize>() as f64
     }
 }
 
@@ -257,7 +410,7 @@ impl crate::hmc::LinkField for DeviceLinks {
         let sums = must(DeviceBuffer::<f64>::zeros(self.lat.num_sites()));
         // SAFETY: a field of matrices and a real for each site.
         unsafe { bridge_cuda_links_norm2(sums.ptr, self.data.ptr, self.vol(), STREAM) };
-        0.5 * Self::site_sum(&sums, self.lat.num_sites())
+        0.5 * self.site_sum(&sums)
     }
     fn exp_update(&mut self, eps: f64, p: &Self, order: usize) {
         // SAFETY: the links and the momenta of this lattice.
@@ -278,12 +431,13 @@ impl crate::hmc::LinkField for DeviceLinks {
             must(DeviceBuffer::<f64>::zeros(sites)),
             must(DeviceBuffer::<f64>::zeros(sites)),
         );
-        let dims = self.dims();
-        // SAFETY: the links of this lattice and a real for each site, twice.
+        let n = self.with_halo(1);
+        // SAFETY: the links of this lattice, extended as `n` says, and a real for each site,
+        // twice.
         unsafe {
-            bridge_cuda_gauge_traces(plaq.ptr, rect.ptr, self.data.ptr, 0, dims.as_ptr(), STREAM)
+            bridge_cuda_gauge_traces(plaq.ptr, rect.ptr, n.ptr(), 0, n.dims.as_ptr(), STREAM)
         };
-        Self::site_sum(&plaq, sites) / (3.0 * 6.0 * sites as f64)
+        self.site_sum(&plaq) / (3.0 * 6.0 * self.global_sites())
     }
     fn draw_momenta(lat: &Arc<Lattice>, rng: &mut crate::hmc::Mseries) -> Self {
         must(Self::from_host(&crate::hmc::draw_momenta(lat, rng)))
@@ -316,21 +470,22 @@ impl crate::hmc::LinkField for DeviceLinks {
             must(DeviceBuffer::<f64>::zeros(sites)),
             must(DeviceBuffer::<f64>::zeros(sites)),
         );
-        let dims = self.dims();
         let with_rect = i32::from(c_rect != 0.0);
-        // SAFETY: the links of this lattice and a real for each site, twice.
+        let n = self.with_halo(if c_rect != 0.0 { 2 } else { 1 });
+        // SAFETY: the links of this lattice, extended as `n` says, and a real for each site,
+        // twice.
         unsafe {
             bridge_cuda_gauge_traces(
                 plaq.ptr,
                 rect.ptr,
-                self.data.ptr,
+                n.ptr(),
                 with_rect,
-                dims.as_ptr(),
+                n.dims.as_ptr(),
                 STREAM,
             )
         };
-        let v = sites as f64;
-        let (p, r) = (Self::site_sum(&plaq, sites), Self::site_sum(&rect, sites));
+        let v = self.global_sites();
+        let (p, r) = (self.site_sum(&plaq), self.site_sum(&rect));
         if c_rect == 0.0 && c_plaq == 1.0 {
             // As PlaquetteAction::action: β (1 − ⟨plaquette⟩) 6 V.
             beta * (1.0 - p / (3.0 * 6.0 * v)) * v * 6.0
@@ -340,16 +495,16 @@ impl crate::hmc::LinkField for DeviceLinks {
     }
     fn gauge_force(&self, beta: f64, c_plaq: f64, c_rect: f64) -> Self {
         let f = must(Self::zeros(&self.lat));
-        let dims = self.dims();
-        // SAFETY: the links and the force of this lattice.
+        let n = self.with_halo(if c_rect != 0.0 { 2 } else { 1 });
+        // SAFETY: the links (extended as `n` says) and the force of this lattice.
         unsafe {
             bridge_cuda_gauge_force(
                 f.data.ptr,
-                self.data.ptr,
+                n.ptr(),
                 beta,
                 c_plaq,
                 c_rect,
-                dims.as_ptr(),
+                n.dims.as_ptr(),
                 STREAM,
             );
         }

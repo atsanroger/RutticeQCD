@@ -382,7 +382,7 @@ impl EigenParams {
         }
         match self.main.backend {
             Backend::Cpu => {}
-            Backend::CudaBridge => self.main.check_cuda_bridge()?,
+            Backend::CudaBridge => self.main.check_cuda_bridge(dwf)?,
             b => {
                 return Err(invalid(format!(
                     "Main.backend {b}: the eigensolvers run on the cpu and cuda_bridge backends"
