@@ -11,47 +11,40 @@ It holds GPU kernels for Wilson, Clover, and Möbius Domain Wall Fermions (MDWF)
 The directory structure and namespace strictly mirror the modular architecture of RutticeQCD:
 
 ```
-gpu_fer/
+cuda_bridge/
 ├── CMakeLists.txt
 ├── README.md
 ├── include/
-│   ├── bridge_cuda.h             # Unified C-ABI public interface for FFI / bindgen
-│   ├── base/                     # Foundation layer
+│   ├── bridge_cuda.h             # The C interface Rust binds (every entry commented)
+│   ├── base/
 │   │   ├── alloc.cuh             # cudaMalloc that gives back what the memory pool keeps if refused
-│   │   ├── types.h               # Geometry, param structs, and constants
-│   │   ├── aosoa.cuh             # AoSoA coalesced memory layout (SIMD width W=32)
-│   │   ├── su3.cuh               # SU(3) complex matrix math & 3rd-row reconstruction
-│   │   └── gamma.cuh             # Spin projection, gamma5, Dirac <-> Chiral basis
-│   ├── fermion/                  # Fermion Dirac operators
-│   │   ├── hops.cuh              # The hops all three operators share, on the lattice or one parity
-│   │   ├── wilson.cuh            # Wilson D, boundary packing
-│   │   ├── clover.cuh            # Clover D and the block within a site (6x6 Hermitian blocks)
-│   │   ├── mdwf.cuh              # Möbius DWF: D in one pass, the hop in the fifth dimension
+│   │   ├── constant.h            # Nc, Nd, the warp size
+│   │   ├── types.h               # Geometry, the halo of several processes, parameter structs
+│   │   ├── aosoa.cuh             # Blocks of 32 sites; GridStride
+│   │   ├── su3.cuh               # SU(3) products and the third row from the first two
+│   │   └── gamma.cuh             # gamma matrices, chiral projections
+│   ├── fermion/
+│   │   ├── hops.cuh              # The hops of all three operators (Wilson and clover D too), parts for several processes
+│   │   ├── clover.cuh            # T psi, the block of the clover operator within a site
+│   │   ├── clover_links.cuh      # The clover term and its force made of the links
+│   │   ├── mdwf.cuh              # Möbius DWF: D in one pass, the fifth dimension
 │   │   ├── fifth_gemm.cuh        # What acts within a site of the DWF operator, as a matrix product (mma)
-│   │   └── dd.cuh                # Block Domain Decomposition (SAP)
-│   ├── multigrid/                # Adaptive Multigrid (AMG)
-│   │   ├── coarse.cuh            # Coarse grid Dirac operator
-│   │   ├── levels.cuh            # The levels below the coarse lattice of the domain-wall multigrid
-│   │   ├── transfer.cuh          # Restriction, prolongation, block Gram-Schmidt
-│   │   └── mrhs.cuh              # Multi-RHS batched Dslash
-│   ├── gauge/                    # Gauge configurations & smearing
-│   │   └── gauge.cuh             # Deterministic plaquette & APE smearing
-│   └── linalg/                   # GPU Linear algebra
-│       ├── blas.cuh              # axpy, scal, complex axpy/aypx, norm and inner product
-│       └── cast.cuh              # On-device FP64 <-> FP32 precision conversion
-└── src/
-    ├── fermion/
-    │   ├── wilson.cu             # Host C-ABI wrappers for Wilson
-    │   ├── clover.cu             # Host C-ABI wrappers for Clover
-    │   ├── mdwf.cu               # Host C-ABI wrappers for MDWF
-    │   └── dd.cu                 # Host C-ABI wrappers for SAP
-    ├── multigrid/
-    │   ├── multigrid.cu          # Host C-ABI wrappers for coarse operator & transfers
-    │   └── mrhs.cu               # Host C-ABI wrappers for MRHS
-    ├── gauge/
-    │   └── gauge.cu              # Host C-ABI wrappers for Plaquette & Smearing
-    └── linalg/
-        └── blas.cu               # Host C-ABI wrappers for BLAS, Cast, and Basis conversion
+│   │   └── force.cuh             # The derivative of the hops by the links
+│   ├── gauge/
+│   │   ├── stout.cuh             # Stout smearing and its chain rule, extended fields
+│   │   └── links.cuh             # HMC's operations on the links, the gauge force and action
+│   ├── multigrid/
+│   │   ├── fold.cuh              # P, restriction and prolongation, the coarse operator
+│   │   └── levels.cuh            # The levels below the coarse lattice
+│   └── linalg/
+│       ├── blas.cuh              # The linear algebra of sets of vectors, deterministic reductions
+│       └── cast.cuh              # f64 <-> f32
+├── src/                          # The launchers, extern "C", one per precision
+│   ├── fermion/                  # clover.cu, force.cu, mdwf.cu (the hops of all three operators)
+│   ├── gauge/stout.cu            # every kernel that walks paths of links (clover term included)
+│   ├── multigrid/                # fold.cu, levels.cu, dense.cu (cuSOLVER for the last level)
+│   └── linalg/blas.cu
+└── tests/test_mdwf_1pass.cu
 ```
 
 ---
@@ -62,9 +55,10 @@ Checked against the CPU operators of RutticeQCD to 1e-13 (`tests/cuda_bridge.rs`
 `cuda-bridge`) in double precision, and to what single precision allows in single precision,
 for periodic, antiperiodic and Dirichlet boundaries:
 
-- `bridge_cuda_wilson_dslash`: the Wilson operator D and D^dag.
-- `bridge_cuda_clover_dslash`, `bridge_cuda_clover_term`: the clover operator D and D^dag, and
-  the block of it within a site (or its inverse), with the blocks made on the CPU.
+- `bridge_cuda_hop` (and its parts on several processes): the Wilson operator D and D^dag
+  (`from` = in at -kappa), the clover operator (with its blocks), and the hops of all three.
+- `bridge_cuda_clover_term`, `bridge_cuda_clover_blocks`: the block of the clover operator within
+  a site (or its inverse), and the blocks made of the links.
 - `bridge_cuda_mdwf_dslash_1pass`: the Möbius domain-wall operator D.
 - `bridge_cuda_hop`, `bridge_cuda_mdwf_fifth`, `bridge_cuda_fifth_gemm`: its parts, of which
   D^dag and the even-odd blocks D_pq, D_pq^dag, C, C^-1 and their adjoints are made, with
@@ -108,9 +102,7 @@ for periodic, antiperiodic and Dirichlet boundaries:
 The operators are in the Dirac representation (gamma_4 diagonal). `alpha` of
 `BridgeCudaMdwfParams` is not used: Neff's Q is one of the matrices of `bridge_cuda_fifth_gemm`.
 
-Not there: the clover term from the links on the device. Not checked: the multi-RHS kernels (no gamma matrices yet), SAP, the transfers and coarse
-operator of `multigrid/coarse.cuh` and `transfer.cuh` (those of `fold.cuh` above are), the gauge
-kernels. `tests/test_clover_mg_transfer` fails with a CUDA error.
+Each kernel is derived in `docs/implementation/KERNELS_NOTE.pdf` of RutticeQCD.
 
 Conventions:
 

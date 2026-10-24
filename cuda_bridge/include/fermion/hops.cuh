@@ -150,11 +150,11 @@ __device__ __forceinline__ void load_link(
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
             const int a = (c + 1) % Nc, b = (c + 2) % Nc;
-            // conj(u0[a] u1[b] - u0[b] u1[a])
-            u_r[2][c] = (u_r[0][a] * u_r[1][b] - u_i[0][a] * u_i[1][b])
-                      - (u_r[0][b] * u_r[1][a] - u_i[0][b] * u_i[1][a]);
-            u_i[2][c] = (u_r[0][b] * u_i[1][a] + u_i[0][b] * u_r[1][a])
-                      - (u_r[0][a] * u_i[1][b] + u_i[0][a] * u_r[1][b]);
+            // conj(u0[a] u1[b] - u0[b] u1[a]), the fused products fixed (su3.cuh, mul_rn).
+            u_r[2][c] = fma(u_r[0][a], u_r[1][b], -mul_rn(u_i[0][a], u_i[1][b]))
+                      - fma(u_r[0][b], u_r[1][a], -mul_rn(u_i[0][b], u_i[1][a]));
+            u_i[2][c] = fma(u_r[0][b], u_i[1][a], mul_rn(u_i[0][b], u_r[1][a]))
+                      - fma(u_r[0][a], u_i[1][b], mul_rn(u_i[0][a], u_r[1][b]));
         }
     } else {
         #pragma unroll
@@ -231,13 +231,15 @@ __device__ __forceinline__ void add_leg(
     } else {
         row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
     }
+    // Fused in a fixed order (su3.cuh, mul_rn); fr and fi are 0 or +-1, so their products are
+    // exact.
     #pragma unroll
     for (int c = 0; c < Nc; ++c) {
-        acc[row][c][0] += coef * t_r[c];
-        acc[row][c][1] += coef * t_i[c];
+        acc[row][c][0] = fma(coef, t_r[c], acc[row][c][0]);
+        acc[row][c][1] = fma(coef, t_i[c], acc[row][c][1]);
         if (mu < 3) {
-            acc[other][c][0] += coef * (fr * t_r[c] - fi * t_i[c]);
-            acc[other][c][1] += coef * (fr * t_i[c] + fi * t_r[c]);
+            acc[other][c][0] = fma(coef, fr * t_r[c] - fi * t_i[c], acc[other][c][0]);
+            acc[other][c][1] = fma(coef, fr * t_i[c] + fi * t_r[c], acc[other][c][1]);
         }
     }
 }
@@ -467,6 +469,87 @@ __device__ __forceinline__ void hops(
 }
 
 // -------------------------------------------------------------------------
+// The clover term T = 1 - kappa c_SW sigma F (clover.cuh): it commutes with gamma_5 and is kept
+// as RutticeQCD keeps it, 72 reals per site, the block on gamma_5 = +1 and then the one on
+// gamma_5 = -1, each a packed Hermitian 6 x 6 matrix (index colour + 3 spin): the six real
+// diagonal entries, then the upper triangle row by row as (re, im). In the Dirac representation
+// gamma_5 = [[0, 1], [1, 0]], with eigenvectors (e_a +- e_(a+2)) / sqrt(2). Here because the
+// hops of the clover operator start from it (hop_kernel with Clover).
+// -------------------------------------------------------------------------
+constexpr int CloverReals = 72;
+
+// y = M x for the packed Hermitian 6 x 6 matrix `which` (0 or 1) of `site`.
+template <typename Float>
+__device__ __forceinline__ void hermitian6_mul(
+    Float y[6][Ncomplex],
+    const Float* __restrict__ d_clover,
+    int which, int site,
+    const Float x[6][Ncomplex])
+{
+    const int base = 36 * which;
+    #pragma unroll
+    for (int r = 0; r < 6; ++r) {
+        const Float d = d_clover[aosoa_idx(base + r, site, CloverReals)];
+        y[r][0] = mul_rn(d, x[r][0]);
+        y[r][1] = mul_rn(d, x[r][1]);
+    }
+    int k = 6;
+    #pragma unroll
+    for (int r = 0; r < 6; ++r) {
+        #pragma unroll
+        for (int c = r + 1; c < 6; ++c) {
+            const Float zr = d_clover[aosoa_idx(base + k, site, CloverReals)];
+            const Float zi = d_clover[aosoa_idx(base + k + 1, site, CloverReals)];
+            // y_r += z x_c,  y_c += conj(z) x_r, fused in a fixed order (su3.cuh, mul_rn)
+            c_macc(y[r][0], y[r][1], zr, zi, x[c][0], x[c][1]);
+            c_conj_macc(y[c][0], y[c][1], zr, zi, x[r][0], x[r][1]);
+            k += 2;
+        }
+    }
+}
+
+// out = T psi: psi at `at` of d_in, T that of the site `site` of the lattice.
+template <typename Float>
+__device__ __forceinline__ void clover_site(
+    Float out[Nspin][Nc][Ncomplex],
+    const Float* __restrict__ d_in,
+    const Float* __restrict__ d_clover,
+    int at, int site)
+{
+    // The components along e_a + e_(a+2) and e_a - e_(a+2), without the 1/sqrt(2).
+    Float plus[6][Ncomplex], minus[6][Ncomplex];
+    #pragma unroll
+    for (int s = 0; s < 2; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                const Float upper = d_in[aosoa_spinor_idx(c, s, ri, at)];
+                const Float lower = d_in[aosoa_spinor_idx(c, s + 2, ri, at)];
+                plus[c + Nc * s][ri]  = upper + lower;
+                minus[c + Nc * s][ri] = upper - lower;
+            }
+        }
+    }
+    Float p[6][Ncomplex], m[6][Ncomplex];
+    hermitian6_mul<Float>(p, d_clover, 0, site, plus);
+    hermitian6_mul<Float>(m, d_clover, 1, site, minus);
+    // Back to spin components; the two 1/sqrt(2) make 1/2.
+    #pragma unroll
+    for (int s = 0; s < 2; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                const int k = c + Nc * s;
+                out[s][c][ri]     = static_cast<Float>(0.5) * (p[k][ri] + m[k][ri]);
+                out[s + 2][c][ri] = static_cast<Float>(0.5) * (p[k][ri] - m[k][ri]);
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // out = H (b - c Y) in, or with H^dag (`sign` -1): on the whole lattice (target_parity < 0),
 // or out on the sites of parity target_parity and in on the others.
 // With d_from not null, out = d_from - that (a field on the sites of out; it may be out).
@@ -478,7 +561,13 @@ __device__ __forceinline__ void hops(
 // With several processes (`P`, see Halo): the interior, the sites of the output none of whose
 // legs comes from another process (the others are left as they are), or the surface, the
 // sites halo.surface lists.
-template <typename Float, bool Many, int P = Whole>
+// `Clover` (Ls = 1): out = T d_from + H in, T the blocks d_clover of the site: the sum starts
+// from T d_from and the legs are added to it, in every part the same order, so the clover
+// operator D = T + H is one pass on any number of processes.
+// `FourD`: a four-dimensional operator, Ls = 1, b = 1, c = 0 known when compiling, so the
+// fifth dimension leaves no trace in the code (with them only at run time the Wilson operator
+// took half as long again).
+template <typename Float, bool Many, int P = Whole, bool Clover = false, bool FourD = false>
 __global__ void hop_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
@@ -490,8 +579,15 @@ __global__ void hop_kernel(
     int target_parity,
     Float sign, Float kappa,
     Float mass, Float b5, Float c5,
-    Halo<Float> halo = {})
+    Halo<Float> halo,
+    const Float* __restrict__ d_clover)
 {
+    if constexpr (FourD) {
+        Ls = 1;
+        mass = 0;
+        b5 = 1;
+        c5 = 0;
+    }
     const bool half = (target_parity >= 0);
     const int sites = (half ? nx / 2 : nx) * ny * nz * nt;
     const int thread = blockIdx.x * blockDim.x + threadIdx.x;
@@ -515,11 +611,28 @@ __global__ void hop_kernel(
     if (P == Interior && on_surface(halo, xc, dims)) return;
 
     Float acc[Nspin][Nc][Ncomplex] = {0};
+    if constexpr (Clover) {
+        const int full = half ? coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt) : site;
+        clover_site<Float>(acc, d_from, d_clover, site, full);
+    }
     if constexpr (P == Surface) {
         hops<Float, true>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa,
                           mass, b5, c5, 0xFF, &halo, Many ? fibre / Ls : 0);
     } else {
         hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
+    }
+    // d_from may be d_out: all of it is read before anything is written, so the loads need not
+    // wait for the stores one by one.
+    if constexpr (!Clover) {
+        if (d_from != nullptr) {
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s)
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c)
+                    #pragma unroll
+                    for (int ri = 0; ri < Ncomplex; ++ri)
+                        acc[s][c][ri] = d_from[aosoa_5d_spinor_idx(c, s, ri, is, Ls, site)] - acc[s][c][ri];
+        }
     }
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {
@@ -527,8 +640,7 @@ __global__ void hop_kernel(
         for (int c = 0; c < Nc; ++c) {
             #pragma unroll
             for (int ri = 0; ri < Ncomplex; ++ri) {
-                const int k = aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
-                d_out[k] = (d_from != nullptr) ? d_from[k] - acc[s][c][ri] : acc[s][c][ri];
+                d_out[aosoa_5d_spinor_idx(c, s, ri, is, Ls, site)] = acc[s][c][ri];
             }
         }
     }

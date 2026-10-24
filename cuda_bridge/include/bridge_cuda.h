@@ -9,22 +9,6 @@ extern "C" {
 #endif
 
 // =========================================================================
-// Wilson Operator
-// =========================================================================
-
-void bridge_cuda_wilson_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int dagger, int vectors, cudaStream_t stream
-);
-
-void bridge_cuda_wilson_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaWilsonParams* params,
-    int dagger, int vectors, cudaStream_t stream
-);
-
-// =========================================================================
 // Clover Operator
 // =========================================================================
 
@@ -35,25 +19,11 @@ void bridge_cuda_clover_term_f32(
     const BridgeCudaGeometry* geom, int parity, int vectors, cudaStream_t stream
 );
 
-// out = D in = T in - kappa hops; csw of the parameters is in T already.
-void bridge_cuda_clover_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge, const float* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    int dagger, int vectors, cudaStream_t stream
-);
-
 // out = T in: d_clover holds the blocks of T, or of its inverse (fermion/clover.cuh); on the
 // whole lattice (parity < 0) or on the sites of one parity.
 void bridge_cuda_clover_term_f64(
     double* d_out, const double* d_in, const double* d_clover,
     const BridgeCudaGeometry* geom, int parity, int vectors, cudaStream_t stream
-);
-
-// out = D in = T in - kappa hops; csw of the parameters is in T already.
-void bridge_cuda_clover_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge, const double* d_clover,
-    const BridgeCudaGeometry* geom, const BridgeCudaCloverParams* params,
-    int dagger, int vectors, cudaStream_t stream
 );
 
 // =========================================================================
@@ -77,9 +47,11 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
 // out = H (b - c Y) in, or with H^dag (fermion/hops.cuh): on the whole lattice
 // (target_parity < 0), or out on the sites of parity target_parity and in on the others. The
 // hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
-// the domain-wall operator (kappa = 1/2, its b and c). With d_from not null, d_from - that.
+// the domain-wall operator (kappa = 1/2, its b and c). With d_from not null, d_from - that;
+// with d_clover not null as well (Ls = 1), T d_from + H in, T the clover blocks of d_clover:
+// the clover operator D = T + H (kappa), and the Wilson operator is d_from = in, kappa -> -kappa.
 void bridge_cuda_hop_f32(
-    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_clover,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, int vectors, cudaStream_t stream
 );
@@ -89,12 +61,12 @@ void bridge_cuda_hop_f32(
 // (part 2, the legs from other processes from the buffers of `halo`); and the buffer of one
 // face out of the input field (on the whole lattice for in_parity < 0).
 void bridge_cuda_hop_part_f32(
-    float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_clover,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
     cudaStream_t stream);
 void bridge_cuda_hop_part_f64(
-    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_clover,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, int vectors, const BridgeCudaHalo* halo, int part,
     cudaStream_t stream);
@@ -155,7 +127,7 @@ void bridge_cuda_gamma5_f32(
 // hop between the parities of the Wilson and clover operators (Ls = 1, b = 1, c = 0) and of
 // the domain-wall operator (kappa = 1/2, its b and c). With d_from not null, d_from - that.
 void bridge_cuda_hop_f64(
-    double* d_out, const double* d_in, const double* d_gauge, const double* d_from,
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_clover,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
     int dagger, int target_parity, int vectors, cudaStream_t stream
 );

@@ -98,6 +98,14 @@ on the device gives the CPU's trajectory (plaquette 0.627668186553636, Bridge++
 0.627668186553629) and so do its even-odd clover Standard and a Wilson even-odd Ratio variant.
 Next (§7.8): Wilson and clover on several GPUs, then their multigrid on the device.
 
+**Wilson and clover on several GPUs (2026-10-25)**: DESIGN §7.8 step 2. The operators are the
+hop kernel (`FourD`, `Clover`), with its interior and surface parts and `Halos`; the clover
+blocks and force read extended links. Checked with `LocalComm` on 1×1×1×2, 2×1×1×2 and 2×2×2×2
+against one process: D, D†, γ5 D, the hops, T, T⁻¹ and the HMC derivatives bit for bit, ln det T
+to 1e-12, CGNE within 0.2% of the iterations; broken once on purpose (surface skipped). The
+fused multiply-adds of a leg had to be fixed (CHANGELOG). Not run yet: two MPI processes for
+Wilson and clover HMC (as was done for domain-wall fermions). Next: their multigrid on the device.
+
 **Several GPUs (2026-10-24)**: domain-wall fermions without the multigrid on several GPUs
 (CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is
 refused for ranks sharing a device and the host path runs), the speed of the exchanges (on one

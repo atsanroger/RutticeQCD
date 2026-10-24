@@ -117,6 +117,9 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
 **Determinism**
 - No atomic additions in sums: a fixed tree per block, then one block over the block sums. Any
   variant of a kernel (interior/surface, split/whole) adds terms in the same order.
+- Write the multiply-adds of anything two kernels compute (a leg of the hops, a link product) as
+  explicit `fma` in a fixed order, and a product that must stay unfused as `mul_rn`: nvcc fuses
+  `a * b + c` kernel by kernel, so otherwise two kernels round the same sum differently.
 
 **Several processes**
 - A kernel that reads neighbours handles a cut lattice: fermion hops through `Halo` and the

@@ -1,10 +1,12 @@
 //! The Wilson and the clover operator on the device.
 
+use super::halo::Halos;
 use super::*;
 use crate::fermion::{CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
 use crate::hmc::{EvenOddForceOp, EvenOddHalves, ForceOp, Mseries};
 use crate::kernel::{NC, NS};
 use crate::{Parity, Vector};
+use std::rc::Rc;
 
 /// Reals of the block of the clover operator within a site.
 const CLOVER: usize = 72;
@@ -68,8 +70,9 @@ pub(super) fn drawn(lat: &Arc<Lattice>, ls: usize, rng: &mut Mseries) -> DeviceS
 
 /// M of −2 Re ζ† δD η for the hops −κ H of a Wilson-type operator on the links `gauge`
 /// (`fermion/force.cuh` with one spinor a site): `ForceOp::derivative` of the CPU's operators.
+/// On several processes the forward legs of η and γ5 ζ across a cut come from their faces.
 fn hop_derivative(
-    (gauge, geometry): (&DeviceGauge<f64>, &Geometry),
+    (gauge, geometry, halos): (&DeviceGauge<f64>, &Geometry, Option<&Halos<f64>>),
     kappa: f64,
     zeta: &DeviceSpinor<f64>,
     eta: &DeviceSpinor<f64>,
@@ -79,8 +82,21 @@ fn hop_derivative(
     gamma5(&mut g5zeta, zeta, false);
     gamma5(&mut g5eta, eta, false);
     let m = must(DeviceLinks::zeros(&gauge.lat));
+    let links = gauge.links.ptr.cast_const();
+    let plain = [0.0, 1.0, 0.0];
+    let faces = halos.map(|h| {
+        (
+            h.exchanged(geometry, links, eta, plain, 1),
+            h.exchanged(geometry, links, &g5zeta, plain, 2),
+        )
+    });
+    let (h_eta, h_g5zeta) = faces
+        .as_ref()
+        .map_or((std::ptr::null(), std::ptr::null()), |(a, b)| {
+            (a as *const _, b as *const _)
+        });
     // SAFETY: four spinor fields of one vector on the lattice of the links, and a field of
-    // matrices of that lattice; no halos (one process).
+    // matrices of that lattice; the faces, if any, those of η and γ5 ζ.
     unsafe {
         super::mdwf::bridge_cuda_hop_force(
             m.data.ptr,
@@ -94,8 +110,8 @@ fn hop_derivative(
             geometry.bc.as_ptr(),
             1,
             -kappa,
-            std::ptr::null(),
-            std::ptr::null(),
+            h_eta,
+            h_g5zeta,
             STREAM,
         );
     }
@@ -169,15 +185,17 @@ pub struct CudaWilson<T = f64> {
     params: WilsonParams,
     geometry: Geometry,
     gauge: DeviceGauge<T>,
+    /// How the lattice is cut between processes; none on one.
+    halos: Option<Rc<Halos<T>>>,
 }
 
 impl<T: DeviceReal> CudaWilson<T> {
     pub fn new(lat: &Arc<Lattice>, params: WilsonParams) -> Result<Self, CudaError> {
-        one_process(lat, "the Wilson operator");
         Ok(Self {
             params,
             geometry: geometry(lat, params.boundary, 1),
             gauge: DeviceGauge::new(lat)?,
+            halos: Halos::of(lat, params.boundary),
         })
     }
 
@@ -186,28 +204,21 @@ impl<T: DeviceReal> CudaWilson<T> {
         self.gauge.set_on_device(u, &mut self.geometry)
     }
 
-    /// `out = D inp`, or `D† inp`.
+    /// `out = D inp = inp + H inp`, or `D† inp`: `inp − H inp` of the hop kernel at −κ, which
+    /// is the same number to the last bit.
     fn apply(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
-        assert!(inp.is(out, 1, None) && out.is(inp, 1, None) && out.same_shape(inp));
-        let params = WilsonKernelParams {
-            kappa: self.params.kappa,
-        };
-        let links = hop_link_reals(&self.geometry);
-        count_fine::<T>(inp.sites(), inp.vectors, WILSON_FLOPS as f64, 10.0, links);
-        // SAFETY: the three buffers are device memory of the sizes the kernel reads and writes
-        // for this geometry (`padded(sites)` blocks of spinors and of links), `out` is not
-        // `inp` (one is borrowed mutably), and the structures outlive the call.
-        unsafe {
-            T::wilson_dslash(
-                out.data.ptr,
-                inp.data.ptr,
-                self.gauge.links.ptr,
-                &self.geometry,
-                &params,
-                i32::from(dagger),
-                inp.vectors as i32,
-            );
-        }
+        assert!(inp.is(out, 1, None) && out.same_shape(inp));
+        hops(
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
+            out,
+            inp,
+            Some(inp),
+            None,
+            -self.params.kappa,
+            FifthInHops::NONE,
+            dagger,
+            None,
+        );
     }
 }
 
@@ -260,9 +271,10 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaWilson<T> {
         dagger: Dagger,
     ) {
         hops(
-            (&self.gauge, &self.geometry),
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
             out,
             inp,
+            None,
             None,
             self.params.kappa,
             FifthInHops::NONE,
@@ -302,13 +314,13 @@ pub struct CudaClover<T = f64> {
     gauge: DeviceGauge<T>,
     term: DeviceBuffer<T>,
     inverse: DeviceBuffer<T>,
+    halos: Option<Rc<Halos<T>>>,
     /// ln |det| of every chiral block, block w of site x at `w vol + x`: for the even-odd action.
     ln_det: DeviceBuffer<f64>,
 }
 
 impl<T: DeviceReal> CudaClover<T> {
     pub fn new(lat: &Arc<Lattice>, params: CloverParams) -> Result<Self, CudaError> {
-        one_process(lat, "the clover operator");
         let sites = lat.num_sites();
         let blocks = padded(sites) * CLOVER;
         Ok(Self {
@@ -317,6 +329,7 @@ impl<T: DeviceReal> CudaClover<T> {
             gauge: DeviceGauge::new(lat)?,
             term: DeviceBuffer::zeros(blocks)?,
             inverse: DeviceBuffer::zeros(blocks)?,
+            halos: Halos::of(lat, params.boundary),
             ln_det: DeviceBuffer::zeros(2 * sites)?,
         })
     }
@@ -371,34 +384,20 @@ impl<T: DeviceReal> CudaClover<T> {
         Ok(())
     }
 
-    /// `out = D inp`, or `D† inp`.
+    /// `out = D inp = T inp + H inp`, or `D† inp` (T is Hermitian), in one pass.
     fn apply(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
-        assert!(inp.is(out, 1, None) && out.is(inp, 1, None) && out.same_shape(inp));
-        let params = CloverKernelParams {
-            kappa: self.params.kappa,
-            csw: self.params.csw,
-        };
-        let site_reals = hop_link_reals(&self.geometry) + CLOVER as f64;
-        count_fine::<T>(
-            inp.sites(),
-            inp.vectors,
-            CLOVER_FLOPS as f64,
-            10.0,
-            site_reals,
+        assert!(inp.is(out, 1, None) && out.same_shape(inp));
+        hops(
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
+            out,
+            inp,
+            Some(inp),
+            Some(&self.term),
+            self.params.kappa,
+            FifthInHops::NONE,
+            dagger,
+            None,
         );
-        // SAFETY: as in `CudaWilson::apply`, with the blocks of the clover term of every site.
-        unsafe {
-            T::clover_dslash(
-                out.data.ptr,
-                inp.data.ptr,
-                self.gauge.links.ptr,
-                self.term.ptr,
-                &self.geometry,
-                &params,
-                i32::from(dagger),
-                inp.vectors as i32,
-            );
-        }
     }
 
     /// `out = T inp`, the block of D within a site, or `T⁻¹ inp`, on the whole lattice or on
@@ -439,9 +438,10 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaClover<T> {
         dagger: Dagger,
     ) {
         hops(
-            (&self.gauge, &self.geometry),
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
             out,
             inp,
+            None,
             None,
             self.params.kappa,
             FifthInHops::NONE,
@@ -586,7 +586,8 @@ impl ForceOp for CudaWilson<f64> {
         self.set_gauge_on_device(u)
     }
     fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> DeviceLinks {
-        hop_derivative((&self.gauge, &self.geometry), self.params.kappa, zeta, eta)
+        let op = (&self.gauge, &self.geometry, self.halos.as_deref());
+        hop_derivative(op, self.params.kappa, zeta, eta)
     }
     fn clover_derivative(
         &self,
@@ -621,7 +622,8 @@ impl ForceOp for CudaClover<f64> {
         self.set_gauge_on_device(u)
     }
     fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> DeviceLinks {
-        hop_derivative((&self.gauge, &self.geometry), self.params.kappa, zeta, eta)
+        let op = (&self.gauge, &self.geometry, self.halos.as_deref());
+        hop_derivative(op, self.params.kappa, zeta, eta)
     }
     fn clover_derivative(
         &self,

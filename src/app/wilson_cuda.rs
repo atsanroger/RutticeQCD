@@ -11,14 +11,14 @@ fn device(e: CudaError) -> CliError {
     CliError::Run(format!("Main.backend cuda_bridge: {e}"))
 }
 
-/// The boundaries the kernels take; one process (the Wilson and clover operators on the device
-/// do not exchange faces yet).
+/// The boundaries the kernels take; on several processes, even local extents (the faces of
+/// the hops are cut on the sites of one parity).
 fn check_boundary(lat: &Lattice, boundary: &[Boundary; ND]) -> Result<(), CliError> {
-    if lat.comm.size() > 1 {
-        return invalid(
-            "Main.backend cuda_bridge: Wilson and clover fermions on the device run on one process so far"
-                .to_string(),
-        );
+    if lat.comm.size() > 1 && lat.local.iter().any(|l| l % 2 != 0) {
+        return invalid(format!(
+            "Main.backend cuda_bridge on several processes: the local lattice {:?} must have even extents",
+            lat.local
+        ));
     }
     if boundary.iter().any(|b| matches!(b, Boundary::Phase(..))) {
         return invalid(

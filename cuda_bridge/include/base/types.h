@@ -44,17 +44,6 @@ typedef struct {
     int32_t surface_sites;
 } BridgeCudaHalo;
 
-// Wilson operator parameters - aligned with Ruttice WilsonParams
-typedef struct {
-    double kappa;     // Hopping parameter
-} BridgeCudaWilsonParams;
-
-// Clover operator parameters - aligned with Ruttice CloverParams
-typedef struct {
-    double kappa;     // Hopping parameter
-    double csw;       // Clover coefficient
-} BridgeCudaCloverParams;
-
 // Mobius Domain Wall (MDWF) operator parameters - aligned with Ruttice / MDWF standards
 typedef struct {
     double M5;        // Domain wall height (typically 1.8)
@@ -96,8 +85,6 @@ typedef struct {
 typedef BridgeCudaPrecision    GpuFerPrecision;
 typedef BridgeCudaGammaRep     GpuFerGammaRep;
 typedef BridgeCudaGeometry     GpuFerGeometry;
-typedef BridgeCudaWilsonParams GpuFerWilsonParams;
-typedef BridgeCudaCloverParams GpuFerCloverParams;
 typedef BridgeCudaMdwfParams   GpuFerMdwfParams;
 typedef BridgeCudaMdwfParams   GpuFerDwfParams;
 typedef BridgeCudaMgParams     GpuFerMgParams;

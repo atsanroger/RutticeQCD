@@ -19,17 +19,6 @@ pub struct Geometry {
 }
 
 #[repr(C)]
-pub struct WilsonKernelParams {
-    pub(super) kappa: f64,
-}
-
-#[repr(C)]
-pub struct CloverKernelParams {
-    pub(super) kappa: f64,
-    pub(super) csw: f64,
-}
-
-#[repr(C)]
 pub struct MdwfKernelParams {
     pub(super) m5: f64,
     pub(super) mass: f64,
@@ -157,31 +146,12 @@ pub trait DeviceReal:
     fn from_f64(x: f64) -> Self;
     fn to_f64(self) -> f64;
 
-    unsafe fn wilson_dslash(
-        out: *mut Self,
-        inp: *const Self,
-        gauge: *const Self,
-        geometry: *const Geometry,
-        params: *const WilsonKernelParams,
-        dagger: i32,
-        vectors: i32,
-    );
     unsafe fn clover_term(
         out: *mut Self,
         inp: *const Self,
         clover: *const Self,
         geometry: *const Geometry,
         parity: i32,
-        vectors: i32,
-    );
-    unsafe fn clover_dslash(
-        out: *mut Self,
-        inp: *const Self,
-        gauge: *const Self,
-        clover: *const Self,
-        geometry: *const Geometry,
-        params: *const CloverKernelParams,
-        dagger: i32,
         vectors: i32,
     );
     unsafe fn mdwf_dslash(
@@ -197,6 +167,7 @@ pub trait DeviceReal:
         inp: *const Self,
         gauge: *const Self,
         from: *const Self,
+        clover: *const Self,
         geometry: *const Geometry,
         kappa: f64,
         mass: f64,
@@ -341,38 +312,17 @@ pub trait DeviceReal:
 
 /// `DeviceReal` for one type, on the functions of that precision.
 macro_rules! device_real {
-    ($t:ty: $wilson:ident, $clover_term:ident, $clover:ident, $mdwf:ident, $hop:ident,
+    ($t:ty: $clover_term:ident, $mdwf:ident, $hop:ident,
      $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $walls:ident, $restrict:ident, $prolong:ident, $pass:ident,
      $coarse_gamma5:ident, $hop_split:ident, $fill:ident, $rotate:ident) => {
         extern "C" {
-            fn $wilson(
-                out: *mut $t,
-                inp: *const $t,
-                gauge: *const $t,
-                geometry: *const Geometry,
-                params: *const WilsonKernelParams,
-                dagger: i32,
-                vectors: i32,
-                stream: *mut c_void,
-            );
             fn $clover_term(
                 out: *mut $t,
                 inp: *const $t,
                 clover: *const $t,
                 geometry: *const Geometry,
                 parity: i32,
-                vectors: i32,
-                stream: *mut c_void,
-            );
-            fn $clover(
-                out: *mut $t,
-                inp: *const $t,
-                gauge: *const $t,
-                clover: *const $t,
-                geometry: *const Geometry,
-                params: *const CloverKernelParams,
-                dagger: i32,
                 vectors: i32,
                 stream: *mut c_void,
             );
@@ -390,6 +340,7 @@ macro_rules! device_real {
                 inp: *const $t,
                 gauge: *const $t,
                 from: *const $t,
+                clover: *const $t,
                 geometry: *const Geometry,
                 kappa: f64,
                 mass: f64,
@@ -575,17 +526,6 @@ macro_rules! device_real {
             fn to_f64(self) -> f64 {
                 f64::from(self)
             }
-            unsafe fn wilson_dslash(
-                out: *mut Self,
-                inp: *const Self,
-                gauge: *const Self,
-                geometry: *const Geometry,
-                params: *const WilsonKernelParams,
-                dagger: i32,
-                vectors: i32,
-            ) {
-                $wilson(out, inp, gauge, geometry, params, dagger, vectors, STREAM)
-            }
             unsafe fn clover_term(
                 out: *mut Self,
                 inp: *const Self,
@@ -595,20 +535,6 @@ macro_rules! device_real {
                 vectors: i32,
             ) {
                 $clover_term(out, inp, clover, geometry, parity, vectors, STREAM)
-            }
-            unsafe fn clover_dslash(
-                out: *mut Self,
-                inp: *const Self,
-                gauge: *const Self,
-                clover: *const Self,
-                geometry: *const Geometry,
-                params: *const CloverKernelParams,
-                dagger: i32,
-                vectors: i32,
-            ) {
-                $clover(
-                    out, inp, gauge, clover, geometry, params, dagger, vectors, STREAM,
-                )
             }
             unsafe fn mdwf_dslash(
                 out: *mut Self,
@@ -625,6 +551,7 @@ macro_rules! device_real {
                 inp: *const Self,
                 gauge: *const Self,
                 from: *const Self,
+                clover: *const Self,
                 geometry: *const Geometry,
                 kappa: f64,
                 mass: f64,
@@ -639,6 +566,7 @@ macro_rules! device_real {
                     inp,
                     gauge,
                     from,
+                    clover,
                     geometry,
                     kappa,
                     mass,
@@ -854,16 +782,14 @@ macro_rules! device_real {
     };
 }
 
-device_real!(f32: bridge_cuda_wilson_dslash_f32, bridge_cuda_clover_term_f32,
-    bridge_cuda_clover_dslash_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
+device_real!(f32: bridge_cuda_clover_term_f32, bridge_cuda_mdwf_dslash_1pass_f32, bridge_cuda_hop_f32,
     bridge_cuda_mdwf_fifth_f32, bridge_cuda_fifth_gemm_f32, bridge_cuda_hop_gemm_f32, bridge_cuda_gamma5_f32,
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, 
     bridge_cuda_walls_f32, bridge_cuda_fold_restrict_f32, bridge_cuda_fold_prolong_f32,
     bridge_cuda_coarse_pass_f32, bridge_cuda_coarse_gamma5_f32, bridge_cuda_hop_split_f32,
     bridge_cuda_fold_fill_f32, bridge_cuda_blas_rotate_f32);
-device_real!(f64: bridge_cuda_wilson_dslash_f64, bridge_cuda_clover_term_f64,
-    bridge_cuda_clover_dslash_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
+device_real!(f64: bridge_cuda_clover_term_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, 

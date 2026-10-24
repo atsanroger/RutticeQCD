@@ -11,7 +11,6 @@ endif()
 include_directories(include)
 
 set(BRIDGE_CUDA_SOURCES
-    src/fermion/wilson.cu
     src/fermion/clover.cu
     src/fermion/mdwf.cu
     src/fermion/force.cu

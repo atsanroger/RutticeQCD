@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Wilson and clover fermions on several GPUs: the operators, their even-odd blocks, the solves
+  and HMC (Standard, Ratio, Rational; the clover term and its force on extended links), each
+  process with its GPU, the result of one GPU bit for bit (checked up to 16 ranks with
+  `LocalComm`). The Wilson and clover operators are now the hop kernel of the domain-wall
+  operator, specialised (`hop_kernel` with `FourD`, `Clover`), so they take the interior and
+  surface parts of several processes; `wilson_interior_kernel` and `clover_dslash_kernel` are
+  removed. On the A30 at 16⁴ the time is that of the old kernels within 2%, the results the same
+  to the last bit.
+- The sums of a leg of the hops are explicit fused multiply-adds in a fixed order (`c_macc`,
+  `add_leg`, the third row of a link, the clover blocks): nvcc chooses which `a b + c` to fuse
+  kernel by kernel, which made the surface of the Wilson operator differ from one process in the
+  last bit. Results change at the rounding level; the CG on several processes may take a few
+  iterations in a thousand more or fewer than on one (its sums go in another order).
+- `su3_reconstruct_row3` and `c_mult`, unused (and the former wrong in one term), are removed.
+
 ## 0.7.0 (2026-10-24)
 
 Wilson and clover HMC on the device, and every run reporting the work it did. Bridge++'s

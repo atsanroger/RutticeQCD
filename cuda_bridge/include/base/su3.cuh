@@ -6,25 +6,29 @@
 
 namespace bridge_cuda {
 
-// Complex multiply: c = a * b
-template <typename Float>
-__device__ __forceinline__ void c_mult(Float &cr, Float &ci, Float ar, Float ai, Float br, Float bi) {
-    cr = ar * br - ai * bi;
-    ci = ar * bi + ai * br;
-}
+// A product rounded on its own: nvcc never contracts it into an fma. With -fmad (the default)
+// the compiler chooses per kernel which a * b + c become fused, so the same sum could round
+// differently in two kernels; the sums below fix the choice, so the kernels of several
+// processes (interior, surface, the packing of the faces) agree with one process bit for bit.
+__device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
+__device__ __forceinline__ double mul_rn(double a, double b) { return __dmul_rn(a, b); }
 
-// Complex multiply-accumulate: c += a * b
+// Complex multiply-accumulate c += a b, four fused multiply-adds in a fixed order.
 template <typename Float>
 __device__ __forceinline__ void c_macc(Float &cr, Float &ci, Float ar, Float ai, Float br, Float bi) {
-    cr += ar * br - ai * bi;
-    ci += ar * bi + ai * br;
+    cr = fma(ar, br, cr);
+    cr = fma(-ai, bi, cr);
+    ci = fma(ar, bi, ci);
+    ci = fma(ai, br, ci);
 }
 
-// Complex conjugate-multiply-accumulate: c += conj(a) * b
+// Complex conjugate-multiply-accumulate c += conj(a) b, likewise.
 template <typename Float>
 __device__ __forceinline__ void c_conj_macc(Float &cr, Float &ci, Float ar, Float ai, Float br, Float bi) {
-    cr += ar * br + ai * bi;
-    ci += ar * bi - ai * br;
+    cr = fma(ar, br, cr);
+    cr = fma(ai, bi, cr);
+    ci = fma(ar, bi, ci);
+    ci = fma(-ai, br, ci);
 }
 
 // SU(3) matrix times color vector: out = U * in
@@ -61,26 +65,6 @@ __device__ __forceinline__ void su3_dagger_mult_vec(
             c_conj_macc(out_r[r], out_i[r], u_r[c][r], u_i[c][r], in_r[c], in_i[c]);
         }
     }
-}
-
-// SU(3) 3rd-row reconstruction (cross product of first two rows)
-template <typename Float>
-__device__ __forceinline__ void su3_reconstruct_row3(
-    Float u_r[Nc][Nc], Float u_i[Nc][Nc])
-{
-    // row2 = conj(row0 x row1)
-    Float r0_r = u_r[0][1]*u_r[1][2] - u_i[0][1]*u_i[1][2] - (u_r[0][2]*u_r[1][1] - u_i[0][2]*u_i[1][1]);
-    Float r0_i = -(u_r[0][1]*u_i[1][2] + u_i[0][1]*u_r[1][2] - (u_r[0][2]*u_i[1][1] + u_i[0][2]*u_r[1][1]));
-
-    Float r1_r = u_r[0][2]*u_r[1][0] - u_i[0][2]*u_i[1][0] - (u_r[0][0]*u_r[1][2] - u_i[0][0]*u_i[1][2]);
-    Float r1_i = -(u_r[0][2]*u_i[1][0] + u_i[0][2]*u_r[1][0] - (u_r[0][0]*u_i[1][2] + u_i[0][0]*u_r[1][2]));
-
-    Float r2_r = u_r[0][0]*u_r[1][1] - u_i[0][0]*u_i[1][1] - (u_r[0][1]*u_r[1][0] - u_i[0][1]*u_r[1][0]);
-    Float r2_i = -(u_r[0][0]*u_i[1][1] + u_i[0][0]*u_r[1][1] - (u_r[0][1]*u_i[1][0] + u_i[0][1]*u_r[1][0]));
-
-    u_r[2][0] = r0_r; u_i[2][0] = r0_i;
-    u_r[2][1] = r1_r; u_i[2][1] = r1_i;
-    u_r[2][2] = r2_r; u_i[2][2] = r2_i;
 }
 
 } // namespace bridge_cuda

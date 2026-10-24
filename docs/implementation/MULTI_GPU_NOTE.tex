@@ -125,6 +125,27 @@ the receiver), so $\ell_1^{\text{buf}}=\ell_1$ exactly and $S_{\text{ours}}=S_{\
 exactly. The interior sites (no remote leg) are computed while the faces travel; no site is
 computed twice.
 
+\subsection{The same arithmetic: fused multiply-adds}
+
+``The same arithmetic'' needs one more thing. A GPU has a fused multiply-add,
+$\mathrm{fma}(a,b,c) = \mathrm{round}(ab+c)$, one rounding instead of two:
+\begin{equation}
+\mathrm{round}\big(\mathrm{round}(ab)+c\big)\ \neq\ \mathrm{round}(ab+c)\quad\text{in the last bit, in general.}
+\end{equation}
+nvcc turns $ab+c$ into an fma where it likes (\code{-fmad}, on by default), and it decides kernel by
+kernel. A leg is computed in different kernels: the sender's packing kernel, the receiver's
+surface kernel, the one-process kernel. When the Wilson operator was given its own instance of
+the hop kernel (constants $L_s=1$, $b=1$, $c=0$), nvcc fused the link product differently there
+than in the packing kernel, and some surface sites differed from one process by $10^{-16}$. So
+the sums of a leg are written as explicit fmas in a fixed order (\code{c\_macc}, \code{add\_leg},
+the third row of a link, the clover blocks), and a product that must stay unfused is
+\code{\_\_dmul\_rn} (\code{mul\_rn}), which nvcc never fuses:
+\begin{align}
+c &\leftarrow \mathrm{fma}(a_r,b_r,c_r),\ \mathrm{fma}(-a_i,b_i,\cdot)\quad\text{(real part of } c+ab),\\
+c &\leftarrow \mathrm{fma}(a_r,b_i,c_i),\ \mathrm{fma}(a_i,b_r,\cdot)\quad\text{(imaginary part)}.
+\end{align}
+Every kernel then rounds a leg the same way, whatever nvcc would have chosen.
+
 %======================================================================
 \section{How a face is numbered}
 
@@ -428,15 +449,18 @@ Tests run several processes as threads of one program, all on the one A30, again
 what & result \\
 \midrule
 $D$, $D\dg$, $\Gamma_5D$, $\tilde A$ (both forms, $\alpha=1.3$), up to 16 ranks & bit for bit \\
+Wilson and clover $D$, $D\dg$, $\gamma_5D$, hops, $T$, $T^{-1}$ (up to 16 ranks) & bit for bit \\
+their HMC derivatives (hops, clover leaves, $\ln\det T_o$) & bit for bit \\
 stout (2 steps), chain rule, rectangle force, fermion force & bit for bit \\
 P, coarse operator, $D_c$, $\Gamma_5D_c\Gamma_5$, $D_c\dg$, Schur & bit for bit \\
 levels: quark V-cycle, $|H|^{-1}$ of the Pauli-Villars factor & bit for bit \\
-CGNE & iterations $\pm1$, $10^{-11}$ \\
+CGNE (domain-wall; clover Schur) & iterations within 0.2\%, $10^{-11}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 Every bit-for-bit test was also broken on purpose (wrong boundary factor, halo too shallow, ghosts
-on the wrong face, wrong ghost colours, ghost links of the wrong direction) and then failed.
+on the wrong face, wrong ghost colours, ghost links of the wrong direction, the surface of the
+Wilson and clover operators skipped) and then failed.
 
 With two MPI processes on $4^3\times8$, GPU and CPU alike: the propagator (CG, mixed CG, the
 multigrid with and without a second level, MINRES or GCR for the Pauli-Villars factor) and HMC

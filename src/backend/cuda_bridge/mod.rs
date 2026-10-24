@@ -34,7 +34,7 @@ mod wilson;
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::{DeviceCorrection, DeviceParts};
 pub use ffi::DeviceReal;
-pub use ffi::{CloverKernelParams, Geometry, MdwfKernelParams, WilsonKernelParams};
+pub use ffi::{Geometry, MdwfKernelParams};
 pub(crate) use field::Stashed;
 pub use field::{DeviceParities, DeviceSpinor};
 pub use gauge::DeviceLinks;
@@ -381,16 +381,6 @@ fn padded(sites: usize) -> usize {
     sites.div_ceil(W) * W
 }
 
-/// What runs on the device on one process only so far (the domain-wall operator exchanges the
-/// faces of its hops, `halo`; nothing else does yet).
-fn one_process(lat: &Lattice, what: &str) {
-    assert_eq!(
-        lat.comm.size(),
-        1,
-        "{what} on the device runs on one process so far"
-    );
-}
-
 /// The geometry the kernels take for fields of `ls` spinors per site on the local lattice of
 /// `lat` (on several processes the boundaries of the directions cut between them are those of
 /// `halo::Halos`).
@@ -545,13 +535,17 @@ impl FifthInHops {
 
 /// `out = H (b − c Y) inp`, or with `H†`, H the hops of the Wilson kernel at `kappa`: on the
 /// whole lattice (`to` none), or `out` on the sites of parity `to` and `inp` on the others.
-/// With `from`, a field on the sites of `out`, `out = from −` that. Every vector of the fields.
+/// With `from`, a field on the sites of `out`, `out = from −` that; with the clover blocks
+/// `clover` as well, `out = T from + H inp` (the clover operator; one spinor a site). Every
+/// vector of the fields. On several processes (`halos`) the faces of `inp` travel while the
+/// interior is computed, then the surface (`Halos::around`), with the result of one process.
 #[allow(clippy::too_many_arguments)]
 fn hops<T: DeviceReal>(
-    (gauge, geometry): (&DeviceGauge<T>, &Geometry),
+    (gauge, geometry, halos): (&DeviceGauge<T>, &Geometry, Option<&halo::Halos<T>>),
     out: &mut DeviceSpinor<T>,
     inp: &DeviceSpinor<T>,
     from: Option<&DeviceSpinor<T>>,
+    clover: Option<&DeviceBuffer<T>>,
     kappa: f64,
     fifth: FifthInHops,
     dagger: bool,
@@ -560,8 +554,15 @@ fn hops<T: DeviceReal>(
     let ls = geometry.ls as usize;
     assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
     assert_eq!(out.data.len, inp.data.len);
+    assert!(clover.is_none() || (from.is_some() && ls == 1));
     out.parity = to;
-    count_hops(geometry, inp, from.is_some(), 0.0);
+    // The clover term: Nc Nd (2 + 48 Nc) flops a spinor, its blocks read once a site.
+    let site_flops = if clover.is_some() {
+        (12 * (2 + 48 * 3)) as f64
+    } else {
+        0.0
+    };
+    count_hops(geometry, inp, from.is_some(), site_flops);
     let from = match from {
         Some(f) => {
             assert!(f.is(out, ls, to) && f.data.len == out.data.len);
@@ -569,25 +570,52 @@ fn hops<T: DeviceReal>(
         }
         None => std::ptr::null(),
     };
-    // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
-    // kernel is told; the links are those of the whole lattice; `out` is not `inp`; a null
-    // `from` is not read.
-    unsafe {
-        T::hop(
-            out.data.ptr,
-            inp.data.ptr,
-            gauge.links.ptr,
-            from,
-            geometry,
-            kappa,
-            fifth.mass,
-            fifth.b,
-            fifth.c,
-            i32::from(dagger),
-            parity_number(to),
-            inp.vectors as i32,
-        );
-    }
+    let clover = clover.map_or(std::ptr::null(), |c| c.ptr.cast_const());
+    let gauge = gauge.links.ptr.cast_const();
+    let Some(halos) = halos else {
+        // SAFETY: the spinor buffers hold the sites of the lattice or of one parity, as the
+        // kernel is told; the links are those of the whole lattice, the clover blocks those
+        // of every site; `out` is not `inp`; null `from` and `clover` are not read.
+        unsafe {
+            T::hop(
+                out.data.ptr,
+                inp.data.ptr,
+                gauge,
+                from,
+                clover,
+                geometry,
+                kappa,
+                fifth.mass,
+                fifth.b,
+                fifth.c,
+                i32::from(dagger),
+                parity_number(to),
+                inp.vectors as i32,
+            );
+        }
+        return;
+    };
+    let fifth = [fifth.mass, fifth.b, fifth.c];
+    halos.around(geometry, gauge, inp, to, fifth, dagger, |halo, part| {
+        // SAFETY: as above; the buffers of `halo` are those of this output.
+        unsafe {
+            T::hop_part(
+                out.data.ptr,
+                inp.data.ptr,
+                gauge,
+                from,
+                clover,
+                geometry,
+                kappa,
+                fifth,
+                i32::from(dagger),
+                parity_number(to),
+                inp.vectors as i32,
+                halo,
+                part,
+            );
+        }
+    });
 }
 
 /// `dst = src`, from one precision to another.

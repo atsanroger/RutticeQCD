@@ -420,58 +420,16 @@ impl<T: DeviceReal> CudaMdwf<T> {
             b,
             c,
         };
-        let Some(halos) = &self.halos else {
-            return hops(
-                (&*self.gauge, &self.geometry),
-                out,
-                inp,
-                from,
-                0.5,
-                fifth,
-                dagger,
-                to,
-            );
-        };
-        let ls = self.params.ls;
-        assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
-        assert_eq!(out.data.len, inp.data.len);
-        out.parity = to;
-        count_hops(&self.geometry, inp, from.is_some(), 0.0);
-        let from = match from {
-            Some(f) => {
-                assert!(f.is(out, ls, to) && f.data.len == out.data.len);
-                f.data.ptr.cast_const()
-            }
-            None => std::ptr::null(),
-        };
-        let fifth = [fifth.mass, fifth.b, fifth.c];
-        let gauge = self.gauge.links.ptr.cast_const();
-        halos.around(
-            &self.geometry,
-            gauge,
+        hops(
+            (&*self.gauge, &self.geometry, self.halos.as_deref()),
+            out,
             inp,
-            to,
+            from,
+            None,
+            0.5,
             fifth,
             dagger,
-            |halo, part| {
-                // SAFETY: as in `hops`; the buffers of `halo` are those of this output.
-                unsafe {
-                    T::hop_part(
-                        out.data.ptr,
-                        inp.data.ptr,
-                        gauge,
-                        from,
-                        &self.geometry,
-                        0.5,
-                        fifth,
-                        i32::from(dagger),
-                        parity_number(to),
-                        inp.vectors as i32,
-                        halo,
-                        part,
-                    );
-                }
-            },
+            to,
         );
     }
 

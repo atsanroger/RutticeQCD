@@ -131,6 +131,26 @@ use 255 registers and a block has 65536.
 spinor and one link are live: 168 registers, three blocks per multiprocessor. The sums go into
 \code{out} in the same order either way.
 
+\textbf{From.} With \code{from}, $\text{out}=\text{from}-\text{sum}$. \code{from} may be \code{out}
+itself, so the kernel reads all 24 reals of \code{from} into registers before it writes any:
+otherwise every load waits for the store before it (no \code{\_\_restrict\_\_} is possible), which
+cost the Wilson operator 10--15\%.
+
+\textbf{The Wilson and clover operators} are this kernel too, with two template parameters.
+\code{FourD}: $L_s=1$, $b=1$, $c=0$ are set as constants, so the compiler removes the fifth
+dimension (the reads of $s\pm1$ and the products with $c=0$); with them known only at run time
+the Wilson operator took half as long again. The Wilson operator is
+\begin{equation}
+D\psi = \psi + H_\kappa\psi = \psi - H_{-\kappa}\psi ,
+\end{equation}
+\code{from} $=\psi$ at $-\kappa$: each leg changes sign exactly, so the result is the same to the
+last bit as $\psi + H_\kappa\psi$. \code{Clover}: the sum starts from $T\,\text{from}$
+(\code{clover\_site}) and the legs are added to it, $\text{out}=T\psi+H\psi$ in one pass, the order
+of the old fused kernel. Because the interior and surface parts (Sec.~2 of the multi-GPU note)
+are instances of the same kernel, the two operators on several processes give the result of one
+bit for bit. On the A30 at $16^4$ their time is that of the two kernels they replace
+(\code{wilson\_interior\_kernel}, \code{clover\_dslash\_kernel}).
+
 \subsection{\code{mdwf\_dslash\_1pass\_kernel}: all of $D$ in one pass}
 
 \begin{equation}
@@ -219,9 +239,9 @@ least for 32 doubles. This is the XOR seen in the code; the face buffers of seve
 %======================================================================
 \section{Wilson and clover}
 
-\subsection{\code{wilson\_interior\_kernel}}
+\subsection{The Wilson operator}
 
-$D\psi = \psi + H\psi$ with the hops of Sec.~2.3, $L_s=1$, $b=1$, $c=0$. The fibres of a site are
+$D\psi = \psi + H\psi$: \code{hop\_kernel} with \code{FourD} (Sec.~2.3). The fibres of a site are
 its vectors, which share the links.
 
 \subsection{\code{clover\_term\_kernel}: $T\psi$}
@@ -242,9 +262,9 @@ diagonal entries and 15 complex above the diagonal,
 \end{equation}
 The same kernel applies $T^{-1}$ (its blocks made by \code{clover\_blocks\_kernel}, below).
 
-\subsection{\code{clover\_dslash\_kernel}}
+\subsection{The clover operator}
 
-$D\psi = T\psi + H\psi$ in one pass.
+$D\psi = T\psi + H\psi$ in one pass: \code{hop\_kernel} with \code{Clover} (Sec.~2.3).
 
 \subsection{\code{clover\_blocks\_kernel}: $T_\pm$, $T_\pm^{-1}$ and $\ln|\det T_\pm|$ from the links}
 
@@ -608,6 +628,8 @@ with the C tests that exercised only them: the Schwarz domain decomposition (\co
 older restriction, prolongation and coarse operator (\code{transfer.cuh}, \code{mdwf\_transfer.cuh},
 \code{coarse.cuh}, \code{coarse\_eo.cuh}), multi-right-hand-side Wilson (\code{mrhs.cuh}), APE smearing
 and a plaquette (\code{gauge.cuh}), the Dirac/chiral conversion, a plain real \code{axpy}, and an
-unfinished Wilson face packing.
+unfinished Wilson face packing. Later the same day \code{wilson\_interior\_kernel} and
+\code{clover\_dslash\_kernel}, which \code{hop\_kernel} replaced (Sec.~2.3) so that the Wilson and
+clover operators run on several processes.
 
 \end{document}

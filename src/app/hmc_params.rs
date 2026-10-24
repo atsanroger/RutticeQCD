@@ -565,12 +565,6 @@ impl HmcParams {
                     ActionConfig::TwoFlavor { solver, .. }
                     | ActionConfig::TwoFlavorRatio { solver, .. }
                     | ActionConfig::Rational { solver, .. } => {
-                        if grid != [1; ND] {
-                            return invalid(format!(
-                                "{}: Wilson and clover fermions on the device run on one process so far (Main.grid_size {grid:?})",
-                                names[i]
-                            ));
-                        }
                         if solver.asks_for(super::hmc::HmcPreconditioner::Multigrid) {
                             return invalid(format!(
                                 "{}.Solver.preconditioner_type: the multigrid of Wilson and clover fermions is not on the device yet; None or Chebyshev",
