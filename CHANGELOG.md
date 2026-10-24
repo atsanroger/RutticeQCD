@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-10-24)
+
+Domain-wall fermions on several GPUs: the propagators (with the multigrid, its levels and every
+coarse solver), the eigensolvers and HMC (with stout smearing and the multigrid), each process
+with its GPU, the operators giving the result of one GPU bit for bit. The eigensolvers and
+pseudospectra on the device. Parameter files are unchanged; `Main.grid_size` now applies to
+`backend : cuda_bridge` for domain-wall fermions. New feature `nccl`.
 
 - Several GPUs for domain-wall fermions (`ruttice-mpi` with `cuda-bridge`, one GPU a process):
   the hops pack the faces of the local lattice into half spinors (`fermion/hops.cuh`, `Halo`),
@@ -39,6 +45,14 @@
   `lines`) adds σ_min(z − A) at each z for the operator of `Eigensolver`, on the CPU and the
   device (`eigen::resolvent_norms`, until now reached only from
   `examples/preconditioned_fov_device.rs`). `examples/pseudospectrum_mdwf.yaml`.
+- The CUDA code extracted from Bridge++ but never called (domain decomposition, an older
+  transfer and coarse operator, multi-right-hand-side Wilson, APE and plaquette on the device,
+  and others; 460 lines) is removed.
+- `docs/implementation/`: the architecture, how to write a GPU kernel, every CUDA kernel derived
+  line by line, and several GPUs with an evaluation of NVSHMEM.
+
+Not checked: NCCL itself and several real GPUs (the test machine has one GPU, so the faces went
+through the host), and the speed of the exchanges.
 
 ## 0.5.0 (2026-10-24)
 
