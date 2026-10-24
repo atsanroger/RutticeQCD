@@ -71,6 +71,9 @@ traits, and a backend supplies only the parts that touch its memory. The table i
   is written once in `MdwfBackend::rebuild`; `OnCpu` and `cuda_bridge::mdwf_backend::OnDevice`
   supply the fields and kernels;
 - the multigrid of HMC (cache, rebuilds, retries, Neff's α) is `hmc::dwf_multigrid::with_solves`;
+- the multigrid of Wilson and clover fermions (setup and cycle) is `WilsonMultigrid` over a
+  `MultigridBackend`, `WilsonOnCpu` or `cuda_bridge::WilsonOnDevice`; its smoother SAP is `Sap`
+  over `SapBlocks`; its kept test vectors in HMC `MultigridSetup::cycle_on`;
 - the propagator runs are `app::mdwf::solve_sources`, the eigensolver runs `app::eigen::found`
   over an `EigenBackend`.
 
@@ -89,6 +92,7 @@ traits, and a backend supplies only the parts that touch its memory. The table i
 | `correction.rs`, `multigrid.rs`, `mdwf_backend.rs` | the coarse correction, the setup, `OnDevice` |
 | `halo.rs` | several processes: face exchanges (NCCL or through the host), `SplitReal` |
 | `hmc_mixed.rs`, `hmc_multigrid.rs` | mixed precision and the multigrid of HMC on the device |
+| `sap.rs`, `wilson_multigrid.rs` | SAP's block operations, the Wilson and clover multigrid (`WilsonOnDevice`) |
 
 The C/CUDA side is `cuda_bridge/` (built by `build.rs` with cmake into a static library):
 `include/` holds the kernels as templates (`fermion/`, `gauge/`, `multigrid/`, `linalg/`, `base/`),

@@ -41,7 +41,7 @@ GPUs through CUDA kernels extracted from Bridge++ (`cuda_bridge/`, Rust side
 **Structure**
 - Algorithms (solvers, multigrid, eigensolvers, HMC) are generic over the traits of the layer below:
   `Vector`, `LinearFn`/`LinearOp`, `FermionOp`, `EvenOdd`, `SplitParity`, `CoarseOperator`,
-  `Transfer`, `MdwfBackend`, `LinkField`, `ForceOp`. A solver never knows the storage, the backend
+  `Transfer`, `MdwfBackend`, `MultigridBackend`, `SapBlocks`, `LinkField`, `ForceOp`. A solver never knows the storage, the backend
   or the number of processes.
 - A backend implements those traits for its types (`Field`, `DeviceSpinor`, `DeviceCoarse`,
   `DeviceLinks`). Backend-specific code stays in its module (`src/backend/cuda_bridge`,

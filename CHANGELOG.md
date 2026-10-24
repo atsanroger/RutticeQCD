@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The Wilson and clover multigrid on the device, for propagators and HMC
+  (`preconditioner_type : MG` with `backend : cuda_bridge`), on one GPU or several: P made from
+  the test vectors on the host by the CPU's code and kept on the device folded in spin (a vector
+  of one chirality has spins 2, 3 equal to ± spins 0, 1, so the domain-wall folding serves with
+  Ls = 1), the coarse operator made on the device by one function for all three operators
+  (`coarse::coarse_blocks`), SAP on the device (the block operator an instance of the hop kernel
+  with a `BlockCut`, the block minimal-residual steps with sums by a fixed tree), the cycle in
+  single or double precision, on the even sites for an even-odd solve. The setup and the cycle
+  are written once over a backend (`WilsonMultigrid`, `MultigridBackend`: `WilsonOnCpu`,
+  `WilsonOnDevice`), and so are SAP (`Sap`, `SapBlocks`), the cycle on one parity (`OnParity`
+  over `SplitParity`) and the kept test vectors of HMC (`MultigridSetup::cycle_on`); the CPU's
+  results are those of before to the last digit. Checked: the device takes the CPU's iterations
+  (clover_mg.yaml: 7, 0.26 s against 2.7 s on two CPU threads) and gives its correlators; HMC
+  with the multigrid gives the CPU's trajectory; on several processes P and the test vectors are
+  those of one bit for bit and FGMRES takes the same iterations. Refused on the device so far:
+  the levels below the coarse lattice and `precondition_diagonal` of the Wilson multigrid.
 - Fixed: the Wilson and clover multigrid with even-odd solves (`coarse_even_odd`, set by an
   even-odd solver) prepared its coarse operator for solves on the even coarse sites only
   before the setup iterations, so with any (the default is 4) the coarse solves ran on the

@@ -476,6 +476,29 @@ So the half $s<L_s/2$ determines the rest, and P is stored folded: $12L_s$ reals
 vector, chirality) instead of $24L_s$, in single or half precision. \code{fold\_fill\_kernel}
 writes $\tfrac12(v_s\pm\gamma_5v_{L_s-1-s})$ for $s<L_s/2$.
 
+\paragraph{Four-dimensional fields (Wilson, clover): folded in spin.} With $L_s=1$ the
+chirality is that of $\gamma_5$ itself, and in the Dirac representation
+$\gamma_5=\begin{pmatrix}0&1\\1&0\end{pmatrix}$ in $2\times2$ spin blocks. Write a spinor as its
+upper spins $u$ (spins 0, 1) and lower spins $l$ (spins 2, 3). Then
+\begin{align}
+(1+\sigma\gamma_5)\begin{pmatrix}u\\l\end{pmatrix}
+&= \begin{pmatrix}u+\sigma l\\ l+\sigma u\end{pmatrix}
+ = \begin{pmatrix}w\\ \sigma w\end{pmatrix},\qquad w = u+\sigma l,\quad \sigma=\pm1,
+\end{align}
+because $l+\sigma u = \sigma(\sigma l + u)$ ($\sigma^2=1$). The lower spins of a vector of one
+chirality are $\sigma$ times its upper ones, so the 12 reals of spins 0 and 1 are enough. The
+Gram--Schmidt of the CPU (\code{Basis::from\_vectors}) treats every component alike, so the
+relation holds to the last bit; \code{DeviceBasis::new} keeps the upper spins and checks the
+lower ones. This is the folded storage with $L_s=1$: the entries kept are those of $s=0$ and
+spins $a=0,1$, and the mirror of $(s,a)$ is $(L_s-1-s,\ \mathrm{col}[a]) = (0,\ a+2)$ with
+$\gamma_5$'s sign $+1$. The restriction of the next subsection becomes
+\begin{equation}
+\langle v^{(\sigma)}, f\rangle = \sum_{a<2}\overline{w_a}\,f_a + \sum_{a<2}\overline{\sigma w_a}\,f_{a+2}
+ = \sum_{a<2}\overline{w_a}\,(f_a+\sigma f_{a+2}),
+\end{equation}
+the same formula as the folding in $s$; so the kernels serve both, the loops running over the kept
+entries in their order (for $L_s$ even: $s$, spin, colour, the order they had).
+
 \subsection{\code{fold\_restrict\_kernel}: coarse $=P\dg$fine}
 
 For coarse site $X$, test vector $i$, chirality $c$:
@@ -523,6 +546,60 @@ B_d(X)_{\cdot j} &= \big[P\dg\,\text{leg}_d\,\phi_j\big](X)\quad\text{on the sit
 another block, added to \code{inside} elsewhere. The restriction of \code{cross} is column $j$ of
 $B_d$; \code{coarse\_columns} writes it straight into the matrices, in the precision they are kept
 in. Several $j$ at a time, as the vectors of the fields.
+
+One function makes this for the three operators (\code{coarse::coarse\_blocks}); an operator
+gives its part within a site, $C\phi_j$ above, and the coefficients of its hops: $C$ and the hops
+of $b-cY$ at $\tfrac12$ for domain-wall fermions, $1$ and the hops at $\kappa$ for Wilson
+fermions, the clover term $T$ and the hops at $\kappa$ for clover fermions.
+
+\section{The Schwarz smoother (SAP) on the device}
+
+SAP (\code{multigrid/sap.rs}) is written once; on the device the parts that touch the fields are
+three kernels and an instance of the hop kernel. The blocks are the aggregates; block $X$ with
+block coordinates $(X_0,\dots,X_3)$ on the whole lattice has colour $\sum_\mu X_\mu \bmod 2$, so
+that blocks of one colour do not touch. A cycle, for each colour $c$:
+\begin{align}
+e &= 0,\qquad r \leftarrow r\ \text{on the blocks of colour } c,\ 0\ \text{elsewhere},\\
+\text{repeat } n \text{ times:}\quad p &= D_c\,r,\quad
+\alpha_X = \frac{\langle p,r\rangle_X}{\langle p,p\rangle_X},\quad e \mathrel{+}= \alpha_X r,\quad
+r \mathrel{-}= \alpha_X p,\\
+x &\mathrel{+}= e,\qquad r = b - Dx,
+\end{align}
+$D_c$ being $D$ without the legs that leave a block, on the blocks of colour $c$, and
+$\langle\cdot,\cdot\rangle_X$ the inner product over the sites of block $X$ (one vector at a time).
+$\alpha_X$ minimises $|r-\alpha p|^2$ on the block:
+\begin{equation}
+\frac{\partial}{\partial\bar\alpha}\big(\langle r,r\rangle - \alpha\langle r,p\rangle - \bar\alpha\langle p,r\rangle + |\alpha|^2\langle p,p\rangle\big)
+= -\langle p,r\rangle + \alpha\langle p,p\rangle = 0 .
+\end{equation}
+
+\paragraph{The block operator: \code{hop\_kernel} with \code{Cut}.} A \code{BlockCut} gives the
+block extents $b_\mu$, the colour, and the parity of the block coordinates of the process's
+origin. At site $x$ the forward leg in direction $\mu$ leaves the block when
+$x_\mu \bmod b_\mu = b_\mu-1$, the backward one when $x_\mu \bmod b_\mu = 0$; those bits are taken
+out of the mask of legs (bit $\mu$ forward, bit $4+\mu$ backward), and a site of the other colour
+writes zero. The rest is the kernel as it is: $\psi - H_{-\kappa}\psi$ for Wilson, $T\psi + H\psi$ for
+clover. \code{Cut} is a template parameter: with the mask known only at run time in every
+instance, the Wilson operator in single precision took 40\% longer (the compiler no longer drops
+the tests of the eight legs).
+
+\paragraph{\code{sap\_alpha\_kernel}.} One CUDA block of 128 threads for each (block, vector); a
+block of the other colour writes $\alpha=0$. Thread $t$ adds sites $t, t+128,\dots$ of the block in
+double precision, then a fixed tree over the threads in shared memory:
+\begin{equation}
+s_t \leftarrow s_t + s_{t+h},\qquad h = 64, 32, \dots, 1,
+\end{equation}
+so the sum does not depend on the timing. Three sums at once: $\mathrm{Re}\langle p,r\rangle$,
+$\mathrm{Im}\langle p,r\rangle$, $\langle p,p\rangle$.
+
+\paragraph{\code{sap\_update\_kernel}.} A grid-stride loop over (site, vector): $\alpha$ of the
+site's block, then $e \mathrel{+}= \alpha r$ and $r \mathrel{-}= \alpha p$ in one pass, $r$ read once
+(five reals read or written for each). \code{sap\_keep\_colour\_kernel} zeroes the sites of the
+other colour.
+
+On several processes a block lies within a process, so $D_c$ and the block sums need no
+exchange; only $r=b-Dx$ does, through the operator's halos. Checked: the device SAP is the CPU's
+to $10^{-15}$ (Wilson, clover, one vector and three).
 
 \subsection{\code{coarse\_pass\_kernel}}
 

@@ -106,6 +106,15 @@ to 1e-12, CGNE within 0.2% of the iterations; broken once on purpose (surface sk
 fused multiply-adds of a leg had to be fixed (CHANGELOG). Not run yet: two MPI processes for
 Wilson and clover HMC (as was done for domain-wall fermions). Next: their multigrid on the device.
 
+**The Wilson and clover multigrid on the device (2026-10-25)**: DESIGN §7.8 step 3; the device
+now does every fermion, solver and multigrid of the CPU on one GPU or several, but these:
+the levels below the coarse lattice and `precondition_diagonal` of the Wilson multigrid
+(refused when the file is read), the gradient flow, boundary phases other than ±1 and 0. Checked
+against the CPU (iterations, correlators, HMC trajectories) and several processes against one
+(P bit for bit, the same iterations). Not checked: NCCL and several real GPUs, two MPI processes
+for the Wilson and clover multigrid (LocalComm only), the speed of the device multigrid beyond
+4³×8 (its P is made on the host: a setup on a large lattice spends its time there).
+
 **Several GPUs (2026-10-24)**: domain-wall fermions without the multigrid on several GPUs
 (CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is
 refused for ranks sharing a device and the host path runs), the speed of the exchanges (on one

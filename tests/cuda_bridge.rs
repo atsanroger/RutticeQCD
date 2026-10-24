@@ -1187,16 +1187,7 @@ fn wilson_transfers_on_the_device() {
     op.set_gauge(&u).unwrap();
     let n = 4;
     let x = random_spinor(&lat, n, 442);
-    // γ5 = [[0, 1], [1, 0]] in the Dirac representation: spins 0, 1 and 2, 3 exchanged.
-    let mut g5x = x.zeros_like();
-    for (out, inp) in g5x
-        .as_mut_slice()
-        .chunks_exact_mut(24)
-        .zip(x.as_slice().chunks_exact(24))
-    {
-        out[..12].copy_from_slice(&inp[12..]);
-        out[12..].copy_from_slice(&inp[..12]);
-    }
+    let g5x = dirac_gamma5(&x);
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = Basis::<f64, f32>::from_vectors(&agg, &x, &g5x).unwrap();
     let device = DeviceBasis::new(&basis).unwrap();
@@ -1243,6 +1234,17 @@ fn wilson_transfers_on_the_device() {
     }
 }
 
+/// γ5 x, γ5 = [[0, 1], [1, 0]] in the Dirac representation: spins 0, 1 and 2, 3 exchanged.
+fn dirac_gamma5(x: &Psi) -> Psi {
+    let mut g5x = x.zeros_like();
+    let (out, _) = g5x.as_mut_slice().as_chunks_mut::<24>();
+    for (out, inp) in out.iter_mut().zip(x.as_slice().as_chunks::<24>().0) {
+        out[..12].copy_from_slice(&inp[12..]);
+        out[12..].copy_from_slice(&inp[..12]);
+    }
+    g5x
+}
+
 /// The coarse operators P† D P of the Wilson and clover operators made on the device
 /// (`coarse_blocks`: P of unit vectors, the part within a site and the eight hops sorted by
 /// whether they leave the aggregate) are those `CoarseOp::build` makes on the CPU, on the same P.
@@ -1254,15 +1256,7 @@ fn wilson_and_clover_coarse_operators_on_the_device() {
     let u = random_gauge(&lat, 451);
     let n = 4;
     let x = random_spinor(&lat, n, 452);
-    let mut g5x = x.zeros_like();
-    for (out, inp) in g5x
-        .as_mut_slice()
-        .chunks_exact_mut(24)
-        .zip(x.as_slice().chunks_exact(24))
-    {
-        out[..12].copy_from_slice(&inp[12..]);
-        out[12..].copy_from_slice(&inp[..12]);
-    }
+    let g5x = dirac_gamma5(&x);
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = Basis::<f64, f32>::from_vectors(&agg, &x, &g5x).unwrap();
     let device = DeviceBasis::new(&basis).unwrap();

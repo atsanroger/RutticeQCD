@@ -493,7 +493,7 @@ impl DeviceBasis {
         let (data, half) = (basis.stored(), SPINOR / 2);
         let mut kept = Vec::with_capacity(data.len() / 2);
         let mut defect = 0.0f64;
-        for (k, v) in data.chunks_exact(SPINOR).enumerate() {
+        for (k, v) in data.as_chunks::<SPINOR>().0.iter().enumerate() {
             // [fine site][vector][chirality]: chirality + first, − second.
             let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
             for e in 0..half {

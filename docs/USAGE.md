@@ -158,7 +158,9 @@ single or double precision, and how many counts were made. The flops are Bridge+
 bytes are a model (QUDA's: every value a kernel reads from memory, no caches), so the intensity
 is an estimate to place a run on a roofline before measuring it with Nsight Compute. On several
 processes the numbers are those of the first process. Not counted yet: the fifth-dimension parts
-of the domain-wall operator on the CPU, the even-odd restriction of its multigrid on the CPU.
+of the domain-wall operator on the CPU, the even-odd restriction of its multigrid on the CPU, the
+block operations of SAP on the CPU (on the device they are counted, so the two runs of one file
+report different totals).
 With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and Ratio actions
@@ -166,11 +168,17 @@ by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and 
 α, `Chebyshev`, and for the Ratio action the multigrid (the same code as on the CPU, its test
 vectors, P, the coarse operators and the cycles on the device). The Wilson and clover Standard,
 Ratio and Rational actions run on the device too (Lexical or Even_odd as on the CPU; CG, the
-two-step solvers, `Chebyshev`), with the clover term and its force made on the device; on one
-process or several (`Main.grid_size`, local extents even). Not on the device yet: the multigrid
-of Wilson and clover fermions, the flow, boundary phases other than ±1 and 0.
+two-step solvers, `Chebyshev`, the multigrid), with the clover term and its force made on the
+device; on one process or several (`Main.grid_size`, local extents even). The Wilson and clover
+multigrid is on the device for propagators and HMC alike (`preconditioner_type : MG` with
+FGMRES or BiCGStab): P made from the test vectors as on the CPU and kept on the device, the
+coarse operator, SAP or GMRES and the coarse solves there, the cycle in single or double
+precision (`coarse_precision`), on the even sites for an even-odd solve. Refused on the device so
+far: the levels below the coarse lattice (`MultiGrid_Level2`) and `precondition_diagonal` of the
+Wilson and clover multigrid. Not on the device yet: the flow, boundary phases other than ±1
+and 0.
 
-**Several GPUs.** `ruttice-mpi` (features `mpi` and `cuda-bridge`) runs domain-wall fermions on
+**Several GPUs.** `ruttice-mpi` (features `mpi` and `cuda-bridge`) runs every fermion on
 several processes, one GPU each (the rank within its node modulo the GPUs it sees, or
 `RUTTICE_DEVICE`), the lattice cut by `Main.grid_size` into local lattices of even extents:
 the propagator solves without the multigrid (CGNE, mixed CGNE, Chebyshev), the eigensolvers and
@@ -186,8 +194,9 @@ chooses. The operators give what one process gives bit for bit, the solvers the 
 order of the sums over the processes. The levels below the coarse lattice run there too, a
 super-block within a process (the last level is gathered and solved whole on every GPU), and so
 does a `Coarse_Solver_PV` other than `MINRES` (the exact adjoint of the second factor). The CPU's
-multigrid of domain-wall fermions runs on several processes as well. Not on several GPUs yet:
-Wilson and clover fermions.
+multigrid of domain-wall fermions runs on several processes as well. Wilson and clover fermions:
+the operators, their solves and HMC (the clover term and its force on extended links), and their
+multigrid (an aggregate and a SAP block within a process).
 
 ### SIMD
 

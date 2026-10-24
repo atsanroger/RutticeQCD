@@ -34,15 +34,16 @@ cuda_bridge/
 │   │   ├── stout.cuh             # Stout smearing and its chain rule, extended fields
 │   │   └── links.cuh             # HMC's operations on the links, the gauge force and action
 │   ├── multigrid/
-│   │   ├── fold.cuh              # P, restriction and prolongation, the coarse operator
-│   │   └── levels.cuh            # The levels below the coarse lattice
+│   │   ├── fold.cuh              # P (folded in s, or in spin for Ls = 1), restriction and prolongation, the coarse operator
+│   │   ├── levels.cuh            # The levels below the coarse lattice
+│   │   └── sap.cuh               # The Schwarz smoother: block minimal-residual steps
 │   └── linalg/
 │       ├── blas.cuh              # The linear algebra of sets of vectors, deterministic reductions
 │       └── cast.cuh              # f64 <-> f32
 ├── src/                          # The launchers, extern "C", one per precision
 │   ├── fermion/                  # clover.cu, force.cu, mdwf.cu (the hops of all three operators)
 │   ├── gauge/stout.cu            # every kernel that walks paths of links (clover term included)
-│   ├── multigrid/                # fold.cu, levels.cu, dense.cu (cuSOLVER for the last level)
+│   ├── multigrid/                # fold.cu, levels.cu, sap.cu, dense.cu (cuSOLVER for the last level)
 │   └── linalg/blas.cu
 └── tests/test_mdwf_1pass.cu
 ```
