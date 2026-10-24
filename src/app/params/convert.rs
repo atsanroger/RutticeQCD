@@ -278,9 +278,23 @@ impl Params {
 
     /// What `backend : cuda_bridge` can do so far.
     fn check_cuda_bridge(&self) -> Result<(), CliError> {
-        let several = self.fopr.fermion_type == FermionType::DomainWall
-            && self.solver.preconditioner_type != PreconditionerType::Multigrid;
-        self.main.check_cuda_bridge(several)?;
+        let dwf = self.fopr.fermion_type == FermionType::DomainWall;
+        self.main.check_cuda_bridge(dwf)?;
+        let grid = self.main.grid_size;
+        if dwf
+            && grid != [1; ND]
+            && self.solver.preconditioner_type == PreconditionerType::Multigrid
+        {
+            if let Some(mg) = &self.multigrid {
+                let local = core::array::from_fn(|mu| self.main.lattice_size[mu] / grid[mu].max(1));
+                if let Some(why) = mg
+                    .mdwf_settings(PrecisionType::Single)
+                    .refused_on_several(local)
+                {
+                    return Err(invalid(format!("Main.grid_size {grid:?}: {why}")));
+                }
+            }
+        }
         if self.solver.preconditioner_type == PreconditionerType::Multigrid
             && !matches!(self.fopr.fermion_type, FermionType::DomainWall)
         {

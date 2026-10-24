@@ -96,11 +96,129 @@ pub trait SplitReal: Sized + Copy + Default + Send + 'static {
     fn host_exchange(comm: &dyn crate::Comm, spec: &HaloSpec) -> Box<dyn HaloExchange<Self>>;
     /// `ncclDataType_t` of this precision.
     const NCCL_TYPE: i32;
+    /// `bridge_cuda_hop_split_halo`.
+    ///
+    /// # Safety
+    /// As `DeviceReal::hop_split`; `halo` as for `hop_part`.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn hop_split_halo(
+        cross: *mut Self,
+        inside: *mut Self,
+        inp: *const Self,
+        gauge: *const Self,
+        geometry: *const Geometry,
+        fifth: [f64; 4],
+        leg: i32,
+        block: *const i32,
+        vectors: i32,
+        halo: *const HaloArgs,
+    );
+    /// `bridge_cuda_coarse_pass_ghost`.
+    ///
+    /// # Safety
+    /// As `DeviceReal::coarse_pass`; `ghost` a coarse field of `ghosts` sites and as many
+    /// vectors, which the neighbours `>= sites` index.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn coarse_pass_ghost(
+        out: *mut Self,
+        base: *const Self,
+        diag_of: *const Self,
+        hops_of: *const Self,
+        diag: *const Self,
+        links: *const Self,
+        inverse: *const Self,
+        neighbours: *const u32,
+        odd: *const u32,
+        sizes: [i32; 6],
+        ghost: *const Self,
+        ghosts: i32,
+    );
+    /// `bridge_cuda_coarse_gather` and `bridge_cuda_coarse_place`.
+    ///
+    /// # Safety
+    /// Coarse fields of the sizes given, `sites` holding `n` site numbers of `field`.
+    unsafe fn coarse_gather(
+        buf: *mut Self,
+        field: *const Self,
+        sites: *const u32,
+        n: i32,
+        n_coarse: i32,
+        dim: i32,
+        vectors: i32,
+    );
+    /// # Safety
+    /// As `coarse_gather`.
+    unsafe fn coarse_place(
+        ghost: *mut Self,
+        buf: *const Self,
+        first: i32,
+        n: i32,
+        ghosts: i32,
+        dim: i32,
+        vectors: i32,
+    );
 }
 
 macro_rules! split_real {
-    ($t:ty: $part:ident, $dslash:ident, $pack:ident, $halo:ident, $nccl:expr) => {
+    ($t:ty: $part:ident, $dslash:ident, $pack:ident, $halo:ident, $nccl:expr,
+     $split:ident, $pass:ident, $gather:ident, $place:ident) => {
         extern "C" {
+            fn $split(
+                cross: *mut $t,
+                inside: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                geometry: *const Geometry,
+                kappa: f64,
+                mass: f64,
+                b5: f64,
+                c5: f64,
+                leg: i32,
+                block: *const i32,
+                vectors: i32,
+                halo: *const HaloArgs,
+                stream: *mut c_void,
+            );
+            fn $pass(
+                out: *mut $t,
+                base: *const $t,
+                diag_of: *const $t,
+                hops_of: *const $t,
+                diag: *const $t,
+                links: *const $t,
+                inverse: *const $t,
+                neighbours: *const u32,
+                odd: *const u32,
+                n_coarse: i32,
+                dim: i32,
+                parity: i32,
+                minus: i32,
+                gamma5: i32,
+                vectors: i32,
+                ghost: *const $t,
+                ghosts: i32,
+                stream: *mut c_void,
+            );
+            fn $gather(
+                buf: *mut $t,
+                field: *const $t,
+                sites: *const u32,
+                n: i32,
+                n_coarse: i32,
+                dim: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
+            fn $place(
+                ghost: *mut $t,
+                buf: *const $t,
+                first: i32,
+                n: i32,
+                ghosts: i32,
+                dim: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
             fn $part(
                 out: *mut $t,
                 inp: *const $t,
@@ -147,6 +265,64 @@ macro_rules! split_real {
 
         impl SplitReal for $t {
             const NCCL_TYPE: i32 = $nccl;
+            unsafe fn hop_split_halo(
+                cross: *mut $t,
+                inside: *mut $t,
+                inp: *const $t,
+                gauge: *const $t,
+                geometry: *const Geometry,
+                [kappa, mass, b5, c5]: [f64; 4],
+                leg: i32,
+                block: *const i32,
+                vectors: i32,
+                halo: *const HaloArgs,
+            ) {
+                $split(
+                    cross, inside, inp, gauge, geometry, kappa, mass, b5, c5, leg, block, vectors,
+                    halo, STREAM,
+                )
+            }
+            unsafe fn coarse_pass_ghost(
+                out: *mut $t,
+                base: *const $t,
+                diag_of: *const $t,
+                hops_of: *const $t,
+                diag: *const $t,
+                links: *const $t,
+                inverse: *const $t,
+                neighbours: *const u32,
+                odd: *const u32,
+                [n_coarse, dim, parity, minus, gamma5, vectors]: [i32; 6],
+                ghost: *const $t,
+                ghosts: i32,
+            ) {
+                $pass(
+                    out, base, diag_of, hops_of, diag, links, inverse, neighbours, odd, n_coarse,
+                    dim, parity, minus, gamma5, vectors, ghost, ghosts, STREAM,
+                )
+            }
+            unsafe fn coarse_gather(
+                buf: *mut $t,
+                field: *const $t,
+                sites: *const u32,
+                n: i32,
+                n_coarse: i32,
+                dim: i32,
+                vectors: i32,
+            ) {
+                $gather(buf, field, sites, n, n_coarse, dim, vectors, STREAM)
+            }
+            unsafe fn coarse_place(
+                ghost: *mut $t,
+                buf: *const $t,
+                first: i32,
+                n: i32,
+                ghosts: i32,
+                dim: i32,
+                vectors: i32,
+            ) {
+                $place(ghost, buf, first, n, ghosts, dim, vectors, STREAM)
+            }
             unsafe fn hop_part(
                 out: *mut $t,
                 inp: *const $t,
@@ -217,9 +393,11 @@ macro_rules! split_real {
 }
 
 split_real!(f32: bridge_cuda_hop_part_f32, bridge_cuda_mdwf_dslash_part_f32,
-    bridge_cuda_hop_pack_f32, halo_f32, 7);
+    bridge_cuda_hop_pack_f32, halo_f32, 7, bridge_cuda_hop_split_halo_f32,
+    bridge_cuda_coarse_pass_ghost_f32, bridge_cuda_coarse_gather_f32, bridge_cuda_coarse_place_f32);
 split_real!(f64: bridge_cuda_hop_part_f64, bridge_cuda_mdwf_dslash_part_f64,
-    bridge_cuda_hop_pack_f64, halo_f64, 8);
+    bridge_cuda_hop_pack_f64, halo_f64, 8, bridge_cuda_hop_split_halo_f64,
+    bridge_cuda_coarse_pass_ghost_f64, bridge_cuda_coarse_gather_f64, bridge_cuda_coarse_place_f64);
 
 /// NCCL between the devices of the processes.
 #[cfg(feature = "nccl")]
@@ -527,6 +705,44 @@ pub(super) fn exchange_now<T: DeviceReal>(
     };
     let mut transport = transport_for::<T>(lat, &spec);
     travel(&mut transport, send, recv, &neighbour, || {});
+}
+
+/// Buffers of the device kept for the exchanges of fields of one shape (the faces of a coarse
+/// field of some number of vectors): made once, exchanged as often as the field changes.
+pub(super) struct Faces<T> {
+    pub(super) send: Vec<Option<DeviceBuffer<T>>>,
+    pub(super) recv: Vec<Option<DeviceBuffer<T>>>,
+    transport: Transport<T>,
+    neighbour: [usize; FACES],
+}
+
+impl<T: DeviceReal> Faces<T> {
+    /// Buffers of `len[face]` reals for each face (none for 0) between the processes of `lat`.
+    pub(super) fn new(lat: &Lattice, len: [usize; FACES]) -> Self {
+        let neighbour = neighbours(lat);
+        let buffers = || -> Vec<Option<DeviceBuffer<T>>> {
+            len.iter()
+                .map(|&n| (n > 0).then(|| must(DeviceBuffer::zeros(n))))
+                .collect()
+        };
+        Self {
+            send: buffers(),
+            recv: buffers(),
+            transport: transport_for::<T>(lat, &HaloSpec { neighbour, len }),
+            neighbour,
+        }
+    }
+
+    /// What is in `send` to the neighbours, into `recv` from them.
+    pub(super) fn exchange(&mut self) {
+        travel(
+            &mut self.transport,
+            &self.send,
+            &self.recv,
+            &self.neighbour,
+            || {},
+        );
+    }
 }
 
 /// Site numbers on the device: the surface of an output.

@@ -165,14 +165,16 @@ several processes, one GPU each (the rank within its node modulo the GPUs it see
 `RUTTICE_DEVICE`), the lattice cut by `Main.grid_size` into local lattices of even extents:
 the propagator solves without the multigrid (CGNE, mixed CGNE, Chebyshev), the eigensolvers and
 pseudospectra, stout smearing, and HMC with the Standard and Ratio actions without the multigrid
-(smeared or not, Neff's α, Lexical or Even_odd, CG or mixed CG). The hops exchange the faces of
+(smeared or not, Neff's α, Lexical or Even_odd, CG or mixed CG), and the multigrid of both
+(an aggregate within the local lattice of a process; the coarse lattice exchanges its faces into
+ghost sites). The hops exchange the faces of
 the local lattice while the interior is computed; the gauge field's paths (staples, rectangles,
 the chain rule) read a halo of one or two layers, corners included. The faces go from GPU to GPU
 by NCCL with the feature `nccl` (`NCCL_HOME` to build), through the host otherwise, and through
 the host as well when NCCL cannot be had on every process; `RUTTICE_HALO=host` or `nccl`
 chooses. The operators give what one process gives bit for bit, the solvers the same up to the
-order of the sums over the processes. Not on several GPUs yet: the multigrid, Wilson and clover
-fermions.
+order of the sums over the processes. Not on several GPUs yet: the levels below the coarse
+lattice, a `Coarse_Solver_PV` other than `MINRES`, Wilson and clover fermions.
 
 ### SIMD
 

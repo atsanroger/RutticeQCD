@@ -2498,3 +2498,122 @@ fn hmc_on_several_processes_is_hmc_on_one() {
         }
     }
 }
+
+/// The multigrid's coarse lattice on the device for the lattice of `lat`: P from four test
+/// vectors (whole fields, their even parts taken), the coarse operator probed, and fine fields
+/// of what it does to P† of the even part of `psi`: D_c, Γ5 D_c Γ5 and the Schur complement,
+/// prolonged back.
+fn coarse_results(
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    vectors: &[Psi],
+    psi: &Psi,
+    params: MdwfParams,
+) -> Vec<Psi> {
+    use ruttice::backend::cuda_bridge::DeviceBasis;
+    use ruttice::fermion::SplitParity;
+    use ruttice::solver::preconditioner::multigrid::Aggregation;
+    let mut d = CudaMdwf::<f64>::new(lat, params).unwrap();
+    d.set_gauge(u).unwrap();
+    let mut pv = CudaMdwf::<f64>::new(
+        lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    )
+    .unwrap();
+    pv.set_gauge(u).unwrap();
+    let first = DeviceSpinor::from_host(&vectors[0]).unwrap();
+    let mut y = first.zeros_with(vectors.len());
+    for (k, v) in vectors.iter().enumerate() {
+        y.assign(&[k], &DeviceSpinor::from_host(v).unwrap());
+    }
+    let mut y_e = DeviceParities.half_like(&y, Parity::Even);
+    DeviceParities.extract(&mut y_e, &y, Parity::Even);
+    let agg = Aggregation::new(lat, [2, 2, 2, 2]);
+    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false).unwrap();
+    let coarse = d.coarse_operator_on_device::<f64>(&basis, true).unwrap();
+    let x = DeviceSpinor::from_host(psi).unwrap();
+    let mut x_e = DeviceParities.half_like(&x, Parity::Even);
+    DeviceParities.extract(&mut x_e, &x, Parity::Even);
+    let mut c = basis.coarse_field::<f64>(1);
+    basis.restrict(&mut c, &x_e);
+    let mut outs = Vec::new();
+    for k in 0..3 {
+        let mut out = c.zeros_like();
+        match k {
+            0 => coarse.apply(&mut out, &c, false),
+            1 => coarse.apply(&mut out, &c, true),
+            _ => {
+                let mut odd = c.zeros_like();
+                coarse.schur(&mut out, &c, &mut odd);
+            }
+        }
+        let mut fine = x_e.zeros_like();
+        basis.prolong(&mut fine, &out);
+        let mut whole = x.zeros_like();
+        DeviceParities.insert(&mut whole, &fine);
+        outs.push(whole.to_host().unwrap());
+    }
+    outs
+}
+
+/// The multigrid on several processes, each with its device: P, the coarse operator probed
+/// across the cuts (the legs from the faces of the probing vectors) and its hops through the
+/// ghosts of the coarse lattice give what one process gives, bit for bit.
+#[test]
+fn coarse_lattice_on_several_processes_is_that_on_one() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 441);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let vectors: Vec<Psi> = (0..4).map(|k| random_fifth(&whole, 4, 442 + k)).collect();
+    let psi = random_fifth(&whole, 4, 450);
+    let one = coarse_results(&whole, &u, &vectors, &psi, params);
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = ruttice::LocalComm::run(global, grid, |lat| {
+            let local: Vec<Psi> = vectors
+                .iter()
+                .map(|v| ruttice::local_part(v, &lat))
+                .collect();
+            let fields = coarse_results(
+                &lat,
+                &ruttice::local_part(&u, &lat),
+                &local,
+                &ruttice::local_part(&psi, &lat),
+                params,
+            );
+            (
+                fields
+                    .iter()
+                    .map(|f| f.as_slice().to_vec())
+                    .collect::<Vec<_>>(),
+                lat,
+            )
+        });
+        for (k, single) in one.iter().enumerate() {
+            let pieces: Vec<Psi> = parts
+                .iter()
+                .map(|(fields, lat)| {
+                    let mut f = Field::<f64, Spinor>::with_shape(lat, 24, params.ls, 1, 1);
+                    f.as_mut_slice().copy_from_slice(&fields[k]);
+                    f
+                })
+                .collect();
+            let several = ruttice::assemble(&whole, &pieces);
+            assert!(
+                several.as_slice() == single.as_slice(),
+                "result {k} on the grid {grid:?}: differs by {}",
+                worst(&several, single)
+            );
+        }
+    }
+}

@@ -645,10 +645,6 @@ impl<T: DeviceReal> CudaMdwf<T> {
         basis: &DeviceBasis,
     ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
         assert!(
-            self.halos.is_none(),
-            "the multigrid on the device runs on one process so far"
-        );
-        assert!(
             self.alpha == 1.0,
             "the coarse operator is that of the plain operator"
         );
@@ -694,7 +690,36 @@ impl<T: DeviceReal> CudaMdwf<T> {
             let mut restricted = unit.zeros_like();
             basis.prolong(&mut phi, &unit);
             self.gemm(&mut inside, &phi, &self.matrices.diag[0], None);
+            // On several processes the legs across a cut read the faces of phi, the hops
+            // H (b − c Y) of the operator.
+            let gauge = self.gauge.links.ptr.cast_const();
+            let faces = self
+                .halos
+                .as_ref()
+                .map(|h| h.exchanged(&self.geometry, gauge, &phi, [mass, b, c], 3));
             for leg in 0..8 {
+                if let Some(halo) = &faces {
+                    // SAFETY: as below; the faces are those of phi.
+                    unsafe {
+                        T::hop_split_halo(
+                            cross.data.ptr,
+                            inside.data.ptr,
+                            phi.data.ptr,
+                            gauge,
+                            &self.geometry,
+                            [0.5, mass, b, c],
+                            leg as i32,
+                            basis.block.as_ptr(),
+                            nv as i32,
+                            halo,
+                        );
+                    }
+                    basis.restrict_leg(&mut restricted, &cross, Some(leg));
+                    // SAFETY: the links of `leg` are those from `leg sites matrix` on.
+                    let at = unsafe { links.ptr.add(leg * sites * matrix) };
+                    columns(at.cast(), links_single, first, &restricted);
+                    continue;
+                }
                 // SAFETY: three fields on the whole lattice with `ls` spinors per site and as
                 // many vectors, the links of the lattice; `block` is copied.
                 unsafe {

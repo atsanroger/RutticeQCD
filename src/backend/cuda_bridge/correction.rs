@@ -11,6 +11,10 @@ use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
 use std::rc::Rc;
 
+/// The levels below the coarse lattice on several processes: not yet.
+const SEVERAL_LEVELS: &str =
+    "the levels below the coarse lattice on several processes are not on the device yet (MultiGrid_Level2 and on)";
+
 /// `Correction` with what is on the device.
 type OnDevice<'a, F, CT> = Correction<
     'a,
@@ -236,6 +240,9 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         super_blocks: &[usize],
         bootstrap: &[LevelBootstrap],
     ) -> Result<usize, Box<dyn Error>> {
+        if self.coarse_d.on_several_processes() {
+            return Err(SEVERAL_LEVELS.into());
+        }
         let v = vectors.to_precision::<CT>()?;
         let levels =
             DeviceMultilevel::build(&self.coarse_d, &self.coarse, &v, super_blocks, bootstrap)?;
@@ -259,6 +266,9 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
         vectors: &DeviceCoarse<U>,
         super_blocks: &[usize],
     ) -> Result<usize, Box<dyn Error>> {
+        if self.coarse_d.on_several_processes() {
+            return Err(SEVERAL_LEVELS.into());
+        }
         if self.correction.params().pv_solver != CoarseKrylov::Minres {
             return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
         }

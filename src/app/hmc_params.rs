@@ -545,19 +545,13 @@ impl HmcParams {
                     ));
                 }
             }
-            for (i, a) in actions.iter().enumerate() {
-                if grid != [1; ND] {
-                    if let ActionConfig::TwoFlavor { solver, .. }
-                    | ActionConfig::TwoFlavorRatio { solver, .. } = a
-                    {
-                        if solver.preconditioner == Some(HmcPreconditioner::Multigrid) {
-                            return invalid(format!(
-                                "{}: the multigrid on the device runs on one process so far; leave Main.grid_size out",
-                                names[i]
-                            ));
-                        }
-                    }
+            if grid != [1; ND] {
+                let local = core::array::from_fn(|mu| self.main.lattice_size[mu] / grid[mu].max(1));
+                if let Some(why) = super::hmc::refused_on_several(&actions, local) {
+                    return invalid(format!("Main.grid_size {grid:?}: {why}"));
                 }
+            }
+            for (i, a) in actions.iter().enumerate() {
                 match a {
                     ActionConfig::Plaquette { .. } | ActionConfig::Rectangle { .. } => {}
                     ActionConfig::TwoFlavorRatio {

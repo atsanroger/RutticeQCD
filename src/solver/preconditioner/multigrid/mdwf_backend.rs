@@ -69,6 +69,26 @@ pub struct MdwfMultigridSettings {
 }
 
 impl MdwfMultigridSettings {
+    /// Why these settings cannot run on several processes on the device, if they cannot: the
+    /// levels below the coarse lattice and the exact adjoint of the second factor (a solver of
+    /// it other than MINRES) are on one process only so far; and an aggregate must lie within
+    /// the local lattice `local` of a process.
+    pub fn refused_on_several(&self, local: [usize; ND]) -> Option<String> {
+        if self.levels.count > 0 {
+            return Some("the levels below the coarse lattice (MultiGrid_Level2 and on) run on one process on the device so far".into());
+        }
+        if self.cycle.pv_solver != super::CoarseKrylov::Minres {
+            return Some("MultiGrid_Level1.Coarse_Solver_PV other than MINRES runs on one process on the device so far".into());
+        }
+        if (0..ND).any(|mu| !local[mu].is_multiple_of(self.block[mu])) {
+            return Some(format!(
+                "MultiGrid_Level1.block_size {:?} must divide the local lattice {local:?} of a process",
+                self.block
+            ));
+        }
+        None
+    }
+
     /// The settings of `cycle`, the cycle in double precision, P in half precision, no levels.
     pub fn new(block: [usize; ND], test_vectors: usize, cycle: PvEoParams) -> Self {
         Self {

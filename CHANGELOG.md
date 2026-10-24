@@ -14,6 +14,14 @@
   without the multigrid on several processes; checked against one process with `LocalComm`
   (up to 16 ranks on one GPU) and with two MPI processes (CG, mixed CG, eigenvalues, the HMC of
   a smeared Ratio action with α: the same iterations and ΔH).
+- The multigrid of domain-wall fermions on several GPUs, for the propagators and HMC: the
+  aggregates within a process, the coarse operator probed across the cuts (the faces of the
+  probing vectors exchanged), its hops reading ghost sites filled by an exchange of the faces of
+  the coarse field before each application (`coarse_pass_kernel` with a ghost field), the coarse
+  fields summed over the processes. P, the coarse operator and its applications are those of one
+  process bit for bit; with two MPI processes the propagator and HMC take the same iterations.
+  Not yet: the levels below the coarse lattice and the exact adjoint of the second factor
+  (refused on several processes). The CPU's multigrid runs on one process only.
 
 - The eigensolver files on the device (`Main.backend : cuda_bridge`): Lanczos and Arnoldi on
   Wilson, clover and domain-wall fermions, every `fermion_mult_mode` and `operator_type` of the

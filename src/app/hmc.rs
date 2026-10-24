@@ -226,6 +226,24 @@ impl Default for HmcChebyshev {
     }
 }
 
+/// Why the multigrid of one of `actions` cannot run on several processes on the device with the
+/// local lattice `local`, if it cannot (`MdwfMultigridSettings::refused_on_several`).
+pub(crate) fn refused_on_several(actions: &[ActionConfig], local: [usize; ND]) -> Option<String> {
+    actions.iter().find_map(|a| match a {
+        ActionConfig::TwoFlavor { solver, .. } | ActionConfig::TwoFlavorRatio { solver, .. } => {
+            match &solver.multigrid {
+                Some(HmcMultigrid::DomainWall { settings, .. })
+                    if solver.preconditioner == Some(HmcPreconditioner::Multigrid) =>
+                {
+                    settings.refused_on_several(local)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    })
+}
+
 /// The multigrid of an action's solves. Read once from the file and copied into the
 /// preconditioner when the action is made: the size of the larger variant costs nothing.
 #[derive(Debug, Clone, Copy)]
@@ -1452,18 +1470,10 @@ pub fn run_on(
         hmc
     };
     if config.device && lat.comm.size() > 1 {
-        let multigrid = config.actions.iter().any(|a| match a {
-            ActionConfig::TwoFlavor { solver, .. }
-            | ActionConfig::TwoFlavorRatio { solver, .. } => {
-                solver.preconditioner == Some(HmcPreconditioner::Multigrid)
-            }
-            _ => false,
-        });
-        if multigrid {
-            return Err(CliError::Run(
-                "Main.backend cuda_bridge: the multigrid on the device runs on one process so far"
-                    .into(),
-            ));
+        if let Some(why) = refused_on_several(&config.actions, lat.local) {
+            return Err(CliError::Run(format!(
+                "Main.backend cuda_bridge on several processes: {why}"
+            )));
         }
     }
     if config.device {

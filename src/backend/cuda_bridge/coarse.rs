@@ -1,6 +1,7 @@
 //! The coarse lattice of the multigrid of domain-wall fermions on the device: its fields, the
 //! prolongation P and the coarse operators (`multigrid/fold.cuh`).
 
+use super::halo::Faces;
 use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, SplitParity, Variant};
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
@@ -9,6 +10,8 @@ use crate::solver::preconditioner::multigrid::{
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Whole numbers on the device.
 pub(super) struct DeviceTable {
@@ -130,6 +133,9 @@ pub struct DeviceCoarse<T = f64> {
     pub(super) sites: usize,
     pub(super) dim: usize,
     pub(super) vectors: usize,
+    /// The processes the coarse lattice is cut between, whose sums the reductions take; none on
+    /// one process.
+    pub(super) comm: Option<Arc<dyn crate::Comm>>,
 }
 
 impl<T: DeviceReal> DeviceCoarse<T> {
@@ -145,7 +151,31 @@ impl<T: DeviceReal> DeviceCoarse<T> {
             sites,
             dim,
             vectors,
+            comm: None,
         })
+    }
+
+    /// The field on the coarse lattice of `lat`: its sums over the processes of `lat`.
+    pub(super) fn on(mut self, lat: &Lattice) -> Self {
+        self.comm = (lat.comm.size() > 1).then(|| lat.comm.clone());
+        self
+    }
+
+    /// The local sums of a reduction summed over the processes (nothing on one).
+    fn sum(&self, x: &mut [f64]) {
+        if let Some(comm) = &self.comm {
+            comm.sum(x);
+        }
+    }
+
+    fn sum_complex(&self, x: &mut [C64]) {
+        if let Some(comm) = &self.comm {
+            let mut reals: Vec<f64> = x.iter().flat_map(|z| [z.re, z.im]).collect();
+            comm.sum(&mut reals);
+            for (z, r) in x.iter_mut().zip(reals.as_chunks::<2>().0) {
+                *z = C64::new(r[0], r[1]);
+            }
+        }
     }
 
     pub fn from_host<S: Storage>(f: &Field<S, Coarse>) -> Result<Self, CudaError> {
@@ -166,6 +196,7 @@ impl<T: DeviceReal> DeviceCoarse<T> {
             sites,
             dim,
             vectors,
+            comm: None,
         })
     }
 
@@ -195,6 +226,7 @@ impl<T: DeviceReal> DeviceCoarse<T> {
     /// The field in the precision `U`.
     pub fn to_precision<U: DeviceReal>(&self) -> Result<DeviceCoarse<U>, CudaError> {
         let mut out = DeviceCoarse::<U>::zeros(self.sites, self.dim, self.vectors)?;
+        out.comm = self.comm.clone();
         convert(&mut out.data, &self.data);
         Ok(out)
     }
@@ -233,7 +265,9 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
     }
 
     fn zeros_with(&self, num_vectors: usize) -> Self {
-        must(Self::zeros(self.sites, self.dim, num_vectors))
+        let mut out = must(Self::zeros(self.sites, self.dim, num_vectors));
+        out.comm = self.comm.clone();
+        out
     }
 
     fn select(&self, which: &[usize]) -> Self {
@@ -277,15 +311,18 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
     fn dot(&self, x: &Self, out: &mut [C64]) {
         assert!(self.same_shape(x));
         columns::dot(&self.data, &x.data, self.vectors, out);
+        self.sum_complex(out);
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
         columns::norm_sqr(&self.data, self.vectors, out);
+        self.sum(out);
     }
 
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
         assert!(self.same_shape(x));
         columns::axpy_norm_sqr(&self.data, &x.data, self.vectors, a, out);
+        self.sum(out);
     }
 
     fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
@@ -313,6 +350,8 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
             norm,
             dot,
         );
+        self.sum(norm);
+        self.sum_complex(dot);
     }
 
     fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
@@ -332,6 +371,7 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
         assert!(self.same_shape(x) && self.same_shape(y));
         let v = self.vectors;
         columns::scale_axpy2_norm_sqr(&self.data, c, a, &x.data, b, &y.data, v, out);
+        self.sum(out);
     }
 
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
@@ -347,6 +387,9 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
         assert!(self.same_shape(x));
         columns::dot_norms(&self.data, &x.data, self.vectors, dot, norm, norm_x);
+        self.sum_complex(dot);
+        self.sum(norm);
+        self.sum(norm_x);
     }
 }
 
@@ -611,7 +654,6 @@ impl DeviceBasis {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        one_process(lat, "the multigrid");
         let mut basis = Self::empty(agg, ls, 2 * n, half)?;
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
@@ -730,7 +772,7 @@ impl DeviceBasis {
 
     /// A zero field on the coarse lattice.
     pub fn coarse_field<T: DeviceReal>(&self, vectors: usize) -> DeviceCoarse<T> {
-        must(DeviceCoarse::zeros(self.coarse_sites, 2 * self.n, vectors))
+        must(DeviceCoarse::zeros(self.coarse_sites, 2 * self.n, vectors)).on(&self.coarse)
     }
 
     fn check<T: DeviceReal>(&self, coarse: &DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
@@ -816,6 +858,174 @@ pub struct DeviceCoarseOp<T = f64> {
     tables: (Vec<u32>, Vec<u32>),
     sites: usize,
     dim: usize,
+    /// On several processes, the sites of the neighbouring processes the hops read.
+    ghosts: Option<Rc<CoarseGhosts>>,
+}
+
+/// The precision and the number of vectors of the fields whose exchanges `CoarseGhosts` keeps.
+type KeptKey = (std::any::TypeId, usize);
+
+/// The ghosts of a coarse lattice cut between processes: for the hops of its sites on a face,
+/// the sites of the neighbouring process across it, numbered from `sites` on in the tables of
+/// the operator (`coarse_pass_kernel` reads them from a field of their own). A face's sites
+/// are numbered by their three other coordinates (as the faces of the fine lattice), the same
+/// on both sides: what arrives on face f is placed from `first[f]` on in that order.
+pub(super) struct CoarseGhosts {
+    lat: Arc<Lattice>,
+    /// The local sites sent through each face, in the order of the face; none where the
+    /// direction is not cut.
+    send: Vec<Option<(DeviceTable, usize)>>,
+    first: [usize; 2 * ND],
+    count: [usize; 2 * ND],
+    ghosts: usize,
+    /// The buffers of the exchanges and the ghosts, for each precision and number of vectors.
+    kept: RefCell<Vec<(KeptKey, Box<dyn std::any::Any>)>>,
+}
+
+impl CoarseGhosts {
+    /// The site every hop of every local site comes from (`[direction][site]`, directions as
+    /// `comm::FACES`: forward 0..3, backward 0..3), ghosts from `sites` on, and the ghosts; no
+    /// ghosts on one process.
+    fn tables(lat: &Arc<Lattice>) -> Result<(Vec<u32>, Option<Self>), CudaError> {
+        let sites = lat.num_sites();
+        let local = lat.local;
+        let cut: [bool; ND] = core::array::from_fn(|mu| lat.grid[mu] > 1);
+        let index = |c: [usize; ND]| c[0] + local[0] * (c[1] + local[1] * (c[2] + local[2] * c[3]));
+        let face = |c: [usize; ND], mu: usize| {
+            let d: Vec<usize> = (0..ND).filter(|&n| n != mu).collect();
+            c[d[0]] + local[d[0]] * (c[d[1]] + local[d[1]] * c[d[2]])
+        };
+        let count: [usize; 2 * ND] = core::array::from_fn(|f| {
+            if cut[f % ND] {
+                sites / local[f % ND]
+            } else {
+                0
+            }
+        });
+        let mut first = [0; 2 * ND];
+        for f in 1..2 * ND {
+            first[f] = first[f - 1] + count[f - 1];
+        }
+        let mut neighbours = vec![0u32; 2 * ND * sites];
+        let mut send: Vec<Vec<u32>> = count.iter().map(|&n| vec![0; n]).collect();
+        for x in 0..sites {
+            let c = lat.coords(x);
+            for f in 0..2 * ND {
+                let (mu, forward) = (f % ND, f < ND);
+                let edge = if forward {
+                    c[mu] + 1 == local[mu]
+                } else {
+                    c[mu] == 0
+                };
+                let y = if cut[mu] && edge {
+                    sites + first[f] + face(c, mu)
+                } else {
+                    let mut n = c;
+                    n[mu] = if forward {
+                        (c[mu] + 1) % local[mu]
+                    } else {
+                        (c[mu] + local[mu] - 1) % local[mu]
+                    };
+                    index(n)
+                };
+                neighbours[f * sites + x] = y as u32;
+                // The sites on a face go to the process across it.
+                if cut[mu] && edge {
+                    send[f][face(c, mu)] = x as u32;
+                }
+            }
+        }
+        if lat.comm.size() == 1 {
+            return Ok((neighbours, None));
+        }
+        let send = send
+            .iter()
+            .map(|s| {
+                (!s.is_empty())
+                    .then(|| DeviceTable::from_host(s).map(|t| (t, s.len())))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+        Ok((
+            neighbours,
+            Some(Self {
+                lat: lat.clone(),
+                send,
+                first,
+                count,
+                ghosts: count.iter().sum(),
+                kept: RefCell::new(Vec::new()),
+            }),
+        ))
+    }
+
+    /// The ghosts of `field`: its faces gathered, exchanged with the neighbouring processes,
+    /// and placed, a coarse field of `ghosts` sites. The buffers are kept for each number of
+    /// vectors and precision (a coarse solve exchanges hundreds of times).
+    fn of<T: DeviceReal>(&self, field: &DeviceCoarse<T>) -> std::cell::RefMut<'_, DeviceBuffer<T>> {
+        let (dim, vectors) = (field.dim, field.vectors);
+        let reals = |n: usize| vectors * DeviceCoarse::<T>::reals_of(n.max(1), dim);
+        let key = (std::any::TypeId::of::<T>(), vectors);
+        let mut kept = self.kept.borrow_mut();
+        let at = match kept.iter().position(|(k, _)| *k == key) {
+            Some(at) => at,
+            None => {
+                let len = self.count.map(|n| if n > 0 { reals(n) } else { 0 });
+                let made: (Faces<T>, DeviceBuffer<T>) = (
+                    Faces::new(&self.lat, len),
+                    must(DeviceBuffer::zeros(reals(self.ghosts))),
+                );
+                kept.push((key, Box::new(made)));
+                kept.len() - 1
+            }
+        };
+        let (faces, ghost) = kept[at]
+            .1
+            .downcast_mut::<(Faces<T>, DeviceBuffer<T>)>()
+            .expect("kept for this precision");
+        for (f, s) in self.send.iter().enumerate() {
+            if let (Some((table, n)), Some(buf)) = (s, &faces.send[f]) {
+                // SAFETY: the buffer is a coarse field of `n` sites of this dim and vectors,
+                // the table `n` sites of `field`.
+                unsafe {
+                    T::coarse_gather(
+                        buf.ptr,
+                        field.data.ptr,
+                        table.ptr,
+                        *n as i32,
+                        field.sites as i32,
+                        dim as i32,
+                        vectors as i32,
+                    );
+                }
+            }
+        }
+        faces.exchange();
+        for (f, buf) in faces.recv.iter().enumerate() {
+            if let Some(buf) = buf {
+                // SAFETY: what arrived is a coarse field of `count[f]` sites; the ghosts one of
+                // `ghosts` sites, which places them from `first[f]` on.
+                unsafe {
+                    T::coarse_place(
+                        ghost.ptr,
+                        buf.ptr,
+                        self.first[f] as i32,
+                        self.count[f] as i32,
+                        self.ghosts as i32,
+                        dim as i32,
+                        vectors as i32,
+                    );
+                }
+            }
+        }
+        std::cell::RefMut::map(kept, |k| {
+            &mut k[at]
+                .1
+                .downcast_mut::<(Faces<T>, DeviceBuffer<T>)>()
+                .expect("kept for this precision")
+                .1
+        })
+    }
 }
 
 /// The parities of the sites a pass acts on.
@@ -862,31 +1072,38 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// tables: the site every hop comes from and the parity of every site. `even_odd` as in
     /// `new`.
     pub(super) fn on_lattice(
-        lat: &Lattice,
+        lat: &Arc<Lattice>,
         diag_f64: DeviceBuffer<f64>,
         links: DeviceBuffer<T>,
         dim: usize,
         even_odd: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let sites = lat.num_sites();
-        let mut neighbours = vec![0u32; 8 * sites];
-        let table = crate::solver::preconditioner::multigrid::coarse_neighbours(lat);
-        for (x, hops) in table.iter().enumerate() {
-            for (d, y) in hops.iter().enumerate() {
-                neighbours[d * sites + x] = *y as u32;
+        let (neighbours, ghosts) = if lat.comm.size() == 1 {
+            let mut neighbours = vec![0u32; 8 * sites];
+            let table = crate::solver::preconditioner::multigrid::coarse_neighbours(lat);
+            for (x, hops) in table.iter().enumerate() {
+                for (d, y) in hops.iter().enumerate() {
+                    neighbours[d * sites + x] = *y as u32;
+                }
             }
-        }
+            (neighbours, None)
+        } else {
+            CoarseGhosts::tables(lat)?
+        };
         let odd: Vec<u32> = (0..sites)
             .map(|x| (lat.global_coords(x).iter().sum::<usize>() % 2) as u32)
             .collect();
-        Self::from_device_links(
+        let mut op = Self::from_device_links(
             diag_f64,
             links,
             &neighbours,
             &odd,
             dim,
             even_odd && lat.global.iter().all(|l| l % 2 == 0),
-        )
+        )?;
+        op.ghosts = ghosts.map(Rc::new);
+        Ok(op)
     }
 
     /// The operator of the blocks `diag_f64` and the links `links_f64` on the device, in the
@@ -958,6 +1175,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             tables: (neighbours.to_vec(), odd.to_vec()),
             sites,
             dim,
+            ghosts: None,
         })
     }
 
@@ -974,6 +1192,11 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// Complex numbers per site.
     pub fn dim(&self) -> usize {
         self.dim
+    }
+
+    /// Whether the coarse lattice is cut between processes.
+    pub fn on_several_processes(&self) -> bool {
+        self.ghosts.is_some()
     }
 
     /// Sites of the lattice.
@@ -1059,6 +1282,37 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             }
             None => std::ptr::null(),
         };
+        // On several processes the hops read the ghosts of the field they act on.
+        if let (Some(ghosts), Some((h, minus))) = (&self.ghosts, hops_of) {
+            let ghost = ghosts.of(h);
+            let sizes = [
+                self.sites as i32,
+                self.dim as i32,
+                parity,
+                i32::from(minus),
+                i32::from(gamma5),
+                out.vectors as i32,
+            ];
+            // SAFETY: as below; the ghosts a coarse field of `ghosts` sites with the vectors of
+            // `h`, which the tables index from `sites` on.
+            unsafe {
+                T::coarse_pass_ghost(
+                    out.data.ptr,
+                    field(base),
+                    field(diag_of),
+                    h.data.ptr.cast_const(),
+                    self.diag.ptr,
+                    self.links.ptr,
+                    matrices.map_or(std::ptr::null(), |m| m.ptr.cast_const()),
+                    self.neighbours.ptr,
+                    self.odd.ptr,
+                    sizes,
+                    ghost.ptr.cast_const(),
+                    ghosts.ghosts as i32,
+                );
+            }
+            return;
+        }
         // SAFETY: fields of the shape of `out`, which is none of them (it is borrowed
         // mutably), the matrices and tables of this lattice; null pointers are not read.
         unsafe {

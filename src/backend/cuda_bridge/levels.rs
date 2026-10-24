@@ -925,6 +925,9 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
     /// device; with the even-odd form where this has it, and the inverses of its blocks
     /// (A(X)⁻¹)†.
     pub fn adjoint(&self) -> Result<Self, Box<dyn Error>> {
+        if self.on_several_processes() {
+            return Err("the exact adjoint of a coarse operator on several processes is not on the device yet (Coarse_Solver_PV: MINRES)".into());
+        }
         let (sites, dim) = (self.sites(), self.dim());
         let (neighbours, odd) = self.tables();
         // Every hop is a permutation of the sites: Y = its inverse at X.
