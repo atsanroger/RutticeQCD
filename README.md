@@ -16,7 +16,7 @@ Ruttice is a lattice QCD code written in Rust. Our goal is to use what Rust offe
 as it goes to make the solvers and HMC fast, with the aim of simulations in pure Rust on
 every kind of hardware.
 
-- **Fermions**: Wilson, clover and Möbius domain-wall fermion.
+- **Fermions**: Ruttice supports Wilson, clover and Möbius domain-wall fermion.
 - **Solvers**: Various preconditied solves including multigrid to compute correlation
   functions.
 - **Configurations**: Pure gauge, HMC and RHMC.
@@ -80,7 +80,8 @@ Start from an example; each one is commented.
 | [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavours of clover fermions (RHMC) |
 
 All of them run as they are on the configuration in `examples/`, except the domain-wall
-multigrid, which wants a 12⁴ configuration of your own (`Gauge.config_filename_input`).
+multigrid,.
+You can use your own configuration by (`Gauge.config_filename_input`) or to find it on [My google drive](https://drive.google.com/drive/folders/1-OUysaybUd8ViKQbliD7gu7_wPPNpM4S?usp=drive_link) which has serval quenched configurations with beta=6.0.
 
 [docs/USAGE.md](docs/USAGE.md) has every section of the file.
 
@@ -143,8 +144,6 @@ rows marked *expected* have not been measured:
 In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. Wilson and
 clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
 take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
-
-Test gauge configuration could be download from [here](https://drive.google.com/drive/folders/1-OUysaybUd8ViKQbliD7gu7_wPPNpM4S?usp=drive_link)
 
 ### The domain-wall multigrid
 
