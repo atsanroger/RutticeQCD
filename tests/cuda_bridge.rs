@@ -1442,6 +1442,95 @@ fn wilson_and_clover_multigrid_on_the_device() {
     );
 }
 
+/// The clover multigrid on the device on several processes: from the same initial test vectors
+/// (without setup iterations) P and the coarse operator are those of one process bit for bit
+/// (the aggregates lie within a process, the coarse hops read ghosts), so are the test vectors
+/// P gives; FGMRES preconditioned by it takes the iterations of one process to within the sums
+/// of its coarse solves, which go in another order, and agrees to the tolerance.
+#[test]
+fn clover_multigrid_on_several_processes_is_that_on_one() {
+    use ruttice::backend::cuda_bridge::{DeviceMultigrid, WilsonOnDevice};
+    use ruttice::solver::preconditioner::multigrid::{random_vectors, MultigridParams};
+    use ruttice::solver::Fgmres;
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let u = ruttice::io::read_bridge_text(&examples.join("conf_04040408.txt"), &whole).unwrap();
+    let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+    params.num_test_vectors = 8;
+    let initial = random_vectors::<f64>(&whole, 1, params.num_test_vectors, 481);
+    let b = random_spinor(&whole, 1, 482);
+    let cp = CloverParams {
+        kappa: 0.12,
+        csw: 1.0,
+        boundary: ANTIPERIODIC_T,
+    };
+    let solve = |lat: &Arc<Lattice>, u: &Field<f64, Gauge>, initial: &Psi, b: &Psi| {
+        let mut op = CudaClover::<f64>::new(lat, cp).unwrap();
+        op.set_gauge(u).unwrap();
+        let start = DeviceSpinor::from_host(initial).unwrap();
+        let mut mg = DeviceMultigrid::from_parameters(
+            WilsonOnDevice::new(&op),
+            lat,
+            &params,
+            start,
+            true,
+            0,
+        )
+        .unwrap();
+        let tests = mg.test_vectors().to_host().unwrap();
+        let db = DeviceSpinor::from_host(b).unwrap();
+        let mut x = db.zeros_like();
+        let mut a = Bound::new(&op, Variant::D);
+        let info = Fgmres::new(Stop::simple(1e-24, 200))
+            .solve(&mut a, Some(&mut mg), &mut x, &db)
+            .unwrap();
+        (tests, x.to_host().unwrap(), info.iterations)
+    };
+    let (tests, x, iterations) = solve(&whole, &u, &initial, &b);
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2], [2, 2, 2, 2]] {
+        let parts = ruttice::LocalComm::run(global, grid, |lat| {
+            let local = |f: &Psi| ruttice::local_part(f, &lat);
+            let (t, x, n) = solve(
+                &lat,
+                &ruttice::local_part(&u, &lat),
+                &local(&initial),
+                &local(&b),
+            );
+            (t.as_slice().to_vec(), x.as_slice().to_vec(), n, lat)
+        });
+        let assemble = |k: usize, vectors: usize| {
+            let pieces: Vec<Psi> = parts
+                .iter()
+                .map(|(t, x, _, lat)| {
+                    let mut f = Psi::with_shape(lat, 24, 1, vectors, 1);
+                    f.as_mut_slice().copy_from_slice(if k == 0 { t } else { x });
+                    f
+                })
+                .collect();
+            ruttice::assemble(&whole, &pieces)
+        };
+        let several = assemble(0, params.num_test_vectors);
+        assert!(
+            several.as_slice() == tests.as_slice(),
+            "the test vectors on the grid {grid:?} differ by {}",
+            worst(&several, &tests)
+        );
+        let sx = assemble(1, 1);
+        let size = x.as_slice().iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        eprintln!(
+            "grid {grid:?}: {} iterations (one process {iterations}), the solutions differ by {:.1e} of {size:.1e}",
+            parts[0].2,
+            worst(&sx, &x)
+        );
+        assert!(
+            parts.iter().all(|p| p.2.abs_diff(iterations) <= 1),
+            "{grid:?}"
+        );
+        assert!(worst(&sx, &x) < 1e-10 * size, "{grid:?}");
+    }
+}
+
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]
