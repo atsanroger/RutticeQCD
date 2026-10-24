@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-25)
+
+The device does every fermion on one GPU or several, now with the Wilson and clover multigrid.
+A clover propagator with the multigrid (examples/clover_mg.yaml, 4³×8) takes the CPU's 7
+iterations and gives its correlators, in 0.26 s on an A30 against 2.7 s on two CPU threads; HMC
+with the multigrid gives the CPU's plaquettes and ΔH. Wilson and clover operators and their
+multigrid on several processes give the result of one (P and the test vectors bit for bit, the
+same iterations). Parameter files are unchanged; on the device the Wilson multigrid refuses its
+`levels` and `precondition_diagonal` when the file is read. In the library, the Wilson
+multigrid, SAP and `OnParity` are generic over a backend (`WilsonMultigrid<B>`, `Sap<B, V>`,
+`OnParity<.., P>`); `Multigrid` stays the CPU's type.
+
 - The Wilson and clover multigrid on the device, for propagators and HMC
   (`preconditioner_type : MG` with `backend : cuda_bridge`), on one GPU or several: P made from
   the test vectors on the host by the CPU's code and kept on the device folded in spin (a vector
