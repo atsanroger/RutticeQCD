@@ -2628,6 +2628,84 @@ fn hmc_with_wilson_and_clover_fermions_on_the_device() {
     same(&wilson, "hmc_wilson_eo");
 }
 
+/// HMC with the clover multigrid on the device: test_HMC_Clover_RHMC_Nf2p1 with its Standard
+/// action solved by FGMRES and the multigrid (set up when the pseudofermions are drawn, rebuilt
+/// for every force solve from the kept test vectors), on all sites and even-odd (the cycle of
+/// the whole operator on the even sites), gives the trajectory of the CPU.
+#[test]
+fn hmc_with_the_clover_multigrid_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF");
+    let standard = "  action_type     : Standard
+  level_of_action : 1
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.11
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Solver:
+    convergence_criterion_squared : 1.0e-28
+";
+    let with_mg = standard.replace(
+        "  Solver:\n    convergence_criterion_squared : 1.0e-28\n",
+        "  Solver:
+    solver_type                   : FGMRES
+    preconditioner_type           : MG
+    convergence_criterion_squared : 1.0e-28
+  MultiGrid:
+    MultiGrid_Level1:
+      block_size             : [2, 2, 2, 2]
+      number_of_test_vectors : 8
+",
+    );
+    assert!(text.contains(standard));
+    let lexical = text.replace(standard, &with_mg);
+    let even_odd = text.replace(
+        standard,
+        &with_mg.replace(
+            "  action_type     : Standard\n",
+            "  action_type     : Standard\n  operator_type   : Even_odd\n",
+        ),
+    );
+    let rows = |out: &str| -> Vec<(f64, f64)> {
+        out.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some((f[1].parse().ok()?, f[2].parse().ok()?))
+            })
+            .collect()
+    };
+    for (t, name) in [(&lexical, "hmc_clover_mg"), (&even_odd, "hmc_clover_mg_eo")] {
+        let (cpu, gpu) = (
+            run_with_backend(t, "cpu", name),
+            run_with_backend(t, "cuda_bridge", name),
+        );
+        let (a, b) = (rows(&cpu), rows(&gpu));
+        assert!(!a.is_empty() && a.len() == b.len(), "{name}\n{cpu}\n{gpu}");
+        for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+            eprintln!("{name}: plaquette {p} / {q}, ΔH {dh} / {dk}");
+            assert!(
+                (p - q).abs() < 1e-11,
+                "{name}: plaquette {p} on the CPU, {q} on the device"
+            );
+            assert!(
+                (dh - dk).abs() < 1e-7,
+                "{name}: ΔH {dh} on the CPU, {dk} on the device"
+            );
+        }
+    }
+}
+
 const MULTIGRID: &str = "MultiGrid:
   coarse_precision : single
   Setup:
