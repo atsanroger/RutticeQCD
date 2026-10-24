@@ -15,7 +15,11 @@
 // Gamma_5 = gamma_5 R (R reverses the fifth dimension): with n test vectors a coarse site has
 // 2 n complex numbers, number c n + i for test vector i and chirality c (0 positive). P is
 // stored folded: of test vector i and chirality c at a fine site the spinors at s < Ls/2 only
-// (12 Ls reals), those at Ls - 1 - s following from Gamma_5:
+// (12 Ls reals), those at Ls - 1 - s following from Gamma_5. A four-dimensional field (Ls = 1,
+// the Wilson and clover multigrid, Gamma_5 = gamma_5) is folded in spin instead: a vector of
+// chirality c is (1 + c gamma_5) v, whose spins 2 and 3 are c times its spins 0 and 1
+// (gamma_5 = [[0, 1], [1, 0]]), so the 12 reals of spins 0 and 1 are kept, the same formula
+// with s = Ls - 1 - s = 0 and the kept entries those of spins 0 and 1:
 //
 //   d_p[((x n + i) 2 + c) 12 Ls + 24 s + 2 (colour + 3 spin) + ri],   x a site of the whole lattice,
 //
@@ -159,27 +163,24 @@ __global__ void fold_restrict_kernel(
             }
         }
         const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept;
-        for (int s = 0; s < Ls / 2; ++s) {
-            #pragma unroll
-            for (int a = 0; a < Nspin; ++a) {
-                const Float sign = chirality * g.sign[a];
-                #pragma unroll
-                for (int colour = 0; colour < Nc; ++colour) {
-                    const int e = 24 * s + 2 * (colour + Nc * a);
-                    const Float br = from_stored(b[e]), bi = from_stored(b[e + 1]);
-                    const int near_r = aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at);
-                    const int near_i = aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at);
-                    const int far_r = aosoa_5d_spinor_idx(colour, g.col[a], 0, Ls - 1 - s, Ls, at);
-                    const int far_i = aosoa_5d_spinor_idx(colour, g.col[a], 1, Ls - 1 - s, Ls, at);
-                    for (int v = 0; v < count; ++v) {
-                        // f_s + or - gamma_5 f_(Ls-1-s)
-                        const Float* f = fine + v * fine_reals;
-                        const Float fr = f[near_r] + sign * f[far_r];
-                        const Float fi = f[near_i] + sign * f[far_i];
-                        zr[v] += br * fr + bi * fi;
-                        zi[v] += br * fi - bi * fr;
-                    }
-                }
+        // The kept numbers in order: s, spin, colour (Ls = 1: the spins 0 and 1 of s = 0,
+        // whose mirrors col[a] are 2 and 3 of the same s; see the top of the file).
+        for (int e = 0; e < kept; e += Ncomplex) {
+            const int s = e / Nspinor, a = (e % Nspinor) / (Ncomplex * Nc);
+            const int colour = (e % Nspinor) / Ncomplex % Nc;
+            const Float sign = chirality * fold_pick(g.sign, a);
+            const Float br = from_stored(b[e]), bi = from_stored(b[e + 1]);
+            const int near_r = aosoa_5d_spinor_idx(colour, a, 0, s, Ls, at);
+            const int near_i = aosoa_5d_spinor_idx(colour, a, 1, s, Ls, at);
+            const int far_r = aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), 0, Ls - 1 - s, Ls, at);
+            const int far_i = aosoa_5d_spinor_idx(colour, fold_pick(g.col, a), 1, Ls - 1 - s, Ls, at);
+            for (int v = 0; v < count; ++v) {
+                // f_s + or - gamma_5 f_(Ls-1-s)
+                const Float* f = fine + v * fine_reals;
+                const Float fr = f[near_r] + sign * f[far_r];
+                const Float fi = f[near_i] + sign * f[far_i];
+                zr[v] += br * fr + bi * fi;
+                zi[v] += br * fi - bi * fr;
             }
         }
     }

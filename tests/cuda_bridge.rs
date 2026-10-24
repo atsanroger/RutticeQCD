@@ -1166,6 +1166,145 @@ fn domain_wall_runs_from_a_parameter_file_on_the_device() {
     }
 }
 
+/// The P of the Wilson multigrid (one spinor a site, chirality by γ5) on the device, folded in
+/// spin, restricts and prolongs as the CPU's: on the whole lattice and on either parity, for one
+/// vector and several. P kept in single precision on both, so the two differ by the order of
+/// their sums only.
+#[test]
+fn wilson_transfers_on_the_device() {
+    use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse};
+    use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis};
+    use ruttice::{extract_parity, Coarse};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 441);
+    let mut op = Wilson::<f64>::new(
+        &lat,
+        WilsonParams {
+            kappa: 0.12,
+            boundary: ANTIPERIODIC_T,
+        },
+    );
+    op.set_gauge(&u).unwrap();
+    let n = 4;
+    let x = random_spinor(&lat, n, 442);
+    // γ5 = [[0, 1], [1, 0]] in the Dirac representation: spins 0, 1 and 2, 3 exchanged.
+    let mut g5x = x.zeros_like();
+    for (out, inp) in g5x
+        .as_mut_slice()
+        .chunks_exact_mut(24)
+        .zip(x.as_slice().chunks_exact(24))
+    {
+        out[..12].copy_from_slice(&inp[12..]);
+        out[12..].copy_from_slice(&inp[..12]);
+    }
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let basis = Basis::<f64, f32>::from_vectors(&agg, &x, &g5x).unwrap();
+    let device = DeviceBasis::new(&basis).unwrap();
+    let close = |a: &Field<f64, Coarse>, b: &DeviceCoarse, what: &str| {
+        let b = b.to_host(a).unwrap();
+        let size = a.as_slice().iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        let d = a
+            .as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        assert!(
+            size > 0.0 && d < 1e-12 * size,
+            "{what} differs by {d:e} of {size:e}"
+        );
+    };
+    let index = op.even_odd_index().unwrap().clone();
+    for nv in [1, 3] {
+        let fine = random_spinor(&lat, nv, 443 + nv as u64);
+        let mut c_cpu = basis.coarse_field(nv);
+        basis.restrict(&mut c_cpu, &fine);
+        let mut c_gpu = device.coarse_field::<f64>(nv);
+        device.restrict(&mut c_gpu, &DeviceSpinor::from_host(&fine).unwrap());
+        close(&c_cpu, &c_gpu, &format!("R of {nv} vectors"));
+
+        let mut f_cpu = Psi::with_shape(&lat, 24, 1, nv, 1);
+        basis.prolong(&mut f_cpu, &c_cpu);
+        let mut f_gpu = DeviceSpinor::<f64>::from_host(&f_cpu).unwrap();
+        device.prolong(&mut f_gpu, &DeviceCoarse::from_host(&c_cpu).unwrap());
+        let d = worst(&f_gpu.to_host().unwrap(), &f_cpu);
+        assert!(d < 1e-12, "P of {nv} vectors differs by {d:e}");
+
+        for parity in [Parity::Even, Parity::Odd] {
+            let mut h = HalfPsi::with_shape(&lat, 24, 1, nv, 1);
+            h.set_parity(parity);
+            extract_parity(&mut h, &fine, &index, parity);
+            let mut c_cpu = basis.coarse_field(nv);
+            basis.restrict_half(&mut c_cpu, &h, &index);
+            let mut c_gpu = device.coarse_field::<f64>(nv);
+            let dh = DeviceSpinor::from_host_half(&h, &index).unwrap();
+            device.restrict(&mut c_gpu, &dh);
+            close(&c_cpu, &c_gpu, &format!("R on {parity:?} of {nv} vectors"));
+        }
+    }
+}
+
+/// The coarse operators P† D P of the Wilson and clover operators made on the device
+/// (`coarse_blocks`: P of unit vectors, the part within a site and the eight hops sorted by
+/// whether they leave the aggregate) are those `CoarseOp::build` makes on the CPU, on the same P.
+#[test]
+fn wilson_and_clover_coarse_operators_on_the_device() {
+    use ruttice::backend::cuda_bridge::DeviceBasis;
+    use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 451);
+    let n = 4;
+    let x = random_spinor(&lat, n, 452);
+    let mut g5x = x.zeros_like();
+    for (out, inp) in g5x
+        .as_mut_slice()
+        .chunks_exact_mut(24)
+        .zip(x.as_slice().chunks_exact(24))
+    {
+        out[..12].copy_from_slice(&inp[12..]);
+        out[12..].copy_from_slice(&inp[..12]);
+    }
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let basis = Basis::<f64, f32>::from_vectors(&agg, &x, &g5x).unwrap();
+    let device = DeviceBasis::new(&basis).unwrap();
+    let close = |cpu: &CoarseOp<f64>, gpu: &CoarseOp<f64>, what: &str| {
+        let ((dc, lc), (dg, lg)) = (cpu.blocks(), gpu.blocks());
+        for (a, b, part) in [(dc, dg, "blocks"), (lc, lg, "links")] {
+            assert_eq!(a.len(), b.len(), "{what} {part}");
+            let size = a.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+            let d = a
+                .iter()
+                .zip(b)
+                .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+            eprintln!("{what} {part}: differ by {d:e} of {size:e}");
+            assert!(size > 0.0 && d < 1e-12 * size, "{what} {part}");
+        }
+    };
+    let wp = WilsonParams {
+        kappa: 0.13,
+        boundary: MIXED,
+    };
+    let mut cw = Wilson::<f64>::new(&lat, wp);
+    cw.set_gauge(&u).unwrap();
+    let mut gw = CudaWilson::<f64>::new(&lat, wp).unwrap();
+    gw.set_gauge(&u).unwrap();
+    close(
+        &CoarseOp::build(&cw, &mut cw.work(), &basis),
+        &gw.coarse_operator(&device).unwrap(),
+        "Wilson",
+    );
+    let cp = CloverParams {
+        kappa: 0.12,
+        csw: 1.7,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cc, gc) = clover_pair(&lat, &u, cp);
+    close(
+        &CoarseOp::build(&cc, &mut cc.work(), &basis),
+        &gc.coarse_operator(&device).unwrap(),
+        "clover",
+    );
+}
+
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]

@@ -599,12 +599,9 @@ impl<T: DeviceReal> CudaMdwf<T> {
         DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
     }
 
-    /// The blocks (double precision) and the links (in the precision `L` they are kept in) of
-    /// the coarse operator on the device, in the layout of `coarse_pass_kernel`: for every
-    /// component of a coarse site, P of the unit vectors of that component, the part of D within
-    /// a site and each of the eight hops, sorted by whether the hop stays inside its aggregate,
-    /// and P† of each, written into the matrices as they are made (`coarse_columns_kernel`).
-    /// Several components at a time, as the vectors of the fields.
+    /// The blocks (double precision) and the links (in the precision `L`) of P† D P on the
+    /// device (`coarse::coarse_blocks`): the part of D within a site is C, the hops those of
+    /// `b − c Y`.
     fn coarse_blocks<L: DeviceReal>(
         &self,
         basis: &DeviceBasis,
@@ -614,104 +611,14 @@ impl<T: DeviceReal> CudaMdwf<T> {
             "the coarse operator is that of the plain operator"
         );
         let MdwfParams { mass, b, c, .. } = self.params;
-        let (sites, dim) = (basis.coarse_sites, basis.coarse_dim());
-        let matrix = 2 * dim * dim;
-        let diag = DeviceBuffer::<f64>::zeros(sites * matrix)?;
-        let links = DeviceBuffer::<L>::zeros(8 * sites * matrix)?;
-        let links_single = std::any::TypeId::of::<L>() == std::any::TypeId::of::<f32>();
-        // As many components at a time as keep the three fine fields within a quarter of the
-        // room on the device, between half a GB and 3 GB: P is read once for all of them
-        // (24⁴, Ls 8, 40 components in single precision: one at a time 6.5 s, four 4.4 s).
-        // Whole groups of the vectors P is read once for, if that is several.
-        let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
-        let budget = (super::device_room() / 4).clamp(1 << 29, 3 << 30);
-        let fit = (budget / (3 * phi.data.bytes())).clamp(1, dim);
-        let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
-        // Columns `first ..` of the matrices from `target` on (f32 with `single`, else f64) from
-        // the vectors of a coarse field.
-        let columns = |to: *mut c_void, single: bool, first: usize, v: &DeviceCoarse<T>| {
-            // SAFETY: `to` has the matrices of `sites` sites of `dim` x `dim` complex numbers in
-            // that precision; `v` is a coarse field of as many sites and components, whose
-            // vectors are columns `first ..` of those (`first + vectors <= dim`).
-            unsafe {
-                T::coarse_columns(
-                    to,
-                    i32::from(single),
-                    v.data.ptr,
-                    sites as i32,
-                    dim as i32,
-                    first as i32,
-                    v.vectors as i32,
-                );
-            }
-        };
-        for first in (0..dim).step_by(batch) {
-            let nv = batch.min(dim - first);
-            let unit = DeviceCoarse::<T>::units(sites, dim, first, nv)?;
-            if phi.vectors != nv {
-                phi = phi.zeros_with(nv);
-            }
-            let (mut inside, cross) = (phi.zeros_like(), phi.zeros_like());
-            let mut restricted = unit.zeros_like();
-            basis.prolong(&mut phi, &unit);
-            self.gemm(&mut inside, &phi, &self.matrices.diag[0], None);
-            // On several processes the legs across a cut read the faces of phi, the hops
-            // H (b − c Y) of the operator.
-            let gauge = self.gauge.links.ptr.cast_const();
-            let faces = self
-                .halos
-                .as_ref()
-                .map(|h| h.exchanged(&self.geometry, gauge, &phi, [mass, b, c], 3));
-            for leg in 0..8 {
-                if let Some(halo) = &faces {
-                    // SAFETY: as below; the faces are those of phi.
-                    unsafe {
-                        T::hop_split_halo(
-                            cross.data.ptr,
-                            inside.data.ptr,
-                            phi.data.ptr,
-                            gauge,
-                            &self.geometry,
-                            [0.5, mass, b, c],
-                            leg as i32,
-                            basis.block.as_ptr(),
-                            nv as i32,
-                            halo,
-                        );
-                    }
-                    basis.restrict_leg(&mut restricted, &cross, Some(leg));
-                    // SAFETY: the links of `leg` are those from `leg sites matrix` on.
-                    let at = unsafe { links.ptr.add(leg * sites * matrix) };
-                    columns(at.cast(), links_single, first, &restricted);
-                    continue;
-                }
-                // SAFETY: three fields on the whole lattice with `ls` spinors per site and as
-                // many vectors, the links of the lattice; `block` is copied.
-                unsafe {
-                    T::hop_split(
-                        cross.data.ptr,
-                        inside.data.ptr,
-                        phi.data.ptr,
-                        self.gauge.links.ptr,
-                        &self.geometry,
-                        0.5,
-                        mass,
-                        b,
-                        c,
-                        leg as i32,
-                        basis.block.as_ptr(),
-                        nv as i32,
-                    );
-                }
-                basis.restrict_leg(&mut restricted, &cross, Some(leg));
-                // SAFETY: the links of `leg` are those from `leg sites matrix` on.
-                let at = unsafe { links.ptr.add(leg * sites * matrix) };
-                columns(at.cast(), links_single, first, &restricted);
-            }
-            basis.restrict(&mut restricted, &inside);
-            columns(diag.ptr.cast(), false, first, &restricted);
-        }
-        Ok((diag, links))
+        super::coarse::coarse_blocks(
+            basis,
+            (&*self.gauge, &self.geometry, self.halos.as_deref()),
+            [0.5, mass, b, c],
+            &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| {
+                self.gemm(out, inp, &self.matrices.diag[0], None)
+            },
+        )
     }
 
     /// `out = D inp` of the plain operator, without Neff's Q whatever α is, on the whole lattice

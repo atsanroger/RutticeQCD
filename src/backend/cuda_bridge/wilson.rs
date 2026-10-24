@@ -5,6 +5,7 @@ use super::*;
 use crate::fermion::{CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
 use crate::hmc::{EvenOddForceOp, EvenOddHalves, ForceOp, Mseries};
 use crate::kernel::{NC, NS};
+use crate::solver::preconditioner::multigrid::CoarseOp;
 use crate::{Parity, Vector};
 use std::rc::Rc;
 
@@ -204,6 +205,42 @@ impl<T: DeviceReal> CudaWilson<T> {
         self.gauge.set_on_device(u, &mut self.geometry)
     }
 
+    /// The blocks and links of P† D P on `basis` (`coarse::coarse_blocks`): the part of D
+    /// within a site is 1.
+    fn coarse_blocks<L: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+    ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
+        super::coarse::coarse_blocks(
+            basis,
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
+            [self.params.kappa, 0.0, 1.0, 0.0],
+            &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| out.copy_from(inp),
+        )
+    }
+
+    /// The coarse operator P† D P on the host, as `CoarseOp::build` makes it on the CPU.
+    pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
+        let (diag, links) = self.coarse_blocks::<f64>(basis)?;
+        Ok(CoarseOp::from_parts(
+            &basis.coarse,
+            basis.coarse_dim(),
+            diag.download()?,
+            links.download()?,
+        ))
+    }
+
+    /// The same, made and kept on the device in the precision `CT` (`even_odd` as in
+    /// `DeviceCoarseOp::new`).
+    pub fn coarse_operator_on_device<CT: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+        even_odd: bool,
+    ) -> Result<DeviceCoarseOp<CT>, Box<dyn std::error::Error>> {
+        let (diag, links) = self.coarse_blocks::<CT>(basis)?;
+        DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
+    }
+
     /// `out = D inp = inp + H inp`, or `D† inp`: `inp − H inp` of the hop kernel at −κ, which
     /// is the same number to the last bit.
     fn apply(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, dagger: bool) {
@@ -338,6 +375,42 @@ impl<T: DeviceReal> CudaClover<T> {
     pub fn set_gauge_on_device(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
         self.gauge.set_on_device(u, &mut self.geometry)?;
         self.set_blocks(u)
+    }
+
+    /// The blocks and links of P† D P on `basis` (`coarse::coarse_blocks`): the part of D
+    /// within a site is T.
+    fn coarse_blocks<L: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+    ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
+        super::coarse::coarse_blocks(
+            basis,
+            (&self.gauge, &self.geometry, self.halos.as_deref()),
+            [self.params.kappa, 0.0, 1.0, 0.0],
+            &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| self.site(out, inp, false),
+        )
+    }
+
+    /// The coarse operator P† D P on the host, as `CoarseOp::build` makes it on the CPU.
+    pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
+        let (diag, links) = self.coarse_blocks::<f64>(basis)?;
+        Ok(CoarseOp::from_parts(
+            &basis.coarse,
+            basis.coarse_dim(),
+            diag.download()?,
+            links.download()?,
+        ))
+    }
+
+    /// The same, made and kept on the device in the precision `CT` (`even_odd` as in
+    /// `DeviceCoarseOp::new`).
+    pub fn coarse_operator_on_device<CT: DeviceReal>(
+        &self,
+        basis: &DeviceBasis,
+        even_odd: bool,
+    ) -> Result<DeviceCoarseOp<CT>, Box<dyn std::error::Error>> {
+        let (diag, links) = self.coarse_blocks::<CT>(basis)?;
+        DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
     }
 
     /// T and T⁻¹ from the links `u` (in double precision, then in that of the operator), and
