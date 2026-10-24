@@ -81,6 +81,29 @@ pub struct MainBlock {
     pub cpu_thread: Option<usize>,
 }
 
+impl MainBlock {
+    /// What `backend : cuda_bridge` needs of every run.
+    pub(super) fn check_cuda_bridge(&self) -> Result<(), CliError> {
+        if !cfg!(feature = "cuda-bridge") {
+            return Err(invalid(
+                "Main.backend cuda_bridge needs a program built with the feature cuda-bridge"
+                    .into(),
+            ));
+        }
+        if self.grid_size != [1; ND] {
+            return Err(invalid(
+                "Main.backend cuda_bridge runs on one process; leave Main.grid_size out".into(),
+            ));
+        }
+        if !self.lattice_size[0].is_multiple_of(2) {
+            return Err(invalid(
+                "Main.backend cuda_bridge needs an even extent in x".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GaugeBlock {

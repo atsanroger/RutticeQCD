@@ -68,6 +68,7 @@ an option only where it lacks a kernel. For the domain-wall fermions (decided 20
 | the setup of the multigrid as the propagator runs and HMC take it: what the file asks (`MdwfMultigridSettings`, from `MultigridBlock::mdwf_settings` for both), the test vectors from a checkpoint or the filter and the bootstrap, P, the levels, the coarse parts, the tops of the smoothers, all of the cycle in its precision (`solver::preconditioner::multigrid::MdwfBackend::rebuild`) | `MdwfBackend`: its fields and the kernels of those steps, the cycles made of the parts (`OnCpu`, `cuda_bridge::mdwf_backend::OnDevice`) |
 | the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid::with_solves`) | — |
 | mixed precision: CG on D†D or K†K in single precision, with Q for Neff's α, for the defect correction of HMC and the reliable updates of the CGNE of the propagators (`fermion::SingleAll`, `SingleEven`) | `SingleOperator`: its operator in single precision |
+| the eigensolver run: the operator of the mode, the start vector, Lanczos or Arnoldi (`app::eigen`) | `EigenBackend`: its operators, the start vector on it |
 | the propagator run: sources, solves, the four-dimensional fields, the measurements (`app::mdwf::solve_sources`) | where the fields live |
 
 Before this (2026-10-24), the multigrid of HMC, the mixed solvers and the setup of the

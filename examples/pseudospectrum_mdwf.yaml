@@ -1,0 +1,32 @@
+# σ_min(z − Ã) = 1/‖(z − Ã)⁻¹‖ of the even-odd Pauli-Villars operator Ã of Möbius domain-wall
+# fermions (operator_type PV_right) near the origin, after its eigenvalues of smallest real part
+# by Arnoldi: the ε-pseudospectrum is where σ_min < ε. Add `backend : cuda_bridge` to Main for
+# the GPU.
+#
+#   ruttice examples/pseudospectrum_mdwf.yaml
+Main:
+  lattice_size : [4, 4, 4, 8]
+Gauge:
+  gauge_config_type_input : Text
+  config_filename_input   : ./conf_04040408.txt
+Fopr:
+  fermion_type            : Mobius
+  quark_mass              : 0.01
+  domain_wall_height      : 1.8
+  extent_of_5th_dimension : 8
+  coefficient_b           : 1.5
+  coefficient_c           : 0.5
+  boundary_condition      : [1, 1, 1, -1]
+Eigensolver:
+  eigensolver_type               : IRArnoldi
+  fermion_mult_mode              : D
+  operator_type                  : PV_right
+  eigensolver_mode               : ascending
+  number_of_wanted_eigenvectors  : 6
+  number_of_working_eigenvectors : 24
+  convergence_criterion_squared  : 1.0e-20
+  maximum_number_of_iteration    : 500
+Pseudospectrum:
+  points  : [[0.0, 0.0]]
+  circles : [[0.0, 0.0, 0.01, 8]]
+  lines   : [[-0.05, 0.0, 0.05, 0.0, 5]]

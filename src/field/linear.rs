@@ -166,6 +166,12 @@ impl<A: LinearFn<V> + ?Sized, V: Vector> LinearFn<V> for &mut A {
     }
 }
 
+impl<A: LinearOp<V> + ?Sized, V: Vector> LinearOp<V> for Box<A> {
+    fn mult_dag(&mut self, out: &mut V, inp: &V) {
+        (**self).mult_dag(out, inp);
+    }
+}
+
 /// So is a boxed one.
 impl<A: LinearFn<V> + ?Sized, V: Vector> LinearFn<V> for Box<A> {
     fn mult(&mut self, out: &mut V, inp: &V) {

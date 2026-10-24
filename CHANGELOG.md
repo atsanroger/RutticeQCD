@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- The eigensolver files on the device (`Main.backend : cuda_bridge`): Lanczos and Arnoldi on
+  Wilson, clover and domain-wall fermions, every `fermion_mult_mode` and `operator_type` of the
+  CPU (`PV_right`, `PV_left`, Neff's α). The run is written once (`app::eigen`), a backend
+  supplying its operators and the start vector moved to it; on 4³×8 the CPU and the device take
+  the same restarts and agree to 1e-14. The checks of `Main` every device run needs are one
+  function (`MainBlock::check_cuda_bridge`).
+- Pseudospectra from the eigensolver files: a `Pseudospectrum` section (`points`, `circles`,
+  `lines`) adds σ_min(z − A) at each z for the operator of `Eigensolver`, on the CPU and the
+  device (`eigen::resolvent_norms`, until now reached only from
+  `examples/preconditioned_fov_device.rs`). `examples/pseudospectrum_mdwf.yaml`.
+
 ## 0.5.0 (2026-10-24)
 
 The domain-wall fermions the same on the CPU and on the device: each algorithm written once,

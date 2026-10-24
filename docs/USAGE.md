@@ -92,8 +92,33 @@ The magnitudes of an indefinite H come from Lanczos on H² followed by the Rayle
 procedure of H. The table has λ (Re and Im with Arnoldi) and \|A x − λ x\|² of each pair; with
 `Output.file` it is also written there. `examples/eigen_clover.yaml` is Bridge++'s test
 `Eigensolver` (expected result 0.15203194923405; Ruttice 0.15203194923408772);
-`examples/eigen_mdwf_arnoldi.yaml` is Ã of Möbius fermions by Arnoldi. CPU only so far; the
-eigenvectors are not written.
+`examples/eigen_mdwf_arnoldi.yaml` is Ã of Möbius fermions by Arnoldi. The eigenvectors are not
+written.
+
+`Main.backend : cuda_bridge` runs the same on the GPU, for every operator above (Wilson,
+clover, the five-dimensional domain-wall D, `PV_right` and `PV_left` with Neff's α): the same
+random start vector, moved to the device, gives the same restarts and applications of the
+operator, and eigenvalues within 1e-14 of the CPU's on 4³×8. Stout smearing is done on the
+device; one process.
+
+**Pseudospectra.** A `Pseudospectrum` section adds σ_min(z − A) = 1/‖(z − A)⁻¹‖ at points z,
+for the same operator A (`operator_type` and `fermion_mult_mode` as above): the
+ε-pseudospectrum of A is where σ_min(z − A) < ε, and a lower bound of it on a contour around
+the spectrum is what the pseudospectral bound of GMRES needs. Each point is the lowest
+eigenvalue of (z − A)†(z − A) by Lanczos, with the sizes, `convergence_criterion_squared`,
+`maximum_number_of_iteration` and `seed` of `Eigensolver`; the eigenvalue table comes first.
+
+| Key | |
+|---|---|
+| `points` | `[Re z, Im z]` each |
+| `circles` | `[Re c, Im c, r, n]` each: n points c + r e^(2πik/n) |
+| `lines` | `[Re z0, Im z0, Re z1, Im z1, n]` each: n points from z0 to z1, both ends included |
+
+The table has Re z, Im z, σ_min(z − A) and the applications of (z − A)†(z − A) it took; with
+`Output.file` it follows the eigenvalues there. For a Hermitian A, σ_min(z − A) is the distance
+from z to its spectrum (Bridge++'s clover test: σ_min(0 − H) = 0.15203194923405, the
+eigenvalue of smallest magnitude). `examples/pseudospectrum_mdwf.yaml` is Ã of Möbius fermions
+near the origin. On the CPU and the device alike.
 
 ### Threads
 

@@ -82,6 +82,13 @@ CG bit for bit; the multigrid with `fine_precision : single` the same iterations
 (its coarse operators now probed in single precision). Tests run: CPU lib, hmc, mdwf,
 multigrid, run, simd; device cuda_bridge — all pass.
 
+**Eigensolvers on the device (2026-10-24)**: `app::eigen` written once over `EigenBackend`
+(CPU, device). Checked on 4³×8, CPU and device: clover H (Lanczos, Bridge++'s 0.152031949234),
+Wilson D†D, clover D (Arnoldi), domain-wall D† (Arnoldi), `PV_right` D (Arnoldi), `PV_left` D†D
+with α 1.3, `PV_right` DD† after stout — the same restarts and applications, eigenvalues within
+1e-14. Still CPU only: the gradient flow, the Wilson and clover HMC and RHMC, the Wilson
+multigrid, MPI.
+
 ## Structure
 
 ### 1. One propagator driver for the CPU and the device (done 2026-10-24)

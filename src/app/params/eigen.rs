@@ -6,6 +6,10 @@
 //! Chebyshev acceleration (`Fopr_Chebyshev`: `degree_of_polynomial`, `threshold_value`,
 //! `upper_bound`) as a sub-section.
 //!
+//! An optional `Pseudospectrum` section adds σ_min(z − A) = 1/‖(z − A)⁻¹‖ at points z, for the
+//! same operator A, by Lanczos on (z − A)†(z − A) with the Lanczos settings of `Eigensolver`
+//! (`PseudospectrumBlock`).
+//!
 //! ```yaml
 //! Main:
 //!   lattice_size : [4, 4, 4, 8]
@@ -29,6 +33,7 @@
 use super::blocks::{GaugeBlock, GaugeSmearingBlock, MainBlock};
 use super::*;
 use crate::eigen::{ArnoldiParams, Chebyshev, LanczosParams, Order, Tolerance, Which};
+use crate::C64;
 
 keyword_enum! {
     pub enum EigensolverType {
@@ -77,7 +82,10 @@ pub struct EigenParams {
     pub fopr: FoprBlock,
     #[serde(rename = "Eigensolver")]
     pub eigensolver: EigensolverBlock,
-    /// Also write the table of eigenvalues to `file`.
+    /// σ_min(z − A) at points z as well.
+    #[serde(rename = "Pseudospectrum")]
+    pub pseudospectrum: Option<PseudospectrumBlock>,
+    /// Also write the table of eigenvalues (and of σ_min(z − A)) to `file`.
     #[serde(rename = "Output", default)]
     pub output: OutputConfig,
     #[serde(rename = "Smear", default)]
@@ -133,6 +141,78 @@ pub struct EigenChebyshevBlock {
     pub verbose_level: Option<VerboseLevel>,
 }
 
+/// The points z of σ_min(z − A), the operator A that of `Eigensolver`: the ε-pseudospectrum of A
+/// is where σ_min(z − A) < ε. Each point is one smallest eigenvalue of (z − A)†(z − A) by
+/// Lanczos, with the sizes, `convergence_criterion_squared`, `maximum_number_of_iteration` and
+/// `seed` of `Eigensolver` (no Chebyshev polynomial), from the same start vector.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PseudospectrumBlock {
+    /// [Re z, Im z] each.
+    #[serde(default)]
+    pub points: Vec<[f64; 2]>,
+    /// [Re c, Im c, r, n] each: n points z = c + r e^(2πik/n), k = 0..n−1.
+    #[serde(default)]
+    pub circles: Vec<[f64; 4]>,
+    /// [Re z0, Im z0, Re z1, Im z1, n] each: n points from z0 to z1, both included.
+    #[serde(default)]
+    pub lines: Vec<[f64; 5]>,
+}
+
+/// A count given as a real in a list (`circles`, `lines`).
+fn count(x: f64) -> Option<usize> {
+    (x >= 1.0 && x.fract() == 0.0 && x < 1e7).then_some(x as usize)
+}
+
+impl PseudospectrumBlock {
+    /// Every point, in the order of `points`, `circles`, `lines`.
+    pub fn all_points(&self) -> Vec<C64> {
+        let mut z: Vec<C64> = self.points.iter().map(|p| C64::new(p[0], p[1])).collect();
+        for &[cx, cy, r, n] in &self.circles {
+            let n = count(n).expect("checked");
+            z.extend((0..n).map(|k| {
+                let phi = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                C64::new(cx + r * phi.cos(), cy + r * phi.sin())
+            }));
+        }
+        for &[x0, y0, x1, y1, n] in &self.lines {
+            let n = count(n).expect("checked");
+            z.extend((0..n).map(|k| {
+                let t = if n == 1 {
+                    0.0
+                } else {
+                    k as f64 / (n - 1) as f64
+                };
+                C64::new(x0 + t * (x1 - x0), y0 + t * (y1 - y0))
+            }));
+        }
+        z
+    }
+
+    fn check(&self) -> Result<(), CliError> {
+        if let Some(c) = self
+            .circles
+            .iter()
+            .find(|c| count(c[3]).is_none() || c[2] <= 0.0)
+        {
+            return Err(invalid(format!(
+                "Pseudospectrum.circles: [Re c, Im c, r, n] with r > 0 and n a whole number ≥ 1, not {c:?}"
+            )));
+        }
+        if let Some(l) = self.lines.iter().find(|l| count(l[4]).is_none()) {
+            return Err(invalid(format!(
+                "Pseudospectrum.lines: [Re z0, Im z0, Re z1, Im z1, n] with n a whole number ≥ 1, not {l:?}"
+            )));
+        }
+        if self.points.is_empty() && self.circles.is_empty() && self.lines.is_empty() {
+            return Err(invalid(
+                "Pseudospectrum: no points (points, circles or lines)".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn start_seed() -> u64 {
     1234567
 }
@@ -150,6 +230,22 @@ impl EigensolverBlock {
         );
         let keep = self.number_of_kept_vectors.unwrap_or(wanted + working / 2);
         (wanted, keep, wanted + working)
+    }
+
+    /// The settings of Lanczos for σ_min(z − A): the lowest eigenvalue of (z − A)†(z − A), on
+    /// the operator itself.
+    pub fn lanczos_singular(&self) -> LanczosParams {
+        let (_, keep, max_dim) = self.sizes();
+        LanczosParams {
+            wanted: 1,
+            keep,
+            max_dim,
+            tolerance: Tolerance::AbsoluteSquared(self.convergence_criterion_squared),
+            max_restarts: self.maximum_number_of_iteration,
+            chebyshev: None,
+            order: Order::Ascending,
+            threshold: None,
+        }
     }
 
     /// The settings of Lanczos.
@@ -284,11 +380,14 @@ impl EigenParams {
         } else {
             Params::check_wilson_fopr(f, "Fopr", notes)?;
         }
-        if self.main.backend != Backend::Cpu {
-            return Err(invalid(format!(
-                "Main.backend {}: the eigensolvers run on the cpu backend so far",
-                self.main.backend
-            )));
+        match self.main.backend {
+            Backend::Cpu => {}
+            Backend::CudaBridge => self.main.check_cuda_bridge()?,
+            b => {
+                return Err(invalid(format!(
+                    "Main.backend {b}: the eigensolvers run on the cpu and cuda_bridge backends"
+                )))
+            }
         }
         let e = &self.eigensolver;
         let (wanted, keep, max_dim) = e.sizes();
@@ -366,6 +465,9 @@ impl EigenParams {
         if e.verbose_level.is_some() {
             notes.push("Eigensolver.verbose_level: Main.verbose_level is used".into());
         }
+        if let Some(ps) = &self.pseudospectrum {
+            ps.check()?;
+        }
         Ok(())
     }
 }
@@ -414,6 +516,13 @@ impl fmt::Display for EigenParams {
                 c.degree_of_polynomial, c.threshold_value, c.upper_bound
             ))
         )?;
+        if let Some(ps) = &self.pseudospectrum {
+            writeln!(
+                f,
+                "pseudospectrum: σ_min(z − A) at {} points, Lanczos on (z − A)†(z − A)",
+                ps.all_points().len()
+            )?;
+        }
         for n in &self.notes {
             writeln!(f, "note: {n}")?;
         }
@@ -494,5 +603,43 @@ Eigensolver:
             "fermion_mult_mode : DdagD\n  operator_type : PV_right"
         ))
         .is_ok());
+    }
+
+    #[test]
+    fn pseudospectrum_points() {
+        let with = |section: &str| format!("{CLOVER}Pseudospectrum:\n{section}");
+        let p = EigenParams::from_yaml(&with(
+            "  points : [[0.1, 0.2]]\n  circles : [[1.0, 0.0, 0.5, 4]]\n  lines : [[0.0, 0.0, 1.0, 0.0, 3]]\n",
+        ))
+        .unwrap();
+        let z = p.pseudospectrum.as_ref().unwrap().all_points();
+        let want = [
+            (0.1, 0.2),
+            (1.5, 0.0),
+            (1.0, 0.5),
+            (0.5, 0.0),
+            (1.0, -0.5),
+            (0.0, 0.0),
+            (0.5, 0.0),
+            (1.0, 0.0),
+        ];
+        assert_eq!(z.len(), want.len());
+        for (z, (re, im)) in z.iter().zip(want) {
+            assert!(
+                (z.re - re).abs() < 1e-15 && (z.im - im).abs() < 1e-15,
+                "{z:?}"
+            );
+        }
+        assert!(p.to_string().contains("at 8 points"), "{p}");
+        let l = p.eigensolver.lanczos_singular();
+        assert_eq!(
+            (l.wanted, l.order, l.chebyshev.is_none()),
+            (1, Order::Ascending, true)
+        );
+        let err = |text: String| EigenParams::from_yaml(&text).unwrap_err().to_string();
+        assert!(err(with("  circles : [[0.0, 0.0, 0.5, 2.5]]\n")).contains("whole number"));
+        assert!(err(with("  circles : [[0.0, 0.0, 0.0, 4]]\n")).contains("r > 0"));
+        assert!(err(with("  lines : [[0.0, 0.0, 1.0, 0.0, 0]]\n")).contains("whole number"));
+        assert!(err(with("  points : []\n")).contains("no points"));
     }
 }

@@ -278,27 +278,12 @@ impl Params {
 
     /// What `backend : cuda_bridge` can do so far.
     fn check_cuda_bridge(&self) -> Result<(), CliError> {
-        if !cfg!(feature = "cuda-bridge") {
-            return Err(invalid(
-                "Main.backend cuda_bridge needs a program built with the feature cuda-bridge"
-                    .into(),
-            ));
-        }
-        if self.main.grid_size != [1; ND] {
-            return Err(invalid(
-                "Main.backend cuda_bridge runs on one process; leave Main.grid_size out".into(),
-            ));
-        }
+        self.main.check_cuda_bridge()?;
         if self.solver.preconditioner_type == PreconditionerType::Multigrid
             && !matches!(self.fopr.fermion_type, FermionType::DomainWall)
         {
             return Err(invalid(
                 "Main.backend cuda_bridge: the multigrid is on the device for domain-wall fermions only; use Solver.preconditioner_type None".into(),
-            ));
-        }
-        if !self.main.lattice_size[0].is_multiple_of(2) {
-            return Err(invalid(
-                "Main.backend cuda_bridge needs an even extent in x".into(),
             ));
         }
         Ok(())
