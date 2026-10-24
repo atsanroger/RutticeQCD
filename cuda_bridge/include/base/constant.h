@@ -18,10 +18,19 @@ namespace bridge_cuda {
     constexpr int Nspinor  = Ncomplex * Nc * Nspin;       // 24: Real elements per Dirac 4-spinor
     constexpr int Ndf      = Ncomplex * Nc * Nc;          // 18: Real elements per SU(3) gauge matrix
     constexpr int Nclover  = 2 * (Nc * Nspin / 2) * (Nc * Nspin / 2); // 72: Real elements for clover hermitian blocks
+    constexpr int Nhalf    = Nspin2 * Nvc;                // 12: Real elements of a half spinor (a leg that travels)
+    constexpr int Nblock   = Nc * Nspin2;                 // 6: Rows of a chiral block of the clover term
+    constexpr int Nplanes  = Ndim * (Ndim - 1) / 2;       // 6: Planes mu < nu
 
     // Architecture & Memory Layout constants
     constexpr int WarpSize = 32;                          // AoSoA lane width W=32 for coalesced GPU access
     constexpr int DefaultBlockSize = 256;                 // Standard CUDA thread block size
+
+    // The numbers the kernels were written with, checked: a wrong derived constant does not compile.
+    static_assert(Nc == 3 && Ncolor == Nc && Nspin == 4 && Ns == Nspin && Ndim == 4 && Nd == Ndim);
+    static_assert(Nvc == 6 && Nspinor == 24 && Ndf == 18 && Nclover == 72);
+    static_assert(Nhalf == 12 && Nblock == 6 && Nplanes == 6 && Ndim * Ndf == 72);
+    static_assert(Nclover == 2 * (Nblock + 2 * (Nblock * (Nblock - 1) / 2)) && Nclover / 2 == 36);
 }
 #endif
 
@@ -39,5 +48,13 @@ namespace bridge_cuda {
 #define BRIDGE_CUDA_NSPINOR     (BRIDGE_CUDA_NCOMPLEX * BRIDGE_CUDA_NC * BRIDGE_CUDA_NSPIN)
 #define BRIDGE_CUDA_NDF         (BRIDGE_CUDA_NCOMPLEX * BRIDGE_CUDA_NC * BRIDGE_CUDA_NC)
 #define BRIDGE_CUDA_WARP_SIZE   32
+
+#ifdef __cplusplus
+namespace bridge_cuda {
+    static_assert(BRIDGE_CUDA_NC == Nc && BRIDGE_CUDA_NSPIN == Nspin && BRIDGE_CUDA_ND == Ndim);
+    static_assert(BRIDGE_CUDA_NVC == Nvc && BRIDGE_CUDA_NSP == Nspinor && BRIDGE_CUDA_NSPINOR == Nspinor);
+    static_assert(BRIDGE_CUDA_NDF == Ndf && BRIDGE_CUDA_WARP_SIZE == WarpSize);
+}
+#endif
 
 #endif // BRIDGE_CUDA_BASE_CONSTANT_H

@@ -109,7 +109,7 @@ void bridge_cuda_clover_blocks(
     double kappa_csw, const int* dims, cudaStream_t stream)
 {
     const auto g = geometry(dims, ONE);
-    bridge_cuda::clover_blocks_kernel<<<blocks_for(2 * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(
+    bridge_cuda::clover_blocks_kernel<<<blocks_for(bridge_cuda::Chiralities * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(
         d_t, d_t_inv, d_ln_det, d_singular, d_u, kappa_csw, g);
 }
 

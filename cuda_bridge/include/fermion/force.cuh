@@ -72,8 +72,8 @@ __global__ void hop_force_kernel(
         for (int i = 0; i < Nc; ++i)
             #pragma unroll
             for (int j = 0; j < Nc; ++j) {
-                const size_t c = 18 * mu + 2 * (3 * i + j);
-                const size_t at = ((static_cast<size_t>(site) / W) * 72 + c) * W + site % W;
+                const size_t c = Ndf * mu + Ncomplex * (Nc * i + j);
+                const size_t at = ((static_cast<size_t>(site) / W) * (Ndim * Ndf) + c) * W + site % W;
                 d_m[at] = m_r[i][j];
                 d_m[at + W] = m_i[i][j];
             }

@@ -11,7 +11,26 @@ namespace bridge_cuda {
 // Spin projection operators for Dirac and Chiral (Weyl) representations
 // -------------------------------------------------------------------------
 
-// out = gamma_mu in, in the Dirac representation of Ruttice and Bridge++ (gamma_4 diagonal):
+// gamma_mu in the Dirac representation of Ruttice and Bridge++ (gamma_4 diagonal), the one
+// table every kernel reads: row `row` of gamma_mu has one entry, in column
+// dirac_col(mu, row), of value dirac_re(mu, row) + i dirac_im(mu, row) (+-1 or +-i). As
+// kernel::gamma's Dirac on the CPU.
+__host__ __device__ constexpr int dirac_col(int mu, int row) {
+    constexpr int col[Ndim][Nspin] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}, {0, 1, 2, 3}};
+    return col[mu][row];
+}
+__host__ __device__ constexpr int dirac_re(int mu, int row) {
+    constexpr int re[Ndim][Nspin] = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}, {1, 1, -1, -1}};
+    return re[mu][row];
+}
+__host__ __device__ constexpr int dirac_im(int mu, int row) {
+    constexpr int im[Ndim][Nspin] = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
+    return im[mu][row];
+}
+// The table checked where it is written: gamma_4 diagonal, gamma_1 = -i on its first row.
+static_assert(dirac_col(3, 0) == 0 && dirac_re(3, 2) == -1 && dirac_im(0, 0) == -1);
+
+// out = gamma_mu in, in the Dirac representation:
 //   (gamma_mu psi)[row] = val[row] * psi[col[row]],  val one of +1, -1, +i, -i.
 template <typename Float>
 __device__ __forceinline__ void mult_gamma_dirac(
@@ -19,15 +38,11 @@ __device__ __forceinline__ void mult_gamma_dirac(
     const Float in[Nspin][Nc][Ncomplex],
     int mu)
 {
-    // col[mu][row]; val as (re, im)
-    const int col[4][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}, {0, 1, 2, 3}};
-    const int re[4][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}, {1, 1, -1, -1}};
-    const int im[4][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
     #pragma unroll
     for (int row = 0; row < Nspin; ++row) {
-        const int k = col[mu][row];
-        const Float a = static_cast<Float>(re[mu][row]);
-        const Float b = static_cast<Float>(im[mu][row]);
+        const int k = dirac_col(mu, row);
+        const Float a = static_cast<Float>(dirac_re(mu, row));
+        const Float b = static_cast<Float>(dirac_im(mu, row));
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
             out[row][c][0] = a * in[k][c][0] - b * in[k][c][1];

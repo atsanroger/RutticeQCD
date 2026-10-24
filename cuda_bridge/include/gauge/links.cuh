@@ -25,36 +25,36 @@ __device__ __forceinline__ M3 reunitarize(const M3& m)
     M3 r;
     double n0 = 0;
     #pragma unroll
-    for (int k = 0; k < 3; ++k) n0 += m.re[0][k] * m.re[0][k] + m.im[0][k] * m.im[0][k];
+    for (int k = 0; k < Nc; ++k) n0 += m.re[0][k] * m.re[0][k] + m.im[0][k] * m.im[0][k];
     n0 = 1.0 / sqrt(n0);
     #pragma unroll
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < Nc; ++k) {
         r.re[0][k] = m.re[0][k] * n0;
         r.im[0][k] = m.im[0][k] * n0;
     }
     // dot = conj(r0) . r1
     double dr = 0, di = 0;
     #pragma unroll
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < Nc; ++k) {
         dr += r.re[0][k] * m.re[1][k] + r.im[0][k] * m.im[1][k];
         di += r.re[0][k] * m.im[1][k] - r.im[0][k] * m.re[1][k];
     }
     double n1 = 0;
     #pragma unroll
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < Nc; ++k) {
         r.re[1][k] = m.re[1][k] - (dr * r.re[0][k] - di * r.im[0][k]);
         r.im[1][k] = m.im[1][k] - (dr * r.im[0][k] + di * r.re[0][k]);
         n1 += r.re[1][k] * r.re[1][k] + r.im[1][k] * r.im[1][k];
     }
     n1 = 1.0 / sqrt(n1);
     #pragma unroll
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < Nc; ++k) {
         r.re[1][k] *= n1;
         r.im[1][k] *= n1;
     }
     // r2 = conj(r0 x r1)
     #pragma unroll
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < Nc; ++k) {
         const int a = (k + 1) % 3, b = (k + 2) % 3;
         const double xr = (r.re[0][a] * r.re[1][b] - r.im[0][a] * r.im[1][b])
                         - (r.re[0][b] * r.re[1][a] - r.im[0][b] * r.im[1][a]);

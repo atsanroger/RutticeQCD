@@ -23,7 +23,7 @@
 namespace bridge_cuda {
 
 __host__ __device__ __forceinline__ size_t link_at(int c, size_t x) {
-    return ((x / WarpSize) * 72 + c) * WarpSize + x % WarpSize;
+    return ((x / WarpSize) * (Ndim * Ndf) + c) * WarpSize + x % WarpSize;
 }
 
 struct StoutGeometry {
@@ -46,56 +46,56 @@ __host__ __device__ __forceinline__ size_t extended(size_t x, const StoutGeometr
 }
 
 struct M3 {
-    double re[3][3], im[3][3];
+    double re[Nc][Nc], im[Nc][Nc];
 };
 
 __device__ __forceinline__ M3 m3_zero() {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) m.re[i][j] = m.im[i][j] = 0;
+        for (int j = 0; j < Nc; ++j) m.re[i][j] = m.im[i][j] = 0;
     return m;
 }
 
 __device__ __forceinline__ M3 m3_identity() {
     M3 m = m3_zero();
     #pragma unroll
-    for (int i = 0; i < 3; ++i) m.re[i][i] = 1;
+    for (int i = 0; i < Nc; ++i) m.re[i][i] = 1;
     return m;
 }
 
 __device__ __forceinline__ M3 load(const double* f, int mu, size_t x) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
-            m.re[i][j] = f[link_at(18 * mu + 2 * (3 * i + j), x)];
-            m.im[i][j] = f[link_at(18 * mu + 2 * (3 * i + j) + 1, x)];
+        for (int j = 0; j < Nc; ++j) {
+            m.re[i][j] = f[link_at(Ndf * mu + Ncomplex * (Nc * i + j), x)];
+            m.im[i][j] = f[link_at(Ndf * mu + Ncomplex * (Nc * i + j) + 1, x)];
         }
     return m;
 }
 
 __device__ __forceinline__ void store(double* f, int mu, size_t x, const M3& m) {
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
-            f[link_at(18 * mu + 2 * (3 * i + j), x)] = m.re[i][j];
-            f[link_at(18 * mu + 2 * (3 * i + j) + 1, x)] = m.im[i][j];
+        for (int j = 0; j < Nc; ++j) {
+            f[link_at(Ndf * mu + Ncomplex * (Nc * i + j), x)] = m.re[i][j];
+            f[link_at(Ndf * mu + Ncomplex * (Nc * i + j) + 1, x)] = m.im[i][j];
         }
 }
 
 __device__ __forceinline__ M3 mul(const M3& a, const M3& b) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             double re = 0, im = 0;
             #pragma unroll
-            for (int k = 0; k < 3; ++k) {
+            for (int k = 0; k < Nc; ++k) {
                 re += a.re[i][k] * b.re[k][j] - a.im[i][k] * b.im[k][j];
                 im += a.re[i][k] * b.im[k][j] + a.im[i][k] * b.re[k][j];
             }
@@ -108,9 +108,9 @@ __device__ __forceinline__ M3 mul(const M3& a, const M3& b) {
 __device__ __forceinline__ M3 adj(const M3& a) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             m.re[i][j] = a.re[j][i];
             m.im[i][j] = -a.im[j][i];
         }
@@ -120,9 +120,9 @@ __device__ __forceinline__ M3 adj(const M3& a) {
 __device__ __forceinline__ M3 add(const M3& a, const M3& b) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             m.re[i][j] = a.re[i][j] + b.re[i][j];
             m.im[i][j] = a.im[i][j] + b.im[i][j];
         }
@@ -132,9 +132,9 @@ __device__ __forceinline__ M3 add(const M3& a, const M3& b) {
 __device__ __forceinline__ M3 sub(const M3& a, const M3& b) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             m.re[i][j] = a.re[i][j] - b.re[i][j];
             m.im[i][j] = a.im[i][j] - b.im[i][j];
         }
@@ -144,9 +144,9 @@ __device__ __forceinline__ M3 sub(const M3& a, const M3& b) {
 __device__ __forceinline__ M3 scale(const M3& a, double s) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             m.re[i][j] = s * a.re[i][j];
             m.im[i][j] = s * a.im[i][j];
         }
@@ -171,7 +171,7 @@ __device__ __forceinline__ M3 traceless_antihermitian(const M3& m) {
     M3 a = scale(sub(m, adj(m)), 0.5);
     const double shift = trace(a).im / 3.0;
     #pragma unroll
-    for (int c = 0; c < 3; ++c) {
+    for (int c = 0; c < Nc; ++c) {
         a.re[c][c] = 0.0;
         a.im[c][c] = a.im[c][c] - shift;
     }
@@ -182,9 +182,9 @@ __device__ __forceinline__ M3 traceless_antihermitian(const M3& m) {
 __device__ __forceinline__ M3 poly(C a, C b, C c, const M3& iq, const M3& iq2) {
     M3 m;
     #pragma unroll
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < Nc; ++i)
         #pragma unroll
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < Nc; ++j) {
             C one = (i == j) ? a : C{0.0, 0.0};
             const C q{iq.im[i][j], -iq.re[i][j]};
             const C q2{iq2.re[i][j], iq2.im[i][j]};
@@ -220,9 +220,9 @@ struct StoutExp {
         const M3 iq3 = mul(iq, iq2);
         double norm = 0;
         #pragma unroll
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < Nc; ++i)
             #pragma unroll
-            for (int j = 0; j < 3; ++j) norm += iq.re[i][j] * iq.re[i][j] + iq.im[i][j] * iq.im[i][j];
+            for (int j = 0; j < Nc; ++j) norm += iq.re[i][j] * iq.re[i][j] + iq.im[i][j] * iq.im[i][j];
         if (norm <= 1e-10) {
             f[0] = f[1] = f[2] = C{0.0, 0.0};
             u = w = 0.0;
@@ -295,9 +295,9 @@ struct StoutExp {
         const M3 iusq = mul(us, iq);
         M3 gamma;
         #pragma unroll
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < Nc; ++i)
             #pragma unroll
-            for (int j = 0; j < 3; ++j) {
+            for (int j = 0; j < Nc; ++j) {
                 const C q{iq.im[i][j], -iq.re[i][j]};
                 const C a{iqus.im[i][j], -iqus.re[i][j]};
                 const C b{iusq.im[i][j], -iusq.re[i][j]};

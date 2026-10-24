@@ -186,15 +186,12 @@ __device__ __forceinline__ void leg_half(
     const Float w[Nspin][Nc][Ncomplex],
     int mu, Float s)
 {
-    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
-    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
-    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
     #pragma unroll
     for (int a = 0; a < 2; ++a) {
         if (mu < 3) {
-            const int other = col[mu][a];
-            const Float vr = s * static_cast<Float>(re[mu][a]);
-            const Float vi = s * static_cast<Float>(im[mu][a]);
+            const int other = dirac_col(mu, a);
+            const Float vr = s * static_cast<Float>(dirac_re(mu, a));
+            const Float vi = s * static_cast<Float>(dirac_im(mu, a));
             #pragma unroll
             for (int c = 0; c < Nc; ++c) {
                 h_r[a][c] = w[a][c][0] - (vr * w[other][c][0] - vi * w[other][c][1]);
@@ -218,16 +215,13 @@ __device__ __forceinline__ void add_leg(
     const Float t_r[Nc], const Float t_i[Nc],
     int mu, int a, Float s, Float coef)
 {
-    const int col[3][4] = {{3, 2, 1, 0}, {3, 2, 1, 0}, {2, 3, 0, 1}};
-    const int re[3][4]  = {{0, 0, 0, 0}, {-1, 1, 1, -1}, {0, 0, 0, 0}};
-    const int im[3][4]  = {{-1, -1, 1, 1}, {0, 0, 0, 0}, {-1, 1, 1, -1}};
     int row, other = -1;
     Float fr = 0, fi = 0;
     if (mu < 3) {
         row = a;
-        other = col[mu][a];
-        fr = -s * static_cast<Float>(re[mu][other]);
-        fi = -s * static_cast<Float>(im[mu][other]);
+        other = dirac_col(mu, a);
+        fr = -s * static_cast<Float>(dirac_re(mu, other));
+        fi = -s * static_cast<Float>(dirac_im(mu, other));
     } else {
         row = (s > static_cast<Float>(0.0)) ? a + 2 : a;
     }
@@ -317,7 +311,7 @@ __host__ __device__ __forceinline__ int face_sites(int mu, const int dims[4], bo
 // Where real k of colour vector a of fibre (vec, is) of face site f is in a buffer.
 __host__ __device__ __forceinline__ size_t in_face(int vec, int is, int Ls, int a, int k, int f, int sites)
 {
-    return (static_cast<size_t>(vec * Ls + is) * 12 + a * 6 + k) * sites + f;
+    return (static_cast<size_t>(vec * Ls + is) * Nhalf + a * Nvc + k) * sites + f;
 }
 
 // Whether a leg of the site xc comes from another process.
@@ -476,34 +470,32 @@ __device__ __forceinline__ void hops(
 // gamma_5 = [[0, 1], [1, 0]], with eigenvectors (e_a +- e_(a+2)) / sqrt(2). Here because the
 // hops of the clover operator start from it (hop_kernel with Clover).
 // -------------------------------------------------------------------------
-constexpr int CloverReals = 72;
-
 // y = M x for the packed Hermitian 6 x 6 matrix `which` (0 or 1) of `site`.
 template <typename Float>
 __device__ __forceinline__ void hermitian6_mul(
-    Float y[6][Ncomplex],
+    Float y[Nblock][Ncomplex],
     const Float* __restrict__ d_clover,
     int which, int site,
-    const Float x[6][Ncomplex])
+    const Float x[Nblock][Ncomplex])
 {
-    const int base = 36 * which;
+    const int base = (Nclover / 2) * which;
     #pragma unroll
-    for (int r = 0; r < 6; ++r) {
-        const Float d = d_clover[aosoa_idx(base + r, site, CloverReals)];
+    for (int r = 0; r < Nblock; ++r) {
+        const Float d = d_clover[aosoa_idx(base + r, site, Nclover)];
         y[r][0] = mul_rn(d, x[r][0]);
         y[r][1] = mul_rn(d, x[r][1]);
     }
-    int k = 6;
+    int k = Nblock;
     #pragma unroll
-    for (int r = 0; r < 6; ++r) {
+    for (int r = 0; r < Nblock; ++r) {
         #pragma unroll
-        for (int c = r + 1; c < 6; ++c) {
-            const Float zr = d_clover[aosoa_idx(base + k, site, CloverReals)];
-            const Float zi = d_clover[aosoa_idx(base + k + 1, site, CloverReals)];
+        for (int c = r + 1; c < Nblock; ++c) {
+            const Float zr = d_clover[aosoa_idx(base + k, site, Nclover)];
+            const Float zi = d_clover[aosoa_idx(base + k + 1, site, Nclover)];
             // y_r += z x_c,  y_c += conj(z) x_r, fused in a fixed order (su3.cuh, mul_rn)
             c_macc(y[r][0], y[r][1], zr, zi, x[c][0], x[c][1]);
             c_conj_macc(y[c][0], y[c][1], zr, zi, x[r][0], x[r][1]);
-            k += 2;
+            k += Ncomplex;
         }
     }
 }
@@ -517,33 +509,33 @@ __device__ __forceinline__ void clover_site(
     int at, int site)
 {
     // The components along e_a + e_(a+2) and e_a - e_(a+2), without the 1/sqrt(2).
-    Float plus[6][Ncomplex], minus[6][Ncomplex];
+    Float plus[Nblock][Ncomplex], minus[Nblock][Ncomplex];
     #pragma unroll
-    for (int s = 0; s < 2; ++s) {
+    for (int s = 0; s < Nspin2; ++s) {
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
             #pragma unroll
             for (int ri = 0; ri < Ncomplex; ++ri) {
                 const Float upper = d_in[aosoa_spinor_idx(c, s, ri, at)];
-                const Float lower = d_in[aosoa_spinor_idx(c, s + 2, ri, at)];
+                const Float lower = d_in[aosoa_spinor_idx(c, s + Nspin2, ri, at)];
                 plus[c + Nc * s][ri]  = upper + lower;
                 minus[c + Nc * s][ri] = upper - lower;
             }
         }
     }
-    Float p[6][Ncomplex], m[6][Ncomplex];
+    Float p[Nblock][Ncomplex], m[Nblock][Ncomplex];
     hermitian6_mul<Float>(p, d_clover, 0, site, plus);
     hermitian6_mul<Float>(m, d_clover, 1, site, minus);
     // Back to spin components; the two 1/sqrt(2) make 1/2.
     #pragma unroll
-    for (int s = 0; s < 2; ++s) {
+    for (int s = 0; s < Nspin2; ++s) {
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
             #pragma unroll
             for (int ri = 0; ri < Ncomplex; ++ri) {
                 const int k = c + Nc * s;
                 out[s][c][ri]     = static_cast<Float>(0.5) * (p[k][ri] + m[k][ri]);
-                out[s + 2][c][ri] = static_cast<Float>(0.5) * (p[k][ri] - m[k][ri]);
+                out[s + Nspin2][c][ri] = static_cast<Float>(0.5) * (p[k][ri] - m[k][ri]);
             }
         }
     }
