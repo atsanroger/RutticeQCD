@@ -240,11 +240,92 @@ diagonal entries and 15 complex above the diagonal,
 \begin{equation}
 6 + 2\cdot15 = 36\ \text{reals},\qquad 2\ \text{blocks} = 72\ \text{reals a site}.
 \end{equation}
-The same kernel applies $T^{-1}$ (its blocks inverted on the host).
+The same kernel applies $T^{-1}$ (its blocks made by \code{clover\_blocks\_kernel}, below).
 
 \subsection{\code{clover\_dslash\_kernel}}
 
 $D\psi = T\psi + H\psi$ in one pass.
+
+\subsection{\code{clover\_blocks\_kernel}: $T_\pm$, $T_\pm^{-1}$ and $\ln|\det T_\pm|$ from the links}
+
+One thread for each pair (site, sign $s=\pm1$); in double precision; the links extended one site
+deep (Sec.~5). First the field strength of each plane $\mu<\nu$ from the four leaves at $x$,
+\begin{align}
+Q_{\mu\nu}(x) &= \sum_{\ell=1}^{4} W_\ell(x),\qquad
+F_{\mu\nu}(x) = \tfrac18\big(Q_{\mu\nu}(x) - Q_{\mu\nu}(x)\dg\big),
+\end{align}
+$W_1$ the path $x\to x+\hat\mu\to x+\hat\mu+\hat\nu\to x+\hat\nu\to x$ and $W_2,W_3,W_4$ the other
+three squares turning the same way (\code{leaves\_of}). Then
+\begin{equation}
+T = 1 - \kappa c_{SW}\sum_{\mu<\nu} G_{\mu\nu}\otimes F_{\mu\nu},\qquad G_{\mu\nu}=\gamma_\mu\gamma_\nu .
+\end{equation}
+$G_{\mu\nu}$ has one entry in each row: $G_{r,c(r)} = g(r)$. From the tables of $\gamma_\mu$,
+\begin{equation}
+c(r) = c_\nu\big(c_\mu(r)\big),\qquad g(r) = g_\mu(r)\,g_\nu\big(c_\mu(r)\big).
+\end{equation}
+The block of sign $s$ is $T$ between the vectors $v_{a}=(e_a+s\,e_{a+2})/\sqrt2$, $a=0,1$:
+\begin{align}
+(T_s)_{i+3a,\,j+3b} &= \delta_{ab}\delta_{ij} - \kappa c_{SW}\sum_{\mu<\nu} h^{s}_{ab}(\mu\nu)\,F_{\mu\nu,ij},\\
+h^{s}_{ab} &= v_a\dg G\,v_b = \tfrac12\big(G_{ab} + s\,G_{a,b+2} + s\,G_{a+2,b} + G_{a+2,b+2}\big).
+\end{align}
+The kernel builds $h^s$ by going over the four rows $r$ of $G$: row $r$ adds $g(r)$ to
+$h^s_{r\bmod2,\;c(r)\bmod2}$ with the factor $\tfrac12\,s^{[r\ge2]}\,s^{[c(r)\ge2]}$.
+
+$T_s$ is packed (6 real diagonal entries, then the upper triangle) and inverted by Gauss–Jordan
+with partial pivoting, as \code{numerics::invert\_complex}. Row operations that add a multiple of
+one row to another do not change the determinant, and scaling the pivot row by $1/p$ divides it
+by $p$, so
+\begin{equation}
+\ln|\det T_s| = \sum_{\text{columns}}\ln|p_{\text{col}}| .
+\end{equation}
+The change of basis to the $v_a$ is unitary, so $\ln|\det T(x)| = \ln|\det T_+| + \ln|\det T_-|$:
+the even-odd action adds them over the sites of a parity (on the host, in site order). A pivot
+below $6\,\epsilon\max|T_{rc}|$ marks the site singular, and \code{set\_links} returns an error.
+
+Registers: $T_s$ and the inverse are $2\times72$ doubles, more than a thread keeps; the compiler
+puts part of them in local memory (L1). The kernel runs once a step of the integrator, next to a
+solve of hundreds of operator applications, so its speed does not matter.
+
+\subsection{The force of the clover term: insertion, then leaves}
+
+The clover term of $D$ is $-\kappa c_{SW}\sum_{\mu<\nu}F_{\mu\nu}\otimes G_{\mu\nu}$. Its part of
+$-2\,\mathrm{Re}\,\zeta\dg\delta D\eta$, for $\delta U = XU$, is $\mathrm{Re}\tr(XM)$ with $M$
+made in two steps.
+
+\paragraph{\code{clover\_insertion\_kernel}.} For a pair $(\zeta,\eta)$ and a weight $w$, at every
+site and plane,
+\begin{align}
+A_{\mu\nu,ij}(x) &= \sum_{s}(G_{\mu\nu}\eta)_{s,i}(x)\,\overline{\zeta_{s,j}(x)}
+ = \sum_s g(s)\,\eta_{c(s),i}(x)\,\overline{\zeta_{s,j}(x)},\\
+B_{\mu\nu}(x) &\mathrel{+}= \frac{w\,\kappa c_{SW}}{4}\big(A_{\mu\nu}(x) - A_{\mu\nu}(x)\dg\big).
+\end{align}
+One thread a site; the 24 reals of each spinor read once. $B$ of planes 0–3 sits in the four
+directions of one field of links and that of planes 4–5 in the first two of another, so the halo
+code of the links extends it.
+
+\paragraph{\code{clover\_log\_det\_insertion\_kernel}.} The derivative of $-2\ln|\det T_o|$ (the
+even-odd action) is the same insertion for the twelve pairs $(T^{-1}e_k, e_k)$ on the odd sites,
+$e_k$ the unit vector of spin $\sigma$ and colour $c$. Only one component of $e_k$ is nonzero, so
+the sum over $k$ collapses:
+\begin{align}
+A_{ij} &= \sum_{k}\sum_s g(s)\,(e_k)_{c(s),i}\,\overline{(T^{-1}e_k)_{s,j}}
+ = \sum_s g(s)\,\overline{(T^{-1})_{(s,j),(c(s),i)}} .
+\end{align}
+The entries of the $12\times12$ $T^{-1}$ come from its packed blocks (\code{clover\_entry}):
+\begin{equation}
+(T^{-1})_{(a,i),(b,j)} = \sum_{s=\pm}\tfrac12\,s^{[a\ge2]}s^{[b\ge2]}\,(T_s^{-1})_{i+3(a\bmod2),\,j+3(b\bmod2)} .
+\end{equation}
+
+\paragraph{\code{clover\_leaves\_kernel}.} Once for all pairs: one thread a link $(x,\rho)$. Every
+leaf of a plane containing $\rho$ that passes the link contributes. Cut the leaf at the link:
+$W_1$ runs from the link to the leaf's corner, $B$ of that corner is inserted, $W_2$ runs back,
+\begin{equation}
+M_\rho(x) = \sum_{\text{leaves}} \pm\,W_1\,B_{\mu\nu}(\text{corner})\,W_2,
+\end{equation}
+$+$ if the leaf takes the link forward, $-$ if backward (\code{hmc/fermion\_action.rs},
+\code{clover\_leaves}). Because $B$ is summed over the pairs first, a rational action with $N$
+poles walks the leaves once instead of $N$ times; Bridge++ (\code{AForce\_F\_CloverTerm}) does the
+eight terms $R(1)\ldots R(8)$ for every pair.
 
 %======================================================================
 \section{The fermion force: \code{hop\_force\_kernel}}

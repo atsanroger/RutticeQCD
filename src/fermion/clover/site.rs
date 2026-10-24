@@ -40,12 +40,6 @@ impl<T: Storage> CloverDiag<T> {
         &self.t
     }
 
-    /// The blocks of T⁻¹, as `blocks`.
-    #[cfg(feature = "cuda-bridge")]
-    pub(crate) fn inverse_blocks(&self) -> &[T] {
-        &self.t_inv
-    }
-
     /// Apply the two stored blocks of one site to a spinor.
     #[inline(always)]
     fn apply_blocks(

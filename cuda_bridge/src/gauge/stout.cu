@@ -1,4 +1,6 @@
 #include "gauge/links.cuh"
+// The kernels that walk paths of links share this unit: their headers define them outright.
+#include "fermion/clover_links.cuh"
 #include "bridge_cuda.h"
 
 namespace {
@@ -99,6 +101,42 @@ void bridge_cuda_gauge_traces(double* d_plaq, double* d_rect, const double* d_u,
 void bridge_cuda_links_norm2(double* d_out, const double* d_m, int vol, cudaStream_t stream)
 {
     bridge_cuda::links_norm2_kernel<<<blocks_for(static_cast<size_t>(vol)), BLOCK_SIZE, 0, stream>>>(d_out, d_m, vol);
+}
+
+// The clover term made of the links (fermion/clover_links.cuh).
+void bridge_cuda_clover_blocks(
+    double* d_t, double* d_t_inv, double* d_ln_det, double* d_singular, const double* d_u,
+    double kappa_csw, const int* dims, cudaStream_t stream)
+{
+    const auto g = geometry(dims, ONE);
+    bridge_cuda::clover_blocks_kernel<<<blocks_for(2 * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(
+        d_t, d_t_inv, d_ln_det, d_singular, d_u, kappa_csw, g);
+}
+
+void bridge_cuda_clover_insertion(
+    double* d_b_lo, double* d_b_hi, const double* d_zeta, const double* d_eta, double coef, int vol,
+    cudaStream_t stream)
+{
+    bridge_cuda::clover_insertion_kernel<<<blocks_for(static_cast<size_t>(vol)), BLOCK_SIZE, 0, stream>>>(
+        d_b_lo, d_b_hi, d_zeta, d_eta, coef, vol);
+}
+
+void bridge_cuda_clover_log_det_insertion(
+    double* d_b_lo, double* d_b_hi, const double* d_t_inv, double coef, int parity, const int* dims,
+    cudaStream_t stream)
+{
+    const auto g = geometry(dims, ONE);
+    bridge_cuda::clover_log_det_insertion_kernel<<<blocks_for(static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(
+        d_b_lo, d_b_hi, d_t_inv, coef, parity, g);
+}
+
+void bridge_cuda_clover_leaves(
+    double* d_m, const double* d_u, const double* d_b_lo, const double* d_b_hi, const int* dims,
+    cudaStream_t stream)
+{
+    const auto g = geometry(dims, ONE);
+    bridge_cuda::clover_leaves_kernel<<<blocks_for(4 * static_cast<size_t>(g.vol)), BLOCK_SIZE, 0, stream>>>(
+        d_m, d_u, d_b_lo, d_b_hi, g);
 }
 
 } // extern "C"

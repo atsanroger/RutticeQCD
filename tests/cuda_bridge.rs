@@ -1775,6 +1775,93 @@ fn domain_wall_force_on_the_device() {
     }
 }
 
+/// The derivatives of the Wilson and clover actions on the device are those of the CPU: the hops
+/// (`ForceOp::derivative`), the clover term of two weighted pairs walked at once, ln |det T| on
+/// each parity, and the even-odd clover term with the derivative of ln |det T_o|.
+#[test]
+fn wilson_and_clover_forces_on_the_device() {
+    use ruttice::backend::cuda_bridge::DeviceLinks;
+    use ruttice::hmc::{EvenOddForceOp, ForceOp};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 491);
+    let du = DeviceLinks::from_host(&u).unwrap();
+    let close = |expected: &Field<f64, Gauge>, got: &DeviceLinks, what: &str| {
+        let got = got.to_host().unwrap();
+        let size = expected
+            .as_slice()
+            .iter()
+            .fold(0.0f64, |m, x| m.max(x.abs()));
+        let diff = expected
+            .as_slice()
+            .iter()
+            .zip(got.as_slice())
+            .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+        eprintln!("{what}: the derivatives differ by {diff:e} of {size:e}");
+        assert!(size > 0.0 && diff < 1e-12 * size, "{what}");
+    };
+    let fields: Vec<Psi> = (0..4).map(|k| random_spinor(&lat, 1, 492 + k)).collect();
+    let dev: Vec<DeviceSpinor<f64>> = fields
+        .iter()
+        .map(|f| DeviceSpinor::from_host(f).unwrap())
+        .collect();
+
+    let wp = WilsonParams {
+        kappa: 0.13,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut cw = Wilson::<f64>::new(&lat, wp);
+    ForceOp::set_links(&mut cw, &u).unwrap();
+    let mut gw = CudaWilson::<f64>::new(&lat, wp).unwrap();
+    ForceOp::set_links(&mut gw, &du).unwrap();
+    close(
+        &cw.derivative(&fields[0], &fields[1]),
+        &gw.derivative(&dev[0], &dev[1]),
+        "Wilson hops",
+    );
+
+    let params = CloverParams {
+        kappa: 0.12,
+        csw: 1.7,
+        boundary: ANTIPERIODIC_T,
+    };
+    let kc = params.kappa * params.csw;
+    let mut cc = Clover::<f64>::new(&lat, params);
+    ForceOp::set_links(&mut cc, &u).unwrap();
+    let mut gc = CudaClover::<f64>::new(&lat, params).unwrap();
+    ForceOp::set_links(&mut gc, &du).unwrap();
+    close(
+        &cc.derivative(&fields[0], &fields[1]),
+        &gc.derivative(&dev[0], &dev[1]),
+        "clover hops",
+    );
+    close(
+        &cc.clover_derivative(
+            kc,
+            &u,
+            &[
+                (1.0, &fields[0], &fields[1]),
+                (-0.3, &fields[2], &fields[3]),
+            ],
+        ),
+        &gc.clover_derivative(
+            kc,
+            &du,
+            &[(1.0, &dev[0], &dev[1]), (-0.3, &dev[2], &dev[3])],
+        ),
+        "clover term",
+    );
+    for parity in [Parity::Even, Parity::Odd] {
+        let (a, b) = (cc.log_det_diag(&lat, parity), gc.log_det_diag(&lat, parity));
+        eprintln!("ln |det T| on {parity:?}: {a} and {b}");
+        assert!(a != 0.0 && (a - b).abs() < 1e-12 * a.abs());
+    }
+    close(
+        &cc.clover_derivative_eo(kc, &u, Parity::Odd, &fields[0], &fields[1]),
+        &gc.clover_derivative_eo(kc, &du, Parity::Odd, &dev[0], &dev[1]),
+        "even-odd clover term with ln det",
+    );
+}
+
 /// D† x = b through Ã† on the device (`adjoint_right_hand_side`, `adjoint_solution` with the
 /// fields of the device): the right-hand side is that of the CPU, and the x of the device
 /// solves D† x = b on the CPU.
@@ -2070,6 +2157,78 @@ fn hmc_with_domain_wall_fermions_on_the_device() {
             "ΔH {dh} on the CPU, {dk} on the device"
         );
     }
+}
+
+/// HMC with clover fermions on the device: Bridge++'s test_HMC_Clover_RHMC_Nf2p1 (stout links,
+/// Iwasaki action; the Ratio, Standard and Rational actions) gives the trajectory of the CPU and of
+/// Bridge++; so does it with the Standard action even-odd (ln det T_oo and its force), and with
+/// Wilson fermions in an even-odd Ratio.
+#[test]
+fn hmc_with_wilson_and_clover_fermions_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF");
+    let rows = |out: &str| -> Vec<(f64, f64)> {
+        out.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 6 {
+                    return None;
+                }
+                Some((f[1].parse().ok()?, f[2].parse().ok()?))
+            })
+            .collect()
+    };
+    let same = |text: &str, name: &str| -> Vec<(f64, f64)> {
+        let (cpu, gpu) = (
+            run_with_backend(text, "cpu", name),
+            run_with_backend(text, "cuda_bridge", name),
+        );
+        let (a, b) = (rows(&cpu), rows(&gpu));
+        assert!(!a.is_empty() && a.len() == b.len(), "{name}\n{cpu}\n{gpu}");
+        for ((p, dh), (q, dk)) in a.iter().zip(&b) {
+            eprintln!("{name}: plaquette {p} / {q}, ΔH {dh} / {dk}");
+            assert!(
+                (p - q).abs() < 1e-12,
+                "{name}: plaquette {p} on the CPU, {q} on the device"
+            );
+            assert!(
+                (dh - dk).abs() < 1e-7,
+                "{name}: ΔH {dh} on the CPU, {dk} on the device"
+            );
+        }
+        b
+    };
+    let b = same(&text, "hmc_clover");
+    assert!(
+        (b[0].0 - 0.627668186553629).abs() < 1e-11,
+        "Bridge++'s plaquette"
+    );
+
+    let even_odd = text.replace(
+        "  action_type     : Standard\n",
+        "  action_type     : Standard\n  operator_type   : Even_odd\n",
+    );
+    assert_ne!(even_odd, text);
+    same(&even_odd, "hmc_clover_eo");
+
+    let wilson = text
+        .replace(
+            "    fermion_type       : Clover\n",
+            "    fermion_type       : Wilson\n",
+        )
+        .replace("    clover_coefficient : 1.0\n", "")
+        .replace(
+            "  action_type     : Ratio\n",
+            "  action_type     : Ratio\n  operator_type   : Even_odd\n",
+        );
+    same(&wilson, "hmc_wilson_eo");
 }
 
 const MULTIGRID: &str = "MultiGrid:

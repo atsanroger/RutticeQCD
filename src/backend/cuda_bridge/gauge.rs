@@ -90,14 +90,14 @@ extern "C" {
 /// `depth` sites deep on both sides of every direction cut between processes, corners included
 /// (`gauge::paths::Extended` of the CPU). `dims` is what the kernels take: the local extents and
 /// the depths.
-struct Neighbourhood<'a> {
+pub(super) struct Neighbourhood<'a> {
     field: &'a DeviceLinks,
     extended: Option<DeviceBuffer<f64>>,
-    dims: [i32; 8],
+    pub(super) dims: [i32; 8],
 }
 
 impl Neighbourhood<'_> {
-    fn ptr(&self) -> *const f64 {
+    pub(super) fn ptr(&self) -> *const f64 {
         self.extended
             .as_ref()
             .map_or(self.field.data.ptr, |e| e.ptr)
@@ -177,7 +177,7 @@ impl DeviceLinks {
     /// sent in a direction including the halos of the directions before it, so the corners are
     /// filled too: the first `depth` layers of the interior go to the neighbour behind, the last
     /// to the one ahead.
-    fn with_halo(&self, depth: usize) -> Neighbourhood<'_> {
+    pub(super) fn with_halo(&self, depth: usize) -> Neighbourhood<'_> {
         let dims = self.dims_with(depth);
         if self.lat.comm.size() == 1 {
             return Neighbourhood {

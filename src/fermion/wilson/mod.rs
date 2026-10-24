@@ -79,12 +79,6 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T>> WilsonOp<T, 
     pub fn lattice(&self) -> &Arc<Lattice> {
         &self.lat
     }
-
-    /// The block of the operator within a site.
-    #[cfg(feature = "cuda-bridge")]
-    pub(crate) fn diag_term(&self) -> &D {
-        &self.diag
-    }
 }
 
 impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag, Aos> {

@@ -7,16 +7,15 @@
 //! λ of |D| and reads its coefficients from AlgRemez's files, which `RationalApprox::minimax`
 //! reproduces to the last digit.
 
-use super::fermion_action::full_derivative;
 use super::fermion_action::Gamma5;
 use super::solve::{Hermitian, Shifted};
-use super::{smeared_force, ForceOp, Links, Mseries};
+use super::{ForceOp, LinkField, Links, Mseries};
 use super::{NormalSolver, Preconditioner};
 use crate::fermion::{Bound, Variant};
 use crate::gauge::GaugeSmearing;
 use crate::numerics::RationalApprox;
 use crate::solver::{Cg, MultiShiftCg, SolveError, Solver, Stop};
-use crate::{Field, Gauge, Normal, Vector, C64};
+use crate::{Normal, Vector, C64};
 use std::rc::Rc;
 
 /// S = φ† r_md(D†D) φ, r_md ≈ (D†D)^(−a), φ drawn as r_hb(D†D) ξ, r_hb ≈ (D†D)^(a/2), with D
@@ -44,7 +43,7 @@ pub struct Rational<O: ForceOp> {
     pub(crate) last_iterations: usize,
 }
 
-impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
+impl<O: ForceOp> Rational<O> {
     pub fn new(
         op: O,
         smearing: Option<GaugeSmearing>,
@@ -96,10 +95,10 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
         self
     }
 
-    fn set_links(&mut self, links: &Links) -> Rc<Vec<Field<f64, Gauge>>> {
+    fn set_links(&mut self, links: &Links<O::Links>) -> Rc<Vec<O::Links>> {
         let levels = links.levels(self.smearing.as_ref());
         self.op
-            .set_gauge(levels.last().unwrap_or(links.thin))
+            .set_links(levels.last().unwrap_or(links.thin))
             .expect("the links suit the operator");
         levels
     }
@@ -177,9 +176,9 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
 
     /// The heat bath: φ = r_hb(D†D) ξ, ξ Gaussian (variance ½ per real) in Bridge++'s order;
     /// returns |ξ|².
-    pub fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+    pub fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         self.set_links(links);
-        let mut xi = self.op.new_field(links.thin.lattice());
+        let mut xi = self.op.new_field(LinkField::lattice(links.thin));
         self.op.draw(&mut xi, rng);
         let r = self.heat_bath.clone();
         self.fresh = true;
@@ -190,7 +189,7 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
     }
 
     /// S = φ† r_md(D†D) φ.
-    pub fn hamiltonian(&mut self, links: &Links) -> f64 {
+    pub fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         self.set_links(links);
         let phi = self.phi.take().expect("pseudofermions drawn");
         let r = self.md.clone();
@@ -201,7 +200,8 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
         d[0].re
     }
 
-    pub fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    /// Σ_k res_k M(D x_k, x_k), the clover term's part of all poles walked once.
+    pub fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         let levels = self.set_links(links);
         let phi = self.phi.take().expect("pseudofermions drawn");
         let r = self.md.clone();
@@ -210,28 +210,33 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
             .shifted(&r, &phi, self.stop_md, true)
             .expect("the multi-shift solve for the force converges");
         self.phi = Some(phi);
-        let mut m = Field::<f64, Gauge>::gauge(links.thin.lattice());
+        let mut m = links.thin.zeros_like();
         let mut work = self.op.work();
+        let mut dxs = Vec::with_capacity(xs.len());
         for (x, res) in xs.iter().zip(&r.residues) {
             let mut dx = x.zeros_like();
             self.op.mult(&mut work, &mut dx, x, Variant::D);
-            let mk = full_derivative(&self.op, self.clover, v, &dx, x);
-            for (a, b) in m.as_mut_slice().iter_mut().zip(mk.as_slice()) {
-                *a += res * b;
-            }
+            m.add_scaled(*res, &self.op.derivative(&dx, x));
+            dxs.push(dx);
         }
-        smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
+        if let Some(kc) = self.clover {
+            let pairs: Vec<_> = (r.residues.iter().zip(&dxs).zip(&xs))
+                .map(|((res, dx), x)| (*res, dx, x))
+                .collect();
+            m.add_scaled(1.0, &self.op.clover_derivative(kc, v, &pairs));
+        }
+        O::Links::smeared_force(&m, links.thin, self.smearing.as_ref(), &levels)
     }
 }
 
-impl<O: ForceOp<Links = Field<f64, Gauge>>> super::MdAction for Rational<O> {
-    fn langevin(&mut self, links: &Links, rng: &mut Mseries) -> f64 {
+impl<O: ForceOp> super::MdAction<O::Links> for Rational<O> {
+    fn langevin(&mut self, links: &Links<O::Links>, rng: &mut Mseries) -> f64 {
         Rational::langevin(self, links, rng)
     }
-    fn hamiltonian(&mut self, links: &Links) -> f64 {
+    fn hamiltonian(&mut self, links: &Links<O::Links>) -> f64 {
         Rational::hamiltonian(self, links)
     }
-    fn force(&mut self, links: &Links) -> Field<f64, Gauge> {
+    fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         Rational::force(self, links)
     }
 }

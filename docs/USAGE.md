@@ -156,9 +156,11 @@ stages made (the test vectors, P, the coarse operators, the solutions), to compa
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and Ratio actions
 (Lexical or Even_odd) on the device with everything the CPU has for them: CG, mixed CG, Neff's
 α, `Chebyshev`, and for the Ratio action the multigrid (the same code as on the CPU, its test
-vectors, P, the coarse operators and the cycles on the device). Not on the device yet: Wilson
-and clover fermions in HMC and the Rational action, the multigrid of Wilson and clover fermions,
-the flow, boundary phases other than ±1 and 0.
+vectors, P, the coarse operators and the cycles on the device). The Wilson and clover Standard,
+Ratio and Rational actions run on the device too (Lexical or Even_odd as on the CPU; CG, the
+two-step solvers, `Chebyshev`), with the clover term and its force made on the device; on one
+process so far. Not on the device yet: the multigrid of Wilson and clover fermions, Wilson and
+clover fermions on several processes, the flow, boundary phases other than ±1 and 0.
 
 **Several GPUs.** `ruttice-mpi` (features `mpi` and `cuda-bridge`) runs domain-wall fermions on
 several processes, one GPU each (the rank within its node modulo the GPUs it sees, or

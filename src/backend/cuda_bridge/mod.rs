@@ -381,18 +381,6 @@ fn padded(sites: usize) -> usize {
     sites.div_ceil(W) * W
 }
 
-/// `reals` per site of every site of the lattice, site after site, in the device layout.
-fn in_blocks(host: &[f64], reals: usize) -> Vec<f64> {
-    let sites = host.len() / reals;
-    let mut device = vec![0.0; padded(sites) * reals];
-    for (x, site) in host.chunks_exact(reals).enumerate() {
-        for (c, v) in site.iter().enumerate() {
-            device[at(c, x, reals)] = *v;
-        }
-    }
-    device
-}
-
 /// What runs on the device on one process only so far (the domain-wall operator exchanges the
 /// faces of its hops, `halo`; nothing else does yet).
 fn one_process(lat: &Lattice, what: &str) {

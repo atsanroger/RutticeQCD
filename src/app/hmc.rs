@@ -783,6 +783,42 @@ impl HmcConfig {
         self.actions
             .iter()
             .map(|a| -> Result<Term<'static>, CliError> {
+                if let Some((level, smeared, solver, fermion)) = wilson_type_parts(a) {
+                    let (md, h) = stops(solver);
+                    let c = Common {
+                        smearing: smearing.filter(|_| smeared),
+                        md,
+                        h,
+                        solver,
+                    };
+                    let action = match fermion {
+                        HmcFermion::Wilson { .. } => wilson_type(
+                            a,
+                            &|f| match *f {
+                                HmcFermion::Wilson { kappa, boundary: b } => {
+                                    Ok(wilson(lat, kappa, &b))
+                                }
+                                _ => unreachable!("checked when the file is read"),
+                            },
+                            c,
+                            base,
+                        )?,
+                        _ => wilson_type(
+                            a,
+                            &|f| match *f {
+                                HmcFermion::Clover {
+                                    kappa,
+                                    csw,
+                                    boundary: b,
+                                } => Ok(clover(lat, kappa, csw, &b)),
+                                _ => unreachable!("checked when the file is read"),
+                            },
+                            c,
+                            base,
+                        )?,
+                    };
+                    return Ok(Term { level, action });
+                }
                 let (level, action): (usize, Box<dyn MdAction>) = match a {
                     ActionConfig::Plaquette { beta, level } => {
                         (*level, Box::new(PlaquetteAction { beta: *beta }))
@@ -815,16 +851,8 @@ impl HmcConfig {
                             solver,
                         };
                         let action = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => {
-                                two_flavor(wilson(lat, kappa, &b), None, None, None, *even_odd, c)
-                            }
-                            HmcFermion::Clover {
-                                kappa,
-                                csw,
-                                boundary: b,
-                            } => {
-                                let op = clover(lat, kappa, csw, &b);
-                                two_flavor(op, Some(kappa * csw), None, None, *even_odd, c)
+                            HmcFermion::Wilson { .. } | HmcFermion::Clover { .. } => {
+                                unreachable!("taken above")
                             }
                             HmcFermion::DomainWall { .. } => {
                                 let p = mdwf_params(fermion);
@@ -877,18 +905,6 @@ impl HmcConfig {
                                 let single = mixed_even(lat, p, solver, q.is_some());
                                 ratio_eo(ops, single, q, c)
                             }
-                            (
-                                HmcFermion::Wilson { kappa, boundary: b },
-                                Some(HmcFermion::Wilson {
-                                    kappa: kd,
-                                    boundary: bd,
-                                }),
-                            ) if *even_odd => ratio_eo(
-                                (wilson(lat, kappa, &b), wilson(lat, kd, &bd)),
-                                None,
-                                None,
-                                c,
-                            ),
                             (HmcFermion::DomainWall { .. }, d) => {
                                 let p = mdwf_params(fermion);
                                 let pd = d.map_or(p.pauli_villars(), |d| mdwf_params(&d));
@@ -905,89 +921,12 @@ impl HmcConfig {
                                     }
                                 }
                             }
-                            (
-                                HmcFermion::Wilson { kappa, boundary: b },
-                                Some(HmcFermion::Wilson {
-                                    kappa: kd,
-                                    boundary: bd,
-                                }),
-                            ) => ratio(
-                                (wilson(lat, kappa, &b), wilson(lat, kd, &bd)),
-                                None,
-                                None,
-                                None,
-                                c,
-                            ),
-                            (
-                                HmcFermion::Clover {
-                                    kappa,
-                                    csw,
-                                    boundary: b,
-                                },
-                                Some(HmcFermion::Clover {
-                                    kappa: kd,
-                                    csw: cd,
-                                    boundary: bd,
-                                }),
-                            ) => {
-                                let ops = (clover(lat, kappa, csw, &b), clover(lat, kd, cd, &bd));
-                                ratio(ops, Some((kappa * csw, kd * cd)), None, None, c)
-                            }
-                            _ => unreachable!("checked when the file is read"),
+                            _ => unreachable!("Wilson and clover fermions are taken above"),
                         };
                         (*level, action)
                     }
-                    ActionConfig::Rational {
-                        fermion,
-                        level,
-                        poles,
-                        bounds,
-                        power: [p, q],
-                        coefficients,
-                        smeared,
-                        solver,
-                    } => {
-                        let (md, h) = stops(solver);
-                        let c = Common {
-                            smearing: smearing.filter(|_| *smeared),
-                            md,
-                            h,
-                            solver,
-                        };
-                        // S = φ† (D†D)^(−p/q) φ, φ = (D†D)^(p/2q) ξ.
-                        let spec = RationalSpec {
-                            poles: *poles,
-                            p: -p,
-                            q: *q,
-                            x_min: bounds[0] * bounds[0],
-                            x_max: bounds[1] * bounds[1],
-                        };
-                        let g = gcd(*p, 2 * q);
-                        let approximations = (
-                            approximation(&spec, coefficients.as_deref(), base)?,
-                            approximation(
-                                &spec.with_power(p / g, 2 * q / g),
-                                coefficients.as_deref(),
-                                base,
-                            )?,
-                        );
-                        let action = match *fermion {
-                            HmcFermion::Wilson { kappa, boundary: b } => {
-                                rational(wilson(lat, kappa, &b), None, approximations, c)
-                            }
-                            HmcFermion::Clover {
-                                kappa,
-                                csw,
-                                boundary: b,
-                            } => {
-                                let op = clover(lat, kappa, csw, &b);
-                                rational(op, Some(kappa * csw), approximations, c)
-                            }
-                            HmcFermion::DomainWall { .. } => {
-                                unreachable!("checked when the file is read")
-                            }
-                        };
-                        (*level, action)
+                    ActionConfig::Rational { .. } => {
+                        unreachable!("Rational is for Wilson and clover fermions, taken above")
                     }
                 };
                 Ok(Term { level, action })
@@ -1003,12 +942,67 @@ impl HmcConfig {
     fn device_terms(
         &self,
         lat: &Arc<Lattice>,
+        base: &Path,
     ) -> Result<Vec<Term<'static, crate::backend::cuda_bridge::DeviceLinks>>, CliError> {
-        use crate::backend::cuda_bridge::DeviceLinks;
+        use crate::backend::cuda_bridge::{CudaClover, CudaWilson, DeviceLinks};
         let smearing = self.gauge_smearing.map(|g| g.smearing());
+        let device = |e: crate::backend::cuda_bridge::CudaError| {
+            CliError::Invalid(format!("the device: {e}"))
+        };
         self.actions
             .iter()
             .map(|a| -> Result<Term<'static, DeviceLinks>, CliError> {
+                if let Some((level, smeared, solver, fermion)) = wilson_type_parts(a) {
+                    let stop = |t: f64| Stop {
+                        tolerance_sqr: t,
+                        max_iterations: solver.max_iterations,
+                        max_restarts: 10,
+                    };
+                    let c = Common {
+                        smearing: smearing.filter(|_| smeared),
+                        md: stop(solver.tolerance_squared),
+                        h: stop(solver.energy_tolerance_squared),
+                        solver,
+                    };
+                    let action = match fermion {
+                        HmcFermion::Wilson { .. } => wilson_type(
+                            a,
+                            &|f| match *f {
+                                HmcFermion::Wilson { kappa, boundary: b } => {
+                                    let params = WilsonParams {
+                                        kappa,
+                                        boundary: boundary(&b),
+                                    };
+                                    CudaWilson::<f64>::new(lat, params).map_err(device)
+                                }
+                                _ => unreachable!("checked when the file is read"),
+                            },
+                            c,
+                            base,
+                        )?,
+                        _ => wilson_type(
+                            a,
+                            &|f| match *f {
+                                HmcFermion::Clover {
+                                    kappa,
+                                    csw,
+                                    boundary: b,
+                                } => {
+                                    let params = CloverParams {
+                                        kappa,
+                                        csw,
+                                        boundary: boundary(&b),
+                                    };
+                                    CudaClover::<f64>::new(lat, params).map_err(device)
+                                }
+                                _ => unreachable!("checked when the file is read"),
+                            },
+                            c,
+                            base,
+                        )?,
+                    };
+                    return Ok(Term { level, action });
+                }
                 let (level, action): (usize, Box<dyn MdAction<DeviceLinks>>) = match a {
                     ActionConfig::Plaquette { beta, level } => {
                         (*level, Box::new(PlaquetteAction { beta: *beta }))
@@ -1327,14 +1321,119 @@ fn device_two_flavor(
     Ok(two_flavor(make(p)?, None, conditioned, single, even_odd, c))
 }
 
+/// The level, `smeared`, the solver and the fermion of a Wilson or clover action: the actions
+/// `wilson_type` makes.
+fn wilson_type_parts(a: &ActionConfig) -> Option<(usize, bool, &HmcSolver, HmcFermion)> {
+    let (level, smeared, solver, fermion) = match a {
+        ActionConfig::TwoFlavor {
+            fermion,
+            level,
+            smeared,
+            solver,
+            ..
+        }
+        | ActionConfig::TwoFlavorRatio {
+            fermion,
+            level,
+            smeared,
+            solver,
+            ..
+        }
+        | ActionConfig::Rational {
+            fermion,
+            level,
+            smeared,
+            solver,
+            ..
+        } => (*level, *smeared, solver, *fermion),
+        _ => return None,
+    };
+    (!matches!(fermion, HmcFermion::DomainWall { .. })).then_some((level, smeared, solver, fermion))
+}
+
+/// κ c_SW of a clover fermion; none for the others.
+fn clover_coefficient(f: &HmcFermion) -> Option<f64> {
+    match *f {
+        HmcFermion::Clover { kappa, csw, .. } => Some(kappa * csw),
+        _ => None,
+    }
+}
+
+/// The Wilson or clover action `a` (two flavours, their ratio, or a rational power) with the
+/// operators `make` builds of a fermion: on the CPU or on the device, wired the same way.
+fn wilson_type<O: EvenOddForceOp + 'static>(
+    a: &ActionConfig,
+    make: &dyn Fn(&HmcFermion) -> Result<O, CliError>,
+    c: Common,
+    base: &Path,
+) -> Result<Box<dyn MdAction<O::Links>>, CliError> {
+    Ok(match a {
+        ActionConfig::TwoFlavor {
+            fermion, even_odd, ..
+        } => two_flavor(
+            make(fermion)?,
+            clover_coefficient(fermion),
+            None,
+            None,
+            *even_odd,
+            c,
+        ),
+        ActionConfig::TwoFlavorRatio {
+            fermion,
+            denominator: Some(d),
+            even_odd,
+            ..
+        } => {
+            let ops = (make(fermion)?, make(d)?);
+            match (clover_coefficient(fermion), clover_coefficient(d)) {
+                (None, None) if *even_odd => ratio_eo(ops, None, None, c),
+                (k, kd) => ratio(ops, k.zip(kd), None, None, c),
+            }
+        }
+        ActionConfig::Rational {
+            fermion,
+            poles,
+            bounds,
+            power: [p, q],
+            coefficients,
+            ..
+        } => {
+            // S = φ† (D†D)^(−p/q) φ, φ = (D†D)^(p/2q) ξ.
+            let spec = RationalSpec {
+                poles: *poles,
+                p: -p,
+                q: *q,
+                x_min: bounds[0] * bounds[0],
+                x_max: bounds[1] * bounds[1],
+            };
+            let g = gcd(*p, 2 * q);
+            let approximations = (
+                approximation(&spec, coefficients.as_deref(), base)?,
+                approximation(
+                    &spec.with_power(p / g, 2 * q / g),
+                    coefficients.as_deref(),
+                    base,
+                )?,
+            );
+            rational(
+                make(fermion)?,
+                clover_coefficient(fermion),
+                approximations,
+                c,
+            )
+        }
+        _ => unreachable!("Wilson and clover actions only (`wilson_type_parts`)"),
+    })
+}
+
 /// A power of the determinant of `op` by the rational approximations of the action and of
 /// the heat bath.
-fn rational<O: ForceOp<Links = Field<f64, Gauge>> + 'static>(
+fn rational<O: ForceOp + 'static>(
     op: O,
     clover: Option<f64>,
     (md, heat_bath): (RationalApprox, RationalApprox),
     c: Common,
-) -> Box<dyn MdAction> {
+) -> Box<dyn MdAction<O::Links>> {
     let s = c.solver;
     let mut a = Rational::new(op, c.smearing, md, heat_bath, c.md, c.h)
         .with_pole_by_pole(s.kind == Some(HmcSolverKind::Cg));
@@ -1480,7 +1579,7 @@ pub fn run_on(
         #[cfg(feature = "cuda-bridge")]
         {
             use crate::backend::cuda_bridge::DeviceLinks;
-            let hmc = make_device(config, &lat, scheme)?;
+            let hmc = make_device(config, &lat, base, scheme)?;
             let u = <DeviceLinks as LinkField>::from_host(&u);
             return chain(config, base, out, root, u, hmc, plaquette_start);
         }
@@ -1494,11 +1593,12 @@ pub fn run_on(
 fn make_device(
     config: &HmcConfig,
     lat: &Arc<Lattice>,
+    base: &Path,
     scheme: Scheme,
 ) -> Result<Hmc<'static, crate::backend::cuda_bridge::DeviceLinks>, CliError> {
     let ig = &config.hmc.integrator;
     let mut hmc = Hmc::new(
-        config.device_terms(lat)?,
+        config.device_terms(lat, base)?,
         scheme,
         ig.steps.clone(),
         ig.exp_order,

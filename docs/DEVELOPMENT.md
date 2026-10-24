@@ -64,6 +64,7 @@ an option only where it lacks a kernel. For the domain-wall fermions (decided 20
 | Algorithm, written once | What a backend supplies |
 |---|---|
 | the operators of the even sites: `PvRatio`, `SchurFactor`, `AfterQ`, `adjoint_by_gamma5` (`fermion::even_odd`) | `EvenOdd` for its operator (`Mdwf`, `CudaMdwf`) |
+| the pseudofermion actions of Wilson and clover fermions, Rational included, and how a parameter file wires them (`hmc::TwoFlavor`, `TwoFlavorEo`, `TwoFlavorRatio`, `Rational`; `app::hmc::wilson_type`) | `ForceOp`, `EvenOddForceOp`: the hop derivative, the clover term's insertion and leaves, ln det T (`Wilson`, `Clover`, `CudaWilson`, `CudaClover`) |
 | the coarse correction and the cycle: `Correction`, `TwoGrid`, `Chebyshev` | P, the coarse operators, the levels below the coarse lattice |
 | the setup of the multigrid as the propagator runs and HMC take it: what the file asks (`MdwfMultigridSettings`, from `MultigridBlock::mdwf_settings` for both), the test vectors from a checkpoint or the filter and the bootstrap, P, the levels, the coarse parts, the tops of the smoothers, all of the cycle in its precision (`solver::preconditioner::multigrid::MdwfBackend::rebuild`) | `MdwfBackend`: its fields and the kernels of those steps, the cycles made of the parts (`OnCpu`, `cuda_bridge::mdwf_backend::OnDevice`) |
 | the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid::with_solves`) | — |

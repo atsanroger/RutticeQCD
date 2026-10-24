@@ -86,8 +86,17 @@ multigrid, run, simd; device cuda_bridge — all pass.
 (CPU, device). Checked on 4³×8, CPU and device: clover H (Lanczos, Bridge++'s 0.152031949234),
 Wilson D†D, clover D (Arnoldi), domain-wall D† (Arnoldi), `PV_right` D (Arnoldi), `PV_left` D†D
 with α 1.3, `PV_right` DD† after stout — the same restarts and applications, eigenvalues within
-1e-14. Still CPU only: the gradient flow, the Wilson and clover HMC and RHMC, the Wilson
-multigrid, MPI.
+1e-14. Still CPU only: the gradient flow, the Wilson multigrid, MPI. (The Wilson and clover HMC
+and RHMC came to the device on 2026-10-24, below.)
+
+**Wilson and clover HMC on the device (2026-10-24)**: DESIGN §7.8 step 1. The clover term and its
+inverse made from the links on the device (`fermion/clover_links.cuh`), the clover force by an
+insertion summed over the pairs and one leaf walk (a rational action walks the leaves once, not
+once a pole; on the CPU too), ln det T for the even-odd action. Checked: the derivatives of the
+device against the CPU to 1e-16 relative, ln det T to 1e-15; Bridge++'s test_HMC_Clover_RHMC_Nf2p1
+on the device gives the CPU's trajectory (plaquette 0.627668186553636, Bridge++
+0.627668186553629) and so do its even-odd clover Standard and a Wilson even-odd Ratio variant.
+Next (§7.8): Wilson and clover on several GPUs, then their multigrid on the device.
 
 **Several GPUs (2026-10-24)**: domain-wall fermions without the multigrid on several GPUs
 (CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is

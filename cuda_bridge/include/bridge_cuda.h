@@ -320,6 +320,29 @@ void bridge_cuda_hop_force(
     const double* d_gauge, int link_rows, const int* dims, const int* bc, int Ls, double coef,
     const BridgeCudaHalo* h_eta, const BridgeCudaHalo* h_g5zeta, cudaStream_t stream);
 
+// The clover term made of the links (fermion/clover_links.cuh), in double precision. dims: the
+// local extents, then the depths of the halo of the extended fields (stout.cuh).
+// The blocks of T = 1 - kappa c_SW sigma F and of T^-1 (clover.cuh's layout) from the links u
+// extended one site deep, ln |det| of every block (block w of local site x at w vol + x), and
+// singular set to a site plus one if a block there cannot be inverted.
+void bridge_cuda_clover_blocks(
+    double* d_t, double* d_t_inv, double* d_ln_det, double* d_singular, const double* d_u,
+    double kappa_csw, const int* dims, cudaStream_t stream);
+// B += coef (A - A^dag), A_munu = sum_spin gamma_mu gamma_nu eta zeta^dag at every site: planes
+// 0-3 in b_lo, 4-5 in the first two directions of b_hi (fields of links).
+void bridge_cuda_clover_insertion(
+    double* d_b_lo, double* d_b_hi, const double* d_zeta, const double* d_eta, double coef, int vol,
+    cudaStream_t stream);
+// The same for the pairs (T^-1 e_k, e_k) on the local sites whose coordinates add up to parity
+// (mod 2): the derivative of ln |det T| there.
+void bridge_cuda_clover_log_det_insertion(
+    double* d_b_lo, double* d_b_hi, const double* d_t_inv, double coef, int parity, const int* dims,
+    cudaStream_t stream);
+// M of the leaves through every link with B inserted at their corners; u, b_lo, b_hi extended.
+void bridge_cuda_clover_leaves(
+    double* d_m, const double* d_u, const double* d_b_lo, const double* d_b_hi, const int* dims,
+    cudaStream_t stream);
+
 // Stout smearing (gauge/stout.cuh), in double precision, links whole: v = exp(iQ) u for one
 // step, and one step of the chain rule of its force (Sigma of u from Sigma' of v) in two
 // parts: the local one, which makes i Theta, and the terms of the staples, which read i Theta

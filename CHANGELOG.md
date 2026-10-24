@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- HMC with Wilson and clover fermions on the device (`Main.backend : cuda_bridge`): the Standard,
+  Ratio and Rational actions, Lexical or Even_odd, on one process. The clover term, its inverse and
+  ln det T are made from the links on the device (`fermion/clover_links.cuh`; the clover operator
+  no longer builds them on the host), and its force too. The clover force sums the insertions of
+  all pairs before walking the leaves once, so a rational action walks them once instead of once
+  a pole, on the CPU as on the device (`ForceOp::clover_derivative` takes weighted pairs; a
+  breaking change for code implementing `ForceOp`). `Rational` is generic over the links.
+
 - The public interface of the library narrowed to what programs and users are meant to use:
   1151 public items and 608 public fields became 893 and 478; the rest is `pub(crate)`, so the
   compiler reports what nothing uses. Internal pieces (site arithmetic helpers, the parallel

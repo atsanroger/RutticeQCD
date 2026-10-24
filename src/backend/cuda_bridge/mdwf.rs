@@ -1045,7 +1045,7 @@ impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
 }
 
 extern "C" {
-    fn bridge_cuda_hop_force(
+    pub(super) fn bridge_cuda_hop_force(
         m: *mut f64,
         zeta: *const f64,
         eta: *const f64,
@@ -1159,8 +1159,7 @@ impl crate::hmc::ForceOp for CudaMdwf<f64> {
         &self,
         _kappa_csw: f64,
         _v: &DeviceLinks,
-        _zeta: &DeviceSpinor<f64>,
-        _eta: &DeviceSpinor<f64>,
+        _pairs: &[(f64, &DeviceSpinor<f64>, &DeviceSpinor<f64>)],
     ) -> DeviceLinks {
         unreachable!("domain-wall fermions have no clover term")
     }
@@ -1168,13 +1167,7 @@ impl crate::hmc::ForceOp for CudaMdwf<f64> {
         must(DeviceSpinor::zeros_fifth(lat, self.params.ls))
     }
     fn draw(&self, xi: &mut DeviceSpinor<f64>, rng: &mut crate::hmc::Mseries) {
-        let lat = xi.lat.clone();
-        let ls = self.params.ls;
-        let mut host = Field::<f64, crate::Spinor>::with_shape(&lat, 24, ls, 1, 1);
-        rng.gauss_lex_global(&lat, 24, ls, |s, x, h| {
-            host.site_mut(0, x)[24 * s..24 * (s + 1)].copy_from_slice(h);
-        });
-        *xi = must(DeviceSpinor::from_host(&host));
+        *xi = super::wilson::drawn(&xi.lat, self.params.ls, rng);
     }
     fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
         gamma5(out, inp, true);

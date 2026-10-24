@@ -76,15 +76,17 @@ pub(crate) fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
 }
 
 /// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for the links
-/// `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s convention).
+/// `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s convention), summed
+/// over the pairs (w, ζ, η) with weights w: the insertions of all pairs first, then one leaf walk.
 pub(crate) fn clover_derivative(
     u: &Field<f64, Gauge>,
     kappa_csw: f64,
-    zeta: &Psi,
-    eta: &Psi,
+    pairs: &[(f64, &Psi, &Psi)],
 ) -> Field<f64, Gauge> {
     let mut b = CloverInsertion::new(u.lattice());
-    b.add(kappa_csw, zeta, eta);
+    for &(w, zeta, eta) in pairs {
+        b.add(w * kappa_csw, zeta, eta);
+    }
     b.leaves(u)
 }
 
@@ -208,14 +210,14 @@ pub trait ForceOp: FermionOp<Self::Field> + Sized {
     fn set_links(&mut self, u: &Self::Links) -> Result<(), crate::fermion::GaugeError>;
     /// M of −2 Re ζ† δD η (dS = Re tr X M for δU = X U), without the clover term's part.
     fn derivative(&self, zeta: &Self::Field, eta: &Self::Field) -> Self::Links;
-    /// The part of the clover term (coefficient κ c_SW) in that M, on the links `v`. Panics
-    /// for an operator without a clover term.
+    /// The part of the clover term (coefficient κ c_SW) in Σ w M(ζ, η) over the pairs (w, ζ, η),
+    /// on the links `v`: the insertions of all pairs are summed before the leaves are walked
+    /// once. Panics for an operator without a clover term.
     fn clover_derivative(
         &self,
         kappa_csw: f64,
         v: &Self::Links,
-        zeta: &Self::Field,
-        eta: &Self::Field,
+        pairs: &[(f64, &Self::Field, &Self::Field)],
     ) -> Self::Links;
     /// A zero field of the shape the operator acts on (one vector).
     fn new_field(&self, lat: &Arc<Lattice>) -> Self::Field;
@@ -276,10 +278,9 @@ where
         &self,
         kappa_csw: f64,
         v: &Field<f64, Gauge>,
-        zeta: &Psi,
-        eta: &Psi,
+        pairs: &[(f64, &Psi, &Psi)],
     ) -> Field<f64, Gauge> {
-        clover_derivative(v, kappa_csw, zeta, eta)
+        clover_derivative(v, kappa_csw, pairs)
     }
     fn new_field(&self, lat: &Arc<Lattice>) -> Psi {
         Psi::spinor(lat, 1)
@@ -319,8 +320,7 @@ impl<G: crate::kernel::GammaRepre> ForceOp for crate::fermion::Mdwf<f64, G> {
         &self,
         _kappa_csw: f64,
         _v: &Field<f64, Gauge>,
-        _zeta: &Psi,
-        _eta: &Psi,
+        _pairs: &[(f64, &Psi, &Psi)],
     ) -> Field<f64, Gauge> {
         unreachable!("domain-wall fermions have no clover term")
     }
@@ -362,7 +362,7 @@ pub(super) fn full_derivative<O: ForceOp>(
 ) -> O::Links {
     let mut m = op.derivative(zeta, eta);
     if let Some(kc) = clover {
-        let c = op.clover_derivative(kc, v, zeta, eta);
+        let c = op.clover_derivative(kc, v, &[(1.0, zeta, eta)]);
         m.add_scaled(1.0, &c);
     }
     m

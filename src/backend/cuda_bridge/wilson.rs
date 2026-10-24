@@ -1,9 +1,10 @@
 //! The Wilson and the clover operator on the device.
 
 use super::*;
-use crate::fermion::{Clover, CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
+use crate::fermion::{CloverParams, Dagger, EvenOdd, FermionOp, Variant, WilsonParams};
+use crate::hmc::{EvenOddForceOp, EvenOddHalves, ForceOp, Mseries};
 use crate::kernel::{NC, NS};
-use crate::{Parity, Spinor, Vector};
+use crate::{Parity, Vector};
 
 /// Reals of the block of the clover operator within a site.
 const CLOVER: usize = 72;
@@ -11,6 +12,124 @@ const CLOVER: usize = 72;
 /// What Bridge++ counts for one application of the Wilson operator at a site (as the
 /// operator on the CPU).
 const WILSON_FLOPS: usize = NC * NS * (4 + 6 * (4 * NC + 2) + 2 * (4 * NC + 1));
+
+/// The same with the clover term, `Nc Nd (2 + 48 Nc)` and the `2 Nc Nd` additions that join it to
+/// the hops (as the operator on the CPU).
+const CLOVER_FLOPS: usize = WILSON_FLOPS + NC * NS * (2 + 48 * NC) + 2 * NC * NS;
+
+extern "C" {
+    fn bridge_cuda_clover_blocks(
+        t: *mut f64,
+        t_inv: *mut f64,
+        ln_det: *mut f64,
+        singular: *mut f64,
+        u: *const f64,
+        kappa_csw: f64,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_clover_insertion(
+        b_lo: *mut f64,
+        b_hi: *mut f64,
+        zeta: *const f64,
+        eta: *const f64,
+        coef: f64,
+        vol: i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_clover_log_det_insertion(
+        b_lo: *mut f64,
+        b_hi: *mut f64,
+        t_inv: *const f64,
+        coef: f64,
+        parity: i32,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+    fn bridge_cuda_clover_leaves(
+        m: *mut f64,
+        u: *const f64,
+        b_lo: *const f64,
+        b_hi: *const f64,
+        dims: *const i32,
+        stream: *mut c_void,
+    );
+}
+
+/// Gaussian numbers of variance ½ for every real of a field of `ls` spinors a site, drawn on the
+/// host in Bridge++'s order (`hmc::fermion_action::draw`) and sent to the device.
+pub(super) fn drawn(lat: &Arc<Lattice>, ls: usize, rng: &mut Mseries) -> DeviceSpinor<f64> {
+    let mut host = Field::<f64, crate::Spinor>::with_shape(lat, 24, ls, 1, 1);
+    rng.gauss_lex_global(lat, 24, ls, |s, x, h| {
+        host.site_mut(0, x)[24 * s..24 * (s + 1)].copy_from_slice(h);
+    });
+    must(DeviceSpinor::from_host(&host))
+}
+
+/// M of −2 Re ζ† δD η for the hops −κ H of a Wilson-type operator on the links `gauge`
+/// (`fermion/force.cuh` with one spinor a site): `ForceOp::derivative` of the CPU's operators.
+fn hop_derivative(
+    (gauge, geometry): (&DeviceGauge<f64>, &Geometry),
+    kappa: f64,
+    zeta: &DeviceSpinor<f64>,
+    eta: &DeviceSpinor<f64>,
+) -> DeviceLinks {
+    assert!(zeta.same_shape(eta) && eta.vectors == 1 && eta.ls == 1 && eta.parity.is_none());
+    let (mut g5zeta, mut g5eta) = (eta.zeros_like(), eta.zeros_like());
+    gamma5(&mut g5zeta, zeta, false);
+    gamma5(&mut g5eta, eta, false);
+    let m = must(DeviceLinks::zeros(&gauge.lat));
+    // SAFETY: four spinor fields of one vector on the lattice of the links, and a field of
+    // matrices of that lattice; no halos (one process).
+    unsafe {
+        super::mdwf::bridge_cuda_hop_force(
+            m.data.ptr,
+            zeta.data.ptr,
+            eta.data.ptr,
+            g5zeta.data.ptr,
+            g5eta.data.ptr,
+            gauge.links.ptr,
+            geometry.link_rows,
+            geometry.dims.as_ptr(),
+            geometry.bc.as_ptr(),
+            1,
+            -kappa,
+            std::ptr::null(),
+            std::ptr::null(),
+            STREAM,
+        );
+    }
+    m
+}
+
+/// The even-odd fields of a Wilson-type operator on the device: one spinor a site.
+macro_rules! wilson_halves {
+    ($op:ty) => {
+        impl EvenOddHalves for $op {
+            type Half = DeviceSpinor<f64>;
+            fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> DeviceSpinor<f64> {
+                must(DeviceSpinor::zeros_half(lat, 1, parity))
+            }
+            fn right_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+                out.copy_from(inp);
+            }
+            fn gamma5_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+                gamma5(out, inp, false);
+            }
+            fn half_of(
+                &self,
+                half: &mut DeviceSpinor<f64>,
+                whole: &DeviceSpinor<f64>,
+                parity: Parity,
+            ) {
+                crate::fermion::SplitParity::extract(&DeviceParities, half, whole, parity);
+            }
+            fn put_half(&self, whole: &mut DeviceSpinor<f64>, half: &DeviceSpinor<f64>) {
+                crate::fermion::SplitParity::insert(&DeviceParities, whole, half);
+            }
+        }
+    };
+}
 
 /// The scratch field of an operator, in the shape of `like`.
 pub(super) fn scratch<'w, T: DeviceReal>(
@@ -59,6 +178,11 @@ impl<T: DeviceReal> CudaWilson<T> {
             geometry: geometry(lat, params.boundary, 1),
             gauge: DeviceGauge::new(lat)?,
         })
+    }
+
+    /// The links `u`, already on the device.
+    pub fn set_gauge_on_device(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        self.gauge.set_on_device(u, &mut self.geometry)
     }
 
     /// `out = D inp`, or `D† inp`.
@@ -168,28 +292,80 @@ impl<T: DeviceReal> EvenOdd<DeviceSpinor<T>> for CudaWilson<T> {
 }
 
 /// The clover operator on the device. The blocks of the operator within a site and their
-/// inverses are made on the CPU, by the operator there, and sent to the device.
+/// inverses are made from the links on the device (`fermion/clover_links.cuh`).
 pub struct CudaClover<T = f64> {
     params: CloverParams,
     geometry: Geometry,
     gauge: DeviceGauge<T>,
-    cpu: Clover<f64>,
     term: DeviceBuffer<T>,
     inverse: DeviceBuffer<T>,
+    /// ln |det| of every chiral block, block w of site x at `w vol + x`: for the even-odd action.
+    ln_det: DeviceBuffer<f64>,
 }
 
 impl<T: DeviceReal> CudaClover<T> {
     pub fn new(lat: &Arc<Lattice>, params: CloverParams) -> Result<Self, CudaError> {
         one_process(lat, "the clover operator");
-        let blocks = padded(lat.num_sites()) * CLOVER;
+        let sites = lat.num_sites();
+        let blocks = padded(sites) * CLOVER;
         Ok(Self {
             params,
             geometry: geometry(lat, params.boundary, 1),
             gauge: DeviceGauge::new(lat)?,
-            cpu: Clover::new(lat, params),
             term: DeviceBuffer::zeros(blocks)?,
             inverse: DeviceBuffer::zeros(blocks)?,
+            ln_det: DeviceBuffer::zeros(2 * sites)?,
         })
+    }
+
+    /// The links `u`, already on the device, and the blocks made of them.
+    pub fn set_gauge_on_device(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        self.gauge.set_on_device(u, &mut self.geometry)?;
+        self.set_blocks(u)
+    }
+
+    /// T and T⁻¹ from the links `u` (in double precision, then in that of the operator), and
+    /// ln |det| of their blocks.
+    fn set_blocks(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        if u.lat.local != self.gauge.lat.local {
+            return Err(GaugeError::LatticeMismatch);
+        }
+        let sites = u.lat.num_sites();
+        let reals = padded(sites) * CLOVER;
+        let t = must(DeviceBuffer::<f64>::zeros(reals));
+        let t_inv = must(DeviceBuffer::<f64>::zeros(reals));
+        let ln_det = must(DeviceBuffer::<f64>::zeros(2 * sites));
+        let singular = must(DeviceBuffer::<f64>::zeros(1));
+        let n = u.with_halo(1);
+        // SAFETY: the blocks of T and of T⁻¹ of every site, two numbers a site, one number, and
+        // the links extended one site deep, as `n.dims` says.
+        unsafe {
+            bridge_cuda_clover_blocks(
+                t.ptr,
+                t_inv.ptr,
+                ln_det.ptr,
+                singular.ptr,
+                n.ptr(),
+                self.params.kappa * self.params.csw,
+                n.dims.as_ptr(),
+                STREAM,
+            );
+        }
+        let flag = must(singular.download())[0];
+        if flag != 0.0 {
+            return Err(GaugeError::SingularDiagonal {
+                site: flag as usize - 1,
+            });
+        }
+        let in_precision = |src: &DeviceBuffer<f64>| {
+            let mut dst = must(DeviceBuffer::<T>::uninitialised(reals));
+            convert(&mut dst, src);
+            dst
+        };
+        self.term = in_precision(&t);
+        self.inverse = in_precision(&t_inv);
+        self.ln_det = ln_det;
+        Ok(())
     }
 
     /// `out = D inp`, or `D† inp`.
@@ -294,15 +470,8 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaClover<T> {
     }
 
     fn set_gauge(&mut self, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
-        FermionOp::<Field<f64, Spinor>>::set_gauge(&mut self.cpu, u)?;
         self.gauge.set(u, &mut self.geometry)?;
-        let diag = self.cpu.diag_term();
-        self.term = must(DeviceBuffer::from_host(&in_blocks(diag.blocks(), CLOVER)));
-        self.inverse = must(DeviceBuffer::from_host(&in_blocks(
-            diag.inverse_blocks(),
-            CLOVER,
-        )));
-        Ok(())
+        self.set_blocks(&must(DeviceLinks::from_host(u)))
     }
 
     fn mult(
@@ -324,6 +493,165 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaClover<T> {
     }
 
     fn flops_per_site(&self) -> usize {
-        FermionOp::<Field<f64, Spinor>>::flops_per_site(&self.cpu)
+        CLOVER_FLOPS
     }
 }
+
+impl CudaClover<f64> {
+    /// The clover term's part of Σ w M(ζ, η) on the links `v`, with that of −2 ln |det T| on the
+    /// sites of `log_det` if given: the insertions B of all pairs, then the leaves walked once.
+    fn clover_part(
+        &self,
+        kappa_csw: f64,
+        v: &DeviceLinks,
+        pairs: &[(f64, &DeviceSpinor<f64>, &DeviceSpinor<f64>)],
+        log_det: Option<Parity>,
+    ) -> DeviceLinks {
+        let lat = &v.lat;
+        let sites = lat.num_sites();
+        let b_lo = must(DeviceLinks::zeros(lat));
+        let b_hi = must(DeviceLinks::zeros(lat));
+        for &(w, zeta, eta) in pairs {
+            assert!(zeta.same_shape(eta) && eta.vectors == 1 && eta.ls == 1);
+            assert!(eta.parity.is_none() && eta.sites() == sites);
+            // SAFETY: two fields of matrices and two spinor fields of one vector on `lat`.
+            unsafe {
+                bridge_cuda_clover_insertion(
+                    b_lo.data.ptr,
+                    b_hi.data.ptr,
+                    zeta.data.ptr,
+                    eta.data.ptr,
+                    w * kappa_csw / 4.0,
+                    sites as i32,
+                    STREAM,
+                );
+            }
+        }
+        if let Some(parity) = log_det {
+            // The parity of a local site from its local coordinates: that of the origin added.
+            let origin = lat.global_coords(0).iter().sum::<usize>();
+            let local = (parity.index() + origin) % 2;
+            let dims: [i32; 8] =
+                core::array::from_fn(|k| if k < 4 { lat.local[k] as i32 } else { 0 });
+            // SAFETY: two fields of matrices on `lat` and the blocks of T⁻¹ of its sites.
+            unsafe {
+                bridge_cuda_clover_log_det_insertion(
+                    b_lo.data.ptr,
+                    b_hi.data.ptr,
+                    self.inverse.ptr,
+                    kappa_csw / 4.0,
+                    local as i32,
+                    dims.as_ptr(),
+                    STREAM,
+                );
+            }
+        }
+        let m = must(DeviceLinks::zeros(lat));
+        let (nv, nlo, nhi) = (v.with_halo(1), b_lo.with_halo(1), b_hi.with_halo(1));
+        // SAFETY: the matrices of `lat`, and the links and the two insertions extended one site
+        // deep alike (`nv.dims`).
+        unsafe {
+            bridge_cuda_clover_leaves(
+                m.data.ptr,
+                nv.ptr(),
+                nlo.ptr(),
+                nhi.ptr(),
+                nv.dims.as_ptr(),
+                STREAM,
+            );
+        }
+        m
+    }
+}
+
+/// The Wilson operator on the device in the pseudofermion actions of HMC: the links, the solves
+/// and the derivative on the device; the pseudofermions drawn on the host in Bridge++'s order.
+impl ForceOp for CudaWilson<f64> {
+    type Field = DeviceSpinor<f64>;
+    type Links = DeviceLinks;
+    fn set_links(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        self.set_gauge_on_device(u)
+    }
+    fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> DeviceLinks {
+        hop_derivative((&self.gauge, &self.geometry), self.params.kappa, zeta, eta)
+    }
+    fn clover_derivative(
+        &self,
+        _kappa_csw: f64,
+        _v: &DeviceLinks,
+        _pairs: &[(f64, &DeviceSpinor<f64>, &DeviceSpinor<f64>)],
+    ) -> DeviceLinks {
+        unreachable!("the Wilson operator has no clover term")
+    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> DeviceSpinor<f64> {
+        must(DeviceSpinor::zeros(lat))
+    }
+    fn draw(&self, xi: &mut DeviceSpinor<f64>, rng: &mut Mseries) {
+        *xi = drawn(&xi.lat, 1, rng);
+    }
+    fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        gamma5(out, inp, false);
+    }
+}
+
+/// Without a clover term ln det T is zero and has no derivative; the action asks for neither.
+impl EvenOddForceOp for CudaWilson<f64> {}
+
+wilson_halves!(CudaWilson<f64>);
+
+/// The clover operator on the device in the actions of HMC, as `CudaWilson`; the clover term's
+/// part of the force on the device too.
+impl ForceOp for CudaClover<f64> {
+    type Field = DeviceSpinor<f64>;
+    type Links = DeviceLinks;
+    fn set_links(&mut self, u: &DeviceLinks) -> Result<(), GaugeError> {
+        self.set_gauge_on_device(u)
+    }
+    fn derivative(&self, zeta: &DeviceSpinor<f64>, eta: &DeviceSpinor<f64>) -> DeviceLinks {
+        hop_derivative((&self.gauge, &self.geometry), self.params.kappa, zeta, eta)
+    }
+    fn clover_derivative(
+        &self,
+        kappa_csw: f64,
+        v: &DeviceLinks,
+        pairs: &[(f64, &DeviceSpinor<f64>, &DeviceSpinor<f64>)],
+    ) -> DeviceLinks {
+        self.clover_part(kappa_csw, v, pairs, None)
+    }
+    fn new_field(&self, lat: &Arc<Lattice>) -> DeviceSpinor<f64> {
+        must(DeviceSpinor::zeros(lat))
+    }
+    fn draw(&self, xi: &mut DeviceSpinor<f64>, rng: &mut Mseries) {
+        *xi = drawn(&xi.lat, 1, rng);
+    }
+    fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
+        gamma5(out, inp, false);
+    }
+}
+
+impl EvenOddForceOp for CudaClover<f64> {
+    fn log_det_diag(&self, lat: &Arc<Lattice>, parity: Parity) -> f64 {
+        let ln_det = must(self.ln_det.download());
+        let sites = lat.num_sites();
+        let mut sum = [0.0];
+        for x in 0..sites {
+            if lat.global_coords(x).iter().sum::<usize>() % 2 == parity.index() {
+                sum[0] += ln_det[x] + ln_det[sites + x];
+            }
+        }
+        lat.comm.sum(&mut sum);
+        sum[0]
+    }
+    fn clover_derivative_eo(
+        &self,
+        kappa_csw: f64,
+        v: &DeviceLinks,
+        parity: Parity,
+        y: &DeviceSpinor<f64>,
+        x: &DeviceSpinor<f64>,
+    ) -> DeviceLinks {
+        self.clover_part(kappa_csw, v, &[(1.0, y, x)], Some(parity))
+    }
+}
+
+wilson_halves!(CudaClover<f64>);
