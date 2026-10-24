@@ -44,11 +44,6 @@ impl<V: Vector, A: LinearFn<V>, E: Corrects<V>> TwoGrid<V, A, E> {
     pub fn correction_mut(&mut self) -> &mut E {
         &mut self.correction
     }
-
-    /// The coarse correction, the cycle given up.
-    pub fn into_correction(self) -> E {
-        self.correction
-    }
 }
 
 impl<V: Vector, A: LinearFn<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, A, E> {

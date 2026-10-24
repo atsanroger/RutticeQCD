@@ -670,11 +670,6 @@ impl<T: Storage> CoarseOp<T> {
         (&self.diag, &self.links)
     }
 
-    /// The inverses of the diagonal blocks, with the even-odd form.
-    pub fn block_inverses(&self) -> Option<&[T]> {
-        self.even_odd.as_ref().map(|eo| eo.inverse.as_slice())
-    }
-
     /// The sites the eight hops of site `x` come from, in the order of the links; on one
     /// process.
     pub fn neighbours(&self, x: usize) -> [usize; 2 * ND] {

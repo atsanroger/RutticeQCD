@@ -1237,11 +1237,6 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         self.dim
     }
 
-    /// Whether the coarse lattice is cut between processes.
-    pub fn on_several_processes(&self) -> bool {
-        self.ghosts.is_some()
-    }
-
     /// The ghosts of the lattice, if it is cut between processes.
     pub(super) fn ghosts(&self) -> Option<&Rc<CoarseGhosts>> {
         self.ghosts.as_ref()

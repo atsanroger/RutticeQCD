@@ -334,16 +334,6 @@ where
         &self.params
     }
 
-    /// The coarse operators of the quark factor and of the second one.
-    pub fn coarse_mut(&mut self) -> (&mut D, &mut D) {
-        (&mut self.coarse_d, &mut self.coarse_pv)
-    }
-
-    /// The coarse operators, the correction given up.
-    pub fn into_coarse(self) -> (D, D) {
-        (self.coarse_d, self.coarse_pv)
-    }
-
     /// Levels below the coarse lattice for the solves of the quark factor: an approximate
     /// inverse of P†DP on the whole coarse lattice.
     pub fn set_levels_d(&mut self, levels: Box<Levels<'a, C>>) {

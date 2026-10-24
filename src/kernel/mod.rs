@@ -190,9 +190,6 @@ const _: () = assert!(
 );
 
 impl<T: Number> ColorMatrix<T> {
-    /// Number of reals in the full (uncompressed) representation.
-    pub const REALS: usize = 2 * NC * NC;
-
     #[inline(always)]
     pub fn zero() -> Self {
         Self([[Cplx::ZERO; NC]; NC])
