@@ -316,6 +316,20 @@ pub enum Precision {
 }
 
 impl MultigridConfig {
+    /// What the Wilson and clover multigrid on the device does not do yet, if this asks for
+    /// it: the levels below the coarse lattice, the coarse operator preconditioned by its
+    /// blocks.
+    pub(crate) fn refused_on_the_device(&self) -> Option<String> {
+        if self.level2_super_block.is_some() {
+            return Some(
+                "MultiGrid.MultiGrid_Level2: the levels below the coarse lattice of the Wilson and clover multigrid are not on the device yet".into(),
+            );
+        }
+        self.precondition_coarse_diagonal.then(|| {
+            "MultiGrid.MultiGrid_Level1.precondition_diagonal: the coarse operator preconditioned by its blocks is not on the device for Wilson and clover fermions; leave it false".into()
+        })
+    }
+
     /// `even_odd`: that of the solver (`SolverConfig::even_odd`), which the coarse solves
     /// follow.
     pub fn params(&self, even_odd: bool) -> MultigridParams {

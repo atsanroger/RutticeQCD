@@ -712,40 +712,41 @@ where
 
 /// An approximate inverse of the Schur complement S on one parity from one of the whole operator:
 /// the block of M⁻¹ on that parity is exactly S⁻¹, so with an approximate inverse `inner` of M,
-/// `[inner (r ⊕ 0)]_p` approximates S⁻¹ r as well as `inner` approximates M⁻¹.
-pub struct OnParity<'m, T: Storage, K: Kind, L: Layout> {
-    inner: &'m mut dyn LinearFn<Field<T, K, crate::Lexical, L>>,
-    index: &'m EvenOddIndex,
-    inp: Field<T, K, crate::Lexical, L>,
-    out: Field<T, K, crate::Lexical, L>,
+/// `[inner (r ⊕ 0)]_p` approximates S⁻¹ r as well as `inner` approximates M⁻¹. `split` splits
+/// the fields by parity: `EvenOddIndex` on the CPU, `DeviceParities` on the device.
+pub struct OnParity<'m, V, H, P> {
+    inner: &'m mut dyn LinearFn<V>,
+    split: &'m P,
+    parity: Parity,
+    inp: V,
+    out: V,
+    half: std::marker::PhantomData<H>,
 }
 
-impl<'m, T: Storage, K: Kind, L: Layout> OnParity<'m, T, K, L> {
-    /// `like` gives the shape of the whole fields; `index` is the operator's decomposition.
-    pub fn new(
-        inner: &'m mut dyn LinearFn<Field<T, K, crate::Lexical, L>>,
-        index: &'m EvenOddIndex,
-        like: &Field<T, K, crate::Lexical, L>,
-    ) -> Self {
+impl<'m, V: Vector, H, P: SplitParity<V, H>> OnParity<'m, V, H, P> {
+    /// On the even sites; `like` gives the shape of the whole fields.
+    pub fn new(inner: &'m mut dyn LinearFn<V>, split: &'m P, like: &V) -> Self {
         Self {
             inner,
-            index,
+            split,
+            parity: Parity::Even,
             inp: like.zeros_like(),
             out: like.zeros_like(),
+            half: std::marker::PhantomData,
         }
     }
 }
 
-impl<T: Storage, K: Kind, L: Layout> LinearFn<HalfField<T, K, L>> for OnParity<'_, T, K, L> {
-    fn mult(&mut self, out: &mut HalfField<T, K, L>, inp: &HalfField<T, K, L>) {
-        let n = Field::num_vectors(inp);
-        if Field::num_vectors(&self.inp) != n {
+impl<V: Vector, H: Vector, P: SplitParity<V, H>> LinearFn<H> for OnParity<'_, V, H, P> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        let n = inp.num_vectors();
+        if self.inp.num_vectors() != n {
             self.inp = self.inp.zeros_with(n);
             self.out = self.out.zeros_with(n);
         }
         self.inp.set_zero();
-        insert_parity(&mut self.inp, inp, self.index);
+        self.split.insert(&mut self.inp, inp);
         self.inner.mult(&mut self.out, &self.inp);
-        extract_parity(out, &self.out, self.index, inp.parity());
+        self.split.extract(out, &self.out, self.parity);
     }
 }

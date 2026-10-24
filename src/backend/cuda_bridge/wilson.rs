@@ -706,6 +706,34 @@ impl<T: DeviceReal> super::sap::BlockOperator<T> for CudaClover<T> {
     }
 }
 
+/// The multigrid of HMC for a Wilson-type operator on the device: the cycle of
+/// `MultigridSetup` on the device (`WilsonOnDevice`), its test vectors kept there.
+fn hmc_multigrid<'a, O: super::wilson_multigrid::MultigridOperator<f64> + 'a>(
+    op: &'a O,
+    lat: &Arc<Lattice>,
+    setup: &mut crate::hmc::MultigridSetup,
+    (fresh, md): (bool, bool),
+) -> Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a> {
+    use crate::solver::preconditioner::multigrid::random_vectors;
+    let backend = super::wilson_multigrid::WilsonOnDevice::new(op);
+    Box::new(setup.cycle_on(backend, lat, fresh, md, |p| {
+        must(DeviceSpinor::from_host(&random_vectors::<f64>(
+            lat,
+            1,
+            p.num_test_vectors,
+            p.seed,
+        )))
+    }))
+}
+
+/// The multigrid of the whole operator on the even sites, for the even-odd actions.
+fn on_even<'a>(
+    inner: &'a mut dyn crate::LinearFn<DeviceSpinor<f64>>,
+    like: &DeviceSpinor<f64>,
+) -> Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a> {
+    Box::new(crate::fermion::OnParity::new(inner, &DeviceParities, like))
+}
+
 /// The Wilson operator on the device in the pseudofermion actions of HMC: the links, the solves
 /// and the derivative on the device; the pseudofermions drawn on the host in Bridge++'s order.
 impl ForceOp for CudaWilson<f64> {
@@ -735,10 +763,26 @@ impl ForceOp for CudaWilson<f64> {
     fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
         gamma5(out, inp, false);
     }
+    fn multigrid<'a>(
+        &'a self,
+        setup: &mut crate::hmc::MultigridSetup,
+        fresh: bool,
+        md: bool,
+    ) -> Option<Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a>> {
+        Some(hmc_multigrid(self, &self.gauge.lat, setup, (fresh, md)))
+    }
 }
 
 /// Without a clover term ln det T is zero and has no derivative; the action asks for neither.
-impl EvenOddForceOp for CudaWilson<f64> {}
+impl EvenOddForceOp for CudaWilson<f64> {
+    fn on_even<'a>(
+        &'a self,
+        inner: &'a mut dyn crate::LinearFn<DeviceSpinor<f64>>,
+        lat: &Arc<Lattice>,
+    ) -> Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a> {
+        on_even(inner, &self.new_field(lat))
+    }
+}
 
 wilson_halves!(CudaWilson<f64>);
 
@@ -771,6 +815,14 @@ impl ForceOp for CudaClover<f64> {
     fn gamma5(&self, _work: &mut Self::Work, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
         gamma5(out, inp, false);
     }
+    fn multigrid<'a>(
+        &'a self,
+        setup: &mut crate::hmc::MultigridSetup,
+        fresh: bool,
+        md: bool,
+    ) -> Option<Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a>> {
+        Some(hmc_multigrid(self, &self.gauge.lat, setup, (fresh, md)))
+    }
 }
 
 impl EvenOddForceOp for CudaClover<f64> {
@@ -795,6 +847,13 @@ impl EvenOddForceOp for CudaClover<f64> {
         x: &DeviceSpinor<f64>,
     ) -> DeviceLinks {
         self.clover_part(kappa_csw, v, &[(1.0, y, x)], Some(parity))
+    }
+    fn on_even<'a>(
+        &'a self,
+        inner: &'a mut dyn crate::LinearFn<DeviceSpinor<f64>>,
+        lat: &Arc<Lattice>,
+    ) -> Box<dyn crate::LinearFn<DeviceSpinor<f64>> + 'a> {
+        on_even(inner, &self.new_field(lat))
     }
 }
 

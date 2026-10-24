@@ -3,7 +3,9 @@
 
 use super::fermion_action::Psi;
 use crate::fermion::HopTerms;
-use crate::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
+use crate::solver::preconditioner::multigrid::{
+    random_vectors, Multigrid, MultigridBackend, MultigridParams, WilsonMultigrid, WilsonOnCpu,
+};
 use crate::solver::{
     largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
 };
@@ -244,7 +246,9 @@ pub struct MultigridSetup {
     /// A full setup starts from the vectors of the one before, improved this many times; none:
     /// from random vectors.
     pub(crate) reuse: Option<usize>,
-    vectors: Option<Psi>,
+    /// The test vectors of the last setup, in the fields of its backend (`Psi` on the CPU,
+    /// `DeviceSpinor` on the device).
+    vectors: Option<Box<dyn std::any::Any>>,
     since: usize,
 }
 
@@ -275,13 +279,48 @@ impl MultigridSetup {
         fresh: bool,
         md: bool,
     ) -> Multigrid<'a, O, f64> {
+        self.cycle_on(WilsonOnCpu::new(op), lat, fresh, md, |p| {
+            random_vectors::<f64>(lat, 1, p.num_test_vectors, p.seed)
+        })
+    }
+
+    /// The cycle on any backend: a full setup when the pseudofermions were drawn or
+    /// `refresh_every` force solves ago (from the kept test vectors improved `reuse` times, or
+    /// from `random` ones), else from the kept test vectors as they are, only the coarse
+    /// operator made again.
+    pub(crate) fn cycle_on<'a, B: MultigridBackend<'a>>(
+        &mut self,
+        backend: B,
+        lat: &Arc<Lattice>,
+        fresh: bool,
+        md: bool,
+        random: impl FnOnce(&MultigridParams) -> B::Fine,
+    ) -> WilsonMultigrid<'a, B>
+    where
+        B::Fine: 'static,
+    {
         let due = fresh || (self.refresh_every > 0 && self.since >= self.refresh_every);
-        let cycle = match (self.vectors.take(), due, self.reuse) {
-            (Some(vectors), false, _) => Multigrid::rebuilt(op, lat, &self.params, vectors),
-            (Some(vectors), true, Some(iterations)) => {
-                Multigrid::from_vectors(op, lat, &self.params, vectors, iterations)
+        let kept = self
+            .vectors
+            .take()
+            .and_then(|v| v.downcast::<B::Fine>().ok())
+            .map(|v| *v);
+        let p = &self.params;
+        let cycle = match (kept, due, self.reuse) {
+            (Some(vectors), false, _) => {
+                WilsonMultigrid::from_parameters(backend, lat, p, vectors, false, 0)
             }
-            _ => Multigrid::new(op, lat, &self.params),
+            (Some(vectors), true, Some(iterations)) => {
+                WilsonMultigrid::from_parameters(backend, lat, p, vectors, true, iterations)
+            }
+            _ => WilsonMultigrid::from_parameters(
+                backend,
+                lat,
+                p,
+                random(p),
+                true,
+                p.setup_iterations,
+            ),
         }
         .expect("the multigrid setup succeeds");
         if due {
@@ -290,7 +329,7 @@ impl MultigridSetup {
         if md {
             self.since += 1;
         }
-        self.vectors = Some(cycle.test_vectors());
+        self.vectors = Some(Box::new(cycle.test_vectors()));
         cycle
     }
 }

@@ -1531,6 +1531,38 @@ fn clover_multigrid_on_several_processes_is_that_on_one() {
     }
 }
 
+/// `examples/clover_mg.yaml` with `backend : cuda_bridge` gives the correlators of the CPU:
+/// the clover multigrid on the device (even-odd with the cycle on the even sites, and on the
+/// whole lattice; the cycle in single and in double precision), and Wilson fermions.
+#[test]
+fn clover_multigrid_files_on_the_device() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = std::fs::read_to_string(examples.join("clover_mg.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF");
+    let lexical = text.replace(": Even_odd #", ": Lexical #");
+    let double = text.replace("coarse_precision : single", "coarse_precision : double");
+    let wilson = text
+        .replace(": Clover     #", ": Wilson     #")
+        .replace("  clover_coefficient : 1.0\n", "");
+    for (t, name) in [
+        (&text, "clover_mg"),
+        (&lexical, "clover_mg_lexical"),
+        (&double, "clover_mg_double"),
+        (&wilson, "wilson_mg"),
+    ] {
+        assert!(
+            name == "clover_mg" || *t != text,
+            "{name}: the variant changed nothing"
+        );
+        same_tables(t, name, 1e-10);
+    }
+}
+
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]

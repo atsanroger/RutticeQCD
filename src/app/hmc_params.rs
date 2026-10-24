@@ -566,10 +566,22 @@ impl HmcParams {
                     | ActionConfig::TwoFlavorRatio { solver, .. }
                     | ActionConfig::Rational { solver, .. } => {
                         if solver.asks_for(super::hmc::HmcPreconditioner::Multigrid) {
-                            return invalid(format!(
-                                "{}.Solver.preconditioner_type: the multigrid of Wilson and clover fermions is not on the device yet; None or Chebyshev",
-                                names[i]
-                            ));
+                            if let Some(super::hmc::HmcMultigrid::Wilson { params, .. }) =
+                                &solver.multigrid
+                            {
+                                if params.levels[0] > 0 {
+                                    return invalid(format!(
+                                        "{}.MultiGrid.MultiGrid_Level2: the levels below the coarse lattice of the Wilson and clover multigrid are not on the device yet",
+                                        names[i]
+                                    ));
+                                }
+                                if params.precondition_coarse_diagonal {
+                                    return invalid(format!(
+                                        "{}.MultiGrid.MultiGrid_Level1.precondition_diagonal: the coarse operator preconditioned by its blocks is not on the device for Wilson and clover fermions; leave it false",
+                                        names[i]
+                                    ));
+                                }
+                            }
                         }
                     }
                 }

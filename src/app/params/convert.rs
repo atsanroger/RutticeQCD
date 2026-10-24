@@ -295,12 +295,12 @@ impl Params {
                 }
             }
         }
-        if self.solver.preconditioner_type == PreconditionerType::Multigrid
-            && !matches!(self.fopr.fermion_type, FermionType::DomainWall)
-        {
-            return Err(invalid(
-                "Main.backend cuda_bridge: the multigrid is on the device for domain-wall fermions only; use Solver.preconditioner_type None".into(),
-            ));
+        if self.solver.preconditioner_type == PreconditionerType::Multigrid && !dwf {
+            if let Some(mg) = &self.multigrid {
+                if let Some(why) = mg.wilson().refused_on_the_device() {
+                    return Err(invalid(format!("Main.backend cuda_bridge: {why}")));
+                }
+            }
         }
         Ok(())
     }
