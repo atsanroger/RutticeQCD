@@ -14,14 +14,10 @@ set(BRIDGE_CUDA_SOURCES
     src/fermion/wilson.cu
     src/fermion/clover.cu
     src/fermion/mdwf.cu
-    src/fermion/dd.cu
     src/fermion/force.cu
-    src/multigrid/multigrid.cu
-    src/multigrid/mrhs.cu
     src/multigrid/fold.cu
     src/multigrid/levels.cu
     src/multigrid/dense.cu
-    src/gauge/gauge.cu
     src/gauge/stout.cu
     src/linalg/blas.cu
 )
@@ -43,12 +39,3 @@ set_target_properties(bridge_cuda_static PROPERTIES
 
 add_executable(test_mdwf_1pass tests/test_mdwf_1pass.cu)
 target_link_libraries(test_mdwf_1pass PRIVATE bridge_cuda_static)
-
-add_executable(test_mdwf_transfer tests/test_mdwf_transfer.cu)
-target_link_libraries(test_mdwf_transfer PRIVATE bridge_cuda_static)
-
-add_executable(test_coarse_schur tests/test_coarse_schur.cu)
-target_link_libraries(test_coarse_schur PRIVATE bridge_cuda_static)
-
-add_executable(test_clover_mg_transfer tests/test_clover_mg_transfer.cu)
-target_link_libraries(test_clover_mg_transfer PRIVATE bridge_cuda_static)

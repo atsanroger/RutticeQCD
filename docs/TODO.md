@@ -95,8 +95,11 @@ refused for ranks sharing a device and the host path runs), the speed of the exc
 GPU shared by two processes every exchange pays a context switch: HMC with the multigrid 48 s
 against 1.6 s). The multigrid, its levels and the exact adjoint of the second factor run on several
 GPUs, and the CPU's multigrid on several processes (checked with two MPI processes: the same
-iterations). Next: NVSHMEM for the coarse ghosts (or NCCL's device API, if it does the same). Notes:
-`MULTI_GPU_NOTE.pdf` (the layout of the faces, coalescing, the transports, Bridge++).
+iterations). NVSHMEM: evaluated, not implemented (docs/implementation/MULTI_GPU_NOTE, Sec. 4.2: the coarse
+ghosts are latency-bound, an estimated 1.5-3x faster coarse solve; nothing to gain on the fine
+operator of a large local lattice); to be measured on a machine with several GPUs, after checking
+whether NCCL's own symmetric memory does the same. Notes:
+`docs/implementation/` (the layout of the faces, coalescing, the transports, Bridge++, every kernel).
 
 ## Structure
 

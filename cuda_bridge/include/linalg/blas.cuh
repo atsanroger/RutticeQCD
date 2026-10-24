@@ -6,13 +6,6 @@
 
 namespace bridge_cuda {
 
-template <typename Float>
-__global__ void blas_axpy_kernel(Float* __restrict__ y, const Float* __restrict__ x, Float a, int n) {
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
-        y[i] += a * x[i];
-    }
-}
-
 // The fields below hold `vectors` vectors of n reals one after the other, with a coefficient
 // for each: the coefficients are an argument of the kernel, which takes up to BlasVectors
 // vectors.

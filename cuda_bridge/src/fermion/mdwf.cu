@@ -177,14 +177,6 @@ void bridge_cuda_mdwf_dslash_1pass_f32(
     );
 }
 
-void bridge_cuda_mdwf_dslash_f32(
-    float* d_out, const float* d_in, const float* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
-    cudaStream_t stream)
-{
-    bridge_cuda_mdwf_dslash_1pass_f32(d_out, d_in, d_gauge, geom, params, 1, stream);
-}
-
 void bridge_cuda_hop_f32(
     float* d_out, const float* d_in, const float* d_gauge, const float* d_from,
     const BridgeCudaGeometry* geom, double kappa, double mass, double b5, double c5,
@@ -249,14 +241,6 @@ void bridge_cuda_mdwf_dslash_1pass_f64(
         static_cast<double>(params->M5), static_cast<double>(params->mass), static_cast<double>(params->b5), static_cast<double>(params->c5),
         bridge_cuda::Halo<double>{}
     );
-}
-
-void bridge_cuda_mdwf_dslash_f64(
-    double* d_out, const double* d_in, const double* d_gauge,
-    const BridgeCudaGeometry* geom, const BridgeCudaMdwfParams* params,
-    cudaStream_t stream)
-{
-    bridge_cuda_mdwf_dslash_1pass_f64(d_out, d_in, d_gauge, geom, params, 1, stream);
 }
 
 void bridge_cuda_hop_f64(

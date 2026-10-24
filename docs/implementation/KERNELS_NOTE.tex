@@ -1,0 +1,532 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\geometry{a4paper,left=2.2cm,right=2.2cm,top=2.2cm,bottom=2.4cm}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.7ex}
+\numberwithin{equation}{section}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\dg}{^{\dagger}}
+\newcommand{\tr}{\operatorname{tr}}
+
+\title{The CUDA kernels of RutticeQCD, one by one}
+\author{Wei-Lun Chen}
+\date{\today\quad(internal note)}
+
+\begin{document}
+\maketitle
+
+\noindent For every kernel: what it computes, written out line by line, how its threads are laid
+out, and what in memory decides its speed. File names are under \code{cuda\_bridge/include/}.
+The communication kernels are in the note on several GPUs.
+
+\tableofcontents
+
+%======================================================================
+\section{How the fields lie in memory}
+
+\subsection{Blocks of 32 sites}
+
+A field has $N_c$ reals per site. Sites are grouped by 32, and inside a group the same component
+of the 32 sites is consecutive:
+\begin{equation}
+a(c,n) = \big(\lfloor n/32\rfloor\cdot N_c + c\big)\cdot 32 + (n \bmod 32).
+\label{eq:aosoa}
+\end{equation}
+Why: a warp is 32 threads. If thread $j$ handles site $32k+j$ and reads component $c$,
+\begin{equation}
+a(c,32k+j) = (kN_c+c)\cdot32 + j,\qquad j=0,\dots,31,
+\end{equation}
+32 consecutive numbers: one memory transaction. This is the only rule behind every layout below.
+
+\subsection{Spinors with a fifth dimension}
+
+A domain-wall spinor has $L_s$ spinors of 24 reals per site. Component (colour $k$, spin $a$,
+real/imag $r$) at fifth coordinate $s$ is component
+\begin{equation}
+c = 24s + 2(k + 3a) + r
+\end{equation}
+of the site, $N_c=24L_s$. A field on one parity numbers its sites by $\lfloor x/2\rfloor$:
+\begin{equation}
+n_{\text{half}} = \lfloor x/2\rfloor + \tfrac{L_x}{2}\big(y+L_y(z+L_zt)\big),\qquad
+x = 2\lfloor x/2\rfloor + \big((p+y+z+t)\bmod 2\big),
+\end{equation}
+the second line recovering $x$ from the parity $p$. Several vectors of a field lie one after
+another, each padded to a whole number of blocks.
+
+\subsection{Links: two rows are enough}
+
+A link $U\in SU(3)$ has rows $r_0,r_1,r_2$. Unitarity and $\det U=1$ give
+\begin{align}
+r_2 &= \overline{r_0\times r_1},\\
+(r_2)_c &= \overline{(r_0)_a(r_1)_b - (r_0)_b(r_1)_a},\qquad a=c+1,\ b=c+2\pmod 3 .
+\end{align}
+So the operators keep 12 reals per link instead of 18 when the links are in $SU(3)$, and rebuild
+row 2 in registers (\code{load\_link} in \code{hops.cuh}). A hop reads mostly links, so this
+saves about a third of what it reads.
+
+%======================================================================
+\section{The domain-wall operator}
+
+\subsection{What the operator is}
+
+The Möbius operator on $\psi_s$, $s=0,\dots,L_s-1$, is
+\begin{equation}
+D\psi_s = (b\,D_W+1)\psi_s + (c\,D_W-1)\big(P_-\psi_{s+1}+P_+\psi_{s-1}\big),
+\end{equation}
+with $D_W = (4-M_5) - \tfrac12\tilde H$ and $\tilde H$ the hops without $\kappa$. Define the
+fifth-dimension hop
+\begin{equation}
+(Y\psi)_s = -P_-\psi_{s+1} - P_+\psi_{s-1}\qquad(+m\text{ in place of }-1\text{ across the walls}).
+\end{equation}
+Then $P_-\psi_{s+1}+P_+\psi_{s-1} = -(Y\psi)_s$, and
+\begin{align}
+D\psi &= (bD_W+1)\psi - (cD_W-1)Y\psi\\
+&= \big[b(4-M_5)+1\big]\psi + \big[1-c(4-M_5)\big]Y\psi - \tfrac12\tilde H\,(b\psi - cY\psi)\\
+&= \underbrace{(d_+ + d_-Y)\psi}_{C\psi} \;-\; \tfrac12\tilde H\,(b - cY)\psi,
+\end{align}
+with $d_+ = 1+b(4-M_5)$ and $d_- = 1-c(4-M_5)$. $C$ acts within a four-dimensional site; the
+hops act on $w=(b-cY)\psi$. Every kernel below is a piece of this line.
+
+\subsection{\code{fifth\_term}: $a\psi_s + y(Y\psi)_s$}
+
+\begin{align}
+w_s &= a\,\psi_s + y\,(Y\psi)_s\\
+&= a\,\psi_s - y\,P_-\psi_{s+1} - y\,P_+\psi_{s-1}\qquad (0<s<L_s-1),\\
+w_0 &= a\,\psi_0 - y\,P_-\psi_1 + y\,m\,P_+\psi_{L_s-1},\\
+w_{L_s-1} &= a\,\psi_{L_s-1} + y\,m\,P_-\psi_0 - y\,P_+\psi_{L_s-2}.
+\end{align}
+For $Y\dg$ the projectors swap: $P_+$ from above, $P_-$ from below.
+
+\subsection{\code{hop\_kernel}: $\text{out} = [\text{from}-]\,H(b-cY)\,\text{in}$}
+
+At output site $x$ and fifth coordinate $s$:
+\begin{equation}
+\text{out}_s(x) = -\kappa\sum_\mu\Big[(1-s_\pm\gamma_\mu)U_\mu(x)\,w_s(x+\hat\mu) + (1+s_\pm\gamma_\mu)U_\mu(x-\hat\mu)\dg\,w_s(x-\hat\mu)\Big],
+\end{equation}
+with $w_s$ from \code{fifth\_term} computed on the fly at the neighbour ($a=b$, $y=-c$) and
+$s_\pm=\pm1$ for $H$, $H\dg$. A leg is done in three steps (\code{leg\_half}, link,
+\code{add\_leg}). For $\mu=0$ (Sec.~1.1 of the other note):
+\begin{align}
+h_0 &= w_0 + is_\pm w_3, & h_1 &= w_1 + is_\pm w_2,\\
+t_a &= U\,h_a\quad(a=0,1), \\
+\text{out}_0 &\mathrel{+}= -\kappa\,t_0, & \text{out}_1 &\mathrel{+}= -\kappa\,t_1,\\
+\text{out}_3 &\mathrel{+}= -\kappa\,(-is_\pm)\,t_0, & \text{out}_2 &\mathrel{+}= -\kappa\,(-is_\pm)\,t_1 .
+\end{align}
+Two $SU(3)$ products per leg instead of four.
+
+\textbf{Threads.} A thread for each (site, fibre), a fibre being one $s$ of one vector. The
+threads of a block are 2D: \code{threadIdx.x} the site (consecutive sites: coalesced by
+Eq.~\eqref{eq:aosoa}), \code{threadIdx.y} the fibre. All fibres of a site read the same eight
+links, which then come from the cache after the first. At most 256 threads a block: a thread may
+use 255 registers and a block has 65536.
+
+\textbf{Double precision.} The two legs of a direction are done one after the other, so only one
+spinor and one link are live: 168 registers, three blocks per multiprocessor. The sums go into
+\code{out} in the same order either way.
+
+\subsection{\code{mdwf\_dslash\_1pass\_kernel}: all of $D$ in one pass}
+
+\begin{equation}
+\text{out}_s(x) = \underbrace{d_+\psi_s(x) + d_-(Y\psi)_s(x)}_{\code{fifth\_term}(a=d_+,\,y=d_-)} \;+\; \text{hops}\big(\kappa=\tfrac12\big).
+\end{equation}
+One read of $\psi$ and the links, one write of out. Used for $D$ on the whole lattice.
+
+\subsection{\code{mdwf\_fifth\_kernel}: $(a_1+y_1Y)x + (a_2+y_2Y)z$}
+
+Two \code{fifth\_term}s added, for the parts of the even-odd operators that act within a site.
+
+\subsection{The fifth dimension as a matrix: \code{fifth\_gemm}}
+
+In the Dirac representation $\gamma_5$ swaps the upper and lower spin pairs:
+\begin{equation}
+\gamma_5=\begin{pmatrix}0&1\\1&0\end{pmatrix},\qquad
+P_\pm = \tfrac12(1\pm\gamma_5) = \tfrac12\begin{pmatrix}1&\pm1\\\pm1&1\end{pmatrix}.
+\end{equation}
+Write a spinor at $s$ as (upper $u_s$, lower $l_s$). Any operator of the form
+$\sum_{s'}(A_{ss'}P_+ + B_{ss'}P_-)$ gives
+\begin{align}
+\text{out}^u_s &= \sum_{s'}\Big[A_{ss'}\tfrac{u_{s'}+l_{s'}}{2} + B_{ss'}\tfrac{u_{s'}-l_{s'}}{2}\Big]
+= \sum_{s'}\Big[\tfrac{A+B}{2}u_{s'} + \tfrac{A-B}{2}l_{s'}\Big]_{ss'},\\
+\text{out}^l_s &= \sum_{s'}\Big[A_{ss'}\tfrac{u_{s'}+l_{s'}}{2} - B_{ss'}\tfrac{u_{s'}-l_{s'}}{2}\Big]
+= \sum_{s'}\Big[\tfrac{A-B}{2}u_{s'} + \tfrac{A+B}{2}l_{s'}\Big]_{ss'}.
+\end{align}
+So the operator is one real $2L_s\times2L_s$ matrix $M$ acting on the rows $(u_0,l_0,u_1,l_1,\dots)$.
+$Y$, $C$, $C^{-1}$, $b-cY$, Neff's $Q$, their adjoints and their products are all of this form.
+Products are formed on the host, and one kernel applies the result. In a block of 32 sites the
+rows of the field are $2L_s$ rows of $12\times32=384$ reals:
+\begin{equation}
+\text{out}\,(2L_s\times384) = M\,(2L_s\times2L_s)\ \text{in}\,(2L_s\times384).
+\end{equation}
+
+\textbf{Double precision on the tensor cores} (\code{fifth\_gemm\_mma\_kernel}). The instruction
+\code{mma.m8n8k4.f64} computes $D(8\times8)\mathrel{+}=A(8\times4)\,B(4\times8)$; thread $t$ of a
+warp holds $A[t/4][t\bmod4]$, $B[t\bmod4][t/4]$ and two entries of $D$. A warp takes a strip of 8
+columns; for every 4 rows of the input it reads its $4\times8$ reals once and multiplies them
+with the tiles of $M$.
+
+\textbf{Why the XOR.} $M$ sits in shared memory, which has 32 banks of 4 bytes. A double occupies
+two banks, so double number $k$ of a row of length $K_{16}$ (a multiple of 16) is in banks
+\begin{equation}
+\text{bank}(row,k) = 2(row\cdot K_{16}+k) \bmod 32 = 2k \bmod 32\qquad(2K_{16}\equiv0\bmod 32).
+\end{equation}
+A tile read takes rows $0..7$ and columns $k_0..k_0+3$: all eight rows hit the same banks, an
+eight-way conflict. Store $(row,k)$ at column $k' = k \oplus 4(row\bmod4)$:
+\begin{align}
+row\bmod4=0:&\ k'\in\{k_0..k_0+3\}, & row\bmod4=1:&\ k'\in\{k_0..k_0+3\}\oplus4,\\
+row\bmod4=2:&\ k'\in\{k_0..k_0+3\}\oplus8, & row\bmod4=3:&\ k'\in\{k_0..k_0+3\}\oplus12,
+\end{align}
+four disjoint groups of four doubles, $4\times4\times2=32$ banks. Rows $r$ and $r+4$ still share,
+a two-way conflict. That is the least possible: 32 threads reading 8 bytes need 256 bytes, two
+passes of 128.
+
+\textbf{Single precision} (\code{fifth\_gemm\_columns\_kernel}): a thread per column of a block;
+it reads the $2L_s$ reals of its column once and keeps the $8N_T$ results in registers. All
+threads read the same entry of $M$ at the same time, a broadcast. \code{fifth\_gemm\_tf32\_kernel}
+does the product on the tensor cores in TF32 (10 bits of mantissa, relative error $10^{-3}$), only
+for operators whose result is corrected afterwards (smoothers, inner solves).
+
+\subsection{\code{hop\_gemm\_kernel}: hops, then a matrix, in one pass}
+
+$\text{out} = [\text{from}-]\,M\,H(b-cY)\,\text{in}$. The hops of a block of sites are written into
+shared memory as the $2L_s$ rows of the block, then multiplied by $M$ as above. In double
+precision the \code{mma} reads 4 rows $j..j+3$ and 8 columns of the tile. A row is $12\times$(sites
+of the block) doubles; when that is a multiple of 16 doubles (128 bytes), rows $j$ and $j+1$ hit the
+same banks. Storing column $k$ of row $j$ at
+$k\oplus8(j\bmod2)$ shifts the odd rows by 8 doubles = 16 banks:
+\begin{equation}
+\text{bank}(j,k) = 2\big(k\oplus8(j\bmod2)\big)\bmod 32,
+\end{equation}
+so even and odd rows use the two halves of the banks; rows $j$ and $j+2$ share, two-way, again the
+least for 32 doubles. This is the XOR seen in the code; the face buffers of several GPUs need none
+(they are in global memory).
+
+\subsection{Small kernels}
+
+\begin{align}
+\code{gamma5}:&\quad \text{out}_s = \gamma_5\,\text{in}_s,\ \text{or with reflection}\ \text{out}_s = \gamma_5\,\text{in}_{L_s-1-s}\ (\Gamma_5=\gamma_5R),\\
+\code{walls} (\to4d):&\quad q = P_-\psi_{s_-} + P_+\psi_{s_+},\qquad (s_-,s_+)=(0,L_s-1)\ \text{for the propagator},\\
+\code{walls} (\gets4d):&\quad \psi_{s_-} = P_-\eta,\ \psi_{s_+}=P_+\eta,\\
+\code{parity\_copy}:&\quad \text{half}[n_{\text{half}}] \leftrightarrow \text{whole}[n].
+\end{align}
+
+%======================================================================
+\section{Wilson and clover}
+
+\subsection{\code{wilson\_interior\_kernel}}
+
+$D\psi = \psi + H\psi$ with the hops of Sec.~2.3, $L_s=1$, $b=1$, $c=0$. The fibres of a site are
+its vectors, which share the links.
+
+\subsection{\code{clover\_term\_kernel}: $T\psi$}
+
+$T = 1-\kappa c_{SW}\sigma\cdot F$ commutes with $\gamma_5$. In the Dirac representation the
+eigenvectors of $\gamma_5$ are $(e_a\pm e_{a+2})/\sqrt2$, so in that basis $T$ is two Hermitian
+$6\times6$ blocks (index colour $+3\times$spin):
+\begin{align}
+\psi^\pm_{k+3a} &= \psi_{a,k} \pm \psi_{a+2,k},\qquad a=0,1\quad(\text{the }1/\sqrt2\text{ left out}),\\
+\phi^\pm &= T_\pm\,\psi^\pm,\\
+(T\psi)_{a,k} &= \tfrac12\big(\phi^+_{k+3a} + \phi^-_{k+3a}\big),\qquad
+(T\psi)_{a+2,k} = \tfrac12\big(\phi^+_{k+3a} - \phi^-_{k+3a}\big),
+\end{align}
+the two $1/\sqrt2$ making the $\tfrac12$. A Hermitian $6\times6$ block is stored packed: 6 real
+diagonal entries and 15 complex above the diagonal,
+\begin{equation}
+6 + 2\cdot15 = 36\ \text{reals},\qquad 2\ \text{blocks} = 72\ \text{reals a site}.
+\end{equation}
+The same kernel applies $T^{-1}$ (its blocks inverted on the host).
+
+\subsection{\code{clover\_dslash\_kernel}}
+
+$D\psi = T\psi + H\psi$ in one pass.
+
+%======================================================================
+\section{The fermion force: \code{hop\_force\_kernel}}
+
+For $\delta U_\mu(x) = X\,U_\mu(x)$ the change of $-2\,\mathrm{Re}\,\zeta\dg\,\delta D\,\eta$ is
+$\mathrm{Re}\,\tr(X M_\mu(x))$ with
+\begin{equation}
+M_\mu(x) = -2c\sum_s\sum_{\text{spin}}\big[U_\mu(x)(1-\gamma_\mu)\eta_s(x+\hat\mu)\big]\zeta_s(x)\dg
++ 2c\sum_s\sum_{\text{spin}}\big[\gamma_5\eta_s(x)\big]\big[U_\mu(x)(1-\gamma_\mu)\gamma_5\zeta_s(x+\hat\mu)\big]\dg .
+\end{equation}
+The kernel gets $U(1-\gamma_\mu)\eta(x+\hat\mu)$ from the forward leg of the hop kernel with
+$\kappa=-1$ (so the leg has coefficient $+1$), and the second bracket the same way from
+$\gamma_5\zeta$. Then the outer products, colour by colour:
+\begin{equation}
+(ab\dg)_{ij} = a_i\overline{b_j},\qquad
+\mathrm{Re}=a^r_ib^r_j + a^i_ib^i_j,\quad \mathrm{Im}=a^i_ib^r_j - a^r_ib^i_j .
+\end{equation}
+A thread per site, a loop over $\mu$ and $s$; $M$ in the layout of the gauge fields (Sec.~5).
+
+%======================================================================
+\section{The gauge field}
+
+\subsection{Layout}
+
+Links and fields of matrices (staples, $\Sigma$, forces) are whole $3\times3$ complex matrices,
+18 reals per direction, 72 per site, in blocks of 32 sites (Eq.~\eqref{eq:aosoa} with $N_c=72$).
+All in double precision.
+
+\subsection{\code{stout\_step\_kernel}: $V = e^{iQ}U$}
+
+The staple sum and $Q$:
+\begin{align}
+C_\mu(x) &= \sum_{\nu\ne\mu}\rho_{\mu\nu}\Big[U_\nu(x)U_\mu(x+\hat\nu)U_\nu(x+\hat\mu)\dg + U_\nu(x-\hat\nu)\dg U_\mu(x-\hat\nu)U_\nu(x-\hat\nu+\hat\mu)\Big],\\
+\Omega &= C\,U\dg,\\
+iQ &= \tfrac12(\Omega-\Omega\dg) - \tfrac16\tr(\Omega-\Omega\dg)\cdot1\qquad(\text{traceless anti-Hermitian}).
+\end{align}
+The exponential by Cayley–Hamilton. $Q$ is Hermitian and traceless, so
+\begin{equation}
+Q^3 = c_1Q + c_0\cdot1,\qquad c_0 = \det Q = \tfrac13\tr Q^3,\qquad c_1 = \tfrac12\tr Q^2,
+\end{equation}
+and every power of $Q$ reduces to $1,Q,Q^2$:
+\begin{equation}
+e^{iQ} = f_0\cdot1 + f_1Q + f_2Q^2 .
+\end{equation}
+With the eigenvalues parametrised as
+\begin{align}
+\theta &= \arccos\frac{c_0}{c_0^{\max}},\qquad c_0^{\max} = 2\Big(\frac{c_1}{3}\Big)^{3/2},\\
+u &= \sqrt{c_1/3}\,\cos\frac\theta3,\qquad w = \sqrt{c_1}\,\sin\frac\theta3,
+\end{align}
+Morningstar and Peardon find $f_j = h_j/(9u^2-w^2)$ with
+\begin{align}
+h_0 &= (u^2-w^2)e^{2iu} + e^{-iu}\big[8u^2\cos w + 2iu(3u^2+w^2)\,\xi_0(w)\big],\\
+h_1 &= 2u\,e^{2iu} - e^{-iu}\big[2u\cos w - i(3u^2-w^2)\,\xi_0(w)\big],\\
+h_2 &= e^{2iu} - e^{-iu}\big[\cos w + 3iu\,\xi_0(w)\big],\qquad \xi_0(w)=\frac{\sin w}{w}.
+\end{align}
+The kernel stores $iQ$ and $(iQ)^2$ and uses $Q=-i(iQ)$, $Q^2=-(iQ)^2$. When $|iQ|^2\le10^{-10}$ it
+takes $e^{iQ}=1$. A thread for each (site, direction).
+
+\subsection{\code{stout\_chain\_local\_kernel} and \code{stout\_chain\_staples\_kernel}}
+
+The force on the thin links from $\Sigma'$, the force on the smeared ones (Morningstar–Peardon
+eqs.~(70)--(75)):
+\begin{align}
+\Lambda &= \tfrac12(\Gamma+\Gamma\dg) - \tfrac16\tr(\Gamma+\Gamma\dg),\\
+\Gamma &= \tr(\Sigma'B_1U)\,Q + \tr(\Sigma'B_2U)\,Q^2 + f_1\,U\Sigma' + f_2\,Q\,U\Sigma' + f_2\,U\Sigma'Q,\\
+B_i &= b_{i0} + b_{i1}Q + b_{i2}Q^2,
+\end{align}
+with $b_{ij}$ derivatives of the $f_j$ by $c_0$, $c_1$ (in the code, \code{r01}..\code{r22} and the
+\code{b}'s; $\xi_1(w)=(w\cos w-\sin w)/w^3$ by its series for $w<\tfrac14$). Then
+\begin{align}
+\Sigma &= \Sigma'\,e^{iQ} + C\dg\,i\Lambda + \sum(\text{terms of the staples that contain }U_\mu(x)),\\
+i\Theta &= i\Lambda\,U .
+\end{align}
+The first kernel makes the first two terms and $i\Theta$; the second adds the six staple terms of
+each plane, which read $i\Theta$ at the neighbours. On several GPUs $i\Theta$ is extended between
+the two.
+
+\subsection{\code{gauge\_force\_kernel} and \code{gauge\_traces\_kernel}}
+
+\begin{align}
+F_\mu(x) &= -\frac\beta3\,\mathrm{TA}\Big[U_\mu(x)\,\Sigma_\mu(x)\dg\Big],\\
+\Sigma_\mu &= c_{\text{plaq}}\sum(\text{2 staples per plane}) + c_{\text{rect}}\sum(\text{6 rectangle staples per plane}),
+\end{align}
+each staple a product of links along a path (\code{walk}). The traces kernel sums per site
+$\mathrm{Re}\,\tr$ of the 6 plaquettes and 12 rectangles; the action follows on the host after the
+sum over sites.
+
+\subsection{\code{links\_exp\_update\_kernel}: $U\leftarrow e^{\epsilon H}U$}
+
+The Taylor series to order $n$ in nested (Horner) form:
+\begin{align}
+e^{\epsilon H}U &\approx \sum_{k=0}^n\frac{(\epsilon H)^k}{k!}U\\
+&= U + \epsilon H\Big(U + \frac{\epsilon H}{2}\Big(U + \frac{\epsilon H}{3}\big(\cdots\big)\Big)\Big),
+\end{align}
+computed from the inside out:
+\begin{equation}
+u^{(0)} = U,\qquad u^{(k+1)} = U + \frac{\epsilon}{n-k}\,H\,u^{(k)},\qquad k=0,\dots,n-1 .
+\end{equation}
+Then reunitarised: $r_0\to r_0/|r_0|$, $r_1\to(r_1-(\bar r_0\cdot r_1)r_0)/|\cdot|$,
+$r_2=\overline{r_0\times r_1}$.
+
+\subsection{Other small kernels}
+
+\code{links\_axpy} ($y\mathrel{+}=ax$), \code{links\_ta} ($s\,\mathrm{TA}(m)$), \code{links\_mul}
+($ab$ or $a\dg b$), \code{links\_norm2} (per site $\sum$ reals$^2$, for $\tfrac12\sum\tr P^2$).
+
+%======================================================================
+\section{The multigrid: P}
+
+\subsection{What P holds}
+
+An aggregate keeps the whole fifth dimension and is split by the chirality of
+$\Gamma_5=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$. For a test vector $v$:
+\begin{equation}
+v^{(c)} = \tfrac12\big(1+(-1)^c\Gamma_5\big)v,\qquad c=0,1 .
+\end{equation}
+At fifth coordinate $s$:
+\begin{equation}
+v^{(c)}_s = \tfrac12\big(v_s + (-1)^c\gamma_5v_{L_s-1-s}\big).
+\end{equation}
+Now look at the mirror $L_s-1-s$:
+\begin{align}
+v^{(c)}_{L_s-1-s} &= \tfrac12\big(v_{L_s-1-s} + (-1)^c\gamma_5v_s\big)\\
+&= (-1)^c\gamma_5\cdot\tfrac12\big((-1)^c\gamma_5v_{L_s-1-s} + v_s\big)\qquad(\gamma_5^2=1,\ ((-1)^c)^2=1)\\
+&= (-1)^c\gamma_5\,v^{(c)}_s .
+\end{align}
+So the half $s<L_s/2$ determines the rest, and P is stored folded: $12L_s$ reals per (site, test
+vector, chirality) instead of $24L_s$, in single or half precision. \code{fold\_fill\_kernel}
+writes $\tfrac12(v_s\pm\gamma_5v_{L_s-1-s})$ for $s<L_s/2$.
+
+\subsection{\code{fold\_restrict\_kernel}: coarse $=P\dg$fine}
+
+For coarse site $X$, test vector $i$, chirality $c$:
+\begin{align}
+\text{coarse}(X,cn+i) &= \sum_{x\in X}\sum_{s=0}^{L_s-1} P(x,i,c)_s\dg\,f_s(x)\\
+&= \sum_{x\in X}\sum_{s<L_s/2}\Big[P_s\dg f_s + P_{L_s-1-s}\dg f_{L_s-1-s}\Big]\\
+&= \sum_{x\in X}\sum_{s<L_s/2}\Big[P_s\dg f_s + \big((-1)^c\gamma_5P_s\big)\dg f_{L_s-1-s}\Big]\\
+&= \sum_{x\in X}\sum_{s<L_s/2}P_s\dg\Big[f_s + (-1)^c\gamma_5f_{L_s-1-s}\Big]\qquad(\gamma_5\dg=\gamma_5).
+\end{align}
+The last line is what the kernel computes: one read of the folded P per pair $(s,L_s-1-s)$. A thread
+for each (coarse site, component), up to 8 vectors per read of P, which is most of the cost.
+
+\subsection{\code{fold\_prolong\_kernel}: fine $=P$coarse}
+
+\begin{align}
+f_s(x) &= \sum_{c,i} P(x,i,c)_s\,\text{coarse}(X,cn+i),\\
+f_{L_s-1-s}(x) &= \sum_{c,i}(-1)^c\gamma_5P(x,i,c)_s\,\text{coarse}(X,cn+i),
+\end{align}
+a thread for each (fine site, $s<L_s/2$, spin, colour), writing $s$ and its mirror.
+
+\subsection{Orthonormalising P}
+
+Per (aggregate, chirality), the $n$ vectors are made orthonormal over the aggregate. With
+$W=[w_1\dots w_n]$:
+\begin{equation}
+G = W\dg W = LL\dg\ (\text{Cholesky}),\qquad Q = W\,(L\dg)^{-1}\ \Rightarrow\ Q\dg Q = L^{-1}GL^{-\dg} = 1 .
+\end{equation}
+\code{fold\_orthonormalise\_cholesky\_kernel} does this in double precision. Cholesky squares the
+condition number, so where a pivot is below $10^{-12}$ of its diagonal the kernel gives up on that
+site and \code{fold\_orthonormalise\_kernel} redoes it by modified Gram–Schmidt. The folded P holds
+half of every inner product, so the result is scaled by $1/\sqrt2$.
+
+%======================================================================
+\section{The multigrid: the coarse operator}
+
+\subsection{Probing: \code{hop\_split\_kernel}, \code{coarse\_units}, \code{coarse\_columns}}
+
+With $e_j$ the unit vector of component $j$ on every coarse site:
+\begin{align}
+\phi_j &= P\,e_j,\\
+A(X)_{\cdot j} &= \big[P\dg\,C\phi_j\big](X) + \sum_{\text{legs inside the block}}\big[P\dg\,\text{leg}\,\phi_j\big](X),\\
+B_d(X)_{\cdot j} &= \big[P\dg\,\text{leg}_d\,\phi_j\big](X)\quad\text{on the sites whose leg }d\text{ leaves the block}.
+\end{align}
+\code{hop\_split\_kernel} computes one leg and sorts it: into \code{cross} where it comes from
+another block, added to \code{inside} elsewhere. The restriction of \code{cross} is column $j$ of
+$B_d$; \code{coarse\_columns} writes it straight into the matrices, in the precision they are kept
+in. Several $j$ at a time, as the vectors of the fields.
+
+\subsection{\code{coarse\_pass\_kernel}}
+
+One kernel for every part of the coarse operator:
+\begin{equation}
+\text{out}(X) = M(X)\Big[\text{base}(X) + A(X)\,d(X) \pm \sum_{d}B_d(X)\,h\big(N[d][X]\big)\Big],
+\end{equation}
+each term optional. Choices give $D_c$, the Schur complement on the even sites
+$S = A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}$, its source and solution, the block inverses.
+$D_c\dg=\Gamma_5D_c\Gamma_5$ ($\Gamma_5$: $-1$ on the second half of the components) is the same
+kernel with a flag.
+
+\textbf{Threads.} A block per (coarse site, vector); a warp per row; the lanes take pairs of
+columns $(2\ell,2\ell+1),(2\ell+64,\dots)$, so a warp reads a row of a matrix as one stretch in
+16-byte words. The fields at $X$ and its 8 neighbours are read once into shared memory. The sum of
+a row is the lanes' parts added by a fixed butterfly, so the result does not depend on timing.
+
+\subsection{\code{blocks\_inverse\_kernel}: Gauss–Jordan}
+
+For each site, $[A\,|\,1]\to[1\,|\,A^{-1}]$, thread $r$ holding row $r$:
+\begin{align}
+&\text{for }k=0,\dots,\text{dim}-1:\\
+&\quad p = \arg\max_{r\ge k}|a_{rk}|,\ \text{swap rows }k,p,\\
+&\quad \text{row}_k \leftarrow \text{row}_k/a_{kk},\\
+&\quad \text{row}_r \leftarrow \text{row}_r - a_{rk}\,\text{row}_k\quad(r\ne k).
+\end{align}
+A zero pivot sets a failure flag (a singular block).
+
+\subsection{\code{blocks\_abs\_inverse\_gamma5\_kernel}: $|H|^{-1}$ by Jacobi}
+
+$H$ = Hermitian part of $A\Gamma_5$. The cyclic Jacobi method: for each pair $(p,q)$,
+\begin{align}
+&\text{phase: } h_{pq} = |h_{pq}|e^{i\varphi}\ \Rightarrow\ \text{multiply column }q\text{ by }e^{-i\varphi},\ \text{row }q\text{ by }e^{i\varphi}\ (h_{pq}\text{ now real}),\\
+&\text{rotation: } \tan2\vartheta = \frac{2h_{pq}}{h_{qq}-h_{pp}},\ \text{rotate rows and columns }p,q\ \Rightarrow\ h_{pq}=0,
+\end{align}
+repeated until the off-diagonal part vanishes, accumulating $V$. Then
+\begin{equation}
+|H|^{-1} = V\,|\Lambda|^{-1}V\dg,
+\end{equation}
+with eigenvalues below a cutoff times the largest left out (they come from dependent vectors).
+
+\subsection{The exact adjoint: \code{coarse\_adjoint\_kernel}}
+
+\begin{equation}
+(A\dg u)(Y) = A(Y)\dg u(Y) + \sum_d B_d\big(N[\bar d][Y]\big)\dg\,u\big(N[\bar d][Y]\big)
+\end{equation}
+(derived in the other note); the kernel writes $B_d(X)\dg$ at the place of $Y$, entry by entry:
+$(m\dg)_{ij} = \overline{m_{ji}}$.
+
+%======================================================================
+\section{The levels below the coarse lattice}
+
+\begin{align}
+\code{level\_basis}:&\quad Q_{\text{block}} = \text{Gram--Schmidt twice of the parts of the test vectors on a super-block and a half},\\
+\code{level\_restrict}:&\quad y = Q\dg v\quad(\text{a warp per output, lanes along the sum}),\\
+\code{level\_prolong}:&\quad v = Qy\ \text{or}\ v\mathrel{+}=Qy,\\
+\code{level\_sources}:&\quad e_j = 1\ \text{at component }j\text{ of the sites of one colour},\\
+\code{level\_probe}:&\quad A(t)_{\cdot j} = r_j(t)\ \text{if }t\text{ has the colour},\quad B_d(t)_{\cdot j} = r_j(t)\ \text{if }N[d][t]\text{ has it},\\
+\code{level\_dense}:&\quad \text{the last level as one }n\times n\text{ matrix},\ n=\text{sites}\times\text{components},\\
+\code{dense\_apply}:&\quad \text{out} = M\,r .
+\end{align}
+Why probing works: the sources of one colour are at least 3 apart in every direction, so
+\begin{equation}
+r_j(t) = \sum_{t'}D(t,t')e_j(t') = D(t,t'_*)\,\hat e_j\quad\text{with }t'_*\in\{t,\ t\pm\hat\mu\}\text{ the only source in reach}.
+\end{equation}
+The response at $t$ comes from one source only, and which one tells whether it is $A(t)$ or a
+$B_d(t)$. The dense inverse (LU) and $|H|^{-1}$ of the last level are done by cuSOLVER
+(\code{dense.cu}).
+
+%======================================================================
+\section{Linear algebra: \code{blas.cuh}}
+
+\subsection{Fused operations}
+
+A solver step usually needs several updates and a norm at once, e.g.\
+\begin{equation}
+r \leftarrow r - \alpha Ap,\qquad |r|^2 .
+\end{equation}
+\code{blas\_map\_kernel} and \code{blas\_reduce\_kernel} take the operation as a functor
+(\code{Op}) and do it in one pass over the fields, every vector of a set at once.
+
+\subsection{Deterministic reductions}
+
+A sum over $N$ numbers is done in two stages, both in a fixed order:
+\begin{align}
+s_b &= \sum_{p\in\text{block }b}x_p\quad(\text{a tree inside each CUDA block, in double precision}),\\
+S &= \sum_b s_b\quad(\code{blas\_finish\_kernel},\ \text{one block, a fixed tree}).
+\end{align}
+No atomic additions, so the result does not depend on which block finishes first: runs repeat bit
+for bit. Only the final numbers go to the host.
+
+\subsection{Sets of vectors}
+
+\code{blas\_gram\_kernel}: all $\langle x_i,y_j\rangle$ in one pass. \code{blas\_rotate\_kernel}:
+$x\leftarrow xC$ in place for a small $C$. \code{blas\_combine\_kernel}: $\text{out}_j=\sum_i x_ic_{ij}$
+for larger sets, the outputs of a chunk in registers.
+
+%======================================================================
+\section*{Appendix: kernels removed}
+
+Extracted from Bridge++ with the rest but never called by the library, and removed on 2026-10-24
+with the C tests that exercised only them: the Schwarz domain decomposition (\code{dd.cuh}), an
+older restriction, prolongation and coarse operator (\code{transfer.cuh}, \code{mdwf\_transfer.cuh},
+\code{coarse.cuh}, \code{coarse\_eo.cuh}), multi-right-hand-side Wilson (\code{mrhs.cuh}), APE smearing
+and a plaquette (\code{gauge.cuh}), the Dirac/chiral conversion, a plain real \code{axpy}, and an
+unfinished Wilson face packing.
+
+\end{document}

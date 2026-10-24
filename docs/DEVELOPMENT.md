@@ -13,7 +13,7 @@ One Cargo package, `ruttice`.
 | `apps/` | the programs: `ruttice`, `ruttice-bench`, and with the feature `mpi` `ruttice-mpi`, `ruttice-bench-mpi` and `ruttice-mpi-check` |
 | `tests/` | the checks described above, one file per subject; `tests/data/` holds reference values |
 | `examples/` | the parameter-file examples, `pion.rs` (the library used directly), and programs that time kernels (`*_bench.rs`, `hmc_eo_measure.rs`) |
-| `docs/` | `COMPARISON.md` |
+| `docs/` | `COMPARISON.md`; `mg_background/`, the notes on the multigrid; `implementation/`, how the program is built: its architecture (`ARCHITECTURE.md`), writing a GPU kernel (`GPU_KERNELS.md`), every CUDA kernel (`KERNELS_NOTE`), several GPUs (`MULTI_GPU_NOTE`, with an evaluation of NVSHMEM) |
 
 | Directory under `src/` | Contents |
 |---|---|

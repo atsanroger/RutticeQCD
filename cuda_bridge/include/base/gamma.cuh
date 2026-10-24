@@ -121,55 +121,6 @@ __device__ __forceinline__ void mult_gamma5(
     }
 }
 
-// Unitary transformation between Dirac-Pauli and Chiral (Weyl) representation
-// U = 1/sqrt(2) * [[I, I], [I, -I]] = U^dag = U^{-1}
-template <typename Float>
-__device__ __forceinline__ void convert_dirac_chiral_spinor(
-    Float out[Nspin][Nc][Ncomplex],
-    const Float in[Nspin][Nc][Ncomplex])
-{
-    const Float inv_sqrt2 = static_cast<Float>(0.70710678118654752440);
-    #pragma unroll
-    for (int c = 0; c < Nc; ++c) {
-        #pragma unroll
-        for (int ri = 0; ri < 2; ++ri) {
-            out[0][c][ri] = inv_sqrt2 * (in[0][c][ri] + in[2][c][ri]);
-            out[1][c][ri] = inv_sqrt2 * (in[1][c][ri] + in[3][c][ri]);
-            out[2][c][ri] = inv_sqrt2 * (in[0][c][ri] - in[2][c][ri]);
-            out[3][c][ri] = inv_sqrt2 * (in[1][c][ri] - in[3][c][ri]);
-        }
-    }
-}
-
-// Kernel for whole-field basis transformation
-template <typename Float>
-__global__ void convert_dirac_chiral_kernel(
-    Float* __restrict__ d_out,
-    const Float* __restrict__ d_in,
-    int total_sites)
-{
-    for (int site = blockIdx.x * blockDim.x + threadIdx.x; site < total_sites; site += blockDim.x * gridDim.x) {
-        Float sp_in[Nspin][Nc][Ncomplex];
-        #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                sp_in[s][c][0] = d_in[aosoa_spinor_idx(c, s, 0, site)];
-                sp_in[s][c][1] = d_in[aosoa_spinor_idx(c, s, 1, site)];
-            }
-        }
-        Float sp_out[Nspin][Nc][Ncomplex];
-        convert_dirac_chiral_spinor<Float>(sp_out, sp_in);
-        #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                d_out[aosoa_spinor_idx(c, s, 0, site)] = sp_out[s][c][0];
-                d_out[aosoa_spinor_idx(c, s, 1, site)] = sp_out[s][c][1];
-            }
-        }
-    }
-}
 
 } // namespace bridge_cuda
 

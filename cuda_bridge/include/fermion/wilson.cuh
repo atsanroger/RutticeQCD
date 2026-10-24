@@ -47,52 +47,6 @@ __global__ void wilson_interior_kernel(
     }
 }
 
-// -------------------------------------------------------------------------
-// Wilson Boundary Packing Kernel (Halo Exchange)
-// -------------------------------------------------------------------------
-template <typename Float>
-__global__ void wilson_pack_face_kernel(
-    Float* __restrict__ d_face_buf,
-    const Float* __restrict__ d_in,
-    int dim, int dir,
-    int nx, int ny, int nz, int nt)
-{
-    int face_vol = (nx * ny * nz * nt) / (dim == 0 ? nx : (dim == 1 ? ny : (dim == 2 ? nz : nt)));
-
-    for (int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < face_vol; idx += blockDim.x * gridDim.x) {
-        int x = 0, y = 0, z = 0, t = 0;
-        if (dim == 0) {
-            x = (dir == 1) ? (nx - 1) : 0;
-            y = idx % ny; int rem = idx / ny;
-            z = rem % nz; t = rem / nz;
-        } else if (dim == 1) {
-            x = idx % nx; int rem = idx / nx;
-            y = (dir == 1) ? (ny - 1) : 0;
-            z = rem % nz; t = rem / nz;
-        } else if (dim == 2) {
-            x = idx % nx; int rem = idx / nx;
-            y = rem % ny;
-            z = (dir == 1) ? (nz - 1) : 0;
-            t = rem / ny;
-        } else if (dim == 3) {
-            x = idx % nx; int rem = idx / nx;
-            y = rem % ny; z = rem / ny;
-            t = (dir == 1) ? (nt - 1) : 0;
-        }
-
-        int site = coords_to_site(x, y, z, t, nx, ny, nz, nt);
-
-        #pragma unroll
-        for (int s = 0; s < Nspin; ++s) {
-            #pragma unroll
-            for (int c = 0; c < Nc; ++c) {
-                d_face_buf[aosoa_spinor_idx(c, s, 0, idx)] = d_in[aosoa_spinor_idx(c, s, 0, site)];
-                d_face_buf[aosoa_spinor_idx(c, s, 1, idx)] = d_in[aosoa_spinor_idx(c, s, 1, site)];
-            }
-        }
-    }
-}
-
 } // namespace bridge_cuda
 
 #endif // BRIDGE_CUDA_FERMION_WILSON_CUH
