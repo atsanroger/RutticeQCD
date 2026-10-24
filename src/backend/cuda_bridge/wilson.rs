@@ -650,6 +650,62 @@ impl CudaClover<f64> {
     }
 }
 
+/// The Wilson operator on the blocks of one colour, for SAP: `inp − H inp` at −κ with the legs
+/// inside the blocks.
+impl<T: DeviceReal> super::sap::BlockOperator<T> for CudaWilson<T> {
+    fn block_mult(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, cut: &[i32; 6]) {
+        assert!(inp.is(out, 1, None) && out.same_shape(inp));
+        out.parity = None;
+        let links = hop_link_reals(&self.geometry);
+        count_fine::<T>(inp.sites(), inp.vectors, WILSON_FLOPS as f64, 10.0, links);
+        // SAFETY: two fields of this lattice (`out` not `inp`), its links, no clover blocks.
+        unsafe {
+            T::hop_block(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.links.ptr,
+                inp.data.ptr,
+                std::ptr::null(),
+                &self.geometry,
+                -self.params.kappa,
+                inp.vectors as i32,
+                cut.as_ptr(),
+            );
+        }
+    }
+}
+
+/// The clover operator on the blocks of one colour, for SAP: `T inp + H inp` with the legs
+/// inside the blocks.
+impl<T: DeviceReal> super::sap::BlockOperator<T> for CudaClover<T> {
+    fn block_mult(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, cut: &[i32; 6]) {
+        assert!(inp.is(out, 1, None) && out.same_shape(inp));
+        out.parity = None;
+        let site_reals = hop_link_reals(&self.geometry) + CLOVER as f64;
+        count_fine::<T>(
+            inp.sites(),
+            inp.vectors,
+            CLOVER_FLOPS as f64,
+            10.0,
+            site_reals,
+        );
+        // SAFETY: two fields of this lattice (`out` not `inp`), its links and clover blocks.
+        unsafe {
+            T::hop_block(
+                out.data.ptr,
+                inp.data.ptr,
+                self.gauge.links.ptr,
+                inp.data.ptr,
+                self.term.ptr,
+                &self.geometry,
+                self.params.kappa,
+                inp.vectors as i32,
+                cut.as_ptr(),
+            );
+        }
+    }
+}
+
 /// The Wilson operator on the device in the pseudofermion actions of HMC: the links, the solves
 /// and the derivative on the device; the pseudofermions drawn on the host in Bridge++'s order.
 impl ForceOp for CudaWilson<f64> {

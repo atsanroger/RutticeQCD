@@ -1305,6 +1305,57 @@ fn wilson_and_clover_coarse_operators_on_the_device() {
     );
 }
 
+/// SAP (the Schwarz smoother of the Wilson and clover multigrid) on the device is that of the
+/// CPU: the same algorithm (`Sap`) with the block operator, the block minimal-residual steps
+/// and the colours of the device; to rounding, for one vector and several.
+#[test]
+fn sap_on_the_device_is_sap_on_the_cpu() {
+    use ruttice::backend::cuda_bridge::device_sap;
+    use ruttice::solver::preconditioner::multigrid::{Aggregation, Sap};
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 461);
+    let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
+    let check =
+        |cpu: &mut dyn LinearFn<Psi>, gpu: &mut dyn LinearFn<DeviceSpinor<f64>>, what: &str| {
+            for nv in [1, 3] {
+                let b = random_spinor(&lat, nv, 462 + nv as u64);
+                let mut x = b.zeros_like();
+                cpu.mult(&mut x, &b);
+                let db = DeviceSpinor::from_host(&b).unwrap();
+                let mut dx = db.zeros_like();
+                gpu.mult(&mut dx, &db);
+                let size = x.as_slice().iter().fold(0.0f64, |m, v| m.max(v.abs()));
+                let d = worst(&dx.to_host().unwrap(), &x);
+                eprintln!("{what}, {nv} vectors: differ by {d:e} of {size:e}");
+                assert!(size > 0.0 && d < 1e-11 * size, "{what}, {nv} vectors");
+            }
+        };
+    let wp = WilsonParams {
+        kappa: 0.13,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut cw = Wilson::<f64>::new(&lat, wp);
+    cw.set_gauge(&u).unwrap();
+    let mut gw = CudaWilson::<f64>::new(&lat, wp).unwrap();
+    gw.set_gauge(&u).unwrap();
+    check(
+        &mut Sap::new(&cw, &agg, 4, 6),
+        &mut device_sap(&gw, &agg, 4, 6).unwrap(),
+        "Wilson",
+    );
+    let cp = CloverParams {
+        kappa: 0.12,
+        csw: 1.7,
+        boundary: MIXED,
+    };
+    let (cc, gc) = clover_pair(&lat, &u, cp);
+    check(
+        &mut Sap::new(&cc, &agg, 4, 6),
+        &mut device_sap(&gc, &agg, 4, 6).unwrap(),
+        "clover",
+    );
+}
+
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]

@@ -73,7 +73,33 @@ namespace {
             geom->Ls, vectors, target_parity,
             static_cast<Float>(dagger ? -1 : 1), static_cast<Float>(kappa),
             static_cast<Float>(mass), static_cast<Float>(b5), static_cast<Float>(c5),
-            (h != nullptr) ? halo_of<Float>(h) : Halo<Float>{}, d_clover);
+            (h != nullptr) ? halo_of<Float>(h) : Halo<Float>{}, d_clover, BlockCut{});
+    }
+
+    // The four-dimensional operator restricted to the blocks of one colour (hop_kernel with a
+    // BlockCut; cut: extent[4], colour, shift): out = from - H in, or T from + H in with the
+    // clover blocks, on the blocks of that colour, zero elsewhere. The block operator of the
+    // Schwarz smoother.
+    template <typename Float>
+    void hop_block(
+        Float* d_out, const Float* d_in, const Float* d_gauge, const Float* d_from,
+        const Float* d_clover, const BridgeCudaGeometry* geom, double kappa, int dagger,
+        int vectors, const int* cut, cudaStream_t stream)
+    {
+        using namespace bridge_cuda;
+        const BlockCut blocks{{cut[0], cut[1], cut[2], cut[3]}, cut[4], cut[5]};
+        auto kernel = (d_clover != nullptr)
+            ? ((vectors == 1) ? hop_kernel<Float, false, Whole, true, true, true> : hop_kernel<Float, true, Whole, true, true, true>)
+            : ((vectors == 1) ? hop_kernel<Float, false, Whole, false, true, true> : hop_kernel<Float, true, Whole, false, true, true>);
+        kernel<<<site_grid(volume(geom), 1, vectors), site_block(1, vectors), 0, stream>>>(
+            d_out, d_in, d_gauge, geom->link_rows, d_from,
+            geom->dims[0], geom->dims[1], geom->dims[2], geom->dims[3],
+            static_cast<Float>(geom->bc[0]), static_cast<Float>(geom->bc[1]),
+            static_cast<Float>(geom->bc[2]), static_cast<Float>(geom->bc[3]),
+            1, vectors, -1,
+            static_cast<Float>(dagger ? -1 : 1), static_cast<Float>(kappa),
+            static_cast<Float>(0), static_cast<Float>(1), static_cast<Float>(0),
+            Halo<Float>{}, d_clover, blocks);
     }
 
     // D in one pass (mdwf_dslash_1pass_kernel) on the interior or the surface.
@@ -122,6 +148,22 @@ namespace {
 }
 
 extern "C" {
+
+void bridge_cuda_hop_block_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_clover,
+    const BridgeCudaGeometry* geom, double kappa, int dagger, int vectors, const int* cut,
+    cudaStream_t stream)
+{
+    hop_block<float>(d_out, d_in, d_gauge, d_from, d_clover, geom, kappa, dagger, vectors, cut, stream);
+}
+
+void bridge_cuda_hop_block_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_clover,
+    const BridgeCudaGeometry* geom, double kappa, int dagger, int vectors, const int* cut,
+    cudaStream_t stream)
+{
+    hop_block<double>(d_out, d_in, d_gauge, d_from, d_clover, geom, kappa, dagger, vectors, cut, stream);
+}
 
 void bridge_cuda_hop_part_f32(
     float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_clover,

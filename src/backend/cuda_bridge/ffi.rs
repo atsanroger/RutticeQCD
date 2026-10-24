@@ -137,6 +137,7 @@ extern "C" {
 pub trait DeviceReal:
     super::blas::DeviceBlas
     + super::halo::SplitReal
+    + super::sap::SapReal
     + Copy
     + Default
     + PartialEq

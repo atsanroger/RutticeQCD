@@ -16,6 +16,7 @@ set(BRIDGE_CUDA_SOURCES
     src/fermion/force.cu
     src/multigrid/fold.cu
     src/multigrid/levels.cu
+    src/multigrid/sap.cu
     src/multigrid/dense.cu
     src/gauge/stout.cu
     src/linalg/blas.cu

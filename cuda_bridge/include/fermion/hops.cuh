@@ -541,6 +541,16 @@ __device__ __forceinline__ void clover_site(
     }
 }
 
+// The blocks of the Schwarz smoother (multigrid/sap.cuh): with extent[0] > 0 the hops keep only
+// the legs inside a block of extent[mu] sites in direction mu, and the output is zero outside the
+// blocks of colour `colour`. The colour of a block is the parity of its block coordinates on the
+// whole lattice; `shift` that of the block coordinates of the process's origin.
+struct BlockCut {
+    int extent[Ndim];
+    int colour;
+    int shift;
+};
+
 // -------------------------------------------------------------------------
 // out = H (b - c Y) in, or with H^dag (`sign` -1): on the whole lattice (target_parity < 0),
 // or out on the sites of parity target_parity and in on the others.
@@ -559,7 +569,12 @@ __device__ __forceinline__ void clover_site(
 // `FourD`: a four-dimensional operator, Ls = 1, b = 1, c = 0 known when compiling, so the
 // fifth dimension leaves no trace in the code (with them only at run time the Wilson operator
 // took half as long again).
-template <typename Float, bool Many, int P = Whole, bool Clover = false, bool FourD = false>
+// `Cut` (with `cut`, BlockCut): the operator restricted to the blocks of one colour, the block
+// operator of the Schwarz smoother. A template parameter, so that the other instances keep all
+// eight legs as a constant: with the legs known only at run time the Wilson operator in single
+// precision took 40% longer.
+template <typename Float, bool Many, int P = Whole, bool Clover = false, bool FourD = false,
+          bool Cut = false>
 __global__ void hop_kernel(
     Float* d_out,
     const Float* __restrict__ d_in,
@@ -572,7 +587,8 @@ __global__ void hop_kernel(
     Float sign, Float kappa,
     Float mass, Float b5, Float c5,
     Halo<Float> halo,
-    const Float* __restrict__ d_clover)
+    const Float* __restrict__ d_clover,
+    BlockCut cut)
 {
     if constexpr (FourD) {
         Ls = 1;
@@ -602,6 +618,28 @@ __global__ void hop_kernel(
     }
     if (P == Interior && on_surface(halo, xc, dims)) return;
 
+    int legs = 0xFF;
+    if constexpr (Cut) {
+        int colour = cut.shift;
+        #pragma unroll
+        for (int mu = 0; mu < Ndim; ++mu) {
+            const int e = cut.extent[mu], within = xc[mu] % e;
+            colour += xc[mu] / e;
+            if (within == e - 1) legs &= ~(1 << mu);
+            if (within == 0) legs &= ~(16 << mu);
+        }
+        if ((colour & 1) != cut.colour) {
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s)
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c)
+                    #pragma unroll
+                    for (int ri = 0; ri < Ncomplex; ++ri)
+                        d_out[aosoa_5d_spinor_idx(c, s, ri, is, Ls, site)] = 0;
+            return;
+        }
+    }
+
     Float acc[Nspin][Nc][Ncomplex] = {0};
     if constexpr (Clover) {
         const int full = half ? coords_to_site(xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt) : site;
@@ -609,9 +647,9 @@ __global__ void hop_kernel(
     }
     if constexpr (P == Surface) {
         hops<Float, true>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa,
-                          mass, b5, c5, 0xFF, &halo, Many ? fibre / Ls : 0);
+                          mass, b5, c5, legs, &halo, Many ? fibre / Ls : 0);
     } else {
-        hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5);
+        hops<Float>(acc, d_in, d_gauge, link_rows, xc, is, Ls, dims, bc, half, sign, kappa, mass, b5, c5, legs);
     }
     // d_from may be d_out: all of it is read before anything is written, so the loads need not
     // wait for the stores one by one.

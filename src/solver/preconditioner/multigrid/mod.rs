@@ -35,7 +35,7 @@ pub use mdwf_even_odd::{
     BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
-pub use sap::Sap;
+pub use sap::{CpuBlocks, Sap, SapBlocks};
 pub use wilson::{
     CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
 };

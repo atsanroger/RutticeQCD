@@ -17,26 +17,74 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 ];
 
 /// Schwarz alternating procedure: an approximate inverse of D built from the inverses of D
-/// restricted to blocks (Lüscher, Comput. Phys. Commun. 156 (2004) 209).
-pub struct Sap<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> {
+/// restricted to blocks (Lüscher, Comput. Phys. Commun. 156 (2004) 209), written once for any
+/// backend: `blocks` does what touches the fields (`SapBlocks`). The blocks are the aggregates,
+/// coloured by the parity of their block coordinates; a cycle solves the blocks of one colour
+/// by `block_steps` minimal-residual steps each, adds the update and recomputes the residual
+/// with the whole operator, then the same for the other colour.
+pub struct Sap<B, V> {
+    blocks: B,
+    cycles: usize,
+    block_steps: usize,
+    /// Residual, the update of one colour's block solves, and the block operator applied to
+    /// the block residual; made on first use, and again when the number of vectors changes.
+    scratch: Option<[V; 3]>,
+}
+
+/// What `Sap` needs of a backend.
+pub trait SapBlocks<V> {
+    /// `out = D_c inp` on the blocks of colour `c`, D_c being D without the hops that leave a
+    /// block; zero on the other blocks.
+    fn block_mult(&mut self, c: u8, out: &mut V, inp: &V);
+    /// `v = 0` outside the blocks of colour `c`.
+    fn keep_colour(&mut self, c: u8, v: &mut V);
+    /// One minimal-residual step on every block of colour `c` and every vector:
+    /// α = <p, r> / <p, p> (which minimises |r − α p|), `e += α r`, `r −= α p`.
+    fn step(&mut self, c: u8, e: &mut V, r: &mut V, p: &V);
+    /// `out = D inp`.
+    fn mult(&mut self, out: &mut V, inp: &V);
+}
+
+impl<B, V> Sap<B, V> {
+    /// `cycles` SAP cycles of `block_steps` minimal-residual steps per block solve.
+    pub fn with_blocks(blocks: B, cycles: usize, block_steps: usize) -> Self {
+        Self {
+            blocks,
+            cycles,
+            block_steps,
+            scratch: None,
+        }
+    }
+}
+
+impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Sap<CpuBlocks<'a, F, T>, Field<T, Spinor>> {
+    /// SAP on the CPU: `agg` gives the blocks; `cycles` is the number of SAP cycles,
+    /// `block_steps` the number of minimal-residual steps per block solve.
+    pub fn new(op: &'a F, agg: &Arc<Aggregation>, cycles: usize, block_steps: usize) -> Self {
+        let coarse = agg.coarse_lattice();
+        let colour = (0..coarse.num_sites())
+            .map(|c| (coarse.global_coords(c).iter().sum::<usize>() % 2) as u8)
+            .collect();
+        let blocks = CpuBlocks {
+            op,
+            work: op.work(),
+            blocks: Blocks {
+                agg: agg.clone(),
+                colour,
+                hop_coefficient: op.hop_coefficient(),
+            },
+            hop: None,
+        };
+        Self::with_blocks(blocks, cycles, block_steps)
+    }
+}
+
+/// The parts of SAP on the CPU: the operator, its blocks, and a field for one hopping term.
+pub struct CpuBlocks<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> {
     op: &'a F,
     work: F::Work,
     blocks: Blocks,
-    cycles: usize,
-    block_steps: usize,
-    /// Allocated on first use, and again when the number of vectors changes.
-    scratch: Option<Scratch<T>>,
-}
-
-struct Scratch<T: Storage> {
-    /// Residual.
-    r: Field<T, Spinor>,
-    /// Update from one colour's block solves.
-    e: Field<T, Spinor>,
-    /// Block operator applied to the block residual.
-    p: Field<T, Spinor>,
-    /// One hopping term.
-    hop: Field<T, Spinor>,
+    hop: Option<Field<T, Spinor>>,
 }
 
 /// The blocks and their colours.
@@ -45,29 +93,6 @@ struct Blocks {
     /// Colour (0 or 1) of each block.
     colour: Vec<u8>,
     hop_coefficient: f64,
-}
-
-impl<'a, F: HopTerms<Field<T, Spinor>>, T: Storage> Sap<'a, F, T> {
-    /// `agg` gives the blocks; `cycles` is the number of SAP cycles, `block_steps` the
-    /// number of minimal-residual steps per block solve.
-    pub fn new(op: &'a F, agg: &Arc<Aggregation>, cycles: usize, block_steps: usize) -> Self {
-        let coarse = agg.coarse_lattice();
-        let colour = (0..coarse.num_sites())
-            .map(|c| (coarse.global_coords(c).iter().sum::<usize>() % 2) as u8)
-            .collect();
-        Self {
-            op,
-            work: op.work(),
-            blocks: Blocks {
-                agg: agg.clone(),
-                colour,
-                hop_coefficient: op.hop_coefficient(),
-            },
-            cycles,
-            block_steps,
-            scratch: None,
-        }
-    }
 }
 
 impl Blocks {
@@ -122,58 +147,44 @@ impl Blocks {
         self.keep_colour(c, out);
     }
 
-    /// `e ≈ D_c^{-1} r` on the blocks of colour `c`, by `steps` minimal-residual steps on
-    /// every block and vector independently; zero on the other blocks. `r` is left holding
-    /// the remaining residual of the block systems.
-    #[allow(clippy::too_many_arguments)]
-    fn solve<F, T>(
+    /// One minimal-residual step on the blocks of colour `c`, every vector independently:
+    /// α = <p, r> / <p, p>, `e += α r`, `r −= α p`.
+    fn step<T: Storage>(
         &self,
-        op: &F,
-        work: &mut F::Work,
-        hop: &mut Field<T, Spinor>,
         c: u8,
-        steps: usize,
         e: &mut Field<T, Spinor>,
         r: &mut Field<T, Spinor>,
-        p: &mut Field<T, Spinor>,
-    ) where
-        F: HopTerms<Field<T, Spinor>>,
-        T: Storage,
-    {
-        e.set_zero();
-        self.keep_colour(c, r);
+        p: &Field<T, Spinor>,
+    ) {
         let nv = r.num_vectors();
         let reals = r.site_len() / nv;
         let mut alpha = vec![C64::ZERO; self.colour.len() * nv];
-        for _ in 0..steps {
-            self.mult(op, work, hop, c, p, r);
-            // α = <p, r> / <p, p> per block and vector, which minimises |r - α p|.
-            let (p_ref, r_ref) = (&*p, &*r);
-            for_sites(&mut alpha, nv, |block, a| {
-                a.fill(C64::ZERO);
-                if self.colour[block] != c {
-                    return;
-                }
-                for v in 0..nv {
-                    let (mut pr, mut pp) = (C64::ZERO, 0.0);
-                    for x in self.agg.fine_sites(block) {
-                        let ps = &p_ref.site(0, *x as usize)[v * reals..(v + 1) * reals];
-                        let rs = &r_ref.site(0, *x as usize)[v * reals..(v + 1) * reals];
-                        for (pz, rz) in ps.as_chunks::<2>().0.iter().zip(rs.as_chunks::<2>().0) {
-                            let pz = C64::new(pz[0].load().to_f64(), pz[1].load().to_f64());
-                            let rz = C64::new(rz[0].load().to_f64(), rz[1].load().to_f64());
-                            pr += pz.conj() * rz;
-                            pp += pz.norm_sqr();
-                        }
-                    }
-                    if pp > 0.0 {
-                        a[v] = pr.scale(1.0 / pp);
+        // α = <p, r> / <p, p> per block and vector, which minimises |r - α p|.
+        let r_ref = &*r;
+        for_sites(&mut alpha, nv, |block, a| {
+            a.fill(C64::ZERO);
+            if self.colour[block] != c {
+                return;
+            }
+            for v in 0..nv {
+                let (mut pr, mut pp) = (C64::ZERO, 0.0);
+                for x in self.agg.fine_sites(block) {
+                    let ps = &p.site(0, *x as usize)[v * reals..(v + 1) * reals];
+                    let rs = &r_ref.site(0, *x as usize)[v * reals..(v + 1) * reals];
+                    for (pz, rz) in ps.as_chunks::<2>().0.iter().zip(rs.as_chunks::<2>().0) {
+                        let pz = C64::new(pz[0].load().to_f64(), pz[1].load().to_f64());
+                        let rz = C64::new(rz[0].load().to_f64(), rz[1].load().to_f64());
+                        pr += pz.conj() * rz;
+                        pp += pz.norm_sqr();
                     }
                 }
-            });
-            self.block_axpy(e, &alpha, 1.0, r);
-            self.block_axpy(r, &alpha, -1.0, p);
-        }
+                if pp > 0.0 {
+                    a[v] = pr.scale(1.0 / pp);
+                }
+            }
+        });
+        self.block_axpy(e, &alpha, 1.0, r);
+        self.block_axpy(r, &alpha, -1.0, p);
     }
 
     /// `y += sign * α(block, vector) x`.
@@ -211,39 +222,60 @@ impl Blocks {
     }
 }
 
-impl<F: HopTerms<Field<T, Spinor>>, T: Storage> LinearFn<Field<T, Spinor>> for Sap<'_, F, T> {
-    fn mult(&mut self, x: &mut Field<T, Spinor>, b: &Field<T, Spinor>) {
+impl<F: HopTerms<Field<T, Spinor>>, T: Storage> SapBlocks<Field<T, Spinor>>
+    for CpuBlocks<'_, F, T>
+{
+    fn block_mult(&mut self, c: u8, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        if !self.hop.as_ref().is_some_and(|h| h.same_shape(inp)) {
+            self.hop = Some(inp.zeros_like());
+        }
+        let hop = self.hop.as_mut().expect("the field was just made");
+        self.blocks.mult(self.op, &mut self.work, hop, c, out, inp);
+    }
+    fn keep_colour(&mut self, c: u8, v: &mut Field<T, Spinor>) {
+        self.blocks.keep_colour(c, v);
+    }
+    fn step(
+        &mut self,
+        c: u8,
+        e: &mut Field<T, Spinor>,
+        r: &mut Field<T, Spinor>,
+        p: &Field<T, Spinor>,
+    ) {
+        self.blocks.step(c, e, r, p);
+    }
+    fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
+        self.op.mult(&mut self.work, out, inp, Variant::D);
+    }
+}
+
+impl<B: SapBlocks<V>, V: Vector> LinearFn<V> for Sap<B, V> {
+    fn mult(&mut self, x: &mut V, b: &V) {
         assert!(x.same_shape(b));
-        if !self.scratch.as_ref().is_some_and(|s| s.r.same_shape(b)) {
-            self.scratch = Some(Scratch {
-                r: b.zeros_like(),
-                e: b.zeros_like(),
-                p: b.zeros_like(),
-                hop: b.zeros_like(),
-            });
+        if !self.scratch.as_ref().is_some_and(|s| s[0].same_shape(b)) {
+            self.scratch = Some([b.zeros_like(), b.zeros_like(), b.zeros_like()]);
         }
         let nv = b.num_vectors();
         let one = vec![C64::new(1.0, 0.0); nv];
         let minus_one = vec![C64::new(-1.0, 0.0); nv];
-        let Sap {
-            op,
-            work,
-            blocks,
-            cycles,
-            block_steps,
-            scratch,
-        } = self;
-        let Some(Scratch { r, e, p, hop }) = scratch.as_mut() else {
-            unreachable!("the scratch fields were just created");
+        let Some([r, e, p]) = self.scratch.as_mut() else {
+            unreachable!("the scratch fields were just made");
         };
         x.set_zero();
         r.copy_from(b);
-        for _ in 0..*cycles {
+        for _ in 0..self.cycles {
             for c in [0, 1] {
-                blocks.solve(*op, work, hop, c, *block_steps, e, r, p);
+                // e ≈ D_c⁻¹ r on the blocks of colour c; r left holding the remaining residual
+                // of the block systems.
+                e.set_zero();
+                self.blocks.keep_colour(c, r);
+                for _ in 0..self.block_steps {
+                    self.blocks.block_mult(c, p, r);
+                    self.blocks.step(c, e, r, p);
+                }
                 x.axpy(&one, e);
                 // r = b - D x
-                op.mult(work, r, x, Variant::D);
+                self.blocks.mult(r, x);
                 r.aypx(&minus_one, b);
             }
         }

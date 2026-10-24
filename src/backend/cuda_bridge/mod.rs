@@ -29,6 +29,7 @@ mod levels;
 mod mdwf;
 pub mod mdwf_backend;
 pub mod multigrid;
+mod sap;
 mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
@@ -42,6 +43,7 @@ pub use halo::SplitReal;
 pub use levels::LevelReal;
 pub use levels::{DeviceAbsMultilevel, DeviceMultilevel};
 pub use mdwf::CudaMdwf;
+pub use sap::{device_sap, BlockOperator, DeviceBlocks, SapReal};
 pub use wilson::{CudaClover, CudaWilson};
 
 use crate::fermion::GaugeError;

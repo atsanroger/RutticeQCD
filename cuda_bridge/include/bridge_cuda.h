@@ -56,6 +56,39 @@ void bridge_cuda_hop_f32(
     int dagger, int target_parity, int vectors, cudaStream_t stream
 );
 
+// The four-dimensional operator on the blocks of one colour (fermion/hops.cuh, BlockCut; cut:
+// extent[4], colour, shift): out = d_from - H in at kappa, or with the clover blocks d_clover
+// T d_from + H in, on those blocks with the legs that stay inside them; zero elsewhere. The
+// block operator of the Schwarz smoother (multigrid/sap.cuh).
+void bridge_cuda_hop_block_f32(
+    float* d_out, const float* d_in, const float* d_gauge, const float* d_from, const float* d_clover,
+    const BridgeCudaGeometry* geom, double kappa, int dagger, int vectors, const int* cut,
+    cudaStream_t stream);
+void bridge_cuda_hop_block_f64(
+    double* d_out, const double* d_in, const double* d_gauge, const double* d_from, const double* d_clover,
+    const BridgeCudaGeometry* geom, double kappa, int dagger, int vectors, const int* cut,
+    cudaStream_t stream);
+
+// The Schwarz smoother (multigrid/sap.cuh), four-dimensional fields of `vectors` vectors on
+// `sites` sites: v = 0 outside the blocks of colour c; alpha = <p, r> / <p, p> of every block
+// of colour c and vector (0 for the others), in double precision; e += alpha r, r -= alpha p.
+// blocks: the colour of every block; block_sites: the block_volume sites of every block;
+// block_of: the block of every site.
+void bridge_cuda_sap_keep_colour_f32(float* d_v, const unsigned* d_blocks, const unsigned* d_block_of,
+                                     int sites, int vectors, int c, cudaStream_t stream);
+void bridge_cuda_sap_keep_colour_f64(double* d_v, const unsigned* d_blocks, const unsigned* d_block_of,
+                                     int sites, int vectors, int c, cudaStream_t stream);
+void bridge_cuda_sap_alpha_f32(double* d_alpha, const float* d_p, const float* d_r, const unsigned* d_blocks,
+                               const unsigned* d_block_sites, int n_blocks, int block_volume, int sites,
+                               int vectors, int c, cudaStream_t stream);
+void bridge_cuda_sap_alpha_f64(double* d_alpha, const double* d_p, const double* d_r, const unsigned* d_blocks,
+                               const unsigned* d_block_sites, int n_blocks, int block_volume, int sites,
+                               int vectors, int c, cudaStream_t stream);
+void bridge_cuda_sap_update_f32(float* d_e, float* d_r, const float* d_p, const double* d_alpha,
+                                const unsigned* d_block_of, int sites, int vectors, cudaStream_t stream);
+void bridge_cuda_sap_update_f64(double* d_e, double* d_r, const double* d_p, const double* d_alpha,
+                                const unsigned* d_block_of, int sites, int vectors, cudaStream_t stream);
+
 // Several processes (fermion/hops.cuh, Halo). The hops of bridge_cuda_hop and D of
 // bridge_cuda_mdwf_dslash_1pass on the interior of the output (part 1) or on its surface
 // (part 2, the legs from other processes from the buffers of `halo`); and the buffer of one
