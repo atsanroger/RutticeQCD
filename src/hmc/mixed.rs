@@ -11,7 +11,7 @@ use crate::{ConvertFrom, Lattice, LinearOp, Vector};
 use std::sync::Arc;
 
 /// The operator of an action in single precision: the inner solves of mixed precision.
-pub trait SingleNormal<V, L> {
+pub(crate) trait SingleNormal<V, L> {
     /// Takes the links the operator of the action has now.
     fn set_links(&mut self, links: &L);
     /// e ≈ (A†A)⁻¹ r by CG in single precision from zero, to |r − A†A e|²/|r|² below
@@ -54,7 +54,7 @@ where
 }
 
 /// The domain-wall operator `params` in single precision on the CPU, with Neff's `alpha`.
-pub fn single_mdwf<G: GammaRepre>(
+pub(crate) fn single_mdwf<G: GammaRepre>(
     lat: &Arc<Lattice>,
     params: MdwfParams,
     alpha: f64,
@@ -70,7 +70,7 @@ pub fn single_mdwf<G: GammaRepre>(
 /// relative to the residual it starts from), or to the inner tolerance where that is reached
 /// first, so that the last one does not overshoot. `x` holds the initial guess; the iterations
 /// are those of the inner CG.
-pub fn mixed_normal<V: Vector, L>(
+pub(crate) fn mixed_normal<V: Vector, L>(
     a: &mut dyn LinearOp<V>,
     single: &mut dyn SingleNormal<V, L>,
     x: &mut V,

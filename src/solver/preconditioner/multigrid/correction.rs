@@ -185,7 +185,7 @@ impl<V, G, T: Transfer<V, G>> Transfer<V, G> for std::rc::Rc<T> {
 /// `levels` (Hermitian positive) the even sites of blocks plus levels on the whole coarse
 /// lattice. `n` counts the applications of `a`.
 #[allow(clippy::too_many_arguments)]
-pub fn minres_on_hermitian<C: Vector, D: CoarseOperator<C> + ?Sized>(
+pub(crate) fn minres_on_hermitian<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
     blocks: &mut dyn LinearFn<C>,
     levels: Option<&Levels<'_, C>>,
@@ -336,13 +336,13 @@ where
 
     /// Levels below the coarse lattice for the solves of the quark factor: an approximate
     /// inverse of P†DP on the whole coarse lattice.
-    pub fn set_levels_d(&mut self, levels: Box<Levels<'a, C>>) {
+    pub(crate) fn set_levels_d(&mut self, levels: Box<Levels<'a, C>>) {
         self.levels_d = Some(levels);
     }
 
     /// The same for the second factor, solved by MINRES: `levels(out, inp)` adds to `out`
     /// what the levels give of `inp`, Hermitian positive.
-    pub fn set_levels_pv(&mut self, levels: Box<Levels<'a, C>>) {
+    pub(crate) fn set_levels_pv(&mut self, levels: Box<Levels<'a, C>>) {
         assert!(
             self.params.pv_solver == CoarseKrylov::Minres,
             "levels for the second factor go with MINRES"

@@ -72,7 +72,7 @@ impl Blocks {
     }
 
     /// Extent of the lattice of blocks.
-    pub fn reduced(&self) -> [usize; ND] {
+    pub(crate) fn reduced(&self) -> [usize; ND] {
         self.reduced
     }
 
@@ -96,7 +96,7 @@ impl Blocks {
     }
 
     /// The block and the lane of a lattice site.
-    pub fn block_lane(&self, site: usize) -> (usize, usize) {
+    pub(crate) fn block_lane(&self, site: usize) -> (usize, usize) {
         let x = unlex(site, self.local);
         let o = core::array::from_fn(|d| x[d] % self.reduced[d]);
         let s = core::array::from_fn(|d| x[d] / self.reduced[d]);
@@ -106,7 +106,7 @@ impl Blocks {
 
 /// What the lanes of a neighbouring block need when the hop to it leaves the sub-lattice.
 #[derive(Clone, Debug)]
-pub struct Edge<const W: usize> {
+pub(crate) struct Edge<const W: usize> {
     /// Lane `i` of the block being computed reads lane `from[i]` of the neighbouring block.
     pub from: [usize; W],
     /// For each lane of the block being computed: the factor (re, im) of the boundary
@@ -116,10 +116,10 @@ pub struct Edge<const W: usize> {
 }
 
 /// In `BlockStencil::received`: the lane does not come from another process.
-pub const NOT_RECEIVED: u32 = u32::MAX;
+pub(crate) const NOT_RECEIVED: u32 = u32::MAX;
 
 /// Nearest neighbours of blocks: the counterpart of `Stencil` for the SIMD layout.
-pub struct BlockStencil<const W: usize> {
+pub(crate) struct BlockStencil<const W: usize> {
     blocks: Blocks,
     /// Blocks covered: all of them, or those of one parity.
     num_blocks: usize,
@@ -156,7 +156,7 @@ impl<const W: usize> BlockStencil<W> {
 
     /// The blocks of one parity; neighbours are numbered within the other parity. `index`
     /// is the even-odd decomposition of the lattice of blocks (`Blocks::even_odd_index`).
-    pub fn new_parity(
+    pub(crate) fn new_parity(
         lat: &Lattice,
         boundary: [Boundary; ND],
         index: &EvenOddIndex,
@@ -302,23 +302,23 @@ impl<const W: usize> BlockStencil<W> {
     }
 
     /// Whether any neighbour comes from another process.
-    pub fn has_buffers(&self) -> bool {
+    pub(crate) fn has_buffers(&self) -> bool {
         self.send.iter().any(|s| !s.is_empty())
     }
 
     /// The (block, lane) in the input field of the sites to send through face `leg`, in
     /// the order the neighbour indexes them. Empty if that direction has a single process.
-    pub fn send_lanes(&self, leg: usize) -> &[(u32, u32)] {
+    pub(crate) fn send_lanes(&self, leg: usize) -> &[(u32, u32)] {
         &self.send[leg]
     }
 
     /// Whether what is sent through face `leg` crosses the boundary of the global lattice.
-    pub fn sends_across_boundary(&self, leg: usize) -> bool {
+    pub(crate) fn sends_across_boundary(&self, leg: usize) -> bool {
         self.at_global_boundary[leg]
     }
 
     /// The exchange that carries `reals_per_site` reals for every site of every face.
-    pub fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
+    pub(crate) fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
         HaloSpec {
             neighbour: self.neighbour_rank,
             len: core::array::from_fn(|face| reals_per_site * self.send[face].len()),
@@ -329,7 +329,7 @@ impl<const W: usize> BlockStencil<W> {
     /// the position of each lane in what arrived on the face of the leg, `NOT_RECEIVED` for
     /// the lanes found on this process.
     #[inline(always)]
-    pub fn received(&self, block: usize, leg: usize) -> Option<&[u32; W]> {
+    pub(crate) fn received(&self, block: usize, leg: usize) -> Option<&[u32; W]> {
         match self.received_at.get(block * Stencil::LEGS + leg) {
             None | Some(&NOT_RECEIVED) => None,
             Some(at) => Some(&self.received[*at as usize]),
@@ -346,7 +346,7 @@ impl<const W: usize> BlockStencil<W> {
     }
 
     /// What a hop along `leg` that leaves the sub-lattice does to the lanes.
-    pub fn edge(&self, leg: usize) -> &Edge<W> {
+    pub(crate) fn edge(&self, leg: usize) -> &Edge<W> {
         &self.edge[leg]
     }
 

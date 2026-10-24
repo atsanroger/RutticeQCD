@@ -24,7 +24,8 @@ const DIRECTIONS: [(usize, Direction); 2 * ND] = [
 /// The sites the eight hops of every site of the coarse lattice `lat` come from, in the order of
 /// the links (`CoarseOp::neighbours` without an operator, for coarse operators made elsewhere);
 /// on one process.
-pub fn coarse_neighbours(lat: &Lattice) -> Vec<[usize; 2 * ND]> {
+#[cfg(feature = "cuda-bridge")]
+pub(crate) fn coarse_neighbours(lat: &Lattice) -> Vec<[usize; 2 * ND]> {
     let stencil = Stencil::nearest(lat, [Boundary::Periodic; ND]);
     (0..lat.num_sites())
         .map(|x| {
@@ -632,7 +633,7 @@ impl<T: Storage> CoarseOp<T> {
 
     /// The diagonal block of D_c at coarse site `x` (of the operator as built, before any
     /// diagonal preconditioning), row-major `dim × dim`.
-    pub fn diagonal_block(&self, x: usize) -> Vec<C64> {
+    pub(crate) fn diagonal_block(&self, x: usize) -> Vec<C64> {
         let matrix = 2 * self.dim * self.dim;
         self.diag[x * matrix..(x + 1) * matrix]
             .as_chunks::<2>()
@@ -806,7 +807,7 @@ impl<T: Storage> CoarseOp<T> {
     }
 
     /// `out = inp` on the even sites, zero on the odd ones.
-    pub fn even_part(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
+    pub(crate) fn even_part(&self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         self.pass(out, false, Some(inp), None, None, false);
     }
 

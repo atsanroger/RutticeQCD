@@ -27,15 +27,17 @@ use std::sync::Arc;
 pub type Correction<'c, T> = Box<dyn FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T>) + 'c>;
 
 /// The vectors a round of the bootstrap returns.
-pub type Grown<T> = Result<DeviceSpinor<T>, Box<dyn Error>>;
+pub(crate) type Grown<T> = Result<DeviceSpinor<T>, Box<dyn Error>>;
 
 /// What a round of `bootstrap` does with the coarse correction of the current vectors: given it,
 /// the top of the smoother if known, and the vectors themselves, it returns the new vectors.
-pub type Round<'r, T> = dyn FnMut(Correction<'_, T>, Option<f64>, DeviceSpinor<T>) -> Grown<T> + 'r;
+pub(crate) type Round<'r, T> =
+    dyn FnMut(Correction<'_, T>, Option<f64>, DeviceSpinor<T>) -> Grown<T> + 'r;
 
 /// How `bootstrap` gets the coarse correction of the current vectors: it makes it and hands it
 /// with the vectors to the round.
-pub type WithCorrection<'w, T> = dyn FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'w;
+pub(crate) type WithCorrection<'w, T> =
+    dyn FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'w;
 
 /// The cycle of the multigrid: the Chebyshev smoother on Ã and a coarse correction.
 pub type DeviceCycle<'a, T> =
@@ -125,7 +127,7 @@ pub fn device_correction<'o, T: DeviceReal>(
 /// (`DeviceCorrection::add_levels`, `add_pv_levels` with `for_pv`), from P† of the vectors of
 /// each round: super-blocks and refinements as the files give them. At small masses the coarse
 /// solves of the bootstrap are most of its time without them (24⁴, m 0.001: 65 of 101 s).
-pub fn device_correction_with_levels<'o, T: DeviceReal>(
+pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
     cycle: PvEoParams,

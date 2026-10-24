@@ -33,11 +33,14 @@ mod wilson;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::{DeviceCorrection, DeviceParts};
-pub use ffi::{CloverKernelParams, DeviceReal, Geometry, MdwfKernelParams, WilsonKernelParams};
-pub use field::{DeviceParities, DeviceSpinor, Stashed};
+pub use ffi::DeviceReal;
+pub use ffi::{CloverKernelParams, Geometry, MdwfKernelParams, WilsonKernelParams};
+pub(crate) use field::Stashed;
+pub use field::{DeviceParities, DeviceSpinor};
 pub use gauge::DeviceLinks;
 pub use halo::SplitReal;
-pub use levels::{DeviceAbsMultilevel, DeviceMultilevel, LevelReal};
+pub use levels::LevelReal;
+pub use levels::{DeviceAbsMultilevel, DeviceMultilevel};
 pub use mdwf::CudaMdwf;
 pub use wilson::{CudaClover, CudaWilson};
 
@@ -136,7 +139,7 @@ fn pool() -> *mut c_void {
 /// its node (as the MPI launchers and Slurm tell it) modulo the devices it sees, so that the
 /// processes of a node take one device each. Chosen once for each thread, before its first
 /// allocation (the device is the runtime's state of a thread).
-pub fn device_of_this_process() -> i32 {
+pub(crate) fn device_of_this_process() -> i32 {
     let mut count = 0;
     // SAFETY: a place for the number.
     if unsafe { cudaGetDeviceCount(&mut count) } != 0 || count < 1 {
@@ -239,7 +242,7 @@ fn checksum_of<T: Copy>(data: &[T]) -> u64 {
 
 /// With `RUTTICE_CHECKSUM` set, the checksum of `what` on the standard error: for the stages
 /// inside the library (the application prints its own with its report).
-pub fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaError>) {
+pub(crate) fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaError>) {
     if std::env::var_os("RUTTICE_CHECKSUM").is_some() {
         match sum() {
             Ok(s) => eprintln!("  checksum of {what}: {s:016x}"),
@@ -249,13 +252,13 @@ pub fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaError>) 
 }
 
 /// The bytes this program holds on the device, and the most it has held.
-pub fn device_memory() -> (usize, usize) {
+pub(crate) fn device_memory() -> (usize, usize) {
     (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
 }
 
 /// The bytes of the device not held by this program now: its total memory less `device_memory`
 /// (what the memory pool keeps unused counts as free, as the pool gives it out again).
-pub fn device_room() -> usize {
+pub(crate) fn device_room() -> usize {
     let (mut free, mut total) = (0usize, 0usize);
     // SAFETY: places for the two numbers.
     if unsafe { cudaMemGetInfo(&mut free, &mut total) } != 0 {

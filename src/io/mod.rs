@@ -112,7 +112,7 @@ impl FilePrecision {
 
 /// Plain text, one real per line: the text format of Bridge++.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct BridgeText;
+pub(crate) struct BridgeText;
 
 impl GaugeFile for BridgeText {
     fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
@@ -139,7 +139,7 @@ impl GaugeFile for Binary {
 /// The NERSC format: a text header, then the links (see `nersc`). Written as whole matrices
 /// in big-endian double precision.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Nersc;
+pub(crate) struct Nersc;
 
 impl GaugeFile for Nersc {
     fn read(&self, path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, IoError> {
@@ -154,7 +154,7 @@ impl GaugeFile for Nersc {
 /// `ildg-binary-data`. Written the way QIO writes ILDG files, with the SciDAC records and
 /// the checksum next to them. Reading takes the precision from the file.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Ildg {
+pub(crate) struct Ildg {
     /// The precision to write in.
     pub precision: FilePrecision,
 }
@@ -172,7 +172,7 @@ impl GaugeFile for Ildg {
 /// record `scidac-binary-data`. Reading is the same as for `Ildg`: either kind of binary
 /// record is accepted.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Scidac {
+pub(crate) struct Scidac {
     /// The precision to write in.
     pub precision: FilePrecision,
 }
@@ -189,7 +189,7 @@ impl GaugeFile for Scidac {
 /// One dataset of an HDF5 file; see `hdf5` for its shape.
 #[cfg(feature = "hdf5")]
 #[derive(Clone, Debug)]
-pub struct Hdf5 {
+pub(crate) struct Hdf5 {
     /// Name of the dataset in the file.
     pub dataset: String,
 }

@@ -6,7 +6,7 @@ use crate::{LinearFn, Vector, C64};
 use std::collections::VecDeque;
 
 /// The last solutions of a sequence of solves with the same right-hand side.
-pub struct Chrono<V> {
+pub(crate) struct Chrono<V> {
     /// How many solutions are kept; 0: no guess (start from zero).
     pub depth: usize,
     past: VecDeque<V>,
@@ -21,21 +21,12 @@ impl<V: Vector> Chrono<V> {
     }
 
     /// Forget the solutions (a new right-hand side: the pseudofermions were drawn again).
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.past.clear();
     }
 
-    /// Solutions kept now.
-    pub fn len(&self) -> usize {
-        self.past.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.past.is_empty()
-    }
-
     /// Keep the solution `x` of the last solve.
-    pub fn record(&mut self, x: &V) {
+    pub(crate) fn record(&mut self, x: &V) {
         if self.depth == 0 {
             return;
         }

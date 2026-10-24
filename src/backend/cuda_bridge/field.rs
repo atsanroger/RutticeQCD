@@ -208,7 +208,7 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     }
 
     /// The fields to the host, to make room on the device.
-    pub fn stash(self) -> Result<Stashed<T>, CudaError> {
+    pub(crate) fn stash(self) -> Result<Stashed<T>, CudaError> {
         Ok(Stashed {
             host: self.data.download_raw()?,
             lat: self.lat.clone(),
@@ -221,7 +221,7 @@ impl<T: DeviceReal> DeviceSpinor<T> {
 
 /// Fields kept on the host as they are on the device, while the device needs the room
 /// (`DeviceSpinor::stash`): back all at once or one vector at a time.
-pub struct Stashed<T> {
+pub(crate) struct Stashed<T> {
     host: Vec<T>,
     lat: Arc<Lattice>,
     ls: usize,
@@ -252,7 +252,7 @@ impl<T: DeviceReal> Stashed<T> {
     }
 
     /// All the fields on the device again.
-    pub fn restore(&self) -> Result<DeviceSpinor<T>, CudaError> {
+    pub(crate) fn restore(&self) -> Result<DeviceSpinor<T>, CudaError> {
         self.part(0..self.vectors)
     }
 
@@ -262,7 +262,7 @@ impl<T: DeviceReal> Stashed<T> {
     }
 
     /// Vector `j` = the one vector of `v`.
-    pub fn set_vector(&mut self, j: usize, v: &DeviceSpinor<T>) -> Result<(), CudaError> {
+    pub(crate) fn set_vector(&mut self, j: usize, v: &DeviceSpinor<T>) -> Result<(), CudaError> {
         let one = self.one();
         assert!(v.vectors == 1 && v.data.len == one && v.parity == self.parity);
         self.host[j * one..(j + 1) * one].copy_from_slice(&v.data.download_raw()?);

@@ -253,7 +253,7 @@ impl DeviceLinks {
 
 impl Stout {
     /// One step on the device: `Stout::apply`.
-    pub fn apply_on_device(&self, u: &DeviceLinks) -> Result<DeviceLinks, CudaError> {
+    pub(crate) fn apply_on_device(&self, u: &DeviceLinks) -> Result<DeviceLinks, CudaError> {
         let v = DeviceLinks::zeros(&u.lat)?;
         let (n, rho) = (u.with_halo(1), flat(&self.rho));
         // SAFETY: the links of this lattice, `n` extended as its dims say.

@@ -725,7 +725,7 @@ impl BlockMap {
     }
 
     /// The exact inverses of the diagonal blocks of `a`.
-    pub fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
+    pub(crate) fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
         let dim = a.dim();
         let blocks = (0..a.lattice().num_sites())
             .map(|x| {

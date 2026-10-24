@@ -105,7 +105,7 @@ impl std::error::Error for CliError {}
 
 /// The memory of this process in GB: (now, peak so far), from `/proc/self/status`
 /// (VmRSS, VmHWM) on Linux; `None` elsewhere.
-pub fn memory_usage() -> Option<(f64, f64)> {
+pub(crate) fn memory_usage() -> Option<(f64, f64)> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let field = |name: &str| {
         status
@@ -118,7 +118,7 @@ pub fn memory_usage() -> Option<(f64, f64)> {
 }
 
 /// `memory 1.23 GB, peak 2.34 GB`, or nothing where the system does not say.
-pub fn memory_line() -> String {
+pub(crate) fn memory_line() -> String {
     memory_usage().map_or(String::new(), |(now, peak)| {
         format!("memory {now:.2} GB, peak {peak:.2} GB")
     })
@@ -126,7 +126,7 @@ pub fn memory_line() -> String {
 
 /// The gauge-field format of a name on a command line: text, binary, nersc, ildg or scidac
 /// (any case).
-pub fn gauge_format_named(name: &str) -> Option<GaugeFormat> {
+pub(crate) fn gauge_format_named(name: &str) -> Option<GaugeFormat> {
     Some(match name.to_ascii_lowercase().as_str() {
         "text" => GaugeFormat::BridgeText,
         "binary" => GaugeFormat::Binary,
@@ -315,7 +315,7 @@ pub fn run_file(path: &Path, stdout: &mut dyn Write) -> Result<(), CliError> {
 }
 
 /// `run_file` on the processes of `comm`. Only rank 0 prints and writes.
-pub fn run_file_on(
+pub(crate) fn run_file_on(
     path: &Path,
     stdout: &mut dyn Write,
     comm: Arc<dyn Comm>,

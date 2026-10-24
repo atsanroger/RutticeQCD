@@ -248,7 +248,7 @@ fn unit<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity, k: usize) -
 
 /// Σ over the sites x of `parity` of ln |det T(x)|, T(x) the 12 × 12 site-diagonal block of
 /// the operator, from its columns T e_k; summed over all processes.
-pub fn log_det_diag<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
+pub(crate) fn log_det_diag<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
     let mut work = op.even_odd_work();
     let cols: Vec<HalfPsi> = (0..12)
         .map(|k| {
@@ -323,8 +323,8 @@ fn add_log_det_insertion<O: EvenOddSites>(
 pub struct TwoFlavorEo<O: EvenOddForceOp> {
     pub op: O,
     pub smearing: Option<GaugeSmearing>,
-    pub stop_md: Stop,
-    pub stop_h: Stop,
+    pub(crate) stop_md: Stop,
+    pub(crate) stop_h: Stop,
     /// How (Ŝ†Ŝ)⁻¹ is computed (CG by default).
     pub solver: NormalSolver,
     /// Chebyshev with CG; the multigrid of the whole operator with the two-step solvers: its
@@ -334,12 +334,12 @@ pub struct TwoFlavorEo<O: EvenOddForceOp> {
     fresh: bool,
     phi: Option<O::Half>,
     /// CG iterations of the last solve, and of all force solves so far.
-    pub last_iterations: usize,
+    pub(crate) last_iterations: usize,
     pub md_iterations: usize,
     /// κ c_SW when the operator has a clover term (`with_clover`).
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
-    pub guess: Chrono<O::Half>,
+    pub(crate) guess: Chrono<O::Half>,
 }
 
 impl<O: EvenOddForceOp> TwoFlavorEo<O> {
@@ -361,20 +361,20 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
         }
     }
 
-    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+    pub(crate) fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
         self
     }
 
     /// The preconditioner of the solves; it must suit the solver (`Preconditioner`).
-    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+    pub(crate) fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         self.preconditioner = preconditioner;
         self
     }
 
     /// Solve with `op`, which applies D R for a Hermitian R within a site
     /// (`TwoFlavor::with_conditioned`): its Schur complement is Ŝ R.
-    pub fn with_conditioned(mut self, op: O) -> Self {
+    pub(crate) fn with_conditioned(mut self, op: O) -> Self {
         self.conditioned = Some(op);
         self
     }
@@ -586,8 +586,8 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     pub op: O,
     pub pv: O,
     pub smearing: Option<GaugeSmearing>,
-    pub stop_md: Stop,
-    pub stop_h: Stop,
+    pub(crate) stop_md: Stop,
+    pub(crate) stop_h: Stop,
     /// How (K†K)⁻¹ is computed (CG by default); the solve with the denominator in the heat
     /// bath uses it with no preconditioner.
     pub solver: NormalSolver,
@@ -596,10 +596,10 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
     fresh: bool,
     phi: Option<O::Half>,
     /// Iterations of the last solve with the operator, and of all its force solves so far.
-    pub last_iterations: usize,
+    pub(crate) last_iterations: usize,
     pub md_iterations: usize,
     /// The initial guess of the force solves (none by default).
-    pub guess: Chrono<O::Half>,
+    pub(crate) guess: Chrono<O::Half>,
     /// Mixed precision: K in single precision (`with_single`).
     single: Option<Box<dyn super::SingleNormal<O::Half, O::Links>>>,
     /// Neff's Q on the even sites (`with_neff`).
@@ -608,7 +608,7 @@ pub struct TwoFlavorRatioEo<O: EvenOddHalves> {
 }
 
 /// Neff's Q on the fields of one parity: `q(out, inp, inverse)`.
-pub type NeffHalfQ<H> = Box<dyn Fn(&mut H, &H, bool)>;
+pub(crate) type NeffHalfQ<H> = Box<dyn Fn(&mut H, &H, bool)>;
 
 impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
     pub fn new(op: O, pv: O, smearing: Option<GaugeSmearing>, stop_md: Stop, stop_h: Stop) -> Self {
@@ -631,7 +631,7 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         }
     }
 
-    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+    pub(crate) fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
         self
     }
@@ -640,21 +640,24 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
     /// normal equations of K Q_e (`fermion::AfterQ`), z = Q_e ((K Q_e)†(K Q_e))⁻¹ Q_e b; the
     /// action and its force are those of K. Mixed precision (`with_single`) solves the same
     /// equations in single precision. Not with a preconditioner.
-    pub fn with_neff(mut self, q: NeffHalfQ<O::Half>) -> Self {
+    pub(crate) fn with_neff(mut self, q: NeffHalfQ<O::Half>) -> Self {
         self.neff = Some(q);
         self
     }
 
     /// Mixed precision in the solves with the operator: CG on K†K in single precision with
     /// `single`, corrected in double; with CG and no preconditioner.
-    pub fn with_single(mut self, single: Box<dyn super::SingleNormal<O::Half, O::Links>>) -> Self {
+    pub(crate) fn with_single(
+        mut self,
+        single: Box<dyn super::SingleNormal<O::Half, O::Links>>,
+    ) -> Self {
         self.single = Some(single);
         self
     }
 
     /// None, Chebyshev, or the domain-wall multigrid (`EvenOddHalves::domain_wall_multigrid_half`);
     /// the multigrid of Wilson fermions is not written for K.
-    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+    pub(crate) fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         assert!(
             !matches!(preconditioner, Preconditioner::Multigrid(_)),
             "the even-odd ratio action has no Wilson multigrid"

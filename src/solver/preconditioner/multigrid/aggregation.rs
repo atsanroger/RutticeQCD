@@ -56,7 +56,7 @@ impl Aggregation {
         })
     }
 
-    pub fn fine_lattice(&self) -> &Arc<Lattice> {
+    pub(crate) fn fine_lattice(&self) -> &Arc<Lattice> {
         &self.fine
     }
 
@@ -69,18 +69,18 @@ impl Aggregation {
     }
 
     /// Number of fine sites in one block.
-    pub fn block_volume(&self) -> usize {
+    pub(crate) fn block_volume(&self) -> usize {
         self.block_volume
     }
 
     /// The fine sites of one coarse site, in increasing order.
     #[inline(always)]
-    pub fn fine_sites(&self, coarse_site: usize) -> &[u32] {
+    pub(crate) fn fine_sites(&self, coarse_site: usize) -> &[u32] {
         &self.sites[coarse_site * self.block_volume..(coarse_site + 1) * self.block_volume]
     }
 
     #[inline(always)]
-    pub fn coarse_site(&self, fine_site: usize) -> usize {
+    pub(crate) fn coarse_site(&self, fine_site: usize) -> usize {
         self.coarse_of[fine_site] as usize
     }
 

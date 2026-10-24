@@ -81,7 +81,8 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>, L: WilsonLayout<T>> WilsonOp<T, 
     }
 
     /// The block of the operator within a site.
-    pub fn diag_term(&self) -> &D {
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) fn diag_term(&self) -> &D {
         &self.diag
     }
 }
@@ -134,7 +135,8 @@ mod sweep_blocks;
 mod sweep_sites;
 
 pub use site::{DiagTerm, UnitDiag};
-pub use sweep::{fifth_hop, neff_q, After, Fifth, LinkFormat};
-pub use sweep_blocks::BlockState;
+pub use sweep::{fifth_hop, neff_q, Fifth};
+pub use sweep::{After, LinkFormat};
+pub(crate) use sweep_blocks::BlockState;
 
 use sweep::*;

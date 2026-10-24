@@ -137,7 +137,7 @@ pub enum GaugeFixingConfig {
 }
 
 impl GaugeFixingConfig {
-    pub fn coulomb_params(&self) -> CoulombParams {
+    pub(crate) fn coulomb_params(&self) -> CoulombParams {
         match *self {
             GaugeFixingConfig::Coulomb {
                 tolerance_squared,
@@ -239,7 +239,7 @@ pub struct SolverConfig {
     /// even extents); `false` is the whole lattice on both.
     pub even_odd: bool,
     /// Stop when |r|^2 / |b|^2 is below this for every right-hand side.
-    pub tolerance_squared: f64,
+    pub(crate) tolerance_squared: f64,
     /// Iterations before the true residual is recomputed and the solver restarts.
     pub max_iterations: usize,
     pub max_restarts: usize,
@@ -265,7 +265,7 @@ pub struct MultigridConfig {
     /// The coarse solver.
     pub coarse_solver: CoarseSolverKind,
     /// The coarse solve stops at this |r|^2 / |b|^2 ...
-    pub coarse_tolerance_squared: f64,
+    pub(crate) coarse_tolerance_squared: f64,
     /// ... or after this many iterations (for GMRES: the m of GMRES(m), no restarts).
     pub coarse_max_iterations: usize,
     /// Precondition the coarse operator by the inverse of its diagonal blocks.
@@ -275,21 +275,21 @@ pub struct MultigridConfig {
     /// Smooth before the coarse correction too, instead of starting from x = b.
     pub pre_smoothing: bool,
     /// SAP: cycles ...
-    pub smoother_cycles: usize,
+    pub(crate) smoother_cycles: usize,
     /// ... and minimal-residual steps per block in each cycle.
-    pub smoother_block_steps: usize,
+    pub(crate) smoother_block_steps: usize,
     /// GMRES: the m of GMRES(m) ...
-    pub smoother_iterations: usize,
+    pub(crate) smoother_iterations: usize,
     /// ... and an earlier stop at this |r|^2 / |b|^2.
-    pub smoother_tolerance_squared: f64,
+    pub(crate) smoother_tolerance_squared: f64,
     /// Precision the preconditioner works in; the outer solve is always double.
     pub precision: Precision,
     /// Seed of the random initial test vectors.
     pub seed: u64,
     /// Levels below the coarse lattice for the coarse solves: the super-block sizes of
     /// the second and the third level (coarse sites per direction).
-    pub level2_super_block: Option<usize>,
-    pub level3_super_block: Option<usize>,
+    pub(crate) level2_super_block: Option<usize>,
+    pub(crate) level3_super_block: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -52,11 +52,11 @@ pub struct DwfMultigridSetup {
     pub inner: Stop,
     /// The bootstrap is run again after every this many force solves (and when the
     /// pseudofermions are drawn); 0: only then.
-    pub refresh_every: usize,
+    pub(crate) refresh_every: usize,
     /// Keep P and the coarse parts from solve to solve and make them again when the GCR
     /// iterations per solve on the even sites have grown to this many times those after the last
     /// rebuild (module documentation); 0: make them for every solve.
-    pub rebuild_growth: f64,
+    pub(crate) rebuild_growth: f64,
     /// Neff's α of the solves with D: D^(α) in the left form, the setup that of D; 1 (the
     /// default): D in the right form.
     pub alpha: f64,
@@ -68,11 +68,11 @@ pub struct DwfMultigridSetup {
     baseline: Option<f64>,
     rebuild_due: bool,
     /// Rebuilds of P and the coarse parts for new links, and solves that reused them.
-    pub rebuilds: usize,
-    pub reuses: usize,
+    pub(crate) rebuilds: usize,
+    pub(crate) reuses: usize,
     /// Full setups, bootstraps from the vectors of before, and solves on the even sites so far.
     pub setups: usize,
-    pub refreshes: usize,
+    pub(crate) refreshes: usize,
     pub inner_solves: usize,
     /// Seconds so far: of the setups and bootstraps; of making P and the coarse parts again for
     /// new links; of the solves on the even sites (the cycles' applications included).
@@ -367,7 +367,7 @@ pub fn normal_solve<G: GammaRepre>(
 /// z = (K†K)⁻¹ b on the even sites for K = T_ee⁻¹ Ŝ of `op` (the left `SchurFactor`, the
 /// operator of the even-odd Ratio action) with the multigrid of `setup` (module
 /// documentation), on the CPU. `z` holds the initial guess.
-pub fn normal_solve_half<G: GammaRepre>(
+pub(crate) fn normal_solve_half<G: GammaRepre>(
     op: &Mdwf<f64, G>,
     pv: &Mdwf<f64, G>,
     setup: &mut DwfMultigridSetup,

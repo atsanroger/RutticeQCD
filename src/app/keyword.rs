@@ -3,7 +3,7 @@
 //! and several spellings may name one choice (`CGNE` and `CG_normal`).
 
 /// The canonical form of a keyword: lower case, without `_`, `-` and spaces.
-pub fn normalise(word: &str) -> String {
+pub(crate) fn normalise(word: &str) -> String {
     word.chars()
         .filter(|c| !matches!(c, '_' | '-' | ' '))
         .flat_map(char::to_lowercase)
@@ -35,12 +35,12 @@ macro_rules! keyword_enum {
 
         impl $name {
             /// The spellings accepted, the first of each choice being how it is printed.
-            pub const SPELLINGS: &'static [(&'static str, $name)] = &[
+            pub(crate) const SPELLINGS: &'static [(&'static str, $name)] = &[
                 $($(($spelling, $name::$variant),)+)+
             ];
 
             /// The choice a keyword names, whatever its case and separators.
-            pub fn from_keyword(word: &str) -> Option<Self> {
+            pub(crate) fn from_keyword(word: &str) -> Option<Self> {
                 let key = $crate::app::keyword::normalise(word);
                 Self::SPELLINGS
                     .iter()
@@ -49,7 +49,7 @@ macro_rules! keyword_enum {
             }
 
             /// The canonical spelling.
-            pub fn keyword(self) -> &'static str {
+            pub(crate) fn keyword(self) -> &'static str {
                 Self::SPELLINGS
                     .iter()
                     .find(|(_, v)| *v == self)

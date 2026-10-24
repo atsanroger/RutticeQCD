@@ -240,10 +240,10 @@ pub struct MultigridSetup {
     pub params: MultigridParams,
     /// The test vectors are improved (a full setup) when the pseudofermions are drawn and after
     /// every this many force solves; 0: never within a trajectory.
-    pub refresh_every: usize,
+    pub(crate) refresh_every: usize,
     /// A full setup starts from the vectors of the one before, improved this many times; none:
     /// from random vectors.
-    pub reuse: Option<usize>,
+    pub(crate) reuse: Option<usize>,
     vectors: Option<Psi>,
     since: usize,
 }
@@ -261,7 +261,7 @@ impl MultigridSetup {
 
     /// Start every full setup but the first from the test vectors of the one before, improved
     /// `iterations` times (0: smoothed once): the links of consecutive setups are close.
-    pub fn reusing_vectors(mut self, iterations: usize) -> Self {
+    pub(crate) fn reusing_vectors(mut self, iterations: usize) -> Self {
         self.reuse = Some(iterations);
         self
     }

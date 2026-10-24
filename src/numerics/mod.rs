@@ -5,7 +5,7 @@ mod lsq;
 mod rational;
 
 pub use autocorrelation::{gamma_method, GammaAnalysis};
-pub use lsq::HessenbergLsq;
+pub(crate) use lsq::HessenbergLsq;
 pub use rational::{RationalApprox, RationalError, RationalSpec};
 
 use crate::C64;
@@ -24,7 +24,7 @@ impl fmt::Display for Singular {
 impl std::error::Error for Singular {}
 
 /// Invert a dense complex `n × n` matrix by Gauss-Jordan elimination with partial pivoting.
-pub fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Singular> {
+pub(crate) fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Singular> {
     assert_eq!(a.len(), 2 * n * n);
     assert_eq!(inv.len(), 2 * n * n);
     let at = |r: usize, c: usize| 2 * (n * r + c);
@@ -98,7 +98,7 @@ pub fn invert_complex(n: usize, a: &mut [f64], inv: &mut [f64]) -> Result<(), Si
 /// Eigenvalues and eigenvectors of a Hermitian `n × n` matrix (row-major, only its Hermitian part
 /// is used) by the cyclic complex Jacobi method: returns λ and V, the eigenvectors in the columns
 /// of the row-major V, with A = V diag(λ) V†.
-pub fn hermitian_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
+pub(crate) fn hermitian_eigen(n: usize, a: &[C64]) -> (Vec<f64>, Vec<C64>) {
     assert_eq!(a.len(), n * n);
     let mut a: Vec<C64> = (0..n * n)
         .map(|ik| (a[ik] + a[(ik % n) * n + ik / n].conj()).scale(0.5))

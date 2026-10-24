@@ -79,14 +79,14 @@ impl Lattice {
 
     /// Global coordinates of a local site.
     #[inline]
-    pub fn global_coords(&self, site: usize) -> [usize; ND] {
+    pub(crate) fn global_coords(&self, site: usize) -> [usize; ND] {
         let x = self.coords(site);
         core::array::from_fn(|mu| self.origin[mu] + x[mu])
     }
 
     /// The local site with the given global coordinates, if this process holds it.
     /// The coordinates of site `index` of the whole lattice, numbered with x fastest.
-    pub fn global_site_coords(&self, mut index: usize) -> [usize; ND] {
+    pub(crate) fn global_site_coords(&self, mut index: usize) -> [usize; ND] {
         self.global.map(|l| {
             let x = index % l;
             index /= l;
@@ -94,7 +94,7 @@ impl Lattice {
         })
     }
 
-    pub fn local_site(&self, global: [usize; ND]) -> Option<usize> {
+    pub(crate) fn local_site(&self, global: [usize; ND]) -> Option<usize> {
         let mut x = [0; ND];
         for mu in 0..ND {
             x[mu] = global[mu].checked_sub(self.origin[mu])?;
@@ -106,23 +106,23 @@ impl Lattice {
     }
 
     /// Number of sites of the global lattice.
-    pub fn num_global_sites(&self) -> usize {
+    pub(crate) fn num_global_sites(&self) -> usize {
         self.global.iter().product()
     }
 
     /// Position of this process in the process grid.
-    pub fn grid_position(&self) -> [usize; ND] {
+    pub(crate) fn grid_position(&self) -> [usize; ND] {
         core::array::from_fn(|mu| self.origin[mu] / self.local[mu])
     }
 
     /// Global coordinates of local site 0 on the process `rank`.
-    pub fn origin_of(&self, rank: usize) -> [usize; ND] {
+    pub(crate) fn origin_of(&self, rank: usize) -> [usize; ND] {
         let position = grid_coords(self.grid, rank);
         core::array::from_fn(|mu| position[mu] * self.local[mu])
     }
 
     /// Rank of the process next to this one in direction (mu, dir), periodically.
-    pub fn neighbour_rank(&self, mu: usize, dir: Direction) -> usize {
+    pub(crate) fn neighbour_rank(&self, mu: usize, dir: Direction) -> usize {
         let mut p = self.grid_position();
         let n = self.grid[mu];
         p[mu] = match dir {
@@ -134,7 +134,7 @@ impl Lattice {
 
     /// Whether a step from this process in direction (mu, dir) crosses the boundary of the
     /// global lattice.
-    pub fn at_global_boundary(&self, mu: usize, dir: Direction) -> bool {
+    pub(crate) fn at_global_boundary(&self, mu: usize, dir: Direction) -> bool {
         let p = self.grid_position()[mu];
         match dir {
             Direction::Forward => p + 1 == self.grid[mu],

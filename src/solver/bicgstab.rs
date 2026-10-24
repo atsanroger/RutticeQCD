@@ -8,7 +8,7 @@ use crate::{LinearFn, Vector, C64};
 /// Only a breakdown on the very first step of a cycle is an error.
 pub struct BiCgStab<V> {
     pub stop: Stop,
-    pub omega_tolerance: f64,
+    pub(crate) omega_tolerance: f64,
     /// An inner solve (`inner`): x is zero on entry, so the first residual is b and needs no
     /// application of A; and the end does not recompute the residual (`residual_sqr` is the
     /// recurrence's).

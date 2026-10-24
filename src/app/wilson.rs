@@ -16,7 +16,7 @@ pub struct SolveReport {
     pub worst_residual_sqr: f64,
     pub seconds: f64,
     /// The peak memory of the process so far, in GB (where the system reports it).
-    pub peak_memory_gb: Option<f64>,
+    pub(crate) peak_memory_gb: Option<f64>,
 }
 
 #[derive(Debug, Clone)]

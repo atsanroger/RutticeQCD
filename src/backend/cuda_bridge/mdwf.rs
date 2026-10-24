@@ -296,7 +296,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
     /// The operator of `params` on the links of `other` in the precision `T` (converted on the
     /// device, into links of its own): the single-precision operator of a cycle whose outer
     /// solver is in double precision.
-    pub fn converted_from<U: DeviceReal>(
+    pub(crate) fn converted_from<U: DeviceReal>(
         other: &CudaMdwf<U>,
         params: MdwfParams,
     ) -> Result<Self, CudaError> {
@@ -751,7 +751,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
 
     /// `out = D inp` of the plain operator, without Neff's Q whatever α is, on the whole lattice
     /// in one pass and with no field besides the two.
-    pub fn mult_plain(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+    pub(crate) fn mult_plain(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
         self.one_pass(out, inp);
     }
 

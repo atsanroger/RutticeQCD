@@ -451,7 +451,7 @@ where
 }
 
 /// P between fields on the even sites and the coarse lattice, on the CPU.
-pub struct HalfTransfer<'a, F: Storage = f64> {
+pub(crate) struct HalfTransfer<'a, F: Storage = f64> {
     basis: &'a PvEoBasis<F>,
     index: Arc<EvenOddIndex>,
 }
@@ -488,7 +488,7 @@ type CpuCorrection<'a, G, CT, F> = Correction<
 /// The coarse correction for an operator in the layout `L`: P and the coarse operators work in
 /// the usual layout, so in blocks the residual is converted before it and the correction
 /// after it.
-pub struct InLayout<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> {
+pub(crate) struct InLayout<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> {
     correction: CpuCorrection<'a, G, CT, F>,
     /// The residual and the correction in the usual layout, when `L` is another one.
     sites: Option<[HalfField<Aos, F>; 2]>,
@@ -669,7 +669,7 @@ where
 impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a, G, CT, L, F> {
     /// The cycle for the operator `outer_l` (the operators of `outer` in the layout
     /// `L`), with `map = L::map(lattice)`.
-    pub fn with_layout(
+    pub(crate) fn with_layout(
         op: &'a Mdwf<F, G>,
         pv: &'a Mdwf<F, G>,
         outer: (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
@@ -688,7 +688,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
     /// or another cycle) for the operator `outer`, the smoother on its operators in the layout
     /// `L` (`layout`, with `map = L::map(lattice)`): nothing is built.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_parts_in_layout(
+    pub(crate) fn from_parts_in_layout(
         op: &'a Mdwf<F, G>,
         pv: &'a Mdwf<F, G>,
         outer: (&'a Mdwf<F, G>, &'a Mdwf<F, G>, EoForm),
@@ -861,7 +861,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
     }
 
     /// `add_levels` with the test vectors of the levels refined (`LevelBootstrap`).
-    pub fn add_levels_with(
+    pub(crate) fn add_levels_with(
         &mut self,
         vectors: &[CoarseField],
         super_blocks: &[usize],

@@ -7,13 +7,13 @@
 use super::{ColorMatrix, Cplx, Number, NC};
 
 /// Number of spin components.
-pub const NS: usize = 4;
+pub(crate) const NS: usize = 4;
 /// Reals in one spinor.
 pub const SPINOR_REALS: usize = 2 * NC * NS;
 /// Reals in a half spinor.
-pub const HALF_SPINOR_REALS: usize = SPINOR_REALS / 2;
+pub(crate) const HALF_SPINOR_REALS: usize = SPINOR_REALS / 2;
 
-pub type ColorVector<T> = [Cplx<T>; NC];
+pub(crate) type ColorVector<T> = [Cplx<T>; NC];
 
 /// Spin outermost, colour inside: component (s, c) is at real index `2 * (c + NC * s)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,7 +21,7 @@ pub struct Spinor<T>(pub [ColorVector<T>; NS]);
 
 /// The two independent spin components of a projected spinor.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HalfSpinor<T>(pub [ColorVector<T>; 2]);
+pub(crate) struct HalfSpinor<T>(pub [ColorVector<T>; 2]);
 
 impl<T: Number> Spinor<T> {
     #[inline(always)]
@@ -83,75 +83,22 @@ impl<T: Number> Spinor<T> {
 }
 
 impl<T: Number> HalfSpinor<T> {
-    /// Read from reals ordered [spin][colour][re, im].
     #[inline(always)]
-    pub fn from_reals(v: &[T; HALF_SPINOR_REALS]) -> Self {
-        Self(core::array::from_fn(|s| {
-            core::array::from_fn(|c| Cplx::new(v[2 * (NC * s + c)], v[2 * (NC * s + c) + 1]))
-        }))
-    }
-
-    #[inline(always)]
-    pub fn write_reals(&self, v: &mut [T; HALF_SPINOR_REALS]) {
-        for s in 0..2 {
-            for c in 0..NC {
-                v[2 * (NC * s + c)] = self.0[s][c].re;
-                v[2 * (NC * s + c) + 1] = self.0[s][c].im;
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn scale_cplx(&self, z: Cplx<T>) -> Self {
+    pub(crate) fn scale_cplx(&self, z: Cplx<T>) -> Self {
         Self([scale_color(z, &self.0[0]), scale_color(z, &self.0[1])])
     }
 }
 
-/// Complex components of a spinor with one chirality.
-pub const CHIRAL_DIM: usize = NC * NS / 2;
-
-/// The components of a spinor with γ5 = +1 and with γ5 = -1, for representations in which
-/// γ5 = [[0, 1], [1, 0]] in 2 × 2 spin blocks: `(upper ± lower) / √2`. The map is unitary.
-#[inline(always)]
-pub fn chiral_split<T: Number>(psi: &Spinor<T>) -> ([Cplx<T>; CHIRAL_DIM], [Cplx<T>; CHIRAL_DIM]) {
-    let r = T::from_f64(core::f64::consts::FRAC_1_SQRT_2);
-    let mut plus = [Cplx::ZERO; CHIRAL_DIM];
-    let mut minus = [Cplx::ZERO; CHIRAL_DIM];
-    for s in 0..NS / 2 {
-        for c in 0..NC {
-            let (upper, lower) = (psi.0[s][c], psi.0[s + NS / 2][c]);
-            plus[NC * s + c] = (upper + lower).scale(r);
-            minus[NC * s + c] = (upper - lower).scale(r);
-        }
-    }
-    (plus, minus)
-}
-
-/// Inverse of [`chiral_split`].
-#[inline(always)]
-pub fn chiral_join<T: Number>(
-    plus: &[Cplx<T>; CHIRAL_DIM],
-    minus: &[Cplx<T>; CHIRAL_DIM],
-) -> Spinor<T> {
-    let r = T::from_f64(core::f64::consts::FRAC_1_SQRT_2);
-    let mut psi = Spinor::zero();
-    for s in 0..NS / 2 {
-        for c in 0..NC {
-            let (p, m) = (plus[NC * s + c], minus[NC * s + c]);
-            psi.0[s][c] = (p + m).scale(r);
-            psi.0[s + NS / 2][c] = (p - m).scale(r);
-        }
-    }
-    psi
-}
-
 /// Reals in a packed Hermitian 6 × 6 matrix: the six real diagonal entries, then the
 /// upper triangle row by row as (re, im) pairs.
-pub const HERMITIAN6_REALS: usize = 36;
+pub(crate) const HERMITIAN6_REALS: usize = 36;
 
 /// `M v` for a packed Hermitian 6 × 6 matrix.
 #[inline(always)]
-pub fn hermitian6_mul<T: Number>(m: &[T; HERMITIAN6_REALS], v: &[Cplx<T>; 6]) -> [Cplx<T>; 6] {
+pub(crate) fn hermitian6_mul<T: Number>(
+    m: &[T; HERMITIAN6_REALS],
+    v: &[Cplx<T>; 6],
+) -> [Cplx<T>; 6] {
     let mut out: [Cplx<T>; 6] = core::array::from_fn(|r| v[r].scale(m[r]));
     let mut k = 6;
     for r in 0..6 {
@@ -220,7 +167,7 @@ pub struct Gamma {
 }
 
 impl Gamma {
-    pub const IDENTITY: Gamma = Gamma {
+    pub(crate) const IDENTITY: Gamma = Gamma {
         col: [0, 1, 2, 3],
         val: [Unit::One; NS],
     };
@@ -287,7 +234,7 @@ impl GammaRepre for Dirac {
 
 /// Selects the projector `1 + sign * γ`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sign {
+pub(crate) enum Sign {
     Minus,
     Plus,
 }
@@ -304,7 +251,7 @@ impl Sign {
 
 /// Whether a link is used as it is or Hermitian-conjugated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LinkUse {
+pub(crate) enum LinkUse {
     Direct,
     Adjoint,
 }
@@ -345,7 +292,7 @@ fn scale_color<T: Number>(z: Cplx<T>, v: &ColorVector<T>) -> ColorVector<T> {
 
 /// The two independent components of `(1 + sign * γ) ψ`.
 #[inline(always)]
-pub fn project<T: Number>(g: &Gamma, sign: Sign, psi: &Spinor<T>) -> HalfSpinor<T> {
+pub(crate) fn project<T: Number>(g: &Gamma, sign: Sign, psi: &Spinor<T>) -> HalfSpinor<T> {
     if g.col[0] != 0 {
         HalfSpinor([
             add_unit(&psi.0[0], sign.times(g.val[0]), &psi.0[g.col[0]]),
@@ -363,7 +310,7 @@ pub fn project<T: Number>(g: &Gamma, sign: Sign, psi: &Spinor<T>) -> HalfSpinor<
 /// Transport: bring the neighbour `psi` to this site along one direction. Projects, applies
 /// the boundary phase if there is one, and multiplies by the link. Does not touch any output.
 #[inline(always)]
-pub fn transport<T: Number>(
+pub(crate) fn transport<T: Number>(
     g: &Gamma,
     sign: Sign,
     psi: &Spinor<T>,
@@ -378,7 +325,7 @@ pub fn transport<T: Number>(
 /// off so that a projected spinor received from another process is finished with exactly
 /// the same arithmetic as a local one.
 #[inline(always)]
-pub fn transport_half<T: Number>(
+pub(crate) fn transport_half<T: Number>(
     h: &HalfSpinor<T>,
     link: &ColorMatrix<T>,
     link_use: LinkUse,
@@ -397,7 +344,12 @@ pub fn transport_half<T: Number>(
 /// Sink for Dslash and hopping terms: rebuild the four-component spinor from a transported
 /// half spinor and add it to `acc`. Must be given the same `g` and `sign` as the transport.
 #[inline(always)]
-pub fn sink_spinor<T: Number>(acc: &mut Spinor<T>, h: &HalfSpinor<T>, g: &Gamma, sign: Sign) {
+pub(crate) fn sink_spinor<T: Number>(
+    acc: &mut Spinor<T>,
+    h: &HalfSpinor<T>,
+    g: &Gamma,
+    sign: Sign,
+) {
     if g.col[0] != 0 {
         for k in 0..2 {
             let b = g.col[k];
@@ -542,28 +494,6 @@ mod tests {
             }
             assert!((got[r] - want).norm_sqr() < 1e-24);
         }
-    }
-
-    #[test]
-    fn chiral_split_diagonalises_gamma5_and_is_unitary() {
-        let psi = sample();
-        let (plus, minus) = chiral_split(&psi);
-        let (g_plus, g_minus) = chiral_split(&Dirac::GAMMA5.apply(&psi));
-        let mut norm = 0.0;
-        for k in 0..CHIRAL_DIM {
-            assert!((g_plus[k] - plus[k]).norm_sqr() < 1e-28);
-            assert!((g_minus[k] + minus[k]).norm_sqr() < 1e-28);
-            norm += plus[k].norm_sqr() + minus[k].norm_sqr();
-        }
-        let back = chiral_join(&plus, &minus);
-        let mut want = 0.0;
-        for s in 0..NS {
-            for c in 0..NC {
-                assert!((back.0[s][c] - psi.0[s][c]).norm_sqr() < 1e-28);
-                want += psi.0[s][c].norm_sqr();
-            }
-        }
-        assert!((norm - want).abs() < 1e-12 * want);
     }
 
     #[test]

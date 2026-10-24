@@ -307,7 +307,7 @@ where
 {
     /// An operator of Wilson type with the given site-diagonal block, for fields in blocks.
     /// `None` if the lattice cannot be cut into `W` sub-lattices of equal shape.
-    pub fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Option<Self> {
+    pub(crate) fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Option<Self> {
         let full = BlockGeometry::full(lat, params.boundary)?;
         let blocks = full.stencil.blocks();
         let even_odd = match blocks.even_odd_index() {
@@ -354,7 +354,7 @@ where
 
     /// `even_odd_hop_fifth` for fields in blocks; `after` is called once per block.
     #[allow(clippy::too_many_arguments)]
-    pub fn even_odd_hop_fifth(
+    pub(crate) fn even_odd_hop_fifth(
         &self,
         work: &mut WilsonWork<T>,
         out: &mut BlockField<T, Half, W>,

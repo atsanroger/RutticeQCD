@@ -51,7 +51,7 @@ impl WilsonFlow {
 }
 
 /// t² E at the scale t0.
-pub const T0_LEVEL: f64 = 0.3;
+pub(crate) const T0_LEVEL: f64 = 0.3;
 
 /// What the flow finds at the scale t0 of a configuration.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,8 +62,8 @@ pub struct AtT0 {
     pub t: f64,
     /// The topological charge there, of the clover field strength and improved with
     /// rectangles (c_plaq 5/3, c_rect −1/12).
-    pub q_clover: f64,
-    pub q_improved: f64,
+    pub(crate) q_clover: f64,
+    pub(crate) q_improved: f64,
 }
 
 /// Flow `u` (it is changed) until t² E reaches 0.3, and measure there; `None` if it does not

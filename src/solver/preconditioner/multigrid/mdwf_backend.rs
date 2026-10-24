@@ -27,7 +27,7 @@ pub struct CoarseLevels {
     pub count: usize,
     pub super_blocks: [usize; 3],
     pub bootstrap: [LevelBootstrap; 3],
-    pub for_pauli_villars: bool,
+    pub(crate) for_pauli_villars: bool,
 }
 
 impl CoarseLevels {
@@ -53,17 +53,17 @@ pub struct MdwfMultigridSettings {
     pub block: [usize; ND],
     /// Test vectors kept (P has twice as many columns).
     pub test_vectors: usize,
-    pub low_modes: LowModeParams,
+    pub(crate) low_modes: LowModeParams,
     pub bootstrap: BootstrapParams,
     /// The cycle of Ã.
     pub cycle: PvEoParams,
     /// The coarse solves in double precision; false: in single precision.
-    pub coarse_double: bool,
+    pub(crate) coarse_double: bool,
     /// The setup and the cycle above the coarse lattice in single precision (on the operators
     /// converted to it), the outer solver in double.
-    pub fine_single: bool,
+    pub(crate) fine_single: bool,
     /// P kept in single precision; false: in half precision.
-    pub basis_single: bool,
+    pub(crate) basis_single: bool,
     /// Levels below the coarse lattice for the coarse solves.
     pub levels: CoarseLevels,
 }
@@ -72,7 +72,7 @@ impl MdwfMultigridSettings {
     /// Why these settings cannot run on several processes on the device, if they cannot: an
     /// aggregate, and a super-block of every level below, must lie within the local lattice
     /// `local` of a process.
-    pub fn refused_on_several(&self, local: [usize; ND]) -> Option<String> {
+    pub(crate) fn refused_on_several(&self, local: [usize; ND]) -> Option<String> {
         if (0..ND).any(|mu| !local[mu].is_multiple_of(self.block[mu])) {
             return Some(format!(
                 "MultiGrid_Level1.block_size {:?} must divide the local lattice {local:?} of a process",
@@ -114,7 +114,7 @@ impl MdwfMultigridSettings {
     }
 
     /// The super-blocks and refinements of the levels below the coarse lattice.
-    pub fn level_lists(&self) -> (&[usize], &[LevelBootstrap]) {
+    pub(crate) fn level_lists(&self) -> (&[usize], &[LevelBootstrap]) {
         let l = &self.levels;
         (&l.super_blocks[..l.count], &l.bootstrap[..l.count])
     }
@@ -248,7 +248,7 @@ pub struct PartsIn<F: Storage> {
     pub basis: PvEoBasis<F>,
     pub coarse: AnyParts,
     /// The tops of the smoothers of the outer operators.
-    pub tops: Vec<f64>,
+    pub(crate) tops: Vec<f64>,
 }
 
 pub enum CpuParts {

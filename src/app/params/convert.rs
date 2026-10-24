@@ -5,7 +5,7 @@ use super::*;
 use crate::solver::preconditioner::multigrid::{CoarseLevels, MdwfMultigridSettings};
 
 /// Whether a file is a parameter file in the style of Bridge++: one with a `Main` section.
-pub fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
+pub(crate) fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
     let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
         path: path.to_path_buf(),
         source: e,
@@ -96,7 +96,7 @@ impl Params {
     }
 
     /// Checks what the types cannot; what is only odd goes to the notes.
-    pub fn validate(&mut self) -> Result<(), CliError> {
+    pub(crate) fn validate(&mut self) -> Result<(), CliError> {
         let mut notes = std::mem::take(&mut self.notes);
         let result = self.check(&mut notes);
         self.notes = notes;
@@ -539,7 +539,7 @@ impl Params {
     }
 
     /// The quarks after the first (`Quark_2` …), in order.
-    pub fn more_quarks(&self) -> Vec<&QuarkBlock> {
+    pub(crate) fn more_quarks(&self) -> Vec<&QuarkBlock> {
         [&self.quark_2, &self.quark_3, &self.quark_4]
             .into_iter()
             .map_while(|q| q.as_ref())
@@ -547,7 +547,7 @@ impl Params {
     }
 
     /// The domain-wall operator of `Fopr` (α = 1; set α with `Mdwf::set_alpha`).
-    pub fn mdwf_params(&self, mass: f64) -> MdwfParams {
+    pub(crate) fn mdwf_params(&self, mass: f64) -> MdwfParams {
         self.fopr.mdwf(mass)
     }
 
@@ -584,7 +584,7 @@ impl Params {
 
 impl MultigridBlock {
     /// The cycle, the filter and the bootstrap of the domain-wall multigrid of this block.
-    pub fn domain_wall(&self) -> (PvEoParams, LowModeParams, BootstrapParams) {
+    pub(crate) fn domain_wall(&self) -> (PvEoParams, LowModeParams, BootstrapParams) {
         let level = &self.level1;
         let (coarse_d, coarse_pv) = (level.solver_d(true), level.solver_pv());
         let cycle = PvEoParams {
@@ -615,7 +615,7 @@ impl MultigridBlock {
     /// What the block asks of the domain-wall multigrid, the same for the propagator runs and
     /// HMC; the cycle above the coarse lattice in `fine_default` unless `fine_precision` says (the
     /// propagator files take single, HMC double).
-    pub fn mdwf_settings(&self, fine_default: PrecisionType) -> MdwfMultigridSettings {
+    pub(crate) fn mdwf_settings(&self, fine_default: PrecisionType) -> MdwfMultigridSettings {
         let (cycle, low_modes, bootstrap) = self.domain_wall();
         MdwfMultigridSettings {
             block: self.level1.block_size,
@@ -704,7 +704,7 @@ impl MultigridBlock {
 
     /// The block as the multigrid of domain-wall fermions on `lattice` takes it, the block
     /// being called `at` in messages; `normal`: for the normal equations (CGNE).
-    pub fn check_domain_wall(
+    pub(crate) fn check_domain_wall(
         &self,
         at: &str,
         lattice: [usize; ND],
@@ -741,7 +741,7 @@ impl MultigridBlock {
 
     /// The block as the multigrid of Wilson and clover fermions (`name`) on `lattice` takes it;
     /// what it does not use goes into `notes`.
-    pub fn check_wilson(
+    pub(crate) fn check_wilson(
         &self,
         at: &str,
         name: FermionType,

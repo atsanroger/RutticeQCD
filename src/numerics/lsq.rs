@@ -6,7 +6,7 @@ type C64 = Cplx<f64>;
 
 /// Minimises `|| beta e1 - H y ||` for an upper Hessenberg matrix H that grows by one
 /// column per Arnoldi step, by Givens rotations. After `k` columns H is (k+1) × k.
-pub struct HessenbergLsq {
+pub(crate) struct HessenbergLsq {
     capacity: usize,
     /// Upper triangular factor, column by column: entry (i, k) at `k * capacity + i`.
     r: Vec<C64>,
@@ -32,19 +32,10 @@ impl HessenbergLsq {
     }
 
     /// Start a new problem with right-hand side `beta e1`.
-    pub fn reset(&mut self, beta: f64) {
+    pub(crate) fn reset(&mut self, beta: f64) {
         self.len = 0;
         self.g.fill(C64::ZERO);
         self.g[0] = C64::new(beta, 0.0);
-    }
-
-    /// Number of columns so far.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
     }
 
     /// Residual norm of the current least-squares solution.
@@ -175,7 +166,7 @@ mod tests {
             last = r;
         }
         lsq.reset(1.0);
-        assert!(lsq.is_empty());
+        assert_eq!(lsq.len, 0);
         assert_eq!(lsq.residual(), 1.0);
     }
 

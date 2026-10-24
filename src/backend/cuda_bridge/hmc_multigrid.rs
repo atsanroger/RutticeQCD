@@ -26,7 +26,7 @@ pub fn normal_solve(
 }
 
 /// z = (K†K)⁻¹ b on the even sites for K = T_ee⁻¹ Ŝ of `d`, on the device.
-pub fn normal_solve_half(
+pub(crate) fn normal_solve_half(
     d: &CudaMdwf<f64>,
     pv: &CudaMdwf<f64>,
     setup: &mut DwfMultigridSetup,

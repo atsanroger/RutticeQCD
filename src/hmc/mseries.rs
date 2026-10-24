@@ -102,7 +102,7 @@ impl Mseries {
 
     /// Two Gaussian numbers of variance 1/2 (Box–Muller), as Bridge++ draws them.
     #[inline]
-    pub fn gauss_pair(&mut self) -> (f64, f64) {
+    pub(crate) fn gauss_pair(&mut self) -> (f64, f64) {
         let (r1, r2) = (self.uniform(), self.uniform());
         let radius = (-(1.0 - r1).ln() * 2.0).sqrt() * (1.0 / 2.0_f64.sqrt());
         let angle = 2.0 * (4.0 * 1.0_f64.atan()) * r2;
@@ -113,7 +113,7 @@ impl Mseries {
     /// lattice, in the order Bridge++ draws them (`gauss_lex_global`): `ex` outermost, then the
     /// global sites with x fastest, then the numbers of a site, which come in pairs (for an odd
     /// `nin` the second number of the last pair is dropped).
-    pub fn gauss_lex_global(
+    pub(crate) fn gauss_lex_global(
         &mut self,
         lat: &Lattice,
         nin: usize,

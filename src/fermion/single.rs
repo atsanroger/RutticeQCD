@@ -94,7 +94,7 @@ impl<O: SingleOperator> SingleEven<O> {
 
     /// The solves on K Q_e, Q that of `alpha_op` (an operator at Neff's α; only its Q is used),
     /// as `TwoFlavorRatioEo::with_neff` asks.
-    pub fn with_neff(mut self, alpha_op: O) -> Self {
+    pub(crate) fn with_neff(mut self, alpha_op: O) -> Self {
         self.neff = Some(alpha_op);
         self
     }
@@ -128,7 +128,7 @@ impl<O: SingleOperator> SingleEven<O> {
     /// `a x = b`, `a` the normal operator in double precision of which this one is the single
     /// precision: CG in single precision with reliable updates (`solver::reliable_cg`), each when
     /// |r|² has fallen by `drop_sqr`. `x` holds the initial guess.
-    pub fn reliable_normal<V>(
+    pub(crate) fn reliable_normal<V>(
         &mut self,
         a: &mut dyn LinearFn<V>,
         x: &mut V,

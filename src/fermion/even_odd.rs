@@ -94,7 +94,7 @@ pub struct Then<'f, H> {
 
 impl<H> Then<'_, H> {
     /// The hop alone.
-    pub const NOTHING: Self = Then {
+    pub(crate) const NOTHING: Self = Then {
         site_inv: false,
         from: None,
     };

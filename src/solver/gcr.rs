@@ -13,7 +13,7 @@ pub struct Gcr<V> {
     r: Option<V>,
     /// With `recording`: |r|²/|b|² of every vector before every step (the residual of the
     /// recurrence), and after the last one, of every solve.
-    pub history: Option<Vec<Vec<f64>>>,
+    pub(crate) history: Option<Vec<Vec<f64>>>,
 }
 
 impl<V: Vector> Gcr<V> {
@@ -28,7 +28,7 @@ impl<V: Vector> Gcr<V> {
     }
 
     /// Keep the residual history (`history`).
-    pub fn recording(mut self) -> Self {
+    pub(crate) fn recording(mut self) -> Self {
         self.history = Some(Vec::new());
         self
     }

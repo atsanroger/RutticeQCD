@@ -22,9 +22,10 @@ pub use mdwf::{
     SiteInverse, MAX_LS,
 };
 
+pub use wilson::{fifth_hop, neff_q, Fifth};
 pub use wilson::{
-    fifth_hop, neff_q, After, DiagTerm, Fifth, LinkFormat, UnitDiag, Wilson, WilsonLayout,
-    WilsonOp, WilsonParams, WilsonSimd, WilsonWork,
+    After, DiagTerm, LinkFormat, UnitDiag, Wilson, WilsonLayout, WilsonOp, WilsonParams,
+    WilsonSimd, WilsonWork,
 };
 
 use crate::{Field, Gauge, LinearFn, LinearOp, Vector};

@@ -32,7 +32,7 @@ impl<U> SmearingCache<U> {
     }
 
     /// Forget everything: the links have changed.
-    pub fn clear(&self) {
+    pub(crate) fn clear(&self) {
         self.entries.borrow_mut().clear();
     }
 
@@ -48,7 +48,7 @@ impl<U> SmearingCache<U> {
 
 /// The current links and the cache of their smearings.
 pub struct Links<'a, U: LinkField = Field<f64, Gauge>> {
-    pub thin: &'a U,
+    pub(crate) thin: &'a U,
     cache: &'a SmearingCache<U>,
 }
 

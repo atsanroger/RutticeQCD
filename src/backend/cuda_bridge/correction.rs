@@ -65,7 +65,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     /// Whether the correction with these settings is on the device: the quark factor not by
     /// MINRES, which is only for the Hermitian form of the second; that by MINRES on its
     /// Hermitian form or by another solver on its exact adjoint.
-    pub fn supports(params: &PvEoParams) -> bool {
+    pub(crate) fn supports(params: &PvEoParams) -> bool {
         params.d_solver != CoarseKrylov::Minres
     }
 

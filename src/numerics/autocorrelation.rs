@@ -9,14 +9,14 @@ pub struct GammaAnalysis {
     /// The error of the mean, autocorrelations included.
     pub error: f64,
     /// τ_int in units of the spacing of the series (½ for independent measurements).
-    pub tau_int: f64,
+    pub(crate) tau_int: f64,
     /// Its statistical error, Wolff (42).
-    pub tau_int_error: f64,
+    pub(crate) tau_int_error: f64,
     /// The summation window W.
-    pub window: usize,
+    pub(crate) window: usize,
     /// Whether the automatic choice of W found its window before the end of the series (if
     /// not, W is the largest it tried and the series is too short for the result).
-    pub window_found: bool,
+    pub(crate) window_found: bool,
 }
 
 /// The Γ-method for `series`, with the automatic window of Wolff with parameter `s_tau`

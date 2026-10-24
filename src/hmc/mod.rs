@@ -16,24 +16,21 @@ mod solve;
 
 pub use dwf_multigrid::{normal_solve as dwf_multigrid_normal_solve, DwfMultigridSetup, Seconds};
 pub use rational::Rational;
-pub use solve::{MultigridSetup, NormalSolver, Pre, Preconditioner};
+pub use solve::Pre;
+pub use solve::{MultigridSetup, NormalSolver, Preconditioner};
 
-pub use even_odd::{
-    log_det_diag, EvenOddForceOp, EvenOddHalves, HalfPsi, NeffHalfQ, TwoFlavorEo, TwoFlavorRatioEo,
-};
-pub use fermion_action::{
-    clover_derivative, force_from, hop_derivative, kernel_derivative, smeared_force,
-    CloverInsertion, ForceOp, Single, TwoFlavor, TwoFlavorRatio,
-};
-pub use gauge_action::{
-    force_statistics, path_product, staples, traceless_antihermitian, PlaquetteAction,
-    RectangleAction, Step,
-};
-pub use guess::Chrono;
+pub(crate) use even_odd::NeffHalfQ;
+pub use even_odd::{EvenOddForceOp, EvenOddHalves, HalfPsi, TwoFlavorEo, TwoFlavorRatioEo};
+pub(crate) use fermion_action::Single;
+pub use fermion_action::{smeared_force, ForceOp, TwoFlavor, TwoFlavorRatio};
+pub(crate) use gauge_action::traceless_antihermitian;
+pub use gauge_action::{force_statistics, staples, PlaquetteAction, RectangleAction};
+pub(crate) use guess::Chrono;
 pub use integrator::{Hmc, HmcTrajectory, MdAction, Reversibility, Scheme, SolveCost, Term};
 pub use link_field::LinkField;
-pub use links::{Links, SmearingCache};
-pub use mixed::{mixed_normal, single_mdwf, SingleNormal};
+pub use links::Links;
+pub use links::SmearingCache;
+pub(crate) use mixed::{mixed_normal, single_mdwf, SingleNormal};
 pub use mseries::Mseries;
 
 use crate::gauge::set_link;
@@ -82,7 +79,7 @@ pub fn kinetic_energy(p: &Field<f64, Gauge>) -> f64 {
 /// U made unitary again as Bridge++ does it for SU(3) (`reunit_SU3`): the first row
 /// normalised, the second made orthogonal to it and normalised, the third the complex
 /// conjugate of their cross product.
-pub fn reunitarize(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
+pub(crate) fn reunitarize(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
     let [r0, r1, _] = m.0;
     let norm = |r: &[Cplx<f64>; 3]| 1.0 / r.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
     let n0 = norm(&r0);
@@ -510,7 +507,7 @@ mod tests {
             |w| {
                 use crate::fermion::FermionOp;
                 op.set_gauge(w).unwrap();
-                -2.0 * log_det_diag(&op, &lat, crate::Parity::Odd)
+                -2.0 * even_odd::log_det_diag(&op, &lat, crate::Parity::Odd)
             },
             1e-8,
         );

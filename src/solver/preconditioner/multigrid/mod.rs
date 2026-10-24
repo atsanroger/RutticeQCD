@@ -14,21 +14,25 @@ mod wilson;
 
 pub use aggregation::Aggregation;
 pub use basis::{Basis, BasisBuilder, Reflection};
-pub use coarse::{coarse_neighbours, CoarseOp};
-pub use correction::{
-    solve_shared, CoarseOperator, CoarseSolve, Correction, FnMap, Levels, NeffQ, Transfer,
-};
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use coarse::coarse_neighbours;
+pub use coarse::CoarseOp;
+pub use correction::{solve_shared, CoarseSolve, FnMap, NeffQ};
+pub use correction::{CoarseOperator, Correction, Levels, Transfer};
 pub use cycle::{Corrects, TwoGrid};
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
+pub use mdwf_backend::{top_of as pv_eo_top, AnyParts, CpuParts, CpuVectors, Outer, PartsIn};
 pub use mdwf_backend::{
-    top_of as pv_eo_top, AnyParts, CoarseLevels, CpuParts, CpuVectors, Cycles, MdwfBackend,
-    MdwfMultigridSettings, OnCpu, Outer, PartsIn, SetupStage,
+    CoarseLevels, Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
 };
 pub use mdwf_even_odd::{
-    bootstrap_round, bootstrap_vector, coarse_solve, low_modes, orthonormalise_all, pv_eo_basis,
-    pv_eo_basis_stored, pv_eo_bootstrap, pv_eo_bootstrap_stored, pv_eo_coarse_vectors,
-    pv_eo_low_modes, pv_eo_start, random_even, BasisStorage, BootstrapParams, CoarseKrylov,
-    CoarseParts, CycleLayout, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams, SharedOperator,
+    bootstrap_round, bootstrap_vector, coarse_solve, low_modes, orthonormalise_all,
+    pv_eo_basis_stored, pv_eo_bootstrap_stored, pv_eo_start, BasisStorage, CoarseParts,
+    CycleLayout, SharedOperator,
+};
+pub use mdwf_even_odd::{
+    pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
+    BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::Sap;

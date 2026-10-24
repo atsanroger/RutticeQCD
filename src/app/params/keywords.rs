@@ -17,7 +17,7 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    pub enum VerboseLevel {
+    pub(crate) enum VerboseLevel {
         Crucial => ["Crucial"],
         General => ["General"],
         Detailed => ["Detailed"],
@@ -77,13 +77,13 @@ keyword_enum! {
 }
 
 impl FermionType {
-    pub fn is_domain_wall(self) -> bool {
+    pub(crate) fn is_domain_wall(self) -> bool {
         self == FermionType::DomainWall
     }
 }
 
 keyword_enum! {
-    pub enum GammaType {
+    pub(crate) enum GammaType {
         Dirac => ["Dirac"],
         Chiral => ["Chiral"],
     }
@@ -169,7 +169,7 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    pub enum GaugeFixingType {
+    pub(crate) enum GaugeFixingType {
         Coulomb => ["Coulomb"],
     }
 }

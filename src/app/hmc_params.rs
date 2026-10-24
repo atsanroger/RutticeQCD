@@ -59,7 +59,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 keyword_enum! {
-    pub enum StartStatus {
+    pub(crate) enum StartStatus {
         /// From the file `config_filename_input`.
         Continue => ["Continue", "File"],
         /// Every link the identity.
@@ -70,21 +70,21 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    pub enum IntegratorType {
+    pub(crate) enum IntegratorType {
         Leapfrog => ["Leapfrog"],
         Omelyan => ["Omelyan"],
     }
 }
 
 keyword_enum! {
-    pub enum GaugeActionType {
+    pub(crate) enum GaugeActionType {
         Plaquette => ["Action_G_Plaq", "Plaquette", "Plaq"],
         Rectangle => ["Action_G_Rectangle", "Rectangle"],
     }
 }
 
 keyword_enum! {
-    pub enum FermionActionType {
+    pub(crate) enum FermionActionType {
         /// Two flavours, φ† (D†D)⁻¹ φ.
         Standard => ["Standard", "Action_F_Standard", "Action_F_Standard_lex", "Two_flavor"],
         /// Two flavours over two of `Fopr_denominator` (domain-wall fermions without one: over
@@ -97,7 +97,7 @@ keyword_enum! {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HmcParams {
+pub(crate) struct HmcParams {
     #[serde(rename = "Main")]
     pub main: MainBlock,
     #[serde(rename = "HMC")]
@@ -110,39 +110,39 @@ pub struct HmcParams {
     #[serde(rename = "GaugeSmearing")]
     pub gauge_smearing: Option<GaugeSmearingBlock>,
     #[serde(rename = "Action_G")]
-    pub action_g: Option<GaugeActionBlock>,
+    pub(crate) action_g: Option<GaugeActionBlock>,
     #[serde(rename = "Action_F_1")]
-    pub action_f_1: Option<FermionActionBlock>,
+    pub(crate) action_f_1: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_2")]
-    pub action_f_2: Option<FermionActionBlock>,
+    pub(crate) action_f_2: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_3")]
-    pub action_f_3: Option<FermionActionBlock>,
+    pub(crate) action_f_3: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_4")]
-    pub action_f_4: Option<FermionActionBlock>,
+    pub(crate) action_f_4: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_5")]
-    pub action_f_5: Option<FermionActionBlock>,
+    pub(crate) action_f_5: Option<FermionActionBlock>,
     #[serde(rename = "Action_F_6")]
-    pub action_f_6: Option<FermionActionBlock>,
+    pub(crate) action_f_6: Option<FermionActionBlock>,
     /// The Wilson flow measured every `measurement_interval` trajectories.
     #[serde(rename = "GradientFlow")]
-    pub gradient_flow: Option<FlowBlock>,
+    pub(crate) gradient_flow: Option<FlowBlock>,
 }
 
 /// The Wilson flow along the run: t0 and the topological charge after every
 /// `measurement_interval` trajectories (keys of Bridge++'s `GradientFlow` where it has them).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FlowBlock {
+pub(crate) struct FlowBlock {
     pub measurement_interval: usize,
     #[serde(default = "flow_step")]
     pub step_size: f64,
     #[serde(default = "flow_t_max")]
     pub max_flow_time: f64,
     #[serde(rename = "order_of_approx_for_exp_iP", default = "flow_exp_order")]
-    pub order_of_exp_ip: usize,
+    pub(crate) order_of_exp_ip: usize,
     /// Only 3 (Lüscher's scheme).
     #[serde(rename = "order_of_RungeKutta", default = "flow_rk_order")]
-    pub order_of_runge_kutta: usize,
+    pub(crate) order_of_runge_kutta: usize,
     /// The first this many trajectories of the run are left out of the Γ-method at the end.
     #[serde(default)]
     pub skip_trajectories: usize,
@@ -189,7 +189,7 @@ impl FlowBlock {
 /// Where the run starts, how long it is and what it saves.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RunBlock {
+pub(crate) struct RunBlock {
     pub gauge_config_status: StartStatus,
     #[serde(default = "text")]
     pub gauge_config_type_input: GaugeType,
@@ -211,32 +211,32 @@ pub struct RunBlock {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GeneralBlock {
+pub(crate) struct GeneralBlock {
     pub trajectory_length: f64,
     #[serde(rename = "Metropolis_test", default = "yes")]
-    pub metropolis_test: bool,
+    pub(crate) metropolis_test: bool,
     /// Not in Bridge++: checks of the reversibility of the molecular dynamics from the first
     /// configuration before the trajectories (`hmc::Hmc::reversibility`), with random numbers
     /// of their own; the trajectories are as without them.
     #[serde(default)]
-    pub reversibility_checks: usize,
+    pub(crate) reversibility_checks: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct IntegratorBlock {
+pub(crate) struct IntegratorBlock {
     pub integrator: IntegratorType,
     /// Steps of each level, the outermost first.
     pub number_of_steps: Vec<usize>,
     #[serde(rename = "order_of_exp_iP", default = "exp_order")]
-    pub order_of_exp_ip: usize,
+    pub(crate) order_of_exp_ip: usize,
     #[serde(rename = "lambda_Omelyan", default = "omelyan_lambda")]
-    pub lambda_omelyan: f64,
+    pub(crate) lambda_omelyan: f64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GaugeActionBlock {
+pub(crate) struct GaugeActionBlock {
     pub action_type: GaugeActionType,
     pub beta: f64,
     pub c_plaq: Option<f64>,
@@ -247,7 +247,7 @@ pub struct GaugeActionBlock {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FermionActionBlock {
+pub(crate) struct FermionActionBlock {
     pub action_type: FermionActionType,
     /// `Standard` and `Ratio`: on all sites (`Lexical`, the default) or the Schur complement on
     /// the even ones (`Even_odd`).
@@ -260,7 +260,7 @@ pub struct FermionActionBlock {
     #[serde(rename = "Fopr")]
     pub fopr: FoprBlock,
     #[serde(rename = "Fopr_denominator", alias = "Fopr_prec")]
-    pub fopr_denominator: Option<FoprBlock>,
+    pub(crate) fopr_denominator: Option<FoprBlock>,
     #[serde(rename = "Solver", default)]
     pub solver: HmcSolverBlock,
     /// The multigrid of `Solver.preconditioner_type : MG`: the `MultiGrid` section of the
@@ -268,7 +268,7 @@ pub struct FermionActionBlock {
     #[serde(rename = "MultiGrid")]
     pub multigrid: Option<MultigridBlock>,
     #[serde(rename = "MultiGrid_HMC", default)]
-    pub multigrid_hmc: MultigridHmcBlock,
+    pub(crate) multigrid_hmc: MultigridHmcBlock,
     #[serde(rename = "Rational")]
     pub rational: Option<RationalBlock>,
 }
@@ -276,7 +276,7 @@ pub struct FermionActionBlock {
 /// The solver of an action's forces and energies.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct HmcSolverBlock {
+pub(crate) struct HmcSolverBlock {
     /// `CG` (the default of `Standard` and `Ratio`), `BiCGStab`, `FGMRES`, `GCR`. `Rational`
     /// without it: multi-shift CG; with `CG`: one solve per pole.
     pub solver_type: Option<SolverType>,
@@ -285,7 +285,7 @@ pub struct HmcSolverBlock {
     pub convergence_criterion_squared: f64,
     /// Of the energies at the ends of a trajectory; the same as the forces if not given.
     #[serde(rename = "convergence_criterion_squared_H")]
-    pub convergence_criterion_squared_h: Option<f64>,
+    pub(crate) convergence_criterion_squared_h: Option<f64>,
     #[serde(default = "md_iterations")]
     pub maximum_number_of_iteration: usize,
     /// The cycle of FGMRES, the directions GCR keeps.
@@ -310,7 +310,7 @@ pub struct HmcSolverBlock {
     pub convergence_criterion_squared_inner: Option<f64>,
     /// The place of the multigrid before it moved to the action: refused, with where it went.
     #[serde(rename = "MultiGrid")]
-    pub moved_multigrid: Option<serde::de::IgnoredAny>,
+    pub(crate) moved_multigrid: Option<serde::de::IgnoredAny>,
 }
 
 impl Default for HmcSolverBlock {
@@ -335,18 +335,18 @@ impl Default for HmcSolverBlock {
 /// What only HMC has of the multigrid.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MultigridHmcBlock {
+pub(crate) struct MultigridHmcBlock {
     /// Improve the test vectors again after this many force solves; 0: only when the
     /// pseudofermions are drawn (a trajectory starts).
     #[serde(default)]
-    pub refresh_interval: usize,
+    pub(crate) refresh_interval: usize,
     /// Wilson and clover: start every setup but the first from the test vectors of the one
     /// before, improved `number_of_reuse_iterations` times; false: from random vectors.
     /// Domain-wall fermions always go on from their vectors (by the bootstrap of `Setup`).
     #[serde(default = "yes")]
-    pub reuse_vectors: bool,
+    pub(crate) reuse_vectors: bool,
     #[serde(default)]
-    pub number_of_reuse_iterations: usize,
+    pub(crate) number_of_reuse_iterations: usize,
     /// Domain-wall fermions: where each of the two solves on the even sites (through Ã† and
     /// Ã) stops, |r|²/|b|² (1e-10); then they are repeated on the residual of D†D until
     /// `Solver.convergence_criterion_squared`.
@@ -373,12 +373,12 @@ impl Default for MultigridHmcBlock {
 /// for the eigenvalues of |D| in [`lower_bound`, `upper_bound`].
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RationalBlock {
+pub(crate) struct RationalBlock {
     pub number_of_poles: usize,
     #[serde(default = "one_i")]
     pub exponent_numerator: i32,
     #[serde(default = "two_i")]
-    pub exponent_denominator: i32,
+    pub(crate) exponent_denominator: i32,
     pub lower_bound: f64,
     pub upper_bound: f64,
     /// A directory with Bridge++'s coefficient files, to read instead of computing them.
@@ -421,7 +421,7 @@ fn invalid<T>(message: String) -> Result<T, CliError> {
 }
 
 /// Whether the text has the sections of an HMC file.
-pub fn is_hmc_text(text: &str, toml: bool) -> bool {
+pub(crate) fn is_hmc_text(text: &str, toml: bool) -> bool {
     const KEY: &str = "HMC_General";
     if toml {
         text.parse::<toml::Table>()

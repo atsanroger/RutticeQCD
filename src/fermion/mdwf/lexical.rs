@@ -5,7 +5,7 @@ use super::*;
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `mult` at another mass: the Pauli-Villars operator is this at `mass = 1`.
-    pub fn mult_at(
+    pub(crate) fn mult_at(
         &self,
         work: &mut MdwfWork<T, L>,
         out: &mut Field<T, Spinor, Lexical, L>,
@@ -241,7 +241,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
     }
 
     /// w = b ψ − c Y ψ (of Q ψ with Neff's α), the field the kernel's hops act on in D ψ.
-    pub fn kernel_input(&self, inp: &Field<T, Spinor>) -> Field<T, Spinor> {
+    pub(crate) fn kernel_input(&self, inp: &Field<T, Spinor>) -> Field<T, Spinor> {
         let mut fields = [None, None, None, None];
         let w = self.before_kernel(&mut fields, inp);
         let mut out = inp.zeros_like();

@@ -36,14 +36,14 @@ pub struct HmcConfig {
     pub lattice: [usize; ND],
     pub process_grid: Option<[usize; ND]>,
     /// Threads of each process; without it `RAYON_NUM_THREADS`, or every core.
-    pub cpu_thread: Option<usize>,
+    pub(crate) cpu_thread: Option<usize>,
     pub start: StartConfig,
     /// The smearing of the links of the fermion actions that ask for it (`smeared`).
     pub gauge_smearing: Option<GaugeSmearingConfig>,
     pub hmc: HmcBlock,
     pub actions: Vec<ActionConfig>,
     /// The section of each action in the file (`Action_G`, `Action_F_1`, ...), for messages.
-    pub action_names: Vec<String>,
+    pub(crate) action_names: Vec<String>,
     pub output: HmcOutput,
     /// The Wilson flow measured along the run.
     pub flow: Option<FlowMonitor>,
@@ -59,7 +59,7 @@ pub struct FlowMonitor {
     pub interval: usize,
     pub flow: WilsonFlow,
     /// The flow stops here if t² E has not reached 0.3.
-    pub t_max: f64,
+    pub(crate) t_max: f64,
     /// The first this many trajectories of the run (thermalization) are measured and printed
     /// but left out of the Γ-method at the end.
     pub skip: usize,
@@ -81,17 +81,17 @@ pub struct HmcBlock {
     pub trajectories: usize,
     /// The number of the first trajectory: the random numbers of the run are those of the
     /// M-series generator made from it (Bridge++'s `trajectory_number`).
-    pub first_trajectory: u32,
+    pub(crate) first_trajectory: u32,
     pub trajectory_length: f64,
     pub integrator: IntegratorConfig,
     pub metropolis: bool,
     /// Checks of the reversibility before the trajectories (`HMC_General.reversibility_checks`).
-    pub reversibility_checks: usize,
+    pub(crate) reversibility_checks: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct IntegratorConfig {
-    pub scheme: SchemeConfig,
+    pub(crate) scheme: SchemeConfig,
     /// Steps of each level, the outermost first.
     pub steps: Vec<usize>,
     /// λ of the Omelyan scheme.
@@ -101,7 +101,7 @@ pub struct IntegratorConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SchemeConfig {
+pub(crate) enum SchemeConfig {
     Leapfrog,
     Omelyan,
 }
@@ -289,9 +289,9 @@ pub struct HmcSolver {
     pub neff_alpha: f64,
     /// Steps of FGMRES before a restart; directions GCR keeps.
     pub restart: usize,
-    pub tolerance_squared: f64,
+    pub(crate) tolerance_squared: f64,
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
-    pub energy_tolerance_squared: f64,
+    pub(crate) energy_tolerance_squared: f64,
     pub max_iterations: usize,
     /// Mixed precision: CG in single precision to this |r|²/|b|², corrected in double.
     pub mixed: Option<f64>,
@@ -448,7 +448,7 @@ impl Default for HmcSolver {
 #[derive(Debug, Clone, Default)]
 pub struct HmcOutput {
     /// Write the configuration after every this many trajectories (and after the last).
-    pub save_every: Option<usize>,
+    pub(crate) save_every: Option<usize>,
     /// The file name, `{n}` replaced by the trajectory number; relative to the parameter
     /// file's directory. On several processes rank 0 writes it.
     pub file: Option<String>,

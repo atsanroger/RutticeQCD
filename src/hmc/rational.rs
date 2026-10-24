@@ -26,12 +26,12 @@ pub struct Rational<O: ForceOp> {
     pub smearing: Option<GaugeSmearing>,
     /// The approximation of the action and the force, and that of the heat bath.
     pub md: RationalApprox,
-    pub heat_bath: RationalApprox,
+    pub(crate) heat_bath: RationalApprox,
     /// The multi-shift solves for the force, and for the heat bath and the energy.
-    pub stop_md: Stop,
-    pub stop_h: Stop,
+    pub(crate) stop_md: Stop,
+    pub(crate) stop_h: Stop,
     /// One CG solve per pole instead of the multi-shift solver.
-    pub pole_by_pole: bool,
+    pub(crate) pole_by_pole: bool,
     /// Solve every pole by two solves with D ± i√pole γ5 (`with_two_step`).
     two_step: Option<NormalSolver>,
     /// The multigrid of the two-step solves; none otherwise.
@@ -41,7 +41,7 @@ pub struct Rational<O: ForceOp> {
     /// κ c_SW when the operator has a clover term.
     clover: Option<f64>,
     /// Iterations of the last multi-shift solve.
-    pub last_iterations: usize,
+    pub(crate) last_iterations: usize,
 }
 
 impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
@@ -71,7 +71,7 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
     }
 
     /// Solve for every pole with a CG of its own (each to the tolerance on its own residual).
-    pub fn with_pole_by_pole(mut self, on: bool) -> Self {
+    pub(crate) fn with_pole_by_pole(mut self, on: bool) -> Self {
         self.pole_by_pole = on;
         self
     }
@@ -79,13 +79,13 @@ impl<O: ForceOp<Links = Field<f64, Gauge>>> Rational<O> {
     /// Solve pole by pole with `solver` (not CG) through the Hermitian γ5 D:
     /// D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5), two solves that take the multigrid of D as
     /// preconditioner (`with_preconditioner`).
-    pub fn with_two_step(mut self, solver: NormalSolver) -> Self {
+    pub(crate) fn with_two_step(mut self, solver: NormalSolver) -> Self {
         self.two_step = Some(solver);
         self
     }
 
     /// The multigrid of the two-step solves.
-    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+    pub(crate) fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         self.preconditioner = preconditioner;
         self
     }

@@ -59,7 +59,7 @@ pub struct Stencil {
 }
 
 impl Stencil {
-    pub const LEGS: usize = FACES;
+    pub(crate) const LEGS: usize = FACES;
 
     #[inline(always)]
     pub fn leg(mu: usize, dir: Direction) -> usize {
@@ -75,7 +75,7 @@ impl Stencil {
     }
 
     /// The sites of one parity; neighbours are indices within the opposite parity.
-    pub fn nearest_parity(
+    pub(crate) fn nearest_parity(
         lat: &Lattice,
         boundary: [Boundary; ND],
         index: &EvenOddIndex,
@@ -195,25 +195,25 @@ impl Stencil {
     }
 
     /// Whether any neighbour comes from another process.
-    pub fn has_buffers(&self) -> bool {
+    pub(crate) fn has_buffers(&self) -> bool {
         self.send_sites.iter().any(|s| !s.is_empty())
     }
 
     /// The input sites to send through the face (mu, dir), in the order the neighbour
     /// indexes them. Empty if that direction has a single process.
-    pub fn send_sites(&self, mu: usize, dir: Direction) -> &[u32] {
+    pub(crate) fn send_sites(&self, mu: usize, dir: Direction) -> &[u32] {
         &self.send_sites[Self::leg(mu, dir)]
     }
 
     /// Whether what is sent through the face (mu, dir) crosses the boundary of the global
     /// lattice.
-    pub fn sends_across_boundary(&self, mu: usize, dir: Direction) -> bool {
+    pub(crate) fn sends_across_boundary(&self, mu: usize, dir: Direction) -> bool {
         self.at_global_boundary[Self::leg(mu, dir)]
     }
 
     /// The exchange that carries `reals_per_site` reals for every site of every face. A
     /// face receives as many sites as the opposite face sends.
-    pub fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
+    pub(crate) fn halo_spec(&self, reals_per_site: usize) -> HaloSpec {
         HaloSpec {
             neighbour: self.neighbour_rank,
             len: core::array::from_fn(|face| {

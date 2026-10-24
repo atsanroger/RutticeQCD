@@ -40,7 +40,7 @@ fn add_outer(m: &mut [f64], a: &Psi, b: &Psi, k: f64) {
 
 /// M_μ(x) of the module documentation for the operator `op` (its links): Re tr X M is the
 /// change of S = −2 Re ζ† δD η … per unit of X, i.e. dS for δU = X U.
-pub fn hop_derivative<O: HopTerms<Psi> + ?Sized>(
+pub(crate) fn hop_derivative<O: HopTerms<Psi> + ?Sized>(
     op: &O,
     zeta: &Psi,
     eta: &Psi,
@@ -50,7 +50,7 @@ pub fn hop_derivative<O: HopTerms<Psi> + ?Sized>(
 
 /// `hop_derivative` for an operator whose hops are those of the Wilson kernel `op` (γ5 its
 /// four-dimensional one) with coefficient `c`, acting on `eta`.
-pub fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
+pub(crate) fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
     op: &O,
     c: f64,
     zeta: &Psi,
@@ -77,7 +77,7 @@ pub fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
 
 /// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for the links
 /// `u` of the operator (F_μν = (Q − Q†)/8, Q the four leaves at x; `clover`'s convention).
-pub fn clover_derivative(
+pub(crate) fn clover_derivative(
     u: &Field<f64, Gauge>,
     kappa_csw: f64,
     zeta: &Psi,
@@ -90,7 +90,7 @@ pub fn clover_derivative(
 
 /// B_μν(x) of `clover_derivative` for the six planes, in two fields of four matrices per
 /// site, summed over any number of pairs (ζ, η) before the leaves are walked once.
-pub struct CloverInsertion {
+pub(crate) struct CloverInsertion {
     b: [Field<f64, Gauge>; 2],
 }
 
@@ -379,7 +379,7 @@ pub(super) fn draw(xi: &mut Psi, rng: &mut Mseries) {
 }
 
 /// F = TA(M) for every link.
-pub fn force_from(m: &Field<f64, Gauge>) -> Field<f64, Gauge> {
+pub(crate) fn force_from(m: &Field<f64, Gauge>) -> Field<f64, Gauge> {
     let mut f = Field::<f64, Gauge>::gauge(m.lattice());
     for mu in 0..ND {
         for_sites(f.slab_mut(mu), 18, |x, out| {
@@ -497,7 +497,8 @@ pub(super) fn normal_solve<O: ForceOp>(
 }
 
 /// The single-precision operator of an action, for mixed precision.
-pub type Single<O> = Box<dyn super::SingleNormal<<O as ForceOp>::Field, <O as ForceOp>::Links>>;
+pub(crate) type Single<O> =
+    Box<dyn super::SingleNormal<<O as ForceOp>::Field, <O as ForceOp>::Links>>;
 
 /// Two degenerate flavours, S = φ† (D†D)⁻¹ φ, with D the operator `op` on the links smeared
 /// by `smearing` (none: the links themselves). (D†D)⁻¹ by CG to |r|²/|b|² < `stop`.
@@ -505,8 +506,8 @@ pub struct TwoFlavor<O: ForceOp> {
     pub op: O,
     pub smearing: Option<GaugeSmearing>,
     /// The solves for the force and for the energy.
-    pub stop_md: Stop,
-    pub stop_h: Stop,
+    pub(crate) stop_md: Stop,
+    pub(crate) stop_h: Stop,
     /// How (D†D)⁻¹ is computed (CG by default).
     pub solver: NormalSolver,
     pub preconditioner: Preconditioner,
@@ -515,13 +516,13 @@ pub struct TwoFlavor<O: ForceOp> {
     fresh: bool,
     phi: Option<O::Field>,
     /// CG iterations of the last solve.
-    pub last_iterations: usize,
+    pub(crate) last_iterations: usize,
     /// CG iterations of all force solves so far.
     pub md_iterations: usize,
     /// κ c_SW when the operator has a clover term (`with_clover`).
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
-    pub guess: Chrono<O::Field>,
+    pub(crate) guess: Chrono<O::Field>,
     /// Mixed precision: the operator in single precision (`with_single`).
     single: Option<Single<O>>,
     meter: super::solve::CostMeter,
@@ -550,18 +551,18 @@ impl<O: ForceOp> TwoFlavor<O> {
 
     /// Mixed precision: CG in single precision with `single` (the operator that is solved, in
     /// single precision), corrected in double; with CG and no preconditioner.
-    pub fn with_single(mut self, single: Single<O>) -> Self {
+    pub(crate) fn with_single(mut self, single: Single<O>) -> Self {
         self.single = Some(single);
         self
     }
 
-    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+    pub(crate) fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
         self
     }
 
     /// The preconditioner of the solves; it must suit the solver (`Preconditioner`).
-    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+    pub(crate) fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         self.preconditioner = preconditioner;
         self
     }
@@ -569,7 +570,7 @@ impl<O: ForceOp> TwoFlavor<O> {
     /// Solve with `op`, which applies D R for a Hermitian R within a site (`ForceOp::right`) and
     /// is better conditioned than D: (D†D)⁻¹ = R ((D R)†(D R))⁻¹ R. Domain-wall fermions: the
     /// operator with Neff's α.
-    pub fn with_conditioned(mut self, op: O) -> Self {
+    pub(crate) fn with_conditioned(mut self, op: O) -> Self {
         self.conditioned = Some(op);
         self
     }
@@ -678,8 +679,8 @@ pub struct TwoFlavorRatio<O: ForceOp> {
     pub op: O,
     pub pv: O,
     pub smearing: Option<GaugeSmearing>,
-    pub stop_md: Stop,
-    pub stop_h: Stop,
+    pub(crate) stop_md: Stop,
+    pub(crate) stop_h: Stop,
     /// How (D†D)⁻¹ is computed (CG by default).
     pub solver: NormalSolver,
     /// Of the solves with the operator; those with the denominator have none.
@@ -716,18 +717,18 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     /// Mixed precision in the solves with the operator: CG in single precision with `single`
     /// (the operator that is solved, in single precision), corrected in double; with CG and no
     /// preconditioner.
-    pub fn with_single(mut self, single: Single<O>) -> Self {
+    pub(crate) fn with_single(mut self, single: Single<O>) -> Self {
         self.single = Some(single);
         self
     }
 
-    pub fn with_solver(mut self, solver: NormalSolver) -> Self {
+    pub(crate) fn with_solver(mut self, solver: NormalSolver) -> Self {
         self.solver = solver;
         self
     }
 
     /// The preconditioner of the solves; it must suit the solver (`Preconditioner`).
-    pub fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
+    pub(crate) fn with_preconditioner(mut self, preconditioner: Preconditioner) -> Self {
         self.preconditioner = preconditioner;
         self
     }
@@ -735,7 +736,7 @@ impl<O: ForceOp> TwoFlavorRatio<O> {
     /// Solve with `op`, which applies D R for a Hermitian R within a site (`ForceOp::right`) and
     /// is better conditioned than D: (D†D)⁻¹ = R ((D R)†(D R))⁻¹ R. Domain-wall fermions: the
     /// operator with Neff's α.
-    pub fn with_conditioned(mut self, op: O) -> Self {
+    pub(crate) fn with_conditioned(mut self, op: O) -> Self {
         self.conditioned = Some(op);
         self
     }

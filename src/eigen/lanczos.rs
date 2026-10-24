@@ -64,7 +64,7 @@ pub enum Tolerance {
 }
 
 impl Tolerance {
-    pub fn met(self, residual: f64, magnitude: f64) -> bool {
+    pub(crate) fn met(self, residual: f64, magnitude: f64) -> bool {
         match self {
             Tolerance::Relative(e) => residual <= e * magnitude,
             Tolerance::AbsoluteSquared(e) => residual * residual < e,
@@ -121,7 +121,7 @@ pub struct Eigenpairs<V> {
     /// |A x − λ x| of each.
     pub residuals: Vec<f64>,
     /// The pairs before the threshold (all of them without one).
-    pub within_threshold: usize,
+    pub(crate) within_threshold: usize,
     pub converged: bool,
     pub restarts: usize,
     /// Applications of A.

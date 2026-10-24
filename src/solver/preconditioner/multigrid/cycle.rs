@@ -33,7 +33,7 @@ impl<V: Vector, A: LinearFn<V>, E: Corrects<V>> TwoGrid<V, A, E> {
         }
     }
 
-    pub fn smoother_mut(&mut self) -> &mut Chebyshev<A, V> {
+    pub(crate) fn smoother_mut(&mut self) -> &mut Chebyshev<A, V> {
         &mut self.smoother
     }
 
@@ -41,7 +41,7 @@ impl<V: Vector, A: LinearFn<V>, E: Corrects<V>> TwoGrid<V, A, E> {
         &self.correction
     }
 
-    pub fn correction_mut(&mut self) -> &mut E {
+    pub(crate) fn correction_mut(&mut self) -> &mut E {
         &mut self.correction
     }
 }

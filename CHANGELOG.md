@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- The public interface of the library narrowed to what programs and users are meant to use:
+  1151 public items and 608 public fields became 893 and 478; the rest is `pub(crate)`, so the
+  compiler reports what nothing uses. Internal pieces (site arithmetic helpers, the parallel
+  loops, the force kernels of HMC, the steps of the multigrid setup, the kernel argument
+  structures of the device) are no longer exported; parameter files and programs are unchanged.
+  This is a breaking change for code that used those internals.
+- What the narrowing showed unused, removed: `gauge::paths::path_product`, the chiral split and
+  join of spinors, two pairs of `len`/`is_empty`, `HalfSpinor`'s conversions to and from reals;
+  earlier the leftovers of the refactors (`on_several_processes`, `ColorMatrix::REALS`, ...).
+- Every CUDA grid-stride loop goes through `GridStride` (in `size_t`); the same time as the
+  hand-written loops.
+
 ## 0.6.0 (2026-10-24)
 
 Domain-wall fermions on several GPUs: the propagators (with the multigrid, its levels and every

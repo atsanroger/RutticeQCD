@@ -298,7 +298,7 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
 
     /// The operator `op` stored as `T`: its parameters, its α, and its links converted (as
     /// `CudaMdwf::converted_from` on the device).
-    pub fn converted_from<U: Storage>(op: &Mdwf<U, G>) -> Self {
+    pub(crate) fn converted_from<U: Storage>(op: &Mdwf<U, G>) -> Self {
         let mut m = Self::new(op.wilson.lattice(), op.params);
         m.wilson.take_links_of(&op.wilson);
         m.alpha = op.alpha;

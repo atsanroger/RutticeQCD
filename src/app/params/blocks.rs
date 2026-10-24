@@ -22,7 +22,7 @@ pub struct Params {
     /// share one multigrid among many parameter files; relative to this file's directory.
     /// A `MultiGrid` block in this file takes precedence.
     #[serde(rename = "MultiGrid_file")]
-    pub multigrid_file: Option<PathBuf>,
+    pub(crate) multigrid_file: Option<PathBuf>,
     /// With a source, the propagator is solved for and the meson correlators and the
     /// residual mass are printed; without one, random right-hand sides are solved.
     #[serde(rename = "Source")]
@@ -31,14 +31,14 @@ pub struct Params {
     /// `Source` at the top are the first quark). The solver is the same for all of them;
     /// correlators are printed for every pair (i, j), i ≤ j.
     #[serde(rename = "Quark_2")]
-    pub quark_2: Option<QuarkBlock>,
+    pub(crate) quark_2: Option<QuarkBlock>,
     #[serde(rename = "Quark_3")]
-    pub quark_3: Option<QuarkBlock>,
+    pub(crate) quark_3: Option<QuarkBlock>,
     #[serde(rename = "Quark_4")]
-    pub quark_4: Option<QuarkBlock>,
+    pub(crate) quark_4: Option<QuarkBlock>,
     /// Wilson and clover: fix the gauge of the configuration before anything else.
     #[serde(rename = "GaugeFixing")]
-    pub gauge_fixing: Option<GaugeFixingBlock>,
+    pub(crate) gauge_fixing: Option<GaugeFixingBlock>,
     /// Wilson and clover: the meson channels to print (`channels: all`, the default, or a
     /// list of names).
     #[serde(rename = "Measure", default)]
@@ -75,10 +75,10 @@ pub struct MainBlock {
     #[serde(default = "four")]
     pub simd_lanes: usize,
     #[serde(default = "general")]
-    pub verbose_level: VerboseLevel,
+    pub(crate) verbose_level: VerboseLevel,
     /// Threads of each process; without it `RAYON_NUM_THREADS`, or every core.
     #[serde(default)]
-    pub cpu_thread: Option<usize>,
+    pub(crate) cpu_thread: Option<usize>,
 }
 
 impl MainBlock {
@@ -130,7 +130,7 @@ pub struct GaugeBlock {
 pub struct FoprBlock {
     pub fermion_type: FermionType,
     #[serde(default = "dirac")]
-    pub gamma_matrix_type: GammaType,
+    pub(crate) gamma_matrix_type: GammaType,
     /// Wilson and clover: κ.
     pub hopping_parameter: Option<f64>,
     /// Clover: c_SW.
@@ -143,7 +143,7 @@ pub struct FoprBlock {
         rename = "quark_mass_PauliVillars",
         alias = "quark_mass_pauli_villars"
     )]
-    pub quark_mass_pauli_villars: f64,
+    pub(crate) quark_mass_pauli_villars: f64,
     pub domain_wall_height: Option<f64>,
     pub extent_of_5th_dimension: Option<usize>,
     #[serde(default = "mobius_b")]
@@ -163,13 +163,13 @@ pub struct FoprBlock {
         rename = "neff_alpha_PauliVillars",
         alias = "neff_alpha_pauli_villars"
     )]
-    pub neff_alpha_pauli_villars: f64,
+    pub(crate) neff_alpha_pauli_villars: f64,
 }
 
 /// A further quark of a Wilson or clover run.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct QuarkBlock {
+pub(crate) struct QuarkBlock {
     #[serde(rename = "Fopr")]
     pub fopr: FoprBlock,
     #[serde(rename = "Source")]
@@ -180,19 +180,19 @@ pub struct QuarkBlock {
 /// `Spectrum_Clover_Hadron2ptFunction`.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GaugeFixingBlock {
+pub(crate) struct GaugeFixingBlock {
     pub gauge_fixing_type: GaugeFixingType,
     #[serde(default = "fixing_iterations")]
     pub maximum_number_of_iteration: usize,
     /// Sweeps without overrelaxation at the start and after every reset.
     #[serde(default = "fixing_naive")]
-    pub number_of_naive_iteration: usize,
+    pub(crate) number_of_naive_iteration: usize,
     /// The violation is measured every this many sweeps.
     #[serde(default = "fixing_interval")]
-    pub interval_of_measurement: usize,
+    pub(crate) interval_of_measurement: usize,
     /// Time slices not converged after this many sweeps get a random gauge transformation.
     #[serde(default = "fixing_reset")]
-    pub iteration_to_reset: usize,
+    pub(crate) iteration_to_reset: usize,
     /// Stop when the violation is below this on every time slice.
     #[serde(default = "fixing_criterion")]
     pub convergence_criterion_squared: f64,
@@ -226,7 +226,7 @@ fn fixing_seed() -> u64 {
 }
 
 impl GaugeFixingBlock {
-    pub fn to_config(&self) -> GaugeFixingConfig {
+    pub fn to_config(self) -> GaugeFixingConfig {
         GaugeFixingConfig::Coulomb {
             tolerance_squared: self.convergence_criterion_squared,
             max_iterations: self.maximum_number_of_iteration,
@@ -297,7 +297,7 @@ pub struct GaugeSmearingBlock {
     pub spatial_only: bool,
     /// APE: the projection to SU(3) (Bridge++'s `Projection_Maximum_SU_N` keys).
     #[serde(default = "ape_criterion")]
-    pub convergence_criterion: f64,
+    pub(crate) convergence_criterion: f64,
     #[serde(default = "ape_iterations")]
     pub maximum_number_of_iteration: usize,
 }
@@ -379,28 +379,28 @@ fn preconditioner_ratio() -> f64 {
 pub struct MultigridBlock {
     /// The precision of the coarse solves (`coarse_precision()`), as the file gives it.
     #[serde(rename = "coarse_precision")]
-    pub coarse_precision_given: Option<PrecisionType>,
+    pub(crate) coarse_precision_given: Option<PrecisionType>,
     /// The precision of the multigrid above the coarse lattice, its setup and its cycle (the
     /// outer solver is in double precision either way), as given (`fine_precision()`).
     #[serde(rename = "fine_precision")]
-    pub fine_precision_given: Option<PrecisionType>,
+    pub(crate) fine_precision_given: Option<PrecisionType>,
     /// On a device: how the prolongation is kept, the largest thing of the multigrid: in half
     /// precision unless this says single. The coarse operators are built from it as it is kept.
     #[serde(rename = "basis_precision")]
-    pub basis_precision_given: Option<BasisPrecision>,
+    pub(crate) basis_precision_given: Option<BasisPrecision>,
     #[serde(rename = "Setup", default)]
     pub setup: SetupBlock,
     #[serde(rename = "Smoother", default)]
     pub smoother: SmootherBlock,
     #[serde(rename = "MultiGrid_Level1")]
-    pub level1: LevelBlock,
+    pub(crate) level1: LevelBlock,
     /// Levels below the coarse lattice, for the solves of the quark factor P†DP.
     #[serde(rename = "MultiGrid_Level2")]
-    pub level2: Option<SubLevelBlock>,
+    pub(crate) level2: Option<SubLevelBlock>,
     #[serde(rename = "MultiGrid_Level3")]
-    pub level3: Option<SubLevelBlock>,
+    pub(crate) level3: Option<SubLevelBlock>,
     #[serde(rename = "MultiGrid_Level4")]
-    pub level4: Option<SubLevelBlock>,
+    pub(crate) level4: Option<SubLevelBlock>,
     /// The levels below the coarse lattice also for the solves of the second factor
     /// P†D_PV†P (with MINRES for that factor).
     #[serde(default)]
@@ -432,7 +432,7 @@ impl MultigridBlock {
 
     /// The refinement of the test vectors on the lattice of each level below the coarse
     /// one, in the same order.
-    pub fn level_bootstrap(&self) -> Vec<LevelBootstrap> {
+    pub(crate) fn level_bootstrap(&self) -> Vec<LevelBootstrap> {
         [&self.level2, &self.level3, &self.level4]
             .into_iter()
             .map_while(|l| {
@@ -451,18 +451,18 @@ impl MultigridBlock {
 /// chirality on each of its sites).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SubLevelBlock {
+pub(crate) struct SubLevelBlock {
     pub super_block_size: usize,
     /// Before the next level is built from the test vectors on this level's lattice, they
     /// are refined by inverse iteration with this level's operator: this many rounds (1 by
     /// default; it costs seconds and no coarse applications) of ...
     #[serde(default = "one")]
-    pub bootstrap_rounds: usize,
+    pub(crate) bootstrap_rounds: usize,
     /// ... this many GCR steps preconditioned by the level's V-cycle. With the bootstrap
     /// basis the vectors are smooth only within blocks; a level of few super-blocks below
     /// needs them closer to the low modes.
     #[serde(default = "four")]
-    pub bootstrap_iterations: usize,
+    pub(crate) bootstrap_iterations: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -483,7 +483,7 @@ pub struct SetupBlock {
     #[serde(default = "setup_seed")]
     pub seed: u64,
     /// Low modes of Ã from a checkpoint file instead of the filter (see `app::mdwf`).
-    pub checkpoint: Option<PathBuf>,
+    pub(crate) checkpoint: Option<PathBuf>,
 }
 
 impl Default for SetupBlock {
@@ -511,7 +511,7 @@ pub struct SmootherBlock {
     #[serde(default = "cheb_ratio")]
     pub interval_ratio: f64,
     /// SAP: cycles.
-    pub number_of_cycles: Option<usize>,
+    pub(crate) number_of_cycles: Option<usize>,
     /// GMRES: an earlier stop at this |r|²/|b|².
     pub convergence_criterion_squared: Option<f64>,
     /// Wilson and clover: smooth before the coarse correction too, instead of starting the
@@ -535,7 +535,7 @@ impl Default for SmootherBlock {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LevelBlock {
+pub(crate) struct LevelBlock {
     pub block_size: [usize; ND],
     /// 32 by default for domain-wall fermions, 16 (Bridge++) for Wilson and clover.
     pub number_of_test_vectors: Option<usize>,
@@ -559,7 +559,7 @@ impl LevelBlock {
 
     /// The coarse solver of the quark factor; the defaults are those of the domain-wall
     /// log, or of the Bridge++ clover multigrid (BiCGStab to 2e-3, at most 200 iterations).
-    pub fn solver_d(&self, domain_wall: bool) -> SolverBlock {
+    pub(crate) fn solver_d(&self, domain_wall: bool) -> SolverBlock {
         self.coarse_d.clone().unwrap_or_else(|| {
             if domain_wall {
                 coarse_d()
@@ -573,7 +573,7 @@ impl LevelBlock {
         })
     }
 
-    pub fn solver_pv(&self) -> SolverBlock {
+    pub(crate) fn solver_pv(&self) -> SolverBlock {
         self.coarse_pv.clone().unwrap_or_else(coarse_pv)
     }
 }
@@ -824,7 +824,7 @@ impl SolverBlock {
     }
 
     /// The Chebyshev preconditioner's settings (the defaults without a block).
-    pub fn chebyshev_settings(&self) -> ChebyshevBlock {
+    pub(crate) fn chebyshev_settings(&self) -> ChebyshevBlock {
         self.chebyshev.unwrap_or_default()
     }
 

@@ -215,7 +215,7 @@ impl RationalSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RationalApprox {
     pub norm: f64,
-    pub residues: Vec<f64>,
+    pub(crate) residues: Vec<f64>,
     pub poles: Vec<f64>,
     /// max |r(x)/f(x) − 1| on the interval.
     pub error: f64,
@@ -300,7 +300,7 @@ impl RationalApprox {
 
     /// The approximation in the format of Bridge++'s files: the number of poles, p, q; x_min,
     /// x_max; the error; a0; then res_k, pole_k per line. Returns it with what it is.
-    pub fn parse_bridge(text: &str) -> Result<(Self, RationalSpec), RationalError> {
+    pub(crate) fn parse_bridge(text: &str) -> Result<(Self, RationalSpec), RationalError> {
         let mut words = text.split_whitespace();
         let mut next = |what: &str| {
             words

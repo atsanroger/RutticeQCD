@@ -224,7 +224,7 @@ impl<T: DeviceReal> DeviceCoarse<T> {
     }
 
     /// The field in the precision `U`.
-    pub fn to_precision<U: DeviceReal>(&self) -> Result<DeviceCoarse<U>, CudaError> {
+    pub(crate) fn to_precision<U: DeviceReal>(&self) -> Result<DeviceCoarse<U>, CudaError> {
         let mut out = DeviceCoarse::<U>::zeros(self.sites, self.dim, self.vectors)?;
         out.comm = self.comm.clone();
         convert(&mut out.data, &self.data);
@@ -767,7 +767,10 @@ impl DeviceBasis {
     }
 
     /// A zero field on the whole fine lattice.
-    pub fn fine_field<T: DeviceReal>(&self, vectors: usize) -> Result<DeviceSpinor<T>, CudaError> {
+    pub(crate) fn fine_field<T: DeviceReal>(
+        &self,
+        vectors: usize,
+    ) -> Result<DeviceSpinor<T>, CudaError> {
         Ok(DeviceSpinor::zeros_fifth(&self.lat, self.ls)?.zeros_with(vectors))
     }
 
@@ -1265,7 +1268,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     }
 
     /// The inverses of the blocks, for `apply_blocks`.
-    pub fn block_inverses(&self) -> &DeviceBuffer<T> {
+    pub(crate) fn block_inverses(&self) -> &DeviceBuffer<T> {
         &self.inverse
     }
 

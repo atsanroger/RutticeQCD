@@ -30,17 +30,17 @@ use std::sync::Arc;
 type V = DeviceSpinor<f64>;
 
 /// The device as an `MdwfBackend`.
-pub struct OnDevice;
+pub(crate) struct OnDevice;
 
 /// The test vectors on the host, in the precision of the cycle.
-pub enum DeviceVectors {
+pub(crate) enum DeviceVectors {
     Double(Stashed<f64>),
     Single(Stashed<f32>),
 }
 
 /// The coarse parts in the precision of the coarse solves, and the tops of the smoothers of the
 /// outer operators.
-pub enum DeviceKept {
+pub(crate) enum DeviceKept {
     Single(DeviceParts<f32>, Vec<f64>),
     Double(DeviceParts<f64>, Vec<f64>),
 }

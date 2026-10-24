@@ -36,7 +36,7 @@ use crate::eigen::{ArnoldiParams, Chebyshev, LanczosParams, Order, Tolerance, Wh
 use crate::C64;
 
 keyword_enum! {
-    pub enum EigensolverType {
+    pub(crate) enum EigensolverType {
         /// Thick-restart Lanczos, for Hermitian operators.
         Lanczos => ["IRLanczos", "Lanczos", "Thick_restart_Lanczos"],
         /// Krylov-Schur, for any operator.
@@ -47,7 +47,7 @@ keyword_enum! {
 keyword_enum! {
     /// What the eigenvalues are of, as Bridge++'s `fermion_mult_mode`, made of the operator
     /// that `operator_type` names.
-    pub enum MultMode {
+    pub(crate) enum MultMode {
         D => ["D"],
         Ddag => ["Ddag", "Dagger"],
         DdagD => ["DdagD"],
@@ -60,7 +60,7 @@ keyword_enum! {
 keyword_enum! {
     /// Which eigenvalues first (Bridge++'s `eigensolver_mode`): for Arnoldi, `ascending` and
     /// `descending` go by the real part.
-    pub enum EigensolverMode {
+    pub(crate) enum EigensolverMode {
         Ascending => ["ascending"],
         Descending => ["descending"],
         AbsAscending => ["abs_ascending"],
@@ -81,7 +81,7 @@ pub struct EigenParams {
     #[serde(rename = "Fopr")]
     pub fopr: FoprBlock,
     #[serde(rename = "Eigensolver")]
-    pub eigensolver: EigensolverBlock,
+    pub(crate) eigensolver: EigensolverBlock,
     /// σ_min(z − A) at points z as well.
     #[serde(rename = "Pseudospectrum")]
     pub pseudospectrum: Option<PseudospectrumBlock>,
@@ -100,33 +100,33 @@ pub struct EigenParams {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct EigensolverBlock {
-    pub eigensolver_type: EigensolverType,
-    pub fermion_mult_mode: MultMode,
+pub(crate) struct EigensolverBlock {
+    pub(crate) eigensolver_type: EigensolverType,
+    pub(crate) fermion_mult_mode: MultMode,
     /// The operator the mode is made of: `Lexical` (D on the whole lattice, five-dimensional
     /// for domain-wall fermions; the default), or for domain-wall fermions `PV_right` or
     /// `PV_left`, the even-odd Pauli-Villars operator Ã on the even sites.
     pub operator_type: Option<OperatorType>,
-    pub eigensolver_mode: EigensolverMode,
-    pub number_of_wanted_eigenvectors: usize,
+    pub(crate) eigensolver_mode: EigensolverMode,
+    pub(crate) number_of_wanted_eigenvectors: usize,
     /// Vectors beyond the wanted ones before a restart (Bridge++'s Np: the Krylov space has
     /// wanted + working vectors).
-    pub number_of_working_eigenvectors: usize,
+    pub(crate) number_of_working_eigenvectors: usize,
     /// Vectors kept at a restart: wanted + working / 2 by default.
-    pub number_of_kept_vectors: Option<usize>,
+    pub(crate) number_of_kept_vectors: Option<usize>,
     /// |A x − λ x|² below this.
     pub convergence_criterion_squared: f64,
     /// Restarts.
     pub maximum_number_of_iteration: usize,
     /// Stop once the eigenvalues before this one (in `eigensolver_mode`) have converged.
-    pub threshold_value: Option<f64>,
+    pub(crate) threshold_value: Option<f64>,
     /// Of the random start vector.
     #[serde(default = "start_seed")]
     pub seed: u64,
     #[serde(rename = "Chebyshev")]
     pub chebyshev: Option<EigenChebyshevBlock>,
     /// Accepted for Bridge++ files; `Main.verbose_level` is what counts.
-    pub verbose_level: Option<VerboseLevel>,
+    pub(crate) verbose_level: Option<VerboseLevel>,
 }
 
 /// Lanczos on a Chebyshev polynomial of the operator, which is small on
@@ -134,11 +134,11 @@ pub struct EigensolverBlock {
 /// magnitude, as Bridge++'s `Fopr_Chebyshev` on D†D).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct EigenChebyshevBlock {
-    pub degree_of_polynomial: usize,
-    pub threshold_value: f64,
+pub(crate) struct EigenChebyshevBlock {
+    pub(crate) degree_of_polynomial: usize,
+    pub(crate) threshold_value: f64,
     pub upper_bound: f64,
-    pub verbose_level: Option<VerboseLevel>,
+    pub(crate) verbose_level: Option<VerboseLevel>,
 }
 
 /// The points z of σ_min(z − A), the operator A that of `Eigensolver`: the ε-pseudospectrum of A
@@ -153,7 +153,7 @@ pub struct PseudospectrumBlock {
     pub points: Vec<[f64; 2]>,
     /// [Re c, Im c, r, n] each: n points z = c + r e^(2πik/n), k = 0..n−1.
     #[serde(default)]
-    pub circles: Vec<[f64; 4]>,
+    pub(crate) circles: Vec<[f64; 4]>,
     /// [Re z0, Im z0, Re z1, Im z1, n] each: n points from z0 to z1, both included.
     #[serde(default)]
     pub lines: Vec<[f64; 5]>,
@@ -166,7 +166,7 @@ fn count(x: f64) -> Option<usize> {
 
 impl PseudospectrumBlock {
     /// Every point, in the order of `points`, `circles`, `lines`.
-    pub fn all_points(&self) -> Vec<C64> {
+    pub(crate) fn all_points(&self) -> Vec<C64> {
         let mut z: Vec<C64> = self.points.iter().map(|p| C64::new(p[0], p[1])).collect();
         for &[cx, cy, r, n] in &self.circles {
             let n = count(n).expect("checked");
@@ -234,7 +234,7 @@ impl EigensolverBlock {
 
     /// The settings of Lanczos for σ_min(z − A): the lowest eigenvalue of (z − A)†(z − A), on
     /// the operator itself.
-    pub fn lanczos_singular(&self) -> LanczosParams {
+    pub(crate) fn lanczos_singular(&self) -> LanczosParams {
         let (_, keep, max_dim) = self.sizes();
         LanczosParams {
             wanted: 1,
@@ -308,7 +308,7 @@ impl EigensolverBlock {
 
 impl EigenParams {
     /// Whether a file is an eigensolver file: one with an `Eigensolver` section.
-    pub fn is_eigen_file(path: &Path) -> Result<bool, CliError> {
+    pub(crate) fn is_eigen_file(path: &Path) -> Result<bool, CliError> {
         let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
             path: path.to_path_buf(),
             source: e,
@@ -357,7 +357,7 @@ impl EigenParams {
         &self.notes
     }
 
-    pub fn validate(&mut self) -> Result<(), CliError> {
+    pub(crate) fn validate(&mut self) -> Result<(), CliError> {
         let mut notes = Vec::new();
         self.check(&mut notes)?;
         self.notes = notes;

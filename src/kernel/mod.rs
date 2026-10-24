@@ -3,18 +3,19 @@
 mod lanes;
 mod spin;
 
-pub use lanes::{Lane, LaneOf, Lanes};
+pub use lanes::LaneOf;
+pub use lanes::{Lane, Lanes};
 
-pub use spin::{
-    chiral_join, chiral_split, hermitian6_mul, project, sink_spinor, transport, transport_half,
-    ColorVector, Dirac, Gamma, GammaRepre, HalfSpinor, LinkUse, Sign, Spinor, Unit, CHIRAL_DIM,
-    HALF_SPINOR_REALS, HERMITIAN6_REALS, NS, SPINOR_REALS,
+pub(crate) use spin::{
+    hermitian6_mul, project, sink_spinor, transport, transport_half, HalfSpinor, LinkUse, Sign,
+    HALF_SPINOR_REALS, HERMITIAN6_REALS, NS,
 };
+pub use spin::{Dirac, Gamma, GammaRepre, Spinor, Unit, SPINOR_REALS};
 
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// Number of colours. Fixed at compile time.
-pub const NC: usize = 3;
+pub(crate) const NC: usize = 3;
 
 /// What the kernels compute with: a real number, or several of them in lanes
 /// (`lanes::Lane`), with the arithmetic the kernels need and nothing else.
@@ -86,7 +87,7 @@ impl<T: Number> Cplx<T> {
         re: T::ZERO,
         im: T::ZERO,
     };
-    pub const ONE: Self = Self {
+    pub(crate) const ONE: Self = Self {
         re: T::ONE,
         im: T::ZERO,
     };
@@ -258,7 +259,7 @@ impl<T: Number> ColorMatrix<T> {
 
     /// `self * v`.
     #[inline(always)]
-    pub fn mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
+    pub(crate) fn mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
         let m = &self.0;
         [
             m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
@@ -269,7 +270,7 @@ impl<T: Number> ColorMatrix<T> {
 
     /// `self^† * v`, without forming the adjoint.
     #[inline(always)]
-    pub fn adj_mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
+    pub(crate) fn adj_mul_vec(&self, v: &[Cplx<T>; NC]) -> [Cplx<T>; NC] {
         let m = &self.0;
         [
             m[0][0].conj() * v[0] + m[1][0].conj() * v[1] + m[2][0].conj() * v[2],

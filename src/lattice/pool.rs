@@ -7,14 +7,14 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 /// How loops over sites are dealt out to threads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Schedule {
+pub(crate) enum Schedule {
     Steal,
     Static,
     Pool,
 }
 
 /// The schedule in use: `RUTTICE_SCHEDULE`, read once.
-pub fn schedule() -> Schedule {
+pub(crate) fn schedule() -> Schedule {
     static VALUE: OnceLock<Schedule> = OnceLock::new();
     *VALUE.get_or_init(|| match std::env::var("RUTTICE_SCHEDULE").as_deref() {
         Ok("static") => Schedule::Static,
@@ -46,7 +46,7 @@ pub fn setup() {
 
 /// The processors this thread may run on, in increasing order. Empty where that cannot be
 /// asked.
-pub fn allowed_cpus() -> Vec<usize> {
+pub(crate) fn allowed_cpus() -> Vec<usize> {
     #[cfg(target_os = "linux")]
     {
         // SAFETY: an all-zero `cpu_set_t` is a valid, empty set. `sched_getaffinity` writes
@@ -69,7 +69,7 @@ pub fn allowed_cpus() -> Vec<usize> {
 }
 
 /// Bind the calling thread to one processor. Does nothing where that cannot be done.
-pub fn pin_to(cpu: usize) {
+pub(crate) fn pin_to(cpu: usize) {
     #[cfg(target_os = "linux")]
     // SAFETY: as in `allowed_cpus`; `CPU_SET` writes the set for an index below
     // `CPU_SETSIZE` (checked), and `sched_setaffinity` only reads the set.
@@ -111,7 +111,7 @@ struct Shared {
 
 /// A pool of threads for loops with one piece per thread. The calling thread is thread 0
 /// of every loop; the others wait for loops, spinning for a while before they sleep.
-pub struct Pool {
+pub(crate) struct Pool {
     shared: Arc<Shared>,
     threads: usize,
     /// One loop at a time.
@@ -280,7 +280,7 @@ fn worker(shared: &Shared, index: usize, spin: usize) {
 
 /// Hand one piece to every thread under the static schedules: `work(k, piece)` for piece `k` on
 /// thread `k`. There must be one piece per thread of the pool in use.
-pub fn each_thread<P, W>(pieces: Vec<P>, work: W)
+pub(crate) fn each_thread<P, W>(pieces: Vec<P>, work: W)
 where
     P: Send,
     W: Fn(usize, P) + Sync,
@@ -309,7 +309,7 @@ where
 
 /// Threads a loop under a static schedule is cut for, or `None` if it should run on the
 /// calling thread: under `steal`, with a single thread, or from inside a parallel loop.
-pub fn static_threads() -> Option<usize> {
+pub(crate) fn static_threads() -> Option<usize> {
     // The pool that will run the loop decides how many pieces there are: inside
     // `ThreadPool::install` the rayon pool at hand is not the global one.
     let (free, threads) = match schedule() {

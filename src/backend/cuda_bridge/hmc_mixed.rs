@@ -36,7 +36,7 @@ impl SingleOperator for CudaMdwf<f32> {
 }
 
 /// The domain-wall operator `params` in single precision on the device, with Neff's `alpha`.
-pub fn single_mdwf(
+pub(crate) fn single_mdwf(
     lat: &Arc<Lattice>,
     params: MdwfParams,
     alpha: f64,

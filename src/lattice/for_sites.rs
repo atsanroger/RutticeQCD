@@ -7,7 +7,7 @@ use crate::lattice::pool::{each_thread, schedule, static_threads, Schedule};
 use rayon::prelude::*;
 
 /// Sites per partial sum in `reduce_sites`. Fixed, so results do not depend on thread count.
-pub const REDUCE_CHUNK: usize = 1024;
+pub(crate) const REDUCE_CHUNK: usize = 1024;
 
 /// How much a loop does at each site, which decides how few sites are worth a task.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,7 +63,7 @@ fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
 
 /// Call `f(site, reals_of_that_site)` for every site of `out`, in parallel. For loops that
 /// do real work at each site: a stencil, a product of matrices.
-pub fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
+pub(crate) fn for_sites<T, F>(out: &mut [T], site_len: usize, f: F)
 where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
@@ -75,7 +75,7 @@ where
 /// `for_sites` for a loop whose work per site is not what `site_len` suggests: it is
 /// counted as that of `work_len` reals. Filling a face buffer writes half a spinor per site
 /// but projects a whole one and multiplies it by a link.
-pub fn for_sites_as<T, F>(out: &mut [T], site_len: usize, work_len: usize, f: F)
+pub(crate) fn for_sites_as<T, F>(out: &mut [T], site_len: usize, work_len: usize, f: F)
 where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
@@ -86,7 +86,7 @@ where
 
 /// `for_sites` for loops that do little at each site, such as the updates of a vector:
 /// their tasks hold more sites.
-pub fn for_light_sites<T, F>(out: &mut [T], site_len: usize, f: F)
+pub(crate) fn for_light_sites<T, F>(out: &mut [T], site_len: usize, f: F)
 where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
@@ -113,7 +113,7 @@ const STREAM_MIN_BYTES: usize = 32 << 20;
 
 /// Whether a sweep that fills `out` in pieces of `piece_len` values should use
 /// `Storage::stream`: the output is large, and every piece covers whole cache lines.
-pub fn streams<T>(out: &[T], piece_len: usize) -> bool {
+pub(crate) fn streams<T>(out: &[T], piece_len: usize) -> bool {
     size_of_val(out) >= stream_min_bytes()
         && out.as_ptr().align_offset(CACHE_LINE) == 0
         && (piece_len * size_of::<T>()).is_multiple_of(CACHE_LINE)
@@ -122,7 +122,7 @@ pub fn streams<T>(out: &[T], piece_len: usize) -> bool {
 /// `for_sites`, with `finish()` called on each thread after the last site of every run of
 /// sites it was handed. For work that has to be closed once per task rather than once per
 /// site, such as `stream_fence` after `Storage::stream`.
-pub fn for_sites_then<T, F, E>(out: &mut [T], site_len: usize, f: F, finish: E)
+pub(crate) fn for_sites_then<T, F, E>(out: &mut [T], site_len: usize, f: F, finish: E)
 where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
@@ -200,7 +200,7 @@ fn for_sites_from<T, F, E>(
 /// Some of the sites of a field, as runs of consecutive sites in increasing order. A sweep
 /// over them (`for_site_runs`) visits those sites and no others; nothing is tested per
 /// site, and the work is divided by the number of sites in the runs.
-pub struct SiteRuns {
+pub(crate) struct SiteRuns {
     /// (first site, number of sites) of each run.
     runs: Vec<(u32, u32)>,
     /// `before[i]`: sites in the runs before run `i`; one entry more than there are runs.
@@ -275,8 +275,13 @@ impl SiteRuns {
 
 /// Call `f(site, reals_of_that_site)` for the sites of `runs`, in parallel, and `finish()`
 /// as `for_sites_then` does. The other sites of `out` are not touched.
-pub fn for_site_runs<T, F, E>(out: &mut [T], site_len: usize, runs: &SiteRuns, f: F, finish: E)
-where
+pub(crate) fn for_site_runs<T, F, E>(
+    out: &mut [T],
+    site_len: usize,
+    runs: &SiteRuns,
+    f: F,
+    finish: E,
+) where
     T: Send,
     F: Fn(usize, &mut [T]) + Sync,
     E: Fn() + Sync,
@@ -397,7 +402,7 @@ where
 }
 
 /// `reduce_sites` for several sums at once, in one sweep.
-pub fn reduce_sites_n<const N: usize, F>(num_sites: usize, f: F) -> [f64; N]
+pub(crate) fn reduce_sites_n<const N: usize, F>(num_sites: usize, f: F) -> [f64; N]
 where
     F: Fn(usize) -> [f64; N] + Sync,
 {
@@ -442,7 +447,7 @@ where
 
 /// `reduce_sites` when the number of sums is only known at run time. `f(site, acc)` adds
 /// the contribution of one site into `acc`, which has length `n`.
-pub fn reduce_sites_dyn<F>(num_sites: usize, n: usize, f: F) -> Vec<f64>
+pub(crate) fn reduce_sites_dyn<F>(num_sites: usize, n: usize, f: F) -> Vec<f64>
 where
     F: Fn(usize, &mut [f64]) + Sync,
 {
@@ -484,7 +489,7 @@ where
 
 /// `reduce_sites_dyn` for a sweep that also writes: `f(site, reals_of_that_site, acc)` updates the
 /// site of `out` and adds its contribution to the `n` sums.
-pub fn reduce_sites_mut<T, F>(out: &mut [T], site_len: usize, n: usize, f: F) -> Vec<f64>
+pub(crate) fn reduce_sites_mut<T, F>(out: &mut [T], site_len: usize, n: usize, f: F) -> Vec<f64>
 where
     T: Send,
     F: Fn(usize, &mut [T], &mut [f64]) + Sync,

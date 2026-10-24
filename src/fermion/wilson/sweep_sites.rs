@@ -11,7 +11,7 @@ impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag> {
 
 impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// An operator of Wilson type with the given site-diagonal block.
-    pub fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Self {
+    pub(crate) fn with_diag(lat: &Arc<Lattice>, params: WilsonParams, diag: D) -> Self {
         let even_odd = lat.local.iter().all(|l| l % 2 == 0).then(|| {
             let index = Arc::new(EvenOddIndex::new(lat));
             let to = [Parity::Even, Parity::Odd]
@@ -39,7 +39,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     /// The even-odd hop with what goes around it within a site in the same sweep: `out =
     /// after(M_(to, other) before(inp))`, or `after(M†_(to, other) inp)` with `Dagger::Yes`.
     #[allow(clippy::too_many_arguments)]
-    pub fn even_odd_hop_fifth(
+    pub(crate) fn even_odd_hop_fifth(
         &self,
         work: &mut WilsonWork<T>,
         out: &mut Field<T, Spinor, Half>,

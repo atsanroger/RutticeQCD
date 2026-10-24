@@ -8,7 +8,7 @@ use crate::{for_sites, Field, Gauge, ND};
 use rayon::prelude::*;
 
 /// ρ_μν: the weight of the staples in the μν plane in the new U_μ (ρ_μμ is used by APE only).
-pub type Weights = [[f64; ND]; ND];
+pub(crate) type Weights = [[f64; ND]; ND];
 
 /// The same weight in every plane.
 pub fn uniform(rho: f64) -> Weights {
@@ -139,7 +139,7 @@ fn staples_of(
     sum
 }
 /// The traceless anti-Hermitian part of a matrix, (M − M†)/2 − tr(M − M†)/(2 N_c).
-pub fn traceless_antihermitian(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
+pub(crate) fn traceless_antihermitian(m: &ColorMatrix<f64>) -> ColorMatrix<f64> {
     let mut a = m.sub(&m.adj()).scale(0.5);
     let shift = a.trace().im / 3.0;
     for c in 0..3 {

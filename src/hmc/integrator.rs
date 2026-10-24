@@ -32,10 +32,10 @@ pub struct SolveCost {
     pub seconds: f64,
     /// The multigrid: seconds of its setups and bootstraps, and of making P and the coarse
     /// parts for new links (both within `seconds`); how often those were made and reused.
-    pub setup_seconds: f64,
-    pub rebuild_seconds: f64,
-    pub rebuilds: usize,
-    pub reuses: usize,
+    pub(crate) setup_seconds: f64,
+    pub(crate) rebuild_seconds: f64,
+    pub(crate) rebuilds: usize,
+    pub(crate) reuses: usize,
 }
 
 /// The scheme of every level.
@@ -57,7 +57,7 @@ pub struct Term<'a, U: LinkField = Field<f64, Gauge>> {
 /// of the random numbers drawn: the momenta first, then the actions in this order).
 pub struct Hmc<'a, U: LinkField = Field<f64, Gauge>> {
     pub terms: Vec<Term<'a, U>>,
-    pub scheme: Scheme,
+    pub(crate) scheme: Scheme,
     /// Steps of each level.
     pub steps: Vec<usize>,
     /// Order of the Taylor series of exp(ε iP).
@@ -92,10 +92,10 @@ pub struct Reversibility {
     /// ΔH of the trajectory.
     pub delta_h: f64,
     /// H after the trajectory and back − H at the start: zero for a reversible integrator.
-    pub delta_h_back: f64,
+    pub(crate) delta_h_back: f64,
     /// The largest difference of a real of the links, and of the momenta, from the start.
-    pub max_link: f64,
-    pub max_momentum: f64,
+    pub(crate) max_link: f64,
+    pub(crate) max_momentum: f64,
 }
 
 impl<'a, U: LinkField> Hmc<'a, U> {
@@ -186,7 +186,7 @@ impl<'a, U: LinkField> Hmc<'a, U> {
     /// P → −P. A reversible integrator is back at (U, P) and at H, to rounding and the tolerance
     /// of the solves; the initial guess of the force solves (`Chrono`) breaks it at the level of
     /// that tolerance.
-    pub fn reversibility(&mut self, u: &U, rng: &mut Mseries) -> Reversibility {
+    pub(crate) fn reversibility(&mut self, u: &U, rng: &mut Mseries) -> Reversibility {
         let lat = u.lattice().clone();
         let mut trial = u.duplicate();
         self.invalidate();

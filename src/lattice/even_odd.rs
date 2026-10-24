@@ -51,7 +51,7 @@ impl EvenOddIndex {
 
     /// The decomposition of a box with these extents, numbered like a lattice (x fastest).
     /// Used for the lattice itself and for the lattice of blocks of the SIMD layout.
-    pub fn of_extents(extents: [usize; 4]) -> Self {
+    pub(crate) fn of_extents(extents: [usize; 4]) -> Self {
         assert!(
             extents.iter().all(|l| l % 2 == 0),
             "even-odd decomposition needs even extents, got {extents:?}"
@@ -81,24 +81,24 @@ impl EvenOddIndex {
         }
     }
 
-    pub fn num_half_sites(&self) -> usize {
+    pub(crate) fn num_half_sites(&self) -> usize {
         self.full_of[0].len()
     }
 
     /// Full-lattice index of site `half` of the given parity.
     #[inline(always)]
-    pub fn full_site(&self, parity: Parity, half: usize) -> usize {
+    pub(crate) fn full_site(&self, parity: Parity, half: usize) -> usize {
         self.full_of[parity.index()][half] as usize
     }
 
     /// All full-lattice indices of one parity, in half-lattice order.
-    pub fn full_sites(&self, parity: Parity) -> &[u32] {
+    pub(crate) fn full_sites(&self, parity: Parity) -> &[u32] {
         &self.full_of[parity.index()]
     }
 
     /// Parity of a full-lattice site and its index within that parity.
     #[inline(always)]
-    pub fn half_site(&self, full: usize) -> (Parity, usize) {
+    pub(crate) fn half_site(&self, full: usize) -> (Parity, usize) {
         (self.parity_of[full], self.half_of[full] as usize)
     }
 }

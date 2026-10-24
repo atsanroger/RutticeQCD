@@ -137,7 +137,7 @@ impl Backend for Cpu {
 }
 
 /// Bytes of a cache line; field buffers start on a multiple of it.
-pub const CACHE_LINE: usize = 64;
+pub(crate) const CACHE_LINE: usize = 64;
 
 /// The memory of a field on the CPU: a slice that starts on a cache line.
 pub struct CpuBuf<T> {
@@ -241,7 +241,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout, B: Backend> Field<T, K, S, L, B> 
     pub fn lattice(&self) -> &Arc<Lattice> {
         &self.lat
     }
-    pub fn internal_dof(&self) -> usize {
+    pub(crate) fn internal_dof(&self) -> usize {
         self.internal_dof
     }
     pub fn ls(&self) -> usize {
@@ -265,7 +265,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout, B: Backend> Field<T, K, S, L, B> 
         self.internal_dof * self.copies()
     }
     /// Reals in one outer slab.
-    pub fn slab_len(&self) -> usize {
+    pub(crate) fn slab_len(&self) -> usize {
         self.site_len() * self.num_sites
     }
     /// Reals of one block of the layout (one site for `Aos`) within one outer slab.
@@ -314,11 +314,11 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Field<T, K, S, L, Cpu> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.buf
     }
-    pub fn slab(&self, outer: usize) -> &[T] {
+    pub(crate) fn slab(&self, outer: usize) -> &[T] {
         let n = self.slab_len();
         &self.buf[outer * n..(outer + 1) * n]
     }
-    pub fn slab_mut(&mut self, outer: usize) -> &mut [T] {
+    pub(crate) fn slab_mut(&mut self, outer: usize) -> &mut [T] {
         let n = self.slab_len();
         &mut self.buf[outer * n..(outer + 1) * n]
     }

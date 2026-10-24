@@ -93,12 +93,13 @@ impl<T: Storage, S: Storage> Basis<T, S> {
 
     /// A zero field on the fine lattice of the shape the test vectors have (`ls` included),
     /// holding `num_vectors` vectors.
-    pub fn fine_field(&self, num_vectors: usize) -> Field<T, Spinor> {
+    pub(crate) fn fine_field(&self, num_vectors: usize) -> Field<T, Spinor> {
         Field::with_shape(self.agg.fine_lattice(), 24, self.reals / 24, num_vectors, 1)
     }
 
     /// The reals of one vector at one site of the fine fields: 24 Ls.
-    pub fn fine_reals(&self) -> usize {
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) fn fine_reals(&self) -> usize {
         self.reals
     }
 
@@ -170,7 +171,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
 
     /// `coarse = P† fine` for a field that is zero but on the fine sites x with `keep(x)`:
     /// only those are read.
-    pub fn restrict_where(
+    pub(crate) fn restrict_where(
         &self,
         coarse: &mut Field<T, Coarse>,
         fine: &Field<T, Spinor>,

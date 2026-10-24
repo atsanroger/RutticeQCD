@@ -41,7 +41,8 @@ impl<T: Storage> CloverDiag<T> {
     }
 
     /// The blocks of T⁻¹, as `blocks`.
-    pub fn inverse_blocks(&self) -> &[T] {
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) fn inverse_blocks(&self) -> &[T] {
         &self.t_inv
     }
 

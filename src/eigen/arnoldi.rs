@@ -22,7 +22,7 @@ pub enum Which {
 impl Which {
     /// Whether `z` lies at or beyond the threshold `t` (a real part for `SmallestReal` and
     /// `LargestReal`, a magnitude otherwise; Bridge++'s `threshold_value`).
-    pub fn beyond(self, z: C64, t: f64) -> bool {
+    pub(crate) fn beyond(self, z: C64, t: f64) -> bool {
         match self {
             Which::SmallestReal => z.re >= t,
             Which::LargestReal => z.re <= t,
@@ -68,7 +68,7 @@ pub struct NonHermitianPairs<V> {
     /// |A x − θ x| of each.
     pub residuals: Vec<f64>,
     /// The pairs before the threshold (all of them without one).
-    pub within_threshold: usize,
+    pub(crate) within_threshold: usize,
     pub converged: bool,
     pub restarts: usize,
     /// Applications of A.

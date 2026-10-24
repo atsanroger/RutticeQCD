@@ -23,7 +23,7 @@ pub trait Storage: Copy + Default + Send + Sync + 'static {
 /// Make the data written by `Storage::stream` on this thread visible to the others in
 /// order with everything written later. Does nothing where `stream` is an ordinary copy.
 #[inline(always)]
-pub fn stream_fence() {
+pub(crate) fn stream_fence() {
     #[cfg(target_arch = "x86_64")]
     // SAFETY: SFENCE has no operands and no preconditions; it is part of SSE, which every
     // x86-64 processor has.
@@ -100,7 +100,7 @@ pub struct F16(pub u16);
 
 impl F16 {
     /// The nearest number in half precision, ties to even (as `__float2half_rn` on a device).
-    pub fn from_f32(x: f32) -> Self {
+    pub(crate) fn from_f32(x: f32) -> Self {
         let bits = x.to_bits();
         let sign = ((bits >> 16) & 0x8000) as u16;
         let exponent = ((bits >> 23) & 0xff) as i32;
@@ -151,7 +151,7 @@ impl F16 {
 }
 
 /// `dst = src` in single precision: eight at a time with F16C where the processor has it.
-pub fn widen_halves(src: &[F16], dst: &mut [f32]) {
+pub(crate) fn widen_halves(src: &[F16], dst: &mut [f32]) {
     assert_eq!(src.len(), dst.len());
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("f16c") {

@@ -168,7 +168,7 @@ pub fn schur(a: &[C64], n: usize) -> Option<(Vec<C64>, Vec<C64>)> {
 
 /// Reorders the Schur form (t, q) of an n × n matrix so that the diagonal entry at `from`
 /// moves to `to` (< from), by swaps of neighbours.
-pub fn move_to(t: &mut [C64], q: &mut [C64], n: usize, from: usize, to: usize) {
+pub(crate) fn move_to(t: &mut [C64], q: &mut [C64], n: usize, from: usize, to: usize) {
     for i in (to..from).rev() {
         // Swap t[i][i] and t[i+1][i+1].
         let (a, b, x) = (t[i * n + i], t[(i + 1) * n + i + 1], t[i * n + i + 1]);
@@ -187,7 +187,7 @@ pub fn move_to(t: &mut [C64], q: &mut [C64], n: usize, from: usize, to: usize) {
 
 /// The eigenvector of the upper triangular t for its k-th diagonal entry, normalised: x_k = 1,
 /// x_j = 0 for j > k, back substitution above.
-pub fn triangular_eigenvector(t: &[C64], n: usize, k: usize) -> Vec<C64> {
+pub(crate) fn triangular_eigenvector(t: &[C64], n: usize, k: usize) -> Vec<C64> {
     let lambda = t[k * n + k];
     let mut x = vec![C64::ZERO; n];
     x[k] = C64::new(1.0, 0.0);
