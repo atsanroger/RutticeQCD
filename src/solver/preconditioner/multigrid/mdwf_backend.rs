@@ -70,21 +70,31 @@ pub struct MdwfMultigridSettings {
 
 impl MdwfMultigridSettings {
     /// Why these settings cannot run on several processes on the device, if they cannot: the
-    /// levels below the coarse lattice and the exact adjoint of the second factor (a solver of
-    /// it other than MINRES) are on one process only so far; and an aggregate must lie within
+    /// exact adjoint of the second factor (a solver of it other than MINRES) is on one process
+    /// only so far; and an aggregate, and a super-block of every level below, must lie within
     /// the local lattice `local` of a process.
     pub fn refused_on_several(&self, local: [usize; ND]) -> Option<String> {
-        if self.levels.count > 0 {
-            return Some("the levels below the coarse lattice (MultiGrid_Level2 and on) run on one process on the device so far".into());
-        }
-        if self.cycle.pv_solver != super::CoarseKrylov::Minres {
-            return Some("MultiGrid_Level1.Coarse_Solver_PV other than MINRES runs on one process on the device so far".into());
-        }
         if (0..ND).any(|mu| !local[mu].is_multiple_of(self.block[mu])) {
             return Some(format!(
                 "MultiGrid_Level1.block_size {:?} must divide the local lattice {local:?} of a process",
                 self.block
             ));
+        }
+        let mut extent: [usize; ND] = core::array::from_fn(|mu| local[mu] / self.block[mu].max(1));
+        for (l, &sb) in self.levels.super_blocks[..self.levels.count]
+            .iter()
+            .enumerate()
+        {
+            if extent.iter().any(|e| !e.is_multiple_of(sb)) {
+                return Some(format!(
+                    "MultiGrid_Level{}.super_block_size {sb} must divide the extent {extent:?} of the level above on a process",
+                    l + 2
+                ));
+            }
+            extent = extent.map(|e| e / sb);
+        }
+        if self.cycle.pv_solver != super::CoarseKrylov::Minres {
+            return Some("MultiGrid_Level1.Coarse_Solver_PV other than MINRES runs on one process on the device so far".into());
         }
         None
     }

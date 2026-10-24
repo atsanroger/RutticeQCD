@@ -20,8 +20,11 @@
   the coarse field before each application (`coarse_pass_kernel` with a ghost field), the coarse
   fields summed over the processes. P, the coarse operator and its applications are those of one
   process bit for bit; with two MPI processes the propagator and HMC take the same iterations.
-  Not yet: the levels below the coarse lattice and the exact adjoint of the second factor
-  (refused on several processes). The CPU's multigrid runs on one process only.
+  The levels below the coarse lattice too: each level a lattice cut as the one above (a
+  super-block within a process), its operator probed through ghosts with colours by the global
+  coordinates, the last level gathered over the processes and inverted whole on every GPU; bit
+  for bit those of one process. Not yet: the exact adjoint of the second factor (refused on
+  several processes).
 
 - The eigensolver files on the device (`Main.backend : cuda_bridge`): Lanczos and Arnoldi on
   Wilson, clover and domain-wall fermions, every `fermion_mult_mode` and `operator_type` of the

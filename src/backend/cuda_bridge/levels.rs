@@ -6,11 +6,12 @@
 //! of the last level (`multigrid/dense.cu`, by cuSOLVER: any size) made there. Only the tables
 //! of the lattices of the levels are made on the host.
 
-use super::coarse::DeviceTable;
+use super::coarse::{CoarseGhosts, DeviceTable};
 use super::*;
 use crate::solver::preconditioner::multigrid::{LevelBootstrap, MultigridError};
 use crate::{Vector, C64};
 use std::error::Error;
+use std::rc::Rc;
 
 /// The kernels of `multigrid/levels.cuh` in one precision, as `bridge_cuda.h` declares them; the
 /// pointers are device memory of the sizes those read and write.
@@ -280,29 +281,138 @@ level_real!(f64: bridge_cuda_level_restrict_f64, bridge_cuda_level_prolong_f64,
     bridge_cuda_level_basis_f64, bridge_cuda_level_sources_f64, bridge_cuda_level_probe_f64,
     bridge_cuda_dense_apply_f64, bridge_cuda_coarse_adjoint_f64);
 
-/// The dense matrix of the operator of the last level (`last`, with the links `probed`), in
-/// double precision, n × n for n = its sites times its components.
+/// The dense matrix of the operator of the last level (`last`, with the links `probed`, on the
+/// lattice `lat`), in double precision, n × n for n = its sites times its components. On
+/// several processes it is the matrix of the whole level, sites in their global order, the same
+/// on every process: the blocks and links of all of them gathered.
 fn dense_of<T: LevelReal>(
     last: &DeviceCoarseOp<T>,
     probed: &Probed,
+    lat: &Lattice,
 ) -> Result<(DeviceBuffer<f64>, usize), CudaError> {
-    let (sites, nq) = (last.sites(), last.dim());
-    let n = sites * nq;
-    let dense = DeviceBuffer::<f64>::zeros(2 * n * n)?;
-    // SAFETY: an n × n matrix, and the blocks, links and table of the last level.
-    unsafe {
-        bridge_cuda_level_dense(
-            dense.ptr,
-            last.diag_f64().ptr,
-            probed.links.ptr,
-            probed.neighbours.ptr,
-            probed.used,
-            sites as i32,
-            nq as i32,
-            STREAM,
+    let nq = last.dim();
+    let dense_from = |sites: usize,
+                      diag: &DeviceBuffer<f64>,
+                      links: &DeviceBuffer<f64>,
+                      neighbours: &DeviceTable|
+     -> Result<(DeviceBuffer<f64>, usize), CudaError> {
+        let n = sites * nq;
+        let dense = DeviceBuffer::<f64>::zeros(2 * n * n)?;
+        // SAFETY: an n × n matrix, and the blocks, links and table of `sites` sites.
+        unsafe {
+            bridge_cuda_level_dense(
+                dense.ptr,
+                diag.ptr,
+                links.ptr,
+                neighbours.ptr,
+                probed.used,
+                sites as i32,
+                nq as i32,
+                STREAM,
+            );
+        }
+        Ok((dense, n))
+    };
+    if lat.comm.size() == 1 {
+        return dense_from(
+            last.sites(),
+            last.diag_f64(),
+            &probed.links,
+            &probed.neighbours,
         );
     }
-    Ok((dense, n))
+    // Every matrix of a site to its place in the whole level, summed over the processes (the
+    // others add zeros, so the sum is a copy).
+    let matrix = 2 * nq * nq;
+    let total: usize = lat.global.iter().product();
+    let (sites, global) = (lat.num_sites(), global_order(lat));
+    let (diag, links) = (last.diag_f64().download()?, probed.links.download()?);
+    let mut all_diag = vec![0.0; total * matrix];
+    let mut all_links = vec![0.0; 2 * ND * total * matrix];
+    for t in 0..sites {
+        let g = global[t];
+        all_diag[g * matrix..(g + 1) * matrix].copy_from_slice(&diag[t * matrix..(t + 1) * matrix]);
+        for d in 0..2 * ND {
+            let (from, to) = ((d * sites + t) * matrix, (d * total + g) * matrix);
+            all_links[to..to + matrix].copy_from_slice(&links[from..from + matrix]);
+        }
+    }
+    lat.comm.sum(&mut all_diag);
+    lat.comm.sum(&mut all_links);
+    let mut neighbours = vec![0u32; 2 * ND * total];
+    for g in 0..total {
+        let c = lat.global_site_coords(g);
+        for mu in 0..ND {
+            let (mut f, mut b) = (c, c);
+            f[mu] = (c[mu] + 1) % lat.global[mu];
+            b[mu] = (c[mu] + lat.global[mu] - 1) % lat.global[mu];
+            neighbours[mu * total + g] = site_index(&f, &lat.global) as u32;
+            neighbours[(ND + mu) * total + g] = site_index(&b, &lat.global) as u32;
+        }
+    }
+    dense_from(
+        total,
+        &DeviceBuffer::from_host(&all_diag)?,
+        &DeviceBuffer::from_host(&all_links)?,
+        &DeviceTable::from_host(&neighbours)?,
+    )
+}
+
+/// The global number (x fastest) of every local site of `lat`.
+fn global_order(lat: &Lattice) -> Vec<usize> {
+    (0..lat.num_sites())
+        .map(|t| site_index(&lat.global_coords(t), &lat.global))
+        .collect()
+}
+
+/// A field of the last level, of the local sites of `lat`, as the field of the whole level (in
+/// its global order) on every process, or back.
+fn gathered<T: LevelReal>(r: &DeviceCoarse<T>, lat: &Lattice) -> DeviceCoarse<T> {
+    let (sites, dim, nv) = (r.sites, r.dim, r.vectors);
+    let total: usize = lat.global.iter().product();
+    let global = global_order(lat);
+    let host = must(r.data.download());
+    let (one, all_one) = (2 * padded(sites * dim), 2 * padded(total * dim));
+    let mut all = vec![0.0; nv * all_one];
+    for v in 0..nv {
+        for (t, &g) in global.iter().enumerate() {
+            for k in 0..dim {
+                let (q, p) = (t * dim + k, g * dim + k);
+                for part in 0..2 {
+                    all[v * all_one + at(part, p, 2)] = host[v * one + at(part, q, 2)];
+                }
+            }
+        }
+    }
+    lat.comm.sum(&mut all);
+    let mut out = must(DeviceCoarse::<T>::zeros(total, dim, nv));
+    out.data = must(DeviceBuffer::from_host(&all));
+    out
+}
+
+fn scattered<T: LevelReal>(
+    all: &DeviceCoarse<T>,
+    like: &DeviceCoarse<T>,
+    lat: &Lattice,
+) -> DeviceCoarse<T> {
+    let (sites, dim, nv) = (like.sites, like.dim, like.vectors);
+    let total: usize = lat.global.iter().product();
+    let host = must(all.data.download());
+    let (one, all_one) = (2 * padded(sites * dim), 2 * padded(total * dim));
+    let mut mine = vec![0.0; nv * one];
+    for v in 0..nv {
+        for (t, g) in global_order(lat).into_iter().enumerate() {
+            for k in 0..dim {
+                let (q, p) = (t * dim + k, g * dim + k);
+                for part in 0..2 {
+                    mine[v * one + at(part, q, 2)] = host[v * all_one + at(part, p, 2)];
+                }
+            }
+        }
+    }
+    let mut out = like.zeros_like();
+    out.data = must(DeviceBuffer::from_host(&mine));
+    out
 }
 
 /// A dense n × n matrix of the last level in the precision `T`, made in double precision by
@@ -335,8 +445,23 @@ fn dense_map<T: LevelReal>(
     Ok(converted)
 }
 
-/// `out = M r` for the dense matrix `m` of n × n.
+/// `out = M r` for the dense matrix `m` of n × n of the last level, on the lattice `lat` (on
+/// several processes r of the local sites, gathered to the whole level and back).
 fn dense_apply<T: LevelReal>(
+    m: &DeviceBuffer<T>,
+    n: usize,
+    r: &DeviceCoarse<T>,
+    lat: &Lattice,
+) -> DeviceCoarse<T> {
+    if lat.comm.size() > 1 {
+        let all = gathered(r, lat);
+        let out = dense_apply_here(m, n, &all);
+        return scattered(&out, r, lat);
+    }
+    dense_apply_here(m, n, r)
+}
+
+fn dense_apply_here<T: LevelReal>(
     m: &DeviceBuffer<T>,
     n: usize,
     r: &DeviceCoarse<T>,
@@ -349,22 +474,15 @@ fn dense_apply<T: LevelReal>(
     out
 }
 
-fn site_coords(s: usize, ext: &[usize; ND]) -> [usize; ND] {
-    let mut c = [0; ND];
-    let mut r = s;
-    for mu in 0..ND {
-        c[mu] = r % ext[mu];
-        r /= ext[mu];
-    }
-    c
-}
-
 fn site_index(c: &[usize; ND], ext: &[usize; ND]) -> usize {
     (0..ND).rev().fold(0, |s, mu| s * ext[mu] + c[mu])
 }
 
 /// The super-blocks and local vectors of one level (`Level` of the CPU).
 struct Level<T> {
+    /// The lattice of the level: its super-blocks, cut between the processes as the lattice
+    /// above (a super-block within a process).
+    lat: Arc<Lattice>,
     q: DeviceBuffer<T>,
     members: DeviceTable,
     owner: DeviceTable,
@@ -378,32 +496,36 @@ struct Level<T> {
 }
 
 impl<T: LevelReal> Level<T> {
-    /// The level from the sites of the level above, at `coords` (of every site, as the fields
-    /// there have them) in the lattice `parent_ext`, with `pd` components, and test vectors
-    /// there; and the extent of its lattice, numbered as `site_index` does.
+    /// The level of super-blocks of `super_block` sites in every direction of the lattice above
+    /// (`parent`, with `pd` components a site), and test vectors there.
     fn build(
-        coords: &[[usize; ND]],
-        parent_ext: [usize; ND],
+        parent: &Arc<Lattice>,
         pd: usize,
         super_block: usize,
         tests: &DeviceCoarse<T>,
-    ) -> Result<(Self, [usize; ND]), Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error>> {
         assert!(
-            parent_ext.iter().all(|e| e % super_block == 0),
-            "super-blocks of {super_block} do not divide the extent {parent_ext:?}"
+            parent.local.iter().all(|e| e % super_block == 0),
+            "super-blocks of {super_block} do not divide the extent {:?} of a process",
+            parent.local
         );
-        assert!((tests.sites, tests.dim) == (coords.len(), pd));
-        let ext = parent_ext.map(|e| e / super_block);
-        let blocks: usize = ext.iter().product();
+        assert!((tests.sites, tests.dim) == (parent.num_sites(), pd));
+        let lat = Lattice::new(
+            parent.global.map(|e| e / super_block),
+            parent.grid,
+            parent.comm.clone(),
+        );
+        let blocks = lat.num_sites();
         let bs = super_block.pow(ND as u32);
         // The sites of every super-block in the order of their global index above.
         let mut sites: Vec<Vec<(usize, usize)>> = vec![Vec::with_capacity(bs); blocks];
-        for (x, c) in coords.iter().enumerate() {
-            sites[site_index(&c.map(|v| v / super_block), &ext)]
-                .push((site_index(c, &parent_ext), x));
+        for x in 0..parent.num_sites() {
+            let c = parent.coords(x);
+            sites[lat.site(c.map(|v| v / super_block))]
+                .push((site_index(&parent.global_coords(x), &parent.global), x));
         }
         let mut members = vec![0u32; blocks * bs];
-        let mut owner = vec![0u32; coords.len()];
+        let mut owner = vec![0u32; parent.num_sites()];
         for (s, list) in sites.iter_mut().enumerate() {
             list.sort_unstable();
             assert_eq!(list.len(), bs);
@@ -425,31 +547,29 @@ impl<T: LevelReal> Level<T> {
                 blocks as i32,
                 tests.vectors as i32,
                 bs as i32,
-                coords.len() as i32,
+                parent.num_sites() as i32,
                 pd as i32,
             );
         }
         let mut q = DeviceBuffer::<T>::uninitialised(q64.len)?;
         convert(&mut q, &q64);
-        Ok((
-            Self {
-                q,
-                members,
-                owner: DeviceTable::from_host(&owner)?,
-                blocks,
-                nq,
-                bs,
-                parent_sites: coords.len(),
-                pd,
-            },
-            ext,
-        ))
+        Ok(Self {
+            lat,
+            q,
+            members,
+            owner: DeviceTable::from_host(&owner)?,
+            blocks,
+            nq,
+            bs,
+            parent_sites: parent.num_sites(),
+            pd,
+        })
     }
 
     /// Q† v.
     fn restrict(&self, v: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         assert!((v.sites, v.dim) == (self.parent_sites, self.pd));
-        let out = must(DeviceCoarse::zeros(self.blocks, self.nq, v.vectors));
+        let out = must(DeviceCoarse::zeros(self.blocks, self.nq, v.vectors)).on(&self.lat);
         // SAFETY: fields of the two lattices, Q and the table of this level.
         unsafe {
             T::level_restrict(
@@ -499,12 +619,13 @@ struct Probed {
     used: u32,
 }
 
-/// The operator of `level` (lattice `ext`) from that of the level above (`apply`), by probing as
+/// The operator of `level` from that of the level above (`apply`), by probing as
 /// `LevelOp::probe` of the CPU: sources c_μ apart, c_μ the smallest divisor of the extent from 3
-/// up (or the extent), share no neighbour. Also the applications of the operator above.
+/// up (or the extent), share no neighbour. Also the applications of the operator above. The
+/// colours go by the global coordinates, so a ghost (a site of the neighbouring process) has
+/// the colour of the site it stands for.
 fn probe<T: LevelReal>(
     level: &Level<T>,
-    ext: [usize; ND],
     apply: &mut dyn FnMut(&mut DeviceCoarse<T>, &DeviceCoarse<T>),
 ) -> Result<(DeviceCoarseOp<T>, Probed, usize), Box<dyn Error>> {
     let nq = level.nq;
@@ -512,18 +633,10 @@ fn probe<T: LevelReal>(
         nq <= 1024,
         "a level has at most 1024 complex numbers a site on the device"
     );
-    let total: usize = ext.iter().product();
-    let mut neighbours = vec![0u32; 2 * ND * total];
-    for t in 0..total {
-        let c = site_coords(t, &ext);
-        for mu in 0..ND {
-            let (mut f, mut b) = (c, c);
-            f[mu] = (c[mu] + 1) % ext[mu];
-            b[mu] = (c[mu] + ext[mu] - 1) % ext[mu];
-            neighbours[mu * total + t] = site_index(&f, &ext) as u32;
-            neighbours[(ND + mu) * total + t] = site_index(&b, &ext) as u32;
-        }
-    }
+    let lat = &level.lat;
+    let ext = lat.global;
+    let total = lat.num_sites();
+    let (neighbours, ghosts) = CoarseGhosts::tables(lat)?;
     // A direction of extent 1 is in the block; of extent 2 its two hops are the same one.
     let used = (0..2 * ND)
         .filter(|&d| {
@@ -533,20 +646,21 @@ fn probe<T: LevelReal>(
         .fold(0u32, |m, d| m | (1 << d));
     let colours: [usize; ND] = ext.map(|e| (3..=e).find(|k| e % k == 0).unwrap_or(e).max(1));
     let n_colours: usize = colours.iter().product();
-    let colour_of: Vec<u32> = (0..total)
-        .map(|t| {
-            let c = site_coords(t, &ext);
-            (0..ND)
-                .rev()
-                .fold(0, |s, mu| s * colours[mu] + c[mu] % colours[mu]) as u32
-        })
-        .collect();
+    let colour = |c: [usize; ND]| {
+        (0..ND)
+            .rev()
+            .fold(0, |s, mu| s * colours[mu] + c[mu] % colours[mu]) as u32
+    };
+    let mut colour_of: Vec<u32> = (0..total).map(|t| colour(lat.global_coords(t))).collect();
+    if let Some(g) = &ghosts {
+        colour_of.extend(g.ghost_coords.iter().map(|&c| colour(c)));
+    }
     let colour_table = DeviceTable::from_host(&colour_of)?;
     let neighbour_table = DeviceTable::from_host(&neighbours)?;
     let matrix = 2 * nq * nq;
     let diag = DeviceBuffer::<f64>::zeros(matrix * total)?;
     let links = DeviceBuffer::<f64>::zeros(2 * ND * matrix * total)?;
-    let e = must(DeviceCoarse::<T>::zeros(total, nq, nq));
+    let e = must(DeviceCoarse::<T>::zeros(total, nq, nq)).on(lat);
     let mut p = must(DeviceCoarse::<T>::zeros(level.parent_sites, level.pd, nq));
     let mut ap = p.zeros_like();
     let mut applications = 0;
@@ -580,7 +694,8 @@ fn probe<T: LevelReal>(
             );
         }
     }
-    let op = DeviceCoarseOp::from_parts(diag, &links, &neighbours, &vec![0; total], nq, false)?;
+    let op = DeviceCoarseOp::from_parts(diag, &links, &neighbours, &vec![0; total], nq, false)?
+        .with_ghosts(ghosts.map(Rc::new));
     Ok((
         op,
         Probed {
@@ -597,7 +712,6 @@ fn probe<T: LevelReal>(
 pub struct DeviceMultilevel<T: LevelReal> {
     levels: Vec<Level<T>>,
     ops: Vec<DeviceCoarseOp<T>>,
-    exts: Vec<[usize; ND]>,
     /// Of the last of `ops`.
     last: Option<Probed>,
     coarsest_inv: Option<DeviceBuffer<T>>,
@@ -653,22 +767,19 @@ impl<T: LevelReal> DeviceMultilevel<T> {
     /// before level ℓ + 3 is built from them; the last level is solved exactly.
     pub fn build(
         a: &DeviceCoarseOp<T>,
-        lat: &Lattice,
+        lat: &Arc<Lattice>,
         vectors: &DeviceCoarse<T>,
         super_blocks: &[usize],
         bootstrap: &[LevelBootstrap],
     ) -> Result<Self, Box<dyn Error>> {
         assert!(!super_blocks.is_empty() && vectors.vectors > 0);
         assert_eq!(vectors.sites, lat.num_sites());
-        let coords: Vec<[usize; ND]> = (0..lat.num_sites()).map(|x| lat.global_coords(x)).collect();
-        let (level, ext) = Level::build(&coords, lat.global, a.dim(), super_blocks[0], vectors)?;
-        let (op, probed, applications) =
-            probe(&level, ext, &mut |out, inp| a.apply(out, inp, false))?;
+        let level = Level::build(lat, a.dim(), super_blocks[0], vectors)?;
+        let (op, probed, applications) = probe(&level, &mut |out, inp| a.apply(out, inp, false))?;
         let below = level.restrict(vectors);
         let mut me = Self {
             levels: vec![level],
             ops: vec![op],
-            exts: vec![ext],
             last: Some(probed),
             coarsest_inv: None,
             coarsest_dim: 0,
@@ -724,28 +835,22 @@ impl<T: LevelReal> DeviceMultilevel<T> {
     ) -> Result<(), Box<dyn Error>> {
         self.levels.truncate(from);
         self.ops.truncate(from);
-        self.exts.truncate(from);
         let mut tests = tests.select(&(0..tests.vectors).collect::<Vec<_>>());
         for &sb in &super_blocks[from..] {
-            let ext = *self.exts.last().expect("a level above");
+            let parent = self.levels.last().expect("a level above").lat.clone();
             let above = self.ops.last().expect("a level above");
-            let coords: Vec<[usize; ND]> = (0..ext.iter().product())
-                .map(|x| site_coords(x, &ext))
-                .collect();
-            let (level, level_ext) = Level::build(&coords, ext, above.dim(), sb, &tests)?;
-            let (op, probed, _) = probe(&level, level_ext, &mut |out, inp| {
-                above.apply(out, inp, false)
-            })?;
+            let level = Level::build(&parent, above.dim(), sb, &tests)?;
+            let (op, probed, _) = probe(&level, &mut |out, inp| above.apply(out, inp, false))?;
             tests = level.restrict(&tests);
             self.levels.push(level);
             self.ops.push(op);
-            self.exts.push(level_ext);
             self.last = Some(probed);
         }
         // The coarsest level dense, inverted by LU in double precision.
         let last = self.ops.last().expect("at least one level");
         let probed = self.last.as_ref().expect("the links of the last level");
-        let (dense, n) = dense_of(last, probed)?;
+        let lat = &self.levels.last().expect("at least one level").lat;
+        let (dense, n) = dense_of(last, probed, lat)?;
         self.coarsest_inv = Some(dense_map(&dense, n, "the inverse", |out, a, n| {
             // SAFETY: two n × n matrices.
             unsafe { bridge_cuda_dense_inverse(out, a, n) }
@@ -757,7 +862,8 @@ impl<T: LevelReal> DeviceMultilevel<T> {
     /// The dense inverse of the last level applied to `r`.
     fn coarsest(&self, r: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         let inverse = self.coarsest_inv.as_ref().expect("the coarsest inverse");
-        dense_apply(inverse, self.coarsest_dim, r)
+        let lat = &self.levels.last().expect("at least one level").lat;
+        dense_apply(inverse, self.coarsest_dim, r, lat)
     }
 
     /// The V-cycle from the lattice of level `l`'s operator down.
@@ -815,46 +921,39 @@ impl<T: LevelReal> DeviceAbsMultilevel<T> {
     /// direction on level ℓ + 2.
     pub fn build(
         a: &DeviceCoarseOp<T>,
-        lat: &Lattice,
+        lat: &Arc<Lattice>,
         vectors: &DeviceCoarse<T>,
         super_blocks: &[usize],
     ) -> Result<Self, Box<dyn Error>> {
         assert!(!super_blocks.is_empty() && vectors.vectors > 0);
         assert_eq!(vectors.sites, lat.num_sites());
-        let mut coords: Vec<[usize; ND]> =
-            (0..lat.num_sites()).map(|x| lat.global_coords(x)).collect();
-        let (mut ext, mut pd) = (lat.global, a.dim());
+        let (mut parent, mut pd) = (lat.clone(), a.dim());
         let mut tests = vectors.select(&(0..vectors.vectors).collect::<Vec<_>>());
         let (mut levels, mut ops) = (Vec::new(), Vec::<DeviceCoarseOp<T>>::new());
         let mut last: Option<Probed> = None;
         let mut setup_applications = 0;
         for (l, &sb) in super_blocks.iter().enumerate() {
-            let (level, level_ext) = Level::build(&coords, ext, pd, sb, &tests)?;
+            let level = Level::build(&parent, pd, sb, &tests)?;
             let (op, probed, applications) = if l == 0 {
-                probe(&level, level_ext, &mut |out, inp| {
+                probe(&level, &mut |out, inp| {
                     a.apply(out, inp, true);
                     a.gamma5(out);
                 })?
             } else {
                 let above = ops.last().expect("a level above");
-                probe(&level, level_ext, &mut |out, inp| {
-                    above.apply(out, inp, false)
-                })?
+                probe(&level, &mut |out, inp| above.apply(out, inp, false))?
             };
             if l == 0 {
                 setup_applications = applications;
             }
             tests = level.restrict(&tests);
-            (ext, pd) = (level_ext, op.dim());
-            coords = (0..ext.iter().product())
-                .map(|x| site_coords(x, &ext))
-                .collect();
+            (parent, pd) = (level.lat.clone(), op.dim());
             levels.push(level);
             ops.push(op);
             last = Some(probed);
         }
         let probed = last.expect("at least one level");
-        let (dense, n) = dense_of(ops.last().expect("at least one level"), &probed)?;
+        let (dense, n) = dense_of(ops.last().expect("at least one level"), &probed, &parent)?;
         let coarsest_abs_inv = dense_map(&dense, n, "|H|⁻¹", |out, a, n| {
             // SAFETY: two n × n matrices.
             unsafe { bridge_cuda_dense_abs_inverse(out, a, n, ABS_CUTOFF) }
@@ -901,7 +1000,8 @@ impl<T: LevelReal> DeviceAbsMultilevel<T> {
     /// M of the lattice the level `l` restricts to, applied to `r` there.
     fn m(&self, l: usize, r: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         if l + 1 == self.levels.len() {
-            return dense_apply(&self.coarsest_abs_inv, self.coarsest_dim, r);
+            let lat = &self.levels[l].lat;
+            return dense_apply(&self.coarsest_abs_inv, self.coarsest_dim, r, lat);
         }
         let below = &self.levels[l + 1];
         let mut z = r.zeros_like();

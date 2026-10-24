@@ -93,9 +93,9 @@ multigrid, MPI.
 (CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is
 refused for ranks sharing a device and the host path runs), the speed of the exchanges (on one
 GPU shared by two processes every exchange pays a context switch: HMC with the multigrid 48 s
-against 1.6 s). The multigrid runs on several GPUs; still on one: the levels below the coarse
-lattice and the exact adjoint of the second factor (both read the coarse links of the
-neighbouring process), and the CPU's multigrid altogether. Notes:
+against 1.6 s). The multigrid and its levels run on several GPUs; still on one: the exact adjoint of
+the second factor (it reads the coarse links of the neighbouring process). The CPU's multigrid
+on several processes: to be checked. Notes:
 `MULTI_GPU_NOTE.pdf` (the layout of the faces, coalescing, the transports, Bridge++).
 
 ## Structure

@@ -2617,3 +2617,121 @@ fn coarse_lattice_on_several_processes_is_that_on_one() {
         }
     }
 }
+
+/// The levels below the coarse lattice on the device for the lattice of `lat`: the V-cycle of
+/// the quark factor (super-blocks of 2, then the last level dense) and the |H|⁻¹ levels of the
+/// Pauli-Villars factor, applied to P† of the even part of `psi` and prolonged back.
+fn level_results(
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    vectors: &[Psi],
+    psi: &Psi,
+    params: MdwfParams,
+) -> Vec<Psi> {
+    use ruttice::backend::cuda_bridge::{DeviceAbsMultilevel, DeviceBasis, DeviceMultilevel};
+    use ruttice::fermion::SplitParity;
+    use ruttice::solver::preconditioner::multigrid::Aggregation;
+    let mut d = CudaMdwf::<f64>::new(lat, params).unwrap();
+    d.set_gauge(u).unwrap();
+    let mut pv = CudaMdwf::<f64>::new(
+        lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    )
+    .unwrap();
+    pv.set_gauge(u).unwrap();
+    let first = DeviceSpinor::from_host(&vectors[0]).unwrap();
+    let mut y = first.zeros_with(vectors.len());
+    for (k, v) in vectors.iter().enumerate() {
+        y.assign(&[k], &DeviceSpinor::from_host(v).unwrap());
+    }
+    let mut y_e = DeviceParities.half_like(&y, Parity::Even);
+    DeviceParities.extract(&mut y_e, &y, Parity::Even);
+    let agg = Aggregation::new(lat, [2, 2, 2, 2]);
+    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false).unwrap();
+    let coarse_d = d.coarse_operator_on_device::<f64>(&basis, true).unwrap();
+    let coarse_pv = pv.coarse_operator_on_device::<f64>(&basis, true).unwrap();
+    let tests = basis.pv_eo_coarse_vectors(&d, &pv, &y_e).unwrap();
+    let ml = DeviceMultilevel::build(&coarse_d, agg.coarse_lattice(), &tests, &[2], &[]).unwrap();
+    let abs = DeviceAbsMultilevel::build(&coarse_pv, agg.coarse_lattice(), &tests, &[2]).unwrap();
+    let x = DeviceSpinor::from_host(psi).unwrap();
+    let mut x_e = DeviceParities.half_like(&x, Parity::Even);
+    DeviceParities.extract(&mut x_e, &x, Parity::Even);
+    let mut c = basis.coarse_field::<f64>(1);
+    basis.restrict(&mut c, &x_e);
+    let mut outs = Vec::new();
+    for k in 0..2 {
+        let mut out = c.zeros_like();
+        match k {
+            0 => ml.apply(&mut out, &c),
+            _ => abs.add(&mut out, &c),
+        }
+        let mut fine = x_e.zeros_like();
+        basis.prolong(&mut fine, &out);
+        let mut whole = x.zeros_like();
+        DeviceParities.insert(&mut whole, &fine);
+        outs.push(whole.to_host().unwrap());
+    }
+    outs
+}
+
+/// The levels below the coarse lattice on several processes: super-blocks within a process,
+/// their operators probed through the ghosts (colours by the global coordinates), the last level
+/// dense over all of them: what one process gives, bit for bit.
+#[test]
+fn levels_on_several_processes_are_those_on_one() {
+    let global = [8, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 461);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let vectors: Vec<Psi> = (0..4).map(|k| random_fifth(&whole, 4, 462 + k)).collect();
+    let psi = random_fifth(&whole, 4, 470);
+    let one = level_results(&whole, &u, &vectors, &psi, params);
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = ruttice::LocalComm::run(global, grid, |lat| {
+            let local: Vec<Psi> = vectors
+                .iter()
+                .map(|v| ruttice::local_part(v, &lat))
+                .collect();
+            let fields = level_results(
+                &lat,
+                &ruttice::local_part(&u, &lat),
+                &local,
+                &ruttice::local_part(&psi, &lat),
+                params,
+            );
+            (
+                fields
+                    .iter()
+                    .map(|f| f.as_slice().to_vec())
+                    .collect::<Vec<_>>(),
+                lat,
+            )
+        });
+        for (k, single) in one.iter().enumerate() {
+            let pieces: Vec<Psi> = parts
+                .iter()
+                .map(|(fields, lat)| {
+                    let mut f = Field::<f64, Spinor>::with_shape(lat, 24, params.ls, 1, 1);
+                    f.as_mut_slice().copy_from_slice(&fields[k]);
+                    f
+                })
+                .collect();
+            let several = ruttice::assemble(&whole, &pieces);
+            assert!(
+                several.as_slice() == single.as_slice(),
+                "result {k} on the grid {grid:?}: differs by {}",
+                worst(&several, single)
+            );
+        }
+    }
+}

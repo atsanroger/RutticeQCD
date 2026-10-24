@@ -704,7 +704,8 @@ impl DeviceBasis {
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut out = DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?;
+        let mut out =
+            DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?.on(&self.coarse);
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
         let mut full_work = FermionOp::work(op);
@@ -877,7 +878,9 @@ pub(super) struct CoarseGhosts {
     send: Vec<Option<(DeviceTable, usize)>>,
     first: [usize; 2 * ND],
     count: [usize; 2 * ND],
-    ghosts: usize,
+    pub(super) ghosts: usize,
+    /// The global coordinates of every ghost.
+    pub(super) ghost_coords: Vec<[usize; ND]>,
     /// The buffers of the exchanges and the ghosts, for each precision and number of vectors.
     kept: RefCell<Vec<(KeptKey, Box<dyn std::any::Any>)>>,
 }
@@ -886,7 +889,7 @@ impl CoarseGhosts {
     /// The site every hop of every local site comes from (`[direction][site]`, directions as
     /// `comm::FACES`: forward 0..3, backward 0..3), ghosts from `sites` on, and the ghosts; no
     /// ghosts on one process.
-    fn tables(lat: &Arc<Lattice>) -> Result<(Vec<u32>, Option<Self>), CudaError> {
+    pub(super) fn tables(lat: &Arc<Lattice>) -> Result<(Vec<u32>, Option<Self>), CudaError> {
         let sites = lat.num_sites();
         let local = lat.local;
         let cut: [bool; ND] = core::array::from_fn(|mu| lat.grid[mu] > 1);
@@ -908,6 +911,7 @@ impl CoarseGhosts {
         }
         let mut neighbours = vec![0u32; 2 * ND * sites];
         let mut send: Vec<Vec<u32>> = count.iter().map(|&n| vec![0; n]).collect();
+        let mut ghost_coords = vec![[0; ND]; count.iter().sum()];
         for x in 0..sites {
             let c = lat.coords(x);
             for f in 0..2 * ND {
@@ -918,6 +922,13 @@ impl CoarseGhosts {
                     c[mu] == 0
                 };
                 let y = if cut[mu] && edge {
+                    let mut g = lat.global_coords(x);
+                    g[mu] = if forward {
+                        (g[mu] + 1) % lat.global[mu]
+                    } else {
+                        (g[mu] + lat.global[mu] - 1) % lat.global[mu]
+                    };
+                    ghost_coords[first[f] + face(c, mu)] = g;
                     sites + first[f] + face(c, mu)
                 } else {
                     let mut n = c;
@@ -954,6 +965,7 @@ impl CoarseGhosts {
                 first,
                 count,
                 ghosts: count.iter().sum(),
+                ghost_coords,
                 kept: RefCell::new(Vec::new()),
             }),
         ))
@@ -1197,6 +1209,13 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// Whether the coarse lattice is cut between processes.
     pub fn on_several_processes(&self) -> bool {
         self.ghosts.is_some()
+    }
+
+    /// The operator with the ghosts of its lattice (`CoarseGhosts::tables`, whose table it was
+    /// made with).
+    pub(super) fn with_ghosts(mut self, ghosts: Option<Rc<CoarseGhosts>>) -> Self {
+        self.ghosts = ghosts;
+        self
     }
 
     /// Sites of the lattice.
