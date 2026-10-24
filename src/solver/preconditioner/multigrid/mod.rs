@@ -53,6 +53,8 @@ pub enum MultigridError {
     /// The powers of the operator that a polynomial smoother of this degree is fitted to
     /// are linearly dependent to working precision. A lower degree is needed.
     DependentPowers { degree: usize },
+    /// What a backend could not do (the device: memory, a kernel), or does not have.
+    Backend(String),
 }
 
 impl fmt::Display for MultigridError {
@@ -70,6 +72,7 @@ impl fmt::Display for MultigridError {
                 f,
                 "a polynomial smoother of degree {degree} cannot be fitted: the powers of the operator are linearly dependent"
             ),
+            MultigridError::Backend(what) => write!(f, "{what}"),
         }
     }
 }

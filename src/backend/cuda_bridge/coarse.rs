@@ -795,6 +795,11 @@ impl DeviceBasis {
     }
 
     /// Complex numbers of a coarse site.
+    /// The test vectors P is made of.
+    pub fn num_test_vectors(&self) -> usize {
+        self.n
+    }
+
     pub fn coarse_dim(&self) -> usize {
         2 * self.n
     }

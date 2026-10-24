@@ -31,6 +31,7 @@ pub mod mdwf_backend;
 pub mod multigrid;
 mod sap;
 mod wilson;
+mod wilson_multigrid;
 
 pub use coarse::{DeviceBasis, DeviceCoarse, DeviceCoarseOp};
 pub use correction::{DeviceCorrection, DeviceParts};
@@ -45,6 +46,7 @@ pub use levels::{DeviceAbsMultilevel, DeviceMultilevel};
 pub use mdwf::CudaMdwf;
 pub use sap::{device_sap, BlockOperator, DeviceBlocks, SapReal};
 pub use wilson::{CudaClover, CudaWilson};
+pub use wilson_multigrid::{device_multigrid, DeviceMultigrid, MultigridOperator, WilsonOnDevice};
 
 use crate::fermion::GaugeError;
 use crate::{Boundary, Field, Gauge, Lattice, Parity, Stencil, ND};

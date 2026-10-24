@@ -1356,6 +1356,92 @@ fn sap_on_the_device_is_sap_on_the_cpu() {
     );
 }
 
+/// The Wilson and clover multigrid on the device (`WilsonMultigrid` with `WilsonOnDevice`) does
+/// what it does on the CPU: from the same initial test vectors, FGMRES preconditioned by it
+/// takes the iterations it takes on the CPU (P is kept in single precision on the device, so
+/// they may differ by one), and the solutions agree to the tolerance.
+#[test]
+fn wilson_and_clover_multigrid_on_the_device() {
+    use ruttice::backend::cuda_bridge::device_multigrid;
+    use ruttice::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
+    use ruttice::solver::Fgmres;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let u = ruttice::io::read_bridge_text(&examples.join("conf_04040408.txt"), &lat).unwrap();
+    let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+    params.num_test_vectors = 8;
+    params.setup_iterations = 2;
+    let b = random_spinor(&lat, 1, 471);
+    let stop = Stop::simple(1e-24, 200);
+    let run = |cpu: &dyn Fn(&mut Psi) -> usize,
+               gpu: &dyn Fn(&mut DeviceSpinor<f64>) -> usize,
+               what: &str| {
+        let mut x = b.zeros_like();
+        let n_cpu = cpu(&mut x);
+        let mut dx = DeviceSpinor::from_host(&b).unwrap().zeros_like();
+        let n_gpu = gpu(&mut dx);
+        let d = worst(&dx.to_host().unwrap(), &x);
+        let size = x.as_slice().iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        eprintln!("{what}: FGMRES with the multigrid {n_cpu} iterations on the CPU, {n_gpu} on the device; solutions differ by {d:e} of {size:e}");
+        assert!(n_cpu < 30 && n_gpu.abs_diff(n_cpu) <= 1, "{what}");
+        assert!(d < 1e-10 * size, "{what}");
+    };
+    let wp = WilsonParams {
+        kappa: 0.12,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut cw = Wilson::<f64>::new(&lat, wp);
+    cw.set_gauge(&u).unwrap();
+    let mut gw = CudaWilson::<f64>::new(&lat, wp).unwrap();
+    gw.set_gauge(&u).unwrap();
+    run(
+        &|x| {
+            let mut mg = Multigrid::new(&cw, &lat, &params).unwrap();
+            let mut a = Bound::new(&cw, Variant::D);
+            Fgmres::new(stop)
+                .solve(&mut a, Some(&mut mg), x, &b)
+                .unwrap()
+                .iterations
+        },
+        &|x| {
+            let mut mg = device_multigrid(&gw, &lat, &params).unwrap();
+            let mut a = Bound::new(&gw, Variant::D);
+            let db = DeviceSpinor::from_host(&b).unwrap();
+            Fgmres::new(stop)
+                .solve(&mut a, Some(&mut mg), x, &db)
+                .unwrap()
+                .iterations
+        },
+        "Wilson",
+    );
+    let cp = CloverParams {
+        kappa: 0.12,
+        csw: 1.0,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cc, gc) = clover_pair(&lat, &u, cp);
+    run(
+        &|x| {
+            let mut mg = Multigrid::new(&cc, &lat, &params).unwrap();
+            let mut a = Bound::new(&cc, Variant::D);
+            Fgmres::new(stop)
+                .solve(&mut a, Some(&mut mg), x, &b)
+                .unwrap()
+                .iterations
+        },
+        &|x| {
+            let mut mg = device_multigrid(&gc, &lat, &params).unwrap();
+            let mut a = Bound::new(&gc, Variant::D);
+            let db = DeviceSpinor::from_host(&b).unwrap();
+            Fgmres::new(stop)
+                .solve(&mut a, Some(&mut mg), x, &db)
+                .unwrap()
+                .iterations
+        },
+        "clover",
+    );
+}
+
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]
