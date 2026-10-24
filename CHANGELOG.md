@@ -23,8 +23,11 @@
   The levels below the coarse lattice too: each level a lattice cut as the one above (a
   super-block within a process), its operator probed through ghosts with colours by the global
   coordinates, the last level gathered over the processes and inverted whole on every GPU; bit
-  for bit those of one process. Not yet: the exact adjoint of the second factor (refused on
-  several processes).
+  for bit those of one process. The exact adjoint of the second factor (a `Coarse_Solver_PV`
+  other than MINRES) too: the links of the ghost sites exchanged once at setup, their conjugate
+  transposes made on the host. Checked with two MPI processes on the GPU and on the CPU, whose
+  multigrid of domain-wall fermions (levels included) also runs on several processes: the same
+  iterations as one process.
 
 - The eigensolver files on the device (`Main.backend : cuda_bridge`): Lanczos and Arnoldi on
   Wilson, clover and domain-wall fermions, every `fermion_mult_mode` and `operator_type` of the

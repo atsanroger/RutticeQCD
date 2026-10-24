@@ -174,8 +174,10 @@ by NCCL with the feature `nccl` (`NCCL_HOME` to build), through the host otherwi
 the host as well when NCCL cannot be had on every process; `RUTTICE_HALO=host` or `nccl`
 chooses. The operators give what one process gives bit for bit, the solvers the same up to the
 order of the sums over the processes. The levels below the coarse lattice run there too, a
-super-block within a process (the last level is gathered and solved whole on every GPU). Not on
-several GPUs yet: a `Coarse_Solver_PV` other than `MINRES`, Wilson and clover fermions.
+super-block within a process (the last level is gathered and solved whole on every GPU), and so
+does a `Coarse_Solver_PV` other than `MINRES` (the exact adjoint of the second factor). The CPU's
+multigrid of domain-wall fermions runs on several processes as well. Not on several GPUs yet:
+Wilson and clover fermions.
 
 ### SIMD
 

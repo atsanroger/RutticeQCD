@@ -874,8 +874,9 @@ type KeptKey = (std::any::TypeId, usize);
 pub(super) struct CoarseGhosts {
     lat: Arc<Lattice>,
     /// The local sites sent through each face, in the order of the face; none where the
-    /// direction is not cut.
+    /// direction is not cut. The same on the host.
     send: Vec<Option<(DeviceTable, usize)>>,
+    send_host: Vec<Vec<u32>>,
     first: [usize; 2 * ND],
     count: [usize; 2 * ND],
     pub(super) ghosts: usize,
@@ -949,6 +950,7 @@ impl CoarseGhosts {
         if lat.comm.size() == 1 {
             return Ok((neighbours, None));
         }
+        let send_host = send.clone();
         let send = send
             .iter()
             .map(|s| {
@@ -962,6 +964,7 @@ impl CoarseGhosts {
             Some(Self {
                 lat: lat.clone(),
                 send,
+                send_host,
                 first,
                 count,
                 ghosts: count.iter().sum(),
@@ -969,6 +972,34 @@ impl CoarseGhosts {
                 kept: RefCell::new(Vec::new()),
             }),
         ))
+    }
+
+    /// `per_site` reals of every local site (site after site), for the ghosts: what the
+    /// neighbouring processes have at the sites the ghosts stand for, ghost after ghost.
+    pub(super) fn of_host(&self, local: &[f64], per_site: usize) -> Vec<f64> {
+        let neighbour = super::halo::neighbours(&self.lat);
+        let spec = crate::comm::HaloSpec {
+            neighbour,
+            len: self.count.map(|n| n * per_site),
+        };
+        let mut ex = self.lat.comm.halo_f64(&spec);
+        for (f, sites) in self.send_host.iter().enumerate() {
+            let buf = ex.send_buffer(f);
+            for (i, &x) in sites.iter().enumerate() {
+                let x = x as usize;
+                buf[i * per_site..(i + 1) * per_site]
+                    .copy_from_slice(&local[x * per_site..(x + 1) * per_site]);
+            }
+        }
+        ex.start();
+        ex.wait();
+        let mut ghosts = vec![0.0; self.ghosts * per_site];
+        for f in 0..2 * ND {
+            let n = self.count[f] * per_site;
+            let at = self.first[f] * per_site;
+            ghosts[at..at + n].copy_from_slice(ex.recv_buffer(f));
+        }
+        ghosts
     }
 
     /// The ghosts of `field`: its faces gathered, exchanged with the neighbouring processes,
@@ -1209,6 +1240,11 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// Whether the coarse lattice is cut between processes.
     pub fn on_several_processes(&self) -> bool {
         self.ghosts.is_some()
+    }
+
+    /// The ghosts of the lattice, if it is cut between processes.
+    pub(super) fn ghosts(&self) -> Option<&Rc<CoarseGhosts>> {
+        self.ghosts.as_ref()
     }
 
     /// The operator with the ghosts of its lattice (`CoarseGhosts::tables`, whose table it was

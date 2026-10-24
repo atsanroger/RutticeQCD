@@ -2501,8 +2501,8 @@ fn hmc_on_several_processes_is_hmc_on_one() {
 
 /// The multigrid's coarse lattice on the device for the lattice of `lat`: P from four test
 /// vectors (whole fields, their even parts taken), the coarse operator probed, and fine fields
-/// of what it does to P† of the even part of `psi`: D_c, Γ5 D_c Γ5 and the Schur complement,
-/// prolonged back.
+/// of what it does to P† of the even part of `psi`: D_c, Γ5 D_c Γ5, its exact adjoint D_c† and
+/// the Schur complement, prolonged back.
 fn coarse_results(
     lat: &Arc<Lattice>,
     u: &Field<f64, Gauge>,
@@ -2539,12 +2539,14 @@ fn coarse_results(
     DeviceParities.extract(&mut x_e, &x, Parity::Even);
     let mut c = basis.coarse_field::<f64>(1);
     basis.restrict(&mut c, &x_e);
+    let adjoint = coarse.adjoint().unwrap();
     let mut outs = Vec::new();
-    for k in 0..3 {
+    for k in 0..4 {
         let mut out = c.zeros_like();
         match k {
             0 => coarse.apply(&mut out, &c, false),
             1 => coarse.apply(&mut out, &c, true),
+            2 => adjoint.apply(&mut out, &c, false),
             _ => {
                 let mut odd = c.zeros_like();
                 coarse.schur(&mut out, &c, &mut odd);

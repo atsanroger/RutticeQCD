@@ -1025,8 +1025,8 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
     /// device; with the even-odd form where this has it, and the inverses of its blocks
     /// (A(X)⁻¹)†.
     pub fn adjoint(&self) -> Result<Self, Box<dyn Error>> {
-        if self.on_several_processes() {
-            return Err("the exact adjoint of a coarse operator on several processes is not on the device yet (Coarse_Solver_PV: MINRES)".into());
+        if let Some(ghosts) = self.ghosts() {
+            return self.adjoint_across(ghosts);
         }
         let (sites, dim) = (self.sites(), self.dim());
         let (neighbours, odd) = self.tables();
@@ -1061,5 +1061,72 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
             );
         }
         Self::from_device_links(diag, links, &from, odd, dim, self.has_even_odd())
+    }
+
+    /// `adjoint` on a lattice cut between processes: Y = the site hop d of X comes from in the
+    /// adjoint is X's neighbour the other way, maybe a ghost, whose links come from the
+    /// neighbouring process (exchanged on the host, once); the links of the adjoint are their
+    /// conjugate transposes, made on the host (a copy with signs: the same numbers as the
+    /// kernel's).
+    fn adjoint_across(&self, ghosts: &Rc<CoarseGhosts>) -> Result<Self, Box<dyn Error>> {
+        let (sites, dim) = (self.sites(), self.dim());
+        let (neighbours, odd) = self.tables();
+        let matrix = 2 * dim * dim;
+        let mut from = vec![0u32; 2 * ND * sites];
+        for d in 0..2 * ND {
+            let back = (d + ND) % (2 * ND);
+            from[d * sites..(d + 1) * sites]
+                .copy_from_slice(&neighbours[back * sites..(back + 1) * sites]);
+        }
+        // The links of every site, all directions together, and those of the ghosts.
+        let links = self.links().download()?;
+        let per_site = 2 * ND * matrix;
+        let mut by_site = vec![0.0; sites * per_site];
+        for x in 0..sites {
+            for d in 0..2 * ND {
+                let at = (d * sites + x) * matrix;
+                by_site[x * per_site + d * matrix..x * per_site + (d + 1) * matrix]
+                    .copy_from_slice(&links[at..at + matrix]);
+            }
+        }
+        let ghost_links = ghosts.of_host(&by_site, per_site);
+        let mut adjoint = vec![0.0; links.len()];
+        for d in 0..2 * ND {
+            for x in 0..sites {
+                let y = from[d * sites + x] as usize;
+                let m = if y < sites {
+                    &by_site[y * per_site + d * matrix..y * per_site + (d + 1) * matrix]
+                } else {
+                    let g = y - sites;
+                    &ghost_links[g * per_site + d * matrix..g * per_site + (d + 1) * matrix]
+                };
+                let out = &mut adjoint[(d * sites + x) * matrix..(d * sites + x + 1) * matrix];
+                for i in 0..dim {
+                    for j in 0..dim {
+                        out[2 * (i * dim + j)] = m[2 * (j * dim + i)];
+                        out[2 * (i * dim + j) + 1] = -m[2 * (j * dim + i) + 1];
+                    }
+                }
+            }
+        }
+        let diag = DeviceBuffer::<f64>::uninitialised(self.diag_f64().len)?;
+        // SAFETY: the blocks of this lattice and as many places for those of the adjoint.
+        unsafe {
+            f64::coarse_adjoint(
+                diag.ptr,
+                self.diag_f64().ptr,
+                std::ptr::null(),
+                1,
+                sites as i32,
+                dim as i32,
+            );
+        }
+        let links = DeviceBuffer::<f64>::from_host(&adjoint)?;
+        let mut converted = DeviceBuffer::<T>::uninitialised(links.len)?;
+        convert(&mut converted, &links);
+        Ok(
+            Self::from_device_links(diag, converted, &from, odd, dim, self.has_even_odd())?
+                .with_ghosts(Some(ghosts.clone())),
+        )
     }
 }

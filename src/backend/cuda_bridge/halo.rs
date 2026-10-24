@@ -684,7 +684,7 @@ fn travel<T: DeviceReal>(
 }
 
 /// The ranks on the other side of the faces of the local lattice of `lat`.
-fn neighbours(lat: &Lattice) -> [usize; FACES] {
+pub(super) fn neighbours(lat: &Lattice) -> [usize; FACES] {
     Stencil::nearest(lat, [Boundary::Periodic; ND])
         .halo_spec(1)
         .neighbour
