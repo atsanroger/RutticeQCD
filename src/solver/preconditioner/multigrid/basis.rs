@@ -49,6 +49,17 @@ fn widen<S: Storage, T: Storage>(x: S) -> T::Compute {
 const MAX_HALF_REALS: usize = 12 * 64;
 
 impl<T: Storage, S: Storage> Basis<T, S> {
+    /// Counts a restriction or a prolongation over `sites` fine sites (`meter`), as on the
+    /// device: 96 Ls n flops a spinor and vector; P read once, the fields once a vector.
+    fn count(&self, sites: usize, vectors: usize) {
+        let (n, fine) = (self.num_test_vectors(), self.reals);
+        let flops = 4.0 * (fine * n * sites * vectors) as f64;
+        let size = std::mem::size_of::<T>();
+        let p = (fine * 2 * n * sites * std::mem::size_of::<S>()) as f64;
+        let fields = ((fine + 4 * n) * sites * vectors * size) as f64;
+        crate::meter::add(crate::meter::Work::Transfer, size, flops, p + fields);
+    }
+
     /// Build P from test vectors `x` (one field holding `n` vectors) and `g5x` = Γ5 x, the
     /// operator's Γ5 applied to them. Works in double precision and stores the result as
     /// `T`.
@@ -179,6 +190,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     ) {
         self.check(coarse, fine);
         assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
+        self.count(fine.num_sites(), fine.num_vectors());
         let (dim, reals) = (self.coarse_dim(), self.reals);
         let site_len = coarse.site_len();
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
@@ -290,6 +302,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     pub fn prolong(&self, fine: &mut Field<T, Spinor>, coarse: &Field<T, Coarse>) {
         self.check(coarse, fine);
         assert_eq!(fine.num_sites(), self.agg.fine_lattice().num_sites());
+        self.count(fine.num_sites(), fine.num_vectors());
         let (dim, reals) = (self.coarse_dim(), self.reals);
         let site_len = fine.site_len();
         for_sites(fine.slab_mut(0), site_len, |x, out| {

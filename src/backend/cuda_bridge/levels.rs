@@ -566,10 +566,20 @@ impl<T: LevelReal> Level<T> {
         })
     }
 
+    /// Counts Q† v or Q y (`meter`): every complex number of the level above times the `nq`
+    /// columns of its block, 8 flops each; Q read once, the two fields (`reals`) once.
+    fn count(&self, vectors: usize, reals: usize) {
+        let flops = 8.0 * (self.parent_sites * self.pd * self.nq * vectors) as f64;
+        let size = std::mem::size_of::<T>();
+        let bytes = (self.q.len + reals) * size;
+        crate::meter::add(crate::meter::Work::Transfer, size, flops, bytes as f64);
+    }
+
     /// Q† v.
     fn restrict(&self, v: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         assert!((v.sites, v.dim) == (self.parent_sites, self.pd));
         let out = must(DeviceCoarse::zeros(self.blocks, self.nq, v.vectors)).on(&self.lat);
+        self.count(v.vectors, out.data.len + v.data.len);
         // SAFETY: fields of the two lattices, Q and the table of this level.
         unsafe {
             T::level_restrict(
@@ -592,6 +602,7 @@ impl<T: LevelReal> Level<T> {
     fn prolong(&self, out: &mut DeviceCoarse<T>, y: &DeviceCoarse<T>, add: bool) {
         assert!((y.sites, y.dim) == (self.blocks, self.nq));
         assert!((out.sites, out.dim, out.vectors) == (self.parent_sites, self.pd, y.vectors));
+        self.count(y.vectors, out.data.len + y.data.len);
         // SAFETY: fields of the two lattices, Q and the table of this level.
         unsafe {
             T::level_prolong(

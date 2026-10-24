@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Every solve and trajectory reports the work it did: Flop, GFlop/s and Flop/byte, split into the
+  fine operators, the coarse operators, restriction and prolongation, and vector operations, in
+  single and double precision (`src/meter.rs`). Each operator application and vector operation
+  counts itself where it runs, as QUDA counts its kernels; the bytes follow QUDA's convention, so
+  the intensity is an estimate for a roofline. A count costs about 3 ns on the host. The ad hoc
+  GFlop/s of the domain-wall solve lines is replaced by it.
+
 - HMC with Wilson and clover fermions on the device (`Main.backend : cuda_bridge`): the Standard,
   Ratio and Rational actions, Lexical or Even_odd, on one process. The clover term, its inverse and
   ln det T are made from the links on the device (`fermion/clover_links.cuh`; the clover operator

@@ -151,6 +151,14 @@ vectors are filtered at a time: fewer take less memory. The levels below the coa
 (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
 inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
 second factor (`Coarse_Solver_PV` other than `MINRES`).
+Each solve (the `# quark` lines, the domain-wall solve lines) and each HMC trajectory (a
+`#   trajectory` line) reports the work it did: Flop, GFlop/s and Flop/byte, split into the fine
+operators, the coarse operators, restriction and prolongation, and vector operations, each in
+single or double precision, and how many counts were made. The flops are Bridge++'s counts; the
+bytes are a model (QUDA's: every value a kernel reads from memory, no caches), so the intensity
+is an estimate to place a run on a roofline before measuring it with Nsight Compute. On several
+processes the numbers are those of the first process. Not counted yet: the fifth-dimension parts
+of the domain-wall operator on the CPU, the even-odd restriction of its multigrid on the CPU.
 With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and Ratio actions

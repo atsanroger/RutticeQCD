@@ -151,6 +151,7 @@ pub(super) fn gamma5<T: DeviceReal>(
 ) {
     assert!(out.same_shape(inp));
     out.parity = inp.parity;
+    count_fine::<T>(inp.sites(), inp.ls * inp.vectors, 0.0, 2.0, 0.0);
     // SAFETY: two buffers of the same shape, not the same one (`out` is borrowed mutably).
     unsafe {
         T::gamma5(
@@ -191,6 +192,8 @@ impl<T: DeviceReal> CudaWilson<T> {
         let params = WilsonKernelParams {
             kappa: self.params.kappa,
         };
+        let links = hop_link_reals(&self.geometry);
+        count_fine::<T>(inp.sites(), inp.vectors, WILSON_FLOPS as f64, 10.0, links);
         // SAFETY: the three buffers are device memory of the sizes the kernel reads and writes
         // for this geometry (`padded(sites)` blocks of spinors and of links), `out` is not
         // `inp` (one is borrowed mutably), and the structures outlive the call.
@@ -375,6 +378,14 @@ impl<T: DeviceReal> CudaClover<T> {
             kappa: self.params.kappa,
             csw: self.params.csw,
         };
+        let site_reals = hop_link_reals(&self.geometry) + CLOVER as f64;
+        count_fine::<T>(
+            inp.sites(),
+            inp.vectors,
+            CLOVER_FLOPS as f64,
+            10.0,
+            site_reals,
+        );
         // SAFETY: as in `CudaWilson::apply`, with the blocks of the clover term of every site.
         unsafe {
             T::clover_dslash(
@@ -396,6 +407,8 @@ impl<T: DeviceReal> CudaClover<T> {
         assert!(out.same_shape(inp) && inp.ls == 1);
         out.parity = inp.parity;
         let blocks = if inverse { &self.inverse } else { &self.term };
+        let flops = (NC * NS * (2 + 48 * NC)) as f64;
+        count_fine::<T>(inp.sites(), inp.vectors, flops, 2.0, CLOVER as f64);
         // SAFETY: two spinor buffers on the sites the kernel is told, and the blocks of
         // every site of the lattice.
         unsafe {

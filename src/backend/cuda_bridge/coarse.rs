@@ -287,11 +287,11 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
 
     fn copy_from(&mut self, x: &Self) {
         assert!(self.same_shape(x));
-        must(self.data.copy_from(&x.data));
+        columns::copy(&mut self.data, &x.data);
     }
 
     fn set_zero(&mut self) {
-        must(self.data.set_zero());
+        columns::zero(&mut self.data);
     }
 
     fn scale(&mut self, a: &[f64]) {
@@ -800,6 +800,7 @@ impl DeviceBasis {
         leg: Option<usize>,
     ) {
         self.check(coarse, fine);
+        self.count(coarse, fine);
         // SAFETY: the fields are those of this basis (checked), P and the tables those of its
         // lattices; the small arrays outlive the call, which copies them.
         unsafe {
@@ -822,9 +823,22 @@ impl DeviceBasis {
         }
     }
 
+    /// Counts a restriction or a prolongation (`meter`): for every fine spinor and test vector
+    /// 6 Ls complex products in each chirality, 96 Ls n flops; P read once, the fine and the
+    /// coarse field once a vector.
+    fn count<T: DeviceReal>(&self, coarse: &DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
+        let (sites, v) = (fine.sites() as f64, fine.vectors as f64);
+        let flops = 96.0 * (self.ls * self.n) as f64 * sites * v;
+        let size = std::mem::size_of::<T>();
+        let fields = (fine.data.len + coarse.data.len) * size;
+        let bytes = self.p.bytes as f64 + fields as f64;
+        crate::meter::add(crate::meter::Work::Transfer, size, flops, bytes);
+    }
+
     /// `fine = P coarse`, or `π P coarse` on the sites of the parity `fine` is on.
     pub fn prolong<T: DeviceReal>(&self, fine: &mut DeviceSpinor<T>, coarse: &DeviceCoarse<T>) {
         self.check(coarse, fine);
+        self.count(coarse, fine);
         // SAFETY: as in `restrict`.
         unsafe {
             T::fold_prolong(
@@ -1335,6 +1349,31 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
             }
             None => std::ptr::null(),
         };
+        // `meter`: a dim × dim complex matrix on a vector is 8 dim² flops; every matrix of a
+        // site read once, each vector it acts on (eight neighbours for the hops) and the result.
+        let sites = if parity == ALL {
+            self.sites
+        } else {
+            self.sites / 2
+        } as f64;
+        let n_matrices = [diag_of.is_some(), matrices.is_some()]
+            .iter()
+            .filter(|m| **m)
+            .count() as f64
+            + if hops_of.is_some() { 8.0 } else { 0.0 };
+        let read = [base.is_some(), diag_of.is_some()]
+            .iter()
+            .filter(|f| **f)
+            .count() as f64
+            + if hops_of.is_some() { 8.0 } else { 0.0 };
+        let (d, v, size) = (
+            self.dim as f64,
+            out.vectors as f64,
+            std::mem::size_of::<T>(),
+        );
+        let flops = 8.0 * d * d * n_matrices * sites * v;
+        let bytes = (2.0 * d * d * n_matrices + 2.0 * d * (read + 1.0) * v) * sites * size as f64;
+        crate::meter::add(crate::meter::Work::Coarse, size, flops, bytes);
         // On several processes the hops read the ghosts of the field they act on.
         if let (Some(ghosts), Some((h, minus))) = (&self.ghosts, hops_of) {
             let ghost = ghosts.of(h);

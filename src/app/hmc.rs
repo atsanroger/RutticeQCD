@@ -1670,8 +1670,11 @@ fn chain<U: LinkField>(
     let mut flowed: Vec<AtT0> = Vec::new();
     for k in 0..config.hmc.trajectories {
         let n = first + k as u32 + 1;
+        let counted = crate::meter::Counts::now();
         let start = Instant::now();
         let t = hmc.trajectory(&mut u, &mut rng);
+        let seconds = start.elapsed().as_secs_f64();
+        let work = crate::meter::Counts::now().since(&counted);
         accepted += usize::from(t.accepted);
         exp_sum += (-t.delta_h).exp();
         if root {
@@ -1682,9 +1685,10 @@ fn chain<U: LinkField>(
                 t.delta_h,
                 (-t.delta_h).exp(),
                 u8::from(t.accepted),
-                start.elapsed().as_secs_f64()
+                seconds
             )
             .map_err(io)?;
+            writeln!(out, "#   trajectory {n}: {}", work.line(seconds)).map_err(io)?;
         }
         for (i, term) in hmc.terms.iter_mut().enumerate() {
             let Some(c) = term.action.take_cost() else {

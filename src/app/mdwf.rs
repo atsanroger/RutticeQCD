@@ -13,8 +13,8 @@ use crate::measure::{
     channel, meson_correlator, pion_correlator, point_source, CHANNELS, NUM_SOURCES,
 };
 use crate::solver::preconditioner::multigrid::{
-    random_even, AnyParts, CpuParts, CycleLayout, MdwfBackend, OnCpu, PartsIn, PvEoBasis,
-    PvEoCycle, PvEoParams, SetupStage, SharedOperator,
+    random_even, AnyParts, CpuParts, CycleLayout, MdwfBackend, OnCpu, PartsIn, PvEoCycle,
+    PvEoParams, SetupStage, SharedOperator,
 };
 use crate::solver::{largest_magnitude, Chebyshev, Convert, SolveError, SolveInfo};
 use crate::{
@@ -156,13 +156,6 @@ fn cycle_of<'a, L: CycleLayout<T>, T: Storage>(
             c.clone().with_top(hi),
         ))),
     }
-}
-
-/// The flops of one application of a coarse operator on `basis`.
-fn flops_of<T: Storage>(basis: &PvEoBasis<T>) -> f64 {
-    let dim = basis.coarse_dim() as f64;
-    let coarse_sites = basis.aggregation().coarse_lattice().num_sites() as f64;
-    72.0 * dim * dim * coarse_sites
 }
 
 /// Counts the applications of the map it wraps.
@@ -426,7 +419,7 @@ where
         }
         _ => None,
     };
-    let (mut coarse_flops, mut steps) = (0.0, 1);
+    let mut steps = 1;
     let mut pre: Preconditioner<L> = Preconditioner::None;
     let mut single_pre: Option<SinglePre<L>> = None;
     match (s.preconditioner_type, &mg_settings) {
@@ -439,7 +432,6 @@ where
                         .ok_or("the lattice cannot be cut for the SIMD layout")?;
                     let outer = (d, pv, form);
                     pre = cycle_of(plain.both(), outer, (op_l, pv_l), map, p, *cycle_params);
-                    coarse_flops = flops_of(&p.basis);
                 }
                 (Some(CpuParts::Single(p)), _, Some(o)) => {
                     let (d, pv) = o.alpha.both();
@@ -458,7 +450,6 @@ where
                     let mut like = H::<L, f32>::with_shape(&lat, 24, ls, 1, 1);
                     like.set_parity(Parity::Even);
                     single_pre = Some(Convert::new(cycle, &like));
-                    coarse_flops = flops_of(&p.basis);
                 }
                 _ => unreachable!("the parts are made in the precision of the cycle"),
             }
@@ -510,7 +501,6 @@ where
             c.inner().coarse_applications()
         })
     };
-    let fine_flops = 2.0 * (op_l.flops_per_site() * lat.num_sites()) as f64;
     // Mixed precision (CGNE only): CG in single precision on K†K, K the left Schur factor of the
     // operator in single precision, with reliable updates in double precision each time |r|² has
     // fallen by `drop_sqr` (`SingleEven::reliable_normal`, as on the device).
@@ -534,6 +524,7 @@ where
             None => pre.inner_applications(steps),
         };
         let mut sol = rhs.zeros_like();
+        let counted = crate::meter::Counts::now();
         let start = Instant::now();
         let (result, history): (Result<SolveInfo, SolveError>, _) = {
             let mut counted_a = Counted {
@@ -557,13 +548,11 @@ where
             }
         };
         let seconds = start.elapsed().as_secs_f64();
+        let work = crate::meter::Counts::now().since(&counted);
         let iterations = iterations_text(&result);
         // Applications of the operator, per right-hand side.
         let applications = (outer.get() + applied.get() * inner_per) / nv;
         let coarse = (coarse_applications(&pre, &single_pre) - coarse_before) / nv;
-        let gflops = (applications as f64 * fine_flops + coarse as f64 * coarse_flops) * nv as f64
-            / seconds
-            * 1e-9;
         let mut x = b.zeros_like();
         a.solution(&mut x, &sol, b);
         let mut r = b.zeros_like();
@@ -575,11 +564,12 @@ where
         let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         writeln!(
             out,
-            "  {label}: {}{} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {gflops:.1} GFlop/s; {}",
+            "  {label}: {}{} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}",
             s.solver_type,
             if single.is_some() { " (mixed precision)" } else { "" },
             applied.get() / nv,
             2 * applications,
+            work.line(seconds),
             memory_line()
         )?;
         super::history_lines(out, label, history);

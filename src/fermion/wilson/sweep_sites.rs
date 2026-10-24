@@ -365,6 +365,16 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
         gamma5: (Pre, Post),
         after: After<'_, T>,
     ) {
+        let rows = match self.state.links {
+            LinkStore::TwoRows(_) => 2,
+            _ => 3,
+        };
+        count_sweep::<T, D>(
+            out.num_sites(),
+            inp.copies(),
+            matches!(diagonal, Diagonal::Present),
+            rows,
+        );
         match self.state.links {
             LinkStore::Full(_) => {
                 self.sweep_with::<FullLinks, SO, SI>(work, geo, out, inp, diagonal, gamma5, after)

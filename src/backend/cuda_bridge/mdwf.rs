@@ -362,6 +362,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
             }
             None => std::ptr::null(),
         };
+        // An Ls × Ls matrix on the 12 complex numbers of every spinor of the fifth dimension.
+        let ls = inp.ls as f64;
+        let spinors = if from.is_null() { 2.0 } else { 3.0 };
+        count_fine::<T>(inp.sites(), inp.ls * inp.vectors, 96.0 * ls, spinors, 0.0);
         let sites = (inp.vectors * padded(inp.sites())) as i32;
         if self.tf32 {
             // SAFETY: as below; `tf32` is set on an operator in single precision only, so the
@@ -432,6 +436,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
         assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
         assert_eq!(out.data.len, inp.data.len);
         out.parity = to;
+        count_hops(&self.geometry, inp, from.is_some(), 0.0);
         let from = match from {
             Some(f) => {
                 assert!(f.is(out, ls, to) && f.data.len == out.data.len);
@@ -517,7 +522,9 @@ impl<T: DeviceReal> CudaMdwf<T> {
                     inp.vectors as i32,
                 )
             };
-        if !done {
+        if done {
+            count_hops(&self.geometry, inp, from.is_some(), 96.0 * ls as f64);
+        } else {
             self.hops(scratch, inp, None, (b, c), dagger, Some(to));
             self.gemm(out, scratch, matrix, from);
         }
@@ -767,6 +774,15 @@ impl<T: DeviceReal> CudaMdwf<T> {
             c5: self.params.c,
         };
         let gauge = self.gauge.links.ptr.cast_const();
+        // Bridge++'s count of the operator; eight neighbours, the spinor itself and the result.
+        let flops = (464 * NC + 240) as f64;
+        count_fine::<T>(
+            inp.sites(),
+            ls * inp.vectors,
+            flops,
+            10.0,
+            hop_link_reals(&self.geometry),
+        );
         let Some(halos) = &self.halos else {
             // SAFETY: as in `CudaWilson::apply`, the spinor buffers holding `ls` spinors per site.
             unsafe {
@@ -998,6 +1014,7 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
                 let plain = |dst: &mut DeviceSpinor<T>| {
                     assert!(dst.same_shape(inp));
                     dst.parity = None;
+                    count_fine::<T>(inp.sites(), ls * inp.vectors, 120.0, 3.0, 0.0);
                     // SAFETY: buffers of the same shape, the output none of the inputs.
                     unsafe {
                         T::mdwf_fifth(

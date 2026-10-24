@@ -301,12 +301,12 @@ impl<T: DeviceReal> Vector for DeviceSpinor<T> {
 
     fn copy_from(&mut self, x: &Self) {
         assert!(self.same_shape(x));
-        must(self.data.copy_from(&x.data));
+        columns::copy(&mut self.data, &x.data);
         self.parity = x.parity;
     }
 
     fn set_zero(&mut self) {
-        must(self.data.set_zero());
+        columns::zero(&mut self.data);
     }
 
     fn scale(&mut self, a: &[f64]) {

@@ -138,6 +138,21 @@ fn invert_blocks<T: Storage>(
     Ok(inv)
 }
 
+/// Counts a pass of a coarse operator (`meter`), as on the device: on `sites` sites, `matrices`
+/// dim × dim complex matrices a site (8 dim² flops each on a vector, read once), `read` vectors
+/// read and one written for every vector.
+fn count<T: Storage>(dim: usize, sites: usize, vectors: usize, matrices: usize, read: usize) {
+    let (d, v, m, size) = (
+        dim as f64,
+        vectors as f64,
+        matrices as f64,
+        std::mem::size_of::<T>(),
+    );
+    let flops = 8.0 * d * d * m * sites as f64 * v;
+    let reals = (2.0 * d * d * m + 2.0 * d * (read as f64 + 1.0) * v) * sites as f64;
+    crate::meter::add(crate::meter::Work::Coarse, size, flops, reals * size as f64);
+}
+
 impl<T: Storage> CoarseOp<T> {
     /// Build `P† D P`, a few columns at a time as the vectors of the fields: P of the coarse
     /// unit vectors of one component on every coarse site at once, and of that
@@ -707,6 +722,11 @@ impl<T: Storage> CoarseOp<T> {
             .expect("prepare_even_odd comes first");
         let (dim, matrix) = (self.dim, 2 * self.dim * self.dim);
         let n_coarse = self.lat.num_sites();
+        let matrices = usize::from(diag_of.is_some()) + usize::from(inverse);
+        let matrices = matrices + if hops_of.is_some() { 8 } else { 0 };
+        let read = usize::from(base.is_some()) + usize::from(diag_of.is_some());
+        let read = read + if hops_of.is_some() { 8 } else { 0 };
+        count::<T>(self.dim, n_coarse / 2, out.num_vectors(), matrices, read);
         let site_len = out.site_len();
         let ghost = hops_of.map(|(h, _)| self.halo(h));
         for_sites(out.slab_mut(0), site_len, |x, out| {
@@ -825,6 +845,7 @@ impl<T: Storage> CoarseOp<T> {
         assert_eq!(inp.internal_dof(), 2 * dim);
         assert_eq!(out.as_slice().len(), inp.as_slice().len());
         let n_coarse = self.lat.num_sites();
+        count::<T>(dim, n_coarse, inp.num_vectors(), 9, 9);
         let site_len = inp.site_len();
         let half = dim / 2;
 

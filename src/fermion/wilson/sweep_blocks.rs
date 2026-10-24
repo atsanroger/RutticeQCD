@@ -581,6 +581,13 @@ where
         assert!(out.outer() == 1 && inp.outer() == 1);
         assert_eq!(out.copies(), inp.copies());
         let copies = inp.copies();
+        // The links of the blocks are kept whole.
+        super::sweep::count_sweep::<T, D>(
+            out.num_sites(),
+            copies,
+            matches!(diagonal, Diagonal::Present),
+            3,
+        );
         let kappa = <LaneType<T, W> as Number>::from_f64(self.params.kappa);
         let edges: [EdgeLanes<LaneType<T, W>, W>; FACES] =
             core::array::from_fn(|leg| EdgeLanes::new(stencil.edge(leg)));

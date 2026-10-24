@@ -218,6 +218,16 @@ fn dot_block<T: Storage>(re: &mut f64, im: &mut f64, a: &[T], b: &[T], lanes: us
     }
 }
 
+/// Counts a pass over the reals of `f` (`meter`): `flops` and `moved` (reals read and written)
+/// for each.
+fn count<T: Storage, K: Kind, S: Sites, L: Layout>(
+    f: &Field<T, K, S, L, Cpu>,
+    flops: f64,
+    moved: f64,
+) {
+    crate::meter::vector(f.as_slice().len(), std::mem::size_of::<T>(), flops, moved);
+}
+
 impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu> {
     fn num_vectors(&self) -> usize {
         Field::num_vectors(self)
@@ -281,6 +291,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn copy_from(&mut self, x: &Self) {
+        count(self, 0.0, 2.0);
         assert!(self.same_shape(x));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
         update(
@@ -293,11 +304,13 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn set_zero(&mut self) {
+        count(self, 0.0, 1.0);
         let site_len = self.block_len();
         for_light_sites(self.as_mut_slice(), site_len, |_, d| d.fill(T::default()));
     }
 
     fn scale(&mut self, a: &[f64]) {
+        count(self, 1.0, 2.0);
         assert_eq!(a.len(), Field::num_vectors(self));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
         for_light_sites(self.as_mut_slice(), site_len, |_, d| {
@@ -311,6 +324,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
+        count(self, 4.0, 3.0);
         assert!(self.same_shape(x));
         assert_eq!(a.len(), Field::num_vectors(self));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
@@ -324,6 +338,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
+        count(self, 4.0, 3.0);
         assert!(self.same_shape(x));
         assert_eq!(a.len(), Field::num_vectors(self));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
@@ -337,6 +352,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn dot(&self, x: &Self, out: &mut [C64]) {
+        count(self, 4.0, 2.0);
         assert!(self.same_shape(x));
         let nv = Field::num_vectors(self);
         assert_eq!(out.len(), nv);
@@ -364,6 +380,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
+        count(self, 2.0, 1.0);
         let nv = Field::num_vectors(self);
         assert_eq!(out.len(), nv);
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
@@ -379,6 +396,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
+        count(self, 6.0, 3.0);
         assert!(self.same_shape(x));
         let nv = Field::num_vectors(self);
         assert!(a.len() == nv && out.len() == nv);
@@ -399,6 +417,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
+        count(self, 4.0, 3.0);
         assert!(self.same_shape(x) && self.same_shape(y));
         assert_eq!(a.len(), Field::num_vectors(self));
         let (site_len, vector_len) = (self.block_len(), vector_len(self));
@@ -424,6 +443,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
         z: &Self,
         dot: &mut [C64],
     ) {
+        count(self, 10.0, 4.0);
         assert!(self.same_shape(x) && self.same_shape(y) && self.same_shape(z));
         let nv = Field::num_vectors(self);
         assert!(a.len() == nv && norm.len() == nv && dot.len() == nv);
@@ -452,6 +472,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        count(self, 8.0, 4.0);
         assert!(self.same_shape(x) && self.same_shape(y));
         let nv = Field::num_vectors(self);
         assert!(a.len() == nv && b.len() == nv);
@@ -478,6 +499,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
         y: &Self,
         out: &mut [f64],
     ) {
+        count(self, 11.0, 4.0);
         assert!(self.same_shape(x) && self.same_shape(y));
         let nv = Field::num_vectors(self);
         assert!(c.len() == nv && a.len() == nv && b.len() == nv && out.len() == nv);
@@ -502,6 +524,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
+        count(self, 8.0, 4.0);
         assert!(self.same_shape(x) && self.same_shape(y));
         let nv = Field::num_vectors(self);
         assert!(a.len() == nv && b.len() == nv);
@@ -520,6 +543,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     }
 
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
+        count(self, 8.0, 2.0);
         assert!(self.same_shape(x));
         let nv = Field::num_vectors(self);
         assert!(dot.len() == nv && norm.len() == nv && norm_x.len() == nv);

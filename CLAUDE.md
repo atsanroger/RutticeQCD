@@ -100,6 +100,9 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
   as `SplitReal`, `LevelReal`) and wraps it in a method that checks shapes.
 - Kernels are asynchronous; do not synchronise in a wrapper. Memory comes from the stream-ordered
   pool (`DeviceBuffer`), never `cudaMalloc` in a loop.
+- The wrapper counts the launch (`meter::add`, `count_fine`): its flops (Bridge++'s count) and
+  bytes (QUDA's convention: every value a site reads from memory). The same for a new CPU
+  operator or `Vector` operation, so the run reports stay complete.
 
 **Performance rules**
 - Most kernels are bound by memory: read each value once, fuse passes where it saves a read, keep

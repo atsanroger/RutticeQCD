@@ -301,6 +301,7 @@ pub(super) fn run(
         let b_host = b.stash()?;
         let mut sol = rhs.zeros_like();
         let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
+        let counted = crate::meter::Counts::now();
         let start = Instant::now();
         let m = pre
             .as_mut()
@@ -313,6 +314,7 @@ pub(super) fn run(
             _ => s.solve(&mut a, m, &mut sol, &rhs, detailed),
         };
         let seconds = start.elapsed().as_secs_f64();
+        let work = crate::meter::Counts::now().since(&counted);
         let coarse = match (&cycles, coarse_before) {
             (Some(c), Some(before)) => {
                 format!("; {} coarse applications", c.coarse_applications() - before)
@@ -342,10 +344,11 @@ pub(super) fn run(
         };
         writeln!(
             out,
-            "  {label}: {}{} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s; {}",
+            "  {label}: {}{} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}",
             s.solver_type,
             if single.is_some() { " (mixed precision)" } else { "" },
             iterations_text(&result),
+            work.line(seconds),
             memory()
         )?;
         super::history_lines(out, label, history);

@@ -10,6 +10,7 @@ pub mod hmc;
 pub mod io;
 pub mod kernel;
 pub mod measure;
+pub mod meter;
 pub mod numerics;
 pub mod solver;
 

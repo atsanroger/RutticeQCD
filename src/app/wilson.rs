@@ -15,6 +15,8 @@ pub struct SolveReport {
     /// Worst |D S - b|^2 / |b|^2 over the twelve right-hand sides, from the full operator.
     pub worst_residual_sqr: f64,
     pub seconds: f64,
+    /// What the solve did (`meter`).
+    pub work: crate::meter::Counts,
     /// The peak memory of the process so far, in GB (where the system reports it).
     pub(crate) peak_memory_gb: Option<f64>,
 }
@@ -444,6 +446,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
                 power,
             } => exponential_source::<f64>(&lat, position, slope, power),
         };
+        let counted = crate::meter::Counts::now();
         let start = Instant::now();
         // The number of sites per block is part of the type of the operator: one call for each
         // number of SIMD lanes.
@@ -575,6 +578,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
             restarts: info.restarts,
             worst_residual_sqr,
             seconds: start.elapsed().as_secs_f64(),
+            work: crate::meter::Counts::now().since(&counted),
             peak_memory_gb: memory_usage().map(|(_, peak)| peak),
         });
         props.push(s);
@@ -620,12 +624,13 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
     for s in &report.solves {
         writeln!(
             out,
-            "# quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s{}",
+            "# quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s, {}{}",
             s.quark,
             s.iterations,
             s.restarts,
             s.worst_residual_sqr,
             s.seconds,
+            s.work.line(s.seconds),
             s.peak_memory_gb
                 .map_or(String::new(), |p| format!(", peak memory {p:.2} GB"))
         )?;

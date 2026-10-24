@@ -478,6 +478,48 @@ impl<T: DeviceReal> DeviceGauge<T> {
     }
 }
 
+/// Bridge++'s count for the eight legs of the hops of one spinor.
+const HOP_FLOPS: f64 = 1320.0;
+
+/// Counts work on the fine lattice (`meter`): `sites` sites with `fibres` spinors each (the
+/// fifth dimension times the vectors), `flops` and `spinors` read or written for every fibre,
+/// and `site_reals` read once a site (links, clover blocks), shared by its fibres. As QUDA counts
+/// its kernels: every value a site reads from memory, the caches left out.
+fn count_fine<T>(sites: usize, fibres: usize, flops: f64, spinors: f64, site_reals: f64) {
+    let n = (sites * fibres) as f64;
+    let size = std::mem::size_of::<T>();
+    let bytes = (n * spinors * 24.0 + sites as f64 * site_reals) * size as f64;
+    crate::meter::add(crate::meter::Work::Fine, size, n * flops, bytes);
+}
+
+/// The reals of the eight links the hops of a site read.
+fn hop_link_reals(geometry: &Geometry) -> f64 {
+    8.0 * 6.0 * geometry.link_rows as f64
+}
+
+/// Counts the hops of `inp` (`hops`, the parts of the several processes): eight neighbours and
+/// the result a spinor, one more with `from`.
+fn count_hops<T: DeviceReal>(
+    geometry: &Geometry,
+    inp: &DeviceSpinor<T>,
+    from: bool,
+    extra_flops: f64,
+) {
+    let (flops, spinors) = if from {
+        (HOP_FLOPS + 48.0, 10.0)
+    } else {
+        (HOP_FLOPS, 9.0)
+    };
+    let fibres = inp.ls * inp.vectors;
+    count_fine::<T>(
+        inp.sites(),
+        fibres,
+        flops + extra_flops,
+        spinors,
+        hop_link_reals(geometry),
+    );
+}
+
 /// The number the kernels have for the sites a field is on: the parity, or -1 for the whole
 /// lattice.
 fn parity_number(parity: Option<Parity>) -> i32 {
@@ -519,6 +561,7 @@ fn hops<T: DeviceReal>(
     assert!(inp.is(out, ls, to.map(Parity::flip)) && out.ls == ls);
     assert_eq!(out.data.len, inp.data.len);
     out.parity = to;
+    count_hops(geometry, inp, from.is_some(), 0.0);
     let from = match from {
         Some(f) => {
             assert!(f.is(out, ls, to) && f.data.len == out.data.len);

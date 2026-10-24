@@ -98,7 +98,18 @@ A kernel that reads neighbours must handle a cut lattice (see
 
 A kernel that does not read neighbours needs nothing.
 
-## 8. Testing
+## 8. Counting the work
+
+Every kernel launch adds its floating-point operations and the bytes it moves to the counter of
+`src/meter.rs` (as QUDA's `Tunable::flops`, `bytes`): in the Rust wrapper, from the shapes, one
+call of `meter::add` (or the helpers `count_fine` in `mod.rs`, `count` in `columns.rs`). The
+bytes are counted as QUDA counts them: every value a site reads from memory (eight neighbouring
+spinors and eight links for a hop), the caches left out, so the intensity can be compared with
+the literature. A new kernel gets its count in its wrapper; the runs print the totals (Flop,
+GFlop/s, Flop/byte by kind of work and precision) after each solve and trajectory. A count costs
+about 3 ns on the host and nothing on the device.
+
+## 9. Testing
 
 - Compare with the CPU in `tests/cuda_bridge.rs` (`same_operator`, `same_blocks`, ...): the device
   and the CPU agree to rounding.
@@ -106,7 +117,7 @@ A kernel that does not read neighbours needs nothing.
   processes on one GPU), and break the kernel on purpose once to see the test fail.
 - `RUTTICE_CHECKSUM=1` prints checksums of the stages of a run, to compare two builds bit by bit.
 
-## 9. Building
+## 10. Building
 
 `cargo build --release --features cuda-bridge` runs cmake on `cuda_bridge/` (`build.rs`).
 `RUTTICE_CUDA_ARCH` chooses the architectures (default `80;86`); one architecture compiles faster.

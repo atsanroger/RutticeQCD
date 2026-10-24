@@ -13,6 +13,12 @@ fn part<T>(buffer: &DeviceBuffer<T>, vectors: usize, v: usize) -> (*mut T, usize
     (unsafe { buffer.ptr.add(v * one) }, one)
 }
 
+/// Counts a pass over `reals` reals of `T`: `flops` and `moved` (reals read and written) for
+/// each of them (`meter`).
+fn count<T>(reals: usize, flops: f64, moved: f64) {
+    crate::meter::vector(reals, std::mem::size_of::<T>(), flops, moved);
+}
+
 /// One vector of a set into one of another: (buffer, its vectors, the vector).
 fn copy_vector<T: DeviceReal>(
     dst: (&DeviceBuffer<T>, usize, usize),
@@ -21,6 +27,7 @@ fn copy_vector<T: DeviceReal>(
     let ((to, n), (from, m)) = (part(dst.0, dst.1, dst.2), part(src.0, src.1, src.2));
     assert_eq!(n, m, "vectors of another size");
     // SAFETY: two vectors of `n` reals inside their buffers, which are not the same one.
+    count::<T>(n, 0.0, 2.0);
     must(check(unsafe {
         cudaMemcpy(
             to.cast(),
@@ -29,6 +36,18 @@ fn copy_vector<T: DeviceReal>(
             DEVICE_TO_DEVICE,
         )
     }));
+}
+
+/// `dst = src`, all the vectors.
+pub(super) fn copy<T: DeviceReal>(dst: &mut DeviceBuffer<T>, src: &DeviceBuffer<T>) {
+    count::<T>(src.len, 0.0, 2.0);
+    must(dst.copy_from(src));
+}
+
+/// `x = 0`, all the vectors.
+pub(super) fn zero<T: DeviceReal>(x: &mut DeviceBuffer<T>) {
+    count::<T>(x.len, 0.0, 1.0);
+    must(x.set_zero());
 }
 
 /// `out_k = src_(which[k])`.
@@ -57,6 +76,7 @@ pub(super) fn assign<T: DeviceReal>(
 
 pub(super) fn scale<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, a: &[f64]) {
     assert!(a.len() >= vectors);
+    count::<T>(x.len, 1.0, 2.0);
     // SAFETY: `vectors` vectors of `len / vectors` reals and a coefficient for each.
     unsafe { T::scal(x.ptr, a.as_ptr(), (x.len / vectors) as i32, vectors as i32) };
 }
@@ -69,6 +89,7 @@ pub(super) fn axpy<T: DeviceReal>(
     a: &[C64],
 ) {
     assert!(a.len() >= vectors && x.len == y.len);
+    count::<T>(y.len, 4.0, 3.0);
     // SAFETY: two buffers of `vectors` vectors of the same size, not the same one (the caller
     // borrows `y` mutably); a complex number is its real and its imaginary part.
     unsafe {
@@ -90,6 +111,7 @@ pub(super) fn aypx<T: DeviceReal>(
     a: &[C64],
 ) {
     assert!(a.len() >= vectors && x.len == y.len);
+    count::<T>(y.len, 4.0, 3.0);
     // SAFETY: as in `axpy`.
     unsafe {
         T::caypx(
@@ -124,6 +146,7 @@ pub(super) fn dot<T: DeviceReal>(
     assert!(out.len() >= vectors);
     let n = reals(x, y, vectors);
     let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
+    count::<T>(x.len, 4.0, 2.0);
     // SAFETY: two buffers of `vectors` vectors of `n` reals, and places for that many results.
     must(check(unsafe {
         T::dotc(
@@ -143,6 +166,7 @@ pub(super) fn dot<T: DeviceReal>(
 pub(super) fn norm_sqr<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, out: &mut [f64]) {
     assert!(out.len() >= vectors);
     let n = reals(x, x, vectors);
+    count::<T>(x.len, 2.0, 1.0);
     // SAFETY: a buffer of `vectors` vectors, and places for that many results.
     must(check(unsafe {
         T::norm2(out.as_mut_ptr(), x.ptr, n, vectors as i32)
@@ -159,6 +183,7 @@ pub(super) fn axpy_norm_sqr<T: DeviceReal>(
 ) {
     assert!(out.len() >= vectors);
     let n = reals(x, y, vectors);
+    count::<T>(y.len, 6.0, 3.0);
     // SAFETY: two buffers of `vectors` vectors of `n` reals, not the same one (the caller
     // borrows `y` mutably), a coefficient and a place for the result of each.
     must(check(unsafe {
@@ -189,6 +214,7 @@ pub(super) fn xpay_norm_sqr_dot<T: DeviceReal>(
     let n = reals(s, x, vectors);
     assert!(y.len == s.len && z.len == s.len);
     let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
+    count::<T>(s.len, 10.0, 4.0);
     // SAFETY: four buffers of `vectors` vectors of `n` reals, `s` none of the others (the
     // caller borrows it mutably), and places for the results.
     must(check(unsafe {
@@ -222,6 +248,7 @@ pub(super) fn dot_norms<T: DeviceReal>(
     assert!(dot.len() >= vectors && norm.len() >= vectors && norm_x.len() >= vectors);
     let n = reals(s, x, vectors);
     let (mut re, mut im) = (vec![0.0; vectors], vec![0.0; vectors]);
+    count::<T>(s.len, 8.0, 2.0);
     // SAFETY: two buffers of `vectors` vectors of `n` reals, and places for the results.
     must(check(unsafe {
         T::dot_norms(
@@ -250,6 +277,9 @@ pub(super) fn gram<T: DeviceReal>(
     assert!(nx > 0 && ny > 0 && x.len / nx == y.len / ny);
     let n = (x.len / nx) as i32;
     let (mut re, mut im) = (vec![0.0; nx * ny], vec![0.0; nx * ny]);
+    // Every pair of vectors: 4 flops a real; each vector read once.
+    count::<T>(n as usize * nx * ny, 4.0, 0.0);
+    count::<T>(x.len + y.len, 0.0, 1.0);
     // SAFETY: two sets of `nx` and `ny` vectors of `n` reals, and places for nx ny results.
     must(check(unsafe {
         T::gram(
@@ -283,6 +313,7 @@ pub(super) fn scale_axpy2_norm_sqr<T: DeviceReal>(
     assert!(c.len() >= vectors && norm.len() >= vectors);
     let n = reals(s, x, vectors);
     assert!(y.len == s.len);
+    count::<T>(s.len, 11.0, 4.0);
     // SAFETY: three buffers of `vectors` vectors of `n` reals, `s` neither of the others (the
     // caller borrows it mutably), coefficients and a place for the result of each vector.
     must(check(unsafe {
@@ -310,6 +341,7 @@ pub(super) fn xpay<T: DeviceReal>(
 ) {
     let n = reals(s, x, vectors);
     assert!(y.len == s.len);
+    count::<T>(s.len, 4.0, 3.0);
     // SAFETY: three buffers of `vectors` vectors of `n` reals, `s` neither of the others, and
     // a coefficient for each vector.
     unsafe { T::xpay(s.ptr, x.ptr, reals_of(a, vectors), y.ptr, n, vectors as i32) };
@@ -326,6 +358,7 @@ pub(super) fn axpy2<T: DeviceReal>(
 ) {
     let n = reals(s, x, vectors);
     assert!(y.len == s.len);
+    count::<T>(s.len, 8.0, 4.0);
     // SAFETY: as in `xpay`.
     unsafe {
         T::axpy2(
@@ -351,6 +384,7 @@ pub(super) fn axpy_aypx<T: DeviceReal>(
 ) {
     let n = reals(s, x, vectors);
     assert!(y.len == s.len);
+    count::<T>(s.len, 8.0, 4.0);
     // SAFETY: as in `xpay`.
     unsafe {
         T::axpy_aypx(
@@ -377,6 +411,7 @@ pub(super) fn chebyshev_step<T: DeviceReal>(
 ) {
     let n = reals(out, d, vectors);
     assert!(r.len == out.len && ad.len == out.len && c.len() >= vectors);
+    count::<T>(out.len, 7.0, 7.0);
     // SAFETY: four distinct buffers of `vectors` vectors of `n` reals, and coefficients for
     // each vector.
     unsafe {
@@ -408,6 +443,7 @@ pub(super) fn combine<T: DeviceReal>(
     let reals: Vec<f64> = c.iter().flat_map(|z| [z.re, z.im]).collect();
     let c = must(DeviceBuffer::<f64>::from_host(&reals));
     let (n, v) = ((x.len / vectors) as i32, vectors as i32);
+    count::<T>(out.len, 4.0 * vectors as f64, 2.0);
     // SAFETY: two sets of `vectors` vectors of `n` reals, not the same buffer, and the
     // coefficients of that many.
     unsafe { T::combine(out.ptr, x.ptr, c.ptr, n, v, v) };
@@ -418,6 +454,7 @@ pub(super) fn rotate<T: DeviceReal>(x: &DeviceBuffer<T>, vectors: usize, c: &[C6
     assert!(vectors <= ROTATE_VECTORS && c.len() == vectors * vectors);
     let reals: Vec<f64> = c.iter().flat_map(|z| [z.re, z.im]).collect();
     let c = must(DeviceBuffer::<f64>::from_host(&reals));
+    count::<T>(x.len, 4.0 * vectors as f64, 2.0);
     // SAFETY: `vectors` vectors of `len / vectors` reals, and the coefficients of that many.
     unsafe { T::rotate(x.ptr, c.ptr, (x.len / vectors) as i32, vectors as i32) };
 }
