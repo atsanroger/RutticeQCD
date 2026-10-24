@@ -9,12 +9,6 @@
 extern "C" {
 #endif
 
-// Precision enum for C-API dispatch
-typedef enum {
-    BRIDGE_CUDA_PRECISION_FLOAT = 0,
-    BRIDGE_CUDA_PRECISION_DOUBLE = 1
-} BridgeCudaPrecision;
-
 // Gamma matrix representation - aligned with Ruttice GammaRepre
 typedef enum {
     BRIDGE_CUDA_GAMMA_DIRAC = 0,   // Standard Dirac-Pauli basis (gamma_4 diagonal)
@@ -53,25 +47,6 @@ typedef struct {
     double c5;        // Mobius c parameter
 } BridgeCudaMdwfParams;
 
-// Multigrid coarse grid descriptor
-typedef struct {
-    int32_t num_colors;    // Number of coarse degrees of freedom per site
-    int32_t block_size[4]; // Aggregation block dimensions [bx, by, bz, bt]
-} BridgeCudaMgParams;
-
-// Gauge smearing parameters
-typedef struct {
-    double rho;       // Stout smearing weight parameter (typically ~0.1)
-    double alpha_ape; // APE smearing weight parameter
-    int32_t steps;    // Number of smearing iterations
-} BridgeCudaSmearParams;
-
-// Domain Decomposition (SAP / Block DD) parameters for Multigrid smoother
-typedef struct {
-    int32_t block_size[4]; // [bx, by, bz, bt] aggregate block dimensions
-    int32_t ieo;           // Block parity: 0 for even blocks, 1 for odd blocks
-} BridgeCudaDdParams;
-
 // =========================================================================
 // Backward Compatibility Aliases
 // =========================================================================
@@ -81,15 +56,6 @@ typedef struct {
 #define GPU_FER_NSP        BRIDGE_CUDA_NSP
 #define GPU_FER_NDF        BRIDGE_CUDA_NDF
 #define GPU_FER_WARP_SIZE  BRIDGE_CUDA_WARP_SIZE
-
-typedef BridgeCudaPrecision    GpuFerPrecision;
-typedef BridgeCudaGammaRep     GpuFerGammaRep;
-typedef BridgeCudaGeometry     GpuFerGeometry;
-typedef BridgeCudaMdwfParams   GpuFerMdwfParams;
-typedef BridgeCudaMdwfParams   GpuFerDwfParams;
-typedef BridgeCudaMgParams     GpuFerMgParams;
-typedef BridgeCudaSmearParams  GpuFerSmearParams;
-typedef BridgeCudaDdParams     GpuFerDdParams;
 
 #ifdef __cplusplus
 }

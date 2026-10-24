@@ -831,13 +831,6 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         }
     }
 
-    /// What the cycle was built from (`CoarseParts`, the levels below the coarse lattice
-    /// included), shared: a cycle for other links or another form is made of them
-    /// (`from_parts`) without building any of it.
-    pub fn parts(&self) -> CoarseParts<CT> {
-        self.parts.clone()
-    }
-
     /// `parts`, the cycle given up.
     pub fn into_parts(self) -> CoarseParts<CT> {
         self.parts

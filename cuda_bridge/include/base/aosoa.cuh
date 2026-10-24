@@ -34,12 +34,6 @@ __host__ __device__ __forceinline__ int aosoa_5d_spinor_idx(int c, int s, int ri
     return (outer * BRIDGE_CUDA_NSP + comp) * W + lane;
 }
 
-// SU(3) Gauge field index: direction mu in [0,3], row r in [0,2], col c in [0,2], ri in [0,1]
-__host__ __device__ __forceinline__ int aosoa_gauge_idx(int mu, int r, int c, int ri, int site) {
-    int comp = ri + 2 * (c + BRIDGE_CUDA_NC * (r + BRIDGE_CUDA_NC * mu)); // 0 .. 71
-    return aosoa_idx(comp, site, 4 * BRIDGE_CUDA_NDF);
-}
-
 
 // -------------------------------------------------------------------------
 // 4D Site Index and Coordinates Mapping

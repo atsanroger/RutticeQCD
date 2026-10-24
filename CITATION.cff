@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use RutticeQCD, please cite it as below."
+title: "RutticeQCD"
+abstract: >-
+  Lattice QCD in Rust: Wilson, clover and Möbius domain-wall fermions, Krylov solvers,
+  multigrid, eigensolvers, gradient flow and HMC, on CPUs and on NVIDIA GPUs (one or several),
+  checked against Bridge++.
+authors:
+  - family-names: "Chen"
+    given-names: "Wei-Lun"
+    orcid: "https://orcid.org/0000-0002-8542-9126"
+version: "0.7.0"
+date-released: "2026-10-24"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/atsanroger/RutticeQCD"
+keywords:
+  - lattice QCD
+  - Rust
+  - CUDA
+  - multigrid

@@ -43,10 +43,6 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
         }
     }
 
-    pub fn form(&self) -> EoForm {
-        self.form
-    }
-
     fn fit_all(&mut self, like: &HalfSpinorField<T, L>) {
         for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
             fit(f, like);

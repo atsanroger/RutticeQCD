@@ -27,8 +27,13 @@ GPUs through CUDA kernels extracted from Bridge++ (`cuda_bridge/`, Rust side
    device at once, and the two offer the same features (table in `docs/DEVELOPMENT.md`).
 3. **Exact and testable.** Operators on several processes give the result of one process bit for
    bit; reductions have a fixed order, so runs repeat bit for bit.
-4. **Design from references first.** For a new algorithm or kernel: read Bridge++ (and any CUDA
-   the user points to), write down the design, get the user's agreement, then code.
+4. **An external check, not only CI.** An AI may not implement a thing the way it was meant,
+   and tests written with the code share its assumptions. So every feature needs a check from
+   outside the code: this project compares its results with Bridge++ (the same input, the same
+   numbers — plaquettes, ΔH, iterations, eigenvalues, correlators). Where Bridge++ has no
+   counterpart, name the outside check before coding (a published result, an exact solution, a
+   conserved quantity). For a new algorithm or kernel, write down the design and that check, get
+   the user's agreement, then code.
 5. **Report faithfully.** Say what was checked and what was not; give estimates as estimates.
 
 ## Rust

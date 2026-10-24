@@ -1526,7 +1526,6 @@ fn mdwf_params(f: &HmcFermion) -> MdwfParams {
 /// What a run did, trajectory by trajectory.
 #[derive(Debug, Clone)]
 pub struct HmcReport {
-    pub plaquette_start: f64,
     /// (trajectory number, ΔH, accepted, plaquette after it).
     pub trajectories: Vec<(u32, f64, bool, f64)>,
 }
@@ -1663,7 +1662,6 @@ fn chain<U: LinkField>(
         term.action.take_cost();
     }
     let mut report = HmcReport {
-        plaquette_start,
         trajectories: Vec::new(),
     };
     let (mut accepted, mut exp_sum) = (0usize, 0.0);
