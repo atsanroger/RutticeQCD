@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-10-24)
+
+Wilson and clover HMC on the device, and every run reporting the work it did. Bridge++'s
+test_HMC_Clover_RHMC_Nf2p1 (Ratio, Standard and Rational clover actions on stout links) now runs
+on the GPU and gives the trajectory of the CPU and of Bridge++ (plaquette 0.627668186553636;
+Bridge++ 0.627668186553629). Each solve and trajectory prints Flop, GFlop/s and Flop/byte by kind
+of work, for a roofline estimate: a 16⁴ domain-wall trajectory on an A30 runs its fine operator
+in single precision at 2.38 Flop/byte, 1570 GFlop/s in all. Parameter files are unchanged; the
+library's public interface is narrower (a breaking change for code using its internals).
 
 - Every solve and trajectory reports the work it did: Flop, GFlop/s and Flop/byte, split into the
   fine operators, the coarse operators, restriction and prolongation, and vector operations, in
