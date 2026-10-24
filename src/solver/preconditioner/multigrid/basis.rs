@@ -48,6 +48,20 @@ fn widen<S: Storage, T: Storage>(x: S) -> T::Compute {
 /// The largest `12 * ls` the prolongation keeps on the stack (Ls up to 64).
 const MAX_HALF_REALS: usize = 12 * 64;
 
+/// P between fine fields on the whole lattice and coarse fields, as the multigrid of the CPU
+/// takes it (`WilsonMultigrid`).
+impl<T: Storage, S: Storage> super::Transfer<Field<T, Spinor>, Field<T, Coarse>> for Basis<T, S> {
+    fn coarse_field(&self, vectors: usize) -> Field<T, Coarse> {
+        Basis::coarse_field(self, vectors)
+    }
+    fn restrict(&self, coarse: &mut Field<T, Coarse>, fine: &Field<T, Spinor>) {
+        Basis::restrict(self, coarse, fine);
+    }
+    fn prolong(&self, fine: &mut Field<T, Spinor>, coarse: &Field<T, Coarse>) {
+        Basis::prolong(self, fine, coarse);
+    }
+}
+
 impl<T: Storage, S: Storage> Basis<T, S> {
     /// Counts a restriction or a prolongation over `sites` fine sites (`meter`), as on the
     /// device: 96 Ls n flops a spinor and vector; P read once, the fields once a vector.

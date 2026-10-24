@@ -37,7 +37,8 @@ pub use mdwf_even_odd::{
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::{CpuBlocks, Sap, SapBlocks};
 pub use wilson::{
-    CoarseSolverChoice, CycleParts, Multigrid, MultigridParams, SetupHooks, SmootherChoice,
+    random_vectors, CoarseSolverChoice, CycleLevels, CycleParts, Multigrid, MultigridBackend,
+    MultigridParams, SetupHooks, SmootherChoice, WilsonMultigrid, WilsonOnCpu,
 };
 
 use std::fmt;
