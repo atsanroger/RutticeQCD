@@ -614,6 +614,8 @@ fn multigrid_preconditioned_fgmres_converges() {
         ..params
     };
     let mut mg_eo = Multigrid::new(&op, &lat, &even_odd).unwrap();
+    // After the setup iterations too (each makes the coarse operator again).
+    assert!(even_odd.setup_iterations > 0 && mg_eo.coarse_operator().has_even_odd());
     let with_eo = solve(Some(&mut mg_eo));
     eprintln!("FGMRES iterations: {plain} plain, {with_mg} with multigrid, {with_mg32} with single-precision multigrid, {with_eo} with the coarse solves on the even coarse sites");
     assert!(with_mg * 5 < plain && with_mg32 * 5 < plain);

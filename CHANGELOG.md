@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed: the Wilson and clover multigrid with even-odd solves (`coarse_even_odd`, set by an
+  even-odd solver) prepared its coarse operator for solves on the even coarse sites only
+  before the setup iterations, so with any (the default is 4) the coarse solves ran on the
+  whole coarse lattice. Now the coarse operator of the last setup iteration is prepared too;
+  even-odd multigrid runs on the CPU change at the level of the coarse solves (the outer
+  iterations stayed the same in the tests).
+
 - Wilson and clover fermions on several GPUs: the operators, their even-odd blocks, the solves
   and HMC (Standard, Ratio, Rational; the clover term and its force on extended links), each
   process with its GPU, the result of one GPU bit for bit (checked up to 16 ranks with

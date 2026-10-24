@@ -330,7 +330,7 @@ impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
             mg.basis = basis_after_smoothing(&mut mg.backend, &mg.agg, &mut mg.hooks, &x)?;
             mg.coarse = mg
                 .backend
-                .coarse_operator(&mg.basis, None, &mut mg.hooks, false)?;
+                .coarse_operator(&mg.basis, None, &mut mg.hooks, even_odd)?;
         }
         // The smoothed test vectors on the coarse lattice: P† x, which varies from block to
         // block with the near-null space (P† of the orthonormalised vectors would not).
