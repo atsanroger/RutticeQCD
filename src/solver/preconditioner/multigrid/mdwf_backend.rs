@@ -119,6 +119,12 @@ impl MdwfMultigridSettings {
         (&l.super_blocks[..l.count], &l.bootstrap[..l.count])
     }
 
+    /// The levels below the coarse lattice as the cycles take them.
+    pub(crate) fn levels(&self) -> super::LevelLists<'_> {
+        let (super_blocks, refine) = self.level_lists();
+        (super_blocks, refine, self.levels.for_pauli_villars)
+    }
+
     fn storage(&self) -> BasisStorage {
         match self.basis_single {
             true => BasisStorage::Single,
@@ -271,11 +277,27 @@ fn vectors_in<F: Storage, G: GammaRepre>(
             let (y, theta) = pv_eo_low_modes(op, pv, lat, settings.low_modes);
             report(SetupStage::Filtered(&theta));
             let mut y = y.select(&(0..settings.test_vectors).collect::<Vec<_>>());
-            pv_eo_bootstrap_stored(op, pv, &agg, &mut y, settings.bootstrap, settings.storage())?;
+            pv_eo_bootstrap_stored(
+                op,
+                pv,
+                &agg,
+                &mut y,
+                settings.bootstrap,
+                settings.storage(),
+                settings.levels(),
+            )?;
             y
         }
         Some(mut y) if due => {
-            pv_eo_bootstrap_stored(op, pv, &agg, &mut y, settings.bootstrap, settings.storage())?;
+            pv_eo_bootstrap_stored(
+                op,
+                pv,
+                &agg,
+                &mut y,
+                settings.bootstrap,
+                settings.storage(),
+                settings.levels(),
+            )?;
             y
         }
         Some(y) => y,

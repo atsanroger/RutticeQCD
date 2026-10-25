@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The setup of the domain-wall multigrid has fewer copies: the vectors s and t̂ that P is made
+  of (`lifted_vectors`) and the rounds of the bootstrap (`bootstrap_rounds`) are written once
+  for the CPU and the device (they were three and two). The device gives the same bits as
+  before at every stage (`RUTTICE_CHECKSUM`); on the CPU s is now scaled before t̂ is made of
+  it, as on the device, which changes P at rounding (4³×8: the propagators with the same
+  iterations and coarse applications, correlators within 3e-10; of five HMC runs, one with an
+  iteration more or fewer in a trajectory, ΔH within 1e-10).
+
+### Fixed
+
+- With levels below the coarse lattice, the bootstrap of the CPU now takes them from its second
+  round on, as the device has done since 0.4.1 in HMC and since 0.5.0 in the propagator runs: the
+  test vectors of the two backends had drifted apart from the third round on (4³×8, three rounds
+  and `MultiGrid_Level2`: 188 against 192 coarse applications for a right-hand side).
+  `tests/cuda_bridge.rs` compares the two with three rounds and a level.
+
 ## 0.9.0 (2026-10-25)
 
 Measurements beyond the zero-momentum mesons, and a work report that counts everything. Meson

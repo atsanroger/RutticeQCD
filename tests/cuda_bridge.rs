@@ -2784,6 +2784,34 @@ fn domain_wall_multigrid_runs_on_the_device() {
     assert!(!iterations(&cpu).is_empty(), "{cpu}");
     same_tables(&text, "mdwf_mg_double", 1e-6);
 
+    // With a level below the coarse lattice and three rounds of the bootstrap, whose later
+    // rounds take the levels on both backends: as many iterations and as many applications of
+    // the coarse operators per right-hand side (the CPU prints them per right-hand side, the
+    // device for the four columns of a solve).
+    let rounds = text.replace(
+        "bootstrap_number_of_rounds : 1",
+        "bootstrap_number_of_rounds : 3",
+    ) + "  MultiGrid_Level2:\n    super_block_size : 2\n";
+    let (cpu, gpu) = (
+        run_with_backend(&rounds, "cpu", "mdwf_mg_rounds"),
+        run_with_backend(&rounds, "cuda_bridge", "mdwf_mg_rounds"),
+    );
+    let coarse = |out: &str, what: &str, per: usize| -> Vec<usize> {
+        out.lines()
+            .filter_map(|line| line.split(what).next().filter(|_| line.contains(what)))
+            .filter_map(|head| head.split_whitespace().last()?.parse::<usize>().ok())
+            .map(|n| n / per)
+            .collect()
+    };
+    assert_eq!(iterations(&cpu), iterations(&gpu), "\n{cpu}\n{gpu}");
+    let on_cpu = coarse(&cpu, " coarse;", 1);
+    assert!(!on_cpu.is_empty(), "{cpu}");
+    assert_eq!(
+        on_cpu,
+        coarse(&gpu, " coarse applications;", 4),
+        "\n{cpu}\n{gpu}"
+    );
+
     // A level below the coarse lattice, on the device as well.
     let levels = MDWF_RUN
         .replace("RHS", "4")

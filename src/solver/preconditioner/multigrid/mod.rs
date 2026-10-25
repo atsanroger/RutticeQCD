@@ -26,14 +26,15 @@ pub use mdwf_backend::{top_of as pv_eo_top, AnyParts, CpuParts, CpuVectors, Oute
 pub use mdwf_backend::{
     CoarseLevels, Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
 };
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use mdwf_even_odd::{bootstrap_rounds, lifted_vectors, Waiting};
 pub use mdwf_even_odd::{
-    bootstrap_round, bootstrap_vector, coarse_solve, low_modes, orthonormalise_all,
-    pv_eo_basis_stored, pv_eo_bootstrap_stored, pv_eo_start, BasisStorage, CoarseParts,
-    CycleLayout, SharedOperator,
+    bootstrap_vector, coarse_solve, low_modes, orthonormalise_all, pv_eo_basis_stored,
+    pv_eo_bootstrap_stored, pv_eo_start, BasisStorage, CoarseParts, CycleLayout, SharedOperator,
 };
 pub use mdwf_even_odd::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
-    BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+    BootstrapParams, CoarseKrylov, LevelLists, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::{CpuBlocks, Sap, SapBlocks};

@@ -214,15 +214,17 @@ tests.
 
 ### 8. CPU multigrid in single precision above the coarse lattice
 
-- **Why.** `PvEoCycle`, `pv_eo_low_modes`, `pv_eo_bootstrap`, `lifted_vectors` fix the fine fields
-  to `f64`. On the device single precision kept the outer iterations and the correlators; on
-  the CPU it would double the SIMD width and halve the memory traffic.
-- **How.** Make `mdwf_even_odd.rs` generic over the fine storage (`low_modes`, `bootstrap_round`,
-  `TwoGrid`, `coarse_solve` already are). While there: `PvEoCycle` has its own cycle and
+- **Why.** `PvEoCycle` and the CPU's setup fix the fine fields to `f64`. On the device single
+  precision kept the outer iterations and the correlators; on the CPU it would double the SIMD
+  width and halve the memory traffic.
+- **How.** Make `mdwf_even_odd.rs` generic over the fine storage (`low_modes`,
+  `bootstrap_rounds`, `lifted_vectors`, `TwoGrid`, `coarse_solve` already are, and serve both
+  backends since 2026-10-25). While there: `PvEoCycle` has its own cycle and
   `coarse_correction`, the device uses the generic `TwoGrid` and `DeviceCorrection`; one
   implementation needs the coarse operator behind a trait (`schur`, `schur_source`,
   `schur_solution`, `even_block_inverse`, `apply`, `gamma5`, which `CoarseOp` and
-  `DeviceCoarseOp` both have).
+  `DeviceCoarseOp` both have). It is the last part of the domain-wall setup and cycle still
+  written twice.
 
 Not worth doing on the CPU: the prolongation in half precision; reading it once for several
 vectors (the CPU already loops over the vectors inside a site).

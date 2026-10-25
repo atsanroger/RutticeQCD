@@ -3,10 +3,9 @@
 
 use super::halo::{Faces, Halos};
 use super::*;
-use crate::fermion::{Dagger, EvenOdd, FermionOp, SplitParity, Variant};
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
 use crate::solver::preconditioner::multigrid::{
-    Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
+    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
@@ -495,20 +494,6 @@ pub struct DeviceBasis {
     gamma: [i32; 9],
 }
 
-/// Every vector of `v` scaled to |v_j|² = the number of sites, as `BasisBuilder::add` does on
-/// the CPU: P does not change, and its parts stay far from the smallest numbers of half
-/// precision.
-fn to_unit_sites<T: DeviceReal>(v: &mut DeviceSpinor<T>) {
-    let mut norms = vec![0.0; v.vectors];
-    v.norm_sqr(&mut norms);
-    let sites = v.lat.num_global_sites() as f64;
-    let scales: Vec<f64> = norms
-        .iter()
-        .map(|n| if *n > 0.0 { (sites / n).sqrt() } else { 1.0 })
-        .collect();
-    v.scale(&scales);
-}
-
 impl DeviceBasis {
     /// The P of the CPU's domain-wall multigrid, kept as it is there.
     pub fn from_pv_eo<T: Storage>(
@@ -763,39 +748,12 @@ impl DeviceBasis {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
         let mut basis = Self::empty(agg, ls, 2 * n, half)?;
-        let (even, odd) = (Parity::Even, Parity::Odd);
-        let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
-        let mut full_work = FermionOp::work(op);
+        let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
+        let sites = Some(lat.num_global_sites() as f64);
         // Two vectors at a time: the fields on the whole lattice are large.
-        let all: Vec<usize> = (0..n).collect();
-        for chunk in all.chunks(2) {
-            let nv = chunk.len();
-            let yj = y.select(chunk);
-            let mut x_e = yj.zeros_like();
-            let mut t = DeviceSpinor::zeros_half(lat, ls, odd)?.zeros_with(nv);
-            let mut x_o = t.zeros_like();
-            let mut s = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(nv);
-            let minus = vec![-1.0; nv];
-            op.diag_inv(&mut work, &mut x_e, &yj, even, Dagger::No);
-            op.hop(&mut work, &mut t, &x_e, odd, Dagger::No);
-            op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
-            x_o.scale(&minus);
-            DeviceParities.insert(&mut s, &x_e);
-            DeviceParities.insert(&mut s, &x_o);
-            to_unit_sites(&mut s);
-            basis.add(chunk[0], &s);
-            let mut ds = s.zeros_like();
-            op.mult(&mut full_work, &mut ds, &s, Variant::D);
-            // a = π D s
-            DeviceParities.extract(&mut x_e, &ds, even);
-            pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
-            pv.diag_inv(&mut work_pv, &mut x_o, &t, odd, Dagger::Yes);
-            x_o.scale(&minus);
-            DeviceParities.insert(&mut s, &x_e);
-            DeviceParities.insert(&mut s, &x_o);
-            to_unit_sites(&mut s);
-            basis.add(n + chunk[0], &s);
-        }
+        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
+            basis.add(i, s)
+        });
         basis.finish()?;
         trace_checksum("P made on the device", || basis.checksum());
         Ok(basis)
@@ -814,38 +772,12 @@ impl DeviceBasis {
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
         let mut out =
             DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?.on(&self.coarse);
-        let (even, odd) = (Parity::Even, Parity::Odd);
-        let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
-        let mut full_work = FermionOp::work(op);
-        let all: Vec<usize> = (0..n).collect();
-        for chunk in all.chunks(2) {
-            let nv = chunk.len();
-            let yj = y.select(chunk);
-            let mut x_e = yj.zeros_like();
-            let mut t = DeviceSpinor::zeros_half(lat, ls, odd)?.zeros_with(nv);
-            let mut x_o = t.zeros_like();
-            let mut s = DeviceSpinor::zeros_fifth(lat, ls)?.zeros_with(nv);
-            let minus = vec![-1.0; nv];
-            op.diag_inv(&mut work, &mut x_e, &yj, even, Dagger::No);
-            op.hop(&mut work, &mut t, &x_e, odd, Dagger::No);
-            op.diag_inv(&mut work, &mut x_o, &t, odd, Dagger::No);
-            x_o.scale(&minus);
-            DeviceParities.insert(&mut s, &x_e);
-            DeviceParities.insert(&mut s, &x_o);
-            let mut c = self.coarse_field::<T>(nv);
-            self.restrict(&mut c, &s);
-            out.assign(chunk, &c);
-            let mut ds = s.zeros_like();
-            op.mult(&mut full_work, &mut ds, &s, Variant::D);
-            DeviceParities.extract(&mut x_e, &ds, even);
-            pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
-            pv.diag_inv(&mut work_pv, &mut x_o, &t, odd, Dagger::Yes);
-            x_o.scale(&minus);
-            DeviceParities.insert(&mut s, &x_e);
-            DeviceParities.insert(&mut s, &x_o);
-            self.restrict(&mut c, &s);
-            out.assign(&chunk.iter().map(|j| n + j).collect::<Vec<_>>(), &c);
-        }
+        let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
+        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, None, |i, s| {
+            let mut c = self.coarse_field::<T>(s.vectors);
+            self.restrict(&mut c, s);
+            out.assign(&(i..i + s.vectors).collect::<Vec<_>>(), &c);
+        });
         Ok(out)
     }
 

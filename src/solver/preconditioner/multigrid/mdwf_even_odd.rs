@@ -41,15 +41,14 @@ use super::{
     SignedMultilevel,
 };
 use crate::fermion::{
-    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfLayout, PvEvenOdd, Variant,
+    Dagger, EoForm, EvenOdd, FermionOp, HopTerms, Mdwf, MdwfLayout, PvEvenOdd, SplitParity, Variant,
 };
 use crate::kernel::{Dirac, GammaRepre, LaneOf, Number, Real};
 use crate::numerics::hermitian_eigen;
 use crate::solver::{largest_magnitude, BiCgStab, Chebyshev, Minres, Solver, Stop};
 use crate::{
-    extract_parity, insert_parity, Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex, Field, Half,
-    Lattice, Lexical, LinearFn, LinearOp, Parity, ParityBlocks, Spinor, Storage, Subspace, TestRng,
-    Vector, C64, F16,
+    Aos, Aosoa, Coarse, ConvertFrom, EvenOddIndex, Field, Half, Lattice, Lexical, LinearFn,
+    LinearOp, Parity, ParityBlocks, Spinor, Storage, Subspace, TestRng, Vector, C64, F16,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -142,59 +141,80 @@ impl<F: Storage> PvEoBasis<F> {
     }
 }
 
-/// The full-lattice vectors s_j and t̂_j of the vectors y_j on the even sites (see the top
-/// of the file), one j at a time: `visit(i, v)` gets s_j as i = j and t̂_j as i = n + j.
-/// At most a few full-lattice fields are alive at a time.
-fn lifted_vectors<F: Storage, G: GammaRepre>(
-    op: &Mdwf<F, G>,
-    pv: &Mdwf<F, G>,
-    lat: &Arc<crate::Lattice>,
-    y: &HalfField<Aos, F>,
-    mut visit: impl FnMut(usize, &Field<F, Spinor>),
-) {
-    let index = op
-        .even_odd_index()
-        .expect("an even-odd decomposition")
-        .clone();
+/// The vectors s_j and t̂_j on the whole lattice of the vectors y_j on the even sites (see the
+/// top of the file), on every backend: `chunk` of the j at a time, `visit(j, s)` getting the s
+/// of y_j .. y_(j+k−1) and `visit(n + j, t̂)` their t̂, in fields like `whole`. With
+/// `unit_sites`, s is scaled to |s|² = `unit_sites` before t̂ is made of it, as P keeps its
+/// vectors (`BasisBuilder::add`): P is the same, and its parts stay far from the smallest
+/// numbers of half precision.
+pub(crate) fn lifted_vectors<O, V, H, S>(
+    (op, pv): (&O, &O),
+    split: &S,
+    whole: &V,
+    y: &H,
+    chunk: usize,
+    unit_sites: Option<f64>,
+    mut visit: impl FnMut(usize, &V),
+) where
+    O: EvenOdd<H> + FermionOp<V>,
+    V: Vector,
+    H: Vector,
+    S: SplitParity<V, H>,
+{
     let n = y.num_vectors();
-    let ls = op.params().ls;
-    let full = || Field::<F, Spinor>::with_shape(lat, 24, ls, 1, 1);
-    let half = |parity: Parity| {
-        let mut h = HalfField::<Aos, F>::with_shape(lat, 24, ls, 1, 1);
-        h.set_parity(parity);
-        h
-    };
     let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
     let mut full_work = op.work();
-    for j in 0..n {
-        let yj = y.select(&[j]);
+    let all: Vec<usize> = (0..n).collect();
+    for which in all.chunks(chunk.max(1)) {
+        let nv = which.len();
+        let minus = vec![-1.0; nv];
+        let yj = y.select(which);
+        let mut s = whole.zeros_with(nv);
+        let mut x_e = split.half_like(&s, Parity::Even);
+        let mut t = split.half_like(&s, Parity::Odd);
+        let mut x_o = t.zeros_like();
         // s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
-        let mut x_e = half(Parity::Even);
         op.diag_inv(&mut work, &mut x_e, &yj, Parity::Even, Dagger::No);
-        let mut t = half(Parity::Odd);
         op.hop(&mut work, &mut t, &x_e, Parity::Odd, Dagger::No);
-        let mut x_o = half(Parity::Odd);
         op.diag_inv(&mut work, &mut x_o, &t, Parity::Odd, Dagger::No);
-        x_o.scale(&[-1.0]);
-        let mut s = full();
-        insert_parity(&mut s, &x_e, &index);
-        insert_parity(&mut s, &x_o, &index);
-        // t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s)
-        let mut ds = full();
+        x_o.scale(&minus);
+        split.insert(&mut s, &x_e);
+        split.insert(&mut s, &x_o);
+        if let Some(sites) = unit_sites {
+            to_unit_sites(&mut s, sites);
+        }
+        visit(which[0], &s);
+        // t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s), in the fields of s
+        let mut ds = s.zeros_like();
         op.mult(&mut full_work, &mut ds, &s, Variant::D);
-        visit(j, &s);
-        drop(s);
-        let mut a = half(Parity::Even);
-        extract_parity(&mut a, &ds, &index, Parity::Even);
+        split.extract(&mut x_e, &ds, Parity::Even);
         drop(ds);
-        pv.hop(&mut work_pv, &mut t, &a, Parity::Odd, Dagger::Yes);
+        pv.hop(&mut work_pv, &mut t, &x_e, Parity::Odd, Dagger::Yes);
         pv.diag_inv(&mut work_pv, &mut x_o, &t, Parity::Odd, Dagger::Yes);
-        x_o.scale(&[-1.0]);
-        let mut t_hat = full();
-        insert_parity(&mut t_hat, &a, &index);
-        insert_parity(&mut t_hat, &x_o, &index);
-        visit(n + j, &t_hat);
+        x_o.scale(&minus);
+        split.insert(&mut s, &x_e);
+        split.insert(&mut s, &x_o);
+        if let Some(sites) = unit_sites {
+            to_unit_sites(&mut s, sites);
+        }
+        visit(n + which[0], &s);
     }
+}
+
+/// The numbering of the sites of each parity of `op`.
+fn index_of<F: Storage, G: GammaRepre>(op: &Mdwf<F, G>) -> &Arc<EvenOddIndex> {
+    op.even_odd_index().expect("an even-odd decomposition")
+}
+
+/// Every vector of `v` scaled to |v_j|² = `sites`.
+fn to_unit_sites<V: Vector>(v: &mut V, sites: f64) {
+    let mut norms = vec![0.0; v.num_vectors()];
+    v.norm_sqr(&mut norms);
+    let scales: Vec<f64> = norms
+        .iter()
+        .map(|n| if *n > 0.0 { (sites / n).sqrt() } else { 1.0 })
+        .collect();
+    v.scale(&scales);
 }
 
 /// The prolongation from vectors `y` on the even sites (see the top of the file): 2 n
@@ -226,8 +246,10 @@ pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
         let mut builder =
             BasisBuilder::<F, S>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
         let mut work = op.work();
-        let mut g5 = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
-        lifted_vectors(op, pv, &lat, y, |i, v| {
+        let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
+        let mut g5 = whole.zeros_like();
+        let sites = Some(lat.num_global_sites() as f64);
+        lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, sites, |i, v| {
             op.mult_gamma5(&mut work, &mut g5, v);
             builder.add(i, v, &g5);
         });
@@ -249,7 +271,8 @@ pub fn pv_eo_coarse_vectors<F: Storage, G: GammaRepre>(
 ) -> Vec<CoarseField> {
     let lat = basis.aggregation().fine_lattice().clone();
     let mut restricted: Vec<Option<CoarseField>> = (0..2 * y.num_vectors()).map(|_| None).collect();
-    lifted_vectors(op, pv, &lat, y, |i, v| {
+    let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
+    lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, None, |i, v| {
         let mut c = basis.coarse_field(1);
         basis.restrict(&mut c, v);
         let mut d = coarse_field::<f64, F>(basis, 1);
@@ -1179,8 +1202,8 @@ impl Default for BootstrapParams {
 
 /// A test vector improved by the multigrid built on the test vectors, `cycle`: `steps` steps of
 /// FGMRES on A x = y_j from x = 0, preconditioned by the cycle.
-pub fn bootstrap_vector<V: Vector, A: LinearFn<V>>(
-    a: &mut A,
+pub fn bootstrap_vector<V: Vector>(
+    a: &mut dyn LinearFn<V>,
     cycle: &mut dyn LinearFn<V>,
     yj: &V,
     steps: usize,
@@ -1195,23 +1218,90 @@ pub fn bootstrap_vector<V: Vector, A: LinearFn<V>>(
     x
 }
 
-/// One round of the improvement of the test vectors y by the multigrid built on them, `cycle`:
-/// every y_j by `bootstrap_vector`, one at a time, and y orthonormalised.
-pub fn bootstrap_round<V: Subspace, A: LinearFn<V>>(
-    a: &mut A,
-    cycle: &mut dyn LinearFn<V>,
-    y: &mut V,
-    steps: usize,
-) {
-    for j in 0..y.num_vectors() {
-        let x = bootstrap_vector(a, &mut *cycle, &y.select(&[j]), steps);
-        y.assign(&[j], &x);
+/// The levels below the coarse lattice of a cycle: the super-blocks of each level, how each is
+/// bootstrapped, and whether the solves of the Pauli-Villars factor have them too.
+pub type LevelLists<'l> = (&'l [usize], &'l [LevelBootstrap], bool);
+
+/// Where the test vectors wait while a round of the bootstrap improves them one at a time: on
+/// the CPU where they are (`InPlace`), on the device on the host (`DeviceSpinor::stash`), so that
+/// the device holds only the vector worked on besides the cycle.
+pub(crate) trait Waiting<H, E>: Sized {
+    fn wait(y: H) -> Result<Self, E>;
+    fn num_vectors(&self) -> usize;
+    fn vector(&self, j: usize) -> Result<H, E>;
+    fn set_vector(&mut self, j: usize, x: &H) -> Result<(), E>;
+    /// All the vectors as one set again.
+    fn back(self) -> Result<H, E>;
+}
+
+/// Test vectors waiting where they are.
+pub(crate) struct InPlace<H>(H);
+
+impl<H: Vector, E> Waiting<H, E> for InPlace<H> {
+    fn wait(y: H) -> Result<Self, E> {
+        Ok(Self(y))
     }
-    orthonormalise_all(y);
+    fn num_vectors(&self) -> usize {
+        self.0.num_vectors()
+    }
+    fn vector(&self, j: usize) -> Result<H, E> {
+        Ok(self.0.select(&[j]))
+    }
+    fn set_vector(&mut self, j: usize, x: &H) -> Result<(), E> {
+        self.0.assign(&[j], x);
+        Ok(())
+    }
+    fn back(self) -> Result<H, E> {
+        Ok(self.0)
+    }
+}
+
+/// What a round of the bootstrap does with Ã and the cycle of the current vectors, given the
+/// vectors: `bootstrap_vector` for each, the vectors waiting in `W` meanwhile.
+pub(crate) type RoundWork<'r, H, W, E> =
+    dyn FnMut(&mut dyn LinearFn<H>, &mut dyn LinearFn<H>, H) -> Result<W, E> + 'r;
+
+/// How a backend makes the cycle of a round of the bootstrap: `with_cycle(y, levels, work)`
+/// makes P and the coarse correction of the vectors y (with the levels below the coarse lattice
+/// of its settings when `levels`) and the smoother, hands them with Ã and y to `work`, and gives
+/// the vectors back once its cycle is gone.
+pub(crate) type WithCycle<'w, H, W, E> =
+    dyn FnMut(H, bool, &mut RoundWork<'_, H, W, E>) -> Result<H, E> + 'w;
+
+/// The bootstrap, the same on every backend: `params.rounds` rounds, each improving every test
+/// vector with the cycle made of the vectors of the round before (`with_cycle`), then the
+/// vectors orthonormalised. `on_vector(round, j, x)` and `on_round(round, y)` report.
+///
+/// The cycles have the levels below the coarse lattice from the second round on. In the first,
+/// on the filtered vectors, the coarse solves were as fast without them (24⁴, m 0.001, on the
+/// device: 19.8 s with, 19.7 s without, and 7 s to make them); in the second they took 26 s
+/// against 45 s.
+pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
+    mut y: H,
+    params: BootstrapParams,
+    with_cycle: &mut WithCycle<'_, H, W, E>,
+    on_vector: &mut dyn FnMut(usize, usize, &H),
+    on_round: &mut dyn FnMut(usize, &H),
+) -> Result<H, E> {
+    for round in 0..params.rounds {
+        let mut work = |a: &mut dyn LinearFn<H>, cycle: &mut dyn LinearFn<H>, vectors: H| {
+            let mut waiting = W::wait(vectors)?;
+            for j in 0..waiting.num_vectors() {
+                let x = bootstrap_vector(&mut *a, &mut *cycle, &waiting.vector(j)?, params.steps);
+                on_vector(round, j, &x);
+                waiting.set_vector(j, &x)?;
+            }
+            Ok(waiting)
+        };
+        y = with_cycle(y, round > 0, &mut work)?;
+        orthonormalise_all(&mut y);
+        on_round(round, &y);
+    }
+    Ok(y)
 }
 
 /// Improve the test vectors y with the multigrid built on them: every round, the basis and the
-/// cycle (right form) from the current y, then `bootstrap_round`.
+/// cycle (right form) from the current y, then every vector by `bootstrap_vector`.
 pub fn pv_eo_bootstrap<F: Storage, G: GammaRepre>(
     op: &Mdwf<F, G>,
     pv: &Mdwf<F, G>,
@@ -1219,10 +1309,19 @@ pub fn pv_eo_bootstrap<F: Storage, G: GammaRepre>(
     y: &mut HalfField<Aos, F>,
     params: BootstrapParams,
 ) -> Result<PvEoBasis<F>, MultigridError> {
-    pv_eo_bootstrap_stored(op, pv, agg, y, params, BasisStorage::Half)
+    pv_eo_bootstrap_stored(
+        op,
+        pv,
+        agg,
+        y,
+        params,
+        BasisStorage::Half,
+        (&[], &[], false),
+    )
 }
 
-/// `pv_eo_bootstrap` with P kept as `storage` says, in its rounds too.
+/// `pv_eo_bootstrap` with P kept as `storage` says, in its rounds too, and the cycles of the
+/// rounds after the first with the levels below the coarse lattice `levels`.
 pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
     op: &Mdwf<F, G>,
     pv: &Mdwf<F, G>,
@@ -1230,13 +1329,34 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
     y: &mut HalfField<Aos, F>,
     params: BootstrapParams,
     storage: BasisStorage,
+    (super_blocks, refine, for_pv): LevelLists<'_>,
 ) -> Result<PvEoBasis<F>, MultigridError> {
     let like = y.select(&[0]);
-    for _ in 0..params.rounds {
-        let basis = pv_eo_basis_stored(op, pv, agg, y, storage)?;
-        let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
-        let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
-        bootstrap_round(&mut a, &mut cycle, y, params.steps);
-    }
+    // The vectors go through the rounds by value; one vector stands in for them meanwhile.
+    let taken = std::mem::replace(y, like.zeros_like());
+    *y = bootstrap_rounds::<_, InPlace<_>, _>(
+        taken,
+        params,
+        &mut |y, with_levels, work| {
+            let basis = pv_eo_basis_stored(op, pv, agg, &y, storage)?;
+            let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
+            if with_levels && !super_blocks.is_empty() {
+                let v = pv_eo_coarse_vectors(op, pv, &basis, &y);
+                cycle.add_levels_with(&v, super_blocks, refine)?;
+                if for_pv {
+                    if params.cycle.pv_solver != CoarseKrylov::Minres {
+                        return Err(MultigridError::Backend("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into()));
+                    }
+                    cycle.add_pv_levels(&v, super_blocks)?;
+                }
+            }
+            let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
+            let waiting = work(&mut a, &mut cycle, y)?;
+            drop(cycle);
+            waiting.back()
+        },
+        &mut |_, _, _| {},
+        &mut |_, _| {},
+    )?;
     pv_eo_basis_stored(op, pv, agg, y, storage)
 }

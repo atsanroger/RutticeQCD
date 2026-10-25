@@ -109,15 +109,13 @@ fn vectors_in<T: DeviceReal>(
         Some(k) if due => k.restore()?,
         Some(k) => return Ok(k.restore()?),
     };
-    let (super_blocks, refine) = settings.level_lists();
-    let for_pv = settings.levels.for_pauli_villars;
     let mut with = device_correction_with_levels(
         ops,
         agg,
         settings.bootstrap.cycle,
         even,
         !settings.basis_single,
-        (super_blocks, refine, for_pv),
+        settings.levels(),
     );
     bootstrap(
         ops,

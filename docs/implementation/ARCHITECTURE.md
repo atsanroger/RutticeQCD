@@ -67,9 +67,12 @@ The CPU and the device do the same things because each algorithm is written once
 traits, and a backend supplies only the parts that touch its memory. The table is in
 [DEVELOPMENT.md](../DEVELOPMENT.md) ("One algorithm, two backends"); in short:
 
-- the multigrid setup of domain-wall fermions (test vectors, bootstrap, P, levels, coarse parts)
-  is written once in `MdwfBackend::rebuild`; `OnCpu` and `cuda_bridge::mdwf_backend::OnDevice`
-  supply the fields and kernels;
+- the multigrid setup of domain-wall fermions: its order and settings are `MdwfBackend::rebuild`,
+  which `OnCpu` and `cuda_bridge::mdwf_backend::OnDevice` implement from steps written once —
+  the filter (`low_modes`), the rounds of the bootstrap (`bootstrap_rounds`), the vectors P is
+  made of (`lifted_vectors`), the coarse correction (`Correction`); the backends supply the
+  fields, P, the coarse operators and where the test vectors wait. The cycle of the CPU
+  (`PvEoCycle`) is still its own (TODO, item 8);
 - the multigrid of HMC (cache, rebuilds, retries, Neff's α) is `hmc::dwf_multigrid::with_solves`;
 - the multigrid of Wilson and clover fermions (setup and cycle) is `WilsonMultigrid` over a
   `MultigridBackend`, `WilsonOnCpu` or `cuda_bridge::WilsonOnDevice`; its smoother SAP is `Sap`

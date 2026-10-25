@@ -10,16 +10,18 @@
 
 use super::{
     CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
+    Stashed,
 };
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_vector, low_modes, orthonormalise_all, random_even, Aggregation, BootstrapParams,
-    LevelBootstrap, LowModeParams, PvEoParams, TwoGrid,
+    bootstrap_rounds, low_modes, random_even, Aggregation, BootstrapParams, LevelLists,
+    LowModeParams, PvEoParams, TwoGrid, Waiting,
 };
 use crate::solver::{largest_magnitude, Chebyshev};
 use crate::{
     random_spinor, EvenOddIndex, Field, Lattice, LinearFn, Normal, Parity, Spinor, Vector,
 };
+use std::cell::RefCell;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -34,10 +36,10 @@ pub(crate) type Grown<T> = Result<DeviceSpinor<T>, Box<dyn Error>>;
 pub(crate) type Round<'r, T> =
     dyn FnMut(Correction<'_, T>, Option<f64>, DeviceSpinor<T>) -> Grown<T> + 'r;
 
-/// How `bootstrap` gets the coarse correction of the current vectors: it makes it and hands it
-/// with the vectors to the round.
+/// How `bootstrap` gets the coarse correction of the current vectors: it makes it (with the
+/// levels below the coarse lattice it has when asked) and hands it with the vectors to the round.
 pub(crate) type WithCorrection<'w, T> =
-    dyn FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'w;
+    dyn FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'w;
 
 /// The cycle of the multigrid: the Chebyshev smoother on Ã and a coarse correction.
 pub type DeviceCycle<'a, T> =
@@ -119,33 +121,29 @@ pub fn device_correction<'o, T: DeviceReal>(
     cycle: PvEoParams,
     even: &'o DeviceSpinor<T>,
     half: bool,
-) -> impl FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'o {
+) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
     device_correction_with_levels(ops, agg, cycle, even, half, (&[], &[], false))
 }
 
 /// `device_correction` with the levels below the coarse lattice for its coarse solves
-/// (`DeviceCorrection::add_levels`, `add_pv_levels` with `for_pv`), from P† of the vectors of
-/// each round: super-blocks and refinements as the files give them. At small masses the coarse
-/// solves of the bootstrap are most of its time without them (24⁴, m 0.001: 65 of 101 s).
+/// (`DeviceCorrection::add_levels`, `add_pv_levels` with `for_pv`) in the rounds that ask for
+/// them (`bootstrap_rounds`), from P† of the vectors of the round: super-blocks and refinements
+/// as the files give them. At small masses the coarse solves of the bootstrap are most of its
+/// time without them (24⁴, m 0.001: 65 of 101 s).
 pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
     cycle: PvEoParams,
     even: &'o DeviceSpinor<T>,
     half: bool,
-    (super_blocks, refine, for_pv): (&'o [usize], &'o [LevelBootstrap], bool),
-) -> impl FnMut(DeviceSpinor<T>, &mut Round<'_, T>) -> Grown<T> + 'o {
-    let mut rounds = 0;
-    move |y, round| {
+    (super_blocks, refine, for_pv): LevelLists<'o>,
+) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
+    move |y, with_levels, round| {
         let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half)?;
-        // From the second round on: the coarse solves of the first, on the filtered vectors,
-        // were as fast without them (24⁴, m 0.001: 19.8 s with, 19.7 s without, and 7 s to make
-        // them).
-        let level_vectors = match super_blocks.is_empty() || rounds == 0 {
+        let level_vectors = match super_blocks.is_empty() || !with_levels {
             true => None,
             false => Some(basis.pv_eo_coarse_vectors(d, pv, &y)?),
         };
-        rounds += 1;
         let mut c =
             DeviceCorrection::<T, f32>::new(basis, (d, pv), (d, pv), EoForm::Right, cycle, even)?;
         if let Some(v) = &level_vectors {
@@ -159,11 +157,31 @@ pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     }
 }
 
-/// The bootstrap: `params.rounds` rounds of `params.steps` steps of FGMRES on Ã x = y_j with the
-/// cycle of the vectors of the round before, for every vector, then orthonormalised. Each round
-/// hands the current vectors to `with_correction`, which makes their coarse correction and
-/// passes it on to the round (`Round`) with the vectors; the vectors wait on the host while the
-/// cycle works on one at a time.
+/// The test vectors wait on the host while the cycle of a round of the bootstrap works on one at
+/// a time.
+impl<T: DeviceReal> Waiting<DeviceSpinor<T>, Box<dyn Error>> for Stashed<T> {
+    fn wait(y: DeviceSpinor<T>) -> Result<Self, Box<dyn Error>> {
+        Ok(y.stash()?)
+    }
+    fn num_vectors(&self) -> usize {
+        Stashed::num_vectors(self)
+    }
+    fn vector(&self, j: usize) -> Result<DeviceSpinor<T>, Box<dyn Error>> {
+        Ok(Stashed::vector(self, j)?)
+    }
+    fn set_vector(&mut self, j: usize, x: &DeviceSpinor<T>) -> Result<(), Box<dyn Error>> {
+        Ok(Stashed::set_vector(self, j, x)?)
+    }
+    fn back(self) -> Result<DeviceSpinor<T>, Box<dyn Error>> {
+        Ok(self.restore()?)
+    }
+}
+
+/// The bootstrap (`bootstrap_rounds`): `params.rounds` rounds of `params.steps` steps of FGMRES
+/// on Ã x = y_j with the cycle of the vectors of the round before, for every vector, then
+/// orthonormalised. Each round hands the current vectors to `with_correction`, which makes their
+/// coarse correction and passes it on to the round (`Round`) with the vectors; the vectors wait
+/// on the host while the cycle works on one at a time.
 pub fn bootstrap<T: DeviceReal>(
     (d, pv): (&CudaMdwf<T>, &CudaMdwf<T>),
     (even, odd): (&DeviceSpinor<T>, &DeviceSpinor<T>),
@@ -175,40 +193,41 @@ pub fn bootstrap<T: DeviceReal>(
 ) -> Result<(), Box<dyn Error>> {
     let ratio = || PvRatio::new(d, pv, EoForm::Right, even, odd);
     let cycle = params.cycle;
-    for round in 0..params.rounds {
-        let current = std::mem::replace(y, y.zeros_with(0));
-        let mut run = |correction: Correction<'_, T>, hi: Option<f64>, vectors: DeviceSpinor<T>| {
-            let hi = match hi {
-                Some(hi) => hi,
-                None => top_of(&mut ratio(), lat, even, cycle.seed, cycle.power_steps)?,
-            };
-            report(Stage::Top(hi));
-            let smoother = Chebyshev::new(
-                ratio(),
-                cycle.chebyshev_steps,
-                hi / cycle.chebyshev_ratio,
-                hi,
-                even,
-            );
-            let mut two_grid = TwoGrid::new(smoother, correction, even);
-            let mut a = ratio();
-            let mut stash = vectors.stash()?;
-            for j in 0..stash.num_vectors() {
-                let x = bootstrap_vector(&mut a, &mut two_grid, &stash.vector(j)?, params.steps);
-                report(Stage::Vector {
-                    round,
-                    index: j,
-                    vector: &x,
-                });
-                stash.set_vector(j, &x)?;
-            }
-            drop(two_grid);
-            Ok(stash.restore()?)
-        };
-        *y = with_correction(current, &mut run)?;
-        orthonormalise_all(y);
-        report(Stage::Round { round, vectors: y });
-    }
+    let report = RefCell::new(report);
+    // A set of no vectors stands in for the vectors while they go through the rounds.
+    let taken = std::mem::replace(y, y.zeros_with(0));
+    *y = bootstrap_rounds::<_, Stashed<T>, _>(
+        taken,
+        params,
+        &mut |current, with_levels, work| {
+            with_correction(current, with_levels, &mut |correction, hi, vectors| {
+                let hi = match hi {
+                    Some(hi) => hi,
+                    None => top_of(&mut ratio(), lat, even, cycle.seed, cycle.power_steps)?,
+                };
+                (report.borrow_mut())(Stage::Top(hi));
+                let smoother = Chebyshev::new(
+                    ratio(),
+                    cycle.chebyshev_steps,
+                    hi / cycle.chebyshev_ratio,
+                    hi,
+                    even,
+                );
+                let mut two_grid = TwoGrid::new(smoother, correction, even);
+                let waiting = work(&mut ratio(), &mut two_grid, vectors)?;
+                drop(two_grid);
+                waiting.back()
+            })
+        },
+        &mut |round, index, vector| {
+            (report.borrow_mut())(Stage::Vector {
+                round,
+                index,
+                vector,
+            })
+        },
+        &mut |round, vectors| (report.borrow_mut())(Stage::Round { round, vectors }),
+    )?;
     Ok(())
 }
 
