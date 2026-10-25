@@ -2,162 +2,83 @@
 //!
 //! A propagator from one source point is a spinor field with twelve vectors: vector
 //! `k = colour + 3 * spin` is the solution for a unit source in that spin and colour.
+//! `source` makes the sources, `meson` the meson correlators; this module holds what they
+//! share: the view of a propagator and the sum over time slices with a momentum.
 
-use crate::kernel::{Cplx, Gamma, GammaRepre, Number, Real, Unit, NC, NS, SPINOR_REALS};
+mod meson;
+mod source;
+
+pub use meson::{channel, meson_correlator, pion_correlator, CHANNELS};
+pub use source::{exponential_source, point_source};
+
+use crate::kernel::{Cplx, GammaRepre, Real, NC, NS, SPINOR_REALS};
 use crate::{reduce_sites_dyn, Field, Lattice, Spinor, Storage, C64, ND};
 use std::sync::Arc;
 
 /// Number of source components of a point-to-all propagator.
 pub const NUM_SOURCES: usize = NC * NS;
 
-/// Twelve unit sources at one site: vector `k` has a real 1 in component `k`. `position`
-/// is in global coordinates; the process that holds the site sets it.
-pub fn point_source<T: Storage>(lat: &Arc<Lattice>, position: [usize; ND]) -> Field<T, Spinor> {
-    for mu in 0..ND {
-        assert!(
-            position[mu] < lat.global[mu],
-            "source position outside the lattice"
-        );
-    }
-    let mut b = Field::<T, Spinor>::spinor(lat, NUM_SOURCES);
-    if let Some(site) = lat.local_site(position) {
-        let site = b.site_mut(0, site);
-        for k in 0..NUM_SOURCES {
-            site[k * SPINOR_REALS + 2 * k] = T::store(Number::from_f64(1.0));
-        }
-    }
-    b
+/// A point-to-all propagator: a field of `NUM_SOURCES` vectors, checked when made.
+#[derive(Clone, Copy)]
+pub(crate) struct Propagator<'a, T: Storage> {
+    field: &'a Field<T, Spinor>,
 }
 
-/// Twelve smeared sources on one time slice: vector `k` has the same real profile in
-/// component `k` at every site of the time slice of `position`.
-pub fn exponential_source<T: Storage>(
-    lat: &Arc<Lattice>,
-    position: [usize; ND],
-    slope: f64,
-    power: f64,
-) -> Field<T, Spinor> {
-    for mu in 0..ND {
-        assert!(
-            position[mu] < lat.global[mu],
-            "source position outside the lattice"
+impl<'a, T: Storage> Propagator<'a, T> {
+    pub(crate) fn new(field: &'a Field<T, Spinor>) -> Self {
+        assert_eq!(
+            field.copies(),
+            NUM_SOURCES,
+            "a propagator has {NUM_SOURCES} vectors"
         );
+        Self { field }
     }
-    // The profile is computed on the whole time slice by every process.
-    let l = [lat.global[0], lat.global[1], lat.global[2]];
-    let mut profile = vec![0.0f64; l[0] * l[1] * l[2]];
-    let range = |n: usize| -(n as i64) + 1..n as i64;
-    let wrap = |x0: usize, d: i64, n: usize| (x0 as i64 + d).rem_euclid(n as i64) as usize;
-    for dz in range(l[2]) {
-        for dy in range(l[1]) {
-            for dx in range(l[0]) {
-                let r = ((dx * dx + dy * dy + dz * dz) as f64).sqrt();
-                let x = wrap(position[0], dx, l[0]);
-                let y = wrap(position[1], dy, l[1]);
-                let z = wrap(position[2], dz, l[2]);
-                profile[x + l[0] * (y + l[1] * z)] += (-slope * r.powf(power)).exp();
-            }
-        }
+
+    pub(crate) fn lattice(&self) -> &'a Arc<Lattice> {
+        self.field.lattice()
     }
-    let norm = profile.iter().map(|w| w * w).sum::<f64>().sqrt();
 
-    let mut b = Field::<T, Spinor>::spinor(lat, NUM_SOURCES);
-    for site in 0..lat.num_sites() {
-        let [x, y, z, t] = lat.global_coords(site);
-        if t != position[3] {
-            continue;
-        }
-        let w = profile[x + l[0] * (y + l[1] * z)] / norm;
-        let site = b.site_mut(0, site);
-        for k in 0..NUM_SOURCES {
-            site[k * SPINOR_REALS + 2 * k] = T::store(Number::from_f64(w));
-        }
+    pub(crate) fn num_sites(&self) -> usize {
+        self.field.num_sites()
     }
-    b
-}
 
-/// Names of the meson channels `channel` knows, in the order they are printed: that of
-/// Bridge++, with `A4_A4`, which Bridge++ does not have, after the other axial channels.
-pub const CHANNELS: [&str; 14] = [
-    "PS", "V1", "V2", "V3", "A4_PS", "PS_A4", "A4_A4", "S", "G51", "G52", "G53", "S12", "S23",
-    "S31",
-];
-
-/// The (sink, source) gamma matrices of a named meson channel, to pass to
-/// `meson_correlator`:
-pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
-    let g = G::GAMMA;
-    let g5 = G::GAMMA5;
-    let both = |m: Gamma| Some((m, m));
-    match name {
-        "PS" => both(g5),
-        "V1" => both(g[0]),
-        "V2" => both(g[1]),
-        "V3" => both(g[2]),
-        "A4_PS" => Some((g[3].mul(&g5), g5)),
-        "PS_A4" => Some((g5, g5.mul(&g[3]))),
-        "A4_A4" => Some((g[3].mul(&g5), g5.mul(&g[3]))),
-        "S" => both(Gamma::IDENTITY),
-        "G51" => both(g5.mul(&g[0])),
-        "G52" => both(g5.mul(&g[1])),
-        "G53" => both(g5.mul(&g[2])),
-        "S12" => both(g[1].mul(&g[0]).scaled(Unit::I)),
-        "S23" => both(g[2].mul(&g[1]).scaled(Unit::I)),
-        "S31" => both(g[0].mul(&g[2]).scaled(Unit::I)),
-        _ => None,
+    /// The twelve vectors at one site, to read with `element`.
+    pub(crate) fn site(&self, site: usize) -> &'a [T] {
+        self.field.site(0, site)
     }
 }
 
 /// Element of the propagator at one site: sink (spin `a`, colour `i`), source vector `k`.
 #[inline(always)]
-fn element<T: Storage>(site: &[T], a: usize, i: usize, k: usize) -> C64 {
+pub(crate) fn element<T: Storage>(site: &[T], a: usize, i: usize, k: usize) -> C64 {
     let at = k * SPINOR_REALS + 2 * (i + NC * a);
     Cplx::new(site[at].load().to_f64(), site[at + 1].load().to_f64())
 }
 
-fn check_propagator<T: Storage>(prop: &Field<T, Spinor>) {
-    assert_eq!(
-        prop.copies(),
-        NUM_SOURCES,
-        "a propagator has {NUM_SOURCES} vectors"
-    );
-}
-
-/// Zero-momentum meson two-point function, one value per time slice of the global lattice:
-pub fn meson_correlator<T: Storage>(
-    prop1: &Field<T, Spinor>,
-    prop2: &Field<T, Spinor>,
-    sink: &Gamma,
-    source: &Gamma,
-    gamma5: &Gamma,
+/// Σ over each time slice of the global lattice of e^{+i p·(x − x0)} f(site), p = 2π n / L,
+/// summed over all processes: the phase of Bridge++'s `contract_at_t`. For n = 0 the values
+/// of f are added unchanged.
+pub(crate) fn slice_sum(
+    lat: &Lattice,
+    n: [i64; 3],
+    origin: [usize; ND],
+    f: impl Fn(usize) -> C64 + Sync,
 ) -> Vec<C64> {
-    check_propagator(prop1);
-    check_propagator(prop2);
-    assert_eq!(prop1.num_sites(), prop2.num_sites());
-    let lat = prop1.lattice();
     let nt = lat.global[3];
-    let (a_mat, b_mat) = (gamma5.mul(sink), source.mul(gamma5));
-
-    let mut sums = reduce_sites_dyn(prop1.num_sites(), 2 * nt, |site, acc| {
-        let t = lat.global_coords(site)[3];
-        let (s1, s2) = (prop1.site(0, site), prop2.site(0, site));
-        let mut c = Cplx::ZERO;
-        // (A S)_{(a,i),k} = A.val[a] S_{(A.col[a], i), k}
-        // (X B)_{r,(b,j)} = X_{r,(b',j)} B.val[b']  with  b = B.col[b']
-        for a in 0..NS {
-            for bp in 0..NS {
-                let coefficient = a_mat.val[a].mul(b_mat.val[bp]);
-                for i in 0..NC {
-                    for j in 0..NC {
-                        let lhs = element(s1, a_mat.col[a], i, j + NC * bp);
-                        let rhs = element(s2, a, i, j + NC * b_mat.col[bp]);
-                        c += coefficient.times(lhs * rhs.conj());
-                    }
-                }
-            }
+    let unit: [f64; 3] =
+        std::array::from_fn(|mu| 2.0 * std::f64::consts::PI * n[mu] as f64 / lat.global[mu] as f64);
+    let moving = n != [0; 3];
+    let mut sums = reduce_sites_dyn(lat.num_sites(), 2 * nt, |site, acc| {
+        let x = lat.global_coords(site);
+        let mut c = f(site);
+        if moving {
+            let angle: f64 = (0..3)
+                .map(|mu| unit[mu] * (x[mu] as f64 - origin[mu] as f64))
+                .sum();
+            c = c * Cplx::new(angle.cos(), angle.sin());
         }
-        acc[2 * t] += c.re;
-        acc[2 * t + 1] += c.im;
+        acc[2 * x[3]] += c.re;
+        acc[2 * x[3] + 1] += c.im;
     });
     lat.comm.sum(&mut sums);
     sums.as_chunks::<2>()
@@ -165,22 +86,6 @@ pub fn meson_correlator<T: Storage>(
         .iter()
         .map(|z| Cplx::new(z[0], z[1]))
         .collect()
-}
-
-/// The pseudoscalar (pion) correlator: the sum of |S|^2 over each time slice. Equal to
-/// `meson_correlator` with γ5 at source and sink, without the spin algebra.
-pub fn pion_correlator<T: Storage>(prop: &Field<T, Spinor>) -> Vec<f64> {
-    check_propagator(prop);
-    let lat = prop.lattice();
-    let mut sums = reduce_sites_dyn(prop.num_sites(), lat.global[3], |site, acc| {
-        let t = lat.global_coords(site)[3];
-        for x in prop.site(0, site) {
-            let x = x.load().to_f64();
-            acc[t] += x * x;
-        }
-    });
-    lat.comm.sum(&mut sums);
-    sums
 }
 
 /// ⟨ψ|γ5 ψ⟩ / ⟨ψ|ψ⟩ for a field of `ls` spinors per site (summed over all processes): with
