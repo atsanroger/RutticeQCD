@@ -14,7 +14,9 @@ use ruttice::fermion::{
 use ruttice::gauge::{fix_coulomb, plaquette, CoulombParams};
 use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, GammaRepre};
-use ruttice::measure::{channel, exponential_source, meson_correlator, point_source};
+use ruttice::measure::{
+    channel, exponential_source, meson_correlator, meson_correlator_with_momentum, point_source,
+};
 use ruttice::solver::{solve_cgne, Cg, Stop};
 use ruttice::{
     fill, norm_sqr, Boundary, Field, Gauge, Lattice, Spinor, Stencil, Storage, Vector, C64, ND,
@@ -156,6 +158,65 @@ fn clover_two_flavours_exponential_source() {
         &[&s1, &s2],
     );
     assert_eq!(n, 3 * 13 * 8);
+}
+
+/// Meson correlators with momentum, Bridge++'s `meson_momentum_all`: PS, V1, V2, V3 at ten
+/// momenta for the pairs (1,1), (2,2) and (1,2) of `clover_two_flavours_exponential_source`.
+#[test]
+fn clover_mesons_with_momentum() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let Some(u) = gauge(&lat) else { return };
+    let (s1, s2) = clover_two_flavours(&lat, &u);
+    let props = [&s1, &s2];
+    let table = include_str!("data/bridge_momentum_clover.txt");
+    let rows: Vec<Vec<&str>> = table
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| l.split_whitespace().collect())
+        .collect();
+    let scale = rows.iter().fold(0.0f64, |m, f| {
+        m.max(
+            C64::new(f[4].parse().unwrap(), f[5].parse().unwrap())
+                .norm_sqr()
+                .sqrt(),
+        )
+    });
+    // The table carries 13 significant digits.
+    let tolerance = 2e-12 * scale;
+    let mut worst = 0.0f64;
+    let mut cache: Option<(String, Vec<C64>)> = None;
+    for f in &rows {
+        let key = format!("{} {} {}", f[0], f[1], f[2]);
+        if !cache.as_ref().is_some_and(|(k, _)| *k == key) {
+            let flavour = |i: usize| props[f[0].as_bytes()[i] as usize - b'1' as usize];
+            let n: [i64; 3] = std::array::from_fn(|mu| i64::from(f[2].as_bytes()[mu] - b'0'));
+            let (sink, source) = channel::<Dirac>(f[1]).expect("known channel");
+            let c = meson_correlator_with_momentum(
+                flavour(0),
+                flavour(1),
+                &sink,
+                &source,
+                &Dirac::GAMMA5,
+                n,
+                [0; ND],
+            );
+            cache = Some((key.clone(), c));
+        }
+        let t: usize = f[3].parse().unwrap();
+        let ours = cache.as_ref().unwrap().1[t];
+        let reference = C64::new(f[4].parse().unwrap(), f[5].parse().unwrap());
+        let diff = (ours - reference).norm_sqr().sqrt();
+        worst = worst.max(diff);
+        assert!(
+            diff <= tolerance,
+            "{key} t = {t}: ours {ours:?}, reference {reference:?}"
+        );
+    }
+    eprintln!(
+        "{} values compared, largest difference {worst:.2e} (tolerance {tolerance:.2e})",
+        rows.len()
+    );
+    assert_eq!(rows.len(), 3 * 4 * 10 * 8);
 }
 
 /// Two clover propagators from exponential sources, for the flavours of the Bridge++ test

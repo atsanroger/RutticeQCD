@@ -8,7 +8,9 @@
 mod meson;
 mod source;
 
-pub use meson::{channel, meson_correlator, pion_correlator, CHANNELS};
+pub use meson::{
+    channel, meson_correlator, meson_correlator_with_momentum, pion_correlator, CHANNELS,
+};
 pub use source::{exponential_source, point_source};
 
 use crate::kernel::{Cplx, GammaRepre, Real, NC, NS, SPINOR_REALS};

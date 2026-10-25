@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
+  e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against
+  Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavour pairs of clover propagators:
+  960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). Not in the
+  parameter files yet. The `measure` module is split into `source` and `meson`, its correlators
+  unchanged to the last bit.
+
 ## 0.8.0 (2026-10-25)
 
 The device does every fermion on one GPU or several, now with the Wilson and clover multigrid.

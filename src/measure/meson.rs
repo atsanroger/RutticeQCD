@@ -44,10 +44,25 @@ pub fn meson_correlator<T: Storage>(
     source: &Gamma,
     gamma5: &Gamma,
 ) -> Vec<C64> {
+    meson_correlator_with_momentum(prop1, prop2, sink, source, gamma5, [0; 3], [0; ND])
+}
+
+/// `meson_correlator` with the sink projected on momentum p = 2π n / L: each site weighted by
+/// e^{+i p·(x − x0)}, x0 the source position (Bridge++'s `meson_momentum_correlator`; the
+/// state annihilated at the sink has momentum −p).
+pub fn meson_correlator_with_momentum<T: Storage>(
+    prop1: &Field<T, Spinor>,
+    prop2: &Field<T, Spinor>,
+    sink: &Gamma,
+    source: &Gamma,
+    gamma5: &Gamma,
+    n: [i64; 3],
+    source_position: [usize; ND],
+) -> Vec<C64> {
     let (s1, s2) = (Propagator::new(prop1), Propagator::new(prop2));
     assert_eq!(s1.num_sites(), s2.num_sites());
     let (a_mat, b_mat) = (gamma5.mul(sink), source.mul(gamma5));
-    slice_sum(s1.lattice(), [0; 3], [0; ND], |site| {
+    slice_sum(s1.lattice(), n, source_position, |site| {
         let (s1, s2) = (s1.site(site), s2.site(site));
         let mut c = Cplx::ZERO;
         // (A S)_{(a,i),k} = A.val[a] S_{(A.col[a], i), k}
