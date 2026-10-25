@@ -8,6 +8,10 @@
   960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). Not in the
   parameter files yet. The `measure` module is split into `source` and `meson`, its correlators
   unchanged to the last bit.
+- The proton correlator (`measure::proton_correlator`): ε_abc (u_a^T Cγ5 d_b) u_c with
+  C = γ4γ2 and a projection Γ, as Bridge++'s `proton_correlator`, with an optional momentum.
+  Checked against Bridge++'s numbers (Γ = 1, γ4 and (1 + γ4)/2; u and d of different masses and
+  of one: 48 values, which no Bridge++ test checks).
 
 ## 0.8.0 (2026-10-25)
 

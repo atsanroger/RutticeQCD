@@ -16,6 +16,7 @@ use ruttice::io::read_bridge_text;
 use ruttice::kernel::{Dirac, GammaRepre};
 use ruttice::measure::{
     channel, exponential_source, meson_correlator, meson_correlator_with_momentum, point_source,
+    proton_correlator,
 };
 use ruttice::solver::{solve_cgne, Cg, Stop};
 use ruttice::{
@@ -217,6 +218,61 @@ fn clover_mesons_with_momentum() {
         rows.len()
     );
     assert_eq!(rows.len(), 3 * 4 * 10 * 8);
+}
+
+/// Proton correlators, Bridge++'s `proton_test`: Γ = 1, γ4 and their mean (UPPER), with
+/// u = flavour 1 and d = flavour 2, and with both from flavour 1.
+#[test]
+fn clover_proton() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let Some(u) = gauge(&lat) else { return };
+    let (s1, s2) = clover_two_flavours(&lat, &u);
+    let props = [&s1, &s2];
+    let identity = Dirac::GAMMA[3].mul(&Dirac::GAMMA[3]);
+    let table = include_str!("data/bridge_proton_clover.txt");
+    let rows: Vec<Vec<&str>> = table
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| l.split_whitespace().collect())
+        .collect();
+    let scale = rows.iter().fold(0.0f64, |m, f| {
+        m.max(
+            C64::new(f[3].parse().unwrap(), f[4].parse().unwrap())
+                .norm_sqr()
+                .sqrt(),
+        )
+    });
+    // The table carries 13 significant digits.
+    let tolerance = 2e-12 * scale;
+    let mut worst = 0.0f64;
+    for flavours in ["12", "11"] {
+        let flavour = |i: usize| props[flavours.as_bytes()[i] as usize - b'1' as usize];
+        let proton =
+            |g| proton_correlator::<Dirac, f64>(flavour(0), flavour(1), g, [0; 3], [0; ND]);
+        let (unity, gamma4) = (proton(&identity), proton(&Dirac::GAMMA[3]));
+        for f in rows.iter().filter(|f| f[0] == flavours) {
+            let t: usize = f[2].parse().unwrap();
+            let ours = match f[1] {
+                "UNITY" => unity[t],
+                "GAMMA0" => gamma4[t],
+                "UPPER" => (unity[t] + gamma4[t]).scale(0.5),
+                other => panic!("unknown projection {other}"),
+            };
+            let reference = C64::new(f[3].parse().unwrap(), f[4].parse().unwrap());
+            let diff = (ours - reference).norm_sqr().sqrt();
+            worst = worst.max(diff);
+            assert!(
+                diff <= tolerance,
+                "{flavours} {} t = {t}: ours {ours:?}, reference {reference:?}",
+                f[1]
+            );
+        }
+    }
+    eprintln!(
+        "{} values compared, largest difference {worst:.2e} (tolerance {tolerance:.2e})",
+        rows.len()
+    );
+    assert_eq!(rows.len(), 2 * 3 * 8);
 }
 
 /// Two clover propagators from exponential sources, for the flavours of the Bridge++ test
