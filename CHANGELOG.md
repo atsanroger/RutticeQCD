@@ -5,8 +5,7 @@
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against
   Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavour pairs of clover propagators:
-  960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). Not in the
-  parameter files yet. The `measure` module is split into `source` and `meson`, its correlators
+  960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). The `measure` module is split into `source` and `meson`, its correlators
   unchanged to the last bit.
 - The proton correlator (`measure::proton_correlator`): ε_abc (u_a^T Cγ5 d_b) u_c with
   C = γ4γ2 and a projection Γ, as Bridge++'s `proton_correlator`, with an optional momentum.
@@ -20,8 +19,13 @@
   operators: its charge does not change between source and sink and jumps there by the number of
   quarks times the two-point function (1 for the meson, 2 for u and 1 for d in the proton), to
   1e-15 on a random configuration with u and d of different masses; and by the sequential source
-  through the current with momenta at the sink and the current (to 1e-15). Not in the parameter
-  files yet.
+  through the current with momenta at the sink and the current (to 1e-15).
+- In the parameter files, `Measure` takes `momenta`, `proton` and `three_point` (`t_sink`,
+  `sink`, `current_on`, `currents`, `momenta`); see USAGE and
+  `examples/clover_measurements.yaml`. Through the program the mesons at momenta and the proton
+  give Bridge++'s numbers, and the conserved charge of the three-point functions its Ward
+  identity, for a meson sink with the current on u and a proton sink with it on d. The
+  sequential source is solved by the solver, multigrid and backend of the file.
 
 ## 0.8.0 (2026-10-25)
 

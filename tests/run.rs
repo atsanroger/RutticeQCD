@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 const WILSON_YAML: &str = include_str!("../examples/wilson_pion.yaml");
 const CLOVER_YAML: &str = include_str!("../examples/clover_two_flavours.yaml");
 const CLOVER_MG_YAML: &str = include_str!("../examples/clover_mg.yaml");
+const MEASUREMENTS_YAML: &str = include_str!("../examples/clover_measurements.yaml");
 
 /// A fresh directory under the system temporary directory.
 fn scratch(name: &str) -> PathBuf {
@@ -1359,4 +1360,137 @@ Action_F_1:
         "  action_type : Ratio\n  operator_type : Even_odd\n",
         &[]
     ));
+}
+
+/// The measurements of the `Measure` section through the program
+/// (examples/clover_measurements.yaml) on the Bridge++ test configuration: the mesons at momenta and the proton against
+/// Bridge++'s numbers, and the charge of the conserved current in three-point functions (a
+/// meson sink with the current on u, a proton sink with the current on d).
+#[test]
+fn measurements_of_the_measure_section() {
+    let Some(conf) = bridge_test_file("conf_04040408.txt") else {
+        eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
+        return;
+    };
+    let base = conf.parent().unwrap();
+    let report = run(&config(MEASUREMENTS_YAML), base).unwrap();
+    let find = |report: &ruttice::app::Report, quarks: (usize, usize), name: &str| {
+        report
+            .correlators
+            .iter()
+            .find(|c| c.quarks == quarks && c.channel == name)
+            .unwrap_or_else(|| panic!("no {name} for {quarks:?}"))
+            .values
+            .clone()
+    };
+    let pair = |s: &str| (s[0..1].parse().unwrap(), s[1..2].parse().unwrap());
+    let rows = |table: &str| -> Vec<Vec<String>> {
+        table
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|l| l.split_whitespace().map(String::from).collect())
+            .collect()
+    };
+    let close = |ours: ruttice::C64, re: &str, im: &str, what: &str| {
+        let (re, im): (f64, f64) = (re.parse().unwrap(), im.parse().unwrap());
+        assert!(
+            (ours.re - re).abs() < 4e-11 && (ours.im - im).abs() < 4e-11,
+            "{what}: ours {ours:?}, Bridge++ {re} {im}"
+        );
+    };
+    let mut compared = 0;
+    for f in rows(include_str!("data/bridge_momentum_clover.txt")) {
+        let n = match f[2].as_str() {
+            "100" => "[1,0,0]",
+            "011" => "[0,1,1]",
+            _ => continue,
+        };
+        let t: usize = f[3].parse().unwrap();
+        let ours = find(&report, pair(&f[0]), &format!("{}{n}", f[1]))[t];
+        close(ours, &f[4], &f[5], &f.join(" "));
+        compared += 1;
+    }
+    assert_eq!(compared, 2 * 3 * 4 * 8);
+    for f in rows(include_str!("data/bridge_proton_clover.txt")) {
+        if f[0] != "12" {
+            continue;
+        }
+        let name = match f[1].as_str() {
+            "UNITY" => "proton_unity",
+            "GAMMA0" => "proton_gamma4",
+            _ => "proton_upper",
+        };
+        let t: usize = f[2].parse().unwrap();
+        close(find(&report, (1, 2), name)[t], &f[3], &f[4], &f.join(" "));
+    }
+
+    // The charge on the links 0..3 (between the source at t = 0 and the sink at t = 4) and on
+    // the others is constant; the jump is `quarks` times the two-point function at the sink.
+    let charge = |report: &ruttice::app::Report, quarks: (usize, usize), sink: &str, n: f64| {
+        let q = find(report, quarks, "C3_conserved_V4");
+        let c2 = find(report, quarks, &format!("C2_{sink}"))[4];
+        let size = c2.norm_sqr().sqrt();
+        for t in 0..8 {
+            let expected = if t < 4 { q[0] } else { q[4] };
+            assert!(
+                (q[t] - expected).norm_sqr().sqrt() < 1e-8 * size,
+                "{sink}: link {t}: {q:?}"
+            );
+        }
+        let jump = q[0] - q[4];
+        assert!(
+            (jump - c2.scale(n)).norm_sqr().sqrt() < 1e-8 * size,
+            "{sink}: jump {jump:?}, C2 {c2:?}"
+        );
+    };
+    charge(&report, (1, 2), "PS", 1.0);
+    assert_eq!(report.sequential_solves.len(), 1);
+    let proton = with(
+        &with(
+            MEASUREMENTS_YAML,
+            "sink       : PS",
+            "sink       : proton_upper",
+        ),
+        "current_on : u",
+        "current_on : d",
+    );
+    charge(
+        &run(&config(&proton), base).unwrap(),
+        (1, 2),
+        "proton_upper",
+        1.0,
+    );
+}
+
+/// Mistakes in the `Measure` section are refused before any work.
+#[test]
+fn mistakes_in_the_measure_section_are_refused() {
+    let dir = scratch("measure_mistakes");
+    let three_point = |body: &str| format!("{CLOVER_YAML}Measure:\n  three_point:\n{body}");
+    let ok = "    t_sink : 4\n    sink : PS\n    current_on : u\n    currents : [V4]\n";
+    for (text, expected) in [
+        (
+            three_point(&ok.replace("t_sink : 4", "t_sink : 8")),
+            "between 1 and 7",
+        ),
+        (
+            three_point(&ok.replace("sink : PS", "sink : XX")),
+            "proton_upper",
+        ),
+        (three_point(&ok.replace("[V4]", "[V5]")), "unknown current"),
+        (
+            with(
+                &three_point(ok),
+                "    source_position : [0, 0, 0, 0]\n    slope           : 0.5",
+                "    source_position : [1, 0, 0, 0]\n    slope           : 0.5",
+            ),
+            "at one place",
+        ),
+    ] {
+        let e = run(&config(&text), &dir).unwrap_err().to_string();
+        assert!(e.contains(expected), "{e}");
+    }
+    let typo = format!("{CLOVER_YAML}Measure:\n  protn : true\n");
+    assert!(Params::from_yaml(&typo).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }

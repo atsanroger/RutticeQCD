@@ -40,6 +40,8 @@ pub struct Report {
     /// Sweeps the gauge fixing took, if the parameter file asked for it.
     pub gauge_fixing_sweeps: Option<usize>,
     pub solves: Vec<SolveReport>,
+    /// The solves of the sequential sources of `Measure.three_point`.
+    pub sequential_solves: Vec<SolveReport>,
     pub correlators: Vec<Correlator>,
 }
 
@@ -129,7 +131,89 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
             ));
         }
     }
+    validate_measure(config)?;
     Ok(channels)
+}
+
+/// The names `Measure.three_point.currents` takes besides `conserved_V4`.
+const CURRENTS: [&str; 10] = ["S", "P", "V1", "V2", "V3", "V4", "A1", "A2", "A3", "A4"];
+
+/// The local current of a name of `CURRENTS`: 1, γ5, γ_μ, γ_μ γ5.
+fn current_gamma(name: &str) -> Option<Gamma> {
+    let (g, g5) = (Dirac::GAMMA, Dirac::GAMMA5);
+    let mu = |s: &str| {
+        s.parse::<usize>()
+            .ok()
+            .filter(|m| (1..=4).contains(m))
+            .map(|m| m - 1)
+    };
+    match name {
+        "S" => Some(g[3].mul(&g[3])),
+        "P" => Some(g5),
+        _ if name.starts_with('V') => mu(&name[1..]).map(|m| g[m]),
+        _ if name.starts_with('A') => mu(&name[1..]).map(|m| g[m].mul(&g5)),
+        _ => None,
+    }
+}
+
+/// The quarks the proton and the three-point functions take: u = quark 1, d = quark 2 (quark
+/// 1 when there is one), as indices.
+fn u_and_d(config: &Config) -> (usize, usize) {
+    (0, usize::from(config.quark.len() > 1))
+}
+
+fn source_position(q: &QuarkConfig) -> [usize; ND] {
+    match q.source {
+        SourceConfig::Point { position } | SourceConfig::Exponential { position, .. } => position,
+    }
+}
+
+/// Checks on `Measure.proton` and `Measure.three_point`.
+fn validate_measure(config: &Config) -> Result<(), CliError> {
+    let m = &config.measure;
+    if !(m.proton || m.three_point.is_some()) {
+        return Ok(());
+    }
+    let (u, d) = u_and_d(config);
+    let (pu, pd) = (
+        source_position(&config.quark[u]),
+        source_position(&config.quark[d]),
+    );
+    if pu != pd {
+        return invalid(format!(
+            "Measure: the proton and three_point need the sources of quark 1 and quark 2 at one place, not {pu:?} and {pd:?}"
+        ));
+    }
+    let Some(t) = &m.three_point else {
+        return Ok(());
+    };
+    let nt = config.lattice[3];
+    if t.t_sink == 0 || t.t_sink >= nt {
+        return invalid(format!(
+            "Measure.three_point.t_sink is the distance from the source in time, between 1 and {}, not {}",
+            nt - 1,
+            t.t_sink
+        ));
+    }
+    if t.sink != "proton_upper" && channel::<Dirac>(&t.sink).is_none() {
+        return invalid(format!(
+            "Measure.three_point.sink {:?}: a meson channel ({}) or proton_upper",
+            t.sink,
+            CHANNELS.join(", ")
+        ));
+    }
+    if t.currents.is_empty() || t.momenta.is_empty() {
+        return invalid("Measure.three_point: currents and momenta must not be empty".into());
+    }
+    for c in &t.currents {
+        if c != "conserved_V4" && current_gamma(c).is_none() {
+            return invalid(format!(
+                "Measure.three_point.currents: unknown current {c:?}; known: {}, conserved_V4",
+                CURRENTS.join(", ")
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Checks on the SIMD lanes (`Main.simd_lanes`) that do not need the gauge configuration.
@@ -398,6 +482,142 @@ pub(super) fn worst_residual<X: Vector, F: FermionOp<X>>(op: &F, s: &X, b: &X) -
     rr.iter().zip(&bb).fold(0.0f64, |m, (r, b)| m.max(r / b))
 }
 
+/// The propagator of quark `quark` (1-based; its parameters `q`) from the sources `b`, by the
+/// solver, backend and multigrid of the file, and its worst residual.
+fn solve_one(
+    config: &Config,
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    q: &QuarkConfig,
+    b: &V,
+    quark: usize,
+) -> Result<(f64, V, SolveInfo), CliError> {
+    // The number of sites per block is part of the type of the operator: one call for each
+    // number of SIMD lanes.
+    macro_rules! in_blocks {
+        ($operator:ident, $sites:ident, $params:expr) => {{
+            let make = || {
+                let mut op = $sites::<f64>::new(&lat, $params);
+                op.set_gauge(&u).map(|()| op)
+            };
+            let single = || {
+                let mut op = $sites::<f32>::new(&lat, $params);
+                op.set_gauge(&u).map(|()| op)
+            };
+            match config.solver.simd {
+                2 => solve_quark_simd(
+                    $operator::<f64, 2>::new(&lat, $params),
+                    make,
+                    single,
+                    &u,
+                    &b,
+                    &config.solver,
+                    quark,
+                )?,
+                4 => solve_quark_simd(
+                    $operator::<f64, 4>::new(&lat, $params),
+                    make,
+                    single,
+                    &u,
+                    &b,
+                    &config.solver,
+                    quark,
+                )?,
+                8 => solve_quark_simd(
+                    $operator::<f64, 8>::new(&lat, $params),
+                    make,
+                    single,
+                    &u,
+                    &b,
+                    &config.solver,
+                    quark,
+                )?,
+                lanes => unreachable!("{lanes} SIMD lanes were refused by validate"),
+            }
+        }};
+    }
+    // The two fermion types differ only in the operator that is built; everything after
+    // that is the same generic code.
+    let solved = match q.fermion {
+        #[cfg(feature = "cuda-bridge")]
+        FermionConfig::Wilson { kappa, boundary } if config.solver.cuda_bridge => {
+            let params = WilsonParams {
+                kappa,
+                boundary: boundary.map(Into::into),
+            };
+            wilson_cuda::wilson(lat, params, u, b, &config.solver, quark)?
+        }
+        #[cfg(feature = "cuda-bridge")]
+        FermionConfig::Clover {
+            kappa,
+            csw,
+            boundary,
+        } if config.solver.cuda_bridge => {
+            let params = CloverParams {
+                kappa,
+                csw,
+                boundary: boundary.map(Into::into),
+            };
+            wilson_cuda::clover(lat, params, u, b, &config.solver, quark)?
+        }
+        FermionConfig::Wilson { kappa, boundary } if config.solver.simd > 1 => {
+            let params = WilsonParams {
+                kappa,
+                boundary: boundary.map(Into::into),
+            };
+            in_blocks!(WilsonSimd, Wilson, params)
+        }
+        FermionConfig::Clover {
+            kappa,
+            csw,
+            boundary,
+        } if config.solver.simd > 1 => {
+            let params = CloverParams {
+                kappa,
+                csw,
+                boundary: boundary.map(Into::into),
+            };
+            in_blocks!(CloverSimd, Clover, params)
+        }
+        FermionConfig::Wilson { kappa, boundary } => {
+            let mut op = Wilson::<f64>::new(
+                lat,
+                WilsonParams {
+                    kappa,
+                    boundary: boundary.map(Into::into),
+                },
+            );
+            op.set_gauge(u)
+                .map_err(|e| CliError::Operator { quark, source: e })?;
+            let single = || {
+                let mut op = Wilson::<f32>::new(lat, *op.params());
+                op.set_gauge(u).map(|()| op)
+            };
+            solve_quark(lat, &op, single, b, &config.solver, quark)?
+        }
+        FermionConfig::Clover {
+            kappa,
+            csw,
+            boundary,
+        } => {
+            let params = CloverParams {
+                kappa,
+                csw,
+                boundary: boundary.map(Into::into),
+            };
+            let mut op = Clover::<f64>::new(lat, params);
+            op.set_gauge(u)
+                .map_err(|e| CliError::Operator { quark, source: e })?;
+            let single = || {
+                let mut op = Clover::<f32>::new(lat, params);
+                op.set_gauge(u).map(|()| op)
+            };
+            solve_quark(lat, &op, single, b, &config.solver, quark)?
+        }
+    };
+    Ok(solved)
+}
+
 /// Run what the parameter file describes on one process. Relative paths in it are
 /// resolved against `base`.
 pub fn run(config: &Config, base: &Path) -> Result<Report, CliError> {
@@ -448,129 +668,7 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
         };
         let counted = crate::meter::Counts::now();
         let start = Instant::now();
-        // The number of sites per block is part of the type of the operator: one call for each
-        // number of SIMD lanes.
-        macro_rules! in_blocks {
-            ($operator:ident, $sites:ident, $params:expr) => {{
-                let make = || {
-                    let mut op = $sites::<f64>::new(&lat, $params);
-                    op.set_gauge(&u).map(|()| op)
-                };
-                let single = || {
-                    let mut op = $sites::<f32>::new(&lat, $params);
-                    op.set_gauge(&u).map(|()| op)
-                };
-                match config.solver.simd {
-                    2 => solve_quark_simd(
-                        $operator::<f64, 2>::new(&lat, $params),
-                        make,
-                        single,
-                        &u,
-                        &b,
-                        &config.solver,
-                        quark,
-                    )?,
-                    4 => solve_quark_simd(
-                        $operator::<f64, 4>::new(&lat, $params),
-                        make,
-                        single,
-                        &u,
-                        &b,
-                        &config.solver,
-                        quark,
-                    )?,
-                    8 => solve_quark_simd(
-                        $operator::<f64, 8>::new(&lat, $params),
-                        make,
-                        single,
-                        &u,
-                        &b,
-                        &config.solver,
-                        quark,
-                    )?,
-                    lanes => unreachable!("{lanes} SIMD lanes were refused by validate"),
-                }
-            }};
-        }
-        // The two fermion types differ only in the operator that is built; everything after
-        // that is the same generic code.
-        let solved = match q.fermion {
-            #[cfg(feature = "cuda-bridge")]
-            FermionConfig::Wilson { kappa, boundary } if config.solver.cuda_bridge => {
-                let params = WilsonParams {
-                    kappa,
-                    boundary: boundary.map(Into::into),
-                };
-                wilson_cuda::wilson(&lat, params, &u, &b, &config.solver, quark)?
-            }
-            #[cfg(feature = "cuda-bridge")]
-            FermionConfig::Clover {
-                kappa,
-                csw,
-                boundary,
-            } if config.solver.cuda_bridge => {
-                let params = CloverParams {
-                    kappa,
-                    csw,
-                    boundary: boundary.map(Into::into),
-                };
-                wilson_cuda::clover(&lat, params, &u, &b, &config.solver, quark)?
-            }
-            FermionConfig::Wilson { kappa, boundary } if config.solver.simd > 1 => {
-                let params = WilsonParams {
-                    kappa,
-                    boundary: boundary.map(Into::into),
-                };
-                in_blocks!(WilsonSimd, Wilson, params)
-            }
-            FermionConfig::Clover {
-                kappa,
-                csw,
-                boundary,
-            } if config.solver.simd > 1 => {
-                let params = CloverParams {
-                    kappa,
-                    csw,
-                    boundary: boundary.map(Into::into),
-                };
-                in_blocks!(CloverSimd, Clover, params)
-            }
-            FermionConfig::Wilson { kappa, boundary } => {
-                let mut op = Wilson::<f64>::new(
-                    &lat,
-                    WilsonParams {
-                        kappa,
-                        boundary: boundary.map(Into::into),
-                    },
-                );
-                op.set_gauge(&u)
-                    .map_err(|e| CliError::Operator { quark, source: e })?;
-                let single = || {
-                    let mut op = Wilson::<f32>::new(&lat, *op.params());
-                    op.set_gauge(&u).map(|()| op)
-                };
-                solve_quark(&lat, &op, single, &b, &config.solver, quark)?
-            }
-            FermionConfig::Clover {
-                kappa,
-                csw,
-                boundary,
-            } => {
-                let params = CloverParams {
-                    kappa,
-                    csw,
-                    boundary: boundary.map(Into::into),
-                };
-                let mut op = Clover::<f64>::new(&lat, params);
-                op.set_gauge(&u)
-                    .map_err(|e| CliError::Operator { quark, source: e })?;
-                let single = || {
-                    let mut op = Clover::<f32>::new(&lat, params);
-                    op.set_gauge(&u).map(|()| op)
-                };
-                solve_quark(&lat, &op, single, &b, &config.solver, quark)?
-            }
-        };
+        let solved = solve_one(config, &lat, &u, q, &b, quark)?;
         let (worst_residual_sqr, s, info) = solved;
         solves.push(SolveReport {
             quark,
@@ -597,14 +695,186 @@ pub fn run_on(config: &Config, base: &Path, comm: Arc<dyn Comm>) -> Result<Repor
             }
         }
     }
+    let x0 = source_position(&config.quark[0]);
+    let label = |name: &str, n: [i64; 3]| format!("{name}[{},{},{}]", n[0], n[1], n[2]);
+    for &n in &config.measure.momenta {
+        for i in 0..props.len() {
+            for j in i..props.len() {
+                for name in &channels {
+                    let (sink, source) = channel::<Dirac>(name).expect("checked");
+                    correlators.push(Correlator {
+                        quarks: (i + 1, j + 1),
+                        channel: label(name, n),
+                        values: meson_correlator_with_momentum(
+                            &props[i],
+                            &props[j],
+                            &sink,
+                            &source,
+                            &Dirac::GAMMA5,
+                            n,
+                            x0,
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    let (iu, id) = u_and_d(config);
+    if config.measure.proton {
+        correlators.extend(protons(
+            &props[iu],
+            &props[id],
+            (iu + 1, id + 1),
+            &config.measure.momenta,
+            x0,
+        ));
+    }
+    let mut sequential_solves = Vec::new();
+    if let Some(t) = &config.measure.three_point {
+        let (c, solve) = three_point(config, &lat, &u, &props, t, x0)?;
+        correlators.extend(c);
+        sequential_solves.push(solve);
+    }
     Ok(Report {
         grid,
         plaquette: plaq,
         plaquette_smeared,
         gauge_fixing_sweeps,
         solves,
+        sequential_solves,
         correlators,
     })
+}
+
+/// The proton of u and d at zero momentum and at `momenta`: Γ = 1, γ4 and (1 + γ4)/2.
+fn protons(
+    u: &V,
+    d: &V,
+    quarks: (usize, usize),
+    momenta: &[[i64; 3]],
+    x0: [usize; ND],
+) -> Vec<Correlator> {
+    let identity = Dirac::GAMMA[3].mul(&Dirac::GAMMA[3]);
+    let mut out = Vec::new();
+    for n in std::iter::once([0; 3]).chain(momenta.iter().copied()) {
+        let suffix = if n == [0; 3] {
+            String::new()
+        } else {
+            format!("[{},{},{}]", n[0], n[1], n[2])
+        };
+        let unity = proton_correlator::<Dirac, f64>(u, d, &identity, n, x0);
+        let gamma4 = proton_correlator::<Dirac, f64>(u, d, &Dirac::GAMMA[3], n, x0);
+        let upper = unity
+            .iter()
+            .zip(&gamma4)
+            .map(|(a, b)| (*a + *b).scale(0.5))
+            .collect();
+        for (name, values) in [
+            ("proton_unity", unity),
+            ("proton_gamma4", gamma4),
+            ("proton_upper", upper),
+        ] {
+            out.push(Correlator {
+                quarks,
+                channel: format!("{name}{suffix}"),
+                values,
+            });
+        }
+    }
+    out
+}
+
+/// `Measure.three_point`: the sequential source through the sink, solved like the quark it
+/// is for, and the two-point function of the sink (`C2_<sink>`) and every current at every
+/// momentum (`C3_<current>[n]`, `C3_conserved_V4`), one value for each time slice of the
+/// current.
+fn three_point(
+    config: &Config,
+    lat: &Arc<Lattice>,
+    u: &Field<f64, Gauge>,
+    props: &[V],
+    t: &ThreePointConfig,
+    x0: [usize; ND],
+) -> Result<(Vec<Correlator>, SolveReport), CliError> {
+    let (iu, id) = u_and_d(config);
+    let t_sink = (x0[3] + t.t_sink) % config.lattice[3];
+    // The quark the current is on, and the order of the propagators for the sink.
+    let (line, pair, eta, c2) = if t.sink == "proton_upper" {
+        let identity = Dirac::GAMMA[3].mul(&Dirac::GAMMA[3]);
+        let half = C64::new(0.5, 0.0);
+        let sink = ProtonSink::<Dirac> {
+            projection: vec![(identity, half), (Dirac::GAMMA[3], half)],
+            current: match t.current_on {
+                CurrentOn::U => Flavour::U,
+                CurrentOn::D => Flavour::D,
+            },
+            gammas: std::marker::PhantomData,
+        };
+        let props2 = [&props[iu], &props[id]];
+        let line = if t.current_on == CurrentOn::U { iu } else { id };
+        let eta = sequential_source::<Dirac, _>(&sink, props2, t_sink, [0; 3], x0);
+        (line, (iu, id), eta, sink.two_point(props2, [0; 3], x0))
+    } else {
+        let (sink_gamma, source_gamma) = channel::<Dirac>(&t.sink).expect("checked");
+        let sink = MesonSink::<Dirac> {
+            sink: sink_gamma,
+            source: source_gamma,
+            gammas: std::marker::PhantomData,
+        };
+        // The current is on the line of the first propagator of the meson.
+        let (a, b) = if t.current_on == CurrentOn::U {
+            (iu, id)
+        } else {
+            (id, iu)
+        };
+        let props2 = [&props[a], &props[b]];
+        let eta = sequential_source::<Dirac, _>(&sink, props2, t_sink, [0; 3], x0);
+        (a, (a, b), eta, sink.two_point(props2, [0; 3], x0))
+    };
+    let q = &config.quark[line];
+    let counted = crate::meter::Counts::now();
+    let start = Instant::now();
+    let (worst_residual_sqr, sigma, info) = solve_one(config, lat, u, q, &eta, line + 1)?;
+    let solve = SolveReport {
+        quark: line + 1,
+        iterations: info.iterations,
+        restarts: info.restarts,
+        worst_residual_sqr,
+        seconds: start.elapsed().as_secs_f64(),
+        work: crate::meter::Counts::now().since(&counted),
+        peak_memory_gb: memory_usage().map(|(_, peak)| peak),
+    };
+    let quarks = (pair.0 + 1, pair.1 + 1);
+    let mut out = vec![Correlator {
+        quarks,
+        channel: format!("C2_{}", t.sink),
+        values: c2,
+    }];
+    for name in &t.currents {
+        if name == "conserved_V4" {
+            let (kappa, boundary) = match q.fermion {
+                FermionConfig::Wilson { kappa, boundary }
+                | FermionConfig::Clover {
+                    kappa, boundary, ..
+                } => (kappa, boundary[3].into()),
+            };
+            out.push(Correlator {
+                quarks,
+                channel: "C3_conserved_V4".into(),
+                values: conserved_charge::<Dirac>(&props[line], &sigma, u, kappa, boundary),
+            });
+            continue;
+        }
+        let gamma = current_gamma(name).expect("checked");
+        for &n in &t.momenta {
+            out.push(Correlator {
+                quarks,
+                channel: format!("C3_{name}[{},{},{}]", n[0], n[1], n[2]),
+                values: current_insertion::<Dirac>(&props[line], &sigma, &gamma, n, x0),
+            });
+        }
+    }
+    Ok((out, solve))
 }
 
 /// Write the report: comment lines starting with `#`, then one line per quark pair,
@@ -633,6 +903,30 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
             s.work.line(s.seconds),
             s.peak_memory_gb
                 .map_or(String::new(), |p| format!(", peak memory {p:.2} GB"))
+        )?;
+    }
+    for s in &report.sequential_solves {
+        writeln!(
+            out,
+            "# sequential source of quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s, {}",
+            s.quark,
+            s.iterations,
+            s.restarts,
+            s.worst_residual_sqr,
+            s.seconds,
+            s.work.line(s.seconds),
+        )?;
+    }
+    if let Some(t) = &config.measure.three_point {
+        writeln!(
+            out,
+            "# three-point: sink {} {} time slices after the source, the current on {}; C3 at the time slice of the current (conserved_V4: on the link to the next one)",
+            t.sink,
+            t.t_sink,
+            match t.current_on {
+                CurrentOn::U => "u",
+                CurrentOn::D => "d",
+            }
         )?;
     }
     writeln!(out, "# quarks channel t re im")?;

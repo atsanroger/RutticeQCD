@@ -109,8 +109,8 @@ Wilson and clover HMC (as was done for domain-wall fermions). Next: their multig
 **Measurements (2026-10-25)**: DESIGN §7.10. Meson correlators with momentum and the proton
 correlator, checked against Bridge++'s numbers; connected three-point functions by a sequential
 source through the sink, for mesons and the proton, checked by the conserved vector current
-(exact Ward identity) and by the sequential source through the current. Open: the keys of the
-parameter files (to agree first); the current on the antiquark line of a meson (swap the two
+(exact Ward identity) and by the sequential source through the current; in the parameter files
+as `Measure.momenta`, `proton`, `three_point`. Open: the current on the antiquark line of a meson (swap the two
 propagators of the sink; not tested); three-point functions on several processes (written for
 them, no `LocalComm` test); the conserved current of domain-wall fermions (five-dimensional);
 g_A and other charges against published numbers.

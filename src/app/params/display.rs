@@ -170,6 +170,27 @@ impl fmt::Display for Params {
                     ""
                 }
             )?;
+            let m = &self.measure;
+            if !m.momenta.is_empty() {
+                write!(f, ", also at the momenta n = {:?}", m.momenta)?;
+            }
+            if m.proton {
+                write!(f, "; the proton")?;
+            }
+            if let Some(t) = &m.three_point {
+                write!(
+                    f,
+                    "; a three-point function: sink {} {} time slices after the source, currents {:?} on {} at the momenta {:?}",
+                    t.sink,
+                    t.t_sink,
+                    t.currents,
+                    match t.current_on {
+                        crate::app::config::CurrentOn::U => "u",
+                        crate::app::config::CurrentOn::D => "d",
+                    },
+                    t.momenta
+                )?;
+            }
         }
         for note in &self.notes {
             write!(f, "\nnote: {note}")?;

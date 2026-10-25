@@ -20,9 +20,9 @@ pub use bench::wilson_benchmark;
 pub use wilson::{run, run_on, write_report, Correlator, Report, SolveReport};
 
 pub use config::{
-    BoundaryConfig, ChannelsConfig, Config, FermionConfig, GaugeConfig, GaugeFixingConfig,
-    GaugeFormat, GaugeSmearingConfig, MeasureConfig, MultigridConfig, OutputConfig, Precision,
-    QuarkConfig, SolverConfig, SolverKind, SourceConfig,
+    BoundaryConfig, ChannelsConfig, Config, CurrentOn, FermionConfig, GaugeConfig,
+    GaugeFixingConfig, GaugeFormat, GaugeSmearingConfig, MeasureConfig, MultigridConfig,
+    OutputConfig, Precision, QuarkConfig, SolverConfig, SolverKind, SourceConfig, ThreePointConfig,
 };
 
 use crate::fermion::{
@@ -31,9 +31,11 @@ use crate::fermion::{
 };
 use crate::gauge::{fix_coulomb, plaquette, GaugeFixError};
 use crate::io::{Binary, BridgeText, GaugeFile, Ildg, IoError, Nersc, Scidac};
-use crate::kernel::{Dirac, GammaRepre, LaneOf, SPINOR_REALS};
+use crate::kernel::{Dirac, Gamma, GammaRepre, LaneOf, SPINOR_REALS};
 use crate::measure::{
-    channel, exponential_source, meson_correlator, point_source, CHANNELS, NUM_SOURCES,
+    channel, conserved_charge, current_insertion, exponential_source, meson_correlator,
+    meson_correlator_with_momentum, point_source, proton_correlator, sequential_source, Flavour,
+    MesonSink, ProtonSink, Sink, CHANNELS, NUM_SOURCES,
 };
 use crate::solver::preconditioner::multigrid::{Multigrid, MultigridError};
 use crate::solver::{

@@ -384,6 +384,45 @@ pub struct MeasureConfig {
     /// Meson channels to compute: `"all"` or a list of names. All of them when absent.
     #[serde(default)]
     pub channels: ChannelsConfig,
+    /// The channels (and the proton) also at these momenta p = 2π n / L, n given as three
+    /// integers; the sink weighted by e^{+i p·(x − x0)} as in Bridge++.
+    #[serde(default)]
+    pub momenta: Vec<[i64; 3]>,
+    /// The proton correlator, u = quark 1 and d = quark 2 (quark 1 when there is one).
+    #[serde(default)]
+    pub proton: bool,
+    /// A connected three-point function by a sequential source through the sink.
+    pub three_point: Option<ThreePointConfig>,
+}
+
+/// A three-point function: the sink `sink` (a meson channel, or `proton_upper`, the proton
+/// projected by (1 + γ4)/2) at zero momentum, `t_sink` time slices after the source, the
+/// currents `currents` inserted on the line of quark `current_on` at the momenta `momenta`.
+/// u is quark 1 and d quark 2 (quark 1 when there is one).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThreePointConfig {
+    pub t_sink: usize,
+    pub sink: String,
+    pub current_on: CurrentOn,
+    pub currents: Vec<String>,
+    #[serde(default = "zero_momentum")]
+    pub momenta: Vec<[i64; 3]>,
+}
+
+fn zero_momentum() -> Vec<[i64; 3]> {
+    vec![[0; 3]]
+}
+
+/// The quark whose line the current is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum CurrentOn {
+    #[serde(alias = "U")]
+    #[serde(rename = "u")]
+    U,
+    #[serde(alias = "D")]
+    #[serde(rename = "d")]
+    D,
 }
 
 /// Which meson channels to compute.

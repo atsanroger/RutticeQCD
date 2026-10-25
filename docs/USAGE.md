@@ -35,7 +35,7 @@ The sections of a file that solves for propagators:
 | `Quark_2` … `Quark_4` | Wilson and clover: further quarks, each a `Fopr` and a `Source` |
 | `Solver` | `solver_type`, `operator_type`, the stopping rule, `preconditioner_type` |
 | `MultiGrid` | the multigrid, used with `preconditioner_type : MG` |
-| `Measure` | Wilson and clover: `channels` (`all`, or a list) |
+| `Measure` | Wilson and clover: `channels` (`all`, or a list), `momenta`, `proton`, `three_point` |
 | `Output` | Wilson and clover: `file`, to write the table to as well |
 
 `Solver.operator_type` says where the system is solved, for the fine lattice and for the
@@ -66,6 +66,27 @@ The channels are named after the gamma matrices at the sink and at the source:
 
 All but `A4_A4` were checked against Bridge++; `A4_A4` is not in Bridge++ and has no
 reference values from another program.
+
+`Measure` also takes (example: `examples/clover_measurements.yaml`):
+
+| Key | What it adds | Printed as |
+|---|---|---|
+| `momenta : [[1,0,0], ...]` | the channels (and the proton) at momenta p = 2π n / L; the sink weighted by e^{+i p·(x − x0)}, x0 the source, as in Bridge++ | `PS[1,0,0]` |
+| `proton : true` | the proton ε_abc (u_a^T Cγ5 d_b) u_c, C = γ4γ2, projected by Γ = 1, γ4 and (1 + γ4)/2; u is quark 1, d quark 2 (quark 1 if there is one) | `proton_unity`, `proton_gamma4`, `proton_upper` |
+| `three_point:` | a connected three-point function by a sequential source through the sink (one more solve, by the solver of the file) | `C2_<sink>`, `C3_<current>[n]`, `C3_conserved_V4` |
+
+The keys of `three_point`: `t_sink` (time slices from the source to the sink), `sink` (a
+meson channel, or `proton_upper`; at zero momentum), `current_on` (`u` or `d`: the quark whose
+line the current is on; for a meson sink `u` is the first quark of the pair), `currents` (`S`,
+`P`, `V1`…`V4`, `A1`…`A4` = γ_μγ5, and `conserved_V4`, the time component of the conserved
+vector current of the Wilson and clover operators, at zero momentum, on the link t → t + 1),
+and `momenta` (of the current; `[[0,0,0]]` when absent). The quarks of the proton and of the
+three-point function need their sources at the same place.
+
+`C3_conserved_V4` is a check that the three-point function is right: its charge does not
+change between the source and the sink, and at the sink it jumps by the number of quarks of
+that flavour (1 for a meson; 2 for u and 1 for d in the proton) times `C2_<sink>` there, on
+every configuration, to the precision of the solves.
 
 ### Eigenvalues
 

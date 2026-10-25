@@ -1,0 +1,54 @@
+# Measurements beyond the meson correlators: the mesons at momenta, the proton, and a
+# three-point function by a sequential source through the sink. The quarks of
+# clover_two_flavours.yaml; u is quark 1 and d quark 2.
+#
+#   cargo run --release --bin ruttice -- examples/clover_measurements.yaml
+#
+# The output adds, to the lines "<quarks> <channel> <t> <re> <im>" of the mesons:
+#   PS[1,0,0] ...          a channel at momentum n (sink weighted by e^{+i p.(x - x0)}, p = 2 pi n / L)
+#   proton_unity, proton_gamma4, proton_upper (= (1 + gamma4)/2), also with [n]
+#   C2_PS                  the two-point function of the sink of the three-point function
+#   C3_V4[0,0,0] ...       the current at momentum n inserted at time slice t
+#   C3_conserved_V4        the conserved charge on the link t -> t + 1: constant between
+#                          the source and the sink, its jump at the sink C2 at the sink
+
+Main:
+  lattice_size : [4, 4, 4, 8]
+Gauge:
+  config_filename_input : conf_04040408.txt
+Fopr:
+  fermion_type       : Clover
+  hopping_parameter  : 0.12
+  clover_coefficient : 1.0
+  boundary_condition : [1, 1, 1, -1]
+Source:
+  source_type     : Exponential   # the wave function exp(-slope r^power) on the time slice
+  source_position : [0, 0, 0, 0]
+  slope           : 0.25
+  power           : 2.0
+Quark_2:
+  Fopr:
+    fermion_type       : Clover
+    hopping_parameter  : 0.115
+    clover_coefficient : 1.0
+    boundary_condition : [1, 1, 1, -1]
+  Source:
+    source_type     : Exponential
+    source_position : [0, 0, 0, 0]
+    slope           : 0.5
+    power           : 2.0
+Solver:
+  solver_type                   : CG
+  convergence_criterion_squared : 1.0e-28
+  maximum_number_of_iteration   : 2000
+  maximum_number_of_restart     : 3
+Measure:
+  channels : all
+  momenta  : [[1, 0, 0], [0, 1, 1]]
+  proton   : true
+  three_point:
+    t_sink     : 4               # time slices from the source to the sink
+    sink       : PS              # a meson channel, or proton_upper
+    current_on : u               # the quark whose line the current is on: u or d
+    currents   : [conserved_V4, V4, A3]   # S, P, V1-V4, A1-A4 (gamma_mu gamma5), conserved_V4
+    momenta    : [[0, 0, 0], [1, 0, 0]]   # of the current; the sink is at zero momentum
