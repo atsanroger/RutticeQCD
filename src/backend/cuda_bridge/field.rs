@@ -496,7 +496,11 @@ impl<T: DeviceReal> crate::Subspace for DeviceSpinor<T> {
 impl<T: DeviceReal, U: DeviceReal> ConvertFrom<DeviceSpinor<U>> for DeviceSpinor<T> {
     fn convert_from(&mut self, src: &DeviceSpinor<U>) {
         assert!(Arc::ptr_eq(&self.lat, &src.lat) && self.ls == src.ls);
-        convert(&mut self.data, &src.data);
+        crate::solver::preconditioner::multigrid::count::copy(
+            self.lattice() * self.vectors,
+            std::mem::size_of::<T>(),
+        );
+        cast(&mut self.data, &src.data);
         self.parity = src.parity;
     }
 }
@@ -511,6 +515,10 @@ impl DeviceParities {
         assert!(full.is(half, half.ls, None), "not the same lattice and Ls");
         assert_eq!(half.vectors, full.vectors, "another number of vectors");
         let geometry = geometry(&full.lat, [Boundary::Periodic; ND], full.ls);
+        crate::solver::preconditioner::multigrid::count::copy(
+            half.lattice() * half.vectors,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: the fields hold the sites of one parity and of the whole lattice with the same
         // `ls` and as many vectors; the kernel writes one of them and reads the other.
         unsafe {

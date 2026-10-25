@@ -79,6 +79,18 @@ fn hop_derivative(
     eta: &DeviceSpinor<f64>,
 ) -> DeviceLinks {
     assert!(zeta.same_shape(eta) && eta.vectors == 1 && eta.ls == 1 && eta.parity.is_none());
+    crate::hmc::count::hop_force(eta.sites(), 1);
+    // One formula on both backends: γ5 here counts nothing of its own.
+    crate::meter::uncounted(|| hop_derivative_kernel((gauge, geometry, halos), kappa, zeta, eta))
+}
+
+/// `hop_derivative` without its count.
+fn hop_derivative_kernel(
+    (gauge, geometry, halos): (&DeviceGauge<f64>, &Geometry, Option<&Halos<f64>>),
+    kappa: f64,
+    zeta: &DeviceSpinor<f64>,
+    eta: &DeviceSpinor<f64>,
+) -> DeviceLinks {
     let (mut g5zeta, mut g5eta) = (eta.zeros_like(), eta.zeros_like());
     gamma5(&mut g5zeta, zeta, false);
     gamma5(&mut g5eta, eta, false);
@@ -420,6 +432,7 @@ impl<T: DeviceReal> CudaClover<T> {
             return Err(GaugeError::LatticeMismatch);
         }
         let sites = u.lat.num_sites();
+        crate::hmc::count::clover_blocks(sites);
         let reals = padded(sites) * CLOVER;
         let t = must(DeviceBuffer::<f64>::zeros(reals));
         let t_inv = must(DeviceBuffer::<f64>::zeros(reals));
@@ -448,7 +461,8 @@ impl<T: DeviceReal> CudaClover<T> {
         }
         let in_precision = |src: &DeviceBuffer<f64>| {
             let mut dst = must(DeviceBuffer::<T>::uninitialised(reals));
-            convert(&mut dst, src);
+            // The blocks' bytes are those of `hmc::count::clover_blocks`.
+            cast(&mut dst, src);
             dst
         };
         self.term = in_precision(&t);
@@ -600,6 +614,7 @@ impl CudaClover<f64> {
         for &(w, zeta, eta) in pairs {
             assert!(zeta.same_shape(eta) && eta.vectors == 1 && eta.ls == 1);
             assert!(eta.parity.is_none() && eta.sites() == sites);
+            crate::hmc::count::clover_insertion(sites);
             // SAFETY: two fields of matrices and two spinor fields of one vector on `lat`.
             unsafe {
                 bridge_cuda_clover_insertion(
@@ -619,6 +634,7 @@ impl CudaClover<f64> {
             let local = (parity.index() + origin) % 2;
             let dims: [i32; 8] =
                 core::array::from_fn(|k| if k < 4 { lat.local[k] as i32 } else { 0 });
+            crate::hmc::count::log_det_insertion(sites / 2);
             // SAFETY: two fields of matrices on `lat` and the blocks of T⁻¹ of its sites.
             unsafe {
                 bridge_cuda_clover_log_det_insertion(
@@ -633,6 +649,7 @@ impl CudaClover<f64> {
             }
         }
         let m = must(DeviceLinks::zeros(lat));
+        crate::hmc::count::clover_leaves(sites);
         let (nv, nlo, nhi) = (v.with_halo(1), b_lo.with_halo(1), b_hi.with_halo(1));
         // SAFETY: the matrices of `lat`, and the links and the two insertions extended one site
         // deep alike (`nv.dims`).

@@ -298,6 +298,7 @@ fn dense_of<T: LevelReal>(
      -> Result<(DeviceBuffer<f64>, usize), CudaError> {
         let n = sites * nq;
         let dense = DeviceBuffer::<f64>::zeros(2 * n * n)?;
+        crate::solver::preconditioner::multigrid::count::copy(2 * n * n, 8);
         // SAFETY: an n × n matrix, and the blocks, links and table of `sites` sites.
         unsafe {
             bridge_cuda_level_dense(
@@ -467,6 +468,11 @@ fn dense_apply_here<T: LevelReal>(
     r: &DeviceCoarse<T>,
 ) -> DeviceCoarse<T> {
     assert_eq!(r.sites * r.dim, n);
+    crate::solver::preconditioner::multigrid::count::dense_apply(
+        n,
+        r.vectors,
+        std::mem::size_of::<T>(),
+    );
     let out = r.zeros_like();
     // SAFETY: the fields of the last level have the layout of one site of all their complex
     // numbers (`coarse_index` of q = X dim + k), and m is n × n.
@@ -537,6 +543,7 @@ impl<T: LevelReal> Level<T> {
         let nq = 2 * tests.vectors;
         let members = DeviceTable::from_host(&members)?;
         let q64 = DeviceBuffer::<f64>::zeros(2 * blocks * nq * bs * pd)?;
+        crate::solver::preconditioner::multigrid::count::level_basis(blocks, bs * pd, nq);
         // SAFETY: the local vectors of every super-block, the test vectors on the sites above,
         // and a table of the sites of every super-block.
         unsafe {
@@ -568,18 +575,22 @@ impl<T: LevelReal> Level<T> {
 
     /// Counts Q† v or Q y (`meter`): every complex number of the level above times the `nq`
     /// columns of its block, 8 flops each; Q read once, the two fields (`reals`) once.
-    fn count(&self, vectors: usize, reals: usize) {
-        let flops = 8.0 * (self.parent_sites * self.pd * self.nq * vectors) as f64;
+    fn count(&self, vectors: usize) {
         let size = std::mem::size_of::<T>();
-        let bytes = (self.q.len + reals) * size;
-        crate::meter::add(crate::meter::Work::Transfer, size, flops, bytes as f64);
+        crate::solver::preconditioner::multigrid::count::level_transfer(
+            self.parent_sites,
+            self.pd,
+            self.nq,
+            vectors,
+            size,
+        );
     }
 
     /// Q† v.
     fn restrict(&self, v: &DeviceCoarse<T>) -> DeviceCoarse<T> {
         assert!((v.sites, v.dim) == (self.parent_sites, self.pd));
         let out = must(DeviceCoarse::zeros(self.blocks, self.nq, v.vectors)).on(&self.lat);
-        self.count(v.vectors, out.data.len + v.data.len);
+        self.count(v.vectors);
         // SAFETY: fields of the two lattices, Q and the table of this level.
         unsafe {
             T::level_restrict(
@@ -602,7 +613,7 @@ impl<T: LevelReal> Level<T> {
     fn prolong(&self, out: &mut DeviceCoarse<T>, y: &DeviceCoarse<T>, add: bool) {
         assert!((y.sites, y.dim) == (self.blocks, self.nq));
         assert!((out.sites, out.dim, out.vectors) == (self.parent_sites, self.pd, y.vectors));
-        self.count(y.vectors, out.data.len + y.data.len);
+        self.count(y.vectors);
         // SAFETY: fields of the two lattices, Q and the table of this level.
         unsafe {
             T::level_prolong(
@@ -676,6 +687,7 @@ fn probe<T: LevelReal>(
     let mut ap = p.zeros_like();
     let mut applications = 0;
     for colour in 0..n_colours as u32 {
+        crate::solver::preconditioner::multigrid::count::copy(e.data.len, std::mem::size_of::<T>());
         // SAFETY: a field of nq vectors on this level's lattice and its table of colours.
         unsafe {
             T::level_sources(
@@ -690,6 +702,7 @@ fn probe<T: LevelReal>(
         apply(&mut ap, &p);
         let r = level.restrict(&ap);
         applications += nq;
+        crate::solver::preconditioner::multigrid::count::copy(r.data.len, std::mem::size_of::<T>());
         // SAFETY: the blocks and links of this lattice, the response on it and its tables.
         unsafe {
             T::level_probe(
@@ -862,6 +875,7 @@ impl<T: LevelReal> DeviceMultilevel<T> {
         let probed = self.last.as_ref().expect("the links of the last level");
         let lat = &self.levels.last().expect("at least one level").lat;
         let (dense, n) = dense_of(last, probed, lat)?;
+        crate::solver::preconditioner::multigrid::count::invert_blocks(1, n);
         self.coarsest_inv = Some(dense_map(&dense, n, "the inverse", |out, a, n| {
             // SAFETY: two n × n matrices.
             unsafe { bridge_cuda_dense_inverse(out, a, n) }
@@ -965,6 +979,7 @@ impl<T: LevelReal> DeviceAbsMultilevel<T> {
         }
         let probed = last.expect("at least one level");
         let (dense, n) = dense_of(ops.last().expect("at least one level"), &probed, &parent)?;
+        crate::solver::preconditioner::multigrid::count::abs_inverse_blocks(1, n);
         let coarsest_abs_inv = dense_map(&dense, n, "|H|⁻¹", |out, a, n| {
             // SAFETY: two n × n matrices.
             unsafe { bridge_cuda_dense_abs_inverse(out, a, n, ABS_CUTOFF) }
@@ -973,6 +988,10 @@ impl<T: LevelReal> DeviceAbsMultilevel<T> {
         let mut abs_blocks = Vec::new();
         for op in &ops[..ops.len() - 1] {
             let diag = op.diag_f64();
+            crate::solver::preconditioner::multigrid::count::abs_inverse_blocks(
+                op.sites(),
+                op.dim(),
+            );
             let out = DeviceBuffer::<f64>::uninitialised(diag.len)?;
             let scratch = DeviceBuffer::<f64>::uninitialised(2 * diag.len)?;
             // SAFETY: the blocks of the level's sites, as many places for the results, and the
@@ -1051,6 +1070,10 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
         let from_table = DeviceTable::from_host(&from)?;
         let diag = DeviceBuffer::<f64>::uninitialised(self.diag_f64().len)?;
         let links = DeviceBuffer::<T>::uninitialised(self.links().len)?;
+        crate::solver::preconditioner::multigrid::count::copy(
+            diag.len + links.len,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: the blocks and links of this lattice, as many places for those of the
         // adjoint, and the table of the sites they come from.
         unsafe {

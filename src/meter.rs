@@ -5,6 +5,9 @@
 //! the real traffic smaller, so the arithmetic intensity is an estimate for a roofline before
 //! Nsight Compute.
 //!
+//! The SU(3) building blocks follow QUDA's counts: a product of two 3 × 3 complex matrices is
+//! 198 flops (`MATRIX_PRODUCT`), a sum 18.
+//!
 //! A count is two additions to numbers of the calling thread: no lock, no atomics, nothing on the
 //! device. Each process (each thread of `LocalComm`) counts its own work. `Counts::now` before
 //! and after a piece of a run gives what it did.
@@ -20,12 +23,24 @@ pub enum Work {
     Coarse = 1,
     /// Restriction and prolongation.
     Transfer = 2,
-    /// The linear algebra of vectors.
+    /// The linear algebra of vectors, and copies and casts of fields.
     Vector = 3,
+    /// What is made of the links alone: plaquettes, gauge actions and forces, smearing and its
+    /// chain rule, the algebra of links and momenta in HMC, the clover blocks.
+    Gauge = 4,
+    /// The fermion forces: the derivatives of fermion actions by the links.
+    Force = 5,
 }
 
-const KINDS: usize = 4;
-const WORK: [Work; KINDS] = [Work::Fine, Work::Coarse, Work::Transfer, Work::Vector];
+const KINDS: usize = 6;
+const WORK: [Work; KINDS] = [
+    Work::Fine,
+    Work::Coarse,
+    Work::Transfer,
+    Work::Vector,
+    Work::Gauge,
+    Work::Force,
+];
 
 /// Slot of a count: the kind of work, then single (0) or double (1) precision.
 fn slot(work: Work, real_bytes: usize) -> usize {
@@ -38,6 +53,22 @@ thread_local! {
     static CALLS: Cell<u64> = const { Cell::new(0) };
 }
 
+/// Flops of a product of two 3 × 3 complex matrices: 27 complex products (6 each) and 18
+/// complex sums (2 each).
+pub(crate) const MATRIX_PRODUCT: f64 = 198.0;
+/// Flops of a sum of two 3 × 3 complex matrices, or of one times a real.
+pub(crate) const MATRIX_SUM: f64 = 18.0;
+/// Reals of a 3 × 3 complex matrix.
+pub(crate) const MATRIX_REALS: f64 = 18.0;
+
+/// Flops of Gauss–Jordan on a complex n × n matrix with the identity beside it: for every
+/// column, the pivot row times 1/pivot (2n complex products, 6 each) and the other n − 1 rows
+/// cleared (2n multiply-adds each, 8).
+pub(crate) fn gauss_jordan(n: usize) -> f64 {
+    let n = n as f64;
+    n * (2.0 * n * 6.0 + (n - 1.0) * 2.0 * n * 8.0)
+}
+
 /// Adds `flops` and `bytes` of `work` done in reals of `real_bytes` bytes.
 #[inline]
 pub(crate) fn add(work: Work, real_bytes: usize, flops: f64, bytes: f64) {
@@ -45,6 +76,24 @@ pub(crate) fn add(work: Work, real_bytes: usize, flops: f64, bytes: f64) {
     FLOPS.with(|f| f[k].set(f[k].get() + flops));
     BYTES.with(|b| b[k].set(b[k].get() + bytes));
     CALLS.with(|c| c.set(c.get() + 1));
+}
+
+/// Runs `f` and takes back what it counted: for an operation that both backends count by one
+/// formula, whose pieces would count themselves differently on each. Counts made by other
+/// threads are not seen (counting is done by the thread that launches the work).
+pub(crate) fn uncounted<R>(f: impl FnOnce() -> R) -> R {
+    let before = Counts::now();
+    let r = f();
+    FLOPS.with(|fl| {
+        BYTES.with(|b| {
+            for k in 0..2 * KINDS {
+                fl[k].set(before.flops[k / 2][k % 2]);
+                b[k].set(before.bytes[k / 2][k % 2]);
+            }
+        })
+    });
+    CALLS.with(|c| c.set(before.calls));
+    r
 }
 
 /// A vector operation on `reals` reals of `real_bytes` bytes each: `flops` and `moved` (reals

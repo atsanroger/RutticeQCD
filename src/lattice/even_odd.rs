@@ -114,6 +114,10 @@ pub fn extract_parity<T: Storage, K: Kind, L: Layout>(
     assert_eq!(half.outer(), full.outer());
     assert_eq!(half.num_blocks(), index.num_half_sites());
     half.set_parity(parity);
+    crate::solver::preconditioner::multigrid::count::copy(
+        half.as_slice().len(),
+        std::mem::size_of::<T>(),
+    );
     let n = full.block_len();
     for o in 0..full.outer() {
         let (to, from) = (half.slab_mut(o), full.slab(o));
@@ -133,6 +137,10 @@ pub fn insert_parity<T: Storage, K: Kind, L: Layout>(
     assert_eq!(half.site_len(), full.site_len());
     assert_eq!(half.outer(), full.outer());
     assert_eq!(half.num_blocks(), index.num_half_sites());
+    crate::solver::preconditioner::multigrid::count::copy(
+        half.as_slice().len(),
+        std::mem::size_of::<T>(),
+    );
     let n = full.block_len();
     for o in 0..full.outer() {
         let (to, from) = (full.slab_mut(o), half.slab(o));

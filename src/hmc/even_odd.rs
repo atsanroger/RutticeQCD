@@ -249,6 +249,12 @@ fn unit<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity, k: usize) -
 /// Σ over the sites x of `parity` of ln |det T(x)|, T(x) the 12 × 12 site-diagonal block of
 /// the operator, from its columns T e_k; summed over all processes.
 pub(crate) fn log_det_diag<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
+    super::count::log_det_from_columns(lat.num_sites() / 2);
+    crate::meter::uncounted(|| log_det_of_columns(op, lat, parity))
+}
+
+/// `log_det_diag` without its count.
+fn log_det_of_columns<O: EvenOddSites>(op: &O, lat: &Arc<Lattice>, parity: Parity) -> f64 {
     let mut work = op.even_odd_work();
     let cols: Vec<HalfPsi> = (0..12)
         .map(|k| {
@@ -305,17 +311,21 @@ fn add_log_det_insertion<O: EvenOddSites>(
     parity: Parity,
     b: &mut CloverInsertion,
 ) {
-    let mut work = op.even_odd_work();
-    let index = op.eo_index();
-    let (mut zf, mut ef) = (op.new_field(lat), op.new_field(lat));
-    for k in 0..12 {
-        let e = unit(op, lat, parity, k);
-        let mut z = e.zeros_like();
-        op.diag_inv(&mut work, &mut z, &e, parity, Dagger::No);
-        insert_parity(&mut zf, &z, index);
-        insert_parity(&mut ef, &e, index);
-        b.add(kappa_csw, &zf, &ef);
-    }
+    // Counted as the device computes it, from the entries of T⁻¹ (`hmc::count`).
+    super::count::log_det_insertion(lat.num_sites() / 2);
+    crate::meter::uncounted(|| {
+        let mut work = op.even_odd_work();
+        let index = op.eo_index();
+        let (mut zf, mut ef) = (op.new_field(lat), op.new_field(lat));
+        for k in 0..12 {
+            let e = unit(op, lat, parity, k);
+            let mut z = e.zeros_like();
+            op.diag_inv(&mut work, &mut z, &e, parity, Dagger::No);
+            insert_parity(&mut zf, &z, index);
+            insert_parity(&mut ef, &e, index);
+            b.add(kappa_csw, &zf, &ef);
+        }
+    });
 }
 
 /// Two degenerate flavours with even-odd preconditioning (module documentation), D the

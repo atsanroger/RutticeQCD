@@ -58,14 +58,17 @@ impl LinkField for Field<f64, Gauge> {
         v
     }
     fn add_scaled(&mut self, a: f64, x: &Self) {
+        crate::gauge::count::axpy(Field::lattice(self).num_sites());
         for (s, v) in self.as_mut_slice().iter_mut().zip(x.as_slice()) {
             *s += a * v;
         }
     }
     fn kinetic_energy(&self) -> f64 {
+        crate::gauge::count::norm(Field::lattice(self).num_sites());
         kinetic_energy(self)
     }
     fn exp_update(&mut self, eps: f64, p: &Self, order: usize) {
+        crate::gauge::count::exp_update(Field::lattice(self).num_sites(), order);
         exp_update(eps, p, self, order);
     }
     fn plaquette(&self) -> f64 {

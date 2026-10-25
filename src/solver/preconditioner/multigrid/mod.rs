@@ -4,6 +4,7 @@ mod aggregation;
 mod basis;
 mod coarse;
 mod correction;
+pub(crate) mod count;
 mod cycle;
 mod levels;
 mod mdwf_backend;

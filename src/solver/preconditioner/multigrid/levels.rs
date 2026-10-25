@@ -8,6 +8,7 @@ use crate::{Coarse, Field, LinearFn, LinearOp, Storage, Vector, C64, ND};
 
 /// `out = m v` for a dense row-major n × n m.
 fn mat_vec(m: &[C64], n: usize, v: &[C64]) -> Vec<C64> {
+    super::count::dense_apply(n, 1, 8);
     (0..n)
         .map(|i| (0..n).fold(C64::ZERO, |s, k| s + m[i * n + k] * v[k]))
         .collect()
@@ -15,6 +16,7 @@ fn mat_vec(m: &[C64], n: usize, v: &[C64]) -> Vec<C64> {
 
 /// The inverse of a dense row-major n × n matrix; zero where it is singular.
 fn inverse(m: &[C64], n: usize) -> Result<Vec<C64>, MultigridError> {
+    super::count::invert_blocks(1, n);
     let mut a: Vec<f64> = m.iter().flat_map(|z| [z.re, z.im]).collect();
     let mut inv = vec![0.0; 2 * n * n];
     invert_complex(n, &mut a, &mut inv)
@@ -98,6 +100,7 @@ struct Level {
 impl Level {
     fn restrict(&self, v: &[C64]) -> Vec<C64> {
         let (nq, pd) = (self.nq, self.parent_dim);
+        super::count::level_transfer(v.len() / pd, pd, nq, 1, 8);
         let mut out = vec![C64::ZERO; self.sites.len() * nq];
         for (s, sv) in self.sites.iter().enumerate() {
             let lt = sv.len() * pd;
@@ -117,6 +120,7 @@ impl Level {
 
     fn prolong_add(&self, y: &[C64], v: &mut [C64]) {
         let (nq, pd) = (self.nq, self.parent_dim);
+        super::count::level_transfer(v.len() / pd, pd, nq, 1, 8);
         for (s, sv) in self.sites.iter().enumerate() {
             let lt = sv.len() * pd;
             for b in 0..nq {
@@ -151,6 +155,8 @@ impl Level {
             sites[site_index(&c.map(|v| v / super_block), &ext)].push(x);
         }
         let nq = 2 * tests.len();
+        let block = sites.first().map_or(0, Vec::len) * parent_dim;
+        super::count::level_basis(sites.len(), block, nq);
         let q = sites
             .iter()
             .map(|sv| {
@@ -558,6 +564,7 @@ impl SignedMultilevel {
 /// part is taken). Eigenvalues below 1e-10 of the largest in magnitude, which come from
 /// dependent local vectors, are left out.
 fn abs_inverse(h: &[C64], n: usize) -> Vec<C64> {
+    super::count::abs_inverse_blocks(1, n);
     let (lam, v) = hermitian_eigen(n, h);
     let top = lam.iter().fold(0.0f64, |m, l| m.max(l.abs()));
     let inv: Vec<f64> = lam
@@ -727,6 +734,7 @@ impl BlockMap {
     /// The exact inverses of the diagonal blocks of `a`.
     pub(crate) fn inverse_diagonal<T: Storage>(a: &CoarseOp<T>) -> Result<Self, MultigridError> {
         let dim = a.dim();
+        super::count::invert_blocks(a.lattice().num_sites(), dim);
         let blocks = (0..a.lattice().num_sites())
             .map(|x| {
                 let mut m: Vec<f64> = a
@@ -753,6 +761,7 @@ impl BlockMap {
     /// of the components). Hermitian positive definite, as MINRES needs of a preconditioner.
     pub fn abs_inverse_of_a_gamma5(a: &CoarseOp<f64>) -> Self {
         let dim = a.dim();
+        super::count::abs_inverse_blocks(a.lattice().num_sites(), dim);
         let blocks = (0..a.lattice().num_sites())
             .map(|x| {
                 let mut h = a.diagonal_block(x);
@@ -784,6 +793,15 @@ impl<T: Storage> LinearFn<Field<T, Coarse>> for BlockMap {
     fn mult(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         let dim = self.dim;
         let site_len = inp.site_len();
+        // A dim × dim block a site and vector.
+        crate::meter::add(
+            crate::meter::Work::Coarse,
+            std::mem::size_of::<T>(),
+            (8 * dim * dim * self.blocks.len() * inp.num_vectors()) as f64,
+            (self.blocks.len()
+                * (2 * dim * dim * 8 + 4 * dim * inp.num_vectors() * std::mem::size_of::<T>()))
+                as f64,
+        );
         crate::for_sites(out.slab_mut(0), site_len, |x, dst| {
             let m = &self.blocks[x];
             let src = inp.site(0, x);

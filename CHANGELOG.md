@@ -14,6 +14,18 @@
   `combine`) and the copies of `select` and `assign`. A domain-wall solve on the CPU now reports
   its arithmetic (4.5e9 Flop for a column of a 4³×8×8 CG solve, 1.7e9 before); the device counts
   its dense Ls × Ls products instead (2.8e9), so the two differ by design (USAGE).
+- The work report is complete: two kinds of work more, `Gauge` (plaquettes, the gauge actions
+  and forces, stout and APE smearing and the chain rule, the algebra of links and momenta in HMC,
+  the clover blocks) and `Force` (the hop force of the three fermions, the clover insertion, its
+  leaves and the log det insertion), and the setup of the multigrids (block and dense inverses,
+  |H|⁻¹, the bases and the levels), the CPU's level V-cycle, SAP's block operations and the
+  even-odd restriction on the CPU, copies, casts and γ5 counted. One formula for each operation
+  where both backends do the same arithmetic (`gauge::count`, `hmc::count`,
+  `multigrid::count`). A clover HMC trajectory now counts 3.6e9 Flop of `Gauge` and 2.0e9 of
+  `Force` beside 2.8e10 of fine operators (none before). The device's clover operator counts the
+  2 Nc Nd additions of its term and the bytes of its blocks, as the CPU. `tests/cuda_bridge.rs`
+  compares every kind of a trajectory and of a multigrid solve on the two backends; the test
+  fails with one count taken out.
 
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against

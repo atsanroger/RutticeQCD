@@ -56,23 +56,28 @@ pub(crate) fn kernel_derivative<O: HopTerms<Psi> + ?Sized>(
     zeta: &Psi,
     eta: &Psi,
 ) -> Field<f64, Gauge> {
-    let mut work = op.work();
     let lat = eta.lattice();
-    let mut g5_eta = eta.zeros_like();
-    let mut g5_zeta = eta.zeros_like();
-    op.mult_gamma5(&mut work, &mut g5_eta, eta);
-    op.mult_gamma5(&mut work, &mut g5_zeta, zeta);
-    let mut m = Field::<f64, Gauge>::gauge(lat);
-    let mut h = eta.zeros_like();
-    for mu in 0..ND {
-        h.set_zero();
-        op.hop_forward(&mut work, mu, &mut h, eta);
-        add_outer(m.slab_mut(mu), &h, zeta, -2.0 * c);
-        h.set_zero();
-        op.hop_forward(&mut work, mu, &mut h, &g5_zeta);
-        add_outer(m.slab_mut(mu), &g5_eta, &h, 2.0 * c);
-    }
-    m
+    let ls = eta.slab(0).len() / (24 * lat.num_sites());
+    super::count::hop_force(lat.num_sites(), ls);
+    // One formula on both backends: γ5 and the legs here count nothing of their own.
+    crate::meter::uncounted(|| {
+        let mut work = op.work();
+        let mut g5_eta = eta.zeros_like();
+        let mut g5_zeta = eta.zeros_like();
+        op.mult_gamma5(&mut work, &mut g5_eta, eta);
+        op.mult_gamma5(&mut work, &mut g5_zeta, zeta);
+        let mut m = Field::<f64, Gauge>::gauge(lat);
+        let mut h = eta.zeros_like();
+        for mu in 0..ND {
+            h.set_zero();
+            op.hop_forward(&mut work, mu, &mut h, eta);
+            add_outer(m.slab_mut(mu), &h, zeta, -2.0 * c);
+            h.set_zero();
+            op.hop_forward(&mut work, mu, &mut h, &g5_zeta);
+            add_outer(m.slab_mut(mu), &g5_eta, &h, 2.0 * c);
+        }
+        m
+    })
 }
 
 /// The part of M that comes from the clover term −κ c_SW Σ_(μ<ν) F_μν ⊗ γ_μ γ_ν of D, for the links
@@ -110,6 +115,7 @@ impl CloverInsertion {
     pub fn add(&mut self, kappa_csw: f64, zeta: &Psi, eta: &Psi) {
         use crate::gauge::PLANES;
         use crate::kernel::{Dirac, GammaRepre};
+        super::count::clover_insertion(zeta.lattice().num_sites());
         let (sz, se) = (zeta.slab(0), eta.slab(0));
         for (plane, &(mu, nu)) in PLANES.iter().enumerate() {
             let g = Dirac::GAMMA[mu].mul(&Dirac::GAMMA[nu]);
@@ -145,6 +151,7 @@ fn clover_leaves(u: &Field<f64, Gauge>, b: &[Field<f64, Gauge>; 2]) -> Field<f64
     use crate::gauge::paths::{Extended, Step};
     use crate::gauge::PLANES;
     let lat = u.lattice();
+    super::count::clover_leaves(lat.num_sites());
     let eu = Extended::new(u, 2);
     // The same depth as the links: the indices are the same.
     let eb = [Extended::new(&b[0], 2), Extended::new(&b[1], 2)];
@@ -380,6 +387,7 @@ pub(super) fn draw(xi: &mut Psi, rng: &mut Mseries) {
 
 /// F = TA(M) for every link.
 pub(crate) fn force_from(m: &Field<f64, Gauge>) -> Field<f64, Gauge> {
+    crate::gauge::count::projections(m.num_sites());
     let mut f = Field::<f64, Gauge>::gauge(m.lattice());
     for mu in 0..ND {
         for_sites(f.slab_mut(mu), 18, |x, out| {
@@ -400,6 +408,8 @@ pub fn smeared_force(
     let Some(smearing) = smearing.filter(|s| s.steps > 0) else {
         return force_from(m_v);
     };
+    let sites = u.lattice().num_sites();
+    crate::gauge::count::products(sites);
     let v = levels.last().expect("the smeared links");
     let lat = u.lattice();
     // Σ' = V† M.
@@ -416,6 +426,7 @@ pub fn smeared_force(
             link(u, mu, x).mul(&link(&sigma, mu, x)).write_reals(out);
         });
     }
+    crate::gauge::count::products(sites);
     force_from(&m)
 }
 

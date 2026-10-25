@@ -336,6 +336,7 @@ impl Stout {
     }
 
     pub fn apply(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
+        super::count::stout_step(u.num_sites(), &self.rho);
         let c = weighted_staples(u, &self.rho);
         let mut v = Field::<f64, Gauge>::gauge(u.lattice());
         for mu in 0..ND {
@@ -358,6 +359,7 @@ impl Stout {
         u: &Field<f64, Gauge>,
     ) -> Field<f64, Gauge> {
         let lat = u.lattice();
+        super::count::stout_chain(u.num_sites(), &self.rho);
         let eu = Extended::new(u, 1);
         let c = staples_of(&eu, lat, &self.rho);
         // Σ' exp(iQ) + C† iΛ, and iΘ = iΛ U.
@@ -424,6 +426,7 @@ impl Ape {
 
     pub fn apply(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
         let lat = u.lattice();
+        super::count::ape_step(u.num_sites(), &self.rho);
         let c = weighted_staples(u, &self.rho);
         let mut v = Field::<f64, Gauge>::gauge(lat);
         for mu in 0..ND {
@@ -447,6 +450,7 @@ impl Ape {
         let mut g = vec![ColorMatrix::identity(); a.len()];
         let total = (3 * lat.num_global_sites()) as f64;
         for _ in 0..self.max_iterations {
+            super::count::ape_sweep(lat.num_sites());
             let retr: f64 = a
                 .par_iter_mut()
                 .zip(g.par_iter_mut())

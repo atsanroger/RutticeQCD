@@ -587,6 +587,7 @@ where
     fn convert_from(&mut self, src: &Field<U, K, S, L, Cpu>) {
         assert_eq!(self.as_slice().len(), src.as_slice().len());
         assert_eq!(self.site_len(), src.site_len());
+        count(self, 0.0, 2.0);
         let site_len = self.block_len();
         let s = src.as_slice();
         for_light_sites(self.as_mut_slice(), site_len, |i, d| {

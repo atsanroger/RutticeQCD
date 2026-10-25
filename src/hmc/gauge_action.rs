@@ -40,6 +40,7 @@ impl PlaquetteAction {
     pub fn force(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
         // The staples walked site by site through the links and a halo one site deep, with
         // no shifted copies of the whole field.
+        crate::gauge::count::gauge_force(u.num_sites(), true, false);
         let ext = Extended::new(u, 1);
         let mut f = Field::<f64, Gauge>::gauge(u.lattice());
         let k = -self.beta / 3.0;
@@ -120,9 +121,10 @@ impl RectangleAction {
     /// S_G (summed over all processes).
     pub fn action(&self, u: &Field<f64, Gauge>) -> f64 {
         let lat = u.lattice();
+        let with_rect = self.c_rect != 0.0;
+        crate::gauge::count::gauge_action(u.num_sites(), with_rect);
         let ext = Extended::new(u, 2);
         let (f, b) = (true, false);
-        let with_rect = self.c_rect != 0.0;
         let (plaq, rect) = (0..u.num_sites())
             .into_par_iter()
             .map(|x| {
@@ -157,6 +159,7 @@ impl RectangleAction {
     /// F_μ(x) = −(β/3) TA[U_μ(x) Σ_μ(x)†] with Σ the staples weighted by c_plaq and c_rect.
     pub fn force(&self, u: &Field<f64, Gauge>) -> Field<f64, Gauge> {
         let lat = u.lattice();
+        crate::gauge::count::gauge_force(u.num_sites(), self.c_plaq != 0.0, self.c_rect != 0.0);
         let ext = Extended::new(u, 2);
         let mut f = Field::<f64, Gauge>::gauge(lat);
         let k = -self.beta / 3.0;

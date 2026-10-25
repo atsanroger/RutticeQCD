@@ -307,7 +307,8 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let mut geometry = geometry(&other.gauge.lat, params.boundary, params.ls);
         geometry.link_rows = other.geometry.link_rows;
         let mut links = DeviceBuffer::<T>::uninitialised(other.gauge.links.len)?;
-        super::convert(&mut links, &other.gauge.links);
+        // Storing the links of an operator is not counted (nor on the CPU).
+        super::cast(&mut links, &other.gauge.links);
         Ok(Self {
             params,
             geometry,
@@ -481,7 +482,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 )
             };
         if done {
-            count_hops(&self.geometry, inp, from.is_some(), 96.0 * ls as f64);
+            count_hops(&self.geometry, inp, from.is_some(), 96.0 * ls as f64, 0.0);
         } else {
             self.hops(scratch, inp, None, (b, c), dagger, Some(to));
             self.gemm(out, scratch, matrix, from);
@@ -519,6 +520,11 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let (b, from) = (scratch(b, out), scratch(from, out));
         b.set_zero();
         b.parity = None;
+        // The projections P± η onto the two walls.
+        crate::solver::preconditioner::multigrid::count::copy(
+            eta.lattice() * eta.vectors,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: a field of one spinor per site and one of `ls`, on the same lattice with as
         // many vectors.
         unsafe {
@@ -547,6 +553,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
     ) {
         let ls = self.params.ls;
         assert!(psi.is(out, ls, None) && out.is(psi, 1, None) && out.vectors == psi.vectors);
+        crate::solver::preconditioner::multigrid::count::copy(
+            out.lattice() * out.vectors,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: as in `source_5d`.
         unsafe {
             T::walls(
@@ -981,10 +991,13 @@ impl CudaMdwf<f64> {
                 0,
             );
         }
+        // w = (b − c Y) Q η: the fifth dimension, as `one_pass` counts it (`mdwf_fifth`).
+        count_fine::<f64>(eta.sites(), ls, 120.0, 3.0, 0.0);
         let (mut g5w, mut g5zeta) = (eta.zeros_like(), eta.zeros_like());
         gamma5(&mut g5w, &w, false);
         gamma5(&mut g5zeta, zeta, false);
         let m = DeviceLinks::zeros(&self.gauge.lat)?;
+        crate::hmc::count::hop_force(eta.sites(), ls);
         let coef = -(4.0 - m5) / (8.0 - 2.0 * m5);
         // On several processes the forward legs of w and γ5 ζ across a cut: their faces, the
         // hops of b = 1, c = 0 (the fields are taken as they are).

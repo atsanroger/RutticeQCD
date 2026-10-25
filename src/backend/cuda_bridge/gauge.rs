@@ -255,6 +255,7 @@ impl Stout {
     /// One step on the device: `Stout::apply`.
     pub(crate) fn apply_on_device(&self, u: &DeviceLinks) -> Result<DeviceLinks, CudaError> {
         let v = DeviceLinks::zeros(&u.lat)?;
+        crate::gauge::count::stout_step(u.lat.num_sites(), &self.rho);
         let (n, rho) = (u.with_halo(1), flat(&self.rho));
         // SAFETY: the links of this lattice, `n` extended as its dims say.
         unsafe {
@@ -270,6 +271,7 @@ impl Stout {
         u: &DeviceLinks,
     ) -> Result<DeviceLinks, CudaError> {
         let (sigma, itheta) = (DeviceLinks::zeros(&u.lat)?, DeviceLinks::zeros(&u.lat)?);
+        crate::gauge::count::stout_chain(u.lat.num_sites(), &self.rho);
         let (n, rho) = (u.with_halo(1), flat(&self.rho));
         // SAFETY: four fields of the links of this lattice, `n` extended as its dims say.
         unsafe {
@@ -348,6 +350,7 @@ impl DeviceLinks {
     /// out = a b, or a† b, link by link.
     fn product(&self, a: &Self, b: &Self, adjoint_a: bool) -> Self {
         let out = must(Self::zeros(&self.lat));
+        crate::gauge::count::products(self.lat.num_sites());
         // SAFETY: three fields of matrices of this lattice.
         unsafe {
             bridge_cuda_links_mul(
@@ -365,6 +368,7 @@ impl DeviceLinks {
     /// s TA(self).
     fn projected(&self, s: f64) -> Self {
         let out = must(Self::zeros(&self.lat));
+        crate::gauge::count::projections(self.lat.num_sites());
         // SAFETY: two fields of matrices of this lattice.
         unsafe { bridge_cuda_links_ta(out.data.ptr, self.data.ptr, s, self.vol(), STREAM) };
         out
@@ -403,16 +407,19 @@ impl crate::hmc::LinkField for DeviceLinks {
         v
     }
     fn add_scaled(&mut self, a: f64, x: &Self) {
+        crate::gauge::count::axpy(self.lat.num_sites());
         // SAFETY: two fields of matrices of this lattice, of `len` reals each.
         unsafe { bridge_cuda_links_axpy(self.data.ptr, a, x.data.ptr, self.data.len, STREAM) };
     }
     fn kinetic_energy(&self) -> f64 {
         let sums = must(DeviceBuffer::<f64>::zeros(self.lat.num_sites()));
+        crate::gauge::count::norm(self.lat.num_sites());
         // SAFETY: a field of matrices and a real for each site.
         unsafe { bridge_cuda_links_norm2(sums.ptr, self.data.ptr, self.vol(), STREAM) };
         0.5 * self.site_sum(&sums)
     }
     fn exp_update(&mut self, eps: f64, p: &Self, order: usize) {
+        crate::gauge::count::exp_update(self.lat.num_sites(), order);
         // SAFETY: the links and the momenta of this lattice.
         unsafe {
             bridge_cuda_links_exp_update(
@@ -432,6 +439,7 @@ impl crate::hmc::LinkField for DeviceLinks {
             must(DeviceBuffer::<f64>::zeros(sites)),
         );
         let n = self.with_halo(1);
+        crate::gauge::count::plaquettes(sites);
         // SAFETY: the links of this lattice, extended as `n` says, and a real for each site,
         // twice.
         unsafe {
@@ -471,6 +479,7 @@ impl crate::hmc::LinkField for DeviceLinks {
             must(DeviceBuffer::<f64>::zeros(sites)),
         );
         let with_rect = i32::from(c_rect != 0.0);
+        crate::gauge::count::gauge_action(sites, c_rect != 0.0);
         let n = self.with_halo(if c_rect != 0.0 { 2 } else { 1 });
         // SAFETY: the links of this lattice, extended as `n` says, and a real for each site,
         // twice.
@@ -495,6 +504,7 @@ impl crate::hmc::LinkField for DeviceLinks {
     }
     fn gauge_force(&self, beta: f64, c_plaq: f64, c_rect: f64) -> Self {
         let f = must(Self::zeros(&self.lat));
+        crate::gauge::count::gauge_force(self.lat.num_sites(), c_plaq != 0.0, c_rect != 0.0);
         let n = self.with_halo(if c_rect != 0.0 { 2 } else { 1 });
         // SAFETY: the links (extended as `n` says) and the force of this lattice.
         unsafe {

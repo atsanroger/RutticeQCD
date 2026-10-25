@@ -6,6 +6,7 @@ use crate::{
     for_sites, reduce_sites, shift, Boundary, Direction, Field, Gauge, Stencil, Storage, ND,
 };
 
+pub(crate) mod count;
 mod fixing;
 pub mod flow;
 pub mod paths;
@@ -60,6 +61,7 @@ pub fn plaquette<T: Storage>(u: &Field<T, Gauge>, st: &Stencil) -> f64 {
     let lat = u.lattice();
     let num_sites = u.num_sites();
     assert_eq!(st.num_sites(), num_sites);
+    count::plaquettes(num_sites);
     // up[mu] holds U(x + mu); zero where the stencil has no neighbour.
     let up: [Field<T, Gauge>; ND] = core::array::from_fn(|mu| shifted(u, st, mu, FWD));
     let sum = reduce_sites(num_sites, |x| {

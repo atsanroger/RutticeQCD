@@ -3560,3 +3560,133 @@ fn levels_on_several_processes_are_those_on_one() {
         }
     }
 }
+
+/// The work report is complete and the same on both backends: one trajectory of the clover RHMC
+/// example (stout smearing and its chain rule, the rectangle gauge action, the Ratio, Standard
+/// and Rational actions, Lexical) counts the same flops of every kind on the CPU and the device,
+/// and the same bytes but for the fine operators (the device keeps two rows of a link, the CPU
+/// three). The solvers may take a few iterations more or fewer on one of them (their sums go in
+/// another order): to 1e-3.
+#[test]
+fn the_work_of_a_trajectory_is_counted_alike_on_both() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
+        .unwrap()
+        .replace(
+            "  lattice_size : [4, 4, 4, 8]",
+            "  lattice_size : [4, 4, 4, 8]\n  backend      : BACKEND",
+        )
+        .replace("conf_04040408.txt", "CONF");
+    let counted = |backend: &str| {
+        let before = ruttice::meter::Counts::now();
+        run_with_backend(&text, backend, "work");
+        ruttice::meter::Counts::now().since(&before)
+    };
+    let (cpu, gpu) = (counted("cpu"), counted("cuda_bridge"));
+    let kinds = ["Fine", "Coarse", "Transfer", "Vector", "Gauge", "Force"];
+    for (w, kind) in kinds.iter().enumerate() {
+        for p in 0..2 {
+            let (a, b) = (cpu.flops[w][p], gpu.flops[w][p]);
+            eprintln!(
+                "{kind} {p}: {a:e} / {b:e} Flop, {:e} / {:e} bytes",
+                cpu.bytes[w][p], gpu.bytes[w][p]
+            );
+            assert!(
+                (a - b).abs() <= 1e-3 * a.max(b),
+                "{kind}: {a:e} Flop on the CPU, {b:e} on the device"
+            );
+            if w != 0 {
+                let (a, b) = (cpu.bytes[w][p], gpu.bytes[w][p]);
+                assert!(
+                    (a - b).abs() <= 1e-3 * a.max(b),
+                    "{kind}: {a:e} bytes on the CPU, {b:e} on the device"
+                );
+            }
+        }
+    }
+    for (w, kind) in kinds.iter().enumerate() {
+        if [0, 3, 4, 5].contains(&w) {
+            assert!(cpu.flops[w][1] > 0.0, "nothing counted as {kind}");
+        }
+    }
+}
+
+/// The solve with the clover multigrid (its cycles: SAP, the restriction and prolongation, the
+/// coarse solves) counts the same work of every kind on the CPU and the device, the setup left
+/// out (the two make the coarse operator in other ways). The same iterations on both, so the
+/// counts agree exactly but for bytes where the storage differs: the links (two rows on the
+/// device, three on the CPU) and P (folded in spin on the device, both chirality parts in full
+/// on the CPU).
+#[test]
+fn the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
+    use ruttice::backend::cuda_bridge::device_multigrid;
+    use ruttice::meter::Counts;
+    use ruttice::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
+    use ruttice::solver::Fgmres;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let u = ruttice::io::read_bridge_text(&examples.join("conf_04040408.txt"), &lat).unwrap();
+    let mut params = MultigridParams::bridge([2, 2, 2, 2]);
+    params.num_test_vectors = 8;
+    params.setup_iterations = 2;
+    let b = random_spinor(&lat, 1, 471);
+    let stop = Stop::simple(1e-24, 200);
+    let cp = CloverParams {
+        kappa: 0.12,
+        csw: 1.0,
+        boundary: ANTIPERIODIC_T,
+    };
+    let (cc, gc) = clover_pair(&lat, &u, cp);
+    let (cpu, n_cpu) = {
+        let mut mg = Multigrid::new(&cc, &lat, &params).unwrap();
+        let mut a = Bound::new(&cc, Variant::D);
+        let mut x = b.zeros_like();
+        let before = Counts::now();
+        let n = Fgmres::new(stop)
+            .solve(&mut a, Some(&mut mg), &mut x, &b)
+            .unwrap()
+            .iterations;
+        (Counts::now().since(&before), n)
+    };
+    let (gpu, n_gpu) = {
+        let mut mg = device_multigrid(&gc, &lat, &params).unwrap();
+        let mut a = Bound::new(&gc, Variant::D);
+        let db = DeviceSpinor::from_host(&b).unwrap();
+        let mut x = db.zeros_like();
+        let before = Counts::now();
+        let n = Fgmres::new(stop)
+            .solve(&mut a, Some(&mut mg), &mut x, &db)
+            .unwrap()
+            .iterations;
+        (Counts::now().since(&before), n)
+    };
+    assert_eq!(n_cpu, n_gpu, "iterations");
+    let kinds = ["Fine", "Coarse", "Transfer", "Vector", "Gauge", "Force"];
+    for (w, kind) in kinds.iter().enumerate() {
+        for p in 0..2 {
+            let (a, b) = (cpu.flops[w][p], gpu.flops[w][p]);
+            eprintln!(
+                "{kind} {p}: {a:e} / {b:e} Flop, {:e} / {:e} bytes",
+                cpu.bytes[w][p], gpu.bytes[w][p]
+            );
+            assert!(
+                (a - b).abs() <= 1e-9 * a.max(b),
+                "{kind}: {a:e} Flop on the CPU, {b:e} on the device"
+            );
+            if w != 0 && w != 2 {
+                let (a, b) = (cpu.bytes[w][p], gpu.bytes[w][p]);
+                assert!(
+                    (a - b).abs() <= 1e-9 * a.max(b),
+                    "{kind}: {a:e} bytes on the CPU, {b:e} on the device"
+                );
+            }
+        }
+    }
+    for w in [0, 1, 2, 3] {
+        assert!(
+            cpu.flops[w].iter().sum::<f64>() > 0.0,
+            "nothing counted as {}",
+            kinds[w]
+        );
+    }
+}

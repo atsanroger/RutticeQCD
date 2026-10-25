@@ -464,7 +464,8 @@ impl<T: DeviceReal> DeviceGauge<T> {
             return Err(GaugeError::LatticeMismatch);
         }
         let mut links = must(DeviceBuffer::<T>::uninitialised(u.data.len));
-        convert(&mut links, &u.data);
+        // Storing the links of an operator is not counted (nor on the CPU).
+        cast(&mut links, &u.data);
         self.links = links;
         self.rows = 3;
         geometry.link_rows = 3;
@@ -498,6 +499,7 @@ fn count_hops<T: DeviceReal>(
     inp: &DeviceSpinor<T>,
     from: bool,
     extra_flops: f64,
+    extra_site_reals: f64,
 ) {
     let (flops, spinors) = if from {
         (HOP_FLOPS + 48.0, 10.0)
@@ -510,7 +512,7 @@ fn count_hops<T: DeviceReal>(
         fibres,
         flops + extra_flops,
         spinors,
-        hop_link_reals(geometry),
+        hop_link_reals(geometry) + extra_site_reals,
     );
 }
 
@@ -560,13 +562,14 @@ fn hops<T: DeviceReal>(
     assert_eq!(out.data.len, inp.data.len);
     assert!(clover.is_none() || (from.is_some() && ls == 1));
     out.parity = to;
-    // The clover term: Nc Nd (2 + 48 Nc) flops a spinor, its blocks read once a site.
-    let site_flops = if clover.is_some() {
-        (12 * (2 + 48 * 3)) as f64
+    // The clover term: Nc Nd (2 + 48 Nc) flops a spinor and the 2 Nc Nd additions that join it to
+    // the hops (as the CPU's `CloverDiag`), its 72 reals read once a site.
+    let (site_flops, site_reals) = if clover.is_some() {
+        ((12 * (2 + 48 * 3) + 2 * 12) as f64, 72.0)
     } else {
-        0.0
+        (0.0, 0.0)
     };
-    count_hops(geometry, inp, from.is_some(), site_flops);
+    count_hops(geometry, inp, from.is_some(), site_flops, site_reals);
     let from = match from {
         Some(f) => {
             assert!(f.is(out, ls, to) && f.data.len == out.data.len);
@@ -622,8 +625,15 @@ fn hops<T: DeviceReal>(
     });
 }
 
-/// `dst = src`, from one precision to another.
+/// `dst = src`, from one precision to another, counted as a copy of the whole buffer (for the
+/// casts of a setup; fields count their lattice reals and call `cast`).
 fn convert<T: DeviceReal, U: DeviceReal>(dst: &mut DeviceBuffer<T>, src: &DeviceBuffer<U>) {
+    crate::solver::preconditioner::multigrid::count::copy(dst.len, std::mem::size_of::<T>());
+    cast(dst, src);
+}
+
+/// `convert` without its count.
+fn cast<T: DeviceReal, U: DeviceReal>(dst: &mut DeviceBuffer<T>, src: &DeviceBuffer<U>) {
     use std::any::TypeId;
     assert_eq!(dst.len, src.len);
     let n = dst.len as i32;

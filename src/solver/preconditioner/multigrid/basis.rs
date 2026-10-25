@@ -238,6 +238,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     ) {
         self.check(coarse, half);
         assert_eq!(half.num_sites(), index.num_half_sites());
+        self.count(half.num_sites(), half.num_vectors());
         let (dim, reals, parity) = (self.coarse_dim(), self.reals, half.parity());
         let site_len = coarse.site_len();
         for_sites(coarse.slab_mut(0), site_len, |coarse_site, out| {
@@ -342,6 +343,7 @@ impl<T: Storage, S: Storage> Basis<T, S> {
     ) {
         self.check(coarse, half);
         assert_eq!(half.num_sites(), index.num_half_sites());
+        self.count(half.num_sites(), half.num_vectors());
         let (dim, reals, parity) = (self.coarse_dim(), self.reals, half.parity());
         let site_len = half.site_len();
         for_sites(half.slab_mut(0), site_len, |h, out| {
@@ -558,6 +560,9 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
             n <= fit,
             "{n} test vectors do not fit into aggregates of dimension {fit}"
         );
+        // Each chirality of every aggregate (counted as the device's CholeskyQR2 is, as
+        // Gram–Schmidt: `count::gram_schmidt`).
+        super::count::gram_schmidt(2 * self.agg.coarse_lattice().num_sites(), dim, n, 8);
         // w[chirality][vector][site in block * reals/2 + component]
         let mut w = [vec![C64::ZERO; n * dim], vec![C64::ZERO; n * dim]];
         for coarse_site in 0..self.agg.coarse_lattice().num_sites() {

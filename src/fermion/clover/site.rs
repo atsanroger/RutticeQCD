@@ -159,6 +159,7 @@ impl<T: Storage> DiagTerm<T> for CloverDiag<T> {
     }
 
     fn set_gauge(&mut self, lat: &Arc<Lattice>, u: &Field<f64, Gauge>) -> Result<(), GaugeError> {
+        crate::hmc::count::clover_blocks(lat.num_sites());
         // The field strength is built from the links alone; fermion boundary phases do not
         // enter it.
         let f = field_strength(u, &Stencil::nearest(lat, [Boundary::Periodic; ND]));

@@ -791,19 +791,19 @@ that work, for one more field of memory and one more pass over it. Whether it is
 on whether the sweep is bound by memory or by arithmetic there: measure on 12⁴ and 16⁴ first
 (rules of item 19).
 
-### 22. The work report: what is not counted, and where the backends differ (2026-10-25)
+### 22. The work report: complete (2026-10-25)
 
-- Not counted yet on the CPU: the even-odd restriction of the domain-wall multigrid, the block
-  operations of SAP.
-- The same file on the CPU and the device reports the same Flop for Wilson and clover, not for
-  domain-wall fermions: each counts what it computes (the device dense Ls × Ls products, the CPU
-  the structure and the eight recomputed factors of item 21). By design (USAGE).
-- The bytes of the hops differ by the link rows each keeps (two on the device, three on the
-  CPU), 1.5% of the fine bytes of a clover solve. By design.
-- The number of counts differs (the device counts the copies of `select` and `assign` vector by
-  vector, the CPU once a call); it measures only what counting costs.
-- `tests/cuda_bridge.rs` checks the Flop of the Wilson and clover Schur complements on both;
-  nothing yet checks the multigrid or HMC counts across the backends.
+Every kernel and CPU operation counts itself (DESIGN §7.11); where the backends differ by design
+is listed in USAGE (domain-wall fifth dimension, the CPU's ln det of even-odd clover, the setup
+of the Wilson and clover multigrid, bytes of links and P). `tests/cuda_bridge.rs` compares every
+kind of a clover RHMC trajectory and of a clover multigrid solve on the two backends. Open: the
+Jacobi sweeps of |H|⁻¹ are an estimate (six); nothing compares the domain-wall counts or the
+setups across the backends; the halo exchanges are not counted (communication).
+
+Planned (agreed 2026-10-25, after the work on the structure and the bugs): the report against
+Nsight Compute on 16⁴ or 24⁴, clover and domain-wall solves: the bandwidth the report implies
+(GFlop/s over its Flop/byte) against the DRAM GB/s ncu measures, kernel by kernel, to see how
+far the model (no caches) is from the traffic.
 
 ## Ideas from the literature (to evaluate later)
 

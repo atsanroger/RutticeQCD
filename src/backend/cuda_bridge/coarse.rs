@@ -214,6 +214,10 @@ impl<T: DeviceReal> DeviceCoarse<T> {
     ) -> Result<Self, CudaError> {
         assert!(first + vectors <= dim);
         let units = Self::zeros(sites, dim, vectors)?;
+        crate::solver::preconditioner::multigrid::count::copy(
+            2 * sites * dim * vectors,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: a zero field of `vectors` vectors of `sites` sites of `dim` components, and
         // components `first ..first + vectors` of a site.
         unsafe {
@@ -232,7 +236,11 @@ impl<T: DeviceReal> DeviceCoarse<T> {
     pub(crate) fn to_precision<U: DeviceReal>(&self) -> Result<DeviceCoarse<U>, CudaError> {
         let mut out = DeviceCoarse::<U>::zeros(self.sites, self.dim, self.vectors)?;
         out.comm = self.comm.clone();
-        convert(&mut out.data, &self.data);
+        crate::solver::preconditioner::multigrid::count::copy(
+            self.lattice() * self.vectors,
+            std::mem::size_of::<U>(),
+        );
+        cast(&mut out.data, &self.data);
         Ok(out)
     }
 
@@ -455,7 +463,11 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
 impl<T: DeviceReal, U: DeviceReal> ConvertFrom<DeviceCoarse<U>> for DeviceCoarse<T> {
     fn convert_from(&mut self, src: &DeviceCoarse<U>) {
         assert!((self.sites, self.dim, self.vectors) == (src.sites, src.dim, src.vectors));
-        convert(&mut self.data, &src.data);
+        crate::solver::preconditioner::multigrid::count::copy(
+            self.lattice() * self.vectors,
+            std::mem::size_of::<T>(),
+        );
+        cast(&mut self.data, &src.data);
     }
 }
 
@@ -637,6 +649,11 @@ impl DeviceBasis {
     pub fn add<T: DeviceReal>(&mut self, first: usize, v: &DeviceSpinor<T>) {
         assert!(Arc::ptr_eq(&self.lat, &v.lat) && v.ls == self.ls && v.parity.is_none());
         assert!(first + v.vectors <= self.n, "more test vectors than P has");
+        // The two chirality parts of every test vector into P.
+        crate::solver::preconditioner::multigrid::count::copy(
+            v.lattice() * v.vectors,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: a field on the whole lattice of this basis, and its P; the small arrays are
         // copied by the call.
         unsafe {
@@ -1411,6 +1428,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         assert!(diag_f64.len == 2 * sites * dim * dim && links.len == 8 * diag_f64.len);
         assert_eq!(neighbours.len(), 8 * sites);
         // The inverses of the blocks, by Gauss-Jordan elimination in double precision.
+        crate::solver::preconditioner::multigrid::count::invert_blocks(sites, dim);
         let inverse = DeviceBuffer::<f64>::uninitialised(diag_f64.len)?;
         let scratch = DeviceBuffer::<f64>::uninitialised(2 * diag_f64.len)?;
         let fail = DeviceTable::from_host(&vec![0; sites])?;
@@ -1505,6 +1523,7 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// `apply_blocks` (`BlockMap::abs_inverse_of_a_gamma5` on the CPU): by the Jacobi method
     /// in double precision.
     pub fn abs_inverse_of_a_gamma5(&self) -> Result<DeviceBuffer<T>, CudaError> {
+        crate::solver::preconditioner::multigrid::count::abs_inverse_blocks(self.sites, self.dim);
         let out = DeviceBuffer::<f64>::uninitialised(self.diag_f64.len)?;
         let scratch = DeviceBuffer::<f64>::uninitialised(2 * self.diag_f64.len)?;
         // SAFETY: the blocks of the sites, as many places for the results, and the scratch the
@@ -1655,6 +1674,10 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
     /// `v = Γ5 v`: −1 on the second half of the components of a site.
     pub fn gamma5(&self, v: &mut DeviceCoarse<T>) {
         assert!((v.sites, v.dim) == (self.sites, self.dim));
+        crate::solver::preconditioner::multigrid::count::copy(
+            v.lattice() * v.vectors / 2,
+            std::mem::size_of::<T>(),
+        );
         // SAFETY: a field of this lattice.
         unsafe {
             T::coarse_gamma5(

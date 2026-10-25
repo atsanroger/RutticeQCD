@@ -130,6 +130,15 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> HopTerms<Field<T, Spinor>> for W
         inp: &Field<T, Spinor>,
     ) {
         self.check(&self.state.full, out, inp);
+        // As the device counts it: no flops, a spinor read and one written.
+        let n = (inp.as_slice().len() / SPINOR_REALS) as f64;
+        let size = std::mem::size_of::<T>();
+        crate::meter::add(
+            crate::meter::Work::Fine,
+            size,
+            0.0,
+            n * 2.0 * 24.0 * size as f64,
+        );
         for_sites(out.slab_mut(0), SPINOR_REALS, |i, o| {
             let s = &inp.as_slice()[i * SPINOR_REALS..(i + 1) * SPINOR_REALS];
             store_spinor::<T>(&G::GAMMA5.apply(&load_spinor::<T>(stored_spinor(s))), o);

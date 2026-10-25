@@ -120,6 +120,7 @@ fn invert_blocks<T: Storage>(
     dim: usize,
     n_coarse: usize,
 ) -> Result<Vec<T>, MultigridError> {
+    super::count::invert_blocks(n_coarse, dim);
     let matrix = 2 * dim * dim;
     let mut inv = vec![T::default(); n_coarse * matrix];
     let mut a = vec![0.0; matrix];

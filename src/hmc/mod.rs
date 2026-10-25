@@ -1,6 +1,7 @@
 //! Hybrid Monte Carlo: gauge configurations from the momenta, the actions and their forces,
 //! a molecular-dynamics integrator and the Metropolis test.
 
+pub(crate) mod count;
 pub(crate) mod dwf_multigrid;
 mod even_odd;
 mod fermion_action;

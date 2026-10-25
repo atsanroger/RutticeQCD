@@ -229,10 +229,23 @@ impl<F: HopTerms<Field<T, Spinor>>, T: Storage> SapBlocks<Field<T, Spinor>>
         if !self.hop.as_ref().is_some_and(|h| h.same_shape(inp)) {
             self.hop = Some(inp.zeros_like());
         }
+        // As the device counts its block operator (one pass of the operator: eight neighbours,
+        // the spinor and the result, the links of a site); the pieces here, one direction at a
+        // time, count nothing of their own.
+        let n = (inp.num_sites() * inp.num_vectors()) as f64;
+        let size = std::mem::size_of::<T>();
+        crate::meter::add(
+            crate::meter::Work::Fine,
+            size,
+            n * self.op.flops_per_site() as f64,
+            (n * 10.0 * 24.0 + inp.num_sites() as f64 * 8.0 * 6.0 * 3.0) * size as f64,
+        );
         let hop = self.hop.as_mut().expect("the field was just made");
-        self.blocks.mult(self.op, &mut self.work, hop, c, out, inp);
+        let (op, work, blocks) = (self.op, &mut self.work, &self.blocks);
+        crate::meter::uncounted(|| blocks.mult(op, work, hop, c, out, inp));
     }
     fn keep_colour(&mut self, c: u8, v: &mut Field<T, Spinor>) {
+        crate::meter::vector(v.as_slice().len(), std::mem::size_of::<T>(), 0.0, 1.0);
         self.blocks.keep_colour(c, v);
     }
     fn step(
@@ -242,6 +255,11 @@ impl<F: HopTerms<Field<T, Spinor>>, T: Storage> SapBlocks<Field<T, Spinor>>
         r: &mut Field<T, Spinor>,
         p: &Field<T, Spinor>,
     ) {
+        // As the device: <p, r> and |p|² (6 flops a real, both read), then e and r (8, five
+        // reals).
+        let (reals, size) = (r.as_slice().len(), std::mem::size_of::<T>());
+        crate::meter::vector(reals, size, 6.0, 2.0);
+        crate::meter::vector(reals, size, 8.0, 5.0);
         self.blocks.step(c, e, r, p);
     }
     fn mult(&mut self, out: &mut Field<T, Spinor>, inp: &Field<T, Spinor>) {
