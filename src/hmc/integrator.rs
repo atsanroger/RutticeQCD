@@ -23,7 +23,8 @@ pub trait MdAction<U: LinkField = Field<f64, Gauge>> {
 /// What the solves of an action cost (`MdAction::take_cost`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SolveCost {
-    /// Solves: for the forces, the energies and the heat bath.
+    /// Solves: for the forces, the energies and the heat bath (a multi-shift solve is one; a
+    /// pole solved on its own is one).
     pub solves: usize,
     /// Iterations of the solvers: CG, GCR on the even sites with the multigrid, the CG in
     /// single precision with mixed precision.

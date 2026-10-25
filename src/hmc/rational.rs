@@ -41,6 +41,7 @@ pub struct Rational<O: ForceOp> {
     clover: Option<f64>,
     /// Iterations of the last multi-shift solve.
     pub(crate) last_iterations: usize,
+    meter: super::solve::CostMeter,
 }
 
 impl<O: ForceOp> Rational<O> {
@@ -66,6 +67,7 @@ impl<O: ForceOp> Rational<O> {
             phi: None,
             clover: None,
             last_iterations: 0,
+            meter: Default::default(),
         }
     }
 
@@ -132,7 +134,9 @@ impl<O: ForceOp> Rational<O> {
                         .as_mut()
                         .map(|m| &mut **m as &mut dyn crate::LinearFn<O::Field>),
                 };
+                let start = std::time::Instant::now();
                 let info = solver.shifted(&mut d, hermitian, pole.sqrt(), &mut x, b, stop)?;
+                self.meter.add(start, info.iterations);
                 self.last_iterations += info.iterations;
                 xs.push(x);
             }
@@ -149,13 +153,17 @@ impl<O: ForceOp> Rational<O> {
                     a: &mut normal,
                     shift: *pole,
                 };
+                let start = std::time::Instant::now();
                 let info = Cg::new(stop).solve(&mut shifted, None, &mut x, b)?;
+                self.meter.add(start, info.iterations);
                 self.last_iterations += info.iterations;
                 xs.push(x);
             }
             return Ok(xs);
         }
+        let start = std::time::Instant::now();
         let info = MultiShiftCg::new(stop).solve(&mut normal, &r.poles, &mut xs, b)?;
+        self.meter.add(start, info.iterations);
         self.last_iterations = info.iterations;
         Ok(xs)
     }
@@ -238,5 +246,8 @@ impl<O: ForceOp> super::MdAction<O::Links> for Rational<O> {
     }
     fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         Rational::force(self, links)
+    }
+    fn take_cost(&mut self) -> Option<super::SolveCost> {
+        Some(self.meter.take(&self.preconditioner))
     }
 }

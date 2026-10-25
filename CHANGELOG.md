@@ -12,6 +12,14 @@
 
 ### Fixed
 
+- The `# cost` lines of an HMC run leave out no action: the Rational action and the Standard
+  action on the even sites now report their solves and iterations too (a multi-shift solve is
+  one solve, a pole solved on its own one).
+- `the_work_of_a_trajectory_is_counted_alike_on_both` failed on an RTX 3080 since 0.9.0: the
+  CPU and the device took 5 iterations and some CG restarts more or fewer (11 applications of
+  D†D, 1.26e-3 of the fine work, above the test's 1e-3). The test now asks what does not depend
+  on the solvers: the gauge work and the forces equal, the fine work equal up to whole
+  applications of D†D, the vectors to 1e-3. A force counted twice on the device fails it.
 - With levels below the coarse lattice, the bootstrap of the CPU now takes them from its second
   round on, as the device has done since 0.4.1 in HMC and since 0.5.0 in the propagator runs: the
   test vectors of the two backends had drifted apart from the third round on (4³×8, three rounds

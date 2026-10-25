@@ -350,6 +350,7 @@ pub struct TwoFlavorEo<O: EvenOddForceOp> {
     clover: Option<f64>,
     /// The initial guess of the force solves (none by default).
     pub(crate) guess: Chrono<O::Half>,
+    meter: super::solve::CostMeter,
 }
 
 impl<O: EvenOddForceOp> TwoFlavorEo<O> {
@@ -368,6 +369,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
             md_iterations: 0,
             clover: None,
             guess: Chrono::new(0),
+            meter: Default::default(),
         }
     }
 
@@ -431,6 +433,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
 
     /// (Ŝ†Ŝ)⁻¹ φ_e; for the force (`md`) from the guess.
     fn solve(&mut self, lat: &Arc<Lattice>, stop: Stop, md: bool) -> Result<O::Half, SolveError> {
+        let start = std::time::Instant::now();
         let phi = self.phi.as_ref().expect("pseudofermions drawn");
         let a = self.conditioned.as_ref().unwrap_or(&self.op);
         let odd = a.new_half(lat, Parity::Odd);
@@ -475,6 +478,7 @@ impl<O: EvenOddForceOp> TwoFlavorEo<O> {
                 panic!("the domain-wall multigrid is for the Ratio action on all sites")
             }
         };
+        self.meter.add(start, info.iterations);
         self.last_iterations = info.iterations;
         if md {
             self.md_iterations += info.iterations;
@@ -548,6 +552,9 @@ impl<O: EvenOddForceOp> MdAction<O::Links> for TwoFlavorEo<O> {
     }
     fn force(&mut self, links: &Links<O::Links>) -> O::Links {
         TwoFlavorEo::force(self, links)
+    }
+    fn take_cost(&mut self) -> Option<super::SolveCost> {
+        Some(self.meter.take(&self.preconditioner))
     }
 }
 

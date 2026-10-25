@@ -3591,10 +3591,13 @@ fn levels_on_several_processes_are_those_on_one() {
 
 /// The work report is complete and the same on both backends: one trajectory of the clover RHMC
 /// example (stout smearing and its chain rule, the rectangle gauge action, the Ratio, Standard
-/// and Rational actions, Lexical) counts the same flops of every kind on the CPU and the device,
-/// and the same bytes but for the fine operators (the device keeps two rows of a link, the CPU
-/// three). The solvers may take a few iterations more or fewer on one of them (their sums go in
-/// another order): to 1e-3.
+/// and Rational actions, Lexical) on the CPU and the device. The solvers take a few iterations
+/// and restarts more or fewer on one of them (their sums go in another order; near 1e-28 a CG
+/// restarts where its true residual has not followed), so only what does not depend on them is
+/// equal: the gauge work and the forces exactly; the fine work up to whole applications of D†D
+/// (all the actions are clover on the one lattice; its bytes differ anyway, the device keeping
+/// two rows of a link and the CPU three); the vectors, whose work an iteration depends on the
+/// shifts still active, to 1e-3.
 #[test]
 fn the_work_of_a_trajectory_is_counted_alike_on_both() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -3611,24 +3614,44 @@ fn the_work_of_a_trajectory_is_counted_alike_on_both() {
         ruttice::meter::Counts::now().since(&before)
     };
     let (cpu, gpu) = (counted("cpu"), counted("cuda_bridge"));
+    // One application of D†D of the clover operator on the lattice of the example.
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let clover = Clover::<f64>::new(
+        &lat,
+        CloverParams {
+            kappa: 0.12,
+            csw: 1.0,
+            boundary: ANTIPERIODIC_T,
+        },
+    );
+    let normal = 2.0 * (clover.flops_per_site() * 4 * 4 * 4 * 8) as f64;
     let kinds = ["Fine", "Coarse", "Transfer", "Vector", "Gauge", "Force"];
     for (w, kind) in kinds.iter().enumerate() {
         for p in 0..2 {
             let (a, b) = (cpu.flops[w][p], gpu.flops[w][p]);
-            eprintln!(
-                "{kind} {p}: {a:e} / {b:e} Flop, {:e} / {:e} bytes",
-                cpu.bytes[w][p], gpu.bytes[w][p]
-            );
-            assert!(
-                (a - b).abs() <= 1e-3 * a.max(b),
-                "{kind}: {a:e} Flop on the CPU, {b:e} on the device"
-            );
-            if w != 0 {
-                let (a, b) = (cpu.bytes[w][p], gpu.bytes[w][p]);
-                assert!(
-                    (a - b).abs() <= 1e-3 * a.max(b),
-                    "{kind}: {a:e} bytes on the CPU, {b:e} on the device"
-                );
+            let (c, d) = (cpu.bytes[w][p], gpu.bytes[w][p]);
+            eprintln!("{kind} {p}: {a:e} / {b:e} Flop, {c:e} / {d:e} bytes");
+            match *kind {
+                "Fine" => {
+                    let applications = (a - b) / normal;
+                    assert!(
+                        (applications - applications.round()).abs() < 1e-9
+                            && (a - b).abs() <= 1e-2 * a.max(b),
+                        "Fine: {a:e} Flop on the CPU, {b:e} on the device: {applications} D†D"
+                    );
+                }
+                "Vector" => {
+                    assert!(
+                        (a - b).abs() <= 1e-3 * a.max(b) && (c - d).abs() <= 1e-3 * c.max(d),
+                        "Vector: {a:e} / {b:e} Flop, {c:e} / {d:e} bytes on the CPU / the device"
+                    );
+                }
+                _ => {
+                    assert!(
+                        a == b && c == d,
+                        "{kind}: {a:e} / {b:e} Flop, {c:e} / {d:e} bytes on the CPU / the device"
+                    );
+                }
             }
         }
     }
