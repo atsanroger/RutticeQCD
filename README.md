@@ -16,24 +16,27 @@ Ruttice is a lattice QCD code written in Rust. Our goal is to use what Rust offe
 as it goes to make the solvers and HMC fast, with the aim of simulations in pure Rust on
 every kind of hardware.
 
-- **Fermions**: Ruttice supports Wilson, clover and Möbius domain-wall fermion.
-- **Solvers**: Various preconditied solves including multigrid to compute correlation
-  functions.
-- **Configurations**: Pure gauge, HMC and RHMC.
-- **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge`: propagators of the
-  three kinds of fermions, the domain-wall multigrid with its setup, and HMC with domain-wall
-  fermions (the Ratio action). Not yet on the device: the multigrid of Wilson and clover
-  fermions, and the other fermion actions of HMC. A backend in Rust is planned once CUDA
-  is officially supported there, keeping both.
+- **Fermions**: Ruttice supports Wilson, clover and Möbius domain-wall fermions.
+- **Solvers**: various preconditioned solvers, including the multigrid, for the propagators.
+- **Measurements**: meson correlators in every channel, also at momenta; the proton
+  correlator; connected three-point functions by a sequential source through the sink, with
+  local currents and the conserved vector current.
+- **Configurations**: pure gauge, HMC and RHMC.
+- **GPUs**: the CUDA kernels of Bridge++ behind `backend : cuda_bridge`: the propagators, the
+  multigrids and HMC of all three kinds of fermions, on one GPU or several. A backend in Rust
+  is planned once CUDA is officially supported there, keeping both.
+- **Work report**: every solve and trajectory prints its Flop, GFlop/s and Flop/byte by kind
+  of work, the same count on the CPU and the GPU, for a roofline estimate.
 
 The code is written for a clear structure and for speed, at some cost in readability where
 the two pull apart: fused kernels, fields laid out for SIMD, low-level control of memory and also low-level assembly.
 
 Where [Bridge++](https://bridge.kek.jp/Lattice-code/) computes the same thing, we compare our
-numbers with its results, number by number ([docs/COMPARISON.md](docs/COMPARISON.md)). What
-Bridge++ does not have (the domain-wall multigrid, the low-mode probe, the `A4_A4` channel)
-is checked only by the properties the results must have
-([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)). These comparisons are ours: the Bridge++
+numbers with its results, number by number ([docs/COMPARISON.md](docs/COMPARISON.md)),
+including what Bridge++ has but its tests do not check (mesons at momenta, the proton). What
+Bridge++ does not have (the domain-wall multigrid, the low-mode probe, the `A4_A4` channel,
+three-point functions) is checked by the properties the results must have, such as the charge
+of the conserved current ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)). These comparisons are ours: the Bridge++
 developers have not reviewed Ruttice.
 
 ## Quick start
@@ -75,13 +78,15 @@ Start from an example; each one is commented.
 | [wilson_pion.yaml](examples/wilson_pion.yaml) | Wilson fermions, pion correlator |
 | [clover_two_flavours.yaml](examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources |
 | [clover_mg.yaml](examples/clover_mg.yaml) | clover fermions with the multigrid |
+| [clover_measurements.yaml](examples/clover_measurements.yaml) | mesons at momenta, the proton, a three-point function |
 | [mdwf_pv_eo_mg.yaml](examples/mdwf_pv_eo_mg.yaml) | domain-wall fermions with the multigrid |
 | [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
 | [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavours of clover fermions (RHMC) |
 
 All of them run as they are on the configuration in `examples/`, except the domain-wall
-multigrid,.
-You can use your own configuration by (`Gauge.config_filename_input`) or to find it on [My google drive](https://drive.google.com/drive/folders/1-OUysaybUd8ViKQbliD7gu7_wPPNpM4S?usp=drive_link) which has serval quenched configurations with beta=6.0.
+multigrid, which wants a larger one: give your own with `Gauge.config_filename_input`, or take
+one from [this Google Drive folder](https://drive.google.com/drive/folders/1-OUysaybUd8ViKQbliD7gu7_wPPNpM4S?usp=drive_link),
+which has several quenched configurations at β = 6.0.
 
 [docs/USAGE.md](docs/USAGE.md) has every section of the file.
 
@@ -99,11 +104,12 @@ What runs on the GPU with `backend : cuda_bridge`, and what does not yet:
 
 | On the GPU | Not yet |
 |---|---|
-| Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | the multigrid of Wilson and clover fermions |
+| Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | |
 | the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) and either treatment of the Pauli-Villars factor (MINRES, or the exact adjoint) | |
-| the meson correlators from the propagators (on the CPU, after the solves) | |
-| HMC (`Main.backend : cuda_bridge`): the links, the momenta and the integrator, the plaquette and rectangle gauge actions, stout smearing and its chain rule, and the domain-wall Ratio action with its solves and force; the links cross over only for the flow and to be saved | the other fermion actions in HMC (standard two flavours, even-odd, RHMC), and the multigrid in its solves |
-| | several GPUs or processes; boundary phases other than ±1 and 0 |
+| the Wilson and clover multigrid (P made on the host, the coarse operator, SAP and the coarse solves on the device), for propagators and HMC | its levels below the coarse lattice and `precondition_diagonal` (refused when the file is read) |
+| HMC: the links, the momenta and the integrator, the gauge actions, stout smearing and its chain rule, the domain-wall Standard and Ratio actions, the Wilson and clover Standard, Ratio and Rational actions with the clover term and its force | the gradient flow (the links cross over to the CPU for it and to be saved) |
+| several GPUs: `ruttice-mpi` with one GPU a process, every fermion and its multigrid, the result of one process bit for bit | checked so far with several processes sharing one GPU; NCCL and nodes of several GPUs not yet run |
+| the measurements from the propagators (on the CPU, after the solves; the sequential source of a three-point function solved on the device) | boundary phases other than ±1 and 0 |
 
 [docs/USAGE.md](docs/USAGE.md) has the details, and [cuda_bridge/README.md](cuda_bridge/README.md)
 which kernels are checked against the CPU.
@@ -111,13 +117,13 @@ which kernels are checked against the CPU.
 ### Parallelism
 
 The CPU backends (`cpu`, `simd`) run on threads, on several processes, or both; `cuda_bridge`
-runs on one GPU in one process:
+runs one GPU a process:
 
 | | How |
 |---|---|
 | Threads | every core by default; `Main.cpu_thread` in the file or `RAYON_NUM_THREADS` sets how many (with `cuda_bridge`, for what stays on the host) |
-| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid; not with `cuda_bridge` yet |
-| GPU | one device; `CUDA_VISIBLE_DEVICES` chooses which; several GPUs not yet |
+| MPI | build with `--features mpi`, run `ruttice-mpi`; `Main.grid_size` is the process grid |
+| GPU | one a process (the rank within its node modulo the GPUs it sees, or `RUTTICE_DEVICE`); several with `ruttice-mpi` built with `--features mpi,cuda-bridge`, the faces by NCCL with `--features nccl` or through the host |
 
 ```bash
 cargo build --release --features mpi        # needs an MPI installation and libclang
