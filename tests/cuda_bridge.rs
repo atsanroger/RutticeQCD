@@ -378,8 +378,9 @@ fn same_blocks<C: EvenOdd<HalfPsi>, G: EvenOdd<DeviceSpinor>>(
     let on_gpu = ruttice::meter::Counts::now().since(&before).total_flops();
     let d = worst(&out.to_host_half(index).unwrap(), &expected);
     assert!(d < 1e-12, "{what}: the Schur complement differs by {d:e}");
-    // The work report counts the same Flop on both (the CPU domain-wall operator does not
-    // count its fifth dimension yet).
+    // The work report counts the same Flop on both for Wilson and clover. Domain-wall fermions
+    // count differently by design: the device applies the fifth dimension as dense Ls × Ls
+    // products, the CPU by its structure (`fermion::mdwf::site::flops`).
     if ls == 1 {
         assert!(
             on_cpu > 0.0 && (on_cpu - on_gpu).abs() <= 1e-12 * on_gpu,

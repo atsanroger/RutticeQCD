@@ -226,6 +226,27 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         } else {
             None
         };
+        // The fifth dimension in the sweep, which counts the hops and the fields: B on every
+        // neighbour each leg reads (eight times a spinor), or B† on the result; C⁻¹, Q and the
+        // subtraction on the result, `from` read as well.
+        let factor = super::site::flops::factor(ls, fifth.y != 0.0, fifth.q != 1.0);
+        let mut per_spinor = if adjoint { factor } else { 8.0 * factor };
+        if then.site_inv {
+            per_spinor += super::site::flops::site_inv_in_place(ls);
+        }
+        if q_out != 1.0 {
+            per_spinor += super::site::flops::q(ls);
+        }
+        let read_from = then.from.is_some();
+        if read_from {
+            per_spinor += SPINOR_REALS as f64;
+        }
+        super::site::count_fifth::<T>(
+            out.num_sites(),
+            out.copies(),
+            per_spinor,
+            f64::from(u8::from(read_from)),
+        );
         let before = (!adjoint).then_some(fifth);
         L::hop_fifth(&self.wilson, work, out, inp, to, dagger, before, after);
     }

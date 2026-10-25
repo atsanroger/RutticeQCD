@@ -252,6 +252,8 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
     fn select(&self, which: &[usize]) -> Self {
         assert!(which.iter().all(|j| *j < Field::num_vectors(self)));
         let mut out = self.zeros_with(which.len());
+        // A copy of the vectors chosen: each real read and written once.
+        count(&out, 0.0, 2.0);
         let (len, from_len, to_len) = (vector_len(self), self.block_len(), out.block_len());
         let from = self.as_slice();
         for_light_sites(out.as_mut_slice(), to_len, |i, to| {
@@ -271,6 +273,7 @@ impl<T: Storage, K: Kind, S: Sites, L: Layout> Vector for Field<T, K, S, L, Cpu>
             from.as_slice().len() * Field::num_vectors(self),
             self.as_slice().len() * which.len()
         );
+        count(from, 0.0, 2.0);
         let (len, to_len, from_len) = (vector_len(self), self.block_len(), from.block_len());
         let from = from.as_slice();
         for_light_sites(self.as_mut_slice(), to_len, |i, to| {

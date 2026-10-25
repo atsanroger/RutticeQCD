@@ -178,10 +178,13 @@ operators, the coarse operators, restriction and prolongation, and vector operat
 single or double precision, and how many counts were made. The flops are Bridge++'s counts; the
 bytes are a model (QUDA's: every value a kernel reads from memory, no caches), so the intensity
 is an estimate to place a run on a roofline before measuring it with Nsight Compute. On several
-processes the numbers are those of the first process. Not counted yet: the fifth-dimension parts
-of the domain-wall operator on the CPU, the even-odd restriction of its multigrid on the CPU, the
-block operations of SAP on the CPU (on the device they are counted, so the two runs of one file
-report different totals).
+processes the numbers are those of the first process. Each kernel counts what it computes, so a
+file run on the CPU and on the device reports the same Flop for Wilson and clover fermions but not
+for domain-wall fermions: the device applies the fifth dimension as dense Ls × Ls products (96 Ls
+Flop a spinor), the CPU by its structure (the hop Y and the substitution for C⁻¹), recomputing the
+factor b − c Y on each of the eight legs of the hops. The bytes differ where the storage does: the
+device keeps two rows of a link, the CPU three. Not counted yet: the even-odd restriction of the
+domain-wall multigrid on the CPU, the block operations of SAP on the CPU.
 With `RUTTICE_CHECKSUM=1` in the environment a run on the device prints checksums of what its
 stages made (the test vectors, P, the coarse operators, the solutions), to compare two runs bit
 by bit. HMC files with `backend : cuda_bridge` run the domain-wall Standard and Ratio actions

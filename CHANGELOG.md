@@ -9,6 +9,11 @@
   of the last block of 32 sites (now the lattice reals only). The CPU, the SIMD layout and the
   device give the same count; `tests/cuda_bridge.rs` checks the Schur complement of the Wilson
   and clover operators to be counted alike.
+- The work report of the CPU counts the fifth dimension of domain-wall fermions (the factor
+  b − c Y, which the hops recompute on each of their eight legs, C⁻¹ by substitution, Neff's Q,
+  `combine`) and the copies of `select` and `assign`. A domain-wall solve on the CPU now reports
+  its arithmetic (4.5e9 Flop for a column of a 4³×8×8 CG solve, 1.7e9 before); the device counts
+  its dense Ls × Ls products instead (2.8e9), so the two differ by design (USAGE).
 
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against

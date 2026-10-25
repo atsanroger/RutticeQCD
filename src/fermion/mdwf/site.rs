@@ -3,6 +3,71 @@
 
 use super::*;
 
+/// The flops of the fifth-dimension arithmetic, as this code does it, per spinor (24 reals):
+/// `sub_scaled` is 2 a real, `add` 1. The device does the same matrices as dense Ls × Ls
+/// products (96 Ls a spinor), so the two count differently, each what it computes.
+pub(super) mod flops {
+    const AXPY: f64 = 48.0;
+    const ADD: f64 = 24.0;
+    /// k (1 ± γ5) φ: φ ∓ γ5 φ, then times k.
+    const PROJECT: f64 = 2.0 * AXPY;
+    /// (Y φ)_s: two projected neighbours added (`fifth_hop`).
+    const Y: f64 = 2.0 * PROJECT + ADD;
+
+    /// Neff's Q on the spinors of a vector, a mean per spinor: a scaling inside, a scaling and
+    /// a γ5 term at the two walls (`neff_q`).
+    pub(in crate::fermion::mdwf) fn q(ls: usize) -> f64 {
+        let ls = ls as f64;
+        (AXPY * (ls - 2.0) + 2.0 * 2.0 * AXPY) / ls
+    }
+
+    /// The factor B = a + y Y, with Neff's Q on its three inputs when `with_q` (`Fifth::apply`).
+    pub(in crate::fermion::mdwf) fn factor(ls: usize, y: bool, with_q: bool) -> f64 {
+        term(y) + if with_q { 3.0 * q(ls) } else { 0.0 }
+    }
+
+    /// One term `a x + y Y x` of `combine`, or the factor B without Q.
+    pub(in crate::fermion::mdwf) fn term(y: bool) -> f64 {
+        AXPY + if y { Y + AXPY } else { 0.0 }
+    }
+
+    /// C⁻¹ in place (`site_inv_in_place`): for each chirality, the first recursion
+    /// ((Ls − 1) projected rows and steps), the first x, then every row projected, stepped,
+    /// solved and written back: 504 Ls − 96 a chirality; a mean per spinor.
+    pub(in crate::fermion::mdwf) fn site_inv_in_place(ls: usize) -> f64 {
+        let ls = ls as f64;
+        2.0 * (504.0 * ls - 96.0) / ls
+    }
+
+    /// C⁻¹ in its own pass (`site_inv_plain`): for each chirality 432 Ls − 192 (the projected
+    /// row recomputed in each step), the second adding 24 a spinor; Q on its 2 Ls − 1 inputs and
+    /// its Ls outputs a chirality when asked. A mean per spinor.
+    pub(in crate::fermion::mdwf) fn site_inv_plain(ls: usize, q_in: bool, q_out: bool) -> f64 {
+        let n = ls as f64;
+        let mut total = 2.0 * (432.0 * n - 192.0) + ADD * n;
+        if q_in {
+            total += 2.0 * (2.0 * n - 1.0) * q(ls);
+        }
+        if q_out {
+            total += 2.0 * n * q(ls);
+        }
+        total / n
+    }
+}
+
+/// Counts fifth-dimension work (`meter`): `sites` sites with `spinors` spinors each, `flops` and
+/// `moved` spinors read or written for every spinor.
+pub(super) fn count_fifth<T: Storage>(sites: usize, spinors: usize, flops: f64, moved: f64) {
+    let n = (sites * spinors) as f64;
+    let size = std::mem::size_of::<T>();
+    crate::meter::add(
+        crate::meter::Work::Fine,
+        size,
+        n * flops,
+        n * moved * SPINOR_REALS as f64 * size as f64,
+    );
+}
+
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     /// `out = Γ5 inp`, Γ5 = γ5 R (R reverses the fifth dimension), on the sites `inp` has.
     pub fn mult_gamma5_on<S: Sites>(
@@ -29,6 +94,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         } else {
             self.alpha
         };
+        count_fifth::<T>(out.num_sites(), out.copies(), flops::q(ls), 2.0);
         let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
             for (v, o) in o.chunks_exact_mut(ls * sp).enumerate() {
@@ -88,6 +154,13 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let number = <L::Num as Number>::from_f64;
+        let per_spinor: f64 = terms.iter().map(|(_, _, y)| flops::term(*y != 0.0)).sum();
+        count_fifth::<T>(
+            out.num_sites(),
+            out.copies(),
+            per_spinor,
+            terms.len() as f64 + 1.0,
+        );
         let site_len = out.block_len();
         let load = |from: &[T], s: usize| L::load(&from[s * sp..(s + 1) * sp]);
         for_sites(out.slab_mut(0), site_len, |x, o| {
@@ -278,6 +351,8 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
             d_minus,
             q,
         } = self.substitution(mass);
+        let per_spinor = flops::site_inv_plain(ls, q_in != 1.0, q_out != 1.0);
+        count_fifth::<T>(out.num_sites(), out.copies(), per_spinor, 2.0);
         let scaled = |k: L::Num, x: &SiteSpinor<L::Num>| SiteSpinor::zero().sub_scaled(-k, x);
         let site_len = out.block_len();
         for_sites(out.slab_mut(0), site_len, |x, o| {
