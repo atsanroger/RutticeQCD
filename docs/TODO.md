@@ -781,6 +781,30 @@ matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bo
 batches of 4–5 vectors, which makes `coarse_pass` a block product (the tensor cores) and saves
 about a third of the setup (item 11).
 
+### 21. CPU domain-wall: the factor b − c Y once, not on eight legs (found 2026-10-25)
+
+The even-odd hops of the CPU apply B = (4 − M5)(b − c Y) to the input as the sweep reads it
+(`Pre::Fifth`): every leg reads a neighbour and makes its B again, 8 × 312 Flop a spinor beside
+the hops' 1320, more than the hops themselves (counted since 607d923; the device does one dense
+Ls × Ls product, 768 at Ls 8). B made once on the input field, then plain hops, does an eighth of
+that work, for one more field of memory and one more pass over it. Whether it is faster depends
+on whether the sweep is bound by memory or by arithmetic there: measure on 12⁴ and 16⁴ first
+(rules of item 19).
+
+### 22. The work report: what is not counted, and where the backends differ (2026-10-25)
+
+- Not counted yet on the CPU: the even-odd restriction of the domain-wall multigrid, the block
+  operations of SAP.
+- The same file on the CPU and the device reports the same Flop for Wilson and clover, not for
+  domain-wall fermions: each counts what it computes (the device dense Ls × Ls products, the CPU
+  the structure and the eight recomputed factors of item 21). By design (USAGE).
+- The bytes of the hops differ by the link rows each keeps (two on the device, three on the
+  CPU), 1.5% of the fine bytes of a clover solve. By design.
+- The number of counts differs (the device counts the copies of `select` and `assign` vector by
+  vector, the CPU once a call); it measures only what counting costs.
+- `tests/cuda_bridge.rs` checks the Flop of the Wilson and clover Schur complements on both;
+  nothing yet checks the multigrid or HMC counts across the backends.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
