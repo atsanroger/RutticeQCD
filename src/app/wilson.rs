@@ -171,6 +171,21 @@ fn source_position(q: &QuarkConfig) -> [usize; ND] {
 /// Checks on `Measure.proton` and `Measure.three_point`.
 fn validate_measure(config: &Config) -> Result<(), CliError> {
     let m = &config.measure;
+    if !m.momenta.is_empty() {
+        // The phase e^{+i p·(x − x0)} needs one source position x0 for every pair.
+        let first = source_position(&config.quark[0]);
+        if let Some(k) = config
+            .quark
+            .iter()
+            .position(|q| source_position(q) != first)
+        {
+            return invalid(format!(
+                "Measure.momenta: the momenta are taken from one source position, but quark {} has its source at {:?} and quark 1 at {first:?}",
+                k + 1,
+                source_position(&config.quark[k])
+            ));
+        }
+    }
     if !(m.proton || m.three_point.is_some()) {
         return Ok(());
     }
@@ -756,7 +771,9 @@ fn protons(
 ) -> Vec<Correlator> {
     let identity = Dirac::GAMMA[3].mul(&Dirac::GAMMA[3]);
     let mut out = Vec::new();
-    for n in std::iter::once([0; 3]).chain(momenta.iter().copied()) {
+    // Zero momentum once, whether or not `momenta` lists it.
+    let nonzero = momenta.iter().copied().filter(|n| *n != [0; 3]);
+    for n in std::iter::once([0; 3]).chain(nonzero) {
         let suffix = if n == [0; 3] {
             String::new()
         } else {

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed (found by a code review): domain-wall parameter files accepted `Measure.momenta`,
+  `proton` and `three_point` without computing them, and the header said they ran; they are now
+  refused when the file is read. `Measure.momenta` took the phase origin of quark 1 for every
+  pair; quarks with their sources elsewhere are now refused for it. With `[0, 0, 0]` among the
+  momenta the proton at zero momentum was printed twice. The device's domain-wall force counted
+  its two γ5 passes, which the CPU's does not.
+
 - Fixed: the work report counted different Flop for the same solve on the CPU and the device
   (a clover even-odd solve: 1.36e9 on the CPU, 2.97e9 on the device). The CPU did not count the
   site blocks T and T⁻¹ of the even-odd solves (now `count_site_block`, Bridge++'s

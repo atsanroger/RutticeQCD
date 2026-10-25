@@ -994,8 +994,11 @@ impl CudaMdwf<f64> {
         // w = (b − c Y) Q η: the fifth dimension, as `one_pass` counts it (`mdwf_fifth`).
         count_fine::<f64>(eta.sites(), ls, 120.0, 3.0, 0.0);
         let (mut g5w, mut g5zeta) = (eta.zeros_like(), eta.zeros_like());
-        gamma5(&mut g5w, &w, false);
-        gamma5(&mut g5zeta, zeta, false);
+        // Inside the force's one formula (`hmc::count::hop_force`), as on the CPU.
+        crate::meter::uncounted(|| {
+            gamma5(&mut g5w, &w, false);
+            gamma5(&mut g5zeta, zeta, false);
+        });
         let m = DeviceLinks::zeros(&self.gauge.lat)?;
         crate::hmc::count::hop_force(eta.sites(), ls);
         let coef = -(4.0 - m5) / (8.0 - 2.0 * m5);

@@ -117,6 +117,12 @@ impl Params {
             return self.check_wilson(notes);
         }
         Self::check_domain_wall_fopr(&self.fopr, "Fopr", notes)?;
+        let m = &self.measure;
+        if !m.momenta.is_empty() || m.proton || m.three_point.is_some() {
+            return Err(invalid(
+                "Measure.momenta, proton and three_point: for Wilson and clover fermions so far; domain-wall runs print the pion correlator and the residual mass".into(),
+            ));
+        }
         self.check_domain_wall(notes)
     }
 

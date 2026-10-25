@@ -1462,6 +1462,22 @@ fn measurements_of_the_measure_section() {
     );
 }
 
+/// The proton at zero momentum is printed once, `momenta` listing [0, 0, 0] or not.
+#[test]
+fn the_proton_at_zero_momentum_once() {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let text = format!(
+        "{CLOVER_YAML}Measure:\n  channels : [PS]\n  momenta : [[0, 0, 0]]\n  proton : true\n"
+    );
+    let report = run(&config(&text), &examples).unwrap();
+    let n = report
+        .correlators
+        .iter()
+        .filter(|c| c.quarks == (1, 2) && c.channel == "proton_upper")
+        .count();
+    assert_eq!(n, 1);
+}
+
 /// Mistakes in the `Measure` section are refused before any work.
 #[test]
 fn mistakes_in_the_measure_section_are_refused() {
@@ -1490,7 +1506,22 @@ fn mistakes_in_the_measure_section_are_refused() {
         let e = run(&config(&text), &dir).unwrap_err().to_string();
         assert!(e.contains(expected), "{e}");
     }
+    // The momenta need one source position; quark 2 elsewhere is refused.
+    let moved = with(
+        &format!("{CLOVER_YAML}Measure:\n  momenta : [[1, 0, 0]]\n"),
+        "    source_position : [0, 0, 0, 0]\n    slope           : 0.5",
+        "    source_position : [1, 0, 0, 0]\n    slope           : 0.5",
+    );
+    let e = run(&config(&moved), &dir).unwrap_err().to_string();
+    assert!(
+        e.contains("Measure.momenta") && e.contains("quark 2"),
+        "{e}"
+    );
     let typo = format!("{CLOVER_YAML}Measure:\n  protn : true\n");
     assert!(Params::from_yaml(&typo).is_err());
+    // Domain-wall runs refuse what they would not compute.
+    let mdwf = "Main:\n  lattice_size : [4, 4, 4, 8]\nGauge:\n  config_filename_input : c.txt\nFopr:\n  fermion_type : Domainwall_5din\n  quark_mass : 0.05\n  domain_wall_height : 1.0\n  extent_of_5th_dimension : 8\nSolver:\n  solver_type : CG\n  convergence_criterion_squared : 1.0e-20\nSource:\n  source_position : [0, 0, 0, 0]\nMeasure:\n  proton : true\n";
+    let e = Params::from_yaml(mdwf).unwrap_err().to_string();
+    assert!(e.contains("for Wilson and clover fermions so far"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
