@@ -212,19 +212,15 @@ tests.
 - **Check.** Coarse operators equal to rounding (`--test multigrid`); setup time of
   `examples/mdwf_pv_eo_mg.yaml`; `cargo run --release --example coarse_build_bench`.
 
-### 8. CPU multigrid in single precision above the coarse lattice
+### 8. CPU multigrid in single precision above the coarse lattice (done 0.2.0, 2026-10-14)
 
-- **Why.** `PvEoCycle` and the CPU's setup fix the fine fields to `f64`. On the device single
-  precision kept the outer iterations and the correlators; on the CPU it would double the SIMD
-  width and halve the memory traffic.
-- **How.** Make `mdwf_even_odd.rs` generic over the fine storage (`low_modes`,
-  `bootstrap_rounds`, `lifted_vectors`, `TwoGrid`, `coarse_solve` already are, and serve both
-  backends since 2026-10-25). While there: `PvEoCycle` has its own cycle and
-  `coarse_correction`, the device uses the generic `TwoGrid` and `DeviceCorrection`; one
-  implementation needs the coarse operator behind a trait (`schur`, `schur_source`,
-  `schur_solution`, `even_block_inverse`, `apply`, `gamma5`, which `CoarseOp` and
-  `DeviceCoarseOp` both have). It is the last part of the domain-wall setup and cycle still
-  written twice.
+The CPU's cycle runs in single precision above the coarse lattice (`MultiGrid.fine_precision`,
+`OnCpu` with `fine_single`), in the SIMD layouts too (`CycleOperators<f32, L>`). The CPU and the
+device have one cycle (`TwoGrid` with the Chebyshev smoother) and one coarse correction
+(`Correction` over `CoarseOperator`, which `CoarseOp` and `DeviceCoarseOp` implement); since
+2026-10-25 also one filter (`low_modes`), one bootstrap (`bootstrap_rounds`) and one making of
+the vectors of P (`lifted_vectors`). What each backend makes on its own is what touches its
+memory: P from those vectors, the coarse operators, the inverses of their blocks, the levels.
 
 Not worth doing on the CPU: the prolongation in half precision; reading it once for several
 vectors (the CPU already loops over the vectors inside a site).
@@ -709,10 +705,8 @@ for the device, to put the items below in order.
    the smoother is in every cycle. Same for any other default `Vector` method that `Field`
    does not override: list them, fuse those in the cycle and the setup. Memory-bound on the
    CPU as on the GPU, so the gain is the passes saved.
-4. **Single precision above the coarse lattice** (item 8): the fine fields of `PvEoCycle`, the
-   filter and the bootstrap in f32 doubles the SIMD width and halves the traffic; on the device
-   it kept the outer iterations and the correlators. Making `mdwf_even_odd.rs` generic over the
-   fine storage also brings the CPU and the device onto one cycle (`TwoGrid`).
+4. **Single precision above the coarse lattice** (item 8, done): `fine_precision : single` on
+   the CPU, the CPU and the device on one cycle (`TwoGrid`).
 5. **Restriction and prolongation** (`basis.rs`, `restrict_site`, `prolong_site`): the device
    gained most from reading P in the order it is stored (`fold_restrict`, 32.5 → 12 ms).
    On the CPU check that a thread walks P of one aggregate contiguously and that all vectors
@@ -798,7 +792,9 @@ on whether the sweep is bound by memory or by arithmetic there: measure on 12⁴
 Every kernel and CPU operation counts itself (DESIGN §7.11); where the backends differ by design
 is listed in USAGE (domain-wall fifth dimension, the CPU's ln det of even-odd clover, the setup
 of the Wilson and clover multigrid, bytes of links and P). `tests/cuda_bridge.rs` compares every
-kind of a clover RHMC trajectory and of a clover multigrid solve on the two backends. Open: the
+kind of a clover RHMC trajectory and of a clover multigrid solve on the two backends; in the
+trajectory the solvers take other iterations and restarts on the two, so the fine work agrees
+up to whole applications of D†D and the vectors to 1e-3 (2026-10-26). Open: the
 Jacobi sweeps of |H|⁻¹ are an estimate (six); nothing compares the domain-wall counts or the
 setups across the backends; the halo exchanges are not counted (communication).
 
