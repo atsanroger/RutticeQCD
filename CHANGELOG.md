@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed: the work report counted different Flop for the same solve on the CPU and the device
+  (a clover even-odd solve: 1.36e9 on the CPU, 2.97e9 on the device). The CPU did not count the
+  site blocks T and T⁻¹ of the even-odd solves (now `count_site_block`, Bridge++'s
+  Nc Nd (2 + 48 Nc) as the device); the device counted its vector operations over the padding
+  of the last block of 32 sites (now the lattice reals only). The CPU, the SIMD layout and the
+  device give the same count; `tests/cuda_bridge.rs` checks the Schur complement of the Wilson
+  and clover operators to be counted alike.
+
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against
   Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavour pairs of clover propagators:

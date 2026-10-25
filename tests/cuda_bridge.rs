@@ -370,10 +370,22 @@ fn same_blocks<C: EvenOdd<HalfPsi>, G: EvenOdd<DeviceSpinor>>(
     let mut cpu_schur = Schur::new(cpu, even, &inp, &half(odd));
     let mut gpu_schur = Schur::new(gpu, even, &device_inp, &device(odd));
     let (mut expected, mut out) = (half(even), device(even));
+    let before = ruttice::meter::Counts::now();
     cpu_schur.mult(&mut expected, &inp);
+    let on_cpu = ruttice::meter::Counts::now().since(&before).total_flops();
+    let before = ruttice::meter::Counts::now();
     gpu_schur.mult(&mut out, &device_inp);
+    let on_gpu = ruttice::meter::Counts::now().since(&before).total_flops();
     let d = worst(&out.to_host_half(index).unwrap(), &expected);
     assert!(d < 1e-12, "{what}: the Schur complement differs by {d:e}");
+    // The work report counts the same Flop on both (the CPU domain-wall operator does not
+    // count its fifth dimension yet).
+    if ls == 1 {
+        assert!(
+            on_cpu > 0.0 && (on_cpu - on_gpu).abs() <= 1e-12 * on_gpu,
+            "{what}: the Schur complement counts {on_cpu:e} Flop on the CPU, {on_gpu:e} on the device"
+        );
+    }
     cpu_schur.mult_dag(&mut expected, &inp);
     gpu_schur.mult_dag(&mut out, &device_inp);
     let d = worst(&out.to_host_half(index).unwrap(), &expected);

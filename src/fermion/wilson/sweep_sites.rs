@@ -335,6 +335,7 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> WilsonOp<T, G, D> {
     ) {
         assert_eq!(out.as_slice().len(), inp.as_slice().len());
         let copies = inp.copies();
+        super::sweep::count_site_block::<T, D>(out.num_sites(), copies);
         for_sites(out.slab_mut(0), copies * SPINOR_REALS, |x, o| {
             let site = full_site(x);
             let o = o.as_chunks_mut::<SPINOR_REALS>().0;

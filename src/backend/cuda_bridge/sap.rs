@@ -267,7 +267,7 @@ impl<O: BlockOperator<T>, T: DeviceReal> SapBlocks<DeviceSpinor<T>> for DeviceBl
 
     fn keep_colour(&mut self, c: u8, v: &mut DeviceSpinor<T>) {
         self.check(v);
-        crate::meter::vector(v.data.len, std::mem::size_of::<T>(), 0.0, 1.0);
+        crate::meter::vector(v.lattice() * v.vectors, std::mem::size_of::<T>(), 0.0, 1.0);
         // SAFETY: a field of this lattice and the tables of its blocks.
         unsafe {
             T::keep_colour(
@@ -297,8 +297,8 @@ impl<O: BlockOperator<T>, T: DeviceReal> SapBlocks<DeviceSpinor<T>> for DeviceBl
         }
         let alpha = self.alpha.as_ref().expect("the buffer was just made");
         // <p, r> and |p|² (6 flops a real, both read), then e and r (8, five reals).
-        crate::meter::vector(r.data.len, std::mem::size_of::<T>(), 6.0, 2.0);
-        crate::meter::vector(r.data.len, std::mem::size_of::<T>(), 8.0, 5.0);
+        crate::meter::vector(r.lattice() * nv, std::mem::size_of::<T>(), 6.0, 2.0);
+        crate::meter::vector(r.lattice() * nv, std::mem::size_of::<T>(), 8.0, 5.0);
         // SAFETY: three fields of this lattice with `nv` vectors, e and r distinct from each
         // other and from p (borrowed mutably), α two numbers a block and vector.
         unsafe {

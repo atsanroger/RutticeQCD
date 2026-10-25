@@ -148,6 +148,19 @@ pub(super) fn count_sweep<T: Storage, D: DiagTerm<T>>(
     crate::meter::add(crate::meter::Work::Fine, size, n * flops, bytes);
 }
 
+/// Counts the site-diagonal block (or its inverse) applied alone, as in the even-odd solves:
+/// its count without the additions into the hops (`DiagTerm::FLOPS_PER_SITE` less `2 Nc Nd`;
+/// for clover Bridge++'s `Nc Nd (2 + 48 Nc)`, as the device counts it), one spinor read and one
+/// written a copy, the 72 reals of the two blocks once a site.
+pub(super) fn count_site_block<T: Storage, D: DiagTerm<T>>(sites: usize, copies: usize) {
+    let (nc, ns) = (crate::kernel::NC, crate::kernel::NS);
+    let flops = D::FLOPS_PER_SITE.saturating_sub(2 * nc * ns) as f64;
+    let n = (sites * copies) as f64;
+    let size = std::mem::size_of::<T>();
+    let bytes = (n * 2.0 * 24.0 + sites as f64 * 72.0) * size as f64;
+    crate::meter::add(crate::meter::Work::Fine, size, n * flops, bytes);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Diagonal {
     /// The operator's own diagonal block applied to the input at the same site.

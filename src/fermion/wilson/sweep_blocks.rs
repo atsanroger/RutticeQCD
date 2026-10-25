@@ -671,6 +671,7 @@ where
     ) {
         assert_eq!(out.as_slice().len(), inp.as_slice().len());
         let copies = inp.copies();
+        super::sweep::count_site_block::<T, D>(out.num_sites(), copies);
         let spinors = block_spinors(inp);
         for_sites(out.slab_mut(0), copies * SPINOR_REALS * W, |block, o| {
             let o: &mut [BlockSpinor<T, W>] = o.as_chunks_mut::<W>().0.as_chunks_mut().0;

@@ -140,6 +140,11 @@ pub struct DeviceCoarse<T = f64> {
 
 impl<T: DeviceReal> DeviceCoarse<T> {
     /// Reals of one vector.
+    /// Reals of the lattice in one vector, the padding left out (what the work report counts).
+    fn lattice(&self) -> usize {
+        2 * self.sites * self.dim
+    }
+
     fn reals_of(sites: usize, dim: usize) -> usize {
         2 * padded(sites * dim)
     }
@@ -272,13 +277,13 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
 
     fn select(&self, which: &[usize]) -> Self {
         let out = self.zeros_with(which.len());
-        columns::select(&out.data, &self.data, self.vectors, which);
+        columns::select(&out.data, &self.data, self.vectors, which, self.lattice());
         out
     }
 
     fn assign(&mut self, which: &[usize], from: &Self) {
         assert!(from.vectors == which.len() && (self.sites, self.dim) == (from.sites, from.dim));
-        columns::assign(&self.data, self.vectors, which, &from.data);
+        columns::assign(&self.data, self.vectors, which, &from.data, self.lattice());
     }
 
     fn same_shape(&self, x: &Self) -> bool {
@@ -287,47 +292,56 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
 
     fn copy_from(&mut self, x: &Self) {
         assert!(self.same_shape(x));
-        columns::copy(&mut self.data, &x.data);
+        let (vectors, lattice) = (self.vectors, self.lattice());
+        columns::copy(&mut self.data, &x.data, vectors, lattice);
     }
 
     fn set_zero(&mut self) {
-        columns::zero(&mut self.data);
+        let (vectors, lattice) = (self.vectors, self.lattice());
+        columns::zero(&mut self.data, vectors, lattice);
     }
 
     fn scale(&mut self, a: &[f64]) {
-        columns::scale(&self.data, self.vectors, a);
+        columns::scale(&self.data, self.vectors, a, self.lattice());
     }
 
     fn axpy(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
-        columns::axpy(&self.data, &x.data, self.vectors, a);
+        columns::axpy(&self.data, &x.data, self.vectors, a, self.lattice());
     }
 
     fn aypx(&mut self, a: &[C64], x: &Self) {
         assert!(self.same_shape(x));
-        columns::aypx(&self.data, &x.data, self.vectors, a);
+        columns::aypx(&self.data, &x.data, self.vectors, a, self.lattice());
     }
 
     fn dot(&self, x: &Self, out: &mut [C64]) {
         assert!(self.same_shape(x));
-        columns::dot(&self.data, &x.data, self.vectors, out);
+        columns::dot(&self.data, &x.data, self.vectors, out, self.lattice());
         self.sum_complex(out);
     }
 
     fn norm_sqr(&self, out: &mut [f64]) {
-        columns::norm_sqr(&self.data, self.vectors, out);
+        columns::norm_sqr(&self.data, self.vectors, out, self.lattice());
         self.sum(out);
     }
 
     fn axpy_norm_sqr(&mut self, a: &[C64], x: &Self, out: &mut [f64]) {
         assert!(self.same_shape(x));
-        columns::axpy_norm_sqr(&self.data, &x.data, self.vectors, a, out);
+        columns::axpy_norm_sqr(&self.data, &x.data, self.vectors, a, out, self.lattice());
         self.sum(out);
     }
 
     fn xpay(&mut self, x: &Self, a: &[C64], y: &Self) {
         assert!(self.same_shape(x) && self.same_shape(y));
-        columns::xpay(&self.data, &x.data, a, &y.data, self.vectors);
+        columns::xpay(
+            &self.data,
+            &x.data,
+            a,
+            &y.data,
+            self.vectors,
+            self.lattice(),
+        );
     }
 
     fn xpay_norm_sqr_dot(
@@ -349,6 +363,7 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
             self.vectors,
             norm,
             dot,
+            self.lattice(),
         );
         self.sum(norm);
         self.sum_complex(dot);
@@ -356,7 +371,15 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
 
     fn axpy2(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
         assert!(self.same_shape(x) && self.same_shape(y));
-        columns::axpy2(&self.data, a, &x.data, b, &y.data, self.vectors);
+        columns::axpy2(
+            &self.data,
+            a,
+            &x.data,
+            b,
+            &y.data,
+            self.vectors,
+            self.lattice(),
+        );
     }
 
     fn scale_axpy2_norm_sqr(
@@ -370,23 +393,58 @@ impl<T: DeviceReal> Vector for DeviceCoarse<T> {
     ) {
         assert!(self.same_shape(x) && self.same_shape(y));
         let v = self.vectors;
-        columns::scale_axpy2_norm_sqr(&self.data, c, a, &x.data, b, &y.data, v, out);
+        columns::scale_axpy2_norm_sqr(
+            &self.data,
+            c,
+            a,
+            &x.data,
+            b,
+            &y.data,
+            v,
+            out,
+            self.lattice(),
+        );
         self.sum(out);
     }
 
     fn axpy_aypx(&mut self, a: &[C64], x: &Self, b: &[C64], y: &Self) {
         assert!(self.same_shape(x) && self.same_shape(y));
-        columns::axpy_aypx(&self.data, a, &x.data, b, &y.data, self.vectors);
+        columns::axpy_aypx(
+            &self.data,
+            a,
+            &x.data,
+            b,
+            &y.data,
+            self.vectors,
+            self.lattice(),
+        );
     }
 
     fn chebyshev_step(&mut self, d: &mut Self, r: &mut Self, ad: &Self, c: &[f64], a: &[C64]) {
         assert!(self.same_shape(d) && self.same_shape(r) && self.same_shape(ad));
-        columns::chebyshev_step(&self.data, &d.data, &r.data, &ad.data, c, a, self.vectors);
+        columns::chebyshev_step(
+            &self.data,
+            &d.data,
+            &r.data,
+            &ad.data,
+            c,
+            a,
+            self.vectors,
+            self.lattice(),
+        );
     }
 
     fn dot_norms(&self, x: &Self, dot: &mut [C64], norm: &mut [f64], norm_x: &mut [f64]) {
         assert!(self.same_shape(x));
-        columns::dot_norms(&self.data, &x.data, self.vectors, dot, norm, norm_x);
+        columns::dot_norms(
+            &self.data,
+            &x.data,
+            self.vectors,
+            dot,
+            norm,
+            norm_x,
+            self.lattice(),
+        );
         self.sum_complex(dot);
         self.sum(norm);
         self.sum(norm_x);
