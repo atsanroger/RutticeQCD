@@ -28,7 +28,7 @@ One Cargo package, `ruttice`.
 | `fermion` | the Wilson, clover and Möbius domain-wall operators; even-odd preconditioning |
 | `solver` | Krylov solvers, mixed precision, and under `preconditioner` the polynomial preconditioners and the multigrids |
 | `hmc` | actions and their forces, integrators |
-| `measure` | sources and meson correlators |
+| `measure` | sources; meson and proton correlators, with momentum; three-point functions by a sequential source through the sink (`Sink`, `sequential_source`, `current_insertion`, `conserved_charge`) |
 | `app` | parameter files, building what they name, running and reporting |
 
 Files with the same role have the same name. Under `fermion`, each fermion has
@@ -111,12 +111,16 @@ Two kinds of checks run with `cargo test`.
 are: gauge covariance, the free-field result for a plane wave, D† being the adjoint of D,
 the solution of a linear system satisfying it when put back, the same answer from every
 solver and every layout of the fields, the same bits for any number of threads, forces
-being the derivatives of their actions.
+being the derivatives of their actions, the charge of the conserved vector current in
+three-point functions (constant between source and sink, its jump the number of quarks
+times the two-point function).
 
 **Comparisons with Bridge++.** The plaquette; the Wilson, clover and domain-wall operators
 applied to a vector; solver iteration counts; meson correlators in thirteen channels on
 every time slice, for one and two quark flavours and for point and smeared sources, with
-and without Coulomb gauge fixing; the domain-wall pion correlator; and one trajectory of
+and without Coulomb gauge fixing; meson correlators at ten momenta and the proton correlator
+(numbers no Bridge++ test checks, printed by a driver linked to Bridge++); the domain-wall pion
+correlator; and one trajectory of
 Bridge++'s HMC tests of the actions Ruttice has (quenched, Wilson, clover, domain-wall over
 Pauli-Villars fields, RHMC, even-odd Wilson). The comparisons of the solves are written down
 in [docs/COMPARISON.md](COMPARISON.md). They are our comparisons with the numbers Bridge++

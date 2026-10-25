@@ -106,6 +106,15 @@ to 1e-12, CGNE within 0.2% of the iterations; broken once on purpose (surface sk
 fused multiply-adds of a leg had to be fixed (CHANGELOG). Not run yet: two MPI processes for
 Wilson and clover HMC (as was done for domain-wall fermions). Next: their multigrid on the device.
 
+**Measurements (2026-10-25)**: DESIGN §7.10. Meson correlators with momentum and the proton
+correlator, checked against Bridge++'s numbers; connected three-point functions by a sequential
+source through the sink, for mesons and the proton, checked by the conserved vector current
+(exact Ward identity) and by the sequential source through the current. Open: the keys of the
+parameter files (to agree first); the current on the antiquark line of a meson (swap the two
+propagators of the sink; not tested); three-point functions on several processes (written for
+them, no `LocalComm` test); the conserved current of domain-wall fermions (five-dimensional);
+g_A and other charges against published numbers.
+
 **The Wilson and clover multigrid on the device (2026-10-25)**: DESIGN §7.8 step 3; the device
 now does every fermion, solver and multigrid of the CPU on one GPU or several, but these:
 the levels below the coarse lattice and `precondition_diagonal` of the Wilson multigrid

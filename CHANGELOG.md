@@ -12,6 +12,16 @@
   C = γ4γ2 and a projection Γ, as Bridge++'s `proton_correlator`, with an optional momentum.
   Checked against Bridge++'s numbers (Γ = 1, γ4 and (1 + γ4)/2; u and d of different masses and
   of one: 48 values, which no Bridge++ test checks).
+- Connected three-point functions by a sequential source through the sink
+  (`measure::sequential_source`, `current_insertion`, `conserved_charge`), for any sink that
+  gives its contraction and the derivative of it by the propagator the current acts on (trait
+  `Sink`; `MesonSink`, `ProtonSink` with a projection Σ w Γ and the current on u or d). Bridge++
+  has none, so they are checked by the conserved vector current of the Wilson and clover
+  operators: its charge does not change between source and sink and jumps there by the number of
+  quarks times the two-point function (1 for the meson, 2 for u and 1 for d in the proton), to
+  1e-15 on a random configuration with u and d of different masses; and by the sequential source
+  through the current with momenta at the sink and the current (to 1e-15). Not in the parameter
+  files yet.
 
 ## 0.8.0 (2026-10-25)
 

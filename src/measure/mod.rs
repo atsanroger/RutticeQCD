@@ -2,17 +2,21 @@
 //!
 //! A propagator from one source point is a spinor field with twelve vectors: vector
 //! `k = colour + 3 * spin` is the solution for a unit source in that spin and colour.
-//! `source` makes the sources, `meson` and `baryon` the correlators; this module holds what
-//! they share: the view of a propagator and the sum over time slices with a momentum.
+//! `source` makes the sources, `meson` and `baryon` the correlators and their sinks,
+//! `three_point` the three-point functions; this module holds what they share: the view of a propagator and the sum over time slices with a momentum.
 
 mod baryon;
 mod meson;
 mod source;
+mod three_point;
 
-pub use baryon::proton_correlator;
+pub use baryon::{proton_correlator, ProtonSink};
+pub use three_point::{
+    conserved_charge, current_insertion, sequential_source, Flavour, Sink, SiteMatrix,
+};
 
 pub use meson::{
-    channel, meson_correlator, meson_correlator_with_momentum, pion_correlator, CHANNELS,
+    channel, meson_correlator, meson_correlator_with_momentum, pion_correlator, MesonSink, CHANNELS,
 };
 pub use source::{exponential_source, point_source};
 

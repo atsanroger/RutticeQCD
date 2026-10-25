@@ -1,8 +1,10 @@
 //! Meson two-point functions: the channels of Bridge++ and their correlators.
 
+use super::three_point::{Sink, SiteMatrix};
 use super::{element, slice_sum, Propagator};
 use crate::kernel::{Cplx, Gamma, GammaRepre, Real, Unit, NC, NS};
 use crate::{reduce_sites_dyn, Field, Spinor, Storage, C64, ND};
+use std::marker::PhantomData;
 
 /// Names of the meson channels `channel` knows, in the order they are printed: that of
 /// Bridge++, with `A4_A4`, which Bridge++ does not have, after the other axial channels.
@@ -97,4 +99,51 @@ pub fn pion_correlator<T: Storage>(prop: &Field<T, Spinor>) -> Vec<f64> {
     });
     lat.comm.sum(&mut sums);
     sums
+}
+
+/// A meson at the sink, `sink` and `source` as in `meson_correlator`, the current on the line
+/// of the first propagator. The propagators are `[prop1, prop2]` of `meson_correlator`.
+pub struct MesonSink<G: GammaRepre> {
+    pub sink: Gamma,
+    pub source: Gamma,
+    pub gammas: PhantomData<G>,
+}
+
+impl<G: GammaRepre> Sink for MesonSink<G> {
+    fn two_point(
+        &self,
+        props: [&Field<f64, Spinor>; 2],
+        n: [i64; 3],
+        source_position: [usize; ND],
+    ) -> Vec<C64> {
+        let g5 = G::GAMMA5;
+        meson_correlator_with_momentum(
+            props[0],
+            props[1],
+            &self.sink,
+            &self.source,
+            &g5,
+            n,
+            source_position,
+        )
+    }
+
+    /// c = Tr[A S1 B S2†] with A = γ5 Γ_sink, B = Γ_source γ5, so ∂c/∂(S1)_{ik} = (B S2† A)_{ki}:
+    /// G_{(s_i, c_i), (s_k, c_k)} = B.val[s_k] Σ_{s': A.col[s'] = s_i} A.val[s'] conj(S2_{(s', c_i), (B.col[s_k], c_k)}).
+    fn derivative(&self, sites: [&[f64]; 2], g: &mut SiteMatrix) {
+        let g5 = G::GAMMA5;
+        let (a, b) = (g5.mul(&self.sink), self.source.mul(&g5));
+        let s2 = sites[1];
+        for sp in 0..NS {
+            let si = a.col[sp];
+            for ci in 0..NC {
+                for sk in 0..NS {
+                    for ck in 0..NC {
+                        let v = element(s2, sp, ci, ck + NC * b.col[sk]).conj();
+                        g[ci + NC * si][ck + NC * sk] += b.val[sk].times(a.val[sp].times(v));
+                    }
+                }
+            }
+        }
+    }
 }
