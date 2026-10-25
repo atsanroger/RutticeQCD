@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-10-25)
+
+Measurements beyond the zero-momentum mesons, and a work report that counts everything. Meson
+correlators at momenta and the proton correlator give Bridge++'s numbers (1008 values that no
+Bridge++ test checks, printed by a driver linked to Bridge++); connected three-point functions by a
+sequential source through the sink, for mesons and the proton, satisfy the Ward identity of the
+conserved vector current to 1e-15. All of it in the parameter files (`Measure.momenta`, `proton`,
+`three_point`; examples/clover_measurements.yaml), on the CPU and the device. The work report now
+counts the gauge field and the fermion forces (a clover RHMC trajectory: 3.6e9 Flop of `Gauge`,
+2.0e9 of `Force`, 2.8e10 of fine operators) and the setup of the multigrids, and the CPU and the
+device count every kind of a trajectory and of a multigrid solve alike.
+
 - Fixed (found by a code review): domain-wall parameter files accepted `Measure.momenta`,
   `proton` and `three_point` without computing them, and the header said they ran; they are now
   refused when the file is read. `Measure.momenta` took the phase origin of quark 1 for every

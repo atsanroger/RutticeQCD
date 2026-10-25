@@ -9,7 +9,7 @@ authors:
   - family-names: "Chen"
     given-names: "Wei-Lun"
     orcid: "https://orcid.org/0000-0002-8542-9126"
-version: "0.8.0"
+version: "0.9.0"
 date-released: "2026-10-25"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/atsanroger/RutticeQCD"
