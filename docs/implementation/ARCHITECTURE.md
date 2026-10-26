@@ -74,7 +74,9 @@ traits, and a backend supplies only the parts that touch its memory. The table i
   the backends supply the fields, P, the coarse operators and where the test vectors wait;
 - the multigrid of HMC (cache, rebuilds, retries, Neff's α) is `hmc::dwf_multigrid::with_solves`;
 - the multigrid of Wilson and clover fermions (setup and cycle) is `WilsonMultigrid` over a
-  `MultigridBackend`, `WilsonOnCpu` or `cuda_bridge::WilsonOnDevice`; its smoother SAP is `Sap`
+  `MultigridBackend`, `WilsonOnCpu` or `cuda_bridge::WilsonOnDevice`; its cycle is the same
+  `TwoGrid` as the domain-wall one, with its own smoothing (from x = b, or a pre-smoother; then
+  the post-smoother) and coarse correction (`Smooths`, `Corrects`); its smoother SAP is `Sap`
   over `SapBlocks`; its kept test vectors in HMC `MultigridSetup::cycle_on`;
 - the propagator runs are `app::mdwf::solve_sources`, the eigensolver runs `app::eigen::found`
   over an `EigenBackend`.

@@ -42,8 +42,11 @@ pub(crate) type WithCorrection<'w, T> =
     dyn FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'w;
 
 /// The cycle of the multigrid: the Chebyshev smoother on Ã and a coarse correction.
-pub type DeviceCycle<'a, T> =
-    TwoGrid<DeviceSpinor<T>, PvRatio<'a, CudaMdwf<T>, DeviceSpinor<T>>, Correction<'a, T>>;
+pub type DeviceCycle<'a, T> = TwoGrid<
+    DeviceSpinor<T>,
+    Chebyshev<PvRatio<'a, CudaMdwf<T>, DeviceSpinor<T>>, DeviceSpinor<T>>,
+    Correction<'a, T>,
+>;
 
 /// What the setup has made, as it makes it.
 pub enum Stage<'s, T: DeviceReal> {

@@ -16,6 +16,14 @@
 - `multigrid/mdwf_even_odd.rs` (1362 lines) is three files: P and the operator, the cycle
   (`mdwf_cycle.rs`), and the test vectors, low modes and bootstrap (`mdwf_vectors.rs`). The code
   is moved, not changed.
+- The multigrid of Wilson and clover fermions runs the cycle of the domain-wall one (`TwoGrid`)
+  instead of a copy of it: `TwoGrid` takes its smoothing as a trait (`Smooths`: the Chebyshev
+  polynomial of the domain-wall multigrid; x = b or a pre-smoother, then a post-smoother, for
+  Wilson), and the Wilson coarse correction is a `Corrects`. The same operations in the same
+  order: the propagator runs of `examples/clover_mg.yaml` (even-odd, lexical, double coarse,
+  SIMD, a level below, GMRES smoothing with pre-smoothing, BiCGStab, Wilson; on the device
+  even-odd, lexical, double coarse) print the same iterations, residuals, work and correlators,
+  digit for digit, before and after.
 
 ### Fixed
 

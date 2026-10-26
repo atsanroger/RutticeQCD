@@ -147,8 +147,11 @@ impl<G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> Corrects<HalfFie
     }
 }
 
-type Cycle<'a, G, CT, L, F> =
-    TwoGrid<HalfField<L, F>, SharedOperator<'a, G, L, F>, InLayout<'a, G, CT, L, F>>;
+type Cycle<'a, G, CT, L, F> = TwoGrid<
+    HalfField<L, F>,
+    Chebyshev<SharedOperator<'a, G, L, F>, HalfField<L, F>>,
+    InLayout<'a, G, CT, L, F>,
+>;
 
 /// The multigrid cycle for `PvEvenOdd::new(op_a, pv_a, form, ..)`, as the preconditioner of a
 /// flexible solver (`Gcr`, `Fgmres`, flexible `BiCgStab`) on that operator: `TwoGrid` with the

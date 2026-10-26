@@ -1,3 +1,4 @@
+use super::cycle::{Corrects, Smooths, TwoGrid};
 use super::levels::BlockMap;
 use super::{solve_shared, CoarseOperator, Levels, Transfer};
 use super::{Aggregation, Basis, CoarseOp, MultigridError, Sap, SignedMultilevel};
@@ -205,30 +206,102 @@ pub trait MultigridBackend<'a> {
 pub struct WilsonMultigrid<'a, B: MultigridBackend<'a>> {
     backend: B,
     agg: Arc<Aggregation>,
-    basis: B::Basis,
-    /// The basis of the restriction when it is not that of the prolongation.
-    restriction: Option<B::Basis>,
-    /// Shared by the coarse solver and the levels below, which apply it too.
-    coarse: B::CoarseOp,
     /// The test vectors of the last setup round restricted to the coarse lattice: test
     /// vectors for levels below it.
     coarse_tests: B::CoarseTests,
-    /// Levels below the coarse lattice.
-    levels: Option<CycleLevels<'a, B::Coarse>>,
-    parts: CycleParts<'a, B::Fine, B::Coarse>,
     hooks: SetupHooks<'a, B::Fine>,
-    scratch: Option<Scratch<B::Fine, B::Coarse>>,
+    cycle: TwoGrid<B::Fine, Smoothing<'a, B::Fine>, WilsonCorrection<'a, B>>,
 }
 
 /// The multigrid on the CPU.
 pub type Multigrid<'a, F, T> = WilsonMultigrid<'a, WilsonOnCpu<'a, F, T>>;
 
-struct Scratch<V, C> {
-    r: V,
-    e: V,
-    coarse_r: C,
-    coarse_rhs: C,
-    coarse_e: C,
+/// The smoothing of the cycle: before the coarse correction from x = b or by a pre-smoother,
+/// after it by the post-smoother.
+struct Smoothing<'a, V> {
+    operator: Box<dyn LinearFn<V> + 'a>,
+    pre: Option<Box<dyn LinearFn<V> + 'a>>,
+    post: Box<dyn LinearFn<V> + 'a>,
+}
+
+impl<V: Vector> Smooths<V> for Smoothing<'_, V> {
+    fn pre(&mut self, x: &mut V, b: &V) {
+        // Without pre-smoothing the cycle starts from x = b, not from zero: Bridge++'s guess
+        // |v> = |w> (`APrecond_MG::mult_single`), which its iteration counts depend on.
+        match self.pre.as_mut() {
+            Some(pre) => pre.mult(x, b),
+            None => x.copy_from(b),
+        }
+    }
+
+    fn residual(&mut self, r: &mut V, x: &V, b: &V) {
+        self.operator.mult(r, x);
+        r.aypx(&vec![C64::new(-1.0, 0.0); b.num_vectors()], b);
+    }
+
+    fn post(&mut self, e: &mut V, r: &V) {
+        self.post.mult(e, r);
+    }
+}
+
+/// The coarse correction e = P A_c⁻¹ R r: R = P† (or the adjoint of a basis of its own), A_c⁻¹
+/// an inexact solve of the coarse system, with the levels below it if there are any.
+struct WilsonCorrection<'a, B: MultigridBackend<'a>> {
+    basis: B::Basis,
+    /// The basis of the restriction when it is not that of the prolongation.
+    restriction: Option<B::Basis>,
+    /// Shared by the coarse solver and the levels below, which apply it too.
+    coarse: B::CoarseOp,
+    /// Levels below the coarse lattice.
+    levels: Option<CycleLevels<'a, B::Coarse>>,
+    solver: Box<dyn Solver<B::Coarse> + 'a>,
+    /// R r, its diagonal-preconditioned form, and the coarse solution.
+    scratch: Option<[B::Coarse; 3]>,
+}
+
+impl<'a, B: MultigridBackend<'a>> Corrects<B::Fine> for WilsonCorrection<'a, B> {
+    fn correct(&mut self, e: &mut B::Fine, r: &B::Fine) {
+        let nv = r.num_vectors();
+        if !self
+            .scratch
+            .as_ref()
+            .is_some_and(|s| s[0].num_vectors() == nv)
+        {
+            self.scratch = Some(std::array::from_fn(|_| self.basis.coarse_field(nv)));
+        }
+        let Some([coarse_r, coarse_rhs, coarse_e]) = self.scratch.as_mut() else {
+            unreachable!("the scratch fields were just created");
+        };
+        self.restriction
+            .as_ref()
+            .unwrap_or(&self.basis)
+            .restrict(coarse_r, r);
+        let rhs = if B::diagonal_preconditioned(&self.coarse) {
+            B::apply_diagonal_inverse(&self.coarse, coarse_rhs, coarse_r);
+            &*coarse_rhs
+        } else {
+            &*coarse_r
+        };
+        coarse_e.set_zero();
+        // An inexact coarse solve is expected; whatever it reached is used.
+        let (levels, blocks) = match self.levels.as_mut() {
+            Some(l) => (Some(&*l.apply), l.blocks.as_deref_mut()),
+            None => (None, None),
+        };
+        let solver = &mut self.solver;
+        solve_shared(
+            &self.coarse,
+            blocks.map(|b| b as &mut dyn LinearFn<_>),
+            levels,
+            &Cell::new(0),
+            &mut |a, m, x, b| {
+                let _ = solver.solve(a, m, x, b);
+            },
+            coarse_e,
+            rhs,
+        );
+        self.basis.prolong(e, coarse_e);
+    }
 }
 
 impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
@@ -287,12 +360,18 @@ impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
         initial: B::Fine,
         smooth: bool,
         setup_iterations: usize,
-        mut parts: CycleParts<'a, B::Fine, B::Coarse>,
+        parts: CycleParts<'a, B::Fine, B::Coarse>,
         mut hooks: SetupHooks<'a, B::Fine>,
     ) -> Result<Self, MultigridError> {
+        let CycleParts {
+            operator,
+            pre_smoother,
+            mut post_smoother,
+            coarse_solver,
+        } = parts;
         let mut x = initial.zeros_like();
         if smooth {
-            parts.post_smoother.mult(&mut x, &initial);
+            post_smoother.mult(&mut x, &initial);
         } else {
             x.copy_from(&initial);
         }
@@ -312,29 +391,38 @@ impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
         let even_odd = hooks.coarse_even_odd;
         let coarse = backend.coarse_operator(&basis, restriction.as_ref(), &mut hooks, even_odd)?;
         let coarse_tests = backend.coarse_tests(&basis, &x);
-        let mut mg = Self {
-            backend,
-            agg: agg.clone(),
+        let smoothing = Smoothing {
+            operator,
+            pre: pre_smoother,
+            post: post_smoother,
+        };
+        let correction = WilsonCorrection {
             basis,
             restriction,
             coarse,
-            coarse_tests,
             levels: None,
-            parts,
-            hooks,
+            solver: coarse_solver,
             scratch: None,
         };
+        let mut mg = Self {
+            backend,
+            agg: agg.clone(),
+            coarse_tests,
+            hooks,
+            cycle: TwoGrid::new(smoothing, correction, &initial),
+        };
         for _ in 0..setup_iterations {
-            let v = mg.backend.test_vectors(&mg.basis);
-            mg.mult(&mut x, &v);
-            mg.basis = basis_after_smoothing(&mut mg.backend, &mg.agg, &mut mg.hooks, &x)?;
-            mg.coarse = mg
+            let v = mg.backend.test_vectors(mg.basis());
+            mg.cycle.mult(&mut x, &v);
+            let c = mg.cycle.correction_mut();
+            c.basis = basis_after_smoothing(&mut mg.backend, &mg.agg, &mut mg.hooks, &x)?;
+            c.coarse = mg
                 .backend
-                .coarse_operator(&mg.basis, None, &mut mg.hooks, even_odd)?;
+                .coarse_operator(&c.basis, None, &mut mg.hooks, even_odd)?;
         }
         // The smoothed test vectors on the coarse lattice: P† x, which varies from block to
         // block with the near-null space (P† of the orthonormalised vectors would not).
-        mg.coarse_tests = mg.backend.coarse_tests(&mg.basis, &x);
+        mg.coarse_tests = mg.backend.coarse_tests(mg.basis(), &x);
         Ok(mg)
     }
 
@@ -343,20 +431,21 @@ impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
     /// the test vectors of the setup restricted to the coarse lattice, combined multiplicatively
     /// with the inverses of the diagonal blocks of the coarse operator (`multigrid::levels`).
     pub fn add_levels(&mut self, super_blocks: &[usize]) -> Result<usize, MultigridError> {
-        let levels = B::levels(&mut self.coarse, &self.coarse_tests, super_blocks)?;
+        let c = self.cycle.correction_mut();
+        let levels = B::levels(&mut c.coarse, &self.coarse_tests, super_blocks)?;
         let applications = levels.applications;
-        self.levels = Some(levels);
+        c.levels = Some(levels);
         Ok(applications)
     }
 
     /// The current test vectors, orthonormalised on every aggregate, as one fine field:
     /// vector i is P applied to the coarse vector with ones at components i and n + i.
     pub fn test_vectors(&self) -> B::Fine {
-        self.backend.test_vectors(&self.basis)
+        self.backend.test_vectors(self.basis())
     }
 
     pub fn basis(&self) -> &B::Basis {
-        &self.basis
+        &self.cycle.correction().basis
     }
 }
 
@@ -379,76 +468,7 @@ fn basis_after_smoothing<'a, B: MultigridBackend<'a>>(
 
 impl<'a, B: MultigridBackend<'a>> LinearFn<B::Fine> for WilsonMultigrid<'a, B> {
     fn mult(&mut self, x: &mut B::Fine, b: &B::Fine) {
-        assert!(x.same_shape(b));
-        let nv = b.num_vectors();
-        if !self.scratch.as_ref().is_some_and(|s| s.r.same_shape(b)) {
-            self.scratch = Some(Scratch {
-                r: b.zeros_like(),
-                e: b.zeros_like(),
-                coarse_r: self.basis.coarse_field(nv),
-                coarse_rhs: self.basis.coarse_field(nv),
-                coarse_e: self.basis.coarse_field(nv),
-            });
-        }
-        let Some(Scratch {
-            r,
-            e,
-            coarse_r,
-            coarse_rhs,
-            coarse_e,
-        }) = self.scratch.as_mut()
-        else {
-            unreachable!("the scratch fields were just created");
-        };
-        let parts = &mut self.parts;
-        let one = vec![C64::new(1.0, 0.0); nv];
-        let minus_one = vec![C64::new(-1.0, 0.0); nv];
-        let mut residual = |r: &mut B::Fine, x: &B::Fine| {
-            parts.operator.mult(r, x);
-            r.aypx(&minus_one, b);
-        };
-
-        // Without pre-smoothing the cycle starts from x = b, not from zero: Bridge++'s guess
-        // |v> = |w> (`APrecond_MG::mult_single`), which its iteration counts depend on.
-        match parts.pre_smoother.as_mut() {
-            Some(pre) => pre.mult(x, b),
-            None => x.copy_from(b),
-        }
-        residual(r, x);
-        self.restriction
-            .as_ref()
-            .unwrap_or(&self.basis)
-            .restrict(coarse_r, r);
-        let rhs = if B::diagonal_preconditioned(&self.coarse) {
-            B::apply_diagonal_inverse(&self.coarse, coarse_rhs, coarse_r);
-            &*coarse_rhs
-        } else {
-            &*coarse_r
-        };
-        coarse_e.set_zero();
-        // An inexact coarse solve is expected; whatever it reached is used.
-        let (levels, blocks) = match self.levels.as_mut() {
-            Some(l) => (Some(&*l.apply), l.blocks.as_deref_mut()),
-            None => (None, None),
-        };
-        let coarse_solver = &mut parts.coarse_solver;
-        solve_shared(
-            &self.coarse,
-            blocks.map(|b| b as &mut dyn LinearFn<_>),
-            levels,
-            &Cell::new(0),
-            &mut |a, m, x, b| {
-                let _ = coarse_solver.solve(a, m, x, b);
-            },
-            coarse_e,
-            rhs,
-        );
-        self.basis.prolong(e, coarse_e);
-        x.axpy(&one, e);
-
-        residual(r, x);
-        parts.post_smoother.mult(e, r);
-        x.axpy(&one, e);
+        self.cycle.mult(x, b);
     }
 }
 
@@ -661,7 +681,7 @@ where
     }
 
     pub fn coarse_operator(&self) -> Ref<'_, CoarseOp<T>> {
-        self.coarse.borrow()
+        self.cycle.correction().coarse.borrow()
     }
 }
 
