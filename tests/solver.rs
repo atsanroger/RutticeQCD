@@ -8,7 +8,8 @@ use ruttice::gauge::random_gauge;
 use ruttice::io::read_bridge_text;
 use ruttice::random_spinor;
 use ruttice::solver::{
-    reliable_cg, BiCgStab, Cg, Convert, Refine, Solve, SolveError, Solver, Stop,
+    reliable_cg, BiCgStab, BlockGcr, Cg, Convert, Fgmres, Gcr, Minres, MultiShiftCg, Refine, Solve,
+    SolveError, SolveInfo, Solver, Stop,
 };
 use ruttice::{
     Adjoint, Boundary, ConvertFrom, Field, Gauge, Lattice, LinearFn, Product, Spinor, Vector, ND,
@@ -596,4 +597,127 @@ fn bicgstab_reports_a_non_finite_preconditioner() {
         matches!(result, Err(SolveError::Breakdown { .. })),
         "{result:?}"
     );
+}
+
+/// An operator that returns NaN from its application `after + 1` on, counting them.
+struct Poisoned<'c, A> {
+    a: A,
+    count: &'c std::cell::Cell<usize>,
+    after: usize,
+}
+
+impl<A: LinearFn<V64>> LinearFn<V64> for Poisoned<'_, A> {
+    fn mult(&mut self, out: &mut V64, inp: &V64) {
+        self.a.mult(out, inp);
+        self.count.set(self.count.get() + 1);
+        if self.count.get() > self.after {
+            out.as_mut_slice()[0] = f64::NAN;
+        }
+    }
+}
+
+/// Every solver stops with `Breakdown` within a few applications once its operator returns
+/// NaN, from the first application or from the sixth. Before: CG and reliable CG applied it
+/// to the end of their iterations (6000 here) and FGMRES to the end of every cycle, and
+/// reported `NotConverged`, which HMC takes for a slow solve and retries; MINRES returned
+/// `Ok` (`max` dropped the NaN, γ became zero and the solve looked converged).
+#[test]
+fn a_nan_from_the_operator_is_a_breakdown() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 3));
+    let b: V64 = random_spinor(&lat, 2, 4);
+    let stop = Stop {
+        tolerance_sqr: 1e-24,
+        max_iterations: 1000,
+        max_restarts: 5,
+    };
+    type Run<'r> =
+        dyn FnMut(&mut dyn LinearFn<V64>, &mut V64) -> Result<SolveInfo, SolveError> + 'r;
+    let mut solvers: Vec<(&str, Box<Run>)> = vec![
+        ("CG", Box::new(|a, x| Cg::new(stop).solve(a, None, x, &b))),
+        (
+            "CG with a preconditioner",
+            Box::new(|a, x| {
+                let mut m = Solve::new(Cg::new(Stop::simple(1e-4, 50)), ddag_d(&op, &b));
+                Cg::new(stop).solve(a, Some(&mut m), x, &b)
+            }),
+        ),
+        (
+            "BiCGStab",
+            Box::new(|a, x| BiCgStab::new(stop).solve(a, None, x, &b)),
+        ),
+        (
+            "FGMRES(30)",
+            Box::new(|a, x| {
+                Fgmres::new(Stop {
+                    max_iterations: 30,
+                    ..stop
+                })
+                .solve(a, None, x, &b)
+            }),
+        ),
+        (
+            "GCR(8)",
+            Box::new(|a, x| Gcr::new(stop, 8).solve(a, None, x, &b)),
+        ),
+        (
+            "block GCR(8)",
+            Box::new(|a, x| BlockGcr::new(stop, 8).solve(a, None, x, &b)),
+        ),
+        (
+            "MINRES",
+            Box::new(|a, x| Minres::new(stop).solve(a, None, x, &b)),
+        ),
+        (
+            "inner MINRES",
+            Box::new(|a, x| Minres::inner(stop).solve(a, None, x, &b)),
+        ),
+        (
+            "reliable CG",
+            Box::new(|a, x| {
+                let mut low = ddag_d(&op, &b);
+                reliable_cg(a, &mut low, &b, x, &b, stop, 0.1)
+            }),
+        ),
+        (
+            "defect correction",
+            Box::new(|a, x| {
+                let mut m = Solve::new(Cg::new(Stop::simple(1e-4, 50)), ddag_d(&op, &b));
+                Refine::new(stop).solve(a, Some(&mut m), x, &b)
+            }),
+        ),
+        (
+            "multi-shift CG",
+            Box::new(|a, _| {
+                let one = b.select(&[0]);
+                MultiShiftCg::new(Stop::simple(1e-24, 1000)).solve(
+                    a,
+                    &[0.01, 0.1],
+                    &mut Vec::new(),
+                    &one,
+                )
+            }),
+        ),
+    ];
+    for after in [0, 5] {
+        for (name, solve) in solvers.iter_mut() {
+            let count = std::cell::Cell::new(0);
+            let mut a = Poisoned {
+                a: ddag_d(&op, &b),
+                count: &count,
+                after,
+            };
+            let mut x = b.zeros_like();
+            let result = solve(&mut a, &mut x);
+            assert!(
+                matches!(result, Err(SolveError::Breakdown { .. })),
+                "{name}, NaN after {after}: {result:?}"
+            );
+            assert!(
+                count.get() <= after + 10,
+                "{name}, NaN after {after}: {} applications",
+                count.get()
+            );
+        }
+    }
 }

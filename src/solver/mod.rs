@@ -152,6 +152,12 @@ impl<V: Vector> Narrowed<V> {
     }
 }
 
+/// Whether any of the numbers is NaN or infinite: the operator or the preconditioner returned
+/// such values, and no further step can help (`SolveError::Breakdown`, not `NotConverged`).
+pub(crate) fn not_finite(values: &[f64]) -> bool {
+    values.iter().any(|v| !v.is_finite())
+}
+
 /// `out_j = |b_j - (A x)_j|^2 / |b_j|^2`, using `r` as scratch. A zero right-hand side
 /// counts as residual zero when `x` is zero too.
 pub(crate) fn true_residual<V: Vector>(

@@ -1,6 +1,8 @@
 //! Conjugate gradient for Hermitian positive-definite operators.
 
-use super::{fewer, kept, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop};
+use super::{
+    fewer, kept, not_finite, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop,
+};
 use crate::{LinearFn, Vector, C64};
 
 /// Conjugate gradient, optionally preconditioned (the preconditioner must then be Hermitian
@@ -81,12 +83,28 @@ impl<V: Vector> Solver<V> for Cg<V> {
             // r = b - A x
             a.mult_xpay(r, x, &minus_one, b);
             r.norm_sqr(&mut rr);
+            // A NaN residual counts as neither converged nor active: without this the loop
+            // would apply A to the end of its iterations and report `NotConverged`.
+            if not_finite(&rr) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the residual is not finite",
+                });
+            }
             // Without a preconditioner z is r: it is not copied, and <r, z> is |r|^2.
             match m.as_mut() {
                 Some(m) => {
                     m.mult(z, r);
                     p.copy_from(z);
                     r.dot(z, &mut rz);
+                    if (0..nv).any(|j| {
+                        rr[j] > tol * b_norm[j] && !(rz[j].re > 0.0 && rz[j].re.is_finite())
+                    }) {
+                        return Err(SolveError::Breakdown {
+                            iterations,
+                            what: "<r, M r> is not positive",
+                        });
+                    }
                 }
                 None => {
                     p.copy_from(r);
@@ -138,11 +156,26 @@ impl<V: Vector> Solver<V> for Cg<V> {
                     *a = -*a;
                 }
                 r.axpy_norm_sqr(&alpha, ap, &mut rr);
+                if not_finite(&rr) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "the residual is not finite",
+                    });
+                }
 
                 match m.as_mut() {
                     Some(m) => {
                         m.mult(z, r);
                         r.dot(z, &mut rz_new);
+                        if (0..nv).any(|j| {
+                            rr[j] > tol * b_norm[j]
+                                && !(rz_new[j].re > 0.0 && rz_new[j].re.is_finite())
+                        }) {
+                            return Err(SolveError::Breakdown {
+                                iterations,
+                                what: "<r, M r> is not positive",
+                            });
+                        }
                     }
                     None => {
                         for (rz, rr) in rz_new.iter_mut().zip(&rr) {
@@ -177,6 +210,12 @@ impl<V: Vector> Solver<V> for Cg<V> {
             };
             if residual.iter().all(|r| *r <= tol) {
                 return Ok(info);
+            }
+            if not_finite(&residual) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the solution is not finite",
+                });
             }
             if restart == self.stop.max_restarts {
                 return Err(SolveError::NotConverged(info));

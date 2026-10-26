@@ -1,7 +1,7 @@
 //! Flexible GMRES: for general operators, with a preconditioner that may change from one
 //! application to the next (an inner iterative solver, a multigrid cycle).
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::numerics::HessenbergLsq;
 use crate::{LinearFn, Vector, C64};
 
@@ -85,6 +85,12 @@ impl<V: Vector> Solver<V> for Fgmres<V> {
             if residual.iter().all(|r| *r <= tol) {
                 return Ok(info);
             }
+            if not_finite(&residual) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the solution is not finite",
+                });
+            }
             if cycle > self.stop.max_restarts {
                 return Err(SolveError::NotConverged(info));
             }
@@ -147,7 +153,10 @@ impl<V: Vector> Solver<V> for Fgmres<V> {
                 v[k + 1].scale(&scale);
                 iterations += 1;
                 built = k + 1;
-                if (0..nv).all(|j| estimate[j] * estimate[j] <= tol * b_norm[j]) {
+                // A NaN estimate ends the cycle: the next one finds the solution not finite.
+                if (0..nv).all(|j| estimate[j] * estimate[j] <= tol * b_norm[j])
+                    || not_finite(&estimate)
+                {
                     break;
                 }
             }

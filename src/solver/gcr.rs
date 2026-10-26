@@ -1,6 +1,6 @@
 //! Flexible GCR keeping the last k directions (truncated GCR, Orthomin(k)).
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// Flexible GCR(k): every step applies the preconditioner once, z = M r, makes q = A z orthogonal
@@ -67,6 +67,12 @@ impl<V: Vector> Solver<V> for Gcr<V> {
             let mut in_cycle = 0;
             while in_cycle < self.stop.max_iterations && iterations < limit {
                 r.norm_sqr(&mut rr);
+                if not_finite(&rr) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "the residual is not finite",
+                    });
+                }
                 if let Some(h) = self.history.as_mut() {
                     h.push(
                         (0..nv)

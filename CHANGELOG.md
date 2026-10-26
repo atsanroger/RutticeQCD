@@ -31,6 +31,16 @@
 
 ### Fixed
 
+- A NaN or infinity from the operator or the preconditioner is a `Breakdown` in every solver,
+  found at the first residual that has it. Before, a NaN residual counted as neither converged
+  nor active: CG and reliable CG applied the operator to the end of their iterations (6000 in
+  the test) and FGMRES to the end of every cycle, and reported `NotConverged`, which HMC takes
+  for a slow solve (the two-step solves go on, the domain-wall multigrid makes P again and
+  falls back to CG); MINRES returned `Ok` with a NaN solution (`max` dropped the NaN, γ became
+  zero and the solve looked converged). MINRES outside an inner solve now returns `Ok` only on
+  the true residual (the recurrence's is in the norm of the preconditioner), and CG with a
+  preconditioner refuses ⟨r, M r⟩ ≤ 0. Finite solves are unchanged, bit for bit
+  (`tests/solver.rs`, `a_nan_from_the_operator_is_a_breakdown`).
 - The `# cost` lines of an HMC run leave out no action: the Rational action and the Standard
   action on the even sites now report their solves and iterations too (a multi-shift solve is
   one solve, a pole solved on its own one).

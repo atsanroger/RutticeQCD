@@ -1,7 +1,7 @@
 //! Block GCR: flexible GCR keeping the last k blocks of directions, for several right-hand
 //! sides that share them.
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// Flexible block GCR(k). Every step applies the preconditioner to all residuals at once,
@@ -69,6 +69,12 @@ impl<V: Vector> Solver<V> for BlockGcr<V> {
             let mut in_cycle = 0;
             while in_cycle < self.stop.max_iterations && iterations < limit {
                 r.norm_sqr(&mut rr);
+                if not_finite(&rr) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "the residual is not finite",
+                    });
+                }
                 let active: Vec<bool> = (0..nv).map(|j| rr[j] > tol * b_norm[j]).collect();
                 if !active.iter().any(|a| *a) {
                     break;

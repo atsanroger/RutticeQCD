@@ -1,6 +1,6 @@
 //! Preconditioned MINRES for Hermitian, possibly indefinite, operators.
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// MINRES (Elman, Silvester and Wathen, *Finite Elements and Fast Iterative Solvers*, algorithm
@@ -82,7 +82,16 @@ impl<V: Vector> Solver<V> for Minres<V> {
                 Some(m) => m.mult(z, v),
                 None => z.copy_from(v),
             }
-            let mut gamma: Vec<f64> = re_dot(z, v).iter().map(|g| g.max(0.0).sqrt()).collect();
+            // γ² = <z, v> checked before it is clipped at zero: `max` drops a NaN, which would
+            // make γ zero and the solve look converged.
+            let gamma_sqr = re_dot(z, v);
+            if not_finite(&gamma_sqr) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the residual is not finite",
+                });
+            }
+            let mut gamma: Vec<f64> = gamma_sqr.iter().map(|g| g.max(0.0).sqrt()).collect();
             let mut gamma_prev = vec![1.0_f64; nv];
             let mut eta = gamma.clone();
             let (mut c, mut c_prev, mut s, mut s_prev) =
@@ -109,10 +118,14 @@ impl<V: Vector> Solver<V> for Minres<V> {
                     Some(m) => m.mult(z_new, v_new),
                     None => z_new.copy_from(v_new),
                 }
-                let gamma_new: Vec<f64> = re_dot(z_new, v_new)
-                    .iter()
-                    .map(|g| g.max(0.0).sqrt())
-                    .collect();
+                let gamma_sqr = re_dot(z_new, v_new);
+                if not_finite(&gamma_sqr) || not_finite(&delta) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "the Lanczos coefficients are not finite",
+                    });
+                }
+                let gamma_new: Vec<f64> = gamma_sqr.iter().map(|g| g.max(0.0).sqrt()).collect();
                 let (mut a1, mut a2, mut a3) = (vec![0.0; nv], vec![0.0; nv], vec![0.0; nv]);
                 let (mut c_new, mut s_new) = (vec![0.0; nv], vec![0.0; nv]);
                 for j in 0..nv {
@@ -169,7 +182,8 @@ impl<V: Vector> Solver<V> for Minres<V> {
                 restarts: cycles,
                 residual_sqr: residual.clone(),
             };
-            if done(&eta) || residual.iter().all(|r| *r <= tol) {
+            // Only the true residual: the recurrence's η is in the norm of the preconditioner.
+            if residual.iter().all(|r| *r <= tol) {
                 return Ok(info);
             }
             if residual.iter().any(|r| !r.is_finite()) {

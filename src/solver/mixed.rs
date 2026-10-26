@@ -1,7 +1,7 @@
 //! The generic pieces that mixed precision is assembled from:
 //! defect correction, precision conversion, and a solver bound to its operator.
 
-use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
 use crate::{ConvertFrom, LinearFn, LinearOp, Vector, C64};
 
 /// Defect correction: `x += M (b - A x)` until the true residual is small enough. `A` is
@@ -54,6 +54,12 @@ impl<V: Vector> Solver<V> for Refine<V> {
             };
             if residual.iter().all(|r| *r <= self.stop.tolerance_sqr) {
                 return Ok(info);
+            }
+            if not_finite(&residual) {
+                return Err(SolveError::Breakdown {
+                    iterations,
+                    what: "the solution is not finite",
+                });
             }
             if iterations == limit {
                 return Err(SolveError::NotConverged(info));
@@ -108,6 +114,12 @@ pub(crate) fn refine_normal<V: Vector>(
         if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
             return Ok(info);
         }
+        if not_finite(&info.residual_sqr) {
+            return Err(SolveError::Breakdown {
+                iterations: info.iterations,
+                what: "the solution is not finite",
+            });
+        }
         if sweep == stop.max_restarts {
             break;
         }
@@ -159,6 +171,13 @@ where
     if residual.iter().all(|r| *r <= tol) {
         return Ok(info);
     }
+    let not_finite_error = |iterations| SolveError::Breakdown {
+        iterations,
+        what: "the residual is not finite",
+    };
+    if not_finite(&residual) {
+        return Err(not_finite_error(0));
+    }
     let mut r2 = like.zeros_with(nv);
     r2.convert_from(&r);
     let (mut p, mut ap, mut x2) = (r2.zeros_like(), r2.zeros_like(), r2.zeros_like());
@@ -194,6 +213,9 @@ where
         }
         r2.axpy_norm_sqr(&alpha, &ap, &mut rr_new);
         info.iterations += 1;
+        if not_finite(&rr_new) {
+            return Err(not_finite_error(info.iterations));
+        }
 
         let update = (0..nv).any(|j| {
             active[j] && (rr_new[j] < drop_sqr * largest[j] || rr_new[j] <= tol * b_norm[j])
@@ -207,6 +229,9 @@ where
             if residual.iter().all(|r| *r <= tol) {
                 info.residual_sqr = residual;
                 return Ok(info);
+            }
+            if not_finite(&residual) {
+                return Err(not_finite_error(info.iterations));
             }
             r2.convert_from(&r);
             r2.norm_sqr(&mut rr_new);
