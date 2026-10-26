@@ -91,22 +91,42 @@ impl Comm for MpiComm {
         self.size
     }
 
+    /// Every process gathers all the contributions and adds them in rank order, as
+    /// `LocalComm` does: the result has the same bits on every process and on `LocalComm`.
+    /// `MPI_Allreduce` adds in an order of the library's choosing (Open MPI 5 on 4 processes:
+    /// not rank order), which the MPI standard does not even require to be the same on
+    /// every process. The cost is `size` times the data of a reduction: a few dozen numbers.
     fn sum(&self, x: &mut [f64]) {
-        let mine = x.to_vec();
-        let _serialised = self.world.lock();
-        // SAFETY: both buffers hold `x.len()` doubles and outlive the call, which blocks
-        // until the reduction is complete; they do not overlap.
-        let code = unsafe {
-            ffi::MPI_Allreduce(
-                mine.as_ptr().cast::<c_void>(),
-                x.as_mut_ptr().cast::<c_void>(),
-                count(x.len()),
-                ffi::RSMPI_DOUBLE,
-                ffi::RSMPI_SUM,
-                self.world.raw,
-            )
-        };
-        check(code, "MPI_Allreduce");
+        let n = x.len();
+        let mut all = vec![0.0f64; n * self.size];
+        {
+            let _serialised = self.world.lock();
+            // SAFETY: `x` holds `n` doubles and `all` room for `n` from each of the `size`
+            // processes; both outlive the call, which blocks until it is complete, and they
+            // do not overlap. Every process passes the same `n` (the callers reduce the same
+            // list on every process).
+            let code = unsafe {
+                ffi::MPI_Allgather(
+                    x.as_ptr().cast::<c_void>(),
+                    count(n),
+                    ffi::RSMPI_DOUBLE,
+                    all.as_mut_ptr().cast::<c_void>(),
+                    count(n),
+                    ffi::RSMPI_DOUBLE,
+                    self.world.raw,
+                )
+            };
+            check(code, "MPI_Allgather");
+        }
+        if n == 0 {
+            return;
+        }
+        x.fill(0.0);
+        for part in all.chunks_exact(n) {
+            for (t, p) in x.iter_mut().zip(part) {
+                *t += p;
+            }
+        }
     }
 
     /// Two collective calls: the lengths go to rank 0, then the data (`MPI_Gatherv`).

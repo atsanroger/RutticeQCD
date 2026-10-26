@@ -31,6 +31,15 @@
 
 ### Fixed
 
+- On MPI the global sums add the processes' parts in rank order (`MPI_Allgather`, then the
+  sum on every process), as `LocalComm` does: `MPI_Allreduce` added them in an order of its
+  own (Open MPI 5.0 on 4 processes: 1, 1e16, −1e16, 1 summed to 0, in rank order to 1), so a
+  run on MPI was not the run the `LocalComm` tests check, and the MPI standard does not even
+  require every process to get the same bits. `ruttice-mpi-check` checks it, and also the
+  gather and a single-precision halo.
+- `LocalComm`'s halo exchanges refuse their buffers between `start` and `wait`, as the MPI
+  ones do, and `wait` without `start` does nothing: a test on `LocalComm` finds an access that
+  would race under MPI. The contract is written on `HaloExchange`.
 - A NaN or infinity from the operator or the preconditioner is a `Breakdown` in every solver,
   found at the first residual that has it. Before, a NaN residual counted as neither converged
   nor active: CG and reliable CG applied the operator to the end of their iterations (6000 in

@@ -5,6 +5,7 @@
 //!
 //! where the arguments are the process grid.
 
+use ruttice::comm::{HaloSpec, FACES};
 use ruttice::fermion::{solve_even_odd, Bound, FermionOp, Variant, Wilson, WilsonParams};
 use ruttice::gauge::random_gauge;
 use ruttice::solver::{solve_cgne, Cg, Stop};
@@ -145,6 +146,70 @@ fn main() -> ExitCode {
         op.mult(&mut work, &mut once, &psi_local, Variant::D);
         let n = mismatches(&lat, &twice, &once);
         report("repeat", n == 0.0, format!("{n} reals differ"));
+
+        // The sum adds in rank order (these numbers sum to something else in pairs), and every
+        // process gets the same bits.
+        let parts = [1.0, 1e16, -1e16, 1.0];
+        let size = lat.comm.size();
+        let mut x = [parts[lat.comm.rank() % 4]];
+        lat.comm.sum(&mut x);
+        let in_order = (0..size).fold(0.0, |s, r| s + parts[r % 4]);
+        let seen = lat.comm.gather(&x);
+        let same = seen.iter().all(|y| y[0].to_bits() == x[0].to_bits());
+        let mut wrong = [f64::from(u8::from(
+            x[0].to_bits() != in_order.to_bits() || !same,
+        ))];
+        lat.comm.sum(&mut wrong);
+        report(
+            "sum in rank order",
+            wrong[0] == 0.0,
+            format!("{} against {in_order} in rank order", x[0]),
+        );
+
+        // Gather: rank r passes r % 3 numbers, -0.0 among them; rank 0 gets them in order.
+        let passed_by = |r: usize| -> Vec<f64> {
+            (0..r % 3)
+                .map(|i| if i == 1 { -0.0 } else { (10 * r + i) as f64 })
+                .collect()
+        };
+        let got = lat.comm.gather(&passed_by(lat.comm.rank()));
+        let gathered = !root
+            || (got.len() == size
+                && got.iter().enumerate().all(|(r, g)| {
+                    let want = passed_by(r);
+                    g.len() == want.len()
+                        && g.iter().zip(&want).all(|(a, b)| a.to_bits() == b.to_bits())
+                }));
+        report("gather", gathered, format!("{size} processes to rank 0"));
+
+        // A single-precision halo around a ring of the ranks, through the t faces.
+        if size > 1 {
+            let me = lat.comm.rank();
+            let mut spec = HaloSpec {
+                neighbour: [me; FACES],
+                len: [0; FACES],
+            };
+            spec.neighbour[3] = (me + 1) % size;
+            spec.neighbour[ND + 3] = (me + size - 1) % size;
+            spec.len[3] = 3;
+            spec.len[ND + 3] = 3;
+            let mut ex = lat.comm.halo_f32(&spec);
+            ex.send_buffer(3).fill(me as f32);
+            ex.send_buffer(ND + 3).fill(me as f32 + 0.5);
+            ex.start();
+            ex.wait();
+            // Forward face: what the next rank sent backward; backward face: what the one
+            // before sent forward.
+            let ok = ex.recv_buffer(3) == [spec.neighbour[3] as f32 + 0.5; 3]
+                && ex.recv_buffer(ND + 3) == [spec.neighbour[ND + 3] as f32; 3];
+            let mut wrong = [f64::from(u8::from(!ok))];
+            lat.comm.sum(&mut wrong);
+            report(
+                "halo f32",
+                wrong[0] == 0.0,
+                format!("{} ranks with a wrong face", wrong[0]),
+            );
+        }
 
         // Every process must agree on the verdict.
         let mut failures = [if passed { 0.0 } else { 1.0 }];

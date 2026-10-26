@@ -25,6 +25,12 @@ pub struct HaloSpec {
 }
 
 /// A reusable set of send and receive buffers for the faces of the local lattice.
+///
+/// One exchange: fill the send buffers, `start`, `wait`, read the receive buffers. Between
+/// `start` and `wait` the buffers belong to the transfer (MPI reads and writes them then):
+/// the accessors and a second `start` panic. `wait` without `start` does nothing. A message
+/// is matched by its face, so when two exchanges with the same neighbour are under way at
+/// once, every process must start them in the same order.
 pub trait HaloExchange<T>: Send {
     fn send_buffer(&mut self, face: usize) -> &mut [T];
     fn start(&mut self);
@@ -273,6 +279,9 @@ struct LocalExchange<T> {
     neighbour: [usize; FACES],
     send: [Vec<T>; FACES],
     recv: [Vec<T>; FACES],
+    /// Between `start` and `wait`. The buffers are refused then, as `MpiExchange` refuses
+    /// them, so that a test on `LocalComm` finds what would race under MPI.
+    under_way: bool,
 }
 
 impl<T: Copy + Default> LocalExchange<T> {
@@ -284,16 +293,20 @@ impl<T: Copy + Default> LocalExchange<T> {
             neighbour: spec.neighbour,
             send: core::array::from_fn(|face| vec![T::default(); spec.len[face]]),
             recv: core::array::from_fn(|face| vec![T::default(); spec.len[face]]),
+            under_way: false,
         }
     }
 }
 
 impl<T: Copy + Default + Send> HaloExchange<T> for LocalExchange<T> {
     fn send_buffer(&mut self, face: usize) -> &mut [T] {
+        assert!(!self.under_way, "the exchange is under way");
         &mut self.send[face]
     }
 
     fn start(&mut self) {
+        assert!(!self.under_way, "the exchange is already under way");
+        self.under_way = true;
         let mailbox = (self.mailbox)(&self.shared);
         for face in 0..FACES {
             if self.send[face].is_empty() {
@@ -310,6 +323,10 @@ impl<T: Copy + Default + Send> HaloExchange<T> for LocalExchange<T> {
     }
 
     fn wait(&mut self) {
+        if !self.under_way {
+            return;
+        }
+        self.under_way = false;
         let mailbox = (self.mailbox)(&self.shared);
         for face in 0..FACES {
             if self.recv[face].is_empty() {
@@ -328,6 +345,7 @@ impl<T: Copy + Default + Send> HaloExchange<T> for LocalExchange<T> {
     }
 
     fn recv_buffer(&self, face: usize) -> &[T] {
+        assert!(!self.under_way, "the exchange is under way");
         &self.recv[face]
     }
 }
@@ -352,6 +370,55 @@ mod tests {
             assert_eq!(t[1], 16.0);
             assert_eq!(t[2], -24.0);
         }
+    }
+
+    /// The order matters for these numbers: in rank order ((1 + 1e16) − 1e16) + 1 = 1, in
+    /// pairs (1 + 1e16) + (−1e16 + 1) = 0. `MpiComm` must give the same
+    /// (`apps/mpi_check.rs`).
+    #[test]
+    fn sum_adds_in_rank_order() {
+        let totals = LocalComm::run([4, 4, 4, 8], [1, 1, 2, 2], |lat| {
+            let mut x = [[1.0, 1e16, -1e16, 1.0][lat.comm.rank()]];
+            lat.comm.sum(&mut x);
+            x[0]
+        });
+        assert_eq!(totals, [1.0; 4]);
+    }
+
+    /// An exchange with itself across the t faces of one rank.
+    fn exchange_with_itself(lat: &Lattice) -> Box<dyn HaloExchange<f64>> {
+        let mut spec = HaloSpec {
+            neighbour: [0; FACES],
+            len: [0; FACES],
+        };
+        spec.len[3] = 2;
+        spec.len[ND + 3] = 2;
+        lat.comm.halo_f64(&spec)
+    }
+
+    #[test]
+    #[should_panic(expected = "under way")]
+    fn the_buffers_are_refused_while_an_exchange_is_under_way() {
+        LocalComm::run([2, 2, 2, 4], [1, 1, 1, 1], |lat| {
+            let mut ex = exchange_with_itself(&lat);
+            ex.start();
+            let _ = ex.recv_buffer(3);
+        });
+    }
+
+    #[test]
+    fn wait_without_start_does_nothing() {
+        LocalComm::run([2, 2, 2, 4], [1, 1, 1, 1], |lat| {
+            let mut ex = exchange_with_itself(&lat);
+            ex.wait();
+            ex.send_buffer(3).fill(1.0);
+            ex.send_buffer(ND + 3).fill(2.0);
+            ex.start();
+            ex.wait();
+            ex.wait();
+            assert_eq!(ex.recv_buffer(3), [2.0; 2]);
+            assert_eq!(ex.recv_buffer(ND + 3), [1.0; 2]);
+        });
     }
 
     #[test]

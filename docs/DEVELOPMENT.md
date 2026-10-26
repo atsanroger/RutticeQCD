@@ -112,7 +112,9 @@ Two kinds of checks run with `cargo test`.
 **Checks that need nothing else.** Properties the result must have whatever the numbers
 are: gauge covariance, the free-field result for a plane wave, D† being the adjoint of D,
 the solution of a linear system satisfying it when put back, the same answer from every
-solver and every layout of the fields, the same bits for any number of threads, forces
+solver and every layout of the fields, the same bits for any number of threads, the
+operators on several processes giving the bits of one and the global sums adding the
+processes' parts in rank order (`LocalComm`, and MPI in `ruttice-mpi-check`), forces
 being the derivatives of their actions, the charge of the conserved vector current in
 three-point functions (constant between source and sink, its jump the number of quarks
 times the two-point function).
