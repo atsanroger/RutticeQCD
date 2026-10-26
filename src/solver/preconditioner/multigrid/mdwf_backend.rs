@@ -137,7 +137,8 @@ impl MdwfMultigridSettings {
 pub enum SetupStage<'s> {
     /// The filter: the Ritz values of Ã†Ã of the test vectors.
     Filtered(&'s [f64]),
-    /// A round of the bootstrap.
+    /// A round of the bootstrap (reported by the device).
+    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
     Round(usize),
     /// The levels below the coarse lattice made, for the quark factor or the Pauli-Villars one:
     /// the applications of the coarse operator that took, and the seconds.
@@ -148,6 +149,7 @@ pub enum SetupStage<'s> {
     },
     /// A checksum of what a stage made, computed when asked (on the device, to compare runs bit
     /// by bit).
+    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
     Checksum(&'s str, &'s dyn Fn() -> u64),
 }
 
@@ -215,7 +217,8 @@ pub trait MdwfBackend {
 pub trait Cycles<H> {
     /// The cycle of the `which`-th outer operator.
     fn cycle(&self, which: usize) -> Box<dyn LinearFn<H> + '_>;
-    /// Applications of the coarse operators by the cycles so far.
+    /// Applications of the coarse operators by the cycles so far (the device's report).
+    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
     fn coarse_applications(&self) -> usize;
 }
 

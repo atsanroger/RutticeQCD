@@ -18,30 +18,43 @@ pub use basis::{Basis, BasisBuilder, Reflection};
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use coarse::coarse_neighbours;
 pub use coarse::CoarseOp;
-pub use correction::{solve_shared, CoarseSolve, FnMap, NeffQ};
-pub use correction::{CoarseOperator, Correction, Levels, Transfer};
-pub use cycle::{Corrects, TwoGrid};
+pub(crate) use correction::solve_shared;
+pub(crate) use correction::CoarseOperator;
+pub use correction::{Levels, Transfer};
+
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
-pub use mdwf_backend::{top_of as pv_eo_top, AnyParts, CpuParts, CpuVectors, Outer, PartsIn};
-pub use mdwf_backend::{
-    CoarseLevels, Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
-};
+pub use mdwf_backend::MdwfMultigridSettings;
+pub(crate) use mdwf_backend::{AnyParts, CpuParts, PartsIn};
+pub(crate) use mdwf_backend::{CoarseLevels, Cycles, MdwfBackend, OnCpu, SetupStage};
+pub(crate) use mdwf_even_odd::LevelLists;
+// What only the device backend uses.
 #[cfg(feature = "cuda-bridge")]
-pub(crate) use mdwf_even_odd::{bootstrap_rounds, lifted_vectors, Waiting};
-pub use mdwf_even_odd::{
-    bootstrap_vector, coarse_solve, low_modes, orthonormalise_all, pv_eo_basis_stored,
-    pv_eo_bootstrap_stored, pv_eo_start, BasisStorage, CoarseParts, CycleLayout, SharedOperator,
-};
+pub(crate) use correction::{Correction, FnMap, NeffQ};
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use cycle::TwoGrid;
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use mdwf_backend::Outer;
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use mdwf_even_odd::{bootstrap_rounds, lifted_vectors, low_modes, Waiting};
 pub use mdwf_even_odd::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
-    BootstrapParams, CoarseKrylov, LevelLists, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+    BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+};
+pub(crate) use mdwf_even_odd::{
+    pv_eo_basis_stored, pv_eo_bootstrap_stored, BasisStorage, CoarseParts, CycleLayout,
+    SharedOperator,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
-pub use sap::{CpuBlocks, Sap, SapBlocks};
+pub use sap::Sap;
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use sap::SapBlocks;
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use wilson::CycleLevels;
+
 pub use wilson::{
-    random_vectors, CoarseSolverChoice, CycleLevels, CycleParts, Multigrid, MultigridBackend,
-    MultigridParams, SetupHooks, SmootherChoice, WilsonMultigrid, WilsonOnCpu,
+    random_vectors, CycleParts, Multigrid, MultigridParams, SetupHooks, WilsonMultigrid,
 };
+pub(crate) use wilson::{CoarseSolverChoice, MultigridBackend, SmootherChoice, WilsonOnCpu};
 
 use std::fmt;
 
