@@ -23,7 +23,7 @@
 \tableofcontents
 
 %======================================================================
-\section{Which data a GPU needs from its neighbour}
+\section{Which data a GPU needs from its neighbor}
 
 The hopping term at site $x$ is
 \begin{equation}
@@ -62,7 +62,7 @@ send only
 \begin{equation}
 h_a = \big[(1-s\gamma_\mu)w\big]_a,\qquad a=0,1,
 \end{equation}
-two colour vectors: $2\times3$ complex numbers $=12$ reals instead of 24. The receiver rebuilds
+two color vectors: $2\times3$ complex numbers $=12$ reals instead of 24. The receiver rebuilds
 rows 2 and 3. For $\gamma_3=\mathrm{diag}(1,1,-1,-1)$ it is even simpler:
 \begin{equation}
 (1-\gamma_3)w = (0,\,0,\,2w_2,\,2w_3),\qquad (1+\gamma_3)w = (2w_0,\,2w_1,\,0,\,0).
@@ -174,7 +174,7 @@ Let $d_0<d_1<d_2$ be the directions other than $\mu$. We number a site of the fa
 f = c_{d_0} + L_{d_0}\big(c_{d_1} + L_{d_1}\,c_{d_2}\big).
 \label{eq:face}
 \end{equation}
-Two neighbours across the face differ only in $c_\mu$:
+Two neighbors across the face differ only in $c_\mu$:
 \begin{equation}
 x=(\dots,c_\mu=L_\mu-1,\dots)\ \text{on GPU }A,\qquad x+\hat\mu=(\dots,c_\mu=0,\dots)\ \text{on GPU }B,
 \end{equation}
@@ -248,7 +248,7 @@ For one application of the hops:
 &5.\ \text{surface kernel}
 \end{align*}
 \textbf{NCCL}: step 2 runs on a stream of its own; an event after step 1 starts it, an event after
-it makes step 5 wait. The host waits for nothing.
+it makes step 5 wait, so the host never blocks.
 
 \textbf{Through the host}: step 2 is copy to the host, MPI exchange, copy back; the interior
 kernel runs while MPI exchanges.
@@ -302,14 +302,14 @@ a 1.5--3$\times$ faster coarse solve depending on $t_c$; on the fine operator a 
 
 \textbf{Why NVSHMEM can be faster there.} (i) No group launch: the put is issued on the stream, or
 by the packing kernel itself. (ii) Within a node the packing kernel can write straight into the
-neighbour's buffer through a peer pointer (\code{nvshmem\_ptr}): the face is never copied a second
+neighbor's buffer through a peer pointer (\code{nvshmem\_ptr}): the face is never copied a second
 time, and our layout ($f$ fastest) already makes those stores coalesced. (iii) The wait is a signal
 on the stream (or in the kernel), not a host round trip. (iv) NCCL's kernels occupy multiprocessors
 while they move data; NVSHMEM's puts use the copy engines or the network.
 
 \textbf{What it would take.} Receive buffers and signals on the symmetric heap (one collective
 allocation, sized for the largest number of vectors, doubled so a GPU one step ahead never
-overwrites what its neighbour reads); a feature \code{nvshmem}; bootstrap by the same broadcast of a
+overwrites what its neighbor reads); a feature \code{nvshmem}; bootstrap by the same broadcast of a
 unique identifier as NCCL; first the stream-ordered form
 \code{putmem\_signal\_on\_stream}/\code{signal\_wait\_until\_on\_stream}, then the direct stores within
 a node. NCCL and NVSHMEM can live in one program (NCCL for the fine operator and the sums, NVSHMEM
@@ -328,7 +328,7 @@ A staple at $x$ in direction $\mu$, plane $\nu$, reads
 \begin{equation}
 U_\nu(x)\,U_\mu(x+\hat\nu)\,U_\nu(x+\hat\mu)\dg + U_\nu(x-\hat\nu)\dg\,U_\mu(x-\hat\nu)\,U_\nu(x-\hat\nu+\hat\mu).
 \end{equation}
-The last link sits at $x-\hat\nu+\hat\mu$, a diagonal neighbour. A rectangle reaches
+The last link sits at $x-\hat\nu+\hat\mu$, a diagonal neighbor. A rectangle reaches
 $x+2\hat\mu+\hat\nu$.
 
 We copy the links into an extended lattice with a halo of depth $d$ ($d=1$ staples, $d=2$
@@ -362,7 +362,7 @@ none crosses $c_\mu=L_\mu$. Restriction and prolongation stay local.
 
 \subsection{Probing across a cut}
 
-The link from coarse site $X$ to its neighbour in direction $\mu$ is
+The link from coarse site $X$ to its neighbor in direction $\mu$ is
 \begin{equation}
 B_\mu(X)_{ij} = \big[P\dg\,H_\mu\,P\,e_j\big]_i(X),
 \end{equation}
@@ -372,11 +372,11 @@ $Pe_j$, done once per batch of $j$ and used for all eight legs.
 
 \subsection{Ghost sites}
 
-The coarse kernel reads a neighbour through a table $N[d][X]$. On several processes it points past
+The coarse kernel reads a neighbor through a table $N[d][X]$. On several processes it points past
 the local sites:
 \begin{equation}
 N[d][X] = \begin{cases}
-\text{local neighbour}, & \text{inside the process},\\
+\text{local neighbor}, & \text{inside the process},\\
 n_{\text{sites}} + \text{first}[d] + f(X), & \text{across a cut},
 \end{cases}
 \qquad \text{first}[d]=\sum_{d'<d}\text{count}[d'],
@@ -402,7 +402,7 @@ so
 \begin{equation}
 (A\dg u)(Y) = A(Y)\dg u(Y) + \sum_d B_d\big(N[\bar d][Y]\big)\dg\,u\big(N[\bar d][Y]\big).
 \end{equation}
-When $N[\bar d][Y]$ is a ghost its link $B_d$ lives on the neighbouring process. We exchange the
+When $N[\bar d][Y]$ is a ghost its link $B_d$ lives on the neighboring process. We exchange the
 links of the face sites once (at setup) and form the conjugate transposes; a conjugate transpose
 is a copy with signs, so the numbers are those of one GPU.
 
@@ -411,12 +411,12 @@ is a copy with signs, so the numbers are those of one GPU.
 Each level is a lattice cut on the same process grid; a super-block of $b$ sites per direction must
 divide the local extent of the level above, so it stays inside a process.
 
-Its operator is probed with colours. With $k_\mu$ the smallest divisor $\ge3$ of the global extent,
+Its operator is probed with colors. With $k_\mu$ the smallest divisor $\ge3$ of the global extent,
 \begin{equation}
-\text{colour}(c) = \sum_\mu \big(c_\mu \bmod k_\mu\big)\prod_{\nu<\mu}k_\nu,
+\text{color}(c) = \sum_\mu \big(c_\mu \bmod k_\mu\big)\prod_{\nu<\mu}k_\nu,
 \end{equation}
-of the \emph{global} coordinates $c$. A ghost stands for a site of the neighbour whose global
-coordinates we know, so it gets that site's colour, and probing finds the links across the cut.
+of the \emph{global} coordinates $c$. A ghost stands for a site of the neighbor whose global
+coordinates we know, so it gets that site's color, and probing finds the links across the cut.
 
 The last level is solved with its dense inverse. Every process gathers the whole level: each puts
 its sites at their global places in an array of zeros, and the arrays are summed over processes,
@@ -461,7 +461,7 @@ CGNE (domain-wall; clover Schur) & iterations within 0.2\%, $10^{-11}$ \\
 \end{tabular}
 \end{center}
 Every bit-for-bit test was also broken on purpose (wrong boundary factor, halo too shallow, ghosts
-on the wrong face, wrong ghost colours, ghost links of the wrong direction, the surface of the
+on the wrong face, wrong ghost colors, ghost links of the wrong direction, the surface of the
 Wilson and clover operators skipped) and then failed.
 
 With two MPI processes on $4^3\times8$, GPU and CPU alike: the propagator (CG, mixed CG, the
@@ -469,8 +469,8 @@ multigrid with and without a second level, MINRES or GCR for the Pauli-Villars f
 (CG, mixed CG, the multigrid with a second level) take the same iterations as one process,
 $\Delta H$ to $10^{-10}$.
 
-Not checked: NCCL itself and several real GPUs (one GPU here; NCCL refuses two processes on one
-GPU, so the host path ran), and the speed of the exchanges (on one shared GPU each exchange pays a
+We have not checked NCCL itself, several real GPUs (one GPU here; NCCL refuses two processes on one
+GPU, so the host path ran), or the speed of the exchanges (on one shared GPU each exchange incurs a
 context switch: HMC with the multigrid 48\,s on two processes against 1.6\,s on one, which says
 nothing about several GPUs).
 

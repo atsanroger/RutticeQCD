@@ -55,7 +55,11 @@ iterations a solve at m 0.01 and at m 0.001 (finite volume), and the multigrid i
 bootstrap 1 round, GCR(4)) gains at most 6%. The 24⁴ quenched configuration, where CG needs 6400,
 blows up in a trajectory of length 1. So there are no data yet that the multigrid is faster in
 HMC: the volumes thermalized here are finite-volume limited (the note, "In HMC"). Next: a volume
-where CG needs more than about 1300 iterations a solve.
+where CG needs more than about 1300 iterations a solve. That 16⁴ configuration
+(`therm16/conf16_m0.01_000102.bin`, N_f 2, β 6.0 plaquette action, from the quenched one) has a
+flat plaquette after 100 trajectories but its topological charge has not been measured; it is not
+used as dynamical data until it is thermalized further (2026-10-26; the intermediate
+configurations were deleted).
 
 **Released 2026-10-23** on the user's call, with: 1 done (19.1 GB live with 20 test vectors);
 2 done (the left form for D, D† unchanged; CG on the even-odd Ratio takes α too, on K Q_e);
@@ -847,10 +851,81 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Multigrid paper (`docs/mg_background/`)
 
+Target (2026-10-26): arXiv, then Phys. Rev. D. Needed before submitting: more configurations,
+the third baseline and the volume trend (below), a dynamical ensemble, a rewrite to the
+journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
+
 - Not measured, listed in the note: more configurations (the main request to whoever has GPUs:
   see `reproduce.tex`), Lüscher's coherence test for the
   mass-scan basis, a rigorous lower bound on `sigma_min` (Kato–Temple), the spectrum on
   `24^3x48` (does not fit in 24 GB).
+- **More 24³×48 quenched configurations** (2026-10-26, plan; not on as13). Continue the chain of
+  `conf_quench_24x24x24x48_v2` (trajectory 602; β 6.0 plaquette action, trajectories of length
+  0.5, Omelyan [22], acceptance 0.87, 45 s a trajectory on 12 CPU threads; the plaquette is flat
+  at 0.59370–0.59373 from about trajectory 300, τ_int(plaquette) ≈ 4 trajectories). Save 3–5
+  configurations far enough apart: the separation to be set from the topological charge
+  (gradient flow, `gauge/flow.rs`), not from the plaquette; keep only the saved ones. Memory of
+  the quenched HMC was not recorded; from the field sizes (one gauge field 382 MB in double) it
+  should be 2–3 GB (an estimate), so a 16 GB machine is enough. Measured peaks on the A30 for the
+  solves of 24³×48 (S, m 0.001): the multigrid host 19.7 GB, device 20.2 GB; CGNE mixed host
+  3.5 GB, device 7.2 GB; 24⁴ multigrid host 10.0 GB, device 10.1 GB. The CPU multigrid on 32⁴
+  (`cpu32/mg_32_m0.005`) stopped with exit status 1 after 6 min and left no memory record.
+- **The two lifts {s, t̂} against y alone** (2026-10-26). The note now says the lifts give one
+  basis per coarse solve and make the correction exact for the right form only; the left form
+  used in practice misses y' by 1.6–24 on 12⁴, about as much as random vectors. Not measured:
+  the left-form iterations and time with P from {s, t̂} (2n columns) against P from y alone
+  (n columns, half of P and of the coarse operators), and against 2n vectors y. Without it the
+  note cannot claim that the two lifts help in practice.
+  **Measured on 12⁴ (2026-10-26, branch exp/basis-lifts, RUTTICE_BASIS_LIFTS; note Sec. V,
+  "Choice of the prolongation basis", data/basis_12.tsv):** {s, t̂} best in three of four cases,
+  left form in S 14 against 35 ({s, Ds}) and 155–311 ({s}). 16⁴ run (`basis16/` on as13),
+  24³×48 left form at m 0.001 running (`basis2448/`); both to be tabulated into the note.
+- **Krylov on Ã without the multigrid, as a third baseline** (2026-10-26; after the basis-lift
+  runs). The note compares the multigrid with CGNE only, so its 4.5–4.8× mixes A′ (Kanamori,
+  Chen and Matsufuru: Krylov without squaring) with the multigrid. To separate them, on the
+  24³×48 mass scan (`runs/mg_24.yaml`, seven masses, S and B): BiCGStab (or GCR) on Ã_L with no
+  preconditioner, and with the Chebyshev smoother alone as preconditioner, same precision and
+  stopping rule as the multigrid; report Ã applications and wall time. The prototype log
+  (16⁴, m 0.005) had 310 BiCGStab steps (622 Ã), Chebyshev alone 62 (622 Ã), the multigrid 29
+  (322 Ã), and on 12⁴ the multigrid did not beat the polynomial once its coarse cost was counted,
+  so the gain is expected only at large volume and light mass. Also a volume axis at
+  m 0.001 and 0.01: 12⁴, 16⁴, 24⁴ and 24³×48, CGNE (double, mixed), BiCGStab on Ã_L,
+  Chebyshev alone and the multigrid, S and B, all with one binary (the e044050 export), to
+  see from which volume the multigrid wins once its setup and coarse cost are counted.
+  BiCGStab on Ã runs in double only (mixed precision is CG on Normal_left only), so compare
+  its time with double CGNE and its Ã applications with all. **All 100 runs done (2026-10-26,
+  `baseline3/` on as13, e044050)**, none at the 30 min cap; the Chebyshev-only runs were rerun
+  after a wrong parameter file (the `Chebyshev` block belongs under `Solver`; `ruttice` returned
+  0 on the parse error). To be tabulated into the note.
+- **Coarsening structures compared in one implementation** (2026-10-26, design agreed; after the
+  24³×48 basis runs; branch to be made, e.g. `exp/coarsening-comparison`). Four MG variants, GCR
+  outer, one right-hand side: (a) whole lattice, F = D(1)†D(m), product Galerkin P†FP (33 points,
+  Boyle–Oare); (b) whole lattice, A′, product Galerkin (33 points: Boyle's scheme on the operator of
+  Kanamori, Chen and Matsufuru); (c) whole lattice, A′, the two factors apart (9 points each,
+  BCHW-like with C); (d) even-odd Ã, factors apart (the note). (a)↔(b) operator, (b)↔(c) product
+  against factors, (c)↔(d) even-odd. Reuse: `PvPreconditioned`, `MdwfAt`, `Adjoint`, `Product`,
+  `Multigrid`/`mdwf_lexical.rs` (its `MdwfCoarse::Galerkin` cuts P†AP to 8 neighbours; (a)(b) need
+  the exact 33 points), 5D folded bases, Chebyshev, levels, dense LU. New: a 2-hop coarse operator
+  (`coarse.rs`) and its probing (colours ≥ 5 apart), `MdwfCoarse::ProductGalerkin`, the whole-lattice
+  factorized correction and its lifts (to derive), a shift in the Chebyshev smoother (Boyle's m_adj),
+  device kernels (2-hop coarse pass, probing, a whole-lattice MDWF MG backend), parameter keys.
+  External checks: F and A′ against Bridge++ `afopr_Domainwall(_PVprec)` on 4³×8; the 2-hop P†FP
+  against a dense product on a small lattice; solutions against CGNE; iterations against the
+  prototype's product Galerkin (12⁴ 20, 16⁴ 38, conditions to check). Risks: 2-hop aliasing needs
+  coarse extents ≥ 5 (12⁴ with 4⁴ blocks gives 3⁴); the 33-point coarse solve at 24³×48
+  (~1.7e5 dims, no dense inverse); fairness (Boyle's Grid tuning is known only from slides).
+  Phases: CPU two-level small volumes (a)–(c); device and 24³×48; levels if the coarse solve
+  dominates.
+- **Coarse deflation with the present basis** (2026-10-26). The only test of deflating the coarse
+  factors (Lanczos, 32 Ritz pairs; H⁻¹ subspace iteration) used the basis {s, Ds}, which the
+  basis-lift runs show to be a poorer coarse space (2.5× the iterations of {s, t̂} on 12⁴). Its
+  failure and the reading "the coarse low spectrum is too dense" may come from that basis. The
+  note now says only what was measured with {s, Ds}. To do: the same test with {s, t̂} (needs a
+  coarse eigensolver in src; the old one was in the prototype only).
+- **The cost of the Pauli–Villars factor** (2026-10-26). D_PV = D(m=1) has no low modes, yet it
+  gets the same P and may get the levels below. Not measured: the time of the Pauli–Villars
+  coarse solve against the quark one per cycle, and the outer iterations and time when it is
+  solved more cheaply (fewer MINRES steps, no levels below, or a cheaper approximation).
 
 ## Device robustness
 

@@ -71,11 +71,261 @@ are much closer to null vectors of $\AR\dg$ in S than in B ($\|\AR\dg y\|^2/\|y\
 against $0.27$ on $12^4$ and $16^4$, while $\|\AR y\|^2/\|y\|^2\approx0.003$ in both), which is why the dual
 cycle works in~B but stalls in~S (Sec.~\ref{sec:dagger}, Table~\ref{tab:c4}).
 
+\subsection{Comparison with CGNE}
+\label{sec:massscan}
+
+We compare the cost of the multigrid with that of the reference solver of
+Sec.~\ref{sec:outer} on $24^3\times48$, first for one random right-hand side over seven masses
+and then for whole point-source propagators.
+
+\begin{table}[t]
+\centering
+\caption{Mass scan on $24^3\times48$, A30, one random right-hand side to
+$|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
+precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
+$\alpha=1$ for the multigrid; iterations, solve time in seconds, coarse-operator
+applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
+multigrid setup (200--237\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
+MG})$, against the double- and the mixed-precision CGNE. The mixed-precision CGNE
+needs the iterations of the double-precision one, except at $m=0.001$ (S): $4090$.
+Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$3\times10^{-16}$ (CGNE, both),
+$2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
+(double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$). RutticeQCD
+\texttt{6d5bf18}; \texttt{data/massscan\_24.tsv}.}
+\label{tab:massscan}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}l rrr rrr rr rr@{}}
+\toprule
+ & \multicolumn{3}{c}{CGNE} & \multicolumn{3}{c}{MG, $\alpha=0.6$} & \multicolumn{2}{c}{MG, $\alpha=1$} & \multicolumn{2}{c}{$N_{\rm rhs}$}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
+$m$ & it & s & s, mixed & it & s & coarse & it & s & double & mixed\\
+\midrule
+\multicolumn{11}{@{}l}{setup S ($M_5=1.0$, stout)}\\
+$0.1$   & 173  & 4.8   & 2.9  & 13 & 5.9  & 1202 & 16 & 6.8  & ---  & ---\\
+$0.05$  & 291  & 8.1   & 4.6  & 13 & 5.3  & 750  & 14 & 5.7  & 72   & ---\\
+$0.02$  & 644  & 17.7  & 9.7  & 14 & 5.7  & 830  & 14 & 5.7  & 17   & 51\\
+$0.01$  & 1166 & 32.0  & 17.4 & 15 & 6.2  & 990  & 15 & 6.3  & 7.9  & 18\\
+$0.005$ & 2067 & 56.6  & 30.5 & 17 & 7.1  & 1158 & 17 & 7.3  & 4.2  & 8.8\\
+$0.002$ & 3419 & 93.5  & 50.2 & 23 & 10.1 & 1954 & 22 & 10.1 & 2.5  & 5.1\\
+$0.001$ & 3602 & 98.5  & 59.9 & 28 & 13.2 & 3014 & 27 & 13.1 & 2.4  & 4.4\\
+\midrule
+\multicolumn{11}{@{}l}{setup B ($M_5=1.8$)}\\
+$0.1$   & 231  & 6.4   & 3.7  & 7  & 3.3  & 201  & 9  & 4.2  & 69   & 535\\
+$0.05$  & 402  & 11.1  & 6.2  & 10 & 4.7  & 302  & 12 & 5.7  & 33   & 143\\
+$0.02$  & 857  & 23.6  & 12.9 & 13 & 6.2  & 424  & 15 & 7.2  & 12   & 32\\
+$0.01$  & 1447 & 39.6  & 21.4 & 15 & 7.2  & 556  & 17 & 8.2  & 6.6  & 15\\
+$0.005$ & 2299 & 63.0  & 34.0 & 18 & 8.7  & 714  & 21 & 10.2 & 4.0  & 8.6\\
+$0.002$ & 3473 & 95.2  & 51.2 & 23 & 11.3 & 1024 & 25 & 12.4 & 2.8  & 5.8\\
+$0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_massscan}
+\caption{The mass scan of Table~\ref{tab:massscan}, the mixed-precision CGNE, and the Krylov
+solvers on $\AL$ without the multigrid (Table~\ref{tab:nomg}): iterations (top) and seconds
+per right-hand side (bottom) against the quark mass, $24^3\times48$, A30.
+``Solve + setup/12'': the setup spread over the 12 columns of one point-source
+propagator. \texttt{data/massscan\_24.tsv} (\texttt{6d5bf18}),
+\texttt{data/baseline\_mass\_2448.tsv} (\texttt{e044050}), \texttt{figures.py}.}
+\label{fig:massscan}
+\end{figure}
+
+The multigrid iterations hardly depend on the mass (Table~\ref{tab:massscan},
+Fig.~\ref{fig:massscan}). From $m=0.1$ to $m=0.001$ the CGNE iterations grow by a factor of $21$
+(S) and $18$ (B), the multigrid iterations by $2.2$ (S) and $3.7$ (B). At $m=0.001$ the multigrid
+solve is $7.5$ (S) and $9.0$ (B) times faster than double-precision CGNE. A setup of about
+$210$\,s is recovered after $2$--$3$ right-hand sides, so within one point-source
+propagator (12 columns) for $m\le0.01$. At $m=0.1$ in setup~S the multigrid is not faster at all.
+It needs three times the device memory of CGNE, which on the $24$\,GB A30 excludes GCR($k$) with
+$k\ge8$. Against an earlier
+build (\texttt{6c7ff42}) the iteration counts differ by one or two in six of the 28 multigrid
+runs; whether a code change or the non-determinism of the device reductions causes this is not
+established.
+
+\paragraph{Neff's $\alpha$ in the two setups.} With $\alpha=0.6$ against $\alpha=1$ in the left
+form, the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
+$m=0.1$, from 28 to 26 at $m=0.001$). In setup~S it saves three at $m=0.1$, about one at
+$m=0.05$, and none from $m=0.01$ down (28 against 27 at $m=0.001$). The two setups differ in
+where the multigrid spends its iterations, and the smoother intervals of Table~\ref{tab:setups}
+say where. In~B the smoother must cover $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: a wide band of
+modes is left to it, at every mass, and $\alpha$, which reshapes the spectrum of $\AL^{(\alpha)}$
+(Sec.~\ref{sec:eo}), shortens that work. In~S the smoother covers only
+$[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$, and the coarse correction takes the rest. At heavy
+masses the smoother part still sets the iterations, and $\alpha$ helps as in~B; at light masses
+the low modes set them, they belong to the coarse space, and $\alpha$ has little left to
+improve. CG on the normal equation has no such split: every mode enters its condition number,
+so $\alpha$ reduces its iteration count at all masses (in HMC on $24^4$ at $m=0.001$ in setup~S, mixed-precision CG
+takes 31996 iterations at $\alpha=0.6$ against 40912 at $\alpha=1$, the multigrid 362 against
+356). This reading is consistent with the numbers but was not checked on the spectra.
+
+\paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
+precision: CG in single precision on the normal equation of $\Ce^{-1}S$, with reliable updates in
+double precision (the true residual recomputed whenever $|r|^2$ has fallen by $10^{-2}$). It needs
+the iterations of double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times
+the time, with the same final residuals and $7.2$\,GB of device memory. Against it the multigrid
+solve at $m=0.001$ is $4.5$ (S) and $4.8$ (B) times faster, and the setup is paid back after
+$4$--$5$ right-hand sides, within one propagator for $m\le0.005$. For $m\ge0.05$ (S) the
+mixed-precision CGNE is faster, and at $m=0.1$ (B) the two take nearly the same time.
+
+\paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
+(Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes half the wall time of the
+mixed-precision CGNE, setup included, and a column is $4.5$--$5$ times faster. At $m=0.01$ the
+setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$18$
+(Table~\ref{tab:massscan}) predicts. A point source needs more iterations than a random
+right-hand side, with either solver. The pseudoscalar correlators of the two agree to
+$4\times10^{-8}$--$7\times10^{-7}$ at $t\le3$ and to $2\times10^{-6}$ at all $48$ times. The
+multigrid stops on the residual of $D$ ($|D\psi-\eta|^2/|\eta|^2=1$--$2\times10^{-18}$), the CGNE
+on that of its normal equation ($6\times10^{-17}$ to $3\times10^{-16}$). The device memory is
+$21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
+
+\begin{table}[t]
+\centering
+\caption{Point-source propagators (12 columns) on $24^3\times48$, A30: the multigrid
+(setup seconds, iterations and seconds per column) against the mixed-precision CGNE
+(iterations and seconds per column), the wall time of the whole propagator, and the
+largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
+\texttt{6d5bf18}; \texttt{data/pointsource\_24.tsv}.}
+\label{tab:pointsource}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lc ccc cc cc c@{}}
+\toprule
+ & & \multicolumn{3}{c}{MG} & \multicolumn{2}{c}{CGNE, mixed} & \multicolumn{2}{c}{wall (s)} & \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+ & $m$ & setup & it & s & it & s & MG & CGNE & $|\Delta C|/C$\\
+\midrule
+S & $0.001$ & $206$ & $29$--$32$ & $13.6$--$14.9$ & $4182$--$4572$ & $61.4$--$67.0$ & $396$ & $810$ & $9\times10^{-8}$\\
+B & $0.001$ & $215$ & $29$--$30$ & $14.2$--$14.8$ & $5023$--$5332$ & $73.5$--$78.0$ & $409$ & $918$ & $7\times10^{-7}$\\
+S & $0.01$ & $203$ & $16$--$17$ & $6.4$--$7.0$ & $1337$--$1388$ & $19.8$--$20.5$ & $305$ & $264$ & $2\times10^{-7}$\\
+B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $324$ & $4\times10^{-8}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Krylov on $\AL$ without the multigrid.} The comparison with CGNE mixes two
+effects: the operator $A'$, on which a Krylov method works without the normal equation, and
+the coarse correction. Table~\ref{tab:nomg} separates them with BiCGStab on $\AL$ alone and
+GCR(2) on $\AL$ preconditioned by the Chebyshev smoother alone, both in double precision
+(mixed precision exists only for CG on the normal equation) and with the smoother parameters
+of Table~\ref{tab:setups}, not tuned for this use. BiCGStab needs about as many iterations as
+double-precision CGNE ($3247$ against $3602$ at $m=0.001$ in setup~S), but one of its
+iterations applies $\AL$ twice and $\AL$ contains two Schur complements, so it costs about
+twice a CGNE iteration and takes $1.7$ times its time. The polynomial cuts the iterations by
+two to five but raises the time. So $A'$ alone does not beat CGNE, and the speed-up of the
+multigrid comes from its coarse correction.
+
+\begin{table}[t]
+\centering
+\caption{Solvers on $24^3\times48$, one random right-hand side, A30, iterations and solve
+seconds (multigrid: plus its setup). RutticeQCD \texttt{e044050};
+\texttt{data/baseline\_mass\_2448.tsv} and \texttt{data/baseline\_volume.tsv} (all seven masses
+there).}
+\label{tab:nomg}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+ & \multicolumn{2}{c}{setup S} & \multicolumn{2}{c}{setup B}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & $m=0.01$ & $m=0.001$ & $m=0.01$ & $m=0.001$\\
+\midrule
+CGNE, double & $1166$, $31.5$ & $3602$, $97.4$ & $1447$, $39.1$ & $4228$, $114.3$\\
+CGNE, mixed & $1166$, $16.9$ & $4059$, $58.0$ & $1448$, $20.9$ & $4232$, $60.4$\\
+BiCGStab on $\AL$ & $747$, $39.1$ & $3247$, $169.5$ & $672$, $35.1$ & $2085$, $108.8$\\
+GCR(2), Chebyshev & $236$, $51.4$ & $1789$, $389.6$ & $139$, $44.1$ & $430$, $136.3$\\
+multigrid & $15$, $5.8$ ($+198$) & $28$, $12.9$ ($+200$) & $15$, $6.8$ ($+205$) & $26$, $12.3$ ($+208$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Volume.} Table~\ref{tab:volume} follows the solvers from $12^4$ to $24^3\times48$
+at $m=0.001$ on quenched configurations of the same $\beta$. The multigrid iterations stay at
+$13$--$28$ while those of CGNE grow $17$ times in setup~S and $8$ times in~B. On $12^4$ the
+multigrid solve is slower than mixed CGNE, on $16^4$ it is level, and from $24^4$ on it is
+$4.5$--$5$ times faster. Its setup grows with the volume ($6$--$7$\,s on $12^4$, $200$--$208$\,s on
+$24^3\times48$), so the number of right-hand sides over which it is recovered depends on the volume as well.
+BiCGStab on $\AL$ is slower than mixed CGNE on every volume.
+
+\begin{table}[t]
+\centering
+\caption{Iterations and solve seconds at $m=0.001$ against the volume, one random right-hand
+side, A30, RutticeQCD \texttt{e044050}; multigrid: plus its setup.
+\texttt{data/baseline\_volume.tsv}, \texttt{data/baseline\_mass\_2448.tsv}.}
+\label{tab:volume}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}llllll@{}}
+\toprule
+ & & $12^4$ & $16^4$ & $24^4$ & $24^3\times48$\\
+\midrule
+S & CGNE, mixed & $234$, $0.2$ & $358$, $0.6$ & $2530$, $18.4$ & $4059$, $58.0$\\
+ & BiCGStab on $\AL$ & $235$, $0.4$ & $398$, $2.0$ & $1905$, $49.9$ & $3247$, $169.5$\\
+ & multigrid & $14$, $0.5$ ($+7$) & $13$, $0.6$ ($+17$) & $19$, $3.7$ ($+93$) & $28$, $12.9$ ($+200$)\\
+\midrule
+B & CGNE, mixed & $505$, $0.3$ & $818$, $1.3$ & $3596$, $26.1$ & $4232$, $60.4$\\
+ & BiCGStab on $\AL$ & $368$, $0.7$ & $663$, $3.4$ & $1909$, $50.0$ & $2085$, $108.8$\\
+ & multigrid & $14$, $0.5$ ($+6$) & $14$, $0.8$ ($+17$) & $23$, $5.4$ ($+103$) & $26$, $12.3$ ($+208$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{In HMC}
+\label{sec:hmcresults}
+
+In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(K\dg K)^{-1}$,
+as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
+until it is small enough. The test vectors are kept from solve to solve and improved by a
+bootstrap when a trajectory starts; P and the coarse operators are kept until the iterations
+grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers, on the A30.
+
+\paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the
+quenched one by mixed-precision CG: 60 trajectories at $m=0.05$ (acceptance $0.98$,
+$\langle e^{-\Delta H}\rangle=1.002$), then 40 at $m=0.01$ (acceptance $0.98$,
+$\langle e^{-\Delta H}\rangle=0.993$), trajectories of length~1 with Omelyan steps
+$[20,2]$; 10 steps were unstable at $m=0.01$ ($\Delta H\approx10^3$ with $\alpha=0.6$ and
+$\alpha=1$ alike). From it, five trajectories with the multigrid reproduce those of CG: the
+plaquette to $10^{-11}$, $\Delta H$ to three digits.
+
+\paragraph{Cost.} On this lattice the multigrid is the slower solver (Table~\ref{tab:hmc16}).
+CG needs about 300 iterations per solve at $m=0.01$ and still about 300 at $m=0.001$: on a
+dynamical configuration of this size the smallest eigenvalues are set by the finite volume. The multigrid needs about 55 iterations, but one of them, a whole
+cycle, costs about as much as 24 of CG. Varying the smoother (4, 6 or 8 steps), the coarse and
+the inner tolerances, the bootstrap rounds and the directions of GCR changed its time by at most
+$6\%$. On the quenched $24^4$ configuration at $m=0.001$, CG needs about 6400 iterations per solve, and the multigrid, setup included, is faster on a short trajectory
+(203\,s against 264\,s). But a trajectory of length~1 there blows up ($\Delta H\approx4\times10^9$),
+so that configuration is no test of HMC. Data that show the multigrid faster in HMC therefore do
+not exist yet: the dynamical volumes thermalized here are limited by the finite volume. They need
+a volume where CG takes more than about 1300 iterations per solve.
+
+\begin{table}[t]
+\centering
+\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$, A30:
+seconds per trajectory of length~1 (Omelyan $[20,2]$ at $m=0.01$, $[40,2]$ at $m=0.001$), with the
+iterations per solve. The multigrid: 16 filtered vectors, GCR(2), the cycle in single precision;
+its time includes its setup (one bootstrap per trajectory) and rebuilds.}
+\label{tab:hmc16}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{mixed CG} & \multicolumn{2}{c}{multigrid}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+$m$ & s & it/solve & s & it/solve\\
+\midrule
+$0.01$  & $23$ & $290$ & $79$  & $37$\\
+$0.001$ & $47$ & $305$ & $195$ & $55$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Field of values: the coarse correction amplifies}
 \label{sec:fov}
 
-The next four subsections ask why the method converges although the usual theory
-does not apply. Two notions from non-Hermitian linear algebra are used. The \emph{field
+The next four subsections ask why the method converges, as it does in
+Secs.~\ref{sec:massscan} and \ref{sec:hmcresults}, although the usual theory does not apply. Two notions from non-Hermitian linear algebra are used. The \emph{field
 of values} $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the
 smallest eigenvalue of the Hermitian part $(X+X\dg)/2$; GCR is guaranteed to converge at
 every restart length when $W$ lies in the right half-plane~\cite{ESS}. The
@@ -100,11 +350,8 @@ size $\varepsilon$, which is what widens the pseudospectrum around it
 The coarse correction amplifies some vectors by $10^3$--$10^4$, and
 the field of values of the preconditioned operator reaches into the left half-plane
 (this subsection), so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is
-lost. Its eigenvalues nevertheless stay at $\Re\lambda\ge0.78$
-(Sec.~\ref{sec:spectrum}), and its pseudospectra bound the convergence of full GMRES
-(Sec.~\ref{sec:pseudo}). The truncated GCR used in practice is not covered by that
-bound: it converges best when the coarse solves are inexact, and with accurate coarse
-solves it needs more iterations (setup~B) or stagnates (setup~S; Sec.~\ref{sec:gcrk}).
+lost. Secs.~\ref{sec:spectrum}, \ref{sec:pseudo} and \ref{sec:gcrk} give what remains: the
+eigenvalues, the pseudospectra and the truncated GCR used in practice.
 
 The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
 linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
@@ -298,8 +545,8 @@ an inclusion theorem (Kato--Temple) with a bound on the second singular value.
 eigenvalues farthest from $c$ found by Arnoldi. (iv) The bound is for full GMRES
 with a fixed linear $\mathcal M$ (Sec.~\ref{sec:gcrk}). (v) The spectra, and the
 FOV of $\AR\mathcal M$, are not available on $24^4$ and $24^3\times48$: the
-eigensolvers do not fit in the memory of the A30. This is a limit of the hardware
-used here, not of the method.
+eigensolvers do not fit in the memory of the A30. A GPU with more memory would remove
+this limit.
 
 \subsection{Truncated GCR: inexact coarse solves}
 \label{sec:gcrk}
@@ -394,189 +641,6 @@ its own. Since the loose solves do not avoid the amplifying directions, the vari
 with its input is the candidate explanation. A fixed but inaccurate linear coarse solve, or the
 exact cycle perturbed at random, would test it.
 
-\subsection{Comparison with CGNE}
-\label{sec:massscan}
-
-What the multigrid costs, against the reference solver of Sec.~\ref{sec:outer}, on
-$24^3\times48$: one random right-hand side over seven masses, then whole point-source
-propagators.
-
-\begin{table}[t]
-\centering
-\caption{Mass scan on $24^3\times48$, A30, one random right-hand side to
-$|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
-precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
-$\alpha=1$ for the multigrid; iterations, solve time in seconds, coarse-operator
-applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
-multigrid setup (200--237\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
-MG})$, against the double- and the mixed-precision CGNE. The mixed-precision CGNE
-needs the iterations of the double-precision one, except at $m=0.001$ (S): $4090$.
-Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$3\times10^{-16}$ (CGNE, both),
-$2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
-(double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$). RutticeQCD
-\texttt{6d5bf18}; \texttt{data/massscan\_24.tsv}.}
-\label{tab:massscan}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{@{}l rrr rrr rr rr@{}}
-\toprule
- & \multicolumn{3}{c}{CGNE} & \multicolumn{3}{c}{MG, $\alpha=0.6$} & \multicolumn{2}{c}{MG, $\alpha=1$} & \multicolumn{2}{c}{$N_{\rm rhs}$}\\
-\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
-$m$ & it & s & s, mixed & it & s & coarse & it & s & double & mixed\\
-\midrule
-\multicolumn{11}{@{}l}{setup S ($M_5=1.0$, stout)}\\
-$0.1$   & 173  & 4.8   & 2.9  & 13 & 5.9  & 1202 & 16 & 6.8  & ---  & ---\\
-$0.05$  & 291  & 8.1   & 4.6  & 13 & 5.3  & 750  & 14 & 5.7  & 72   & ---\\
-$0.02$  & 644  & 17.7  & 9.7  & 14 & 5.7  & 830  & 14 & 5.7  & 17   & 51\\
-$0.01$  & 1166 & 32.0  & 17.4 & 15 & 6.2  & 990  & 15 & 6.3  & 7.9  & 18\\
-$0.005$ & 2067 & 56.6  & 30.5 & 17 & 7.1  & 1158 & 17 & 7.3  & 4.2  & 8.8\\
-$0.002$ & 3419 & 93.5  & 50.2 & 23 & 10.1 & 1954 & 22 & 10.1 & 2.5  & 5.1\\
-$0.001$ & 3602 & 98.5  & 59.9 & 28 & 13.2 & 3014 & 27 & 13.1 & 2.4  & 4.4\\
-\midrule
-\multicolumn{11}{@{}l}{setup B ($M_5=1.8$)}\\
-$0.1$   & 231  & 6.4   & 3.7  & 7  & 3.3  & 201  & 9  & 4.2  & 69   & 535\\
-$0.05$  & 402  & 11.1  & 6.2  & 10 & 4.7  & 302  & 12 & 5.7  & 33   & 143\\
-$0.02$  & 857  & 23.6  & 12.9 & 13 & 6.2  & 424  & 15 & 7.2  & 12   & 32\\
-$0.01$  & 1447 & 39.6  & 21.4 & 15 & 7.2  & 556  & 17 & 8.2  & 6.6  & 15\\
-$0.005$ & 2299 & 63.0  & 34.0 & 18 & 8.7  & 714  & 21 & 10.2 & 4.0  & 8.6\\
-$0.002$ & 3473 & 95.2  & 51.2 & 23 & 11.3 & 1024 & 25 & 12.4 & 2.8  & 5.8\\
-$0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\linewidth]{fig_massscan}
-\caption{The mass scan of Table~\ref{tab:massscan} and the mixed-precision CGNE: iterations
-(top) and seconds per right-hand side (bottom) against the quark mass, $24^3\times48$, A30.
-``Solve + setup/12'': the setup spread over the 12 columns of one point-source
-propagator. \texttt{data/massscan\_24.tsv}, \texttt{figures.py}.}
-\label{fig:massscan}
-\end{figure}
-
-The multigrid iterations hardly depend on the mass (Table~\ref{tab:massscan},
-Fig.~\ref{fig:massscan}). From $m=0.1$ to $m=0.001$ the CGNE iterations grow by a factor of $21$
-(S) and $18$ (B), the multigrid iterations by $2.2$ (S) and $3.7$ (B). At $m=0.001$ the multigrid
-solve is $7.5$ (S) and $9.0$ (B) times faster than double-precision CGNE. With a setup of about
-$210$\,s it pays for itself after $2$--$3$ right-hand sides, so within one point-source
-propagator (12 columns) for $m\le0.01$. At $m=0.1$ in setup~S the multigrid is not faster at all.
-It needs three times the device memory of CGNE, which on the $24$\,GB A30 excludes GCR($k$) with
-$k\ge8$. Against an earlier
-build (\texttt{6c7ff42}) the iteration counts differ by one or two in six of the 28 multigrid
-runs; whether a code change or the non-determinism of the device reductions causes this is not
-established.
-
-\paragraph{Neff's $\alpha$ in the two setups.} With $\alpha=0.6$ against $\alpha=1$ in the left
-form, the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
-$m=0.1$, from 28 to 26 at $m=0.001$). In setup~S it saves three at $m=0.1$, about one at
-$m=0.05$, and none from $m=0.01$ down (28 against 27 at $m=0.001$). The two setups differ in
-where the multigrid spends its iterations, and the smoother intervals of Table~\ref{tab:setups}
-say where. In~B the smoother must cover $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: a wide band of
-modes is left to it, at every mass, and $\alpha$, which reshapes the spectrum of $\AL^{(\alpha)}$
-(Sec.~\ref{sec:eo}), shortens that work. In~S the smoother covers only
-$[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$, and the coarse correction takes the rest. At heavy
-masses the smoother part still sets the iterations, and $\alpha$ helps as in~B; at light masses
-the low modes set them, they belong to the coarse space, and $\alpha$ has little left to
-improve. CG on the normal equation has no such split: every mode enters its condition number,
-so $\alpha$ pays at all masses (in HMC on $24^4$ at $m=0.001$ in setup~S, mixed-precision CG
-takes 31996 iterations at $\alpha=0.6$ against 40912 at $\alpha=1$, the multigrid 362 against
-356). This reading is consistent with the numbers but was not checked on the spectra.
-
-\paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
-precision: CG in single precision on the normal equation of $\Ce^{-1}S$, with reliable updates in
-double precision (the true residual recomputed whenever $|r|^2$ has fallen by $10^{-2}$). It needs
-the iterations of double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times
-the time, with the same final residuals and $7.2$\,GB of device memory. Against it the multigrid
-solve at $m=0.001$ is $4.5$ (S) and $4.8$ (B) times faster, and the setup is paid back after
-$4$--$5$ right-hand sides, within one propagator for $m\le0.005$. For $m\ge0.05$ (S) the
-mixed-precision CGNE is faster, and at $m=0.1$ (B) the two take nearly the same time.
-
-\paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
-(Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes half the wall time of the
-mixed-precision CGNE, setup included, and a column is $4.5$--$5$ times faster. At $m=0.01$ the
-setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$18$
-(Table~\ref{tab:massscan}) predicts. A point source needs more iterations than a random
-right-hand side, with either solver. The pseudoscalar correlators of the two agree to
-$4\times10^{-8}$--$7\times10^{-7}$ at $t\le3$ and to $2\times10^{-6}$ at all $48$ times. The
-multigrid stops on the residual of $D$ ($|D\psi-\eta|^2/|\eta|^2=1$--$2\times10^{-18}$), the CGNE
-on that of its normal equation ($6\times10^{-17}$ to $3\times10^{-16}$). The device memory is
-$21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
-
-\begin{table}[t]
-\centering
-\caption{Point-source propagators (12 columns) on $24^3\times48$, A30: the multigrid
-(setup seconds, iterations and seconds per column) against the mixed-precision CGNE
-(iterations and seconds per column), the wall time of the whole propagator, and the
-largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
-\texttt{6d5bf18}; \texttt{data/pointsource\_24.tsv}.}
-\label{tab:pointsource}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lc ccc cc cc c@{}}
-\toprule
- & & \multicolumn{3}{c}{MG} & \multicolumn{2}{c}{CGNE, mixed} & \multicolumn{2}{c}{wall (s)} & \\
-\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
- & $m$ & setup & it & s & it & s & MG & CGNE & $|\Delta C|/C$\\
-\midrule
-S & $0.001$ & $206$ & $29$--$32$ & $13.6$--$14.9$ & $4182$--$4572$ & $61.4$--$67.0$ & $396$ & $810$ & $9\times10^{-8}$\\
-B & $0.001$ & $215$ & $29$--$30$ & $14.2$--$14.8$ & $5023$--$5332$ & $73.5$--$78.0$ & $409$ & $918$ & $7\times10^{-7}$\\
-S & $0.01$ & $203$ & $16$--$17$ & $6.4$--$7.0$ & $1337$--$1388$ & $19.8$--$20.5$ & $305$ & $264$ & $2\times10^{-7}$\\
-B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $324$ & $4\times10^{-8}$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{In HMC}
-\label{sec:hmcresults}
-
-In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(K\dg K)^{-1}$,
-as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
-until it is small enough. The test vectors are kept from solve to solve and improved by a
-bootstrap when a trajectory starts; P and the coarse operators are kept until the iterations
-grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers, on the A30.
-
-\paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the
-quenched one by mixed-precision CG: 60 trajectories at $m=0.05$ (acceptance $0.98$,
-$\langle e^{-\Delta H}\rangle=1.002$), then 40 at $m=0.01$ (acceptance $0.98$,
-$\langle e^{-\Delta H}\rangle=0.993$), trajectories of length~1 with Omelyan steps
-$[20,2]$; 10 steps were unstable at $m=0.01$ ($\Delta H\approx10^3$ with $\alpha=0.6$ and
-$\alpha=1$ alike). From it, five trajectories with the multigrid reproduce those of CG: the
-plaquette to $10^{-11}$, $\Delta H$ to three digits.
-
-\paragraph{Cost.} On this lattice the multigrid is the slower solver (Table~\ref{tab:hmc16}).
-CG needs about 300 iterations a solve at $m=0.01$ and still about 300 at $m=0.001$: on a
-dynamical configuration of this size the smallest eigenvalues are held up by the finite
-volume, not by the mass. The multigrid needs about 55 iterations, but one of them, a whole
-cycle, costs about as much as 24 of CG. Varying the smoother (4, 6 or 8 steps), the coarse and
-the inner tolerances, the bootstrap rounds and the directions of GCR changed its time by at most
-$6\%$. On the quenched $24^4$ configuration at $m=0.001$ the picture is the opposite: CG needs
-about 6400 iterations a solve, and the multigrid, setup included, is faster on a short trajectory
-(203\,s against 264\,s). But a trajectory of length~1 there blows up ($\Delta H\approx4\times10^9$),
-so that configuration is no test of HMC. Data that show the multigrid faster in HMC therefore do
-not exist yet: the dynamical volumes thermalized here are limited by the finite volume. They need
-a volume where CG takes more than about 1300 iterations a solve.
-
-\begin{table}[t]
-\centering
-\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$, A30:
-seconds a trajectory of length~1 (Omelyan $[20,2]$ at $m=0.01$, $[40,2]$ at $m=0.001$), with the
-iterations a solve. The multigrid: 16 filtered vectors, GCR(2), the cycle in single precision;
-its time includes its setup (a bootstrap a trajectory) and rebuilds.}
-\label{tab:hmc16}
-\renewcommand{\arraystretch}{1.15}
-\begin{tabular}{@{}lcccc@{}}
-\toprule
- & \multicolumn{2}{c}{mixed CG} & \multicolumn{2}{c}{multigrid}\\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-$m$ & s & it/solve & s & it/solve\\
-\midrule
-$0.01$  & $23$ & $290$ & $79$  & $37$\\
-$0.001$ & $47$ & $305$ & $195$ & $55$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \subsection{$\Gfive$-Hermiticity for $c\neq0$}
 \label{sec:herm}
 
@@ -662,10 +726,10 @@ right form $\AR$ & $11$ & $15$\\
 \end{table}
 
 The method is robust within a window of each parameter and fails outside it
-(Table~\ref{tab:sensitivity}). Three findings stand out. The smoother interval must suit the
-setup. The bootstrap is necessary. And more accurate coarse solves are not better; with GCR(2) the
-most accurate ones stagnate in setup~S (Sec.~\ref{sec:gcrk}). Larger setups (smaller aggregates,
-more test vectors) buy fewer iterations, but on $12^4$ not less time (Table~\ref{tab:costs}). All
+(Table~\ref{tab:sensitivity}). The smoother interval must suit the setup, the bootstrap is
+necessary, and more accurate coarse solves do not help: with GCR(2) the most accurate ones
+stagnate in setup~S (Sec.~\ref{sec:gcrk}). Larger setups (smaller aggregates, more test vectors)
+reduce the iteration count, but on $12^4$ not the time (Table~\ref{tab:costs}). All
 runs of the table use GCR(2), and the stagnations are of the kind of Sec.~\ref{sec:gcrk}; whether
 full GCR would remove them has not been tested. Lüscher's test of local coherence for these test
 vectors has not been made.
@@ -721,3 +785,59 @@ at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the fir
 against $29$--$32$ with $32$. More smoother steps have not been tried there. All runs use one setup seed, and the iterations move by a few
 between builds that add in other orders, so differences of a few iterations are within
 that variation.
+
+\subsection{Choice of the prolongation basis}
+\label{sec:basischoice}
+Proposition~\ref{prop:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
+$\operatorname{range}\Pro$, but the left form used in practice is not exact
+(Sec.~\ref{sec:basis}). To see what $\hat t$ does there, we replace it by $Ds$, which
+vanishes on the odd sites, or drop it (Table~\ref{tab:basischoice}). With $\{s\}$ alone $\Pro$
+has half the columns; to compare at the same size we also take $32$ vectors $y$, which doubles
+the vectors of the filter and of the bootstrap.
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations on $\AL$ with $\Pro$ made of different lifts of the vectors $y$,
+$m=0.001$, one random right-hand side, A30; the other parameters as in
+Table~\ref{tab:setups}; setup seconds on $24^3\times48$. ``stag.'': not converged in $2000$
+iterations. RutticeQCD \texttt{e044050} with the switch \texttt{RUTTICE\_BASIS\_LIFTS} of the
+branch \texttt{exp/basis-lifts}, whose default gives the results of \texttt{e044050} bit for
+bit; \texttt{data/basis\_12.tsv}, \texttt{basis\_16.tsv}, \texttt{basis\_2448.tsv} (with the
+right form on $12^4$ and $16^4$).}
+\label{tab:basischoice}
+\small
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrr rr rr rr r@{}}
+\toprule
+ & & & \multicolumn{2}{c}{$12^4$} & \multicolumn{2}{c}{$16^4$} & \multicolumn{2}{c}{$24^3\times48$} & setup (s)\\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+lifts & $y$ & columns & S & B & S & B & S & B & S, B\\
+\midrule
+$\{s,\hat t\}$ & $16$ & $32$ & $14$ & $14$ & $13$ & $14$ & $28$ & $26$ & $196$, $211$\\
+$\{s,Ds\}$ & $16$ & $32$ & $35$ & $36$ & $18$ & $21$ & $148$ & $30$ & $193$, $207$\\
+$\{s\}$ & $16$ & $16$ & $311$ & $35$ & $21$ & $22$ & stag. & $32$ & $143$, $153$\\
+$\{s\}$ & $32$ & $32$ & $155$ & $35$ & $15$ & $15$ & $28$ & $13$ & $346$, $337$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the same vectors $y$, the two lifts give the fewest iterations on every volume.
+Replacing $\hat t$ by $Ds$ costs up to $5$ times the iterations ($148$ against $28$ on
+$24^3\times48$ in setup~S), and dropping it up to $22$ times or a stagnation. So $\hat t$ helps
+also where the correction is not exact. We read this as the Pauli--Villars solve needing the
+direction of $\hat t$ in $\operatorname{range}\Pro$; this reading has not been checked further.
+
+Twice as many vectors $y$ with $\{s\}$ alone depend on the volume. On $12^4$ they do not make
+up for $\hat t$ ($155$ against $14$ in setup~S), on $16^4$ they come within two iterations, and
+on $24^3\times48$ they match the two lifts in setup~S ($28$) and need half their iterations in
+setup~B ($13$ against $26$). They cost a setup $1.6$--$1.8$ times as long and twice the host
+memory ($38.7$ against $19.7$\,GB). Estimated from one random right-hand side, a point-source
+propagator (12 columns) is faster with the two lifts in both setups (S: $351$ against
+$506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their longer setup
+after about $21$ right-hand sides, and in HMC, where a setup serves few solves, the two lifts
+are cheaper. Whether the two lifts of $32$ vectors $y$ ($64$ columns, twice the memory of $\Pro$)
+improve further has not been tested. On the right form ($12^4$, $16^4$) the $32$ vectors $y$
+alone need one or two iterations fewer than the two lifts in three of the four cases. Three
+repeats of a $12^4$ entry give the same solution bit for bit. The table comes from one
+configuration per volume and one right-hand side.

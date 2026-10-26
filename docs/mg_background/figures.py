@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The figures of the MG note from the data in data/ (python3 figures.py in this directory).
 
-fig_massscan.pdf: the 24^3x48 mass scan, CGNE against the multigrid (A30).
+fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multigrid, the multigrid (A30).
 fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4 (RTX 3080).
 fig_history.pdf: the GCR(2) residual histories on 24^3x48 (A30).
 """
@@ -36,18 +36,26 @@ def rows(name):
 
 def massscan():
     data = rows("massscan_24.tsv")
-    fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.4), sharex=True)
+    nomg = rows("baseline_mass_2448.tsv")
+    fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.8), sharex=True)
     for col, setup in enumerate("SB"):
         sel = lambda solver, alpha: sorted(
             (float(r["mass"]), r) for r in data
             if r["setup"] == setup and r["solver"] == solver and r["alpha"] == alpha)
         cg, mg, mg1 = sel("CGNE", "0.6"), sel("MG", "0.6"), sel("MG", "1.0")
         mx = sel("CGNE_mixed", "0.6")
+        other = lambda method: sorted(
+            (float(r["mass"]), r) for r in nomg if r["setup"] == setup and r["method"] == method)
+        bi, ch = other("bicg"), other("cheb")
         m = [x for x, _ in cg]
         ax = axes[0, col]
         ax.loglog(m, [int(r["iterations"]) for _, r in cg], "o-", color="C3", label="CGNE")
         ax.loglog(m, [int(r["iterations"]) for _, r in mx], "o--", color="C3", alpha=0.6,
                   label="CGNE, mixed")
+        ax.loglog([x for x, _ in bi], [int(r["iterations"]) for _, r in bi], "D-", color="C2",
+                  label=r"BiCGStab on $\tilde A_L$")
+        ax.loglog([x for x, _ in ch], [int(r["iterations"]) for _, r in ch], "v-", color="C4",
+                  label="GCR(2), Chebyshev")
         ax.loglog(m, [int(r["iterations"]) for _, r in mg], "s-", color="C0",
                   label=r"MG, $\alpha=0.6$")
         ax.loglog(m, [int(r["iterations"]) for _, r in mg1], "^--", color="C0", alpha=0.6,
@@ -55,12 +63,15 @@ def massscan():
         ax.set_title(NAMES[setup], fontsize=9)
         if col == 0:
             ax.set_ylabel("iterations")
-            ax.legend(loc="upper left", frameon=False)
         ax.grid(True, which="both", alpha=0.25)
         ax = axes[1, col]
         ax.loglog(m, [float(r["solve_s"]) for _, r in cg], "o-", color="C3", label="CGNE")
         ax.loglog(m, [float(r["solve_s"]) for _, r in mx], "o--", color="C3", alpha=0.6,
                   label="CGNE, mixed")
+        ax.loglog([x for x, _ in bi], [float(r["solve_s"]) for _, r in bi], "D-", color="C2",
+                  label=r"BiCGStab on $\tilde A_L$")
+        ax.loglog([x for x, _ in ch], [float(r["solve_s"]) for _, r in ch], "v-", color="C4",
+                  label="GCR(2), Chebyshev")
         ax.loglog(m, [float(r["solve_s"]) for _, r in mg], "s-", color="C0",
                   label="MG, solve")
         ax.loglog(m, [float(r["solve_s"]) + float(r["setup_s"]) / 12 for _, r in mg], "s:",
@@ -73,8 +84,12 @@ def massscan():
         ax.grid(True, which="both", alpha=0.25)
     axes[0, 0].invert_xaxis()
     handles, labels = axes[1, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=3, frameon=False)
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    h_top, l_top = axes[0, 0].get_legend_handles_labels()
+    extra = [(h, l) for h, l in zip(h_top, l_top) if l not in labels and "0.6" not in l]
+    handles += [h for h, _ in extra]
+    labels += [l for _, l in extra]
+    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(os.path.join(HERE, "fig_massscan.pdf"))
 
 

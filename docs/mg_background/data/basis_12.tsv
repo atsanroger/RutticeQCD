@@ -1,0 +1,17 @@
+setup	form	basis	columns	y_vectors	iterations	coarse_apps	setup_s	solve_s	worst_Dx-b_sq	build
+B	left	s,Ds	32	16	36	3342	10	0.9	3e-18	e044050+exp/basis-lifts
+B	left	s	16	16	35	4764	8	0.8	4e-18	e044050+exp/basis-lifts
+B	left	s,t	32	16	14	2622	10	0.5	5e-19	e044050+exp/basis-lifts
+B	left	s	32	32	35	4795	16	1.1	4e-18	e044050+exp/basis-lifts
+B	right	s,Ds	32	16	20	2805	10	0.6	1e-18	e044050+exp/basis-lifts
+B	right	s	16	16	20	3364	8	0.5	2e-18	e044050+exp/basis-lifts
+B	right	s,t	32	16	15	2655	10	0.5	5e-19	e044050+exp/basis-lifts
+B	right	s	32	32	14	3196	17	0.6	3e-18	e044050+exp/basis-lifts
+S	left	s,Ds	32	16	35	8727	10	1.4	5e-19	e044050+exp/basis-lifts
+S	left	s	16	16	311	98283	7	9.1	2e-18	e044050+exp/basis-lifts
+S	left	s,t	32	16	14	3152	10	0.5	3e-19	e044050+exp/basis-lifts
+S	left	s	32	32	155	54079	17	7.8	2e-18	e044050+exp/basis-lifts
+S	right	s,Ds	32	16	18	4340	10	0.7	1e-18	e044050+exp/basis-lifts
+S	right	s	16	16	40	12050	7	1.2	7e-19	e044050+exp/basis-lifts
+S	right	s,t	32	16	12	2787	10	0.4	2e-18	e044050+exp/basis-lifts
+S	right	s	32	32	2000!	708526	17	102.8	5e-15	e044050+exp/basis-lifts

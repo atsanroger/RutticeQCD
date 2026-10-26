@@ -32,7 +32,7 @@
 \newcommand{\Cpvo}{C_{\mathrm{PV},o}}
 \newcommand{\code}[1]{\texttt{\small #1}}
 
-\title{The factorized Pauli--Villars multigrid of RutticeQCD,\\ from the solver to HMC:
+\title{The even-odd multigrid of RutticeQCD,\\ from the solver to HMC:
 a step-by-step walkthrough}
 \author{Wei-Lun Chen}
 \date{\today\quad(internal note)}
@@ -44,15 +44,15 @@ This document derives, step by step, what the MG note\footnote{\code{docs/mg\_ba
 in the RutticeQCD repository.} (``the note'') states. The note gives the method and its results in compact form; here every formula
 is taken apart line by line, with every symbol defined before it is used, so that the method can be
 followed with nothing more than standard graduate coursework in lattice QCD. The sections follow the
-note: each heading names the section of the note it derives (Secs.~IV--XI), so the two can be read
+note: each heading names the section of the note it derives (Secs.~II--IV), so the two can be read
 side by side. The last two sections go beyond the note: the solves of HMC, derived from the path
-integral (the note only reports the HMC measurements, Sec.~XII.G), and a map from each step to the
+integral (the note only reports the HMC measurements, Sec.~V.C), and a map from each step to the
 code. Nothing here is new with respect to the note and the code.
 
 \tableofcontents
 
 % ======================================================================
-\section{The operator and Pauli--Villars preconditioning (note Sec.~IV)}
+\section{The operator and Pauli--Villars preconditioning (note Sec.~II.B)}
 
 \subsection{Ingredients}
 The field $\psi$ lives on the four-dimensional lattice and carries a fifth index
@@ -72,7 +72,7 @@ $W$ acts on every slice $s$ alike and does not mix slices.
 \subsection{The free spectrum of $W$}
 \label{sec:free}
 The spectrum of $W$ on the free field ($U_\mu=1$) is needed twice: for the spectra of the note
-(Sec.~III) and for $D_-$ (Sec.~\ref{sec:dminus}). Take a plane wave $\psi(x)=e^{ip\cdot x}u$ with
+(Sec.~II.A) and for $D_-$ (Sec.~\ref{sec:dminus}). Take a plane wave $\psi(x)=e^{ip\cdot x}u$ with
 a constant spinor $u$:
 \begin{align}
 (K\psi)(x)&=\sum_\mu\Big[(1-\gamma_\mu)e^{ip_\mu}+(1+\gamma_\mu)e^{-ip_\mu}\Big]\psi(x)\\
@@ -95,7 +95,7 @@ w(p)=-M_5+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2}.
 Their real parts run from $-M_5$ ($p=0$) to $8-M_5$ ($p_\mu=\pi$); the zeros of the real part at
 small $|p|$ are the physical domain-wall modes.
 
-\subsection{The operator in Brower--Neff--Orginos form (note Sec.~IV.A)}
+\subsection{The operator in Brower--Neff--Orginos form (note Sec.~II.B.1)}
 With $b$, $c$ the M\"obius parameters, define
 \begin{equation}
 D_+=1+bW,\qquad D_-=cW-1 .
@@ -147,16 +147,16 @@ operator at unit mass,
 \end{equation}
 
 
-\subsection{The $\Gfive$-transformation (note Sec.~IV.B)}
+\subsection{The $\Gfive$-transformation (note Sec.~II.B.2)}
 \label{sec:g5}
 For the Wilson operator $\gamma_5W\gamma_5=W\dg$. Domain-wall fermions use
 $\Gfive=\gamma_5R_5$, $(R_5\psi)_s=\psi_{L_s-1-s}$. We derive how each block transforms.
 
-\paragraph{$K$.} Read off the matrix elements of $K$ between neighbours:
+\paragraph{$K$.} Read off the matrix elements of $K$ between neighbors:
 \begin{equation}
 K_{x,x+\hat\mu}=(1-\gamma_\mu)U_\mu(x),\qquad K_{x+\hat\mu,x}=(1+\gamma_\mu)U_\mu\dg(x).
 \end{equation}
-The adjoint swaps the indices and conjugates each block (spin and colour commute, and the
+The adjoint swaps the indices and conjugates each block (spin and color commute, and the
 $\gamma_\mu$ are Hermitian):
 \begin{align}
 (K\dg)_{x,x+\hat\mu}&=\big(K_{x+\hat\mu,x}\big)\dg=U_\mu(x)\,(1+\gamma_\mu)=(1+\gamma_\mu)U_\mu(x),\\
@@ -231,7 +231,7 @@ Wilson operator of mass $-M_5-1/c=-3$, whose spectrum surrounds the origin (GCR 
 $|r|^2/|b|^2\approx0.74$).
 
 
-\subsection{The site-diagonal part $C$ and its inverse (note Sec.~IV.C)}
+\subsection{The site-diagonal part $C$ and its inverse (note Sec.~II.B.3)}
 \label{sec:Cinv}
 $Y$ maps $\Pp\psi$ to $\Pp\psi$ and $\Pm\psi$ to $\Pm\psi$, so $C$ splits into a block on
 $\psi^+=\Pp\psi$ and one on $\psi^-=\Pm\psi$. On $\psi^+$, $Y$ brings $\psi^+_{s-1}$ to slice $s$
@@ -269,7 +269,7 @@ exact, and does not depend on the gauge field. $C\dg$ has the transposed blocks 
 the same way from the other end.
 
 
-\subsection{The Pauli--Villars preconditioned operator (note Sec.~IV.D)}
+\subsection{The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}
 Kanamori, Chen and Matsufuru multiply $D\psi=\eta$ by $(\Dpv\Cpv^{-1})\dg$ from the left and set
 $\psi=C^{-1}y$:
 \begin{align}
@@ -291,7 +291,7 @@ D-\Dpv=(1-m)\,D_-\,\big(\Pp\ \text{in corner }(0,L_s-1)+\Pm\ \text{in corner }(L
 a term localized at the walls. So $A'$ is $X\dg X$ plus a wall term; its eigenvalues stay in the
 right half-plane (note Figs.~2--3), which is what a Krylov method and a polynomial smoother need.
 
-\subsection{Neff's $\alpha$ (note Sec.~IV.F)}
+\subsection{Neff's $\alpha$ (note Sec.~II.B.6)}
 Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
 \begin{equation}
 Q_0=\Pm+\alpha\Pp,\qquad Q_s=\alpha\ (0<s<L_s-1),\qquad Q_{L_s-1}=\Pp+\alpha\Pm .
@@ -305,10 +305,10 @@ $Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ alone, so the quark propagator is u
 
 
 % ======================================================================
-\section{Even-odd forms (note Sec.~V)}
+\section{Even-odd forms (note Sec.~II.C)}
 
 \subsection{Blocks}
-Order the sites even first. $K$ connects nearest neighbours, which have opposite parity, so in
+Order the sites even first. $K$ connects nearest neighbors, which have opposite parity, so in
 Eq.~\eqref{eq:Dsplit} the diagonal blocks come from $C$ alone:
 \begin{equation}
 D=\begin{pmatrix}\Ce & D_{eo}\\ D_{oe} & \Co\end{pmatrix},\qquad
@@ -385,7 +385,7 @@ form the two $Q_e$ cancel: $SQ_e(\Ce Q_e)^{-1}=S\Ce^{-1}$, so $\AR$ does not see
 
 % ======================================================================
 % ======================================================================
-\section{The factorized coarse-grid correction and the prolongation (note Sec.~VI)}
+\section{The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}
 
 \subsection{The factorized coarse correction}
 \paragraph{The inverse of the right form.} Invert the product one factor at a time:
@@ -405,7 +405,7 @@ each inverse by its Galerkin approximation:
 \begin{equation}
 X^{-1}\approx\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg .
 \end{equation}
-Both coarse operators $\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\dg\Pro$ are nearest-neighbour on the
+Both coarse operators $\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\dg\Pro$ are nearest-neighbor on the
 coarse lattice, because $D$ is one hop and every aggregate contains the whole fifth dimension.
 
 \paragraph{Why the Galerkin approximation is exact on $\operatorname{range}\Pro$.} For any $X$
@@ -419,7 +419,7 @@ exactness proof below.
 \paragraph{The size of the coarse stencil.} An operator that reaches $k$ hops on the fine lattice
 connects a fine site to sites at most $k$ hops away. With blocks at least two sites wide, two coarse
 sites can then be coupled only if their coordinates differ by at most $1$ in at most $k$ of the four
-directions. Counting the coarse neighbours that differ in exactly $j$ directions ($\binom4j$ choices
+directions. Counting the coarse neighbors that differ in exactly $j$ directions ($\binom4j$ choices
 of directions, $2^j$ signs):
 \begin{align}
 k=1:&\quad 1+\tbinom41 2=1+8=9,\\
@@ -486,7 +486,7 @@ $D$ and $\Dpv$, so one setup serves both forms and every $\alpha$.
   \draw[->] (c2) -- node[lab,sloped,above] {$\Pro$} (w4);
   \draw[->] (w4) -- node[lab,sloped,above] {$O_L\pi$} (e);
 \end{tikzpicture}
-\caption{One factorized coarse correction, read from the left, on its three lattices (the
+\caption{One factorized coarse correction, from $r$ (left) to $e$ (right), on its three lattices (the
 Pauli--Villars coarse solve in orange, the quark one in green):
 $u=\Pro(\Pro\dg\Dpv\dg\Pro)^{-1}\Pro\dg\iota O_Rr$ is the result of the first coarse solve, its
 even part times $O_M$ is the right-hand side of the second, whose result is
@@ -605,14 +605,14 @@ The first solve returns the Pauli--Villars lift of $u$, not of $a$. $u$ differs 
 site-local matrix $(\Cpve\dg)^{-1}\Ce^{-1}$, which mixes the slices $s$ and the spin, so its lift
 is in general not in the span of the $\hat t_j$ made from $a$. The correction is then only
 approximate. In practice the left form converges within a few iterations of the right form (note
-Sec.~XII), so the cycle does not need the exactness.
+Sec.~V), so the cycle does not need the exactness.
 
 \subsection{The coarse operators by probing}
 $\Dc=\Pro\dg D\Pro$ has on each coarse site $X$ a $2n_v\times2n_v$ diagonal block $A(X)$ and one link
 block $B_\mu^\pm(X)$ per direction: nine blocks. They are found column by column. For component $k$,
 put a unit vector $\epsilon_k$ on \emph{every} coarse site and prolong:
 $\phi=\Pro\epsilon_k$. Split $D=C+H$ ($H$ the hops) and $H$ by leg (direction and sign), and split
-each leg into the part that stays inside its block and the part that crosses to the neighbour
+each leg into the part that stays inside its block and the part that crosses to the neighbor
 block:
 \begin{align}
 D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\\
@@ -621,13 +621,13 @@ D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\\
 \end{align}
 Restricting, $\big(\Pro\dg(C\phi+\sum_lH^{\rm in}_l\phi)\big)_{X}$ is column $k$ of $A(X)$, and
 $\big(\Pro\dg H^{\rm cross}_l\phi\big)_X$ is column $k$ of the link block of leg $l$, since every
-coarse site carries the same unit vector and a crossing hop brings exactly the neighbour's
+coarse site carries the same unit vector and a crossing hop brings exactly the neighbor's
 contribution. Doing this for all $2n_v$ components fills all nine blocks (\code{coarse\_blocks},
 \code{hop\_split}, \code{restrict\_leg}). Several components are probed at a time, as many as a
 quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is read once for them.
 
 % ======================================================================
-\section{The coarse solvers (note Sec.~VII)}
+\section{The coarse solvers (note Sec.~III.B)}
 \paragraph{Quark factor.} $\Dc c=g$ by BiCGStab on its even-odd Schur complement, preconditioned by
 the inverse diagonal blocks. With $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on
 the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
@@ -658,7 +658,7 @@ $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, and with $\Sigma\dg=\Sigma$, $\Sigma^2=1$,
 \mathcal H_c\dg=(\Dcpv\Sigma)\dg=\Sigma(\Dcpv)\dg=\Sigma\Sigma\Dcpv\Sigma=\Dcpv\Sigma=\mathcal H_c .
 \end{equation}
 For $c\neq0$ this holds only approximately (the non-Hermitian part is a few percent, note
-Sec.~XII.H), and MINRES is used anyway.
+Sec.~V.H), and MINRES is used anyway.
 
 \paragraph{The even-odd form of $\mathcal H_c$.} $\Sigma$ is site-local, so with the coarse blocks of
 $\Dcpv$ the blocks of $\mathcal H_c=\Dcpv\Sigma$ are $A_{ee}\Sigma_e$, $B_{eo}\Sigma_o$,
@@ -693,7 +693,7 @@ correction.
 
 % ======================================================================
 % ======================================================================
-\section{Setup (note Sec.~VIII)}
+\section{Setup (note Sec.~III.C)}
 The setup produces the vectors $y_j$, then $\{s_j,\hat t_j\}$, $\Pro$, the coarse operators and the
 levels. It always uses the right form.
 
@@ -736,16 +736,17 @@ second round has degree 40 and damps only the top two thirds of the spectrum. Th
 the bootstrap does most of the work.
 
 \subsection{Bootstrap}
-Each round: build $\Pro$ and the cycle $\mathcal M$ from the current $y$; replace every $y_j$ by four
-steps of FGMRES on $\AR x=y_j$ from $x=0$ preconditioned by $\mathcal M$; orthonormalize $y$ through
-its Gram matrix. Why it works: write $y_j$ in eigenvectors of the preconditioned operator. The
+Each round builds $\Pro$ and the cycle $\mathcal M$ from the current $y$, replaces every $y_j$ by four
+steps of FGMRES on $\AR x=y_j$ from $x=0$ preconditioned by $\mathcal M$, and orthonormalizes $y$
+through its Gram matrix. To see why this works, write $y_j$ in eigenvectors of the preconditioned operator. The
 cycle already handles the components inside its coarse space, and FGMRES with it removes them
 first; what remains, and is therefore amplified relative to the rest, is what the coarse space
 misses. In HMC the levels below are used from the second round on (in the first, on the filtered
 vectors, the coarse solves were as fast without them).
 
 \subsection{Cost and memory}
-On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$, A30): the filter about 35\,s and the bootstrap
+On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$, A30; the $24^3\times48$ runs of the note use
+16, $n=32$): the filter about 35\,s and the bootstrap
 about 77\,s, the setup in all about 113\,s. A bootstrap round makes its correction ($\Pro$ 1.8\,s,
 the two coarse operators about 4.4\,s each, the inverse blocks 0.8\,s, the top of the smoother
 1.3\,s; the levels 7\,s more in the second round) and then improves the 20 vectors (about 20\,s in
@@ -754,7 +755,7 @@ object, about 4.7\,GB.
 
 % ======================================================================
 % ======================================================================
-\section{The Chebyshev smoother and the cycle (note Sec.~IX)}
+\section{The Chebyshev smoother and the cycle (note Sec.~III.D)}
 One cycle $y=\mathcal Mb$ is
 \begin{align}
 y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\\
@@ -820,7 +821,7 @@ The runs use $\nu=8$, $\kappa_s=10$ with stout links ($M_5=1$) and $\nu=12$, $\k
 ($M_5=1.8$).
 
 % ======================================================================
-\section{The outer solver: flexible GCR (note Sec.~X)}
+\section{The outer solver: flexible GCR (note Sec.~III.E)}
 The outer iteration solves $\tilde Ay=\rho$ ($\tilde A=\AR$ or $\AL$) with a right preconditioner
 $\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves stopped by a
 residual test, it changes from one application to the next, so the method must be flexible: it
@@ -842,14 +843,14 @@ the price of no optimality over the whole Krylov space.
 
 % ======================================================================
 % ======================================================================
-\section{Solving with $D\dg$ (note Sec.~XI)}
+\section{Solving with $D\dg$ (note Sec.~IV)}
 \label{sec:dagger}
 HMC needs $(D\dg D)^{-1}$, so it solves with $D\dg$ as often as with $D$. A second setup for $D\dg$
 would double the cost. The tool that avoids it is an exact relation between $D$ and $D\dg$.
 
 The $\Gfive$-transformation and the exact relation it rests on were derived in Sec.~\ref{sec:g5}.
 
-\subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$ (note Sec.~XI.A)}
+\subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$ (note Sec.~IV.A)}
 \label{sec:c4}
 Multiply $D\dg$ from the right by $\Gfive D^{-1}\Gfive$ and use the exact relation of Sec.~\ref{sec:g5} in the form
 $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$, together with $\Gfive D_-\dg\Gfive=D_-$:
@@ -872,9 +873,9 @@ The factor $D_-$ cancels against $D_-^{-1}$:
 $[Y,W]=-\frac12[Y,K]$ is bounded (one hop in four dimensions, one in the fifth), so $N$ is large
 only on the low modes of $D$. There the commutator flips chirality and moves the mode to the other
 wall, out of the low-mode span, so $N^2$ is small and $(1-N)^{-1}\approx1+N$: GCR needs only a few
-more steps than for the identity. Measured: 2--3 iterations more than the solve with $D$.
+more steps than for the identity. In the runs it needs 2--3 iterations more than the solve with $D$.
 
-\subsection{On the even sites, step by step (note Secs.~XI.B--C)}
+\subsection{On the even sites, step by step (note Secs.~IV.B--C)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
 and $\iota$, and with Eq.~\eqref{eq:Sinv}
 \begin{equation}
@@ -897,7 +898,7 @@ one cycle, as for $D$.
 
 % ======================================================================
 
-\subsection{Why $D_-$ cannot be inverted (note Sec.~XI.D)}
+\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.D)}
 \label{sec:dminus}
 The exact relation of Sec.~\ref{sec:g5} contains $D_-$, and one could try to solve with $D\dg$
 through $D$ exactly by inverting $D_-$. Rewrite it:
@@ -913,14 +914,14 @@ For $M_5=1$, $c=0.5$ the real part of the bracket runs from $-3$ to $5$; near re
 imaginary parts have both signs. The spectrum surrounds the origin. A Krylov method needs a
 polynomial $p$ with $p(0)=1$ that is small on the spectrum, and on a set around the origin no
 low-degree polynomial does that (by the maximum principle $|p|$ on a curve around $0$ is at least
-$|p(0)|=1$). Measured: GCR(8) on $D_-$ stops at $|r|^2/|b|^2\approx0.74$ after 20000 iterations.
+$|p(0)|=1$). GCR(8) on $D_-$ indeed stops at $|r|^2/|b|^2\approx0.74$ after 20000 iterations.
 The preconditioner of Sec.~\ref{sec:c4} never inverts $D_-$.
 
 % ======================================================================
 \section{HMC}
-The note does not derive HMC; it reports only the measurements (note Sec.~XII.G). This section goes
+The note does not derive HMC; it reports only the measurements (note Sec.~V.C). This section goes
 through HMC from the path integral to the solves of the force, and then shows where the multigrid
-enters. Every step is written out.
+enters.
 
 \subsection{What we want to compute}
 Lattice QCD computes expectation values in the path integral,
@@ -935,7 +936,7 @@ exactly:
 \begin{equation}
 \int\mathcal D\bar\psi\,\mathcal D\psi\;e^{-\bar\psi D\psi}=\det D .
 \end{equation}
-For two degenerate flavours (up and down) each flavour gives one $\det D$:
+For two degenerate flavors (up and down) each flavor gives one $\det D$:
 \begin{align}
 Z&=\int\mathcal DU\;e^{-S_g[U]}\,\det D[U]\,\det D[U]\\
 &=\int\mathcal DU\;e^{-S_g[U]}\,\det\!\big(D\dg D\big)[U],
@@ -1103,7 +1104,7 @@ one. $e^{i\epsilon\pi}$ is evaluated by its Taylor series (order 8 in the runs).
 two levels: the fermion force with $n$ Omelyan steps, and within each of its link updates the gauge
 force with 2 steps of its own (``\code{number\_of\_steps: [n, 2]}'').
 
-\paragraph{How many solves.} At the fermion level, consecutive momentum updates of neighbouring
+\paragraph{How many solves.} At the fermion level, consecutive momentum updates of neighboring
 steps merge into one ($\lambda\epsilon+\lambda\epsilon=2\lambda\epsilon$). Count the force
 evaluations of $n$ steps:
 \begin{equation}
