@@ -61,10 +61,12 @@ target/release/ruttice examples/wilson_pion.yaml
 # Wilson: κ = 0.12
 # CG on Even_odd (the Schur complement on the even sites, CGNE), to |r|²/|b|² < 1e-28
 # plaquette  0.625129946974942
-# quark 1    40 iterations, 0 restarts, worst |D S - b|^2/|b|^2 = 8.835e-29, 0.119 s
-# quarks channel t re im
-11 PS 0 1.422503945020827e1 0.000000000000000e0
-11 PS 1 6.530367660173256e-1 0.000000000000000e0
+# solve   quark  iterations  restarts  |DS-b|^2/|b|^2   seconds  peak/GB
+# solve       1          40         0       8.835e-29     0.156     0.02
+# perf   quark 1, whole solve: 7.811e8 flop, 5.0 GFlop/s, 0.49 flop/byte (byte model); fine double 90% (0.72); vector double 10% (0.12)
+# pair  channel    t                 Re C(t)                 Im C(t)
+11      PS         0   1.422503945020827e+01   0.000000000000000e+00
+11      PS         1   6.530367660173256e-01   0.000000000000000e+00
 ...
 ```
 

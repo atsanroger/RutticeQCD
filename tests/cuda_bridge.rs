@@ -1087,19 +1087,11 @@ fn the_clover_multigrid_on_the_device_takes_the_iterations_it_took() {
         let out = run_with_backend(&text, "cuda_bridge", name);
         let line = out
             .lines()
-            .find(|l| l.starts_with("# quark 1 "))
+            .find(|l| l.split_whitespace().take(3).eq(["#", "solve", "1"]))
             .unwrap_or_else(|| panic!("no solve line in\n{out}"));
         let n: usize = line.split_whitespace().nth(3).unwrap().parse().unwrap();
         assert_eq!(n, 7, "{name}:\n{out}");
-        let r: f64 = line
-            .split("= ")
-            .nth(1)
-            .unwrap()
-            .split(',')
-            .next()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let r: f64 = line.split_whitespace().nth(5).unwrap().parse().unwrap();
         assert!(
             r < 1.5 * residual && r > residual / 1.5,
             "{name}: |r|²/|b|² {r:e} against {residual:e}"

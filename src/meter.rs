@@ -155,6 +155,34 @@ impl Counts {
         self.bytes.iter().flatten().sum()
     }
 
+    /// The counted flops over `seconds` and the share of each kind of work that has any, for a
+    /// report: "whole solve: … flop, … GFlop/s, … flop/byte (byte model); fine double 90% (0.72),
+    /// …". The rate is that of the whole piece of work, not of one kernel.
+    pub fn summary(&self, seconds: f64) -> String {
+        let (f, b) = (self.total_flops(), self.total_bytes());
+        let mut s = format!(
+            "{:.3e} flop, {:.1} GFlop/s, {:.2} flop/byte (byte model)",
+            f,
+            f / seconds * 1e-9,
+            if b > 0.0 { f / b } else { 0.0 }
+        );
+        for (w, work) in WORK.iter().enumerate() {
+            for (p, precision) in ["single", "double"].iter().enumerate() {
+                let (fw, bw) = (self.flops[w][p], self.bytes[w][p]);
+                if fw == 0.0 && bw == 0.0 {
+                    continue;
+                }
+                s.push_str(&format!(
+                    "; {} {precision} {:.0}% ({:.2})",
+                    format!("{work:?}").to_lowercase(),
+                    100.0 * fw / f.max(f64::MIN_POSITIVE),
+                    if bw > 0.0 { fw / bw } else { 0.0 }
+                ));
+            }
+        }
+        s
+    }
+
     /// One line: Flop, GFlop/s and FLOP/byte over `seconds`, then the kinds of work that have
     /// any, with their share of the flops and their own intensity, and how many counts were
     /// made.

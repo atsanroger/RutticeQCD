@@ -448,12 +448,15 @@ fn every_solver_choice_gives_the_same_correlator() {
     assert!(
         printed.contains("# Wilson: κ = 0.12")
             && printed.contains("# plaquette")
-            && printed.contains("\n11 PS 0 "),
+            && printed.lines().any(|l| l.split_whitespace().take(3).eq(["11", "PS", "0"])),
         "{printed}"
     );
     let written = std::fs::read_to_string(dir.join("wilson_pion.out")).unwrap();
     assert_eq!(
-        written.lines().filter(|l| l.starts_with("11 PS ")).count(),
+        written
+            .lines()
+            .filter(|l| l.split_whitespace().take(2).eq(["11", "PS"]))
+            .count(),
         8
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -591,11 +594,10 @@ fn the_clover_multigrid_takes_the_iterations_it_took() {
     let solved = |printed: &str| -> (usize, f64) {
         let line = printed
             .lines()
-            .find(|l| l.starts_with("# quark 1 "))
+            .find(|l| l.split_whitespace().take(3).eq(["#", "solve", "1"]))
             .unwrap_or_else(|| panic!("no solve line in\n{printed}"));
-        let iterations = line.split_whitespace().nth(3).unwrap().parse().unwrap();
-        let residual = line.split("= ").nth(1).unwrap().split(',').next().unwrap();
-        (iterations, residual.parse().unwrap())
+        let field = |i: usize| line.split_whitespace().nth(i).unwrap();
+        (field(3).parse().unwrap(), field(5).parse().unwrap())
     };
     let gmres = with(
         &with(
@@ -657,7 +659,7 @@ fn the_clover_multigrid_takes_the_iterations_it_took() {
         if *name == "even_odd" {
             let pion: Vec<f64> = printed
                 .lines()
-                .filter(|l| l.starts_with("11 PS "))
+                .filter(|l| l.split_whitespace().take(2).eq(["11", "PS"]))
                 .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
                 .collect();
             let reference = [
@@ -702,7 +704,7 @@ fn the_multigrid_example_runs_clover_fermions() {
     );
     let pion: Vec<f64> = printed
         .lines()
-        .filter(|l| l.starts_with("11 PS "))
+        .filter(|l| l.split_whitespace().take(2).eq(["11", "PS"]))
         .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
         .collect();
     assert_eq!(pion.len(), 8);

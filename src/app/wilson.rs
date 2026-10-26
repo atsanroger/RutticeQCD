@@ -907,10 +907,18 @@ fn three_point(
     Ok((out, solve))
 }
 
-/// Write the report: comment lines starting with `#`, then one line per quark pair,
-/// channel and time slice: `<i><j> <channel> <t> <re> <im>`.
+/// A real as Bridge++ writes it: 15 digits, the exponent with its sign and two digits.
+fn sci(x: f64) -> String {
+    let s = format!("{x:.15e}");
+    let (mantissa, exponent) = s.split_once('e').expect("an exponent");
+    let e: i32 = exponent.parse().expect("an integer exponent");
+    format!("{mantissa}e{e:+03}")
+}
+
+/// Write the report: comment lines starting with `#` (the measurements of the run, a table of
+/// the solves and, for each, its flops), then one line per quark pair, channel and time slice:
+/// `<i><j> <channel> <t> <re> <im>`, aligned, in the columns of Bridge++'s reference tables.
 pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> std::io::Result<()> {
-    writeln!(out, "# lattice    {:?}", config.lattice)?;
     if report.grid != [1; ND] {
         writeln!(out, "# processes  {:?}", report.grid)?;
     }
@@ -921,31 +929,33 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
     if let Some(sweeps) = report.gauge_fixing_sweeps {
         writeln!(out, "# gauge      Coulomb gauge after {sweeps} sweeps")?;
     }
-    for s in &report.solves {
+    let solves: Vec<(String, &SolveReport)> = report
+        .solves
+        .iter()
+        .map(|s| (s.quark.to_string(), s))
+        .chain(report.sequential_solves.iter().map(|s| (format!("seq {}", s.quark), s)))
+        .collect();
+    if !solves.is_empty() {
         writeln!(
             out,
-            "# quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s, {}{}",
-            s.quark,
-            s.iterations,
-            s.restarts,
-            s.worst_residual_sqr,
-            s.seconds,
-            s.work.line(s.seconds),
-            s.peak_memory_gb
-                .map_or(String::new(), |p| format!(", peak memory {p:.2} GB"))
+            "# solve  {:>6}  {:>10}  {:>8}  {:>14}  {:>8}  {:>7}",
+            "quark", "iterations", "restarts", "|DS-b|^2/|b|^2", "seconds", "peak/GB"
         )?;
-    }
-    for s in &report.sequential_solves {
-        writeln!(
-            out,
-            "# sequential source of quark {}    {} iterations, {} restarts, worst |D S - b|^2/|b|^2 = {:.3e}, {:.3} s, {}",
-            s.quark,
-            s.iterations,
-            s.restarts,
-            s.worst_residual_sqr,
-            s.seconds,
-            s.work.line(s.seconds),
-        )?;
+        for (quark, s) in &solves {
+            writeln!(
+                out,
+                "# solve  {:>6}  {:>10}  {:>8}  {:>14.3e}  {:>8.3}  {:>7}",
+                quark,
+                s.iterations,
+                s.restarts,
+                s.worst_residual_sqr,
+                s.seconds,
+                s.peak_memory_gb.map_or("-".to_string(), |p| format!("{p:.2}"))
+            )?;
+        }
+        for (quark, s) in &solves {
+            writeln!(out, "# perf   quark {quark}, whole solve: {}", s.work.summary(s.seconds))?;
+        }
     }
     if let Some(t) = &config.measure.three_point {
         writeln!(
@@ -959,13 +969,29 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
             }
         )?;
     }
-    writeln!(out, "# quarks channel t re im")?;
+    let width = report
+        .correlators
+        .iter()
+        .map(|c| c.channel.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    writeln!(
+        out,
+        "# pair  {:<width$}  {:>3}  {:>22}  {:>22}",
+        "channel", "t", "Re C(t)", "Im C(t)"
+    )?;
     for c in &report.correlators {
         for (t, z) in c.values.iter().enumerate() {
             writeln!(
                 out,
-                "{}{} {} {} {:.15e} {:.15e}",
-                c.quarks.0, c.quarks.1, c.channel, t, z.re, z.im
+                "{}{}      {:<width$}  {:>3}  {:>22}  {:>22}",
+                c.quarks.0,
+                c.quarks.1,
+                c.channel,
+                t,
+                sci(z.re),
+                sci(z.im)
             )?;
         }
     }
