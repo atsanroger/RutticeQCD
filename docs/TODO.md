@@ -434,6 +434,13 @@ pass of its own.
 - `RUTTICE_CHECKSUM`: the checksums are taken inside the timed setup, by downloading the whole
   buffer and an FNV-1a over its bytes (about 0.9 GB/s); about 56 GB on 24³×48. Timings of runs
   with it are not those of the setup.
+- MPI halo exchanges as persistent requests (found 2026-10-26): `MpiExchange::start` posts a new
+  `MPI_Irecv` and `MPI_Isend` for every face of every exchange. Bridge++ 2.1.3 makes them once
+  (`MPI_Send_init`, `MPI_Recv_init` in `Communicator/MPI/channel.cpp`) and starts them each
+  time (`MPI_Start`), which saves setting up the requests. Not measured how much that is
+  against the transfer itself; the buffers of an exchange are already kept, so the requests
+  could be too. (Bridge++'s `reduce_sum` is `MPI_Allreduce`, in the library's order; Ruttice
+  adds in rank order on purpose, since c32e4c4.)
 
 ### 17. Where to look next (collected 2026-10-20)
 
