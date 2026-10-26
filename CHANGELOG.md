@@ -25,6 +25,32 @@
   test vectors of the two backends had drifted apart from the third round on (4³×8, three rounds
   and `MultiGrid_Level2`: 188 against 192 coarse applications for a right-hand side).
   `tests/cuda_bridge.rs` compares the two with three rounds and a level.
+- The Rational action refuses `Solver.precision : mixed`, `Solver.number_of_initial_guess` and
+  `Fopr.neff_alpha` when the file is read, and every action a `Solver.Chebyshev` section
+  without `preconditioner_type : Chebyshev`; they were ignored (the Rational action since
+  0.1.0: the same iterations and plaquette with and without them).
+- The `# cost` lines of HMC with the domain-wall multigrid count the GCR iterations of a solve
+  that stalled and of the attempts after it (P made again, a bootstrap, CG); a stalled
+  attempt counted none, on the CPU and the device.
+
+### Corrections to earlier releases
+
+- 0.9.0 said the CPU and the device count every kind of a trajectory and of a multigrid solve
+  alike. `tests/cuda_bridge.rs` compares a clover RHMC trajectory and a clover multigrid solve
+  without its setup; domain-wall fermions are counted differently by design (the 0.9.0 bullet
+  on the fifth dimension), and the Wilson operator, domain-wall trajectories and the setups of
+  the multigrids are not compared.
+- 0.9.0 called the work report complete. Open: the halo exchanges are not counted, and the
+  Jacobi sweeps of |H|⁻¹ are counted as six, an estimate (TODO 22).
+- 0.9.0: the momenta, the proton and the three-point functions are for Wilson and clover
+  fermions; a domain-wall file with them is refused when it is read.
+- 0.7.0: of the Wilson and clover HMC on the device, `Even_odd` is for the Standard action and
+  the Ratio of Wilson fermions; Rational is `Lexical` only, and the even-odd Ratio of clover
+  fermions is not written (refused on the CPU too).
+- 0.5.0 said every option of the domain-wall files does the same on both backends; the
+  bootstrap with levels below the coarse lattice did not (fixed above).
+- 0.3.0 said every trajectory prints the cost of each fermion action; the Rational action and
+  the even-odd Standard action printed none (fixed above).
 
 ## 0.9.0 (2026-10-25)
 
@@ -73,8 +99,9 @@ device count every kind of a trajectory and of a multigrid solve alike.
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against
   Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavour pairs of clover propagators:
-  960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). The `measure` module is split into `source` and `meson`, its correlators
-  unchanged to the last bit.
+  960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). The
+  `measure` module is split into `source` and `meson`, its correlators unchanged to the last
+  bit.
 - The proton correlator (`measure::proton_correlator`): ε_abc (u_a^T Cγ5 d_b) u_c with
   C = γ4γ2 and a projection Γ, as Bridge++'s `proton_correlator`, with an optional momentum.
   Checked against Bridge++'s numbers (Γ = 1, γ4 and (1 + γ4)/2; u and d of different masses and
