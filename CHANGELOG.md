@@ -13,6 +13,9 @@
   (`refine_normal`): the two-step solves of HMC, mixed precision, and the two solves of the
   domain-wall multigrid had four copies of the loop. The operations are the same, in the same
   order.
+- `multigrid/mdwf_even_odd.rs` (1362 lines) is three files: P and the operator, the cycle
+  (`mdwf_cycle.rs`), and the test vectors, low modes and bootstrap (`mdwf_vectors.rs`). The code
+  is moved, not changed.
 
 ### Fixed
 

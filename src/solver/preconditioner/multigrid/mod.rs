@@ -8,8 +8,10 @@ pub(crate) mod count;
 mod cycle;
 mod levels;
 mod mdwf_backend;
+mod mdwf_cycle;
 mod mdwf_even_odd;
 mod mdwf_lexical;
+mod mdwf_vectors;
 mod sap;
 mod wilson;
 
@@ -26,7 +28,7 @@ pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_backend::MdwfMultigridSettings;
 pub(crate) use mdwf_backend::{AnyParts, CpuParts, PartsIn};
 pub(crate) use mdwf_backend::{CoarseLevels, Cycles, MdwfBackend, OnCpu, SetupStage};
-pub(crate) use mdwf_even_odd::LevelLists;
+pub(crate) use mdwf_vectors::LevelLists;
 // What only the device backend uses.
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use correction::{Correction, FnMap, NeffQ};
@@ -34,17 +36,19 @@ pub(crate) use correction::{Correction, FnMap, NeffQ};
 pub(crate) use cycle::TwoGrid;
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use mdwf_backend::Outer;
+pub use mdwf_cycle::PvEoCycle;
+pub(crate) use mdwf_cycle::{CoarseParts, CycleLayout};
 #[cfg(feature = "cuda-bridge")]
-pub(crate) use mdwf_even_odd::{bootstrap_rounds, lifted_vectors, low_modes, Waiting};
-pub use mdwf_even_odd::{
-    pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
-    BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
-};
-pub(crate) use mdwf_even_odd::{
-    pv_eo_basis_stored, pv_eo_bootstrap_stored, BasisStorage, CoarseParts, CycleLayout,
-    SharedOperator,
-};
+pub(crate) use mdwf_even_odd::lifted_vectors;
+pub use mdwf_even_odd::{pv_eo_basis, pv_eo_coarse_vectors, CoarseKrylov, PvEoBasis, PvEoParams};
+pub(crate) use mdwf_even_odd::{pv_eo_basis_stored, BasisStorage, SharedOperator};
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
+pub(crate) use mdwf_vectors::pv_eo_bootstrap_stored;
+#[cfg(feature = "cuda-bridge")]
+pub(crate) use mdwf_vectors::{bootstrap_rounds, low_modes, Waiting};
+pub use mdwf_vectors::{
+    pv_eo_bootstrap, pv_eo_low_modes, random_even, BootstrapParams, LowModeParams,
+};
 pub use sap::Sap;
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use sap::SapBlocks;

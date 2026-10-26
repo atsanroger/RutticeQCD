@@ -44,7 +44,8 @@ and what only it has: `wilson/` the sweep of the hopping term (`sweep*.rs`), whi
 two are built on; `mdwf/quark_4d.rs` the four-dimensional quark fields of five-dimensional
 ones. Clover fermions are the Wilson operator with another site term, so `clover/` has only
 `mod.rs` and `site.rs`. The multigrids are named the same way
-(`multigrid/wilson.rs`, `mdwf_even_odd.rs`, `mdwf_lexical.rs`), and so are the actions of
+(`multigrid/wilson.rs`, `mdwf_even_odd.rs`, `mdwf_lexical.rs`; the even-odd one keeps its
+cycle in `mdwf_cycle.rs` and its test vectors in `mdwf_vectors.rs`), and so are the actions of
 HMC (`hmc/gauge_action.rs`, `fermion_action.rs`, `even_odd.rs`, `rational.rs`).
 
 A field is `Field<T, Kind, Sites, Layout>`: the storage type (`f32`, `f64`), what it holds
