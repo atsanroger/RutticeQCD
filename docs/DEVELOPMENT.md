@@ -143,6 +143,15 @@ RUTTICE_BRIDGE_TESTS=/path/to/that/directory cargo test
 still run: to know that the comparisons ran, look for `SKIPPED` in the output of
 `cargo test -- --nocapture`.
 
+**Build the SIMD tests a second time with native flags.** The register lane types (AVX2,
+AVX-512) are compiled only with `-C target-cpu=native`. Without the flags the tests check the
+portable fallback, not the register types. Kept in a target directory of its own:
+
+```bash
+RUSTFLAGS="-C target-cpu=native" CARGO_TARGET_DIR=target/native \
+  cargo test --release --lib --test simd --test wilson --test clover --test mdwf --test even_odd
+```
+
 ## Status and plans
 
 Version 0.2.0. See [CHANGELOG.md](../CHANGELOG.md). What is known and not done (structure,

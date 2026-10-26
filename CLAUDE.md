@@ -150,7 +150,12 @@ cargo build --release --features cuda-bridge        # + CUDA (cmake); RUTTICE_CU
 cargo test --release --features cuda-bridge --test cuda_bridge -- --test-threads=1
 cargo clippy --release --all-targets [--features cuda-bridge]   # both clean
 cargo fmt
+RUSTFLAGS="-C target-cpu=native" CARGO_TARGET_DIR=target/native \
+  cargo test --release --lib --test simd --test wilson --test clover --test mdwf --test even_odd
 ```
+
+- The last line builds the SIMD register types (AVX2/AVX-512). Without native flags they are
+  not compiled, so the other tests never check them.
 
 - Features: `cuda-bridge` (CUDA kernels), `mpi` (needs MPI and libclang), `nccl` (`NCCL_HOME`),
   `hdf5`.
