@@ -1067,6 +1067,46 @@ fn run_with_backend(text: &str, backend: &str, name: &str) -> String {
     out
 }
 
+/// The iterations of the clover multigrid on the device, pinned as on the CPU
+/// (`tests/run.rs`, `the_clover_multigrid_takes_the_iterations_it_took`): 7 on the even
+/// sites and on the whole lattice, and the final |D S − b|²/|b|² within a factor 1.5, as of
+/// 2026-10-26.
+#[test]
+fn the_clover_multigrid_on_the_device_takes_the_iterations_it_took() {
+    let text = include_str!("../examples/clover_mg.yaml")
+        .replace("  ## backend   : simd", "  backend : BACKEND")
+        .replace("conf_04040408.txt", "CONF");
+    for (name, text, residual) in [
+        ("mg_even_odd", text.clone(), 2.511e-28),
+        (
+            "mg_lexical",
+            text.replace("Even_odd #", "Lexical #"),
+            8.001e-28,
+        ),
+    ] {
+        let out = run_with_backend(&text, "cuda_bridge", name);
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("# quark 1 "))
+            .unwrap_or_else(|| panic!("no solve line in\n{out}"));
+        let n: usize = line.split_whitespace().nth(3).unwrap().parse().unwrap();
+        assert_eq!(n, 7, "{name}:\n{out}");
+        let r: f64 = line
+            .split("= ")
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            r < 1.5 * residual && r > residual / 1.5,
+            "{name}: |r|²/|b|² {r:e} against {residual:e}"
+        );
+    }
+}
+
 /// A parameter file gives the same tables with `backend : cuda_bridge` as with `cpu`.
 fn same_tables(text: &str, name: &str, tolerance: f64) {
     let (cpu, gpu) = (

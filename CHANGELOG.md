@@ -24,6 +24,10 @@
   SIMD, a level below, GMRES smoothing with pre-smoothing, BiCGStab, Wilson; on the device
   even-odd, lexical, double coarse) print the same iterations, residuals, work and correlators,
   digit for digit, before and after.
+- The iterations of the clover multigrid on the Bridge++ test configuration are pinned by a
+  test (`tests/run.rs`, `tests/cuda_bridge.rs`), with the final residual within a factor 1.5:
+  the comparisons with Bridge++ only asked that the multigrid help. Started from zero instead of
+  x = b, the cycle fails it.
 
 ### Fixed
 

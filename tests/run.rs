@@ -541,6 +541,118 @@ fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
     );
 }
 
+/// The iterations of the clover multigrid on the Bridge++ test configuration, pinned: the
+/// Bridge++ comparisons only ask that the multigrid helps, so a change of the cycle (its start
+/// x = b, the order of smoothing and correction) would pass them unseen. The counts and the
+/// final |D S − b|²/|b|² are those of 2026-10-26 (b2ac269, unchanged by moving the Wilson
+/// cycle onto `TwoGrid`), the residual within a factor 1.5 (the device differs by 2%; the cycle
+/// started from zero instead of x = b moves it 3 to 12 times, and the iterations only for
+/// Wilson); the pion correlator of the even-odd run is pinned to 1e-12.
+#[test]
+fn the_clover_multigrid_takes_the_iterations_it_took() {
+    let dir = scratch("mg_iterations");
+    let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/conf_04040408.txt");
+    let base = with(CLOVER_MG_YAML, "conf_04040408.txt", conf.to_str().unwrap());
+    let lexical = with(&base, "Even_odd #", "Lexical #");
+    let run = |name: &str, text: &str| {
+        let file = dir.join(format!("{name}.yaml"));
+        std::fs::write(&file, text).unwrap();
+        let mut printed = Vec::new();
+        ruttice::app::run_file(&file, &mut printed).unwrap();
+        String::from_utf8(printed).unwrap()
+    };
+    // The iterations and the final residual of the solve.
+    let solved = |printed: &str| -> (usize, f64) {
+        let line = printed
+            .lines()
+            .find(|l| l.starts_with("# quark 1 "))
+            .unwrap_or_else(|| panic!("no solve line in\n{printed}"));
+        let iterations = line.split_whitespace().nth(3).unwrap().parse().unwrap();
+        let residual = line.split("= ").nth(1).unwrap().split(',').next().unwrap();
+        (iterations, residual.parse().unwrap())
+    };
+    let gmres = with(
+        &with(
+            &with(
+                &lexical,
+                "    smoother_type    : SAP",
+                "    smoother_type    : GMRES\n    pre_smoothing : true",
+            ),
+            "    number_of_cycles : 4                   # SAP cycles ...\n    number_of_steps  : 6                   # ... and minimal-residual steps per block\n",
+            "",
+        ),
+        "      solver_type                   : BiCGStab  # BiCGStab | GMRES\n      maximum_number_of_iteration   : 200\n      convergence_criterion_squared : 2.0e-3",
+        "      solver_type : GMRES\n      maximum_number_of_iteration : 5\n      convergence_criterion_squared : 1.0e-2",
+    );
+    let gmres = with(
+        &gmres,
+        "    number_of_test_vectors : 8             # 16 by default",
+        "    number_of_test_vectors : 8\n    precondition_diagonal : true",
+    );
+    let variants = [
+        ("even_odd", base.clone(), 7, 2.456e-28),
+        ("lexical", lexical.clone(), 7, 7.941e-28),
+        (
+            "bicgstab",
+            with(&base, ": FGMRES   #", ": BiCGStab #"),
+            4,
+            3.245e-31,
+        ),
+        (
+            "level2",
+            with(
+                &base,
+                "  MultiGrid_Level1:",
+                "  MultiGrid_Level2:\n    super_block_size : 2\n  MultiGrid_Level1:",
+            ),
+            7,
+            2.748e-28,
+        ),
+        ("pre_smoothing", gmres, 10, 2.031e-27),
+        (
+            "wilson",
+            with(
+                &with(&base, "Clover     #", "Wilson     #"),
+                "  clover_coefficient : 1.0\n",
+                "",
+            ),
+            6,
+            3.598e-27,
+        ),
+    ];
+    for (name, text, iterations, residual) in &variants {
+        let printed = run(name, text);
+        let (n, r) = solved(&printed);
+        assert_eq!(n, *iterations, "{name}:\n{printed}");
+        assert!(
+            r < 1.5 * residual && r > residual / 1.5,
+            "{name}: |r|²/|b|² {r:e} against {residual:e}"
+        );
+        if *name == "even_odd" {
+            let pion: Vec<f64> = printed
+                .lines()
+                .filter(|l| l.starts_with("11 PS "))
+                .map(|l| l.split_whitespace().nth(3).unwrap().parse().unwrap())
+                .collect();
+            let reference = [
+                1.522248660651404e1,
+                8.549709125261850e-1,
+                1.217706262083524e-1,
+                2.184979032742020e-2,
+                7.591279560473205e-3,
+                2.182575559421899e-2,
+                1.163635542319829e-1,
+                8.592374528900151e-1,
+            ];
+            assert_eq!(pion.len(), reference.len());
+            for (a, b) in pion.iter().zip(&reference) {
+                assert!((a - b).abs() <= 1e-12 * b.abs(), "{a:e} against {b:e}");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The multigrid example for clover fermions (FGMRES on the even sites with the multigrid)
 /// runs through `run_file`, says what it runs in comment lines, and gives the pion correlator
 /// of CG on the same operator.
