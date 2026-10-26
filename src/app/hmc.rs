@@ -670,6 +670,20 @@ impl HmcConfig {
                     }
                 }
                 ActionConfig::Rational { solver, .. } => {
+                    // What the rational action does not have, refused rather than ignored.
+                    if solver.mixed.is_some() {
+                        return invalid(format!(
+                            "{at}.Solver.precision: mixed is for the domain-wall Standard (Lexical) and Ratio actions, not Rational"
+                        ));
+                    }
+                    if solver.initial_guess > 0 {
+                        return invalid(format!(
+                            "{at}.Solver.number_of_initial_guess: for the Standard actions and the even-odd Ratio, not Rational"
+                        ));
+                    }
+                    if solver.neff_alpha != 1.0 {
+                        return invalid(format!("{at}.Fopr.neff_alpha: for domain-wall fermions"));
+                    }
                     if solver.asks_for(HmcPreconditioner::Chebyshev) {
                         return invalid(format!(
                             "{at}.Solver.preconditioner_type: MG (with BiCGStab, FGMRES or GCR) or None for Rational"

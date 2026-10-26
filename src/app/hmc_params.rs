@@ -673,6 +673,11 @@ impl FermionActionBlock {
                 ))
             }
         };
+        if s.chebyshev.is_some() && s.preconditioner_type != PreconditionerType::Chebyshev {
+            return invalid(format!(
+                "{name}.Solver.Chebyshev: for preconditioner_type Chebyshev (the smoother of the multigrid is MultiGrid.Smoother)"
+            ));
+        }
         let chebyshev = s
             .chebyshev
             .as_ref()

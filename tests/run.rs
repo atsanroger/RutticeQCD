@@ -1525,3 +1525,77 @@ fn mistakes_in_the_measure_section_are_refused() {
     assert!(e.contains("for Wilson and clover fermions so far"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What a Rational action does not have, and a Chebyshev section without the Chebyshev
+/// preconditioner, are refused when the HMC file is read, naming the key; before, they were
+/// ignored.
+#[test]
+fn hmc_options_an_action_does_not_have_are_refused() {
+    use ruttice::app::hmc::HmcConfig;
+    let yaml = |action: &str, fopr: &str, solver: &str| {
+        format!(
+            "Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+  gauge_config_status : Cold_start
+  number_of_trajectories : 1
+HMC_General:
+  trajectory_length : 0.2
+Builder_Integrator:
+  integrator : Leapfrog
+  number_of_steps : [4]
+Action_G:
+  action_type : Action_G_Plaq
+  beta : 5.5
+Action_F_1:
+  action_type : {action}
+  Fopr:
+    fermion_type : Wilson
+    hopping_parameter : 0.12
+    boundary_condition : [1, 1, 1, -1]
+{fopr}{rational}  Solver:
+    convergence_criterion_squared : 1.0e-20
+{solver}",
+            rational = if action == "Rational" {
+                "  Rational:
+    number_of_poles : 6
+    exponent_numerator : 1
+    exponent_denominator : 2
+    lower_bound : 1.0e-1
+    upper_bound : 3.0
+"
+            } else {
+                ""
+            }
+        )
+    };
+    let refused = |text: String, key: &str| match HmcConfig::from_yaml(&text) {
+        Ok(_) => panic!("accepted:\n{text}"),
+        Err(e) => assert!(e.to_string().contains(key), "{key} not in: {e}"),
+    };
+    // The file without the extra key is read.
+    HmcConfig::from_yaml(&yaml("Rational", "", "")).unwrap();
+    refused(
+        yaml("Rational", "", "    precision : mixed\n"),
+        "Action_F_1.Solver.precision",
+    );
+    refused(
+        yaml("Rational", "", "    number_of_initial_guess : 3\n"),
+        "Action_F_1.Solver.number_of_initial_guess",
+    );
+    refused(
+        yaml("Rational", "    neff_alpha : 0.6\n", ""),
+        "Action_F_1.Fopr.neff_alpha",
+    );
+    let chebyshev = "    Chebyshev:\n      number_of_steps : 4\n";
+    refused(
+        yaml("Standard", "", chebyshev),
+        "Action_F_1.Solver.Chebyshev",
+    );
+    HmcConfig::from_yaml(&yaml(
+        "Standard",
+        "",
+        &format!("    preconditioner_type : Chebyshev\n{chebyshev}"),
+    ))
+    .unwrap();
+}

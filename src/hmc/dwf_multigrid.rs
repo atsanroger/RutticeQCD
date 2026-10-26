@@ -141,7 +141,8 @@ struct Kept<B: MdwfBackend> {
 }
 
 /// `run` with the solves on the even sites of `setup`'s multigrid for the current links of
-/// `ops`, and the bookkeeping of the setup; the iterations of the result are the GCR iterations.
+/// `ops`, and the bookkeeping of the setup; the iterations of the result are the GCR iterations,
+/// those of the attempts that stalled included.
 pub(crate) fn with_solves<B: MdwfBackend + 'static>(
     backend: &B,
     ops: (&B::Op, &B::Op),
@@ -155,6 +156,7 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
             .unwrap_or_else(|e| panic!("the multigrid of HMC failed: {e}"))
     };
     let mut result = attempt(setup, flags);
+    let mut stalled = 0;
     // When the sweeps stall: P and the coarse parts again for the links of now (those kept may be
     // of links far from them), then the test vectors improved by a bootstrap as well. Each goes
     // on from the solution so far (`run` starts from it).
@@ -166,8 +168,12 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
             "the multigrid of HMC stalled at |r|²/|b|² {:.1e}: again with {what}",
             info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
         );
+        stalled += info.iterations;
         setup.rebuild_due = true;
         result = attempt(setup, (fresh, flags.1));
+    }
+    if let Ok(info) | Err(SolveError::NotConverged(info)) = &mut result {
+        info.iterations += stalled;
     }
     result
 }
@@ -235,7 +241,7 @@ fn solves_once<B: MdwfBackend + 'static>(
         setup.since += 1;
     }
     let start = std::time::Instant::now();
-    let (inner, count, result) = {
+    let (inner, count, mut result) = {
         let cycles = backend.cycles((d, pv), &outers, lat, &setup.mg, &parts)?;
         let (even, odd) = backend.halves(d, lat);
         let mut solves = Solves::<B> {
@@ -261,10 +267,11 @@ fn solves_once<B: MdwfBackend + 'static>(
         kept.parts = Some(parts);
     }
     setup.state = Some(Box::new(kept));
-    Ok(result.map(|mut info| {
+    // The sweeps count no iterations of their own: those of the solve are GCR's, stalled or not.
+    if let Ok(info) | Err(SolveError::NotConverged(info)) = &mut result {
         info.iterations = inner;
-        info
-    }))
+    }
+    Ok(result)
 }
 
 /// The solves on the even sites of one solve of D†D, with the cycles of the backend.
