@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The `RUTTICE_*` variables are checked when read (`src/env.rs`): a value that does not parse or
+  is not one of the choices stops the run with a message naming the variable and what it takes;
+  before, it was taken for unset (`RUTTICE_PIN=yes` did not pin, `RUTTICE_POOL_SPIN=4k` spun the
+  default). `RUTTICE_CHECKSUM` and `RUTTICE_PIN` take 0 or 1 (`RUTTICE_CHECKSUM=0` printed
+  checksums), `RUTTICE_DEVICE` a device the process sees. An empty value is unset. Documented in
+  `docs/USAGE.md` (Threads), with the tuning variables that were not.
+- The negation of the register lanes (`-C target-cpu=native`, AVX2/AVX-512) gave +0 for +0; it
+  is −0, as for `f64`, now (a multiplication by −1, not a subtraction from 0). The checks of
+  `kernel::lanes` test it; the normal build (no native flags) does not use these types.
+- `src/kernel`, `src/lattice`: comments put back on their items and two corrected.
 - A breakdown of the single-precision CG of mixed precision (a NaN since 5cc9799) is returned to
   the outer defect correction as `Breakdown`, as for any other solver; it panicked
   (`hmc::mixed`, `a_nan_in_single_precision_is_a_breakdown`).

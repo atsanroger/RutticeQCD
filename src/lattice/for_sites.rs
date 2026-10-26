@@ -29,10 +29,11 @@ const SPINOR_REALS: usize = 24;
 fn fixed_task_sites() -> Option<usize> {
     static VALUE: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
-        std::env::var("RUTTICE_MIN_SITES_PER_TASK")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|v| *v > 0)
+        crate::env::parsed::<std::num::NonZeroUsize>(
+            "RUTTICE_MIN_SITES_PER_TASK",
+            "a number of sites above zero",
+        )
+        .map(usize::from)
     })
 }
 
@@ -42,8 +43,7 @@ pub fn min_sites_per_task() -> usize {
 }
 
 /// The number of sites up to which a loop over `num_sites` sites of `site_len` reals stays
-/// on the calling thread; a longer loop gives every thread of the pool one piece
-/// (`on_each_thread`).
+/// on the calling thread; a longer loop is dealt out to the threads (`for_sites_from`).
 fn task_sites(num_sites: usize, site_len: usize, weight: Weight) -> usize {
     let (scale, spinors) = match weight {
         Weight::Heavy => (1, MIN_SPINORS_HEAVY),
@@ -100,9 +100,7 @@ where
 pub fn stream_min_bytes() -> usize {
     static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
-        std::env::var("RUTTICE_STREAM_MIN_BYTES")
-            .ok()
-            .and_then(|v| v.parse().ok())
+        crate::env::parsed("RUTTICE_STREAM_MIN_BYTES", "a number of bytes")
             .unwrap_or(STREAM_MIN_BYTES)
     })
 }

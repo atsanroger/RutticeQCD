@@ -14,6 +14,7 @@ pub mod meter;
 pub mod numerics;
 pub mod solver;
 
+mod env;
 mod field;
 mod lattice;
 

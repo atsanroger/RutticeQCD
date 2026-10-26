@@ -151,10 +151,16 @@ pub(crate) fn device_of_this_process() -> i32 {
         unsafe { cudaGetLastError() };
         return 0;
     }
-    let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i32>().ok());
-    if let Some(d) = var("RUTTICE_DEVICE") {
+    if let Some(d) = crate::env::parsed::<i32>("RUTTICE_DEVICE", "a device number") {
+        assert!(
+            (0..count).contains(&d),
+            "RUTTICE_DEVICE={d}: this process sees devices 0 to {}",
+            count - 1
+        );
         return d;
     }
+    // The launchers' variables are theirs: one that does not parse is passed over.
+    let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i32>().ok());
     let local = [
         "OMPI_COMM_WORLD_LOCAL_RANK",
         "MV2_COMM_WORLD_LOCAL_RANK",
@@ -244,10 +250,10 @@ fn checksum_of<T: Copy>(data: &[T]) -> u64 {
     })
 }
 
-/// With `RUTTICE_CHECKSUM` set, the checksum of `what` on the standard error: for the stages
+/// With `RUTTICE_CHECKSUM=1`, the checksum of `what` on the standard error: for the stages
 /// inside the library (the application prints its own with its report).
 pub(crate) fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaError>) {
-    if std::env::var_os("RUTTICE_CHECKSUM").is_some() {
+    if crate::env::switch("RUTTICE_CHECKSUM") {
         match sum() {
             Ok(s) => eprintln!("  checksum of {what}: {s:016x}"),
             Err(e) => eprintln!("  checksum of {what}: {e}"),

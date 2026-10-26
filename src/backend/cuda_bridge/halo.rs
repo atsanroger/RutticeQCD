@@ -672,14 +672,9 @@ enum Transport<T> {
 /// process can have it (feature `nccl`), the host otherwise; `RUTTICE_HALO=host` or `nccl`
 /// chooses. Every process calls it at the same point.
 fn transport_for<T: DeviceReal>(lat: &Lattice, spec: &HaloSpec) -> Transport<T> {
-    let wanted = std::env::var("RUTTICE_HALO").unwrap_or_default();
     let choices = ["", "host", "nccl"];
-    let choice = choices
-        .iter()
-        .position(|c| *c == wanted)
-        .unwrap_or_else(|| {
-            panic!("RUTTICE_HALO={wanted}: the choices are host and nccl (or unset for either)")
-        });
+    let choice = crate::env::choice("RUTTICE_HALO", &choices[1..]).map_or(0, |c| c + 1);
+    let wanted = choices[choice];
     // Every process must choose alike, or those that try NCCL wait in its collective calls
     // for those that do not.
     let mut votes = [0.0; 3];
@@ -692,7 +687,7 @@ fn transport_for<T: DeviceReal>(lat: &Lattice, spec: &HaloSpec) -> Transport<T> 
     );
     #[cfg(feature = "nccl")]
     {
-        let nccl = match wanted.as_str() {
+        let nccl = match wanted {
             "host" => None,
             "nccl" => Some(
                 nccl::Nccl::of(lat.comm.as_ref())

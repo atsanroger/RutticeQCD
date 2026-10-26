@@ -33,7 +33,7 @@ use std::time::Instant;
 
 /// Whether `RUTTICE_CHECKSUM` asks for the checksums of the stages of a run.
 fn checksums() -> bool {
-    std::env::var_os("RUTTICE_CHECKSUM").is_some()
+    crate::env::switch("RUTTICE_CHECKSUM")
 }
 
 /// With `RUTTICE_CHECKSUM` set, a line with the checksum of what a stage of the run made, to

@@ -16,15 +16,13 @@ pub(crate) enum Schedule {
 /// The schedule in use: `RUTTICE_SCHEDULE`, read once.
 pub(crate) fn schedule() -> Schedule {
     static VALUE: OnceLock<Schedule> = OnceLock::new();
-    *VALUE.get_or_init(|| match std::env::var("RUTTICE_SCHEDULE").as_deref() {
-        Ok("static") => Schedule::Static,
-        Ok("pool") => Schedule::Pool,
-        _ => Schedule::Steal,
+    *VALUE.get_or_init(|| {
+        match crate::env::choice("RUTTICE_SCHEDULE", &["steal", "static", "pool"]) {
+            Some(1) => Schedule::Static,
+            Some(2) => Schedule::Pool,
+            _ => Schedule::Steal,
+        }
     })
-}
-
-fn flag(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|v| v == "1")
 }
 
 /// Prepare the threads before the first loop: with `RUTTICE_PIN=1`, start the rayon pool
@@ -32,7 +30,7 @@ fn flag(name: &str) -> bool {
 pub fn setup() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
-        if flag("RUTTICE_PIN") {
+        if crate::env::switch("RUTTICE_PIN") {
             let cpus = allowed_cpus();
             if !cpus.is_empty() {
                 // Fails if the pool exists already; the threads then stay as they are.
@@ -144,10 +142,8 @@ impl Pool {
             wake: Condvar::new(),
         });
         let cpus = allowed_cpus();
-        let spin = std::env::var("RUTTICE_POOL_SPIN")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(SPIN_TURNS);
+        let spin =
+            crate::env::parsed("RUTTICE_POOL_SPIN", "a number of turns").unwrap_or(SPIN_TURNS);
         if let Some(cpu) = cpus.first() {
             pin_to(*cpu);
         }

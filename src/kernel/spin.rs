@@ -1,5 +1,4 @@
-//! Spinors, gamma matrices, and the two halves of a hopping term: transport and sink
-//!.
+//! Spinors, gamma matrices, and the two halves of a hopping term: transport and sink.
 //!
 //! The Dirac-representation matrices use the same convention as Bridge++ so that results
 //! can be compared; only the matrix entries are taken from there.

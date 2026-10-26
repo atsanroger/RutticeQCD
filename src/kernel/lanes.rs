@@ -113,7 +113,7 @@ impl<T: Real, const W: usize> Lane<W> for Lanes<T, W> {
 /// built that way cannot run on a processor without the feature.
 macro_rules! register_lane {
     ($name:ident, $reg:ident, $scalar:ty, $w:expr, $feature:literal,
-     $add:ident, $sub:ident, $mul:ident, $set1:ident, $zero:ident) => {
+     $add:ident, $sub:ident, $mul:ident, $set1:ident) => {
         #[cfg(target_feature = $feature)]
         #[derive(Clone, Copy, Debug)]
         #[repr(transparent)]
@@ -151,8 +151,10 @@ macro_rules! register_lane {
                 type Output = Self;
                 #[inline(always)]
                 fn neg(self) -> Self {
+                    // Times −1, which is exact and turns +0 into −0 as `-x` does for a scalar;
+                    // 0 − x would give +0 there and differ from the scalar in the sign bit.
                     // SAFETY: the build enables the feature (see `register_lane`).
-                    $name(unsafe { $sub($zero(), self.0) })
+                    $name(unsafe { $mul(self.0, $set1(-1.0)) })
                 }
             }
     assign_ops!([] $name);
@@ -195,8 +197,7 @@ register_lane!(
     _mm256_add_pd,
     _mm256_sub_pd,
     _mm256_mul_pd,
-    _mm256_set1_pd,
-    _mm256_setzero_pd
+    _mm256_set1_pd
 );
 register_lane!(
     F32x8,
@@ -207,8 +208,7 @@ register_lane!(
     _mm256_add_ps,
     _mm256_sub_ps,
     _mm256_mul_ps,
-    _mm256_set1_ps,
-    _mm256_setzero_ps
+    _mm256_set1_ps
 );
 register_lane!(
     F64x8,
@@ -219,8 +219,7 @@ register_lane!(
     _mm512_add_pd,
     _mm512_sub_pd,
     _mm512_mul_pd,
-    _mm512_set1_pd,
-    _mm512_setzero_pd
+    _mm512_set1_pd
 );
 register_lane!(
     F32x16,
@@ -231,8 +230,7 @@ register_lane!(
     _mm512_add_ps,
     _mm512_sub_ps,
     _mm512_mul_ps,
-    _mm512_set1_ps,
-    _mm512_setzero_ps
+    _mm512_set1_ps
 );
 
 /// `LaneOf` with a register type when the build has `$feature`, the array otherwise.
@@ -291,6 +289,23 @@ mod tests {
             for k in 0..W {
                 assert!(got[k] == want(a[k], b[k]), "case {n}, lane {k}");
             }
+        }
+        // −(+0) is −0 and −(−0) is +0, as for the scalars: the same bits, not only the same
+        // value.
+        let zeros: [V::Scalar; W] = core::array::from_fn(|k| {
+            let z = V::Scalar::ZERO;
+            if k % 2 == 0 {
+                z
+            } else {
+                -z
+            }
+        });
+        let negated = (-V::from_array(zeros)).to_array();
+        for k in 0..W {
+            assert!(
+                negated[k].to_f64().to_bits() == (-zeros[k]).to_f64().to_bits(),
+                "the sign of a negated zero, lane {k}"
+            );
         }
         let mut c = va;
         c += vb;
