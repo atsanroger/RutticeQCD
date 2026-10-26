@@ -19,7 +19,9 @@
 //! default one, the host waiting for nothing; or through the host (`Comm::halo_f32`,
 //! `halo_f64`: MPI, or the threads of a `LocalComm`), copied off the device, exchanged while the
 //! interior runs, copied back. NCCL where it can be had on every process, the host otherwise
-//! (`RUTTICE_HALO=host` or `nccl` chooses).
+//! (`RUTTICE_HALO=host` or `nccl` chooses, alike on every process). Several ranks of one
+//! process on one device (the threads of a `LocalComm` on one GPU) go through the host: they
+//! share the default stream, on which NCCL's exchange would never complete.
 
 use super::*;
 use crate::comm::{HaloExchange, HaloSpec, FACES};
@@ -408,6 +410,7 @@ split_real!(f64: bridge_cuda_hop_part_f64, bridge_cuda_mdwf_dslash_part_f64,
 mod nccl {
     use super::*;
     use std::os::raw::c_char;
+    use std::sync::Mutex;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -419,6 +422,7 @@ mod nccl {
         fn ncclGetUniqueId(id: *mut UniqueId) -> i32;
         fn ncclCommInitRank(comm: *mut *mut c_void, nranks: i32, id: UniqueId, rank: i32) -> i32;
         fn ncclCommDestroy(comm: *mut c_void) -> i32;
+        fn ncclCommGetAsyncError(comm: *mut c_void, error: *mut i32) -> i32;
         fn ncclGroupStart() -> i32;
         fn ncclGroupEnd() -> i32;
         fn ncclSend(
@@ -443,6 +447,39 @@ mod nccl {
         assert_eq!(code, 0, "NCCL: {what} returned {code}");
     }
 
+    /// `ncclInProgress`: an operation of a non-blocking communicator not yet finished.
+    const IN_PROGRESS: i32 = 7;
+
+    /// The devices of this process that have a communicator. NCCL cannot run two ranks of one
+    /// communicator on one device of one process (the threads of a `LocalComm` on one GPU: they
+    /// share the default stream, and the exchange never completes), so a second claim fails.
+    static CLAIMED: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+
+    /// A device claimed for a communicator, released on drop.
+    struct Claim(i32);
+
+    impl Claim {
+        /// The current device, unless a communicator of this process has it already.
+        fn current() -> Option<Self> {
+            let mut device = 0;
+            // SAFETY: a place for the ordinal.
+            must(check(unsafe { cudaGetDevice(&mut device) }));
+            let mut claimed = CLAIMED.lock().unwrap_or_else(|e| e.into_inner());
+            if claimed.contains(&device) {
+                return None;
+            }
+            claimed.push(device);
+            Some(Self(device))
+        }
+    }
+
+    impl Drop for Claim {
+        fn drop(&mut self) {
+            let mut claimed = CLAIMED.lock().unwrap_or_else(|e| e.into_inner());
+            claimed.retain(|&d| d != self.0);
+        }
+    }
+
     /// The NCCL communicator of the processes of a lattice, the stream the faces travel on, and
     /// the events between it and the default stream.
     pub(in super::super) struct Nccl {
@@ -450,24 +487,35 @@ mod nccl {
         stream: *mut c_void,
         packed: *mut c_void,
         arrived: *mut c_void,
+        _device: Claim,
     }
 
     impl Drop for Nccl {
         fn drop(&mut self) {
-            // SAFETY: the communicator made in `new`, destroyed once.
-            unsafe { ncclCommDestroy(self.comm) };
+            // SAFETY: the handles made in `new`, destroyed once. The stream finishes what was
+            // launched on it before it is destroyed; the events may still be pending, which
+            // `cudaEventDestroy` allows.
+            unsafe {
+                ncclCommDestroy(self.comm);
+                cudaStreamDestroy(self.stream);
+                cudaEventDestroy(self.packed);
+                cudaEventDestroy(self.arrived);
+            }
         }
     }
 
+    /// The communicator made for (rank, size), or none if NCCL could not be had.
+    type Made = Option<((usize, usize), Option<Rc<Nccl>>)>;
+
     thread_local! {
-        /// The communicator of this thread's process, made once for (rank, size).
-        static MADE: RefCell<Option<((usize, usize), Option<Rc<Nccl>>)>> = const { RefCell::new(None) };
+        /// The communicator of this thread's process.
+        static MADE: RefCell<Made> = const { RefCell::new(None) };
     }
 
     impl Nccl {
         /// The communicator of the processes of `comm` (every one of them calls this), none if
-        /// NCCL fails on any of them (several processes on one device, say): then all of them
-        /// go through the host.
+        /// NCCL fails on any of them (several processes on one device, or several ranks of a
+        /// `LocalComm` on one device): then all of them go through the host.
         pub(in super::super) fn of(comm: &dyn crate::Comm) -> Option<Rc<Self>> {
             let key = (comm.rank(), comm.size());
             MADE.with(|made| {
@@ -485,18 +533,19 @@ mod nccl {
 
         fn new(comm: &dyn crate::Comm) -> Option<Self> {
             // The identifier of rank 0 to every process, a byte in each real of a sum.
+            // The device is claimed before the sum, released (on failure) after it, so every
+            // rank sees the claims of the others.
             let mut id = UniqueId { internal: [0; 128] };
-            let mut failed = 0.0;
+            let device = Claim::current();
+            let mut failed = f64::from(u8::from(device.is_none()));
             if comm.rank() == 0 {
                 // SAFETY: a place for the identifier.
-                failed = f64::from(u8::from(unsafe { ncclGetUniqueId(&mut id) } != 0));
+                failed += f64::from(u8::from(unsafe { ncclGetUniqueId(&mut id) } != 0));
             }
             let mut bytes: Vec<f64> = id.internal.iter().map(|&b| f64::from(b as u8)).collect();
             bytes.push(failed);
             comm.sum(&mut bytes);
-            if bytes[128] != 0.0 {
-                return None;
-            }
+            let device = device.filter(|_| bytes[128] == 0.0)?;
             for (b, x) in id.internal.iter_mut().zip(&bytes) {
                 *b = *x as u8 as c_char;
             }
@@ -532,6 +581,7 @@ mod nccl {
                 stream,
                 packed,
                 arrived,
+                _device: device,
             })
         }
 
@@ -544,6 +594,19 @@ mod nccl {
             recv: &[Option<DeviceBuffer<T>>],
             neighbour: &[usize; FACES],
         ) {
+            // An error NCCL found in an earlier exchange (a peer or the network gone) stops the
+            // run here rather than letting the next one wait for ever. A hang inside an
+            // exchange is not caught: the host waits for the device only in a later copy.
+            let mut error = 0;
+            // SAFETY: a place for the code; the communicator is this one's.
+            nccl_check(
+                unsafe { ncclCommGetAsyncError(self.comm, &mut error) },
+                "ncclCommGetAsyncError",
+            );
+            assert!(
+                error == 0 || error == IN_PROGRESS,
+                "NCCL: the communicator reports error {error} from an earlier exchange"
+            );
             // SAFETY: the buffers are those of the faces, of the same length on both sides
             // (`Halos::exchange`); the handles are this communicator's.
             unsafe {
@@ -610,6 +673,23 @@ enum Transport<T> {
 /// chooses. Every process calls it at the same point.
 fn transport_for<T: DeviceReal>(lat: &Lattice, spec: &HaloSpec) -> Transport<T> {
     let wanted = std::env::var("RUTTICE_HALO").unwrap_or_default();
+    let choices = ["", "host", "nccl"];
+    let choice = choices
+        .iter()
+        .position(|c| *c == wanted)
+        .unwrap_or_else(|| {
+            panic!("RUTTICE_HALO={wanted}: the choices are host and nccl (or unset for either)")
+        });
+    // Every process must choose alike, or those that try NCCL wait in its collective calls
+    // for those that do not.
+    let mut votes = [0.0; 3];
+    votes[choice] = 1.0;
+    lat.comm.sum(&mut votes);
+    assert_eq!(
+        votes[choice],
+        lat.comm.size() as f64,
+        "RUTTICE_HALO differs between the processes (unset, host, nccl: {votes:?}); set it alike on all"
+    );
     #[cfg(feature = "nccl")]
     {
         let nccl = match wanted.as_str() {

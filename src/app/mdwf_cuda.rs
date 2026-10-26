@@ -352,6 +352,9 @@ pub(super) fn run(
             memory()
         )?;
         super::history_lines(out, label, history);
+        if result.is_ok() {
+            super::check_solution(label, worst, s.stop().tolerance_sqr)?;
+        }
         Ok(x)
     };
 

@@ -31,6 +31,20 @@
 
 ### Fixed
 
+- A propagator run stops with an error when a solve reported convergence but the solution's
+  residual |Dx−b|²/|b|² is more than 1000 times the tolerance (and above 1e-20): the solver was
+  misled by a broken operator or exchange. Sound runs end within a few times the tolerance
+  (Wilson and clover at most 0.4 of it, domain-wall 2); a run of the domain-wall multigrid on
+  two processes with the NCCL receives in the wrong order ended at 8e-2 against 1e-22 and
+  exited 0 before, and now fails. Wilson, clover and domain-wall, CPU and device.
+- The NCCL halo (feature `nccl`): `RUTTICE_HALO` must be the same on every process, and only
+  `host`, `nccl` or unset (a process with `host` skipped the collective calls the others waited
+  in, and a misspelt value was taken for unset); the communicator's stream and events are
+  destroyed with it; the ranks of a `LocalComm` on one GPU go through the host instead of
+  trying NCCL (with `NCCL_MULTI_RANK_GPU_ENABLE=1` NCCL accepted them, and the exchange never
+  completed on the default stream they share); an error NCCL reports from an earlier exchange
+  stops the run at the next one. Two processes on one GPU by `mpirun` give the same results
+  through the host and NCCL, as before.
 - On MPI the global sums add the processes' parts in rank order (`MPI_Allgather`, then the
   sum on every process), as `LocalComm` does: `MPI_Allreduce` added them in an order of its
   own (Open MPI 5.0 on 4 processes: 1, 1e16, −1e16, 1 summed to 0, in rank order to 1), so a

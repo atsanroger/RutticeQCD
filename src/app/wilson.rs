@@ -630,6 +630,11 @@ fn solve_one(
             solve_quark(lat, &op, single, b, &config.solver, quark)?
         }
     };
+    super::check_solution(
+        &format!("quark {quark}"),
+        solved.0,
+        config.solver.tolerance_squared,
+    )?;
     Ok(solved)
 }
 

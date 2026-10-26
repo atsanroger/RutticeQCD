@@ -55,6 +55,10 @@ extern "C" {
     #[cfg(feature = "nccl")]
     pub(super) fn cudaEventCreateWithFlags(event: *mut *mut c_void, flags: u32) -> i32;
     #[cfg(feature = "nccl")]
+    pub(super) fn cudaStreamDestroy(stream: *mut c_void) -> i32;
+    #[cfg(feature = "nccl")]
+    pub(super) fn cudaEventDestroy(event: *mut c_void) -> i32;
+    #[cfg(feature = "nccl")]
     pub(super) fn cudaEventRecord(event: *mut c_void, stream: *mut c_void) -> i32;
     #[cfg(feature = "nccl")]
     pub(super) fn cudaStreamWaitEvent(stream: *mut c_void, event: *mut c_void, flags: u32) -> i32;

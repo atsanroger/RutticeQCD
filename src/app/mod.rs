@@ -105,6 +105,25 @@ impl fmt::Display for CliError {
 
 impl std::error::Error for CliError {}
 
+/// Refuses a solution whose residual |D x − b|²/|b|² (`worst` over the right-hand sides) is far
+/// above the tolerance of a solve that reported convergence: then the solver was misled (a halo
+/// exchange or an operator is broken), and the run must not go on as if it had a propagator.
+/// A sound solve ends within a few times the tolerance (it stops on the residual of the system
+/// it solved, which differs from D's by a preconditioner); below 1e-20, about where double
+/// precision stops, nothing is refused.
+pub(crate) fn check_solution(what: &str, worst: f64, tolerance_sqr: f64) -> Result<(), CliError> {
+    const MARGIN: f64 = 1e3;
+    const ROUNDOFF: f64 = 1e-20;
+    if worst.is_nan() || (worst > MARGIN * tolerance_sqr && worst > ROUNDOFF) {
+        return Err(CliError::Run(format!(
+            "{what}: the solver converged to |r|²/|b|² < {tolerance_sqr:e}, but the solution \
+             has |Dx−b|²/|b|² = {worst:e}: the operator or the exchanges between processes \
+             are not what the solver was given"
+        )));
+    }
+    Ok(())
+}
+
 /// The memory of this process in GB: (now, peak so far), from `/proc/self/status`
 /// (VmRSS, VmHWM) on Linux; `None` elsewhere.
 pub(crate) fn memory_usage() -> Option<(f64, f64)> {
