@@ -331,6 +331,10 @@ impl RationalApprox {
             residues.push(real(next("a residue")?)?);
             poles.push(real(next("a pole")?)?);
         }
+        // The multi-shift solve stops on the residual of the first pole (`MultiShiftCg`).
+        if poles.iter().any(|pole| *pole < poles[0]) {
+            return fail("the first pole must be the smallest");
+        }
         Ok((
             Self {
                 norm,
@@ -980,6 +984,19 @@ mod tests {
         assert!(r4.hi.abs() < 1e-30, "{r4:?}");
         let s = Power::Exact { p: -1, q: 2 }.eval(10.0) * Power::Exact { p: 1, q: 2 }.eval(10.0);
         assert!((s - Dd::new(1.0)).hi.abs() < 1e-31);
+    }
+
+    /// The multi-shift solve stops on the first pole: a file whose first pole is not the
+    /// smallest is refused when it is read.
+    #[test]
+    fn a_file_with_the_smallest_pole_later_is_refused() {
+        let mut lines: Vec<&str> = BRIDGE_INV_SQRT.lines().collect();
+        // Lines 4 and 5 hold the first two (residue, pole) pairs.
+        lines.swap(4, 5);
+        let swapped = lines.join("\n");
+        let e = RationalApprox::parse_bridge(&swapped).unwrap_err();
+        assert!(e.0.contains("smallest"), "{}", e.0);
+        RationalApprox::parse_bridge(BRIDGE_INV_SQRT).unwrap();
     }
 
     #[test]

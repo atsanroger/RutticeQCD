@@ -61,7 +61,7 @@ pub struct CoarseOp<T: Storage> {
     diag_inv: Option<Vec<T>>,
     scratch: Option<Field<T, Coarse>>,
     /// Whether `D_c† = Γ5 D_c Γ5`: true for an operator built from the parts of a fine
-    /// operator with that property, not for a probed one.
+    /// operator with that property, not for a probed one or one with a right factor.
     adjoint_from_gamma5: bool,
     /// The buffers of the halo exchange, for fields of this many reals per site.
     exchange: Mutex<Option<Exchange<T>>>,
@@ -173,7 +173,10 @@ impl<T: Storage> CoarseOp<T> {
     }
 
     /// `build` with the two options of the domain-wall multigrid (the design notes, §7.6.2, after
-    /// `AFopr_Domainwall_coarse::generate_coarse_op` of the CUDA version):
+    /// `AFopr_Domainwall_coarse::generate_coarse_op` of the CUDA version): `right`, a factor R
+    /// on the right (P† D R P), and `precondition_diagonal`, the operator A⁻¹ D_c with A its
+    /// diagonal blocks. With R the adjoint P† R† D† P is not Γ5 D_c Γ5, so `mult_dag` panics, as
+    /// for a probed operator.
     pub fn build_with<F, S: Storage>(
         op: &F,
         work: &mut F::Work,
@@ -192,6 +195,7 @@ impl<T: Storage> CoarseOp<T> {
         let mut diag = vec![T::default(); n_coarse * matrix];
         let mut links = vec![T::default(); 2 * ND * n_coarse * matrix];
         let one = T::store(T::Compute::ONE);
+        let adjoint_from_gamma5 = right.is_none();
 
         // As many columns at a time as keep five fine fields (two here, the rest in the
         // operator) within about a GB, eight at most (P is read once for all of them).
@@ -266,7 +270,7 @@ impl<T: Storage> CoarseOp<T> {
             links,
             diag_inv,
             scratch: None,
-            adjoint_from_gamma5: true,
+            adjoint_from_gamma5,
             exchange: Mutex::new(None),
             ghost_links: OnceLock::new(),
             even_odd: None,
@@ -913,7 +917,7 @@ impl<T: Storage> LinearOp<Field<T, Coarse>> for CoarseOp<T> {
     fn mult_dag(&mut self, out: &mut Field<T, Coarse>, inp: &Field<T, Coarse>) {
         assert!(
             self.adjoint_from_gamma5,
-            "the adjoint of a probed coarse operator is not implemented"
+            "the adjoint of a probed coarse operator, or of one with a right factor, is not implemented"
         );
         if self.diag_inv.is_none() {
             self.apply(out, inp, true);

@@ -19,6 +19,10 @@ impl MultiShiftCg {
     /// Solve (A + σ_i) x_i = b for every shift; `xs` gets one vector per shift (any content
     /// on entry is replaced: the solves start from zero). `b` holds one vector. The info has
     /// the true |b − (A + σ_i) x_i|²/|b|² per shift.
+    ///
+    /// The solve stops on the residual of the first shift alone, as Bridge++'s does: the
+    /// first shift must be the smallest, whose system converges last (the poles of
+    /// `RationalApprox` are in increasing order, and so are those of Bridge++'s files).
     pub fn solve<V: Vector>(
         &mut self,
         a: &mut dyn LinearFn<V>,
@@ -29,6 +33,10 @@ impl MultiShiftCg {
         assert_eq!(b.num_vectors(), 1, "one right-hand side");
         let n = shifts.len();
         assert!(n > 0, "at least one shift");
+        assert!(
+            shifts.iter().all(|s| *s >= shifts[0]),
+            "the first shift is the smallest: the solve stops on its residual"
+        );
         let real = |x: f64| [C64::new(x, 0.0)];
         let mut b_norm = [0.0];
         b.norm_sqr(&mut b_norm);

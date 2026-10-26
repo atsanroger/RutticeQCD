@@ -408,6 +408,8 @@ impl<'a, B: MultigridBackend<'a>> LinearFn<B::Fine> for WilsonMultigrid<'a, B> {
             r.aypx(&minus_one, b);
         };
 
+        // Without pre-smoothing the cycle starts from x = b, not from zero: Bridge++'s guess
+        // |v> = |w> (`APrecond_MG::mult_single`), which its iteration counts depend on.
         match parts.pre_smoother.as_mut() {
             Some(pre) => pre.mult(x, b),
             None => x.copy_from(b),

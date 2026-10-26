@@ -1577,6 +1577,33 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
     assert!(single <= double + 1, "{single} steps against {double}");
 }
 
+/// The coarse operator P† D C_PV⁻¹ P of the lexical domain-wall multigrid has a right factor,
+/// so its adjoint is not Γ5 D_c Γ5 (13% off in ⟨y, D_c x⟩ against ⟨Γ5 D_c Γ5 y, x⟩ with c = 0,
+/// where D itself is Γ5-Hermitian): `mult_dag` refuses it instead of answering wrongly.
+#[test]
+#[should_panic(expected = "right factor")]
+fn the_adjoint_of_a_coarse_operator_with_a_right_factor_is_refused() {
+    use ruttice::LinearOp;
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let params = MdwfParams {
+        ls: 4,
+        b: 1.0,
+        c: 0.0,
+        ..MOBIUS
+    };
+    let op = operator(&lat, params, &random_gauge(&lat, 111));
+    let choice = MdwfMultigridParams {
+        num_test_vectors: 4,
+        ..MdwfMultigridParams::note([2, 2, 2, 2])
+    };
+    assert_eq!(choice.coarse_operator, MdwfCoarse::RightPreconditioned);
+    let mg = mdwf_multigrid(&op, &lat, &choice).unwrap();
+    let mut coarse = mg.coarse_operator().to_storage::<f64>();
+    let x = mg.basis().coarse_field(1);
+    let mut out = x.zeros_like();
+    coarse.mult_dag(&mut out, &x);
+}
+
 /// The exact adjoint of a coarse operator: <x, D_c y> = <D_c† x, y>; and it differs from
 /// the Γ5-adjoint for Möbius (c ≠ 0), where D† = Γ5 D Γ5 holds only approximately.
 #[test]

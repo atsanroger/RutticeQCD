@@ -32,6 +32,14 @@
 - The `# cost` lines of HMC with the domain-wall multigrid count the GCR iterations of a solve
   that stalled and of the attempts after it (P made again, a bootstrap, CG); a stalled
   attempt counted none, on the CPU and the device.
+- A coarse operator built with a right factor (P† D C_PV⁻¹ P, the lexical domain-wall
+  multigrid's `RightPreconditioned`) refuses `mult_dag`: its adjoint is not Γ5 D_c Γ5, and
+  `mult_dag` gave a wrong one (13% off in ⟨y, D_c x⟩ against ⟨D_c† y, x⟩ at c = 0). No program
+  applied it; with levels or CGNE on that coarse operator it would have been wrong.
+- A Bridge++ coefficient file whose first pole is not the smallest is refused when it is read:
+  the multi-shift CG stops on the residual of the first pole, so the others would have been
+  left unconverged. Bridge++'s files and the computed coefficients have the poles in
+  increasing order.
 
 ### Corrections to earlier releases
 
