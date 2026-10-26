@@ -409,7 +409,8 @@ impl<'a, B: MultigridBackend<'a>> WilsonMultigrid<'a, B> {
             agg: agg.clone(),
             coarse_tests,
             hooks,
-            cycle: TwoGrid::new(smoothing, correction, &initial),
+            // The work fields of the cycle at one vector; it fits them to what it is given.
+            cycle: TwoGrid::new(smoothing, correction, &initial.zeros_with(1)),
         };
         for _ in 0..setup_iterations {
             let v = mg.backend.test_vectors(mg.basis());
