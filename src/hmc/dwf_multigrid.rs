@@ -37,8 +37,8 @@ use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
     Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
 };
-use crate::solver::{Gcr, SolveError, SolveInfo, Solver, Stop};
-use crate::{Lattice, LinearFn, LinearOp, Parity, Vector, C64};
+use crate::solver::{refine_normal, Gcr, SolveError, SolveInfo, Solver, Stop};
+use crate::{Lattice, Parity, Vector};
 use std::any::Any;
 use std::error::Error;
 use std::sync::Arc;
@@ -400,36 +400,12 @@ pub(crate) fn two_solves<O: super::ForceOp>(
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     use crate::fermion::{Bound, Variant};
-    let n = b.num_vectors();
-    let mut b_norm = vec![0.0; n];
-    b.norm_sqr(&mut b_norm);
     let mut d = Bound::new(op, Variant::D);
-    let [mut t, mut r, mut w, mut e] = std::array::from_fn(|_| b.zeros_like());
-    let mut info = SolveInfo {
-        iterations: 0,
-        restarts: 0,
-        residual_sqr: vec![0.0; n],
-    };
-    for sweep in 0..=stop.max_restarts {
-        info.restarts = sweep;
-        d.mult(&mut t, x);
-        d.mult_dag(&mut r, &t);
-        r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
-        r.norm_sqr(&mut info.residual_sqr);
-        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
-            *r = if *b > 0.0 { *r / b } else { 0.0 };
-        }
-        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
-            return Ok(info);
-        }
-        if sweep == stop.max_restarts {
-            break;
-        }
-        solves.adjoint(&mut w, &r)?;
-        solves.forward(&mut e, &w)?;
-        x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
-    }
-    Err(SolveError::NotConverged(info))
+    refine_normal(&mut d, 0.0, x, b, stop, &mut |_, e, r, w, _| {
+        solves.adjoint(w, r)?;
+        solves.forward(e, w)?;
+        Ok(0)
+    })
 }
 
 /// K†K z = b on the even sites, K = T_ee⁻¹ Ŝ, by w = T_ee† Ŝ⁻† r and e = Ŝ⁻¹ T_ee w on the
@@ -443,49 +419,23 @@ pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
     b: &O::Half,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    let n = b.num_vectors();
-    assert_eq!(n, 1, "one right-hand side");
+    assert_eq!(b.num_vectors(), 1, "one right-hand side");
     let odd = op.new_half(lat, Parity::Odd);
     let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
     let mut work = op.even_odd_work();
-    let mut b_norm = vec![0.0; n];
-    b.norm_sqr(&mut b_norm);
-    // t is also the work field of the two solves (the solves on 24⁴ are short of memory).
-    let [mut t, mut r, mut w] = std::array::from_fn(|_| b.zeros_like());
     let (mut source, mut whole) = (op.new_field(lat), op.new_field(lat));
-    let mut info = SolveInfo {
-        iterations: 0,
-        restarts: 0,
-        residual_sqr: vec![0.0; n],
-    };
-    for sweep in 0..=stop.max_restarts {
-        info.restarts = sweep;
-        k.mult(&mut t, z);
-        k.mult_dag(&mut r, &t);
-        r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
-        r.norm_sqr(&mut info.residual_sqr);
-        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
-            *r = if *b > 0.0 { *r / b } else { 0.0 };
-        }
-        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
-            return Ok(info);
-        }
-        if sweep == stop.max_restarts {
-            break;
-        }
-        // w = T_ee† Ŝ⁻† r.
+    refine_normal(&mut k, 0.0, z, b, stop, &mut |_, e, r, t, _| {
         source.set_zero();
-        op.put_half(&mut source, &r);
+        op.put_half(&mut source, r);
         solves.adjoint(&mut whole, &source)?;
-        op.half_of(&mut t, &whole, Parity::Even);
-        op.diag(&mut work, &mut w, &t, Parity::Even, Dagger::Yes);
-        // e = Ŝ⁻¹ T_ee w, in t.
-        op.diag(&mut work, &mut t, &w, Parity::Even, Dagger::No);
+        // t = Ŝ⁻† r, then T_ee T_ee† t (e as the field between).
+        op.half_of(t, &whole, Parity::Even);
+        op.diag(&mut work, e, t, Parity::Even, Dagger::Yes);
+        op.diag(&mut work, t, e, Parity::Even, Dagger::No);
         source.set_zero();
-        op.put_half(&mut source, &t);
+        op.put_half(&mut source, t);
         solves.forward(&mut whole, &source)?;
-        op.half_of(&mut t, &whole, Parity::Even);
-        z.axpy(&vec![C64::new(1.0, 0.0); n], &t);
-    }
-    Err(SolveError::NotConverged(info))
+        op.half_of(e, &whole, Parity::Even);
+        Ok(0)
+    })
 }

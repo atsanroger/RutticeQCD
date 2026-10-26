@@ -9,6 +9,10 @@
   it, as on the device, which changes P at rounding (4³×8: the propagators with the same
   iterations and coarse applications, correlators within 3e-10; of five HMC runs, one with an
   iteration more or fewer in a trajectory, ΔH within 1e-10).
+- The defect correction on the normal equations (A†A + σ) x = b is written once
+  (`refine_normal`): the two-step solves of HMC, mixed precision, and the two solves of the
+  domain-wall multigrid had four copies of the loop. The operations are the same, in the same
+  order.
 
 ### Fixed
 

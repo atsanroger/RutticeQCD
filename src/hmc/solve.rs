@@ -7,7 +7,8 @@ use crate::solver::preconditioner::multigrid::{
     random_vectors, Multigrid, MultigridBackend, MultigridParams, WilsonMultigrid, WilsonOnCpu,
 };
 use crate::solver::{
-    largest_magnitude, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop,
+    largest_magnitude, refine_normal, BiCgStab, Cg, Chebyshev, Fgmres, Gcr, SolveError, SolveInfo,
+    Solver, Stop,
 };
 use crate::{Adjoint, Lattice, LinearFn, LinearOp, Normal, Vector, C64};
 use std::sync::Arc;
@@ -45,31 +46,6 @@ pub enum Pre<'a, V> {
 pub(super) struct Hermitian<'a, V> {
     pub(super) gamma: &'a mut dyn LinearFn<V>,
     pub(super) m: Option<&'a mut dyn LinearFn<V>>,
-}
-
-/// The residual r = b − (A†A + σ) x and its squares over those of b; true when all are below
-/// the tolerance.
-fn residual<V: Vector>(
-    a: &mut dyn LinearOp<V>,
-    shift: f64,
-    (x, b): (&V, &V),
-    (t, r): (&mut V, &mut V),
-    b_norm: &[f64],
-    info: &mut SolveInfo,
-    tolerance_sqr: f64,
-) -> bool {
-    let n = b.num_vectors();
-    a.mult(t, x);
-    a.mult_dag(r, t);
-    if shift != 0.0 {
-        r.axpy(&vec![C64::new(shift, 0.0); n], x);
-    }
-    r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
-    r.norm_sqr(&mut info.residual_sqr);
-    for (r, b) in info.residual_sqr.iter_mut().zip(b_norm) {
-        *r = if *b > 0.0 { *r / b } else { 0.0 };
-    }
-    info.residual_sqr.iter().all(|r| *r < tolerance_sqr)
 }
 
 impl NormalSolver {
@@ -126,44 +102,20 @@ impl NormalSolver {
         b: &V,
         stop: Stop,
     ) -> Result<SolveInfo, SolveError> {
-        let n = b.num_vectors();
-        let mut b_norm = vec![0.0; n];
-        b.norm_sqr(&mut b_norm);
-        let (mut t, mut r) = (b.zeros_like(), b.zeros_like());
-        let (mut w, mut e) = (b.zeros_like(), b.zeros_like());
-        let mut info = SolveInfo {
-            iterations: 0,
-            restarts: 0,
-            residual_sqr: vec![0.0; n],
-        };
-        for sweep in 0..=stop.max_restarts {
-            info.restarts = sweep;
-            let done = residual(
-                a,
-                mu * mu,
-                (x, b),
-                (&mut t, &mut r),
-                &b_norm,
-                &mut info,
-                stop.tolerance_sqr,
-            );
-            if done {
-                return Ok(info);
-            }
-            if sweep == stop.max_restarts {
-                break;
-            }
+        let mut w = b.zeros_like();
+        let mut correct = |a: &mut dyn LinearOp<V>, e: &mut V, r: &V, t: &mut V, _: &[f64]| {
+            let mut iterations = 0;
             match hermitian.as_mut() {
                 None => {
                     w.set_zero();
                     e.set_zero();
-                    info.iterations += self.one(&mut Adjoint(&mut *a), None, &mut w, &r, stop)?;
-                    info.iterations += self.one(&mut &mut *a, None, &mut e, &w, stop)?;
+                    iterations += self.one(&mut Adjoint(&mut *a), None, &mut w, r, stop)?;
+                    iterations += self.one(&mut &mut *a, None, e, &w, stop)?;
                 }
                 Some(Hermitian { gamma, m }) => {
                     for sign in [1.0, -1.0] {
                         // The right-hand side of this half: Γ r, then Γ w.
-                        gamma.mult(&mut t, if sign > 0.0 { &r } else { &w });
+                        gamma.mult(t, if sign > 0.0 { r } else { &w });
                         e.set_zero();
                         let mut twisted = Twisted {
                             a: &mut *a,
@@ -172,16 +124,16 @@ impl NormalSolver {
                             turned: b.zeros_like(),
                         };
                         let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
-                        info.iterations += self.one(&mut twisted, pre, &mut e, &t, stop)?;
+                        iterations += self.one(&mut twisted, pre, e, t, stop)?;
                         if sign > 0.0 {
-                            w.copy_from(&e);
+                            w.copy_from(e);
                         }
                     }
                 }
             }
-            x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
-        }
-        Err(SolveError::NotConverged(info))
+            Ok(iterations)
+        };
+        refine_normal(a, mu * mu, x, b, stop, &mut correct)
     }
 
     /// One solve A x = b from zero; its iterations. Not reaching the tolerance is left to the

@@ -5,8 +5,7 @@
 
 use crate::fermion::{Mdwf, MdwfParams, SingleAll, SingleEven, SingleOperator};
 use crate::kernel::GammaRepre;
-use crate::solver::{SolveError, SolveInfo, Stop};
-use crate::C64;
+use crate::solver::{refine_normal, SolveError, SolveInfo, Stop};
 use crate::{ConvertFrom, Lattice, LinearOp, Vector};
 use std::sync::Arc;
 
@@ -77,34 +76,9 @@ pub(crate) fn mixed_normal<V: Vector, L>(
     b: &V,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    let n = b.num_vectors();
-    let mut b_norm = vec![0.0; n];
-    b.norm_sqr(&mut b_norm);
-    let (mut t, mut r, mut e) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
-    let mut info = SolveInfo {
-        iterations: 0,
-        restarts: 0,
-        residual_sqr: vec![0.0; n],
-    };
-    for sweep in 0..=stop.max_restarts {
-        info.restarts = sweep;
-        a.mult(&mut t, x);
-        a.mult_dag(&mut r, &t);
-        r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
-        r.norm_sqr(&mut info.residual_sqr);
-        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
-            *r = if *b > 0.0 { *r / b } else { 0.0 };
-        }
-        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
-            return Ok(info);
-        }
-        if sweep == stop.max_restarts {
-            break;
-        }
-        let worst = info.residual_sqr.iter().fold(0.0f64, |m, r| m.max(*r));
+    refine_normal(a, 0.0, x, b, stop, &mut |_, e, r, _, residual_sqr| {
+        let worst = residual_sqr.iter().fold(0.0f64, |m, r| m.max(*r));
         let needed = (0.5 * stop.tolerance_sqr / worst).min(1e-2);
-        info.iterations += single.normal(&mut e, &r, needed, stop.max_iterations);
-        x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
-    }
-    Err(SolveError::NotConverged(info))
+        Ok(single.normal(e, r, needed, stop.max_iterations))
+    })
 }

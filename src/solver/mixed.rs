@@ -2,7 +2,7 @@
 //! defect correction, precision conversion, and a solver bound to its operator.
 
 use super::{true_residual, SolveError, SolveInfo, Solver, Stop};
-use crate::{ConvertFrom, LinearFn, Vector, C64};
+use crate::{ConvertFrom, LinearFn, LinearOp, Vector, C64};
 
 /// Defect correction: `x += M (b - A x)` until the true residual is small enough. `A` is
 /// the accurate operator; `M` is any approximate inverse, typically a lower-precision
@@ -63,6 +63,58 @@ impl<V: Vector> Solver<V> for Refine<V> {
         }
         unreachable!("the loop returns on its last pass");
     }
+}
+
+/// How `refine_normal` gets a correction: `e` ≈ (A†A + σ)⁻¹ `r` for the operator `a`, with
+/// `scratch` free to use and `residual_sqr` the |r|²/|b|² of every vector; returns the
+/// iterations it took.
+pub(crate) type NormalCorrection<'c, V> =
+    dyn FnMut(&mut dyn LinearOp<V>, &mut V, &V, &mut V, &[f64]) -> Result<usize, SolveError> + 'c;
+
+/// (A†A + σ) x = b by defect correction: the residual r = b − (A†A + σ) x of the operator `a`,
+/// then `x += e` with the correction e of `correct`, until |r|²/|b|² is below the tolerance
+/// for every vector (at most `stop.max_restarts` + 1 residuals). `x` holds the initial guess;
+/// the iterations are those `correct` reports. The loop of the solves of HMC with two-step
+/// solvers, mixed precision and the domain-wall multigrid.
+pub(crate) fn refine_normal<V: Vector>(
+    a: &mut dyn LinearOp<V>,
+    shift: f64,
+    x: &mut V,
+    b: &V,
+    stop: Stop,
+    correct: &mut NormalCorrection<'_, V>,
+) -> Result<SolveInfo, SolveError> {
+    let n = b.num_vectors();
+    let mut b_norm = vec![0.0; n];
+    b.norm_sqr(&mut b_norm);
+    let (mut t, mut r, mut e) = (b.zeros_like(), b.zeros_like(), b.zeros_like());
+    let mut info = SolveInfo {
+        iterations: 0,
+        restarts: 0,
+        residual_sqr: vec![0.0; n],
+    };
+    for sweep in 0..=stop.max_restarts {
+        info.restarts = sweep;
+        a.mult(&mut t, x);
+        a.mult_dag(&mut r, &t);
+        if shift != 0.0 {
+            r.axpy(&vec![C64::new(shift, 0.0); n], x);
+        }
+        r.aypx(&vec![C64::new(-1.0, 0.0); n], b);
+        r.norm_sqr(&mut info.residual_sqr);
+        for (r, b) in info.residual_sqr.iter_mut().zip(&b_norm) {
+            *r = if *b > 0.0 { *r / b } else { 0.0 };
+        }
+        if info.residual_sqr.iter().all(|r| *r < stop.tolerance_sqr) {
+            return Ok(info);
+        }
+        if sweep == stop.max_restarts {
+            break;
+        }
+        info.iterations += correct(a, &mut e, &r, &mut t, &info.residual_sqr)?;
+        x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
+    }
+    Err(SolveError::NotConverged(info))
 }
 
 /// CG on `a` (Hermitian positive definite) in the precision of `V2`, with reliable updates in
