@@ -33,7 +33,7 @@ pub use mdwf_even_odd::{
 };
 pub use mdwf_even_odd::{
     pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes, random_even,
-    BootstrapParams, CoarseKrylov, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
+    BootstrapParams, CoarseKrylov, Lifts, LowModeParams, PvEoBasis, PvEoCycle, PvEoParams,
 };
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub use sap::{CpuBlocks, Sap, SapBlocks};

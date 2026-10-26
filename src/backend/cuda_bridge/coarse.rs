@@ -6,7 +6,7 @@ use super::*;
 use crate::fermion::{Dagger, EvenOdd, FermionOp, SplitParity, Variant};
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
 use crate::solver::preconditioner::multigrid::{
-    Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
+    Aggregation, Basis, CoarseOp, CoarseOperator, Lifts, MultigridError, Transfer,
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
@@ -762,7 +762,8 @@ impl DeviceBasis {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut basis = Self::empty(agg, ls, 2 * n, half)?;
+        let lifts = Lifts::from_env();
+        let mut basis = Self::empty(agg, ls, lifts.columns(n), half)?;
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
         let mut full_work = FermionOp::work(op);
@@ -784,8 +785,16 @@ impl DeviceBasis {
             DeviceParities.insert(&mut s, &x_o);
             to_unit_sites(&mut s);
             basis.add(chunk[0], &s);
+            if lifts == Lifts::S {
+                continue;
+            }
             let mut ds = s.zeros_like();
             op.mult(&mut full_work, &mut ds, &s, Variant::D);
+            if lifts == Lifts::SDs {
+                to_unit_sites(&mut ds);
+                basis.add(n + chunk[0], &ds);
+                continue;
+            }
             // a = π D s
             DeviceParities.extract(&mut x_e, &ds, even);
             pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
@@ -812,8 +821,9 @@ impl DeviceBasis {
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut out =
-            DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?.on(&self.coarse);
+        let lifts = Lifts::from_env();
+        let mut out = DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), lifts.columns(n))?
+            .on(&self.coarse);
         let (even, odd) = (Parity::Even, Parity::Odd);
         let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
         let mut full_work = FermionOp::work(op);
@@ -835,8 +845,16 @@ impl DeviceBasis {
             let mut c = self.coarse_field::<T>(nv);
             self.restrict(&mut c, &s);
             out.assign(chunk, &c);
+            if lifts == Lifts::S {
+                continue;
+            }
             let mut ds = s.zeros_like();
             op.mult(&mut full_work, &mut ds, &s, Variant::D);
+            if lifts == Lifts::SDs {
+                self.restrict(&mut c, &ds);
+                out.assign(&chunk.iter().map(|j| n + j).collect::<Vec<_>>(), &c);
+                continue;
+            }
             DeviceParities.extract(&mut x_e, &ds, even);
             pv.hop(&mut work_pv, &mut t, &x_e, odd, Dagger::Yes);
             pv.diag_inv(&mut work_pv, &mut x_o, &t, odd, Dagger::Yes);
