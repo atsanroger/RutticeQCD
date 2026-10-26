@@ -83,7 +83,7 @@ impl fmt::Display for GaugeError {
                 deviation,
             } => write!(
                 f,
-                "the link in direction {mu} at site {site} is not in SU(3) (off by {deviation:e}),                  so two rows of it are not enough; use the full link format"
+                "the link in direction {mu} at site {site} is not in SU(3) (off by {deviation:e}), so two rows of it are not enough; use the full link format"
             ),
         }
     }

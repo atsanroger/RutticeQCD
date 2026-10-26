@@ -445,6 +445,14 @@ pass of its own.
   against the transfer itself; the buffers of an exchange are already kept, so the requests
   could be too. (Bridge++'s `reduce_sum` is `MPI_Allreduce`, in the library's order; Ruttice
   adds in rank order on purpose, since c32e4c4.)
+- The clover term on the CPU (found 2026-10-26): `CloverDiag::set_gauge` takes 0.40 s on 16⁴
+  (24 threads), about 50 applications of D, and HMC calls it at every force. 0.36 s of it is
+  `gauge::field_strength`, which makes 26 shifted copies of the whole gauge field (the eight
+  neighbours, then three more for each of the six planes: about 1 GB moved on 16⁴) and then
+  reads the leaves from them. Reading the neighbours through the stencil (with a halo of the
+  links on several processes, as the device's extended field) would move a fraction of that.
+  The blocks and their inverses after it are made by the threads of the pool since this date
+  (by the difference of the two timings: 0.15 s to 0.04 s).
 
 ### 17. Where to look next (collected 2026-10-20)
 

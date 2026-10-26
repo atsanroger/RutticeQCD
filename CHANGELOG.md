@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A breakdown of the single-precision CG of mixed precision (a NaN since 5cc9799) is returned to
+  the outer defect correction as `Breakdown`, as for any other solver; it panicked
+  (`hmc::mixed`, `a_nan_in_single_precision_is_a_breakdown`).
+- The clover blocks and their inverses of the CPU operator are made by the threads of the pool
+  (`set_gauge` on 16⁴: 0.51 s to 0.40 s; the rest is the field strength, in `docs/TODO.md`).
+  The same blocks; the first singular site is still the one reported.
+- `src/fermion`: the message of `GaugeError::NotSpecialUnitary` lost a run of spaces; the
+  documentation of the SIMD Wilson and domain-wall operators no longer says they run on one
+  process only (they run on several, `tests/simd.rs`); two comments put back where they belong.
 - The setup of the domain-wall multigrid has fewer copies: the vectors s and t̂ that P is made
   of (`lifted_vectors`) and the rounds of the bootstrap (`bootstrap_rounds`) are written once
   for the CPU and the device (they were three and two). The device gives the same bits as

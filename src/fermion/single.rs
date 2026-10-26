@@ -49,14 +49,15 @@ impl<O: SingleOperator> SingleAll<O> {
     }
 
     /// e ≈ (D†D)⁻¹ r by CG in single precision from zero, to |r − D†D e|²/|r|² below
-    /// `tolerance_sqr` or the inner tolerance, whichever is larger; its iterations.
+    /// `tolerance_sqr` or the inner tolerance, whichever is larger; its iterations, or the
+    /// breakdown of the solve (a NaN in single precision).
     pub fn normal<V>(
         &mut self,
         e: &mut V,
         r: &V,
         tolerance_sqr: f64,
         max_iterations: usize,
-    ) -> usize
+    ) -> Result<usize, SolveError>
     where
         V: Vector + ConvertFrom<O::Whole>,
         O::Whole: ConvertFrom<V>,
@@ -111,7 +112,7 @@ impl<O: SingleOperator> SingleEven<O> {
         r: &V,
         tolerance_sqr: f64,
         max_iterations: usize,
-    ) -> usize
+    ) -> Result<usize, SolveError>
     where
         V: Vector + ConvertFrom<O::Half>,
         O::Half: ConvertFrom<V>,
@@ -165,11 +166,12 @@ impl<O: SingleOperator> SingleEven<O> {
     }
 }
 
-/// The iterations of an inner solve; not reaching its tolerance is left to the outer residual.
-fn iterations(info: Result<SolveInfo, SolveError>) -> usize {
+/// The iterations of an inner solve; not reaching its tolerance is left to the outer residual,
+/// a breakdown goes to the outer solve.
+fn iterations(info: Result<SolveInfo, SolveError>) -> Result<usize, SolveError> {
     match info {
-        Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
-        Err(e) => panic!("the single-precision solve broke down: {e:?}"),
+        Ok(i) | Err(SolveError::NotConverged(i)) => Ok(i.iterations),
+        Err(e) => Err(e),
     }
 }
 

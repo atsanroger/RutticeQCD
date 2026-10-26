@@ -310,9 +310,8 @@ impl<T: Storage, G: GammaRepre, const W: usize> Mdwf<T, G, Aosoa<W>>
 where
     T::Compute: LaneOf<W>,
 {
-    /// The operator on fields in blocks of `W` sites, the SIMD layout (one process, as the
-    /// Wilson kernel in blocks). `None` if the lattice cannot be cut into `W` sub-lattices
-    /// of equal shape.
+    /// The operator on fields in blocks of `W` sites, the SIMD layout. `None` if the lattice
+    /// cannot be cut into `W` sub-lattices of equal shape.
     pub fn in_blocks(lat: &Arc<Lattice>, params: MdwfParams) -> Option<Self> {
         Self::in_layout(lat, params)
     }

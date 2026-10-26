@@ -15,8 +15,14 @@ pub(crate) trait SingleNormal<V, L> {
     fn set_links(&mut self, links: &L);
     /// e ≈ (A†A)⁻¹ r by CG in single precision from zero, to |r − A†A e|²/|r|² below
     /// `tolerance_sqr` or the tolerance of the inner solves, whichever is larger; its
-    /// iterations.
-    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize;
+    /// iterations, or the breakdown of the solve.
+    fn normal(
+        &mut self,
+        e: &mut V,
+        r: &V,
+        tolerance_sqr: f64,
+        max_iterations: usize,
+    ) -> Result<usize, SolveError>;
 }
 
 /// D†D on all sites in single precision (`fermion::SingleAll`), on any backend.
@@ -30,7 +36,13 @@ where
         SingleAll::set_links(self, links);
     }
 
-    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize {
+    fn normal(
+        &mut self,
+        e: &mut V,
+        r: &V,
+        tolerance_sqr: f64,
+        max_iterations: usize,
+    ) -> Result<usize, SolveError> {
         SingleAll::normal(self, e, r, tolerance_sqr, max_iterations)
     }
 }
@@ -47,7 +59,13 @@ where
         SingleEven::set_links(self, links);
     }
 
-    fn normal(&mut self, e: &mut V, r: &V, tolerance_sqr: f64, max_iterations: usize) -> usize {
+    fn normal(
+        &mut self,
+        e: &mut V,
+        r: &V,
+        tolerance_sqr: f64,
+        max_iterations: usize,
+    ) -> Result<usize, SolveError> {
         SingleEven::normal(self, e, r, tolerance_sqr, max_iterations)
     }
 }
@@ -79,6 +97,47 @@ pub(crate) fn mixed_normal<V: Vector, L>(
     refine_normal(a, 0.0, x, b, stop, &mut |_, e, r, _, residual_sqr| {
         let worst = residual_sqr.iter().fold(0.0f64, |m, r| m.max(*r));
         let needed = (0.5 * stop.tolerance_sqr / worst).min(1e-2);
-        Ok(single.normal(e, r, needed, stop.max_iterations))
+        single.normal(e, r, needed, stop.max_iterations)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fermion::{Bound, FermionOp, Variant};
+    use crate::kernel::Dirac;
+    use crate::{random_fifth, Boundary};
+
+    /// A NaN in the single-precision operator ends the solve with `Breakdown` from the outer
+    /// loop, as a NaN of the double-precision operator does, rather than a panic.
+    #[test]
+    fn a_nan_in_single_precision_is_a_breakdown() {
+        let lat = Lattice::single_node([4, 4, 4, 4]);
+        let params = MdwfParams {
+            ls: 4,
+            m5: 1.0,
+            mass: 0.1,
+            b: 1.5,
+            c: 0.5,
+            boundary: [Boundary::Periodic; 4],
+        };
+        let u = crate::gauge::random_gauge(&lat, 7);
+        let mut op = Mdwf::<f64, Dirac>::new(&lat, params);
+        op.set_gauge(&u).unwrap();
+        let mut bad = u.zeros_like();
+        bad.copy_from(&u);
+        bad.as_mut_slice()[100] = f64::NAN;
+        let mut single = SingleAll::new(single_mdwf::<Dirac>(&lat, params, 1.0), &lat, 1e-6);
+        single.set_links(&bad);
+        let b = random_fifth(&lat, params.ls, 8);
+        let mut x = b.zeros_like();
+        let stop = Stop {
+            tolerance_sqr: 1e-20,
+            max_iterations: 200,
+            max_restarts: 5,
+        };
+        let mut a = Bound::new(&op, Variant::D);
+        let got = mixed_normal(&mut a, &mut single, &mut x, &b, stop);
+        assert!(matches!(got, Err(SolveError::Breakdown { .. })), "{got:?}");
+    }
 }

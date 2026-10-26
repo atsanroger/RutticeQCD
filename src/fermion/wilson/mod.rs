@@ -1,9 +1,10 @@
 //! Wilson fermions.
 //!
-//! Two things make that worth doing: a thread of its own waits for the exchange, since nothing
-//! travels unless somebody is inside the communication library; and the two parts are lists of runs
-//! of sites (`SiteRuns`), not a flag tested in two passes over all sites, which was slower than not
-//! overlapping.
+//! On several processes a sweep computes the interior while the faces travel, then the surface
+//! (`overlapped` in `sweep.rs`). Two things make that worth doing: a thread of its own waits for
+//! the exchange, since nothing travels unless somebody is inside the communication library; and
+//! the two parts are lists of runs of sites (`SiteRuns`), not a flag tested in two passes over all
+//! sites, which was slower than not overlapping.
 
 use super::{Dagger, EvenOdd, FermionOp, GaugeError, HopTerms, Variant};
 use crate::kernel::{
@@ -116,8 +117,7 @@ pub struct SiteState<T: Storage> {
 /// Wilson fermions: the diagonal block is the identity.
 pub type Wilson<T, G = Dirac> = WilsonOp<T, G, UnitDiag>;
 
-/// Wilson fermions on fields in blocks of `W` sites (the SIMD layout). One process, links
-/// kept in full.
+/// Wilson fermions on fields in blocks of `W` sites (the SIMD layout), links kept in full.
 pub type WilsonSimd<T, const W: usize, G = Dirac> = WilsonOp<T, G, UnitDiag, Aosoa<W>>;
 
 mod even_odd;

@@ -122,7 +122,6 @@ pub(super) struct EvenOddGeometry {
     pub(super) to: [Geometry; 2],
 }
 
-/// Whether a sweep includes the site-diagonal block.
 /// Counts a sweep (`meter`): `sites` sites with `copies` spinors each, Bridge++'s count per
 /// spinor (1320 for the hops, the diagonal term's when it is applied too), and as QUDA counts
 /// the bytes: eight neighbours and the result a spinor (the spinor itself with the diagonal
@@ -161,6 +160,7 @@ pub(super) fn count_site_block<T: Storage, D: DiagTerm<T>>(sites: usize, copies:
     crate::meter::add(crate::meter::Work::Fine, size, n * flops, bytes);
 }
 
+/// Whether a sweep includes the site-diagonal block.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Diagonal {
     /// The operator's own diagonal block applied to the input at the same site.

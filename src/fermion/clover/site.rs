@@ -1,12 +1,15 @@
 //! The clover term: the site-diagonal block of the clover operator and its inverse.
 
 use super::*;
+use rayon::prelude::*;
 
 /// Rows of the dense site matrix (spin ⊗ colour) and of one chiral block.
 const DENSE: usize = 12;
 const BLOCK: usize = 6;
 /// Reals stored per site for one matrix: the two chiral blocks, γ5 = +1 first.
 const SITE_REALS: usize = 2 * HERMITIAN6_REALS;
+/// Sites a task of the pool makes the blocks of.
+const SITES_PER_TASK: usize = 256;
 
 /// The site-diagonal block of the clover operator and its inverse, each stored as two
 /// packed Hermitian 6 × 6 blocks per site.
@@ -172,38 +175,53 @@ impl<T: Storage> DiagTerm<T> for CloverDiag<T> {
             }
         };
 
-        for site in 0..n {
-            let dense = self.dense_block(&f, site);
-            // T commutes with γ5, so the blocks between opposite chiralities vanish and
-            // the diagonal blocks are Hermitian. Both are properties the packed storage
-            // relies on; a violation here is a bug in the construction above.
-            let mixing = chiral_block(&dense, 1.0, -1.0)
-                .iter()
-                .fold(0.0f64, |m, x| m.max(x.abs()));
-            assert!(
-                mixing < 1e-12,
-                "clover block mixes chiralities at site {site}: {mixing:e}"
-            );
-
-            for (which, sign) in [1.0, -1.0].into_iter().enumerate() {
-                let block = chiral_block(&dense, sign, sign);
-                let (packed, defect) = pack_hermitian(&block);
+        // The sites one by one, each on its own: by the threads of the pool, so that the
+        // pages of the blocks are spread over the memory nodes like those of the fields.
+        // The first singular site is the one reported, whatever the threads.
+        let singular = t
+            .par_chunks_mut(SITE_REALS)
+            .zip(t_inv.par_chunks_mut(SITE_REALS))
+            .enumerate()
+            .with_min_len(SITES_PER_TASK)
+            .filter_map(|(site, (t, t_inv))| {
+                let dense = self.dense_block(&f, site);
+                // T commutes with γ5, so the blocks between opposite chiralities vanish and
+                // the diagonal blocks are Hermitian. Both are properties the packed storage
+                // relies on; a violation here is a bug in the construction above.
+                let mixing = chiral_block(&dense, 1.0, -1.0)
+                    .iter()
+                    .fold(0.0f64, |m, x| m.max(x.abs()));
                 assert!(
-                    defect < 1e-12,
-                    "clover block is not Hermitian at site {site}: {defect:e}"
+                    mixing < 1e-12,
+                    "clover block mixes chiralities at site {site}: {mixing:e}"
                 );
 
-                let mut scratch = block;
-                let mut inverse = [0.0; 2 * BLOCK * BLOCK];
-                invert_complex(BLOCK, &mut scratch, &mut inverse)
-                    .map_err(|_| GaugeError::SingularDiagonal { site })?;
-                // The inverse of a Hermitian matrix is Hermitian up to rounding; pack it as such.
-                let (packed_inverse, _) = pack_hermitian(&inverse);
+                for (which, sign) in [1.0, -1.0].into_iter().enumerate() {
+                    let block = chiral_block(&dense, sign, sign);
+                    let (packed, defect) = pack_hermitian(&block);
+                    assert!(
+                        defect < 1e-12,
+                        "clover block is not Hermitian at site {site}: {defect:e}"
+                    );
 
-                let at = site * SITE_REALS + which * HERMITIAN6_REALS;
-                store(&mut t[at..at + HERMITIAN6_REALS], &packed);
-                store(&mut t_inv[at..at + HERMITIAN6_REALS], &packed_inverse);
-            }
+                    let mut scratch = block;
+                    let mut inverse = [0.0; 2 * BLOCK * BLOCK];
+                    if invert_complex(BLOCK, &mut scratch, &mut inverse).is_err() {
+                        return Some(site);
+                    }
+                    // The inverse of a Hermitian matrix is Hermitian up to rounding; pack it as
+                    // such.
+                    let (packed_inverse, _) = pack_hermitian(&inverse);
+
+                    let at = which * HERMITIAN6_REALS;
+                    store(&mut t[at..at + HERMITIAN6_REALS], &packed);
+                    store(&mut t_inv[at..at + HERMITIAN6_REALS], &packed_inverse);
+                }
+                None
+            })
+            .min();
+        if let Some(site) = singular {
+            return Err(GaugeError::SingularDiagonal { site });
         }
         self.t = t;
         self.t_inv = t_inv;
