@@ -30,6 +30,9 @@ Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 
 ## Release 0.4.0: the multigrid in HMC (decided 2026-10-22)
 
+**A separate paper** (decided 2026-10-27): the HMC results of this release go into their own
+paper, not the MG note; not to be written yet.
+
 0.4.0 is released when HMC with the domain-wall multigrid is usable and compared fairly with CG:
 
 1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (20.5 GB with GCR(2)

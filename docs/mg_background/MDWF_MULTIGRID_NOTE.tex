@@ -214,10 +214,13 @@ magnitude, and they need a Chebyshev low-pass filter of degree $150$--$300$.
 
 \paragraph{The preconditioned operator.}
 Kanamori, Chen and Matsufuru~\cite{KCM2024} examined the spectra of several preconditioned
-M\"obius operators. The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, which combines the
-Pauli--Villars factor with the site-diagonal part $C$, has all eigenvalues in the right
-half-plane and the smallest condition number among those they studied. With $\Dpv$ truncated to
-blocks, negative real parts come back. Separately, Neff's form of the domain-wall
+M\"obius operators, looking for one local enough for a multigrid. Since the Pauli--Villars mass is
+of the cutoff scale, they expected its block-diagonal part $\Bpv$, whose blocks would be the coarse
+sites, to approximate $\Dpv$. It does not: with $\Bpv\dg$, or with $\Bpv^{-1}$ applied
+approximately block by block, negative real parts come back, so the Pauli--Villars factor has to
+be kept whole. Dividing out the site-diagonal part $C$ in addition lowers the high end of the
+spectrum. The resulting operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has all eigenvalues in the
+right half-plane and the smallest condition number among those they studied. Separately, Neff's form of the domain-wall
 matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor $Q$ and changes the
 conditioning of the even-odd system.
 
@@ -246,7 +249,7 @@ truncated GCR, a mass scan and point-source propagators against CGNE, the sensit
 parameters, and the solves with $D\dg$. All of it is on one GPU, and a comparison with HDCG and with
 the coarsening of $\Dpv\dg D$ in one implementation is left open.\fi
 
-Section~\ref{sec:overview} describes the method in words. Section~\ref{sec:opsec} recalls the
+Section~\ref{sec:opsec} recalls the
 spectra the construction rests on and defines the operator, its preconditioning and the even-odd
 forms. Section~\ref{sec:method} gives the two-grid method: the factorized correction, the coarse
 solvers, the setup, the smoother and the outer solver. Section~\ref{sec:dagger} solves with
@@ -255,9 +258,8 @@ then what each part of the method contributes, then why it converges. Section~\r
 lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
 other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations\fi. The companion text
-\texttt{docs/mg\_background/MG\_WALKTHROUGH.tex} in the RutticeQCD repository derives every
-formula of this paper line by line.
+configurations\fi. A companion text in the code
+repository\ifresults{} (Sec.~\ref{sec:summary})\fi{} derives every formula of this paper line by line.
 
 \paragraph{Conventions.}
 Five-dimensional fields are $\psi_s(x)$ with $s=0,\dots,L_s-1$, and $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
@@ -266,64 +268,6 @@ $e$ and $o$ denote blocks on the even and odd four-dimensional sites, and $X_{pq
 to parity $p$. The injection $\iota$ puts a field on the even sites onto the whole lattice, with
 zero on the odd sites, and $\pi=\iota\dg$ takes the even sites. Section~\ref{sec:operator} defines
 the operator and its parts $C$ and $Q$.
-
-% ============================================================
-\subsection{Overview of the method}
-\label{sec:overview}
-
-This subsection describes the method in words, for readers who know domain-wall fermions but not
-multigrid. The later sections give the equations.
-
-\paragraph{Multigrid in one paragraph.} A multigrid preconditioner removes the error of an
-iterate in two parts. The high modes are damped by a few steps of a cheap iteration on the fine
-lattice, the \emph{smoother}. The low modes, the near-zero modes that make CG slow, are removed by
-solving a much smaller problem on a \emph{coarse lattice}. The coarse lattice comes from
-\emph{aggregation}. We cut the fine lattice into blocks of $4^4$ sites that contain the whole fifth
-dimension. Each block becomes one coarse site, and its degrees of freedom are a few approximate low
-modes restricted to the block, the \emph{test vectors}. The \emph{prolongation} $\Pro$ maps a
-coarse vector to the fine lattice through these vectors, and $\Pro\dg$ maps back. The coarse
-operator of a fine operator $X$ is its \emph{Galerkin} projection $\Pro\dg X\Pro$; it couples only
-neighboring coarse sites if $X$ couples only neighboring fine sites. A few vectors per block
-suffice because low modes are locally coherent~\cite{Luscher}. Finding the test vectors is the
-\emph{setup}. It is paid once per gauge field and shared by all right-hand sides.
-
-\paragraph{What is solved.} As in even-odd CGNE, we reduce $D\psi=\eta$ to the even sites, here
-with the preconditioning of $A'$. This gives a system $\tilde Ay=\rho$, and we recover $\psi$
-from $y$ afterwards. In practice $\tilde A$ is the left form $\AL$, which can carry Neff's
-$\alpha$ (Sec.~\ref{sec:eo}). The outer solver is flexible GCR that keeps two directions, GCR(2).
-Each of its iterations applies one two-grid cycle as the preconditioner (Sec.~\ref{sec:outer}).
-
-\paragraph{One cycle.} A cycle is the smoother (a Chebyshev polynomial in $\tilde A$), a coarse
-correction, and the smoother again (Algorithm~\ref{alg:cycle}). Coarsening $\tilde A$ itself would give a coarse stencil of $81$ points, because $\tilde A$
-reaches four hops on the even sites. Instead we invert its two factors separately, as Ref.~\cite{BCHW} does on the whole lattice: first the
-adjoint Pauli--Villars operator, then the quark operator. Each inverse is replaced by the Galerkin
-inverse of $\Dpv$ or $D$, whose coarse stencil has $9$ points (Fig.~\ref{fig:correction},
-Sec.~\ref{sec:correction}). Both coarse systems are solved only roughly, to a relative residual of
-about $0.1$, in single precision and on the even coarse sites (Sec.~\ref{sec:coarse}).
-
-\paragraph{The setup.} The setup has four steps (Algorithm~\ref{alg:setup}, Sec.~\ref{sec:setup}).
-\begin{enumerate}
-\item A Chebyshev filter applied to random vectors gives approximate low modes $y$ of $\AR$: the
-vectors of its smallest singular values.
-\item A bootstrap improves them. We build the cycle from the current vectors and apply a few
-FGMRES steps with it to each vector; this enriches the vector in what the cycle still misses.
-\item We lift each $y$ to the whole lattice in two ways, $s$ and $\hat t$, one for each coarse
-solve. For the right form this makes the correction exact on these vectors
-(Eq.~\eqref{eq:exact}); the left form is not exact (Sec.~\ref{sec:basis}).
-\item We split the lifts by their $\Gfive$-chirality and orthonormalize them on each block. This
-gives $\Pro$, and from it the coarse operators of $D$ and $\Dpv$.
-\end{enumerate}
-All of the setup uses the plain $D$ and $\Dpv$. Neff's $\alpha$ enters only the outer operator
-$\AL^{(\alpha)}$, the smoother, which works on it, and the site-local factors of the correction
-(Eq.~\eqref{eq:corr}), so one setup serves both forms and every $\alpha$.
-
-\paragraph{Solving with $D\dg$.} HMC also solves with $D\dg$. The same cycle, placed between two
-$\Gfive$, is a good preconditioner for it (Sec.~\ref{sec:dagger}), so no second setup is needed.
-
-\paragraph{Where to read on.} The construction is in Secs.~\ref{sec:eo} and \ref{sec:correction};
-Table~\ref{tab:approaches} compares it with other multigrid methods for domain-wall
-fermions.\ifresults{} The parameters used in practice are in Table~\ref{tab:setups}, and the
-comparison with CGNE is in Sec.~\ref{sec:massscan}.\fi
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -747,6 +691,19 @@ $\alpha \mathcal K^{(\alpha)}$ (they differ only by the wall components of $Q_e$
 % ============================================================
 \section{The two-grid method}
 \label{sec:method}
+
+A multigrid preconditioner removes the error of an iterate in two parts. A few steps of a cheap
+iteration on the fine lattice, the \emph{smoother}, damp the high modes. The low modes, which make
+CG slow, are removed by solving a smaller problem on a coarse lattice. The fine lattice is cut into
+blocks, here of $4^4$ sites with the whole fifth dimension; each block becomes one coarse site,
+whose degrees of freedom are a few approximate low modes restricted to the block, the \emph{test
+vectors}. The prolongation $\Pro$ maps a coarse vector to the fine lattice through them, and the
+coarse operator of a fine operator $X$ is its Galerkin projection $\Pro\dg X\Pro$, which couples
+only neighboring coarse sites if $X$ couples only neighboring fine sites. A few vectors per block
+suffice because low modes are locally coherent~\cite{Luscher}. Finding them, the \emph{setup}, is
+paid once per gauge field. The setup uses only the plain $D$ and $\Dpv$; Neff's $\alpha$ enters
+only the outer operator $\AL^{(\alpha)}$, the smoother that works on it, and the site-local factors
+of the correction~\eqref{eq:corr}, so one setup serves both forms and every $\alpha$.
 
 \subsection{The factorized coarse-grid correction and the prolongation}
 \label{sec:correction}
@@ -1353,11 +1310,14 @@ raise their intensity from about one flop per byte to about ten, as for Wilson-c
 multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
 
 \paragraph{Code and data.} All results were obtained with RutticeQCD,
-\url{https://github.com/atsanroger/RutticeQCD}, whose GPU backend takes the CUDA kernels of the
-Wilson and M\"obius operators from Bridge++. The parameter files, the data of the tables and
-figures and the scripts that make them are in \texttt{docs/mg\_background} of the repository,
-with a guide to reproducing the results (\texttt{REPRODUCE.pdf}) and a line-by-line derivation of
-the formulas (\texttt{MG\_WALKTHROUGH.pdf}).
+\url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{Bridge} in Rust
+whose GPU backend uses the CUDA kernels of the Wilson and M\"obius operators of Bridge++. Where
+Bridge++ computes the same quantity, the results of RutticeQCD are compared with it number by
+number: the plaquette, the Wilson, clover and domain-wall operators applied to a vector, solver
+iteration counts, meson correlators, and single HMC trajectories. The domain-wall multigrid, which
+Bridge++ does not have, is checked against CGNE, whose propagators it reproduces
+(Sec.~\ref{sec:massscan}). The parameter files, the data of the tables and
+figures and a line-by-line derivation of the formulas are in the repository.
 \fi
 % ============================================================
 \section{Open problems}
@@ -1410,9 +1370,8 @@ established. Finally, $\Pro$ and the coarse operators are those of the plain $D$
 whether a $\Pro$ built from the near-null vectors of $D^{(\alpha)}$, $Q^{-1}$ times those of $D$,
 helps the left form with $\alpha$ has not been tried.
 \item \textbf{HMC.} In HMC the setup is renewed as the gauge field changes, and each force
-evaluation needs one solve with $D$ and one with $D\dg$. The multigrid runs in the HMC of
-RutticeQCD, but its cost there has not been measured on a dynamical ensemble on which CG needs many
-iterations, and is left for future work.
+evaluation needs one solve with $D$ and one with $D\dg$. Its cost there, on a dynamical ensemble on which CG
+needs many iterations, is left for future work.
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.
@@ -1486,9 +1445,7 @@ the differences are names and signs:
 \begin{itemize}
 \item $D_\pm$ are those of Refs.~\cite{BNO,KCM2024}, $D_-=cW-1$. The hop $Y$ of
 Eq.~\eqref{eq:Y} carries a minus sign, so $D=D_+-D_-Y$ and $d_-=1-c(4-M_5)$ is minus the
-site part of $D_-$. The comments of RutticeQCD on the five-dimensional source call $1-cW$
-``$D_-$'', which is $-D_-$ (the source is that of the Bridge++ domain-wall test, sign
-included).
+site part of $D_-$.
 \item The height $M_5>0$ here is $M_0$ in Ref.~\cite{KCM2024} and in Bridge++
 (\texttt{domain\_wall\_height}); Ref.~\cite{BNO} writes $M_5$ for the Wilson mass,
 $M_5^{\mathrm{BNO}}=-M_5$, Eq.~(2.13). The caption of Fig.~1 of Ref.~\cite{KCM2024}
@@ -1505,7 +1462,7 @@ $10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
 
 \begin{table}[t]
 \centering
-\caption{The notation of this paper (and of RutticeQCD) and that of other references.
+\caption{The notation of this paper and that of other references.
 Equation numbers are those of the references; ``the same'' means the same operator.}
 \label{tab:notation}
 \footnotesize
@@ -1553,7 +1510,7 @@ Ref.~\cite{KCM2024}, Fig.~3, under its license CC BY-NC-ND 4.0.}
 \label{sec:configs}
 
 All quenched configurations use the plaquette gauge action at $\beta=6.0$ and were generated by
-the HMC of RutticeQCD from a cold start, 400 trajectories of length $0.5$ (on $24^3\times48$, 400
+HMC from a cold start, 400 trajectories of length $0.5$ (on $24^3\times48$, 400
 from a cold start and then 200). The dynamical $16^4$ configuration was generated from the
 quenched one by HMC in setup~S with mixed-precision CG: 60 trajectories at $m=0.05$, then 40 at
 $m=0.01$, of length~1 with Omelyan steps $[20,2]$. Table~\ref{tab:configs}
@@ -1565,7 +1522,7 @@ two definitions differ by up to $1$ at $t_0$.
 \begin{table}[h]
 \centering
 \caption{The gauge configurations: plaquette, $t_0/a^2$, and the topological charge at $t_0$.
-\texttt{ruttice-flow}; the logs and the generation histories are listed with the data.}
+The logs and the generation histories are listed with the data.}
 \label{tab:configs}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabular}{@{}lccccc@{}}
