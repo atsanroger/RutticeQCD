@@ -861,6 +861,45 @@ says nothing about one kernel or one step. Plan, on an `exp/*` branch (not main)
   `collect_results_20261026.py` on as13). The other apps (`mdwf.rs`, `mdwf_cuda.rs`, `hmc.rs`)
   get the same layout.
 
+### 24. Residual histories of every solver (evaluated 2026-10-27, not started)
+
+Only GCR records its history (`solver/gcr.rs`, `recording()` and `history` both `pub(crate)`), and
+only the domain-wall apps print it, with `Main.verbose_level : Detailed` (`app/mdwf.rs`,
+`app/mdwf_cuda.rs`, `history_lines`). CG/CGNE, BiCGStab, FGMRES, MINRES, mixed CG, block GCR and
+multishift record nothing; the Wilson/clover app, the solves of HMC and the coarse solves print
+nothing; examples cannot reach it (the 2026-10-27 GCR(2) tests recorded |r| inside the cycle
+wrapper instead).
+- **Switch.** Bridge++'s own: `Solver.verbose_level : Detailed` per solver block, with
+  `Main.verbose_level` as the default; no new key, so Bridge++ files work unchanged.
+- **Interface.** One recorder on the `Solver` trait (`with_history()`/`history()`, or a
+  per-step callback), implemented by each solver (5–10 lines each); `recording()` public.
+- **Output.** `# history <label> <step> <|r|^2/|b|^2>` lines by default; `Output.history_file`
+  for a tsv, since CGNE takes thousands of steps per column.
+- **Device.** No copy per step: each step writes its |r|² (already on the device after the
+  reduction) into a device buffer of `max_iterations` entries, copied to the host once when the
+  solve stops and printed then. Where the stopping test already reads |r|² on the host, record
+  it there. Only when switched on.
+- **Tests.** Last entry = reported residual, length = reported iterations, output unchanged
+  bit for bit when off.
+Size: medium (trait, eight solvers, params, three apps), no algorithmic change; a `feat/` branch.
+
+### 25. GCR(2): a safeguard against the fixed point (found 2026-10-27, not started)
+
+With exact coarse solves (1e-20, BiCGStab on the exact PV adjoint) GCR(2) on 12⁴ S reaches a
+residual with |⟨r, Ã M r⟩|/(|r||Ã M r|) ≈ 1e-10 after ~15 steps and keeps it: |r|² does not change
+in any digit for the next 480 steps (2e-11, 6e-8, 5e-10 for three rhs). A fixed M repeats the step.
+Measured (`ruttice_a30_20261016/gcr_rescue2`, `gcr_rescue3`, `gcr_blocks12`, `gcr_angle12`, binaries
+`fflowHPC_gcrtest3`–`7`, example patches there): exact cycle 0/5 on 12⁴ (also with 3⁴ blocks 0/3,
+2⁴ blocks 2/3), 5/5 on quenched and dynamical 16⁴, 2/2 on 24⁴ (Q +4); random perturbations of the
+exact cycle 75/75 on 12⁴ (δ 0.02–0.5); fixed ones stagnate on 12⁴, δΓ5M also on 24⁴. The solver's
+cycle (MINRES, 1e-2) converged in every run. Not the topology (24⁴ Q = +4 converges), not the
+parity of the coarse lattice (3⁴ blocks give 4⁴ and stagnate). Open: why 12⁴ reaches it.
+- **Safeguard.** In `solver/gcr.rs`: |⟨r, q⟩|/(|r||q|) is one inner product per step (q = A z is
+  made anyway); below a threshold (1e-3?) change the direction, e.g. a small random perturbation of
+  z (δ 0.02 sufficed on 12⁴) or keep more directions for a few steps. Report how often it triggers
+  in the production runs (expected 0). A `fix/` or `feat/` branch.
+- **Tests.** The 12⁴ S exact cycle converges with it; production iteration counts unchanged.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
