@@ -4,6 +4,7 @@
 fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multigrid, the multigrid
 fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4
 fig_history.pdf: the GCR(2) residual histories on 24^3x48
+fig_cgform.pdf: CG iterations on K^dag K and S^dag S against the Moebius c, three volumes
 """
 import csv
 import os
@@ -157,7 +158,38 @@ def history():
     fig.savefig(os.path.join(HERE, "fig_history.pdf"))
 
 
+def cgform():
+    data = rows("cgne_form.tsv")
+    it = {(r["volume"], r["setup"], float(r["c"]), r["alpha"], r["operator"]): int(r["iterations"])
+          for r in data}
+    vols = {"12^4": ("C0", "o", r"$12^4$"), "16^4": ("C1", "s", r"$16^4$"),
+            "24^3x48": ("C2", "^", r"$24^3\times48$")}
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 3.0), sharey=True)
+    for ax, setup in zip(axes, "SB"):
+        for vol, (color, mk, lab) in vols.items():
+            for op, ls, name in (("K_dag_K", "-", r"$\mathcal{K}^\dagger\mathcal{K}$"),
+                                 ("S_dag_S", "--", r"$S^\dagger S$")):
+                pts = sorted((c, n) for (v, s, c, a, o), n in it.items()
+                             if v == vol and s == setup and a == "1.0" and o == op)
+                ax.semilogy([c for c, _ in pts], [n for _, n in pts], mk + ls, color=color,
+                            mfc=color if op == "K_dag_K" else "none", label=lab + ", " + name)
+        for op, mk in (("K_dag_K", "*"), ("S_dag_S", "x")):
+            pts = sorted((c, n) for (v, s, c, a, o), n in it.items()
+                         if v == "24^3x48" and s == setup and a == "0.6" and o == op)
+            ax.semilogy([c for c, _ in pts], [n for _, n in pts], mk, color="C3", ms=6,
+                        label=r"$24^3\times48$, $\alpha=0.6$, " +
+                        (r"$\mathcal{K}^\dagger\mathcal{K}$" if op == "K_dag_K" else r"$S^\dagger S$"))
+        ax.set_xlabel(r"Möbius $c$ ($b=1+c$)")
+        ax.set_title(NAMES[setup], fontsize=9)
+        ax.grid(True, which="both", alpha=0.25)
+    axes[0].set_ylabel("CG iterations")
+    h, l = axes[1].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=4, frameon=False, fontsize=6.5)
+    fig.tight_layout(rect=(0, 0.17, 1, 1))
+    fig.savefig(os.path.join(HERE, "fig_cgform.pdf"))
+
 if __name__ == "__main__":
     massscan()
     spectrum()
     history()
+    cgform()

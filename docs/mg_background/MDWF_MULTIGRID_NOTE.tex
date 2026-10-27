@@ -191,7 +191,7 @@ method competitive. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
 four-dimensional sites) needed fewer iterations
 than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this paper the order is reversed
-(Sec.~\ref{sec:massscan}).\fi{} Second, an even-odd
+(Appendix~\ref{sec:cgform}).\fi{} Second, an even-odd
 smoother did not work with the HDCR correction, which they attributed to eigenvectors that are not aligned.
 
 \paragraph{Recent work by Boyle and collaborators.}
@@ -263,7 +263,7 @@ then what each part of the method contributes, then why it converges. Section~\r
 lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
 other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations\fi.
+configurations, Appendix~\ref{sec:cgform} compares two even-odd forms of CG\fi.
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -1178,7 +1178,7 @@ We monitor convergence on the even-odd system and evaluate the residual of the o
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
 condition number. It runs in double precision, or in mixed precision: CG in single precision with
-reliable updates in double precision.\ifresults{} Sec.~\ref{sec:massscan} compares it with CG on
+reliable updates in double precision.\ifresults{} Appendix~\ref{sec:cgform} compares it with CG on
 $S\dg S$. The solves with $D\dg$ that HMC needs use the same cycle between two $\Gfive$
 (Sec.~\ref{sec:dagger}).\fi
 
@@ -1537,6 +1537,80 @@ $32^4$ & $0.593606$ & $3.59$ & $+13.0$ & $+14.1$ & $\approx+14$\\
 \bottomrule
 \end{tabular}
 \end{table}
+
+% ============================================================
+\section{Two even-odd forms of CG}
+\label{sec:cgform}
+
+The reference solver of Sec.~\ref{sec:massscan} is CG on $\mathcal K\dg\mathcal K$ with
+$\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++. Boyle and Yamaguchi~\cite{BY} used CG
+on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned
+form. Table~\ref{tab:cgform} and Fig.~\ref{fig:cgform} compare the two on the three quenched
+lattices at $m=0.001$, in double precision with one random right-hand side, for $b-c=1$ and five
+values of $c$; all other parameters are those of setups S and B.
+
+The two operators differ by a site-local factor on the left, $S=\Ce\mathcal K$, and with Neff's
+$\alpha$, $SQ_e=\Ce Q_e\mathcal K^{(\alpha)}$. Their condition numbers therefore differ at most by
+the condition number of that factor. Since $C=d_++d_-Y$ with $\|Y\|=1$ (Eq.~\eqref{eq:D}), the
+singular values of $C$ lie in $[d_+-|d_-|,\,d_++|d_-|]$ and
+\begin{equation}
+\kappa(C)\le\frac{d_++|d_-|}{d_+-|d_-|},\qquad d_+=1+b(4-M_5),\quad d_-=1-c(4-M_5);
+\label{eq:kappaC}
+\end{equation}
+for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$. Every measured ratio of
+the iterations lies inside this bound.
+
+Within the bound the order depends on $c$. In setup~B the ratio of the iterations grows
+smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at $(b,c)=(2,1)$,
+and crosses $1$ near the $(1.5,0.5)$ of the JLQCD and RBC/UKQCD ensembles. For Shamir fermions
+$S\dg S$ is the faster form by $1.20$--$1.23$, close to the $3880/3224=1.20$ of Ref.~\cite{BY}.
+In setup~S the ratio is above $1$ except at $c=0.25$, where $S\dg S$ needs $3$--$5\%$ fewer
+iterations; we have no explanation for this dip. The three lattices agree to within $0.04$ in
+every case, so the order is a property of the operator and its parameters, not of the
+configuration.
+
+Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $16$--$58\%$
+more iterations on $24^3\times48$, for Shamir fermions as well. In $\mathcal K^{(\alpha)}$ the
+factor $\Ce Q_e$ is divided out on the left, whereas in $SQ_e$ the rescaling acts on the right
+only; this reading is consistent with the numbers but was not checked on the singular values.
+For the setups of this paper $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
+compared with it.
+
+\begin{table}[h]
+\centering
+\caption{CG iterations on $\mathcal K\dg\mathcal K$ / on $S\dg S$, $m=0.001$, $b=1+c$, $\alpha=1$
+unless stated, one random right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision. Final
+$|D\psi-\eta|^2/|\eta|^2\le3\times10^{-16}$ in every run except $(2,1)$ on $24^3\times48$, S
+($2\times10^{-15}$).}
+\label{tab:cgform}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+setup & lattice & $c=0$ & $0.25$ & $0.5$ & $0.75$ & $1$\\
+\midrule
+S & $12^4$ & $343$/$371$ & $352$/$336$ & $358$/$390$ & $362$/$445$ & $362$/$494$\\
+S & $16^4$ & $543$/$575$ & $533$/$517$ & $552$/$601$ & $559$/$682$ & $566$/$762$\\
+S & $24^3\times48$ & $4527$/$4979$ & $5459$/$5222$ & $5576$/$6061$ & $5653$/$6869$ & $5512$/$7414$\\
+\addlinespace
+B & $12^4$ & $622$/$514$ & $657$/$579$ & $664$/$681$ & $653$/$763$ & $633$/$827$\\
+B & $16^4$ & $1033$/$839$ & $1039$/$917$ & $1056$/$1083$ & $1060$/$1238$ & $975$/$1262$\\
+B & $24^3\times48$ & $2954$/$2439$ & $6269$/$5532$ & $5620$/$5770$ & $3248$/$3772$ & $1924$/$2443$\\
+\addlinespace
+S, $\alpha=0.6$ & $24^3\times48$ & $3095$/$4881$ &  & $3602$/$5349$ &  & \\
+B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ &  & $4228$/$5097$ &  & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{fig_cgform}
+\caption{CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open, dashed)
+against the M\"obius $c$, $b=1+c$, $\alpha=1$; stars and crosses: $\alpha=0.6$ on $24^3\times48$.
+The data of Table~\ref{tab:cgform}.}
+\label{fig:cgform}
+\end{figure}
 
 \fi
 \fi

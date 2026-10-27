@@ -29,28 +29,28 @@ Data files are in `data/`. A blank entry is not recorded.
 |---|---|---|---|
 | Table 4 (mass scan) | `6d5bf18` | `ruttice`, `runs/mg_24.yaml`, `runs/cgne_24.yaml` | `massscan_24.tsv` |
 | Fig. 4 | `6d5bf18`, `e044050` | `figures.py` | `massscan_24.tsv`, `baseline_mass_2448.tsv` |
-| Table 6 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` |
-| Table 7 (volume) | `e044050` | `ruttice` | `baseline_volume.tsv`, `baseline_mass_2448.tsv` |
-| Table 8 (D†) | | example `dagger_precond` | |
-| Table 9 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
-| Table 10 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (right form on 12⁴, 16⁴) |
-| Table 11 (Γ5-Hermiticity) | | example `coarse_hermiticity` | |
-| Table 13 (sensitivity) | `6d5bf18` (second GPU) | `ruttice` | `sensitivity_12.tsv` |
-| Table 14 (costs) | `6d5bf18` (first GPU) | `ruttice` | `costs_12.tsv` |
+| Table 5 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` |
+| Table 6 (volume) | `e044050` | `ruttice` | `baseline_volume.tsv`, `baseline_mass_2448.tsv` |
+| Table 7 (D†) | | example `dagger_precond` | |
+| Table 8 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
+| Table 9 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (right form on 12⁴, 16⁴) |
+| Table 10 (Γ5-Hermiticity) | | example `coarse_hermiticity` | |
+| Table 12 (sensitivity) | `6d5bf18` (second GPU) | `ruttice` | `sensitivity_12.tsv` |
+| Table 13 (costs) | `6d5bf18` (first GPU) | `ruttice` | `costs_12.tsv` |
 | Sec. V.C.4, 16 and 24 vectors on 24³×48 | `6d5bf18` | `ruttice`, point source | |
-| Table 15 (field of values) | | `preconditioned_fov_device --parts` | |
-| Table 16 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` |
-| Table 17, Fig. 5 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` |
-| Table 19, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
-| Sec. V.B.1, CG on K†K and S†S (Table 5) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form_24.tsv` |
-| Table 20 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
-| Table 22 (configurations) | | `ruttice-flow` | |
+| Table 14 (field of values) | | `preconditioned_fov_device --parts` | |
+| Table 15 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` |
+| Table 16, Fig. 5 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` |
+| Table 18, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
+| Appendix D, CG on K†K and S†S (Table 22, Fig. 8) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
+| Table 19 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
+| Table 21 (configurations) | | `ruttice-flow` | |
 | Eq. (3.8) checks (Sec. III.A.3) | | example `correction_exactness` (CPU) | |
 | Eqs. (2.10), (2.13) | | example `mobius_gamma5_check` (CPU) | |
 | D₋ inverse (Sec. IV.D), dual-cycle prolongations | | examples `dminus_cost`, `dual_basis` | |
 
 Builds add the device reductions in different orders. Against `6c7ff42` the multigrid iterations
-of Table 4 differ by one or two in six of the 28 runs, and those of Table 14 differed by up to six
+of Table 4 differ by one or two in six of the 28 runs, and those of Table 13 differed by up to six
 with an earlier build; whether a code change or the order causes the first is not established.
 
 The eigensolvers (thick-restart Lanczos, Krylov–Schur Arnoldi with left eigenvectors, σ_min(z−X)
