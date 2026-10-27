@@ -152,6 +152,7 @@ cargo clippy --release --all-targets [--features cuda-bridge]   # both clean
 cargo fmt
 RUSTFLAGS="-C target-cpu=native" CARGO_TARGET_DIR=target/native \
   cargo test --release --lib --test simd --test wilson --test clover --test mdwf --test even_odd
+cargo clippy --release --all-targets --features hdf5 && cargo test --release --features hdf5 --lib io::
 ```
 
 - The last line builds the SIMD register types (AVX2/AVX-512). Without native flags they are
