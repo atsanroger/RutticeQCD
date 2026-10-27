@@ -190,7 +190,8 @@ pseudospectrum and a singular value decomposition; they did not expect deflation
 method competitive. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
 four-dimensional sites) needed fewer iterations
-than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880. Second, an even-odd
+than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this paper the order is reversed
+(Sec.~\ref{sec:massscan}).\fi{} Second, an even-odd
 smoother did not work with the HDCR correction, which they attributed to eigenvectors that are not aligned.
 
 \paragraph{Recent work by Boyle and collaborators.}
@@ -1177,7 +1178,8 @@ We monitor convergence on the even-odd system and evaluate the residual of the o
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
 condition number. It runs in double precision, or in mixed precision: CG in single precision with
-reliable updates in double precision.\ifresults{} The solves with $D\dg$ that HMC needs use the same cycle between two $\Gfive$
+reliable updates in double precision.\ifresults{} Sec.~\ref{sec:massscan} compares it with CG on
+$S\dg S$. The solves with $D\dg$ that HMC needs use the same cycle between two $\Gfive$
 (Sec.~\ref{sec:dagger}).\fi
 
 % ============================================================

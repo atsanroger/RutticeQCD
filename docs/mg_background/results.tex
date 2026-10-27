@@ -139,6 +139,37 @@ propagator.}
 \label{fig:massscan}
 \end{figure}
 
+\paragraph{Which even-odd CG.} The reference solver is CG on $\mathcal K\dg\mathcal K$,
+$\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
+multigrid. Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which needed fewer iterations for
+Shamir fermions. We measured both on $24^3\times48$ at $m=0.001$ in double precision
+(Table~\ref{tab:cgform}). In both setups and for both $\alpha$, $S\dg S$ needs more
+iterations, $9$--$49\%$ more in setup~S and $3$--$21\%$ more in setup~B. The two operators differ by
+the site-local factor $\Ce$, or $\Ce Q_e$ with $\alpha$, so their condition numbers differ at most
+by its condition number. From $C=d_++d_-Y$ and $\|Y\|=1$ this is at most
+$(d_++|d_-|)/(d_+-|d_-|)$, $1.2$ (S) and $1.05$ (B) for $\alpha=1$, and $1/\alpha$ times that
+for $\alpha<1$. The multigrid is compared with $\mathcal K\dg\mathcal K$ throughout.
+
+\begin{table}[t]
+\centering
+\caption{CG on the two even-odd normal equations, $24^3\times48$, $m=0.001$, one random
+right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision: iterations and seconds. Final
+$|D\psi-\eta|^2/|\eta|^2$: $6\times10^{-18}$--$1\times10^{-17}$ (S),
+$2$--$3\times10^{-16}$ (B), the same for both operators.}
+\label{tab:cgform}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+setup & $\alpha$ & $\mathcal K\dg\mathcal K$ & $S\dg S$\\
+\midrule
+S & $0.6$ & $3602$, $97.4$ & $5349$, $162.0$\\
+S & $1$ & $5576$, $153.7$ & $6061$, $186.9$\\
+B & $0.6$ & $4228$, $114.4$ & $5097$, $154.3$\\
+B & $1$ & $5620$, $155.0$ & $5770$, $177.9$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
 precision: CG in single precision on the normal equation of $\Ce^{-1}S$, with reliable updates in
 double precision (the true residual recomputed whenever $|r|^2$ has fallen by $10^{-2}$). It needs
