@@ -39,8 +39,7 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 \end{table}
 
 \paragraph{Numerical setup.} The gauge configurations are quenched, generated with the
-plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about
-$0.1$~fm; the volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, one configuration each.
+plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about $0.1$~fm. The volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, one configuration each.
 On them two setups of the M\"obius operator are used (Table~\ref{tab:setups}), both with
 $(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD Collaborations, and $L_s=8$.
 \begin{itemize}
@@ -52,8 +51,7 @@ Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion 
 setup adopted by the JLQCD Collaboration. Then $M_5=1.0$ is used, since the smearing largely
 suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
-The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are
-from an NVIDIA A30; an RTX~3080 was used for iteration counts and spectral quantities only.
+The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from an NVIDIA A30, while an RTX~3080 was used for iteration counts and spectral quantities only.
 The implementation is described in Appendix~\ref{sec:impl}.
 
 \paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
@@ -516,9 +514,9 @@ directions and up to $14\%$ in the directions of the smallest singular values, g
 with $c$ (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. Yet with MINRES on $\Hc$ for the
 Pauli--Villars factor, the outer iterations at $c=0.5$ are those of the Shamir operator ($c=0$, a
 different operator, for which MINRES is exact). MINRES is also better than BiCGStab on the exact
-adjoint in every case (Table~\ref{tab:minres}); with BiCGStab the stout setup nearly stagnates.
+adjoint in every case (Table~\ref{tab:minres}), and with BiCGStab the stout setup nearly stagnates.
 So the non-Hermitian part of $\Hc$ is small enough for MINRES stopped at $10^{-2}$. Why BiCGStab
-is so much worse, also at $c=0$, has not been studied; the same weakness of BiCGStab on this factor
+is so much worse, also at $c=0$, has not been studied. The same weakness of BiCGStab on this factor
 makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 
 \subsubsection{Sensitivity to the parameters}
@@ -588,7 +586,7 @@ bootstrap rounds $3$ & $22$ / $10$ / $1.0$ & $12$ / $10$ / $0.5$\\
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggregates
 need $8$--$9$ iterations but a larger coarse lattice, so the solve and the setup take
-about twice as long as with $4^4$; $48$ test vectors save a third of the iterations and
+about twice as long as with $4^4$. Likewise, $48$ test vectors save a third of the iterations and
 lose in setup and in time per iteration.
 For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of
 more test vectors at the coarse size of fewer: they generate more, truncate them by a
@@ -679,8 +677,7 @@ $24^4$ B & $[-5.08\times10^{-2},4.48]$ & & & & \\
 \end{table}
 
 The coarse correction is what pushes the field of values into the left half-plane. On
-$4^3\times8$ the field of values of $\AR\mathcal M$ lies in the right half-plane; on $12^4$ and
-$16^4$ it does not. Table~\ref{tab:fov} shows where the change comes from.
+$4^3\times8$ the field of values of $\AR\mathcal M$ lies in the right half-plane, whereas on $12^4$ and $16^4$ it does not. Table~\ref{tab:fov} shows where the change comes from.
 \begin{itemize}
 \item The field of values of $\AR$ itself hardly depends on the volume. From $12^4$ to $24^4$ its
 upper edge moves by less than $1\%$, and its lower edge goes from $-4.6\times10^{-3}$ to
@@ -697,7 +694,7 @@ interpolated correction is not exactly a low mode of the fine operator, and the 
 comes back amplified. In their case the fine operator is $D\dg D$, whose spectrum reaches $520$
 against $0.05$ for its lowest modes; it supplies the four orders of magnitude, and they need a
 Chebyshev filter of degree $150$--$300$. In our case $\AR$ is close to the identity on the high
-modes, because the Pauli--Villars operator divides them out; its field of values ends at $2$ (S)
+modes, because the Pauli--Villars operator divides them out, and its field of values ends at $2$ (S)
 and $4.5$ (B). The large factor is the coarse inverse itself. The post-smoothing, a Chebyshev
 polynomial of degree $7$--$11$ on the upper part of the spectrum, acts as the filter, and the
 whole cycle keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$ (B). We have not separated how much

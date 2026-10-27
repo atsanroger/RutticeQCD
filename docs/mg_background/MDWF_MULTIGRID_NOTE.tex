@@ -1,5 +1,5 @@
 \documentclass[11pt,a4paper]{article}
-% ===== Packages (only what the TinyTeX installation provides) =====
+% ===== Packages =====
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{times}      % Times text; math in Computer Modern
@@ -20,7 +20,7 @@
 \setlength{\emergencystretch}{2em}
 \renewcommand{\baselinestretch}{1.05}
 
-% ----- Minimal algorithm environments (algorithm/algpseudocode are not installed) -----
+% ----- Algorithm environments -----
 \newcounter{alg}
 \newenvironment{algorithm}[1][]{%
   \par\medskip\noindent\begin{minipage}{\linewidth}\hrule\vspace{3pt}%
@@ -35,7 +35,7 @@
 \newcommand{\Comment}[1]{\hfill{\small$\triangleright$ #1}}
 \newcommand{\Return}{\textbf{return}\ }
 
-% ----- APS-like headings, abstract and captions (revtex4 is not installed) -----
+% ----- Headings, abstract and captions -----
 \makeatletter
 \renewcommand\@seccntformat[1]{\csname the#1\endcsname.\hspace{0.6em}}
 \renewcommand\thesection{\Roman{section}}
@@ -76,7 +76,6 @@
 \theoremstyle{remark}
 \newtheorem{remark}{Remark}
 % Marker for statements that are derived here but not checked independently
-\newcommand{\unverified}{\textbf{[derived here; not verified]}}
 
 % ===== Notation =====
 \newcommand{\dg}{^{\dagger}}
@@ -127,8 +126,7 @@ a $\Sigma$-Hermitian form, and levels below the coarse lattice with a dense solv
 take the place of deflation. The prolongation lifts approximate low modes to the whole lattice in
 two ways, one for each coarse solve; for the right form the correction is then exact on these
 vectors.\ifresults{} The left form used in practice, which keeps Neff's $\alpha$, is not
-exact.\fi{} The smoother is a fixed Chebyshev polynomial. One setup serves every $\alpha$ and the
-solves with $D\dg$ that HMC requires: the exact relation between $D$ and $D\dg$ for M\"obius
+exact.\fi{} The smoother is a fixed Chebyshev polynomial. One setup serves every $\alpha$ and also the solves with $D\dg$ that HMC requires, because the exact relation between $D$ and $D\dg$ for M\"obius
 fermions makes $\Gfive D^{-1}\Gfive$ a good preconditioner for $D\dg$.\ifresults{} The method
 converges although the field of values of the preconditioned operator reaches into the left
 half-plane; we explain this with its spectrum ($\Re\lambda\ge0.78$) and pseudospectra. On a
@@ -139,10 +137,8 @@ its time, setup included. The results come from one configuration per volume, an
 compared with CGNE only.\else{} We state the method and the questions that are open.\fi
 \end{abstract}
 
-\vspace{0.4ex}\hrule\vspace{1ex}
-{\small\setcounter{tocdepth}{1}\tableofcontents}
-\vspace{1ex}\hrule\vspace{1ex}
-{\small\noindent This note is licensed under CC BY 4.0
+\vspace{1ex}
+{\small\noindent This paper is licensed under CC BY 4.0
 (\url{https://creativecommons.org/licenses/by/4.0/}), except Figs.~\ref{fig:free}--\ref{fig:A},
 reproduced from Ref.~\cite{KCM2024} under its CC BY-NC-ND 4.0.\par}
 \vspace{1ex}
@@ -165,8 +161,7 @@ modes of opposite chirality to its two boundaries. The residual breaking of chir
 as $L_s$ grows. The M\"obius generalization~\cite{BNO0,BNO1,BNO} adds two coefficients $(b,c)$
 and improves the approximation at fixed $L_s$; $c=0$ is Shamir's operator.
 
-Solving with the domain-wall operator is expensive: it is neither Hermitian nor
-positive, and one application costs $L_s$ four-dimensional Wilson hops. The standard solver is
+Solving with the domain-wall operator is expensive, because it is neither Hermitian nor positive and one application costs $L_s$ four-dimensional Wilson hops. The standard solver is
 still the conjugate gradient method on the normal equation of the even-odd operator (CGNE),
 whose condition number is the square of that of the operator. For Wilson fermions, multigrid
 solved this problem. The low modes that slow down Krylov solvers are locally
@@ -193,20 +188,17 @@ coarse operators $\hat D$ and $\hat D_{\rm PV}$, both nearest-neighbor, and the 
 solves $\hat D_{\rm PV}\dg\hat D\,\hat e=\hat r$. They tested Shamir fermions in the
 two-dimensional Schwinger model.
 \end{itemize}
-Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions; on large volumes HDCR
-was set up and solved faster than a single even-odd CG solve. They also carried the
+Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions and found that on large volumes HDCR was set up and solved faster than a single even-odd CG solve. They also carried the
 Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. On a $16^3\times32$
 Shamir configuration at $m=0.001$ it needed about half the fine-matrix applications of red-black
 CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, setup excluded,
 double precision), and they named three
 reasons. The method works on the whole lattice, while red-black CG is the relevant baseline. Its
-coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its
-coarse solves are non-Hermitian and were not deflated; the non-normal case would need the
+coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its coarse solves are non-Hermitian and were not deflated, while the non-normal case would need the
 pseudospectrum and a singular value decomposition. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ needed far fewer iterations
 than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$. Second, an even-odd
-smoother did not work with the HDCR correction; they traced this to eigenvectors that are not
-aligned.
+smoother did not work with the HDCR correction, which they traced to eigenvectors that are not aligned.
 
 \paragraph{Recent work by Boyle and collaborators.}
 The multiple right-hand-side HDCG of Ref.~\cite{BoyleMRHS} solves the normal equation of the
@@ -240,7 +232,7 @@ blocks, negative real parts come back. Separately, Neff's form of the domain-wal
 matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor $Q$ and changes the
 conditioning of the even-odd system.
 
-\paragraph{This note.}
+\paragraph{This paper.}
 We construct a two-grid method for $A'$ that takes up the Pauli--Villars route of
 Refs.~\cite{BCHW,BY} and addresses the three reasons of Ref.~\cite{BY} in turn. It is an
 adaptive aggregation multigrid in the sense
@@ -262,7 +254,7 @@ also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\
 preconditioner for $D\dg$, with no second setup.\ifresults{} We give numerical results: the
 field of values, spectrum and pseudospectra of the preconditioned operator, the behavior of
 truncated GCR, a mass scan and point-source propagators against CGNE, the sensitivity to the
-parameters, and the solves with $D\dg$. All of it is on one GPU; a comparison with HDCG and with
+parameters, and the solves with $D\dg$. All of it is on one GPU, and a comparison with HDCG and with
 the coarsening of $\Dpv\dg D$ in one implementation is left open.\fi
 
 Section~\ref{sec:overview} describes the method in words. Section~\ref{sec:opsec} recalls the
@@ -275,7 +267,8 @@ lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
 configurations, and Appendix~\ref{sec:impl} describes the implementation and how to reproduce the
 results\fi. The companion text
-\texttt{MG\_WALKTHROUGH.tex} derives every formula of this note line by line.
+\texttt{docs/mg\_background/MG\_WALKTHROUGH.tex} in the RutticeQCD repository
+(Appendix~\ref{sec:impl}) derives every formula of this paper line by line.
 
 \paragraph{Conventions.}
 Five-dimensional fields are $\psi_s(x)$ with $s=0,\dots,L_s-1$, and $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
@@ -488,7 +481,7 @@ D_-\Pp & D_+ & D_-\Pm & 0\\
 \end{pmatrix}.
 \label{eq:Dmatrix}
 \end{equation}
-Shamir's operator is $b=1$, $c=0$; the results of this note use $b=1.5$, $c=0.5$
+Shamir's operator is $b=1$, $c=0$; the results of this paper use $b=1.5$, $c=0.5$
 ($b-c=1$, $b+c=2$). The quark mass enters only through the two corners. The physical
 four-dimensional quark field is $q=\Pm\psi_0+\Pp\psi_{L_s-1}$.
 
@@ -499,8 +492,8 @@ that hops in the fifth dimension and one that does not. Define
 \label{eq:Y}
 \end{equation}
 the off-diagonal part of Eq.~\eqref{eq:Dmatrix} without $D_-$ and with a minus sign. Then
-$D=D_+-D_-Y$. The order matters: $D_-$ stands to the \emph{left} of $Y$, since in
-Eq.~\eqref{eq:Dslice} $D_-$ acts on the shifted and projected field. Inserting
+$D=D_+-D_-Y$. Here $D_-$ stands to the \emph{left} of $Y$, since in Eq.~\eqref{eq:Dslice} it
+acts on the shifted and projected field, and this order matters in Sec.~\ref{sec:g5}. Inserting
 Eqs.~\eqref{eq:W} and \eqref{eq:Dpm},
 \begin{equation}
 D=1+bW-(cW-1)Y=1+Y+W\,(b-cY)=C-\tfrac12K\,(b-cY),\qquad C=d_++d_-Y,
@@ -812,7 +805,7 @@ HDCG~\cite{HDCG,BoyleMRHS} & even sites, $S\dg S$ & $S\dg S$ (four hops) & $81$ 
 HDCR~\cite{HDCR} & whole lattice, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
 MG-PV~\cite{BCHW,BY} & whole lattice, $\Dpv\dg D$ & $D$ and $\Dpv$ apart, $c=0$ & $9$ points per slice\\
 Boyle and Oare~\cite{BoyleOare} & whole lattice, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
-this note & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
+this paper & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1086,12 +1079,10 @@ and solve the equivalent system
 with MINRES. $\Hc$ is Hermitian (indefinite) exactly when $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, that is
 for $c=0$ by Eqs.~\eqref{eq:g5herm} and \eqref{eq:GP}. For $c\neq0$ MINRES works on a
 non-Hermitian matrix and has no guarantee.\ifresults{} On the coarse space the non-Hermitian part is a few
-percent, up to $14\%$ in the directions of the smallest singular values, and linear in
-$c$; MINRES on $\Hc$ nevertheless needs the same outer iterations at $c=0.5$ as for
+percent, up to $14\%$ in the directions of the smallest singular values, and linear in $c$. Even so, MINRES on $\Hc$ needs the same outer iterations at $c=0.5$ as for
 the Shamir operator and is better than the exact adjoint with BiCGStab
 (Sec.~\ref{sec:herm}). The absolute-value block preconditioner and the additive level
-preconditioner below, also exact only for $c=0$, are used as they are; their losses
-were not measured separately.\fi The preconditioner must be Hermitian positive definite; we use the
+preconditioner below, also exact only for $c=0$, are used as they are, and their losses were not measured separately.\fi The preconditioner must be Hermitian positive definite; we use the
 absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
 V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
 on each coarse site. On a coarse lattice with even extents, the Schur
@@ -1302,8 +1293,9 @@ Equation~\eqref{eq:c4} has three properties used below:
 \item $[Y,W]=-\tfrac12[Y,K]$ is a bounded operator: one hop in four dimensions and one in the
 fifth. So $N$ is large only where $D^{-1}$ is large, on the low modes of $D$.
 \item On a low mode $v$ the commutator acts through the $\gamma_\mu$ in $K$, which flip
-chirality. A low mode of $D$ lives on one wall with one chirality; $[Y,W]v$ lives on the other
-wall with the other chirality, far from the low modes. So $N$ takes the low modes out of their
+chirality. A low mode of $D$ carries on each wall the chirality bound there, $\Pm$ at $s=0$ and
+$\Pp$ at $s=L_s-1$; $[Y,W]v$ carries on each wall the opposite chirality, which no low mode has
+there. So $N$ takes the low modes out of their
 span, and $N^2$ is small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method needs only a few
 steps more than for the identity.
 \end{itemize}
@@ -1354,7 +1346,7 @@ m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
 have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
 imaginary parts of both signs, so the spectrum surrounds the origin. A Krylov method then has no
 low-degree polynomial $p$ with $p(0)=1$ that is small on the spectrum
-(Sec.~\ref{sec:spectra}), and it makes no progress.\ifresults{} On the A30 ($12^4$, stout,
+(Sec.~\ref{sec:spectra}), and it makes no progress.\ifresults{} Numerically ($12^4$, stout,
 $M_5=1$), GCR(8) on $D_-$ and on $D_-\dg$ stops at $|r|^2/|b|^2=0.74$ (S) and $0.96$ (B) after
 $20000$ iterations, and BiCGStab diverges.\fi{} The preconditioner of Eq.~\eqref{eq:c4} avoids
 $D_-^{-1}$ altogether.
@@ -1562,7 +1554,7 @@ $10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
 
 \begin{table}[t]
 \centering
-\caption{The notation of this note (and of RutticeQCD) and that of other references.
+\caption{The notation of this paper (and of RutticeQCD) and that of other references.
 Equation numbers are those of the references; ``the same'' means the same operator.}
 \label{tab:notation}
 \footnotesize
@@ -1570,7 +1562,7 @@ Equation numbers are those of the references; ``the same'' means the same operat
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}>{\raggedright}p{1.7cm}>{\raggedright}p{3.0cm}>{\raggedright}p{3.1cm}>{\raggedright}p{2.9cm}>{\raggedright\arraybackslash}p{3.6cm}@{}}
 \toprule
- & This note & Ref.~\cite{BNO} & Ref.~\cite{KCM2024} & Bridge++ code\\
+ & This paper & Ref.~\cite{BNO} & Ref.~\cite{KCM2024} & Bridge++ code\\
 \midrule
 Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
 Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
