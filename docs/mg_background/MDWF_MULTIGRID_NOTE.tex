@@ -186,11 +186,12 @@ CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, set
 double precision), and they named three
 reasons. The method works on the whole lattice, while red-black CG is the relevant baseline. Its
 coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its coarse solves are non-Hermitian and were not deflated, while the non-normal case would need the
-pseudospectrum and a singular value decomposition. Two further findings matter here.
+pseudospectrum and a singular value decomposition; they did not expect deflation alone to make the
+method competitive. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
-four-dimensional sites) needed far fewer iterations
-than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$. Second, an even-odd
-smoother did not work with the HDCR correction, which they traced to eigenvectors that are not aligned.
+four-dimensional sites) needed fewer iterations
+than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880. Second, an even-odd
+smoother did not work with the HDCR correction, which they attributed to eigenvectors that are not aligned.
 
 \paragraph{Recent work by Boyle and collaborators.}
 The multiple right-hand-side HDCG of Ref.~\cite{BoyleMRHS} solves the normal equation of the
@@ -1357,8 +1358,9 @@ Sec.~\ref{sec:dagger}, is open as well.
 nine-point factors compare with the $81$-point HDCG operator and with the $33$-point coarsening of
 $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all of them in one
 code on the same lattices. The same holds for the full-lattice $A'$ against the even-odd system.
-Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction,
-because the eigenvectors of the red-black operator and of $\gamma_5RD$ are not aligned; here the
+Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction
+and attributed it to the eigenvectors of the red-black operator and of $\gamma_5RD$ not being
+aligned; here the
 smoother and the correction both approximate $\tilde A^{-1}$, so that mismatch is absent by
 construction, but whether the even-odd system is preferable for this method has not been
 established. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
