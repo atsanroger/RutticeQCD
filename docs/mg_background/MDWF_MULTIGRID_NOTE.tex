@@ -116,7 +116,8 @@ is the even-odd one, every aggregate contains the whole fifth dimension so that 
 is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
 did not beat red-black CG. One setup serves every value of Neff's $\alpha$ and the solves with
-$D\dg$ in HMC, for which $\Gfive D^{-1}\Gfive$ is a good preconditioner.\ifresults{} The field of
+$D\dg$ in HMC, for which $\Gfive D^{-1}\Gfive$, with $\Gfive=\gamma_5R$ and $R$ the reflection of the fifth
+dimension, is a good preconditioner.\ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
 $\Re\lambda\ge0.78$, and its pseudospectra account for the convergence. On a quenched
 $24^3\times48$ lattice the iteration count grows by a factor of $2$--$4$ from $m=0.1$ to
@@ -168,7 +169,8 @@ approaches that work to some extent. They differ in the operator that is coarsen
 the whole fifth dimension. Its coarse operator reaches two hops.
 \item HDCG~\cite{HDCG} accelerates CGNE and coarsens the squared even-odd Schur complement. Its
 coarse stencil has $81$ points for blocks of at least $4^4$.
-\item HDCR~\cite{HDCR} coarsens the Hermitian indefinite operator $\gamma_5RD$ at $c=0$. Its
+\item HDCR~\cite{HDCR} coarsens the Hermitian indefinite operator $\gamma_5RD$ at $c=0$, where $R$
+reflects the fifth dimension. Its
 coarse operator stays nearest-neighbor, which keeps the setup affordable in HMC.
 \item Brower, Clark, Howarth and Weinberg~\cite{BCHW} noted that the Pauli--Villars preconditioned
 operator $\Dpv^{-1}D$ carries the physical four-dimensional degrees of freedom. They solved
@@ -185,7 +187,8 @@ double precision), and they named three
 reasons. The method works on the whole lattice, while red-black CG is the relevant baseline. Its
 coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its coarse solves are non-Hermitian and were not deflated, while the non-normal case would need the
 pseudospectrum and a singular value decomposition. Two further findings matter here.
-First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ needed far fewer iterations
+First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
+four-dimensional sites) needed far fewer iterations
 than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$. Second, an even-odd
 smoother did not work with the HDCR correction, which they traced to eigenvectors that are not aligned.
 
@@ -215,10 +218,10 @@ magnitude, and they need a Chebyshev low-pass filter of degree $150$--$300$.
 \paragraph{The preconditioned operator.}
 Kanamori, Chen and Matsufuru~\cite{KCM2024} examined the spectra of several preconditioned
 M\"obius operators, looking for one local enough for a multigrid. Since the Pauli--Villars mass is
-of the cutoff scale, they expected its block-diagonal part $\Bpv$, whose blocks would be the coarse
-sites, to approximate $\Dpv$. It does not: with $\Bpv\dg$, or with $\Bpv^{-1}$ applied
-approximately block by block, negative real parts come back, so the Pauli--Villars factor has to
-be kept whole. Dividing out the site-diagonal part $C$ in addition lowers the high end of the
+of the cutoff scale, they tried its block-diagonal part $\Bpv$, whose blocks would be the coarse
+sites, as an approximation of $\Dpv$. With $\Bpv\dg$, however, and also with $\Bpv^{-1}$ applied
+approximately block by block, eigenvalues with negative real part reappear, so the Pauli--Villars
+factor has to be kept whole. Dividing out the site-diagonal part $C$ in addition lowers the high end of the
 spectrum. The resulting operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has all eigenvalues in the
 right half-plane and the smallest condition number among those they studied. Separately, Neff's form of the domain-wall
 matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor $Q$ and changes the
@@ -242,7 +245,7 @@ two ways, one for each coarse solve; for the right form this makes the correctio
 (Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
 with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
 Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap. For HMC we
-also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive$, is a good
+also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive=\gamma_5R$, is a good
 preconditioner for $D\dg$, with no second setup.\ifresults{} We give numerical results: the
 field of values, spectrum and pseudospectra of the preconditioned operator, the behavior of
 truncated GCR, a mass scan and point-source propagators against CGNE, the sensitivity to the
@@ -258,16 +261,7 @@ then what each part of the method contributes, then why it converges. Section~\r
 lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
 other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations\fi. A companion text in the code
-repository\ifresults{} (Sec.~\ref{sec:summary})\fi{} derives every formula of this paper line by line.
-
-\paragraph{Conventions.}
-Five-dimensional fields are $\psi_s(x)$ with $s=0,\dots,L_s-1$, and $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
-$R$ reverses the fifth dimension, $(R\psi)_s=\psi_{L_s-1-s}$, and $\Gfive=\gamma_5R$. The subscripts
-$e$ and $o$ denote blocks on the even and odd four-dimensional sites, and $X_{pq}$ maps parity $q$
-to parity $p$. The injection $\iota$ puts a field on the even sites onto the whole lattice, with
-zero on the odd sites, and $\pi=\iota\dg$ takes the even sites. Section~\ref{sec:operator} defines
-the operator and its parts $C$ and $Q$.
+configurations\fi.
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -589,6 +583,8 @@ conditioning of the even-odd operator~\cite{Neff,CKMN}.
 \label{sec:eo}
 
 \paragraph{The diagonal blocks are $C$.} Order the sites so that the even ones come first.
+We write $X_{pq}$ for the block of an operator $X$ that maps the sites of parity $q$ to those of
+parity $p$, and $\psi_e$, $\psi_o$ for the even and odd parts of a field.
 The hopping term $K$ connects nearest neighbors, which always have opposite parity, so it has
 no even--even or odd--odd block. In $D=C-\tfrac12K(b-cY)$ (Eq.~\eqref{eq:D}) the diagonal
 blocks therefore come from $C$ alone and the off-diagonal ones from the hop alone:
@@ -609,9 +605,8 @@ them to make this visible, and the letter $D$ for the off-diagonal blocks, which
 gauge field. The same holds for $\Dpv$ with $\Cpve$, $\Cpvo$.
 
 With these blocks the Schur complement on the even sites is $S=\Ce-D_{eo}\Co^{-1}D_{oe}$, and
-$\Spv$ is that of $\Dpv$. Two identities are used throughout: $S^{-1}=\pi D^{-1}\iota$ and
-$(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. To see them, write the injection and the projection of the
-Conventions in the same block notation:
+$\Spv$ is that of $\Dpv$. The injection $\iota$ puts a field on the even sites onto the whole
+lattice, with zero on the odd sites, and the projection $\pi=\iota\dg$ takes the even sites:
 \begin{equation}
 \iota y=\begin{pmatrix}y\\0\end{pmatrix},\qquad
 \pi\begin{pmatrix}\psi_e\\\psi_o\end{pmatrix}=\psi_e,\qquad
@@ -619,7 +614,8 @@ Conventions in the same block notation:
 \label{eq:iotapi}
 \end{equation}
 So $\iota\pi$ sets the odd sites to zero and leaves a field that already vanishes there unchanged.
-Now solve $D\psi=\iota\eta_e=(\eta_e,0)^{\mathsf T}$. The odd rows give
+Two identities are used throughout, $S^{-1}=\pi D^{-1}\iota$ and
+$(\Spv\dg)^{-1}=\pi(\Dpv\dg)^{-1}\iota$. To see them, solve $D\psi=\iota\eta_e=(\eta_e,0)^{\mathsf T}$. The odd rows give
 $\psi_o=-\Co^{-1}D_{oe}\psi_e$, and the even rows then read $S\psi_e=\eta_e$. Hence
 $S^{-1}\eta_e=\pi D^{-1}\iota\eta_e$, and the same argument for $\Dpv\dg$ gives the second identity.
 
@@ -1309,15 +1305,14 @@ applying the coarse operators and the transfer to the 12 columns of a point sour
 raise their intensity from about one flop per byte to about ten, as for Wilson-clover
 multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
 
-\paragraph{Code and data.} All results were obtained with RutticeQCD,
+\paragraph{Code.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{Bridge} in Rust
 whose GPU backend uses the CUDA kernels of the Wilson and M\"obius operators of Bridge++. Where
 Bridge++ computes the same quantity, the results of RutticeQCD are compared with it number by
 number: the plaquette, the Wilson, clover and domain-wall operators applied to a vector, solver
 iteration counts, meson correlators, and single HMC trajectories. The domain-wall multigrid, which
 Bridge++ does not have, is checked against CGNE, whose propagators it reproduces
-(Sec.~\ref{sec:massscan}). The parameter files, the data of the tables and
-figures and a line-by-line derivation of the formulas are in the repository.
+(Sec.~\ref{sec:massscan}).
 \fi
 % ============================================================
 \section{Open problems}
