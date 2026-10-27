@@ -181,13 +181,16 @@ vectors are filtered at a time: fewer take less memory. The levels below the coa
 (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
 inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
 second factor (`Coarse_Solver_PV` other than `MINRES`).
-Each solve (the `# quark` lines, the domain-wall solve lines) and each HMC trajectory (a
-`#   trajectory` line) reports the work it did: Flop, GFlop/s and Flop/byte, split into the fine
+Each solve and each HMC trajectory reports the work it did: Flop, GFlop/s and Flop/byte over the
+whole solve or trajectory, split into the fine
 operators (`Fine`), the coarse operators and the setup of the multigrids (`Coarse`), restriction
 and prolongation (`Transfer`), vector operations, copies and casts (`Vector`), what is made of the
 links alone (`Gauge`: plaquettes, the gauge actions and forces, smearing and its chain rule, the
 algebra of links and momenta in HMC, the clover blocks) and the fermion forces (`Force`), each in
-single or double precision, and how many counts were made. The flops of the operators are
+single or double precision. The Wilson and clover reports give it on a `# perf` line per quark,
+after the table of `# solve` lines (iterations, restarts, residual, seconds, peak memory), with
+the kinds in lower case; the domain-wall solve lines and the `#   trajectory` lines give it
+inline and add how many counts were made. The flops of the operators are
 Bridge++'s counts, the rest the arithmetic of the code (a product of two 3 × 3 complex matrices
 198, a sum 18, as QUDA); the bytes are a model (QUDA's: every value a kernel reads from memory,
 no caches), so the intensity is an estimate to place a run on a roofline before measuring it with
