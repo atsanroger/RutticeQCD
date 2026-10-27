@@ -795,6 +795,11 @@ it in the order it is stored, several columns a block; 2–2.5× on 20% of the t
 matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bootstrap in
 batches of 4–5 vectors, which makes `coarse_pass` a block product (the tensor cores) and saves
 about a third of the setup (item 11).
+Reference for the several-vector `coarse_pass`: Grebe, arXiv:2610.35526 (Lattice 2026, Wilson-clover
+multi-RHS multigrid on CPUs, the `qc` library): a coarse link applied to one vector is about
+1 flop/byte, to N vectors 2MN/(2M + N) (12.8 at M 32, N 16), and the same for P. Here the meter
+already gives Coarse single 0.98 Flop/byte; the 12 columns of a point source would give about 10
+(2M = 64, estimated, not measured). No gain for HMC, one right-hand side a solve.
 
 ### 21. CPU domain-wall: the factor b − c Y once, not on eight legs (found 2026-10-25)
 

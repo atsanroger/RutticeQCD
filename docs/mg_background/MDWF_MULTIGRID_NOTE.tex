@@ -1523,6 +1523,13 @@ of them in one code on the same lattices.
 \item \textbf{A coarse space for $D^{(\alpha)}$.} $\Pro$ and the coarse operators are those of
 the plain $D$ and $\Dpv$. The near-null vectors of $D^{(\alpha)}$ are $Q^{-1}$ times those of $D$;
 whether a $\Pro$ built from them helps the left form with $\alpha$ has not been tried.
+
+\item \textbf{Several right-hand sides at once.} The coarse operators and the transfer apply a
+$64\times64$ block per coarse site and link to one vector at a time, at about one flop per byte.
+Applied to the 12 columns of a point source together, they become matrix products whose intensity
+is near $2MN/(2M+N)$, about $10$ flops per byte for $2M=64$ and $N=12$, which moves them toward
+the compute bound, as Grebe shows for Wilson-clover multigrid on CPUs~\cite{Grebe}. A solve in
+HMC, with one right-hand side, does not gain from it.
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.
@@ -1683,6 +1690,7 @@ PoS \textbf{LATTICE2016} (2016) 374.
 \bibitem{BY} P.~A.~Boyle and A.~Yamaguchi, \emph{Comparison of domain wall fermion multigrid methods}, arXiv:2103.05034.
 \bibitem{BCHW} R.~C.~Brower, M.~A.~Clark, D.~Howarth and E.~S.~Weinberg, \emph{Multigrid for chiral lattice fermions: domain wall},
 Phys.\ Rev.\ D \textbf{102} (2020) 094517 [arXiv:2004.07732].
+\bibitem{Grebe} A.~V.~Grebe, \emph{Toward compute-bound lattice-QCD software}, Proceedings of Lattice 2026, arXiv:2610.35526.
 \bibitem{BoyleOare} P.~A.~Boyle and P.~Oare (with S.~Yamamoto, C.~Jung and C.~Lehner), \emph{Algorithms for domain wall fermions}, talk at Lattice 2026, College Park, 27 July 2026, slides at \url{https://indico.global/event/16565/contributions/162221/}.
 \bibitem{ESS} S.~C.~Eisenstat, H.~C.~Elman and M.~H.~Schultz, \emph{Variational iterative methods for nonsymmetric systems of linear equations},
 SIAM J.\ Numer.\ Anal.\ \textbf{20} (1983) 345.
