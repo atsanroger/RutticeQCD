@@ -116,23 +116,27 @@ Linear solvers for the M\"obius domain-wall operator are slow because its spectr
 origin. Kanamori, Chen and Matsufuru showed that the preconditioned operator
 $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, built from the Pauli--Villars operator and the site-diagonal
 part $C$, has all its eigenvalues in the right half-plane. Brower, Clark, Howarth and Weinberg
-coarsened the quark and Pauli--Villars factors separately; in four-dimensional QCD Boyle and
-Yamaguchi found no gain over red-black CG, because the method works on the whole lattice and its
-coarse space keeps the fifth dimension. We construct a two-grid method for $A'$ on the even sites
-with such a factorized correction: one coarse solve for each factor, on a four-dimensional coarse
-lattice with a nearest-neighbor stencil. The prolongation lifts approximate low modes to the
-whole lattice in two ways, one for each coarse solve; for the right form the correction is then
-exact on these vectors.\ifresults{} The left form used in practice, which keeps Neff's $\alpha$, is
-not exact and converges within a few iterations of the right form.\fi The smoother is a fixed Chebyshev
-polynomial. The same multigrid also solves with $D\dg$, as HMC requires: the exact relation
-between $D$ and $D\dg$ for M\"obius fermions makes $\Gfive D^{-1}\Gfive$ a good preconditioner
-for $D\dg$, with no second setup.\ifresults{} The method converges although the field of values
-of the preconditioned operator reaches into the left half-plane; we explain this with its
-spectrum ($\Re\lambda\ge0.78$) and pseudospectra. On a quenched $24^3\times48$ configuration
-the multigrid iterations grow by a factor of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$
-for even-odd CGNE. At $m=0.001$ a solve is $4.5$--$4.8$ times faster than mixed-precision CGNE,
-and a point-source propagator takes half its time, setup included. The results come from one
-configuration per volume.\else{} We state the method and the questions that are open.\fi
+coarsened the quark and Pauli--Villars factors of such an operator separately. In
+four-dimensional QCD Boyle and Yamaguchi found that this approach did not beat red-black CG in
+run time, and named three reasons: it works on the whole lattice, its coarse space keeps the fifth
+dimension, and its non-normal coarse solves were not deflated. We construct a two-grid method for
+$A'$ that addresses each of them. The outer system is the even-odd one. Every aggregate contains
+the whole fifth dimension, so the coarse lattice is four-dimensional, and the correction solves
+one nearest-neighbor coarse system for each factor. The Pauli--Villars coarse system is solved in
+a $\Sigma$-Hermitian form, and levels below the coarse lattice with a dense solve at the bottom
+take the place of deflation. The prolongation lifts approximate low modes to the whole lattice in
+two ways, one for each coarse solve; for the right form the correction is then exact on these
+vectors.\ifresults{} The left form used in practice, which keeps Neff's $\alpha$, is not
+exact.\fi{} The smoother is a fixed Chebyshev polynomial. One setup serves every $\alpha$ and the
+solves with $D\dg$ that HMC requires: the exact relation between $D$ and $D\dg$ for M\"obius
+fermions makes $\Gfive D^{-1}\Gfive$ a good preconditioner for $D\dg$.\ifresults{} The method
+converges although the field of values of the preconditioned operator reaches into the left
+half-plane; we explain this with its spectrum ($\Re\lambda\ge0.78$) and pseudospectra. On a
+quenched $24^3\times48$ configuration on one GPU the multigrid iterations grow by a factor of
+$2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
+$4.5$--$4.8$ times faster than mixed-precision CGNE, and a point-source propagator takes half
+its time, setup included. The results come from one configuration per volume, and the method is
+compared with CGNE only.\else{} We state the method and the questions that are open.\fi
 \end{abstract}
 
 \vspace{0.4ex}\hrule\vspace{1ex}
@@ -185,8 +189,10 @@ two-dimensional Schwinger model.
 \end{itemize}
 Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions; on large volumes HDCR
 was set up and solved faster than a single even-odd CG solve. They also carried the
-Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. It needed fewer fine-matrix
-applications than CGNR, but its run time did not beat red-black CG, and they named three
+Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. On a $16^3\times32$
+Shamir configuration at $m=0.001$ it needed about half the fine-matrix applications of red-black
+CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, setup excluded,
+double precision), and they named three
 reasons. The method works on the whole lattice, while red-black CG is the relevant baseline. Its
 coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its
 coarse solves are non-Hermitian and were not deflated; the non-normal case would need the
@@ -230,34 +236,40 @@ conditioning of the even-odd system.
 
 \paragraph{This note.}
 We construct a two-grid method for $A'$ that takes up the Pauli--Villars route of
-Refs.~\cite{BCHW,BY} and its three obstacles. It is an adaptive aggregation multigrid in the sense
+Refs.~\cite{BCHW,BY} and addresses the three reasons of Ref.~\cite{BY} in turn. It is an
+adaptive aggregation multigrid in the sense
 of Refs.~\cite{Brannick,DDalphaAMG,BridgeMG}: the coarse space comes from computed near-null vectors
 cut into aggregates, and the coarse operators are Galerkin projections. First, the outer system is
-the even-odd one, as in HDCG. Its inverse contains the inverses of the quark operator and the
+the even-odd one, as for red-black CG. Its inverse contains the inverses of the quark operator and the
 adjoint Pauli--Villars operator, with site-local factors and the restriction to the even sites
 between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on the
 whole lattice. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
-four-dimensional and both coarse operators are nearest-neighbor. Third, the test vectors are
-approximate right singular vectors of the non-normal operator, and the Pauli--Villars coarse system
-is solved in a $\Sigma$-Hermitian form. The prolongation lifts these vectors to the whole lattice in
+four-dimensional and both coarse operators are nearest-neighbor. Third, the Pauli--Villars coarse
+system is solved in a $\Sigma$-Hermitian form by MINRES, and levels below the coarse lattice with
+a dense LU at the bottom take the place of deflation (Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
+non-normal operator. The prolongation lifts these vectors to the whole lattice in
 two ways, one for each coarse solve; for the right form this makes the correction exact on them
 (Proposition~\ref{prop:exact}).\ifresults{} The left form used in practice is not exact and
 converges within a few iterations of the right form; with the same vectors $y$,
-replacing $\hat t$ by $Ds$ or dropping it costs it up to $5$ times the iterations on
-$24^3\times48$ and up to $22$ times on $12^4$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
+replacing $\hat t$ by $Ds$ or dropping it costs up to $5$ times the iterations on
+$24^3\times48$ and up to $22$ times on $12^4$. Twice as many vectors $y$ with $\{s\}$ alone match
+the two lifts on $24^3\times48$, and need half their iterations in setup~B, at $1.6$--$1.8$ times
+the setup time and twice the host memory (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
 Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap. For HMC we
 also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive$, is a good
 preconditioner for $D\dg$, with no second setup.\ifresults{} We give numerical results: the
 field of values, spectrum and pseudospectra of the preconditioned operator, the behavior of
 truncated GCR, a mass scan and point-source propagators against CGNE, the sensitivity to the
-parameters, and the solves with $D\dg$.\fi
+parameters, and the solves with $D\dg$. All of it is on one GPU; a comparison with HDCG and with
+the coarsening of $\Dpv\dg D$ in one implementation is left open.\fi
 
 Section~\ref{sec:overview} describes the method in words. Section~\ref{sec:opsec} recalls the
 spectra the construction rests on and defines the operator, its preconditioning and the even-odd
 forms. Section~\ref{sec:method} gives the two-grid method: the factorized correction, the coarse
 solvers, the setup, the smoother and the outer solver. Section~\ref{sec:dagger} solves with
 $D\dg$.\ifresults{} Section~\ref{sec:results} gives the results: first its cost against CGNE and
-in HMC, then why it converges.\fi{} Section~\ref{sec:open} lists open problems. Appendix~\ref{sec:notation}
+in HMC, then why it converges. Section~\ref{sec:summary} sums up.\fi{} Section~\ref{sec:open}
+lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references\ifresults{}, and Appendix~\ref{sec:impl} describes the
 implementation and how to reproduce the results\fi. The companion text
 \texttt{MG\_WALKTHROUGH.tex} derives every formula of this note line by line.
@@ -316,7 +328,9 @@ solve. For the right form this makes the correction exact on these vectors
 \item We split the lifts by their $\Gfive$-chirality and orthonormalize them on each block. This
 gives $\Pro$, and from it the coarse operators of $D$ and $\Dpv$.
 \end{enumerate}
-One setup serves both forms and every $\alpha$.
+All of the setup uses the plain $D$ and $\Dpv$. Neff's $\alpha$ enters only the outer operator
+$\AL^{(\alpha)}$, the smoother, which works on it, and the site-local factors of the correction
+(Eq.~\eqref{eq:corr}), so one setup serves both forms and every $\alpha$.
 
 \paragraph{Solving with $D\dg$.} HMC also solves with $D\dg$. The same cycle, placed between two
 $\Gfive$, is a good preconditioner for it (Sec.~\ref{sec:dagger}), so no second setup is needed.
@@ -773,14 +787,17 @@ $\alpha K^{(\alpha)}$ (they differ only by the wall components of $Q_e$).
 \label{sec:correction}
 
 \subsubsection{Why factorize}
-Solving on the even sites halves the problem and improves the conditioning. But the Schur
-complement reaches two hops, so the existing methods make a choice. HDCG coarsens the squared
-Schur complement and accepts a larger coarse stencil~\cite{HDCG}. The methods with a small coarse
-stencil work on the whole lattice instead: HDCR~\cite{HDCR} coarsens $\gamma_5R_5D$, Boyle and
-Oare~\cite{BoyleOare} coarsen $\Dpv\dg D$, and Refs.~\cite{BCHW,BY} coarsen $D$ and $\Dpv$ separately
-with a coarse lattice that keeps the fifth dimension. We keep the separate coarse operators of $D$
-and $\Dpv$, use them for the even-odd operator, and make the coarse lattice four-dimensional
-(Table~\ref{tab:approaches}).
+Solving on the even sites halves the problem and improves the conditioning, and red-black CG,
+the solver to beat, works there. But the Schur complement reaches two hops, so the existing
+methods make a choice (Table~\ref{tab:approaches}). HDCG solves on the even sites and coarsens the
+squared Schur complement, with an $81$-point coarse stencil~\cite{HDCG}. The methods with a small
+coarse stencil work on the whole lattice: HDCR~\cite{HDCR} coarsens $\gamma_5R_5D$, Boyle and
+Oare~\cite{BoyleOare} coarsen $\Dpv\dg D$, and MG-PV~\cite{BCHW,BY} coarsens $D$ and $\Dpv$
+separately on a coarse lattice that keeps the fifth dimension. Two of the three reasons of
+Ref.~\cite{BY} are these choices of MG-PV: the whole lattice, and the fifth dimension in the
+coarse space. We keep the separate coarse operators of $D$ and $\Dpv$, use them for the even-odd
+operator, and make the coarse lattice four-dimensional. The third reason, the coarse solves, is
+taken up in Sec.~\ref{sec:coarse}.
 
 \begin{table}[t]
 \centering
@@ -833,9 +850,8 @@ $\alpha$ in both operators, Eq.~\eqref{eq:ALalpha} gives
 \begin{equation}
 \AL^{(\alpha)\,-1}=Q_e^{-1}\,S^{-1}\,\Ce Q_e^2\Cpve\dg\,(\Spv\dg)^{-1}\,Q_e^{-1},
 \end{equation}
-so $O_R=Q_e^{-1}$, $O_M=\Ce Q_e^2\Cpve\dg$ and $O_L=Q_e^{-1}$. The coarse operators are always
-those of the plain $D$ and $\Dpv$, without $\alpha$, so one setup serves both forms and every
-$\alpha$. Figure~\ref{fig:correction} follows a residual through Eq.~\eqref{eq:corr}. It moves
+so $O_R=Q_e^{-1}$, $O_M=\Ce Q_e^2\Cpve\dg$ and $O_L=Q_e^{-1}$. The two coarse inverses are those
+of the plain $D$ and $\Dpv$; within the correction, $\alpha$ is in these factors only. Figure~\ref{fig:correction} follows a residual through Eq.~\eqref{eq:corr}. It moves
 between the even sites, the whole lattice and the coarse lattice twice, and the result of the
 first coarse solve, taken on the even sites, is the right-hand side of the second.
 
@@ -1417,6 +1433,30 @@ order $c$.
 
 \ifresults
 \input{results}
+
+% ============================================================
+\section{Summary}
+\label{sec:summary}
+
+Boyle and Yamaguchi named three reasons why the Pauli--Villars multigrid did not beat red-black
+CG in four-dimensional QCD: it worked on the whole lattice, its coarse space kept the fifth
+dimension, and its non-normal coarse solves were not deflated. The present method addresses them
+in turn. It solves the even-odd system. Its aggregates contain the whole fifth dimension, so the
+correction solves two nearest-neighbor systems on a four-dimensional coarse lattice. Its
+Pauli--Villars coarse system is solved in a $\Sigma$-Hermitian form, and levels below the coarse
+lattice take the place of deflation.
+
+On quenched configurations on one A30 the multigrid iterations on $24^3\times48$ grow by a factor
+of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
+faster than with mixed-precision CGNE from $24^4$ on, by $4.5$--$4.8$ on $24^3\times48$, and a
+point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and
+the solves with $D\dg$, and the multigrid runs in HMC. The field of values of the preconditioned
+operator reaches into the left half-plane; its spectrum and pseudospectra account for the
+convergence.
+
+The evidence is limited to one configuration per volume, volumes up to $24^3\times48$, and CGNE as
+the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
+implementation, and larger volumes, are the next steps (Sec.~\ref{sec:open}).
 \fi
 % ============================================================
 \section{Open problems}
@@ -1474,6 +1514,15 @@ with $D$, except on the $12^4$ configuration with an unpaired near-zero mode, wh
 right-hand side of HMC needs GCR(8). Whether the localized topological mode is the cause, and
 whether deflating it lets GCR(2) converge there, is open. Why $N=c[Y,W]D^{-1}$ has a small
 square, beyond the heuristic of Sec.~\ref{sec:dagger}, is open as well.
+
+\item \textbf{Other coarsenings in one implementation.} The comparison here is with CGNE. How the
+two nine-point factors compare with the $81$-point HDCG operator and with the $33$-point
+coarsening of $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all
+of them in one code on the same lattices.
+
+\item \textbf{A coarse space for $D^{(\alpha)}$.} $\Pro$ and the coarse operators are those of
+the plain $D$ and $\Dpv$. The near-null vectors of $D^{(\alpha)}$ are $Q^{-1}$ times those of $D$;
+whether a $\Pro$ built from them helps the left form with $\alpha$ has not been tried.
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.
@@ -1634,7 +1683,7 @@ PoS \textbf{LATTICE2016} (2016) 374.
 \bibitem{BY} P.~A.~Boyle and A.~Yamaguchi, \emph{Comparison of domain wall fermion multigrid methods}, arXiv:2103.05034.
 \bibitem{BCHW} R.~C.~Brower, M.~A.~Clark, D.~Howarth and E.~S.~Weinberg, \emph{Multigrid for chiral lattice fermions: domain wall},
 Phys.\ Rev.\ D \textbf{102} (2020) 094517 [arXiv:2004.07732].
-\bibitem{BoyleOare} P.~A.~Boyle and P.~Oare (with S.~Yamamoto, C.~Jung and C.~Lehner), \emph{Algorithms for domain wall fermions}, talk at Lattice 2026.
+\bibitem{BoyleOare} P.~A.~Boyle and P.~Oare (with S.~Yamamoto, C.~Jung and C.~Lehner), \emph{Algorithms for domain wall fermions}, talk at Lattice 2026, College Park, 27 July 2026, slides at \url{https://indico.global/event/16565/contributions/162221/}.
 \bibitem{ESS} S.~C.~Eisenstat, H.~C.~Elman and M.~H.~Schultz, \emph{Variational iterative methods for nonsymmetric systems of linear equations},
 SIAM J.\ Numer.\ Anal.\ \textbf{20} (1983) 345.
 \bibitem{KCM2024} I.~Kanamori, W.-L.~Chen and H.~Matsufuru, \emph{Spectrum of preconditioned Moebius domain-wall operators}, PoS \textbf{LATTICE2024} (2025) 414.

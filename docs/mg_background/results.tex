@@ -76,7 +76,10 @@ cycle works in~B but stalls in~S (Sec.~\ref{sec:dagger}, Table~\ref{tab:c4}).
 
 We compare the cost of the multigrid with that of the reference solver of
 Sec.~\ref{sec:outer} on $24^3\times48$, first for one random right-hand side over seven masses
-and then for whole point-source propagators.
+and then for whole point-source propagators. For one right-hand side and with the setup
+excluded, Ref.~\cite{BY} found the Pauli--Villars multigrid an order of magnitude slower than
+red-black CG (Sec.~\ref{sec:intro}). Measured the same way, the present method is the faster
+solver at $m=0.001$ from $24^4$ on (Table~\ref{tab:volume}).
 
 \begin{table}[t]
 \centering
@@ -279,7 +282,7 @@ B & CGNE, mixed & $505$, $0.3$ & $818$, $1.3$ & $3596$, $26.1$ & $4232$, $60.4$\
 In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(K\dg K)^{-1}$,
 as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
 until it is small enough. The test vectors are kept from solve to solve and improved by a
-bootstrap when a trajectory starts; P and the coarse operators are kept until the iterations
+bootstrap when a trajectory starts; $\Pro$ and the coarse operators are kept until the iterations
 grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers, on the A30.
 
 \paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the

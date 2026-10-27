@@ -822,6 +822,40 @@ Nsight Compute on 16⁴ or 24⁴, clover and domain-wall solves: the bandwidth t
 (GFlop/s over its Flop/byte) against the DRAM GB/s ncu measures, kernel by kernel, to see how
 far the model (no caches) is from the traffic.
 
+### 23. Readable output and where the time goes (planned 2026-10-26, not started)
+
+The run output is hard to read: the header repeats the lattice (`src/app/wilson.rs:900`), one
+solve line holds iterations, residual, time, flops, GFlop/s, the share and intensity of every
+kind of work and the count of counts (`wilson.rs:914`, `meter::Counts::line`), and the
+correlator table is not aligned, with exponents as `e1` where Bridge++ writes `e+01`
+(`wilson.rs:949`). Its GFlop/s is the counted flops of the whole solve over its wall time, so it
+says nothing about one kernel or one step. Plan, on an `exp/*` branch (not main):
+
+- **Header**: one key a line (lattice once, version and commit, gauge and plaquette, fermion,
+  solver, source).
+- **Solve summary** as a small table (quark, iterations, restarts, |DS−b|²/|b|², seconds); the
+  per-kind shares and the count of counts only with `--verbose`.
+- **Correlators**: the same columns and order as Bridge++'s reference files (pair, channel, t,
+  Re, Im; `tests/spectrum.rs` compares them), aligned, exponents with sign and two digits.
+- **Where the time goes**: nested spans `meter::span("…")` in the algorithm code written once
+  (outer Krylov, residual, cycle, pre- and post-smoother, restriction, each coarse factor and the
+  levels below, prolongation, vector operations; the setup: filter, bootstrap rounds, P, the
+  probing of the coarse operators, the LU of the last level). Each span keeps calls, inclusive
+  and exclusive time, and the flops and bytes counted inside it, so each step gets its own
+  GFlop/s. On the device the times come from **CUDA events recorded on the stream at the span
+  boundaries** and read at the end (no synchronization); the CPU uses the clock. Spans also emit
+  NVTX ranges.
+- **Output**: the span tree in the terminal; a tsv (span path, calls, seconds, flops, bytes) in
+  `Output.file` for scripts, so the terminal format can change without breaking parsers.
+- **Checks**: the exclusive times add up to the solve; the span times against Nsight Systems on
+  one run; the solve time with spans on and off (their overhead); the proportions against the
+  V-cycle breakdown of the Bridge++ work (`bridge_cuda/docs/latex/pvprec_amg.tex`, Table
+  vctime: smoother 65%, coarse solve 13%, restriction 11%).
+- **Parsers to update with it**: `tests/spectrum.rs`, `tests/run.rs`, the examples in
+  `docs/USAGE.md`, and scripts that read the `seed …: … iterations` lines (e.g.
+  `collect_results_20261026.py` on as13). The other apps (`mdwf.rs`, `mdwf_cuda.rs`, `hmc.rs`)
+  get the same layout.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,
@@ -922,8 +956,10 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   prototype's product Galerkin (12⁴ 20, 16⁴ 38, conditions to check). Risks: 2-hop aliasing needs
   coarse extents ≥ 5 (12⁴ with 4⁴ blocks gives 3⁴); the 33-point coarse solve at 24³×48
   (~1.7e5 dims, no dense inverse); fairness (Boyle's Grid tuning is known only from slides).
-  Phases: CPU two-level small volumes (a)–(c); device and 24³×48; levels if the coarse solve
-  dominates.
+  Phases (revised 2026-10-27, deferred): write and check on the CPU at 12⁴/16⁴ (2⁴ blocks for
+  coarse extents ≥ 5); compare on the A30 at 16⁴/20⁴, where all four fit (estimated, not measured:
+  ~6 GB at 16⁴), porting only the 2-hop coarse kernel; 24³×48 only if asked (whole-lattice (a)–(c)
+  estimated 60–80 GB host, beyond the A30). State results as a comparison at fixed volume.
 - **Coarse deflation with the present basis** (2026-10-26). The only test of deflating the coarse
   factors (Lanczos, 32 Ritz pairs; H⁻¹ subspace iteration) used the basis {s, Ds}, which the
   basis-lift runs show to be a poorer coarse space (2.5× the iterations of {s, t̂} on 12⁴). Its
@@ -966,9 +1002,11 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 - **Where α acts on Ã_L^(α)** (2026-10-23). In the mass scan on 24³×48 α 0.6 saves the multigrid
   2–3 iterations at every mass in setup B, but in S only at heavy masses (none from m 0.01 down;
   HMC on 24⁴ at m 0.001: 362 against 356), while CG gains about 20%. The note reads it as α
-  improving only what the smoother sees (the coarse grid takes the low modes); not checked. To
-  check: the extreme eigenvalues (Arnoldi) and the field of values of Ã_L with and without α, and
-  of Ã_L M, in S and B.
+  improving only what the smoother sees (the coarse grid takes the low modes). Measured on 12⁴
+  (2026-10-26, `docs/alpha_study/`, kept out of the MG note): α 0.6 lowers |I − Ã_L S| by 13%
+  at m 0.1, and the cycle treats the low modes of Ã_L^(α) worse (most in S); the two effects not
+  separated in a solve. Future work: P and the coarse operators from D^(α) (now from the plain D,
+  one setup for every α; the device coarse operator asserts α = 1).
 
 - **The dual cycle on 12⁴** (superseded 2026-10-22 by Γ5 M Γ5 below; the dual cycle is gone
   from HMC) (`examples/correction_exactness`, CPU, 2026-10-21): setup S,
