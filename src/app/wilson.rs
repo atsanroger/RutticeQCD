@@ -93,6 +93,14 @@ fn validate(config: &Config, grid: [usize; ND]) -> Result<Vec<String>, CliError>
                     .to_string(),
             );
         }
+        // A reset uses the violation measured at the same sweep.
+        if !p.reset_interval.is_multiple_of(p.measure_interval) {
+            return invalid(format!(
+                "GaugeFixing.iteration_to_reset ({}) must be a multiple of \
+                 interval_of_measurement ({}), or no reset would happen",
+                p.reset_interval, p.measure_interval
+            ));
+        }
     }
     if let Some(mg) = &config.solver.multigrid {
         validate_multigrid(config, mg, grid)?;

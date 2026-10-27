@@ -15,6 +15,13 @@ pub const CHANNELS: [&str; 14] = [
 
 /// The (sink, source) gamma matrices of a named meson channel, to pass to
 /// `meson_correlator`:
+///
+/// - `PS`: γ5 at both ends; `S`: the identity; `V1`..`V3`: γ_k
+/// - `A4_PS`: γ4 γ5 at the sink, γ5 at the source; `PS_A4`: γ5 at the sink, γ5 γ4 at the
+///   source; `A4_A4`: γ4 γ5 at the sink, γ5 γ4 at the source
+/// - `G51`..`G53`: γ5 γ_k; `S12`, `S23`, `S31`: i γ2 γ1, i γ3 γ2, i γ1 γ3
+///
+/// The products are taken in the gamma matrices of `G`.
 pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
     let g = G::GAMMA;
     let g5 = G::GAMMA5;
@@ -39,6 +46,11 @@ pub fn channel<G: GammaRepre>(name: &str) -> Option<(Gamma, Gamma)> {
 }
 
 /// Zero-momentum meson two-point function, one value per time slice of the global lattice:
+///
+///   C(t) = Σ_{x, x4 = t} Tr[γ5 Γ_sink S1(x) Γ_source γ5 S2(x)†],
+///
+/// S1, S2 the propagators `prop1`, `prop2` from the source, `gamma5` the γ5 of their gamma
+/// matrices.
 pub fn meson_correlator<T: Storage>(
     prop1: &Field<T, Spinor>,
     prop2: &Field<T, Spinor>,

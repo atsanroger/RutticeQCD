@@ -286,27 +286,71 @@ keyword_enum! {
 }
 
 /// Gauge smearing: `number_of_smearing` steps of `smear_type` with weight `rho_uniform` in
-/// every plane (or in the spatial planes only).
+/// every plane (or in the spatial planes only). Checked when read (`GaugeSmearingKeys`).
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "GaugeSmearingKeys")]
 pub struct GaugeSmearingBlock {
     pub smear_type: GaugeSmearType,
     pub rho_uniform: f64,
     pub number_of_smearing: usize,
-    #[serde(default)]
     pub spatial_only: bool,
     /// APE: the projection to SU(3) (Bridge++'s `Projection_Maximum_SU_N` keys).
-    #[serde(default = "ape_criterion")]
     pub(crate) convergence_criterion: f64,
-    #[serde(default = "ape_iterations")]
     pub maximum_number_of_iteration: usize,
 }
 
-fn ape_criterion() -> f64 {
-    1.0e-15
+/// The keys of a `GaugeSmearing` block as written.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GaugeSmearingKeys {
+    smear_type: GaugeSmearType,
+    rho_uniform: f64,
+    number_of_smearing: usize,
+    #[serde(default)]
+    spatial_only: bool,
+    convergence_criterion: Option<f64>,
+    maximum_number_of_iteration: Option<usize>,
 }
-fn ape_iterations() -> usize {
-    100
+
+impl TryFrom<GaugeSmearingKeys> for GaugeSmearingBlock {
+    type Error = String;
+
+    fn try_from(k: GaugeSmearingKeys) -> Result<Self, String> {
+        if !k.rho_uniform.is_finite() {
+            return Err(format!(
+                "GaugeSmearing.rho_uniform: a number, got {}",
+                k.rho_uniform
+            ));
+        }
+        let ape = k.smear_type == GaugeSmearType::Ape;
+        if !ape && (k.convergence_criterion.is_some() || k.maximum_number_of_iteration.is_some()) {
+            return Err(
+                "GaugeSmearing: convergence_criterion and maximum_number_of_iteration \
+                 are for smear_type APE (its projection to SU(3))"
+                    .into(),
+            );
+        }
+        let block = Self {
+            smear_type: k.smear_type,
+            rho_uniform: k.rho_uniform,
+            number_of_smearing: k.number_of_smearing,
+            spatial_only: k.spatial_only,
+            convergence_criterion: k.convergence_criterion.unwrap_or(1.0e-15),
+            maximum_number_of_iteration: k.maximum_number_of_iteration.unwrap_or(100),
+        };
+        if ape
+            && (block.convergence_criterion.is_nan()
+                || block.convergence_criterion <= 0.0
+                || block.maximum_number_of_iteration == 0)
+        {
+            return Err(
+                "GaugeSmearing: convergence_criterion and maximum_number_of_iteration \
+                 must be positive"
+                    .into(),
+            );
+        }
+        Ok(block)
+    }
 }
 
 impl GaugeSmearingBlock {

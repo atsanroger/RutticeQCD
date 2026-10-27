@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- APE smearing: the sum that stops the projection to SU(3) is added in a fixed order
+  (`reduce_sites_mut`); rayon's `sum` changed its last bits with the number of threads, and so
+  could change the number of sweeps (`ape_sweep_sum_does_not_depend_on_threads`, which failed
+  with 1 thread against 2, 3 and 8 before).
+- Parameter files refuse what ran wrongly or was ignored: `GaugeSmearing` with APE's
+  `convergence_criterion` or `maximum_number_of_iteration` under stout (ignored before), a
+  `rho_uniform` that is not a number, an APE criterion or iteration count that is not positive
+  (a panic before); `GaugeFixing.iteration_to_reset` that is no multiple of
+  `interval_of_measurement` (no reset ever happened); `order_of_exp_iP : 0` in
+  `Builder_Integrator` and `GradientFlow` (the links never moved); a `step_size` of NaN for the
+  flow.
+- Docs of `field_strength`, `coulomb_violation`, `channel` and `meson_correlator` have their
+  formulas back, lost in an earlier cleanup.
+
 - The feature `hdf5` builds with the HDF5 library of today: the bindings are the maintained
   `hdf5-metno` (0.15) in place of `hdf5` 0.8, which refused HDF5 2.x at build time
   (`Invalid H5_VERSION: "2.2.0"`). The code is unchanged; `hdf5_on_several_processes` passes

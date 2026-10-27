@@ -528,6 +528,10 @@ impl HmcConfig {
                 "Builder_Integrator.number_of_steps: at least one step on every level".into(),
             );
         }
+        // exp(iP) to order 0 is 1: the links would never move.
+        if self.hmc.integrator.exp_order == 0 {
+            return invalid("Builder_Integrator.order_of_exp_iP: at least 1".into());
+        }
         if self.actions.is_empty() {
             return invalid("Action_G, Action_F_1, ...: at least one action".into());
         }

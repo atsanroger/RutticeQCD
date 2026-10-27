@@ -172,9 +172,15 @@ impl FlowBlock {
         if self.order_of_runge_kutta != 3 {
             return invalid("GradientFlow.order_of_RungeKutta: only 3".into());
         }
-        if self.measurement_interval == 0 || self.step_size <= 0.0 {
+        if self.measurement_interval == 0
+            || self.step_size.is_nan()
+            || self.step_size <= 0.0
+            || self.order_of_exp_ip == 0
+        {
             return invalid(
-                "GradientFlow: measurement_interval and step_size must be positive".into(),
+                "GradientFlow: measurement_interval, step_size and order_of_approx_for_exp_iP \
+                 must be positive"
+                    .into(),
             );
         }
         Ok(FlowMonitor {

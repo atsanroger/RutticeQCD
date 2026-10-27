@@ -268,6 +268,32 @@ fn impossible_requests_are_rejected_before_any_work() {
         "{WILSON_YAML}GaugeFixing:\n  gauge_fixing_type : Coulomb\n  overrelaxation_parameter : 0.0\n"
     ));
     assert!(m.contains("overrelaxation"), "{m}");
+    // A reset uses the violation of the same sweep: 1000 sweeps are no multiple of 7.
+    let m = invalid(format!(
+        "{WILSON_YAML}GaugeFixing:\n  gauge_fixing_type : Coulomb\n  interval_of_measurement : 7\n"
+    ));
+    assert!(m.contains("multiple"), "{m}");
+    // Gauge smearing, refused when read: the keys of APE's projection with APE only, numbers
+    // that make sense.
+    for (block, word) in [
+        (
+            "Stout\n  rho_uniform : 0.1\n  maximum_number_of_iteration : 50",
+            "for smear_type APE",
+        ),
+        ("APE\n  rho_uniform : .nan", "rho_uniform"),
+        (
+            "APE\n  rho_uniform : 0.1\n  convergence_criterion : 0.0",
+            "positive",
+        ),
+    ] {
+        let text = format!(
+            "{WILSON_YAML}GaugeSmearing:\n  number_of_smearing : 1\n  smear_type : {block}\n"
+        );
+        match Params::from_yaml(&text) {
+            Err(CliError::Parse(m)) => assert!(m.contains(word), "{m}"),
+            other => panic!("expected the file refused, got {:?}", other.map(|_| ())),
+        }
+    }
     // Multigrid needs a flexible solver (FGMRES, BiCGStab) and blocks that divide the
     // lattice.
     let with_multigrid = |block: &str| {
@@ -741,7 +767,7 @@ fn the_hmc_example_repeats_bridge() {
 /// (its forces left out), a save interval of zero (a division by zero after the first
 /// trajectory).
 #[test]
-fn hmc_refuses_zero_steps_and_a_zero_save_interval() {
+fn hmc_refuses_zero_steps_orders_and_intervals() {
     use ruttice::app::hmc::HmcConfig;
     let file = |steps: &str, interval: &str| {
         format!(
@@ -774,6 +800,23 @@ Action_G:
     assert_eq!(error("[2, 3]", "1"), None);
     let zero_steps = error("[0, 3]", "1").expect("refused");
     assert!(zero_steps.contains("number_of_steps"), "{zero_steps}");
+    // exp(iP) to order 0 would never move the links.
+    let order = HmcConfig::from_yaml(&file("[2, 3]", "1").replace(": 8", ": 0"))
+        .expect_err("refused")
+        .to_string();
+    assert!(order.contains("order_of_exp_iP"), "{order}");
+    for flow in [
+        "step_size : .nan",
+        "step_size : 0.02\n  order_of_approx_for_exp_iP : 0",
+    ] {
+        let m = HmcConfig::from_yaml(&format!(
+            "{}GradientFlow:\n  measurement_interval : 1\n  {flow}\n",
+            file("[2, 3]", "1")
+        ))
+        .expect_err("refused")
+        .to_string();
+        assert!(m.contains("GradientFlow"), "{m}");
+    }
     let zero_interval = error("[2, 3]", "0").expect("refused");
     assert!(
         zero_interval.contains("save_config_interval"),

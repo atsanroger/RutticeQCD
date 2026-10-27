@@ -4,6 +4,7 @@
 use super::link;
 use super::paths::Extended;
 use crate::kernel::{ColorMatrix, Cplx};
+use crate::lattice::for_sites::reduce_sites_mut;
 use crate::{for_sites, Field, Gauge, ND};
 use rayon::prelude::*;
 
@@ -442,34 +443,18 @@ impl Ape {
 
     /// G maximising Re tr(A G) site by site, by sweeps over the three SU(2) subgroups until
     /// the sweep changes G by less than the tolerance on average over all processes.
-    fn max_trace(
-        &self,
-        mut a: Vec<ColorMatrix<f64>>,
-        lat: &crate::Lattice,
-    ) -> Vec<ColorMatrix<f64>> {
-        let mut g = vec![ColorMatrix::identity(); a.len()];
+    fn max_trace(&self, a: Vec<ColorMatrix<f64>>, lat: &crate::Lattice) -> Vec<ColorMatrix<f64>> {
+        let mut ag: Vec<_> = a
+            .into_iter()
+            .map(|a| (a, ColorMatrix::identity()))
+            .collect();
         let total = (3 * lat.num_global_sites()) as f64;
         for _ in 0..self.max_iterations {
             super::count::ape_sweep(lat.num_sites());
-            let retr: f64 = a
-                .par_iter_mut()
-                .zip(g.par_iter_mut())
-                .map(|(ax, gx)| {
-                    let mut delta = ColorMatrix::identity();
-                    for i1 in 0..3 {
-                        let i2 = (i1 + 1) % 3;
-                        let v = su2_max(ax, i1, i2);
-                        *ax = ax.mul(&v);
-                        *gx = gx.mul(&v);
-                        delta = delta.mul(&v);
-                    }
-                    delta.trace().re
-                })
-                .sum();
-            let mut sum = [retr];
+            let mut sum = [sweep(&mut ag)];
             lat.comm.sum(&mut sum);
             if 1.0 - sum[0] / total < self.tolerance {
-                return g;
+                return ag.into_iter().map(|(_, g)| g).collect();
             }
         }
         panic!(
@@ -477,6 +462,25 @@ impl Ape {
             self.max_iterations
         );
     }
+}
+
+/// One sweep over the three SU(2) subgroups at every site of (A, G): A ← A v and G ← G v for
+/// each subgroup's v. Returns Σ Re tr ΔG over the sites, ΔG the product of the three v,
+/// summed in a fixed order so that the number of sweeps does not depend on the threads.
+fn sweep(ag: &mut [(ColorMatrix<f64>, ColorMatrix<f64>)]) -> f64 {
+    let sums = reduce_sites_mut(ag, 1, 1, |_, site, acc| {
+        let (ax, gx) = &mut site[0];
+        let mut delta = ColorMatrix::identity();
+        for i1 in 0..3 {
+            let i2 = (i1 + 1) % 3;
+            let v = su2_max(ax, i1, i2);
+            *ax = ax.mul(&v);
+            *gx = gx.mul(&v);
+            delta = delta.mul(&v);
+        }
+        acc[0] += delta.trace().re;
+    });
+    sums[0]
 }
 
 /// The SU(2) matrix in rows and columns i1, i2 that maximises Re tr(A v).
@@ -570,6 +574,29 @@ mod tests {
         // Spatial weights leave the time links alone.
         let v = Stout { rho: spatial(0.1) }.apply(&w);
         assert_eq!(v.slab(ND - 1), w.slab(ND - 1));
+    }
+
+    /// The sum that stops APE's projection, and so the number of sweeps, does not depend on
+    /// the number of threads.
+    #[test]
+    fn ape_sweep_sum_does_not_depend_on_threads() {
+        let lat = Lattice::single_node([4, 4, 8, 8]);
+        let u = random_gauge(&lat, 5);
+        let c = weighted_staples(&u, &uniform(0.3));
+        let start: Vec<_> = (0..u.num_sites())
+            .map(|x| {
+                let a = link(&c, 1, x).add(&link(&u, 1, x).scale(0.7));
+                (a, ColorMatrix::identity())
+            })
+            .collect();
+        let sums = [1, 2, 3, 8].map(|threads| {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            pool.install(|| sweep(&mut start.clone()).to_bits())
+        });
+        assert!(sums.iter().all(|s| *s == sums[0]), "{sums:?}");
     }
 
     /// Smearing and its chain rule give the same links on several processes as on one.

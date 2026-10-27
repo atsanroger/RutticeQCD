@@ -28,8 +28,8 @@ The sections of a file that solves for propagators:
 |---|---|
 | `Main` | `lattice_size`; `grid_size` (processes per direction); `backend` (`cpu`, `simd` or `cuda_bridge`) and `simd_lanes` |
 | `Gauge` | `config_filename_input` and `gauge_config_type_input` (`Text`, `Binary`, `NERSC`, `ILDG`, `SciDAC`, `HDF5`) |
-| `GaugeFixing` | optional: `gauge_fixing_type : Coulomb` and its parameters |
-| `GaugeSmearing` | optional: stout or APE smearing of the links the fermions see |
+| `GaugeFixing` | optional: `gauge_fixing_type : Coulomb` and its parameters (Bridge++'s keys; `iteration_to_reset` a multiple of `interval_of_measurement`, since a reset uses the violation measured at that sweep) |
+| `GaugeSmearing` | optional: `smear_type` (`Stout`, `APE`), `rho_uniform`, `number_of_smearing`, `spatial_only`; APE also `convergence_criterion` (1e-15) and `maximum_number_of_iteration` (100) of its projection to SU(3), refused with stout |
 | `Fopr` | the fermion: `fermion_type` (`Wilson`, `Clover`, `Mobius`) and its parameters |
 | `Source` | `source_type` (`Local`, `Exponential`), `source_position` |
 | `Quark_2` … `Quark_4` | Wilson and clover: further quarks, each a `Fopr` and a `Source` |

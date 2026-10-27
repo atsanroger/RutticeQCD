@@ -111,6 +111,11 @@ pub const PLANES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3),
 /// Clover-leaf field strength, one 3 × 3 matrix per site and plane (the outer index runs
 /// over `PLANES`):
 ///
+///   F_μν(x) = (Q − Q†) / 8,
+///
+/// Q the sum of the four plaquettes in the μν plane that start and end at x, all turning the
+/// same way. F is anti-Hermitian; its trace is not removed.
+///
 /// The stencil must give a neighbour in every direction (no Dirichlet boundaries).
 pub fn field_strength(u: &Field<f64, Gauge>, st: &Stencil) -> Field<f64, Gauge> {
     assert!(

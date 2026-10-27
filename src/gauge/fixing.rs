@@ -91,6 +91,13 @@ pub fn fix_coulomb(
         lat.global
     );
     assert!(params.measure_interval > 0 && params.reset_interval > 0);
+    // A reset uses the violation measured at the same sweep.
+    assert!(
+        params
+            .reset_interval
+            .is_multiple_of(params.measure_interval),
+        "the reset interval must be a multiple of the measurement interval"
+    );
     let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
     let parity: Vec<Parity> = (0..lat.num_sites())
         .map(|x| Parity::of(lat.global_coords(x)))
@@ -140,7 +147,14 @@ fn largest(v: &[f64]) -> f64 {
 
 /// How far `u` is from Coulomb gauge, per global time slice:
 ///
-/// The stencil must be periodic in every direction.
+///   σ(t) = Σ_{x in slice t} |Δ(x)|² / (4 N_c V_t),  Δ(x) = [M(x) − M(x)†]_traceless,
+///   M(x) = Σ_i [U_i(x − i) − U_i(x)],
+///
+/// |·|² the sum of the squares of all real components, V_t the sites of a time slice. The
+/// factor 4 (the number of dimensions, not of spatial ones) is Bridge++'s normalisation of
+/// its convergence criterion.
+///
+/// The stencil must be periodic in every direction. The sum runs over all processes.
 pub fn coulomb_violation(u: &Field<f64, Gauge>, st: &Stencil) -> Vec<f64> {
     let lat = u.lattice();
     let back: [_; TIME] = core::array::from_fn(|i| shifted(u, st, i, BWD));

@@ -63,7 +63,7 @@ pub fn flow_measure(args: &[String], comm: Arc<dyn Comm>, out: &mut dyn Write) -
             }
         }
     }
-    if positional.len() < 6 || step <= 0.0 {
+    if positional.len() < 6 || step.is_nan() || step <= 0.0 {
         return usage(out);
     }
     let mut size = [0usize; ND];
