@@ -46,7 +46,7 @@ is taken apart line by line, with every symbol defined before it is used, so tha
 followed with nothing more than standard graduate coursework in lattice QCD. The sections follow the
 note: each heading names the section of the note it derives (Secs.~II--IV), so the two can be read
 side by side. The last two sections go beyond the note: the solves of HMC, derived from the path
-integral (the note only reports the HMC measurements, Sec.~V.B.3), and a map from each step to the
+integral (the note leaves HMC to future work), and a map from each step to the
 code. Nothing here is new with respect to the note and the code.
 
 \tableofcontents
@@ -289,7 +289,7 @@ matrix in $s$ ($-mD_-\Pp$ and $-mD_-\Pm$), and $C$ only in its corner $m\,d_-$:
 D-\Dpv=(1-m)\,D_-\,\big(\Pp\ \text{in corner }(0,L_s-1)+\Pm\ \text{in corner }(L_s-1,0)\big),
 \end{equation}
 a term localized at the walls. So $A'$ is $X\dg X$ plus a wall term; its eigenvalues stay in the
-right half-plane (note Figs.~2--3), which is what a Krylov method and a polynomial smoother need.
+right half-plane (note Figs.~2 and~7), which is what a Krylov method and a polynomial smoother need.
 
 \subsection{Neff's $\alpha$ (note Sec.~II.B.6)}
 Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
@@ -919,7 +919,7 @@ The preconditioner of Sec.~\ref{sec:c4} never inverts $D_-$.
 
 % ======================================================================
 \section{HMC}
-The note does not derive HMC; it reports only the measurements (note Sec.~V.B.3). This section goes
+The note does not derive HMC and leaves its measurements to future work. This section goes
 through HMC from the path integral to the solves of the force, and then shows where the multigrid
 enters.
 

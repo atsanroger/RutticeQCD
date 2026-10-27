@@ -71,10 +71,6 @@
 \renewcommand{\theequation}{\arabic{section}.\arabic{equation}}
 
 % ----- Statements -----
-\theoremstyle{plain}
-\newtheorem{proposition}{Proposition}
-\theoremstyle{remark}
-\newtheorem{remark}{Remark}
 % Marker for statements that are derived here but not checked independently
 
 % ===== Notation =====
@@ -132,7 +128,7 @@ the method and the questions that are open.\fi
 
 \vspace{1ex}
 {\small\noindent This paper is licensed under CC BY 4.0
-(\url{https://creativecommons.org/licenses/by/4.0/}), except Figs.~\ref{fig:free}--\ref{fig:A},
+(\url{https://creativecommons.org/licenses/by/4.0/}), except Figs.~\ref{fig:free}, \ref{fig:A} and~\ref{fig:pv},
 reproduced from Ref.~\cite{KCM2024} under its CC BY-NC-ND 4.0.\par}
 \vspace{1ex}
 
@@ -240,7 +236,7 @@ system is solved in a $\Sigma$-Hermitian form by MINRES, and levels below the co
 a dense LU at the bottom take the place of deflation (Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
 non-normal operator. The prolongation lifts these vectors to the whole lattice in
 two ways, one for each coarse solve; for the right form this makes the correction exact on them
-(Proposition~\ref{prop:exact}).\ifresults{} The left form used in practice is not exact, but
+(Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
 with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
 Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap. For HMC we
 also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive$, is a good
@@ -254,10 +250,11 @@ Section~\ref{sec:overview} describes the method in words. Section~\ref{sec:opsec
 spectra the construction rests on and defines the operator, its preconditioning and the even-odd
 forms. Section~\ref{sec:method} gives the two-grid method: the factorized correction, the coarse
 solvers, the setup, the smoother and the outer solver. Section~\ref{sec:dagger} solves with
-$D\dg$.\ifresults{} Section~\ref{sec:results} gives the results: first the cost against CGNE, with $D\dg$ and
-in HMC, then what each part of the method contributes, then why it converges. Section~\ref{sec:summary} sums up.\fi{} Section~\ref{sec:open}
+$D\dg$.\ifresults{} Section~\ref{sec:results} gives the results: first the cost against CGNE and with $D\dg$,
+then what each part of the method contributes, then why it converges. Section~\ref{sec:summary} sums up.\fi{} Section~\ref{sec:open}
 lists open problems. Appendix~\ref{sec:notation}
-relates our notation to other references\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
+relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
+other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
 configurations\fi. The companion text
 \texttt{docs/mg\_background/MG\_WALKTHROUGH.tex} in the RutticeQCD repository derives every
 formula of this paper line by line.
@@ -312,7 +309,7 @@ vectors of its smallest singular values.
 FGMRES steps with it to each vector; this enriches the vector in what the cycle still misses.
 \item We lift each $y$ to the whole lattice in two ways, $s$ and $\hat t$, one for each coarse
 solve. For the right form this makes the correction exact on these vectors
-(Proposition~\ref{prop:exact}); the left form is not exact (Sec.~\ref{sec:basis}).
+(Eq.~\eqref{eq:exact}); the left form is not exact (Sec.~\ref{sec:basis}).
 \item We split the lifts by their $\Gfive$-chirality and orthonormalize them on each block. This
 gives $\Pro$, and from it the coarse operators of $D$ and $\Dpv$.
 \end{enumerate}
@@ -341,8 +338,9 @@ low degree exists only if a region that excludes the origin, such as an ellipse,
 spectrum. The Chebyshev smoother of Sec.~\ref{sec:smoother} needs the same, since it is defined by
 an ellipse in the right half-plane. Both therefore need the eigenvalues on one side of the
 origin. Those of the domain-wall operator do not, and the
-preconditioners below move them there. Figures~\ref{fig:free}--\ref{fig:A}, from
-Ref.~\cite{KCM2024}, show what each preconditioner does; the captions give the lattices.
+preconditioners below move them there. Figures~\ref{fig:free} and~\ref{fig:A}, from
+Ref.~\cite{KCM2024}, show the spectrum without and with both preconditioners;
+Fig.~\ref{fig:pv} in Appendix~\ref{sec:otherprec} shows the other preconditioners discussed below.
 
 \begin{figure}[tbp]
 \centering
@@ -384,26 +382,13 @@ operator (Sec.~\ref{sec:correction}).
 
 \begin{figure}[tbp]
 \centering
-\includegraphics[width=\linewidth]{spectrum_fig3.png}
-\caption{Low and high ends of the spectrum of the M\"obius operator on a
-JLQCD $2+1$-flavor configuration at the physical point, with preconditioners.
-Left column: $D$, $DC^{-1}$, $(C^{-1}D)\dg C^{-1}D$. Right column:
-$\Dpv\dg D$, $\Bpv\dg D$, $\Bpv^{-1}D$, where $\Bpv$ is the block-diagonal
-approximation of $\Dpv$ (inverted approximately in the last panel). The text of
-Ref.~\cite{KCM2024} quotes $48^3\times16$ with $L_s=12$; the panel titles read
-$32^3\times16\times12$. Reproduced from Ref.~\cite{KCM2024}, Fig.~3, under its license CC BY-NC-ND 4.0.}
-\label{fig:pv}
-\end{figure}
-
-\begin{figure}[tbp]
-\centering
 \includegraphics[width=\linewidth]{spectrum_fig4.png}
-\caption{Left: spectrum of $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, Eq.~\eqref{eq:Aprime},
-on the configuration of Fig.~\ref{fig:pv}; all real parts are positive. Right:
-the same with $\Dpv$ replaced by its block-diagonal approximation $\Bpv$; negative
-real parts reappear. Lattice size as in Fig.~\ref{fig:pv} (the text of the source
-quotes $48^3\times16$, $L_s=12$; the panel titles read $32^3\times16\times12$).
-Reproduced from Ref.~\cite{KCM2024}, Fig.~4, under its license CC BY-NC-ND 4.0.}
+\caption{Left: spectrum of $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, Eq.~\eqref{eq:Aprime}, on a JLQCD
+$2+1$-flavor configuration at the physical point; all real parts are positive. Right: the same
+with $\Dpv$ replaced by its block-diagonal approximation $\Bpv$; negative real parts reappear.
+The text of Ref.~\cite{KCM2024} quotes $48^3\times16$ with $L_s=12$; the panel titles read
+$32^3\times16\times12$. Reproduced from Ref.~\cite{KCM2024}, Fig.~4, under its license
+CC BY-NC-ND 4.0.}
 \label{fig:A}
 \end{figure}
 
@@ -419,7 +404,7 @@ $-5.0\times10^{-2}$ without), and for the multigrid-preconditioned $\AR\mathcal 
 below (Sec.~\ref{sec:fov}). The bound of Ref.~\cite{ESS} is then lost, but the
 spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.78$ and its pseudospectra bound
 full GMRES (Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}); truncated GCR is not covered
-(Sec.~\ref{sec:gcrk}). For the full-lattice $A'$ it has not been measured.\else{}Whether
+(Sec.~\ref{sec:gcrk}).\else{}Whether
 it occurs for $A'$ and its even-odd forms is open (Sec.~\ref{sec:open}).\fi
 
 % ============================================================
@@ -729,7 +714,7 @@ $\psi^{(\alpha)}_e=\Ce^{-1}y$ (right) or $y$ (left),
 $\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alpha)}$.
 
 \paragraph{Why both forms.} The two forms serve different purposes. The factorized correction of
-Sec.~\ref{sec:correction} is exact for the right form (Proposition~\ref{prop:exact}), but $Q$
+Sec.~\ref{sec:correction} is exact for the right form (Eq.~\eqref{eq:exact}), but $Q$
 cancels in it, so the right form cannot use Neff's $\alpha$. The left form keeps $\alpha$. The
 correction is not exact for it, yet it converges within a few iterations of the right form, and
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
@@ -876,7 +861,7 @@ result of the first coarse solve, that of the adjoint Pauli--Villars operator, a
 its even part, with $O_M$, is the right-hand side of the second, that of the quark
 operator, whose result is $v=\Pro\Dc^{-1}\Pro\dg\iota O_M\pi u$; $e=O_L\pi v$. In
 blue, after ``$=$'', the values for $r=\AR y$ in the right form with exact coarse solves and
-$s,\hat t\in\operatorname{range}\Pro$ (Proposition~\ref{prop:exact}; $O_R=\Cpve\dg$,
+$s,\hat t\in\operatorname{range}\Pro$ (Eq.~\eqref{eq:exact}; $O_R=\Cpve\dg$,
 $O_M=1$, $O_L=\Ce$): the first solve returns the lift $\hat t$, whose even part is
 $a=\pi Ds$, the second returns the lift $s$, and the correction returns $y$.}
 \label{fig:correction}
@@ -955,7 +940,7 @@ form of $\Dpv\dg$ has $(D_{\mathrm{PV},eo})\dg$ as its odd-even block and $\Cpvo
 diagonal block, and the same computation gives $\Dpv\dg\hat t=\iota\,\Spv\dg a$.
 
 The first coarse solve of the correction returns $\hat t$ and the second returns $s$
-(Proposition~\ref{prop:exact} below). Since $\hat t$ is made from $Ds$, the two lifts follow the
+(Eq.~\eqref{eq:exact} below). Since $\hat t$ is made from $Ds$, the two lifts follow the
 order of the solves. With the $y$ alone in the basis, each factor of the correction would be an
 approximation, and the errors of the two would multiply. The $2n$ vectors $\{s_j,\hat t_j\}$ are
 the test vectors, $n_v=2n$.
@@ -968,60 +953,50 @@ $(BB^{\mathsf T})^{-1}(BFB^{\mathsf T})(BB^{\mathsf T})^{-1}$, these are two Poi
 The product is only as good as each factor on the vectors it is applied to; here those are
 $\hat t$ and $s$.
 
-\begin{proposition}[Exactness, right form]
-\label{prop:exact}
-Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$ and $\Pro\dg\Dpv\dg\Pro$ be invertible, and
-let both coarse systems in Eq.~\eqref{eq:corr} be solved exactly, with the exact adjoint
-$\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form correction of $r=\AR y$ is $e=y$.
-\end{proposition}
-\begin{proof}
-For any invertible $\Pro\dg X\Pro$, the map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the identity on
-$\operatorname{range}\Pro$. We follow $r$ through the correction with the factors of the right
-form, $O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$.
-\begin{enumerate}
-\item $O_Rr=\Cpve\dg\AR y=\Spv\dg S\Ce^{-1}y=\Spv\dg a$, and $\iota\Spv\dg a=\Dpv\dg\hat t$. So the
-first coarse solve returns $\hat t$, whose even part is $\pi\hat t=a=\pi Ds$.
-\item The second solve has the right-hand side $\Pro\dg\iota\pi Ds=\Pro\dg Ds$, because $Ds$
-vanishes on the odd sites. It returns $s$, whose even part is $\pi s=\Ce^{-1}y$.
-\item Finally $O_L=\Ce$ gives $e=y$.\qedhere
-\end{enumerate}
-\end{proof}
+\paragraph{Exactness for the right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
+and $\Pro\dg\Dpv\dg\Pro$ be invertible, and let both coarse systems in Eq.~\eqref{eq:corr} be
+solved exactly, with the exact adjoint $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form
+correction returns the vector it is built from,
+\begin{equation}
+e(\AR y)=y .
+\label{eq:exact}
+\end{equation}
+For any invertible $\Pro\dg X\Pro$ the map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the identity on
+$\operatorname{range}\Pro$, and we follow $r=\AR y$ through the correction with the factors of the
+right form, $O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$. First, $O_Rr=\Cpve\dg\AR y=\Spv\dg S\Ce^{-1}y=\Spv\dg a$
+and $\iota\Spv\dg a=\Dpv\dg\hat t$, so the first coarse solve returns $\hat t$, whose even part is
+$\pi\hat t=a=\pi Ds$. The second solve then has the right-hand side $\Pro\dg\iota\pi Ds=\Pro\dg Ds$,
+because $Ds$ vanishes on the odd sites, and returns $s$, whose even part is $\pi s=\Ce^{-1}y$.
+Finally $O_L=\Ce$ gives $e=y$.
 
-\begin{remark}[Conditions in practice]
-The proposition needs three things.
-(i)~$s$ and $\hat t$ in the range of the stored $\Pro$. This holds only up to the rounding of the
-reduced-precision storage of $\Pro$.
-(ii)~The exact adjoint of the Pauli--Villars coarse factor. The $\Sigma$-adjoint $\Sigma\Dcpv\Sigma$
-of Sec.~\ref{sec:coarse} equals it only if $\Gfive\Dpv\Gfive=\Dpv\dg$, which fails for $c\neq0$ by
-Eq.~\eqref{eq:g5herm}.
-(iii)~Exact coarse solves, whereas we stop them at a loose tolerance.\ifresults{} Numerically, with
-both coarse factors solved on their exact adjoints to $|r|^2/|b|^2<10^{-24}$ in double precision
-and $\Pro$ in half precision, the correction of $r=\AR y_j$ returns $y_j$ to
+\paragraph{In practice.} Equation~\eqref{eq:exact} needs three conditions that hold only
+approximately. The stored $\Pro$ contains $s$ and $\hat t$ only up to the rounding of its
+reduced-precision storage. The $\Sigma$-adjoint $\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse}
+equals the exact adjoint only if $\Gfive\Dpv\Gfive=\Dpv\dg$, which fails for $c\neq0$ by
+Eq.~\eqref{eq:g5herm}. And we stop the coarse solves at a loose tolerance.\ifresults{} With both
+coarse factors solved on their exact adjoints to $|r|^2/|b|^2<10^{-24}$ in double precision and
+$\Pro$ in half precision, the correction of $r=\AR y_j$ returns $y_j$ to
 $\|e-y_j\|/\|y_j\|=3\times10^{-4}$--$5\times10^{-4}$ on $4^3\times8$ ($2^4$ aggregates, $M_5=1.8$,
-$m=0.05$) and $3\times10^{-4}$--$2.5\times10^{-3}$ on $12^4$ (setup~S, $m=0.001$). For random
-vectors the same quantity is $3$--$37$. So the proposition holds to the rounding of $\Pro$, and
-(i) costs about $10^{-3}$. (ii) costs nothing measurable (Sec.~\ref{sec:herm}). (iii) costs nothing:
-with GCR(2), accurate coarse solves are not faster, and on $12^4$ they stagnate
-(Secs.~\ref{sec:gcrk}, \ref{sec:sensitivity}).\else{} How much each departure costs has not been
-analyzed.\fi
-\end{remark}
+$m=0.05$) and $3\times10^{-4}$--$2.5\times10^{-3}$ on $12^4$ (setup~S, $m=0.001$), against $3$--$37$
+for random vectors. So Eq.~\eqref{eq:exact} holds to the rounding of $\Pro$, about $10^{-3}$. The
+$\Sigma$-adjoint costs no measurable iterations (Sec.~\ref{sec:herm}), and accurate coarse solves
+are not faster with GCR(2) and stagnate on $12^4$ (Secs.~\ref{sec:gcrk},
+\ref{sec:sensitivity}).\else{} How much each departure costs has not been analyzed.\fi
 
-\begin{remark}[Left form]
-For the left form with $\alpha$ in both operators, the same argument needs the quark lift $s'$ of
-$Q_ey'$ and the Pauli--Villars lift $\hat t'$ of $u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ in
-$\operatorname{range}\Pro$ (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For $\alpha=1$ and
-$y'=\Ce^{-1}y$ we have $s'=s$. But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a
-site-local matrix that mixes $s$ and spin, so $\hat t'$ is in general not in the span of the
-right-form vectors. The correction is therefore not exact for the left form.\ifresults{}
-Numerically ($\alpha=1$), for $r=\AL y'$ with $y'=\Ce^{-1}y_j$ the correction misses $y'$ by
-$\|e-y'\|/\|y'\|=0.05$--$0.18$ on $4^3\times8$ and $1.6$--$24$ on $12^4$, not much better than for
-random vectors ($8$--$35$). The left form converges nonetheless: it has the spectrum of the right
-form and needs one to five iterations more or fewer (Secs.~\ref{sec:spectrum}, \ref{sec:gcrk},
-\ref{sec:sensitivity}). So the cycle does not need the exactness of
-Proposition~\ref{prop:exact}, but with the same vectors $y$ it does need $\hat t$ in the
-basis; on $24^3\times48$ one lift of twice as many vectors $y$ does as well
+\paragraph{The left form.} For the left form with $\alpha$ in both operators, the same argument
+needs the quark lift $s'$ of $Q_ey'$ and the Pauli--Villars lift $\hat t'$ of
+$u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ in $\operatorname{range}\Pro$
+(Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For $\alpha=1$ and $y'=\Ce^{-1}y$ we have $s'=s$.
+But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that mixes $s$ and
+spin, so $\hat t'$ is in general not in the span of the right-form vectors, and the correction is
+not exact for the left form.\ifresults{} For $\alpha=1$ and $r=\AL y'$ with $y'=\Ce^{-1}y_j$ the
+correction misses $y'$ by $\|e-y'\|/\|y'\|=0.05$--$0.18$ on $4^3\times8$ and $1.6$--$24$ on $12^4$,
+not much better than for random vectors ($8$--$35$). The left form converges nonetheless: it has
+the spectrum of the right form and needs one to five iterations more or fewer
+(Secs.~\ref{sec:spectrum}, \ref{sec:gcrk}, \ref{sec:sensitivity}). So the cycle does not need the
+exactness~\eqref{eq:exact}, but with the same vectors $y$ it does need $\hat t$ in the basis; on
+$24^3\times48$ one lift of twice as many vectors $y$ does as well
 (Sec.~\ref{sec:basischoice}).\fi
-\end{remark}
 
 \subsubsection{The coarse operators}
 We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
@@ -1074,7 +1049,7 @@ non-Hermitian matrix and has no guarantee.\ifresults{} On the coarse space the n
 percent, up to $14\%$ in the directions of the smallest singular values, and linear in $c$. Even so, MINRES on $\Hc$ needs the same outer iterations at $c=0.5$ as for
 the Shamir operator and is better than the exact adjoint with BiCGStab
 (Sec.~\ref{sec:herm}). The absolute-value block preconditioner and the additive level
-preconditioner below, also exact only for $c=0$, are used as they are, and their losses were not measured separately.\fi The preconditioner must be Hermitian positive definite; we use the
+preconditioner below, also exact only for $c=0$, are used as they are.\fi The preconditioner must be Hermitian positive definite; we use the
 absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
 V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
 on each coarse site. On a coarse lattice with even extents, the Schur
@@ -1366,13 +1341,13 @@ On quenched configurations on one GPU the multigrid iterations on $24^3\times48$
 of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
 faster than with mixed-precision CGNE from $24^4$ on, by $4.5$--$4.8$ on $24^3\times48$, and a
 point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and
-the solves with $D\dg$, and the multigrid runs in HMC. The field of values of the preconditioned
+the solves with $D\dg$. The field of values of the preconditioned
 operator reaches into the left half-plane; its spectrum and pseudospectra account for the
 convergence.
 
 The evidence is limited to one configuration per volume, volumes up to $24^3\times48$, and CGNE as
 the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
-implementation, and larger volumes, are the next steps (Sec.~\ref{sec:open}). For propagators,
+implementation, larger volumes, and the use in HMC are the next steps (Sec.~\ref{sec:open}). For propagators,
 applying the coarse operators and the transfer to the 12 columns of a point source together would
 raise their intensity from about one flop per byte to about ten, as for Wilson-clover
 multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
@@ -1434,15 +1409,18 @@ construction, but whether the even-odd system is preferable for this method has 
 established. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
 whether a $\Pro$ built from the near-null vectors of $D^{(\alpha)}$, $Q^{-1}$ times those of $D$,
 helps the left form with $\alpha$ has not been tried.
+\item \textbf{HMC.} In HMC the setup is renewed as the gauge field changes, and each force
+evaluation needs one solve with $D$ and one with $D\dg$. The multigrid runs in the HMC of
+RutticeQCD, but its cost there has not been measured on a dynamical ensemble on which CG needs many
+iterations, and is left for future work.
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.
 
 \begin{enumerate}
-\item \textbf{Exactness for the left form.} Proposition~\ref{prop:exact} holds
+\item \textbf{Exactness for the left form.} Eq.~\eqref{eq:exact} holds
 for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
-that would be needed differs from $\hat t$ by site-local factors (second remark
-of Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
+that would be needed differs from $\hat t$ by site-local factors (Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
 once, and what is lost by using the right-form basis for the left form, is open.
 
 \item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
@@ -1550,6 +1528,24 @@ $\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
 \end{tabular}
 \end{table}
 
+\section{Spectra with other preconditioners}
+\label{sec:otherprec}
+Figure~\ref{fig:pv} reproduces Fig.~3 of Ref.~\cite{KCM2024}. It shows the spectra that
+Sec.~\ref{sec:spectra} compares with that of $A'$: the unpreconditioned $D$, the site-diagonal
+$DC^{-1}$, the Pauli--Villars form $\Dpv\dg D$ of Ref.~\cite{BCHW}, and its block-diagonal
+approximations.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\linewidth]{spectrum_fig3.png}
+\caption{Low and high ends of the spectrum of the M\"obius operator on the configuration of
+Fig.~\ref{fig:A}, with preconditioners. Left column: $D$, $DC^{-1}$, $(C^{-1}D)\dg C^{-1}D$.
+Right column: $\Dpv\dg D$, $\Bpv\dg D$, $\Bpv^{-1}D$, where $\Bpv$ is the block-diagonal
+approximation of $\Dpv$ (inverted approximately in the last panel). Reproduced from
+Ref.~\cite{KCM2024}, Fig.~3, under its license CC BY-NC-ND 4.0.}
+\label{fig:pv}
+\end{figure}
+
 \ifresults
 \ifresults
 % ============================================================
@@ -1558,8 +1554,9 @@ $\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
 
 All quenched configurations use the plaquette gauge action at $\beta=6.0$ and were generated by
 the HMC of RutticeQCD from a cold start, 400 trajectories of length $0.5$ (on $24^3\times48$, 400
-from a cold start and then 200). The dynamical $16^4$ configuration was thermalized from the
-quenched one by the HMC of setup~S (Sec.~\ref{sec:hmcresults}). Table~\ref{tab:configs}
+from a cold start and then 200). The dynamical $16^4$ configuration was generated from the
+quenched one by HMC in setup~S with mixed-precision CG: 60 trajectories at $m=0.05$, then 40 at
+$m=0.01$, of length~1 with Omelyan steps $[20,2]$. Table~\ref{tab:configs}
 gives the plaquette, the scale $t_0$ ($t^2E=0.3$, $E$ of the clover field strength) and the
 topological charge at $t_0$ after the Wilson flow (step $0.01$), of the clover field strength and
 improved with rectangles ($c_{\rm plaq}=5/3$, $c_{\rm rect}=-1/12$). On the larger lattices the

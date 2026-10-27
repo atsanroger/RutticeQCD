@@ -54,7 +54,8 @@ iterations a solve at m 0.01 and at m 0.001 (finite volume), and the multigrid i
 4.2 (m 0.001) times slower a trajectory; tuning (smoother 4/6/8, coarse 1e-1, inner 1e-14,
 bootstrap 1 round, GCR(4)) gains at most 6%. The 24⁴ quenched configuration, where CG needs 6400,
 blows up in a trajectory of length 1. So there are no data yet that the multigrid is faster in
-HMC: the volumes thermalized here are finite-volume limited (the note, "In HMC"). Next: a volume
+HMC: the volumes thermalized here are finite-volume limited. These data were in the note ("In HMC") until 2026-10-27; the note now
+leaves HMC to future work (Open problems), to be filled from the runs of this release. Next: a volume
 where CG needs more than about 1300 iterations a solve. That 16⁴ configuration
 (`therm16/conf16_m0.01_000102.bin`, N_f 2, β 6.0 plaquette action, from the quenched one) has a
 flat plaquette after 100 trajectories but its topological charge has not been measured; it is not

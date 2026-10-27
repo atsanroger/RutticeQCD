@@ -48,11 +48,15 @@ practical simulations on unsmeared links, as in the RBC/UKQCD ensembles of
 Ref.~\cite{Arthur2013}: on rough
 fields the lattice artifact of the Wilson kernel shifts the best value of $M_5$ above~$1$.
 \item \emph{Setup S (stout links).} Three steps of the stout smearing of
-Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion operator, the
-setup adopted by the JLQCD Collaboration. Then $M_5=1.0$ is used, since the smearing largely
+Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion operator, and $M_5=1.0$ is used, as in the JLQCD
+ensembles of Ref.~\cite{JLQCDBpi} (its supplemental material, which also gives $b+c=2$,
+$b-c=1$); the smearing largely
 suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
-The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from one NVIDIA data-center GPU with $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
+The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from one NVIDIA data-center GPU with $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only. The device reductions add
+in an order that depends on the build and the GPU, so the iterations of otherwise equal runs can
+differ by a few. The commit, data file and program of each result are listed in the reproduction
+guide, \texttt{REPRODUCE.pdf}.
 
 \paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
 symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
@@ -94,10 +98,7 @@ MG})$, against the double- and the mixed-precision CGNE. The mixed-precision CGN
 needs the iterations of the double-precision one, except at $m=0.001$ (S): $4090$.
 Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$3\times10^{-16}$ (CGNE, both),
 $2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
-(double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$). RutticeQCD
-\texttt{6d5bf18}; \texttt{data/massscan\_24.tsv}. Against the earlier build
-\texttt{6c7ff42} the multigrid iterations differ by one or two in six of the 28 runs; whether a
-code change or the order of the device reductions causes this is not established.}
+(double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$).}
 \label{tab:massscan}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}
@@ -135,8 +136,7 @@ $0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
 solvers on $\AL$ without the multigrid (Table~\ref{tab:nomg}): iterations (top) and seconds
 per right-hand side (bottom) against the quark mass, $24^3\times48$.
 ``Solve + setup/12'': the setup spread over the 12 columns of one point-source
-propagator. \texttt{data/massscan\_24.tsv} (\texttt{6d5bf18}),
-\texttt{data/baseline\_mass\_2448.tsv} (\texttt{e044050}), \texttt{figures.py}.}
+propagator.}
 \label{fig:massscan}
 \end{figure}
 
@@ -173,8 +173,7 @@ $21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
 \caption{Point-source propagators (12 columns) on $24^3\times48$: the multigrid
 (setup seconds, iterations and seconds per column) against the mixed-precision CGNE
 (iterations and seconds per column), the wall time of the whole propagator, and the
-largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
-\texttt{6d5bf18}; \texttt{data/pointsource\_24.tsv}.}
+largest relative difference of the pseudoscalar correlator at $t=0\ldots3$.}
 \label{tab:pointsource}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -203,8 +202,7 @@ BiCGStab on $\AL$ alone (Sec.~\ref{sec:nomg}) is slower than mixed CGNE on every
 \begin{table}[t]
 \centering
 \caption{Iterations and solve seconds at $m=0.001$ against the volume, one random right-hand
-side, RutticeQCD \texttt{e044050}; multigrid: plus its setup.
-\texttt{data/baseline\_volume.tsv}, \texttt{data/baseline\_mass\_2448.tsv}.}
+side; multigrid: plus its setup.}
 \label{tab:volume}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}
@@ -235,9 +233,7 @@ $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$, and the coarse correction takes the re
 masses the smoother part still sets the iterations, and $\alpha$ helps as in~B; at light masses
 the low modes set them, they belong to the coarse space, and $\alpha$ has little left to
 improve. CG on the normal equation has no such split: every mode enters its condition number,
-so $\alpha$ reduces its iteration count at all masses (in HMC on $24^4$ at $m=0.001$ in setup~S, mixed-precision CG
-takes 31996 iterations at $\alpha=0.6$ against 40912 at $\alpha=1$, the multigrid 362 against
-356). This reading is consistent with the numbers but was not checked on the spectra.
+so the better conditioning that $\alpha$ gives it~\cite{Neff,CKMN} acts at all masses. This reading is consistent with the numbers but was not checked on the spectra.
 
 
 \subsubsection{Solves with $D\dg$}
@@ -288,12 +284,6 @@ The same configuration is the one on which GCR(2) with exact coarse solves stagn
 (Sec.~\ref{sec:gcrk}), and there the topological charge is not the cause.
 On the same right-hand side the dual cycle does not converge at all.
 
-\paragraph{In a trajectory.} On $16^4$, setup~S, $m=0.01$, one short trajectory (five solves of
-$\mathcal K\dg \mathcal K$ to $10^{-24}$) takes 313 GCR(2) iterations and $60$~s with $\Gfive\mathcal M\Gfive$.
-With the dual cycle it needs GCR(8) (306 iterations, $73$~s); with GCR(2), GCR(4) or GCR(6) its
-solves with $D\dg$ stagnate. The rebuild of the multigrid for a new gauge field drops from $24$ to
-$15$~s, since there is no coarse operator of $\AR\dg$ to make.
-
 \paragraph{What did not work.} We tried several other ways to solve with $D\dg$ from one setup.
 None is as good as $\Gfive\mathcal M\Gfive$.
 \begin{itemize}
@@ -310,53 +300,6 @@ expensive. MINRES on the $\Gfive$-Hermitian form does not help, since that form 
 order $c$.
 \end{itemize}
 
-\subsubsection{In HMC}
-\label{sec:hmcresults}
-
-In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(\mathcal K\dg \mathcal K)^{-1}$,
-as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
-until it is small enough. The test vectors are kept from solve to solve and improved by a
-bootstrap when a trajectory starts; $\Pro$ and the coarse operators are kept until the iterations
-grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers.
-
-\paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the
-quenched one by mixed-precision CG: 60 trajectories at $m=0.05$ (acceptance $0.98$,
-$\langle e^{-\Delta H}\rangle=1.002$), then 40 at $m=0.01$ (acceptance $0.98$,
-$\langle e^{-\Delta H}\rangle=0.993$), trajectories of length~1 with Omelyan steps
-$[20,2]$; 10 steps were unstable at $m=0.01$ ($\Delta H\approx10^3$ with $\alpha=0.6$ and
-$\alpha=1$ alike). From it, five trajectories with the multigrid reproduce those of CG: the
-plaquette to $10^{-11}$, $\Delta H$ to three digits.
-
-\paragraph{Cost.} On this lattice the multigrid is the slower solver (Table~\ref{tab:hmc16}).
-CG needs about 300 iterations per solve at $m=0.01$ and still about 300 at $m=0.001$: on a
-dynamical configuration of this size the smallest eigenvalues are set by the finite volume. The multigrid needs about 55 iterations, but one of them, a whole
-cycle, costs about as much as 24 of CG. Varying the smoother (4, 6 or 8 steps), the coarse and
-the inner tolerances, the bootstrap rounds and the directions of GCR changed its time by at most
-$6\%$. On the quenched $24^4$ configuration at $m=0.001$, CG needs about 6400 iterations per solve, and the multigrid, setup included, is faster on a short trajectory
-(203\,s against 264\,s). But a trajectory of length~1 there blows up ($\Delta H\approx4\times10^9$),
-so that configuration is no test of HMC. Data that show the multigrid faster in HMC therefore do
-not exist yet: the dynamical volumes thermalized here are limited by the finite volume. They need
-a volume where CG takes more than about 1300 iterations per solve.
-
-\begin{table}[t]
-\centering
-\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$:
-seconds per trajectory of length~1 (Omelyan $[20,2]$ at $m=0.01$, $[40,2]$ at $m=0.001$), with the
-iterations per solve. The multigrid: 16 filtered vectors, GCR(2), the cycle in single precision;
-its time includes its setup (one bootstrap per trajectory) and rebuilds.}
-\label{tab:hmc16}
-\renewcommand{\arraystretch}{1.15}
-\begin{tabular}{@{}lcccc@{}}
-\toprule
- & \multicolumn{2}{c}{mixed CG} & \multicolumn{2}{c}{multigrid}\\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-$m$ & s & it/solve & s & it/solve\\
-\midrule
-$0.01$  & $23$ & $290$ & $79$  & $37$\\
-$0.001$ & $47$ & $305$ & $195$ & $55$\\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{What each part contributes}
 \label{sec:parts}
@@ -383,9 +326,7 @@ multigrid comes from its coarse correction.
 \begin{table}[t]
 \centering
 \caption{Solvers on $24^3\times48$, one random right-hand side, iterations and solve
-seconds (multigrid: plus its setup). RutticeQCD \texttt{e044050};
-\texttt{data/baseline\_mass\_2448.tsv} and \texttt{data/baseline\_volume.tsv} (all seven masses
-there).}
+seconds (multigrid: plus its setup).}
 \label{tab:nomg}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -406,7 +347,7 @@ multigrid & $15$, $5.8$ ($+198$) & $28$, $12.9$ ($+200$) & $15$, $6.8$ ($+205$) 
 
 \subsubsection{Choice of the prolongation basis}
 \label{sec:basischoice}
-Proposition~\ref{prop:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
+The exactness~\eqref{eq:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
 $\operatorname{range}\Pro$, but the left form used in practice is not exact
 (Sec.~\ref{sec:basis}). To see what $\hat t$ does there, we replace it by $Ds$, which
 vanishes on the odd sites, or drop it (Table~\ref{tab:basischoice}). With $\{s\}$ alone $\Pro$
@@ -418,10 +359,7 @@ the vectors of the filter and of the bootstrap.
 \caption{GCR(2) iterations on $\AL$ with $\Pro$ made of different lifts of the vectors $y$,
 $m=0.001$, one random right-hand side; the other parameters as in
 Table~\ref{tab:setups}; setup seconds on $24^3\times48$. ``stag.'': not converged in $2000$
-iterations. RutticeQCD \texttt{e044050} with the switch \texttt{RUTTICE\_BASIS\_LIFTS} of the
-branch \texttt{exp/basis-lifts}, whose default gives the results of \texttt{e044050} bit for
-bit; \texttt{data/basis\_12.tsv}, \texttt{basis\_16.tsv}, \texttt{basis\_2448.tsv} (with the
-right form on $12^4$ and $16^4$).}
+iterations.}
 \label{tab:basischoice}
 \small
 \renewcommand{\arraystretch}{1.12}
@@ -446,7 +384,7 @@ $24^3\times48$ in setup~S), and dropping it up to $22$ times or a stagnation. So
 also where the correction is not exact. Whether more vectors $y$ can take its place depends on
 the volume (below). On $12^4$ they cannot, which suggests that the Pauli--Villars solve needs the
 direction of $\hat t$ in $\operatorname{range}\Pro$. On $24^3\times48$ they can, and there $\hat t$
-is worth half the filter and the bootstrap. Neither reading has been checked further.
+is worth half the filter and the bootstrap.
 
 Twice as many vectors $y$ with $\{s\}$ alone depend on the volume. On $12^4$ they do not make
 up for $\hat t$ ($155$ against $14$ in setup~S), on $16^4$ they come within two iterations, and
@@ -455,11 +393,9 @@ setup~B ($13$ against $26$). They cost a setup $1.6$--$1.8$ times as long and tw
 memory ($38.7$ against $19.7$\,GB). Estimated from one random right-hand side, a point-source
 propagator (12 columns) is faster with the two lifts in both setups (S: $351$ against
 $506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their longer setup
-after about $21$ right-hand sides, and in HMC, where a setup serves few solves, the two lifts
-are cheaper. Whether the two lifts of $32$ vectors $y$ ($64$ columns, twice the memory of $\Pro$)
-improve further has not been tested. On the right form ($12^4$, $16^4$) the $32$ vectors $y$
+after about $21$ right-hand sides. On the right form ($12^4$, $16^4$) the $32$ vectors $y$
 alone need one or two iterations fewer than the two lifts in three of the four cases. Three
-repeats of a $12^4$ entry give the same solution bit for bit. The table comes from one
+repeats of a $12^4$ entry give identical solutions. The table comes from one
 configuration per volume and one right-hand side.
 \subsubsection{$\Gfive$-Hermiticity for $c\neq0$}
 \label{sec:herm}
@@ -470,7 +406,7 @@ configuration per volume and one right-hand side.
 $X=\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\Pro$, $X\dg$ the exact adjoint, $\Sigma$ the coarse
 $\Gfive$; $b-c=1$ throughout (as usual for M\"obius fermions), $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
 components; $12^4$: $4^4$, 64). Random $v$ (four) and the right singular vectors of the four
-smallest singular values. \texttt{examples/coarse\_hermiticity}. $^*$Lanczos on $X\dg X$ not
+smallest singular values. $^*$Lanczos on $X\dg X$ not
 converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vectors.}
 \label{tab:herm}
 \renewcommand{\arraystretch}{1.15}
@@ -515,8 +451,8 @@ with $c$ (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. Yet with MINRES 
 Pauli--Villars factor, the outer iterations at $c=0.5$ are those of the Shamir operator ($c=0$, a
 different operator, for which MINRES is exact). MINRES is also better than BiCGStab on the exact
 adjoint in every case (Table~\ref{tab:minres}), and with BiCGStab the stout setup nearly stagnates.
-So the non-Hermitian part of $\Hc$ is small enough for MINRES stopped at $10^{-2}$. Why BiCGStab
-is so much worse, also at $c=0$, has not been studied. The same weakness of BiCGStab on this factor
+So the non-Hermitian part of $\Hc$ is small enough for MINRES stopped at $10^{-2}$.
+The same weakness of BiCGStab on this factor
 makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 
 \subsubsection{Sensitivity to the parameters}
@@ -526,8 +462,8 @@ makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 \centering
 \caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
 $12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $16$ in setup~S, $14$ in
-setup~B; on the first GPU, $14$ in both, Table~\ref{tab:basischoice}); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
-change much. Second GPU, RutticeQCD \texttt{6d5bf18}; \texttt{data/sensitivity\_12.tsv}.}
+setup~B; $14$ in both in Table~\ref{tab:basischoice}, see Sec.~\ref{sec:setups}); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
+change much.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
@@ -551,16 +487,13 @@ necessary, and more accurate coarse solves do not help: on $12^4$ with GCR(2) th
 ones stagnate in setup~S (Sec.~\ref{sec:gcrk}). Larger setups (smaller aggregates, more test vectors)
 reduce the iteration count, but on $12^4$ not the time (Table~\ref{tab:costs}). All
 runs of the table use GCR(2); whether these stagnations are fixed points of the kind of
-Sec.~\ref{sec:gcrk}, and whether full GCR would remove them, has not been tested. Lüscher's test of local coherence for these test
-vectors has not been made.
+Sec.~\ref{sec:gcrk}, and whether full GCR would remove them, has not been tested. 
 
 \begin{table}[t]
 \centering
-\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the first GPU:
+\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, with timings:
 iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
-right-hand side, RutticeQCD \texttt{6d5bf18}; \texttt{data/costs\_12.tsv}. The iterations
-are those of Table~\ref{tab:sensitivity} (second GPU, the same build) in every row; with
-an earlier build they differed by up to six, the device kernels adding in other orders.}
+right-hand side. The iterations are those of Table~\ref{tab:sensitivity} in every row.}
 \label{tab:costs}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabular}{@{}lcc@{}}
@@ -592,19 +525,18 @@ For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the e
 more test vectors at the coarse size of fewer: they generate more, truncate them by a
 singular value decomposition on each aggregate and chirality (as $\Pro$ is split here
 by $\Gfive$), and stream the decomposition to save device memory. Applied here, the
-truncated basis would no longer contain $s$ and $\hat t$ exactly, so the exactness of
-Proposition~\ref{prop:exact} would be lost; whether the gain outweighs that has not been
+truncated basis would no longer contain $s$ and $\hat t$ exactly, so the exactness~\eqref{eq:exact}
+would be lost; whether the gain outweighs that has not been
 tried.
 With the setup as fast as it is now, the base setting is no longer the time optimum on
 $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
 no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
 setup. On $24^3\times48$ the fewer test vectors do not carry over (setup~S, $m=0.001$,
-point source, \texttt{6d5bf18}): $16$ halve the setup there too ($116$ against
+point source): $16$ halve the setup there too ($116$ against
 $207$\,s), but the columns that converge need $910$--$940$ iterations and the others stop
 at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the first column,
-against $29$--$32$ with $32$. More smoother steps have not been tried there. All runs use one setup seed, and the iterations move by a few
-between builds that add in other orders, so differences of a few iterations are within
-that variation.
+against $29$--$32$ with $32$. All runs use one setup seed, so differences of a few iterations are within the variation
+noted in Sec.~\ref{sec:setups}.
 
 \subsection{Why the method converges}
 \label{sec:why}
@@ -613,7 +545,7 @@ that variation.
 \label{sec:fov}
 
 The four parts of this subsection ask why the method converges, as it does in
-Secs.~\ref{sec:massscan} and \ref{sec:hmcresults}, although the usual theory does not apply. Two notions from non-Hermitian linear algebra are used. The \emph{field
+Sec.~\ref{sec:massscan}, although the usual theory does not apply. Two notions from non-Hermitian linear algebra are used. The \emph{field
 of values} $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the
 smallest eigenvalue of the Hermitian part $(X+X\dg)/2$; GCR is guaranteed to converge at
 every restart length when $W$ lies in the right half-plane~\cite{ESS}. The
@@ -622,18 +554,11 @@ i.e.\ where $\|(z-X)^{-1}\|>1/\varepsilon$; for a normal $X$ it is the
 $\varepsilon$-neighborhood of the spectrum, for a non-normal one it can be much larger,
 and it bounds the convergence of full GMRES~\cite{TrefethenEmbree}.
 
-Why the eigenvalues alone do not decide, for readers used to Hermitian matrices: the
-eigenvectors of a non-normal matrix are not orthogonal, and can be nearly parallel. A vector
-then decomposes into eigenvectors with large coefficients of opposite sign that cancel; each
-component decays as its eigenvalue says, but the cancellation is lost along the way, and
-$\|p(X)z\|$ can grow for a while although every eigenvalue lies in the right half-plane. The
-field of values sees this ($z\dg Xz$ can be negative for such a $z$), and so does the
-pseudospectrum. How nearly parallel an eigenvector is to the others is measured by the
-condition number of its eigenvalue, $\kappa=1/|y\dg x|$ for the right eigenvector $x$ and
-the left eigenvector $y$ normalized to $\|x\|=\|y\|=1$: $\kappa=1$ for a normal matrix,
-and large $\kappa$ means the eigenvalue moves by $\kappa\varepsilon$ under a perturbation of
-size $\varepsilon$, which is what widens the pseudospectrum around it
-(Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}).
+The condition number of an eigenvalue, $\kappa=1/|y\dg x|$ for its right and left
+eigenvectors $x$ and $y$ normalized to $\|x\|=\|y\|=1$, is $1$ for a normal matrix; a large
+$\kappa$ means that the eigenvalue moves by $\kappa\varepsilon$ under a perturbation of size
+$\varepsilon$, which widens the pseudospectrum around it (Secs.~\ref{sec:spectrum},
+\ref{sec:pseudo}).
 
 The coarse correction amplifies some vectors by $10^3$--$10^4$, and
 the field of values of the preconditioned operator reaches into the left half-plane
@@ -655,7 +580,7 @@ of Eq.~\eqref{eq:corr}, and the cycle $\mathcal M$ (Table~\ref{tab:fov}).
 $\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
 aggregates, 8 filtered low modes), $m=0.001$ otherwise, with the multigrid of the
 mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
-but no levels below the coarse lattice. \texttt{preconditioned\_fov\_device --parts}.
+but no levels below the coarse lattice.
 On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
 there the field of values of $\AR\mathcal M$ did not settle (the two dimensions differ
 by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
@@ -685,7 +610,7 @@ $-1.3\times10^{-2}$ (S) and stays at $-5\times10^{-2}$ (B).
 \item The smoother is harmless: $\|I-\AR\mathcal S\|\approx1$.
 \item The coarse correction amplifies: $\|I-\AR E\|$ is $10^3$--$10^4$, against $18.5$ on
 $4^3\times8$. $\AR E$ is the identity on the vectors the correction is built from
-(Proposition~\ref{prop:exact}), but it amplifies other directions by three to four orders of
+(Eq.~\eqref{eq:exact}), but it amplifies other directions by three to four orders of
 magnitude, like a strongly oblique projection.
 \end{itemize}
 Eick and Mawhinney~\cite{EickMawhinney} describe the same mechanism for a renormalization-group
@@ -697,8 +622,7 @@ Chebyshev filter of degree $150$--$300$. In our case $\AR$ is close to the ident
 modes, because the Pauli--Villars operator divides them out, and its field of values ends at $2$ (S)
 and $4.5$ (B). The large factor is the coarse inverse itself. The post-smoothing, a Chebyshev
 polynomial of degree $7$--$11$ on the upper part of the spectrum, acts as the filter, and the
-whole cycle keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$ (B). We have not separated how much
-the post-smoothing removes.
+whole cycle keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$ (B).
 
 So the GCR bound of Ref.~\cite{ESS} does not apply. The field of values is also not what decides
 the iteration count. If we replace $E$ by the Galerkin correction of $\AR$ itself,
@@ -716,8 +640,7 @@ $[-3.62,13.1]$, $16.8$). Yet GCR(8) to $10^{-16}$ then needs more iterations: $1
 the smallest real part, the condition numbers $\kappa=1/|y\dg x|$ of the six
 eigenvalues of smallest real part (left eigenvectors from $\mathcal M\dg\tilde A\dg$),
 the eigenvalues farthest from $1$ with their $\kappa$, and the radius about $1$ of
-the disc that holds all the others. $m=0.001$. \texttt{preconditioned\_fov\_device
---arnoldi --far 1,0} (\texttt{--left} for $\AL$).}
+the disc that holds all the others. $m=0.001$.}
 \label{tab:spectrum}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccc@{}}
@@ -773,7 +696,7 @@ the factor per iteration $r/c$, the constant, and the iterations it guarantees f
 $\|r_k\|/\|r_0\|<10^{-9}$. For the dense circles $\varepsilon$ is the lower bound
 $\min_i\sigma_{\min}(z_i)-h/2$ on the whole circle, $h$ the spacing of the points
 ($\sigma_{\min}$ is $1$-Lipschitz in $z$); otherwise the smallest sampled value. Lanczos
-to $10^{-3}$ relative in $\sigma^2$. \texttt{preconditioned\_fov\_device --pseudo}.}
+to $10^{-3}$ relative in $\sigma^2$.}
 \label{tab:pseudo}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccccc@{}}
@@ -801,8 +724,7 @@ $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
 $\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the real
 axis, the contours of Table~\ref{tab:pseudo} and the dense circles $|z-1|=0.6$ (S) and
 $|z-1.4|=0.93$ (B). The field of values reaches far into the left half-plane (its real
-range in the corner), the spectrum does not. \texttt{data/pseudo\_*.tsv},
-\texttt{data/spectrum\_*.tsv}.}
+range in the corner), the spectrum does not.}
 \label{fig:spectrum}
 \end{figure}
 
@@ -820,20 +742,12 @@ $0.48$--$0.58$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Setup~B does not 
 $12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers grow, but
 their condition numbers fall and $\varepsilon$ stays the same.
 
-\paragraph{What is not yet rigorous.} (i) With 16 points per circle the spacing is
-larger than $\varepsilon$, and the sampled minimum says nothing about the points in
-between. On the two dense circles of $12^4$ the spacing is below $\varepsilon$, and since
-$\sigma_{\min}(z-X)$ is $1$-Lipschitz in $z$ the bound holds on the whole circle,
-$\sigma_{\min}\ge0.0164$ (S) and $\ge0.0676$ (B); the guaranteed iterations change from
-$53$ to $54$ and from $57$ to $58$. The circles of $16^4$ have only the 16 points.
-(ii) Lanczos approaches $\sigma_{\min}^2$ from above; a rigorous lower bound needs
-an inclusion theorem (Kato--Temple) with a bound on the second singular value.
-(iii) That the disc holds all eigenvalues but the outliers rests on the four
-eigenvalues farthest from $c$ found by Arnoldi. (iv) The bound is for full GMRES
-with a fixed linear $\mathcal M$ (Sec.~\ref{sec:gcrk}). (v) The spectra, and the
-FOV of $\AR\mathcal M$, are not available on $24^4$ and $24^3\times48$: the
-eigensolvers do not fit in $24$\,GB of device memory. A GPU with more memory would remove
-this limit.
+\paragraph{What is not yet rigorous.} On the two dense circles of $12^4$ the spacing of the
+points is below $\varepsilon$, and since $\sigma_{\min}(z-X)$ is $1$-Lipschitz in $z$ the bound
+holds on the whole circle, $\sigma_{\min}\ge0.0164$ (S) and $\ge0.0676$ (B), with $54$ and $58$
+guaranteed iterations. The circles of $16^4$ have only $16$ points. The Lanczos estimates approach
+$\sigma_{\min}^2$ from above, the disc rests on the eigenvalues farthest from $c$ found by Arnoldi,
+and the bound is for full GMRES with a fixed $\mathcal M$ (Secs.~\ref{sec:gcrk}, \ref{sec:open}).
 
 \subsubsection{Truncated GCR: inexact coarse solves}
 \label{sec:gcrk}
@@ -886,9 +800,8 @@ another fine vector.
 \centering
 \caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
 Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
-the longest stretch of steps with a factor above $1/2$. From an earlier build than the
-mass scan; the steps differ from those of Table~\ref{tab:massscan} (\texttt{6d5bf18}) by
-at most one.}
+the longest stretch of steps with a factor above $1/2$. The steps differ from those of Table~\ref{tab:massscan} by at most one
+(Sec.~\ref{sec:setups}).}
 \label{tab:history}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lccccc@{}}
@@ -910,8 +823,7 @@ B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_history}
-\caption{The GCR(2) residual histories of Table~\ref{tab:history}, $24^3\times48$.
-\texttt{data/gcr\_steps\_24.tsv}.}
+\caption{The GCR(2) residual histories of Table~\ref{tab:history}, $24^3\times48$.}
 \label{fig:history}
 \end{figure}
 
@@ -957,8 +869,7 @@ smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}
 ($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
 $\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
 (MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
-topological charge. Aggregates $4^4$ unless stated. \texttt{preconditioned\_fov\_device
---gcrtest}; \texttt{data/gcr\_stall.tsv}.}
+topological charge. Aggregates $4^4$ unless stated.}
 \label{tab:stall}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}

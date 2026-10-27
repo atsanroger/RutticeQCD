@@ -18,8 +18,8 @@ factor (Sec.~\ref{sec:coarse}), both stopped at $|r|^2/|b|^2<10^{-2}$ unless sta
 on the even coarse sites. The numbers of Sec.~\ref{sec:results} come from the
 parameter-file program \texttt{ruttice} and from the examples
 \texttt{preconditioned\_fov} (CPU) and \texttt{preconditioned\_fov\_device} (GPU),
-whose options are given with each result; the remarks after
-Proposition~\ref{prop:exact} from the example \texttt{correction\_exactness} (CPU). The
+whose options are listed in Table~\ref{tab:provenance}; the checks of
+Eq.~\eqref{eq:exact} (Sec.~\ref{sec:basis}) from the example \texttt{correction\_exactness} (CPU). The
 numbers of Sec.~\ref{sec:dagger} come from the examples \texttt{mobius\_gamma5\_check}
 (Eqs.~\eqref{eq:g5herm} and \eqref{eq:g5exact}, CPU), \texttt{dminus\_cost} (the inverse of
 $D_-$, GPU), \texttt{dual\_basis} (prolongations for the dual cycle, GPU) and
@@ -34,9 +34,9 @@ most useful extensions are more configurations, a larger volume and dynamical
 ensembles. The rest of this appendix gives what is needed to run them.
 
 \paragraph{Code.} RutticeQCD, \url{https://github.com/atsanroger/RutticeQCD}, branch
-\texttt{cuda-bridge} (the commit of each result is given with it; later commits give
-the same iterations, up to the two-iteration differences between builds noted in
-Sec.~\ref{sec:massscan}). It needs Rust (stable) and, for the GPU, CUDA~12:
+\texttt{cuda-bridge} (the commit of each result is in Table~\ref{tab:provenance}; later commits
+give the same iterations, up to the differences of a few iterations between builds noted in
+Sec.~\ref{sec:setups}). It needs Rust (stable) and, for the GPU, CUDA~12:
 {\small
 \begin{verbatim}
   export CUDA_HOME=/usr/local/cuda
@@ -46,6 +46,42 @@ Sec.~\ref{sec:massscan}). It needs Rust (stable) and, for the GPU, CUDA~12:
 The GPU backend runs on one GPU. The parameter files are in the style of Bridge++
 and are documented in \texttt{docs/USAGE.md}; gauge configurations are read in the
 Bridge++ text and binary formats, NERSC, ILDG and SciDAC.
+
+\begin{table}[h]
+\centering
+\caption{Where each result of the paper comes from: the RutticeQCD commit, the program or
+example option, and the data file in \texttt{docs/mg\_background/data}. A blank entry means
+that the paper does not record it.}
+\label{tab:provenance}
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.31\linewidth}>{\raggedright\arraybackslash}p{0.29\linewidth}@{}}
+\toprule
+result & commit & program & data\\
+\midrule
+Table~\ref{tab:massscan} & \texttt{6d5bf18} & \texttt{ruttice}, \texttt{runs/mg\_24.yaml}, \texttt{runs/cgne\_24.yaml} & \texttt{massscan\_24.tsv}\\
+Fig.~\ref{fig:massscan} & \texttt{6d5bf18}, \texttt{e044050} & \texttt{figures.py} & \texttt{massscan\_24.tsv}, \texttt{baseline\_mass\_2448.tsv}\\
+Table~\ref{tab:pointsource} & \texttt{6d5bf18} & \texttt{ruttice} & \texttt{pointsource\_24.tsv}\\
+Table~\ref{tab:volume} & \texttt{e044050} & \texttt{ruttice} & \texttt{baseline\_volume.tsv}, \texttt{baseline\_mass\_2448.tsv}\\
+Table~\ref{tab:nomg} & \texttt{e044050} & \texttt{ruttice} & \texttt{baseline\_mass\_2448.tsv} (all seven masses), \texttt{baseline\_volume.tsv}\\
+Table~\ref{tab:basischoice} & \texttt{e044050}, branch \texttt{exp/\allowbreak basis-lifts} & \texttt{ruttice} with \texttt{RUTTICE\_\allowbreak BASIS\_\allowbreak LIFTS} (its default gives \texttt{e044050} bit for bit) & \texttt{basis\_12.tsv}, \texttt{basis\_16.tsv}, \texttt{basis\_2448.tsv} (with the right form on $12^4$, $16^4$)\\
+Table~\ref{tab:c4} & & example \texttt{dagger\_precond} & \\
+Table~\ref{tab:herm} & & example \texttt{coarse\_hermiticity} & \\
+Table~\ref{tab:sensitivity} & \texttt{6d5bf18} (second GPU) & \texttt{ruttice} & \texttt{sensitivity\_12.tsv}\\
+Table~\ref{tab:costs} & \texttt{6d5bf18} (first GPU) & \texttt{ruttice} & \texttt{costs\_12.tsv}\\
+Sec.~\ref{sec:sensitivity}, $16$ and $24$ vectors on $24^3\times48$ & \texttt{6d5bf18} & \texttt{ruttice}, point source & \\
+Table~\ref{tab:fov} & & \texttt{preconditioned\_fov\_device -{}-parts} & \\
+Table~\ref{tab:spectrum} & & \texttt{preconditioned\_fov\_device -{}-arnoldi -{}-far 1,0} (\texttt{-{}-left} for $\AL$) & \texttt{spectrum\_*.tsv}\\
+Table~\ref{tab:pseudo}, Fig.~\ref{fig:spectrum} & & \texttt{preconditioned\_fov\_device -{}-pseudo} & \texttt{pseudo\_*.tsv}, \texttt{spectrum\_*.tsv}\\
+Table~\ref{tab:history}, Fig.~\ref{fig:history} & a build before \texttt{6d5bf18} & \texttt{ruttice} & \texttt{gcr\_steps\_24.tsv}\\
+Table~\ref{tab:stall} & not yet in a commit & \texttt{preconditioned\_fov\_device -{}-gcrtest} & \texttt{gcr\_stall.tsv}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Builds add the device reductions in different orders. Against the earlier build \texttt{6c7ff42}
+the multigrid iterations of Table~\ref{tab:massscan} differ by one or two in six of the 28 runs,
+and those of Table~\ref{tab:costs} differed by up to six with an earlier build; whether a code
+change or the order of the reductions causes the first is not established.
 
 \paragraph{The mass scan (Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}).} The
 parameter files are \texttt{docs/mg\_background/runs/mg\_24.yaml} (the multigrid) and
