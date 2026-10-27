@@ -13,6 +13,9 @@
 //!   config_filename_input : conf_04040408.txt
 //!   trajectory_number     : 200000            # of the first one: the M-series random numbers
 //!   number_of_trajectories : 10
+//!   save_config_interval  : 5                 # with config_filename_output: "conf_{n}.txt"
+//!   rand_filename_output  : "rand_{n}.txt"    # the random numbers, saved with the configurations
+//!   ## rand_filename_input : rand_000200.txt  # go on with them instead of trajectory_number
 //! HMC_General:
 //!   trajectory_length : 1.0
 //! Builder_Integrator:
@@ -207,6 +210,12 @@ pub(crate) struct RunBlock {
     pub config_filename_output: Option<String>,
     #[serde(default = "text")]
     pub gauge_config_type_output: GaugeType,
+    /// The state of the random numbers, saved with every configuration (`{n}` as in
+    /// `config_filename_output`), in the format of Bridge++'s `RandomNumbers_Mseries`.
+    pub rand_filename_output: Option<String>,
+    /// Go on with the random numbers of this state instead of those made from
+    /// `trajectory_number`; relative to the parameter file's directory.
+    pub rand_filename_input: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -596,6 +605,7 @@ impl HmcParams {
             hmc: HmcBlock {
                 trajectories: run.number_of_trajectories,
                 first_trajectory: run.trajectory_number,
+                random_state: run.rand_filename_input.clone(),
                 trajectory_length: self.general.trajectory_length,
                 integrator: IntegratorConfig {
                     scheme: match self.integrator.integrator {
@@ -615,6 +625,7 @@ impl HmcParams {
                 save_every: run.save_config_interval,
                 file: run.config_filename_output.clone(),
                 format: GaugeFormat::from(run.gauge_config_type_output),
+                random_state: run.rand_filename_output.clone(),
             },
             flow: self.gradient_flow.map(FlowBlock::to_config).transpose()?,
             device,

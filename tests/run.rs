@@ -737,6 +737,112 @@ fn the_hmc_example_repeats_bridge() {
     assert!(HmcConfig::from_yaml(&bad).is_err());
 }
 
+/// Settings that would run wrongly are refused when the file is read: a level of no steps
+/// (its forces left out), a save interval of zero (a division by zero after the first
+/// trajectory).
+#[test]
+fn hmc_refuses_zero_steps_and_a_zero_save_interval() {
+    use ruttice::app::hmc::HmcConfig;
+    let file = |steps: &str, interval: &str| {
+        format!(
+            "Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+  gauge_config_status     : Cold_start
+  trajectory_number       : 0
+  number_of_trajectories  : 2
+  save_config_interval    : {interval}
+  config_filename_output  : \"conf_{{n}}.txt\"
+HMC_General:
+  trajectory_length : 0.1
+Builder_Integrator:
+  integrator      : Leapfrog
+  number_of_steps : {steps}
+  order_of_exp_iP : 8
+Action_G:
+  action_type     : Action_G_Plaq
+  beta            : 5.5
+  level_of_action : 1
+"
+        )
+    };
+    let error = |steps, interval| {
+        HmcConfig::from_yaml(&file(steps, interval))
+            .err()
+            .map(|e| e.to_string())
+    };
+    assert_eq!(error("[2, 3]", "1"), None);
+    let zero_steps = error("[0, 3]", "1").expect("refused");
+    assert!(zero_steps.contains("number_of_steps"), "{zero_steps}");
+    let zero_interval = error("[2, 3]", "0").expect("refused");
+    assert!(
+        zero_interval.contains("save_config_interval"),
+        "{zero_interval}"
+    );
+}
+
+/// A run that goes on from a saved configuration and the saved state of the random numbers
+/// repeats the trajectories of the run that saved them bit for bit; started from the
+/// trajectory number alone, it does not.
+#[test]
+fn hmc_goes_on_from_the_saved_random_numbers() {
+    use ruttice::app::hmc::{run_on, HmcConfig};
+    let dir = scratch("hmc_continue");
+    let file = |start: &str, trajectories: usize| {
+        format!(
+            "Main:
+  lattice_size : [4, 4, 4, 4]
+HMC:
+{start}
+  number_of_trajectories  : {trajectories}
+  save_config_interval    : 2
+  config_filename_output  : \"conf_{{n}}.txt\"
+  rand_filename_output    : \"rand_{{n}}.txt\"
+HMC_General:
+  trajectory_length : 0.5
+Builder_Integrator:
+  integrator      : Leapfrog
+  number_of_steps : [5]
+  order_of_exp_iP : 8
+Action_G:
+  action_type     : Action_G_Plaq
+  beta            : 5.5
+  level_of_action : 0
+"
+        )
+    };
+    let run = |text: &str| {
+        let config = HmcConfig::from_yaml(text).unwrap();
+        run_on(
+            &config,
+            &dir,
+            &mut Vec::new(),
+            std::sync::Arc::new(ruttice::SingleComm),
+        )
+        .unwrap()
+        .trajectories
+    };
+    let bits = |t: &[(u32, f64, bool, f64)]| -> Vec<(u32, u64, bool, u64)> {
+        t.iter()
+            .map(|(n, dh, a, p)| (*n, dh.to_bits(), *a, p.to_bits()))
+            .collect()
+    };
+    let whole = run(&file(
+        "  gauge_config_status : Cold_start\n  trajectory_number : 0",
+        4,
+    ));
+    let from_saved = "  gauge_config_status : Continue\n  gauge_config_type_input : Text\n  \
+                      config_filename_input : conf_000002.txt\n  trajectory_number : 2";
+    let rest = run(&file(
+        &format!("{from_saved}\n  rand_filename_input : rand_000002.txt"),
+        2,
+    ));
+    assert_eq!(bits(&rest), bits(&whole[2..]));
+    // The state is what makes the difference.
+    let reseeded = run(&file(from_saved, 2));
+    assert_ne!(bits(&reseeded), bits(&whole[2..]));
+}
+
 /// The HMC runner saves configurations on several processes (threads standing in for them):
 /// the files of a run on [1, 1, 2, 2] are the bytes of those of a run on one process, in the
 /// text format and in ILDG (whose date of writing is left out of the comparison).

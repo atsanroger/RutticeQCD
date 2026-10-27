@@ -90,6 +90,49 @@ impl Mseries {
         }
     }
 
+    /// The state as Bridge++ writes it (`RandomNumbers_Mseries::write_file`): ` jr kr` on the
+    /// first line, then the words, one a line. A run that goes on from it draws what the run
+    /// that wrote it would have drawn next.
+    pub(crate) fn state_text(&self) -> String {
+        let mut text = format!(" {} {}\n", self.jr, self.kr);
+        for w in &self.w {
+            text += &format!(" {w}\n");
+        }
+        text
+    }
+
+    /// The generator in the state `text` (`state_text`, or a file of Bridge++).
+    pub(crate) fn from_state_text(text: &str) -> Result<Self, String> {
+        let numbers = text
+            .split_ascii_whitespace()
+            .map(|t| {
+                t.parse::<u32>()
+                    .map_err(|_| format!("{t:?} is not a number"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let [jr, kr, words @ ..] = &numbers[..] else {
+            return Err("it does not have the positions jr and kr".into());
+        };
+        if words.len() != NP {
+            return Err(format!("{} words, not {NP}", words.len()));
+        }
+        let (jr, kr) = (*jr as usize, *kr as usize);
+        // The two positions move together, NQ apart; the words have 31 bits.
+        if jr >= NP || kr != (jr + NP - NQ) % NP {
+            return Err(format!(
+                "the positions {jr} {kr} are not those of the generator"
+            ));
+        }
+        if words.iter().any(|w| w >> 31 != 0) {
+            return Err("a word has more than 31 bits".into());
+        }
+        Ok(Self {
+            w: words.try_into().expect("NP words"),
+            jr,
+            kr,
+        })
+    }
+
     /// A uniform number in [0, 1).
     #[inline]
     pub fn uniform(&mut self) -> f64 {
@@ -152,6 +195,27 @@ impl Mseries {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A generator made from its state text draws what the one that wrote it draws next;
+    /// a state that cannot be the generator's is refused.
+    #[test]
+    fn the_state_text_goes_on_where_it_was_written() {
+        let mut a = Mseries::new(31);
+        for _ in 0..1000 {
+            a.uniform();
+        }
+        let (text, jr) = (a.state_text(), a.jr);
+        assert!(text.starts_with(&format!(" {} {}\n", a.jr, a.kr)));
+        let mut b = Mseries::from_state_text(&text).unwrap();
+        for _ in 0..5000 {
+            assert_eq!(a.uniform().to_bits(), b.uniform().to_bits());
+        }
+        let lines: Vec<&str> = text.lines().collect();
+        let without_a_word = lines[..NP].join("\n");
+        assert!(Mseries::from_state_text(&without_a_word).is_err());
+        let moved = text.replacen(&format!(" {jr} "), &format!(" {} ", (jr + 1) % NP), 1);
+        assert!(Mseries::from_state_text(&moved).is_err());
+    }
 
     #[test]
     fn numbers_are_uniform_and_repeatable() {

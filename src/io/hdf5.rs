@@ -68,8 +68,9 @@ pub fn write_hdf5(path: &Path, dataset: &str, u: &Field<f64, Gauge>) -> Result<(
     one_slice[0] = 1;
     write_on_root(
         u,
-        || {
-            let file = File::create(path).map_err(failed)?;
+        path,
+        |to| {
+            let file = File::create(to).map_err(failed)?;
             let data = file
                 .new_dataset::<f64>()
                 .shape(shape)

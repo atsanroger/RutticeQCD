@@ -170,7 +170,8 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
         );
         stalled += info.iterations;
         setup.rebuild_due = true;
-        result = attempt(setup, (fresh, flags.1));
+        // The same solve: a force solve counts once towards `refresh_every`.
+        result = attempt(setup, (fresh, false));
     }
     if let Ok(info) | Err(SolveError::NotConverged(info)) = &mut result {
         info.iterations += stalled;

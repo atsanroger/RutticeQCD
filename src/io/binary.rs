@@ -43,7 +43,8 @@ pub fn read_binary(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>,
 pub fn write_binary(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     write_on_root(
         u,
-        || Ok(BufWriter::new(File::create(path)?)),
+        path,
+        |to| Ok(BufWriter::new(File::create(to)?)),
         |out, _, slice| {
             for x in slice {
                 out.write_all(&x.to_be_bytes())?;

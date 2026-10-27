@@ -176,6 +176,35 @@ mod tests {
         );
     }
 
+    /// The rectangle action is summed in a fixed order: the same bits on any number of threads
+    /// (ΔH, and so the Metropolis test, repeats).
+    #[test]
+    fn rectangle_action_does_not_depend_on_thread_count() {
+        let lat = Lattice::single_node([8, 8, 8, 8]);
+        // Links near 1, as in a run: S is then a small difference of large sums, which shows
+        // the order they were added in.
+        let mut u = cold_start(&lat);
+        exp_update(0.3, &draw_momenta(&lat, &mut Mseries::new(23)), &mut u, 12);
+        let iwasaki = RectangleAction {
+            beta: 2.3,
+            c_plaq: 3.648,
+            c_rect: -0.331,
+        };
+        let run = |threads| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(|| iwasaki.action(&u))
+        };
+        let one = run(1);
+        for threads in [2, 3, 8] {
+            for _ in 0..4 {
+                assert_eq!(run(threads).to_bits(), one.to_bits(), "{threads} threads");
+            }
+        }
+    }
+
     /// The rectangle action and force: the plaquette action for c_rect = 0, and its force the
     /// derivative of the action for Iwasaki's coefficients.
     #[test]

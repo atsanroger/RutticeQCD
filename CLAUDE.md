@@ -158,6 +158,7 @@ RUSTFLAGS="-C target-cpu=native" CARGO_TARGET_DIR=target/native \
   not compiled, so the other tests never check them.
 
 - Features: `cuda-bridge` (CUDA kernels), `mpi` (needs MPI and libclang), `nccl` (`NCCL_HOME`),
-  `hdf5`.
+  `hdf5` (the HDF5 library, run with 2.2.0; `HDF5_DIR` where pkg-config does not find it, e.g.
+  `/usr/lib/x86_64-linux-gnu/hdf5/serial` on Debian and Ubuntu).
 - `RUTTICE_CHECKSUM=1` prints checksums of the stages of a device run, to compare builds bit by bit.
 - The small checks use the Bridge++ test configuration `examples/conf_04040408.txt` (4³×8).

@@ -82,6 +82,9 @@ pub struct HmcBlock {
     /// The number of the first trajectory: the random numbers of the run are those of the
     /// M-series generator made from it (Bridge++'s `trajectory_number`).
     pub(crate) first_trajectory: u32,
+    /// The state of the random numbers to go on from (`rand_filename_input`), instead of the
+    /// generator made from `first_trajectory`.
+    pub(crate) random_state: Option<PathBuf>,
     pub trajectory_length: f64,
     pub integrator: IntegratorConfig,
     pub metropolis: bool,
@@ -453,6 +456,8 @@ pub struct HmcOutput {
     /// file's directory. On several processes rank 0 writes it.
     pub file: Option<String>,
     pub format: GaugeFormat,
+    /// The file of the state of the random numbers, saved with every configuration.
+    pub(crate) random_state: Option<String>,
 }
 
 fn chebyshev_steps() -> usize {
@@ -516,6 +521,12 @@ impl HmcConfig {
         let levels = self.hmc.integrator.steps.len();
         if levels == 0 {
             return invalid("Builder_Integrator.number_of_steps: at least one level".into());
+        }
+        // A level of no steps would leave out its forces and those of every level inside it.
+        if self.hmc.integrator.steps.contains(&0) {
+            return invalid(
+                "Builder_Integrator.number_of_steps: at least one step on every level".into(),
+            );
         }
         if self.actions.is_empty() {
             return invalid("Action_G, Action_F_1, ...: at least one action".into());
@@ -748,6 +759,15 @@ impl HmcConfig {
                     _ => {}
                 }
             }
+        }
+        if self.output.random_state.is_some() && self.output.save_every.is_none() {
+            return invalid(
+                "HMC.rand_filename_output: saved with the configurations, with save_config_interval"
+                    .into(),
+            );
+        }
+        if self.output.save_every == Some(0) {
+            return invalid("HMC.save_config_interval: at least 1".into());
         }
         if self.output.save_every.is_some() != self.output.file.is_some() {
             return invalid(
@@ -1601,6 +1621,28 @@ pub fn run_on(
     chain(config, base, out, root, u, hmc, plaquette_start)
 }
 
+/// Rank 0 writes the state of `rng` to `path`; every process returns the outcome, so that none
+/// goes on alone.
+fn save_random_state(path: &Path, rng: &Mseries, comm: &dyn Comm) -> Result<(), CliError> {
+    let written = match comm.rank() {
+        0 => crate::io::write_atomically(path, rng.state_text().as_bytes()),
+        _ => Ok(()),
+    };
+    let mut failed = [f64::from(u8::from(written.is_err()))];
+    comm.sum(&mut failed);
+    match written {
+        Err(source) => Err(CliError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+        Ok(()) if failed[0] > 0.0 => Err(CliError::Run(format!(
+            "{}: rank 0 could not write the state of the random numbers",
+            path.display()
+        ))),
+        Ok(()) => Ok(()),
+    }
+}
+
 /// The HMC of the file with the links on the device.
 #[cfg(feature = "cuda-bridge")]
 fn make_device(
@@ -1637,7 +1679,20 @@ fn chain<U: LinkField>(
         source: e,
     };
     let first = config.hmc.first_trajectory;
-    let mut rng = Mseries::new(first);
+    let mut rng = match &config.hmc.random_state {
+        // Every process reads the state: they all draw the same numbers.
+        Some(file) => {
+            let path = base.join(file);
+            let text = std::fs::read_to_string(&path).map_err(|source| CliError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            Mseries::from_state_text(&text).map_err(|e| {
+                CliError::Invalid(format!("HMC.rand_filename_input: {}: {e}", path.display()))
+            })?
+        }
+        None => Mseries::new(first),
+    };
     if root {
         writeln!(
             out,
@@ -1749,6 +1804,10 @@ fn chain<U: LinkField>(
                 super::gauge_file(config.output.format)?
                     .write(&path, &u.to_host())
                     .map_err(CliError::Gauge)?;
+                if let Some(file) = &config.output.random_state {
+                    let path = base.join(file.replace("{n}", &format!("{n:06}")));
+                    save_random_state(&path, &rng, u.lattice().comm.as_ref())?;
+                }
             }
         }
     }

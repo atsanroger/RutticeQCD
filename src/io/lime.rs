@@ -406,8 +406,10 @@ fn write(
     // Rank 0 writes the file and computes the checksum as the slices come by.
     write_on_root(
         u,
-        || {
-            let mut out = BufWriter::new(File::create(path)?);
+        path,
+        |to| {
+            let mut out = BufWriter::new(File::create(to)?);
+            // The name the file will have, not the one it is written under.
             let lfn = path.file_name().map_or_else(
                 || "unknown".to_string(),
                 |name| name.to_string_lossy().into_owned(),

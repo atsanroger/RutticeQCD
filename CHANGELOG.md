@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- The feature `hdf5` builds with the HDF5 library of today: the bindings are the maintained
+  `hdf5-metno` (0.15) in place of `hdf5` 0.8, which refused HDF5 2.x at build time
+  (`Invalid H5_VERSION: "2.2.0"`). The code is unchanged; `hdf5_on_several_processes` passes
+  with HDF5 2.2.0.
+
+- HMC saves the state of the random numbers with the configurations (`rand_filename_output`,
+  the format of Bridge++'s `RandomNumbers_Mseries::write_file`) and goes on from it
+  (`rand_filename_input`): the run repeats the trajectories of the run that saved them bit for
+  bit (`hmc_goes_on_from_the_saved_random_numbers`; without the state it does not), where no
+  solver carries something from one trajectory to the next (the multigrid's test vectors).
+- Gauge files (all formats) and the state of the random numbers are written beside their name
+  and renamed when complete: a run stopped while saving leaves the file of before
+  (`a_failed_write_leaves_the_file_of_before`).
+- NERSC files: the header's `PLAQUETTE` and `LINK_TRACE` are checked against the links read, as
+  Grid checks them (1e-5, 1e-6); a byte order read wrong, which a header without a checksum let
+  through, is refused (`the_plaquette_of_the_header_catches_the_wrong_byte_order`). The
+  meaning of `IEEE32` and `IEEE64` differs between programs (qlua, Grid); Bridge++ reads only
+  `IEEE64BIG`.
+
+- The rectangle gauge action (`RectangleAction::action`, the CPU's Iwasaki and DBW2 actions) is
+  summed in a fixed order (`reduce_sites_n`); rayon's `reduce` added the sites in an order that
+  depended on how the threads stole work, so ΔH could change in its last bits from run to run
+  and with the number of threads (`rectangle_action_does_not_depend_on_thread_count`, which
+  failed with 2 threads before).
+- HMC files: `number_of_steps` with a level of 0 steps (its forces and those of every level
+  inside it left out) and `save_config_interval : 0` (a division by zero after the first
+  trajectory) are refused when the file is read (`hmc_refuses_zero_steps_and_a_zero_save_interval`).
+- The domain-wall multigrid of HMC: when a solve stalls and is done again, the force solve
+  counts once towards `refresh_interval` (it counted once per attempt).
 - The `RUTTICE_*` variables are checked when read (`src/env.rs`): a value that does not parse or
   is not one of the choices stops the run with a message naming the variable and what it takes;
   before, it was taken for unset (`RUTTICE_PIN=yes` did not pin, `RUTTICE_POOL_SPIN=4k` spun the

@@ -98,7 +98,7 @@ nccl = ["cuda-bridge"]
 rayon = "1"
 mpi = { version = "0.8", optional = true }
 # HDF5 files, and the arrays its interface is written in.
-hdf5 = { version = "0.8", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.15", optional = true }
 ndarray = { version = "0.15", optional = true }
 # Parameter files (`app`).
 serde = { version = "1", features = ["derive"] }

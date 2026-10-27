@@ -46,7 +46,8 @@ pub fn read_bridge_text(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Ga
 pub fn write_bridge_text(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     write_on_root(
         u,
-        || Ok(BufWriter::new(File::create(path)?)),
+        path,
+        |to| Ok(BufWriter::new(File::create(to)?)),
         |out, _, slice| {
             for x in slice {
                 writeln!(out, "{x:.16e}")?;

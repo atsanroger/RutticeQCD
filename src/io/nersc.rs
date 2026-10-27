@@ -130,19 +130,60 @@ pub fn read_nersc(path: &Path, lat: &Arc<Lattice>) -> Result<Field<f64, Gauge>, 
             }
         }
     }
+    // The header's averages, checked as Grid checks them: they catch what the checksum does
+    // not, such as a byte order guessed wrong where the header has no checksum
+    // (`FLOATING_POINT = IEEE32` and `IEEE64` are read as big- and little-endian by some
+    // programs, the other way round by others).
+    for (key, found, tolerance) in [
+        (
+            "PLAQUETTE",
+            plaquette(&u, &Stencil::nearest(lat, [Boundary::Periodic; ND])),
+            1e-5,
+        ),
+        ("LINK_TRACE", link_trace(&u), 1e-6),
+    ] {
+        let Some(text) = value(key) else {
+            continue;
+        };
+        let recorded: f64 = text
+            .parse()
+            .map_err(|_| IoError::Format(format!("NERSC: {key} = {text:?}")))?;
+        // NaN, what garbage often gives, is refused too.
+        let off = (found - recorded).abs();
+        if off.is_nan() || off >= tolerance {
+            return malformed(format!(
+                "NERSC: the header has {key} = {recorded}, the links read give {found} \
+                 (FLOATING_POINT = {}: is the byte order right?)",
+                required("FLOATING_POINT")?
+            ));
+        }
+    }
     Ok(u)
+}
+
+/// Re tr U averaged over the links and divided by 3, summed over all processes: the
+/// `LINK_TRACE` of the header.
+fn link_trace(u: &Field<f64, Gauge>) -> f64 {
+    let lat = u.lattice();
+    let mut sum = [0.0];
+    for mu in 0..ND {
+        for site in 0..lat.num_sites() {
+            let m = u.site(mu, site);
+            sum[0] += m[0] + m[8] + m[16];
+        }
+    }
+    lat.comm.sum(&mut sum);
+    sum[0] / (3 * ND * lat.num_global_sites()) as f64
 }
 
 /// Write a gauge configuration in the NERSC format: whole matrices, big-endian doubles.
 pub fn write_nersc(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     let lat = u.lattice();
     // The sum of 32-bit words does not depend on their order: every process adds its own.
-    let (mut words, mut trace) = (0u32, 0.0);
+    let mut words = 0u32;
     for mu in 0..ND {
         for site in 0..lat.num_sites() {
-            let m = u.site(mu, site);
-            trace += m[0] + m[8] + m[16];
-            for x in m {
+            for x in u.site(mu, site) {
                 let b = x.to_be_bytes();
                 words = words
                     .wrapping_add(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
@@ -150,10 +191,10 @@ pub fn write_nersc(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
             }
         }
     }
-    let mut sums = [f64::from(words), trace];
+    let mut sums = [f64::from(words)];
     lat.comm.sum(&mut sums);
     let checksum = (sums[0] % 4294967296.0) as u32;
-    let link_trace = sums[1] / (3 * ND * lat.num_global_sites()) as f64;
+    let link_trace = link_trace(u);
     let plaq = plaquette(u, &Stencil::nearest(lat, [Boundary::Periodic; ND]));
     let [lx, ly, lz, lt] = lat.global;
     let header = format!(
@@ -166,8 +207,9 @@ pub fn write_nersc(path: &Path, u: &Field<f64, Gauge>) -> Result<(), IoError> {
     );
     write_on_root(
         u,
-        || {
-            let mut out = BufWriter::new(File::create(path)?);
+        path,
+        |to| {
+            let mut out = BufWriter::new(File::create(to)?);
             out.write_all(header.as_bytes())?;
             Ok(out)
         },
@@ -233,5 +275,42 @@ mod tests {
         ));
         let _ = std::fs::remove_file(whole);
         let _ = std::fs::remove_file(two);
+    }
+
+    /// Without a checksum the header's plaquette catches a byte order read wrong: the same
+    /// big-endian data read as big-endian, then labelled little-endian.
+    #[test]
+    fn the_plaquette_of_the_header_catches_the_wrong_byte_order() {
+        let lat = Lattice::single_node([2, 2, 2, 4]);
+        let u = random_gauge(&lat, 41);
+        let plaq = plaquette(&u, &Stencil::nearest(&lat, [Boundary::Periodic; ND]));
+        let mut data = Vec::new();
+        for site in 0..lat.num_sites() {
+            for mu in 0..ND {
+                for x in u.site(mu, site) {
+                    data.extend((*x as f32).to_be_bytes());
+                }
+            }
+        }
+        let file = |order: &str| {
+            let header = format!(
+                "BEGIN_HEADER\nDATATYPE = 4D_SU3_GAUGE_3x3\nDIMENSION_1 = 2\nDIMENSION_2 = 2\n\
+                 DIMENSION_3 = 2\nDIMENSION_4 = 4\nPLAQUETTE = {plaq:.10}\n\
+                 FLOATING_POINT = {order}\nEND_HEADER\n"
+            );
+            let path = std::env::temp_dir().join(format!(
+                "ruttice_nersc_order_{order}_{}.dat",
+                std::process::id()
+            ));
+            std::fs::write(&path, [header.as_bytes(), &data].concat()).unwrap();
+            path
+        };
+        let right = file("IEEE32BIG");
+        assert!(read_nersc(&right, &lat).is_ok());
+        let wrong = file("IEEE32LITTLE");
+        let error = read_nersc(&wrong, &lat).err().expect("refused").to_string();
+        assert!(error.contains("PLAQUETTE"), "{error}");
+        let _ = std::fs::remove_file(right);
+        let _ = std::fs::remove_file(wrong);
     }
 }

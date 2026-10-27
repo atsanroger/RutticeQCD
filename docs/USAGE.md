@@ -293,6 +293,19 @@ the coefficients computed by the program. The links the fermions see can be stou
 The integrator is leapfrog or Omelyan on several time scales; the force solves can start
 from the solutions before them.
 
+The `HMC` section says where the run starts and what it saves. `save_config_interval` and
+`config_filename_output` save the configuration after every so many trajectories and after the
+last (`{n}` in the name is the trajectory number, six digits). `rand_filename_output` saves the
+state of the random numbers with each of them, in the format of Bridge++'s
+`RandomNumbers_Mseries::write_file`; a run with `gauge_config_status : Continue`, that
+configuration and `rand_filename_input` that state goes on with the random numbers the first run
+would have drawn next, and repeats its trajectories bit for bit (`trajectory_number` then only
+numbers them). Without it the random numbers are made from `trajectory_number`, as Bridge++
+makes them. Bit for bit only where no solver carries something from one trajectory to the next:
+the multigrid's test vectors (`MultiGrid_HMC`) are not saved, so a run with them goes on
+validly but not bit for bit. Every file is written beside its name and renamed when complete,
+so a run stopped while saving leaves the file of before.
+
 The `Solver` section of a fermion action says how its forces and energies are solved:
 
 | `Solver` key | Values |
@@ -382,10 +395,10 @@ in biases the mean and shows up as a long τ_int.
 |---|---|
 | `Text` | plain text with one real number per line, the format Bridge++ calls `Text` |
 | `Binary` | big-endian double precision reals without a header, the format Bridge++ calls `Binary` |
-| `NERSC` | the NERSC (Gauge Connection) format: a text header, then whole matrices (`4D_SU3_GAUGE_3x3`) or their first two rows (`4D_SU3_GAUGE`), single or double precision, either byte order; the checksum is verified. Written as whole matrices in big-endian double precision. Not yet checked against a file of another program |
+| `NERSC` | the NERSC (Gauge Connection) format: a text header, then whole matrices (`4D_SU3_GAUGE_3x3`) or their first two rows (`4D_SU3_GAUGE`), single or double precision, either byte order; the checksum is verified, and the header's `PLAQUETTE` and `LINK_TRACE` against the links read (to 1e-5 and 1e-6, as Grid checks them), which catches a byte order read wrong: `FLOATING_POINT = IEEE32` is read as big-endian (QIO's qlua, Grid reads it little-endian), `IEEE64` as little-endian (Grid). Written as whole matrices in big-endian double precision. Not yet checked against a file of another program (Bridge++ reads only `IEEE64BIG` whole matrices and writes none) |
 | `ILDG` | the ILDG format: a LIME container with the records `ildg-format` and `ildg-binary-data` |
 | `SciDAC` | a lattice-colour-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
-| `HDF5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library |
+| `HDF5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library (on Debian and Ubuntu `libhdf5-dev`, built with `HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial`) |
 
 All six keep the numbers in the same order, from the outermost loop to the innermost:
 

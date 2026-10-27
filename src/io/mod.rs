@@ -216,11 +216,33 @@ impl GaugeFile for Hdf5 {
 /// Reals of one link: a 3x3 complex matrix.
 const LINK_REALS: usize = 18;
 
-/// Write a configuration file on rank 0 from the parts held by all processes. Every
-/// process makes this call.
+/// Where a file is written before it is complete: beside it, so that the rename is atomic.
+fn partial(path: &Path) -> std::path::PathBuf {
+    let name = path
+        .file_name()
+        .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned());
+    path.with_file_name(format!(".{name}.partial"))
+}
+
+/// Write `bytes` to the file `path` beside it first and rename it when complete, as the gauge
+/// files are written (`write_on_root`).
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let unfinished = partial(path);
+    let written =
+        std::fs::write(&unfinished, bytes).and_then(|()| std::fs::rename(&unfinished, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&unfinished);
+    }
+    written
+}
+
+/// Write the file `path` on rank 0 from the parts held by all processes. Every process makes
+/// this call. The file is written beside `path` (`open` gets that path) and renamed to `path`
+/// when it is complete: a run stopped while writing leaves the file of before as it was.
 fn write_on_root<W>(
     u: &Field<f64, Gauge>,
-    open: impl FnOnce() -> Result<W, IoError>,
+    path: &Path,
+    open: impl FnOnce(&Path) -> Result<W, IoError>,
     mut slice: impl FnMut(&mut W, usize, &[f64]) -> Result<(), IoError>,
     close: impl FnOnce(W) -> Result<(), IoError>,
 ) -> Result<(), IoError> {
@@ -232,7 +254,8 @@ fn write_on_root<W>(
     // A line of sites along x on one process: the pieces the slices are made of.
     let line = local[0] * site_reals;
 
-    let mut out = if root { Some(open()) } else { None };
+    let unfinished = partial(path);
+    let mut out = if root { Some(open(&unfinished)) } else { None };
     let mut whole = if root {
         vec![0.0; lx * ly * lz * site_reals]
     } else {
@@ -274,9 +297,13 @@ fn write_on_root<W>(
 
     let outcome = match out {
         None => Ok(()),
-        Some(Ok(w)) => close(w),
+        Some(Ok(w)) => close(w).and_then(|()| Ok(std::fs::rename(&unfinished, path)?)),
         Some(Err(e)) => Err(e),
     };
+    if root && outcome.is_err() {
+        // What was written is of no use; the file of before stays.
+        let _ = std::fs::remove_file(&unfinished);
+    }
     let mut failed = [f64::from(u8::from(outcome.is_err()))];
     lat.comm.sum(&mut failed);
     match outcome {
@@ -455,6 +482,28 @@ mod tests {
             Scidac::default().read(&path, &lat),
             Err(IoError::Checksum { .. })
         ));
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A file is complete or not there: written beside its name and renamed when done, so that
+    /// a write that fails leaves the file of before as it was, and one that succeeds leaves
+    /// nothing beside it.
+    #[test]
+    fn a_failed_write_leaves_the_file_of_before() {
+        let lat = Lattice::single_node(GLOBAL);
+        let (old, new) = (random_gauge(&lat, 1), random_gauge(&lat, 2));
+        let path = scratch("atomic").join("conf.bin");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        Binary.write(&path, &old).unwrap();
+        // The place of the unfinished file taken by a directory: writing fails at the start.
+        let unfinished = partial(&path);
+        std::fs::create_dir_all(&unfinished).unwrap();
+        assert!(Binary.write(&path, &new).is_err());
+        assert_eq!(Binary.read(&path, &lat).unwrap().as_slice(), old.as_slice());
+        std::fs::remove_dir(&unfinished).unwrap();
+        Binary.write(&path, &new).unwrap();
+        assert_eq!(Binary.read(&path, &lat).unwrap().as_slice(), new.as_slice());
+        assert!(!unfinished.exists());
         let _ = std::fs::remove_file(path);
     }
 

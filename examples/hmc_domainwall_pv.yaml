@@ -20,6 +20,8 @@ HMC:
   ## save_config_interval     : 10
   ## config_filename_output   : "conf_{n}.txt"
   ## gauge_config_type_output : Text
+  ## rand_filename_output     : "rand_{n}.txt"   # the random numbers, saved with the configurations
+  ## rand_filename_input      : rand_200010.txt  # go on with them (bit for bit) instead of trajectory_number
 HMC_General:
   trajectory_length : 0.1
   Metropolis_test   : true

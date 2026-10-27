@@ -7,7 +7,6 @@ use crate::gauge::smearing::uniform;
 use crate::gauge::{plaquette, weighted_staples};
 use crate::kernel::ColorMatrix;
 use crate::{for_sites, Boundary, Field, Gauge, Stencil, ND};
-use rayon::prelude::*;
 
 pub(crate) use crate::gauge::paths::Step;
 pub(crate) use crate::gauge::smearing::traceless_antihermitian;
@@ -125,31 +124,28 @@ impl RectangleAction {
         crate::gauge::count::gauge_action(u.num_sites(), with_rect);
         let ext = Extended::new(u, 2);
         let (f, b) = (true, false);
-        let (plaq, rect) = (0..u.num_sites())
-            .into_par_iter()
-            .map(|x| {
-                let e = ext.at(x);
-                let (mut p, mut r) = (0.0, 0.0);
-                for mu in 0..ND {
-                    for nu in (0..ND).filter(|nu| *nu != mu) {
-                        if mu < nu {
-                            p += ext
-                                .walk(e, &[(mu, f), (nu, f), (mu, b), (nu, b)])
-                                .trace()
-                                .re;
-                        }
-                        if with_rect {
-                            r += ext
-                                .walk(e, &[(mu, f), (mu, f), (nu, f), (mu, b), (mu, b), (nu, b)])
-                                .trace()
-                                .re;
-                        }
+        // In a fixed order (`reduce_sites_n`): S enters ΔH, which must repeat bit for bit.
+        let mut sums = crate::lattice::for_sites::reduce_sites_n(u.num_sites(), |x| {
+            let e = ext.at(x);
+            let (mut p, mut r) = (0.0, 0.0);
+            for mu in 0..ND {
+                for nu in (0..ND).filter(|nu| *nu != mu) {
+                    if mu < nu {
+                        p += ext
+                            .walk(e, &[(mu, f), (nu, f), (mu, b), (nu, b)])
+                            .trace()
+                            .re;
+                    }
+                    if with_rect {
+                        r += ext
+                            .walk(e, &[(mu, f), (mu, f), (nu, f), (mu, b), (mu, b), (nu, b)])
+                            .trace()
+                            .re;
                     }
                 }
-                (p, r)
-            })
-            .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
-        let mut sums = [plaq, rect];
+            }
+            [p, r]
+        });
         lat.comm.sum(&mut sums);
         let v = lat.num_global_sites() as f64;
         self.beta
