@@ -1557,8 +1557,8 @@ singular values of $C$ lie in $[d_+-|d_-|,\,d_++|d_-|]$ and
 \kappa(C)\le\frac{d_++|d_-|}{d_+-|d_-|},\qquad d_+=1+b(4-M_5),\quad d_-=1-c(4-M_5);
 \label{eq:kappaC}
 \end{equation}
-for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$. Every measured ratio of
-the iterations lies inside this bound.
+for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$. The gray band in
+Fig.~\ref{fig:cgform} is this bound for $\alpha=1$, and every measured ratio lies inside it.
 
 Within the bound the order depends on $c$. In setup~B the ratio of the iterations grows
 smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at $(b,c)=(2,1)$,
@@ -1606,9 +1606,10 @@ B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ &  & $4228$/$5097$ &  & \\
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{fig_cgform}
-\caption{CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open, dashed)
-against the M\"obius $c$, $b=1+c$, $\alpha=1$; stars and crosses: $\alpha=0.6$ on $24^3\times48$.
-The data of Table~\ref{tab:cgform}.}
+\caption{Top: CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open,
+dashed) against the M\"obius $c$, $b=1+c$, $\alpha=1$; stars and crosses: $\alpha=0.6$ on
+$24^3\times48$. Bottom: their ratio; above $1$ the left-preconditioned form is faster. Gray: the
+bound~\eqref{eq:kappaC} and its inverse for $\alpha=1$. The data of Table~\ref{tab:cgform}.}
 \label{fig:cgform}
 \end{figure}
 
