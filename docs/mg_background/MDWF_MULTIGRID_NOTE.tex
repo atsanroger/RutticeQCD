@@ -111,30 +111,23 @@ with a factorized Pauli--Villars coarse correction}
 \maketitle
 
 \begin{abstract}
-Linear solvers for the M\"obius domain-wall operator are slow because its spectrum surrounds the
-origin. Kanamori, Chen and Matsufuru showed that the preconditioned operator
-$A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, built from the Pauli--Villars operator and the site-diagonal
-part $C$, has all its eigenvalues in the right half-plane. Brower, Clark, Howarth and Weinberg
-coarsened the quark and Pauli--Villars factors of such an operator separately. In
-four-dimensional QCD Boyle and Yamaguchi found that this approach did not beat red-black CG in
-run time, and named three reasons: it works on the whole lattice, its coarse space keeps the fifth
-dimension, and its non-normal coarse solves were not deflated. We construct a two-grid method for
-$A'$ that addresses each of them. The outer system is the even-odd one. Every aggregate contains
-the whole fifth dimension, so the coarse lattice is four-dimensional, and the correction solves
-one nearest-neighbor coarse system for each factor. The Pauli--Villars coarse system is solved in
-a $\Sigma$-Hermitian form, and levels below the coarse lattice with a dense solve at the bottom
-take the place of deflation. The prolongation lifts approximate low modes to the whole lattice in
-two ways, one for each coarse solve; for the right form the correction is then exact on these
-vectors.\ifresults{} The left form used in practice, which keeps Neff's $\alpha$, is not
-exact.\fi{} The smoother is a fixed Chebyshev polynomial. One setup serves every $\alpha$ and also the solves with $D\dg$ that HMC requires, because the exact relation between $D$ and $D\dg$ for M\"obius
-fermions makes $\Gfive D^{-1}\Gfive$ a good preconditioner for $D\dg$.\ifresults{} The method
-converges although the field of values of the preconditioned operator reaches into the left
-half-plane; we explain this with its spectrum ($\Re\lambda\ge0.78$) and pseudospectra. On a
-quenched $24^3\times48$ configuration on one GPU the multigrid iterations grow by a factor of
-$2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
-$4.5$--$4.8$ times faster than mixed-precision CGNE, and a point-source propagator takes half
-its time, setup included. The results come from one configuration per volume, and the method is
-compared with CGNE only.\else{} We state the method and the questions that are open.\fi
+Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but the cost
+of inverting the M\"obius domain-wall operator rises steeply toward the physical light-quark mass,
+because its spectrum surrounds the origin. Preconditioning with the Pauli--Villars operator moves
+all eigenvalues into the right half-plane. We construct a two-grid method for this preconditioned
+operator in which the quark and Pauli--Villars factors are coarsened separately. The outer system
+is the even-odd one, every aggregate contains the whole fifth dimension so that the coarse lattice
+is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
+deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
+did not beat red-black CG. One setup serves every value of Neff's $\alpha$ and the solves with
+$D\dg$ in HMC, for which $\Gfive D^{-1}\Gfive$ is a good preconditioner.\ifresults{} The field of
+values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
+$\Re\lambda\ge0.78$, and its pseudospectra account for the convergence. On a quenched
+$24^3\times48$ lattice the iteration count grows by a factor of $2$--$4$ from $m=0.1$ to
+$m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is $4.5$--$4.8$ times faster than
+mixed-precision CGNE, and a point-source propagator takes half its time, setup included. These
+results come from one configuration per volume and a comparison with CGNE only.\else{} We state
+the method and the questions that are open.\fi
 \end{abstract}
 
 \vspace{1ex}
@@ -1369,7 +1362,7 @@ correction exact for the right form cuts the iterations by up to a factor of $22
 left form, which is not exact; one lift of twice as many vectors matches it on $24^3\times48$ at
 $1.6$--$1.8$ times the setup time.
 
-On quenched configurations on one A30 the multigrid iterations on $24^3\times48$ grow by a factor
+On quenched configurations on one GPU the multigrid iterations on $24^3\times48$ grow by a factor
 of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
 faster than with mixed-precision CGNE from $24^4$ on, by $4.5$--$4.8$ on $24^3\times48$, and a
 point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and
@@ -1379,7 +1372,10 @@ convergence.
 
 The evidence is limited to one configuration per volume, volumes up to $24^3\times48$, and CGNE as
 the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
-implementation, and larger volumes, are the next steps (Sec.~\ref{sec:open}).
+implementation, and larger volumes, are the next steps (Sec.~\ref{sec:open}). For propagators,
+applying the coarse operators and the transfer to the 12 columns of a point source together would
+raise their intensity from about one flop per byte to about ten, as for Wilson-clover
+multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
 
 \paragraph{Code and data.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, whose GPU backend takes the CUDA kernels of the
@@ -1399,74 +1395,45 @@ and \ref{sec:herm}, the field of values in Secs.~\ref{sec:spectra} and
 \ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
-\item \textbf{Choosing the smoother interval.} The interval
-$[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
-spectral radius and a ratio chosen per setup, and the wrong ratio makes the solve
-stagnate (Sec.~\ref{sec:sensitivity}); the setup works with singular values of $\AR$,
-which for a non-normal operator need not match its eigenvalues. How to choose the
-interval from the operator, which part of the low end is left to the smoother after the
-coarse correction, and whether an ellipse with complex foci should replace the real
-interval, are open.
+\item \textbf{Parameters from the operator.} The smoother interval
+$[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ uses a ratio chosen per setup, and a wrong one makes
+the solve stagnate (Sec.~\ref{sec:sensitivity}); the setup works with singular values of $\AR$,
+which for a non-normal operator need not match its eigenvalues. How to set the interval from the
+operator, and whether an ellipse with complex foci should replace the real interval, is open. So
+is the number of test vectors. Local coherence suggests that it does not grow with the volume,
+yet $16$ suffice on $12^4$ and $24$ do not on $24^3\times48$ (Sec.~\ref{sec:sensitivity}). The
+low modes may vary in the fifth dimension more than one vector per aggregate can follow (Eick and
+Mawhinney~\cite{EickMawhinney} find their fifth-dimensional profiles to differ between
+lattices); a test vector split in $s$, as it is now split in chirality, would keep $s$ and
+$\hat t$ in the range of $\Pro$, and Lüscher's coherence test would measure what the coarse space
+captures.
 
-\item \textbf{Even-odd smoother and coarse space.} Boyle and
-Yamaguchi~\cite{BY} found that a red-black smoother combined with the HDCR
-coarse correction was not effective, and attributed it to the eigenvectors of
-the red-black operator and of $\gamma_5RD$ not being aligned. In the present
-method the smoother and the correction both approximate $\tilde A^{-1}$ and the
-coarse space is built from low modes of $\AR$, so that particular mismatch is
-absent by construction; but the coarse operators are Galerkin projections of
-$D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
-preferable to the full-lattice $A'$ for this method has not been established.
+\item \textbf{Convergence theory.} The pseudospectral bound rests on Lanczos estimates of
+$\sigma_{\min}$, which approach it from above, and on the eigenvalues farthest from the center
+found by Arnoldi (Sec.~\ref{sec:pseudo}). A bound from an inclusion theorem, and how the outliers
+of setup~S and the pseudospectra develop beyond $16^4$, are open; on $24^4$ the Arnoldi iteration
+does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
+varies from step to step. On the $12^4$ configuration GCR(2) with accurate coarse solves reaches a
+residual orthogonal to its new direction and stays there (Sec.~\ref{sec:gcrk}), and the residual
+right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). GCR(2) does not
+reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
+were tested on $16^4$ but not on $24^4$. What singles out this configuration is open. A safeguard that changes the
+direction when $|\langle r,\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
+below a threshold would remove such fixed points for one inner product per step; it has not been
+implemented. Why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
+Sec.~\ref{sec:dagger}, is open as well.
 
-\item \textbf{A rigorous bound, and larger volumes.} The pseudospectral bound rests on
-Lanczos estimates of $\sigma_{\min}$, which approach it from above, and on the
-eigenvalues farthest from the center found by Arnoldi (Sec.~\ref{sec:pseudo}). A
-bound from an inclusion theorem, and how the outliers of setup~S and the
-pseudospectra develop beyond $16^4$, are open. The latter is only a matter of memory:
-on $24^4$ the field of values of $\AR$ fits in the 24~GB of the A30 but the Arnoldi
-iteration does not. A GPU with more memory would answer it with the programs of
-the reproduction guide (\texttt{REPRODUCE.pdf}) unchanged; so would the CPU, with enough memory, once the
-Arnoldi and pseudospectrum options are carried over to the CPU version of the program.
-
-\item \textbf{How many test vectors.} Local coherence suggests that the number of test
-vectors an aggregate needs does not grow with the volume, yet $16$ suffice on $12^4$ and
-on $24^3\times48$ even $24$ do not (Sec.~\ref{sec:sensitivity}). Whether the $16$ lowest
-modes of a larger lattice cover too narrow a part of the spectrum, or whether the low
-modes vary in the fifth dimension more than one vector per aggregate can follow (Eick and
-Mawhinney~\cite{EickMawhinney} find the fifth-dimensional profiles of low modes to differ
-between lattices), is open; a test vector split in $s$ as it is now split in
-chirality would keep $s$ and $\hat t$ in the range of $\Pro$, and Lüscher's coherence
-test would measure what the coarse space captures.
-
-\item \textbf{Solving with $D\dg$: the topological mode.} With $\Gfive\mathcal M\Gfive$
-(Secs.~\ref{sec:dagger}, \ref{sec:daggerresults}) the solves with $D\dg$ take two or three iterations more than those
-with $D$, except on the $12^4$ configuration with an unpaired near-zero mode, where the residual
-right-hand side of HMC needs GCR(8). Whether the localized topological mode is the cause, and
-whether deflating it lets GCR(2) converge there, is open. Why $N=c[Y,W]D^{-1}$ has a small
-square, beyond the heuristic of Sec.~\ref{sec:dagger}, is open as well.
-
-\item \textbf{Other coarsenings in one implementation.} The comparison here is with CGNE. How the
-two nine-point factors compare with the $81$-point HDCG operator and with the $33$-point
-coarsening of $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all
-of them in one code on the same lattices.
-
-\item \textbf{A coarse space for $D^{(\alpha)}$.} $\Pro$ and the coarse operators are those of
-the plain $D$ and $\Dpv$. The near-null vectors of $D^{(\alpha)}$ are $Q^{-1}$ times those of $D$;
-whether a $\Pro$ built from them helps the left form with $\alpha$ has not been tried.
-
-\item \textbf{Why GCR(2) reaches a fixed point on $12^4$.} With accurate coarse solves GCR(2)
-reaches a residual orthogonal to its new direction on $12^4$ and stays there; on $16^4$ and $24^4$
-it does not (Sec.~\ref{sec:gcrk}). Which property of the operator or the lattice decides this is
-open. A safeguard that changes the direction when
-$|\langle r,\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls below a threshold
-would remove the fixed point for one inner product per step; it has not been implemented.
-
-\item \textbf{Several right-hand sides at once.} The coarse operators and the transfer apply a
-$64\times64$ block per coarse site and link to one vector at a time, at about one flop per byte.
-Applied to the 12 columns of a point source together, they become matrix products whose intensity
-is near $2MN/(2M+N)$, about $10$ flops per byte for $2M=64$ and $N=12$, which moves them toward
-the compute bound, as Grebe shows for Wilson-clover multigrid on CPUs~\cite{Grebe}. A solve in
-HMC, with one right-hand side, does not gain from it.
+\item \textbf{Formulations and coarse spaces.} The comparison here is with CGNE. How the two
+nine-point factors compare with the $81$-point HDCG operator and with the $33$-point coarsening of
+$\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all of them in one
+code on the same lattices. The same holds for the full-lattice $A'$ against the even-odd system.
+Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction,
+because the eigenvectors of the red-black operator and of $\gamma_5RD$ are not aligned; here the
+smoother and the correction both approximate $\tilde A^{-1}$, so that mismatch is absent by
+construction, but whether the even-odd system is preferable for this method has not been
+established. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
+whether a $\Pro$ built from the near-null vectors of $D^{(\alpha)}$, $Q^{-1}$ times those of $D$,
+helps the left form with $\alpha$ has not been tried.
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.

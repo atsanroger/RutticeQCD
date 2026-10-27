@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect the logs of the alpha study (12^4, A30) into data/*.tsv.
+"""Collect the logs of the alpha study (12^4) into data/*.tsv.
 
 python3 -I collect.py RUNS, with RUNS the run directory holding alpha12, alpha12_mg, alpha12_hist,
 alpha12_fovM and alpha12_lowdefect.

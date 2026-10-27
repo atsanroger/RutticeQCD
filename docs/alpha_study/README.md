@@ -1,6 +1,6 @@
 # Neff's α in the multigrid: the runs
 
-12⁴ (`conf_quench_12x12x12x12_v2.bin`), A30, run directory `ruttice_a30_20261016/`:
+12⁴ (`conf_quench_12x12x12x12_v2.bin`), run directory `ruttice_a30_20261016/`:
 
 - `alpha12_mg/`, `alpha12_hist/`: MG solves (`fflowHPC_head`, main e044050), the yamls of
   `basis12/*_left_32.yaml` with the mass and α changed; `alpha12_hist` adds

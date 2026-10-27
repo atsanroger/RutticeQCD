@@ -745,7 +745,7 @@ misses. In HMC the levels below are used from the second round on (in the first,
 vectors, the coarse solves were as fast without them).
 
 \subsection{Cost and memory}
-On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$, A30; the $24^3\times48$ runs of the note use
+On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$; the $24^3\times48$ runs of the note use
 16, $n=32$): the filter about 35\,s and the bootstrap
 about 77\,s, the setup in all about 113\,s. A bootstrap round makes its correction ($\Pro$ 1.8\,s,
 the two coarse operators about 4.4\,s each, the inverse blocks 0.8\,s, the top of the smoother
@@ -1225,7 +1225,7 @@ move and rebuilt for the current links when the GCR iterations per solve have gr
 A kept coarse space is the coarse space of slightly different links. It is still a good
 preconditioner; GCR on the operator of the current links keeps the solve exact.
 
-\subsection{Memory ($24^4$, $m=0.001$, 20 vectors, levels below, A30)}
+\subsection{Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}
 \begin{center}
 \begin{tabular}{@{}lr@{}}
 \toprule

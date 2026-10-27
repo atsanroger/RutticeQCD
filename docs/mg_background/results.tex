@@ -52,7 +52,7 @@ Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion 
 setup adopted by the JLQCD Collaboration. Then $M_5=1.0$ is used, since the smearing largely
 suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
-The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from an NVIDIA A30, while an RTX~3080 was used for iteration counts and spectral quantities only.
+The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from one NVIDIA data-center GPU with $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
 
 \paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
 symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
@@ -84,7 +84,7 @@ solver at $m=0.001$ from $24^4$ on (Table~\ref{tab:volume}).
 
 \begin{table}[t]
 \centering
-\caption{Mass scan on $24^3\times48$, A30, one random right-hand side to
+\caption{Mass scan on $24^3\times48$, one random right-hand side to
 $|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
 precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
 $\alpha=1$ for the multigrid; iterations, solve time in seconds, coarse-operator
@@ -133,7 +133,7 @@ $0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
 \includegraphics[width=\linewidth]{fig_massscan}
 \caption{The mass scan of Table~\ref{tab:massscan}, the mixed-precision CGNE, and the Krylov
 solvers on $\AL$ without the multigrid (Table~\ref{tab:nomg}): iterations (top) and seconds
-per right-hand side (bottom) against the quark mass, $24^3\times48$, A30.
+per right-hand side (bottom) against the quark mass, $24^3\times48$.
 ``Solve + setup/12'': the setup spread over the 12 columns of one point-source
 propagator. \texttt{data/massscan\_24.tsv} (\texttt{6d5bf18}),
 \texttt{data/baseline\_mass\_2448.tsv} (\texttt{e044050}), \texttt{figures.py}.}
@@ -154,7 +154,7 @@ $4.8$ (B) times faster, and its setup of about $210$\,s is paid back after $4$--
 sides, within one point-source propagator (12 columns) for $m\le0.005$. For $m\ge0.05$ (S) the
 mixed-precision CGNE is faster, and at $m=0.1$ (B) the two take nearly the same time. Against
 double-precision CGNE the solve at $m=0.001$ is $7.5$ (S) and $9.0$ (B) times faster. The
-multigrid needs three times the device memory of CGNE, which on the $24$\,GB A30 excludes
+multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU excludes
 GCR($k$) with $k\ge8$.
 
 \paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
@@ -170,7 +170,7 @@ $21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
 
 \begin{table}[t]
 \centering
-\caption{Point-source propagators (12 columns) on $24^3\times48$, A30: the multigrid
+\caption{Point-source propagators (12 columns) on $24^3\times48$: the multigrid
 (setup seconds, iterations and seconds per column) against the mixed-precision CGNE
 (iterations and seconds per column), the wall time of the whole propagator, and the
 largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. RutticeQCD
@@ -203,7 +203,7 @@ BiCGStab on $\AL$ alone (Sec.~\ref{sec:nomg}) is slower than mixed CGNE on every
 \begin{table}[t]
 \centering
 \caption{Iterations and solve seconds at $m=0.001$ against the volume, one random right-hand
-side, A30, RutticeQCD \texttt{e044050}; multigrid: plus its setup.
+side, RutticeQCD \texttt{e044050}; multigrid: plus its setup.
 \texttt{data/baseline\_volume.tsv}, \texttt{data/baseline\_mass\_2448.tsv}.}
 \label{tab:volume}
 \renewcommand{\arraystretch}{1.12}
@@ -317,7 +317,7 @@ In HMC the multigrid solves the normal equation of the even-odd Ratio action, $(
 as two solves, one with $D$ and one with $D\dg$ (Sec.~\ref{sec:dagger}), repeated on the residual
 until it is small enough. The test vectors are kept from solve to solve and improved by a
 bootstrap when a trajectory starts; $\Pro$ and the coarse operators are kept until the iterations
-grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers, on the A30.
+grow by half. All runs are in setup~S with Neff's $\alpha=0.6$ for both solvers.
 
 \paragraph{The same trajectories.} A dynamical $16^4$ configuration was thermalized from the
 quenched one by mixed-precision CG: 60 trajectories at $m=0.05$ (acceptance $0.98$,
@@ -340,7 +340,7 @@ a volume where CG takes more than about 1300 iterations per solve.
 
 \begin{table}[t]
 \centering
-\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$, A30:
+\caption{HMC on the thermalized dynamical $16^4$ configuration, setup S, $\alpha=0.6$:
 seconds per trajectory of length~1 (Omelyan $[20,2]$ at $m=0.01$, $[40,2]$ at $m=0.001$), with the
 iterations per solve. The multigrid: 16 filtered vectors, GCR(2), the cycle in single precision;
 its time includes its setup (one bootstrap per trajectory) and rebuilds.}
@@ -382,7 +382,7 @@ multigrid comes from its coarse correction.
 
 \begin{table}[t]
 \centering
-\caption{Solvers on $24^3\times48$, one random right-hand side, A30, iterations and solve
+\caption{Solvers on $24^3\times48$, one random right-hand side, iterations and solve
 seconds (multigrid: plus its setup). RutticeQCD \texttt{e044050};
 \texttt{data/baseline\_mass\_2448.tsv} and \texttt{data/baseline\_volume.tsv} (all seven masses
 there).}
@@ -416,7 +416,7 @@ the vectors of the filter and of the bootstrap.
 \begin{table}[t]
 \centering
 \caption{GCR(2) iterations on $\AL$ with $\Pro$ made of different lifts of the vectors $y$,
-$m=0.001$, one random right-hand side, A30; the other parameters as in
+$m=0.001$, one random right-hand side; the other parameters as in
 Table~\ref{tab:setups}; setup seconds on $24^3\times48$. ``stag.'': not converged in $2000$
 iterations. RutticeQCD \texttt{e044050} with the switch \texttt{RUTTICE\_BASIS\_LIFTS} of the
 branch \texttt{exp/basis-lifts}, whose default gives the results of \texttt{e044050} bit for
@@ -526,8 +526,8 @@ makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 \centering
 \caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
 $12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $16$ in setup~S, $14$ in
-setup~B; on the A30, $14$ in both, Table~\ref{tab:basischoice}); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
-change much. RTX~3080, RutticeQCD \texttt{6d5bf18}; \texttt{data/sensitivity\_12.tsv}.}
+setup~B; on the first GPU, $14$ in both, Table~\ref{tab:basischoice}); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
+change much. Second GPU, RutticeQCD \texttt{6d5bf18}; \texttt{data/sensitivity\_12.tsv}.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
@@ -556,10 +556,10 @@ vectors has not been made.
 
 \begin{table}[t]
 \centering
-\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the A30:
+\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, timed on the first GPU:
 iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
 right-hand side, RutticeQCD \texttt{6d5bf18}; \texttt{data/costs\_12.tsv}. The iterations
-are those of Table~\ref{tab:sensitivity} (RTX~3080, the same build) in every row; with
+are those of Table~\ref{tab:sensitivity} (second GPU, the same build) in every row; with
 an earlier build they differed by up to six, the device kernels adding in other orders.}
 \label{tab:costs}
 \renewcommand{\arraystretch}{1.12}
@@ -599,7 +599,7 @@ With the setup as fast as it is now, the base setting is no longer the time opti
 $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
 no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
 setup. On $24^3\times48$ the fewer test vectors do not carry over (setup~S, $m=0.001$,
-point source, A30, \texttt{6d5bf18}): $16$ halve the setup there too ($116$ against
+point source, \texttt{6d5bf18}): $16$ halve the setup there too ($116$ against
 $207$\,s), but the columns that converge need $910$--$940$ iterations and the others stop
 at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the first column,
 against $29$--$32$ with $32$. More smoother steps have not been tried there. All runs use one setup seed, and the iterations move by a few
@@ -658,7 +658,7 @@ mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:set
 but no levels below the coarse lattice. \texttt{preconditioned\_fov\_device --parts}.
 On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
 there the field of values of $\AR\mathcal M$ did not settle (the two dimensions differ
-by $2\%$) and the eigensolvers did not fit in the memory of the A30.}
+by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
 \label{tab:fov}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lccccc@{}}
@@ -832,7 +832,7 @@ an inclusion theorem (Kato--Temple) with a bound on the second singular value.
 eigenvalues farthest from $c$ found by Arnoldi. (iv) The bound is for full GMRES
 with a fixed linear $\mathcal M$ (Sec.~\ref{sec:gcrk}). (v) The spectra, and the
 FOV of $\AR\mathcal M$, are not available on $24^4$ and $24^3\times48$: the
-eigensolvers do not fit in the memory of the A30. A GPU with more memory would remove
+eigensolvers do not fit in $24$\,GB of device memory. A GPU with more memory would remove
 this limit.
 
 \subsubsection{Truncated GCR: inexact coarse solves}
@@ -878,7 +878,7 @@ $1.12\times10^2$. With tolerances $10^{-8}$ and $10^{-4}$ they agree with the ex
 $1\%$. What the tolerance changes is that the cycle is no longer a fixed linear map: with Krylov
 coarse solves stopped early, it depends on its input.
 
-On $24^3\times48$ the full method cannot run on the A30. GCR(8) and GCR(16) run out of device
+On $24^3\times48$ the full method cannot run in $24$\,GB of device memory. GCR(8) and GCR(16) run out of device
 memory after the setup: GCR(2) peaks at $19.9$ of $24$\,GB, and every further direction is
 another fine vector.
 

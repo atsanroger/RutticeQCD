@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The figures of the MG note from the data in data/ (python3 figures.py in this directory).
 
-fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multigrid, the multigrid (A30).
-fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4 (RTX 3080).
-fig_history.pdf: the GCR(2) residual histories on 24^3x48 (A30).
+fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multigrid, the multigrid
+fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4
+fig_history.pdf: the GCR(2) residual histories on 24^3x48
 """
 import csv
 import os

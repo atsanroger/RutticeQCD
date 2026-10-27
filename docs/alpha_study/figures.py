@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The figure of the alpha study from data/ (python3 figures.py in this directory).
 
-fig_history_12.pdf: the GCR(2) residual histories on 12^4, alpha 0.6 and 1 (A30).
+fig_history_12.pdf: the GCR(2) residual histories on 12^4, alpha 0.6 and 1.
 """
 import csv
 from pathlib import Path
