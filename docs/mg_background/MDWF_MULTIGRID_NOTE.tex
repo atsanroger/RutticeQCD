@@ -265,10 +265,9 @@ $D\dg$.\ifresults{} Section~\ref{sec:results} gives the results: first the cost 
 in HMC, then what each part of the method contributes, then why it converges. Section~\ref{sec:summary} sums up.\fi{} Section~\ref{sec:open}
 lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations, and Appendix~\ref{sec:impl} describes the implementation and how to reproduce the
-results\fi. The companion text
-\texttt{docs/mg\_background/MG\_WALKTHROUGH.tex} in the RutticeQCD repository
-(Appendix~\ref{sec:impl}) derives every formula of this paper line by line.
+configurations\fi. The companion text
+\texttt{docs/mg\_background/MG\_WALKTHROUGH.tex} in the RutticeQCD repository derives every
+formula of this paper line by line.
 
 \paragraph{Conventions.}
 Five-dimensional fields are $\psi_s(x)$ with $s=0,\dots,L_s-1$, and $\Pp,\Pm=\tfrac12(1\pm\gamma_5)$.
@@ -1381,6 +1380,13 @@ convergence.
 The evidence is limited to one configuration per volume, volumes up to $24^3\times48$, and CGNE as
 the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
 implementation, and larger volumes, are the next steps (Sec.~\ref{sec:open}).
+
+\paragraph{Code and data.} All results were obtained with RutticeQCD,
+\url{https://github.com/atsanroger/RutticeQCD}, whose GPU backend takes the CUDA kernels of the
+Wilson and M\"obius operators from Bridge++. The parameter files, the data of the tables and
+figures and the scripts that make them are in \texttt{docs/mg\_background} of the repository,
+with a guide to reproducing the results (\texttt{REPRODUCE.pdf}) and a line-by-line derivation of
+the formulas (\texttt{MG\_WALKTHROUGH.pdf}).
 \fi
 % ============================================================
 \section{Open problems}
@@ -1419,7 +1425,7 @@ bound from an inclusion theorem, and how the outliers of setup~S and the
 pseudospectra develop beyond $16^4$, are open. The latter is only a matter of memory:
 on $24^4$ the field of values of $\AR$ fits in the 24~GB of the A30 but the Arnoldi
 iteration does not. A GPU with more memory would answer it with the programs of
-Sec.~\ref{sec:reproduce} unchanged; so would the CPU, with enough memory, once the
+the reproduction guide (\texttt{REPRODUCE.pdf}) unchanged; so would the CPU, with enough memory, once the
 Arnoldi and pseudospectrum options are carried over to the CPU version of the program.
 
 \item \textbf{How many test vectors.} Local coherence suggests that the number of test
@@ -1613,7 +1619,6 @@ $32^4$ & $0.593606$ & $3.59$ & $+13.0$ & $+14.1$ & $\approx+14$\\
 \end{table}
 
 \fi
-\input{reproduce}
 \fi
 
 % ============================================================
@@ -1676,13 +1681,12 @@ SIAM J.\ Sci.\ Comput.\ \textbf{35} (2013) A696.
 \bibitem{Manteuffel} T.~A.~Manteuffel, \emph{The Tchebychev iteration for nonsymmetric linear systems},
 Numer.\ Math.\ \textbf{28} (1977) 307.
 \bibitem{Saad} Y.~Saad, \emph{Iterative Methods for Sparse Linear Systems}, 2nd ed., SIAM, Philadelphia (2003).
-\bibitem{Stewart} G.~W.~Stewart, \emph{A Krylov--Schur algorithm for large eigenproblems},
-SIAM J.\ Matrix Anal.\ Appl.\ \textbf{23} (2001) 601.
 \bibitem{TrefethenEmbree} L.~N.~Trefethen and M.~Embree, \emph{Spectra and Pseudospectra: The Behavior of Nonnormal Matrices and Operators}, Princeton University Press (2005).
 \bibitem{Embree} M.~Embree, \emph{The tortoise and the hare restart GMRES},
 SIAM Rev.\ \textbf{45} (2003) 259.
 \bibitem{ESW} H.~C.~Elman, D.~J.~Silvester and A.~J.~Wathen, \emph{Finite Elements and Fast Iterative Solvers: with Applications in Incompressible Fluid Dynamics}, 2nd ed., Oxford University Press (2014).
 \bibitem{EickMawhinney} J.~Eick and R.~Mawhinney, \emph{Toward a renormalization-group preconditioned conjugate gradient for domain wall fermions}, PoS \textbf{LATTICE2025} (2025) 048.
+\bibitem{Arthur2013} R.~Arthur \emph{et al.} (RBC and UKQCD), \emph{Domain wall QCD with near-physical pions}, Phys.\ Rev.\ D \textbf{87} (2013) 094514 [arXiv:1208.4412].
 \bibitem{WhyteSVD} T.~Whyte, A.~Stathopoulos and E.~Romero, \emph{Accelerating multigrid with streaming chiral SVD for Wilson fermions in lattice QCD}, arXiv:2505.14399.
 \end{thebibliography}
 

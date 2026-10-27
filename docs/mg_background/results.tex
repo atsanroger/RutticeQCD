@@ -44,7 +44,8 @@ On them two setups of the M\"obius operator are used (Table~\ref{tab:setups}), b
 $(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD Collaborations, and $L_s=8$.
 \begin{itemize}
 \item \emph{Setup B (bare links).} The domain-wall height $M_5=1.8$ is the value typical of
-practical simulations on unsmeared links, as adopted by the RBC/UKQCD Collaboration: on rough
+practical simulations on unsmeared links, as in the RBC/UKQCD ensembles of
+Ref.~\cite{Arthur2013}: on rough
 fields the lattice artifact of the Wilson kernel shifts the best value of $M_5$ above~$1$.
 \item \emph{Setup S (stout links).} Three steps of the stout smearing of
 Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion operator, the
@@ -52,7 +53,6 @@ setup adopted by the JLQCD Collaboration. Then $M_5=1.0$ is used, since the smea
 suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
 The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from an NVIDIA A30, while an RTX~3080 was used for iteration counts and spectral quantities only.
-The implementation is described in Appendix~\ref{sec:impl}.
 
 \paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
 symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
