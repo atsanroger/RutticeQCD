@@ -159,7 +159,7 @@ as $L_s$ grows. The M\"obius generalization~\cite{BNO0,BNO1,BNO} adds two coeffi
 and improves the approximation at fixed $L_s$; $c=0$ is Shamir's operator.
 
 Solving with the domain-wall operator is expensive, because it is neither Hermitian nor positive and one application costs $L_s$ four-dimensional Wilson hops. The standard solver is
-still the conjugate gradient method on the normal equation of the even-odd operator (CGNE),
+still the conjugate gradient method~\cite{HestenesStiefel} on the normal equation of the even-odd operator (CGNE),
 whose condition number is the square of that of the operator. As the quark mass $m$ decreases,
 the smallest eigenvalues of $D$ approach $m$, the condition number of the normal equation grows
 like $1/m^2$ and the CG iterations like $1/m$ until the finite volume limits them: critical
@@ -303,7 +303,7 @@ Reproduced from Ref.~\cite{KCM2024}, Fig.~1, under its license CC BY-NC-ND 4.0.}
 \paragraph{The unpreconditioned operator.}
 The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$. On a
 $2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec}, Fig.~\ref{fig:pv}) the real parts
-lie in $[-1.29,13.2]$. So CG and BiCGStab do not work on $D$ itself, and the practical choice has
+lie in $[-1.29,13.2]$. So CG and BiCGStab~\cite{vanderVorst} do not work on $D$ itself, and the practical choice has
 been CG on a positive definite squared operator.
 
 \paragraph{Site-diagonal preconditioning.}
@@ -1560,18 +1560,49 @@ $32^4$ & $0.593606$ & $3.59$ & $+13.0$ & $+14.1$ & $\approx+14$\\
 \end{table}
 
 % ============================================================
-\section{The reference CG}
+\section{CGNE algorithm}
 \label{sec:cgform}
 
 The reference solver of Sec.~\ref{sec:massscan} is CG on $\mathcal K\dg\mathcal K$ with
 $\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
 multigrid, in double or in mixed precision.
 
-\paragraph{Mixed precision.} The mixed-precision solver runs CG in single precision on the normal
-equation of $\mathcal K$, with reliable updates in double precision: the true residual is
-recomputed whenever $|r|^2$ has fallen by $10^{-2}$. On $24^3\times48$ it needs the iterations of
-double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times the time, with the
-same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double precision.
+For $D\psi=\eta$ the even-odd reduction of Sec.~\ref{sec:eo} gives $\mathcal K^{(\alpha)}y=\Ce^{-1}\eta'_e$
+with $\mathcal K^{(\alpha)}=Q_e^{-1}\mathcal KQ_e$, Eq.~\eqref{eq:Ksimilar}, and CG solves its normal
+equation $A y=b$, $A=\mathcal K^{(\alpha)\dagger}\mathcal K^{(\alpha)}$,
+$b=\mathcal K^{(\alpha)\dagger}\Ce^{-1}\eta'_e$; $\psi_o$ and $\psi=Q\psi^{(\alpha)}$ follow as for the
+multigrid. The stopping criterion is $|b-Ay|^2/|b|^2<10^{-18}$.
+
+\paragraph{Mixed precision.} The mixed-precision solver runs the CG recurrence in single precision
+and corrects it by reliable updates~\cite{SleijpenvdV,ClarkMixed} in double precision
+(Algorithm~\ref{alg:cgne}): each time the single-precision $|\hat r|^2$ has fallen by a factor
+$\delta=10^{-2}$ below its largest value since the last update, the single-precision solution is
+added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG then goes on with
+the same search direction and stops only on the double-precision residual. With $\delta=0$ the
+algorithm is plain CG in double precision. On $24^3\times48$ the mixed-precision solver needs the
+iterations of double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times the
+time, with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
+precision.
+
+\begin{algorithm}[tbp]
+\caption{CGNE with reliable updates. Hats: single precision; $\hat A$ is $A$ on the single-precision links.}
+\label{alg:cgne}
+\begin{algorithmic}
+\State $r\gets b-Ay$; \textbf{if} $|r|^2<\epsilon|b|^2$ \textbf{return} $y$
+\State $\hat r\gets r$;\quad $\hat p\gets\hat r$;\quad $\hat x\gets0$;\quad $\rho\gets|\hat r|^2$;\quad $\rho_{\max}\gets\rho$
+\Loop
+  \State $\alpha\gets\rho/\langle\hat p,\hat A\hat p\rangle$;\quad $\hat x\gets\hat x+\alpha\hat p$;\quad $\hat r\gets\hat r-\alpha\hat A\hat p$;\quad $\rho'\gets|\hat r|^2$
+  \If{$\rho'<\delta\rho_{\max}$ \textbf{or} $\rho'<\epsilon|b|^2$} \Comment{reliable update}
+    \State $y\gets y+\hat x$;\quad $\hat x\gets0$;\quad $r\gets b-Ay$
+    \State \textbf{if} $|r|^2<\epsilon|b|^2$ \textbf{return} $y$
+    \State $\hat r\gets r$;\quad $\rho'\gets|\hat r|^2$;\quad $\rho_{\max}\gets\rho'$
+  \Else
+    \State $\rho_{\max}\gets\max(\rho_{\max},\rho')$
+  \EndIf
+  \State $\hat p\gets\hat r+(\rho'/\rho)\,\hat p$;\quad $\rho\gets\rho'$
+\EndLoop
+\end{algorithmic}
+\end{algorithm}
 
 \paragraph{Two even-odd forms.} Boyle and Yamaguchi~\cite{BY} used CG
 on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned
@@ -1676,6 +1707,10 @@ Comput.\ Phys.\ Commun.\ \textbf{220} (2017) 1 [arXiv:1206.5214].
 Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 \bibitem{Luscher} M.~L\"uscher, \emph{Local coherence and deflation of the low quark modes in lattice QCD},
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
+\bibitem{HestenesStiefel} M.~R.~Hestenes and E.~Stiefel, \emph{Methods of conjugate gradients for solving linear systems}, J.\ Res.\ Natl.\ Bur.\ Stand.\ \textbf{49} (1952) 409.
+\bibitem{vanderVorst} H.~A.~van der Vorst, \emph{Bi-CGSTAB: a fast and smoothly converging variant of Bi-CG for the solution of nonsymmetric linear systems}, SIAM J.\ Sci.\ Stat.\ Comput.\ \textbf{13} (1992) 631.
+\bibitem{SleijpenvdV} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Reliable updated residuals in hybrid Bi-CG methods}, Computing \textbf{56} (1996) 141.
+\bibitem{ClarkMixed} M.~A.~Clark, R.~Babich, K.~Barros, R.~C.~Brower and C.~Rebbi, \emph{Solving lattice QCD systems of equations using mixed precision solvers on GPUs}, Comput.\ Phys.\ Commun.\ \textbf{181} (2010) 1517 [arXiv:0911.3191].
 \bibitem{Brannick} J.~Brannick, R.~C.~Brower, M.~A.~Clark, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for lattice QCD},
 Phys.\ Rev.\ Lett.\ \textbf{100} (2008) 041601 [arXiv:0707.4018].
 \bibitem{Babich} R.~Babich, J.~Brannick, R.~C.~Brower, M.~A.~Clark, T.~A.~Manteuffel, S.~F.~McCormick, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for the lattice Wilson-Dirac operator},
