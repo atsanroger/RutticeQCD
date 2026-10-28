@@ -39,9 +39,9 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 \end{table}
 
 \paragraph{Numerical setup.} The gauge configurations are quenched, generated with the
-plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about $0.1$~fm. The volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, with configuration v2 of
-Table~\ref{tab:configs} on each. The mass scan and Sec.~\ref{sec:gcrk} add three later
-configurations of the same HMC chains, $100$ trajectories apart.
+plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about $0.1$~fm. The volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, with four configurations each
+(Table~\ref{tab:configs}). Results are for configuration~1 unless more are stated; the mass scan
+and Sec.~\ref{sec:gcrk} use all four.
 On them two setups of the M\"obius operator are used (Table~\ref{tab:setups}), both with
 $(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD Collaborations, and $L_s=8$.
 \begin{itemize}
@@ -153,17 +153,14 @@ $0.54$--$0.61$ times the time of double precision at the same final residuals
 (Appendix~\ref{sec:cgform}).
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
-(Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}). On configuration v2, from $m=0.1$ to $m=0.001$ the CGNE
-iterations grow by a factor of $21$ (S) and $18$ (B), the multigrid iterations by $2.2$ (S) and
-$3.7$ (B). Against the mixed-precision CGNE the multigrid solve at $m=0.001$ is $4.5$ (S) and
-$4.8$ (B) times faster, and its setup of about $210$\,s is paid back after $4$--$5$ right-hand
-sides. On configurations 702, 802 and 902 the multigrid iterations grow by $1.6$--$4.1$ (S) and
-$3.1$--$3.6$ (B), those of the mixed-precision CGNE by $20$--$27$ (S) and $18$--$21$ (B); the
-solve at $m=0.001$ is $2.9$--$5.0$ (S) and $5.8$--$6.0$ (B) times faster, and the setup is paid
-back after $3.5$--$5.2$ right-hand sides. The lowest factor, $2.9$, is configuration 702 in
-setup~S (Sec.~\ref{sec:gcrk}). On all four configurations the setup is paid back within one point-source propagator (12 columns) for $m\le0.005$. For $m\ge0.05$ (S) the
+(Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}). On the four configurations, from $m=0.1$ to $m=0.001$
+the iterations of the mixed-precision CGNE grow by a factor of $20$--$27$ (S) and $18$--$21$ (B), those
+of the multigrid by $1.6$--$4.1$ (S) and $3.1$--$3.7$ (B). At $m=0.001$ the multigrid solve is
+$2.9$--$5.0$ (S) and $4.8$--$6.0$ (B) times faster than the mixed-precision CGNE, and its setup of
+about $210$\,s is paid back after $3.5$--$5.2$ right-hand sides. The lowest factor, $2.9$, is
+configuration~2 in setup~S (Sec.~\ref{sec:gcrk}). The setup is paid back within one point-source propagator (12 columns) for $m\le0.005$. For $m\ge0.05$ (S) the
 mixed-precision CGNE is faster or level, and at $m=0.1$ (B) the two take nearly the same time. On
-v2, against double-precision CGNE the solve at $m=0.001$ is $7.5$ (S) and $9.0$ (B) times faster. The
+configuration~1, against double-precision CGNE the solve at $m=0.001$ is $7.5$ (S) and $9.0$ (B) times faster. The
 multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU excludes
 GCR($k$) with $k\ge8$.
 
@@ -821,31 +818,31 @@ $24^3\times48$ one configuration is slow with every seed. The setup filters rand
 space but not the configuration, the operator or the right-hand side, and the solution agrees to the
 stopping tolerance.
 Table~\ref{tab:seeds} repeats the solve at $m=0.001$ with many seeds. On $12^4$ it uses four
-configurations: v2 of Table~\ref{tab:configs} and trajectories 502, 602 and 702 of its HMC chain. In
+configurations of Table~\ref{tab:configs}. In
 setup~S, $19$ of $160$ setups need more than $30$ iterations and $13$ of them more than $200$ or do not
-converge in $2000$. The rate per configuration, $7$, $6$, $4$ and $2$ of $40$ (v2, 602, 502, 702), does
+converge in $2000$. The rate per configuration, $7$, $6$, $4$ and $2$ of $40$ (configurations 1, 3, 2, 4), does
 not distinguish the configurations at these counts. The same configurations with $M_5=1$ and no
 smearing give $0$ of $40$, and setup~B gives $0$ of $80$. On $16^4$ setup~S gives $0$ of $60$ on
 three quenched configurations and $0$ of $20$ on the dynamical one, and on $24^3\times48$ seeds 1--5
-need $18$--$28$ iterations on configurations 802 and 902. Configuration 702 of $24^3\times48$ needs
+need $18$--$28$ iterations on configurations 3 and 4. Configuration~2 of $24^3\times48$ needs
 $53$, $36$ and $45$ iterations with seeds 21, 7 and 99, against $18$--$28$ on the other three; that
 excess is shared by all three seeds and so belongs to the configuration.
 
 A slow setup gives a cycle of the usual quality, and GCR(2) fails to use it. With the same cycles
 GCR(16) needs $11$--$14$ iterations in all $40$ setups tested. In the slow runs $|r|^2$ falls normally
 for a few steps and then stays nearly constant, for up to $300$ steps at
-$|r|^2/|b|^2\approx7\times10^{-10}$ on v2 with seed 2, before it falls again; this is the behavior
+$|r|^2/|b|^2\approx7\times10^{-10}$ on configuration~1 with seed 2, before it falls again; this is the behavior
 near a fixed point of Table~\ref{tab:stall}, reached here with inexact coarse solves. The slowness
 belongs to the setup: five of the six slow setups of the first ten seeds are slow for the point
 source as well ($44$ to more than $500$ iterations). At $L_s=12$ and $16$ the same occurs, in $7$ of
-$20$ setups on configurations 502 and 702. Why smearing on the small lattice produces these setups is
+$20$ setups on configurations 2 and 4. Why smearing on the small lattice produces these setups is
 open.
 
 GCR(8) and $48$ test vectors remove the slow setups on $12^4$ but do not fit $24^3\times48$ in
 $24$\,GB: each kept direction costs two fine vectors ($1$\,GB there; GCR(4) peaks at $22.1$ against
 $20.2$\,GB), and the setup with $48$ test vectors runs out of device memory. Coarse solves for the
 quark factor to $10^{-4}$ cost no memory and leave $2$ of $160$ setups slow; on $24^3\times48$ they
-lower configuration 702 to $43$, $33$ and $33$ iterations. A slow setup shows itself in the first solve as a plateau of $|r|^2$; the setup can then be repeated
+lower configuration~2 to $43$, $33$ and $33$ iterations. A slow setup shows itself in the first solve as a plateau of $|r|^2$; the setup can then be repeated
 with another seed on the same configuration, at the cost of one more setup. We have not automated
 this.
 
@@ -853,9 +850,9 @@ this.
 \centering
 \caption{Slow setups: setups with more than $30$ iterations or no convergence in $2000$ / setups,
 and the range of the others; $m=0.001$, $L_s=8$, $\AL$, one random right-hand side to
-$|r|^2/|b|^2<10^{-18}$. $12^4$: configurations v2, 502, 602, 702; $16^4$: v2, 502, 602 and the
-dynamical one; $24^3\times48$: 802, 902. Last column: peak device memory of the variant on
-$24^3\times48$ (setup~S, configuration 702, seed 21).}
+$|r|^2/|b|^2<10^{-18}$. $12^4$: configurations 1--4; $16^4$: 1--3 and the
+dynamical one; $24^3\times48$: 3 and 4. Last column: peak device memory of the variant on
+$24^3\times48$ (setup~S, configuration~2, seed 21).}
 \label{tab:seeds}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
