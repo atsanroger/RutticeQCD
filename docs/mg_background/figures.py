@@ -36,53 +36,60 @@ def rows(name):
 
 
 def massscan():
-    data = rows("massscan_24.tsv")
+    data = rows("massscan_24_configs.tsv")
     nomg = rows("baseline_mass_2448.tsv")
+    masses = sorted({float(r["mass"]) for r in data})
     fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.8), sharex=True)
+
+    def band(setup, solver, alpha, value):
+        """Mean over the configurations and the distance to the smallest and largest value."""
+        mean, lo, hi = [], [], []
+        for m in masses:
+            v = [value(r) for r in data if r["setup"] == setup and r["solver"] == solver
+                 and r["alpha"] == alpha and float(r["mass"]) == m]
+            mu = sum(v) / len(v)
+            mean.append(mu)
+            lo.append(mu - min(v))
+            hi.append(max(v) - mu)
+        return mean, [lo, hi]
+
+    its = lambda r: int(r["iterations"])
+    secs = lambda r: float(r["solve_s"])
     for col, setup in enumerate("SB"):
-        sel = lambda solver, alpha: sorted(
-            (float(r["mass"]), r) for r in data
-            if r["setup"] == setup and r["solver"] == solver and r["alpha"] == alpha)
-        cg, mg, mg1 = sel("CGNE", "0.6"), sel("MG", "0.6"), sel("MG", "1.0")
-        mx = sel("CGNE_mixed", "0.6")
         other = lambda method: sorted(
             (float(r["mass"]), r) for r in nomg if r["setup"] == setup and r["method"] == method)
         bi, ch = other("bicg"), other("cheb")
-        m = [x for x, _ in cg]
-        ax = axes[0, col]
-        ax.loglog(m, [int(r["iterations"]) for _, r in cg], "o-", color="C3", label="CGNE")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mx], "o--", color="C3", alpha=0.6,
-                  label="CGNE, mixed")
-        ax.loglog([x for x, _ in bi], [int(r["iterations"]) for _, r in bi], "D-", color="C2",
-                  label=r"BiCGStab on $\tilde A_L$")
-        ax.loglog([x for x, _ in ch], [int(r["iterations"]) for _, r in ch], "v-", color="C4",
-                  label="GCR(2), Chebyshev")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mg], "s-", color="C0",
-                  label=r"MG, $\alpha=0.6$")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mg1], "^--", color="C0", alpha=0.6,
-                  label=r"MG, $\alpha=1$")
-        ax.set_title(NAMES[setup], fontsize=9)
-        if col == 0:
-            ax.set_ylabel("iterations")
-        ax.grid(True, which="both", alpha=0.25)
-        ax = axes[1, col]
-        ax.loglog(m, [float(r["solve_s"]) for _, r in cg], "o-", color="C3", label="CGNE")
-        ax.loglog(m, [float(r["solve_s"]) for _, r in mx], "o--", color="C3", alpha=0.6,
-                  label="CGNE, mixed")
-        ax.loglog([x for x, _ in bi], [float(r["solve_s"]) for _, r in bi], "D-", color="C2",
-                  label=r"BiCGStab on $\tilde A_L$")
-        ax.loglog([x for x, _ in ch], [float(r["solve_s"]) for _, r in ch], "v-", color="C4",
-                  label="GCR(2), Chebyshev")
-        ax.loglog(m, [float(r["solve_s"]) for _, r in mg], "s-", color="C0",
-                  label="MG, solve")
-        ax.loglog(m, [float(r["solve_s"]) + float(r["setup_s"]) / 12 for _, r in mg], "s:",
-                  color="C0", alpha=0.7, label="MG, solve + setup/12")
-        ax.loglog(m, [float(r["solve_s"]) + float(r["setup_s"]) for _, r in mg], "s:",
-                  color="C7", alpha=0.7, label="MG, solve + setup")
-        ax.set_xlabel(r"quark mass $m$")
-        if col == 0:
-            ax.set_ylabel("seconds per right-hand side")
-        ax.grid(True, which="both", alpha=0.25)
+        for row, (value, ylabel) in enumerate([(its, "iterations"), (secs, "seconds per right-hand side")]):
+            ax = axes[row, col]
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            for solver, alpha, fmt, color, a, lab in [
+                    ("CGNE", "0.6", "o-", "C3", 1.0, "CGNE"),
+                    ("CGNE_mixed", "0.6", "o--", "C3", 0.6, "CGNE, mixed"),
+                    ("MG", "0.6", "s-", "C0", 1.0, r"MG, $\alpha=0.6$" if row == 0 else "MG, solve"),
+                    ("MG", "1.0", "^--", "C0", 0.6, r"MG, $\alpha=1$")]:
+                if row == 1 and alpha == "1.0":
+                    continue
+                y, err = band(setup, solver, alpha, value)
+                ax.errorbar(masses, y, yerr=err, fmt=fmt, color=color, alpha=a, capsize=2, label=lab)
+            col_bi = [float(r["iterations"]) if row == 0 else float(r["solve_s"]) for _, r in bi]
+            col_ch = [float(r["iterations"]) if row == 0 else float(r["solve_s"]) for _, r in ch]
+            ax.plot([x for x, _ in bi], col_bi, "D-", color="C2", label=r"BiCGStab on $\tilde A_L$")
+            ax.plot([x for x, _ in ch], col_ch, "v-", color="C4", label="GCR(2), Chebyshev")
+            if row == 1:
+                y, _ = band(setup, "MG", "0.6", lambda r: float(r["solve_s"]) + float(r["setup_s"]) / 12)
+                ax.plot(masses, y, "s:", color="C0", alpha=0.7, label="MG, solve + setup/12")
+                y, _ = band(setup, "MG", "0.6", lambda r: float(r["solve_s"]) + float(r["setup_s"]))
+                ax.plot(masses, y, "s:", color="C7", alpha=0.7, label="MG, solve + setup")
+                ax.set_xlabel(r"quark mass $m$")
+            else:
+                ax.set_title(NAMES[setup], fontsize=9)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+            ax.set_xticks(masses)
+            ax.set_xticklabels([f"{m:g}" for m in masses], fontsize=6.5)
+            ax.minorticks_off()
+            ax.grid(True, which="major", alpha=0.25)
     axes[0, 0].invert_xaxis()
     handles, labels = axes[1, 0].get_legend_handles_labels()
     h_top, l_top = axes[0, 0].get_legend_handles_labels()

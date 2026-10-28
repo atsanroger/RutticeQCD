@@ -89,17 +89,18 @@ solver at $m=0.001$ from $24^4$ on (Table~\ref{tab:volume}).
 
 \begin{table}[t]
 \centering
-\caption{Mass scan on $24^3\times48$, one random right-hand side to
-$|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
+\caption{Mass scan on $24^3\times48$, means over the four configurations, one random right-hand
+side to $|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
 precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
 $\alpha=1$ for the multigrid; iterations, solve time in seconds, coarse-operator
 applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
-multigrid setup (200--237\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
+multigrid setup ($194$--$237$\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
 MG})$, against the double- and the mixed-precision CGNE. The mixed-precision CGNE
-needs the iterations of the double-precision one, except at $m=0.001$ (S): $4090$.
-Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$3\times10^{-16}$ (CGNE, both),
-$2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
-(double) and $7.2$\,GB (mixed), MG $19.9$\,GB ($\alpha=0.6$).}
+needs the iterations of the double-precision one within $1\%$, except at $m\le0.002$ (S), where it
+needs up to $30\%$ more. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\times10^{-15}$
+(CGNE, both), $2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
+(double) and $7.2$\,GB (mixed), MG $20.2$\,GB ($\alpha=0.6$). Table~\ref{tab:massscancfg}
+gives the four configurations at $m=0.001$.}
 \label{tab:massscan}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}
@@ -110,22 +111,48 @@ $2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
 $m$ & it & s & s, mixed & it & s & coarse & it & s & double & mixed\\
 \midrule
 \multicolumn{11}{@{}l}{setup S ($M_5=1.0$, stout)}\\
-$0.1$   & 173  & 4.8   & 2.9  & 13 & 5.9  & 1202 & 16 & 6.8  & ---  & ---\\
-$0.05$  & 291  & 8.1   & 4.6  & 13 & 5.3  & 750  & 14 & 5.7  & 72   & ---\\
-$0.02$  & 644  & 17.7  & 9.7  & 14 & 5.7  & 830  & 14 & 5.7  & 17   & 51\\
-$0.01$  & 1166 & 32.0  & 17.4 & 15 & 6.2  & 990  & 15 & 6.3  & 7.9  & 18\\
-$0.005$ & 2067 & 56.6  & 30.5 & 17 & 7.1  & 1158 & 17 & 7.3  & 4.2  & 8.8\\
-$0.002$ & 3419 & 93.5  & 50.2 & 23 & 10.1 & 1954 & 22 & 10.1 & 2.5  & 5.1\\
-$0.001$ & 3602 & 98.5  & 59.9 & 28 & 13.2 & 3014 & 27 & 13.1 & 2.4  & 4.4\\
+$0.1$ & 182 & 5.0 & 2.9 & 14 & 6.1 & 1336 & 18 & 7.4 & --- & ---\\
+$0.05$ & 303 & 8.3 & 4.7 & 13 & 5.2 & 808 & 14 & 5.7 & 63 & ---\\
+$0.02$ & 658 & 17.9 & 9.7 & 14 & 5.6 & 874 & 14 & 5.8 & 16 & 48\\
+$0.01$ & 1174 & 31.9 & 17.1 & 16 & 6.7 & 1168 & 16 & 6.7 & 7.9 & 19\\
+$0.005$ & 2079 & 56.5 & 30.1 & 20 & 8.3 & 1589 & 20 & 8.6 & 4.3 & 9.4\\
+$0.002$ & 3424 & 92.9 & 50.4 & 26 & 11.7 & 2684 & 26 & 12.2 & 2.5 & 5.3\\
+$0.001$ & 3668 & 99.5 & 61.3 & 32 & 15.4 & 4012 & 32 & 15.8 & 2.5 & 4.6\\
 \midrule
 \multicolumn{11}{@{}l}{setup B ($M_5=1.8$)}\\
-$0.1$   & 231  & 6.4   & 3.7  & 7  & 3.3  & 201  & 9  & 4.2  & 69   & 535\\
-$0.05$  & 402  & 11.1  & 6.2  & 10 & 4.7  & 302  & 12 & 5.7  & 33   & 143\\
-$0.02$  & 857  & 23.6  & 12.9 & 13 & 6.2  & 424  & 15 & 7.2  & 12   & 32\\
-$0.01$  & 1447 & 39.6  & 21.4 & 15 & 7.2  & 556  & 17 & 8.2  & 6.6  & 15\\
-$0.005$ & 2299 & 63.0  & 34.0 & 18 & 8.7  & 714  & 21 & 10.2 & 4.0  & 8.6\\
-$0.002$ & 3473 & 95.2  & 51.2 & 23 & 11.3 & 1024 & 25 & 12.4 & 2.8  & 5.8\\
-$0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
+$0.1$ & 234 & 6.4 & 3.7 & 7 & 3.2 & 204 & 9 & 4.1 & 65 & 440\\
+$0.05$ & 405 & 11.1 & 6.1 & 10 & 4.6 & 310 & 12 & 5.5 & 32 & 140\\
+$0.02$ & 866 & 23.6 & 12.7 & 13 & 6.0 & 436 & 15 & 6.9 & 12 & 31\\
+$0.01$ & 1481 & 40.2 & 21.5 & 16 & 7.2 & 575 & 17 & 7.9 & 6.3 & 15\\
+$0.005$ & 2354 & 63.9 & 34.0 & 18 & 8.4 & 739 & 20 & 9.5 & 3.8 & 8.3\\
+$0.002$ & 3628 & 98.5 & 52.3 & 22 & 10.3 & 1000 & 24 & 11.6 & 2.4 & 5.1\\
+$0.001$ & 4456 & 120.9 & 64.2 & 24 & 11.5 & 1172 & 26 & 12.6 & 1.9 & 4.0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{The four $24^3\times48$ configurations at $m=0.001$, $\alpha=0.6$ (Table~\ref{tab:massscan}):
+iterations and solve seconds, and the solve time of each CGNE over that of the multigrid.}
+\label{tab:massscancfg}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}cc rr rr rr rr@{}}
+\toprule
+ & & \multicolumn{2}{c}{CGNE, double} & \multicolumn{2}{c}{CGNE, mixed} & \multicolumn{2}{c}{MG} & \multicolumn{2}{c}{speed-up}\\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+setup & config. & it & s & it & s & it & s & double & mixed\\
+\midrule
+S & 1 & 3602 & 98.5 & 4090 & 59.9 & 28 & 13.2 & 7.5 & 4.5\\
+S & 2 & 3785 & 102.5 & 4936 & 76.1 & 53 & 26.0 & 3.9 & 2.9\\
+S & 3 & 3584 & 96.9 & 3622 & 51.9 & 23 & 10.3 & 9.4 & 5.0\\
+S & 4 & 3702 & 100.1 & 3990 & 57.2 & 25 & 12.3 & 8.1 & 4.7\\
+\addlinespace
+B & 1 & 4228 & 115.6 & 4232 & 62.0 & 26 & 12.9 & 9.0 & 4.8\\
+B & 2 & 4955 & 134.1 & 4959 & 70.9 & 25 & 11.8 & 11.4 & 6.0\\
+B & 3 & 4269 & 115.5 & 4276 & 61.1 & 22 & 10.3 & 11.2 & 5.9\\
+B & 4 & 4371 & 118.3 & 4377 & 62.7 & 23 & 10.9 & 10.9 & 5.8\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -135,9 +162,10 @@ $0.001$ & 4228 & 115.6 & 62.0 & 26 & 12.9 & 1274 & 28 & 13.9 & 2.1  & 4.3\\
 \includegraphics[width=\linewidth]{fig_massscan}
 \caption{The mass scan of Table~\ref{tab:massscan}, the mixed-precision CGNE, and the Krylov
 solvers on $\AL$ without the multigrid (Table~\ref{tab:nomg}): iterations (top) and seconds
-per right-hand side (bottom) against the quark mass, $24^3\times48$.
-``Solve + setup/12'': the setup spread over the 12 columns of one point-source
-propagator.}
+per right-hand side (bottom) against the quark mass, $24^3\times48$. CGNE and multigrid: means over
+the four configurations, bars from the smallest to the largest value; the solvers without the
+multigrid: configuration~1. ``Solve + setup/12'': the setup spread over the 12 columns of one
+point-source propagator.}
 \label{fig:massscan}
 \end{figure}
 
@@ -159,15 +187,16 @@ of the multigrid by $1.6$--$4.1$ (S) and $3.1$--$3.7$ (B). At $m=0.001$ the mult
 $2.9$--$5.0$ (S) and $4.8$--$6.0$ (B) times faster than the mixed-precision CGNE, and its setup of
 about $210$\,s is paid back after $3.5$--$5.2$ right-hand sides. The lowest factor, $2.9$, is
 configuration~2 in setup~S (Sec.~\ref{sec:gcrk}). The setup is paid back within one point-source propagator (12 columns) for $m\le0.005$. For $m\ge0.05$ (S) the
-mixed-precision CGNE is faster or level, and at $m=0.1$ (B) the two take nearly the same time. On
-configuration~1, against double-precision CGNE the solve at $m=0.001$ is $7.5$ (S) and $9.0$ (B) times faster. The
+mixed-precision CGNE is faster or level, and at $m=0.1$ (B) the two take nearly the same time. Against
+double-precision CGNE the solve at $m=0.001$ is $3.9$--$9.4$ (S) and $9.0$--$11.4$ (B) times faster
+(Table~\ref{tab:massscancfg}). The
 multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU excludes
 GCR($k$) with $k\ge8$.
 
 \paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
 (Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes half the wall time of the
 mixed-precision CGNE, setup included, and a column is $4.5$--$5$ times faster. At $m=0.01$ the
-setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$18$
+setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$19$
 (Table~\ref{tab:massscan}) predicts. A point source needs more iterations than a random
 right-hand side, with either solver. The pseudoscalar correlators of the two agree to
 $4\times10^{-8}$--$7\times10^{-7}$ at $t\le3$ and to $2\times10^{-6}$ at all $48$ times. The
@@ -231,9 +260,9 @@ B & CGNE, mixed & $505$, $0.3$ & $818$, $1.3$ & $3596$, $26.1$ & $4232$, $60.4$\
 \paragraph{Neff's $\alpha$ in the two setups.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves
 CG on $\mathcal K\dg\mathcal K$ $35\%$ (S) and $25\%$ (B) of its iterations (Table~\ref{tab:cgform})
 and the multigrid at most two (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects. Over the
-masses the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
-$m=0.1$, from 28 to 26 at $m=0.001$), and in setup~S three at $m=0.1$, about one at $m=0.05$ and
-none from $m=0.01$ down (28 against 27 at $m=0.001$). The smoother intervals of
+masses the multigrid saves one to two iterations at every mass in setup~B (from 9 to 7 at
+$m=0.1$, from 26 to 24 at $m=0.001$, means over the four configurations), and in setup~S four at
+$m=0.1$, about one at $m=0.05$ and none from $m=0.02$ down (32 for both at $m=0.001$). The smoother intervals of
 Table~\ref{tab:setups} locate the difference. In~B the smoother covers
 $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, a wide band left to it at every mass, which $\alpha$
 shortens. In~S it covers $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ and the coarse correction takes
@@ -908,7 +937,7 @@ $24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
 \centering
 \caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
 Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
-the longest stretch of steps with a factor above $1/2$. The steps differ from those of Table~\ref{tab:massscan} by at most one
+the longest stretch of steps with a factor above $1/2$. The steps differ from those of the mass scan on configuration~1 by at most one
 (Sec.~\ref{sec:setups}).}
 \label{tab:history}
 \renewcommand{\arraystretch}{1.15}
