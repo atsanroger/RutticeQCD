@@ -29,7 +29,7 @@ Data files are in `data/`. A blank entry is not recorded.
 |---|---|---|---|
 | Tables 4, 5 (mass scan) | `6d5bf18` (configuration 1), `e044050` (configurations 2–4) | `ruttice`, `runs/mg_24.yaml`, `runs/cgne_24.yaml` | `massscan_24.tsv` (configuration 1), `massscan_24_configs.tsv` (all four; configurations 2–4 at `e044050`, runs `massscan_newconf`, `multiconf/p1`) |
 | Fig. 4 | `6d5bf18`, `e044050` | `figures.py` | `massscan_24_configs.tsv`, `baseline_mass_2448.tsv` (configuration 1) |
-| Table 6 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` |
+| Table 6 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` (configuration 1), `pointsource_24_configs.tsv` (configurations 2–4, m 0.001, `e044050`) |
 | Table 7 (volume) | `e044050` | `ruttice` | `baseline_volume.tsv`, `baseline_mass_2448.tsv` |
 | Table 8 (D†) | | example `dagger_precond` | |
 | Table 9 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |

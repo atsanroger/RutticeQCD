@@ -194,8 +194,8 @@ multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU e
 GCR($k$) with $k\ge8$.
 
 \paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
-(Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes half the wall time of the
-mixed-precision CGNE, setup included, and a column is $4.5$--$5$ times faster. At $m=0.01$ the
+(Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall time of the
+mixed-precision CGNE, setup included, and a column is $3.0$--$6.2$ times faster. At $m=0.01$ the
 setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$19$
 (Table~\ref{tab:massscan}) predicts. A point source needs more iterations than a random
 right-hand side, with either solver. The pseudoscalar correlators of the two agree to
@@ -209,7 +209,8 @@ $21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
 \caption{Point-source propagators (12 columns) on $24^3\times48$: the multigrid
 (setup seconds, iterations and seconds per column) against the mixed-precision CGNE
 (iterations and seconds per column), the wall time of the whole propagator, and the
-largest relative difference of the pseudoscalar correlator at $t=0\ldots3$.}
+largest relative difference of the pseudoscalar correlator at $t=0\ldots3$. At $m=0.001$: ranges
+over the four configurations and the 12 columns; at $m=0.01$: configuration~1.}
 \label{tab:pointsource}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -219,8 +220,8 @@ largest relative difference of the pseudoscalar correlator at $t=0\ldots3$.}
 \cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
  & $m$ & setup & it & s & it & s & MG & CGNE & $|\Delta C|/C$\\
 \midrule
-S & $0.001$ & $206$ & $29$--$32$ & $13.6$--$14.9$ & $4182$--$4572$ & $61.4$--$67.0$ & $396$ & $810$ & $9\times10^{-8}$\\
-B & $0.001$ & $215$ & $29$--$30$ & $14.2$--$14.8$ & $5023$--$5332$ & $73.5$--$78.0$ & $409$ & $918$ & $7\times10^{-7}$\\
+S & $0.001$ & $201$--$216$ & $26$--$59$ & $11.7$--$29.4$ & $3634$--$6400$ & $52.1$--$91.6$ & $381$--$562$ & $678$--$1048$ & $\le1\times10^{-6}$\\
+B & $0.001$ & $213$--$215$ & $23$--$30$ & $10.7$--$14.8$ & $4354$--$5574$ & $62.4$--$79.8$ & $372$--$409$ & $803$--$973$ & $\le7\times10^{-7}$\\
 S & $0.01$ & $203$ & $16$--$17$ & $6.4$--$7.0$ & $1337$--$1388$ & $19.8$--$20.5$ & $305$ & $264$ & $2\times10^{-7}$\\
 B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $324$ & $4\times10^{-8}$\\
 \bottomrule
