@@ -506,22 +506,24 @@ makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 \begin{table}[t]
 \centering
 \caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
-$12^4$, $m=0.001$, $\AL$, one random right-hand side (base: $16$ in setup~S, $14$ in
-setup~B; $14$ in both in Table~\ref{tab:basischoice}, see Sec.~\ref{sec:setups}); ``stag.'': not converged in 1000 iterations. Setup times in seconds where they
-change much.}
+$12^4$, $m=0.001$, $\AL$, one random right-hand side: medians over the four configurations, in
+brackets the number of configurations that do not converge in 1000 iterations (``stag.'': three
+or four). Base: $14$ in both setups (Sec.~\ref{sec:setups}); configuration~4 has the slow setup of
+Sec.~\ref{sec:gcrk}. Setup times (medians, seconds) where they change much. $^\dagger$With $8$
+filtered vectors; with $16$, configuration~1 needed $38$ iterations in an earlier build.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
 \toprule
 change & setup S & setup B\\
 \midrule
-aggregates $2^4$ / $3^4$ / $6^4$ & $8$ ($22$\,s) / $12$ / $23$ & $9$ ($15$\,s) / $11$ / $21$\\
-test vectors $8$ / $16$ / $24$ / $48$ & stag. / $21$ / $26$ / $10$ ($17$\,s) & $38$ / $18$ / $15$ / $11$ ($14$\,s)\\
-smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $28$ / $18$ / $16$ / $11$ / $9$ & stag. / $96$ / $27$ / $14$ / $13$\\
-interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $23$ / $16$ / stag. / stag. & stag. / $38$ / $14$ / stag.\\
-coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $23$ / $16$ / $18$ / stag. & $20$ / $14$ / $16$ / $17$\\
-bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $15$ / $16$ / $22$ & $249$ / $46$ / $14$ / $12$\\
-right form $\AR$ & $11$ & $15$\\
+aggregates $2^4$ / $3^4$ / $6^4$ & $8$ ($19$\,s) / $12$ / $38$ [1] & $9$ ($12$\,s) / $11$ / $20$\\
+test vectors $8$ / $16$ / $24$ / $48$ & stag. / $26$ [1] / $18$ / $10$ ($16$\,s) & stag.$^\dagger$ / $19$ / $16$ / $11$ ($12$\,s)\\
+smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $30$ / $16$ / $14$ / $12$ / $9$ & stag. / $81$ [1] / $26$ / $14$ / $13$\\
+interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $18$ / $14$ / stag. / stag. & stag. / $27$ / $14$ / stag.\\
+coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $25$ [1] / $14$ / $18$ [1] / stag. & $18$ / $14$ / $16$ / $17$\\
+bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $32$ [1] / $14$ / $18$ & $228$ / $40$ [1] / $14$ / $13$\\
+right form $\AR$ & $12$ & $14$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -537,37 +539,38 @@ Sec.~\ref{sec:gcrk}.
 \begin{table}[t]
 \centering
 \caption{The changes of Table~\ref{tab:sensitivity} that move the cost, with timings:
-iterations / setup seconds / solve seconds. $12^4$, $m=0.001$, $\AL$, GCR(2), one random
-right-hand side. The iterations are those of Table~\ref{tab:sensitivity} in every row.}
+iterations / setup seconds / solve seconds, medians over the four configurations as in
+Table~\ref{tab:sensitivity}. $12^4$, $m=0.001$, $\AL$, GCR(2), one random right-hand side.}
 \label{tab:costs}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabular}{@{}lcc@{}}
 \toprule
 change & setup S & setup B\\
 \midrule
-base & $16$ / $8$ / $0.7$ & $14$ / $7$ / $0.5$\\
-aggregates $2^4$ & $8$ / $18$ / $1.4$ & $9$ / $12$ / $1.2$\\
-aggregates $3^4$ & $12$ / $8$ / $0.5$ & $11$ / $7$ / $0.5$\\
-aggregates $6^4$ & $23$ / $10$ / $0.6$ & $21$ / $10$ / $0.6$\\
-test vectors $16$ & $21$ / $4$ / $0.5$ & $18$ / $4$ / $0.4$\\
-test vectors $24$ & $26$ / $6$ / $0.9$ & $15$ / $6$ / $0.4$\\
-test vectors $48$ & $10$ / $16$ / $0.7$ & $11$ / $13$ / $0.8$\\
-smoother $\nu=4$ & $28$ / $8$ / $1.2$ & stag.\\
-smoother $\nu=6$ & $18$ / $7$ / $0.6$ & $96$ / $6$ / $3.1$\\
-smoother $\nu=12$ & $11$ / $8$ / $0.5$ & (base)\\
-smoother $\nu=16$ & $9$ / $8$ / $0.4$ & $13$ / $7$ / $0.5$\\
-bootstrap rounds $1$ & $15$ / $5$ / $0.5$ & $46$ / $5$ / $1.1$\\
-bootstrap rounds $3$ & $22$ / $10$ / $1.0$ & $12$ / $10$ / $0.5$\\
+base & $14$ / $7$ / $0.5$ & $14$ / $6.5$ / $0.5$\\
+aggregates $2^4$ & $8$ / $19$ / $1.4$ & $9$ / $12$ / $1.2$\\
+aggregates $3^4$ & $12$ / $8$ / $0.5$ & $11$ / $7$ / $0.4$\\
+aggregates $6^4$ & $38$ [1] / $7$ / $1.1$ & $20$ / $7$ / $0.5$\\
+test vectors $16$ & $26$ [1] / $4$ / $0.6$ & $19$ / $4$ / $0.5$\\
+test vectors $24$ & $18$ / $5.5$ / $0.5$ & $16$ / $5.5$ / $0.4$\\
+test vectors $48$ & $10$ / $16$ / $0.7$ & $11$ / $12$ / $0.8$\\
+smoother $\nu=4$ & $30$ / $8$ / $1.2$ & stag.\\
+smoother $\nu=6$ & $16$ / $7$ / $0.6$ & $81$ [1] / $6$ / $2.6$\\
+smoother $\nu=12$ & $12$ / $7.5$ / $0.6$ & (base)\\
+smoother $\nu=16$ & $9$ / $8$ / $0.5$ & $13$ / $7$ / $0.5$\\
+bootstrap rounds $1$ & $32$ [1] / $4$ / $1.1$ & $40$ [1] / $4$ / $0.9$\\
+bootstrap rounds $3$ & $18$ / $9.5$ / $0.7$ & $13$ / $9$ / $0.5$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggregates
-need $8$--$9$ iterations but a larger coarse lattice, so the solve and the setup take
-about twice as long as with $4^4$. Likewise, $48$ test vectors save a third of the iterations and
-lose in setup and in time per iteration. In the other direction, the base setting is not the time
-optimum on $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that
-is no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same setup.
+need $8$--$9$ iterations but a larger coarse lattice, so the solve and the setup take two to three
+times as long as with $4^4$. Likewise, $48$ test vectors save a quarter of the iterations and
+lose in setup and in time per iteration. In the other direction, $16$ test vectors (a coarse
+dimension of $32$) halve the setup; the solve is as fast in setup~B, while in setup~S one
+configuration stagnates. More smoother steps ($\nu=12$, $16$ for setup~S) need fewer iterations
+($12$, $9$) at the same setup and solve time.
 On $24^3\times48$, however, $16$ test vectors do not suffice (setup~S, $m=0.001$, point source):
 they halve the setup there too ($116$ against $207$\,s), but the columns that converge need
 $910$--$940$ iterations and the others stop at the cap of $2000$; $24$ ($184$\,s of setup) need

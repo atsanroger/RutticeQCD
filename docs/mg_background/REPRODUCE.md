@@ -35,8 +35,8 @@ Data files are in `data/`. A blank entry is not recorded.
 | Table 9 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
 | Table 10 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (right form on 12⁴, 16⁴) |
 | Table 11 (Γ5-Hermiticity) | | example `coarse_hermiticity` | |
-| Table 13 (sensitivity) | `6d5bf18` (second GPU) | `ruttice` | `sensitivity_12.tsv` |
-| Table 14 (costs) | `6d5bf18` (first GPU) | `ruttice` | `costs_12.tsv` |
+| Table 13 (sensitivity) | `e044050` (`fflowHPC_multiconf`, yaml rebuilt from `scan12/*_base.yaml`) | `ruttice` | `sensitivity_12_configs.tsv` (four configurations; the earlier single-configuration run is `sensitivity_12.tsv`, `6d5bf18`) |
+| Table 14 (costs) | `e044050` | `ruttice` | `sensitivity_12_configs.tsv` (setup and solve seconds) |
 | Sec. V.C.4, 16 and 24 vectors on 24³×48 | `6d5bf18` | `ruttice`, point source | |
 | Table 15 (field of values) | | `preconditioned_fov_device --parts` | |
 | Table 16 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` |
