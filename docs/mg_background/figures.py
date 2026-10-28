@@ -165,7 +165,6 @@ def cgform():
     vols = {"12^4": ("C0", "o", r"$12^4$"), "16^4": ("C1", "s", r"$16^4$"),
             "24^3x48": ("C2", "^", r"$24^3\times48$")}
     names = {"K_dag_K": r"$\mathcal{K}^\dagger\mathcal{K}$", "S_dag_S": r"$S^\dagger S$"}
-    height = {"S": 3.0, "B": 2.2}
     fig, axes = plt.subplots(2, 2, figsize=(6.6, 6.2), sharex=True, sharey="row")
     for col, setup in enumerate("SB"):
         top, bot = axes[0, col], axes[1, col]
@@ -191,13 +190,6 @@ def cgform():
         cs = sorted(k6)
         bot.plot(cs, [s6[c] / k6[c] for c in cs], "*", color="C3", ms=7,
                  label=r"$24^3\times48$, $\alpha=0.6$")
-        grid = [i / 100 for i in range(101)]
-        bound = []
-        for c in grid:
-            dp, dm = 1 + (1 + c) * height[setup], 1 - c * height[setup]
-            bound.append((dp + abs(dm)) / (dp - abs(dm)))
-        bot.fill_between(grid, [1 / x for x in bound], bound, color="0.9", lw=0,
-                         label=r"$\kappa(C)^{\pm1}$, $\alpha=1$")
         bot.axhline(1, color="k", lw=0.5, ls=":")
         top.set_title(NAMES[setup], fontsize=9)
         bot.set_xlabel(r"Möbius $c$ ($b=1+c$)")
