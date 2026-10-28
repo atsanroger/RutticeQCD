@@ -226,19 +226,18 @@ B & CGNE, mixed & $505$, $0.3$ & $818$, $1.3$ & $3596$, $26.1$ & $4232$, $60.4$\
 \end{tabular}
 \end{table}
 
-\paragraph{Neff's $\alpha$ in the two setups.} With $\alpha=0.6$ against $\alpha=1$ in the left
-form, the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
-$m=0.1$, from 28 to 26 at $m=0.001$). In setup~S it saves three at $m=0.1$, about one at
-$m=0.05$, and none from $m=0.01$ down (28 against 27 at $m=0.001$). The two setups differ in
-where the multigrid spends its iterations, and the smoother intervals of Table~\ref{tab:setups}
-say where. In~B the smoother must cover $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: a wide band of
-modes is left to it, at every mass, and $\alpha$, which reshapes the spectrum of $\AL^{(\alpha)}$
-(Sec.~\ref{sec:eo}), shortens that work. In~S the smoother covers only
-$[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$, and the coarse correction takes the rest. At heavy
-masses the smoother part still sets the iterations, and $\alpha$ helps as in~B; at light masses
-the low modes set them, they belong to the coarse space, and $\alpha$ has little left to
-improve. CG on the normal equation has no such split: every mode enters its condition number,
-so the better conditioning that $\alpha$ gives it~\cite{Neff,CKMN} acts at all masses. This reading is consistent with the numbers but was not checked on the spectra.
+\paragraph{Neff's $\alpha$ in the two setups.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves
+CG on $\mathcal K\dg\mathcal K$ $35\%$ (S) and $25\%$ (B) of its iterations (Table~\ref{tab:cgform})
+and the multigrid at most two (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects. Over the
+masses the multigrid saves two to three iterations at every mass in setup~B (from 9 to 7 at
+$m=0.1$, from 28 to 26 at $m=0.001$), and in setup~S three at $m=0.1$, about one at $m=0.05$ and
+none from $m=0.01$ down (28 against 27 at $m=0.001$). The smoother intervals of
+Table~\ref{tab:setups} locate the difference. In~B the smoother covers
+$[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, a wide band left to it at every mass, which $\alpha$
+shortens. In~S it covers $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ and the coarse correction takes
+the rest; at light masses the low modes set the iterations, they are in the coarse space, and
+$\alpha$ has little left to improve. This reading is consistent with the numbers but was not
+checked on the spectra.
 
 
 \subsubsection{Solves with $D\dg$}

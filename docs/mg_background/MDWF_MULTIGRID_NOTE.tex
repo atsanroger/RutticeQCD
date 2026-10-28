@@ -662,21 +662,22 @@ correction is not exact for it, yet it converges within a few iterations of the 
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
-\paragraph{Why $\alpha$ helps CG more than the multigrid.} The left Schur factor of $DQ$ is a
+\paragraph{How $\alpha$ acts on CG and on the multigrid.} The left Schur factor of $DQ$ is a
 similarity transform of that of $D$:
 \begin{equation}
 \mathcal K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}\mathcal KQ_e,\qquad \mathcal K=\Ce^{-1}S .
 \label{eq:Ksimilar}
 \end{equation}
-So $\mathcal K^{(\alpha)}$ and $\mathcal K$ have the same eigenvalues. Their singular values differ, because $Q_e$
-is not unitary: its entries are $\alpha$ in the bulk and $1$ on half of the wall components. CG
-on the normal equation converges at a rate set by the condition number of
-$\mathcal K^{(\alpha)\dagger}\mathcal K^{(\alpha)}$, the ratio of the extreme singular values squared, and $\alpha$
-changes it. The multigrid solves $\AL^{(\alpha)}$ instead, Eq.~\eqref{eq:ALalpha}, where the
-Pauli--Villars factor stands outside the two $Q_e$; that operator is not similar to $\AL$, so
-$\alpha$ changes its eigenvalues too. The iterations of the multigrid, however, do not follow
-its whole condition number.\ifresults{} What $\alpha$ saves the multigrid differs between the
-two setups (Sec.~\ref{sec:massscan}).\fi
+So $\mathcal K^{(\alpha)}$ and $\mathcal K$ have the same eigenvalues. Their singular values
+differ, because $Q_e$ is not unitary: its entries are $\alpha$ in the bulk and $1$ on half of the
+wall components. CG on the normal equation converges at a rate set by the ratio of the extreme
+singular values, so it sees the change at every mass. The multigrid solves $\AL^{(\alpha)}$,
+Eq.~\eqref{eq:ALalpha}, where the Pauli--Villars factor stands outside the two $Q_e$; $\alpha$
+changes the eigenvalues of that operator too, but the iterations of the multigrid follow only the
+part of the spectrum that the smoother damps, since the coarse correction removes the low modes
+for any $\alpha$. We therefore expect $\alpha$ to help the multigrid less than CG, and least where
+the coarse correction sets the iterations.\ifresults{} At $m=0.001$ on $24^3\times48$, $\alpha=0.6$
+saves CG $25$--$35\%$ of its iterations and the multigrid at most two (Sec.~\ref{sec:massscan}).\fi
 
 Eq.~\eqref{eq:Ksimilar} also lets CG use $\alpha$ in HMC without changing the action. The
 even-odd action needs $(\mathcal K\dg \mathcal K)^{-1}$, and with $\mathcal K=Q_e\mathcal K^{(\alpha)}Q_e^{-1}$,
