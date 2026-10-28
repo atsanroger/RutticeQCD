@@ -1037,6 +1037,24 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   solver; not planned. (`Subspace::rotate` of more than 32 vectors used to make n full copies
   one after the other; since 2026-10-19 it needs one more set only.)
 
+## Bugs
+
+- **The Γ-method gives an error of 0 and a negative τ_int on short series, silently** (found
+  2026-10-28 by the flow of the 15 new quenched configs on wlcheninhonngo). `ruttice-flow` printed
+  "+- 0.000000, tau_int -2.50 +- -7.07" for 24⁴ 602/702 (N = 2) and "tau_int -0.06 +- -0.08" for
+  32⁴ (N = 3); the per-file plaquette, t0 and Q are not affected. Cause, in
+  `src/numerics/autocorrelation.rs::gamma_method`: for N < 4, t_max = N/2 = 1 and the window is
+  W = 1; Γ(1) of a short series is strongly negative (N = 2: δ = (d, −d), Γ(0) = d², Γ(1) = −d²), so
+  C_F(W) = Γ(0) + 2Γ(1) ≤ 0, the bias correction makes it more negative, τ_int = C/(2Γ(0)) < 0, the
+  error `(c / nf).max(0.0).sqrt()` is clamped to 0, and `window_found` is still true at W = 1, so
+  no warning appears. The same path serves the GradientFlow section of HMC (`src/app/flow.rs`,
+  `gamma_lines`). Fix: when C_F(W) ≤ 0 or τ_int < 0.5 after the bias correction, report the
+  analysis as failed (Wolff's UWerr stops with an error) — `gamma_method` returns None or a
+  `reliable: false`, and `gamma_lines` prints "too few measurements for the Γ-method"; possibly
+  require N ≥ 4 (t_max ≥ 2). Test: anti-correlated series of N = 2 and 3 must not print an error of
+  0 (break the check once and see the test fail); external check against UWerr or pyerrors on
+  short and long series. ENSEMBLES.md does not use these summary lines.
+
 ## Known, not understood
 
 - **The filter is weak** (2026-10-23, 24⁴ m 0.001, 20 test vectors). Its degree is
