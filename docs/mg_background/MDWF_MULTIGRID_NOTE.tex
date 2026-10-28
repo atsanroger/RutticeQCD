@@ -906,6 +906,15 @@ order of the solves. With the $y$ alone in the basis, each factor of the correct
 approximation, and the errors of the two would multiply. The $2n$ vectors $\{s_j,\hat t_j\}$ are
 the test vectors, $n_v=2n$.
 
+The two lifts differ in the fifth dimension. Their odd parts are built with different inverses,
+$\Co^{-1}$ for $s$ and $(\Cpvo\dg)^{-1}$ for $\hat t$. By Eq.~\eqref{eq:Cinv}, $C^{-1}$ carries
+$\Pp\psi$ from slice $s$ to $s+1$ with the factor $q=d_-/d_+$ and $\Pm\psi$ the other way, while
+$C\dg$ is its transpose and carries both in the opposite direction; the hops $D_{oe}$ and
+$(D_{\mathrm{PV},eo})\dg$ likewise contain $Y$ and $Y\dg$. In each chirality the odd components of
+$s$ and $\hat t$ are therefore weighted toward opposite ends of the fifth dimension, and a space
+built from the $s_j$ alone does not contain the $\hat t_j$ that the first coarse solve, with
+$\Dpv\dg$, returns.
+
 The structure is familiar from block preconditioners for the incompressible Navier--Stokes
 equations~\cite{ESW}. There the velocity is eliminated, as the odd sites are here, and the pressure
 Schur complement is approximated by a product of simpler operators, each solved by its own
