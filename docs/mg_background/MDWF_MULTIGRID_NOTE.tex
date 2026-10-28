@@ -299,23 +299,22 @@ Reproduced from Ref.~\cite{KCM2024}, Fig.~1, under its license CC BY-NC-ND 4.0.}
 
 \paragraph{The unpreconditioned operator.}
 The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$. On a
-$2+1$-flavor configuration at the physical point (Fig.~\ref{fig:pv}, top left) the real parts
+$2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec}, Fig.~\ref{fig:pv}) the real parts
 lie in $[-1.29,13.2]$. So CG and BiCGStab do not work on $D$ itself, and the practical choice has
 been CG on a positive definite squared operator.
 
 \paragraph{Site-diagonal preconditioning.}
 The site-diagonal part $C$ has an inverse that is the same matrix on every site
-(Sec.~\ref{sec:C}). With it, $DC^{-1}$ has real parts in $[-0.22,2.22]$ (middle left). The
+(Sec.~\ref{sec:C}). With it, $DC^{-1}$ has real parts in $[-0.22,2.22]$. The
 spectrum shrinks, but it still lies on both sides of the origin.
 
 \paragraph{Pauli--Villars preconditioning.}
 The operator $\Dpv^{-1}D$, with $\Dpv=D(m=1)$, approximates the overlap operator~\cite{BCHW}.
 Since $\Dpv^{-1}$ costs as much as a solve with $D$, Ref.~\cite{BCHW} used $\Dpv\dg$ instead.
-$\Dpv\dg D$ has positive real parts (top right). Its low modes lie close to the imaginary axis,
+$\Dpv\dg D$ has positive real parts. Its low modes lie close to the imaginary axis,
 shifted by about the quark mass, as for an overlap operator. Its high end, however, reaches about
 $187$, which an overlap operator would not. If we replace $\Dpv$ by its block-diagonal
-approximation $\Bpv$, which drops the hops between $4^4$ blocks, negative real parts come back
-(middle and bottom right).
+approximation $\Bpv$, which drops the hops between $4^4$ blocks, negative real parts come back.
 
 \paragraph{Both together.}
 The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has real parts in $[2.67\times10^{-4},\,5.22]$
@@ -1185,8 +1184,7 @@ methods converge for every restart length if the field of values of $\tilde A\ma
 the right half-plane~\cite{ESS}. Otherwise only the full method is covered, by the spectrum and
 the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a truncated method can
 stagnate~\cite{Embree}.\ifresults{} Secs.~\ref{sec:fov}--\ref{sec:gcrk} examine this for the
-present cycle.\fi{} Block variants treat several
-right-hand sides together.
+present cycle.\fi{}
 We monitor convergence on the even-odd system and evaluate the residual of the original equation,
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
@@ -1516,7 +1514,6 @@ Ref.~\cite{KCM2024}, Fig.~3, under its license CC BY-NC-ND 4.0.}
 \end{figure}
 
 \ifresults
-\ifresults
 % ============================================================
 \section{Gauge configurations}
 \label{sec:configs}
@@ -1626,7 +1623,6 @@ $24^3\times48$. Bottom: their ratio; above $1$ the left-preconditioned form is f
 \label{fig:cgform}
 \end{figure}
 
-\fi
 \fi
 
 % ============================================================

@@ -141,7 +141,7 @@ propagator.}
 
 \paragraph{Which even-odd CG.} The reference solver is CG on $\mathcal K\dg\mathcal K$,
 $\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
-multigrid. Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$. For the M\"obius setups of this paper
+multigrid. Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$. For the M\"obius setups of this work
 CG on $S\dg S$ needs $3$--$49\%$ more iterations at $m=0.001$ on $24^3\times48$
 (Appendix~\ref{sec:cgform}), and the multigrid is compared with the faster $\mathcal K\dg\mathcal K$.
 
@@ -304,6 +304,11 @@ expensive. MINRES on the $\Gfive$-Hermitian form does not help, since that form 
 order $c$.
 \end{itemize}
 
+\paragraph{What these solves are for.} In HMC each force evaluation needs one solve with $D$ and one
+with $D\dg$, and with $\Gfive\mathcal M\Gfive$ one setup serves both. The solves with $D\dg$ were
+measured on $12^4$ and $16^4$ only, and the cost of the multigrid in HMC is left to future work
+(Sec.~\ref{sec:open}).
+
 
 \subsection{What each part contributes}
 \label{sec:parts}
@@ -384,23 +389,19 @@ $\{s\}$ & $32$ & $32$ & $155$ & $35$ & $15$ & $15$ & $28$ & $13$ & $346$, $337$\
 
 With the same vectors $y$, the two lifts give the fewest iterations on every volume.
 Replacing $\hat t$ by $Ds$ costs up to $5$ times the iterations ($148$ against $28$ on
-$24^3\times48$ in setup~S), and dropping it up to $22$ times or a stagnation. So $\hat t$ helps
-also where the correction is not exact. Whether more vectors $y$ can take its place depends on
-the volume (below). On $12^4$ they cannot, which suggests that the Pauli--Villars solve needs the
-direction of $\hat t$ in $\operatorname{range}\Pro$. On $24^3\times48$ they can, and there $\hat t$
-is worth half the filter and the bootstrap.
+$24^3\times48$ in setup~S), and dropping it up to $22$ times or a stagnation, so $\hat t$ helps
+also where the correction is not exact.
 
-Twice as many vectors $y$ with $\{s\}$ alone depend on the volume. On $12^4$ they do not make
-up for $\hat t$ ($155$ against $14$ in setup~S), on $16^4$ they come within two iterations, and
-on $24^3\times48$ they match the two lifts in setup~S ($28$) and need half their iterations in
-setup~B ($13$ against $26$). They cost a setup $1.6$--$1.8$ times as long and twice the host
-memory ($38.7$ against $19.7$\,GB). Estimated from one random right-hand side, a point-source
-propagator (12 columns) is faster with the two lifts in both setups (S: $351$ against
-$506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their longer setup
-after about $21$ right-hand sides. On the right form ($12^4$, $16^4$) the $32$ vectors $y$
-alone need one or two iterations fewer than the two lifts in three of the four cases. Three
-repeats of a $12^4$ entry give identical solutions. The table comes from one
-configuration per volume and one right-hand side.
+Twice as many vectors $y$ with $\{s\}$ alone take the place of $\hat t$ only on the larger
+lattices. On $12^4$ they do not ($155$ against $14$ in setup~S), which suggests that the
+Pauli--Villars solve needs the direction of $\hat t$ in $\operatorname{range}\Pro$; on $16^4$ they
+come within two iterations, and on $24^3\times48$ they match the two lifts in setup~S ($28$) and
+need half their iterations in setup~B ($13$ against $26$). They cost a setup $1.6$--$1.8$ times as
+long and twice the host memory ($38.7$ against $19.7$\,GB). Estimated from one random right-hand
+side, a point-source propagator (12 columns) is faster with the two lifts in both setups (S: $351$
+against $506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their
+longer setup after about $21$ right-hand sides.
+
 \subsubsection{$\Gfive$-Hermiticity for $c\neq0$}
 \label{sec:herm}
 
@@ -524,23 +525,21 @@ bootstrap rounds $3$ & $22$ / $10$ / $1.0$ & $12$ / $10$ / $0.5$\\
 Fewer iterations are not always less time (Table~\ref{tab:costs}): $2^4$ aggregates
 need $8$--$9$ iterations but a larger coarse lattice, so the solve and the setup take
 about twice as long as with $4^4$. Likewise, $48$ test vectors save a third of the iterations and
-lose in setup and in time per iteration.
-For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of
-more test vectors at the coarse size of fewer: they generate more, truncate them by a
-singular value decomposition on each aggregate and chirality (as $\Pro$ is split here
-by $\Gfive$), and stream the decomposition to save device memory. Applied here, the
-truncated basis would no longer contain $s$ and $\hat t$ exactly, so the exactness~\eqref{eq:exact}
-would be lost; whether the gain outweighs that has not been
-tried.
-With the setup as fast as it is now, the base setting is no longer the time optimum on
-$12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that is
-no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same
-setup. On $24^3\times48$ the fewer test vectors do not carry over (setup~S, $m=0.001$,
-point source): $16$ halve the setup there too ($116$ against
-$207$\,s), but the columns that converge need $910$--$940$ iterations and the others stop
-at the cap of $2000$; $24$ ($184$\,s of setup) need $162$ iterations for the first column,
-against $29$--$32$ with $32$. All runs use one setup seed, so differences of a few iterations are within the variation
-noted in Sec.~\ref{sec:setups}.
+lose in setup and in time per iteration. In the other direction, the base setting is not the time
+optimum on $12^4$: $16$ test vectors (a coarse dimension of $32$) halve the setup at a solve that
+is no slower, and more smoother steps ($\nu=12$, $16$ for setup~S) solve faster at the same setup.
+On $24^3\times48$, however, $16$ test vectors do not suffice (setup~S, $m=0.001$, point source):
+they halve the setup there too ($116$ against $207$\,s), but the columns that converge need
+$910$--$940$ iterations and the others stop at the cap of $2000$; $24$ ($184$\,s of setup) need
+$162$ iterations for the first column, against $29$--$32$ with $32$. All runs use one setup seed,
+so differences of a few iterations are within the variation noted in Sec.~\ref{sec:setups}.
+
+For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of more test
+vectors at the coarse size of fewer: they generate more, truncate them by a singular value
+decomposition on each aggregate and chirality (as $\Pro$ is split here by $\Gfive$), and stream
+the decomposition to save device memory. Applied here, the truncated basis would no longer
+contain $s$ and $\hat t$ exactly, so the exactness~\eqref{eq:exact} would be lost; whether the gain
+outweighs that has not been tried.
 
 \subsection{Why the method converges}
 \label{sec:why}
@@ -787,6 +786,50 @@ GCR($\ge16$) in $17$. The pseudospectra guarantee the full method; a truncated m
 guarantee when the field of values contains the origin~\cite{ESS,Embree}. On $16^4$ and $24^4$
 GCR(2) converges with the same accurate solves (Table~\ref{tab:stall}).
 
+\paragraph{How GCR(2) stagnates.} The stagnation is a fixed point of GCR(2) with a fixed
+preconditioner. On $12^4$ in setup~S, with three right-hand sides, $|r|^2$ falls for about $15$
+steps and then does not change in any digit for the next $480$, at $2\times10^{-11}$,
+$6\times10^{-8}$ and $5\times10^{-10}$. Meanwhile
+$|\langle r,\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
+$10^{-10}$--$10^{-9}$. The new direction is then orthogonal to the residual, and since
+$\mathcal M$ is fixed the next step repeats it. A field of values that contains the origin admits
+such a residual. Any variation of the cycle leaves the fixed point: on $12^4$ the exact cycle and
+two fixed perturbations of it stagnate in all $15$ runs, and random perturbations, down to $2\%$
+of the cycle, converge in all $75$ (Table~\ref{tab:stall}). On $16^4$, quenched and dynamical,
+and on $24^4$ the exact cycle does not reach a fixed point in the runs made. A fixed perturbation
+can still produce one there ($\delta\Gfive\mathcal Mr$ on $24^4$), so whether a fixed cycle
+stagnates depends on the cycle and on the lattice. Why $12^4$ reaches it is open. It is neither
+the topological charge ($24^4$ has $Q=+4$ and converges) nor the odd extent of the $3^4$ coarse
+lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) on $\AL$ in setup~S, $m=0.001$, $\alpha=0.6$, to $|r|^2/|b|^2<10^{-16}$ (at most
+500 iterations, 300 on $24^4$): converged runs / runs, with their iterations. ``exact'': coarse
+solves to $10^{-20}$ in double precision, BiCGStab on the exact Pauli--Villars adjoint;
+``fixed'': the exact cycle plus $\delta\,\Gfive\mathcal Mr$ or plus a fixed multiple of the
+smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}$ make
+($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
+$\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
+(MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
+topological charge. Aggregates $4^4$ unless stated.}
+\label{tab:stall}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+lattice, $Q$ & exact & fixed $\Gfive\mathcal M$ & fixed $p(\AL)$ & random & solver\\
+\midrule
+$12^4$, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
+$12^4$, $3^4$ aggregates & 0/3 & & & & 3/3 (11--12)\\
+$12^4$, $2^4$ aggregates & 2/3 (20, 23) & & & & 3/3 (7)\\
+$16^4$, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
+$16^4$ dynamical, $0$ & 5/5 (13) & 5/5 & 5/5 & 20/20 (13--20) & 5/5 (10)\\
+$24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 Inexact coarse solves do not keep GCR(2) converging on $12^4$ by leaving out the directions in
 which $E$ amplifies. Take the vector $x$ at the left end of the field of values of $\AR\mathcal M$
 (exact coarse solves, $12^4$). With coarse solves to $10^{-2}$ the cycle gives
@@ -846,48 +889,3 @@ $\Sigma$-adjoint $\Sigma\Dcpv\Sigma$ in place of $(\Dcpv)\dg$ and MINRES stopped
 first is not the whole difference: at $c=0$, where the two adjoints coincide, MINRES still needs
 $13$ iterations against $24$ with BiCGStab on $12^4$ (Table~\ref{tab:minres}). The cycle of the solver
 converged in every run of this section and of Table~\ref{tab:stall}.
-
-\paragraph{How GCR(2) stagnates.} The stagnation is a fixed point of GCR(2) with a fixed
-preconditioner. On $12^4$ in setup~S, with three right-hand sides, $|r|^2$ falls for about $15$
-steps and then does not change in any digit for the next $480$, at $2\times10^{-11}$,
-$6\times10^{-8}$ and $5\times10^{-10}$. Meanwhile
-$|\langle r,\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
-$10^{-10}$--$10^{-9}$. The new direction is then orthogonal to the residual, and since
-$\mathcal M$ is fixed the next step repeats it. A field of values that contains the origin admits
-such a residual. Any variation of the cycle leaves the fixed point: on $12^4$ the exact cycle and
-two fixed perturbations of it stagnate in all $15$ runs, and random perturbations, down to $2\%$
-of the cycle, converge in all $75$ (Table~\ref{tab:stall}). On $16^4$, quenched and dynamical,
-and on $24^4$ the exact cycle does not reach a fixed point in the runs made. A fixed perturbation
-can still produce one there ($\delta\Gfive\mathcal Mr$ on $24^4$), so whether a fixed cycle
-stagnates depends on the cycle and on the lattice. Why $12^4$ reaches it is open. It is neither
-the topological charge ($24^4$ has $Q=+4$ and converges) nor the odd extent of the $3^4$ coarse
-lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
-
-\begin{table}[t]
-\centering
-\caption{GCR(2) on $\AL$ in setup~S, $m=0.001$, $\alpha=0.6$, to $|r|^2/|b|^2<10^{-16}$ (at most
-500 iterations, 300 on $24^4$): converged runs / runs, with their iterations. ``exact'': coarse
-solves to $10^{-20}$ in double precision, BiCGStab on the exact Pauli--Villars adjoint;
-``fixed'': the exact cycle plus $\delta\,\Gfive\mathcal Mr$ or plus a fixed multiple of the
-smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}$ make
-($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
-$\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
-(MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
-topological charge. Aggregates $4^4$ unless stated.}
-\label{tab:stall}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-lattice, $Q$ & exact & fixed $\Gfive\mathcal M$ & fixed $p(\AL)$ & random & solver\\
-\midrule
-$12^4$, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
-$12^4$, $3^4$ aggregates & 0/3 & & & & 3/3 (11--12)\\
-$12^4$, $2^4$ aggregates & 2/3 (20, 23) & & & & 3/3 (7)\\
-$16^4$, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
-$16^4$ dynamical, $0$ & 5/5 (13) & 5/5 & 5/5 & 20/20 (13--20) & 5/5 (10)\\
-$24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
-\bottomrule
-\end{tabular}
-\end{table}
-
