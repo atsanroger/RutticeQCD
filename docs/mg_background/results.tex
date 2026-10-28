@@ -785,6 +785,15 @@ GCR($\ge16$) in $17$. The pseudospectra guarantee the full method; a truncated m
 guarantee when the field of values contains the origin~\cite{ESS,Embree}. On $16^4$ and $24^4$
 GCR(2) converges with the same accurate solves (Table~\ref{tab:stall}).
 
+Inexact coarse solves do not keep GCR(2) converging on $12^4$ by leaving out the directions in
+which $E$ amplifies. Take the vector $x$ at the left end of the field of values of $\AR\mathcal M$
+(exact coarse solves, $12^4$). With coarse solves to $10^{-2}$ the cycle gives
+$\Re\,x\dg\AR\mathcal Mx=-25.2$ (S) and $-1.43$ (B), against $-24.3$ and $-1.49$ with exact
+ones, and $\|(I-\AR E)x\|=1.16\times10^3$ and $1.03\times10^2$, against $1.13\times10^3$ and
+$1.12\times10^2$. With tolerances $10^{-8}$ and $10^{-4}$ they agree with the exact solves to within
+$1\%$. What the tolerance changes is that the cycle is no longer a fixed linear map: with Krylov
+coarse solves stopped early, it depends on its input.
+
 \paragraph{How GCR(2) stagnates.} The stagnation is a fixed point of GCR(2) with a fixed
 preconditioner. On $12^4$ in setup~S, with three right-hand sides, $|r|^2$ falls for about $15$
 steps and then does not change in any digit for the next $480$, at $2\times10^{-11}$,
@@ -828,15 +837,6 @@ $24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
 \bottomrule
 \end{tabular}
 \end{table}
-
-Inexact coarse solves do not keep GCR(2) converging on $12^4$ by leaving out the directions in
-which $E$ amplifies. Take the vector $x$ at the left end of the field of values of $\AR\mathcal M$
-(exact coarse solves, $12^4$). With coarse solves to $10^{-2}$ the cycle gives
-$\Re\,x\dg\AR\mathcal Mx=-25.2$ (S) and $-1.43$ (B), against $-24.3$ and $-1.49$ with exact
-ones, and $\|(I-\AR E)x\|=1.16\times10^3$ and $1.03\times10^2$, against $1.13\times10^3$ and
-$1.12\times10^2$. With tolerances $10^{-8}$ and $10^{-4}$ they agree with the exact solves to within
-$1\%$. What the tolerance changes is that the cycle is no longer a fixed linear map: with Krylov
-coarse solves stopped early, it depends on its input.
 
 On $24^3\times48$ the full method cannot run in $24$\,GB of device memory. GCR(8) and GCR(16) run out of device
 memory after the setup: GCR(2) peaks at $19.9$ of $24$\,GB, and every further direction is
