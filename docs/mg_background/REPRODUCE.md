@@ -43,7 +43,7 @@ Data files are in `data/`. A blank entry is not recorded.
 | Table 16, Fig. 5 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` |
 | Table 20, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
 | Appendix D, CG on K†K and S†S (Table 23, Fig. 8) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
-| Table 18 (slow setups), Sec. V.D.4 | `e044050` (`fflowHPC_multiconf`) | `ruttice`, `MultiGrid.Setup.seed` 1–40, `Solver.number_of_kept_directions`, `number_of_test_vectors` 48, `Coarse_Solver_D` 1e-4, setup B from `scan12/m18_base.yaml` | run dir `ruttice_a30_20261016/multiconf/p1`: `tail_*`, `more_*`, `fix_*`, `tailB_*`, `lsseed_*`, `ctls_*`, `ct24_*`, `fix24_*`, `dg_*` (histories, point source, right form); not yet in `data/` |
+| Table 18 (slow setups), Sec. V.D.4 | `e044050` (`fflowHPC_multiconf`) | `ruttice`, `MultiGrid.Setup.seed` 1–40, `Solver.number_of_kept_directions`, `number_of_test_vectors` 48, `Coarse_Solver_D` 1e-4, setup B from `scan12/m18_base.yaml` | run dir `ruttice_a30_20261016/multiconf/p1`: `tail_*`, `more_*`, `fix_*`, `tailB_*`, `lsseed_*`, `ctls_*`, `ct24_*`, `fix24_*`, `dg_*` (histories, point source, right form), `nost_*` (no smearing), `s16_*` (16⁴, dynamical = `therm16/conf16_m0.01_000102.bin`), `s24_*`; not yet in `data/` |
 | Table 19 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
 | Table 22 (configurations) | | `ruttice-flow` | |
 | Eq. (3.8) checks (Sec. III.A.3) | | example `correction_exactness` (CPU) | |

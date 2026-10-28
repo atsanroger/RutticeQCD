@@ -809,60 +809,62 @@ stagnates depends on the cycle and on the lattice. Why $12^4$ reaches it is open
 the topological charge ($24^4$ has $Q=+4$ and converges) nor the odd extent of the $3^4$ coarse
 lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
 
-\paragraph{Dependence on the setup seed.} In setup~S about one setup in eight makes GCR(2) slow; in
-setup~B none does. The setup starts from random vectors, and all other runs of this work use one
-seed. Table~\ref{tab:seeds} repeats the $12^4$ solve at $m=0.001$ with many seeds on four
+\paragraph{Dependence on the setup seed.} On $12^4$ with stout smearing about one setup in eight
+makes GCR(2) slow. Without smearing, in setup~B, and on $16^4$ none of the setups tested is; on
+$24^3\times48$ one configuration is slow with every seed. The setup starts from random vectors, and all other runs of this work use one seed.
+Table~\ref{tab:seeds} repeats the solve at $m=0.001$ with many seeds. On $12^4$ it uses four
 configurations: v2 of Table~\ref{tab:configs} and trajectories 502, 602 and 702 of its HMC chain. In
 setup~S, $19$ of $160$ setups need more than $30$ iterations and $13$ of them more than $200$ or do not
-converge in $2000$. The rate per configuration is $7$, $6$, $4$ and $2$ of $40$ (v2, 602, 502, 702),
-which with these counts does not distinguish the configurations. In setup~B all $80$ setups need
-$13$ or $14$ iterations.
+converge in $2000$. The rate per configuration, $7$, $6$, $4$ and $2$ of $40$ (v2, 602, 502, 702), does
+not distinguish the configurations at these counts. The same configurations with $M_5=1$ and no
+smearing give $0$ of $40$, and setup~B gives $0$ of $80$. On $16^4$ setup~S gives $0$ of $60$ on
+three quenched configurations and $0$ of $20$ on the dynamical one, and on $24^3\times48$ seeds 1--5
+need $18$--$28$ iterations on configurations 802 and 902. Configuration 702 of $24^3\times48$ needs
+$53$, $36$ and $45$ iterations with seeds 21, 7 and 99, against $18$--$28$ on the other three; that
+excess is shared by all three seeds and so belongs to the configuration.
 
 A slow setup gives a cycle of the usual quality, and GCR(2) fails to use it. With the same cycles
 GCR(16) needs $11$--$14$ iterations in all $40$ setups tested. In the slow runs $|r|^2$ falls normally
 for a few steps and then stays nearly constant, for up to $300$ steps at
 $|r|^2/|b|^2\approx7\times10^{-10}$ on v2 with seed 2, before it falls again; this is the behavior
-near a fixed point of Table~\ref{tab:stall}, reached here with inexact coarse solves. The slowness belongs
-to the setup: five of the six slow setups of the first ten seeds are
-slow for the point source as well ($44$ to more than $500$ iterations). The right form $\AR$ is
-slow in two of these six ($34$ and $695$ iterations). At $L_s=12$ and $16$ the same occurs, in $7$ of $20$ setups on
-configurations 502 and 702. The difference between the setups matches the field of values: that of
-$\AR\mathcal M$ reaches $-23.9$ in setup~S and $-1.49$ in setup~B (Table~\ref{tab:fov}), and a
-truncated method has no guarantee once the origin is inside~\cite{ESS,Embree}. That this is the
-cause is an inference.
+near a fixed point of Table~\ref{tab:stall}, reached here with inexact coarse solves. The slowness
+belongs to the setup: five of the six slow setups of the first ten seeds are slow for the point
+source as well ($44$ to more than $500$ iterations). At $L_s=12$ and $16$ the same occurs, in $7$ of
+$20$ setups on configurations 502 and 702. Why smearing on the small lattice produces these setups is
+open.
 
-The remedies that change the cycle remove most slow setups, but only one fits the memory of
-$24^3\times48$ (Table~\ref{tab:seeds}). GCR(8) and $48$ test vectors remove all of them on $12^4$,
-but each kept direction costs two fine vectors ($1$\,GB on $24^3\times48$; GCR(4) peaks at $22.1$
-against $20.2$\,GB), and the setup with $48$ test vectors runs out of device memory there. Coarse
-solves for the quark factor to $10^{-4}$ cost no memory and leave $2$ of $160$ setups slow on $12^4$;
-at $L_s=12$ and $16$ they leave $2$ of the $7$. On $24^3\times48$ they change the iterations on v2, 802
-and 902 from $28$, $23$, $25$ to $25$, $22$, $25$, with $13.8$--$15.7$\,s of solve against
-$10.3$--$13.2$\,s; the two sets ran at different host load, so the cost in time is not settled. Configuration 702
-needs $53$, $36$ and $45$ iterations with seeds 21, 7 and 99, and $43$, $33$ and $33$ with the
-tighter coarse solves, against $22$--$28$ on the other three configurations. There the
-configuration matters, unlike on $12^4$.
+GCR(8) and $48$ test vectors remove the slow setups on $12^4$ but do not fit $24^3\times48$ in
+$24$\,GB: each kept direction costs two fine vectors ($1$\,GB there; GCR(4) peaks at $22.1$ against
+$20.2$\,GB), and the setup with $48$ test vectors runs out of device memory. Coarse solves for the
+quark factor to $10^{-4}$ cost no memory and leave $2$ of $160$ setups slow; on $24^3\times48$ they
+lower configuration 702 to $43$, $33$ and $33$ iterations. A slow setup shows itself in its first
+solve, and drawing a new seed costs one more setup; we have not automated this.
 
 \begin{table}[t]
 \centering
-\caption{Slow setups in the multigrid of the four $12^4$ configurations (v2, 502, 602, 702),
-$m=0.001$, $L_s=8$, $\AL$, one random right-hand side to $|r|^2/|b|^2<10^{-18}$: setups with more
-than $30$ iterations or no convergence in $2000$ / setups, the range of the others, and the peak
-device memory of the same variant on $24^3\times48$ (seed 21, setup~S, configuration 702).}
+\caption{Slow setups: setups with more than $30$ iterations or no convergence in $2000$ / setups,
+and the range of the others; $m=0.001$, $L_s=8$, $\AL$, one random right-hand side to
+$|r|^2/|b|^2<10^{-18}$. $12^4$: configurations v2, 502, 602, 702; $16^4$: v2, 502, 602 and the
+dynamical one; $24^3\times48$: 802, 902. Last column: peak device memory of the variant on
+$24^3\times48$ (setup~S, configuration 702, seed 21).}
 \label{tab:seeds}
 \renewcommand{\arraystretch}{1.12}
-\begin{tabular}{@{}lllcc@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllcccc@{}}
 \toprule
-setup & variant & seeds & slow & others\\
- & & & & ($24^3\times48$ memory)\\
+lattice & setup & variant & seeds & slow & others & memory\\
 \midrule
-S & GCR(2) & 1--40 & $19/160$ & $11$--$30$ ($20.2$\,GB)\\
-S & GCR(4) & 1--10 & $3/40$ & $12$--$20$ ($22.1$\,GB)\\
-S & GCR(8) & 1--10 & $0/40$ & $11$--$19$ (does not fit)\\
-S & GCR(16) & 1--10 & $0/40$ & $11$--$14$ (does not fit)\\
-S & GCR(2), $48$ test vectors & 1--10 & $0/40$ & $9$--$15$ (out of memory)\\
-S & GCR(2), quark coarse $10^{-4}$ & 1--40 & $2/160$ & $11$--$30$ ($20.2$\,GB)\\
-B & GCR(2) & 1--20 & $0/80$ & $13$--$14$\\
+$12^4$ & S & GCR(2) & 1--40 & $19/160$ & $11$--$30$ & $20.2$\,GB\\
+ & S & GCR(4) & 1--10 & $3/40$ & $12$--$20$ & $22.1$\,GB\\
+ & S & GCR(8) & 1--10 & $0/40$ & $11$--$19$ & does not fit\\
+ & S & GCR(16) & 1--10 & $0/40$ & $11$--$14$ & does not fit\\
+ & S & $48$ test vectors & 1--10 & $0/40$ & $9$--$15$ & does not fit\\
+ & S & quark coarse $10^{-4}$ & 1--40 & $2/160$ & $11$--$30$ & $20.2$\,GB\\
+ & S, no smearing & GCR(2) & 1--10 & $0/40$ & $13$--$15$ & \\
+ & B & GCR(2) & 1--20 & $0/80$ & $13$--$14$ & \\
+$16^4$ & S & GCR(2) & 1--20 & $0/60$ & $12$--$15$ & \\
+ & S, dynamical & GCR(2) & 1--20 & $0/20$ & $11$ & \\
+$24^3\times48$ & S & GCR(2) & 1--5 & $0/10$ & $18$--$28$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
