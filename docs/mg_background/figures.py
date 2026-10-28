@@ -191,6 +191,7 @@ def cgform():
         axes[2 * blk + 1, 0].set_ylabel(r"$S^\dagger S$ / $\mathcal{K}^\dagger\mathcal{K}$")
     for ax in axes[-1]:
         ax.set_xlabel(r"Möbius $c$ ($b=1+c$)")
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
     h, l = axes[0, 1].get_legend_handles_labels()
     fig.legend(h, l, loc="lower center", ncol=3, frameon=False, fontsize=7)
     fig.tight_layout(rect=(0, 0.06, 1, 1))
