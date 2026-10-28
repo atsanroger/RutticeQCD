@@ -126,11 +126,12 @@ did not beat red-black CG. One setup serves every value of Neff's $\alpha$ and t
 $D\dg$ in HMC, for which $\Gfive D^{-1}\Gfive$, with $\Gfive=\gamma_5R$ and $R$ the reflection of the fifth
 dimension, is a good preconditioner.\ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
-$\Re\lambda\ge0.78$, and its pseudospectra account for the convergence. On a quenched
-$24^3\times48$ lattice the iteration count grows by a factor of $2$--$4$ from $m=0.1$ to
-$m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is $4.5$--$4.8$ times faster than
-mixed-precision CGNE, and a point-source propagator takes half its time, setup included. These
-results come from one configuration per volume and a comparison with CGNE only.\else{} We state
+$\Re\lambda\ge0.78$, and its pseudospectra account for the convergence. On four quenched
+$24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
+$m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
+$2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
+time, setup included. The mass scan uses four configurations, the other comparisons one per
+volume, and CGNE is the only reference solver.\else{} We state
 the method and the questions that are open.\fi
 \end{abstract}
 
@@ -1321,16 +1322,17 @@ left form, which is not exact; one lift of twice as many vectors matches it on $
 $1.6$--$1.8$ times the setup time.
 
 The multigrid removes most of the critical slowing down. On quenched configurations on one GPU
-the multigrid iterations on $24^3\times48$ grow by a factor
-of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
-faster than with mixed-precision CGNE from $24^4$ on, by $4.5$--$4.8$ on $24^3\times48$, and a
+the multigrid iterations on four $24^3\times48$ configurations grow by
+a factor of $1.6$--$4.1$ from $m=0.1$ to $m=0.001$, against $18$--$27$ for mixed-precision even-odd
+CGNE. At $m=0.001$ a solve is faster than with mixed-precision CGNE from $24^4$ on, by $2.9$--$6.0$
+on $24^3\times48$, and a
 point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and
 the solves with $D\dg$. The field of values of the preconditioned
 operator reaches into the left half-plane; its spectrum and pseudospectra account for the
 convergence.
 
-The evidence is limited to one configuration per volume, volumes up to $24^3\times48$, and CGNE as
-the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
+The evidence is limited to four configurations for the mass scan and one per volume for the other
+comparisons, volumes up to $24^3\times48$, and CGNE as the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
 implementation, larger volumes, and the use in HMC are the next steps (Sec.~\ref{sec:open}). For propagators,
 applying the coarse operators and the transfer to the 12 columns of a point source together would
 raise their intensity from about one flop per byte to about ten, as for Wilson-clover
