@@ -989,7 +989,8 @@ residual or a maximum number of iterations. Reaching the tolerance is not requir
 solved in sequence: first the Pauli--Villars factor, whose solution enters the right-hand side of
 the quark factor. The default, used for all results unless stated, is BiCGStab on the even-odd
 form of the quark factor and MINRES on the $\Sigma$-Hermitian form of the Pauli--Villars factor,
-both to $|r|^2/|b|^2<10^{-2}$. This subsection describes these and the alternatives.
+both to $|r|^2/|b|^2<10^{-2}$ (Algorithms~\ref{alg:bicgstab} and~\ref{alg:minres},
+Appendix~\ref{sec:cgform}). This subsection describes these and the alternatives.
 
 \subsubsection{The quark factor}
 Write $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\ B_{oe}&A_{oo}\end{pmatrix}$ on the
@@ -1057,6 +1058,7 @@ Hermitian positive preconditioner
 \begin{equation}
 M_\ell=|B_\ell|^{-1}+Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg,\qquad
 M_{\ell_{\max}}=|\mathcal H_{\ell_{\max}}|^{-1},
+\label{eq:levelspv}
 \end{equation}
 in the spirit of absolute-value preconditioning~\cite{VK}.
 
@@ -1110,7 +1112,7 @@ the three-term recurrence.
 
 \subsubsection{Bootstrap}
 Each bootstrap round has three steps. It builds the basis and the two-grid cycle of
-Sec.~\ref{sec:smoother} from the current $y$. It replaces every $y_j$ by a few FGMRES steps on
+Sec.~\ref{sec:smoother} from the current $y$. It replaces every $y_j$ by a few FGMRES steps (Algorithm~\ref{alg:fgmres}) on
 $\AR x=y_j$ from $x=0$, preconditioned by that cycle. And it orthonormalizes the new $y$ through
 their Gram matrix ($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$). The cycle damps
 the components it already handles, so the new vectors are enriched in what it does not.
@@ -1188,7 +1190,8 @@ iterations stopped by a residual test, $\mathcal M$ is not a fixed linear map.
 
 The outer iteration solves $\tilde Ay=\rho$ with the cycle as a right preconditioner, and we
 rebuild $\psi$ as in Sec.~\ref{sec:eo}. The cycle $\mathcal M$ changes from one application to the
-next, so the outer method must be flexible: FGMRES or flexible GCR, which keep the preconditioned
+next, so the outer method must be flexible: FGMRES or flexible GCR (Algorithms~\ref{alg:fgmres}
+and~\ref{alg:gcr}, Appendix~\ref{sec:cgform}), which keep the preconditioned
 directions. BiCGStab with the cycle is also available, but its convergence theory has no flexible
 counterpart.
 
@@ -1561,10 +1564,91 @@ $32^4$ & $0.593606$ & $3.59$ & $+13.0$ & $+14.1$ & $\approx+14$\\
 \end{table}
 
 % ============================================================
-\section{CGNE and BiCGStab}
+\section{Krylov solvers}
 \label{sec:cgform}
 
-The reference solver of Sec.~\ref{sec:massscan} is CG on $\mathcal K\dg\mathcal K$ with
+The multigrid uses three Krylov solvers, flexible GCR for the outer system, MINRES and BiCGStab for
+the coarse factors and FGMRES in the bootstrap, and the comparison uses CG. The algorithms below are
+those of RutticeQCD, which runs the same code on the CPU and on the device; $\epsilon$ is the
+tolerance on $|r|^2/|b|^2$.
+
+\paragraph{Flexible GCR($k$).} The outer solver of Sec.~\ref{sec:outer} is GCR~\cite{ESS} with a
+preconditioner $\mathcal M$ that may change from one step to the next, keeping the last $k$
+directions (Algorithm~\ref{alg:gcr}). Each step applies $\mathcal M$ once, makes the new $q=\tilde Az$
+orthogonal to the $q$ of the kept directions, and minimizes the residual along it; the step
+length $\langle q|r\rangle$ vanishes when $q$ is orthogonal to $r$, which is the fixed point of
+Sec.~\ref{sec:gcrk}. After $n_{\max}$ steps the true residual is recomputed and the solve
+restarts.
+
+\begin{algorithm}[tbp]
+\caption{Flexible GCR($k$) for $\tilde Ax=b$ with the preconditioner $\mathcal M$.}
+\label{alg:gcr}
+\begin{algorithmic}
+\Repeat
+  \State $r\gets b-\tilde Ax$
+  \For{at most $n_{\max}$ steps, while $|r|^2\ge\epsilon|b|^2$}
+    \State $z\gets\mathcal Mr$;\quad $q\gets\tilde Az$
+    \For{each of the last $k$ pairs $(z_i,q_i)$}
+      \State $\gamma\gets\langle q_i|q\rangle$;\quad $q\gets q-\gamma q_i$;\quad $z\gets z-\gamma z_i$
+    \EndFor
+    \State $z\gets z/|q|$;\quad $q\gets q/|q|$;\quad keep $(z,q)$
+    \State $\beta\gets\langle q|r\rangle$;\quad $x\gets x+\beta z$;\quad $r\gets r-\beta q$
+  \EndFor
+\Until{$|b-\tilde Ax|^2<\epsilon|b|^2$}
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{MINRES.} The Pauli--Villars factor is solved by MINRES~\cite{PaigeSaunders} on the
+$\Sigma$-Hermitian form $\Hc$ (Sec.~\ref{sec:coarse}), in the form of Ref.~\cite{ESW},
+Algorithm~2.4: Lanczos in the inner product of the preconditioner, which must be Hermitian
+positive definite and fixed ($|H_{xx}|^{-1}$ or the additive levels of Eq.~\eqref{eq:levelspv}),
+with Givens rotations (Algorithm~\ref{alg:minres}). As a coarse solve it starts from $x=0$ and
+stops on the residual estimate $\eta$ of the recurrence, measured in the norm of the
+preconditioner.
+
+\begin{algorithm}[tbp]
+\caption{Preconditioned MINRES for $Hx=g$, $H$ Hermitian, $\mathcal M_H$ Hermitian positive definite.}
+\label{alg:minres}
+\begin{algorithmic}
+\State $v\gets g-Hx$;\quad $v_-\gets0$;\quad $z\gets\mathcal M_Hv$;\quad $\gamma\gets\langle z|v\rangle^{1/2}$;\quad $\gamma_-\gets1$;\quad $\eta\gets\gamma$
+\State $c,c_-\gets1$;\quad $s,s_-\gets0$;\quad $w,w_-\gets0$
+\While{$\eta^2\ge\epsilon\,\langle\mathcal M_Hg|g\rangle$}
+  \State $z\gets z/\gamma$;\quad $\delta\gets\Re\langle Hz|z\rangle$
+  \State $v'\gets Hz-(\delta/\gamma)v-(\gamma/\gamma_-)v_-$;\quad $z'\gets\mathcal M_Hv'$;\quad $\gamma'\gets\Re\langle z'|v'\rangle^{1/2}$
+  \State $a_0\gets c\delta-c_-s\gamma$;\quad $a_1\gets(a_0^2+\gamma'^2)^{1/2}$;\quad $a_2\gets s\delta+c_-c\gamma$;\quad $a_3\gets s_-\gamma$
+  \State $c'\gets a_0/a_1$;\quad $s'\gets\gamma'/a_1$;\quad $(w_-,w)\gets\big(w,\,(z-a_3w_--a_2w)/a_1\big)$
+  \State $x\gets x+c'\eta\,w$;\quad $\eta\gets-s'\eta$
+  \State $(v_-,v,z)\gets(v,v',z')$;\quad $(\gamma_-,\gamma)\gets(\gamma,\gamma')$;\quad $(c_-,c,s_-,s)\gets(c,c',s,s')$
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{FGMRES.} Each bootstrap round of Sec.~\ref{sec:setup} replaces a vector $y_j$ by a few
+steps of flexible GMRES~\cite{SaadFGMRES} on $\AR x=y_j$ from $x=0$, with the cycle as a right
+preconditioner (Algorithm~\ref{alg:fgmres}). The basis is orthogonalized by classical
+Gram--Schmidt applied twice, since one pass loses orthogonality on the strongly non-normal
+$\AR\mathcal M$, and the least-squares problem of the Hessenberg matrix is updated by Givens
+rotations at every step.
+
+\begin{algorithm}[tbp]
+\caption{FGMRES($n$) for $Ax=b$ with a right preconditioner $\mathcal M$.}
+\label{alg:fgmres}
+\begin{algorithmic}
+\Repeat
+  \State $r\gets b-Ax$;\quad $\beta\gets|r|$;\quad $v_0\gets r/\beta$
+  \For{$k=0,\dots,n-1$, while the residual estimate is $\ge\epsilon^{1/2}|b|$}
+    \State $z_k\gets\mathcal Mv_k$;\quad $w\gets Az_k$
+    \For{two passes}
+      \For{$i=0,\dots,k$} $h_{ik}\gets h_{ik}+\langle v_i|w\rangle$;\quad $w\gets w-\langle v_i|w\rangle v_i$ \EndFor
+    \EndFor
+    \State $h_{k+1,k}\gets|w|$;\quad $v_{k+1}\gets w/h_{k+1,k}$;\quad update the Givens rotations and the residual estimate
+  \EndFor
+  \State $c\gets\arg\min_c|\beta e_0-Hc|$;\quad $x\gets x+\sum_ic_iz_i$
+\Until{$|b-Ax|^2<\epsilon|b|^2$}
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{CGNE.} The reference solver of Sec.~\ref{sec:massscan} is CG on $\mathcal K\dg\mathcal K$ with
 $\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
 multigrid, in double or in mixed precision.
 
@@ -1734,6 +1818,8 @@ Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
 \bibitem{HestenesStiefel} M.~R.~Hestenes and E.~Stiefel, \emph{Methods of conjugate gradients for solving linear systems}, J.\ Res.\ Natl.\ Bur.\ Stand.\ \textbf{49} (1952) 409.
 \bibitem{vanderVorst} H.~A.~van der Vorst, \emph{Bi-CGSTAB: a fast and smoothly converging variant of Bi-CG for the solution of nonsymmetric linear systems}, SIAM J.\ Sci.\ Stat.\ Comput.\ \textbf{13} (1992) 631.
+\bibitem{PaigeSaunders} C.~C.~Paige and M.~A.~Saunders, \emph{Solution of sparse indefinite systems of linear equations}, SIAM J.\ Numer.\ Anal.\ \textbf{12} (1975) 617.
+\bibitem{SaadFGMRES} Y.~Saad, \emph{A flexible inner-outer preconditioned GMRES algorithm}, SIAM J.\ Sci.\ Comput.\ \textbf{14} (1993) 461.
 \bibitem{SleijpenvdVomega} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Maintaining convergence properties of BiCGstab methods in finite precision arithmetic}, Numer.\ Algorithms \textbf{10} (1995) 203.
 \bibitem{SleijpenvdV} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Reliable updated residuals in hybrid Bi-CG methods}, Computing \textbf{56} (1996) 141.
 \bibitem{ClarkMixed} M.~A.~Clark, R.~Babich, K.~Barros, R.~C.~Brower and C.~Rebbi, \emph{Solving lattice QCD systems of equations using mixed precision solvers on GPUs}, Comput.\ Phys.\ Commun.\ \textbf{181} (2010) 1517 [arXiv:0911.3191].
