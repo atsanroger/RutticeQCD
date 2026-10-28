@@ -323,13 +323,11 @@ inner cycles per step do not reduce the count ($9$ iterations with one, two or f
 $16^4$): the extra steps come from $N$, since a more exact $\mathcal M$ does not remove them. The dual cycle, in
 contrast, stalls on the hard right-hand side in setup~S.
 
-On the $12^4$ configuration, setup~S, $m=0.001$, the residual right-hand side needs GCR(8)
-(20 iterations); GCR(2) stalls. That configuration has an unpaired near-zero
-mode ($Q=+1$). A possible reason is that a topological mode is localized in four dimensions, so
-$D_-$ does not act on it as a number and $N$ need not take it out of the low modes.
-The same configuration is the one on which GCR(2) with exact coarse solves stagnates for $D$
-(Sec.~\ref{sec:gcrk}), and there the topological charge is not the cause.
-On the same right-hand side the dual cycle does not converge at all.
+On $12^4$ in setup~S, $m=0.001$, the residual right-hand side stalls GCR(2) on all four
+configurations, and GCR(8) needs $13$--$222$ iterations. On $16^4$, where configurations 2--4 have
+$Q=+1$, $+1$ and $+3$, GCR(2) needs $9$--$10$ on all four. The stall follows the small smeared
+lattice of Sec.~\ref{sec:gcrk} and not the topological charge. On the same right-hand side the
+dual cycle does not converge on $12^4$ in setup~S.
 
 \paragraph{What did not work.} We tried several other ways to solve with $D\dg$ from one setup.
 None is as good as $\Gfive\mathcal M\Gfive$.
@@ -516,8 +514,7 @@ makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
 $12^4$, $m=0.001$, $\AL$, one random right-hand side: medians over the four configurations, in
 brackets the number of configurations that do not converge in 1000 iterations (``stag.'': three
 or four). Base: $14$ in both setups (Sec.~\ref{sec:setups}); configuration~4 has the slow setup of
-Sec.~\ref{sec:gcrk}. Setup times (medians, seconds) where they change much. $^\dagger$With $8$
-filtered vectors; with $16$, configuration~1 needed $38$ iterations in an earlier build.}
+Sec.~\ref{sec:gcrk}. Setup times (medians, seconds) where they change much.}
 \label{tab:sensitivity}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lll@{}}
@@ -525,7 +522,7 @@ filtered vectors; with $16$, configuration~1 needed $38$ iterations in an earlie
 change & setup S & setup B\\
 \midrule
 aggregates $2^4$ / $3^4$ / $6^4$ & $8$ ($19$\,s) / $12$ / $38$ [1] & $9$ ($12$\,s) / $11$ / $20$\\
-test vectors $8$ / $16$ / $24$ / $48$ & stag. / $26$ [1] / $18$ / $10$ ($16$\,s) & stag.$^\dagger$ / $19$ / $16$ / $11$ ($12$\,s)\\
+test vectors $8$ / $16$ / $24$ / $48$ & stag. / $26$ [1] / $18$ / $10$ ($16$\,s) & $187$ [1] / $19$ / $16$ / $11$ ($12$\,s)\\
 smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $30$ / $16$ / $14$ / $12$ / $9$ & stag. / $81$ [1] / $26$ / $14$ / $13$\\
 interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $18$ / $14$ / stag. / stag. & stag. / $27$ / $14$ / stag.\\
 coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $25$ [1] / $14$ / $18$ [1] / stag. & $18$ / $14$ / $16$ / $17$\\

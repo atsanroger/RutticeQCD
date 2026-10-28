@@ -83,10 +83,10 @@ B	m18_vectors_48	1	11	12	0.8	e044050
 B	m18_vectors_48	2	12	12	0.8	e044050
 B	m18_vectors_48	3	11	12	0.6	e044050
 B	m18_vectors_48	4	11	12	0.7	e044050
-B	m18_vectors_8	1	1000!	2	21.8	e044050
-B	m18_vectors_8	2	1000!	2	19.9	e044050
-B	m18_vectors_8	3	1000!	2	24.1	e044050
-B	m18_vectors_8	4	1000!	2	19.0	e044050
+B	m18_vectors_8	1	55	3	1.0	e044050 (16 filtered vectors)
+B	m18_vectors_8	2	70	3	1.5	e044050 (16 filtered vectors)
+B	m18_vectors_8	3	1000!	3	21.5	e044050 (16 filtered vectors)
+B	m18_vectors_8	4	303	3	6.5	e044050 (16 filtered vectors)
 S	stout_PV_right	1	12	7	0.5	e044050
 S	stout_PV_right	2	12	7	0.5	e044050
 S	stout_PV_right	3	11	7	0.5	e044050
@@ -171,7 +171,7 @@ S	stout_vectors_48	1	10	15	0.7	e044050
 S	stout_vectors_48	2	10	16	0.7	e044050
 S	stout_vectors_48	3	9	16	0.7	e044050
 S	stout_vectors_48	4	11	15	0.6	e044050
-S	stout_vectors_8	1	1000!	2	18.1	e044050
-S	stout_vectors_8	2	1000!	2	15.8	e044050
-S	stout_vectors_8	3	1000!	2	19.9	e044050
-S	stout_vectors_8	4	1000!	2	16.6	e044050
+S	stout_vectors_8	1	1000!	3	17.4	e044050 (16 filtered vectors)
+S	stout_vectors_8	2	1000!	3	18.3	e044050 (16 filtered vectors)
+S	stout_vectors_8	3	1000!	3	18.5	e044050 (16 filtered vectors)
+S	stout_vectors_8	4	1000!	3	19.2	e044050 (16 filtered vectors)
