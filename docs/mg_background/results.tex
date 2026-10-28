@@ -146,10 +146,9 @@ CG on $S\dg S$ needs $3$--$49\%$ more iterations at $m=0.001$ on $24^3\times48$
 (Appendix~\ref{sec:cgform}), and the multigrid is compared with the faster $\mathcal K\dg\mathcal K$.
 
 \paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
-precision: CG in single precision on the normal equation of $\Ce^{-1}S$, with reliable updates in
-double precision (the true residual recomputed whenever $|r|^2$ has fallen by $10^{-2}$). It needs
-the iterations of double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times
-the time, with the same final residuals and $7.2$\,GB of device memory.
+precision, CG in single precision with reliable updates in double precision; it needs
+$0.54$--$0.61$ times the time of double precision at the same final residuals
+(Appendix~\ref{sec:cgform}).
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}). From $m=0.1$ to $m=0.001$ the CGNE

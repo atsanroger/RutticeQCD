@@ -272,7 +272,7 @@ then what each part of the method contributes, then why it converges. Section~\r
 lists open problems. Appendix~\ref{sec:notation}
 relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
 other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations, Appendix~\ref{sec:cgform} compares two even-odd forms of CG\fi.
+configurations, Appendix~\ref{sec:cgform} describes the reference CG\fi.
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -1560,11 +1560,20 @@ $32^4$ & $0.593606$ & $3.59$ & $+13.0$ & $+14.1$ & $\approx+14$\\
 \end{table}
 
 % ============================================================
-\section{Two even-odd forms of CG}
+\section{The reference CG}
 \label{sec:cgform}
 
 The reference solver of Sec.~\ref{sec:massscan} is CG on $\mathcal K\dg\mathcal K$ with
-$\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++. Boyle and Yamaguchi~\cite{BY} used CG
+$\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
+multigrid, in double or in mixed precision.
+
+\paragraph{Mixed precision.} The mixed-precision solver runs CG in single precision on the normal
+equation of $\mathcal K$, with reliable updates in double precision: the true residual is
+recomputed whenever $|r|^2$ has fallen by $10^{-2}$. On $24^3\times48$ it needs the iterations of
+double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times the time, with the
+same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double precision.
+
+\paragraph{Two even-odd forms.} Boyle and Yamaguchi~\cite{BY} used CG
 on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned
 form. Table~\ref{tab:cgform} and Fig.~\ref{fig:cgform} compare the two on the three quenched
 lattices at $m=0.001$, in double precision with one random right-hand side, for $b-c=1$ and five
