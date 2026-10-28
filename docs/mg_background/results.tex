@@ -236,8 +236,7 @@ Table~\ref{tab:setups} locate the difference. In~B the smoother covers
 $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, a wide band left to it at every mass, which $\alpha$
 shortens. In~S it covers $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ and the coarse correction takes
 the rest; at light masses the low modes set the iterations, they are in the coarse space, and
-$\alpha$ has little left to improve. This reading is consistent with the numbers but was not
-checked on the spectra.
+$\alpha$ has little left to improve. The spectra of the two setups would test this reading.
 
 
 \subsubsection{Solves with $D\dg$}
@@ -282,8 +281,8 @@ contrast, stalls on the hard right-hand side in setup~S.
 
 On the $12^4$ configuration, setup~S, $m=0.001$, the residual right-hand side needs GCR(8)
 (20 iterations); GCR(2) stalls. That configuration has an unpaired near-zero
-mode ($Q=+1$). A topological mode is localized in four dimensions, so $D_-$ does not act on it as
-a number, and $N$ need not take it out of the low modes. We have not checked this explanation.
+mode ($Q=+1$). A possible reason is that a topological mode is localized in four dimensions, so
+$D_-$ does not act on it as a number and $N$ need not take it out of the low modes.
 The same configuration is the one on which GCR(2) with exact coarse solves stagnates for $D$
 (Sec.~\ref{sec:gcrk}), and there the topological charge is not the cause.
 On the same right-hand side the dual cycle does not converge at all.
@@ -491,8 +490,8 @@ The method is robust within a window of each parameter and fails outside it
 necessary, and more accurate coarse solves do not help: on $12^4$ with GCR(2) the most accurate
 ones stagnate in setup~S (Sec.~\ref{sec:gcrk}). Larger setups (smaller aggregates, more test vectors)
 reduce the iteration count, but on $12^4$ not the time (Table~\ref{tab:costs}). All
-runs of the table use GCR(2); whether these stagnations are fixed points of the kind of
-Sec.~\ref{sec:gcrk}, and whether full GCR would remove them, has not been tested. 
+runs of the table use GCR(2), and its stagnations may be fixed points of the kind of
+Sec.~\ref{sec:gcrk}.
 
 \begin{table}[t]
 \centering
@@ -539,7 +538,7 @@ vectors at the coarse size of fewer: they generate more, truncate them by a sing
 decomposition on each aggregate and chirality (as $\Pro$ is split here by $\Gfive$), and stream
 the decomposition to save device memory. Applied here, the truncated basis would no longer
 contain $s$ and $\hat t$ exactly, so the exactness~\eqref{eq:exact} would be lost; whether the gain
-outweighs that has not been tried.
+outweighs that loss is open.
 
 \subsection{Why the method converges}
 \label{sec:why}

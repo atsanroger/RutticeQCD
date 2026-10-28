@@ -1065,7 +1065,7 @@ $32$ Ritz pairs closest to zero from a Lanczos run of $600$ steps with full reor
 had relative residuals up to $2$; deflating with them reduced the MINRES steps of the
 Pauli--Villars factor from $402$ to $350$, and the solution stalled at a residual of
 $9\times10^{-3}$. With $\{s,\hat t\}$, whose coarse operators differ
-(Sec.~\ref{sec:basischoice}), coarse deflation has not been tested. Boyle and
+(Sec.~\ref{sec:basischoice}), coarse deflation remains to be tried. Boyle and
 Oare~\cite{BoyleOare} report that deflating their coarse operator did not work, and add a
 large coarsest level that is inverted densely.
 
@@ -1372,8 +1372,7 @@ right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). G
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
 were tested on $16^4$ but not on $24^4$. What singles out this configuration is open. A safeguard that changes the
 direction when $|\langle r,\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
-below a threshold would remove such fixed points for one inner product per step; it has not been
-implemented. Why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
+below a threshold would remove such fixed points for one inner product per step; we have not implemented it. Why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is open as well.
 
 \item \textbf{Formulations and coarse spaces.} The comparison here is with CGNE. How the two
@@ -1384,10 +1383,9 @@ Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HD
 and attributed it to the eigenvectors of the red-black operator and of $\gamma_5RD$ not being
 aligned; here the
 smoother and the correction both approximate $\tilde A^{-1}$, so that mismatch is absent by
-construction, but whether the even-odd system is preferable for this method has not been
-established. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
+construction, but whether the even-odd system is preferable for this method is open. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
 whether a $\Pro$ built from the near-null vectors of $D^{(\alpha)}$, $Q^{-1}$ times those of $D$,
-helps the left form with $\alpha$ has not been tried.
+helps the left form with $\alpha$ is untested.
 \item \textbf{HMC.} In HMC the setup is renewed as the gauge field changes, and each force
 evaluation needs one solve with $D$ and one with $D\dg$. Its cost there, on a dynamical ensemble on which CG
 needs many iterations, is left for future work.
@@ -1592,7 +1590,7 @@ configuration.
 Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $16$--$58\%$
 more iterations on $24^3\times48$, for Shamir fermions as well. In $\mathcal K^{(\alpha)}$ the
 factor $\Ce Q_e$ is divided out on the left, whereas in $SQ_e$ the rescaling acts on the right
-only; this reading is consistent with the numbers but was not checked on the singular values.
+only. The singular values of the two operators would show whether this is the cause.
 For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
