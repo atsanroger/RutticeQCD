@@ -1740,8 +1740,9 @@ iterations; we have no explanation for this dip. The three lattices agree to wit
 every case, so the order is a property of the operator and its parameters, not of the
 configuration.
 
-Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $16$--$58\%$
-more iterations on $24^3\times48$, for Shamir fermions as well. In $\mathcal K^{(\alpha)}$ the
+Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $46$--$58\%$
+more iterations in setup~S and $14$--$32\%$ more in setup~B, for every $c$ and on all three
+lattices, Shamir fermions included. In $\mathcal K^{(\alpha)}$ the
 factor $\Ce Q_e$ is divided out on the left, whereas in $SQ_e$ the rescaling acts on the right
 only. The singular values of the two operators would show whether this is the cause.
 For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
@@ -1751,8 +1752,8 @@ compared with it.
 \centering
 \caption{CG iterations on $\mathcal K\dg\mathcal K$ / on $S\dg S$, $m=0.001$, $b=1+c$, $\alpha=1$
 unless stated, one random right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision. Final
-$|D\psi-\eta|^2/|\eta|^2\le3\times10^{-16}$ in every run except $(2,1)$ on $24^3\times48$, S
-($2\times10^{-15}$).}
+$|D\psi-\eta|^2/|\eta|^2\le4\times10^{-16}$ in every run except $(2,1)$ on $24^3\times48$, S
+(up to $2\times10^{-15}$).}
 \label{tab:cgform}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{4pt}
@@ -1768,8 +1769,13 @@ B & $12^4$ & $622$/$514$ & $657$/$579$ & $664$/$681$ & $653$/$763$ & $633$/$827$
 B & $16^4$ & $1033$/$839$ & $1039$/$917$ & $1056$/$1083$ & $1060$/$1238$ & $975$/$1262$\\
 B & $24^3\times48$ & $2954$/$2439$ & $6269$/$5532$ & $5620$/$5770$ & $3248$/$3772$ & $1924$/$2443$\\
 \addlinespace
-S, $\alpha=0.6$ & $24^3\times48$ & $3095$/$4881$ &  & $3602$/$5349$ &  & \\
-B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ &  & $4228$/$5097$ &  & \\
+S, $\alpha=0.6$ & $12^4$ & $234$/$364$ & $226$/$331$ & $234$/$344$ & $249$/$378$ & $263$/$415$\\
+S, $\alpha=0.6$ & $16^4$ & $373$/$576$ & $346$/$511$ & $358$/$528$ & $378$/$576$ & $403$/$638$\\
+S, $\alpha=0.6$ & $24^3\times48$ & $3095$/$4881$ & $3506$/$5166$ & $3602$/$5349$ & $3790$/$5785$ & $3878$/$6127$\\
+\addlinespace
+B, $\alpha=0.6$ & $12^4$ & $451$/$521$ & $478$/$545$ & $505$/$601$ & $525$/$660$ & $542$/$717$\\
+B, $\alpha=0.6$ & $16^4$ & $742$/$851$ & $762$/$877$ & $817$/$983$ & $840$/$1068$ & $827$/$1086$\\
+B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ & $4539$/$5194$ & $4228$/$5097$ & $2576$/$3239$ & $1620$/$2093$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1778,8 +1784,8 @@ B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ &  & $4228$/$5097$ &  & \\
 \centering
 \includegraphics[width=\linewidth]{fig_cgform}
 \caption{Top: CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open,
-dashed) against the M\"obius $c$, $b=1+c$, $\alpha=1$; stars and crosses: $\alpha=0.6$ on
-$24^3\times48$. Bottom: their ratio; above $1$ the left-preconditioned form is faster. The data of Table~\ref{tab:cgform}.}
+dashed) against the M\"obius $c$, $b=1+c$; $\alpha=1$ (thick lines, large symbols) and
+$\alpha=0.6$ (thin lines, small symbols). Bottom: their ratio; above $1$ the left-preconditioned form is faster. The data of Table~\ref{tab:cgform}.}
 \label{fig:cgform}
 \end{figure}
 

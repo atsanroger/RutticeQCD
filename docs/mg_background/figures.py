@@ -165,31 +165,23 @@ def cgform():
     vols = {"12^4": ("C0", "o", r"$12^4$"), "16^4": ("C1", "s", r"$16^4$"),
             "24^3x48": ("C2", "^", r"$24^3\times48$")}
     names = {"K_dag_K": r"$\mathcal{K}^\dagger\mathcal{K}$", "S_dag_S": r"$S^\dagger S$"}
-    fig, axes = plt.subplots(2, 2, figsize=(6.6, 6.2), sharex=True, sharey="row")
+    style = {"1.0": dict(lw=1.3, ms=5), "0.6": dict(lw=0.7, ms=3)}
+    fig, axes = plt.subplots(2, 2, figsize=(6.6, 6.6), sharex=True, sharey="row")
     for col, setup in enumerate("SB"):
         top, bot = axes[0, col], axes[1, col]
-        for vol, (color, mk, lab) in vols.items():
-            sel = lambda op, a="1.0": sorted((c, n) for (v, s, c, al, o), n in it.items()
-                                             if v == vol and s == setup and al == a and o == op)
-            for op, ls in (("K_dag_K", "-"), ("S_dag_S", "--")):
-                pts = sel(op)
-                top.semilogy([c for c, _ in pts], [n for _, n in pts], mk + ls, color=color,
-                             mfc=color if op == "K_dag_K" else "none",
-                             label=lab + ", " + names[op])
-            k, sq = dict(sel("K_dag_K")), dict(sel("S_dag_S"))
-            cs = sorted(k)
-            bot.plot(cs, [sq[c] / k[c] for c in cs], mk + "-", color=color, label=lab)
-        k6 = {c: n for (v, s, c, a, o), n in it.items()
-              if v == "24^3x48" and s == setup and a == "0.6" and o == "K_dag_K"}
-        s6 = {c: n for (v, s, c, a, o), n in it.items()
-              if v == "24^3x48" and s == setup and a == "0.6" and o == "S_dag_S"}
-        for op, mk, d in (("K_dag_K", "*", k6), ("S_dag_S", "x", s6)):
-            cs = sorted(d)
-            top.semilogy(cs, [d[c] for c in cs], mk, color="C3", ms=6,
-                         label=r"$24^3\times48$, $\alpha=0.6$, " + names[op])
-        cs = sorted(k6)
-        bot.plot(cs, [s6[c] / k6[c] for c in cs], "*", color="C3", ms=7,
-                 label=r"$24^3\times48$, $\alpha=0.6$")
+        for a in ("1.0", "0.6"):
+            for vol, (color, mk, lab) in vols.items():
+                sel = lambda op: sorted((c, n) for (v, s, c, al, o), n in it.items()
+                                        if v == vol and s == setup and al == a and o == op)
+                for op, ls in (("K_dag_K", "-"), ("S_dag_S", "--")):
+                    pts = sel(op)
+                    top.semilogy([c for c, _ in pts], [n for _, n in pts], mk + ls, color=color,
+                                 mfc=color if op == "K_dag_K" else "none", **style[a],
+                                 label=lab + ", " + names[op] + rf", $\alpha={float(a):g}$")
+                k, sq = dict(sel("K_dag_K")), dict(sel("S_dag_S"))
+                cs = sorted(k)
+                bot.plot(cs, [sq[c] / k[c] for c in cs], mk + "-", color=color, **style[a],
+                         label=lab + rf", $\alpha={float(a):g}$")
         bot.axhline(1, color="k", lw=0.5, ls=":")
         top.set_title(NAMES[setup], fontsize=9)
         bot.set_xlabel(r"Möbius $c$ ($b=1+c$)")
@@ -198,9 +190,8 @@ def cgform():
     axes[0, 0].set_ylabel("CG iterations")
     axes[1, 0].set_ylabel(r"iterations $S^\dagger S$ / $\mathcal{K}^\dagger\mathcal{K}$")
     h, l = axes[0, 1].get_legend_handles_labels()
-    fig.legend(h, l, loc="lower center", ncol=4, frameon=False, fontsize=6.5)
-    axes[1, 1].legend(loc="upper left", frameon=False, fontsize=6.5)
-    fig.tight_layout(rect=(0, 0.09, 1, 1))
+    fig.legend(h, l, loc="lower center", ncol=3, frameon=False, fontsize=6.5)
+    fig.tight_layout(rect=(0, 0.14, 1, 1))
     fig.savefig(os.path.join(HERE, "fig_cgform.pdf"))
 
 if __name__ == "__main__":
