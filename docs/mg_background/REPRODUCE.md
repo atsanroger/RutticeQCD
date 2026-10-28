@@ -1,7 +1,7 @@
 # Reproducing the MG note
 
 How the numbers of `MDWF_MULTIGRID_NOTE.pdf` were produced and how to extend them. Table, figure
-and section numbers are those of the note as of 2026-10-27.
+and section numbers are those of the note as of 2026-10-28.
 
 ## Build
 
@@ -41,10 +41,11 @@ Data files are in `data/`. A blank entry is not recorded.
 | Table 14 (field of values) | | `preconditioned_fov_device --parts` | |
 | Table 15 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` |
 | Table 16, Fig. 5 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` |
-| Table 18, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
-| Appendix D, CG on K†K and S†S (Table 22, Fig. 8) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
+| Table 20, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
+| Appendix D, CG on K†K and S†S (Table 23, Fig. 8) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
+| Table 18 (setup seeds) | `e044050` (`fflowHPC_multiconf`) | `ruttice`, `MultiGrid.Setup.seed` 1–10, `Solver.number_of_kept_directions` 2 / 16; L_s 12, 16 with seeds 3, 5, 7, 11, 13 | run dir `ruttice_a30_20261016/multiconf/p1`, `tail_*`, `lsseed_*` (not yet in `data/`) |
 | Table 19 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
-| Table 21 (configurations) | | `ruttice-flow` | |
+| Table 22 (configurations) | | `ruttice-flow` | |
 | Eq. (3.8) checks (Sec. III.A.3) | | example `correction_exactness` (CPU) | |
 | Eqs. (2.10), (2.13) | | example `mobius_gamma5_check` (CPU) | |
 | D₋ inverse (Sec. IV.D), dual-cycle prolongations | | examples `dminus_cost`, `dual_basis` | |

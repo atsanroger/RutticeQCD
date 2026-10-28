@@ -55,7 +55,7 @@ suppresses the artifact that shifts the best value of $M_5$ away from $1$.
 \end{itemize}
 The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from one NVIDIA data-center GPU with $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only. The device reductions add
 in an order that depends on the build and the GPU, so the iterations of otherwise equal runs can
-differ by a few.
+differ by a few. The setup seed is $21$ in every run; Sec.~\ref{sec:gcrk} shows how the count depends on it.
 
 \paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
 symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
@@ -808,6 +808,50 @@ can still produce one there ($\delta\Gfive\mathcal Mr$ on $24^4$), so whether a 
 stagnates depends on the cycle and on the lattice. Why $12^4$ reaches it is open. It is neither
 the topological charge ($24^4$ has $Q=+4$ and converges) nor the odd extent of the $3^4$ coarse
 lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
+
+\paragraph{Dependence on the setup seed.} The setup starts from random vectors, and all other runs
+of this work use one seed. With GCR(2) the iteration count depends on it.
+Table~\ref{tab:seeds} gives ten seeds on each of four $12^4$ configurations in setup~S at
+$m=0.001$: v2 of Table~\ref{tab:configs} and trajectories 502, 602 and 702 of its HMC chain. GCR(2) needs $12$--$22$
+iterations in $34$ of the $40$ setups. In the other six it needs $58$--$513$ or does not converge in
+$2000$. GCR(16) with the same cycles needs $11$--$14$ iterations in all $40$. Every setup therefore
+gives a cycle of the usual quality. In a few of them the cycle corrects a small number of directions
+poorly, and GCR(2), which keeps two directions, removes them only slowly, while a longer
+recurrence removes them in a few steps. The slow setups do not single out a configuration. On
+configuration 702, seed 21 needs $209$ iterations and seeds 1--10 need $14$--$22$. At $L_s=12$ and
+$16$ the same happens: on configurations 502 and 702, $7$ of $20$ setups need more than $30$
+iterations or do not converge, and GCR(16) needs $14$--$15$ in each of these seven.
+
+GCR(16) is not a remedy at fixed memory: on $24^3\times48$ it does not fit in the device memory
+(next paragraph). There configuration 702 in setup~S needs $53$, $36$ and $45$ iterations with seeds 21, 7
+and 99, against $23$--$28$ for seed 21 on the three others. Three seeds do not decide whether this is
+the same effect or a property of the configuration. A setup could be checked by its first GCR(2)
+steps and redrawn, or the safeguard of Sec.~\ref{sec:open} could change the direction; neither is
+implemented.
+
+\begin{table}[t]
+\centering
+\caption{GCR($k$) iterations with ten setup seeds (1--10) on four $12^4$ configurations, setup~S,
+$m=0.001$, $L_s=8$, $\AL$, one random right-hand side to $|r|^2/|b|^2<10^{-18}$; ``!'': not
+converged in $2000$. $Q$: the topological charge at $t_0$.}
+\label{tab:seeds}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{@{}lccccccccccc@{}}
+\toprule
+configuration, $Q$ & $k$ & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10\\
+\midrule
+v2, $+1$ & 2 & 16 & 513 & 15 & 13 & 118 & 87 & 18 & 14 & 14 & 14\\
+ & 16 & 12 & 13 & 13 & 12 & 13 & 12 & 12 & 12 & 12 & 12\\
+502, $+1$ & 2 & 14 & 13 & 19 & 14 & 13 & 15 & 14 & 14 & 14 & 58\\
+ & 16 & 12 & 12 & 13 & 12 & 12 & 12 & 12 & 12 & 13 & 13\\
+602, $+2$ & 2 & 12 & 15 & 443 & 12 & 15 & 13 & 12 & 12 & 12 & !\\
+ & 16 & 11 & 12 & 14 & 11 & 13 & 12 & 11 & 12 & 11 & 14\\
+702, $+2$ & 2 & 19 & 14 & 17 & 14 & 17 & 15 & 17 & 14 & 14 & 22\\
+ & 16 & 13 & 13 & 13 & 12 & 13 & 13 & 13 & 13 & 12 & 13\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{table}[t]
 \centering
