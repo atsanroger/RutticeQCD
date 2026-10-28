@@ -580,8 +580,10 @@ configuration stagnates. More smoother steps ($\nu=12$, $16$ for setup~S) need f
 On $24^3\times48$, however, $16$ test vectors do not suffice (setup~S, $m=0.001$, point source):
 they halve the setup there too ($116$ against $207$\,s), but the columns that converge need
 $910$--$940$ iterations and the others stop at the cap of $2000$; $24$ ($184$\,s of setup) need
-$162$ iterations for the first column, against $29$--$32$ with $32$. All runs use one setup seed,
-so differences of a few iterations are within the variation noted in Sec.~\ref{sec:setups}.
+$162$ iterations for the first column, against $29$--$32$ with $32$. With a random right-hand side
+the four configurations give the same picture: $16$ test vectors need $230$--$337$ iterations or do
+not converge in $2000$, and $24$ need $63$--$172$, against $23$--$53$ with $32$ (setups of
+$114$--$127$, $147$--$164$ and $204$--$215$\,s).
 
 For Wilson fermions, Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain the effect of more test
 vectors at the coarse size of fewer: they generate more, truncate them by a singular value
