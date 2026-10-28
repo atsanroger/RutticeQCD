@@ -1378,7 +1378,12 @@ varies from step to step. On the $12^4$ configuration GCR(2) with accurate coars
 residual orthogonal to its new direction and stays there (Sec.~\ref{sec:gcrk}), and the residual
 right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
-were tested on $16^4$ but not on $24^4$. What singles out this configuration is open. A safeguard that changes the
+were tested on $16^4$ but not on $24^4$. With the solver's inexact cycle the same fixed points
+appear in setup~S for about one setup seed in eight, on every $12^4$ configuration tested, and
+never in setup~B (Sec.~\ref{sec:gcrk}, Table~\ref{tab:seeds}). Longer recurrences and more test
+vectors remove them but do not fit $24^3\times48$ in $24$\,GB; quark-factor coarse solves to
+$10^{-4}$ remove most of them at no memory cost. What makes a setup of~S slow, and a remedy that
+keeps GCR(2) and the memory, are open. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. Why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is open as well.
