@@ -479,7 +479,8 @@ $12^4$ B, $(b,c)=(1.5,0.5)$ & $0.031$--$0.032$ & $0.113$--$0.132^*$ & $0.056$--$
 \centering
 \caption{GCR(2) iterations (coarse applications) with the Pauli--Villars factor solved
 by MINRES on $\Hc$, which assumes $\delta=0$, or by BiCGStab on the exact adjoint, both to
-$10^{-2}$; $12^4$, $m=0.001$, $\AL$, otherwise Table~\ref{tab:setups}.}
+$10^{-2}$; $12^4$, $m=0.001$, $\AL$, otherwise Table~\ref{tab:setups}. Medians over the four
+configurations, in brackets the number that do not converge in $2000$ iterations.}
 \label{tab:minres}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccc@{}}
@@ -488,8 +489,8 @@ $10^{-2}$; $12^4$, $m=0.001$, $\AL$, otherwise Table~\ref{tab:setups}.}
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
  & MINRES & BiCGStab & MINRES & BiCGStab\\
 \midrule
-setup S & $14$ ($3098$) & $373$ ($192892$) & $13$ ($3061$) & $24$ ($7276$)\\
-setup B & $14$ ($2351$) & $19$ ($3876$) & $15$ ($2103$) & $28$ ($3540$)\\
+setup S & $14$ ($3308$) & $628$ [1] ($383020$) & $13$ ($2665$) & $25$ ($7329$)\\
+setup B & $14$ ($2140$) & $19$ ($3262$) & $15$ ($1602$) & $29$ ($3078$)\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -500,7 +501,7 @@ directions and up to $13\%$ in the directions of the smallest singular values, g
 with $c$ (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. Yet with MINRES on $\Hc$ for the
 Pauli--Villars factor, the outer iterations at $c=0.5$ are those of the Shamir operator ($c=0$, a
 different operator, for which MINRES is exact). MINRES is also better than BiCGStab on the exact
-adjoint in every case (Table~\ref{tab:minres}), and with BiCGStab the stout setup nearly stagnates.
+adjoint in every case (Table~\ref{tab:minres}), and with BiCGStab the stout setup needs $84$--$883$ iterations or does not converge.
 So the non-Hermitian part of $\Hc$ is small enough for MINRES stopped at $10^{-2}$.
 The same weakness of BiCGStab on this factor
 makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
@@ -807,7 +808,10 @@ and the bound is for full GMRES with a fixed $\mathcal M$ (Secs.~\ref{sec:gcrk},
 \centering
 \caption{GCR($k$) iterations to $|r|^2/|b|^2<10^{-18}$, $12^4$, $m=0.001$, the
 multigrid of Table~\ref{tab:setups} (no levels below the coarse lattice), one
-random right-hand side; the point source: range over its $12$ columns.}
+random right-hand side: medians over the four configurations, in brackets the number that do not
+converge in $1000$ iterations; the point source: range over its $12$ columns and the
+configurations. $^*$Configuration~4 (the slow setup of Table~\ref{tab:seeds}): $97$--$521$, one
+column not converged.}
 \label{tab:gcrk}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccccc@{}}
@@ -818,9 +822,9 @@ S, $\AL$ & $10^{-2}$ & $14$ & & & $12$ & \\
 S, $\AR$ & $10^{-2}$ & $12$ & & & $11$ & \\
 B, $\AL$ & $10^{-2}$ & $14$ & & & $13$ & \\
 B, $\AR$ & $10^{-2}$ & $15$ & & & $14$ & \\
-S, $\AL$, point source & $10^{-2}$ & $15$--$19$ & & & $13$--$14$ & \\
-S, $\AL$ & $10^{-8}$ & no conv. & $26$ & $17$ & $17$ & $17$\\
-S, $\AL$ & $10^{-4}$ & $18$ & & & $16$ & \\
+S, $\AL$, point source & $10^{-2}$ & $12$--$19$$^*$ & & & $12$--$15$ & \\
+S, $\AL$ & $10^{-8}$ & no conv. & $24$ [1] & $17$ & $17$ & $17$\\
+S, $\AL$ & $10^{-4}$ & $18$ [1] & & & $16$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -828,9 +832,9 @@ S, $\AL$ & $10^{-4}$ & $18$ & & & $16$ & \\
 Truncated GCR does not need accurate coarse solves, and with them it can fail. With the usual
 coarse solves to $10^{-2}$, GCR(2) needs one to five iterations more than the full method on
 $12^4$ (Table~\ref{tab:gcrk}). With accurate coarse solves, where $\mathcal M$ is close to the
-fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo}, GCR(2) stagnates there in setup~S
-($|r|^2\approx3\times10^{-8}$ after 1000 iterations), while GCR(8) converges in $26$ and
-GCR($\ge16$) in $17$. The pseudospectra guarantee the full method; a truncated method has no
+fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo}, GCR(2) stagnates there in setup~S on
+all four configurations ($|r|^2\approx3\times10^{-8}$ after 1000 iterations on configuration~1),
+while GCR(8) converges in $17$--$26$ on three of them and GCR($\ge16$) in $15$--$17$ on all four. The pseudospectra guarantee the full method; a truncated method has no
 guarantee when the field of values contains the origin~\cite{ESS,Embree}. On $16^4$ and $24^4$
 GCR(2) converges with the same accurate solves (Table~\ref{tab:stall}).
 
