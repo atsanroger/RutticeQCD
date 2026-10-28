@@ -1002,6 +1002,28 @@ c_o=A_{oo}^{-1}(g_o-B_{oe}c_e),
 with BiCGStab or truncated flexible GCR, preconditioned by the exact inverses of the diagonal
 blocks $A_{ee}^{-1}$. We need a non-Hermitian Krylov method here: $\Dc$ is not Hermitian, and
 $\Sigma\Dc$ is Hermitian only for $c=0$.
+BiCGStab~\cite{vanderVorst} is Algorithm~\ref{alg:bicgstab} with a right preconditioner
+$\mathcal M_A$. It bounds the angle between $t$ and $s$ from below as in
+Ref.~\cite{SleijpenvdVomega}, and after a breakdown or $n_{\max}$ steps it restarts from the true
+residual.\ifresults{} The same algorithm, with $\mathcal M_A=1$ and in double precision, is the
+Krylov solver on $\AL$ alone of Sec.~\ref{sec:nomg}.\fi
+
+\begin{algorithm}[tbp]
+\caption{BiCGStab for $Ax=g$ with a right preconditioner $\mathcal M_A$; $\omega_c=0.7$.}
+\label{alg:bicgstab}
+\begin{algorithmic}
+\Repeat
+  \State $r\gets g-Ax$;\quad $r_0\gets r$;\quad $p\gets r$;\quad $\rho\gets\langle r_0,r\rangle$
+  \For{at most $n_{\max}$ steps, while $|r|^2\ge\epsilon|g|^2$}
+    \State $\hat p\gets\mathcal M_Ap$;\quad $v\gets A\hat p$;\quad $\alpha\gets\rho/\langle r_0,v\rangle$;\quad $s\gets r-\alpha v$
+    \State $\hat s\gets\mathcal M_As$;\quad $t\gets A\hat s$;\quad $\omega\gets\langle t,s\rangle/|t|^2$
+    \State $\gamma\gets|\langle t,s\rangle|/(|t|\,|s|)$; \textbf{if} $\gamma<\omega_c$ \textbf{then} $\omega\gets\omega\,\omega_c/\gamma$
+    \State $x\gets x+\alpha\hat p+\omega\hat s$;\quad $r\gets s-\omega t$;\quad $\rho'\gets\langle r_0,r\rangle$
+    \State $p\gets r+(\rho'/\rho)(\alpha/\omega)\,(p-\omega v)$;\quad $\rho\gets\rho'$
+  \EndFor
+\Until{$|g-Ax|^2<\epsilon|g|^2$}
+\end{algorithmic}
+\end{algorithm}
 
 \subsubsection{The Pauli--Villars factor}
 The system is $(\Pro\dg\Dpv\dg\Pro)\,w=g$. Two treatments are available.
@@ -1709,6 +1731,7 @@ Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
 \bibitem{HestenesStiefel} M.~R.~Hestenes and E.~Stiefel, \emph{Methods of conjugate gradients for solving linear systems}, J.\ Res.\ Natl.\ Bur.\ Stand.\ \textbf{49} (1952) 409.
 \bibitem{vanderVorst} H.~A.~van der Vorst, \emph{Bi-CGSTAB: a fast and smoothly converging variant of Bi-CG for the solution of nonsymmetric linear systems}, SIAM J.\ Sci.\ Stat.\ Comput.\ \textbf{13} (1992) 631.
+\bibitem{SleijpenvdVomega} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Maintaining convergence properties of BiCGstab methods in finite precision arithmetic}, Numer.\ Algorithms \textbf{10} (1995) 203.
 \bibitem{SleijpenvdV} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Reliable updated residuals in hybrid Bi-CG methods}, Computing \textbf{56} (1996) 141.
 \bibitem{ClarkMixed} M.~A.~Clark, R.~Babich, K.~Barros, R.~C.~Brower and C.~Rebbi, \emph{Solving lattice QCD systems of equations using mixed precision solvers on GPUs}, Comput.\ Phys.\ Commun.\ \textbf{181} (2010) 1517 [arXiv:0911.3191].
 \bibitem{Brannick} J.~Brannick, R.~C.~Brower, M.~A.~Clark, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for lattice QCD},
