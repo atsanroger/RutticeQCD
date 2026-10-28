@@ -1656,7 +1656,9 @@ For $D\psi=\eta$ the even-odd reduction of Sec.~\ref{sec:eo} gives $\mathcal K^{
 with $\mathcal K^{(\alpha)}=Q_e^{-1}\mathcal KQ_e$, Eq.~\eqref{eq:Ksimilar}, and CG solves its normal
 equation $A y=b$, $A=\mathcal K^{(\alpha)\dagger}\mathcal K^{(\alpha)}$,
 $b=\mathcal K^{(\alpha)\dagger}\Ce^{-1}\eta'_e$; $\psi_o$ and $\psi=Q\psi^{(\alpha)}$ follow as for the
-multigrid. The stopping criterion is $|b-Ay|^2/|b|^2<10^{-18}$.
+multigrid. The stopping criterion is $|b-Ay|^2/|b|^2<10^{-18}$. Since the unknown
+is $y$ itself and $A$ has $\mathcal K^{(\alpha)}$ on the right, Bridge++ and Ref.~\cite{Saad} call this method CGNR; we
+keep the name CGNE that is common in lattice QCD.
 
 \paragraph{Mixed precision.} The mixed-precision solver runs the CG recurrence in single precision
 and corrects it by reliable updates~\cite{SleijpenvdV,ClarkMixed} in double precision
