@@ -64,6 +64,12 @@
   {\small\itshape\@date\par}\end{center}\vspace{0.6ex}}
 \renewcommand*\l@section{\@dottedtocline{1}{0pt}{2.4em}}
 \long\def\@makecaption#1#2{\vskip 6pt{\small\textsc{#1.}~#2\par}}
+% Floats do not pass a section: what placeins [section] does, defined here.
+\newcommand\FloatBarrier{\par\begingroup\let\@elt\relax
+  \edef\@tempa{\@botlist\@deferlist\@dbldeferlist}%
+  \ifx\@tempa\@empty\else\clearpage\fi\endgroup}
+\let\origsection\section
+\renewcommand\section{\FloatBarrier\origsection}
 \makeatother
 \renewcommand{\figurename}{Fig.}
 \renewcommand{\refname}{References}
@@ -1525,7 +1531,7 @@ topological charge at $t_0$ after the Wilson flow (step $0.01$), of the clover f
 improved with rectangles ($c_{\rm plaq}=5/3$, $c_{\rm rect}=-1/12$). On the larger lattices the
 two definitions differ by up to $1$ at $t_0$.
 
-\begin{table}[h]
+\begin{table}[tbp]
 \centering
 \caption{The gauge configurations: plaquette, $t_0/a^2$, and the topological charge at $t_0$.
 The logs and the generation histories are listed with the data.}
@@ -1584,7 +1590,7 @@ only; this reading is consistent with the numbers but was not checked on the sin
 For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
-\begin{table}[h]
+\begin{table}[tbp]
 \centering
 \caption{CG iterations on $\mathcal K\dg\mathcal K$ / on $S\dg S$, $m=0.001$, $b=1+c$, $\alpha=1$
 unless stated, one random right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision. Final
@@ -1611,7 +1617,7 @@ B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ &  & $4228$/$5097$ &  & \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[tbp]
 \centering
 \includegraphics[width=\linewidth]{fig_cgform}
 \caption{Top: CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open,
@@ -1624,6 +1630,7 @@ $24^3\times48$. Bottom: their ratio; above $1$ the left-preconditioned form is f
 \fi
 
 % ============================================================
+\FloatBarrier
 \begin{thebibliography}{99}
 \bibitem{RBCKpipi} R.~Abbott \emph{et al.} (RBC and UKQCD), \emph{Direct CP violation and the $\Delta I=1/2$ rule in $K\to\pi\pi$ decay from the Standard Model}, Phys.\ Rev.\ D \textbf{102} (2020) 054509 [arXiv:2004.09440].
 \bibitem{RBCHVP} T.~Blum \emph{et al.} (RBC and UKQCD), \emph{Calculation of the hadronic vacuum polarization contribution to the muon anomalous magnetic moment}, Phys.\ Rev.\ Lett.\ \textbf{121} (2018) 022003 [arXiv:1801.07224].
