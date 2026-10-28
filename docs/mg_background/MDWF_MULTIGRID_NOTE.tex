@@ -128,7 +128,7 @@ the method and the questions that are open.\fi
 \end{abstract}
 
 \vspace{1ex}
-{\small\noindent This paper is licensed under CC BY 4.0
+{\small\noindent This work is licensed under CC BY 4.0
 (\url{https://creativecommons.org/licenses/by/4.0/}), except Figs.~\ref{fig:free}, \ref{fig:A} and~\ref{fig:pv},
 reproduced from Ref.~\cite{KCM2024} under its CC BY-NC-ND 4.0.\par}
 \vspace{1ex}
@@ -190,7 +190,7 @@ pseudospectrum and a singular value decomposition; they did not expect deflation
 method competitive. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
 four-dimensional sites) needed fewer iterations
-than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this paper the order is reversed
+than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this work the order is reversed
 (Appendix~\ref{sec:cgform}).\fi{} Second, an even-odd
 smoother did not work with the HDCR correction, which they attributed to eigenvectors that are not aligned.
 
@@ -229,7 +229,7 @@ right half-plane and the smallest condition number among those they studied. Sep
 matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor $Q$ and changes the
 conditioning of the even-odd system.
 
-\paragraph{This paper.}
+\paragraph{This work.}
 We construct a two-grid method for $A'$ that takes up the Pauli--Villars route of
 Refs.~\cite{BCHW,BY} and addresses the three reasons of Ref.~\cite{BY} in turn. It is an
 adaptive aggregation multigrid in the sense
@@ -398,7 +398,7 @@ D_-\Pp & D_+ & D_-\Pm & 0\\
 \end{pmatrix}.
 \label{eq:Dmatrix}
 \end{equation}
-Shamir's operator is $b=1$, $c=0$; the results of this paper use $b=1.5$, $c=0.5$
+Shamir's operator is $b=1$, $c=0$; the results of this work use $b=1.5$, $c=0.5$
 ($b-c=1$, $b+c=2$). The quark mass enters only through the two corners. The physical
 four-dimensional quark field is $q=\Pm\psi_0+\Pp\psi_{L_s-1}$.
 
@@ -737,7 +737,7 @@ HDCG~\cite{HDCG,BoyleMRHS} & even sites, $S\dg S$ & $S\dg S$ (four hops) & $81$ 
 HDCR~\cite{HDCR} & whole lattice, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
 MG-PV~\cite{BCHW,BY} & whole lattice, $\Dpv\dg D$ & $D$ and $\Dpv$ apart, $c=0$ & $9$ points per slice\\
 Boyle and Oare~\cite{BoyleOare} & whole lattice, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
-this paper & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
+this work & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1133,7 +1133,13 @@ x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
 \varrho_{k+1}=\frac{1}{2\sigma-\varrho_k},\quad
 d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1},
 \end{equation}
-The last step only updates $x$, so $\nu$ steps cost $\nu-1$ applications of $\tilde A$. We use
+The last step only updates $x$, so $\nu$ steps cost $\nu-1$ applications of $\tilde A$. The
+recurrence keeps four fine vectors, $x$, $r$, $d$ and $\tilde Ad$, whatever $\nu$, and needs no
+inner products; the smoother is the same linear map at every application. A Krylov smoother, such
+as the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps one more
+fine vector per step, and in a fixed amount of memory it lowers the largest volume that can be
+solved\ifresults{} (on $24^3\times48$ the multigrid with GCR(2) peaks at $19.9$ of $24$\,GB of
+device memory, and GCR(8) does not fit, Sec.~\ref{sec:gcrk})\fi. We use
 only a real focal interval. The ratio $\kappa_s$ is not derived from the operator; it has to be
 chosen. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
 to the coarse correction, and an interval that is too wide or too narrow can make the outer solve
@@ -1461,7 +1467,7 @@ $10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
 
 \begin{table}[t]
 \centering
-\caption{The notation of this paper and that of other references.
+\caption{The notation of this work and that of other references.
 Equation numbers are those of the references; ``the same'' means the same operator.}
 \label{tab:notation}
 \footnotesize
@@ -1469,7 +1475,7 @@ Equation numbers are those of the references; ``the same'' means the same operat
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}>{\raggedright}p{1.7cm}>{\raggedright}p{3.0cm}>{\raggedright}p{3.1cm}>{\raggedright}p{2.9cm}>{\raggedright\arraybackslash}p{3.6cm}@{}}
 \toprule
- & This paper & Ref.~\cite{BNO} & Ref.~\cite{KCM2024} & Bridge++ code\\
+ & This work & Ref.~\cite{BNO} & Ref.~\cite{KCM2024} & Bridge++ code\\
 \midrule
 Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
 Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
@@ -1573,7 +1579,7 @@ Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ ne
 more iterations on $24^3\times48$, for Shamir fermions as well. In $\mathcal K^{(\alpha)}$ the
 factor $\Ce Q_e$ is divided out on the left, whereas in $SQ_e$ the rescaling acts on the right
 only; this reading is consistent with the numbers but was not checked on the singular values.
-For the setups of this paper $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
+For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
 \begin{table}[h]
