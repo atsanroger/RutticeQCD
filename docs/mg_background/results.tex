@@ -692,7 +692,8 @@ $[-3.62,13.1]$, $16.8$). Yet GCR(8) to $10^{-16}$ then needs more iterations: $1
 the smallest real part, the condition numbers $\kappa=1/|y\dg x|$ of the six
 eigenvalues of smallest real part (left eigenvectors from $\mathcal M\dg\tilde A\dg$),
 the eigenvalues farthest from $1$ with their $\kappa$, and the radius about $1$ of
-the disc that holds all the others. $m=0.001$.}
+the disc that holds all the others. $m=0.001$. On $16^4$ the smallest real part and $\kappa$ are
+ranges over the four configurations, the outliers and the radius are those of configuration~1.}
 \label{tab:spectrum}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccc@{}}
@@ -705,16 +706,17 @@ $12^4$ S, R & $0.868$ & $6.3$--$14.5$ & $5.86+0.86i$ ($11.2$) & $0.434$\\
 $12^4$ S, L & $0.861$ & $7.2$--$26.2$ & $5.40+0.89i$ ($13.9$) & $0.455$\\
 $12^4$ B, R & $0.831$ & $9.4$--$20.3$ & & $0.753$\\
 $12^4$ B, L & $0.830$ & & & $0.747$\\
-$16^4$ S, R & $0.794$ & $6.2$--$12.8$ & \begin{tabular}[t]{@{}c@{}}$10.63+0.19i$ ($4.38$)\\ $3.13+0.02i$ ($4.74$)\end{tabular} & $0.474$\\
-$16^4$ B, R & $0.783$ & $13.5$--$42.9$ & & $0.840$\\
+$16^4$ S, R & $0.700$--$0.794$ & $3.6$--$22.8$ & \begin{tabular}[t]{@{}c@{}}$10.63+0.19i$ ($4.38$)\\ $3.13+0.02i$ ($4.74$)\end{tabular} & $0.474$\\
+$16^4$ B, R & $0.698$--$0.783$ & $9.5$--$42.9$ & & $0.840$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The spectrum, unlike the field of values, stays far from the origin. Every eigenvalue lies at
-$\Re\lambda\ge0.78$, with moderate condition numbers (Table~\ref{tab:spectrum}). Setup~S has one
-($12^4$) or two ($16^4$) isolated outliers of large modulus, which grow with the volume; all other
-eigenvalues lie within $0.43$--$0.47$ of $1$. The left and right forms have the same spectrum to
+$\Re\lambda\ge0.70$, with moderate condition numbers (Table~\ref{tab:spectrum}). On
+configuration~1 setup~S has one ($12^4$) or two ($16^4$) isolated outliers of large modulus, and all
+other eigenvalues lie within $0.43$--$0.47$ of $1$; on configurations 2--4 of $16^4$ the eigenvalue
+farthest from $1$ lies at $|\lambda|=2.7$--$4.6$. The left and right forms have the same spectrum to
 the precision shown. At $m=0.005$ on $16^4$ the lowest real parts are $0.802$ (S) and $0.790$
 (B).
 
@@ -788,10 +790,11 @@ $12^4$ ($z=-0.5\ldots0.7$), and $0.107$ (S), $0.271$ (B) at the origin.
 
 The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. It
 is pessimistic by a factor of $3$--$5$ in iterations: GCR needs $10$--$17$ with exact coarse
-solves (Sec.~\ref{sec:gcrk}). Its rate, however, is the one we measure on $24^3\times48$. There
+solves (Sec.~\ref{sec:gcrk}). Its rate, however, is the one we measure on $24^3\times48$ on configurations 1 and 3. There
 the median factor per GCR step of $|r|^2$ is $0.23$--$0.34$ (Table~\ref{tab:history}), that is
-$0.48$--$0.58$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Setup~B does not get worse from
-$12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers grow, but
+$0.48$--$0.58$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Configuration~2 in setup~S converges
+more slowly, at a steady $0.56$ per step in $|r|^2$. Setup~B does not get worse from
+$12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers of configuration~1 grow, but
 their condition numbers fall and $\varepsilon$ stays the same.
 
 \paragraph{What is not yet rigorous.} On the two dense circles of $12^4$ the spacing of the
@@ -969,7 +972,7 @@ $24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
 \centering
 \caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
 Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
-the longest stretch of steps with a factor above $1/2$. The steps differ from those of the mass scan on configuration~1 by at most one
+the longest stretch of steps with a factor above $1/2$. Configuration~1 unless stated; the steps differ from those of the mass scan by at most one
 (Sec.~\ref{sec:setups}).}
 \label{tab:history}
 \renewcommand{\arraystretch}{1.15}
@@ -985,6 +988,12 @@ B & $0.001$, $0.6$ & $26$ & $0.299$ & $0.357$ & none\\
 B & $0.001$, $1.0$ & $28$ & $0.317$ & $0.403$ & none\\
 B & $0.002$, $0.6$ & $23$ & $0.246$ & $0.300$ & none\\
 B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
+\midrule
+\multicolumn{6}{@{}l}{configurations 2 and 3, $m=0.001$, $\alpha=0.6$}\\
+S, config.~2 & & $53$ & $0.559$ & $0.731$ & 9 steps\\
+S, config.~3 & & $23$ & $0.244$ & $0.371$ & none\\
+B, config.~2 & & $25$ & $0.271$ & $0.307$ & none\\
+B, config.~3 & & $22$ & $0.239$ & $0.294$ & none\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1001,13 +1010,14 @@ about $10^{-5}$ in every run.
 
 \paragraph{What this establishes.} As usual for multigrid preconditioners of lattice Dirac
 operators, the convergence of the truncated flexible outer method is established numerically.
-GCR(2) with coarse solves stopped at $10^{-2}$ converged in every run of this section, without
-plateaus, at the rate the pseudospectral bound of Sec.~\ref{sec:pseudo} gives for the full
-method. No guarantee is available for a truncated method whose preconditioner varies from step to
+GCR(2) with coarse solves stopped at $10^{-2}$ converged without plateaus in every run of this
+section on $16^4$ and $24^3\times48$, mostly at the rate the pseudospectral bound of
+Sec.~\ref{sec:pseudo} gives for the full method; on $12^4$ with smearing about one setup in eight
+reaches a plateau (Table~\ref{tab:seeds}). No guarantee is available for a truncated method whose preconditioner varies from step to
 step. Accurate coarse solves do not make the solver faster. On $16^4$ the exact cycle takes
-$33$--$36$ iterations, as many as BiCGStab on the exact adjoint stopped at $10^{-2}$
-($37$--$47$). The solver's cycle takes $12$. It differs from the exact one in two ways, the
+$24$--$36$ iterations on the four configurations, as many as BiCGStab on the exact adjoint stopped
+at $10^{-2}$ ($37$--$47$ on configuration~1). The solver's cycle takes $11$--$13$. It differs from the exact one in two ways, the
 $\Sigma$-adjoint $\Sigma\Dcpv\Sigma$ in place of $(\Dcpv)\dg$ and MINRES stopped at $10^{-2}$. The
 first is not the whole difference: at $c=0$, where the two adjoints coincide, MINRES still needs
-$13$ iterations against $24$ with BiCGStab on $12^4$ (Table~\ref{tab:minres}). The cycle of the solver
-converged in every run of this section and of Table~\ref{tab:stall}.
+$13$ iterations against $25$ with BiCGStab on $12^4$ (medians, Table~\ref{tab:minres}). The cycle of
+the solver converged in every run of Table~\ref{tab:stall}.
