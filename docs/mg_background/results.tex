@@ -811,7 +811,9 @@ lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
 
 \paragraph{Dependence on the setup seed.} On $12^4$ with stout smearing about one setup in eight
 makes GCR(2) slow. Without smearing, in setup~B, and on $16^4$ none of the setups tested is; on
-$24^3\times48$ one configuration is slow with every seed. The setup starts from random vectors, and all other runs of this work use one seed.
+$24^3\times48$ one configuration is slow with every seed. The setup filters random starting vectors; their seed ($21$ in all other runs) changes the coarse
+space but not the configuration, the operator or the right-hand side, and the solution agrees to the
+stopping tolerance.
 Table~\ref{tab:seeds} repeats the solve at $m=0.001$ with many seeds. On $12^4$ it uses four
 configurations: v2 of Table~\ref{tab:configs} and trajectories 502, 602 and 702 of its HMC chain. In
 setup~S, $19$ of $160$ setups need more than $30$ iterations and $13$ of them more than $200$ or do not
@@ -837,8 +839,9 @@ GCR(8) and $48$ test vectors remove the slow setups on $12^4$ but do not fit $24
 $24$\,GB: each kept direction costs two fine vectors ($1$\,GB there; GCR(4) peaks at $22.1$ against
 $20.2$\,GB), and the setup with $48$ test vectors runs out of device memory. Coarse solves for the
 quark factor to $10^{-4}$ cost no memory and leave $2$ of $160$ setups slow; on $24^3\times48$ they
-lower configuration 702 to $43$, $33$ and $33$ iterations. A slow setup shows itself in its first
-solve, and drawing a new seed costs one more setup; we have not automated this.
+lower configuration 702 to $43$, $33$ and $33$ iterations. A slow setup shows itself in the first solve as a plateau of $|r|^2$; the setup can then be repeated
+with another seed on the same configuration, at the cost of one more setup. We have not automated
+this.
 
 \begin{table}[t]
 \centering
