@@ -34,7 +34,7 @@ Data files are in `data/`. A blank entry is not recorded.
 | Table 8 (D†) | | example `dagger_precond` | |
 | Table 9 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
 | Table 10 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (right form on 12⁴, 16⁴) |
-| Table 11 (Γ5-Hermiticity) | | example `coarse_hermiticity` | |
+| Table 11 (Γ5-Hermiticity) | `e044050` | example `coarse_hermiticity` (CPU, 8 threads; run dir `multiconf/herm`) | `herm_12_configs.tsv` |
 | Table 13 (sensitivity) | `e044050` (`fflowHPC_multiconf`, yaml rebuilt from `scan12/*_base.yaml`) | `ruttice` | `sensitivity_12_configs.tsv` (four configurations; the earlier single-configuration run is `sensitivity_12.tsv`, `6d5bf18`) |
 | Table 14 (costs) | `e044050` | `ruttice` | `sensitivity_12_configs.tsv` (setup and solve seconds) |
 | Sec. V.C.4, 16 and 24 vectors on 24³×48 | `6d5bf18` | `ruttice`, point source | |

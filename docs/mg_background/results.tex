@@ -451,8 +451,9 @@ longer setup after about $21$ right-hand sides.
 $X=\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\Pro$, $X\dg$ the exact adjoint, $\Sigma$ the coarse
 $\Gfive$; $b-c=1$ throughout (as usual for M\"obius fermions), $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
 components; $12^4$: $4^4$, 64). Random $v$ (four) and the right singular vectors of the four
-smallest singular values. $^*$Lanczos on $X\dg X$ not
-converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vectors.}
+smallest singular values; on $12^4$ ranges over the four configurations (mean of the four
+random $v$ per configuration). $^*$Lanczos on $X\dg X$ not converged in 2000 restarts on some or all
+configurations (the low end of $\Dc$ is crowded): approximate vectors.}
 \label{tab:herm}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccc@{}}
@@ -463,9 +464,9 @@ converged in 2000 restarts (the low end of $\Dc$ is crowded): approximate vector
 \midrule
 $4^3\times8$, $M_5=1$, $(b,c)=(1,0)$ & $3.8\times10^{-16}$ & $9\times10^{-16}$ & $4.0\times10^{-16}$ & $9\times10^{-16}$\\
 $4^3\times8$, $M_5=1$, $(b,c)=(1.5,0.5)$ & $0.041$ & $0.065$--$0.074$ & $0.050$ & $0.090$--$0.095$\\
-$12^4$ S, $(b,c)=(1.25,0.25)$ & $0.012$ & $0.034$--$0.050^*$ & $0.030$ & $0.023$--$0.031$\\
-$12^4$ S, $(b,c)=(1.5,0.5)$ & $0.023$ & $0.067$--$0.099^*$ & $0.053$ & $0.041$--$0.054$\\
-$12^4$ B, $(b,c)=(1.5,0.5)$ & $0.030$ & $0.140$--$0.146$ & $0.055$ & $0.053$--$0.066$\\
+$12^4$ S, $(b,c)=(1.25,0.25)$ & $0.012$--$0.014$ & $0.035$--$0.054^*$ & $0.030$--$0.033$ & $0.023$--$0.037$\\
+$12^4$ S, $(b,c)=(1.5,0.5)$ & $0.023$--$0.027$ & $0.065$--$0.110^*$ & $0.053$--$0.065$ & $0.040$--$0.076$\\
+$12^4$ B, $(b,c)=(1.5,0.5)$ & $0.031$--$0.032$ & $0.113$--$0.132^*$ & $0.056$--$0.057$ & $0.052$--$0.067$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -491,7 +492,7 @@ setup B & $14$ ($2351$) & $19$ ($3876$) & $15$ ($2103$) & $28$ ($3540$)\\
 
 The loss of $\Gfive$-Hermiticity at $c\neq0$ does not hurt the method. For $c=0$ the coarse
 operators are $\Sigma$-Hermitian to rounding. For $c\neq0$ they are not: by a few percent in random
-directions and up to $14\%$ in the directions of the smallest singular values, growing linearly
+directions and up to $13\%$ in the directions of the smallest singular values, growing linearly
 with $c$ (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. Yet with MINRES on $\Hc$ for the
 Pauli--Villars factor, the outer iterations at $c=0.5$ are those of the Shamir operator ($c=0$, a
 different operator, for which MINRES is exact). MINRES is also better than BiCGStab on the exact
@@ -845,14 +846,17 @@ $6\times10^{-8}$ and $5\times10^{-10}$. Meanwhile
 $|\langle r|\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
 $10^{-10}$--$10^{-9}$. The new direction is then orthogonal to the residual, and since
 $\mathcal M$ is fixed the next step repeats it. A field of values that contains the origin admits
-such a residual. Any variation of the cycle leaves the fixed point: on $12^4$ the exact cycle and
-two fixed perturbations of it stagnate in all $15$ runs, and random perturbations, down to $2\%$
-of the cycle, converge in all $75$ (Table~\ref{tab:stall}). On $16^4$, quenched and dynamical,
-and on $24^4$ the exact cycle does not reach a fixed point in the runs made. A fixed perturbation
+such a residual. Any variation of the cycle leaves the fixed point: on configuration~1 of $12^4$ the exact
+cycle and two fixed perturbations of it stagnate in all $15$ runs, and random perturbations, down to $2\%$
+of the cycle, converge in all $75$ (Table~\ref{tab:stall}). On the four quenched $16^4$
+configurations, on the dynamical one and on $24^4$ the exact cycle does not reach a fixed point in
+the runs made. A fixed perturbation
 can still produce one there ($\delta\Gfive\mathcal Mr$ on $24^4$), so whether a fixed cycle
-stagnates depends on the cycle and on the lattice. Why $12^4$ reaches it is open. It is neither
-the topological charge ($24^4$ has $Q=+4$ and converges) nor the odd extent of the $3^4$ coarse
-lattice ($3^4$ aggregates give a $4^4$ coarse lattice and stagnate as well).
+stagnates depends on the cycle and on the lattice. Of the four $12^4$ configurations, 1 and 4 reach it and 2 and 3 do
+not, so the fixed point depends on the configuration; which property of it decides is open. It is
+neither the topological charge (configurations 3 and 4 both have $Q=+2$, and $24^4$ has $Q=+4$ and
+converges) nor the odd extent of the $3^4$ coarse lattice ($3^4$ aggregates give a $4^4$ coarse
+lattice and stagnate as well).
 
 \paragraph{Dependence on the setup seed.} On $12^4$ with stout smearing about one setup in eight
 makes GCR(2) slow. Without smearing, in setup~B, and on $16^4$ none of the setups tested is; on
@@ -928,7 +932,7 @@ smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}
 ($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
 $\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
 (MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
-topological charge. Aggregates $4^4$ unless stated.}
+topological charge. Aggregates $4^4$ unless stated; configurations 2--4: three right-hand sides.}
 \label{tab:stall}
 \renewcommand{\arraystretch}{1.12}
 \setlength{\tabcolsep}{3.5pt}
@@ -936,10 +940,16 @@ topological charge. Aggregates $4^4$ unless stated.}
 \toprule
 lattice, $Q$ & exact & fixed $\Gfive\mathcal M$ & fixed $p(\AL)$ & random & solver\\
 \midrule
-$12^4$, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
+$12^4$ config.~1, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
+$12^4$ config.~2, $+1$ & 3/3 (21--24) & & & & 3/3 (12--13)\\
+$12^4$ config.~3, $+2$ & 3/3 (18--20) & & & & 3/3 (10)\\
+$12^4$ config.~4, $+2$ & 0/3 & & & & 3/3 (84--94)\\
 $12^4$, $3^4$ aggregates & 0/3 & & & & 3/3 (11--12)\\
 $12^4$, $2^4$ aggregates & 2/3 (20, 23) & & & & 3/3 (7)\\
-$16^4$, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
+$16^4$ config.~1, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
+$16^4$ config.~2, $+1$ & 3/3 (24--25) & & & & 3/3 (12--13)\\
+$16^4$ config.~3, $+1$ & 3/3 (29--31) & & & & 3/3 (11)\\
+$16^4$ config.~4, $+3$ & 3/3 (25--29) & & & & 3/3 (12)\\
 $16^4$ dynamical, $0$ & 5/5 (13) & 5/5 & 5/5 & 20/20 (13--20) & 5/5 (10)\\
 $24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
 \bottomrule

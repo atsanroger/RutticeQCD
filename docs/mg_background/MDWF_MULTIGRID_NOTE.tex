@@ -1376,9 +1376,9 @@ $\sigma_{\min}$, which approach it from above, and on the eigenvalues farthest f
 found by Arnoldi (Sec.~\ref{sec:pseudo}). A bound from an inclusion theorem, and how the outliers
 of setup~S and the pseudospectra develop beyond $16^4$, are open; on $24^4$ the Arnoldi iteration
 does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
-varies from step to step. On the $12^4$ configuration GCR(2) with accurate coarse solves reaches a
-residual orthogonal to its new direction and stays there (Sec.~\ref{sec:gcrk}), and the residual
-right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). GCR(2) does not
+varies from step to step. On two of the four $12^4$ configurations GCR(2) with accurate coarse solves
+reaches a residual orthogonal to its new direction and stays there (Sec.~\ref{sec:gcrk}), and on the
+first the residual right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
 were tested on $16^4$ but not on $24^4$. With the solver's inexact cycle the same fixed points
 appear for about one setup seed in eight on $12^4$ with stout smearing, on every configuration

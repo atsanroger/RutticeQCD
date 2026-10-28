@@ -266,3 +266,39 @@ gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	71	exact + random	0.020	0	converg
 gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	71	exact + random	0.230	0	converged	205	
 gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	81	exact + random	0.020	0	converged	84	
 gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	81	exact + random	0.230	0	converged	198	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	71	exact			converged	24	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	71	solver			converged	13	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	81	exact			converged	21	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	81	solver			converged	12	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	91	exact			converged	23	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	91	solver			converged	12	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	71	exact			converged	20	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	71	solver			converged	10	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	81	exact			converged	18	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	81	solver			converged	10	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	91	exact			converged	18	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	91	solver			converged	10	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	71	exact			stagnated	500	2.41e-5
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	71	solver			converged	84	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	81	exact			stagnated	500	4.62e-5
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	81	solver			converged	94	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	91	exact			stagnated	500	1.25e-4
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	91	solver			converged	86	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	71	exact			converged	25	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	71	solver			converged	13	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	81	exact			converged	24	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	81	solver			converged	12	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	91	exact			converged	25	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	91	solver			converged	13	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	71	exact			converged	29	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	71	solver			converged	11	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	81	exact			converged	30	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	81	solver			converged	11	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	91	exact			converged	31	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	91	solver			converged	11	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	71	exact			converged	27	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	71	solver			converged	12	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	81	exact			converged	29	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	81	solver			converged	12	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	91	exact			converged	25	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	91	solver			converged	12	
