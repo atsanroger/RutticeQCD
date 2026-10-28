@@ -166,7 +166,7 @@ like $1/m^2$ and the CG iterations like $1/m$ until the finite volume limits the
 slowing down. For Wilson fermions, multigrid removed it. The low modes that slow down Krylov solvers are locally
 coherent~\cite{Luscher}: a few of them, cut into blocks, span the low-mode space. Adaptive
 aggregation multigrid uses this, and its cost hardly depends on the quark
-mass~\cite{Brannick,DDalphaAMG,BridgeMG}.
+mass~\cite{Brannick,Babich,OsbornClover,DDalphaAMG,ClarkQUDA,BridgeMG}.
 
 \paragraph{Multigrid for domain-wall fermions.}
 For domain-wall fermions multigrid is harder. Because of the large negative Wilson mass, the
@@ -1333,7 +1333,7 @@ raise their intensity from about one flop per byte to about ten, as for Wilson-c
 multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
 
 \paragraph{Code.} All results were obtained with RutticeQCD,
-\url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{Bridge} in Rust
+\url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{BridgeUeda,Bridge} in Rust
 whose GPU backend uses the CUDA kernels of the Wilson and M\"obius operators of Bridge++. Where
 Bridge++ computes the same quantity, the results of RutticeQCD are compared with it number by
 number: the plaquette, the Wilson, clover and domain-wall operators applied to a vector, solver
@@ -1669,9 +1669,16 @@ Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
 \bibitem{Brannick} J.~Brannick, R.~C.~Brower, M.~A.~Clark, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for lattice QCD},
 Phys.\ Rev.\ Lett.\ \textbf{100} (2008) 041601 [arXiv:0707.4018].
+\bibitem{Babich} R.~Babich, J.~Brannick, R.~C.~Brower, M.~A.~Clark, T.~A.~Manteuffel, S.~F.~McCormick, J.~C.~Osborn and C.~Rebbi, \emph{Adaptive multigrid algorithm for the lattice Wilson-Dirac operator},
+Phys.\ Rev.\ Lett.\ \textbf{105} (2010) 201602 [arXiv:1005.3043].
+\bibitem{OsbornClover} J.~C.~Osborn, R.~Babich, J.~Brannick, R.~C.~Brower, M.~A.~Clark, S.~D.~Cohen and C.~Rebbi, \emph{Multigrid solver for clover fermions},
+PoS \textbf{LATTICE2010} (2010) 037 [arXiv:1011.2775].
 \bibitem{DDalphaAMG} A.~Frommer, K.~Kahl, S.~Krieg, B.~Leder and M.~Rottmann, \emph{Adaptive aggregation-based domain decomposition multigrid for the lattice Wilson--Dirac operator},
 SIAM J.\ Sci.\ Comput.\ \textbf{36} (2014) A1581 [arXiv:1303.1377].
+\bibitem{ClarkQUDA} M.~A.~Clark, B.~Jo\'o, A.~Strelchenko, M.~Cheng, A.~Gambhir and R.~Brower, \emph{Accelerating lattice QCD multigrid on GPUs using fine-grained parallelization}, in \emph{Proceedings of SC16}, Article 68 (2016) [arXiv:1612.07873].
 \bibitem{BridgeMG} I.~Kanamori, K.-I.~Ishikawa and H.~Matsufuru, \emph{Object-oriented implementation of algebraic multi-grid solver for lattice QCD on SIMD architectures and GPU clusters}, in \emph{Computational Science and Its Applications -- ICCSA 2021}, Lecture Notes in Computer Science \textbf{12953}, Springer (2021), pp.~218--233, doi:10.1007/978-3-030-86976-2\_15 [arXiv:2111.05012].
+\bibitem{BridgeUeda} S.~Ueda, S.~Aoki, T.~Aoyama, K.~Kanaya, H.~Matsufuru \emph{et al.}, \emph{Development of an object oriented lattice QCD code `Bridge++'},
+J.\ Phys.\ Conf.\ Ser.\ \textbf{523} (2014) 012046.
 \bibitem{Bridge} Y.~Akahoshi, S.~Aoki, T.~Aoyama, I.~Kanamori, K.~Kanaya \emph{et al.}, \emph{General purpose lattice QCD code set Bridge++ 2.0 for high performance computing},
 J.\ Phys.\ Conf.\ Ser.\ \textbf{2207} (2022) 012053 [arXiv:2111.04457].
 \bibitem{NRT} N.~M.~Nachtigal, S.~C.~Reddy and L.~N.~Trefethen, \emph{How fast are nonsymmetric matrix iterations?},
