@@ -113,9 +113,10 @@ with a factorized Pauli--Villars coarse correction}
 \maketitle
 
 \begin{abstract}
-Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but the cost
-of inverting the M\"obius domain-wall operator rises steeply toward the physical light-quark mass,
-because its spectrum surrounds the origin. Preconditioning with the Pauli--Villars operator moves
+Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but inverting
+the M\"obius domain-wall operator suffers from critical slowing down toward the physical
+light-quark mass, and Krylov methods do not work on the operator itself because its spectrum
+surrounds the origin. Preconditioning with the Pauli--Villars operator moves
 all eigenvalues into the right half-plane. We construct a two-grid method for this preconditioned
 operator in which the quark and Pauli--Villars factors are coarsened separately. The outer system
 is the even-odd one, every aggregate contains the whole fifth dimension so that the coarse lattice
@@ -159,8 +160,10 @@ and improves the approximation at fixed $L_s$; $c=0$ is Shamir's operator.
 
 Solving with the domain-wall operator is expensive, because it is neither Hermitian nor positive and one application costs $L_s$ four-dimensional Wilson hops. The standard solver is
 still the conjugate gradient method on the normal equation of the even-odd operator (CGNE),
-whose condition number is the square of that of the operator. For Wilson fermions, multigrid
-solved this problem. The low modes that slow down Krylov solvers are locally
+whose condition number is the square of that of the operator. As the quark mass $m$ decreases,
+the smallest eigenvalues of $D$ approach $m$, the condition number of the normal equation grows
+like $1/m^2$ and the CG iterations like $1/m$ until the finite volume limits them: critical
+slowing down. For Wilson fermions, multigrid removed it. The low modes that slow down Krylov solvers are locally
 coherent~\cite{Luscher}: a few of them, cut into blocks, span the low-mode space. Adaptive
 aggregation multigrid uses this, and its cost hardly depends on the quark
 mass~\cite{Brannick,DDalphaAMG,BridgeMG}.
@@ -1313,7 +1316,8 @@ correction exact for the right form cuts the iterations by up to a factor of $22
 left form, which is not exact; one lift of twice as many vectors matches it on $24^3\times48$ at
 $1.6$--$1.8$ times the setup time.
 
-On quenched configurations on one GPU the multigrid iterations on $24^3\times48$ grow by a factor
+The multigrid removes most of the critical slowing down. On quenched configurations on one GPU
+the multigrid iterations on $24^3\times48$ grow by a factor
 of $2$--$4$ from $m=0.1$ to $m=0.001$, against $20$ for even-odd CGNE. At $m=0.001$ a solve is
 faster than with mixed-precision CGNE from $24^4$ on, by $4.5$--$4.8$ on $24^3\times48$, and a
 point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and

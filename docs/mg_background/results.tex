@@ -151,7 +151,7 @@ double precision (the true residual recomputed whenever $|r|^2$ has fallen by $1
 the iterations of double precision ($14\%$ more at $m=0.001$ in setup~S) and $0.54$--$0.61$ times
 the time, with the same final residuals and $7.2$\,GB of device memory.
 
-\paragraph{Mass dependence.} The multigrid iterations hardly depend on the mass
+\paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}). From $m=0.1$ to $m=0.001$ the CGNE
 iterations grow by a factor of $21$ (S) and $18$ (B), the multigrid iterations by $2.2$ (S) and
 $3.7$ (B). Against the mixed-precision CGNE the multigrid solve at $m=0.001$ is $4.5$ (S) and
