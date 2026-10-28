@@ -570,8 +570,8 @@ eigenvalues, the pseudospectra and the truncated GCR used in practice.
 The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
 linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
 with the exact adjoints, and $\mathcal M\dg$ built with the same $\Pro$ and the
-same smoother interval, so that $\langle z,\AR\mathcal M w\rangle$ and
-$\langle\mathcal M\dg\AR\dg z,w\rangle$ agree to $10^{-10}$. The cycle was also
+same smoother interval, so that $\langle z|\AR\mathcal M w\rangle$ and
+$\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to $10^{-10}$. The cycle was also
 taken apart: the smoother alone, $\mathcal S=p(\AR)$, the coarse correction alone, $E$
 of Eq.~\eqref{eq:corr}, and the cycle $\mathcal M$ (Table~\ref{tab:fov}).
 
@@ -797,7 +797,7 @@ coarse solves stopped early, it depends on its input.
 preconditioner. On $12^4$ in setup~S, with three right-hand sides, $|r|^2$ falls for about $15$
 steps and then does not change in any digit for the next $480$, at $2\times10^{-11}$,
 $6\times10^{-8}$ and $5\times10^{-10}$. Meanwhile
-$|\langle r,\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
+$|\langle r|\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
 $10^{-10}$--$10^{-9}$. The new direction is then orthogonal to the residual, and since
 $\mathcal M$ is fixed the next step repeats it. A field of values that contains the origin admits
 such a residual. Any variation of the cycle leaves the fixed point: on $12^4$ the exact cycle and

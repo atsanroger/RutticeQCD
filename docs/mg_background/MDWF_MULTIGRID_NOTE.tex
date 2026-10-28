@@ -1013,12 +1013,12 @@ Krylov solver on $\AL$ alone of Sec.~\ref{sec:nomg}.\fi
 \label{alg:bicgstab}
 \begin{algorithmic}
 \Repeat
-  \State $r\gets g-Ax$;\quad $r_0\gets r$;\quad $p\gets r$;\quad $\rho\gets\langle r_0,r\rangle$
+  \State $r\gets g-Ax$;\quad $r_0\gets r$;\quad $p\gets r$;\quad $\rho\gets\langle r_0|r\rangle$
   \For{at most $n_{\max}$ steps, while $|r|^2\ge\epsilon|g|^2$}
-    \State $\hat p\gets\mathcal M_Ap$;\quad $v\gets A\hat p$;\quad $\alpha\gets\rho/\langle r_0,v\rangle$;\quad $s\gets r-\alpha v$
-    \State $\hat s\gets\mathcal M_As$;\quad $t\gets A\hat s$;\quad $\omega\gets\langle t,s\rangle/|t|^2$
-    \State $\gamma\gets|\langle t,s\rangle|/(|t|\,|s|)$; \textbf{if} $\gamma<\omega_c$ \textbf{then} $\omega\gets\omega\,\omega_c/\gamma$
-    \State $x\gets x+\alpha\hat p+\omega\hat s$;\quad $r\gets s-\omega t$;\quad $\rho'\gets\langle r_0,r\rangle$
+    \State $\hat p\gets\mathcal M_Ap$;\quad $v\gets A\hat p$;\quad $\alpha\gets\rho/\langle r_0|v\rangle$;\quad $s\gets r-\alpha v$
+    \State $\hat s\gets\mathcal M_As$;\quad $t\gets A\hat s$;\quad $\omega\gets\langle t|s\rangle/|t|^2$
+    \State $\gamma\gets|\langle t|s\rangle|/(|t|\,|s|)$; \textbf{if} $\gamma<\omega_c$ \textbf{then} $\omega\gets\omega\,\omega_c/\gamma$
+    \State $x\gets x+\alpha\hat p+\omega\hat s$;\quad $r\gets s-\omega t$;\quad $\rho'\gets\langle r_0|r\rangle$
     \State $p\gets r+(\rho'/\rho)(\alpha/\omega)\,(p-\omega v)$;\quad $\rho\gets\rho'$
   \EndFor
 \Until{$|g-Ax|^2<\epsilon|g|^2$}
@@ -1397,7 +1397,7 @@ residual orthogonal to its new direction and stays there (Sec.~\ref{sec:gcrk}), 
 right-hand side of HMC needs GCR(8) for $D\dg$ (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
 were tested on $16^4$ but not on $24^4$. What singles out this configuration is open. A safeguard that changes the
-direction when $|\langle r,\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
+direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. Why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is open as well.
 
@@ -1613,7 +1613,7 @@ precision.
 \State $r\gets b-Ay$; \textbf{if} $|r|^2<\epsilon|b|^2$ \textbf{return} $y$
 \State $\hat r\gets r$;\quad $\hat p\gets\hat r$;\quad $\hat x\gets0$;\quad $\rho\gets|\hat r|^2$;\quad $\rho_{\max}\gets\rho$
 \Loop
-  \State $\alpha\gets\rho/\langle\hat p,\hat A\hat p\rangle$;\quad $\hat x\gets\hat x+\alpha\hat p$;\quad $\hat r\gets\hat r-\alpha\hat A\hat p$;\quad $\rho'\gets|\hat r|^2$
+  \State $\alpha\gets\rho/\langle\hat p|\hat A\hat p\rangle$;\quad $\hat x\gets\hat x+\alpha\hat p$;\quad $\hat r\gets\hat r-\alpha\hat A\hat p$;\quad $\rho'\gets|\hat r|^2$
   \If{$\rho'<\delta\rho_{\max}$ \textbf{or} $\rho'<\epsilon|b|^2$} \Comment{reliable update}
     \State $y\gets y+\hat x$;\quad $\hat x\gets0$;\quad $r\gets b-Ay$
     \State \textbf{if} $|r|^2<\epsilon|b|^2$ \textbf{return} $y$
