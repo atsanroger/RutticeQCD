@@ -190,7 +190,11 @@ about $210$\,s is paid back after $3.5$--$5.2$ right-hand sides. The lowest fact
 configuration~2 in setup~S (Sec.~\ref{sec:gcrk}). The setup is paid back within one point-source propagator (12 columns) for $m\le0.005$. For $m\ge0.05$ (S) the
 mixed-precision CGNE is faster or level, and at $m=0.1$ (B) the two take nearly the same time. Against
 double-precision CGNE the solve at $m=0.001$ is $3.9$--$9.4$ (S) and $9.0$--$11.4$ (B) times faster
-(Table~\ref{tab:massscancfg}). The
+(Table~\ref{tab:massscancfg}). Figure~\ref{fig:massscan} also includes the two single-grid
+controls on $\AL$ without the coarse correction (Sec.~\ref{sec:nomg}, Table~\ref{tab:nomg}),
+namely outer GCR(2) preconditioned by the Chebyshev smoother alone and BiCGStab on $\AL$ alone;
+across all seven masses both grow in iterations at nearly the rate of CGNE and are slower than
+mixed-precision CGNE. The
 multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU excludes
 GCR($k$) with $k\ge8$.
 
@@ -281,10 +285,10 @@ the rest; at light masses the low modes set the iterations, they are in the coar
 $\alpha$ has little left to improve. The spectra of the two setups would test this interpretation.
 
 
-\subsubsection{Solves with $D\dg$}
+\subsubsection{Solves with \texorpdfstring{$D\dg$}{D-dagger}}
 \label{sec:daggerresults}
-\paragraph{Single solves.} Table~\ref{tab:c4} compares three ways to solve with $D\dg$ from one
-setup of $D$. The right-hand sides are a random vector and the residual
+\paragraph{Single solves.} Table~\ref{tab:c4} compares two ways to solve with $D\dg$ from one
+setup of $D$, each with GCR(2) and GCR(8). The right-hand sides are a random vector and the residual
 $r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to $10^{-10}$. The second kind
 is the one that matters in HMC: its error lies mostly on the lowest modes.
 \begin{itemize}
@@ -355,23 +359,29 @@ measured on $12^4$ and $16^4$ only, and the use in HMC is left to future work
 \label{sec:parts}
 
 The four parts of this subsection take the method apart: what the coarse correction adds to the
-operator $A'$, what the lift $\hat t$ adds to the basis, what the $\Sigma$-Hermitian
+operator $\AL$, what the lift $\hat t$ adds to the basis, what the $\Sigma$-Hermitian
 Pauli--Villars solve costs at $c\neq0$, and how much the parameters matter.
 
-\subsubsection{Krylov on $\AL$ without the multigrid}
+\subsubsection{Krylov on \texorpdfstring{$\AL$}{A\_L} without the multigrid}
 \label{sec:nomg}
 
-The comparison with CGNE mixes two
-effects: the operator $A'$, on which a Krylov method works without the normal equation, and
-the coarse correction. Table~\ref{tab:nomg} separates them with BiCGStab on $\AL$ alone and
-GCR(2) on $\AL$ preconditioned by the Chebyshev smoother alone, both in double precision
-(mixed precision exists only for CG on the normal equation) and with the smoother parameters
-of Table~\ref{tab:setups}, not tuned for this use. BiCGStab needs about as many iterations as
-double-precision CGNE ($3247$ against $3602$ at $m=0.001$ in setup~S), but one of its
-iterations applies $\AL$ twice and $\AL$ contains two Schur complements, so it costs about
-twice a CGNE iteration and takes $1.7$ times its time. The polynomial cuts the iterations by
-two to five but raises the time. So $A'$ alone does not beat CGNE, and the speed-up of the
-multigrid comes from its coarse correction.
+The comparison with CGNE mixes two effects: replacing the normal equation by the unsquared
+preconditioned operator $\AL$, which has a lower condition number, and adding the coarse
+correction. Figure~\ref{fig:massscan} and Table~\ref{tab:nomg} separate them by dropping the
+coarse correction from the multigrid's outer GCR(2) solver---leaving GCR(2) on $\AL$
+preconditioned by the Chebyshev smoother alone---and by running BiCGStab on $\AL$ alone, both in
+double precision (mixed precision exists only for CG on the normal equation) and with the smoother
+parameters of Table~\ref{tab:setups}, not tuned for this use. With GCR(2) and the Chebyshev
+smoother alone, the polynomial cuts the iterations by a factor of two to five compared with
+unpreconditioned BiCGStab (to $1789$ in~S and $430$ in~B at $m=0.001$), but each step costs
+$\nu-1$ applications of $\AL$, making it $2.3$--$6.7$ times slower than mixed-precision CGNE.
+BiCGStab on $\AL$ alone needs nearly as many iterations as CGNE in setup~S ($3247$ against $3602$
+at $m=0.001$) and about half as many in setup~B ($2085$ against $4228$), but each step applies
+$\AL$ twice and $\AL$ contains two Schur complements, so an iteration costs about twice as much:
+in wall time it takes $1.7$ times double-precision CGNE in~S, roughly matches it in~B ($108.8$
+against $114.3$\,s), and is $1.8$--$2.9$ times slower than mixed-precision CGNE in both setups.
+Thus neither GCR(2) with the smoother nor BiCGStab on $\AL$ beats mixed-precision CGNE, and the
+speed-up of the multigrid comes from its coarse correction.
 
 \begin{table}[t]
 \centering
@@ -445,7 +455,7 @@ side, a point-source propagator (12 columns) is faster with the two lifts in bot
 against $506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their
 longer setup after about $21$ right-hand sides.
 
-\subsubsection{$\Gfive$-Hermiticity for $c\neq0$}
+\subsubsection{\texorpdfstring{$\Gfive$}{Gamma5}-Hermiticity for \texorpdfstring{$c\neq0$}{c != 0}}
 \label{sec:herm}
 
 \begin{table}[t]

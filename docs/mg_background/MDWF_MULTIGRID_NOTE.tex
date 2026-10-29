@@ -126,10 +126,12 @@ with a factorized Pauli--Villars coarse correction}
 Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but inverting
 the M\"obius domain-wall operator suffers from critical slowing down toward the physical
 light-quark mass, and Krylov methods do not work on the operator itself because its spectrum
-surrounds the origin. Preconditioning with the Pauli--Villars operator moves
-all eigenvalues into the right half-plane. We construct a two-grid method for this preconditioned
-operator in which the quark and Pauli--Villars factors are coarsened separately. The outer system
-is the even-odd one, every aggregate contains the whole fifth dimension so that the coarse lattice
+surrounds the origin. Preconditioning with the Pauli--Villars operator and dividing out the
+site-diagonal part, $(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves all eigenvalues into the right half-plane
+and compresses the high end of the spectrum. Because the site-diagonal part is the diagonal block of
+the even-odd decomposition, this operator carries over directly to the even-odd Schur complement,
+and we construct a two-grid method for its even-odd form in which the quark and Pauli--Villars
+factors are coarsened separately. Every aggregate contains the whole fifth dimension so that the coarse lattice
 is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
 did not beat red-black CG. One setup serves every value of Neff's $\alpha$ and the solves with
@@ -140,13 +142,15 @@ $\Re\lambda\ge0.70$, and its pseudospectra account for the convergence. On four 
 $24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
 $2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
-time, setup included. The measurements use four quenched configurations per volume (one for the
-field of values and the pseudospectra), and CGNE is the only reference solver.\else{} We state
+time, setup included.\else{} We state
 the method and the questions that are open.\fi
 \end{abstract}
 {\let\thefootnote\relax\footnotetext{Licensed under CC BY 4.0
 (\url{https://creativecommons.org/licenses/by/4.0/}); Figs.~\ref{fig:free}, \ref{fig:A}
 and~\ref{fig:pv} are reproduced from Ref.~\cite{KCM2024} under CC BY-NC-ND 4.0.}}
+
+\setcounter{tocdepth}{3}
+\tableofcontents
 
 % ============================================================
 \section{Introduction}
@@ -158,8 +162,9 @@ do not mix, as in the Standard Model calculation of $K\to\pi\pi$ decays and
 $\varepsilon'/\varepsilon$~\cite{RBCKpipi}. It is used as well in precision calculations at the
 physical quark masses: the hadronic vacuum polarization and light-by-light contributions to the
 muon $g-2$~\cite{RBCHVP,RBCWindow,RBCHLbL}, the $B\to\pi\ell\nu$ form factors on fine lattices
-with the heavy quark in the same M\"obius domain-wall action~\cite{JLQCDBpi}, and inclusive
-semileptonic $B$ decays~\cite{HashimotoInclusive,GambinoInclusive,BaroneInclusive}. The overlap operator~\cite{NarayananNeuberger,Neuberger} has an exact lattice
+with the heavy quark in the same M\"obius domain-wall action~\cite{JLQCDBpi}, inclusive
+semileptonic $B$ decays~\cite{HashimotoInclusive,GambinoInclusive,BaroneInclusive}, and parton
+distribution amplitudes~\cite{BakerPionDA}. The overlap operator~\cite{NarayananNeuberger,Neuberger} has an exact lattice
 chiral symmetry. Domain-wall fermions~\cite{Kaplan,Shamir,FurmanShamir} approximate it at a lower
 cost. They add a fifth dimension of extent $L_s$, and a large negative Wilson mass $-M_5$ binds
 modes of opposite chirality to its two boundaries. The residual breaking of chiral symmetry falls
@@ -265,7 +270,7 @@ two ways, one for each coarse solve; for the right form this makes the correctio
 with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
 Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap. For HMC we
 also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive=\gamma_5R$, is a good
-preconditioner for $D\dg$, with no second setup.\ifresults{} We test the method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd CGNE; a comparison with HDCG and with
+preconditioner for $D\dg$, with no second setup.\ifresults{} We test the method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd CGNE and single-grid Krylov solvers on $\AL$; a comparison with HDCG and with
 the coarsening of $\Dpv\dg D$ in one implementation is left to future work.\fi
 
 Section~\ref{sec:opsec} recalls the
@@ -1329,12 +1334,17 @@ the multigrid iterations on four $24^3\times48$ configurations grow by
 a factor of $1.6$--$4.1$ from $m=0.1$ to $m=0.001$, against $18$--$27$ for mixed-precision even-odd
 CGNE. At $m=0.001$ a solve is faster than with mixed-precision CGNE from $24^4$ on, by $2.9$--$6.0$
 on $24^3\times48$, and a
-point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$. The field of values of the preconditioned
+point-source propagator takes half the time, setup included. Without the coarse correction, both
+outer GCR(2) with the Chebyshev smoother alone (across the mass scan on $24^3\times48$) and
+BiCGStab on $\AL$ alone (across all volumes and masses) are slower than mixed-precision CGNE,
+confirming that the acceleration comes from the multigrid correction rather than merely from the
+lower condition number of the unsquared operator $\AL$. One setup serves Neff's $\alpha$. The field of values of the preconditioned
 operator reaches into the left half-plane; its spectrum and pseudospectra account for the
 convergence.
 
 The evidence is limited to four quenched configurations per volume (one for the field of values
-and the pseudospectra), volumes up to $24^3\times48$, and CGNE as the only reference solver. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
+and the pseudospectra), volumes up to $24^3\times48$, and comparisons without other multigrid
+solvers in the same code. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
 implementation, larger volumes, and the use in HMC are the next steps (Sec.~\ref{sec:open}). For propagators,
 applying the coarse operators and the transfer to the 12 columns of a point source together would
 raise their intensity from about one flop per byte to about ten, as for Wilson-clover
@@ -1400,7 +1410,8 @@ direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathca
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
 
-\item \textbf{Formulations and coarse spaces.} The comparison here is with CGNE. How the two
+\item \textbf{Formulations and coarse spaces.} The comparisons here are with CGNE and with Krylov
+solvers on $\AL$ alone. How the two
 nine-point factors compare with the $81$-point HDCG operator and with the $33$-point coarsening of
 $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all of them in one
 code on the same lattices. 
@@ -1467,6 +1478,19 @@ bound on $\|N^2\|$ on the low modes has not been derived.
 \end{enumerate}
 
 \fi
+% ============================================================
+\phantomsection
+\section*{Acknowledgments}
+\addcontentsline{toc}{section}{Acknowledgments}
+I thank Issaku Kanamori and Hideo Matsufuru for their kind permission to port Bridge++ to Rust,
+without which this study would not have been possible; the structure of RutticeQCD follows
+Bridge++ closely, and its correctness rests on a number-by-number comparison with it. I am also
+grateful to my colleagues at my current company for teaching me the practical details of algebraic
+multigrid in computational fluid dynamics, which inspired the two-lift prolongation $\{s,\hat t\}$.
+Although computational fluid dynamics and lattice QCD lie far apart in physics, their numerical
+methods have much to learn from one another. Finally, I thank my friend Sakura Itatani for helping
+me find a reference on local coherence.
+
 % ============================================================
 \clearpage
 \appendix
@@ -1837,6 +1861,7 @@ is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. The data of Ta
 \bibitem{HashimotoInclusive} S.~Hashimoto, \emph{Inclusive semi-leptonic $B$ meson decay structure functions from lattice QCD}, PTEP \textbf{2017} (2017) 053B03 [arXiv:1703.01881].
 \bibitem{GambinoInclusive} P.~Gambino, S.~Hashimoto, S.~M\"achler, M.~Panero, F.~Sanfilippo, S.~Simula, A.~Smecca and N.~Tantalo, \emph{Lattice QCD study of inclusive semileptonic decays of heavy mesons}, JHEP \textbf{07} (2022) 083 [arXiv:2203.11762].
 \bibitem{BaroneInclusive} A.~Barone, S.~Hashimoto, A.~J\"uttner, T.~Kaneko and R.~Kellermann, \emph{Approaches to inclusive semileptonic $B_{(s)}$-meson decays from lattice QCD}, JHEP \textbf{07} (2023) 145 [arXiv:2305.14092].
+\bibitem{BakerPionDA} E.~Baker, D.~Bollweg, P.~Boyle, I.~Clo\"et, X.~Gao, S.~Mukherjee, P.~Petreczky, R.~Zhang and Y.~Zhao, \emph{Lattice QCD calculation of the pion distribution amplitude with domain wall fermions at physical pion mass}, JHEP \textbf{07} (2024) 211 [arXiv:2405.20120].
 \bibitem{NarayananNeuberger} R.~Narayanan and H.~Neuberger, \emph{Infinitely many regulator fields for chiral fermions},
 Phys.\ Lett.\ B \textbf{302} (1993) 62 [hep-lat/9212019].
 \bibitem{Neuberger} H.~Neuberger, \emph{Exactly massless quarks on the lattice},
