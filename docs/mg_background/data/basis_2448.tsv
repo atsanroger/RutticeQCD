@@ -1,0 +1,13 @@
+volume	setup	form	lifts	columns	y_vectors	solver	iterations	capped	coarse_apps	worst_Dx-b_sq	solve_s	setup_s	host_peak_GB	device_peak_GB	status	build
+24^3x48	B	left	s	16	16	GCR	32	no	1654	1e-18	13.4	153	19.68	14.79	ok	e044050+exp/basis-lifts
+24^3x48	B	left	s,Ds	32	16	GCR	30	no	1313	1e-18	13.9	207	19.68	20.19	ok	e044050+exp/basis-lifts
+24^3x48	B	left	s,t	32	16	GCR	26	no	1306	8e-19	12.3	211	19.68	20.19	ok	e044050+exp/basis-lifts
+24^3x48	B	left	s	32	32	GCR	13	no	761	6e-19	6.4	337	38.67	20.19	ok	e044050+exp/basis-lifts
+24^3x48	B	left	s,Ds	64	32										no result	e044050+exp/basis-lifts
+24^3x48	B	left	s,t	64	32										no result	e044050+exp/basis-lifts
+24^3x48	S	left	s	16	16	GCR	2000	yes	95955	9e-6	617.7	143	19.68	14.79	ok	e044050+exp/basis-lifts
+24^3x48	S	left	s,Ds	32	16	GCR	148	no	6470	2e-18	52.8	193	19.68	20.19	ok	e044050+exp/basis-lifts
+24^3x48	S	left	s,t	32	16	GCR	28	no	3218	2e-18	12.9	196	19.68	20.19	ok	e044050+exp/basis-lifts
+24^3x48	S	left	s	32	32	GCR	28	no	3517	1e-18	13.3	346	38.67	20.19	ok	e044050+exp/basis-lifts
+24^3x48	S	left	s,Ds	64	32										no result	e044050+exp/basis-lifts
+24^3x48	S	left	s,t	64	32										no result	e044050+exp/basis-lifts

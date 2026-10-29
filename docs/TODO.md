@@ -30,6 +30,9 @@ Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
 
 ## Release 0.4.0: the multigrid in HMC (decided 2026-10-22)
 
+**A separate paper** (decided 2026-10-27): the HMC results of this release go into their own
+paper, not the MG note; not to be written yet.
+
 0.4.0 is released when HMC with the domain-wall multigrid is usable and compared fairly with CG:
 
 1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (20.5 GB with GCR(2)
@@ -54,8 +57,13 @@ iterations a solve at m 0.01 and at m 0.001 (finite volume), and the multigrid i
 4.2 (m 0.001) times slower a trajectory; tuning (smoother 4/6/8, coarse 1e-1, inner 1e-14,
 bootstrap 1 round, GCR(4)) gains at most 6%. The 24⁴ quenched configuration, where CG needs 6400,
 blows up in a trajectory of length 1. So there are no data yet that the multigrid is faster in
-HMC: the volumes thermalized here are finite-volume limited (the note, "In HMC"). Next: a volume
-where CG needs more than about 1300 iterations a solve.
+HMC: the volumes thermalized here are finite-volume limited. These data were in the note ("In HMC") until 2026-10-27; the note now
+leaves HMC to future work (Open problems). Next: a volume
+where CG needs more than about 1300 iterations a solve. That 16⁴ configuration
+(`therm16/conf16_m0.01_000102.bin`, N_f 2, β 6.0 plaquette action, from the quenched one) has a
+flat plaquette after 100 trajectories but its topological charge has not been measured; it is not
+used as dynamical data until it is thermalized further (2026-10-26; the intermediate
+configurations were deleted).
 
 **Released 2026-10-23** on the user's call, with: 1 done (19.1 GB live with 20 test vectors);
 2 done (the left form for D, D† unchanged; CG on the even-odd Ratio takes α too, on K Q_e);
@@ -780,6 +788,11 @@ it in the order it is stored, several columns a block; 2–2.5× on 20% of the t
 matrices in half precision for `coarse_pass` (bytes halved, about 1.6×); the bootstrap in
 batches of 4–5 vectors, which makes `coarse_pass` a block product (the tensor cores) and saves
 about a third of the setup (item 11).
+Reference for the several-vector `coarse_pass`: Grebe, arXiv:2610.35526 (Lattice 2026, Wilson-clover
+multi-RHS multigrid on CPUs, the `qc` library): a coarse link applied to one vector is about
+1 flop/byte, to N vectors 2MN/(2M + N) (12.8 at M 32, N 16), and the same for P. Here the meter
+already gives Coarse single 0.98 Flop/byte; the 12 columns of a point source would give about 10
+(2M = 64, estimated, not measured). No gain for HMC, one right-hand side a solve.
 
 ### 21. CPU domain-wall: the factor b − c Y once, not on eight legs (found 2026-10-25)
 
@@ -804,6 +817,79 @@ Planned (agreed 2026-10-25, after the work on the structure and the bugs): the r
 Nsight Compute on 16⁴ or 24⁴, clover and domain-wall solves: the bandwidth the report implies
 (GFlop/s over its Flop/byte) against the DRAM GB/s ncu measures, kernel by kernel, to see how
 far the model (no caches) is from the traffic.
+
+### 23. Readable output and where the time goes (planned 2026-10-26, not started)
+
+The run output is hard to read: the header repeats the lattice (`src/app/wilson.rs:900`), one
+solve line holds iterations, residual, time, flops, GFlop/s, the share and intensity of every
+kind of work and the count of counts (`wilson.rs:914`, `meter::Counts::line`), and the
+correlator table is not aligned, with exponents as `e1` where Bridge++ writes `e+01`
+(`wilson.rs:949`). Its GFlop/s is the counted flops of the whole solve over its wall time, so it
+says nothing about one kernel or one step. Plan, on an `exp/*` branch (not main):
+
+- **Header**: one key a line (lattice once, version and commit, gauge and plaquette, fermion,
+  solver, source).
+- **Solve summary** as a small table (quark, iterations, restarts, |DS−b|²/|b|², seconds); the
+  per-kind shares and the count of counts only with `--verbose`.
+- **Correlators**: the same columns and order as Bridge++'s reference files (pair, channel, t,
+  Re, Im; `tests/spectrum.rs` compares them), aligned, exponents with sign and two digits.
+- **Where the time goes**: nested spans `meter::span("…")` in the algorithm code written once
+  (outer Krylov, residual, cycle, pre- and post-smoother, restriction, each coarse factor and the
+  levels below, prolongation, vector operations; the setup: filter, bootstrap rounds, P, the
+  probing of the coarse operators, the LU of the last level). Each span keeps calls, inclusive
+  and exclusive time, and the flops and bytes counted inside it, so each step gets its own
+  GFlop/s. On the device the times come from **CUDA events recorded on the stream at the span
+  boundaries** and read at the end (no synchronization); the CPU uses the clock. Spans also emit
+  NVTX ranges.
+- **Output**: the span tree in the terminal; a tsv (span path, calls, seconds, flops, bytes) in
+  `Output.file` for scripts, so the terminal format can change without breaking parsers.
+- **Checks**: the exclusive times add up to the solve; the span times against Nsight Systems on
+  one run; the solve time with spans on and off (their overhead); the proportions against the
+  V-cycle breakdown of the Bridge++ work (`bridge_cuda/docs/latex/pvprec_amg.tex`, Table
+  vctime: smoother 65%, coarse solve 13%, restriction 11%).
+- **Parsers to update with it**: `tests/spectrum.rs`, `tests/run.rs`, the examples in
+  `docs/USAGE.md`, and scripts that read the `seed …: … iterations` lines (e.g.
+  `collect_results_20261026.py` on as13). The other apps (`mdwf.rs`, `mdwf_cuda.rs`, `hmc.rs`)
+  get the same layout.
+
+### 24. Residual histories of every solver (evaluated 2026-10-27, not started)
+
+Only GCR records its history (`solver/gcr.rs`, `recording()` and `history` both `pub(crate)`), and
+only the domain-wall apps print it, with `Main.verbose_level : Detailed` (`app/mdwf.rs`,
+`app/mdwf_cuda.rs`, `history_lines`). CG/CGNE, BiCGStab, FGMRES, MINRES, mixed CG, block GCR and
+multishift record nothing; the Wilson/clover app, the solves of HMC and the coarse solves print
+nothing; examples cannot reach it (the 2026-10-27 GCR(2) tests recorded |r| inside the cycle
+wrapper instead).
+- **Switch.** Bridge++'s own: `Solver.verbose_level : Detailed` per solver block, with
+  `Main.verbose_level` as the default; no new key, so Bridge++ files work unchanged.
+- **Interface.** One recorder on the `Solver` trait (`with_history()`/`history()`, or a
+  per-step callback), implemented by each solver (5–10 lines each); `recording()` public.
+- **Output.** `# history <label> <step> <|r|^2/|b|^2>` lines by default; `Output.history_file`
+  for a tsv, since CGNE takes thousands of steps per column.
+- **Device.** No copy per step: each step writes its |r|² (already on the device after the
+  reduction) into a device buffer of `max_iterations` entries, copied to the host once when the
+  solve stops and printed then. Where the stopping test already reads |r|² on the host, record
+  it there. Only when switched on.
+- **Tests.** Last entry = reported residual, length = reported iterations, output unchanged
+  bit for bit when off.
+Size: medium (trait, eight solvers, params, three apps), no algorithmic change; a `feat/` branch.
+
+### 25. GCR(2): a safeguard against the fixed point (found 2026-10-27, not started)
+
+With exact coarse solves (1e-20, BiCGStab on the exact PV adjoint) GCR(2) on 12⁴ S reaches a
+residual with |⟨r, Ã M r⟩|/(|r||Ã M r|) ≈ 1e-10 after ~15 steps and keeps it: |r|² does not change
+in any digit for the next 480 steps (2e-11, 6e-8, 5e-10 for three rhs). A fixed M repeats the step.
+Measured (`ruttice_a30_20261016/gcr_rescue2`, `gcr_rescue3`, `gcr_blocks12`, `gcr_angle12`, binaries
+`fflowHPC_gcrtest3`–`7`, example patches there): exact cycle 0/5 on 12⁴ (also with 3⁴ blocks 0/3,
+2⁴ blocks 2/3), 5/5 on quenched and dynamical 16⁴, 2/2 on 24⁴ (Q +4); random perturbations of the
+exact cycle 75/75 on 12⁴ (δ 0.02–0.5); fixed ones stagnate on 12⁴, δΓ5M also on 24⁴. The solver's
+cycle (MINRES, 1e-2) converged in every run. Not the topology (24⁴ Q = +4 converges), not the
+parity of the coarse lattice (3⁴ blocks give 4⁴ and stagnate). Open: why 12⁴ reaches it.
+- **Safeguard.** In `solver/gcr.rs`: |⟨r, q⟩|/(|r||q|) is one inner product per step (q = A z is
+  made anyway); below a threshold (1e-3?) change the direction, e.g. a small random perturbation of
+  z (δ 0.02 sufficed on 12⁴) or keep more directions for a few steps. Report how often it triggers
+  in the production runs (expected 0). A `fix/` or `feat/` branch.
+- **Tests.** The 12⁴ S exact cycle converges with it; production iteration counts unchanged.
 
 ## Ideas from the literature (to evaluate later)
 
@@ -842,10 +928,83 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 
 ## Multigrid paper (`docs/mg_background/`)
 
+Target (2026-10-26): arXiv, then Phys. Rev. D. Needed before submitting: more configurations,
+the third baseline and the volume trend (below), a dynamical ensemble, a rewrite to the
+journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
+
 - Not measured, listed in the note: more configurations (the main request to whoever has GPUs:
   see `reproduce.tex`), Lüscher's coherence test for the
   mass-scan basis, a rigorous lower bound on `sigma_min` (Kato–Temple), the spectrum on
   `24^3x48` (does not fit in 24 GB).
+- **More 24³×48 quenched configurations** (2026-10-26, plan; not on as13). Continue the chain of
+  `conf_quench_24x24x24x48_v2` (trajectory 602; β 6.0 plaquette action, trajectories of length
+  0.5, Omelyan [22], acceptance 0.87, 45 s a trajectory on 12 CPU threads; the plaquette is flat
+  at 0.59370–0.59373 from about trajectory 300, τ_int(plaquette) ≈ 4 trajectories). Save 3–5
+  configurations far enough apart: the separation to be set from the topological charge
+  (gradient flow, `gauge/flow.rs`), not from the plaquette; keep only the saved ones. Memory of
+  the quenched HMC was not recorded; from the field sizes (one gauge field 382 MB in double) it
+  should be 2–3 GB (an estimate), so a 16 GB machine is enough. Measured peaks on the A30 for the
+  solves of 24³×48 (S, m 0.001): the multigrid host 19.7 GB, device 20.2 GB; CGNE mixed host
+  3.5 GB, device 7.2 GB; 24⁴ multigrid host 10.0 GB, device 10.1 GB. The CPU multigrid on 32⁴
+  (`cpu32/mg_32_m0.005`) stopped with exit status 1 after 6 min and left no memory record.
+- **The two lifts {s, t̂} against y alone** (2026-10-26). The note now says the lifts give one
+  basis per coarse solve and make the correction exact for the right form only; the left form
+  used in practice misses y' by 1.6–24 on 12⁴, about as much as random vectors. Not measured:
+  the left-form iterations and time with P from {s, t̂} (2n columns) against P from y alone
+  (n columns, half of P and of the coarse operators), and against 2n vectors y. Without it the
+  note cannot claim that the two lifts help in practice.
+  **Measured on 12⁴ (2026-10-26, branch exp/basis-lifts, RUTTICE_BASIS_LIFTS; note Sec. V,
+  "Choice of the prolongation basis", data/basis_12.tsv):** {s, t̂} best in three of four cases,
+  left form in S 14 against 35 ({s, Ds}) and 155–311 ({s}). 16⁴ run (`basis16/` on as13),
+  24³×48 left form at m 0.001 running (`basis2448/`); both to be tabulated into the note.
+- **Krylov on Ã without the multigrid, as a third baseline** (2026-10-26; after the basis-lift
+  runs). The note compares the multigrid with CGNE only, so its 4.5–4.8× mixes A′ (Kanamori,
+  Chen and Matsufuru: Krylov without squaring) with the multigrid. To separate them, on the
+  24³×48 mass scan (`runs/mg_24.yaml`, seven masses, S and B): BiCGStab (or GCR) on Ã_L with no
+  preconditioner, and with the Chebyshev smoother alone as preconditioner, same precision and
+  stopping rule as the multigrid; report Ã applications and wall time. The prototype log
+  (16⁴, m 0.005) had 310 BiCGStab steps (622 Ã), Chebyshev alone 62 (622 Ã), the multigrid 29
+  (322 Ã), and on 12⁴ the multigrid did not beat the polynomial once its coarse cost was counted,
+  so the gain is expected only at large volume and light mass. Also a volume axis at
+  m 0.001 and 0.01: 12⁴, 16⁴, 24⁴ and 24³×48, CGNE (double, mixed), BiCGStab on Ã_L,
+  Chebyshev alone and the multigrid, S and B, all with one binary (the e044050 export), to
+  see from which volume the multigrid wins once its setup and coarse cost are counted.
+  BiCGStab on Ã runs in double only (mixed precision is CG on Normal_left only), so compare
+  its time with double CGNE and its Ã applications with all. **All 100 runs done (2026-10-26,
+  `baseline3/` on as13, e044050)**, none at the 30 min cap; the Chebyshev-only runs were rerun
+  after a wrong parameter file (the `Chebyshev` block belongs under `Solver`; `ruttice` returned
+  0 on the parse error). To be tabulated into the note.
+- **Coarsening structures compared in one implementation** (2026-10-26, design agreed; after the
+  24³×48 basis runs; branch to be made, e.g. `exp/coarsening-comparison`). Four MG variants, GCR
+  outer, one right-hand side: (a) whole lattice, F = D(1)†D(m), product Galerkin P†FP (33 points,
+  Boyle–Oare); (b) whole lattice, A′, product Galerkin (33 points: Boyle's scheme on the operator of
+  Kanamori, Chen and Matsufuru); (c) whole lattice, A′, the two factors apart (9 points each,
+  BCHW-like with C); (d) even-odd Ã, factors apart (the note). (a)↔(b) operator, (b)↔(c) product
+  against factors, (c)↔(d) even-odd. Reuse: `PvPreconditioned`, `MdwfAt`, `Adjoint`, `Product`,
+  `Multigrid`/`mdwf_lexical.rs` (its `MdwfCoarse::Galerkin` cuts P†AP to 8 neighbours; (a)(b) need
+  the exact 33 points), 5D folded bases, Chebyshev, levels, dense LU. New: a 2-hop coarse operator
+  (`coarse.rs`) and its probing (colours ≥ 5 apart), `MdwfCoarse::ProductGalerkin`, the whole-lattice
+  factorized correction and its lifts (to derive), a shift in the Chebyshev smoother (Boyle's m_adj),
+  device kernels (2-hop coarse pass, probing, a whole-lattice MDWF MG backend), parameter keys.
+  External checks: F and A′ against Bridge++ `afopr_Domainwall(_PVprec)` on 4³×8; the 2-hop P†FP
+  against a dense product on a small lattice; solutions against CGNE; iterations against the
+  prototype's product Galerkin (12⁴ 20, 16⁴ 38, conditions to check). Risks: 2-hop aliasing needs
+  coarse extents ≥ 5 (12⁴ with 4⁴ blocks gives 3⁴); the 33-point coarse solve at 24³×48
+  (~1.7e5 dims, no dense inverse); fairness (Boyle's Grid tuning is known only from slides).
+  Phases (revised 2026-10-27, deferred): write and check on the CPU at 12⁴/16⁴ (2⁴ blocks for
+  coarse extents ≥ 5); compare on the A30 at 16⁴/20⁴, where all four fit (estimated, not measured:
+  ~6 GB at 16⁴), porting only the 2-hop coarse kernel; 24³×48 only if asked (whole-lattice (a)–(c)
+  estimated 60–80 GB host, beyond the A30). State results as a comparison at fixed volume.
+- **Coarse deflation with the present basis** (2026-10-26). The only test of deflating the coarse
+  factors (Lanczos, 32 Ritz pairs; H⁻¹ subspace iteration) used the basis {s, Ds}, which the
+  basis-lift runs show to be a poorer coarse space (2.5× the iterations of {s, t̂} on 12⁴). Its
+  failure and the reading "the coarse low spectrum is too dense" may come from that basis. The
+  note now says only what was measured with {s, Ds}. To do: the same test with {s, t̂} (needs a
+  coarse eigensolver in src; the old one was in the prototype only).
+- **The cost of the Pauli–Villars factor** (2026-10-26). D_PV = D(m=1) has no low modes, yet it
+  gets the same P and may get the levels below. Not measured: the time of the Pauli–Villars
+  coarse solve against the quark one per cycle, and the outer iterations and time when it is
+  solved more cheaply (fewer MINRES steps, no levels below, or a cheaper approximation).
 
 ## Device robustness
 
@@ -865,6 +1024,24 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
   solver; not planned. (`Subspace::rotate` of more than 32 vectors used to make n full copies
   one after the other; since 2026-10-19 it needs one more set only.)
 
+## Bugs
+
+- **The Γ-method gives an error of 0 and a negative τ_int on short series, silently** (found
+  2026-10-28 by the flow of the 15 new quenched configs on wlcheninhonngo). `ruttice-flow` printed
+  "+- 0.000000, tau_int -2.50 +- -7.07" for 24⁴ 602/702 (N = 2) and "tau_int -0.06 +- -0.08" for
+  32⁴ (N = 3); the per-file plaquette, t0 and Q are not affected. Cause, in
+  `src/numerics/autocorrelation.rs::gamma_method`: for N < 4, t_max = N/2 = 1 and the window is
+  W = 1; Γ(1) of a short series is strongly negative (N = 2: δ = (d, −d), Γ(0) = d², Γ(1) = −d²), so
+  C_F(W) = Γ(0) + 2Γ(1) ≤ 0, the bias correction makes it more negative, τ_int = C/(2Γ(0)) < 0, the
+  error `(c / nf).max(0.0).sqrt()` is clamped to 0, and `window_found` is still true at W = 1, so
+  no warning appears. The same path serves the GradientFlow section of HMC (`src/app/flow.rs`,
+  `gamma_lines`). Fix: when C_F(W) ≤ 0 or τ_int < 0.5 after the bias correction, report the
+  analysis as failed (Wolff's UWerr stops with an error) — `gamma_method` returns None or a
+  `reliable: false`, and `gamma_lines` prints "too few measurements for the Γ-method"; possibly
+  require N ≥ 4 (t_max ≥ 2). Test: anti-correlated series of N = 2 and 3 must not print an error of
+  0 (break the check once and see the test fail); external check against UWerr or pyerrors on
+  short and long series. ENSEMBLES.md does not use these summary lines.
+
 ## Known, not understood
 
 - **The filter is weak** (2026-10-23, 24⁴ m 0.001, 20 test vectors). Its degree is
@@ -878,9 +1055,11 @@ not listed, so `!/.github/` must be added). Evaluated, not set up:
 - **Where α acts on Ã_L^(α)** (2026-10-23). In the mass scan on 24³×48 α 0.6 saves the multigrid
   2–3 iterations at every mass in setup B, but in S only at heavy masses (none from m 0.01 down;
   HMC on 24⁴ at m 0.001: 362 against 356), while CG gains about 20%. The note reads it as α
-  improving only what the smoother sees (the coarse grid takes the low modes); not checked. To
-  check: the extreme eigenvalues (Arnoldi) and the field of values of Ã_L with and without α, and
-  of Ã_L M, in S and B.
+  improving only what the smoother sees (the coarse grid takes the low modes). Measured on 12⁴
+  (2026-10-26, `docs/alpha_study/`, kept out of the MG note): α 0.6 lowers |I − Ã_L S| by 13%
+  at m 0.1, and the cycle treats the low modes of Ã_L^(α) worse (most in S); the two effects not
+  separated in a solve. Future work: P and the coarse operators from D^(α) (now from the plain D,
+  one setup for every α; the device coarse operator asserts α = 1).
 
 - **The dual cycle on 12⁴** (superseded 2026-10-22 by Γ5 M Γ5 below; the dual cycle is gone
   from HMC) (`examples/correction_exactness`, CPU, 2026-10-21): setup S,

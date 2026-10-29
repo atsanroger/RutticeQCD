@@ -1,0 +1,73 @@
+setup	volume	mass	method	solver	iterations	capped	coarse_apps	worst_Dx-b_sq	solve_s	setup_s	host_peak_GB	device_peak_GB	status	build
+B	12	0.001	bicg	BiCGStab	368	no		3e-18	0.7	0	0.41	0.23	ok	e044050
+B	12	0.001	cgd	CG	505	no		7e-18	0.5	0	0.41	0.22	ok	e044050
+B	12	0.001	cgm	CG (mixed precision)	505	no		9e-18	0.3	0	0.44	0.23	ok	e044050
+B	12	0.001	cheb	GCR	527	no		6e-18	5.7	0	0.43	0.33	ok	e044050
+B	12	0.001	mg	GCR	14	no	2622	5e-19	0.5	6	0.99	3.29	ok	e044050
+B	12	0.01	bicg	BiCGStab	349	no		5e-18	0.6	0	0.40	0.23	ok	e044050
+B	12	0.01	cgd	CG	468	no		8e-18	0.4	0	0.40	0.22	ok	e044050
+B	12	0.01	cgm	CG (mixed precision)	469	no		7e-18	0.3	0	0.43	0.23	ok	e044050
+B	12	0.01	cheb	GCR	146	no		6e-18	1.6	0	0.43	0.33	ok	e044050
+B	12	0.01	mg	GCR	13	no	1190	3e-19	0.3	6	0.99	3.29	ok	e044050
+B	16	0.001	bicg	BiCGStab	663	no		4e-18	3.4	0	0.62	0.73	ok	e044050
+B	16	0.001	cgd	CG	817	no		2e-17	2.2	0	0.62	0.68	ok	e044050
+B	16	0.001	cgm	CG (mixed precision)	818	no		2e-17	1.3	0	0.65	0.71	ok	e044050
+B	16	0.001	cheb	GCR	475	no		6e-18	14.6	1	0.65	1.05	ok	e044050
+B	16	0.001	mg	GCR	14	no	1298	2e-18	0.8	17	2.25	3.62	ok	e044050
+B	16	0.01	bicg	BiCGStab	544	no		5e-18	2.8	0	0.62	0.73	ok	e044050
+B	16	0.01	cgd	CG	726	no		2e-17	1.9	0	0.62	0.68	ok	e044050
+B	16	0.01	cgm	CG (mixed precision)	727	no		2e-17	1.1	0	0.65	0.71	ok	e044050
+B	16	0.01	cheb	GCR	141	no		5e-18	4.3	1	0.65	1.05	ok	e044050
+B	16	0.01	mg	GCR	13	no	650	9e-19	0.6	17	2.25	3.62	ok	e044050
+B	2448	0.001	cgd	CG	4228	no		3e-16	114.3	1	3.51	6.88	ok	e044050
+B	2448	0.001	cgm	CG (mixed precision)	4232	no		3e-16	60.4	1	3.54	7.24	ok	e044050
+B	2448	0.001	mg	GCR	26	no	1306	8e-19	12.3	208	19.68	20.19	ok	e044050
+B	2448	0.01	cgd	CG	1447	no		6e-17	39.1	1	3.51	6.88	ok	e044050
+B	2448	0.01	cgm	CG (mixed precision)	1448	no		6e-17	20.9	1	3.53	7.24	ok	e044050
+B	2448	0.01	mg	GCR	15	no	552	3e-18	6.8	205	19.69	20.19	ok	e044050
+B	24	0.001	bicg	BiCGStab	1909	no		6e-18	50.0	0	1.91	3.68	ok	e044050
+B	24	0.001	cgd	CG	3592	no		1e-16	48.7	0	1.91	3.44	ok	e044050
+B	24	0.001	cgm	CG (mixed precision)	3596	no		1e-16	26.1	0	1.94	3.62	ok	e044050
+B	24	0.001	cheb	GCR	458	no		6e-18	72.6	2	1.93	5.34	ok	e044050
+B	24	0.001	mg	GCR	23	no	892	2e-18	5.4	103	10.01	10.09	ok	e044050
+B	24	0.01	bicg	BiCGStab	675	no		6e-18	17.7	0	1.91	3.68	ok	e044050
+B	24	0.01	cgd	CG	1462	no		6e-17	19.8	0	1.91	3.44	ok	e044050
+B	24	0.01	cgm	CG (mixed precision)	1464	no		6e-17	10.7	0	1.93	3.62	ok	e044050
+B	24	0.01	cheb	GCR	141	no		6e-18	22.4	2	1.94	5.34	ok	e044050
+B	24	0.01	mg	GCR	15	no	466	8e-19	3.4	97	10.01	10.09	ok	e044050
+S	12	0.001	bicg	BiCGStab	235	no		3e-19	0.4	0	0.45	0.23	ok	e044050
+S	12	0.001	cgd	CG	234	no		4e-18	0.2	0	0.44	0.22	ok	e044050
+S	12	0.001	cgm	CG (mixed precision)	234	no		5e-18	0.2	0	0.45	0.23	ok	e044050
+S	12	0.001	cheb	GCR	2309	no		3e-18	17.1	0	0.45	0.33	ok	e044050
+S	12	0.001	mg	GCR	14	no	3152	3e-19	0.5	7	1.00	3.29	ok	e044050
+S	12	0.01	bicg	BiCGStab	212	no		2e-18	0.4	0	0.45	0.23	ok	e044050
+S	12	0.01	cgd	CG	212	no		5e-18	0.2	0	0.45	0.22	ok	e044050
+S	12	0.01	cgm	CG (mixed precision)	212	no		5e-18	0.1	0	0.45	0.23	ok	e044050
+S	12	0.01	cheb	GCR	243	no		3e-18	1.8	0	0.45	0.33	ok	e044050
+S	12	0.01	mg	GCR	14	no	2530	2e-19	0.4	7	1.00	3.29	ok	e044050
+S	16	0.001	bicg	BiCGStab	398	no		3e-18	2.0	0	0.65	0.73	ok	e044050
+S	16	0.001	cgd	CG	358	no		7e-18	1.0	0	0.65	0.68	ok	e044050
+S	16	0.001	cgm	CG (mixed precision)	358	no		7e-18	0.6	0	0.65	0.71	ok	e044050
+S	16	0.001	cheb	GCR	1678	no		4e-18	35.6	0	0.65	1.05	ok	e044050
+S	16	0.001	mg	GCR	13	no	1330	2e-18	0.6	17	2.25	3.62	ok	e044050
+S	16	0.01	bicg	BiCGStab	366	no		3e-18	1.9	0	0.65	0.73	ok	e044050
+S	16	0.01	cgd	CG	349	no		7e-18	0.9	0	0.65	0.68	ok	e044050
+S	16	0.01	cgm	CG (mixed precision)	349	no		7e-18	0.5	0	0.65	0.71	ok	e044050
+S	16	0.01	cheb	GCR	238	no		3e-18	5.1	0	0.65	1.05	ok	e044050
+S	16	0.01	mg	GCR	12	no	950	9e-19	0.5	17	2.25	3.62	ok	e044050
+S	2448	0.001	cgd	CG	3602	no		1e-17	97.4	1	3.54	6.88	ok	e044050
+S	2448	0.001	cgm	CG (mixed precision)	4059	no		2e-16	58.0	1	3.54	7.24	ok	e044050
+S	2448	0.001	mg	GCR	28	no	3218	2e-18	12.9	200	19.69	20.19	ok	e044050
+S	2448	0.01	cgd	CG	1166	no		7e-17	31.5	1	3.54	6.88	ok	e044050
+S	2448	0.01	cgm	CG (mixed precision)	1166	no		7e-17	16.9	1	3.53	7.24	ok	e044050
+S	2448	0.01	mg	GCR	15	no	942	9e-19	5.8	198	19.68	20.19	ok	e044050
+S	24	0.001	bicg	BiCGStab	1905	no		2e-18	49.9	0	1.93	3.68	ok	e044050
+S	24	0.001	cgd	CG	1773	no		8e-18	24.1	0	1.93	3.44	ok	e044050
+S	24	0.001	cgm	CG (mixed precision)	2530	no		3e-16	18.4	0	1.93	3.62	ok	e044050
+S	24	0.001	cheb	GCR	1947	no		4e-18	212.4	2	1.93	5.34	ok	e044050
+S	24	0.001	mg	GCR	19	no	1090	2e-18	3.7	93	10.01	10.09	ok	e044050
+S	24	0.01	bicg	BiCGStab	711	no		3e-18	18.7	0	1.93	3.68	ok	e044050
+S	24	0.01	cgd	CG	1127	no		8e-17	15.3	0	1.93	3.44	ok	e044050
+S	24	0.01	cgm	CG (mixed precision)	1127	no		8e-17	8.3	0	1.93	3.62	ok	e044050
+S	24	0.01	cheb	GCR	242	no		5e-18	26.4	2	1.94	5.34	ok	e044050
+S	24	0.01	mg	GCR	14	no	724	1e-18	2.7	93	10.01	10.09	ok	e044050

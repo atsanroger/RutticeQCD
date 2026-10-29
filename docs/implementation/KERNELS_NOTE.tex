@@ -39,7 +39,7 @@ of the 32 sites is consecutive:
 a(c,n) = \big(\lfloor n/32\rfloor\cdot N_c + c\big)\cdot 32 + (n \bmod 32).
 \label{eq:aosoa}
 \end{equation}
-Why: a warp is 32 threads. If thread $j$ handles site $32k+j$ and reads component $c$,
+This layout matches a warp of 32 threads: if thread $j$ handles site $32k+j$ and reads component $c$,
 \begin{equation}
 a(c,32k+j) = (kN_c+c)\cdot32 + j,\qquad j=0,\dots,31,
 \end{equation}
@@ -47,7 +47,7 @@ a(c,32k+j) = (kN_c+c)\cdot32 + j,\qquad j=0,\dots,31,
 
 \subsection{Spinors with a fifth dimension}
 
-A domain-wall spinor has $L_s$ spinors of 24 reals per site. Component (colour $k$, spin $a$,
+A domain-wall spinor has $L_s$ spinors of 24 reals per site. Component (color $k$, spin $a$,
 real/imag $r$) at fifth coordinate $s$ is component
 \begin{equation}
 c = 24s + 2(k + 3a) + r
@@ -110,7 +110,7 @@ At output site $x$ and fifth coordinate $s$:
 \begin{equation}
 \text{out}_s(x) = -\kappa\sum_\mu\Big[(1-s_\pm\gamma_\mu)U_\mu(x)\,w_s(x+\hat\mu) + (1+s_\pm\gamma_\mu)U_\mu(x-\hat\mu)\dg\,w_s(x-\hat\mu)\Big],
 \end{equation}
-with $w_s$ from \code{fifth\_term} computed on the fly at the neighbour ($a=b$, $y=-c$) and
+with $w_s$ from \code{fifth\_term} computed on the fly at the neighbor ($a=b$, $y=-c$) and
 $s_\pm=\pm1$ for $H$, $H\dg$. A leg is done in three steps (\code{leg\_half}, link,
 \code{add\_leg}). For $\mu=0$ (Sec.~1.1 of the other note):
 \begin{align}
@@ -121,10 +121,10 @@ t_a &= U\,h_a\quad(a=0,1), \\
 \end{align}
 Two $SU(3)$ products per leg instead of four.
 
-\textbf{Threads.} A thread for each (site, fibre), a fibre being one $s$ of one vector. The
+\textbf{Threads.} There is one thread for each (site, fiber); a fiber is one $s$ of one vector. The
 threads of a block are 2D: \code{threadIdx.x} the site (consecutive sites: coalesced by
-Eq.~\eqref{eq:aosoa}), \code{threadIdx.y} the fibre. All fibres of a site read the same eight
-links, which then come from the cache after the first. At most 256 threads a block: a thread may
+Eq.~\eqref{eq:aosoa}), \code{threadIdx.y} the fiber. All fibers of a site read the same eight
+links, which then come from the cache after the first. At most 256 threads per block: a thread may
 use 255 registers and a block has 65536.
 
 \textbf{Double precision.} The two legs of a direction are done one after the other, so only one
@@ -241,14 +241,14 @@ least for 32 doubles. This is the XOR seen in the code; the face buffers of seve
 
 \subsection{The Wilson operator}
 
-$D\psi = \psi + H\psi$: \code{hop\_kernel} with \code{FourD} (Sec.~2.3). The fibres of a site are
+$D\psi = \psi + H\psi$: \code{hop\_kernel} with \code{FourD} (Sec.~2.3). The fibers of a site are
 its vectors, which share the links.
 
 \subsection{\code{clover\_term\_kernel}: $T\psi$}
 
 $T = 1-\kappa c_{SW}\sigma\cdot F$ commutes with $\gamma_5$. In the Dirac representation the
 eigenvectors of $\gamma_5$ are $(e_a\pm e_{a+2})/\sqrt2$, so in that basis $T$ is two Hermitian
-$6\times6$ blocks (index colour $+3\times$spin):
+$6\times6$ blocks (index color $+3\times$spin):
 \begin{align}
 \psi^\pm_{k+3a} &= \psi_{a,k} \pm \psi_{a+2,k},\qquad a=0,1\quad(\text{the }1/\sqrt2\text{ left out}),\\
 \phi^\pm &= T_\pm\,\psi^\pm,\\
@@ -258,7 +258,7 @@ $6\times6$ blocks (index colour $+3\times$spin):
 the two $1/\sqrt2$ making the $\tfrac12$. A Hermitian $6\times6$ block is stored packed: 6 real
 diagonal entries and 15 complex above the diagonal,
 \begin{equation}
-6 + 2\cdot15 = 36\ \text{reals},\qquad 2\ \text{blocks} = 72\ \text{reals a site}.
+6 + 2\cdot15 = 36\ \text{reals},\qquad 2\ \text{blocks} = 72\ \text{reals per site}.
 \end{equation}
 The same kernel applies $T^{-1}$ (its blocks made by \code{clover\_blocks\_kernel}, below).
 
@@ -325,7 +325,7 @@ code of the links extends it.
 
 \paragraph{\code{clover\_log\_det\_insertion\_kernel}.} The derivative of $-2\ln|\det T_o|$ (the
 even-odd action) is the same insertion for the twelve pairs $(T^{-1}e_k, e_k)$ on the odd sites,
-$e_k$ the unit vector of spin $\sigma$ and colour $c$. Only one component of $e_k$ is nonzero, so
+$e_k$ the unit vector of spin $\sigma$ and color $c$. Only one component of $e_k$ is nonzero, so
 the sum over $k$ collapses:
 \begin{align}
 A_{ij} &= \sum_{k}\sum_s g(s)\,(e_k)_{c(s),i}\,\overline{(T^{-1}e_k)_{s,j}}
@@ -358,7 +358,7 @@ M_\mu(x) = -2c\sum_s\sum_{\text{spin}}\big[U_\mu(x)(1-\gamma_\mu)\eta_s(x+\hat\m
 \end{equation}
 The kernel gets $U(1-\gamma_\mu)\eta(x+\hat\mu)$ from the forward leg of the hop kernel with
 $\kappa=-1$ (so the leg has coefficient $+1$), and the second bracket the same way from
-$\gamma_5\zeta$. Then the outer products, colour by colour:
+$\gamma_5\zeta$. Then the outer products, color by color:
 \begin{equation}
 (ab\dg)_{ij} = a_i\overline{b_j},\qquad
 \mathrm{Re}=a^r_ib^r_j + a^i_ib^i_j,\quad \mathrm{Im}=a^i_ib^r_j - a^r_ib^i_j .
@@ -371,8 +371,7 @@ A thread per site, a loop over $\mu$ and $s$; $M$ in the layout of the gauge fie
 \subsection{Layout}
 
 Links and fields of matrices (staples, $\Sigma$, forces) are whole $3\times3$ complex matrices,
-18 reals per direction, 72 per site, in blocks of 32 sites (Eq.~\eqref{eq:aosoa} with $N_c=72$).
-All in double precision.
+18 reals per direction, 72 per site, in blocks of 32 sites (Eq.~\eqref{eq:aosoa} with $N_c=72$), all in double precision.
 
 \subsection{\code{stout\_step\_kernel}: $V = e^{iQ}U$}
 
@@ -390,7 +389,7 @@ and every power of $Q$ reduces to $1,Q,Q^2$:
 \begin{equation}
 e^{iQ} = f_0\cdot1 + f_1Q + f_2Q^2 .
 \end{equation}
-With the eigenvalues parametrised as
+With the eigenvalues parametrized as
 \begin{align}
 \theta &= \arccos\frac{c_0}{c_0^{\max}},\qquad c_0^{\max} = 2\Big(\frac{c_1}{3}\Big)^{3/2},\\
 u &= \sqrt{c_1/3}\,\cos\frac\theta3,\qquad w = \sqrt{c_1}\,\sin\frac\theta3,
@@ -420,7 +419,7 @@ with $b_{ij}$ derivatives of the $f_j$ by $c_0$, $c_1$ (in the code, \code{r01}.
 i\Theta &= i\Lambda\,U .
 \end{align}
 The first kernel makes the first two terms and $i\Theta$; the second adds the six staple terms of
-each plane, which read $i\Theta$ at the neighbours. On several GPUs $i\Theta$ is extended between
+each plane, which read $i\Theta$ at the neighbors. On several GPUs $i\Theta$ is extended between
 the two.
 
 \subsection{\code{gauge\_force\_kernel} and \code{gauge\_traces\_kernel}}
@@ -444,7 +443,7 @@ computed from the inside out:
 \begin{equation}
 u^{(0)} = U,\qquad u^{(k+1)} = U + \frac{\epsilon}{n-k}\,H\,u^{(k)},\qquad k=0,\dots,n-1 .
 \end{equation}
-Then reunitarised: $r_0\to r_0/|r_0|$, $r_1\to(r_1-(\bar r_0\cdot r_1)r_0)/|\cdot|$,
+Then reunitarized: $r_0\to r_0/|r_0|$, $r_1\to(r_1-(\bar r_0\cdot r_1)r_0)/|\cdot|$,
 $r_2=\overline{r_0\times r_1}$.
 
 \subsection{Other small kernels}
@@ -497,7 +496,7 @@ $\gamma_5$'s sign $+1$. The restriction of the next subsection becomes
  = \sum_{a<2}\overline{w_a}\,(f_a+\sigma f_{a+2}),
 \end{equation}
 the same formula as the folding in $s$; so the kernels serve both, the loops running over the kept
-entries in their order (for $L_s$ even: $s$, spin, colour, the order they had).
+entries in their order (for $L_s$ even: $s$, spin, color, the order they had).
 
 \subsection{\code{fold\_restrict\_kernel}: coarse $=P\dg$fine}
 
@@ -517,9 +516,9 @@ for each (coarse site, component), up to 8 vectors per read of P, which is most 
 f_s(x) &= \sum_{c,i} P(x,i,c)_s\,\text{coarse}(X,cn+i),\\
 f_{L_s-1-s}(x) &= \sum_{c,i}(-1)^c\gamma_5P(x,i,c)_s\,\text{coarse}(X,cn+i),
 \end{align}
-a thread for each (fine site, $s<L_s/2$, spin, colour), writing $s$ and its mirror.
+a thread for each (fine site, $s<L_s/2$, spin, color), writing $s$ and its mirror.
 
-\subsection{Orthonormalising P}
+\subsection{Orthonormalizing P}
 
 Per (aggregate, chirality), the $n$ vectors are made orthonormal over the aggregate. With
 $W=[w_1\dots w_n]$:
@@ -556,35 +555,35 @@ fermions, the clover term $T$ and the hops at $\kappa$ for clover fermions.
 
 SAP (\code{multigrid/sap.rs}) is written once; on the device the parts that touch the fields are
 three kernels and an instance of the hop kernel. The blocks are the aggregates; block $X$ with
-block coordinates $(X_0,\dots,X_3)$ on the whole lattice has colour $\sum_\mu X_\mu \bmod 2$, so
-that blocks of one colour do not touch. A cycle, for each colour $c$:
+block coordinates $(X_0,\dots,X_3)$ on the whole lattice has color $\sum_\mu X_\mu \bmod 2$, so
+that blocks of one color do not touch. A cycle, for each color $c$:
 \begin{align}
-e &= 0,\qquad r \leftarrow r\ \text{on the blocks of colour } c,\ 0\ \text{elsewhere},\\
+e &= 0,\qquad r \leftarrow r\ \text{on the blocks of color } c,\ 0\ \text{elsewhere},\\
 \text{repeat } n \text{ times:}\quad p &= D_c\,r,\quad
 \alpha_X = \frac{\langle p,r\rangle_X}{\langle p,p\rangle_X},\quad e \mathrel{+}= \alpha_X r,\quad
 r \mathrel{-}= \alpha_X p,\\
 x &\mathrel{+}= e,\qquad r = b - Dx,
 \end{align}
-$D_c$ being $D$ without the legs that leave a block, on the blocks of colour $c$, and
+$D_c$ being $D$ without the legs that leave a block, on the blocks of color $c$, and
 $\langle\cdot,\cdot\rangle_X$ the inner product over the sites of block $X$ (one vector at a time).
-$\alpha_X$ minimises $|r-\alpha p|^2$ on the block:
+$\alpha_X$ minimizes $|r-\alpha p|^2$ on the block:
 \begin{equation}
 \frac{\partial}{\partial\bar\alpha}\big(\langle r,r\rangle - \alpha\langle r,p\rangle - \bar\alpha\langle p,r\rangle + |\alpha|^2\langle p,p\rangle\big)
 = -\langle p,r\rangle + \alpha\langle p,p\rangle = 0 .
 \end{equation}
 
 \paragraph{The block operator: \code{hop\_kernel} with \code{Cut}.} A \code{BlockCut} gives the
-block extents $b_\mu$, the colour, and the parity of the block coordinates of the process's
+block extents $b_\mu$, the color, and the parity of the block coordinates of the process's
 origin. At site $x$ the forward leg in direction $\mu$ leaves the block when
 $x_\mu \bmod b_\mu = b_\mu-1$, the backward one when $x_\mu \bmod b_\mu = 0$; those bits are taken
-out of the mask of legs (bit $\mu$ forward, bit $4+\mu$ backward), and a site of the other colour
+out of the mask of legs (bit $\mu$ forward, bit $4+\mu$ backward), and a site of the other color
 writes zero. The rest is the kernel as it is: $\psi - H_{-\kappa}\psi$ for Wilson, $T\psi + H\psi$ for
 clover. \code{Cut} is a template parameter: with the mask known only at run time in every
 instance, the Wilson operator in single precision took 40\% longer (the compiler no longer drops
 the tests of the eight legs).
 
 \paragraph{\code{sap\_alpha\_kernel}.} One CUDA block of 128 threads for each (block, vector); a
-block of the other colour writes $\alpha=0$. Thread $t$ adds sites $t, t+128,\dots$ of the block in
+block of the other color writes $\alpha=0$. Thread $t$ adds sites $t, t+128,\dots$ of the block in
 double precision, then a fixed tree over the threads in shared memory:
 \begin{equation}
 s_t \leftarrow s_t + s_{t+h},\qquad h = 64, 32, \dots, 1,
@@ -595,10 +594,10 @@ $\mathrm{Im}\langle p,r\rangle$, $\langle p,p\rangle$.
 \paragraph{\code{sap\_update\_kernel}.} A grid-stride loop over (site, vector): $\alpha$ of the
 site's block, then $e \mathrel{+}= \alpha r$ and $r \mathrel{-}= \alpha p$ in one pass, $r$ read once
 (five reals read or written for each). \code{sap\_keep\_colour\_kernel} zeroes the sites of the
-other colour.
+other color.
 
 On several processes a block lies within a process, so $D_c$ and the block sums need no
-exchange; only $r=b-Dx$ does, through the operator's halos. Checked: the device SAP is the CPU's
+exchange; only $r=b-Dx$ does, through the operator's halos. The device SAP agrees with the CPU's
 to $10^{-15}$ (Wilson, clover, one vector and three).
 
 \subsection{\code{coarse\_pass\_kernel}}
@@ -614,7 +613,7 @@ kernel with a flag.
 
 \textbf{Threads.} A block per (coarse site, vector); a warp per row; the lanes take pairs of
 columns $(2\ell,2\ell+1),(2\ell+64,\dots)$, so a warp reads a row of a matrix as one stretch in
-16-byte words. The fields at $X$ and its 8 neighbours are read once into shared memory. The sum of
+16-byte words. The fields at $X$ and its 8 neighbors are read once into shared memory. The sum of
 a row is the lanes' parts added by a fixed butterfly, so the result does not depend on timing.
 
 \subsection{\code{blocks\_inverse\_kernel}: Gauss–Jordan}
@@ -656,12 +655,12 @@ $(m\dg)_{ij} = \overline{m_{ji}}$.
 \code{level\_basis}:&\quad Q_{\text{block}} = \text{Gram--Schmidt twice of the parts of the test vectors on a super-block and a half},\\
 \code{level\_restrict}:&\quad y = Q\dg v\quad(\text{a warp per output, lanes along the sum}),\\
 \code{level\_prolong}:&\quad v = Qy\ \text{or}\ v\mathrel{+}=Qy,\\
-\code{level\_sources}:&\quad e_j = 1\ \text{at component }j\text{ of the sites of one colour},\\
-\code{level\_probe}:&\quad A(t)_{\cdot j} = r_j(t)\ \text{if }t\text{ has the colour},\quad B_d(t)_{\cdot j} = r_j(t)\ \text{if }N[d][t]\text{ has it},\\
+\code{level\_sources}:&\quad e_j = 1\ \text{at component }j\text{ of the sites of one color},\\
+\code{level\_probe}:&\quad A(t)_{\cdot j} = r_j(t)\ \text{if }t\text{ has the color},\quad B_d(t)_{\cdot j} = r_j(t)\ \text{if }N[d][t]\text{ has it},\\
 \code{level\_dense}:&\quad \text{the last level as one }n\times n\text{ matrix},\ n=\text{sites}\times\text{components},\\
 \code{dense\_apply}:&\quad \text{out} = M\,r .
 \end{align}
-Why probing works: the sources of one colour are at least 3 apart in every direction, so
+Probing works because the sources of one color are at least 3 apart in every direction, so
 \begin{equation}
 r_j(t) = \sum_{t'}D(t,t')e_j(t') = D(t,t'_*)\,\hat e_j\quad\text{with }t'_*\in\{t,\ t\pm\hat\mu\}\text{ the only source in reach}.
 \end{equation}

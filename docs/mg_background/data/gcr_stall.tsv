@@ -1,0 +1,304 @@
+log	lattice	Q	block	rhs	variant	delta	pool	status	iterations	residual_sqr
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact			stagnated	500	2.10e-11
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	loose BiCGStab 1e-2			converged	310	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + fixed G5	0.232		stagnated	500	2.18e-3
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + fixed poly	0.232		stagnated	500	6.40e-8
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.020	0	converged	37	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.020	1	converged	38	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.020	2	converged	36	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.050	0	converged	55	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.050	1	converged	58	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.050	2	converged	57	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.100	0	converged	64	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.100	1	converged	70	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.100	2	converged	69	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.230	0	converged	73	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.230	1	converged	84	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.230	2	converged	102	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.500	0	converged	83	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.500	1	converged	102	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	71	exact + random	0.500	2	converged	104	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact			stagnated	500	5.88e-8
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	loose BiCGStab 1e-2			stagnated	500	1.22e-15
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	solver MINRES 1e-2			converged	13	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + fixed G5	0.232		stagnated	500	1.18e-3
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + fixed poly	0.232		stagnated	500	2.42e-8
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.020	0	converged	38	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.020	1	converged	41	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.020	2	converged	37	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.050	0	converged	57	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.050	1	converged	59	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.050	2	converged	58	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.100	0	converged	67	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.100	1	converged	68	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.100	2	converged	72	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.230	0	converged	87	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.230	1	converged	80	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.230	2	converged	79	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.500	0	converged	108	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.500	1	converged	101	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	81	exact + random	0.500	2	converged	101	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact			stagnated	500	5.36e-10
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	loose BiCGStab 1e-2			converged	108	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	solver MINRES 1e-2			converged	14	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + fixed G5	0.232		stagnated	500	3.03e-3
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + fixed poly	0.232		stagnated	500	3.50e-9
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.020	0	converged	36	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.020	1	converged	39	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.020	2	converged	37	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.050	0	converged	57	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.050	1	converged	59	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.050	2	converged	59	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.100	0	converged	69	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.100	1	converged	70	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.100	2	converged	72	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.230	0	converged	83	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.230	1	converged	87	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.230	2	converged	87	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.500	0	converged	97	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.500	1	converged	119	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	91	exact + random	0.500	2	converged	120	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact			stagnated	500	2.15e-9
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	loose BiCGStab 1e-2			converged	61	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	solver MINRES 1e-2			converged	14	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + fixed G5	0.232		stagnated	500	2.93e-3
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + fixed poly	0.232		stagnated	500	1.62e-8
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.020	0	converged	38	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.020	1	converged	34	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.020	2	converged	36	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.050	0	converged	54	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.050	1	converged	53	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.050	2	converged	56	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.100	0	converged	64	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.100	1	converged	64	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.100	2	converged	65	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.230	0	converged	80	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.230	1	converged	73	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.230	2	converged	97	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.500	0	converged	84	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.500	1	converged	86	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	101	exact + random	0.500	2	converged	91	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact			stagnated	500	4.39e-9
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	loose BiCGStab 1e-2			converged	73	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	solver MINRES 1e-2			converged	13	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + fixed G5	0.232		stagnated	500	7.59e-3
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + fixed poly	0.232		stagnated	500	1.97e-8
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.020	0	converged	37	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.020	1	converged	38	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.020	2	converged	38	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.050	0	converged	55	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.050	1	converged	55	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.050	2	converged	55	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.100	0	converged	65	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.100	1	converged	65	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.100	2	converged	64	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.230	0	converged	63	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.230	1	converged	72	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.230	2	converged	74	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.500	0	converged	88	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.500	1	converged	88	
+gcr_rescue2/S12.log	12^4 quenched	1	4^4	111	exact + random	0.500	2	converged	88	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact			converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	loose BiCGStab 1e-2			converged	37	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + fixed G5	0.195		converged	38	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + fixed poly	0.195		converged	25	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.020	0	converged	31	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.020	1	converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.020	2	converged	31	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.050	0	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.050	1	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.050	2	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.100	0	converged	49	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.100	1	converged	50	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.100	2	converged	46	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.230	0	converged	66	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.230	1	converged	74	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.230	2	converged	75	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.500	0	converged	103	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.500	1	converged	101	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	71	exact + random	0.500	2	converged	87	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact			converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	loose BiCGStab 1e-2			converged	41	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + fixed G5	0.195		converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + fixed poly	0.195		converged	29	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.020	0	converged	35	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.020	1	converged	35	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.020	2	converged	35	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.050	0	converged	42	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.050	1	converged	40	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.050	2	converged	42	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.100	0	converged	48	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.100	1	converged	51	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.100	2	converged	48	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.230	0	converged	66	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.230	1	converged	73	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.230	2	converged	77	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.500	0	converged	97	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.500	1	converged	97	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	81	exact + random	0.500	2	converged	100	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact			converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	loose BiCGStab 1e-2			converged	45	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + fixed G5	0.195		converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + fixed poly	0.195		converged	28	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.020	0	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.020	1	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.020	2	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.050	0	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.050	1	converged	37	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.050	2	converged	35	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.100	0	converged	52	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.100	1	converged	55	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.100	2	converged	52	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.230	0	converged	65	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.230	1	converged	75	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.230	2	converged	64	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.500	0	converged	93	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.500	1	converged	103	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	91	exact + random	0.500	2	converged	114	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact			converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	loose BiCGStab 1e-2			converged	41	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + fixed G5	0.195		converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + fixed poly	0.195		converged	31	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.020	0	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.020	1	converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.020	2	converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.050	0	converged	41	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.050	1	converged	39	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.050	2	converged	38	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.100	0	converged	53	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.100	1	converged	54	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.100	2	converged	50	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.230	0	converged	80	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.230	1	converged	70	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.230	2	converged	68	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.500	0	converged	90	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.500	1	converged	93	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	101	exact + random	0.500	2	converged	99	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact			converged	36	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	loose BiCGStab 1e-2			converged	47	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	solver MINRES 1e-2			converged	12	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + fixed G5	0.195		converged	33	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + fixed poly	0.195		converged	29	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.020	0	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.020	1	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.020	2	converged	34	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.050	0	converged	39	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.050	1	converged	39	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.050	2	converged	41	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.100	0	converged	50	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.100	1	converged	53	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.100	2	converged	53	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.230	0	converged	66	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.230	1	converged	76	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.230	2	converged	73	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.500	0	converged	98	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.500	1	converged	96	
+gcr_rescue2/S16.log	16^4 quenched	0	4^4	111	exact + random	0.500	2	converged	88	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact			converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	loose BiCGStab 1e-2			converged	15	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	solver MINRES 1e-2			converged	10	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + fixed G5	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + fixed poly	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + random	0.020	0	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + random	0.020	1	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + random	0.230	0	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	71	exact + random	0.230	1	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact			converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	loose BiCGStab 1e-2			converged	15	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	solver MINRES 1e-2			converged	10	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + fixed G5	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + fixed poly	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + random	0.020	0	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + random	0.020	1	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + random	0.230	0	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	81	exact + random	0.230	1	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact			converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	loose BiCGStab 1e-2			converged	15	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	solver MINRES 1e-2			converged	10	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + fixed G5	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + fixed poly	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + random	0.020	0	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + random	0.020	1	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + random	0.230	0	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	91	exact + random	0.230	1	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact			converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	loose BiCGStab 1e-2			converged	15	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	solver MINRES 1e-2			converged	10	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + fixed G5	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + fixed poly	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + random	0.020	0	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + random	0.020	1	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + random	0.230	0	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	101	exact + random	0.230	1	converged	19	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact			converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	loose BiCGStab 1e-2			converged	15	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	solver MINRES 1e-2			converged	10	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + fixed G5	0.035		converged	14	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + fixed poly	0.035		converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + random	0.020	0	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + random	0.020	1	converged	13	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + random	0.230	0	converged	20	
+gcr_rescue3/SD16.log	16^4 dynamical	0	4^4	111	exact + random	0.230	1	converged	20	
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	71	exact			stagnated	500	1.05e-10
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	71	solver MINRES 1e-2			converged	12	
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	81	exact			stagnated	500	1.04e-9
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	81	solver MINRES 1e-2			converged	11	
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	91	exact			stagnated	500	7.06e-9
+gcr_blocks12/S12_b3.log	12^4 quenched	1	3^4	91	solver MINRES 1e-2			converged	11	
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	71	exact			converged	23	
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	71	solver MINRES 1e-2			converged	7	
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	81	exact			stagnated	500	6.70e-15
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	81	solver MINRES 1e-2			converged	7	
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	91	exact			converged	20	
+gcr_blocks12/S12_b2.log	12^4 quenched	1	2^4	91	solver MINRES 1e-2			converged	7	
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	71	exact			converged	78	
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	71	exact + fixed G5	0.190		stagnated	300	3.13e-4
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	71	exact + fixed poly	0.190		converged	42	
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	81	exact			converged	85	
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	81	exact + fixed G5	0.190		stagnated	300	1.52e-3
+gcr_rescue3/S24_fixed.log	24^4 quenched	4	4^4	81	exact + fixed poly	0.190		converged	41	
+gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	71	exact + random	0.020	0	converged	87	
+gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	71	exact + random	0.230	0	converged	205	
+gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	81	exact + random	0.020	0	converged	84	
+gcr_rescue3/S24_random.log	24^4 quenched	4	4^4	81	exact + random	0.230	0	converged	198	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	71	exact			converged	24	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	71	solver			converged	13	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	81	exact			converged	21	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	81	solver			converged	12	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	91	exact			converged	23	
+gcr_newconf/S12_000502.log	12^4 quenched config 2	1	4^4	91	solver			converged	12	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	71	exact			converged	20	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	71	solver			converged	10	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	81	exact			converged	18	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	81	solver			converged	10	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	91	exact			converged	18	
+gcr_newconf/S12_000602.log	12^4 quenched config 3	2	4^4	91	solver			converged	10	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	71	exact			stagnated	500	2.41e-5
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	71	solver			converged	84	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	81	exact			stagnated	500	4.62e-5
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	81	solver			converged	94	
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	91	exact			stagnated	500	1.25e-4
+gcr_newconf/S12_000702.log	12^4 quenched config 4	2	4^4	91	solver			converged	86	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	71	exact			converged	25	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	71	solver			converged	13	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	81	exact			converged	24	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	81	solver			converged	12	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	91	exact			converged	25	
+gcr_newconf/S16_000502.log	16^4 quenched config 2	1	4^4	91	solver			converged	13	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	71	exact			converged	29	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	71	solver			converged	11	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	81	exact			converged	30	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	81	solver			converged	11	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	91	exact			converged	31	
+gcr_newconf/S16_000602.log	16^4 quenched config 3	1	4^4	91	solver			converged	11	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	71	exact			converged	27	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	71	solver			converged	12	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	81	exact			converged	29	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	81	solver			converged	12	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	91	exact			converged	25	
+gcr_newconf/S16_000702.log	16^4 quenched config 4	3	4^4	91	solver			converged	12	

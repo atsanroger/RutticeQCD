@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """The figures of the MG note from the data in data/ (python3 figures.py in this directory).
 
-fig_massscan.pdf: the 24^3x48 mass scan, CGNE against the multigrid (A30).
-fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4 (RTX 3080).
-fig_history.pdf: the GCR(2) residual histories on 24^3x48 (A30).
+fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multigrid, the multigrid
+fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4
+fig_history.pdf: the GCR(2) residual histories on 24^3x48
+fig_cgform.pdf: CG iterations on K^dag K and S^dag S and their ratio against the Moebius c, three volumes
 """
 import csv
 import os
@@ -35,46 +36,68 @@ def rows(name):
 
 
 def massscan():
-    data = rows("massscan_24.tsv")
-    fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.4), sharex=True)
+    data = rows("massscan_24_configs.tsv")
+    nomg = rows("baseline_mass_2448.tsv")
+    masses = sorted({float(r["mass"]) for r in data})
+    fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.8), sharex=True)
+
+    def band(setup, solver, alpha, value):
+        """Mean over the configurations and the distance to the smallest and largest value."""
+        mean, lo, hi = [], [], []
+        for m in masses:
+            v = [value(r) for r in data if r["setup"] == setup and r["solver"] == solver
+                 and r["alpha"] == alpha and float(r["mass"]) == m]
+            mu = sum(v) / len(v)
+            mean.append(mu)
+            lo.append(mu - min(v))
+            hi.append(max(v) - mu)
+        return mean, [lo, hi]
+
+    its = lambda r: int(r["iterations"])
+    secs = lambda r: float(r["solve_s"])
     for col, setup in enumerate("SB"):
-        sel = lambda solver, alpha: sorted(
-            (float(r["mass"]), r) for r in data
-            if r["setup"] == setup and r["solver"] == solver and r["alpha"] == alpha)
-        cg, mg, mg1 = sel("CGNE", "0.6"), sel("MG", "0.6"), sel("MG", "1.0")
-        mx = sel("CGNE_mixed", "0.6")
-        m = [x for x, _ in cg]
-        ax = axes[0, col]
-        ax.loglog(m, [int(r["iterations"]) for _, r in cg], "o-", color="C3", label="CGNE")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mx], "o--", color="C3", alpha=0.6,
-                  label="CGNE, mixed")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mg], "s-", color="C0",
-                  label=r"MG, $\alpha=0.6$")
-        ax.loglog(m, [int(r["iterations"]) for _, r in mg1], "^--", color="C0", alpha=0.6,
-                  label=r"MG, $\alpha=1$")
-        ax.set_title(NAMES[setup], fontsize=9)
-        if col == 0:
-            ax.set_ylabel("iterations")
-            ax.legend(loc="upper left", frameon=False)
-        ax.grid(True, which="both", alpha=0.25)
-        ax = axes[1, col]
-        ax.loglog(m, [float(r["solve_s"]) for _, r in cg], "o-", color="C3", label="CGNE")
-        ax.loglog(m, [float(r["solve_s"]) for _, r in mx], "o--", color="C3", alpha=0.6,
-                  label="CGNE, mixed")
-        ax.loglog(m, [float(r["solve_s"]) for _, r in mg], "s-", color="C0",
-                  label="MG, solve")
-        ax.loglog(m, [float(r["solve_s"]) + float(r["setup_s"]) / 12 for _, r in mg], "s:",
-                  color="C0", alpha=0.7, label="MG, solve + setup/12")
-        ax.loglog(m, [float(r["solve_s"]) + float(r["setup_s"]) for _, r in mg], "s:",
-                  color="C7", alpha=0.7, label="MG, solve + setup")
-        ax.set_xlabel(r"quark mass $m$")
-        if col == 0:
-            ax.set_ylabel("seconds per right-hand side")
-        ax.grid(True, which="both", alpha=0.25)
+        other = lambda method: sorted(
+            (float(r["mass"]), r) for r in nomg if r["setup"] == setup and r["method"] == method)
+        bi, ch = other("bicg"), other("cheb")
+        for row, (value, ylabel) in enumerate([(its, "iterations"), (secs, "seconds per right-hand side")]):
+            ax = axes[row, col]
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            for solver, alpha, fmt, color, a, lab in [
+                    ("CGNE", "0.6", "o-", "C3", 1.0, "CGNE"),
+                    ("CGNE_mixed", "0.6", "o--", "C3", 0.6, "CGNE, mixed"),
+                    ("MG", "0.6", "s-", "C0", 1.0, r"MG, $\alpha=0.6$" if row == 0 else "MG, solve"),
+                    ("MG", "1.0", "^--", "C0", 0.6, r"MG, $\alpha=1$")]:
+                if row == 1 and alpha == "1.0":
+                    continue
+                y, err = band(setup, solver, alpha, value)
+                ax.errorbar(masses, y, yerr=err, fmt=fmt, color=color, alpha=a, capsize=2, label=lab)
+            col_bi = [float(r["iterations"]) if row == 0 else float(r["solve_s"]) for _, r in bi]
+            col_ch = [float(r["iterations"]) if row == 0 else float(r["solve_s"]) for _, r in ch]
+            ax.plot([x for x, _ in bi], col_bi, "D-", color="C2", label=r"BiCGStab on $\tilde A_L$")
+            ax.plot([x for x, _ in ch], col_ch, "v-", color="C4", label="GCR(2), Chebyshev")
+            if row == 1:
+                y, _ = band(setup, "MG", "0.6", lambda r: float(r["solve_s"]) + float(r["setup_s"]) / 12)
+                ax.plot(masses, y, "s:", color="C0", alpha=0.7, label="MG, solve + setup/12")
+                y, _ = band(setup, "MG", "0.6", lambda r: float(r["solve_s"]) + float(r["setup_s"]))
+                ax.plot(masses, y, "s:", color="C7", alpha=0.7, label="MG, solve + setup")
+                ax.set_xlabel(r"quark mass $m$")
+            else:
+                ax.set_title(NAMES[setup], fontsize=9)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+            ax.set_xticks(masses)
+            ax.set_xticklabels([f"{m:g}" for m in masses], fontsize=6.5)
+            ax.minorticks_off()
+            ax.grid(True, which="major", alpha=0.25)
     axes[0, 0].invert_xaxis()
     handles, labels = axes[1, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=3, frameon=False)
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    h_top, l_top = axes[0, 0].get_legend_handles_labels()
+    extra = [(h, l) for h, l in zip(h_top, l_top) if l not in labels and "0.6" not in l]
+    handles += [h for h, _ in extra]
+    labels += [l for _, l in extra]
+    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(os.path.join(HERE, "fig_massscan.pdf"))
 
 
@@ -142,7 +165,47 @@ def history():
     fig.savefig(os.path.join(HERE, "fig_history.pdf"))
 
 
+def cgform():
+    data = rows("cgne_form.tsv")
+    it = {(r["volume"], r["setup"], float(r["c"]), r["alpha"], r["operator"]): int(r["iterations"])
+          for r in data}
+    vols = {"12^4": ("C0", "o", r"$12^4$"), "16^4": ("C1", "s", r"$16^4$"),
+            "24^3x48": ("C2", "^", r"$24^3\times48$")}
+    names = {"K_dag_K": r"$\mathcal{K}^\dagger\mathcal{K}$", "S_dag_S": r"$S^\dagger S$"}
+    fig, axes = plt.subplots(4, 2, figsize=(6.6, 10.4), sharex=True)
+    for blk, a in enumerate(("1.0", "0.6")):
+        for col, setup in enumerate("SB"):
+            top, bot = axes[2 * blk, col], axes[2 * blk + 1, col]
+            for vol, (color, mk, lab) in vols.items():
+                sel = lambda op: sorted((c, n) for (v, s, c, al, o), n in it.items()
+                                        if v == vol and s == setup and al == a and o == op)
+                for op, ls in (("K_dag_K", "-"), ("S_dag_S", "--")):
+                    pts = sel(op)
+                    top.semilogy([c for c, _ in pts], [n for _, n in pts], mk + ls, color=color,
+                                 mfc=color if op == "K_dag_K" else "none", label=lab + ", " + names[op])
+                k, sq = dict(sel("K_dag_K")), dict(sel("S_dag_S"))
+                cs = sorted(k)
+                bot.plot(cs, [sq[c] / k[c] for c in cs], mk + "-", color=color, label=lab)
+            bot.axhline(1, color="k", lw=0.5, ls=":")
+            top.set_title(NAMES[setup] + rf", $\alpha={float(a):g}$", fontsize=9)
+            for ax in (top, bot):
+                ax.grid(True, which="both", alpha=0.25)
+        for r in (2 * blk, 2 * blk + 1):
+            lo = min(ax.get_ylim()[0] for ax in axes[r]); hi = max(ax.get_ylim()[1] for ax in axes[r])
+            for ax in axes[r]:
+                ax.set_ylim(lo, hi)
+        axes[2 * blk, 0].set_ylabel("CG iterations")
+        axes[2 * blk + 1, 0].set_ylabel(r"$S^\dagger S$ / $\mathcal{K}^\dagger\mathcal{K}$")
+    for ax in axes[-1]:
+        ax.set_xlabel(r"Möbius $c$ ($b=1+c$)")
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1.0])
+    h, l = axes[0, 1].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=3, frameon=False, fontsize=7)
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    fig.savefig(os.path.join(HERE, "fig_cgform.pdf"))
+
 if __name__ == "__main__":
     massscan()
     spectrum()
     history()
+    cgform()
