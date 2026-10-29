@@ -8,6 +8,7 @@
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{verbatim}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{tikz}
@@ -1328,8 +1329,7 @@ the multigrid iterations on four $24^3\times48$ configurations grow by
 a factor of $1.6$--$4.1$ from $m=0.1$ to $m=0.001$, against $18$--$27$ for mixed-precision even-odd
 CGNE. At $m=0.001$ a solve is faster than with mixed-precision CGNE from $24^4$ on, by $2.9$--$6.0$
 on $24^3\times48$, and a
-point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$ and
-the solves with $D\dg$. The field of values of the preconditioned
+point-source propagator takes half the time, setup included. One setup serves Neff's $\alpha$. The field of values of the preconditioned
 operator reaches into the left half-plane; its spectrum and pseudospectra account for the
 convergence.
 
@@ -1338,7 +1338,15 @@ and the pseudospectra), volumes up to $24^3\times48$, and CGNE as the only refer
 implementation, larger volumes, and the use in HMC are the next steps (Sec.~\ref{sec:open}). For propagators,
 applying the coarse operators and the transfer to the 12 columns of a point source together would
 raise their intensity from about one flop per byte to about ten, as for Wilson-clover
-multigrid~\cite{Grebe}; a solve in HMC, with one right-hand side, would not gain from it.
+multigrid~\cite{Grebe}. Because batching multiple right-hand sides substantially increases device
+memory usage, we will treat the batch size as an optional parameter to balance memory footprint and
+solve time. Finally, for the $D\dg$ solves required by HMC at $c\neq0$, we compared several
+candidate constructions---including the dual cycle of $\AR\dg$, the exact map through $D_-^{-1}$,
+and enlarged or separate prolongations---and found that the cheapest option, wrapping the unchanged
+cycle of $D$ in $\Gfive$ with no second setup or extra coarse operators, works best and costs only
+two to three iterations more than solving with $D$. Although HMC itself is not implemented here,
+this lays the groundwork for fast force evaluations and, together with tuning the multigrid
+parameters, will be the next stage of our study.
 
 \paragraph{Code.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{BridgeUeda,Bridge} in Rust
@@ -1395,7 +1403,9 @@ Sec.~\ref{sec:dagger}, is also lacking.
 \item \textbf{Formulations and coarse spaces.} The comparison here is with CGNE. How the two
 nine-point factors compare with the $81$-point HDCG operator and with the $33$-point coarsening of
 $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all of them in one
-code on the same lattices. The same holds for the full-lattice $A'$ against the even-odd system.
+code on the same lattices. 
+\begin{comment}
+The same holds for the full-lattice $A'$ against the even-odd system.
 Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction
 and attributed it to the eigenvectors of the red-black operator and of $\gamma_5RD$ not being
 aligned; here the
@@ -1403,9 +1413,7 @@ smoother and the correction both approximate $\tilde A^{-1}$, so that mismatch i
 construction, but whether the even-odd system is preferable to the full-lattice $A'$ for this method has not been tested. Finally, $\Pro$ and the coarse operators are those of the plain $D$ and $\Dpv$;
 whether a $\Pro$ built from the near-null vectors of $D^{(\alpha)}$, $Q^{-1}$ times those of $D$,
 helps the left form with $\alpha$ is untested.
-\item \textbf{HMC.} In HMC the setup is renewed as the gauge field changes, and each force
-evaluation needs one solve with $D$ and one with $D\dg$. Its cost there, on a dynamical ensemble on which CG
-needs many iterations, is left for future work.
+\end{comment}
 \end{enumerate}
 \else
 The following questions of theory and algorithm remain open.
