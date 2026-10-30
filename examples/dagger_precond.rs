@@ -137,10 +137,20 @@ mod device {
         let m5: f64 = args[3].parse()?;
         let smear = args[4] == "1";
         let quark = value("--mass", 0.01)?;
+        let tikhonov = value("--tikhonov", 0.0)?;
         let cycle = PvEoParams {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 10.0)?,
             ..PvEoParams::default()
+        };
+        // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g (CoarseKrylov::Cg).
+        let cycle = match tikhonov > 0.0 {
+            true => PvEoParams {
+                pv_solver: CoarseKrylov::Cg,
+                pv_tikhonov: tikhonov,
+                ..cycle
+            },
+            false => cycle,
         };
         let dual = PvEoParams {
             pv_solver: CoarseKrylov::BiCgStab,

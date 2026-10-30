@@ -200,10 +200,21 @@ mod device {
         let (d, pv) = (&d, &pv);
         let even = DeviceSpinor::<f64>::shape_half(&lat, 8, Parity::Even)?;
         let odd = DeviceSpinor::<f64>::shape_half(&lat, 8, Parity::Odd)?;
+        let tikhonov = value("--tikhonov", 0.0)?;
         let cycle = PvEoParams {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 30.0)?,
             ..PvEoParams::default()
+        };
+        // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g in the setup and in the
+        // exact cycle (CoarseKrylov::Cg), as the solver with Coarse_Solver_PV: CG.
+        let cycle = match tikhonov > 0.0 {
+            true => PvEoParams {
+                pv_solver: CoarseKrylov::Cg,
+                pv_tikhonov: tikhonov,
+                ..cycle
+            },
+            false => cycle,
         };
         // The test vectors as the solver makes them, P from them in half precision.
         let index = EvenOddIndex::new(&lat);
@@ -227,7 +238,10 @@ mod device {
         let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &y, true)?);
         drop(y);
         let exact = PvEoParams {
-            pv_solver: CoarseKrylov::BiCgStab,
+            pv_solver: match tikhonov > 0.0 {
+                true => CoarseKrylov::Cg,
+                false => CoarseKrylov::BiCgStab,
+            },
             coarse_tolerance_sqr: coarse,
             pv_tolerance_sqr: coarse,
             coarse_max_iterations: 20_000,
