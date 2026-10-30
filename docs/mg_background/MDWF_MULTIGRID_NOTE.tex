@@ -1260,7 +1260,9 @@ residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) ($13$--$222$ 
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
 were tested on $16^4$ but not on $24^4$. Why stout smearing gives the Galerkin
 Pauli--Villars factor singular values far below those of the fine operator
-(Sec.~\ref{sec:pvcoarse}) is not understood. A safeguard that changes the
+(Sec.~\ref{sec:pvcoarse}) is not understood. The field of values of the fine $\Dpv$ contains the
+origin with and without smearing; smearing moves its left end from $-0.65$ to $-1.2$ on $12^4$
+(and $-1.2$ on $16^4$, where no setup is slow), so the field of values alone does not decide it. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
