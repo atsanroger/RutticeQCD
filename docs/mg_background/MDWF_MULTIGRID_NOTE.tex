@@ -205,89 +205,65 @@ coarse operators $\hat D$ and $\hat D_{\rm PV}$, both nearest-neighbor, and the 
 solves $\hat D_{\rm PV}\dg\hat D\,\hat e=\hat r$. They tested Shamir fermions in the
 two-dimensional Schwinger model.
 \end{itemize}
-Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions and found that on large volumes HDCR was set up and solved faster than a single even-odd CG solve. They also carried the
-Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. On a $16^3\times32$
-Shamir configuration at $m=0.001$ it needed $0.43$--$0.60$ of the fine-matrix applications of red-black
-CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, setup excluded,
-double precision, one Iwasaki 2+1-flavor configuration). They gave three reasons. Red-black CG,
-not the full-lattice solve, is the relevant baseline. The coarse space keeps a fifth dimension of
-extent $L_s$, so its cost removes the gain. And reducing that cost would need further levels or
-coarse deflation, which the PV method did not have. Two further findings matter here.
-First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
-four-dimensional sites) needed fewer iterations
-than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this work the order is reversed
-(Appendix~\ref{sec:cgform}).\fi{} Second, an even-odd
-smoother did not work with the HDCR correction, which they attributed to eigenvectors that are not aligned.
+Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions; on large volumes HDCR
+was set up and solved faster than a single even-odd CG solve. They also carried the
+Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD, where it needed about half the
+fine-matrix applications of red-black CG but $18$--$31$ times its solve time. They gave three
+reasons. Red-black CG, not the full-lattice solve, is the relevant baseline. The coarse space keeps
+a fifth dimension of extent $L_s$, so its cost removes the gain. And reducing that cost would need
+further levels or coarse deflation, which the PV method did not have. They also found that CG
+converges faster on the Schur complement than on its left-preconditioned form\ifresults{} (for the
+M\"obius setups of this work the order is reversed, Appendix~\ref{sec:cgform})\fi, and that an
+even-odd smoother did not work with the HDCR correction.
 
 \paragraph{Recent work by Boyle and collaborators.}
 The multiple right-hand-side HDCG of Ref.~\cite{BoyleMRHS} solves the normal equation of the
-even-odd operator with a two-level conjugate gradient. Its coarse space is spanned by blocked
-low modes from Chebyshev filters. Treating many right-hand sides at once makes the coarse space
-cheap, and gains of up to twenty over even-odd CG are reported at physical quark mass. In a
-Lattice~2026 talk, Boyle and Oare~\cite{BoyleOare} aim at a cheaper coarse operator and at solves
-on a new gauge field, as in HMC. They coarsen the two-hop operator $\Dpv\dg D$, which gives a
-$33$-point stencil. They stressed that $\Dpv\dg D$ is non-normal: its field of
+even-odd operator with a two-level CG whose coarse space is spanned by blocked low modes. Treating
+many right-hand sides at once makes the coarse space cheap, with gains of up to twenty over
+even-odd CG at physical quark mass. Boyle and Oare~\cite{BoyleOare} coarsen the two-hop operator
+$\Dpv\dg D$, a $33$-point stencil, aiming at solves on a new gauge field as in HMC. Its field of
 values can reach the left half-plane although its spectrum does not, so the GCR bound of
-Eisenstat, Elman and Schultz~\cite{ESS} is lost. They added a shift to the smoothers. On a
-$48^3\times96$ lattice at the physical quark mass, a further coarse level inverted densely gave
-$578$ fine-matrix applications, against $1100$ for HDCG and $26500$ for red-black CG.
+Eisenstat, Elman and Schultz~\cite{ESS} is lost; they add a shift to the smoothers. On
+$48^3\times96$ at the physical quark mass they report $578$ fine-matrix applications, against
+$26500$ for red-black CG.
 
 \paragraph{Setup cost in ensemble generation.}
-A multigrid setup is paid once per gauge field. This is affordable for propagators but not for
-HMC, where the field changes at every step. Eick and Mawhinney~\cite{EickMawhinney} avoid the
-setup by renormalization-group blocking: a fine M\"obius ensemble is blocked to a coarse lattice
-whose domain-wall operator approximates the low modes of the fine one. They find that the
-interpolated correction carries high modes that the fine operator amplifies by four orders of
-magnitude, and they need a Chebyshev low-pass filter of degree $150$--$300$.
+A multigrid setup is paid once per gauge field, which is affordable for propagators but not for
+HMC. Eick and Mawhinney~\cite{EickMawhinney} avoid the setup by blocking a fine M\"obius ensemble
+to a coarse lattice by renormalization-group methods. The interpolated correction then carries
+high modes that the fine operator amplifies by four orders of magnitude, and they remove them with
+a Chebyshev filter of degree $150$--$300$.
 
 \paragraph{The preconditioned operator.}
-Kanamori, Chen and Matsufuru~\cite{KCM2024} examined the spectra of several preconditioned
-M\"obius operators, looking for one local enough for a multigrid. Since the Pauli--Villars mass is
-of the cutoff scale, they tried its block-diagonal part $\Bpv$, whose blocks would be the coarse
-sites, as an approximation of $\Dpv$. With $\Bpv\dg$, however, and also with $\Bpv^{-1}$ applied
-approximately block by block, eigenvalues with negative real part reappear, so the Pauli--Villars
-factor has to be kept whole. Dividing out the site-diagonal part $C$ in addition lowers the high end of the
-spectrum. The resulting operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has all eigenvalues in the
-right half-plane and the smallest condition number among those they studied. Separately, Neff's form of the domain-wall
-matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local factor $Q$ and changes the
-conditioning of the even-odd system.
+Kanamori, Chen and Matsufuru~\cite{KCM2024} looked for a preconditioned M\"obius operator local
+enough for a multigrid. Approximating $\Dpv$ by its block-diagonal part $\Bpv$ brings back
+eigenvalues with negative real part, so the Pauli--Villars factor has to be kept whole. Dividing out
+the site-diagonal part $C$ as well gives $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$, whose eigenvalues all lie
+in the right half-plane, with the smallest condition number among the operators they studied.
+Neff's form of the domain-wall matrix~\cite{Neff,CKMN} rescales the fifth dimension by a site-local
+factor $Q$ and changes the conditioning of the even-odd system.
 
 \paragraph{This work.}
 We construct a two-grid method for $A'$ that takes up the Pauli--Villars route of
-Refs.~\cite{BCHW,BY} and addresses the three reasons of Ref.~\cite{BY} in turn. It is an
-adaptive aggregation multigrid in the sense
-of Refs.~\cite{Brannick,DDalphaAMG,BridgeMG}: the coarse space comes from computed near-null vectors
-cut into aggregates, and the coarse operators are Galerkin projections. First, the outer system is
-the even-odd one, as for red-black CG. Its inverse contains the inverses of the quark operator and the
-adjoint Pauli--Villars operator, with site-local factors and the restriction to the even sites
-between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on all
-lattice sites. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
-four-dimensional and both coarse operators are nearest-neighbor; Ref.~\cite{BCHW} instead coarsens
-the Wilson kernel on each slice of the fifth dimension. Third, levels below the coarse lattice
-with a dense LU at the bottom precondition the quark factor in place of deflation, and the
+Refs.~\cite{BCHW,BY} and addresses the three reasons of Ref.~\cite{BY} in turn. It is an adaptive
+aggregation multigrid~\cite{Brannick,DDalphaAMG,BridgeMG}: the coarse space comes from computed
+near-null vectors cut into aggregates, and the coarse operators are Galerkin projections. First,
+the outer system is the even-odd one, as for red-black CG; its inverse contains the inverses of
+the quark operator and of the adjoint Pauli--Villars operator, and we replace each by a Galerkin
+inverse. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
+four-dimensional and both coarse operators are nearest-neighbor. Third, levels below the coarse
+lattice with a dense LU at the bottom take the place of deflation for the quark factor, and the
 Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized normal equation
-(Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
-non-normal operator. The prolongation lifts these vectors to all lattice sites in
-two ways, one for each coarse solve; for the right form this makes the correction exact on them
-(Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
-with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
-Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap.
+(Sec.~\ref{sec:coarse}). The prolongation lifts each test vector to all lattice sites in two ways,
+one for each coarse solve, which makes the correction exact on them for the right form
+(Eq.~\eqref{eq:exact}). The smoother is a fixed Chebyshev polynomial, and the setup combines
+Chebyshev filtering with a bootstrap.
 
 The second result concerns HMC, which solves with $D\dg$ as often as with $D$. We derive an exact
 relation, Eq.~\eqref{eq:c4}, that makes the multigrid of $D$, placed between two
-$\Gfive=\gamma_5R$, a preconditioner for $D\dg$, with no second setup.\ifresults{} We test the method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd CGNE and single-grid Krylov solvers on $\AL$; a comparison with HDCG and with
-the coarsening of $\Dpv\dg D$ in one implementation is left to future work.\fi
-
-Section~\ref{sec:opsec} recalls the
-spectra the construction rests on and defines the operator, its preconditioning and the even-odd
-forms. Section~\ref{sec:method} gives the two-grid method: the factorized correction, the coarse
-solvers, the setup, the smoother and the outer solver. Section~\ref{sec:dagger} solves with
-$D\dg$.\ifresults{} Section~\ref{sec:results} gives the results: first the cost against CGNE and with $D\dg$,
-then what each part of the method contributes, then why it converges. Section~\ref{sec:summary} sums up.\fi{} Section~\ref{sec:open}
-lists open problems. Appendix~\ref{sec:notation}
-relates our notation to other references, Appendix~\ref{sec:otherprec} shows the spectra of
-other preconditioners\ifresults{}, Appendix~\ref{sec:configs} lists the gauge
-configurations, Appendix~\ref{sec:cgform} describes the reference CG\fi.
+$\Gfive=\gamma_5R$, a preconditioner for $D\dg$, with no second setup.\ifresults{} We test the
+method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd
+CGNE.\fi
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -869,21 +845,10 @@ eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$ and orthonormalize the $+$ parts an
 separately within each block. With $n_v$ test vectors a coarse site then carries $2n_v$
 components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
 
-This split makes $\Pro$ compatible with $\Gfive$, as the chirality split of Wilson
-multigrid~\cite{Babich} makes it compatible with $\gamma_5$. Each column of $\Pro$ is an eigenvector of
-$\Gfive$ with eigenvalue $+1$ or $-1$, so with $\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf
-1_{n_v})$ on each coarse site,
-\begin{equation}
-\Gfive\Pro=\Pro\Sigma .
-\label{eq:GP}
-\end{equation}
-It follows that $\Pro\dg(\Gfive X\Gfive)\Pro=\Sigma\,\Pro\dg X\Pro\,\Sigma$ for any fine operator
-$X$. In particular $\Pro\dg\Dpv\dg\Pro=\Sigma\Dcpv\Sigma$ with $\Dcpv=\Pro\dg\Dpv\Pro$ whenever
-$\Gfive\Dpv\Gfive=\Dpv\dg$, that is for $c=0$.
-
-The split also halves the storage, for any $c$, since it uses only $\Gamma_5$ and no property of $D$. Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$
-reads $v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$. So each part is fixed by its values for $s<L_s/2$, and
-$\Pro$ is stored only there. On the even sites the transfer operators are $\Pro\dg\iota$ and
+As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
+eigenvector of $\Gfive$. Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$ reads
+$v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$. So each part is fixed by its values for $s<L_s/2$, and
+$\Pro$ is stored only there, at half the memory. On the even sites the transfer operators are $\Pro\dg\iota$ and
 $\pi\Pro$.
 
 \subsubsection{The basis \texorpdfstring{$\{s,\hat t\}$}{s, t}}
@@ -1013,8 +978,7 @@ c_o=A_{oo}^{-1}(g_o-B_{oe}c_e),
 \label{eq:coarseeo}
 \end{equation}
 with BiCGStab or truncated flexible GCR, preconditioned by the exact inverses of the diagonal
-blocks $A_{ee}^{-1}$. We need a non-Hermitian Krylov method here: $\Dc$ is not Hermitian, and
-$\Sigma\Dc$ is Hermitian only for $c=0$.
+blocks $A_{ee}^{-1}$.
 BiCGStab~\cite{vanderVorst} is Algorithm~\ref{alg:bicgstab} of Appendix~\ref{sec:cgform}.
 
 \subsubsection{The Pauli--Villars factor}
@@ -1030,7 +994,7 @@ fine $\Dpv$ does not (Sec.~\ref{sec:pvcoarse}).
 \subsubsection{Levels below the coarse lattice}
 The quark factor may be preconditioned by further levels. The coarse sites are
 grouped into super-blocks; on each super-block, local vectors are formed from
-the coarse test vectors $\Pro\dg s_j$ and $\Pro\dg\hat t_j$, split by $\Sigma$
+the coarse test vectors $\Pro\dg s_j$ and $\Pro\dg\hat t_j$, split by chirality
 and orthonormalized (Gram--Schmidt applied twice); the level operators are
 obtained by probing the nearest-neighbor stencil; the last level is inverted
 densely. With $Q_{\ell}$ the prolongation into level $\ell-1$ and $B_\ell$ the
