@@ -294,20 +294,11 @@ longer setup after about $21$ right-hand sides.
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
 
-The Tikhonov shift of Eq.~\eqref{eq:tikhonov} removes the slow setups on $12^4$, and the iterations
-hardly depend on $\tau$. With $\tau=10^{-3}$ all $40$ setups of setup~S (seeds $1$--$10$ on the four
-configurations) need $10$--$17$ iterations, and the $20$ setups of setup~B need $12$--$13$. Seven
-setups that need $70$ to more than $2000$ iterations without the shift need $11$--$18$ for every
-$\tau$ from $10^{-4}$ to $3\times10^{-3}$ (Table~\ref{tab:tikhonov}). The second coarse operator,
-$(\Dcpv)\dg$, raises the device peak on $24^3\times48$ to $21.1$\,GB.
-
-The shift is needed because the Galerkin factor has small singular values that the fine operator
-does not have. On configurations 1 and 4 of $12^4$ with stout smearing, the smallest singular value
-of $\Dcpv$ is $1/42$ and $1/79$ of that of the fine $\Dpv$; without smearing the two agree to within
-$4\%$ (Table~\ref{tab:pvsv}). The exact coarse solve amplifies these directions by the inverse of
-the singular value, and $\|I-\AR E\|$ grows with them (Sec.~\ref{sec:fov}). On $16^4$ the gap is
-smaller ($1/29$ and $1/9$), and no slow setups were found there. Why smearing produces the gap is
-open (Sec.~\ref{sec:open}).
+With the regularized solve no slow setups remain on $12^4$: all $40$ setups of setup~S need
+$10$--$17$ iterations, against $70$ to more than $2000$ for the slow ones without it
+(Table~\ref{tab:tikhonov}). The cause is the Galerkin factor. With stout smearing its smallest
+singular value lies one to two orders of magnitude below that of the fine $\Dpv$; without smearing
+the two agree (Table~\ref{tab:pvsv}).
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}

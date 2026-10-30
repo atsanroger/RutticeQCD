@@ -173,24 +173,24 @@ $\{s\}$ & $32$ & $32$ & $90$ [1] & $32$ & $27$ & $15$ & $28$ & $13$ & $346$, $33
 \begin{table}[t]
 \centering
 \caption{GCR(2) iterations on $\AL$ for seven setups (configuration, seed) of setup~S on $12^4$,
-$m=0.001$, without the shift (BiCGStab on the exact adjoint) and with the Tikhonov-regularized CG of
-Eq.~\eqref{eq:tikhonov} for several $\tau$; otherwise Table~\ref{tab:setups}. n.c.: not converged in
-$2000$ iterations.}
+$m=0.001$: without the shift (BiCGStab on the exact adjoint), with $\tau=10^{-3}$, and the range over
+$\tau=10^{-4}$, $3\times10^{-4}$, $3\times10^{-3}$, $10^{-2}$, $3\times10^{-2}$; otherwise
+Table~\ref{tab:setups}. n.c.: not converged in $2000$ iterations. $^*$One run, $\tau=10^{-2}$:
+$63$.}
 \label{tab:tikhonov}
 \renewcommand{\arraystretch}{1.15}
-\begin{tabular}{@{}lccccccc@{}}
+\begin{tabular}{@{}lccc@{}}
 \toprule
- & no shift & $10^{-4}$ & $3\times10^{-4}$ & $10^{-3}$ & $3\times10^{-3}$ & $10^{-2}$ & $3\times10^{-2}$\\
+ & no shift & $\tau=10^{-3}$ & other $\tau$\\
 \midrule
-1, seed 2 & n.c. & $13$ & $12$ & $15$ & $13$ & $12$ & $11$\\
-1, seed 5 & $70$ & $15$ & $17$ & $14$ & $15$ & $13$ & $19$\\
-1, seed 6 & $270$ & $13$ & $13$ & $14$ & $13$ & $14$ & $13$\\
-2, seed 10 & $106$ & $12$ & $13$ & $12$ & $14$ & $13$ & $12$\\
-3, seed 3 & n.c. & $15$ & $13$ & $13$ & $14$ & $12$ & $13$\\
-3, seed 10 & $204$ & $11$ & $13$ & $13$ & $14$ & $63$ & $13$\\
-4, seed 21 & n.c. & $16$ & $14$ & $18$ & $16$ & $14$ & $15$\\
+1, seed 2 & n.c. & $15$ & $11$--$13$\\
+1, seed 5 & $70$ & $14$ & $13$--$19$\\
+1, seed 6 & $270$ & $14$ & $13$--$14$\\
+2, seed 10 & $106$ & $12$ & $12$--$14$\\
+3, seed 3 & n.c. & $13$ & $12$--$15$\\
+3, seed 10 & $204$ & $13$ & $11$--$14^*$\\
+4, seed 21 & n.c. & $18$ & $14$--$16$\\
 \bottomrule
-\end{tabular}
 \end{table}
 
 \begin{table}[t]

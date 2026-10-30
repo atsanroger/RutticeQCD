@@ -958,8 +958,7 @@ Finally $O_L=\Ce$ gives $e=y$.
 
 \paragraph{In practice.} Equation~\eqref{eq:exact} needs three conditions that hold only
 approximately. The stored $\Pro$ contains $s$ and $\hat t$ only up to the rounding of its
-reduced-precision storage. The Tikhonov shift of Sec.~\ref{sec:coarse} changes the
-Pauli--Villars coarse solve in the directions of its smallest singular values. And we stop the
+reduced-precision storage. And we stop the
 coarse solves at a loose tolerance.\ifresults{} With both
 coarse factors solved on their exact adjoints to $|r|^2/|b|^2<10^{-24}$ in double precision and
 $\Pro$ in half precision, the correction of $r=\AR y_j$ returns $y_j$ to
@@ -1002,7 +1001,7 @@ residual or a maximum number of iterations. Reaching the tolerance is not requir
 solved in sequence: first the Pauli--Villars factor, whose solution enters the right-hand side of
 the quark factor. The default, used for all results unless stated, is BiCGStab on the even-odd
 form of the quark factor and CG on the regularized normal equation~\eqref{eq:tikhonov} of the
-Pauli--Villars factor with $\tau=10^{-3}$, both to $|r|^2/|b|^2<10^{-2}$
+Pauli--Villars factor, both to $|r|^2/|b|^2<10^{-2}$
 (Algorithms~\ref{alg:bicgstab} and~\ref{alg:cgne}, Appendix~\ref{sec:cgform}). This subsection describes these and the alternatives.
 
 \subsubsection{The quark factor}
@@ -1019,31 +1018,14 @@ $\Sigma\Dc$ is Hermitian only for $c=0$.
 BiCGStab~\cite{vanderVorst} is Algorithm~\ref{alg:bicgstab} of Appendix~\ref{sec:cgform}.
 
 \subsubsection{The Pauli--Villars factor}
-The system is $(\Pro\dg\Dpv\dg\Pro)\,w=g$, that is $X w=g$ with $X=(\Dcpv)\dg$. We solve the
-Tikhonov-regularized normal equation
+The system is $Xw=g$ with $X=(\Dcpv)\dg$. We solve the regularized normal equation
 \begin{equation}
-\big(X\dg X+\tau\big)\,w=X\dg g,\qquad X\dg X=\Dcpv(\Dcpv)\dg,
+\big(X\dg X+\tau\big)\,w=X\dg g
 \label{eq:tikhonov}
 \end{equation}
-by CG on all coarse sites, without a preconditioner. With the singular value decomposition
-$X=\sum_k\sigma_ku_kv_k\dg$ its solution is
-\begin{equation}
-w=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,v_k\,u_k\dg g ,
-\label{eq:tikhonovsol}
-\end{equation}
-against $\sum_k\sigma_k^{-1}v_ku_k\dg g$ for the exact solve. Directions with $\sigma_k^2\gg\tau$
-are solved as before; directions with $\sigma_k^2\lesssim\tau$, which the exact solve amplifies by
-$\sigma_k^{-1}$, are damped. The shift also bounds the condition number of
-Eq.~\eqref{eq:tikhonov} by $1+\sigma_{\max}^2/\tau$.
-
-The regularization is needed because the Galerkin projection can create small singular values that
-the fine operator does not have. With stout smearing the smallest singular value of $\Dcpv$ lies
-one to two orders of magnitude below that of the fine $\Dpv$, and without the shift some setups on
-$12^4$ make GCR(2) slow or stagnant (Sec.~\ref{sec:pvcoarse}). We choose $\tau$ so that
-$\sqrt\tau$ is a small fraction of the smallest singular value of the fine $\Dpv$; the shift then
-leaves the singular values that the fine operator has nearly unchanged. We use $\tau=10^{-3}$,
-$\sqrt\tau\approx0.03$ against $0.25$--$0.53$ for the fine operator in our setups. Each CG step
-applies $\Dcpv$ and $(\Dcpv)\dg$ once.
+by CG on all coarse sites, with $\tau=10^{-3}$. The shift damps only the directions of $X$ whose
+singular values lie below $\sqrt\tau$. The Galerkin factor can have such directions although the
+fine $\Dpv$ does not (Sec.~\ref{sec:pvcoarse}).
 
 \subsubsection{Levels below the coarse lattice}
 The quark factor may be preconditioned by further levels. The coarse sites are
@@ -1378,12 +1360,9 @@ varies from step to step. On $12^4$ in setup~S, GCR(2) with accurate coarse solv
 can reach a residual orthogonal to its new direction and stay there (Sec.~\ref{sec:gcrk}), and on the
 residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) ($13$--$222$ iterations) on $12^4$ in setup~S (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
-were tested on $16^4$ but not on $24^4$. On $12^4$ with stout smearing the Galerkin
-Pauli--Villars factor has singular values far below those of the fine operator, and the coarse
-correction amplifies by $10^3$--$10^5$; without smearing neither happens, and the field of values
-of the cycle stays in the right half-plane, where the bound of Ref.~\cite{ESS} applies. The
-Tikhonov shift removes the slow setups (Sec.~\ref{sec:pvcoarse}), but why smearing produces these
-singular values is not understood. A safeguard that changes the
+were tested on $16^4$ but not on $24^4$. Why stout smearing gives the Galerkin
+Pauli--Villars factor singular values far below those of the fine operator
+(Sec.~\ref{sec:pvcoarse}) is not understood. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
