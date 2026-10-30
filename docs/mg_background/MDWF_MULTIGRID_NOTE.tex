@@ -125,12 +125,11 @@ with a factorized Pauli--Villars coarse correction}
 \begin{abstract}
 Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but inverting
 the M\"obius domain-wall operator suffers from critical slowing down toward the physical
-light-quark mass. While preconditioning with the Pauli–Villars operator successfully moves the spectrum 
-into the right half-plane to enable Krylov methods, previous attempts at a Pauli–Villars multigrid failed 
-to outperform red-black CG due to three structural limitations identified by Boyle and Yamaguchi.
-Kanamori, Chen and Matsufuru showed that preconditioning with the Pauli--Villars operator and dividing out the
-site-diagonal part, $(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves all eigenvalues into the right half-plane
-and compresses the high end of the spectrum. 
+light-quark mass. Kanamori, Chen and Matsufuru showed that preconditioning with the Pauli--Villars operator and
+dividing out the site-diagonal part, $(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves all eigenvalues into the
+right half-plane and compresses the high end of the spectrum, so that Krylov methods apply; earlier
+Pauli--Villars multigrid methods did not outperform red-black CG, for three structural reasons
+identified by Boyle and Yamaguchi.
 
 In this work, we construct a two-grid method for its even-odd form
 in which the quark and Pauli--Villars factors are coarsened separately. 
