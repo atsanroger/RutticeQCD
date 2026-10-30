@@ -1077,11 +1077,12 @@ rebuild $\psi$ as in Sec.~\ref{sec:eo}. The cycle $\mathcal M$ changes from one 
 next, so the outer method must be flexible: FGMRES or flexible GCR (Algorithms~\ref{alg:fgmres}
 and~\ref{alg:gcr}, Appendix~\ref{sec:cgform}), which keep the preconditioned
 directions. The method allows any number $k$ of kept directions, and RutticeQCD takes $k$ from
-its input file (\texttt{number\_of\_kept\_directions}). We use $k=2$ because of memory: each kept
-direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the multigrid with
-GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory.\ifresults{} A larger $k$ changes
-only the outer solver, not the cycle, and on $12^4$ it gives about the same iterations
-(Sec.~\ref{sec:gcrk}).\fi
+its input file (\texttt{number\_of\_kept\_directions}); the largest $k$ that fits in memory is the
+natural choice. Each kept direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the
+multigrid with GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory, so $k=2$ there. For
+solves with $D$ we use $k=2$ on every volume, so that the volumes compare directly.\ifresults{} A
+larger $k$ changes only the outer solver, not the cycle, and on $12^4$ it changes the iterations by at
+most one (Sec.~\ref{sec:gcrk}).\fi
 
 Flexibility alone gives no convergence guarantee. For a fixed $\mathcal M$, restarted or truncated
 methods converge for every restart length if the field of values of $\tilde A\mathcal M$ lies in
