@@ -54,6 +54,8 @@ keyword_enum! {
         DDdag => ["DDdag"],
         /// γ5 D (domain-wall: Γ5 D with Γ5 = γ5 R, Hermitian for c = 0 only).
         H => ["H", "Gamma5D", "g5D"],
+        /// (D + D†)/2: its eigenvalues span the real part of the field of values of D.
+        ReD => ["ReD", "HermitianPart"],
     }
 }
 
@@ -299,7 +301,7 @@ impl EigensolverBlock {
     /// Whether the operator of the mode is Hermitian.
     pub fn hermitian(&self, fopr: &FoprBlock) -> bool {
         match self.fermion_mult_mode {
-            MultMode::DdagD | MultMode::DDdag => true,
+            MultMode::DdagD | MultMode::DDdag | MultMode::ReD => true,
             MultMode::D | MultMode::Ddag => false,
             MultMode::H => !fopr.fermion_type.is_domain_wall() || fopr.coefficient_c == 0.0,
         }

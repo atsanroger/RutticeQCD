@@ -12,7 +12,7 @@ use crate::fermion::{
 use crate::kernel::Dirac;
 use crate::solver::preconditioner::multigrid::random_even;
 use crate::{
-    random_fifth, random_spinor, Adjoint, Comm, Field, Gauge, Half, Lattice, LinearOp, Normal,
+    random_fifth, random_spinor, Adjoint, Comm, Field, Gauge, Half, HermitianPart, Lattice, LinearOp, Normal,
     Parity, Spinor, Vector, C64, ND,
 };
 use std::io::Write;
@@ -36,6 +36,7 @@ fn of_mode<'a, V: Vector + 'a>(
         MultMode::DdagD => Box::new(Normal::new(d, like)),
         MultMode::DDdag => Box::new(Normal::new(Adjoint(d), like)),
         MultMode::H => h.expect("H is refused where it is not defined"),
+        MultMode::ReD => Box::new(HermitianPart::new(d, like)),
     }
 }
 
