@@ -38,40 +38,26 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 \end{tabular}
 \end{table}
 
-The tables behind the figures and the claims of this section are in Appendix~\ref{sec:tables}; Tables~\ref{tab:setups} and~\ref{tab:pointsource} stay here.
-
-\paragraph{Numerical setup.} The gauge configurations are quenched, generated with the
-plaquette gauge action at $\beta=6.0$, which corresponds to a lattice spacing of about $0.1$~fm. The volumes are $12^4$, $16^4$, $24^4$ and $24^3\times48$, with four configurations each
-(Table~\ref{tab:configs}). Tables give means, medians or ranges over the four configurations as stated in their captions;
-the comparison of the two even-odd forms (Appendix~\ref{sec:cgform}), the solvers without the
-multigrid, the spectra and the pseudospectra use configuration~1, except where a caption gives
-the four (Tables~\ref{tab:fov} and~\ref{tab:spectrum}).
-On them two setups of the M\"obius operator are used (Table~\ref{tab:setups}), both with
-$(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD Collaborations, and $L_s=8$.
+\paragraph{Numerical setup.} The quenched configurations use the plaquette action at $\beta=6.0$,
+a lattice spacing of about $0.1$~fm (Table~\ref{tab:configs}). Results are means, medians or
+ranges over the four configurations of each volume as the captions state; the solvers without the
+multigrid and the pseudospectra use configuration~1. The two setups of the M\"obius operator
+(Table~\ref{tab:setups}) share $(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD
+Collaborations, and $L_s=8$.
 \begin{itemize}
-\item \emph{Setup B (bare links).} The domain-wall height $M_5=1.8$ is the value typical of
-practical simulations on unsmeared links, as in the RBC/UKQCD ensembles of
-Ref.~\cite{Arthur2013}: on rough
-fields the lattice artifact of the Wilson kernel shifts the best value of $M_5$ above~$1$.
-\item \emph{Setup S (stout links).} Three steps of the stout smearing of
-Sec.~\ref{sec:smearing} with $\rho=0.1$ are applied to the links of the fermion operator, and $M_5=1.0$ is used, as in the JLQCD
-ensembles of Ref.~\cite{JLQCDBpi} (its supplemental material, which also gives $b+c=2$,
-$b-c=1$); the smearing largely
-suppresses the artifact that shifts the best value of $M_5$ away from $1$.
+\item \emph{Setup B (bare links)} uses $M_5=1.8$, the value typical of simulations on unsmeared
+links~\cite{Arthur2013}.
+\item \emph{Setup S (stout links)} smears the links of the fermion operator (stout, $\rho=0.1$, three
+steps, Sec.~\ref{sec:smearing}) and uses $M_5=1.0$, as in the JLQCD ensembles of
+Ref.~\cite{JLQCDBpi}.
 \end{itemize}
-The quark mass ranges over $m=0.001$--$0.1$, and the Pauli--Villars mass is $1$. Timings are from one NVIDIA data-center GPU with $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only. The device reductions add
-in an order that depends on the build and the GPU, so the iterations of otherwise equal runs can
-differ by a few. The setup seed is $21$ in every run; Sec.~\ref{sec:gcrk} shows how the count depends on it.
-
-\paragraph{What the two setups mean for the multigrid.} The residual breaking of chiral
-symmetry at finite $L_s$ comes from the eigenvalues near zero of the M\"obius kernel
-$H_M=\gamma_5(b+c)W\big(2+(b-c)W\big)^{-1}$~\cite{BNO}, that is from near-zero modes of
-$W=D_W(-M_5)$, which on rough gauge fields come from small dislocations. The two setups keep
-them small in two ways, smoothing the field (S) or moving $M_5$ (B), and so give the
-multigrid low modes of different character. The two setups therefore need different smoother
-intervals $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ (Table~\ref{tab:setups},
-Sec.~\ref{sec:sensitivity}) and reach different lower bounds of the real part of the field of values
-of $\AR$ (Table~\ref{tab:fov}).
+Both keep the near-zero modes of $W=D_W(-M_5)$ small, by moving $M_5$ (B) or by smoothing the
+field (S), and so give the multigrid low modes of different character; they need different
+smoother intervals (Table~\ref{tab:setups}). Timings are from one NVIDIA data-center GPU with
+$24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
+The device reductions add in an order that depends on the build and the
+GPU, so the iterations of otherwise equal runs can differ by a few. The setup seed is $21$ except
+in Sec.~\ref{sec:pvcoarse}.
 
 \subsection{Performance}
 \label{sec:performance}
@@ -79,14 +65,10 @@ of $\AR$ (Table~\ref{tab:fov}).
 \subsubsection{Comparison with CGNE}
 \label{sec:massscan}
 
-We compare the cost of the multigrid with that of the reference solver of
-Sec.~\ref{sec:outer} on $24^3\times48$, first for one random right-hand side over seven masses
-and then for whole point-source propagators. For one right-hand side and with the setup
-excluded, Ref.~\cite{BY} found the Pauli--Villars multigrid an order of magnitude slower than
-red-black CG (Sec.~\ref{sec:intro}). Measured the same way, the present method is the faster
-solver at $m=0.001$ from $24^4$ on (Table~\ref{tab:volume}).
-
-
+On $24^3\times48$ the multigrid is $2.9$--$6.0$ times faster than mixed-precision CGNE at
+$m=0.001$, and its setup is recovered within one point-source propagator for $m\le0.005$. We
+compare first for one random right-hand side over seven masses, then for whole point-source
+propagators.
 
 \begin{figure}[t]
 \centering
@@ -100,41 +82,21 @@ point-source propagator.}
 \label{fig:massscan}
 \end{figure}
 
-\paragraph{Which even-odd CG.} The reference solver is CG on $\mathcal K\dg\mathcal K$,
-$\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
-multigrid. Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$. For the M\"obius setups of this work
-CG on $S\dg S$ needs $21\%$ (B) to $49\%$ (S) more iterations at $m=0.001$ and $\alpha=0.6$ on $24^3\times48$
-(Appendix~\ref{sec:cgform}), and the multigrid is compared with the faster $\mathcal K\dg\mathcal K$.
-
-\paragraph{Mixed-precision CGNE.} For a fair comparison the reference solver also runs in mixed
-precision, CG in single precision with reliable updates in double precision; it needs
-$0.53$--$0.74$ times the time of double precision at the same final residuals
-(Appendix~\ref{sec:cgform}).
+\paragraph{The reference solver.} It is CG on $\mathcal K\dg\mathcal K$, $\mathcal K=\Ce^{-1}S$,
+the even-odd operator of Bridge++, with Neff's $\alpha$ as for the multigrid, in mixed precision.
+Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs $21\%$ (B) to $49\%$ (S) more
+iterations (Appendix~\ref{sec:cgform}).
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
-(Table~\ref{tab:massscan}, Fig.~\ref{fig:massscan}). On the four configurations, from $m=0.1$ to $m=0.001$
-the iterations of the mixed-precision CGNE grow about twentyfold ($18$--$27$), those
-of the multigrid by $1.6$--$4.1$. At $m=0.001$ the multigrid solve is
-$2.9$--$6.0$ times faster than the mixed-precision CGNE, and its setup of
-about $210$\,s is paid back after $3.5$--$5.2$ right-hand sides, within one point-source propagator
-(12 columns) for $m\le0.005$. The lowest factor, $2.9$, is
-configuration~2 in setup~S (Sec.~\ref{sec:gcrk}). For $m\ge0.05$ (S) the
-mixed-precision CGNE is faster or level, and at $m=0.1$ (B) the two take nearly the same time. Against
-double-precision CGNE the solve at $m=0.001$ is $3.9$--$11.4$ times faster
-(Table~\ref{tab:massscancfg}). The
-multigrid needs three times the device memory of CGNE, which on a $24$\,GB GPU excludes
-GCR($k$) with $k\ge8$.
+(Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
+CGNE grow about twentyfold, those of the multigrid by $1.6$--$4.1$. Its setup of about $210$\,s is
+paid back after $3.5$--$5.2$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
+faster or level. The multigrid needs three times the device memory of CGNE.
 
-\paragraph{A point-source propagator.} Whole propagators confirm the break-even estimates
-(Table~\ref{tab:pointsource}). At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall time of the
-mixed-precision CGNE, setup included, and a column is $3.0$--$6.2$ times faster. At $m=0.01$ the
-setup is not quite paid back within the 12 columns, as $N_{\rm rhs}\approx15$--$19$
-(Table~\ref{tab:massscan}) predicts. A point source needs more iterations than a random
-right-hand side, with either solver. The pseudoscalar correlators of the two agree to
-$4\times10^{-8}$--$1\times10^{-6}$ at $t\le3$ (Table~\ref{tab:pointsource}). The
-multigrid stops on the residual of $D$ ($|D\psi-\eta|^2/|\eta|^2=1$--$2\times10^{-18}$), the CGNE
-on that of its normal equation ($6\times10^{-17}$ to $3\times10^{-16}$). The device memory is
-$21.8$\,GB (multigrid) and $9.1$\,GB (mixed-precision CGNE).
+\paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall
+time of CGNE for a whole propagator, setup included (Table~\ref{tab:pointsource}). At $m=0.01$ the
+setup is not quite paid back within the 12 columns. The pseudoscalar correlators of the two solvers
+agree to $1\times10^{-6}$ or better.
 
 \begin{table}[t]
 \centering
@@ -160,14 +122,10 @@ B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $3
 \end{tabular}
 \end{table}
 
-\paragraph{Volume.} Fig.~\ref{fig:volume} follows the solvers from $12^4$ to $24^3\times48$
-at $m=0.001$ on quenched configurations of the same $\beta$. The multigrid iterations stay at
-$12$--$53$, apart from one slow setup on $12^4$, while those of the mixed-precision CGNE grow
-$8$--$16$ times. The multigrid solve is slower than mixed CGNE on $12^4$
-($0.4$--$1.0$ times its speed, the slow setup aside), $1.0$--$2.1$ times faster on $16^4$,
-and $2.9$--$6.0$ times faster from $24^4$ on. Its setup grows with the volume ($6$--$8$\,s on
-$12^4$, $204$--$218$\,s on $24^3\times48$), and so does the number of right-hand sides that recovers it.
-BiCGStab on $\AL$ alone (Sec.~\ref{sec:nomg}) is slower than mixed CGNE on every volume.
+\paragraph{Volume.} The multigrid solve is $1.0$--$2.1$ times as fast as CGNE on $16^4$ and
+$2.9$--$6.0$ times from $24^4$ on; on $12^4$ it is slower (Fig.~\ref{fig:volume},
+Table~\ref{tab:volume}). Its iterations stay at $12$--$53$ from $12^4$ to $24^3\times48$, apart from one
+slow setup on $12^4$, while those of CGNE grow $8$--$16$ times. Its setup grows with the volume.
 
 \begin{figure}[t]
 \centering
@@ -181,16 +139,9 @@ the ranges are in Table~\ref{tab:volume}.}
 
 
 
-\paragraph{Neff's $\alpha$ in the two setups.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves
-CG on $\mathcal K\dg\mathcal K$ $35\%$ (S) and $25\%$ (B) of its iterations (Table~\ref{tab:cgform})
-and the multigrid at most two (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects. Over the
-masses the multigrid saves two to three iterations at every mass in setup~B and, in setup~S, four at
-$m=0.1$ and none from $m=0.02$ down (means over the four configurations, Table~\ref{tab:massscan}). The smoother intervals of
-Table~\ref{tab:setups} locate the difference. In~B the smoother covers
-$[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$, a wide band left to it at every mass, which $\alpha$
-shortens. In~S it covers $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$ and the coarse correction takes
-the rest; at light masses the low modes set the iterations, they are in the coarse space, and
-$\alpha$ has little left to improve. The spectra of the two setups would test this interpretation.
+\paragraph{Neff's $\alpha$.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves CG $25$--$35\%$ of
+its iterations and the multigrid at most two (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo}
+expects.
 
 
 \subsubsection{Solves with $D\dg$}
