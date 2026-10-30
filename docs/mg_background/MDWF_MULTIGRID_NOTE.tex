@@ -137,9 +137,9 @@ Every aggregate contains the whole fifth dimension so that the coarse lattice
 is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
-We also prove that $\Gfive D^{-1}\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the fifth
-dimension) acts as a robust preconditioner for the $D\dg$ solves required in HMC, 
-which bypasses the need for an expensive second multigrid setup. \ifresults{} The field of
+We derive an exact relation, $D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and
+$R$ the reflection of the fifth dimension), which makes $\Gfive D^{-1}\Gfive$ a preconditioner for
+the $D\dg$ solves required in HMC without a second multigrid setup. \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
 $\Re\lambda\ge0.70$, and its pseudospectra account for the convergence. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
@@ -480,7 +480,9 @@ fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating wit
 $\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$,
 and $0$ for $(1,0)$, for a random $b$.\fi
 
-\paragraph{The exact relation.} $D_+$ and $D_-$ are functions of the same $W$ and commute.
+\paragraph{The exact relation.} It is the generalized $\Gfive$-Hermiticity of
+Ref.~\cite{BNO}, Eqs.~(2.22)--(2.23), whose $\Gfive$ contains $D_-^{-1}$; here $\Gfive=\gamma_5R$
+and $D_-$ appears explicitly. $D_+$ and $D_-$ are functions of the same $W$ and commute.
 Where $D_-$ is invertible, factor it out to the left:
 \begin{equation}
 D=D_-\,K_{D},\qquad K_{D}=D_-^{-1}D_+-Y .
