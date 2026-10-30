@@ -1,0 +1,473 @@
+% Tables that support Sec. V (input by MDWF_MULTIGRID_NOTE.tex as Appendix E), in the order Sec. V cites them.
+
+\begin{table}[t]
+\centering
+\caption{Mass scan on $24^3\times48$, means over the four configurations, one random right-hand
+side to $|r|^2/|b|^2<10^{-18}$ on the even-odd system: even-odd CGNE in double and in mixed
+precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
+$\alpha=1$ for the multigrid; iterations, solve time in seconds, coarse-operator
+applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
+multigrid setup ($194$--$237$\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
+MG})$, against the double- and the mixed-precision CGNE. The mixed-precision CGNE
+needs the iterations of the double-precision one within $1\%$, except at $m\le0.002$ (S), where it
+needs up to $30\%$ more. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\times10^{-15}$
+(CGNE, both), $2\times10^{-19}$--$3\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
+(double) and $7.2$\,GB (mixed), MG $20.2$\,GB ($\alpha=0.6$). Table~\ref{tab:massscancfg}
+gives the four configurations at $m=0.001$.}
+\label{tab:massscan}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}l rrr rrr rr rr@{}}
+\toprule
+ & \multicolumn{3}{c}{CGNE} & \multicolumn{3}{c}{MG, $\alpha=0.6$} & \multicolumn{2}{c}{MG, $\alpha=1$} & \multicolumn{2}{c}{$N_{\rm rhs}$}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
+$m$ & it & s & s, mixed & it & s & coarse & it & s & double & mixed\\
+\midrule
+\multicolumn{11}{@{}l}{setup S ($M_5=1.0$, stout)}\\
+$0.1$ & 182 & 5.0 & 2.9 & 14 & 6.1 & 1336 & 18 & 7.4 & --- & ---\\
+$0.05$ & 303 & 8.3 & 4.7 & 13 & 5.2 & 808 & 14 & 5.7 & 63 & ---\\
+$0.02$ & 658 & 17.9 & 9.7 & 14 & 5.6 & 874 & 14 & 5.8 & 16 & 48\\
+$0.01$ & 1174 & 31.9 & 17.1 & 16 & 6.7 & 1168 & 16 & 6.7 & 7.9 & 19\\
+$0.005$ & 2079 & 56.5 & 30.1 & 20 & 8.3 & 1589 & 20 & 8.6 & 4.3 & 9.4\\
+$0.002$ & 3424 & 92.9 & 50.4 & 26 & 11.7 & 2684 & 26 & 12.2 & 2.5 & 5.3\\
+$0.001$ & 3668 & 99.5 & 61.3 & 32 & 15.4 & 4012 & 32 & 15.8 & 2.5 & 4.6\\
+\midrule
+\multicolumn{11}{@{}l}{setup B ($M_5=1.8$)}\\
+$0.1$ & 234 & 6.4 & 3.7 & 7 & 3.2 & 204 & 9 & 4.1 & 65 & 440\\
+$0.05$ & 405 & 11.1 & 6.1 & 10 & 4.6 & 310 & 12 & 5.5 & 32 & 140\\
+$0.02$ & 866 & 23.6 & 12.7 & 13 & 6.0 & 436 & 15 & 6.9 & 12 & 31\\
+$0.01$ & 1481 & 40.2 & 21.5 & 16 & 7.2 & 575 & 17 & 7.9 & 6.3 & 15\\
+$0.005$ & 2354 & 63.9 & 34.0 & 18 & 8.4 & 739 & 20 & 9.5 & 3.8 & 8.3\\
+$0.002$ & 3628 & 98.5 & 52.3 & 22 & 10.3 & 1000 & 24 & 11.6 & 2.4 & 5.1\\
+$0.001$ & 4456 & 120.9 & 64.2 & 24 & 11.5 & 1172 & 26 & 12.6 & 1.9 & 4.0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{The four $24^3\times48$ configurations at $m=0.001$, $\alpha=0.6$ (Table~\ref{tab:massscan}):
+iterations and solve seconds, and the solve time of each CGNE over that of the multigrid.}
+\label{tab:massscancfg}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}cc rr rr rr rr@{}}
+\toprule
+ & & \multicolumn{2}{c}{CGNE, double} & \multicolumn{2}{c}{CGNE, mixed} & \multicolumn{2}{c}{MG} & \multicolumn{2}{c}{speed-up}\\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+setup & config. & it & s & it & s & it & s & double & mixed\\
+\midrule
+S & 1 & 3602 & 98.5 & 4090 & 59.9 & 28 & 13.2 & 7.5 & 4.5\\
+S & 2 & 3785 & 102.5 & 4936 & 76.1 & 53 & 26.0 & 3.9 & 2.9\\
+S & 3 & 3584 & 96.9 & 3622 & 51.9 & 23 & 10.3 & 9.4 & 5.0\\
+S & 4 & 3702 & 100.1 & 3990 & 57.2 & 25 & 12.3 & 8.1 & 4.7\\
+\addlinespace
+B & 1 & 4228 & 115.6 & 4232 & 62.0 & 26 & 12.9 & 9.0 & 4.8\\
+B & 2 & 4955 & 134.1 & 4959 & 70.9 & 25 & 11.8 & 11.4 & 6.0\\
+B & 3 & 4269 & 115.5 & 4276 & 61.1 & 22 & 10.3 & 11.2 & 5.9\\
+B & 4 & 4371 & 118.3 & 4377 & 62.7 & 23 & 10.9 & 10.9 & 5.8\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Iterations and solve seconds at $m=0.001$ against the volume, one random right-hand
+side: ranges over the four configurations; multigrid: plus its mean setup time. BiCGStab:
+configuration~1. The $209$ iterations on $12^4$ (S) are a slow setup of Sec.~\ref{sec:gcrk}.}
+\label{tab:volume}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lllllll@{}}
+\toprule
+ & & & $12^4$ & $16^4$ & $24^4$ & $24^3\times48$\\
+\midrule
+S & CGNE, mixed & it & $234$--$289$ & $358$--$781$ & $1715$--$2657$ & $3622$--$4936$\\
+ & & s & $0.2$ & $0.6$--$1.2$ & $12.5$--$19.4$ & $51.9$--$76.1$\\
+ & BiCGStab on $\AL$ & it & $235$ & $398$ & $1905$ & $3247$\\
+ & & s & $0.4$ & $2.0$ & $49.9$ & $169.5$\\
+ & multigrid & it & $12$--$209$ & $12$--$14$ & $15$--$20$ & $23$--$53$\\
+ & & s & $0.5$--$7.8$ ($+7$) & $0.6$--$0.8$ ($+18$) & $2.9$--$4.4$ ($+96$) & $10.3$--$26.0$ ($+209$)\\
+\midrule
+B & CGNE, mixed & it & $505$--$584$ & $818$--$1249$ & $3388$--$4116$ & $4232$--$4959$\\
+ & & s & $0.3$--$0.4$ & $1.3$--$1.9$ & $24.6$--$29.8$ & $61.1$--$70.9$\\
+ & BiCGStab on $\AL$ & it & $368$ & $663$ & $1909$ & $2085$\\
+ & & s & $0.7$ & $3.4$ & $50.0$ & $108.8$\\
+ & multigrid & it & $13$--$14$ & $14$--$16$ & $22$--$23$ & $22$--$26$\\
+ & & s & $0.4$--$0.5$ ($+6$) & $0.8$--$0.9$ ($+18$) & $5.2$--$5.5$ ($+102$) & $10.3$--$12.9$ ($+213$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Solvers on $24^3\times48$, one random right-hand side, iterations and solve
+seconds (multigrid: plus its setup).}
+\label{tab:nomg}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+ & \multicolumn{2}{c}{setup S} & \multicolumn{2}{c}{setup B}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & $m=0.01$ & $m=0.001$ & $m=0.01$ & $m=0.001$\\
+\midrule
+CGNE, double & $1166$, $31.5$ & $3602$, $97.4$ & $1447$, $39.1$ & $4228$, $114.3$\\
+CGNE, mixed & $1166$, $16.9$ & $4059$, $58.0$ & $1448$, $20.9$ & $4232$, $60.4$\\
+BiCGStab on $\AL$ & $747$, $39.1$ & $3247$, $169.5$ & $672$, $35.1$ & $2085$, $108.8$\\
+GCR(2), Chebyshev & $236$, $51.4$ & $1789$, $389.6$ & $139$, $44.1$ & $430$, $136.3$\\
+multigrid & $15$, $5.8$ ($+198$) & $28$, $12.9$ ($+200$) & $15$, $6.8$ ($+205$) & $26$, $12.3$ ($+208$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR iterations of a solve with $D\dg$ to $|r|^2/|b|^2<10^{-10}$ from one setup of $D$
+(32 test vectors, blocks $4^4$). ``rand'': random right-hand side; ``res'': the residual after
+one sweep of $D\dg D$. Medians over the four configurations, in brackets the number that do not
+converge in $300$ iterations (``stall'': three or four; with two, the range of the other two). One
+inner cycle per step. For comparison, the solve with $D$ takes $7$--$9$ ($16^4$) and $7$--$12$
+($12^4$) iterations on configuration~1.}
+\label{tab:c4}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+ & \multicolumn{4}{c}{$16^4$, $m=0.01$} & \multicolumn{4}{c}{$12^4$, $m=0.001$}\\
+ & \multicolumn{2}{c}{S} & \multicolumn{2}{c}{B} & \multicolumn{2}{c}{S} & \multicolumn{2}{c}{B}\\
+method & rand & res & rand & res & rand & res & rand & res\\
+\midrule
+dual cycle, GCR(2) & 16 & stall & 9 & 13 & stall & stall & 13 & 17\\
+dual cycle, GCR(8) & 10 & 20 [1] & 9 & 12 & stall & stall & 11 & 16\\
+$\Gfive\mathcal M\Gfive$, GCR(2) & 9 & 10 & 11 & 11 & 12--13 [2] & stall & 12 & 14\\
+$\Gfive\mathcal M\Gfive$, GCR(8) & 9 & 10 & 10 & 11 & 11 & 20 & 12 & 12\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations on $\AL$ with $\Pro$ made of different lifts of the vectors $y$,
+$m=0.001$, one random right-hand side; the other parameters as in
+Table~\ref{tab:setups}; setup seconds on $24^3\times48$. $12^4$ and $16^4$: medians over the four
+configurations, in brackets the number that do not converge in $2000$ iterations (``stag.'': three
+or four); $24^3\times48$: configuration~1.}
+\label{tab:basischoice}
+\small
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrr rr rr rr r@{}}
+\toprule
+ & & & \multicolumn{2}{c}{$12^4$} & \multicolumn{2}{c}{$16^4$} & \multicolumn{2}{c}{$24^3\times48$} & setup (s)\\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+lifts & $y$ & columns & S & B & S & B & S & B & S, B\\
+\midrule
+$\{s,\hat t\}$ & $16$ & $32$ & $14$ & $14$ & $13$ & $15$ & $28$ & $26$ & $196$, $211$\\
+$\{s,Ds\}$ & $16$ & $32$ & stag. & $30$ & stag. & $22$ & $148$ & $30$ & $193$, $207$\\
+$\{s\}$ & $16$ & $16$ & stag. & $31$ & stag. & $22$ & stag. & $32$ & $143$, $153$\\
+$\{s\}$ & $32$ & $32$ & $90$ [1] & $32$ & $27$ & $15$ & $28$ & $13$ & $346$, $337$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{$\delta(v)=\|\Sigma X\Sigma v-X\dg v\|/\|X\dg v\|$ for the coarse operators
+$X=\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\Pro$, $X\dg$ the exact adjoint, $\Sigma$ the coarse
+$\Gfive$; $b-c=1$ throughout (as usual for M\"obius fermions), $L_s=8$, $m=0.001$ ($4^3\times8$: $m=0.05$, $2^4$ aggregates, 32 coarse
+components; $12^4$: $4^4$, 64). Random $v$ (four) and the right singular vectors of the four
+smallest singular values; on $12^4$ ranges over the four configurations (mean of the four
+random $v$ per configuration). $^*$Lanczos on $X\dg X$ not converged in 2000 restarts on some or all
+configurations (the low end of $\Dc$ is crowded): approximate vectors.}
+\label{tab:herm}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{$\Pro\dg D\Pro$} & \multicolumn{2}{c}{$\Pro\dg\Dpv\Pro$}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & random & low & random & low\\
+\midrule
+$4^3\times8$, $M_5=1$, $(b,c)=(1,0)$ & $3.8\times10^{-16}$ & $9\times10^{-16}$ & $4.0\times10^{-16}$ & $9\times10^{-16}$\\
+$4^3\times8$, $M_5=1$, $(b,c)=(1.5,0.5)$ & $0.041$ & $0.065$--$0.074$ & $0.050$ & $0.090$--$0.095$\\
+$12^4$ S, $(b,c)=(1.25,0.25)$ & $0.012$--$0.014$ & $0.035$--$0.054^*$ & $0.030$--$0.033$ & $0.023$--$0.037$\\
+$12^4$ S, $(b,c)=(1.5,0.5)$ & $0.023$--$0.027$ & $0.065$--$0.110^*$ & $0.053$--$0.065$ & $0.040$--$0.076$\\
+$12^4$ B, $(b,c)=(1.5,0.5)$ & $0.031$--$0.032$ & $0.113$--$0.132^*$ & $0.056$--$0.057$ & $0.052$--$0.067$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations (coarse applications) with the Pauli--Villars factor solved
+by MINRES on $\Hc$, which assumes $\delta=0$, or by BiCGStab on the exact adjoint, both to
+$10^{-2}$; $12^4$, $m=0.001$, $\AL$, otherwise Table~\ref{tab:setups}. Medians over the four
+configurations, in brackets the number that do not converge in $2000$ iterations.}
+\label{tab:minres}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{$c=0.5$, $b=1.5$} & \multicolumn{2}{c}{$c=0$, $b=1$}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & MINRES & BiCGStab & MINRES & BiCGStab\\
+\midrule
+setup S & $14$ ($3308$) & $628$ [1] ($383020$) & $13$ ($2665$) & $25$ ($7329$)\\
+setup B & $14$ ($2140$) & $19$ ($3262$) & $15$ ($1602$) & $29$ ($3078$)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations when one parameter of Table~\ref{tab:setups} is changed,
+$12^4$, $m=0.001$, $\AL$, one random right-hand side: medians over the four configurations, in
+brackets the number of configurations that do not converge in 1000 iterations (``stag.'': three
+or four). Base: $14$ in both setups (Sec.~\ref{sec:setups}); configuration~4 has the slow setup of
+Sec.~\ref{sec:gcrk}. Setup times (medians, seconds) where they change much.}
+\label{tab:sensitivity}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lll@{}}
+\toprule
+change & setup S & setup B\\
+\midrule
+aggregates $2^4$ / $3^4$ / $6^4$ & $8$ ($19$\,s) / $12$ / $38$ [1] & $9$ ($12$\,s) / $11$ / $20$\\
+test vectors $8$ / $16$ / $24$ / $48$ & stag. / $26$ [1] / $18$ / $10$ ($16$\,s) & $187$ [1] / $19$ / $16$ / $11$ ($12$\,s)\\
+smoother $\nu=4$ / $6$ / $8$ / $12$ / $16$ & $30$ / $16$ / $14$ / $12$ / $9$ & stag. / $81$ [1] / $26$ / $14$ / $13$\\
+interval $\kappa_s=5$ / $10$ / $30$ / $100$ & $18$ / $14$ / stag. / stag. & stag. / $27$ / $14$ / stag.\\
+coarse solves $10^{-1}$ / $10^{-2}$ / $10^{-4}$ / $10^{-8}$ & $25$ [1] / $14$ / $18$ [1] / stag. & $18$ / $14$ / $16$ / $17$\\
+bootstrap rounds $0$ / $1$ / $2$ / $3$ & stag. / $32$ [1] / $14$ / $18$ & $228$ / $40$ [1] / $14$ / $13$\\
+right form $\AR$ & $12$ & $14$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{The changes of Table~\ref{tab:sensitivity} that move the cost, with timings:
+iterations / setup seconds / solve seconds, medians over the four configurations as in
+Table~\ref{tab:sensitivity}. $12^4$, $m=0.001$, $\AL$, GCR(2), one random right-hand side.}
+\label{tab:costs}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+change & setup S & setup B\\
+\midrule
+base & $14$ / $7$ / $0.5$ & $14$ / $6.5$ / $0.5$\\
+aggregates $2^4$ & $8$ / $19$ / $1.4$ & $9$ / $12$ / $1.2$\\
+aggregates $3^4$ & $12$ / $8$ / $0.5$ & $11$ / $7$ / $0.4$\\
+aggregates $6^4$ & $38$ [1] / $7$ / $1.1$ & $20$ / $7$ / $0.5$\\
+test vectors $16$ & $26$ [1] / $4$ / $0.6$ & $19$ / $4$ / $0.5$\\
+test vectors $24$ & $18$ / $5.5$ / $0.5$ & $16$ / $5.5$ / $0.4$\\
+test vectors $48$ & $10$ / $16$ / $0.7$ & $11$ / $12$ / $0.8$\\
+smoother $\nu=4$ & $30$ / $8$ / $1.2$ & stag.\\
+smoother $\nu=6$ & $16$ / $7$ / $0.6$ & $81$ [1] / $6$ / $2.6$\\
+smoother $\nu=12$ & $12$ / $7.5$ / $0.6$ & (base)\\
+smoother $\nu=16$ & $9$ / $8$ / $0.5$ & $13$ / $7$ / $0.5$\\
+bootstrap rounds $1$ & $32$ [1] / $4$ / $1.1$ & $40$ [1] / $4$ / $0.9$\\
+bootstrap rounds $3$ & $18$ / $9.5$ / $0.7$ & $13$ / $9$ / $0.5$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Real part of the field of values $W(X)$ and $\|I-X\|_2$ for $X=\AR\mathcal S$,
+$\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
+aggregates, 8 filtered low modes), $m=0.001$ otherwise, with the multigrid of the
+mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
+but no levels below the coarse lattice.
+Rows ``4 configs.'' and ``no smearing'': ranges over the four $12^4$ configurations, $M_5=1$;
+other rows configuration~1. On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
+there the field of values of $\AR\mathcal M$ did not settle (the two dimensions differ
+by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
+\label{tab:fov}
+\renewcommand{\arraystretch}{1.15}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & $\Re W(\AR)$ & $\|I-\AR\mathcal S\|$ & $\|I-\AR E\|$ & $\Re W(\AR\mathcal M)$ & $\|I-\AR\mathcal M\|$\\
+\midrule
+$4^3\times8$, $M_5=1$ & $[-5.0\times10^{-3},2.26]$ & & $18.5$ & $[0.772,1.222]$ & \\
+$12^4$ S & $[-4.59\times10^{-3},1.98]$ & $1.018$ & $1.94\times10^4$ & $[-23.9,30.8]$ & $54.8$\\
+$12^4$ S, 4 configs. & $\ge-0.013$ & $1.02$--$1.13$ & $5\times10^3$--$3\times10^5$ & $\ge-324$ & $15$--$722$\\
+$12^4$ S, no smearing & $\ge-0.011$ & $1.07$--$1.08$ & $64$--$84$ & $[0.23,2.62]$ & $1.5$--$2.0$\\
+$12^4$ B & $[-5.02\times10^{-2},4.46]$ & $1.112$ & $2.86\times10^3$ & $[-1.49,4.17]$ & $5.64$\\
+$16^4$ S & & & $1.54\times10^4$ & $[-15.6,27.1]$ & \\
+$16^4$ B & & & $2.5\times10^3$ & $[-1.42,4.27]$ & \\
+$24^4$ S & $[-1.31\times10^{-2},1.98]$ & & & & \\
+$24^4$ B & $[-5.08\times10^{-2},4.48]$ & & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Eigenvalues of $\tilde A\mathcal M$ (exact coarse solves) by Krylov--Schur:
+the smallest real part, the condition numbers $\kappa=1/|y\dg x|$ of the six
+eigenvalues of smallest real part (left eigenvectors from $\mathcal M\dg\tilde A\dg$),
+the eigenvalues farthest from $1$ with their $\kappa$, and the radius about $1$ of
+the disc that holds all the others. $m=0.001$. On $16^4$ the smallest real part and $\kappa$ are
+ranges over the four configurations, the outliers and the radius are those of configuration~1.}
+\label{tab:spectrum}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & $\min\Re\lambda$ & $\kappa$ (6 lowest) & outliers ($\kappa$) & others: $|\lambda-1|\le$\\
+\midrule
+$4^3\times8$, $m=0.05$, R & $0.857$ & $2$--$4$ & & \\
+$4^3\times8$, $m=0.05$, L & $0.854$ & $2.8$ & & $0.156$ (Ritz)\\
+$12^4$ S, R & $0.868$ & $6.3$--$14.5$ & $5.86+0.86i$ ($11.2$) & $0.434$\\
+$12^4$ S, L & $0.861$ & $7.2$--$26.2$ & $5.40+0.89i$ ($13.9$) & $0.455$\\
+$12^4$ B, R & $0.831$ & $9.4$--$20.3$ & & $0.753$\\
+$12^4$ B, L & $0.830$ & & & $0.747$\\
+$16^4$ S, R & $0.700$--$0.794$ & $3.6$--$22.8$ & \begin{tabular}[t]{@{}c@{}}$10.63+0.19i$ ($4.38$)\\ $3.13+0.02i$ ($4.74$)\end{tabular} & $0.474$\\
+$16^4$ B, R & $0.698$--$0.783$ & $9.5$--$42.9$ & & $0.840$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{$\min_\Gamma\sigma_{\min}(z-\AR\mathcal M)$ on circles $|z-c|=r$ (16 points
+each, or the number given), and the bound~\eqref{eq:pseudobound} or~\eqref{eq:outlierbound}:
+the factor per iteration $r/c$, the constant, and the iterations it guarantees for
+$\|r_k\|/\|r_0\|<10^{-9}$. For the dense circles $\varepsilon$ is the lower bound
+$\min_i\sigma_{\min}(z_i)-h/2$ on the whole circle, $h$ the spacing of the points
+($\sigma_{\min}$ is $1$-Lipschitz in $z$); otherwise the smallest sampled value. Lanczos
+to $10^{-3}$ relative in $\sigma^2$.}
+\label{tab:pseudo}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & $c$ & $r$ & $\min\sigma_{\min}$ & $r/c$ & constant & $k$ for $10^{-9}$\\
+\midrule
+$12^4$ S & $1$ & $0.6$ & $0.0285$ & $0.6$ & $220$ & $53$\\
+$12^4$ S, 160 points & $1$ & $0.6$ & $0.0281$, $\ge0.0164$ & $0.6$ & $380$ & $54$\\
+$12^4$ S & $1$ & $0.5$ & $0.0107$ & $0.5$ & $480$ & $40$\\
+$12^4$ B & $1.4$ & $0.93$ & $0.0985$ & $0.66$ & $9.4$ & $57$\\
+$12^4$ B, 96 points & $1.4$ & $0.93$ & $0.0980$, $\ge0.0676$ & $0.66$ & $13.8$ & $58$\\
+$12^4$ B & $1.3$ & $0.87$ & $0.0860$ & $0.67$ & $10.1$ & $58$\\
+$16^4$ S & $1$ & $0.6$ & $0.0262$ & $0.6$ & $190$ & $53$\\
+$16^4$ S & $1$ & $0.55$ & $0.0135$ & $0.55$ & $340$ & $47$\\
+$16^4$ B & $1.4$ & $1.05$ & $0.1295$ & $0.75$ & $8.1$ & $80$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR($k$) iterations to $|r|^2/|b|^2<10^{-18}$, $12^4$, $m=0.001$, the
+multigrid of Table~\ref{tab:setups} (no levels below the coarse lattice), one
+random right-hand side: medians over the four configurations, in brackets the number that do not
+converge in $1000$ iterations; the point source: range over its $12$ columns and the
+configurations. $^*$Configuration~4 (the slow setup of Table~\ref{tab:seeds}): $97$--$521$, one
+column not converged.}
+\label{tab:gcrk}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & coarse solves & $k=2$ & $8$ & $16$ & $32$ & $64$\\
+\midrule
+S, $\AL$ & $10^{-2}$ & $14$ & & & $12$ & \\
+S, $\AR$ & $10^{-2}$ & $12$ & & & $11$ & \\
+B, $\AL$ & $10^{-2}$ & $14$ & & & $13$ & \\
+B, $\AR$ & $10^{-2}$ & $15$ & & & $14$ & \\
+S, $\AL$, point source & $10^{-2}$ & $12$--$19$$^*$ & & & $12$--$15$ & \\
+S, $\AL$ & $10^{-8}$ & no conv. & $24$ [1] & $17$ & $17$ & $17$\\
+S, $\AL$ & $10^{-4}$ & $18$ [1] & & & $16$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Slow setups: setups with more than $30$ iterations or no convergence in $2000$ / setups
+(seeds per configuration times configurations), and the range of the others; $m=0.001$, $L_s=8$, $\AL$, one random right-hand side to
+$|r|^2/|b|^2<10^{-18}$. $12^4$: configurations 1--4; $16^4$: 1--3 and the
+dynamical one; $24^3\times48$: 3 and 4. Last column: peak device memory of the variant on
+$24^3\times48$ (setup~S, configuration~2, seed 21).}
+\label{tab:seeds}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lllcccc@{}}
+\toprule
+lattice & setup & variant & seeds per conf. & slow & others & memory\\
+\midrule
+$12^4$ & S & GCR(2) & 1--40 & $19/160$ & $11$--$30$ & $20.2$\,GB\\
+ & S & GCR(4) & 1--10 & $3/40$ & $12$--$20$ & $22.1$\,GB\\
+ & S & GCR(8) & 1--10 & $0/40$ & $11$--$19$ & does not fit\\
+ & S & GCR(16) & 1--10 & $0/40$ & $11$--$14$ & does not fit\\
+ & S & $48$ test vectors & 1--10 & $0/40$ & $9$--$15$ & does not fit\\
+ & S & quark coarse $10^{-4}$ & 1--40 & $2/160$ & $11$--$30$ & $20.2$\,GB\\
+ & S, no smearing & GCR(2) & 1--10 & $0/40$ & $13$--$15$ & \\
+ & B & GCR(2) & 1--20 & $0/80$ & $13$--$14$ & \\
+$16^4$ & S & GCR(2) & 1--20 & $0/60$ & $12$--$15$ & \\
+ & S, dynamical & GCR(2) & 1--20 & $0/20$ & $11$ & \\
+$24^3\times48$ & S & GCR(2) & 1--5 & $0/10$ & $18$--$28$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) on $\AL$ in setup~S, $m=0.001$, $\alpha=0.6$, to $|r|^2/|b|^2<10^{-16}$ (at most
+500 iterations, 300 on $24^4$): converged runs / runs, with their iterations. ``exact'': coarse
+solves to $10^{-20}$ in double precision, BiCGStab on the exact Pauli--Villars adjoint;
+``fixed'': the exact cycle plus $\delta\,\Gfive\mathcal Mr$ or plus a fixed multiple of the
+smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}$ make
+($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
+$\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
+(MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
+topological charge. Aggregates $4^4$ unless stated; configurations 2--4: three right-hand sides.}
+\label{tab:stall}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+lattice, $Q$ & exact & fixed $\Gfive\mathcal M$ & fixed $p(\AL)$ & random & solver\\
+\midrule
+$12^4$ config.~1, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
+$12^4$ config.~2, $+1$ & 3/3 (21--24) & & & & 3/3 (12--13)\\
+$12^4$ config.~3, $+2$ & 3/3 (18--20) & & & & 3/3 (10)\\
+$12^4$ config.~4, $+2$ & 0/3 & & & & 3/3 (84--94)\\
+$12^4$, $3^4$ aggregates & 0/3 & & & & 3/3 (11--12)\\
+$12^4$, $2^4$ aggregates & 2/3 (20, 23) & & & & 3/3 (7)\\
+$16^4$ config.~1, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
+$16^4$ config.~2, $+1$ & 3/3 (24--25) & & & & 3/3 (12--13)\\
+$16^4$ config.~3, $+1$ & 3/3 (29--31) & & & & 3/3 (11)\\
+$16^4$ config.~4, $+3$ & 3/3 (25--29) & & & & 3/3 (12)\\
+$16^4$ dynamical, $0$ & 5/5 (13) & 5/5 & 5/5 & 20/20 (13--20) & 5/5 (10)\\
+$24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Residual history of GCR(2), $24^3\times48$, $\AL$, the multigrid of
+Table~\ref{tab:setups}: steps, median and largest factor of $|r|^2$ per step, and
+the longest stretch of steps with a factor above $1/2$. Configuration~1 unless stated; the steps differ from those of the mass scan by at most one
+(Sec.~\ref{sec:setups}).}
+\label{tab:history}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+setup & $m$, $\alpha$ & steps & median & worst & slow stretch\\
+\midrule
+S & $0.001$, $0.6$ & $28$ & $0.315$ & $0.564$ & 2 steps\\
+S & $0.001$, $1.0$ & $27$ & $0.338$ & $0.479$ & none\\
+S & $0.002$, $0.6$ & $23$ & $0.233$ & $0.426$ & none\\
+S & $0.002$, $1.0$ & $23$ & $0.253$ & $0.354$ & none\\
+B & $0.001$, $0.6$ & $26$ & $0.299$ & $0.357$ & none\\
+B & $0.001$, $1.0$ & $28$ & $0.317$ & $0.403$ & none\\
+B & $0.002$, $0.6$ & $23$ & $0.246$ & $0.300$ & none\\
+B & $0.002$, $1.0$ & $25$ & $0.280$ & $0.347$ & none\\
+\midrule
+\multicolumn{6}{@{}l}{configurations 2 and 3, $m=0.001$, $\alpha=0.6$}\\
+S, config.~2 & & $53$ & $0.559$ & $0.731$ & 9 steps\\
+S, config.~3 & & $23$ & $0.244$ & $0.371$ & none\\
+B, config.~2 & & $25$ & $0.271$ & $0.307$ & none\\
+B, config.~3 & & $22$ & $0.239$ & $0.294$ & none\\
+\bottomrule
+\end{tabular}
+\end{table}

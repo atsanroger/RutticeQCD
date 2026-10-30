@@ -128,8 +128,7 @@ the M\"obius domain-wall operator suffers from critical slowing down toward the 
 light-quark mass. Kanamori, Chen and Matsufuru showed that preconditioning with the Pauli--Villars operator and
 dividing out the site-diagonal part, $(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves all eigenvalues into the
 right half-plane and compresses the high end of the spectrum, so that Krylov methods apply; earlier
-Pauli--Villars multigrid methods did not outperform red-black CG, for three structural reasons
-identified by Boyle and Yamaguchi.
+Pauli--Villars multigrid methods did not outperform red-black CG in four dimensions, as Boyle and Yamaguchi found.
 
 In this work, we construct a two-grid method for its even-odd form
 in which the quark and Pauli--Villars factors are coarsened separately. 
@@ -137,16 +136,18 @@ Every aggregate contains the whole fifth dimension so that the coarse lattice
 is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
-We derive an exact relation, $D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and
-$R$ the reflection of the fifth dimension), which makes $\Gfive D^{-1}\Gfive$ a preconditioner for
-the $D\dg$ solves required in HMC without a second multigrid setup. \ifresults{} The field of
+\ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
-$\Re\lambda\ge0.70$, and its pseudospectra account for the convergence. On four quenched
+$\Re\lambda\ge0.69$, and its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
 $2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
 time, setup included.\else{} We state
-the method and the questions that are open.\fi
+the method and the questions that are open.\fi{}
+For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
+$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the
+fifth dimension). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
+second multigrid setup.
 
 \end{abstract}
 {\let\thefootnote\relax\footnotetext{Licensed under CC BY 4.0
@@ -207,13 +208,12 @@ two-dimensional Schwinger model.
 \end{itemize}
 Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions and found that on large volumes HDCR was set up and solved faster than a single even-odd CG solve. They also carried the
 Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. On a $16^3\times32$
-Shamir configuration at $m=0.001$ it needed about half the fine-matrix applications of red-black
+Shamir configuration at $m=0.001$ it needed $0.43$--$0.60$ of the fine-matrix applications of red-black
 CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, setup excluded,
-double precision), and they named three
-reasons. The method works on all lattice sites, while red-black CG is the relevant baseline. Its
-coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its coarse solves are non-Hermitian and were not deflated, while the non-normal case would need the
-pseudospectrum and a singular value decomposition; they did not expect deflation alone to make the
-method competitive. Two further findings matter here.
+double precision, one Iwasaki 2+1-flavor configuration). They gave three reasons. Red-black CG,
+not the full-lattice solve, is the relevant baseline. The coarse space keeps a fifth dimension of
+extent $L_s$, so its cost removes the gain. And reducing that cost would need further levels or
+coarse deflation, which the PV method did not have. Two further findings matter here.
 First, CG on the Schur complement $M_{ee}-M_{eo}M_{oo}^{-1}M_{oe}$ ($e$, $o$: the even and odd
 four-dimensional sites) needed fewer iterations
 than on the left-preconditioned $1-M_{ee}^{-1}M_{eo}M_{oo}^{-1}M_{oe}$, 3224 against 3880.\ifresults{} For the M\"obius setups of this work the order is reversed
@@ -225,15 +225,13 @@ The multiple right-hand-side HDCG of Ref.~\cite{BoyleMRHS} solves the normal equ
 even-odd operator with a two-level conjugate gradient. Its coarse space is spanned by blocked
 low modes from Chebyshev filters. Treating many right-hand sides at once makes the coarse space
 cheap, and gains of up to twenty over even-odd CG are reported at physical quark mass. In a
-Lattice~2026 talk, Boyle and Oare~\cite{BoyleOare} named two limits of this approach: forming the
-$81$-point coarse operator is expensive, and a single solve on a new gauge field, as in HMC,
-gains nothing from many right-hand sides. They coarsen the two-hop operator $\Dpv\dg D$ instead,
-which gives a $33$-point stencil. They stressed that $\Dpv\dg D$ is non-normal: its field of
+Lattice~2026 talk, Boyle and Oare~\cite{BoyleOare} aim at a cheaper coarse operator and at solves
+on a new gauge field, as in HMC. They coarsen the two-hop operator $\Dpv\dg D$, which gives a
+$33$-point stencil. They stressed that $\Dpv\dg D$ is non-normal: its field of
 values can reach the left half-plane although its spectrum does not, so the GCR bound of
 Eisenstat, Elman and Schultz~\cite{ESS} is lost. They added a shift to the smoothers. On a
-$48^3\times96$ lattice at the physical quark mass they reported $578$ fine-matrix applications,
-against $1100$ for HDCG and $26500$ for red-black CG. The coarse solve took $90\%$ of the time,
-and they named the missing Lanczos deflation of the coarse operator as its limit.
+$48^3\times96$ lattice at the physical quark mass, a further coarse level inverted densely gave
+$578$ fine-matrix applications, against $1100$ for HDCG and $26500$ for red-black CG.
 
 \paragraph{Setup cost in ensemble generation.}
 A multigrid setup is paid once per gauge field. This is affordable for propagators but not for
@@ -357,16 +355,16 @@ $32^3\times16\times12$. From Ref.~\cite{KCM2024}, Fig.~4.}
 \end{figure}
 
 \paragraph{Two caveats.}
-First, the figures show the full-lattice operator $A'$, not the even-odd operators of
-Sec.~\ref{sec:eo}. Second, positive real parts of the eigenvalues do not mean a positive field of
+First, the figures show the full-lattice operator $A'$; the even-odd operators of
+Sec.~\ref{sec:eo} are not shown. Second, positive real parts of the eigenvalues do not mean a positive field of
 values. For a non-normal operator the GCR bound~\cite{ESS} needs the Hermitian part
 $(A+A\dg)/2$ to be positive definite. This can fail while every eigenvalue lies in the right
 half-plane, as Ref.~\cite{BoyleOare} discusses for $\Dpv\dg D$.
 \ifresults{}It occurs for the even-odd form: for $\AR$ itself the field of values reaches just
-below zero on $12^4$ ($\Re W\ge-4.6\times10^{-3}$ with stout smearing,
-$-5.0\times10^{-2}$ without), and for the multigrid-preconditioned $\AR\mathcal M$ far
+below zero on $12^4$ ($\Re W\ge-4.6\times10^{-3}$ in setup~S,
+$-5.0\times10^{-2}$ in setup~B), and for the multigrid-preconditioned $\AR\mathcal M$ far
 below (Sec.~\ref{sec:fov}). The bound of Ref.~\cite{ESS} is then lost, but the
-spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.70$ and its pseudospectra bound
+spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.69$ and its pseudospectra bound
 full GMRES (Secs.~\ref{sec:spectrum}, \ref{sec:pseudo}); truncated GCR is not covered
 (Sec.~\ref{sec:gcrk}).\else{}Whether
 it occurs for $A'$ and its even-odd forms is open (Sec.~\ref{sec:open}).\fi
@@ -700,7 +698,7 @@ changes the eigenvalues of that operator too, but the iterations of the multigri
 part of the spectrum that the smoother damps, since the coarse correction removes the low modes
 for any $\alpha$. We therefore expect $\alpha$ to help the multigrid less than CG, and least where
 the coarse correction sets the iterations.\ifresults{} At $m=0.001$ on $24^3\times48$, $\alpha=0.6$
-saves CG $25$--$35\%$ of its iterations and the multigrid at most two (Sec.~\ref{sec:massscan}).\fi
+saves CG $25$--$35\%$ of its iterations and the multigrid at most three (Sec.~\ref{sec:massscan}).\fi
 
 Eq.~\eqref{eq:Ksimilar} also lets CG use $\alpha$ in HMC without changing the action. The
 even-odd action needs $(\mathcal K\dg \mathcal K)^{-1}$, and with $\mathcal K=Q_e\mathcal K^{(\alpha)}Q_e^{-1}$,
@@ -1037,7 +1035,7 @@ and solve the equivalent system
 with MINRES. $\Hc$ is Hermitian (indefinite) exactly when $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, that is
 for $c=0$ by Eqs.~\eqref{eq:g5herm} and \eqref{eq:GP}. For $c\neq0$ MINRES works on a
 non-Hermitian matrix and has no guarantee.\ifresults{} On the coarse space the non-Hermitian part is a few
-percent, up to $14\%$ in the directions of the smallest singular values, and linear in $c$. Even so, MINRES on $\Hc$ needs the same outer iterations at $c=0.5$ as for
+percent, up to $13\%$ in the directions of the smallest singular values, and linear in $c$. Even so, MINRES on $\Hc$ needs the same outer iterations at $c=0.5$ as for
 the Shamir operator and is better than the exact adjoint with BiCGStab
 (Sec.~\ref{sec:herm}). The absolute-value block preconditioner and the additive level
 preconditioner below, also exact only for $c=0$, are used as they are.\fi The preconditioner must be Hermitian positive definite; we use the
@@ -1088,8 +1086,7 @@ had relative residuals up to $2$; deflating with them reduced the MINRES steps o
 Pauli--Villars factor from $402$ to $350$, and the solution stalled at a residual of
 $9\times10^{-3}$. With $\{s,\hat t\}$, whose coarse operators differ
 (Sec.~\ref{sec:basischoice}), coarse deflation remains to be tried. Boyle and
-Oare~\cite{BoyleOare} report that deflating their coarse operator did not work, and add a
-large coarsest level that is inverted densely.
+Oare~\cite{BoyleOare} use a large coarsest level that is inverted densely in the role of deflation.
 
 % ============================================================
 \subsection{Setup}
@@ -1325,45 +1322,36 @@ $D_-^{-1}$ altogether.
 \section{Summary}
 \label{sec:summary}
 
-Boyle and Yamaguchi named three reasons why the Pauli--Villars multigrid did not beat red-black
-CG in four-dimensional QCD: it worked on all lattice sites, its coarse space kept the fifth
-dimension, and its non-normal coarse solves were not deflated. The present method addresses them
-in turn. It solves the even-odd system. Its aggregates contain the whole fifth dimension, so the
-correction solves two nearest-neighbor systems on a four-dimensional coarse lattice. Its
-Pauli--Villars coarse system is solved in a $\Sigma$-Hermitian form, and levels below the coarse
-lattice take the place of deflation. With the same test vectors, the lift $\hat t$ that makes the
-correction exact for the right form avoids stagnation or cuts the iterations by up to a factor of $5$ in setup~S ($1.2$--$2.2$ in setup~B) also in the
-left form, which is not exact; one lift of twice as many vectors matches it on $24^3\times48$ at
-$1.6$--$1.8$ times the setup time.
+At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
+$2.9$--$6.0$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
+$1.6$--$4.1$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. The multigrid is the faster
+solver from $24^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
+than mixed-precision CGNE, so the gain comes from the coarse correction.
 
-The multigrid removes most of the critical slowing down. On quenched configurations on one GPU
-the multigrid iterations on four $24^3\times48$ configurations grow by
-a factor of $1.6$--$4.1$ from $m=0.1$ to $m=0.001$, against $18$--$27$ for mixed-precision even-odd
-CGNE. At $m=0.001$ a solve is faster than with mixed-precision CGNE from $24^4$ on, by $2.9$--$6.0$
-on $24^3\times48$, and a
-point-source propagator takes half the time, setup included. Without the coarse correction, both
-outer GCR(2) with the Chebyshev smoother alone (across the mass scan on $24^3\times48$) and
-BiCGStab on $\AL$ alone (across all volumes and masses) are slower than mixed-precision CGNE,
-confirming that the acceleration comes from the multigrid correction rather than merely from the
-lower condition number of the unsquared operator $\AL$. One setup serves Neff's $\alpha$. The field of values of the preconditioned
-operator reaches into the left half-plane; its spectrum and pseudospectra account for the
-convergence.
+Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
+four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and a
+$\Sigma$-Hermitian MINRES solve with levels below the coarse lattice in place of deflation. The
+lift $\hat t$ is needed in setup~S: without it GCR(2) stagnates or takes up to five times the
+iterations, although the correction is exact only for the right form. One setup serves every value of
+Neff's $\alpha$.
 
-The evidence is limited to four quenched configurations per volume (one for the field of values
-and the pseudospectra), volumes up to $24^3\times48$, and comparisons without other multigrid
-solvers in the same code. A comparison with HDCG and with the coarsening of $\Dpv\dg D$ in one
-implementation, larger volumes, and the use in HMC are the next steps (Sec.~\ref{sec:open}). For propagators,
-applying the coarse operators and the transfer to the 12 columns of a point source together would
-raise their intensity from about one flop per byte to about ten, as for Wilson-clover
-multigrid~\cite{Grebe}. Because batching multiple right-hand sides substantially increases device
-memory usage, we will treat the batch size as an optional parameter to balance memory footprint and
-solve time. Finally, for the $D\dg$ solves required by HMC at $c\neq0$, we compared several
-candidate constructions---including the dual cycle of $\AR\dg$, the exact map through $D_-^{-1}$,
-and enlarged or separate prolongations---and found that the cheapest option, wrapping the unchanged
-cycle of $D$ in $\Gfive$ with no second setup or extra coarse operators, works best and costs only
-two to three iterations more than solving with $D$. Although HMC itself is not implemented here,
-this lays the groundwork for fast force evaluations and, together with tuning the multigrid
-parameters, will be the next stage of our study.
+The field of values of the preconditioned operator reaches into the left half-plane, so the
+bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.69$ and its pseudospectra bound
+full GMRES with a fixed cycle. Truncated GCR(2) with accurate coarse solves stagnates on two of the
+four $12^4$ configurations in setup~S, and with the solver's inexact cycle on about one setup in eight
+there. We saw no plateau on $16^4$ or $24^3\times48$, but truncated GCR has no guarantee.
+
+Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
+On $16^4$ it takes two to three iterations more than solving with $D$; on $12^4$ in setup~S GCR(2)
+stalls on the residual right-hand side. Other constructions we tried were worse. HMC itself is not
+implemented here.
+
+The evidence is four quenched configurations per volume up to $24^3\times48$ on one GPU, compared
+with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
+$\Dpv\dg D$ in one code, larger volumes and HMC are the next steps (Sec.~\ref{sec:open}). Applying the coarse operators to the 12 columns of a point
+source together should raise the arithmetic intensity from about one flop per byte to about ten, as
+estimated for Wilson-clover multigrid~\cite{Grebe}; we have not measured this.
 
 \paragraph{Code.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{BridgeUeda,Bridge} in Rust
@@ -1405,13 +1393,10 @@ of setup~S and the pseudospectra develop beyond $16^4$, remain to be done; on $2
 does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
 varies from step to step. On $12^4$ in setup~S, GCR(2) with accurate coarse solves
 can reach a residual orthogonal to its new direction and stay there (Sec.~\ref{sec:gcrk}), and on the
-residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) on all four configurations (Sec.~\ref{sec:daggerresults}). GCR(2) does not
+residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) ($13$--$222$ iterations) on $12^4$ in setup~S (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
-were tested on $16^4$ but not on $24^4$. With the solver's inexact cycle the same fixed points
-appear for about one setup seed in eight on $12^4$ with stout smearing, on every configuration
-tested, and in none of the setups tested without smearing, in setup~B, on $16^4$ (quenched and
-dynamical) and on three of the four $24^3\times48$ configurations (Sec.~\ref{sec:gcrk},
-Table~\ref{tab:seeds}). Without smearing the field of values of the cycle stays in the right half-plane on $12^4$ and the
+were tested on $16^4$ but not on $24^4$. The solver's inexact cycle
+reaches them only on $12^4$ with stout smearing; one $24^3\times48$ configuration is slower but converges (Sec.~\ref{sec:gcrk}, Table~\ref{tab:seeds}). Without smearing the field of values of the cycle stays in the right half-plane on $12^4$ and the
 bound of Ref.~\cite{ESS} applies; why smearing makes the coarse correction amplify by $10^3$--$10^5$
 there is not understood. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
@@ -1465,7 +1450,7 @@ the red-black operator and of $\gamma_5RD$ not being aligned. In the present
 method the smoother and the correction both approximate $\tilde A^{-1}$ and the
 coarse space is built from low modes of $\AR$, so that particular mismatch is
 absent by construction; but the coarse operators are Galerkin projections of
-$D$ and $\Dpv$, not of $\tilde A$. Whether the even-odd outer system is
+$D$ and $\Dpv$; they are not projections of $\tilde A$. Whether the even-odd outer system is
 preferable to the full-lattice $A'$ for this method has not been established.
 
 \item \textbf{Field of values versus real parts of eigenvalues.}
@@ -1731,8 +1716,8 @@ $\delta=10^{-2}$ below its largest value since the last update, the single-preci
 added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG then goes on with
 the same search direction and stops only on the double-precision residual. With $\delta=0$ the
 algorithm is plain CG in double precision. On $24^3\times48$ the mixed-precision solver needs the
-iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $30\%$ more ($14\%$ on configuration~1), and takes $0.54$--$0.61$ times the
-time, with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
+iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $30\%$ more ($14\%$ on configuration~1), and takes $0.53$--$0.74$ times the
+time (over the four configurations), with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
 precision.
 
 \begin{algorithm}[tbp]
@@ -1803,7 +1788,7 @@ and crosses $1$ near the $(b,c)=(1.5,0.5)$ used in the main text. For Shamir fer
 $S\dg S$ is the faster form by $1.20$--$1.23$, close to the $3880/3224=1.20$ of Ref.~\cite{BY}.
 In setup~S the ratio is above $1$ except at $c=0.25$, where $S\dg S$ needs $3$--$5\%$ fewer
 iterations; we have no explanation for this dip. The three lattices agree to within $0.04$ in
-every case, so the order is a property of the operator and its parameters, not of the
+every case, so the order is a property of the operator and its parameters and does not depend on the
 configuration.
 
 Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $46$--$58\%$
@@ -1856,6 +1841,13 @@ there on the odd sites), against the M\"obius $c$, $b=1+c$, and below each their
 is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. The data of Table~\ref{tab:cgform}.}
 \label{fig:cgform}
 \end{figure}
+
+\clearpage
+\section{Tables of the numerical results}
+\label{sec:tables}
+The tables that support Sec.~\ref{sec:results}, in the order in which it cites them.
+
+\input{results_tables}
 
 \fi
 

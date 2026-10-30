@@ -5,6 +5,8 @@ fig_massscan.pdf: the 24^3x48 mass scan, CGNE, Krylov on A~_L without the multig
 fig_spectrum.pdf: the spectrum of A~ M, sigma_min(z - A~ M) on contours, 12^4
 fig_history.pdf: the GCR(2) residual histories on 24^3x48
 fig_cgform.pdf: CG iterations on K^dag K and S^dag S and their ratio against the Moebius c, three volumes
+fig_volume.pdf: iterations and solve seconds at m = 0.001 against the volume, four configurations
+fig_sensitivity.pdf: GCR(2) iterations on 12^4 when one parameter of the setup is changed
 """
 import csv
 import os
@@ -144,7 +146,7 @@ def spectrum():
 
 
 def history():
-    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.8), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 3.4), sharey=True)
     styles = {("0.001", "0.6"): ("C0", "-"), ("0.001", "1.0"): ("C0", "--"),
               ("0.002", "0.6"): ("C2", "-"), ("0.002", "1.0"): ("C2", "--")}
     for ax, setup in zip(axes, "SB"):
@@ -155,14 +157,123 @@ def history():
             color, ls = styles[(r["mass"], r["alpha"])]
             ax.semilogy(range(len(res)), res, ls, color=color, marker=".", ms=3,
                         label=r"$m=%s$, $\alpha=%s$" % (r["mass"], r["alpha"]))
+        for r in rows("gcr_steps_24_configs.tsv"):
+            if r["setup"] != setup or r["config"] == "1":
+                continue
+            res = [float(x) for x in r["r2_over_b2"].split()]
+            ax.semilogy(range(len(res)), res, "-", color="C3" if r["config"] == "2" else "C1",
+                        lw=0.8, label=r"config. %s, $m=0.001$, $\alpha=0.6$" % r["config"])
         ax.axhline(1e-18, color="k", lw=0.5, ls=":")
         ax.set_xlabel("GCR(2) step")
         ax.set_title(NAMES[setup] + r", $24^3\times48$", fontsize=9)
         ax.grid(True, which="major", alpha=0.25)
-        ax.legend(loc="upper right", frameon=False)
     axes[0].set_ylabel(r"$|r|^2/|b|^2$")
-    fig.tight_layout()
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.17, 1, 1))
     fig.savefig(os.path.join(HERE, "fig_history.pdf"))
+
+
+def volume():
+    cfg = rows("volume_configs.tsv")
+    mass = [r for r in rows("massscan_24_configs.tsv") if r["mass"] == "0.001" and r["alpha"] == "0.6"]
+    vols = ["12", "16", "24", "2448"]
+    sites = [12 ** 4, 16 ** 4, 24 ** 4, 24 ** 3 * 48]
+    labels = [r"$12^4$", r"$16^4$", r"$24^4$", r"$24^3{\times}48$"]
+
+    def points(setup, method):
+        out = {v: [] for v in vols}
+        for r in cfg:
+            if r["setup"] == setup and r["mass"] == "0.001" and r["method"] == method:
+                out[r["volume"]].append((float(r["iterations"].strip("!")), float(r["solve_s"])))
+        solver = {"cgm": "CGNE_mixed", "mg": "MG"}[method]
+        for r in mass:
+            if r["setup"] == setup and r["solver"] == solver:
+                out["2448"].append((float(r["iterations"]), float(r["solve_s"])))
+        return out
+
+    fig, axes = plt.subplots(2, 2, figsize=(6.6, 5.4), sharex=True)
+    for col, setup in enumerate("SB"):
+        for method, fmt, color, lab in [("cgm", "o-", "C3", "CGNE, mixed"), ("mg", "s-", "C0", "multigrid")]:
+            pts = points(setup, method)
+            for row in range(2):
+                ax = axes[row, col]
+                med = [sorted(p[row] for p in pts[v])[len(pts[v]) // 2 - 1 + len(pts[v]) % 2] for v in vols]
+                ax.plot(sites, med, fmt, color=color, label=lab)
+        bi = {r["volume"]: r for r in rows("baseline_volume.tsv") if r["setup"] == setup
+              and r["mass"] == "0.001" and r["method"] == "bicg"}
+        bi["2448"] = [r for r in rows("baseline_mass_2448.tsv") if r["setup"] == setup
+                      and r["mass"] == "0.001" and r["method"] == "bicg"][0]
+        for row, key in enumerate(("iterations", "solve_s")):
+            axes[row, col].plot(sites, [float(bi[v][key]) for v in vols], "D:", color="C2",
+                                label=r"BiCGStab on $\tilde A_L$ (config. 1)")
+        axes[0, col].set_title(NAMES[setup], fontsize=9)
+        for row in range(2):
+            ax = axes[row, col]
+            ax.set_xscale("log"); ax.set_yscale("log")
+            ax.set_xticks(sites); ax.set_xticklabels(labels, fontsize=7)
+            ax.minorticks_off()
+            ax.grid(True, which="major", alpha=0.25)
+    axes[0, 0].set_ylabel("iterations")
+    axes[1, 0].set_ylabel("solve seconds")
+    h, l = axes[0, 0].get_legend_handles_labels()
+    fig.legend(h, l, loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    fig.savefig(os.path.join(HERE, "fig_volume.pdf"))
+
+
+def sensitivity():
+    import statistics
+    data = rows("sensitivity_12_configs.tsv")
+    prefix = {"S": "stout", "B": "m18"}
+    base_x = {"block": 4, "vectors": 32, "steps": {"S": 8, "B": 12}, "ratio": {"S": 10, "B": 30},
+              "coarse": 1e-2, "bootstrap": 2}
+    panels = [("block", r"aggregate edge"), ("vectors", "test vectors"), ("steps", r"smoother steps $\nu$"),
+              ("ratio", r"interval ratio $\kappa_s$"), ("coarse", "coarse tolerance"),
+              ("bootstrap", "bootstrap rounds")]
+    cap = 1000
+    fig, axes = plt.subplots(2, 3, figsize=(6.6, 4.6), sharey=True)
+    for ax, (key, xlabel) in zip(axes.flat, panels):
+        for setup, color, mk in (("S", "C3", "o"), ("B", "C0", "s")):
+            xs = {}
+            for r in data:
+                if r["setup"] != setup:
+                    continue
+                name = r["change"][len(prefix[setup]) + 1:] if setup == "S" else r["change"][4:]
+                if name.startswith(key + "_"):
+                    x = float(name.split("_", 1)[1])
+                elif name == "base":
+                    x = base_x[key][setup] if isinstance(base_x[key], dict) else base_x[key]
+                else:
+                    continue
+                xs.setdefault(x, []).append(cap if "!" in r["iterations"] else int(r["iterations"]))
+            for x in xs:
+                pass
+            if key in ("block", "vectors", "steps", "ratio", "bootstrap", "coarse"):
+                pass
+            for x, v in xs.items():
+                ax.plot([x] * len(v), v, ".", color=color, alpha=0.35, ms=3)
+            xx = sorted(xs)
+            med = [statistics.median(xs[x]) for x in xx]
+            ax.plot(xx, med, mk + "-", color=color, ms=4, label=NAMES[setup] if key == "block" else None)
+            for x, m in zip(xx, med):
+                if m >= cap:
+                    ax.plot([x], [cap], "x", color=color, ms=7)
+        if key == "coarse":
+            ax.set_xscale("log")
+        elif key in ("ratio",):
+            ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(xlabel)
+        ax.grid(True, which="major", alpha=0.25)
+    axes[0, 0].set_ylabel("GCR(2) iterations")
+    axes[1, 0].set_ylabel("GCR(2) iterations")
+    axes[0, 0].set_ylim(5, 1500)
+    h, l = axes[0, 0].get_legend_handles_labels()
+    fig.legend(h + [plt.Line2D([], [], color="k", marker="x", ls="", ms=6)],
+               l + ["median not converged in 1000"], loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.savefig(os.path.join(HERE, "fig_sensitivity.pdf"))
 
 
 def cgform():
@@ -208,4 +319,6 @@ if __name__ == "__main__":
     massscan()
     spectrum()
     history()
+    volume()
+    sensitivity()
     cgform()

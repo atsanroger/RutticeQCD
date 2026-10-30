@@ -1,7 +1,7 @@
 # Reproducing the MG note
 
 How the numbers of `MDWF_MULTIGRID_NOTE.pdf` were produced and how to extend them. Table, figure
-and section numbers are those of the note as of 2026-10-28.
+and section numbers are those of the note as of 2026-10-30 (the tables of Sec. V are in Appendix E).
 
 ## Build
 
@@ -27,31 +27,35 @@ Data files are in `data/`. A blank entry is not recorded.
 
 | result | commit | program | data |
 |---|---|---|---|
-| Tables 4, 5 (mass scan) | `6d5bf18` (configuration 1), `e044050` (configurations 2–4) | `ruttice`, `runs/mg_24.yaml`, `runs/cgne_24.yaml` | `massscan_24.tsv` (configuration 1), `massscan_24_configs.tsv` (all four; configurations 2–4 at `e044050`, runs `massscan_newconf`, `multiconf/p1`) |
+| Tables 8, 9 (mass scan) | `6d5bf18` (configuration 1), `e044050` (configurations 2–4) | `ruttice`, `runs/mg_24.yaml`, `runs/cgne_24.yaml` | `massscan_24.tsv` (configuration 1), `massscan_24_configs.tsv` (all four; configurations 2–4 at `e044050`, runs `massscan_newconf`, `multiconf/p1`) |
 | Fig. 4 | `6d5bf18`, `e044050` | `figures.py` | `massscan_24_configs.tsv`, `baseline_mass_2448.tsv` (configuration 1) |
-| Table 6 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` (configuration 1), `pointsource_24_configs.tsv` (configurations 2–4, m 0.001, `e044050`) |
-| Table 7 (volume) | `e044050` | `ruttice` | `baseline_volume.tsv`, `baseline_mass_2448.tsv` |
-| Table 8 (D†) | `e044050` | example `dagger_precond` (`fflowHPC_daggerprecond`, `--pl 0`, run dir `multiconf/p2`, `dag*`) | logs only |
-| Table 9 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
-| Table 10 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (configuration 1); configurations 2–4 on 12⁴, 16⁴: run dir `multiconf/p2`, `lift*` (right form on 12⁴, 16⁴) |
-| Table 11 (Γ5-Hermiticity) | `e044050` | example `coarse_hermiticity` (CPU, 8 threads; run dir `multiconf/herm`) | `herm_12_configs.tsv` |
-| Table 13 (sensitivity) | `e044050` (`fflowHPC_multiconf`, yaml rebuilt from `scan12/*_base.yaml`) | `ruttice` | `sensitivity_12_configs.tsv` (four configurations; the earlier single-configuration run is `sensitivity_12.tsv`, `6d5bf18`) |
-| Table 14 (costs) | `e044050` | `ruttice` | `sensitivity_12_configs.tsv` (setup and solve seconds) |
-| Sec. V.C.4, 16 and 24 vectors on 24³×48 | `6d5bf18` | `ruttice`, point source | |
-| Table 15 (field of values) | | `preconditioned_fov_device --parts` | |
-| Table 16 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` |
-| Table 17, Fig. 5 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` |
-| Table 21, Fig. 6 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` |
-| Appendix D, CG on K†K and S†S (Table 24, Fig. 8) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
-| Table 19 (slow setups), Sec. V.D.4 | `e044050` (`fflowHPC_multiconf`) | `ruttice`, `MultiGrid.Setup.seed` 1–40, `Solver.number_of_kept_directions`, `number_of_test_vectors` 48, `Coarse_Solver_D` 1e-4, setup B from `scan12/m18_base.yaml` | run dir `ruttice_a30_20261016/multiconf/p1`: `tail_*`, `more_*`, `fix_*`, `tailB_*`, `lsseed_*`, `ctls_*`, `ct24_*`, `fix24_*`, `dg_*` (histories, point source, right form), `nost_*` (no smearing), `s16_*` (16⁴, dynamical = `therm16/conf16_m0.01_000102.bin`), `s24_*`; not yet in `data/` |
-| Table 20 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
-| Table 23 (configurations) | | `ruttice-flow` | |
+| Fig. 5 (volume) | `e044050` | `figures.py` | `volume_configs.tsv` (all four configurations), `massscan_24_configs.tsv`, `baseline_volume.tsv`, `baseline_mass_2448.tsv` |
+| Fig. 6 (sensitivity) | `e044050` | `figures.py` | `sensitivity_12_configs.tsv` |
+| Table 4 (point source) | `6d5bf18` | `ruttice` | `pointsource_24.tsv` (configuration 1), `pointsource_24_configs.tsv` (configurations 2–4, m 0.001, `e044050`) |
+| Table 10 (volume) | `e044050` | `ruttice` | `baseline_volume.tsv`, `baseline_mass_2448.tsv` (configuration 1 only); configurations 2–4 and Fig. 5: `volume_configs.tsv` |
+| Table 12 (D†) | `e044050` | example `dagger_precond` (`fflowHPC_daggerprecond`, `--pl 0`, run dir `multiconf/p2`, `dag*`) | logs only |
+| Table 11 (no MG) | `e044050` | `ruttice` | `baseline_mass_2448.tsv` (all seven masses), `baseline_volume.tsv` |
+| Table 13 (lifts) | `e044050`, branch `exp/basis-lifts` | `ruttice` with `RUTTICE_BASIS_LIFTS` (default = `e044050` bit for bit) | `basis_12.tsv`, `basis_16.tsv`, `basis_2448.tsv` (configuration 1); configurations 2–4 on 12⁴, 16⁴: run dir `multiconf/p2`, `lift*` (right form on 12⁴, 16⁴) |
+| Table 14 (Γ5-Hermiticity) | `e044050` | example `coarse_hermiticity` (CPU, 8 threads; run dir `multiconf/herm`) | `herm_12_configs.tsv` |
+| Table 15 (PV coarse solver) | `e044050` | `ruttice`, `Coarse_Solver_PV` MINRES or BiCGStab, c = 0.5 and 0 | `pv12_configs.tsv` (configurations 2–4; configuration 1 not recorded) |
+| Table 16 (sensitivity) | `e044050` (`fflowHPC_multiconf`, yaml rebuilt from `scan12/*_base.yaml`) | `ruttice` | `sensitivity_12_configs.tsv` (four configurations; the earlier single-configuration run is `sensitivity_12.tsv`, `6d5bf18`) |
+| Table 17 (costs) | `e044050` | `ruttice` | `sensitivity_12_configs.tsv` (setup and solve seconds) |
+| Sec. V.C.4, 16 and 24 vectors on 24³×48 | `6d5bf18` (point source, configuration 1); `e044050` (random right-hand side, four configurations) | `ruttice` | logs only: `multiconf/p2/tv24x48_*`; Table 16 row "8 test vectors": `multiconf/tv8/tv8f16_*` (16 filtered vectors) |
+| Table 21 (GCR(k)) | `e044050` | `ruttice` | `gcrk12_configs.tsv` (configurations 2–4; configuration 1 not recorded) |
+| Table 18 (field of values) | | `preconditioned_fov_device --parts` | |
+| Table 19 (spectrum) | | `preconditioned_fov_device --arnoldi --far 1,0` (`--left` for Ã_L) | `spectrum_*.tsv` (12⁴ only; the 16⁴ and 4³×8 rows are not in `data/`) |
+| Table 20, Fig. 7 (pseudospectra) | | `preconditioned_fov_device --pseudo` | `pseudo_*.tsv`, `spectrum_*.tsv` (12⁴ only) |
+| Table 24, Fig. 8 (GCR history) | a build before `6d5bf18` | `ruttice` | `gcr_steps_24.tsv` and `gcr_steps_24_configs.tsv` (configurations 1–3; Fig. 8 now shows configurations 2 and 3 too) |
+| Appendix D, CG on K†K and S†S (Table 7, Fig. 10) | `e044050` + branch `exp/schur-cgne`, not yet in a commit | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
+| Table 22 (slow setups), Sec. V.D.4 | `e044050` (`fflowHPC_multiconf`) | `ruttice`, `MultiGrid.Setup.seed` 1–40, `Solver.number_of_kept_directions`, `number_of_test_vectors` 48, `Coarse_Solver_D` 1e-4, setup B from `scan12/m18_base.yaml` | `seeds_configs.tsv` (all 12⁴ runs and the L_s = 8, 12, 16 runs, one line per run; counts of Table 22 and "7 of 20" at L_s 12 and 16 recomputed from it); run dir `ruttice_a30_20261016/multiconf/p1`: `tail_*`, `more_*`, `fix_*`, `tailB_*`, `lsseed_*`, `ctls_*`, `ct24_*`, `fix24_*`, `dg_*` (histories, point source, right form), `nost_*` (no smearing), `s16_*` (16⁴, dynamical = `therm16/conf16_m0.01_000102.bin`), `s24_*`;  |
+| Table 23 (stall) | not yet in a commit | `preconditioned_fov_device --gcrtest` | `gcr_stall.tsv` |
+| Table 6 (configurations) | | `ruttice-flow` | |
 | Eq. (3.8) checks (Sec. III.A.3) | | example `correction_exactness` (CPU) | |
 | Eqs. (2.10), (2.13) | | example `mobius_gamma5_check` (CPU) | |
 | D₋ inverse (Sec. IV.D), dual-cycle prolongations | | examples `dminus_cost`, `dual_basis` | |
 
 Builds add the device reductions in different orders. Against `6c7ff42` the multigrid iterations
-of Table 4 differ by one or two in six of the 28 runs, and those of Table 13 differed by up to six
+of Table 8 differ by one or two in six of the 28 runs, and those of Table 16 differed by up to six
 with an earlier build; whether a code change or the order causes the first is not established.
 
 The eigensolvers (thick-restart Lanczos, Krylov–Schur Arnoldi with left eigenvectors, σ_min(z−X)
@@ -65,14 +69,14 @@ to switch to setup B and to a point source. Each run prints
 
 ```
 seed 91: GCR 28 iterations on the device; 3014 coarse applications;
-    worst |Dx-b|^2 2e-18; 13.2 s; ... device 19.91 GB
+    worst |Dx-b|^2 2e-18; 13.2 s; ... device 20.19 GB
 ```
 
 and, for the multigrid, `setup on the device: 206 s`. One configuration takes about 50 minutes for
 the multigrid (seven masses, both setups, α = 0.6) and under half an hour for the two CGNE scans.
 
-Memory: on 24³×48 the multigrid needs 19.9 GB of device memory (CGNE 6.9 GB double, 7.2 GB
-mixed), roughly proportional to the volume: 32³×64 about 63 GB. The 4⁴ aggregates must divide the
+Memory: on 24³×48 the multigrid needs 20.2 GB of device memory (CGNE 6.9 GB double, 7.2 GB
+mixed), roughly proportional to the volume: 32³×64 about 65 GB. The 4⁴ aggregates must divide the
 lattice, and each level below must divide the extent of the level above (`MultiGrid_Level2`,
 `_Level3`; on 32³×64, super-blocks 2 and 2).
 
@@ -108,3 +112,5 @@ a desktop CPU).
    pseudospectra vary.
 
 For each run, the result lines above and the commit of the build are enough.
+
+Missing data and the runs that would fill them: `multiconf/COMPUTE_REQUEST.md` in the run directory.

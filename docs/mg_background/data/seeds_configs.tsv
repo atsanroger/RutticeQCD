@@ -1,0 +1,591 @@
+group	config	L_s	seed	iterations	slow	log	commit
+S 12^4 quark coarse 1e-4	2	8	10	12	0	fix_502_s10_ct4.log	e044050
+S 12^4 GCR(4)	2	8	10	20	0	fix_502_s10_k4.log	e044050
+S 12^4 GCR(8)	2	8	10	16	0	fix_502_s10_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	1	12	0	fix_502_s1_ct4.log	e044050
+S 12^4 GCR(4)	2	8	1	13	0	fix_502_s1_k4.log	e044050
+S 12^4 GCR(8)	2	8	1	13	0	fix_502_s1_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	2	11	0	fix_502_s2_ct4.log	e044050
+S 12^4 GCR(4)	2	8	2	13	0	fix_502_s2_k4.log	e044050
+S 12^4 GCR(8)	2	8	2	13	0	fix_502_s2_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	3	12	0	fix_502_s3_ct4.log	e044050
+S 12^4 GCR(4)	2	8	3	16	0	fix_502_s3_k4.log	e044050
+S 12^4 GCR(8)	2	8	3	15	0	fix_502_s3_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	4	12	0	fix_502_s4_ct4.log	e044050
+S 12^4 GCR(4)	2	8	4	13	0	fix_502_s4_k4.log	e044050
+S 12^4 GCR(8)	2	8	4	13	0	fix_502_s4_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	5	12	0	fix_502_s5_ct4.log	e044050
+S 12^4 GCR(4)	2	8	5	13	0	fix_502_s5_k4.log	e044050
+S 12^4 GCR(8)	2	8	5	13	0	fix_502_s5_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	6	12	0	fix_502_s6_ct4.log	e044050
+S 12^4 GCR(4)	2	8	6	14	0	fix_502_s6_k4.log	e044050
+S 12^4 GCR(8)	2	8	6	14	0	fix_502_s6_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	7	11	0	fix_502_s7_ct4.log	e044050
+S 12^4 GCR(4)	2	8	7	13	0	fix_502_s7_k4.log	e044050
+S 12^4 GCR(8)	2	8	7	14	0	fix_502_s7_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	8	11	0	fix_502_s8_ct4.log	e044050
+S 12^4 GCR(4)	2	8	8	13	0	fix_502_s8_k4.log	e044050
+S 12^4 GCR(8)	2	8	8	13	0	fix_502_s8_k8.log	e044050
+S 12^4 quark coarse 1e-4	2	8	9	12	0	fix_502_s9_ct4.log	e044050
+S 12^4 GCR(4)	2	8	9	14	0	fix_502_s9_k4.log	e044050
+S 12^4 GCR(8)	2	8	9	14	0	fix_502_s9_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	10	13	0	fix_602_s10_ct4.log	e044050
+S 12^4 GCR(4)	3	8	10	328	1	fix_602_s10_k4.log	e044050
+S 12^4 GCR(8)	3	8	10	18	0	fix_602_s10_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	1	12	0	fix_602_s1_ct4.log	e044050
+S 12^4 GCR(4)	3	8	1	12	0	fix_602_s1_k4.log	e044050
+S 12^4 GCR(8)	3	8	1	12	0	fix_602_s1_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	2	13	0	fix_602_s2_ct4.log	e044050
+S 12^4 GCR(4)	3	8	2	13	0	fix_602_s2_k4.log	e044050
+S 12^4 GCR(8)	3	8	2	13	0	fix_602_s2_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	3	13	0	fix_602_s3_ct4.log	e044050
+S 12^4 GCR(4)	3	8	3	62	1	fix_602_s3_k4.log	e044050
+S 12^4 GCR(8)	3	8	3	19	0	fix_602_s3_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	4	12	0	fix_602_s4_ct4.log	e044050
+S 12^4 GCR(4)	3	8	4	12	0	fix_602_s4_k4.log	e044050
+S 12^4 GCR(8)	3	8	4	12	0	fix_602_s4_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	5	13	0	fix_602_s5_ct4.log	e044050
+S 12^4 GCR(4)	3	8	5	16	0	fix_602_s5_k4.log	e044050
+S 12^4 GCR(8)	3	8	5	13	0	fix_602_s5_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	6	11	0	fix_602_s6_ct4.log	e044050
+S 12^4 GCR(4)	3	8	6	12	0	fix_602_s6_k4.log	e044050
+S 12^4 GCR(8)	3	8	6	12	0	fix_602_s6_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	7	11	0	fix_602_s7_ct4.log	e044050
+S 12^4 GCR(4)	3	8	7	12	0	fix_602_s7_k4.log	e044050
+S 12^4 GCR(8)	3	8	7	11	0	fix_602_s7_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	8	12	0	fix_602_s8_ct4.log	e044050
+S 12^4 GCR(4)	3	8	8	12	0	fix_602_s8_k4.log	e044050
+S 12^4 GCR(8)	3	8	8	12	0	fix_602_s8_k8.log	e044050
+S 12^4 quark coarse 1e-4	3	8	9	11	0	fix_602_s9_ct4.log	e044050
+S 12^4 GCR(4)	3	8	9	12	0	fix_602_s9_k4.log	e044050
+S 12^4 GCR(8)	3	8	9	11	0	fix_602_s9_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	10	13	0	fix_702_s10_ct4.log	e044050
+S 12^4 GCR(4)	4	8	10	15	0	fix_702_s10_k4.log	e044050
+S 12^4 GCR(8)	4	8	10	14	0	fix_702_s10_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	1	13	0	fix_702_s1_ct4.log	e044050
+S 12^4 GCR(4)	4	8	1	15	0	fix_702_s1_k4.log	e044050
+S 12^4 GCR(8)	4	8	1	14	0	fix_702_s1_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	2	12	0	fix_702_s2_ct4.log	e044050
+S 12^4 GCR(4)	4	8	2	14	0	fix_702_s2_k4.log	e044050
+S 12^4 GCR(8)	4	8	2	13	0	fix_702_s2_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	3	12	0	fix_702_s3_ct4.log	e044050
+S 12^4 GCR(4)	4	8	3	14	0	fix_702_s3_k4.log	e044050
+S 12^4 GCR(8)	4	8	3	14	0	fix_702_s3_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	4	12	0	fix_702_s4_ct4.log	e044050
+S 12^4 GCR(4)	4	8	4	13	0	fix_702_s4_k4.log	e044050
+S 12^4 GCR(8)	4	8	4	13	0	fix_702_s4_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	5	12	0	fix_702_s5_ct4.log	e044050
+S 12^4 GCR(4)	4	8	5	14	0	fix_702_s5_k4.log	e044050
+S 12^4 GCR(8)	4	8	5	14	0	fix_702_s5_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	6	12	0	fix_702_s6_ct4.log	e044050
+S 12^4 GCR(4)	4	8	6	14	0	fix_702_s6_k4.log	e044050
+S 12^4 GCR(8)	4	8	6	14	0	fix_702_s6_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	7	12	0	fix_702_s7_ct4.log	e044050
+S 12^4 GCR(4)	4	8	7	14	0	fix_702_s7_k4.log	e044050
+S 12^4 GCR(8)	4	8	7	13	0	fix_702_s7_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	8	12	0	fix_702_s8_ct4.log	e044050
+S 12^4 GCR(4)	4	8	8	14	0	fix_702_s8_k4.log	e044050
+S 12^4 GCR(8)	4	8	8	13	0	fix_702_s8_k8.log	e044050
+S 12^4 quark coarse 1e-4	4	8	9	12	0	fix_702_s9_ct4.log	e044050
+S 12^4 GCR(4)	4	8	9	13	0	fix_702_s9_k4.log	e044050
+S 12^4 GCR(8)	4	8	9	13	0	fix_702_s9_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	10	12	0	fix_v2_s10_ct4.log	e044050
+S 12^4 GCR(4)	1	8	10	13	0	fix_v2_s10_k4.log	e044050
+S 12^4 GCR(8)	1	8	10	13	0	fix_v2_s10_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	1	12	0	fix_v2_s1_ct4.log	e044050
+S 12^4 GCR(4)	1	8	1	14	0	fix_v2_s1_k4.log	e044050
+S 12^4 GCR(8)	1	8	1	13	0	fix_v2_s1_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	2	16	0	fix_v2_s2_ct4.log	e044050
+S 12^4 GCR(4)	1	8	2	17	0	fix_v2_s2_k4.log	e044050
+S 12^4 GCR(8)	1	8	2	16	0	fix_v2_s2_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	3	12	0	fix_v2_s3_ct4.log	e044050
+S 12^4 GCR(4)	1	8	3	14	0	fix_v2_s3_k4.log	e044050
+S 12^4 GCR(8)	1	8	3	14	0	fix_v2_s3_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	4	12	0	fix_v2_s4_ct4.log	e044050
+S 12^4 GCR(4)	1	8	4	12	0	fix_v2_s4_k4.log	e044050
+S 12^4 GCR(8)	1	8	4	12	0	fix_v2_s4_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	5	14	0	fix_v2_s5_ct4.log	e044050
+S 12^4 GCR(4)	1	8	5	73	1	fix_v2_s5_k4.log	e044050
+S 12^4 GCR(8)	1	8	5	15	0	fix_v2_s5_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	6	14	0	fix_v2_s6_ct4.log	e044050
+S 12^4 GCR(4)	1	8	6	18	0	fix_v2_s6_k4.log	e044050
+S 12^4 GCR(8)	1	8	6	15	0	fix_v2_s6_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	7	11	0	fix_v2_s7_ct4.log	e044050
+S 12^4 GCR(4)	1	8	7	13	0	fix_v2_s7_k4.log	e044050
+S 12^4 GCR(8)	1	8	7	14	0	fix_v2_s7_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	8	11	0	fix_v2_s8_ct4.log	e044050
+S 12^4 GCR(4)	1	8	8	13	0	fix_v2_s8_k4.log	e044050
+S 12^4 GCR(8)	1	8	8	13	0	fix_v2_s8_k8.log	e044050
+S 12^4 quark coarse 1e-4	1	8	9	12	0	fix_v2_s9_ct4.log	e044050
+S 12^4 GCR(4)	1	8	9	13	0	fix_v2_s9_k4.log	e044050
+S 12^4 GCR(8)	1	8	9	12	0	fix_v2_s9_k8.log	e044050
+S 12^4 GCR(2) L_s	2	12	11	16	0	lsseed_502_ls12_s11.log	e044050
+S 12^4 GCR(2) L_s	2	12	13	2000!	1	lsseed_502_ls12_s13.log	e044050
+S 12^4 GCR(2) L_s	2	12	3	19	0	lsseed_502_ls12_s3.log	e044050
+S 12^4 GCR(2) L_s	2	12	5	958	1	lsseed_502_ls12_s5.log	e044050
+S 12^4 GCR(2) L_s	2	12	7	15	0	lsseed_502_ls12_s7.log	e044050
+S 12^4 GCR(2) L_s	2	16	11	16	0	lsseed_502_ls16_s11.log	e044050
+S 12^4 GCR(2) L_s	2	16	13	16	0	lsseed_502_ls16_s13.log	e044050
+S 12^4 GCR(2) L_s	2	16	3	2000!	1	lsseed_502_ls16_s3.log	e044050
+S 12^4 GCR(2) L_s	2	16	5	20	0	lsseed_502_ls16_s5.log	e044050
+S 12^4 GCR(2) L_s	2	16	7	19	0	lsseed_502_ls16_s7.log	e044050
+S 12^4 GCR(2) L_s	2	8	11	14	0	lsseed_502_ls8_s11.log	e044050
+S 12^4 GCR(2) L_s	2	8	13	20	0	lsseed_502_ls8_s13.log	e044050
+S 12^4 GCR(2) L_s	2	8	3	19	0	lsseed_502_ls8_s3.log	e044050
+S 12^4 GCR(2) L_s	2	8	5	13	0	lsseed_502_ls8_s5.log	e044050
+S 12^4 GCR(2) L_s	2	8	7	14	0	lsseed_502_ls8_s7.log	e044050
+S 12^4 GCR(2) L_s	4	12	11	67	1	lsseed_702_ls12_s11.log	e044050
+S 12^4 GCR(2) L_s	4	12	13	37	1	lsseed_702_ls12_s13.log	e044050
+S 12^4 GCR(2) L_s	4	12	3	15	0	lsseed_702_ls12_s3.log	e044050
+S 12^4 GCR(2) L_s	4	12	5	20	0	lsseed_702_ls12_s5.log	e044050
+S 12^4 GCR(2) L_s	4	12	7	20	0	lsseed_702_ls12_s7.log	e044050
+S 12^4 GCR(2) L_s	4	16	11	2000!	1	lsseed_702_ls16_s11.log	e044050
+S 12^4 GCR(2) L_s	4	16	13	70	1	lsseed_702_ls16_s13.log	e044050
+S 12^4 GCR(2) L_s	4	16	3	14	0	lsseed_702_ls16_s3.log	e044050
+S 12^4 GCR(2) L_s	4	16	5	21	0	lsseed_702_ls16_s5.log	e044050
+S 12^4 GCR(2) L_s	4	16	7	29	0	lsseed_702_ls16_s7.log	e044050
+S 12^4 GCR(2) L_s	4	8	11	14	0	lsseed_702_ls8_s11.log	e044050
+S 12^4 GCR(2) L_s	4	8	13	29	0	lsseed_702_ls8_s13.log	e044050
+S 12^4 GCR(2) L_s	4	8	3	17	0	lsseed_702_ls8_s3.log	e044050
+S 12^4 GCR(2) L_s	4	8	5	17	0	lsseed_702_ls8_s5.log	e044050
+S 12^4 GCR(2) L_s	4	8	7	17	0	lsseed_702_ls8_s7.log	e044050
+S 12^4 quark coarse 1e-4	2	8	11	11	0	more_502_s11_ct4.log	e044050
+S 12^4 GCR(2)	2	8	11	14	0	more_502_s11_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	12	12	0	more_502_s12_ct4.log	e044050
+S 12^4 GCR(2)	2	8	12	14	0	more_502_s12_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	13	12	0	more_502_s13_ct4.log	e044050
+S 12^4 GCR(2)	2	8	13	20	0	more_502_s13_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	14	12	0	more_502_s14_ct4.log	e044050
+S 12^4 GCR(2)	2	8	14	14	0	more_502_s14_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	15	12	0	more_502_s15_ct4.log	e044050
+S 12^4 GCR(2)	2	8	15	31	1	more_502_s15_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	16	12	0	more_502_s16_ct4.log	e044050
+S 12^4 GCR(2)	2	8	16	14	0	more_502_s16_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	17	12	0	more_502_s17_ct4.log	e044050
+S 12^4 GCR(2)	2	8	17	13	0	more_502_s17_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	18	12	0	more_502_s18_ct4.log	e044050
+S 12^4 GCR(2)	2	8	18	17	0	more_502_s18_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	19	13	0	more_502_s19_ct4.log	e044050
+S 12^4 GCR(2)	2	8	19	16	0	more_502_s19_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	20	12	0	more_502_s20_ct4.log	e044050
+S 12^4 GCR(2)	2	8	20	18	0	more_502_s20_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	21	12	0	more_502_s21_ct4.log	e044050
+S 12^4 GCR(2)	2	8	21	14	0	more_502_s21_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	22	12	0	more_502_s22_ct4.log	e044050
+S 12^4 GCR(2)	2	8	22	13	0	more_502_s22_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	23	12	0	more_502_s23_ct4.log	e044050
+S 12^4 GCR(2)	2	8	23	15	0	more_502_s23_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	24	12	0	more_502_s24_ct4.log	e044050
+S 12^4 GCR(2)	2	8	24	13	0	more_502_s24_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	25	12	0	more_502_s25_ct4.log	e044050
+S 12^4 GCR(2)	2	8	25	15	0	more_502_s25_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	26	12	0	more_502_s26_ct4.log	e044050
+S 12^4 GCR(2)	2	8	26	13	0	more_502_s26_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	27	11	0	more_502_s27_ct4.log	e044050
+S 12^4 GCR(2)	2	8	27	13	0	more_502_s27_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	28	12	0	more_502_s28_ct4.log	e044050
+S 12^4 GCR(2)	2	8	28	13	0	more_502_s28_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	29	11	0	more_502_s29_ct4.log	e044050
+S 12^4 GCR(2)	2	8	29	14	0	more_502_s29_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	30	12	0	more_502_s30_ct4.log	e044050
+S 12^4 GCR(2)	2	8	30	31	1	more_502_s30_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	31	12	0	more_502_s31_ct4.log	e044050
+S 12^4 GCR(2)	2	8	31	13	0	more_502_s31_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	32	11	0	more_502_s32_ct4.log	e044050
+S 12^4 GCR(2)	2	8	32	13	0	more_502_s32_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	33	11	0	more_502_s33_ct4.log	e044050
+S 12^4 GCR(2)	2	8	33	17	0	more_502_s33_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	34	12	0	more_502_s34_ct4.log	e044050
+S 12^4 GCR(2)	2	8	34	13	0	more_502_s34_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	35	12	0	more_502_s35_ct4.log	e044050
+S 12^4 GCR(2)	2	8	35	16	0	more_502_s35_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	36	11	0	more_502_s36_ct4.log	e044050
+S 12^4 GCR(2)	2	8	36	16	0	more_502_s36_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	37	12	0	more_502_s37_ct4.log	e044050
+S 12^4 GCR(2)	2	8	37	16	0	more_502_s37_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	38	14	0	more_502_s38_ct4.log	e044050
+S 12^4 GCR(2)	2	8	38	434	1	more_502_s38_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	39	12	0	more_502_s39_ct4.log	e044050
+S 12^4 GCR(2)	2	8	39	15	0	more_502_s39_k2.log	e044050
+S 12^4 quark coarse 1e-4	2	8	40	12	0	more_502_s40_ct4.log	e044050
+S 12^4 GCR(2)	2	8	40	14	0	more_502_s40_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	11	12	0	more_602_s11_ct4.log	e044050
+S 12^4 GCR(2)	3	8	11	13	0	more_602_s11_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	12	12	0	more_602_s12_ct4.log	e044050
+S 12^4 GCR(2)	3	8	12	13	0	more_602_s12_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	13	11	0	more_602_s13_ct4.log	e044050
+S 12^4 GCR(2)	3	8	13	18	0	more_602_s13_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	14	13	0	more_602_s14_ct4.log	e044050
+S 12^4 GCR(2)	3	8	14	20	0	more_602_s14_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	15	12	0	more_602_s15_ct4.log	e044050
+S 12^4 GCR(2)	3	8	15	12	0	more_602_s15_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	16	11	0	more_602_s16_ct4.log	e044050
+S 12^4 GCR(2)	3	8	16	12	0	more_602_s16_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	17	12	0	more_602_s17_ct4.log	e044050
+S 12^4 GCR(2)	3	8	17	18	0	more_602_s17_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	18	11	0	more_602_s18_ct4.log	e044050
+S 12^4 GCR(2)	3	8	18	11	0	more_602_s18_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	19	11	0	more_602_s19_ct4.log	e044050
+S 12^4 GCR(2)	3	8	19	12	0	more_602_s19_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	20	15	0	more_602_s20_ct4.log	e044050
+S 12^4 GCR(2)	3	8	20	15	0	more_602_s20_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	21	11	0	more_602_s21_ct4.log	e044050
+S 12^4 GCR(2)	3	8	21	12	0	more_602_s21_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	22	12	0	more_602_s22_ct4.log	e044050
+S 12^4 GCR(2)	3	8	22	13	0	more_602_s22_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	23	15	0	more_602_s23_ct4.log	e044050
+S 12^4 GCR(2)	3	8	23	2000!	1	more_602_s23_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	24	11	0	more_602_s24_ct4.log	e044050
+S 12^4 GCR(2)	3	8	24	12	0	more_602_s24_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	25	1711	1	more_602_s25_ct4.log	e044050
+S 12^4 GCR(2)	3	8	25	2000!	1	more_602_s25_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	26	12	0	more_602_s26_ct4.log	e044050
+S 12^4 GCR(2)	3	8	26	14	0	more_602_s26_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	27	11	0	more_602_s27_ct4.log	e044050
+S 12^4 GCR(2)	3	8	27	12	0	more_602_s27_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	28	12	0	more_602_s28_ct4.log	e044050
+S 12^4 GCR(2)	3	8	28	19	0	more_602_s28_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	29	13	0	more_602_s29_ct4.log	e044050
+S 12^4 GCR(2)	3	8	29	15	0	more_602_s29_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	30	12	0	more_602_s30_ct4.log	e044050
+S 12^4 GCR(2)	3	8	30	14	0	more_602_s30_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	31	12	0	more_602_s31_ct4.log	e044050
+S 12^4 GCR(2)	3	8	31	15	0	more_602_s31_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	32	12	0	more_602_s32_ct4.log	e044050
+S 12^4 GCR(2)	3	8	32	13	0	more_602_s32_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	33	12	0	more_602_s33_ct4.log	e044050
+S 12^4 GCR(2)	3	8	33	13	0	more_602_s33_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	34	12	0	more_602_s34_ct4.log	e044050
+S 12^4 GCR(2)	3	8	34	14	0	more_602_s34_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	35	12	0	more_602_s35_ct4.log	e044050
+S 12^4 GCR(2)	3	8	35	15	0	more_602_s35_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	36	16	0	more_602_s36_ct4.log	e044050
+S 12^4 GCR(2)	3	8	36	18	0	more_602_s36_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	37	46	1	more_602_s37_ct4.log	e044050
+S 12^4 GCR(2)	3	8	37	380	1	more_602_s37_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	38	12	0	more_602_s38_ct4.log	e044050
+S 12^4 GCR(2)	3	8	38	15	0	more_602_s38_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	39	30	0	more_602_s39_ct4.log	e044050
+S 12^4 GCR(2)	3	8	39	2000!	1	more_602_s39_k2.log	e044050
+S 12^4 quark coarse 1e-4	3	8	40	12	0	more_602_s40_ct4.log	e044050
+S 12^4 GCR(2)	3	8	40	13	0	more_602_s40_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	11	12	0	more_702_s11_ct4.log	e044050
+S 12^4 GCR(2)	4	8	11	14	0	more_702_s11_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	12	13	0	more_702_s12_ct4.log	e044050
+S 12^4 GCR(2)	4	8	12	15	0	more_702_s12_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	13	13	0	more_702_s13_ct4.log	e044050
+S 12^4 GCR(2)	4	8	13	29	0	more_702_s13_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	14	12	0	more_702_s14_ct4.log	e044050
+S 12^4 GCR(2)	4	8	14	17	0	more_702_s14_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	15	13	0	more_702_s15_ct4.log	e044050
+S 12^4 GCR(2)	4	8	15	15	0	more_702_s15_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	16	12	0	more_702_s16_ct4.log	e044050
+S 12^4 GCR(2)	4	8	16	16	0	more_702_s16_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	17	12	0	more_702_s17_ct4.log	e044050
+S 12^4 GCR(2)	4	8	17	16	0	more_702_s17_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	18	12	0	more_702_s18_ct4.log	e044050
+S 12^4 GCR(2)	4	8	18	13	0	more_702_s18_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	19	12	0	more_702_s19_ct4.log	e044050
+S 12^4 GCR(2)	4	8	19	13	0	more_702_s19_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	20	12	0	more_702_s20_ct4.log	e044050
+S 12^4 GCR(2)	4	8	20	17	0	more_702_s20_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	21	14	0	more_702_s21_ct4.log	e044050
+S 12^4 GCR(2)	4	8	21	209	1	more_702_s21_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	22	12	0	more_702_s22_ct4.log	e044050
+S 12^4 GCR(2)	4	8	22	16	0	more_702_s22_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	23	13	0	more_702_s23_ct4.log	e044050
+S 12^4 GCR(2)	4	8	23	20	0	more_702_s23_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	24	12	0	more_702_s24_ct4.log	e044050
+S 12^4 GCR(2)	4	8	24	14	0	more_702_s24_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	25	12	0	more_702_s25_ct4.log	e044050
+S 12^4 GCR(2)	4	8	25	20	0	more_702_s25_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	26	12	0	more_702_s26_ct4.log	e044050
+S 12^4 GCR(2)	4	8	26	15	0	more_702_s26_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	27	12	0	more_702_s27_ct4.log	e044050
+S 12^4 GCR(2)	4	8	27	13	0	more_702_s27_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	28	12	0	more_702_s28_ct4.log	e044050
+S 12^4 GCR(2)	4	8	28	16	0	more_702_s28_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	29	12	0	more_702_s29_ct4.log	e044050
+S 12^4 GCR(2)	4	8	29	13	0	more_702_s29_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	30	12	0	more_702_s30_ct4.log	e044050
+S 12^4 GCR(2)	4	8	30	16	0	more_702_s30_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	31	12	0	more_702_s31_ct4.log	e044050
+S 12^4 GCR(2)	4	8	31	15	0	more_702_s31_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	32	12	0	more_702_s32_ct4.log	e044050
+S 12^4 GCR(2)	4	8	32	388	1	more_702_s32_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	33	12	0	more_702_s33_ct4.log	e044050
+S 12^4 GCR(2)	4	8	33	14	0	more_702_s33_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	34	13	0	more_702_s34_ct4.log	e044050
+S 12^4 GCR(2)	4	8	34	18	0	more_702_s34_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	35	12	0	more_702_s35_ct4.log	e044050
+S 12^4 GCR(2)	4	8	35	14	0	more_702_s35_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	36	12	0	more_702_s36_ct4.log	e044050
+S 12^4 GCR(2)	4	8	36	13	0	more_702_s36_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	37	12	0	more_702_s37_ct4.log	e044050
+S 12^4 GCR(2)	4	8	37	14	0	more_702_s37_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	38	12	0	more_702_s38_ct4.log	e044050
+S 12^4 GCR(2)	4	8	38	15	0	more_702_s38_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	39	12	0	more_702_s39_ct4.log	e044050
+S 12^4 GCR(2)	4	8	39	15	0	more_702_s39_k2.log	e044050
+S 12^4 quark coarse 1e-4	4	8	40	12	0	more_702_s40_ct4.log	e044050
+S 12^4 GCR(2)	4	8	40	15	0	more_702_s40_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	11	11	0	more_v2_s11_ct4.log	e044050
+S 12^4 GCR(2)	1	8	11	13	0	more_v2_s11_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	12	12	0	more_v2_s12_ct4.log	e044050
+S 12^4 GCR(2)	1	8	12	13	0	more_v2_s12_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	13	13	0	more_v2_s13_ct4.log	e044050
+S 12^4 GCR(2)	1	8	13	13	0	more_v2_s13_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	14	12	0	more_v2_s14_ct4.log	e044050
+S 12^4 GCR(2)	1	8	14	13	0	more_v2_s14_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	15	14	0	more_v2_s15_ct4.log	e044050
+S 12^4 GCR(2)	1	8	15	40	1	more_v2_s15_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	16	12	0	more_v2_s16_ct4.log	e044050
+S 12^4 GCR(2)	1	8	16	18	0	more_v2_s16_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	17	17	0	more_v2_s17_ct4.log	e044050
+S 12^4 GCR(2)	1	8	17	30	0	more_v2_s17_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	18	12	0	more_v2_s18_ct4.log	e044050
+S 12^4 GCR(2)	1	8	18	19	0	more_v2_s18_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	19	12	0	more_v2_s19_ct4.log	e044050
+S 12^4 GCR(2)	1	8	19	14	0	more_v2_s19_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	20	11	0	more_v2_s20_ct4.log	e044050
+S 12^4 GCR(2)	1	8	20	13	0	more_v2_s20_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	21	12	0	more_v2_s21_ct4.log	e044050
+S 12^4 GCR(2)	1	8	21	14	0	more_v2_s21_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	22	12	0	more_v2_s22_ct4.log	e044050
+S 12^4 GCR(2)	1	8	22	13	0	more_v2_s22_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	23	11	0	more_v2_s23_ct4.log	e044050
+S 12^4 GCR(2)	1	8	23	12	0	more_v2_s23_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	24	12	0	more_v2_s24_ct4.log	e044050
+S 12^4 GCR(2)	1	8	24	16	0	more_v2_s24_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	25	12	0	more_v2_s25_ct4.log	e044050
+S 12^4 GCR(2)	1	8	25	14	0	more_v2_s25_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	26	12	0	more_v2_s26_ct4.log	e044050
+S 12^4 GCR(2)	1	8	26	15	0	more_v2_s26_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	27	11	0	more_v2_s27_ct4.log	e044050
+S 12^4 GCR(2)	1	8	27	14	0	more_v2_s27_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	28	11	0	more_v2_s28_ct4.log	e044050
+S 12^4 GCR(2)	1	8	28	12	0	more_v2_s28_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	29	12	0	more_v2_s29_ct4.log	e044050
+S 12^4 GCR(2)	1	8	29	13	0	more_v2_s29_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	30	12	0	more_v2_s30_ct4.log	e044050
+S 12^4 GCR(2)	1	8	30	15	0	more_v2_s30_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	31	12	0	more_v2_s31_ct4.log	e044050
+S 12^4 GCR(2)	1	8	31	23	0	more_v2_s31_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	32	12	0	more_v2_s32_ct4.log	e044050
+S 12^4 GCR(2)	1	8	32	13	0	more_v2_s32_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	33	11	0	more_v2_s33_ct4.log	e044050
+S 12^4 GCR(2)	1	8	33	12	0	more_v2_s33_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	34	14	0	more_v2_s34_ct4.log	e044050
+S 12^4 GCR(2)	1	8	34	291	1	more_v2_s34_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	35	12	0	more_v2_s35_ct4.log	e044050
+S 12^4 GCR(2)	1	8	35	14	0	more_v2_s35_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	36	12	0	more_v2_s36_ct4.log	e044050
+S 12^4 GCR(2)	1	8	36	27	0	more_v2_s36_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	37	11	0	more_v2_s37_ct4.log	e044050
+S 12^4 GCR(2)	1	8	37	18	0	more_v2_s37_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	38	11	0	more_v2_s38_ct4.log	e044050
+S 12^4 GCR(2)	1	8	38	14	0	more_v2_s38_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	39	17	0	more_v2_s39_ct4.log	e044050
+S 12^4 GCR(2)	1	8	39	2000!	1	more_v2_s39_k2.log	e044050
+S 12^4 quark coarse 1e-4	1	8	40	22	0	more_v2_s40_ct4.log	e044050
+S 12^4 GCR(2)	1	8	40	378	1	more_v2_s40_k2.log	e044050
+S no smearing 12^4	2	8	1	14	0	nost_502_s1.log	e044050
+S no smearing 12^4	2	8	10	14	0	nost_502_s10.log	e044050
+S no smearing 12^4	2	8	2	13	0	nost_502_s2.log	e044050
+S no smearing 12^4	2	8	3	14	0	nost_502_s3.log	e044050
+S no smearing 12^4	2	8	4	14	0	nost_502_s4.log	e044050
+S no smearing 12^4	2	8	5	14	0	nost_502_s5.log	e044050
+S no smearing 12^4	2	8	6	13	0	nost_502_s6.log	e044050
+S no smearing 12^4	2	8	7	15	0	nost_502_s7.log	e044050
+S no smearing 12^4	2	8	8	15	0	nost_502_s8.log	e044050
+S no smearing 12^4	2	8	9	14	0	nost_502_s9.log	e044050
+S no smearing 12^4	3	8	1	14	0	nost_602_s1.log	e044050
+S no smearing 12^4	3	8	10	14	0	nost_602_s10.log	e044050
+S no smearing 12^4	3	8	2	14	0	nost_602_s2.log	e044050
+S no smearing 12^4	3	8	3	14	0	nost_602_s3.log	e044050
+S no smearing 12^4	3	8	4	14	0	nost_602_s4.log	e044050
+S no smearing 12^4	3	8	5	14	0	nost_602_s5.log	e044050
+S no smearing 12^4	3	8	6	13	0	nost_602_s6.log	e044050
+S no smearing 12^4	3	8	7	14	0	nost_602_s7.log	e044050
+S no smearing 12^4	3	8	8	15	0	nost_602_s8.log	e044050
+S no smearing 12^4	3	8	9	14	0	nost_602_s9.log	e044050
+S no smearing 12^4	4	8	1	14	0	nost_702_s1.log	e044050
+S no smearing 12^4	4	8	10	13	0	nost_702_s10.log	e044050
+S no smearing 12^4	4	8	2	14	0	nost_702_s2.log	e044050
+S no smearing 12^4	4	8	3	13	0	nost_702_s3.log	e044050
+S no smearing 12^4	4	8	4	14	0	nost_702_s4.log	e044050
+S no smearing 12^4	4	8	5	14	0	nost_702_s5.log	e044050
+S no smearing 12^4	4	8	6	13	0	nost_702_s6.log	e044050
+S no smearing 12^4	4	8	7	13	0	nost_702_s7.log	e044050
+S no smearing 12^4	4	8	8	14	0	nost_702_s8.log	e044050
+S no smearing 12^4	4	8	9	13	0	nost_702_s9.log	e044050
+S no smearing 12^4	1	8	1	14	0	nost_v2_s1.log	e044050
+S no smearing 12^4	1	8	10	15	0	nost_v2_s10.log	e044050
+S no smearing 12^4	1	8	2	14	0	nost_v2_s2.log	e044050
+S no smearing 12^4	1	8	3	14	0	nost_v2_s3.log	e044050
+S no smearing 12^4	1	8	4	14	0	nost_v2_s4.log	e044050
+S no smearing 12^4	1	8	5	15	0	nost_v2_s5.log	e044050
+S no smearing 12^4	1	8	6	14	0	nost_v2_s6.log	e044050
+S no smearing 12^4	1	8	7	13	0	nost_v2_s7.log	e044050
+S no smearing 12^4	1	8	8	13	0	nost_v2_s8.log	e044050
+S no smearing 12^4	1	8	9	14	0	nost_v2_s9.log	e044050
+B 12^4 GCR(2)	2	8	1	14	0	tailB_502_s1.log	e044050
+B 12^4 GCR(2)	2	8	10	14	0	tailB_502_s10.log	e044050
+B 12^4 GCR(2)	2	8	11	14	0	tailB_502_s11.log	e044050
+B 12^4 GCR(2)	2	8	12	14	0	tailB_502_s12.log	e044050
+B 12^4 GCR(2)	2	8	13	14	0	tailB_502_s13.log	e044050
+B 12^4 GCR(2)	2	8	14	14	0	tailB_502_s14.log	e044050
+B 12^4 GCR(2)	2	8	15	13	0	tailB_502_s15.log	e044050
+B 12^4 GCR(2)	2	8	16	13	0	tailB_502_s16.log	e044050
+B 12^4 GCR(2)	2	8	17	14	0	tailB_502_s17.log	e044050
+B 12^4 GCR(2)	2	8	18	13	0	tailB_502_s18.log	e044050
+B 12^4 GCR(2)	2	8	19	13	0	tailB_502_s19.log	e044050
+B 12^4 GCR(2)	2	8	2	14	0	tailB_502_s2.log	e044050
+B 12^4 GCR(2)	2	8	20	13	0	tailB_502_s20.log	e044050
+B 12^4 GCR(2)	2	8	3	13	0	tailB_502_s3.log	e044050
+B 12^4 GCR(2)	2	8	4	14	0	tailB_502_s4.log	e044050
+B 12^4 GCR(2)	2	8	5	13	0	tailB_502_s5.log	e044050
+B 12^4 GCR(2)	2	8	6	14	0	tailB_502_s6.log	e044050
+B 12^4 GCR(2)	2	8	7	14	0	tailB_502_s7.log	e044050
+B 12^4 GCR(2)	2	8	8	13	0	tailB_502_s8.log	e044050
+B 12^4 GCR(2)	2	8	9	14	0	tailB_502_s9.log	e044050
+B 12^4 GCR(2)	3	8	1	13	0	tailB_602_s1.log	e044050
+B 12^4 GCR(2)	3	8	10	13	0	tailB_602_s10.log	e044050
+B 12^4 GCR(2)	3	8	11	13	0	tailB_602_s11.log	e044050
+B 12^4 GCR(2)	3	8	12	14	0	tailB_602_s12.log	e044050
+B 12^4 GCR(2)	3	8	13	14	0	tailB_602_s13.log	e044050
+B 12^4 GCR(2)	3	8	14	13	0	tailB_602_s14.log	e044050
+B 12^4 GCR(2)	3	8	15	13	0	tailB_602_s15.log	e044050
+B 12^4 GCR(2)	3	8	16	13	0	tailB_602_s16.log	e044050
+B 12^4 GCR(2)	3	8	17	13	0	tailB_602_s17.log	e044050
+B 12^4 GCR(2)	3	8	18	13	0	tailB_602_s18.log	e044050
+B 12^4 GCR(2)	3	8	19	13	0	tailB_602_s19.log	e044050
+B 12^4 GCR(2)	3	8	2	14	0	tailB_602_s2.log	e044050
+B 12^4 GCR(2)	3	8	20	13	0	tailB_602_s20.log	e044050
+B 12^4 GCR(2)	3	8	3	14	0	tailB_602_s3.log	e044050
+B 12^4 GCR(2)	3	8	4	14	0	tailB_602_s4.log	e044050
+B 12^4 GCR(2)	3	8	5	13	0	tailB_602_s5.log	e044050
+B 12^4 GCR(2)	3	8	6	13	0	tailB_602_s6.log	e044050
+B 12^4 GCR(2)	3	8	7	13	0	tailB_602_s7.log	e044050
+B 12^4 GCR(2)	3	8	8	13	0	tailB_602_s8.log	e044050
+B 12^4 GCR(2)	3	8	9	13	0	tailB_602_s9.log	e044050
+B 12^4 GCR(2)	4	8	1	13	0	tailB_702_s1.log	e044050
+B 12^4 GCR(2)	4	8	10	13	0	tailB_702_s10.log	e044050
+B 12^4 GCR(2)	4	8	11	13	0	tailB_702_s11.log	e044050
+B 12^4 GCR(2)	4	8	12	13	0	tailB_702_s12.log	e044050
+B 12^4 GCR(2)	4	8	13	13	0	tailB_702_s13.log	e044050
+B 12^4 GCR(2)	4	8	14	13	0	tailB_702_s14.log	e044050
+B 12^4 GCR(2)	4	8	15	13	0	tailB_702_s15.log	e044050
+B 12^4 GCR(2)	4	8	16	13	0	tailB_702_s16.log	e044050
+B 12^4 GCR(2)	4	8	17	13	0	tailB_702_s17.log	e044050
+B 12^4 GCR(2)	4	8	18	13	0	tailB_702_s18.log	e044050
+B 12^4 GCR(2)	4	8	19	13	0	tailB_702_s19.log	e044050
+B 12^4 GCR(2)	4	8	2	13	0	tailB_702_s2.log	e044050
+B 12^4 GCR(2)	4	8	20	13	0	tailB_702_s20.log	e044050
+B 12^4 GCR(2)	4	8	3	13	0	tailB_702_s3.log	e044050
+B 12^4 GCR(2)	4	8	4	13	0	tailB_702_s4.log	e044050
+B 12^4 GCR(2)	4	8	5	13	0	tailB_702_s5.log	e044050
+B 12^4 GCR(2)	4	8	6	13	0	tailB_702_s6.log	e044050
+B 12^4 GCR(2)	4	8	7	14	0	tailB_702_s7.log	e044050
+B 12^4 GCR(2)	4	8	8	13	0	tailB_702_s8.log	e044050
+B 12^4 GCR(2)	4	8	9	13	0	tailB_702_s9.log	e044050
+B 12^4 GCR(2)	1	8	1	13	0	tailB_v2_s1.log	e044050
+B 12^4 GCR(2)	1	8	10	13	0	tailB_v2_s10.log	e044050
+B 12^4 GCR(2)	1	8	11	14	0	tailB_v2_s11.log	e044050
+B 12^4 GCR(2)	1	8	12	13	0	tailB_v2_s12.log	e044050
+B 12^4 GCR(2)	1	8	13	14	0	tailB_v2_s13.log	e044050
+B 12^4 GCR(2)	1	8	14	13	0	tailB_v2_s14.log	e044050
+B 12^4 GCR(2)	1	8	15	13	0	tailB_v2_s15.log	e044050
+B 12^4 GCR(2)	1	8	16	14	0	tailB_v2_s16.log	e044050
+B 12^4 GCR(2)	1	8	17	13	0	tailB_v2_s17.log	e044050
+B 12^4 GCR(2)	1	8	18	13	0	tailB_v2_s18.log	e044050
+B 12^4 GCR(2)	1	8	19	13	0	tailB_v2_s19.log	e044050
+B 12^4 GCR(2)	1	8	2	13	0	tailB_v2_s2.log	e044050
+B 12^4 GCR(2)	1	8	20	13	0	tailB_v2_s20.log	e044050
+B 12^4 GCR(2)	1	8	3	14	0	tailB_v2_s3.log	e044050
+B 12^4 GCR(2)	1	8	4	13	0	tailB_v2_s4.log	e044050
+B 12^4 GCR(2)	1	8	5	14	0	tailB_v2_s5.log	e044050
+B 12^4 GCR(2)	1	8	6	13	0	tailB_v2_s6.log	e044050
+B 12^4 GCR(2)	1	8	7	14	0	tailB_v2_s7.log	e044050
+B 12^4 GCR(2)	1	8	8	13	0	tailB_v2_s8.log	e044050
+B 12^4 GCR(2)	1	8	9	14	0	tailB_v2_s9.log	e044050
+S 12^4 GCR(16)	2	8	10	13	0	tail_502_s10_k16.log	e044050
+S 12^4 GCR(2)	2	8	10	58	1	tail_502_s10_k2.log	e044050
+S 12^4 GCR(16)	2	8	1	12	0	tail_502_s1_k16.log	e044050
+S 12^4 GCR(2)	2	8	1	14	0	tail_502_s1_k2.log	e044050
+S 12^4 GCR(16)	2	8	2	12	0	tail_502_s2_k16.log	e044050
+S 12^4 GCR(2)	2	8	2	13	0	tail_502_s2_k2.log	e044050
+S 12^4 GCR(16)	2	8	3	13	0	tail_502_s3_k16.log	e044050
+S 12^4 GCR(2)	2	8	3	19	0	tail_502_s3_k2.log	e044050
+S 12^4 GCR(16)	2	8	4	12	0	tail_502_s4_k16.log	e044050
+S 12^4 GCR(2)	2	8	4	14	0	tail_502_s4_k2.log	e044050
+S 12^4 GCR(16)	2	8	5	12	0	tail_502_s5_k16.log	e044050
+S 12^4 GCR(2)	2	8	5	13	0	tail_502_s5_k2.log	e044050
+S 12^4 GCR(16)	2	8	6	12	0	tail_502_s6_k16.log	e044050
+S 12^4 GCR(2)	2	8	6	15	0	tail_502_s6_k2.log	e044050
+S 12^4 GCR(16)	2	8	7	12	0	tail_502_s7_k16.log	e044050
+S 12^4 GCR(2)	2	8	7	14	0	tail_502_s7_k2.log	e044050
+S 12^4 GCR(16)	2	8	8	12	0	tail_502_s8_k16.log	e044050
+S 12^4 GCR(2)	2	8	8	14	0	tail_502_s8_k2.log	e044050
+S 12^4 GCR(16)	2	8	9	13	0	tail_502_s9_k16.log	e044050
+S 12^4 GCR(2)	2	8	9	14	0	tail_502_s9_k2.log	e044050
+S 12^4 GCR(16)	3	8	10	14	0	tail_602_s10_k16.log	e044050
+S 12^4 GCR(2)	3	8	10	2000!	1	tail_602_s10_k2.log	e044050
+S 12^4 GCR(16)	3	8	1	11	0	tail_602_s1_k16.log	e044050
+S 12^4 GCR(2)	3	8	1	12	0	tail_602_s1_k2.log	e044050
+S 12^4 GCR(16)	3	8	2	12	0	tail_602_s2_k16.log	e044050
+S 12^4 GCR(2)	3	8	2	15	0	tail_602_s2_k2.log	e044050
+S 12^4 GCR(16)	3	8	3	14	0	tail_602_s3_k16.log	e044050
+S 12^4 GCR(2)	3	8	3	443	1	tail_602_s3_k2.log	e044050
+S 12^4 GCR(16)	3	8	4	11	0	tail_602_s4_k16.log	e044050
+S 12^4 GCR(2)	3	8	4	12	0	tail_602_s4_k2.log	e044050
+S 12^4 GCR(16)	3	8	5	13	0	tail_602_s5_k16.log	e044050
+S 12^4 GCR(2)	3	8	5	15	0	tail_602_s5_k2.log	e044050
+S 12^4 GCR(16)	3	8	6	12	0	tail_602_s6_k16.log	e044050
+S 12^4 GCR(2)	3	8	6	13	0	tail_602_s6_k2.log	e044050
+S 12^4 GCR(16)	3	8	7	11	0	tail_602_s7_k16.log	e044050
+S 12^4 GCR(2)	3	8	7	12	0	tail_602_s7_k2.log	e044050
+S 12^4 GCR(16)	3	8	8	12	0	tail_602_s8_k16.log	e044050
+S 12^4 GCR(2)	3	8	8	12	0	tail_602_s8_k2.log	e044050
+S 12^4 GCR(16)	3	8	9	11	0	tail_602_s9_k16.log	e044050
+S 12^4 GCR(2)	3	8	9	12	0	tail_602_s9_k2.log	e044050
+S 12^4 GCR(16)	4	8	10	13	0	tail_702_s10_k16.log	e044050
+S 12^4 GCR(2)	4	8	10	22	0	tail_702_s10_k2.log	e044050
+S 12^4 GCR(16)	4	8	1	13	0	tail_702_s1_k16.log	e044050
+S 12^4 GCR(2)	4	8	1	19	0	tail_702_s1_k2.log	e044050
+S 12^4 GCR(16)	4	8	2	13	0	tail_702_s2_k16.log	e044050
+S 12^4 GCR(2)	4	8	2	14	0	tail_702_s2_k2.log	e044050
+S 12^4 GCR(16)	4	8	3	13	0	tail_702_s3_k16.log	e044050
+S 12^4 GCR(2)	4	8	3	17	0	tail_702_s3_k2.log	e044050
+S 12^4 GCR(16)	4	8	4	12	0	tail_702_s4_k16.log	e044050
+S 12^4 GCR(2)	4	8	4	14	0	tail_702_s4_k2.log	e044050
+S 12^4 GCR(16)	4	8	5	13	0	tail_702_s5_k16.log	e044050
+S 12^4 GCR(2)	4	8	5	17	0	tail_702_s5_k2.log	e044050
+S 12^4 GCR(16)	4	8	6	13	0	tail_702_s6_k16.log	e044050
+S 12^4 GCR(2)	4	8	6	15	0	tail_702_s6_k2.log	e044050
+S 12^4 GCR(16)	4	8	7	13	0	tail_702_s7_k16.log	e044050
+S 12^4 GCR(2)	4	8	7	17	0	tail_702_s7_k2.log	e044050
+S 12^4 GCR(16)	4	8	8	13	0	tail_702_s8_k16.log	e044050
+S 12^4 GCR(2)	4	8	8	14	0	tail_702_s8_k2.log	e044050
+S 12^4 GCR(16)	4	8	9	12	0	tail_702_s9_k16.log	e044050
+S 12^4 GCR(2)	4	8	9	14	0	tail_702_s9_k2.log	e044050
+S 12^4 GCR(16)	1	8	10	12	0	tail_v2_s10_k16.log	e044050
+S 12^4 GCR(2)	1	8	10	14	0	tail_v2_s10_k2.log	e044050
+S 12^4 GCR(16)	1	8	1	12	0	tail_v2_s1_k16.log	e044050
+S 12^4 GCR(2)	1	8	1	16	0	tail_v2_s1_k2.log	e044050
+S 12^4 GCR(16)	1	8	2	13	0	tail_v2_s2_k16.log	e044050
+S 12^4 GCR(2)	1	8	2	513	1	tail_v2_s2_k2.log	e044050
+S 12^4 GCR(16)	1	8	3	13	0	tail_v2_s3_k16.log	e044050
+S 12^4 GCR(2)	1	8	3	15	0	tail_v2_s3_k2.log	e044050
+S 12^4 GCR(16)	1	8	4	12	0	tail_v2_s4_k16.log	e044050
+S 12^4 GCR(2)	1	8	4	13	0	tail_v2_s4_k2.log	e044050
+S 12^4 GCR(16)	1	8	5	13	0	tail_v2_s5_k16.log	e044050
+S 12^4 GCR(2)	1	8	5	118	1	tail_v2_s5_k2.log	e044050
+S 12^4 GCR(16)	1	8	6	12	0	tail_v2_s6_k16.log	e044050
+S 12^4 GCR(2)	1	8	6	87	1	tail_v2_s6_k2.log	e044050
+S 12^4 GCR(16)	1	8	7	12	0	tail_v2_s7_k16.log	e044050
+S 12^4 GCR(2)	1	8	7	18	0	tail_v2_s7_k2.log	e044050
+S 12^4 GCR(16)	1	8	8	12	0	tail_v2_s8_k16.log	e044050
+S 12^4 GCR(2)	1	8	8	14	0	tail_v2_s8_k2.log	e044050
+S 12^4 GCR(16)	1	8	9	12	0	tail_v2_s9_k16.log	e044050
+S 12^4 GCR(2)	1	8	9	14	0	tail_v2_s9_k2.log	e044050
