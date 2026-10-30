@@ -103,7 +103,6 @@
 \newcommand{\Pro}{\mathcal P}
 \newcommand{\Dc}{\mathcal D_{\mathrm c}}
 \newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
-\newcommand{\Hc}{\mathcal H_{\mathrm c}}
 \renewcommand{\Re}{\operatorname{Re}}
 \newcommand{\Ce}{C_{e}}
 \newcommand{\Co}{C_{o}}
@@ -264,9 +263,10 @@ adjoint Pauli--Villars operator, with site-local factors and the restriction to 
 between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on all
 lattice sites. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
 four-dimensional and both coarse operators are nearest-neighbor; Ref.~\cite{BCHW} instead coarsens
-the Wilson kernel on each slice of the fifth dimension. Third, the Pauli--Villars coarse
-system is solved in a $\Sigma$-Hermitian form by MINRES, and levels below the coarse lattice with
-a dense LU at the bottom take the place of deflation (Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
+the Wilson kernel on each slice of the fifth dimension. Third, levels below the coarse lattice
+with a dense LU at the bottom precondition the quark factor in place of deflation, and the
+Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized normal equation
+(Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
 non-normal operator. The prolongation lifts these vectors to all lattice sites in
 two ways, one for each coarse solve; for the right form this makes the correction exact on them
 (Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
@@ -958,16 +958,15 @@ Finally $O_L=\Ce$ gives $e=y$.
 
 \paragraph{In practice.} Equation~\eqref{eq:exact} needs three conditions that hold only
 approximately. The stored $\Pro$ contains $s$ and $\hat t$ only up to the rounding of its
-reduced-precision storage. The $\Sigma$-adjoint $\Sigma\Dcpv\Sigma$ of Sec.~\ref{sec:coarse}
-equals the exact adjoint only if $\Gfive\Dpv\Gfive=\Dpv\dg$, which fails for $c\neq0$ by
-Eq.~\eqref{eq:g5herm}. And we stop the coarse solves at a loose tolerance.\ifresults{} With both
+reduced-precision storage. The Tikhonov shift of Sec.~\ref{sec:coarse} changes the
+Pauli--Villars coarse solve in the directions of its smallest singular values. And we stop the
+coarse solves at a loose tolerance.\ifresults{} With both
 coarse factors solved on their exact adjoints to $|r|^2/|b|^2<10^{-24}$ in double precision and
 $\Pro$ in half precision, the correction of $r=\AR y_j$ returns $y_j$ to
 $\|e-y_j\|/\|y_j\|=3\times10^{-4}$--$5\times10^{-4}$ on $4^3\times8$ ($2^4$ aggregates, $M_5=1.8$,
 $m=0.05$) and $3\times10^{-4}$--$2.5\times10^{-3}$ on $12^4$ (setup~S, $m=0.001$), against $3$--$37$
-for random vectors. So Eq.~\eqref{eq:exact} holds to the rounding of $\Pro$, about $10^{-3}$. The
-$\Sigma$-adjoint costs no measurable iterations (Sec.~\ref{sec:herm}), and accurate coarse solves
-are not faster with GCR(2) and stagnate on $12^4$ (Secs.~\ref{sec:gcrk},
+for random vectors. So Eq.~\eqref{eq:exact} holds to the rounding of $\Pro$, about $10^{-3}$.
+Accurate coarse solves are not faster with GCR(2) and stagnate on $12^4$ (Secs.~\ref{sec:gcrk},
 \ref{sec:sensitivity}).\else{} How much each departure costs has not been analyzed.\fi
 
 \paragraph{The left form.} For the left form with $\alpha$ in both operators, the same argument
@@ -988,9 +987,9 @@ $24^3\times48$ one lift of twice as many vectors $y$ does as well
 \subsubsection{The coarse operators}
 We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
 between neighboring blocks and from its part within a block. Each coarse site has a
-$2n_v\times2n_v$ diagonal block and one link block per direction, nine blocks in all. We do not
-assemble the adjoint factor $\Pro\dg\Dpv\dg\Pro$. We apply it either exactly, as the conjugate
-transpose $(\Dcpv)\dg$ of the stored blocks, or approximately as $\Sigma\Dcpv\Sigma$. When all
+$2n_v\times2n_v$ diagonal block and one link block per direction, nine blocks in all. The
+adjoint factor $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$ is the conjugate transpose of these blocks; the
+Pauli--Villars solve stores it as a second coarse operator. When all
 extents of the coarse lattice are even, the coarse hops connect coarse sites of opposite parity,
 and both coarse operators have an even-odd form of their own.
 
@@ -1002,9 +1001,9 @@ We solve both coarse systems only approximately, in reduced precision, to a loos
 residual or a maximum number of iterations. Reaching the tolerance is not required. The two are
 solved in sequence: first the Pauli--Villars factor, whose solution enters the right-hand side of
 the quark factor. The default, used for all results unless stated, is BiCGStab on the even-odd
-form of the quark factor and MINRES on the $\Sigma$-Hermitian form of the Pauli--Villars factor,
-both to $|r|^2/|b|^2<10^{-2}$ (Algorithms~\ref{alg:bicgstab} and~\ref{alg:minres},
-Appendix~\ref{sec:cgform}). This subsection describes these and the alternatives.
+form of the quark factor and CG on the regularized normal equation~\eqref{eq:tikhonov} of the
+Pauli--Villars factor with $\tau=10^{-3}$, both to $|r|^2/|b|^2<10^{-2}$
+(Algorithms~\ref{alg:bicgstab} and~\ref{alg:cgne}, Appendix~\ref{sec:cgform}). This subsection describes these and the alternatives.
 
 \subsubsection{The quark factor}
 Write $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\ B_{oe}&A_{oo}\end{pmatrix}$ on the
@@ -1020,35 +1019,34 @@ $\Sigma\Dc$ is Hermitian only for $c=0$.
 BiCGStab~\cite{vanderVorst} is Algorithm~\ref{alg:bicgstab} of Appendix~\ref{sec:cgform}.
 
 \subsubsection{The Pauli--Villars factor}
-The system is $(\Pro\dg\Dpv\dg\Pro)\,w=g$. Two treatments are available.
-
-\paragraph{Exact adjoint.} Solve $(\Dcpv)\dg w=g$ with a non-Hermitian Krylov
-method, preconditioned by the inverses of the adjoint diagonal blocks,
-$(A_{xx}\dg)^{-1}=(A_{xx}^{-1})\dg$.
-
-\paragraph{$\Sigma$-Hermitian form.} Replace the adjoint by $\Sigma\Dcpv\Sigma$
-and solve the equivalent system
+The system is $(\Pro\dg\Dpv\dg\Pro)\,w=g$, that is $X w=g$ with $X=(\Dcpv)\dg$. We solve the
+Tikhonov-regularized normal equation
 \begin{equation}
-\Hc\,w=\Sigma g,\qquad \Hc=\Dcpv\Sigma ,
-\label{eq:Hc}
+\big(X\dg X+\tau\big)\,w=X\dg g,\qquad X\dg X=\Dcpv(\Dcpv)\dg,
+\label{eq:tikhonov}
 \end{equation}
-with MINRES. $\Hc$ is Hermitian (indefinite) exactly when $(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, that is
-for $c=0$ by Eqs.~\eqref{eq:g5herm} and \eqref{eq:GP}. For $c\neq0$ MINRES works on a
-non-Hermitian matrix and has no guarantee.\ifresults{} On the coarse space the non-Hermitian part is a few
-percent, up to $13\%$ in the directions of the smallest singular values, and linear in $c$. Even so, MINRES on $\Hc$ needs the same outer iterations at $c=0.5$ as for
-the Shamir operator and is better than the exact adjoint with BiCGStab
-(Sec.~\ref{sec:herm}). The absolute-value block preconditioner and the additive level
-preconditioner below, also exact only for $c=0$, are used as they are.\fi The preconditioner must be Hermitian positive definite; we use the
-absolute value of the diagonal blocks~\cite{VK}, $|\mathcal H_{xx}|^{-1}=
-V|\Lambda|^{-1}V\dg$ with $\frac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$
-on each coarse site. On a coarse lattice with even extents, the Schur
-complement of $\Hc$ on the even sites is $S_{\mathrm c}\Sigma_e$, with
-$S_{\mathrm c}$ the Schur complement of $\Dcpv$; one solves for
-$u_e=\Sigma w_e$ on the even sites, completes $u$ on the odd sites as in
-Eq.~\eqref{eq:coarseeo}, and sets $w=\Sigma u$.
+by CG on all coarse sites, without a preconditioner. With the singular value decomposition
+$X=\sum_k\sigma_ku_kv_k\dg$ its solution is
+\begin{equation}
+w=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,v_k\,u_k\dg g ,
+\label{eq:tikhonovsol}
+\end{equation}
+against $\sum_k\sigma_k^{-1}v_ku_k\dg g$ for the exact solve. Directions with $\sigma_k^2\gg\tau$
+are solved as before; directions with $\sigma_k^2\lesssim\tau$, which the exact solve amplifies by
+$\sigma_k^{-1}$, are damped. The shift also bounds the condition number of
+Eq.~\eqref{eq:tikhonov} by $1+\sigma_{\max}^2/\tau$.
+
+The regularization is needed because the Galerkin projection can create small singular values that
+the fine operator does not have. With stout smearing the smallest singular value of $\Dcpv$ lies
+one to two orders of magnitude below that of the fine $\Dpv$, and without the shift some setups on
+$12^4$ make GCR(2) slow or stagnant (Sec.~\ref{sec:pvcoarse}). We choose $\tau$ so that
+$\sqrt\tau$ is a small fraction of the smallest singular value of the fine $\Dpv$; the shift then
+leaves the singular values that the fine operator has nearly unchanged. We use $\tau=10^{-3}$,
+$\sqrt\tau\approx0.03$ against $0.25$--$0.53$ for the fine operator in our setups. Each CG step
+applies $\Dcpv$ and $(\Dcpv)\dg$ once.
 
 \subsubsection{Levels below the coarse lattice}
-Both factors may be preconditioned by further levels. The coarse sites are
+The quark factor may be preconditioned by further levels. The coarse sites are
 grouped into super-blocks; on each super-block, local vectors are formed from
 the coarse test vectors $\Pro\dg s_j$ and $\Pro\dg\hat t_j$, split by $\Sigma$
 and orthonormalized (Gram--Schmidt applied twice); the level operators are
@@ -1056,7 +1054,7 @@ obtained by probing the nearest-neighbor stencil; the last level is inverted
 densely. With $Q_{\ell}$ the prolongation into level $\ell-1$ and $B_\ell$ the
 diagonal blocks of level $\ell$:
 
-\emph{Quark factor.} A V-cycle with the coarse correction followed by one
+We use a V-cycle with the coarse correction followed by one
 block-Jacobi sweep on the updated residual, without pre-smoothing,
 \begin{equation}
 z=Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg r,\qquad
@@ -1067,25 +1065,11 @@ with the even-odd coarse form its even part preconditions the Schur system. The
 level test vectors can optionally be refined by a few GCR steps preconditioned
 by the levels already built.
 
-\emph{Pauli--Villars factor ($\Sigma$-Hermitian form only).} The additive
-Hermitian positive preconditioner
-\begin{equation}
-M_\ell=|B_\ell|^{-1}+Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg,\qquad
-M_{\ell_{\max}}=|\mathcal H_{\ell_{\max}}|^{-1},
-\label{eq:levelspv}
-\end{equation}
-in the spirit of absolute-value preconditioning~\cite{VK}.
-
 \paragraph{Levels instead of deflation.} The levels below compress the low modes further by
 aggregation and invert the last level exactly, by LU in double precision (cuSOLVER on the
 device), so every mode that reaches that level is treated without computing any eigenvector.
-The alternative is to deflate the coarse factors with a few of their eigenvectors. With the
-basis $\{s,Ds\}$ in place of $\{s,\hat t\}$ ($12^4$, quenched, $\beta=6.0$, $m=0.005$), the
-$32$ Ritz pairs closest to zero from a Lanczos run of $600$ steps with full reorthogonalization
-had relative residuals up to $2$; deflating with them reduced the MINRES steps of the
-Pauli--Villars factor from $402$ to $350$, and the solution stalled at a residual of
-$9\times10^{-3}$. With $\{s,\hat t\}$, whose coarse operators differ
-(Sec.~\ref{sec:basischoice}), coarse deflation remains to be tried. Boyle and
+The alternative, deflating the coarse factors with a few of their eigenvectors, we have not
+tried with the basis $\{s,\hat t\}$. Boyle and
 Oare~\cite{BoyleOare} use a large coarsest level that is inverted densely in the role of deflation.
 
 % ============================================================
@@ -1330,8 +1314,8 @@ solver from $24^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ 
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
-four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and a
-$\Sigma$-Hermitian MINRES solve with levels below the coarse lattice in place of deflation. The
+four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
+the coarse lattice in place of deflation. The
 lift $\hat t$ is needed in setup~S: without it GCR(2) stagnates or takes up to five times the
 iterations, although the correction is exact only for the right form. One setup serves every value of
 Neff's $\alpha$.
@@ -1368,8 +1352,7 @@ Bridge++ does not have, is checked against CGNE, whose propagators it reproduces
 
 \ifresults
 The following questions remain open. Those the measurements answer are discussed where
-they arise: the left form in Sec.~\ref{sec:basis}, $c\neq0$ in Secs.~\ref{sec:coarse}
-and \ref{sec:herm}, the field of values in Secs.~\ref{sec:spectra} and
+they arise: the left form in Sec.~\ref{sec:basis}, the field of values in Secs.~\ref{sec:spectra} and
 \ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
@@ -1395,10 +1378,12 @@ varies from step to step. On $12^4$ in setup~S, GCR(2) with accurate coarse solv
 can reach a residual orthogonal to its new direction and stay there (Sec.~\ref{sec:gcrk}), and on the
 residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) ($13$--$222$ iterations) on $12^4$ in setup~S (Sec.~\ref{sec:daggerresults}). GCR(2) does not
 reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
-were tested on $16^4$ but not on $24^4$. The solver's inexact cycle
-reaches them only on $12^4$ with stout smearing; one $24^3\times48$ configuration is slower but converges (Sec.~\ref{sec:gcrk}, Table~\ref{tab:seeds}). Without smearing the field of values of the cycle stays in the right half-plane on $12^4$ and the
-bound of Ref.~\cite{ESS} applies; why smearing makes the coarse correction amplify by $10^3$--$10^5$
-there is not understood. A safeguard that changes the
+were tested on $16^4$ but not on $24^4$. On $12^4$ with stout smearing the Galerkin
+Pauli--Villars factor has singular values far below those of the fine operator, and the coarse
+correction amplifies by $10^3$--$10^5$; without smearing neither happens, and the field of values
+of the cycle stays in the right half-plane, where the bound of Ref.~\cite{ESS} applies. The
+Tikhonov shift removes the slow setups (Sec.~\ref{sec:pvcoarse}), but why smearing produces these
+singular values is not understood. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
@@ -1427,14 +1412,6 @@ The following questions of theory and algorithm remain open.
 for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
 that would be needed differs from $\hat t$ by site-local factors (Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
 once, and what is lost by using the right-form basis for the left form, remains to be seen.
-
-\item \textbf{Loss of $\Gfive$-Hermiticity for $c\neq0$.} By
-Eq.~\eqref{eq:g5herm}, $\Gfive D\Gfive\neq D\dg$ at $O(c)$. MINRES on
-$\Hc=\Dcpv\Sigma$, the absolute-value block preconditioner (built from the
-Hermitian part only), the additive level preconditioner, and the $\Sigma$-adjoint
-in place of the exact adjoint are all exact only for $c=0$. The exactly Hermitian
-operator $\Gfive D_-^{-1}D$~\cite{BNO} involves a non-local inverse. How large
-the non-Hermitian part is on the coarse space, and how to treat it, remains to be studied.
 
 \item \textbf{Smoother interval for a non-normal operator.} The interval
 $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ is set from an estimate of the
@@ -1616,8 +1593,8 @@ $24^3\times48$ & 1 & $0.593548$ & $3.20$ & $+4.47$ & $+4.78$ & $+5$\\
 \section{Krylov solvers}
 \label{sec:cgform}
 
-The multigrid uses three Krylov solvers, flexible GCR for the outer system, MINRES and BiCGStab for
-the coarse factors and FGMRES in the bootstrap, and the comparison uses CG. The algorithms below are
+The multigrid uses four Krylov solvers, flexible GCR for the outer system, BiCGStab and CG for
+the coarse factors and FGMRES in the bootstrap, and the comparison uses CG as well. The algorithms below are
 those of RutticeQCD, which runs the same code on the CPU and on the device; $\epsilon$ is the
 tolerance on $|r|^2/|b|^2$.
 
@@ -1644,31 +1621,6 @@ restarts.
     \State $\beta\gets\langle q|r\rangle$;\quad $x\gets x+\beta z$;\quad $r\gets r-\beta q$
   \EndFor
 \Until{$|b-\tilde Ax|^2<\epsilon|b|^2$}
-\end{algorithmic}
-\end{algorithm}
-
-\paragraph{MINRES.} The Pauli--Villars factor is solved by MINRES~\cite{PaigeSaunders} on the
-$\Sigma$-Hermitian form $\Hc$ (Sec.~\ref{sec:coarse}), in the form of Ref.~\cite{ESW},
-Algorithm~2.4: Lanczos in the inner product of the preconditioner, which must be Hermitian
-positive definite and fixed ($|H_{xx}|^{-1}$ or the additive levels of Eq.~\eqref{eq:levelspv}),
-with Givens rotations (Algorithm~\ref{alg:minres}). As a coarse solve it starts from $x=0$ and
-stops on the residual estimate $\eta$ of the recurrence, measured in the norm of the
-preconditioner.
-
-\begin{algorithm}[tbp]
-\caption{Preconditioned MINRES for $Hx=g$, $H$ Hermitian, $\mathcal M_H$ Hermitian positive definite.}
-\label{alg:minres}
-\begin{algorithmic}
-\State $v\gets g-Hx$;\quad $v_-\gets0$;\quad $z\gets\mathcal M_Hv$;\quad $\gamma\gets\langle z|v\rangle^{1/2}$;\quad $\gamma_-\gets1$;\quad $\eta\gets\gamma$
-\State $c,c_-\gets1$;\quad $s,s_-\gets0$;\quad $w,w_-\gets0$
-\While{$\eta^2\ge\epsilon\,\langle\mathcal M_Hg|g\rangle$}
-  \State $z\gets z/\gamma$;\quad $\delta\gets\Re\langle Hz|z\rangle$
-  \State $v'\gets Hz-(\delta/\gamma)v-(\gamma/\gamma_-)v_-$;\quad $z'\gets\mathcal M_Hv'$;\quad $\gamma'\gets\Re\langle z'|v'\rangle^{1/2}$
-  \State $a_0\gets c\delta-c_-s\gamma$;\quad $a_1\gets(a_0^2+\gamma'^2)^{1/2}$;\quad $a_2\gets s\delta+c_-c\gamma$;\quad $a_3\gets s_-\gamma$
-  \State $c'\gets a_0/a_1$;\quad $s'\gets\gamma'/a_1$;\quad $(w_-,w)\gets\big(w,\,(z-a_3w_--a_2w)/a_1\big)$
-  \State $x\gets x+c'\eta\,w$;\quad $\eta\gets-s'\eta$
-  \State $(v_-,v,z)\gets(v,v',z')$;\quad $(\gamma_-,\gamma)\gets(\gamma,\gamma')$;\quad $(c_-,c,s_-,s)\gets(c,c',s,s')$
-\EndWhile
 \end{algorithmic}
 \end{algorithm}
 
@@ -1715,7 +1667,8 @@ and corrects it by reliable updates~\cite{SleijpenvdV,ClarkMixed} in double prec
 $\delta=10^{-2}$ below its largest value since the last update, the single-precision solution is
 added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG then goes on with
 the same search direction and stops only on the double-precision residual. With $\delta=0$ the
-algorithm is plain CG in double precision. On $24^3\times48$ the mixed-precision solver needs the
+algorithm is plain CG in double precision; in single precision it is the solver of the
+Pauli--Villars factor, Eq.~\eqref{eq:tikhonov}, started from $x=0$. On $24^3\times48$ the mixed-precision solver needs the
 iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $30\%$ more ($14\%$ on configuration~1), and takes $0.53$--$0.74$ times the
 time (over the four configurations), with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
 precision.
@@ -1887,7 +1840,6 @@ Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 JHEP \textbf{07} (2007) 081 [arXiv:0706.2298].
 \bibitem{HestenesStiefel} M.~R.~Hestenes and E.~Stiefel, \emph{Methods of conjugate gradients for solving linear systems}, J.\ Res.\ Natl.\ Bur.\ Stand.\ \textbf{49} (1952) 409.
 \bibitem{vanderVorst} H.~A.~van der Vorst, \emph{Bi-CGSTAB: a fast and smoothly converging variant of Bi-CG for the solution of nonsymmetric linear systems}, SIAM J.\ Sci.\ Stat.\ Comput.\ \textbf{13} (1992) 631.
-\bibitem{PaigeSaunders} C.~C.~Paige and M.~A.~Saunders, \emph{Solution of sparse indefinite systems of linear equations}, SIAM J.\ Numer.\ Anal.\ \textbf{12} (1975) 617.
 \bibitem{SaadFGMRES} Y.~Saad, \emph{A flexible inner-outer preconditioned GMRES algorithm}, SIAM J.\ Sci.\ Comput.\ \textbf{14} (1993) 461.
 \bibitem{SleijpenvdVomega} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Maintaining convergence properties of BiCGstab methods in finite precision arithmetic}, Numer.\ Algorithms \textbf{10} (1995) 203.
 \bibitem{SleijpenvdV} G.~L.~G.~Sleijpen and H.~A.~van der Vorst, \emph{Reliable updated residuals in hybrid Bi-CG methods}, Computing \textbf{56} (1996) 141.
@@ -1924,8 +1876,6 @@ SIAM J.\ Numer.\ Anal.\ \textbf{20} (1983) 345.
 \bibitem{KCM2024} I.~Kanamori, W.-L.~Chen and H.~Matsufuru, \emph{Spectrum of preconditioned Moebius domain-wall operators}, PoS \textbf{LATTICE2024} (2025) 414.
 \bibitem{Neff} H.~Neff, \emph{A better conditioned domain wall operator}, arXiv:1501.04950.
 \bibitem{CKMN} W.-L.~Chen, I.~Kanamori, H.~Matsufuru and H.~Neff, \emph{Accelerating iterative linear equation solver using modified domain-wall fermion matrix in lattice QCD simulations}, in \emph{Computational Science and Its Applications -- ICCSA 2025 Workshops}, Lecture Notes in Computer Science, Springer (2025), pp.~54--69, doi:10.1007/978-3-031-97606-3\_5.
-\bibitem{VK} E.~Vecharynski and A.~V.~Knyazev, \emph{Absolute value preconditioning for symmetric indefinite linear systems},
-SIAM J.\ Sci.\ Comput.\ \textbf{35} (2013) A696.
 \bibitem{Manteuffel} T.~A.~Manteuffel, \emph{The Tchebychev iteration for nonsymmetric linear systems},
 Numer.\ Math.\ \textbf{28} (1977) 307.
 \bibitem{Saad} Y.~Saad, \emph{Iterative Methods for Sparse Linear Systems}, 2nd ed., SIAM, Philadelphia (2003).

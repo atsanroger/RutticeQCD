@@ -31,7 +31,7 @@ Chebyshev smoother $\nu$, $\kappa_s$ & $8$, $10$ & $12$, $30$ \\
 aggregates & \multicolumn{2}{l}{$4^4$ ($24^3\times48$: levels below with super-blocks $2$, $3$)} \\
 test vectors & \multicolumn{2}{l}{$32$ ($16$ filtered low modes of $\AR\dg\AR$, lifted to $\{s,\hat t\}$)} \\
 setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps} \\
-coarse solves & \multicolumn{2}{l}{single precision, $|r|^2/|b|^2<10^{-2}$} \\
+coarse solves & \multicolumn{2}{l}{single precision, $|r|^2/|b|^2<10^{-2}$; Pauli--Villars $\tau=10^{-3}$} \\
 precision & \multicolumn{2}{l}{$\Pro$ half, cycle single, outer solver double} \\
 outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
 \bottomrule
@@ -233,8 +233,7 @@ singular vectors $\AR y$, with or without a bootstrap, or from a second setup of
 12--300 iterations and up to a full setup more.
 \item \emph{Other coarse solvers in the dual cycle.} Its stagnation comes from the Pauli--Villars
 factor, solved by BiCGStab: with GCR(4) there it converges, but each cycle is three times as
-expensive. MINRES on the $\Gfive$-Hermitian form does not help, since that form is wrong at
-order $c$.
+expensive.
 \end{itemize}
 
 \paragraph{What these solves are for.} In HMC each force evaluation needs one solve with $D$ and one
@@ -247,7 +246,7 @@ measured on $12^4$ and $16^4$ only, and the cost of the multigrid in HMC is left
 \label{sec:parts}
 
 The speed-up of Sec.~\ref{sec:massscan} rests on four choices beyond the operator $A'$: the coarse
-correction, the lift $\hat t$ in the basis, the $\Sigma$-Hermitian Pauli--Villars solve at $c\neq0$,
+correction, the lift $\hat t$ in the basis, the regularized Pauli--Villars solve,
 and the setup parameters. Each part below isolates one of them.
 
 \subsubsection{Krylov on $\AL$ without the multigrid}
@@ -292,21 +291,23 @@ side, a point-source propagator (12 columns) is faster with the two lifts in bot
 against $506$\,s; B: $359$ against $414$\,s); in setup~B the $32$ vectors $y$ alone recover their
 longer setup after about $21$ right-hand sides.
 
-\subsubsection{$\Gfive$-Hermiticity for $c\neq0$}
-\label{sec:herm}
+\subsubsection{The regularized Pauli--Villars solve}
+\label{sec:pvcoarse}
 
+The Tikhonov shift of Eq.~\eqref{eq:tikhonov} removes the slow setups on $12^4$, and the iterations
+hardly depend on $\tau$. With $\tau=10^{-3}$ all $40$ setups of setup~S (seeds $1$--$10$ on the four
+configurations) need $10$--$17$ iterations, and the $20$ setups of setup~B need $12$--$13$. Seven
+setups that need $70$ to more than $2000$ iterations without the shift need $11$--$18$ for every
+$\tau$ from $10^{-4}$ to $3\times10^{-3}$ (Table~\ref{tab:tikhonov}). The second coarse operator,
+$(\Dcpv)\dg$, raises the device peak on $24^3\times48$ to $21.1$\,GB.
 
-
-The loss of $\Gfive$-Hermiticity at $c\neq0$ does not hurt the method. For $c=0$ the coarse
-operators are $\Sigma$-Hermitian to rounding. For $c\neq0$ they are not: by a few percent in random
-directions and up to $13\%$ in the directions of the smallest singular values, growing linearly
-with $c$ (Table~\ref{tab:herm}), as Eq.~\eqref{eq:g5herm} says. Yet with MINRES on $\Hc$ for the
-Pauli--Villars factor, the outer iterations at $c=0.5$ are those of the Shamir operator ($c=0$, a
-different operator, for which MINRES is exact). MINRES is also better than BiCGStab on the exact
-adjoint in every case (Table~\ref{tab:minres}), and with BiCGStab the stout setup needs $84$--$883$ iterations or does not converge.
-So the non-Hermitian part of $\Hc$ is small enough for MINRES stopped at $10^{-2}$.
-The same weakness of BiCGStab on this factor
-makes the dual cycle of Sec.~\ref{sec:daggerresults} stagnate.
+The shift is needed because the Galerkin factor has small singular values that the fine operator
+does not have. On configurations 1 and 4 of $12^4$ with stout smearing, the smallest singular value
+of $\Dcpv$ is $1/42$ and $1/79$ of that of the fine $\Dpv$; without smearing the two agree to within
+$4\%$ (Table~\ref{tab:pvsv}). The exact coarse solve amplifies these directions by the inverse of
+the singular value, and $\|I-\AR E\|$ grows with them (Sec.~\ref{sec:fov}). On $16^4$ the gap is
+smaller ($1/29$ and $1/9$), and no slow setups were found there. Why smearing produces the gap is
+open (Sec.~\ref{sec:open}).
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -594,10 +595,8 @@ Sec.~\ref{sec:pseudo} gives for the full method; on $12^4$ with smearing about o
 reaches a plateau (Table~\ref{tab:seeds}). No guarantee is available for a truncated method whose preconditioner varies from step to
 step. Accurate coarse solves do not make the solver faster. On $16^4$ the exact cycle takes
 $24$--$36$ iterations on the four configurations, fewer than BiCGStab on the exact adjoint stopped
-at $10^{-2}$ ($37$--$47$ against $33$--$36$ on configuration~1). The solver's cycle takes $11$--$13$. It differs from the exact one in two ways, the
-$\Sigma$-adjoint $\Sigma\Dcpv\Sigma$ in place of $(\Dcpv)\dg$ and MINRES stopped at $10^{-2}$. The
-first is not the whole difference: at $c=0$, where the two adjoints coincide, MINRES still needs
-$13$ iterations against $25$ with BiCGStab on $12^4$ (medians, Table~\ref{tab:minres}). The cycle of
+at $10^{-2}$ ($37$--$47$ against $33$--$36$ on configuration~1). The solver's cycle, with the
+regularized Pauli--Villars solve, takes $10$--$11$. The cycle of
 the solver converged in every run of Table~\ref{tab:stall}.
 
 \paragraph{In short.} The convergence is set by the spectrum and the pseudospectra, not by the field of
