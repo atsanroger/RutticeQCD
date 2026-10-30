@@ -275,6 +275,10 @@ pub enum CoarseKrylov {
     /// second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for Möbius
     /// domain-wall fermions holds approximately.
     Minres,
+    /// CG on the regularized normal equations (A†A + ε) w = A† g of the second factor on all
+    /// coarse sites, ε = `PvEoParams::pv_tikhonov`: singular values of A below √ε are damped
+    /// by σ²/(σ² + ε). Only for the second factor, on the device.
+    Cg,
 }
 
 /// x = A⁻¹ b approximately by kind, preconditioned by m, from x = 0 (inner solves: no
@@ -292,6 +296,7 @@ pub fn coarse_solve<V: Vector>(
         CoarseKrylov::BiCgStab => BiCgStab::inner(stop).solve(a, m, x, b),
         CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, m, x, b),
         CoarseKrylov::Minres => Minres::inner(stop).solve(a, m, x, b),
+        CoarseKrylov::Cg => unreachable!("the regularized solve of the second factor is done by the correction"),
     };
 }
 
@@ -317,6 +322,8 @@ pub struct PvEoParams {
     pub d_solver: CoarseKrylov,
     /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
     pub pv_solver: CoarseKrylov,
+    /// ε of the regularized solve of the second factor (`CoarseKrylov::Cg`).
+    pub pv_tikhonov: f64,
     /// Steps of the power iteration for |λ_max|, from a random vector with this seed.
     pub power_steps: usize,
     pub seed: u64,
@@ -339,6 +346,7 @@ impl Default for PvEoParams {
             coarse_even_odd: true,
             d_solver: CoarseKrylov::BiCgStab,
             pv_solver: CoarseKrylov::Minres,
+            pv_tikhonov: 0.0,
             power_steps: 50,
             seed: 5,
         }

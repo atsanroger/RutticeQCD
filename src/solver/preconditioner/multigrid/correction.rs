@@ -4,7 +4,7 @@
 
 use super::mdwf_even_odd::{coarse_solve, CoarseKrylov, PvEoParams};
 use crate::fermion::{Dagger, EoForm, EvenOdd};
-use crate::solver::Stop;
+use crate::solver::{Solver, Stop};
 use crate::{fit, ConvertFrom, LinearFn, Parity, Vector, C64};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -269,6 +269,8 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     blocks_pv: Box<dyn LinearFn<C> + 'a>,
     levels_d: Option<Box<Levels<'a, C>>>,
     levels_pv: Option<Box<Levels<'a, C>>>,
+    /// A† = P†D_PV P for the regularized solve of the second factor (`CoarseKrylov::Cg`).
+    coarse_pv_adj: Option<D>,
     params: PvEoParams,
     work: (O::Work, O::Work),
     /// Scratch on the even sites and on the coarse lattice: `g` as P gives it, the others
@@ -321,6 +323,7 @@ where
             blocks_pv,
             levels_d: None,
             levels_pv: None,
+            coarse_pv_adj: None,
             params,
             h: like.zeros_with(1),
             gc: coarse_like.zeros_with(1),
@@ -350,6 +353,11 @@ where
         self.levels_pv = Some(levels);
     }
 
+    /// A† of the second coarse factor, for the regularized solve (`CoarseKrylov::Cg`).
+    pub(crate) fn set_pv_adjoint(&mut self, adj: D) {
+        self.coarse_pv_adj = Some(adj);
+    }
+
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
     pub fn coarse_applications(&self) -> usize {
         self.coarse_applications.get()
@@ -369,6 +377,7 @@ where
             blocks_pv,
             levels_d,
             levels_pv,
+            coarse_pv_adj,
             params,
             work: (work, work_a),
             h,
@@ -401,7 +410,26 @@ where
         // own Γ5-adjoint), or on the exact adjoint, which `coarse_pv` then is. Preconditioned
         // by the blocks, and the levels below if there are any.
         w.set_zero();
-        if params.pv_solver == CoarseKrylov::Minres {
+        if params.pv_solver == CoarseKrylov::Cg {
+            let eps = params.pv_tikhonov;
+            let adj = coarse_pv_adj
+                .as_ref()
+                .expect("the regularized solve needs P†D_PV P (set_pv_adjoint), made on the device");
+            // w = (A†A + ε)⁻¹ A† g on all coarse sites: the singular values of A below √ε are
+            // damped by σ²/(σ² + ε).
+            let mut b = gc.zeros_like();
+            adj.mult(&mut b, gc);
+            n.set(n.get() + nv);
+            let mut t = gc.zeros_like();
+            let shift = vec![C64::new(eps, 0.0); nv];
+            let mut normal = FnMap(|out: &mut C, inp: &C| {
+                coarse_pv.mult(&mut t, inp);
+                adj.mult(out, &t);
+                n.set(n.get() + 2 * inp.num_vectors());
+                out.axpy(&shift, inp);
+            });
+            let _ = crate::solver::Cg::new(pv_stop).solve(&mut normal, None, w, &b);
+        } else if params.pv_solver == CoarseKrylov::Minres {
             coarse_pv.gamma5(gc);
             minres_on_hermitian(
                 coarse_pv,

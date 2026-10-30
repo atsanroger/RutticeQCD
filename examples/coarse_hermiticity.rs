@@ -96,6 +96,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let block = value("--block", 4.0)? as usize;
     let vectors = value("--vectors", 16.0)? as usize;
     let nt = value("--t", l as f64)? as usize;
+    let nsv = value("--nsv", 4.0)? as usize;
+    let skip_d = value("--skipd", 0.0)? != 0.0;
     let start = Instant::now();
     let lat = Lattice::single_node([l, l, l, nt]);
     let mut u = ruttice::app::read_gauge_named(&args[1], Path::new(&args[2]), &lat)?;
@@ -150,6 +152,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let like = basis.coarse_field(1);
     for (name, fine) in [("P^dag D P", &op), ("P^dag D_PV P", &pv)] {
+        if skip_d && name == "P^dag D P" {
+            continue;
+        }
         let mut x = basis.coarse_op(fine, &mut fine.work());
         let random: Vec<f64> = (1..=4)
             .map(|s| defect(&mut x, &random_like(&like, s)))
@@ -167,9 +172,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             &mut NormalOf(&mut x, like.zeros_like()),
             &start_vector,
             LanczosParams {
-                wanted: 4,
-                keep: 10,
-                max_dim: 32,
+                wanted: nsv,
+                keep: (nsv + 6).max(10),
+                max_dim: (2 * nsv + 24).max(32),
                 tolerance: 1e-8.into(),
                 max_restarts: 2000,
                 chebyshev: None,
