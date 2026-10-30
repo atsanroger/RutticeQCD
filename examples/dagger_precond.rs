@@ -152,9 +152,20 @@ mod device {
             },
             false => cycle,
         };
-        let dual = PvEoParams {
-            pv_solver: CoarseKrylov::BiCgStab,
-            ..cycle
+        // The dual cycle, D and D_PV exchanged: its second factor P†D†P by BiCGStab; with
+        // --tikhonov its first, P†D_PV P, regularized as the second factor of the cycle of D.
+        let dual = match tikhonov > 0.0 {
+            true => PvEoParams {
+                d_solver: CoarseKrylov::Cg,
+                d_tikhonov: tikhonov,
+                pv_solver: CoarseKrylov::BiCgStab,
+                pv_tikhonov: 0.0,
+                ..cycle
+            },
+            false => PvEoParams {
+                pv_solver: CoarseKrylov::BiCgStab,
+                ..cycle
+            },
         };
         let lat = Lattice::single_node([l; ND]);
         let u = ruttice::app::read_gauge_named(&args[1], Path::new(&args[2]), &lat)?;

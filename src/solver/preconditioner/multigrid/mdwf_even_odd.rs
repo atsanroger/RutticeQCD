@@ -275,9 +275,9 @@ pub enum CoarseKrylov {
     /// second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for Möbius
     /// domain-wall fermions holds approximately.
     Minres,
-    /// CG on the regularized normal equations (A†A + ε) w = A† g of the second factor on all
-    /// coarse sites, ε = `PvEoParams::pv_tikhonov`: singular values of A below √ε are damped
-    /// by σ²/(σ² + ε). Only for the second factor, on the device.
+    /// CG on the regularized normal equations (A†A + ε) w = A† g on all coarse sites, ε =
+    /// `PvEoParams::pv_tikhonov` (second factor) or `d_tikhonov` (first): singular values of A
+    /// below √ε are damped by σ²/(σ² + ε). On the device.
     Cg,
 }
 
@@ -320,6 +320,9 @@ pub struct PvEoParams {
     pub coarse_even_odd: bool,
     /// The solver of the quark factor P†DP (not `Minres`) ...
     pub d_solver: CoarseKrylov,
+    /// ε of its regularized solve (`CoarseKrylov::Cg`; the adjoint cycle, whose first factor
+    /// is the Pauli-Villars one).
+    pub d_tikhonov: f64,
     /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
     pub pv_solver: CoarseKrylov,
     /// ε of the regularized solve of the second factor (`CoarseKrylov::Cg`).
@@ -345,6 +348,7 @@ impl Default for PvEoParams {
             pv_max_iterations: 2000,
             coarse_even_odd: true,
             d_solver: CoarseKrylov::BiCgStab,
+            d_tikhonov: 0.0,
             pv_solver: CoarseKrylov::Minres,
             pv_tikhonov: 0.0,
             power_steps: 50,

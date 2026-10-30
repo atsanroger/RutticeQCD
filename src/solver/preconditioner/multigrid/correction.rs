@@ -85,6 +85,32 @@ pub type CoarseSolve<'a, C> =
 /// preconditioned by `blocks` (the inverses of the blocks) and the levels as far as there are
 /// any: z₁ = L r, z = z₁ + B⁻¹ (r − A z₁), one more application of A; an additive combination
 /// made BiCGStab worse. `n` counts the applications of `a`.
+/// x = (A†A + ε)⁻¹ A† g by CG on all coarse sites, from x = 0: the singular values of A below √ε
+/// are damped by σ²/(σ² + ε). `adj` applies A†; `n` counts the applications of either.
+fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
+    a: &D,
+    adj: &D,
+    eps: f64,
+    stop: Stop,
+    n: &Cell<usize>,
+    x: &mut C,
+    g: &C,
+) {
+    let nv = g.num_vectors();
+    let mut b = g.zeros_like();
+    adj.mult(&mut b, g);
+    n.set(n.get() + nv);
+    let mut t = g.zeros_like();
+    let shift = vec![C64::new(eps, 0.0); nv];
+    let mut normal = FnMap(|out: &mut C, inp: &C| {
+        a.mult(&mut t, inp);
+        adj.mult(out, &t);
+        n.set(n.get() + 2 * inp.num_vectors());
+        out.axpy(&shift, inp);
+    });
+    let _ = crate::solver::Cg::new(stop).solve(&mut normal, None, x, &b);
+}
+
 pub fn solve_shared<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
     mut blocks: Option<&mut dyn LinearFn<C>>,
@@ -269,8 +295,10 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     blocks_pv: Box<dyn LinearFn<C> + 'a>,
     levels_d: Option<Box<Levels<'a, C>>>,
     levels_pv: Option<Box<Levels<'a, C>>>,
-    /// A† = P†D_PV P for the regularized solve of the second factor (`CoarseKrylov::Cg`).
+    /// A† = P†D_PV P for the regularized solve of the second factor (`CoarseKrylov::Cg`) ...
     coarse_pv_adj: Option<D>,
+    /// ... and A† of the first, for its regularized solve.
+    coarse_d_adj: Option<D>,
     params: PvEoParams,
     work: (O::Work, O::Work),
     /// Scratch on the even sites and on the coarse lattice: `g` as P gives it, the others
@@ -324,6 +352,7 @@ where
             levels_d: None,
             levels_pv: None,
             coarse_pv_adj: None,
+            coarse_d_adj: None,
             params,
             h: like.zeros_with(1),
             gc: coarse_like.zeros_with(1),
@@ -358,6 +387,11 @@ where
         self.coarse_pv_adj = Some(adj);
     }
 
+    /// A† of the first coarse factor, for its regularized solve (`CoarseKrylov::Cg`).
+    pub(crate) fn set_d_adjoint(&mut self, adj: D) {
+        self.coarse_d_adj = Some(adj);
+    }
+
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
     pub fn coarse_applications(&self) -> usize {
         self.coarse_applications.get()
@@ -378,6 +412,7 @@ where
             levels_d,
             levels_pv,
             coarse_pv_adj,
+            coarse_d_adj,
             params,
             work: (work, work_a),
             h,
@@ -411,24 +446,10 @@ where
         // by the blocks, and the levels below if there are any.
         w.set_zero();
         if params.pv_solver == CoarseKrylov::Cg {
-            let eps = params.pv_tikhonov;
             let adj = coarse_pv_adj
                 .as_ref()
                 .expect("the regularized solve needs P†D_PV P (set_pv_adjoint), made on the device");
-            // w = (A†A + ε)⁻¹ A† g on all coarse sites: the singular values of A below √ε are
-            // damped by σ²/(σ² + ε).
-            let mut b = gc.zeros_like();
-            adj.mult(&mut b, gc);
-            n.set(n.get() + nv);
-            let mut t = gc.zeros_like();
-            let shift = vec![C64::new(eps, 0.0); nv];
-            let mut normal = FnMap(|out: &mut C, inp: &C| {
-                coarse_pv.mult(&mut t, inp);
-                adj.mult(out, &t);
-                n.set(n.get() + 2 * inp.num_vectors());
-                out.axpy(&shift, inp);
-            });
-            let _ = crate::solver::Cg::new(pv_stop).solve(&mut normal, None, w, &b);
+            regularized_solve(coarse_pv, adj, params.pv_tikhonov, pv_stop, n, w, gc);
         } else if params.pv_solver == CoarseKrylov::Minres {
             coarse_pv.gamma5(gc);
             minres_on_hermitian(
@@ -464,18 +485,25 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
-        // c = (P†DP)⁻¹ g.
+        // c = (P†DP)⁻¹ g, or regularized as the second factor.
         c.set_zero();
-        let d_solver = params.d_solver;
-        solve_shared(
-            &*coarse_d,
-            Some(&mut **blocks_d),
-            levels_d.as_deref(),
-            n,
-            &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
-            c,
-            gc,
-        );
+        if params.d_solver == CoarseKrylov::Cg {
+            let adj = coarse_d_adj
+                .as_ref()
+                .expect("the regularized solve needs the adjoint of P†DP (set_d_adjoint), made on the device");
+            regularized_solve(&*coarse_d, adj, params.d_tikhonov, stop, n, c, gc);
+        } else {
+            let d_solver = params.d_solver;
+            solve_shared(
+                &*coarse_d,
+                Some(&mut **blocks_d),
+                levels_d.as_deref(),
+                n,
+                &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
+                c,
+                gc,
+            );
+        }
 
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
         g.convert_from(c);

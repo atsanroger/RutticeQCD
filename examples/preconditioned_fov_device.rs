@@ -127,6 +127,22 @@ mod device {
     /// The even-odd form of Ã and of the cycle: right (PV_right) unless `--left` (PV_left).
     static LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+    /// The settings of the adjoint correction, D and D_PV exchanged: the adjoint of the
+    /// regularized second solve (A†A + ε)⁻¹ A† is (A A† + ε)⁻¹ A, the regularized solve of
+    /// A† = P†D_PV P, which is the first factor there; the second, P†D†P, is solved exactly.
+    fn dual_params(p: PvEoParams) -> PvEoParams {
+        match p.pv_solver {
+            CoarseKrylov::Cg => PvEoParams {
+                d_solver: CoarseKrylov::Cg,
+                d_tikhonov: p.pv_tikhonov,
+                pv_solver: CoarseKrylov::BiCgStab,
+                pv_tikhonov: 0.0,
+                ..p
+            },
+            _ => p,
+        }
+    }
+
     fn form() -> EoForm {
         if LEFT.load(std::sync::atomic::Ordering::Relaxed) {
             EoForm::Left
@@ -261,7 +277,7 @@ mod device {
             (pv, d),
             (pv, d),
             form(),
-            exact,
+            dual_params(exact),
             &even,
         )?;
         let (parts, parts_dag) = (c.parts(), c_dag.parts());
@@ -286,7 +302,7 @@ mod device {
             form(),
             (&even, &odd),
             &lat,
-            exact,
+            dual_params(exact),
             Box::new(move |e, r| c_dag.correct(e, r)),
             Some(hi),
         )?;
@@ -421,10 +437,11 @@ mod device {
         (parts, parts_dag): (&DeviceParts<f64>, &DeviceParts<f64>),
         (exact, hi): (PvEoParams, f64),
     ) -> Result<(DeviceCycle<'a, f64>, DeviceCycle<'a, f64>), Box<dyn Error>> {
-        let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
+        let correction = |p: &DeviceParts<f64>, a, b, q| {
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), q, even)
         };
-        let (mut cm, mut cm_dag) = (correction(parts, d, pv)?, correction(parts_dag, pv, d)?);
+        let (mut cm, mut cm_dag) =
+            (correction(parts, d, pv, exact)?, correction(parts_dag, pv, d, dual_params(exact))?);
         let m = two_grid(
             (d, pv),
             form(),
@@ -439,7 +456,7 @@ mod device {
             form(),
             (even, odd),
             lat,
-            exact,
+            dual_params(exact),
             Box::new(move |e, r| cm_dag.correct(e, r)),
             Some(hi),
         )?;
@@ -784,8 +801,8 @@ mod device {
                 even,
             )
         };
-        let correction = |p: &DeviceParts<f64>, a, b| {
-            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), exact, even)
+        let correction = |p: &DeviceParts<f64>, a, b, q| {
+            DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), q, even)
         };
         let (mut s, mut s_dag) = (smoother(d, pv), smoother(pv, d));
         let mut with_s = product(
@@ -794,7 +811,8 @@ mod device {
             Box::new(move |o, i| s.mult(o, i)),
             Box::new(move |o, i| s_dag.mult(o, i)),
         );
-        let (mut e, mut e_dag) = (correction(&parts, d, pv)?, correction(&parts_dag, pv, d)?);
+        let (mut e, mut e_dag) =
+            (correction(&parts, d, pv, exact)?, correction(&parts_dag, pv, d, dual_params(exact))?);
         let mut with_e = product(
             (d, pv),
             (even, odd),
