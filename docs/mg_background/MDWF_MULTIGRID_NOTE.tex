@@ -200,7 +200,7 @@ reflects the fifth dimension. Its
 coarse operator stays nearest-neighbor, which keeps the setup affordable in HMC.
 \item Brower, Clark, Howarth and Weinberg~\cite{BCHW} noted that the Pauli--Villars preconditioned
 operator $\Dpv^{-1}D$ carries the physical four-dimensional degrees of freedom. They solved
-$\Dpv\dg Dx=\Dpv\dg b$ on the whole lattice. Projecting the Wilson kernel slice by slice gives
+$\Dpv\dg Dx=\Dpv\dg b$ on all lattice sites. Projecting the Wilson kernel slice by slice gives
 coarse operators $\hat D$ and $\hat D_{\rm PV}$, both nearest-neighbor, and the coarse correction
 solves $\hat D_{\rm PV}\dg\hat D\,\hat e=\hat r$. They tested Shamir fermions in the
 two-dimensional Schwinger model.
@@ -210,7 +210,7 @@ Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD. On a $16^3\ti
 Shamir configuration at $m=0.001$ it needed about half the fine-matrix applications of red-black
 CG, but a solve took $1089$--$1904$\,s against $62$\,s (one right-hand side, setup excluded,
 double precision), and they named three
-reasons. The method works on the whole lattice, while red-black CG is the relevant baseline. Its
+reasons. The method works on all lattice sites, while red-black CG is the relevant baseline. Its
 coarse space keeps a fifth dimension of extent $L_s$, which makes the coarse solves costly. And its coarse solves are non-Hermitian and were not deflated, while the non-normal case would need the
 pseudospectrum and a singular value decomposition; they did not expect deflation alone to make the
 method competitive. Two further findings matter here.
@@ -263,13 +263,13 @@ of Refs.~\cite{Brannick,DDalphaAMG,BridgeMG}: the coarse space comes from comput
 cut into aggregates, and the coarse operators are Galerkin projections. First, the outer system is
 the even-odd one, as for red-black CG. Its inverse contains the inverses of the quark operator and the
 adjoint Pauli--Villars operator, with site-local factors and the restriction to the even sites
-between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on the
-whole lattice. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
+between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on all
+lattice sites. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
 four-dimensional and both coarse operators are nearest-neighbor; Ref.~\cite{BCHW} instead coarsens
 the Wilson kernel on each slice of the fifth dimension. Third, the Pauli--Villars coarse
 system is solved in a $\Sigma$-Hermitian form by MINRES, and levels below the coarse lattice with
 a dense LU at the bottom take the place of deflation (Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
-non-normal operator. The prolongation lifts these vectors to the whole lattice in
+non-normal operator. The prolongation lifts these vectors to all lattice sites in
 two ways, one for each coarse solve; for the right form this makes the correction exact on them
 (Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
 with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
@@ -735,10 +735,10 @@ Solving on the even sites halves the problem and improves the conditioning, and 
 the solver to beat, works there. But the Schur complement reaches two hops, so the existing
 methods make a choice (Table~\ref{tab:approaches}). HDCG solves on the even sites and coarsens the
 squared Schur complement, with an $81$-point coarse stencil~\cite{HDCG}. The methods with a small
-coarse stencil work on the whole lattice: HDCR~\cite{HDCR} coarsens $\gamma_5RD$, Boyle and
+coarse stencil work on all lattice sites: HDCR~\cite{HDCR} coarsens $\gamma_5RD$, Boyle and
 Oare~\cite{BoyleOare} coarsen $\Dpv\dg D$, and MG-PV~\cite{BCHW,BY} coarsens $D$ and $\Dpv$
 separately on a coarse lattice that keeps the fifth dimension. Two of the three reasons of
-Ref.~\cite{BY} are these choices of MG-PV: the whole lattice, and the fifth dimension in the
+Ref.~\cite{BY} are these choices of MG-PV: all lattice sites, and the fifth dimension in the
 coarse space. We keep the separate coarse operators of $D$ and $\Dpv$, use them for the even-odd
 operator, and make the coarse lattice four-dimensional. The third reason, the coarse solves, is
 taken up in Sec.~\ref{sec:coarse}.
@@ -758,9 +758,9 @@ the Schur complement on the even sites.}
 method & system solved & operator coarsened & coarse stencil\\
 \midrule
 HDCG~\cite{HDCG,BoyleMRHS} & even sites, $S\dg S$ & $S\dg S$ (four hops) & $81$ points\\
-HDCR~\cite{HDCR} & whole lattice, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
-MG-PV~\cite{BCHW,BY} & whole lattice, $\Dpv\dg D$ & $D$ and $\Dpv$ apart, $c=0$ & $9$ points per slice\\
-Boyle and Oare~\cite{BoyleOare} & whole lattice, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
+HDCR~\cite{HDCR} & all sites, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
+MG-PV~\cite{BCHW,BY} & all sites, $\Dpv\dg D$ & $D$ and $\Dpv$ apart, $c=0$ & $9$ points per slice\\
+Boyle and Oare~\cite{BoyleOare} & all sites, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
 this work & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
 \bottomrule
 \end{tabular}
@@ -796,7 +796,7 @@ $\alpha$ in both operators, Eq.~\eqref{eq:ALalpha} gives
 \end{equation}
 so $O_R=Q_e^{-1}$, $O_M=\Ce Q_e^2\Cpve\dg$ and $O_L=Q_e^{-1}$. The two coarse inverses are those
 of the plain $D$ and $\Dpv$; within the correction, $\alpha$ is in these factors only. Figure~\ref{fig:correction} follows a residual through Eq.~\eqref{eq:corr}. It moves
-between the even sites, the whole lattice and the coarse lattice twice, and the result of the
+between the even sites, all lattice sites and the coarse lattice twice, and the result of the
 first coarse solve, taken on the even sites, is the right-hand side of the second.
 
 \begin{figure}[tbp]
@@ -813,7 +813,7 @@ first coarse solve, taken on the even sites, is the right-hand side of the secon
   qsolve/.style={solve,draw=oiGreen,fill=oiGreen!15},
   lab/.style={font=\footnotesize,fill=white,inner sep=1pt},
   lane/.style={font=\footnotesize\itshape,text=black!60,anchor=east}]
-  \foreach \y/\name in {0/even sites, -1/whole lattice, -2/coarse lattice}
+  \foreach \y/\name in {0/even sites, -1/all sites, -2/coarse lattice}
     \draw[black!15] (-0.9,\y) -- (14.8,\y) node[pos=0,lane] {\name};
   \node[val]   (r)  at (0,0)       {$r$\exactval{=\AR y}};
   \node[val]   (w1) at (1.8,-1)    {$\iota O_R r$\exactval{=\Dpv\dg\hat t}};
@@ -893,8 +893,8 @@ $\pi\Pro$.
 The prolongation is built from vectors $y_j$ on the even sites that approximate low modes of
 $\AR$ (Sec.~\ref{sec:setup}). Two facts shape how we use them.
 \begin{itemize}
-\item $\Pro$ and the coarse operators act on the whole lattice, so each $y$ must be extended, or
-\emph{lifted}, to the whole lattice. We fill the odd sites so that the fine operator maps the
+\item $\Pro$ and the coarse operators act on all lattice sites, so each $y$ must be extended, or
+\emph{lifted}, to all lattice sites. We fill the odd sites so that the fine operator maps the
 lifted vector to the even-odd quantity, just as $\psi_o$ is rebuilt from $\psi_e$ after an
 even-odd solve.
 \item The correction~\eqref{eq:corr} contains two Galerkin solves, one with $\Dpv\dg$ and one with
@@ -1326,7 +1326,7 @@ $D_-^{-1}$ altogether.
 \label{sec:summary}
 
 Boyle and Yamaguchi named three reasons why the Pauli--Villars multigrid did not beat red-black
-CG in four-dimensional QCD: it worked on the whole lattice, its coarse space kept the fifth
+CG in four-dimensional QCD: it worked on all lattice sites, its coarse space kept the fifth
 dimension, and its non-normal coarse solves were not deflated. The present method addresses them
 in turn. It solves the even-odd system. Its aggregates contain the whole fifth dimension, so the
 correction solves two nearest-neighbor systems on a four-dimensional coarse lattice. Its
