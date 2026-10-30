@@ -265,16 +265,19 @@ the even-odd one, as for red-black CG. Its inverse contains the inverses of the 
 adjoint Pauli--Villars operator, with site-local factors and the restriction to the even sites
 between them, and we replace each inverse by a Galerkin inverse, as Ref.~\cite{BCHW} does on the
 whole lattice. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
-four-dimensional and both coarse operators are nearest-neighbor. Third, the Pauli--Villars coarse
+four-dimensional and both coarse operators are nearest-neighbor; Ref.~\cite{BCHW} instead coarsens
+the Wilson kernel on each slice of the fifth dimension. Third, the Pauli--Villars coarse
 system is solved in a $\Sigma$-Hermitian form by MINRES, and levels below the coarse lattice with
 a dense LU at the bottom take the place of deflation (Sec.~\ref{sec:coarse}). The test vectors are approximate right singular vectors of the
 non-normal operator. The prolongation lifts these vectors to the whole lattice in
 two ways, one for each coarse solve; for the right form this makes the correction exact on them
 (Eq.~\eqref{eq:exact}).\ifresults{} The left form used in practice is not exact, but
 with the same vectors $y$ it still needs $\hat t$ (Sec.~\ref{sec:basischoice}).\fi The smoother is a fixed
-Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap. For HMC we
-also solve with $D\dg$. We show that the multigrid of $D$, placed between two $\Gfive=\gamma_5R$, is a good
-preconditioner for $D\dg$, with no second setup.\ifresults{} We test the method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd CGNE and single-grid Krylov solvers on $\AL$; a comparison with HDCG and with
+Chebyshev polynomial, and the setup combines Chebyshev filtering with a bootstrap.
+
+The second result concerns HMC, which solves with $D\dg$ as often as with $D$. We derive an exact
+relation, Eq.~\eqref{eq:c4}, that makes the multigrid of $D$, placed between two
+$\Gfive=\gamma_5R$, a preconditioner for $D\dg$, with no second setup.\ifresults{} We test the method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd CGNE and single-grid Krylov solvers on $\AL$; a comparison with HDCG and with
 the coarsening of $\Dpv\dg D$ in one implementation is left to future work.\fi
 
 Section~\ref{sec:opsec} recalls the
@@ -372,11 +375,7 @@ it occurs for $A'$ and its even-odd forms is open (Sec.~\ref{sec:open}).\fi
 \subsection{The operator and Pauli--Villars preconditioning}
 \label{sec:operator}
 
-This subsection defines the M\"obius operator in the form of Brower, Neff and
-Orginos~\cite{BNO} and derives from it the quantities the method is built on: the
-part $C$ of the operator that acts within a four-dimensional site and its inverse, the
-$\Gfive$-transformation of $D$, the Pauli--Villars preconditioned operator $A'$ of
-Ref.~\cite{KCM2024}, and Neff's $\alpha$. The notation
+The notation
 follows Ref.~\cite{BNO} except where stated; Appendix~\ref{sec:notation} relates it to
 Ref.~\cite{KCM2024} and to Bridge++ symbol by symbol.
 
@@ -474,7 +473,8 @@ the adjoint reversing the order of the product. The difference is a commutator,
 \label{eq:g5herm}
 \end{equation}
 where $D_-\dg=cW\dg-1$ and $W\dg=(4-M_5)-\frac12K\dg$ were used. It vanishes for Shamir's
-operator ($c=0$) and is of order $c$ otherwise. Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
+operator ($c=0$) and is of order $c$ otherwise; multigrid on the $\Gfive$-Hermitian operator has been used
+in the $c=0$ subspace of M\"obius fermions (as summarized in Ref.~\cite{BoyleMRHS}). Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
 fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating with $\Gfive$.
 \ifresults{} On a $12^4$ configuration with stout links ($M_5=1$, $m=0.001$),
 $\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$,
@@ -871,7 +871,8 @@ eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$ and orthonormalize the $+$ parts an
 separately within each block. With $n_v$ test vectors a coarse site then carries $2n_v$
 components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
 
-This split makes $\Pro$ compatible with $\Gfive$. Each column of $\Pro$ is an eigenvector of
+This split makes $\Pro$ compatible with $\Gfive$, as the chirality split of Wilson
+multigrid~\cite{Babich} makes it compatible with $\gamma_5$. Each column of $\Pro$ is an eigenvector of
 $\Gfive$ with eigenvalue $+1$ or $-1$, so with $\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf
 1_{n_v})$ on each coarse site,
 \begin{equation}
