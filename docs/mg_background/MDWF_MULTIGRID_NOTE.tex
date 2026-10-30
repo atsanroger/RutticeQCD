@@ -125,18 +125,22 @@ with a factorized Pauli--Villars coarse correction}
 \begin{abstract}
 Domain-wall fermions keep chiral symmetry up to effects that vanish as $L_s$ grows, but inverting
 the M\"obius domain-wall operator suffers from critical slowing down toward the physical
-light-quark mass, and Krylov methods do not work on the operator itself because its spectrum
-surrounds the origin. Preconditioning with the Pauli--Villars operator and dividing out the
+light-quark mass. While preconditioning with the Pauli–Villars operator successfully moves the spectrum 
+into the right half-plane to enable Krylov methods, previous attempts at a Pauli–Villars multigrid failed 
+to outperform red-black CG due to three structural limitations identified by Boyle and Yamaguchi.
+Kanamori, Chen and Matsufuru showed that preconditioning with the Pauli--Villars operator and dividing out the
 site-diagonal part, $(\Dpv\Cpv^{-1})\dg DC^{-1}$, moves all eigenvalues into the right half-plane
-and compresses the high end of the spectrum. Because the site-diagonal part is the diagonal block of
-the even-odd decomposition, this operator carries over directly to the even-odd Schur complement,
-and we construct a two-grid method for its even-odd form in which the quark and Pauli--Villars
-factors are coarsened separately. Every aggregate contains the whole fifth dimension so that the coarse lattice
+and compresses the high end of the spectrum. 
+
+In this work, we construct a two-grid method for its even-odd form
+in which the quark and Pauli--Villars factors are coarsened separately. 
+Every aggregate contains the whole fifth dimension so that the coarse lattice
 is four-dimensional with nearest-neighbor couplings, and levels below the coarse lattice replace
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
-did not beat red-black CG. One setup serves every value of Neff's $\alpha$ and the solves with
-$D\dg$ in HMC, for which $\Gfive D^{-1}\Gfive$, with $\Gfive=\gamma_5R$ and $R$ the reflection of the fifth
-dimension, is a good preconditioner.\ifresults{} The field of
+did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
+We also prove that $\Gfive D^{-1}\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the fifth
+dimension) acts as a robust preconditioner for the $D\dg$ solves required in HMC, 
+which bypasses the need for an expensive second multigrid setup. \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
 $\Re\lambda\ge0.70$, and its pseudospectra account for the convergence. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
@@ -144,6 +148,7 @@ $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a 
 $2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
 time, setup included.\else{} We state
 the method and the questions that are open.\fi
+
 \end{abstract}
 {\let\thefootnote\relax\footnotetext{Licensed under CC BY 4.0
 (\url{https://creativecommons.org/licenses/by/4.0/}); Figs.~\ref{fig:free}, \ref{fig:A}
