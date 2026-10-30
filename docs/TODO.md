@@ -1021,6 +1021,9 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
 ## Optimization after the Tikhonov merge (2026-10-30)
 
+- Optional: precondition the Tikhonov CG of the Pauli-Villars factor. (A†A+τ) is Hermitian positive
+  definite, so the additive levels (`|B_ℓ|⁻¹ + Q M Q†`) apply without the c=0 restriction. Upper bound of
+  the gain on 24³×48 conf 2: all coarse work is 22% (S) / 6% (B) of the solve (multiconf/tikhonov logs).
 - **Before merging the Tikhonov branches into main: review the architecture** (user, 2026-10-30).
   The work is spread over `exp/pv-coarse-spectrum` (the solve, `Coarse_Solver_PV: CG` +
   `tikhonov_epsilon`, `--tikhonov` in the examples) and `exp/basis-lifts-tikhonov` (the lifts of
