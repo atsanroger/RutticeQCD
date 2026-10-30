@@ -162,19 +162,19 @@ and~\ref{fig:pv} are reproduced from Ref.~\cite{KCM2024} under CC BY-NC-ND 4.0.}
 \label{sec:intro}
 
 Many lattice computations need fermions whose chiral symmetry is broken only slightly at finite
-lattice spacing. Weak matrix elements benefit from it, since operators of different chirality then
-do not mix, as in the Standard Model calculation of $K\to\pi\pi$ decays and
-$\varepsilon'/\varepsilon$~\cite{RBCKpipi}. It is used as well in precision calculations at the
-physical quark masses: the hadronic vacuum polarization and light-by-light contributions to the
+lattice spacing. Operators of different chirality then do not mix, which weak matrix elements
+require, as in the Standard Model calculation of $K\to\pi\pi$ decays and
+$\varepsilon'/\varepsilon$~\cite{RBCKpipi}. Precision calculations at the physical quark masses use
+such fermions as well: the hadronic vacuum polarization and light-by-light contributions to the
 muon $g-2$~\cite{RBCHVP,RBCWindow,RBCHLbL}, the $B\to\pi\ell\nu$ form factors on fine lattices
 with the heavy quark in the same M\"obius domain-wall action~\cite{JLQCDBpi}, inclusive
 semileptonic $B$ decays~\cite{HashimotoInclusive,GambinoInclusive,BaroneInclusive}, and parton
-distribution amplitudes~\cite{BakerPionDA}. The overlap operator~\cite{NarayananNeuberger,Neuberger} has an exact lattice
-chiral symmetry. Domain-wall fermions~\cite{Kaplan,Shamir,FurmanShamir} approximate it at a lower
-cost. They add a fifth dimension of extent $L_s$, and a large negative Wilson mass $-M_5$ binds
-modes of opposite chirality to its two boundaries. The residual breaking of chiral symmetry falls
-as $L_s$ grows. The M\"obius generalization~\cite{BNO0,BNO1,BNO} adds two coefficients $(b,c)$
-and improves the approximation at fixed $L_s$; $c=0$ is Shamir's operator.
+distribution amplitudes~\cite{BakerPionDA}. The overlap operator~\cite{NarayananNeuberger,Neuberger}
+is exactly chiral on the lattice. Domain-wall fermions~\cite{Kaplan,Shamir,FurmanShamir} cost less:
+they add a fifth dimension of extent $L_s$, in which a large negative Wilson mass $-M_5$ binds modes
+of opposite chirality to its two boundaries, and the residual breaking falls as $L_s$ grows. The
+M\"obius generalization~\cite{BNO0,BNO1,BNO} adds two coefficients $(b,c)$ that reduce the residual
+breaking at fixed $L_s$; $c=0$ is Shamir's operator.
 
 Solving with the domain-wall operator is expensive, because it is neither Hermitian nor positive and one application costs $L_s$ four-dimensional Wilson hops. The standard solver is
 still the conjugate gradient method~\cite{HestenesStiefel} on the normal equation of the even-odd operator (CGNE),
