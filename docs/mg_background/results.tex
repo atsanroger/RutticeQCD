@@ -65,7 +65,7 @@ in Sec.~\ref{sec:pvcoarse}.
 \subsubsection{Comparison with CGNE}
 \label{sec:massscan}
 
-On $24^3\times48$ the multigrid is $2.9$--$6.0$ times faster than mixed-precision CGNE at
+On $24^3\times48$ the multigrid is $3.2$--$5.7$ times faster than mixed-precision CGNE at
 $m=0.001$, and its setup is recovered within one point-source propagator for $m\le0.005$. We
 compare first for one random right-hand side over seven masses, then for whole point-source
 propagators.
@@ -89,8 +89,8 @@ iterations (Appendix~\ref{sec:cgform}).
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
-CGNE grow about twentyfold, those of the multigrid by $1.6$--$4.1$. Its setup of about $210$\,s is
-paid back after $3.5$--$5.2$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
+CGNE grow about twentyfold, those of the multigrid by $2.8$--$5.4$. Its setup of $192$--$220$\,s is
+paid back after $3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
 faster or level. The multigrid needs three times the device memory of CGNE.
 
 \paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall
@@ -114,34 +114,33 @@ over the four configurations and the 12 columns; at $m=0.01$: configuration~1.}
 \cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
  & $m$ & setup & it & s & it & s & MG & CGNE & $|\Delta C|/C$\\
 \midrule
-S & $0.001$ & $201$--$216$ & $26$--$59$ & $11.7$--$29.4$ & $3634$--$6400$ & $52.1$--$91.6$ & $381$--$562$ & $678$--$1048$ & $\le1\times10^{-6}$\\
-B & $0.001$ & $213$--$215$ & $23$--$30$ & $10.7$--$14.8$ & $4354$--$5574$ & $62.4$--$79.8$ & $372$--$409$ & $803$--$973$ & $\le7\times10^{-7}$\\
+S & $0.001$ & $203$--$222$ & $22$--$48$ & $11.1$--$26.4$ & $3634$--$6400$ & $52.1$--$91.6$ & $382$--$505$ & $678$--$1048$ & $\le1\times10^{-6}$\\
+B & $0.001$ & $204$--$207$ & $22$--$30$ & $10.7$--$14.5$ & $4354$--$5574$ & $62.4$--$79.8$ & $363$--$398$ & $803$--$973$ & $\le7\times10^{-7}$\\
 S & $0.01$ & $203$ & $16$--$17$ & $6.4$--$7.0$ & $1337$--$1388$ & $19.8$--$20.5$ & $305$ & $264$ & $2\times10^{-7}$\\
 B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $324$ & $4\times10^{-8}$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Volume.} The multigrid solve is $1.0$--$2.1$ times as fast as CGNE on $16^4$ and
-$2.9$--$6.0$ times from $24^4$ on; on $12^4$ it is slower (Fig.~\ref{fig:volume},
-Table~\ref{tab:volume}). Its iterations stay at $12$--$53$ from $12^4$ to $24^3\times48$, apart from one
-slow setup on $12^4$, while those of CGNE grow $8$--$16$ times. Its setup grows with the volume.
+\paragraph{Volume.} The multigrid solve has $0.9$--$2.4$ times the speed of CGNE on $16^4$ and
+$3.2$--$5.7$ times from $24^4$ on; on $12^4$ it is slower (Fig.~\ref{fig:volume},
+Table~\ref{tab:volume}). Its iterations stay at $10$--$43$ from $12^4$ to $24^3\times48$, while those
+of CGNE grow $8$--$16$ times. Its setup grows with the volume.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_volume}
 \caption{Iterations (top) and solve seconds (bottom) at $m=0.001$ against the volume, one random
 right-hand side. Mixed-precision CGNE and multigrid: median over the four configurations; BiCGStab
-on $\AL$: configuration~1. The median hides the slow setup on $12^4$ in setup~S (Sec.~\ref{sec:gcrk});
-the ranges are in Table~\ref{tab:volume}.}
+on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 \label{fig:volume}
 \end{figure}
 
 
 
 \paragraph{Neff's $\alpha$.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves CG $25$--$35\%$ of
-its iterations and the multigrid at most two (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo}
-expects.
+its iterations and the multigrid two (S) and four (B) (Table~\ref{tab:massscan}), as
+Sec.~\ref{sec:eo} expects.
 
 
 \subsubsection{Solves with $D\dg$}
@@ -222,8 +221,8 @@ point-source propagator is still faster with the two lifts in both setups.
 With the regularized solve no slow setups remain on $12^4$: all $40$ setups of setup~S need
 $10$--$17$ iterations, against $70$ to more than $2000$ for the slow ones without it
 (Table~\ref{tab:tikhonov}). The cause is the Galerkin factor. With stout smearing its smallest
-singular value lies one to two orders of magnitude below that of the fine $\Dpv$; without smearing
-the two agree (Table~\ref{tab:pvsv}).
+singular value is $1/79$ to $1/15$ of that of the fine $\Dpv$ on the four configurations; without
+smearing the two agree to within $4\%$ (Table~\ref{tab:pvsv}).
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -246,9 +245,9 @@ times in Table~\ref{tab:costs}.}
 
 
 
-Fewer iterations are not always less time (Table~\ref{tab:costs}). $2^4$ aggregates need $8$--$9$
-iterations, but the larger coarse lattice makes the solve and the setup two to three times as long
-as with $4^4$; $48$ test vectors likewise save iterations and lose in setup and time per iteration.
+Fewer iterations are not always less time (Table~\ref{tab:costs}). $2^4$ aggregates need $9$
+iterations, but the larger coarse lattice makes the setup two to three times and the solve three to
+five times as long as with $4^4$; $48$ test vectors likewise save iterations and lose in setup and time per iteration.
 On $24^3\times48$, $16$ test vectors do not suffice: the solve needs hundreds of iterations or does
 not converge in $2000$.
 
@@ -381,9 +380,9 @@ $12^4$ ($z=-0.5\ldots0.7$), and $0.107$ (S), $0.271$ (B) at the origin.
 The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. It
 is pessimistic by a factor of $3$--$5$ in iterations: GCR needs $10$--$17$ with exact coarse
 solves (Sec.~\ref{sec:gcrk}). Its rate, however, is the one we measure on $24^3\times48$ on configurations 1 and 3. There
-the median factor per GCR step of $|r|^2$ is $0.23$--$0.34$ (Fig.~\ref{fig:history}), that is
-$0.48$--$0.58$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Configuration~2 in setup~S converges
-more slowly, at a steady $0.56$ per step in $|r|^2$. Setup~B does not get worse from
+the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that is
+$0.48$--$0.64$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Configuration~2 in setup~S converges
+more slowly, at a steady $0.45$ per step in $|r|^2$. Setup~B does not get worse from
 $12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers of configuration~1 grow, but
 their condition numbers fall and $\varepsilon$ stays the same.
 
@@ -398,12 +397,10 @@ and the bound is for full GMRES with a fixed $\mathcal M$ (Secs.~\ref{sec:gcrk},
 \label{sec:gcrk}
 
 
-Truncated GCR does not need accurate coarse solves, and with them it can fail. With the usual
-coarse solves to $10^{-2}$, GCR(2) needs one to five iterations more than the full method on
-$12^4$ (Table~\ref{tab:gcrk}). With coarse solves to $10^{-8}$, where $\mathcal M$ is close to the
-fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo}, GCR(2) stagnates in setup~S on
-all four configurations ($|r|^2\approx3\times10^{-8}$ after 1000 iterations on configuration~1),
-while GCR(8) converges in $17$--$26$ on three of them and GCR($\ge16$) in $15$--$17$ on all four. The pseudospectra guarantee the full method; a truncated method has no
+Truncated GCR does not need accurate coarse solves. With the usual coarse solves to $10^{-2}$,
+GCR(2) needs at most one iteration more than GCR(32) on $12^4$ (Table~\ref{tab:gcrk}). Coarse solves
+to $10^{-8}$, where $\mathcal M$ is close to the fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo},
+do not help: GCR(2) then needs $19$ iterations and GCR($\ge16$) $15$. The pseudospectra guarantee the full method; a truncated method has no
 guarantee when the field of values contains the origin~\cite{ESS,Embree}. With the exact cycle (double precision, $10^{-20}$) GCR(2) stagnates only on configurations 1 and~4
 of $12^4$; on $16^4$ and $24^4$ it converges (Table~\ref{tab:stall}).
 
@@ -434,26 +431,10 @@ neither the topological charge (configurations 3 and 4 both have $Q=+2$, and $24
 converges) nor the odd extent of the $3^4$ coarse lattice ($3^4$ aggregates give a $4^4$ coarse
 lattice and stagnate as well).
 
-\paragraph{Dependence on the setup seed.} On $12^4$ with stout smearing about one setup in eight
-makes GCR(2) slow. The seed of the random starting vectors that the setup filters ($21$ in all other
-runs) changes the coarse space but not the configuration, the operator or the right-hand side, and
-the solution agrees to the stopping tolerance. Table~\ref{tab:seeds} repeats the solve at
-$m=0.001$ with many seeds, on the four configurations of Table~\ref{tab:configs} for $12^4$. In
-setup~S, $19$ of $160$ setups need more than $30$ iterations and $13$ of them more than $200$ or do not
-converge in $2000$. This is $2$ to $7$ per configuration, which does not distinguish the configurations at these
-counts. No setup is slow without smearing at $M_5=1$, in setup~B, on $16^4$ (quenched and
-dynamical), or on $24^3\times48$ configurations 3 and 4, where five seeds need $18$--$28$ iterations. Configuration~2 of $24^3\times48$ needs
-$36$--$53$ iterations with all three seeds, against $18$--$28$ on the other three, so that
-excess belongs to the configuration and not to the seed.
-
-A slow setup gives a cycle of the usual quality, and GCR(2) fails to use it. With the same cycles
-GCR(16) needs $11$--$14$ iterations in all $40$ setups tested. In the slow runs $|r|^2$ falls normally
-for a few steps and then stays nearly constant, for up to $300$ steps at
-$|r|^2/|b|^2\approx7\times10^{-10}$ on configuration~1, before it falls again; this is the behavior
-near a fixed point of Table~\ref{tab:stall}, reached here with inexact coarse solves. The slowness
-belongs to the setup: five of the six slow setups of the first ten seeds are slow for the point
-source as well ($44$ to more than $500$ iterations). At $L_s=12$ and $16$ the same occurs, in $7$ of
-$20$ setups on configurations 2 and 4.
+\paragraph{Setup seeds.} With the regularized Pauli--Villars solve no setup is slow on $12^4$: $40$
+seeds of setup~S need $10$--$17$ iterations and $20$ of setup~B $12$--$13$ (Sec.~\ref{sec:pvcoarse}).
+Configuration~2 of $24^3\times48$ needs $43$ iterations at seed $21$, against $22$--$29$ on the other
+three (Table~\ref{tab:volume}); which property of that configuration causes this is open.
 
 Smearing moves the field of values of the cycle across the origin on $12^4$. With exact coarse solves
 and stout smearing, $\Re W(\AR\mathcal M)$ reaches $-6.3$ to $-324$ on the four configurations;
@@ -467,19 +448,6 @@ configurations the depth does not predict which exact cycles stagnate (configura
 $-21.9$ and converges). Why smearing makes the coarse correction this large on the small lattice is
 open.
 
-GCR(8) and $48$ test vectors remove the slow setups on $12^4$ but do not fit $24^3\times48$ in
-$24$\,GB: each kept direction costs two fine vectors ($1$\,GB there; GCR(4) peaks at $22.1$ against
-$20.2$\,GB), and the setup with $48$ test vectors runs out of device memory. Coarse solves for the
-quark factor to $10^{-4}$ cost no memory and leave $2$ of $160$ setups slow. On $24^3\times48$ they
-make each iteration $22$--$40\%$ more expensive: configuration~2 drops to $33$--$43$
-iterations at about the same solve time, and the other three configurations take $9$--$34\%$ longer. A slow setup shows itself in the first solve as a plateau of $|r|^2$; the setup can then be repeated
-with another seed on the same configuration, at the cost of one more setup. We have not automated
-this.
-
-
-
-
-
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_history}
@@ -492,10 +460,9 @@ about $10^{-5}$ in every run.
 
 \paragraph{What this establishes.} As usual for multigrid preconditioners of lattice Dirac
 operators, the convergence of the truncated flexible outer method is established numerically.
-GCR(2) with coarse solves stopped at $10^{-2}$ converged without plateaus in every run of this
-section on $16^4$ and $24^3\times48$, mostly at the rate the pseudospectral bound of
-Sec.~\ref{sec:pseudo} gives for the full method; on $12^4$ with smearing about one setup in eight
-reaches a plateau (Table~\ref{tab:seeds}). No guarantee is available for a truncated method whose preconditioner varies from step to
+GCR(2) with the parameters of Table~\ref{tab:setups} converged without plateaus in every run of
+this section, on $24^3\times48$ mostly at the rate the
+pseudospectral bound of Sec.~\ref{sec:pseudo} gives for the full method. No guarantee is available for a truncated method whose preconditioner varies from step to
 step. Accurate coarse solves do not make the solver faster. On $16^4$ the exact cycle takes
 $24$--$36$ iterations on the four configurations, fewer than BiCGStab on the exact adjoint stopped
 at $10^{-2}$ ($37$--$47$ against $33$--$36$ on configuration~1). The solver's cycle, with the
@@ -506,6 +473,6 @@ the solver converged in every run of Table~\ref{tab:stall}.
 values. The spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.69$ with moderate condition numbers,
 and the pseudospectra give full GMRES a guaranteed rate of $0.5$--$0.6$ per iteration, close to the
 $0.48$--$0.58$ measured for GCR(2) on $24^3\times48$. The field of values reaches into the left half-plane
-because the coarse correction amplifies, and that loses the guarantee for truncated GCR. With the exact or the solver's
-cycle, GCR(2) stagnated only on $12^4$ with smearing. On configuration~1 the amplification is $1.9\times10^4$ on $12^4$ and $1.5\times10^4$ on $16^4$
+because the coarse correction amplifies, and that loses the guarantee for truncated GCR. With the
+unregularized Pauli--Villars solve, GCR(2) stagnated only on $12^4$ with smearing. On configuration~1 the amplification is $1.9\times10^4$ on $12^4$ and $1.5\times10^4$ on $16^4$
 (Table~\ref{tab:fov}), and neither it nor the depth of the field of values alone decides which setups stagnate.

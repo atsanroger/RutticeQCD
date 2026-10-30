@@ -138,9 +138,9 @@ did not beat red-black CG. A single setup serves every value of Neff's $\alpha$.
 \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
 $\Re\lambda\ge0.69$, and its pseudospectra bound the convergence of full GMRES. On four quenched
-$24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
+$24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
+$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
 time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
@@ -653,7 +653,7 @@ So $\mathcal K^{(\alpha)}$ and $\mathcal K$ have the same eigenvalues but differ
 because $Q_e$ is not unitary. CG on the normal equation converges at a rate set by the singular
 values and sees the change at every mass. In the multigrid the coarse correction removes the low
 modes for any $\alpha$, so we expect $\alpha$ to help it less than CG.\ifresults{} At $m=0.001$ on
-$24^3\times48$, $\alpha=0.6$ saves CG $25$--$35\%$ of its iterations and the multigrid at most three
+$24^3\times48$, $\alpha=0.6$ saves CG $25$--$35\%$ of its iterations and the multigrid at most four
 (Sec.~\ref{sec:massscan}).\fi
 
 % ============================================================
@@ -1182,9 +1182,9 @@ $D_-^{-1}$ altogether.
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$2.9$--$6.0$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$3.2$--$5.7$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$1.6$--$4.1$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. The multigrid is the faster
+$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. The multigrid is the faster
 solver from $24^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
@@ -1197,9 +1197,8 @@ Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
 bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.69$ and its pseudospectra bound
-full GMRES with a fixed cycle. Truncated GCR(2) with accurate coarse solves stagnates on two of the
-four $12^4$ configurations in setup~S, and with the solver's inexact cycle on about one setup in eight
-there. We saw no plateau on $16^4$ or $24^3\times48$, but truncated GCR has no guarantee.
+full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups}, truncated GCR(2)
+converged without a plateau in every run on every volume, but it has no guarantee.
 
 Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
 On $16^4$ it takes two to three iterations more than solving with $D$; on $12^4$ in setup~S GCR(2)

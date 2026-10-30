@@ -81,10 +81,10 @@
 \contentsline {paragraph}{What is not yet rigorous.}{24}{section*.36}%
 \contentsline {subsubsection}{\numberline {4}Truncated GCR: inexact coarse solves}{24}{subsubsection.5.4.4}%
 \contentsline {paragraph}{How GCR(2) stagnates.}{25}{section*.37}%
-\contentsline {paragraph}{Dependence on the setup seed.}{25}{section*.38}%
-\contentsline {paragraph}{What this establishes.}{26}{section*.39}%
+\contentsline {paragraph}{Setup seeds.}{25}{section*.38}%
+\contentsline {paragraph}{What this establishes.}{25}{section*.39}%
 \contentsline {paragraph}{In short.}{26}{section*.40}%
-\contentsline {section}{\numberline {VI}Summary}{27}{section.6}%
+\contentsline {section}{\numberline {VI}Summary}{26}{section.6}%
 \contentsline {paragraph}{Code.}{27}{section*.41}%
 \contentsline {section}{\numberline {VII}Open problems}{27}{section.7}%
 \contentsline {section}{Acknowledgments}{28}{section*.43}%
