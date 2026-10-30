@@ -1076,7 +1076,12 @@ The outer iteration solves $\tilde Ay=\rho$ with the cycle as a right preconditi
 rebuild $\psi$ as in Sec.~\ref{sec:eo}. The cycle $\mathcal M$ changes from one application to the
 next, so the outer method must be flexible: FGMRES or flexible GCR (Algorithms~\ref{alg:fgmres}
 and~\ref{alg:gcr}, Appendix~\ref{sec:cgform}), which keep the preconditioned
-directions.
+directions. The method allows any number $k$ of kept directions, and RutticeQCD takes $k$ from
+its input file (\texttt{number\_of\_kept\_directions}). We use $k=2$ because of memory: each kept
+direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the multigrid with
+GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory.\ifresults{} A larger $k$ changes
+only the outer solver, not the cycle, and on $12^4$ it gives about the same iterations
+(Sec.~\ref{sec:gcrk}).\fi
 
 Flexibility alone gives no convergence guarantee. For a fixed $\mathcal M$, restarted or truncated
 methods converge for every restart length if the field of values of $\tilde A\mathcal M$ lies in

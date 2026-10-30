@@ -249,7 +249,10 @@ Fewer iterations are not always less time (Table~\ref{tab:costs}). $2^4$ aggrega
 iterations, but the larger coarse lattice makes the setup two to three times and the solve three to
 five times as long as with $4^4$; $48$ test vectors likewise save iterations and lose in setup and time per iteration.
 On $24^3\times48$, $16$ test vectors do not suffice: the solve needs hundreds of iterations or does
-not converge in $2000$.
+not converge in $2000$. Outside the window the failures can come from the outer solver alone. With
+$\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2) to a plateau near
+$|r|^2/|b|^2=10^{-12}$; with the same cycle GCR(16) converges in $15$ iterations, and two other
+setup seeds converge with GCR(2) in $17$ and $21$.
 
 Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain, for Wilson fermions, the effect of more test
 vectors at the coarse size of fewer by truncating them with a singular value decomposition on each
