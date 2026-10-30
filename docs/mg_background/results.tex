@@ -74,7 +74,7 @@ propagators.
 \centering
 \includegraphics[width=\linewidth]{fig_massscan}
 \caption{The mass scan of Table~\ref{tab:massscan}, the mixed-precision CGNE, and the Krylov
-solvers on $\AL$ without the multigrid (Table~\ref{tab:nomg}): iterations (top) and seconds
+solvers on $\AL$ without the multigrid (Sec.~\ref{sec:nomg}): iterations (top) and seconds
 per right-hand side (bottom) against the quark mass, $24^3\times48$. CGNE and multigrid: means over
 the four configurations, bars from the smallest to the largest value; the solvers without the
 multigrid: configuration~1. ``Solve + setup/12'': the setup spread over the 12 columns of one
@@ -193,7 +193,7 @@ and the setup parameters. Each part below isolates one of them.
 \label{sec:nomg}
 
 The speed-up comes from the coarse correction: without it a Krylov method on $\AL$ does not beat
-CGNE (Table~\ref{tab:nomg}). BiCGStab on $\AL$ alone needs about as many iterations as
+CGNE (Fig.~\ref{fig:massscan}). BiCGStab on $\AL$ alone needs about as many iterations as
 double-precision CGNE, but each of its iterations applies $\AL$ twice, and at $m=0.001$ in setup~S
 it takes $1.7$ times the time of double-precision CGNE. The Chebyshev smoother as a preconditioner cuts its iterations but
 raises the time.
@@ -230,7 +230,7 @@ the two agree (Table~\ref{tab:pvsv}).
 
 
 The method is robust within a window of each parameter and fails outside it
-(Fig.~\ref{fig:sensitivity}, Table~\ref{tab:sensitivity}). The smoother interval must suit the
+(Fig.~\ref{fig:sensitivity}). The smoother interval must suit the
 setup, the bootstrap is necessary, and more accurate coarse solves do not help.
 
 \begin{figure}[t]
@@ -240,7 +240,7 @@ setup, the bootstrap is necessary, and more accurate coarse solves do not help.
 $12^4$, $m=0.001$, one random right-hand side. Lines: median over the four configurations; dots: the
 four configurations; a cross marks a median that does not converge in $1000$ iterations. The default
 is the point where the lines of the two setups pass through $14$ iterations. Values and setup and solve
-times in Tables~\ref{tab:sensitivity} and~\ref{tab:costs}.}
+times in Table~\ref{tab:costs}.}
 \label{fig:sensitivity}
 \end{figure}
 
@@ -381,7 +381,7 @@ $12^4$ ($z=-0.5\ldots0.7$), and $0.107$ (S), $0.271$ (B) at the origin.
 The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. It
 is pessimistic by a factor of $3$--$5$ in iterations: GCR needs $10$--$17$ with exact coarse
 solves (Sec.~\ref{sec:gcrk}). Its rate, however, is the one we measure on $24^3\times48$ on configurations 1 and 3. There
-the median factor per GCR step of $|r|^2$ is $0.23$--$0.34$ (Table~\ref{tab:history}), that is
+the median factor per GCR step of $|r|^2$ is $0.23$--$0.34$ (Fig.~\ref{fig:history}), that is
 $0.48$--$0.58$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Configuration~2 in setup~S converges
 more slowly, at a steady $0.56$ per step in $|r|^2$. Setup~B does not get worse from
 $12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers of configuration~1 grow, but
@@ -483,11 +483,11 @@ this.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_history}
-\caption{The GCR(2) residual histories of Table~\ref{tab:history}, $24^3\times48$: configuration~1 (blue, green) and configurations 2 and 3 at $m=0.001$, $\alpha=0.6$ (red, orange).}
+\caption{GCR(2) residual histories on $24^3\times48$, $\AL$, the multigrid of Table~\ref{tab:setups}: configuration~1 (blue, green) and configurations 2 and 3 at $m=0.001$, $\alpha=0.6$ (red, orange).}
 \label{fig:history}
 \end{figure}
 
-On $24^3\times48$ no run shows a plateau (Table~\ref{tab:history}, Fig.~\ref{fig:history}); the first step reduces $|r|^2$ by
+On $24^3\times48$ no run shows a plateau (Fig.~\ref{fig:history}); the first step reduces $|r|^2$ by
 about $10^{-5}$ in every run.
 
 \paragraph{What this establishes.} As usual for multigrid preconditioners of lattice Dirac

@@ -1591,7 +1591,7 @@ Krylov solver on $\AL$ alone of Sec.~\ref{sec:nomg}.\fi
 
 \paragraph{Two even-odd forms.} Boyle and Yamaguchi~\cite{BY} used CG
 on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned
-form. Table~\ref{tab:cgform} and Fig.~\ref{fig:cgform} compare the two on the three quenched
+form. Fig.~\ref{fig:cgform} compares the two on the three quenched
 lattices at $m=0.001$, in double precision with one random right-hand side, for $b-c=1$ and five
 values of $c$; all other parameters are those of setups S and B.
 
@@ -1624,38 +1624,6 @@ only. The singular values of the two operators would show whether this is the ca
 For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
-\begin{table}[tbp]
-\centering
-\caption{CG iterations on $\mathcal K\dg\mathcal K$ / on $S\dg S$, $m=0.001$, $b=1+c$, $\alpha=1$
-unless stated, one random right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision. Final
-$|D\psi-\eta|^2/|\eta|^2\le4\times10^{-16}$ in every run except $(2,1)$ on $24^3\times48$, S
-(up to $2\times10^{-15}$).}
-\label{tab:cgform}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}llccccc@{}}
-\toprule
-setup & lattice & $c=0$ & $0.25$ & $0.5$ & $0.75$ & $1$\\
-\midrule
-S & $12^4$ & $343$/$371$ & $352$/$336$ & $358$/$390$ & $362$/$445$ & $362$/$494$\\
-S & $16^4$ & $543$/$575$ & $533$/$517$ & $552$/$601$ & $559$/$682$ & $566$/$762$\\
-S & $24^3\times48$ & $4527$/$4979$ & $5459$/$5222$ & $5576$/$6061$ & $5653$/$6869$ & $5512$/$7414$\\
-\addlinespace
-B & $12^4$ & $622$/$514$ & $657$/$579$ & $664$/$681$ & $653$/$763$ & $633$/$827$\\
-B & $16^4$ & $1033$/$839$ & $1039$/$917$ & $1056$/$1083$ & $1060$/$1238$ & $975$/$1262$\\
-B & $24^3\times48$ & $2954$/$2439$ & $6269$/$5532$ & $5620$/$5770$ & $3248$/$3772$ & $1924$/$2443$\\
-\addlinespace
-S, $\alpha=0.6$ & $12^4$ & $234$/$364$ & $226$/$331$ & $234$/$344$ & $249$/$378$ & $263$/$415$\\
-S, $\alpha=0.6$ & $16^4$ & $373$/$576$ & $346$/$511$ & $358$/$528$ & $378$/$576$ & $403$/$638$\\
-S, $\alpha=0.6$ & $24^3\times48$ & $3095$/$4881$ & $3506$/$5166$ & $3602$/$5349$ & $3790$/$5785$ & $3878$/$6127$\\
-\addlinespace
-B, $\alpha=0.6$ & $12^4$ & $451$/$521$ & $478$/$545$ & $505$/$601$ & $525$/$660$ & $542$/$717$\\
-B, $\alpha=0.6$ & $16^4$ & $742$/$851$ & $762$/$877$ & $817$/$983$ & $840$/$1068$ & $827$/$1086$\\
-B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ & $4539$/$5194$ & $4228$/$5097$ & $2576$/$3239$ & $1620$/$2093$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \begin{figure}[tbp]
 \centering
 \includegraphics[height=0.78\textheight]{fig_cgform}
@@ -1663,7 +1631,7 @@ B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ & $4539$/$5194$ & $4228$/$5097$
 dashed), with $\mathcal K=1-\Ce^{-1}D_{eo}\Co^{-1}D_{oe}$ (the even-odd operator of Bridge++) and
 $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (the Schur complement of Grid's default \texttt{SchurDiagMooeeOperator},
 there on the odd sites), against the M\"obius $c$, $b=1+c$, and below each their ratio; above $1$ the left-preconditioned form
-is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. The data of Table~\ref{tab:cgform}.}
+is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. }
 \label{fig:cgform}
 \end{figure}
 

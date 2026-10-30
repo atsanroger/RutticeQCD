@@ -77,9 +77,9 @@
 \contentsline {subsection}{\numberline {D}Why the method converges}{22}{subsection.5.4}%
 \contentsline {subsubsection}{\numberline {1}Field of values: the coarse correction amplifies}{22}{subsubsection.5.4.1}%
 \contentsline {subsubsection}{\numberline {2}Spectrum: far from the origin}{23}{subsubsection.5.4.2}%
-\contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{24}{subsubsection.5.4.3}%
+\contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{23}{subsubsection.5.4.3}%
 \contentsline {paragraph}{What is not yet rigorous.}{24}{section*.36}%
-\contentsline {subsubsection}{\numberline {4}Truncated GCR: inexact coarse solves}{25}{subsubsection.5.4.4}%
+\contentsline {subsubsection}{\numberline {4}Truncated GCR: inexact coarse solves}{24}{subsubsection.5.4.4}%
 \contentsline {paragraph}{How GCR(2) stagnates.}{25}{section*.37}%
 \contentsline {paragraph}{Dependence on the setup seed.}{25}{section*.38}%
 \contentsline {paragraph}{What this establishes.}{26}{section*.39}%
@@ -99,4 +99,4 @@
 \contentsline {paragraph}{Mixed precision.}{33}{section*.47}%
 \contentsline {paragraph}{BiCGStab.}{33}{section*.48}%
 \contentsline {paragraph}{Two even-odd forms.}{34}{section*.49}%
-\contentsline {section}{\numberline {E}Tables of the numerical results}{37}{appendix.E}%
+\contentsline {section}{\numberline {E}Tables of the numerical results}{36}{appendix.E}%
