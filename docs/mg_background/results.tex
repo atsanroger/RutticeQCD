@@ -633,17 +633,22 @@ $\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
 aggregates, 8 filtered low modes), $m=0.001$ otherwise, with the multigrid of the
 mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
 but no levels below the coarse lattice.
-On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
+Rows ``4 configs.'' and ``no smearing'': ranges over the four $12^4$ configurations, $M_5=1$;
+other rows configuration~1. On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
 there the field of values of $\AR\mathcal M$ did not settle (the two dimensions differ
 by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
 \label{tab:fov}
 \renewcommand{\arraystretch}{1.15}
+\small
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lccccc@{}}
 \toprule
  & $\Re W(\AR)$ & $\|I-\AR\mathcal S\|$ & $\|I-\AR E\|$ & $\Re W(\AR\mathcal M)$ & $\|I-\AR\mathcal M\|$\\
 \midrule
 $4^3\times8$, $M_5=1$ & $[-5.0\times10^{-3},2.26]$ & & $18.5$ & $[0.772,1.222]$ & \\
 $12^4$ S & $[-4.59\times10^{-3},1.98]$ & $1.018$ & $1.94\times10^4$ & $[-23.9,30.8]$ & $54.8$\\
+$12^4$ S, 4 configs. & $\ge-0.013$ & $1.02$--$1.13$ & $5\times10^3$--$3\times10^5$ & $\ge-324$ & $15$--$722$\\
+$12^4$ S, no smearing & $\ge-0.011$ & $1.07$--$1.08$ & $64$--$84$ & $[0.23,2.62]$ & $1.5$--$2.0$\\
 $12^4$ B & $[-5.02\times10^{-2},4.46]$ & $1.112$ & $2.86\times10^3$ & $[-1.49,4.17]$ & $5.64$\\
 $16^4$ S & & & $1.54\times10^4$ & $[-15.6,27.1]$ & \\
 $16^4$ B & & & $2.5\times10^3$ & $[-1.42,4.27]$ & \\
@@ -892,7 +897,18 @@ $|r|^2/|b|^2\approx7\times10^{-10}$ on configuration~1 with seed 2, before it fa
 near a fixed point of Table~\ref{tab:stall}, reached here with inexact coarse solves. The slowness
 belongs to the setup: five of the six slow setups of the first ten seeds are slow for the point
 source as well ($44$ to more than $500$ iterations). At $L_s=12$ and $16$ the same occurs, in $7$ of
-$20$ setups on configurations 2 and 4. Why smearing on the small lattice produces these setups is
+$20$ setups on configurations 2 and 4.
+
+Smearing moves the field of values of the cycle across the origin on $12^4$. With exact coarse solves
+and stout smearing, $\Re W(\AR\mathcal M)$ reaches $-6.3$ to $-324$ on the four configurations;
+with $M_5=1$ and no smearing it lies in $[0.23,2.62]$ on all four (Table~\ref{tab:fov}). The
+field of values of $\AR$ itself is the same in both cases. The difference is the coarse
+correction: $\|I-\AR E\|$ is $4.7\times10^3$--$2.8\times10^5$ with smearing and $64$--$84$
+without. With the origin outside the field of values, truncated GCR($k$) converges for every
+$k$~\cite{ESS}, which matches the absence of slow setups without smearing. The converse does not
+hold: $16^4$ in setup~S also reaches $-15.6$ and has no slow setups, and among the $12^4$
+configurations the depth does not predict which exact cycles stagnate (configuration~2 reaches
+$-21.9$ and converges). Why smearing makes the coarse correction this large on the small lattice is
 open.
 
 GCR(8) and $48$ test vectors remove the slow setups on $12^4$ but do not fit $24^3\times48$ in

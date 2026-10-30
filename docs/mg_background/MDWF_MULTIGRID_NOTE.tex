@@ -565,7 +565,7 @@ site-local $C^{-1}$ and $\Cpv^{-1}$.
 \label{sec:smearing}
 The fermion operator may be built from smeared links in place of $U_\mu(x)$; smearing
 integrates the surrounding gauge field into each link and suppresses the short-distance
-fluctuations that produce near-zero modes of $W$. We use the stout projection combined with
+fluctuations that produce near-zero modes of $W$~\cite{LinSmear}. We use the stout projection combined with
 the APE staples~\cite{MorningstarPeardon}:
 \begin{equation}
 C_\mu(x)=\sum_{\nu\neq\mu}\rho\Big[U_\nu(x)U_\mu(x+\hat\nu)U_\nu\dg(x+\hat\mu)
@@ -1409,8 +1409,9 @@ were tested on $16^4$ but not on $24^4$. With the solver's inexact cycle the sam
 appear for about one setup seed in eight on $12^4$ with stout smearing, on every configuration
 tested, and in none of the setups tested without smearing, in setup~B, on $16^4$ (quenched and
 dynamical) and on three of the four $24^3\times48$ configurations (Sec.~\ref{sec:gcrk},
-Table~\ref{tab:seeds}). Why smearing on the
-small lattice produces them is not understood. A safeguard that changes the
+Table~\ref{tab:seeds}). Without smearing the field of values of the cycle stays in the right half-plane on $12^4$ and the
+bound of Ref.~\cite{ESS} applies; why smearing makes the coarse correction amplify by $10^3$--$10^5$
+there is not understood. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
@@ -1883,6 +1884,8 @@ Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{140} (2005) 686 [hep-lat/0409118].
 Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{153} (2006) 191 [hep-lat/0511031].
 \bibitem{BNO} R.~C.~Brower, H.~Neff and K.~Orginos, \emph{The M\"obius domain wall fermion algorithm},
 Comput.\ Phys.\ Commun.\ \textbf{220} (2017) 1 [arXiv:1206.5214].
+\bibitem{LinSmear} M.~Lin, \emph{Rough gauge fields, smearing and domain wall fermions},
+Nucl.\ Phys.\ B Proc.\ Suppl.\ \textbf{140} (2005) 692 [hep-lat/0409115].
 \bibitem{MorningstarPeardon} C.~Morningstar and M.~J.~Peardon, \emph{Analytic smearing of SU(3) link variables in lattice QCD},
 Phys.\ Rev.\ D \textbf{69} (2004) 054501 [hep-lat/0311018].
 \bibitem{Luscher} M.~L\"uscher, \emph{Local coherence and deflation of the low quark modes in lattice QCD},
