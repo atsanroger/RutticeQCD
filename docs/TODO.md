@@ -1021,6 +1021,15 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
 ## Optimization after the Tikhonov merge (2026-10-30)
 
+- **Before merging the Tikhonov branches into main: review the architecture** (user, 2026-10-30).
+  The work is spread over `exp/pv-coarse-spectrum` (the solve, `Coarse_Solver_PV: CG` +
+  `tikhonov_epsilon`, `--tikhonov` in the examples) and `exp/basis-lifts-tikhonov` (the lifts of
+  the MG note on top). Decide: whether MINRES on the Σ-Hermitian form, `|H_xx|⁻¹` and the
+  Pauli-Villars levels (which need MINRES) stay as options or go; whether the regularized solve
+  belongs in `Correction` or in a coarse-solver type of its own; the CPU path (now device only,
+  it panics there); the examples' flags against the yaml parameter; whether `RUTTICE_BASIS_LIFTS`
+  becomes a parameter or stays an experiment.
+
 - **Adjoint coarse kernel for the regularized Pauli-Villars solve** (optional; branch
   `exp/pv-coarse-spectrum`, `Coarse_Solver_PV: solver_type CG, tikhonov_epsilon`). The CG on
   (A†A + ε) w = A† g keeps a second copy of the coarse Pauli-Villars operator (A = P†D_PV†P and
