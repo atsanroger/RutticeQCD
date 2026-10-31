@@ -55,7 +55,7 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 | Table 9 (D†) | example `dagger_precond --tikhonov 1e-3 --pl 0` | `daggerT2/`, `daggerT3/` (the solve with D) |
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |
 | Table 12 (with and without the shift) | `ruttice` | `noshift16/` (no shift: `Coarse_Solver_PV` BiCGStab; with the shift: `rerunT/T_vol_S_*`) |
-| Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); the 40 seeds of Sec. V.C.3: `tikhonov/status2.txt` |
+| Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); rows 1a, 1b, 1c, 2a, 3a, 3b = seeds 2, 5, 6, 10, 3, 10; the 40 seeds (1–10) of Sec. V.C.3: `tikhonov/status2.txt` |
 | Table 13 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsvB/` (`--bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab, as the no-shift rows of Table 12); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
 | Table 15 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
 | Table 16 (spectrum) | example `preconditioned_fov_device --arnoldi --far 1,0 --tikhonov 1e-3` (`--left` for Ã_L) | `fovT2/far*`; `spectrum_*12.tsv` |
@@ -75,7 +75,7 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 change (`extract_diff.txt`); `tables.py` computes the rows of Table 7.
 
 Builds add the device reductions in different orders, so the iterations of otherwise equal runs can
-differ by a few. `RUTTICE_CHECKSUM=1` prints checksums of the stages of a device run to compare builds.
+differ by a few. The default setup seed (`Setup: seed`) is 21. `RUTTICE_CHECKSUM=1` prints checksums of the stages of a device run to compare builds.
 
 ## The mass scan
 

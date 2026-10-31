@@ -122,7 +122,7 @@ $\{s\}$ & $32$ & $32$ & $12$ & $12$ & $12$ & $11$ & $13$ & $11$ & $330$, $340$\\
 
 \begin{table}[t]
 \centering
-\caption{GCR(2) iterations on $\AL$ for seven setups (configuration, seed) of setup~S on $12^4$,
+\caption{GCR(2) iterations on $\AL$ for seven setups of setup~S on $12^4$ (configuration; a--c: setups with different random seeds),
 $m=0.001$: without the shift (BiCGStab on the exact adjoint), with $\tau=10^{-3}$, and the range over
 $\tau=10^{-4}$, $3\times10^{-4}$, $3\times10^{-3}$, $10^{-2}$, $3\times10^{-2}$; otherwise
 Table~\ref{tab:setups}. n.c.: not converged in $2000$ iterations. $^*$One run, $\tau=10^{-2}$:
@@ -133,13 +133,13 @@ $63$.}
 \toprule
  & no shift & $\tau=10^{-3}$ & other $\tau$\\
 \midrule
-1, seed 2 & n.c. & $15$ & $11$--$13$\\
-1, seed 5 & $70$ & $14$ & $13$--$19$\\
-1, seed 6 & $270$ & $14$ & $13$--$14$\\
-2, seed 10 & $106$ & $12$ & $12$--$14$\\
-3, seed 3 & n.c. & $13$ & $12$--$15$\\
-3, seed 10 & $204$ & $13$ & $11$--$14^*$\\
-4, seed 21 & n.c. & $18$ & $14$--$16$\\
+1a & n.c. & $15$ & $11$--$13$\\
+1b & $70$ & $14$ & $13$--$19$\\
+1c & $270$ & $14$ & $13$--$14$\\
+2a & $106$ & $12$ & $12$--$14$\\
+3a & n.c. & $13$ & $12$--$15$\\
+3b & $204$ & $13$ & $11$--$14^*$\\
+4, default seed & n.c. & $18$ & $14$--$16$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -147,7 +147,7 @@ $63$.}
 \begin{table}[t]
 \centering
 \caption{GCR(2) iterations on $\AL$ without and with the Tikhonov shift of the Pauli--Villars coarse
-solve, setup~S, $m=0.001$, seed $21$, configurations 1--4; without the shift the factor is solved by
+solve, setup~S, $m=0.001$, default seed, configurations 1--4; without the shift the factor is solved by
 BiCGStab on the exact adjoint. n.c.: not converged in $2000$ iterations.}
 \label{tab:noshift}
 \renewcommand{\arraystretch}{1.15}
@@ -170,7 +170,7 @@ $12^4$, no smearing & no shift & $14$ & $15$ & $15$ & $15$\\
 \begin{table}[t]
 \centering
 \caption{Smallest singular value of the coarse Pauli--Villars factor $\Dcpv=\Pro\dg\Dpv\Pro$ /
-that of the fine $\Dpv$ (Lanczos on $X\dg X$), setup~S, $m=0.001$, seed $21$. Stout: the
+that of the fine $\Dpv$ (Lanczos on $X\dg X$), setup~S, $m=0.001$, default seed. Stout: the
 smearing of setup~S; none: the same setup without smearing. $\Pro$ comes from a setup whose cycle solves
 the Pauli--Villars factor without the shift, by BiCGStab on the exact adjoint as in Table~\ref{tab:noshift}.}
 \label{tab:pvsv}

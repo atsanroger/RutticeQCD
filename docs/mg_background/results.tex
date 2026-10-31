@@ -54,8 +54,8 @@ field (S), and so give the multigrid low modes of different character; they need
 smoother intervals (Table~\ref{tab:setups}). Timings are from one NVIDIA data-center GPU with
 $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
 The device reductions add in an order that depends on the build and the
-GPU, so the iterations of otherwise equal runs can differ by a few. The setup seed is $21$ except
-in Sec.~\ref{sec:pvcoarse}.
+GPU, so the iterations of otherwise equal runs can differ by a few. Every setup uses the same random seed except where other seeds are stated
+(Secs.~\ref{sec:pvcoarse} and~\ref{sec:sensitivity}).
 
 \subsection{Performance}
 \label{sec:performance}
@@ -174,6 +174,7 @@ preconditioner needs fewer iterations than BiCGStab but more time.
 
 \subsubsection{Choice of the prolongation basis}
 \label{sec:basischoice}
+The lift $\hat t$ lets a given number of vectors $y$ suffice (Table~\ref{tab:basischoice}).
 The exactness~\eqref{eq:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
 $\operatorname{range}\Pro$, but the left form used in practice is not exact
 (Sec.~\ref{sec:basis}). To see what $\hat t$ does there, we replace it by $Ds$, which
@@ -181,15 +182,13 @@ vanishes on the odd sites, or drop it (Table~\ref{tab:basischoice}). With $\{s\}
 has half the columns; to compare at the same size we also take $32$ vectors $y$, which doubles
 the vectors of the filter and of the bootstrap.
 
-
 With the same vectors $y$, the two lifts give the fewest iterations on every volume. In setup~S,
 replacing $\hat t$ by $Ds$ or dropping it stagnates or slows down several times on one or two of
 the four $12^4$ and $16^4$ configurations and takes $2.5$--$3.2$ times the iterations on
 $24^3\times48$; in setup~B it costs
 more iterations. Twice as many vectors $y$ with $\{s\}$ alone, the same number of columns, do as well
 on $12^4$ and $16^4$ and need fewer iterations on $24^3\times48$, but the filter and the bootstrap
-then handle twice the vectors and the setup takes $1.6$ times as long. So $\hat t$ is what lets a
-given number of vectors $y$ suffice.
+then handle twice the vectors and the setup takes $1.6$ times as long.
 
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
@@ -201,8 +200,8 @@ $29$--$50$ on $16^4$; with the shift it needs $10$--$18$. Without smearing it ne
 way. With stout smearing the smallest singular value of the Galerkin factor is $1/120$ to $1/41$ of
 that of the fine $\Dpv$ on $12^4$ and $1/46$ to $1/9$ on $16^4$; without smearing it is about $0.6$
 of it (Table~\ref{tab:pvsv}). The exact coarse solve amplifies the directions of these singular
-values, and the shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (seeds $1$--$10$
-on the four configurations) need $10$--$17$ iterations, and the value of $\tau$ hardly matters
+values, and the shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (ten seeds
+on each of the four configurations) need $10$--$17$ iterations, and the value of $\tau$ hardly matters
 (Table~\ref{tab:tikhonov}).
 
 \subsubsection{Sensitivity to the parameters}
@@ -228,14 +227,17 @@ times in Table~\ref{tab:costs}.}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggregates and more test
 vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
+
 The number of test vectors that suffices grows from $12^4$ to $24^4$ (Table~\ref{tab:costs} and
 Table~\ref{tab:tvscan}) but not from $24^4$ to $24^3\times48$, as local coherence of the low modes leads one to expect once
 the box is large enough. In setup~B each
 count gives about the same iterations on both volumes. Setup~S needs more vectors; with fewer than
-$32$ it is slow or stagnates on both volumes. Outside the window the failures can come from the
-outer solver alone. With $\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2)
-to a plateau; with the same cycle GCR(16) converges, and other setup seeds converge with GCR(2). This
-plateau comes with the regularization: without the shift the same setup converges.
+$32$ it is slow or stagnates on both volumes.
+
+Outside the window the failures can come from the outer solver alone. With $\kappa_s=10$ in
+setup~B, GCR(2) reaches a plateau on one of the four $12^4$ configurations, and other setup seeds
+converge (Sec.~\ref{sec:gcrk}). This plateau comes with the regularization: without the shift the
+same setup converges.
 
 \subsection{Why the method converges}
 \label{sec:why}
@@ -291,6 +293,8 @@ and all other eigenvalues lie in a disc about $1$ that excludes the origin. The 
 \subsubsection{Pseudospectra and a bound for GMRES}
 \label{sec:pseudo}
 
+On $12^4$ (configuration~1) the pseudospectra of $\AR\mathcal M$ bound full GMRES with a fixed
+cycle: $\|r_k\|/\|r_0\|<10^{-9}$ within $55$ (S) and $57$ (B) iterations (Table~\ref{tab:pseudo}).
 For a non-normal operator the convergence of GMRES is bounded by the $\varepsilon$-pseudospectrum, the
 set where $\sigma_{\min}(z-X)<\varepsilon$~\cite{NRT,TrefethenEmbree}. If a contour $\Gamma$ of length $L$ encloses the
 spectrum of $X$ but not the origin and $\sigma_{\min}(z-X)\ge\varepsilon$ on it, then
@@ -325,8 +329,7 @@ On $16^4$ setup~S has two outliers; the factor $\kappa_o$ is then replaced by
 $\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the form
 $(|\lambda_o-c|+r)/|\lambda_o|$. On the dense circles of $12^4$ the spacing of the points is small
 enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on the whole circle, to
-the accuracy of the Lanczos estimates; it gives $\|r_k\|/\|r_0\|<10^{-9}$ within $55$ (S) and $57$
-(B) iterations (Table~\ref{tab:pseudo}).
+the accuracy of the Lanczos estimates.
 
 On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
 contours with $16$ points it is an estimate. Its rate on the dense circle of setup~S, $r/c=0.6$, is
