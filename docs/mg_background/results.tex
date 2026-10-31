@@ -84,13 +84,13 @@ point-source propagator.}
 
 \paragraph{The reference solver.} It is CG on $\mathcal K\dg\mathcal K$, $\mathcal K=\Ce^{-1}S$,
 the even-odd operator of Bridge++, with Neff's $\alpha$ as for the multigrid, in mixed precision.
-Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs $21\%$ (B) to $49\%$ (S) more
-iterations (Appendix~\ref{sec:cgform}).
+Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterations
+(Appendix~\ref{sec:cgform}).
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
-CGNE grow about twentyfold, those of the multigrid by $2.8$--$5.4$. Its setup of $192$--$220$\,s is
-paid back after $3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
+CGNE grow about twentyfold, those of the multigrid by $2.8$--$5.4$. Its setup is paid back after
+$3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
 faster or level. The multigrid needs three times the device memory of CGNE.
 
 \paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall
@@ -122,10 +122,10 @@ B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $3
 \end{tabular}
 \end{table}
 
-\paragraph{Volume.} The multigrid solve has $0.9$--$2.4$ times the speed of CGNE on $16^4$ and
-$3.2$--$5.7$ times from $24^4$ on; on $12^4$ it is slower (Fig.~\ref{fig:volume},
-Table~\ref{tab:volume}). Its iterations stay at $10$--$43$ from $12^4$ to $24^3\times48$, while those
-of CGNE grow $8$--$16$ times. Its setup grows with the volume.
+\paragraph{Volume.} The advantage of the multigrid grows with the volume (Fig.~\ref{fig:volume},
+Table~\ref{tab:volume}). It is slower than CGNE on $12^4$, about level on $16^4$, and clearly faster
+from $24^4$ on: its iterations hardly grow with the volume, those of CGNE do. Its setup grows with
+the volume.
 
 \begin{figure}[t]
 \centering
@@ -138,9 +138,8 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 
 
 
-\paragraph{Neff's $\alpha$.} At $m=0.001$, $\alpha=0.6$ against $\alpha=1$ saves CG $25$--$35\%$ of
-its iterations and the multigrid two (S) and four (B) (Table~\ref{tab:massscan}), as
-Sec.~\ref{sec:eo} expects.
+\paragraph{Neff's $\alpha$.} $\alpha=0.6$ saves CG far more iterations than the multigrid
+(Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
 
 \subsubsection{Solves with $D\dg$}
@@ -193,9 +192,8 @@ and the setup parameters. Each part below isolates one of them.
 
 The speed-up comes from the coarse correction: without it a Krylov method on $\AL$ does not beat
 CGNE (Fig.~\ref{fig:massscan}). BiCGStab on $\AL$ alone needs about as many iterations as
-double-precision CGNE, but each of its iterations applies $\AL$ twice, and at $m=0.001$ in setup~S
-it takes $1.7$ times the time of double-precision CGNE. The Chebyshev smoother as a preconditioner cuts its iterations but
-raises the time.
+double-precision CGNE, but each of its iterations applies $\AL$ twice, so it takes longer. The
+Chebyshev smoother as a preconditioner cuts its iterations but raises the time.
 
 
 \subsubsection{Choice of the prolongation basis}
@@ -210,10 +208,10 @@ the vectors of the filter and of the bootstrap.
 
 With the same vectors $y$, the two lifts give the fewest iterations on every volume. In setup~S,
 replacing $\hat t$ by $Ds$ or dropping it stagnates on three of the four $12^4$ and $16^4$
-configurations and costs five times the iterations on $24^3\times48$; in setup~B it costs $1.2$ to
-$2.2$ times the iterations. Twice as many vectors $y$ with $\{s\}$ alone take the place of $\hat t$ on
-$24^3\times48$ but not on $12^4$, at $1.6$--$1.8$ times the setup time and twice the host memory; a
-point-source propagator is still faster with the two lifts in both setups.
+configurations and costs five times the iterations on $24^3\times48$; in setup~B it costs more
+iterations. Twice as many vectors $y$ with $\{s\}$ alone take the place of $\hat t$ on
+$24^3\times48$ but not on $12^4$, at a longer setup and twice the host memory; a point-source
+propagator is still faster with the two lifts.
 
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
@@ -245,14 +243,12 @@ times in Table~\ref{tab:costs}.}
 
 
 
-Fewer iterations are not always less time (Table~\ref{tab:costs}). $2^4$ aggregates need $9$
-iterations, but the larger coarse lattice makes the setup two to three times and the solve three to
-five times as long as with $4^4$; $48$ test vectors likewise save iterations and lose in setup and time per iteration.
+Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggregates and more test
+vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
 On $24^3\times48$, $16$ test vectors do not suffice: the solve needs hundreds of iterations or does
 not converge in $2000$. Outside the window the failures can come from the outer solver alone. With
-$\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2) to a plateau near
-$|r|^2/|b|^2=10^{-12}$; with the same cycle GCR(16) converges in $15$ iterations, and two other
-setup seeds converge with GCR(2) in $17$ and $21$.
+$\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2) to a plateau; with the
+same cycle GCR(16) converges, and other setup seeds converge with GCR(2).
 
 Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain, for Wilson fermions, the effect of more test
 vectors at the coarse size of fewer by truncating them with a singular value decomposition on each
@@ -291,25 +287,22 @@ The coarse correction pushes the field of values into the left half-plane (Table
 The field of values of $\AR$ itself reaches only just below zero and hardly depends on the volume,
 and the smoother is harmless, $\|I-\AR\mathcal S\|\approx1$. The coarse correction $E$ is the identity
 on the vectors it is built from (Eq.~\eqref{eq:exact}) but amplifies other directions, like a
-strongly oblique projection: $\|I-\AR E\|$ is $1.6\times10^3$--$3.2\times10^3$ on $12^4$ and $16^4$.
-The post-smoothing acts as a filter, and the whole cycle keeps $\|I-\AR\mathcal M\|$ at $3$--$9$.
-Eick and Mawhinney~\cite{EickMawhinney} describe the same mechanism for a renormalization-group coarse
-lattice and need a Chebyshev filter of degree $150$--$300$; here $\AR$ is close to the identity on the
-high modes, and a smoother of degree $7$--$11$ suffices.
+strongly oblique projection, by three orders of magnitude. The post-smoothing acts as a filter
+and brings the whole cycle back close to the identity. Eick and Mawhinney~\cite{EickMawhinney}
+describe the same mechanism for a renormalization-group coarse lattice and need a Chebyshev filter
+of high degree; here $\AR$ is close to the identity on the high modes, and the smoother suffices.
 
-With stout smearing $\Re W(\AR\mathcal M)$ reaches $-1.8$ to $-3.1$ on the four $12^4$
-configurations in setup~S. Without smearing it lies in $[0.23,2.58]$ and
-$\|I-\AR E\|$ is $63$--$82$; truncated GCR($k$) is then guaranteed to converge for every
-$k$~\cite{ESS}.
+With stout smearing $W(\AR\mathcal M)$ crosses the origin on every configuration. Without smearing
+the amplification is far smaller and $W(\AR\mathcal M)$ lies in the right half-plane, where
+truncated GCR($k$) is guaranteed to converge for every $k$~\cite{ESS}.
 
 \subsubsection{Spectrum: far from the origin}
 \label{sec:spectrum}
 
 The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
-Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with condition numbers up to
-$34$. On configuration~1 setup~S has one isolated outlier on $12^4$ (at $1.84$) and two on $16^4$ (at
-$2.92$ and $1.93$), and all other eigenvalues lie within $0.43$--$0.75$ of $1$. The lowest eigenvalues
-of the left and right forms agree to within $0.01$.
+Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with moderate condition
+numbers. Setup~S has one or two isolated outliers of larger modulus, and all other eigenvalues lie in
+a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
 \label{sec:pseudo}
@@ -353,8 +346,7 @@ the contours of Table~\ref{tab:pseudo}, and the iterations the bound guarantees.
 The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. Its rate,
 $r/c=0.5$--$0.6$ in setup~S, is close to the one we measure on $24^3\times48$ on configurations 1 and
 3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
-is $0.48$--$0.64$ in $|r|$. Configuration~2 in setup~S converges more slowly, at a steady $0.45$ per
-step in $|r|^2$. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
+is $0.48$--$0.64$ in $|r|$; configuration~2 in setup~S converges more slowly. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
 eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
 $\mathcal M$.
 
@@ -367,9 +359,8 @@ to $10^{-8}$, where $\mathcal M$ is close to the fixed map, do not help: GCR(2) 
 iterations and GCR($\ge16$) $15$.
 
 Where $E$ amplifies, the solver's cycle is better than the fixed map. At the vector $x$ at the left
-end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by a factor of
-$4.5$--$73$ against exact ones on the $12^4$ and $16^4$ lattices of Table~\ref{tab:fov}, and they
-make $\Re\,x\dg\AR\mathcal Mx$ positive in eight of the ten cases. With Krylov coarse solves stopped
+end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by large factors against
+exact ones and in most cases make $\Re\,x\dg\AR\mathcal Mx$ positive. With Krylov coarse solves stopped
 early the cycle is not a fixed linear map, so this holds for these vectors only.
 
 A truncated method has no guarantee when the field of values contains the origin~\cite{ESS,Embree}.
@@ -378,9 +369,8 @@ residual and the next step repeats it. With the parameters of Table~\ref{tab:set
 a plateau. The one plateau we checked, at $\kappa_s=10$ in setup~B (Sec.~\ref{sec:sensitivity}), is
 of this kind: the same cycle converges with GCR(16).
 
-\paragraph{Setup seeds.} With the regularized Pauli--Villars solve no setup is slow on $12^4$: $40$
-seeds of setup~S need $10$--$17$ iterations and $20$ of setup~B $12$--$13$ (Sec.~\ref{sec:pvcoarse}).
-Configuration~2 of $24^3\times48$ needs $43$ iterations at seed $21$, against $22$--$29$ on the other
+\paragraph{Setup seeds.} With the regularized Pauli--Villars solve no setup is slow on $12^4$
+(Sec.~\ref{sec:pvcoarse}). Configuration~2 of $24^3\times48$ needs more iterations than the other
 three (Table~\ref{tab:volume}); which property of that configuration causes this is open.
 
 \begin{figure}[t]
@@ -390,5 +380,4 @@ three (Table~\ref{tab:volume}); which property of that configuration causes this
 \label{fig:history}
 \end{figure}
 
-On $24^3\times48$ no run shows a plateau (Fig.~\ref{fig:history}); the first step reduces $|r|^2$ by
-about $10^{-5}$ in every run.
+On $24^3\times48$ no run shows a plateau (Fig.~\ref{fig:history}).

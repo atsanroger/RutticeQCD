@@ -292,25 +292,25 @@ From Ref.~\cite{KCM2024}, Fig.~1.}
 \end{figure}
 
 \paragraph{The unpreconditioned operator.}
-The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$. On a
-$2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec}, Fig.~\ref{fig:pv}) the real parts
-lie in $[-1.29,13.2]$. So CG and BiCGStab~\cite{vanderVorst} do not work on $D$ itself, and the practical choice has
+The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$, and so does
+the spectrum on a $2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec},
+Fig.~\ref{fig:pv}). So CG and BiCGStab~\cite{vanderVorst} do not work on $D$ itself, and the practical choice has
 been CG on a positive definite squared operator.
 
 \paragraph{Site-diagonal preconditioning.}
 The site-diagonal part $C$ has an inverse that is the same matrix on every site
-(Sec.~\ref{sec:C}). With it, $DC^{-1}$ has real parts in $[-0.22,2.22]$. The
-spectrum shrinks, but it still lies on both sides of the origin.
+(Sec.~\ref{sec:C}). With it the spectrum of $DC^{-1}$ shrinks, but it still lies on both sides of
+the origin.
 
 \paragraph{Pauli--Villars preconditioning.}
 The operator $\Dpv^{-1}D$, with $\Dpv=D(m=1)$, approximates the overlap operator~\cite{BCHW}.
 Since $\Dpv^{-1}$ costs as much as a solve with $D$, Ref.~\cite{BCHW} used $\Dpv\dg$ instead.
 $\Dpv\dg D$ has positive real parts. Its low modes lie close to the imaginary axis,
-shifted by about the quark mass, as for an overlap operator. Its high end, however, reaches about
-$187$, which an overlap operator would not.
+shifted by about the quark mass, as for an overlap operator. Its high end, however, reaches far
+beyond that of an overlap operator.
 
 \paragraph{Both together.}
-The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has real parts in $[2.67\times10^{-4},\,5.22]$
+The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has all its eigenvalues in the right half-plane
 (Fig.~\ref{fig:A}, left), with the smallest condition number in Ref.~\cite{KCM2024}. With
 $\Dpv$ replaced by its block-diagonal approximation $\Bpv$, which drops the hops between $4^4$
 blocks, negative real parts come back (right). Our method therefore keeps the factor exact on the
@@ -653,9 +653,7 @@ similarity transform of that of $D$:
 So $\mathcal K^{(\alpha)}$ and $\mathcal K$ have the same eigenvalues but different singular values,
 because $Q_e$ is not unitary. CG on the normal equation converges at a rate set by the singular
 values and sees the change at every mass. In the multigrid the coarse correction removes the low
-modes for any $\alpha$, so we expect $\alpha$ to help it less than CG.\ifresults{} At $m=0.001$ on
-$24^3\times48$, $\alpha=0.6$ saves CG $25$--$35\%$ of its iterations and the multigrid at most four
-(Sec.~\ref{sec:massscan}).\fi
+modes for any $\alpha$, so we expect $\alpha$ to help it less than CG.\ifresults{} The measurements bear this out (Sec.~\ref{sec:massscan}).\fi
 
 % ============================================================
 \section{The two-grid method}
