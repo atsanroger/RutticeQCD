@@ -76,27 +76,23 @@
 \contentsline {subsubsection}{\numberline {4}Sensitivity to the parameters}{22}{subsubsection.5.3.4}%
 \contentsline {subsection}{\numberline {D}Why the method converges}{23}{subsection.5.4}%
 \contentsline {subsubsection}{\numberline {1}Field of values: the coarse correction amplifies}{23}{subsubsection.5.4.1}%
-\contentsline {subsubsection}{\numberline {2}Spectrum: far from the origin}{24}{subsubsection.5.4.2}%
-\contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{24}{subsubsection.5.4.3}%
-\contentsline {paragraph}{What is not yet rigorous.}{25}{section*.36}%
-\contentsline {subsubsection}{\numberline {4}Truncated GCR: inexact coarse solves}{25}{subsubsection.5.4.4}%
-\contentsline {paragraph}{How GCR(2) stagnates.}{25}{section*.37}%
-\contentsline {paragraph}{Setup seeds.}{25}{section*.38}%
-\contentsline {paragraph}{What this establishes.}{26}{section*.39}%
-\contentsline {paragraph}{In short.}{26}{section*.40}%
-\contentsline {section}{\numberline {VI}Summary}{26}{section.6}%
-\contentsline {paragraph}{Code.}{27}{section*.41}%
-\contentsline {section}{\numberline {VII}Open problems}{27}{section.7}%
-\contentsline {section}{Acknowledgments}{28}{section*.43}%
-\contentsline {section}{Appendices}{29}{section*.43}%
-\contentsline {section}{\numberline {A}The notation of other references}{29}{appendix.A}%
-\contentsline {section}{\numberline {B}Spectra with other preconditioners}{29}{appendix.B}%
-\contentsline {section}{\numberline {C}Gauge configurations}{31}{appendix.C}%
-\contentsline {section}{\numberline {D}Krylov solvers}{31}{appendix.D}%
-\contentsline {paragraph}{Flexible GCR($k$).}{31}{section*.44}%
-\contentsline {paragraph}{FGMRES.}{32}{section*.45}%
-\contentsline {paragraph}{CGNE.}{32}{section*.46}%
-\contentsline {paragraph}{Mixed precision.}{33}{section*.47}%
-\contentsline {paragraph}{BiCGStab.}{33}{section*.48}%
-\contentsline {paragraph}{Two even-odd forms.}{34}{section*.49}%
-\contentsline {section}{\numberline {E}Tables of the numerical results}{36}{appendix.E}%
+\contentsline {subsubsection}{\numberline {2}Spectrum: far from the origin}{23}{subsubsection.5.4.2}%
+\contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{23}{subsubsection.5.4.3}%
+\contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{24}{subsubsection.5.4.4}%
+\contentsline {paragraph}{Setup seeds.}{25}{section*.36}%
+\contentsline {section}{\numberline {VI}Summary}{25}{section.6}%
+\contentsline {paragraph}{Code.}{26}{section*.37}%
+\contentsline {section}{\numberline {VII}Open problems}{26}{section.7}%
+\contentsline {section}{Acknowledgments}{27}{section*.39}%
+\contentsline {section}{Appendices}{28}{section*.39}%
+\contentsline {section}{\numberline {A}The notation of other references}{28}{appendix.A}%
+\contentsline {section}{\numberline {B}Spectra with other preconditioners}{28}{appendix.B}%
+\contentsline {section}{\numberline {C}Gauge configurations}{30}{appendix.C}%
+\contentsline {section}{\numberline {D}Krylov solvers}{30}{appendix.D}%
+\contentsline {paragraph}{Flexible GCR($k$).}{30}{section*.40}%
+\contentsline {paragraph}{FGMRES.}{31}{section*.41}%
+\contentsline {paragraph}{CGNE.}{31}{section*.42}%
+\contentsline {paragraph}{Mixed precision.}{32}{section*.43}%
+\contentsline {paragraph}{BiCGStab.}{32}{section*.44}%
+\contentsline {paragraph}{Two even-odd forms.}{33}{section*.45}%
+\contentsline {section}{\numberline {E}Tables of the numerical results}{35}{appendix.E}%

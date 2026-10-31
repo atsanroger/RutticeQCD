@@ -262,82 +262,54 @@ gain outweighs that loss is open.
 \subsection{Why the method converges}
 \label{sec:why}
 
+The convergence is set by the spectrum and the pseudospectra of the preconditioned operator, not
+by its field of values. On the smeared lattices the field of values of $\AR\mathcal M$ reaches into
+the left half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply.
+Its eigenvalues lie at $\Re\lambda\ge0.70$ with moderate condition numbers, and its pseudospectra
+bound full GMRES. As usual for multigrid preconditioners of lattice Dirac operators, the
+convergence of the truncated flexible outer method is established numerically.
+
+Two notions from non-Hermitian linear algebra are used. The \emph{field of values}
+$W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the smallest eigenvalue
+of the Hermitian part $(X+X\dg)/2$; GCR converges at every restart length when $W$ lies in the
+right half-plane~\cite{ESS}. The \emph{$\varepsilon$-pseudospectrum} is the set of $z$ where
+$\sigma_{\min}(z-X)<\varepsilon$; for a normal $X$ it is the $\varepsilon$-neighborhood of the
+spectrum, for a non-normal one it can be much larger, and it bounds full
+GMRES~\cite{TrefethenEmbree}. The condition number of an eigenvalue, $\kappa=1/|y\dg x|$ for its
+normalized right and left eigenvectors, is $1$ for a normal matrix and widens the pseudospectrum
+around the eigenvalue.
+
+The quantities of this subsection take $\mathcal M$ as a fixed linear map: both coarse factors solved
+to $|r|^2/|b|^2<10^{-20}$ in double precision, the Pauli--Villars factor regularized as in
+Eq.~\eqref{eq:tikhonov}, and $\mathcal M\dg$ built as its adjoint, so that
+$\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to $10^{-10}$.
+
 \subsubsection{Field of values: the coarse correction amplifies}
 \label{sec:fov}
 
-The method converges as in Sec.~\ref{sec:massscan} although the usual theory does not apply. The
-four parts of this subsection ask which property of the preconditioned operator sets the convergence. Two notions from non-Hermitian linear algebra are used. The \emph{field
-of values} $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the
-smallest eigenvalue of the Hermitian part $(X+X\dg)/2$; GCR is guaranteed to converge at
-every restart length when $W$ lies in the right half-plane~\cite{ESS}. The
-\emph{$\varepsilon$-pseudospectrum} is the set of $z$ where $\sigma_{\min}(z-X)<\varepsilon$,
-i.e.\ where $\|(z-X)^{-1}\|>1/\varepsilon$; for a normal $X$ it is the
-$\varepsilon$-neighborhood of the spectrum, for a non-normal one it can be much larger,
-and it bounds the convergence of full GMRES~\cite{TrefethenEmbree}.
+The coarse correction pushes the field of values into the left half-plane (Table~\ref{tab:fov}).
+The field of values of $\AR$ itself reaches only just below zero and hardly depends on the volume,
+and the smoother is harmless, $\|I-\AR\mathcal S\|\approx1$. The coarse correction $E$ is the identity
+on the vectors it is built from (Eq.~\eqref{eq:exact}) but amplifies other directions, like a
+strongly oblique projection: $\|I-\AR E\|$ is $1.6\times10^3$--$3.2\times10^3$ on $12^4$ and $16^4$.
+The post-smoothing acts as a filter, and the whole cycle keeps $\|I-\AR\mathcal M\|$ at $3$--$9$.
+Eick and Mawhinney~\cite{EickMawhinney} describe the same mechanism for a renormalization-group coarse
+lattice and need a Chebyshev filter of degree $150$--$300$; here $\AR$ is close to the identity on the
+high modes, and a smoother of degree $7$--$11$ suffices.
 
-The condition number of an eigenvalue, $\kappa=1/|y\dg x|$ for its right and left
-eigenvectors $x$ and $y$ normalized to $\|x\|=\|y\|=1$, is $1$ for a normal matrix; a large
-$\kappa$ means that the eigenvalue moves by $\kappa\varepsilon$ under a perturbation of size
-$\varepsilon$, which widens the pseudospectrum around it (Secs.~\ref{sec:spectrum},
-\ref{sec:pseudo}).
-
-The coarse correction amplifies some vectors by $10^3$--$10^5$, and
-the field of values of the preconditioned operator reaches into the left half-plane
-(this subsection), so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR is
-lost. Secs.~\ref{sec:spectrum}, \ref{sec:pseudo} and \ref{sec:gcrk} give what remains: the
-eigenvalues, the pseudospectra and the truncated GCR used in practice.
-
-The Hermitian part of $\AR\mathcal M$ was computed with $\mathcal M$ made a fixed
-linear map: both coarse factors solved to $|r|^2/|b|^2<10^{-20}$ in double precision
-with the exact adjoints, and $\mathcal M\dg$ built with the same $\Pro$ and the
-same smoother interval, so that $\langle z|\AR\mathcal M w\rangle$ and
-$\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to $10^{-10}$. The cycle was also
-taken apart: the smoother alone, $\mathcal S=p(\AR)$, the coarse correction alone, $E$
-of Eq.~\eqref{eq:corr}, and the cycle $\mathcal M$ (Table~\ref{tab:fov}).
-
-
-The coarse correction is what pushes the field of values into the left half-plane. On
-$4^3\times8$ the field of values of $\AR\mathcal M$ lies in the right half-plane, whereas on $12^4$ and $16^4$ it does not. Table~\ref{tab:fov} shows where the change comes from.
-\begin{itemize}
-\item The field of values of $\AR$ itself hardly depends on the volume. From $12^4$ to $24^4$ its
-upper edge moves by less than $1\%$, and its lower edge goes from $-4.6\times10^{-3}$ to
-$-1.3\times10^{-2}$ (S) and stays at $-5\times10^{-2}$ (B).
-\item The smoother is harmless: $\|I-\AR\mathcal S\|\approx1$.
-\item The coarse correction amplifies: $\|I-\AR E\|$ is $10^3$--$10^5$ (up to $3\times10^5$ on the four
-$12^4$ configurations), against $18.5$ on $4^3\times8$. $\AR E$ is the identity on the vectors the correction is built from
-(Eq.~\eqref{eq:exact}), but it amplifies other directions by three to four orders of
-magnitude, like a strongly oblique projection.
-\end{itemize}
-Eick and Mawhinney~\cite{EickMawhinney} describe the same mechanism for a renormalization-group
-coarse lattice. The coarse inverse is large on the low modes of the coarse operator. The
-interpolated correction is not exactly a low mode of the fine operator, and the part that misses
-comes back amplified. In their case the fine operator is $D\dg D$, whose spectrum reaches $520$
-against $0.05$ for its lowest modes; it supplies the four orders of magnitude, and they need a
-Chebyshev filter of degree $150$--$300$. In our case $\AR$ is close to the identity on the high
-modes, because the Pauli--Villars operator divides them out, and its field of values ends at $2$ (S)
-and $4.5$ (B). The large factor is the coarse inverse itself. The post-smoothing, a Chebyshev
-polynomial of degree $7$--$11$ on the upper part of the spectrum, acts as the filter, and the
-whole cycle keeps $\|I-\AR\mathcal M\|$ at $55$ (S) and $5.6$ (B) on configuration~1, and at $15$--$722$
-over the four configurations in~S.
-
-So the GCR bound of Ref.~\cite{ESS} does not apply. The field of values is also not what decides
-the iteration count. If we replace $E$ by the Galerkin correction of $\AR$ itself,
-$\Pro(\Pro\dg\AR\Pro)^{-1}\Pro\dg$ (built densely), the field of values of setup~B moves into the
-right half-plane, $[0.121,1.99]$, and $\|I-\AR\mathcal M\|$ drops to $1.84$ (setup~S:
-$[-3.62,13.1]$, $16.8$). Yet GCR(8) to $10^{-16}$ then needs more iterations: $16$ against $13$
-(B) and $12$ against $10$ (S).
+With stout smearing $\Re W(\AR\mathcal M)$ reaches $-1.8$ to $-3.1$ on the four $12^4$
+configurations in setup~S. Without smearing it lies in $[0.23,2.58]$ and
+$\|I-\AR E\|$ is $63$--$82$; truncated GCR($k$) is then guaranteed to converge for every
+$k$~\cite{ESS}.
 
 \subsubsection{Spectrum: far from the origin}
 \label{sec:spectrum}
 
-
-The spectrum, unlike the field of values, stays far from the origin. Every eigenvalue lies at
-$\Re\lambda\ge0.69$, with moderate condition numbers (Table~\ref{tab:spectrum}, Fig.~\ref{fig:spectrum}). On
-configuration~1 setup~S has one ($12^4$) or two ($16^4$) isolated outliers of large modulus, and all
-other eigenvalues lie within $0.43$--$0.47$ of $1$; on configurations 2--4 of $16^4$ the eigenvalue
-farthest from $1$ lies at $|\lambda|=2.7$--$4.6$. The left and right forms have the same spectrum to
-the precision shown. At $m=0.005$ on $16^4$ the lowest real parts are $0.802$ (S) and $0.790$
-(B).
+The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
+Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with condition numbers up to
+$34$. On configuration~1 setup~S has one isolated outlier on $12^4$ (at $1.84$) and two on $16^4$ (at
+$2.92$ and $1.93$), and all other eigenvalues lie within $0.43$--$0.75$ of $1$. The lowest eigenvalues
+of the left and right forms agree to within $0.01$.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
 \label{sec:pseudo}
@@ -361,11 +333,10 @@ $|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
 \label{eq:outlierbound}
 \end{equation}
 
-
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_spectrum}
-\caption{$12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
+\caption{\pending{From the unregularized cycle; to be redrawn from the regularized one.} $12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
 $\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the real
 axis, the contours of Table~\ref{tab:pseudo} and the dense circles $|z-1|=0.6$ (S) and
@@ -375,81 +346,42 @@ range in the corner), the spectrum does not.}
 \end{figure}
 
 On $16^4$ setup~S has two outliers; the factor $\kappa_o$ is then replaced by
-$\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the
-form $(|\lambda_o-c|+r)/|\lambda_o|$. On the real axis between the origin and the
-spectrum, $\sigma_{\min}(z-\AR\mathcal M)\ge0.024$ (S) and $\ge0.031$ (B) on
-$12^4$ ($z=-0.5\ldots0.7$), and $0.107$ (S), $0.271$ (B) at the origin.
+$\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the form
+$(|\lambda_o-c|+r)/|\lambda_o|$. \pending{$\sigma_{\min}(z-\AR\mathcal M)$ on the real axis and on
+the contours of Table~\ref{tab:pseudo}, and the iterations the bound guarantees.}
 
-The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. It
-is pessimistic by a factor of $3$--$5$ in iterations: GCR needs $10$--$17$ with exact coarse
-solves (Sec.~\ref{sec:gcrk}). Its rate, however, is the one we measure on $24^3\times48$ on configurations 1 and 3. There
-the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that is
-$0.48$--$0.64$ in $|r|$, against $r/c=0.5$--$0.6$ for setup~S. Configuration~2 in setup~S converges
-more slowly, at a steady $0.45$ per step in $|r|^2$. Setup~B does not get worse from
-$12^4$ to $16^4$ ($\min\sigma$ grows from $0.098$ to $0.13$). In setup~S the outliers of configuration~1 grow, but
-their condition numbers fall and $\varepsilon$ stays the same.
+The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. Its rate,
+$r/c=0.5$--$0.6$ in setup~S, is close to the one we measure on $24^3\times48$ on configurations 1 and
+3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
+is $0.48$--$0.64$ in $|r|$. Configuration~2 in setup~S converges more slowly, at a steady $0.45$ per
+step in $|r|^2$. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
+eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
+$\mathcal M$.
 
-\paragraph{What is not yet rigorous.} On the two dense circles of $12^4$ the spacing of the
-points is below $\varepsilon$, and since $\sigma_{\min}(z-X)$ is $1$-Lipschitz in $z$ the bound
-holds on the whole circle, $\sigma_{\min}\ge0.0164$ (S) and $\ge0.0676$ (B), with $54$ and $58$
-guaranteed iterations. The circles of $16^4$ have only $16$ points. The Lanczos estimates approach
-$\sigma_{\min}^2$ from above, the disc rests on the eigenvalues farthest from $c$ found by Arnoldi,
-and the bound is for full GMRES with a fixed $\mathcal M$ (Secs.~\ref{sec:gcrk}, \ref{sec:open}).
-
-\subsubsection{Truncated GCR: inexact coarse solves}
+\subsubsection{Truncated GCR and inexact coarse solves}
 \label{sec:gcrk}
-
 
 Truncated GCR does not need accurate coarse solves. With the usual coarse solves to $10^{-2}$,
 GCR(2) needs at most one iteration more than GCR(32) on $12^4$ (Table~\ref{tab:gcrk}). Coarse solves
-to $10^{-8}$, where $\mathcal M$ is close to the fixed map of Secs.~\ref{sec:fov}--\ref{sec:pseudo},
-do not help: GCR(2) then needs $19$ iterations and GCR($\ge16$) $15$. The pseudospectra guarantee the full method; a truncated method has no
-guarantee when the field of values contains the origin~\cite{ESS,Embree}. With the exact cycle (double precision, $10^{-20}$) GCR(2) stagnates only on configurations 1 and~4
-of $12^4$; on $16^4$ and $24^4$ it converges (Table~\ref{tab:stall}).
+to $10^{-8}$, where $\mathcal M$ is close to the fixed map, do not help: GCR(2) then needs $19$
+iterations and GCR($\ge16$) $15$.
 
-Inexact coarse solves do not keep GCR(2) converging on $12^4$ by leaving out the directions in
-which $E$ amplifies. Take the vector $x$ at the left end of the field of values of $\AR\mathcal M$
-(exact coarse solves, $12^4$). With coarse solves to $10^{-2}$ the cycle gives
-$\Re\,x\dg\AR\mathcal Mx=-25.2$ (S) and $-1.43$ (B), against $-24.3$ and $-1.49$ with exact
-ones, and $\|(I-\AR E)x\|=1.16\times10^3$ and $1.03\times10^2$, against $1.13\times10^3$ and
-$1.12\times10^2$. With tolerances $10^{-8}$ and $10^{-4}$ they agree with the exact solves to within
-$1\%$. What the tolerance changes is that the cycle is no longer a fixed linear map: with Krylov
-coarse solves stopped early, it depends on its input.
+Where $E$ amplifies, the solver's cycle is better than the fixed map. At the vector $x$ at the left
+end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by a factor of
+$4.5$--$73$ against exact ones on the $12^4$ and $16^4$ lattices of Table~\ref{tab:fov}, and they
+make $\Re\,x\dg\AR\mathcal Mx$ positive in eight of the ten cases. With Krylov coarse solves stopped
+early the cycle is not a fixed linear map, so this holds for these vectors only.
 
-\paragraph{How GCR(2) stagnates.} GCR(2) with a fixed preconditioner can reach a fixed point. On
-$12^4$ in setup~S, $|r|^2$ falls for about $15$ steps and then does not change in any digit for the
-next $480$. Meanwhile
-$|\langle r|\AL\mathcal Mr\rangle|/(\|r\|\,\|\AL\mathcal Mr\|)$ falls from about $0.8$ to
-$10^{-10}$--$10^{-9}$. The new direction is then orthogonal to the residual, and since
-$\mathcal M$ is fixed the next step repeats it. A field of values that contains the origin admits
-such a residual. Any variation of the cycle leaves the fixed point: on configuration~1 of $12^4$ the exact
-cycle and two fixed perturbations of it stagnate in all $15$ runs, and random perturbations, down to $2\%$
-of the cycle, converge in all $75$ (Table~\ref{tab:stall}). On the four quenched $16^4$
-configurations, on the dynamical one and on $24^4$ the exact cycle does not reach a fixed point in
-the runs made. A fixed perturbation
-can still produce one there ($\delta\Gfive\mathcal Mr$ on $24^4$), so whether a fixed cycle
-stagnates depends on the cycle and on the lattice. Of the four $12^4$ configurations, 1 and 4 reach it and 2 and 3 do
-not, so the fixed point depends on the configuration; which property of it decides is open. It is
-neither the topological charge (configurations 3 and 4 both have $Q=+2$, and $24^4$ has $Q=+4$ and
-converges) nor the odd extent of the $3^4$ coarse lattice ($3^4$ aggregates give a $4^4$ coarse
-lattice and stagnate as well).
+A truncated method has no guarantee when the field of values contains the origin~\cite{ESS,Embree}.
+With a fixed cycle GCR(2) can reach a fixed point, where the new direction is orthogonal to the
+residual and the next step repeats it. With the parameters of Table~\ref{tab:setups} no run reached
+a plateau. The one plateau we checked, at $\kappa_s=10$ in setup~B (Sec.~\ref{sec:sensitivity}), is
+of this kind: the same cycle converges with GCR(16).
 
 \paragraph{Setup seeds.} With the regularized Pauli--Villars solve no setup is slow on $12^4$: $40$
 seeds of setup~S need $10$--$17$ iterations and $20$ of setup~B $12$--$13$ (Sec.~\ref{sec:pvcoarse}).
 Configuration~2 of $24^3\times48$ needs $43$ iterations at seed $21$, against $22$--$29$ on the other
 three (Table~\ref{tab:volume}); which property of that configuration causes this is open.
-
-Smearing moves the field of values of the cycle across the origin on $12^4$. With exact coarse solves
-and stout smearing, $\Re W(\AR\mathcal M)$ reaches $-6.3$ to $-324$ on the four configurations;
-with $M_5=1$ and no smearing it lies in $[0.23,2.62]$ on all four (Table~\ref{tab:fov}). The
-field of values of $\AR$ itself is the same in both cases. The difference is the coarse
-correction: $\|I-\AR E\|$ is $4.7\times10^3$--$2.8\times10^5$ with smearing and $64$--$84$
-without. With the origin outside the field of values, truncated GCR($k$) converges for every
-$k$~\cite{ESS}, which matches the absence of slow setups without smearing. The converse does not
-hold: $16^4$ in setup~S also reaches $-15.6$ and has no slow setups, and among the $12^4$
-configurations the depth does not predict which exact cycles stagnate (configuration~2 reaches
-$-21.9$ and converges). Why smearing makes the coarse correction this large on the small lattice is
-open.
 
 \begin{figure}[t]
 \centering
@@ -460,22 +392,3 @@ open.
 
 On $24^3\times48$ no run shows a plateau (Fig.~\ref{fig:history}); the first step reduces $|r|^2$ by
 about $10^{-5}$ in every run.
-
-\paragraph{What this establishes.} As usual for multigrid preconditioners of lattice Dirac
-operators, the convergence of the truncated flexible outer method is established numerically.
-GCR(2) with the parameters of Table~\ref{tab:setups} converged without plateaus in every run of
-this section, on $24^3\times48$ mostly at the rate the
-pseudospectral bound of Sec.~\ref{sec:pseudo} gives for the full method. No guarantee is available for a truncated method whose preconditioner varies from step to
-step. Accurate coarse solves do not make the solver faster. On $16^4$ the exact cycle takes
-$24$--$36$ iterations on the four configurations, fewer than BiCGStab on the exact adjoint stopped
-at $10^{-2}$ ($37$--$47$ against $33$--$36$ on configuration~1). The solver's cycle, with the
-regularized Pauli--Villars solve, takes $10$--$11$. The cycle of
-the solver converged in every run of Table~\ref{tab:stall}.
-
-\paragraph{In short.} The convergence is set by the spectrum and the pseudospectra, not by the field of
-values. The spectrum of $\AR\mathcal M$ stays at $\Re\lambda\ge0.69$ with moderate condition numbers,
-and the pseudospectra give full GMRES a guaranteed rate of $0.5$--$0.6$ per iteration, close to the
-$0.48$--$0.58$ measured for GCR(2) on $24^3\times48$. The field of values reaches into the left half-plane
-because the coarse correction amplifies, and that loses the guarantee for truncated GCR. With the
-unregularized Pauli--Villars solve, GCR(2) stagnated only on $12^4$ with smearing. On configuration~1 the amplification is $1.9\times10^4$ on $12^4$ and $1.5\times10^4$ on $16^4$
-(Table~\ref{tab:fov}), and neither it nor the depth of the field of values alone decides which setups stagnate.

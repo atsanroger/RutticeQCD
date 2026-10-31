@@ -24,7 +24,7 @@ needs up to $30\%$ more. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\
 $m$ & it & s & s, mixed & it & s & coarse & it & s & double & mixed & mixed\\
 \midrule
 \multicolumn{12}{@{}l}{setup S ($M_5=1.0$, stout)}\\
-$0.1$ & 182 & 5.0 & 2.9 & 8 & 3.3 & 713 & 11 & 4.5 & 116 & --- & $0.9$--$0.9$\\
+$0.1$ & 182 & 5.0 & 2.9 & 8 & 3.3 & 713 & 11 & 4.5 & 116 & --- & $0.9$\\
 $0.05$ & 303 & 8.3 & 4.7 & 10 & 4.3 & 850 & 14 & 5.4 & 48 & 517 & $1.0$--$1.1$\\
 $0.02$ & 658 & 17.9 & 9.7 & 12 & 4.6 & 878 & 14 & 5.5 & 14 & 38 & $2.0$--$2.2$\\
 $0.01$ & 1174 & 31.9 & 17.1 & 14 & 5.7 & 1248 & 15 & 6.3 & 7.5 & 17 & $2.8$--$3.2$\\
@@ -150,7 +150,7 @@ $63$.}
 \centering
 \caption{Smallest singular value of the coarse Pauli--Villars factor $\Dcpv=\Pro\dg\Dpv\Pro$ /
 that of the fine $\Dpv$ (Lanczos on $X\dg X$), setup~S, $m=0.001$, seed $21$. Stout: the
-smearing of setup~S; none: the same setup without smearing. ---: not measured.}
+smearing of setup~S; none: the same setup without smearing. n.m.: not measured.}
 \label{tab:pvsv}
 \renewcommand{\arraystretch}{1.15}
 \setlength{\tabcolsep}{4pt}
@@ -160,7 +160,7 @@ smearing of setup~S; none: the same setup without smearing. ---: not measured.}
 \midrule
 $12^4$ & stout & $0.0128$ / $0.532$ & $0.0140$ / $0.299$ & $0.0266$ / $0.401$ & $0.0033$ / $0.261$\\
 $12^4$ & none & $0.259$ / $0.262$ & $0.238$ / $0.236$ & $0.238$ / $0.244$ & $0.233$ / $0.242$\\
-$16^4$ & stout & $0.0142$ / $0.416$ & $0.0229$ / --- & $0.0219$ / --- & $0.0276$ / $0.236$\\
+$16^4$ & stout & $0.0142$ / $0.416$ & $0.0229$ / n.m. & $0.0219$ / n.m. & $0.0276$ / $0.236$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -196,12 +196,11 @@ bootstrap rounds $3$ & $14$ / $9.5$ / $0.7$ & $12$ / $9$ / $0.4$\\
 \begin{table}[t]
 \centering
 \caption{Real part of the field of values $W(X)$ and $\|I-X\|_2$ for $X=\AR\mathcal S$,
-$\AR E$, $\AR\mathcal M$ (exact coarse solves). $m=0.05$ on $4^3\times8$ ($2^4$
-aggregates, 8 filtered low modes), $m=0.001$ otherwise, with the multigrid of the
-mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
+$\AR E$, $\AR\mathcal M$ (exact coarse solves, the Pauli--Villars factor regularized),
+$m=0.001$, with the multigrid of the mass scan (16 low modes, 32 test vectors, $4^4$, Chebyshev of Table~\ref{tab:setups})
 but no levels below the coarse lattice.
-Rows ``4 configs.'' and ``no smearing'': ranges over the four $12^4$ configurations, $M_5=1$;
-other rows configuration~1. On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
+Rows ``4 configs.'' and ``no smearing'': ranges over the four $12^4$ configurations ($M_5=1$
+without smearing); other rows configuration~1. On $24^4$ only $W(\AR)$ is given (Krylov dimensions 10 and 12 agree to six digits);
 there the field of values of $\AR\mathcal M$ did not settle (the two dimensions differ
 by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
 \label{tab:fov}
@@ -212,13 +211,13 @@ by $2\%$) and the eigensolvers did not fit in $24$\,GB of device memory.}
 \toprule
  & $\Re W(\AR)$ & $\|I-\AR\mathcal S\|$ & $\|I-\AR E\|$ & $\Re W(\AR\mathcal M)$ & $\|I-\AR\mathcal M\|$\\
 \midrule
-$4^3\times8$, $M_5=1$ & $[-5.0\times10^{-3},2.26]$ & & $18.5$ & $[0.772,1.222]$ & \\
-$12^4$ S & $[-4.59\times10^{-3},1.98]$ & $1.018$ & $1.94\times10^4$ & $[-23.9,30.8]$ & $54.8$\\
-$12^4$ S, 4 configs. & $\ge-0.013$ & $1.02$--$1.13$ & $5\times10^3$--$3\times10^5$ & $\ge-324$ & $15$--$722$\\
-$12^4$ S, no smearing & $\ge-0.011$ & $1.07$--$1.08$ & $64$--$84$ & $[0.23,2.62]$ & $1.5$--$2.0$\\
-$12^4$ B & $[-5.02\times10^{-2},4.46]$ & $1.112$ & $2.86\times10^3$ & $[-1.49,4.17]$ & $5.64$\\
-$16^4$ S & & & $1.54\times10^4$ & $[-15.6,27.1]$ & \\
-$16^4$ B & & & $2.5\times10^3$ & $[-1.42,4.27]$ & \\
+$12^4$ S & $[-4.59\times10^{-3},1.98]$ & $1.018$ & $2.74\times10^3$ & $[-2.63,5.43]$ & $8.06$\\
+$12^4$ S, 4 configs. & $\ge-0.013$ & $1.02$--$1.13$ & $2.1\times10^3$--$3.2\times10^3$ & $\ge-3.11$ & $6.9$--$9.3$\\
+$12^4$ S, no smearing & $\ge-0.011$ & $1.07$--$1.08$ & $63$--$82$ & $[0.23,2.58]$ & $1.5$--$2.0$\\
+$12^4$ B & $[-5.02\times10^{-2},4.46]$ & $1.112$ & $1.84\times10^3$ & $[-0.60,3.07]$ & $3.65$\\
+$12^4$ B, 4 configs. & $\ge-0.051$ & $1.11$--$1.22$ & $1.7\times10^3$--$1.9\times10^3$ & $\ge-0.93$ & $3.1$--$4.1$\\
+$16^4$ S & $[-5.07\times10^{-3},1.98]$ & $1.027$ & $2.37\times10^3$ & $[-1.53,5.31]$ & $6.79$\\
+$16^4$ B & $[-5.06\times10^{-2},4.46]$ & $1.145$ & $1.58\times10^3$ & $[-1.04,3.54]$ & $4.51$\\
 $24^4$ S & $[-1.31\times10^{-2},1.98]$ & & & & \\
 $24^4$ B & $[-5.08\times10^{-2},4.48]$ & & & & \\
 \bottomrule
@@ -227,7 +226,7 @@ $24^4$ B & $[-5.08\times10^{-2},4.48]$ & & & & \\
 
 \begin{table}[t]
 \centering
-\caption{Eigenvalues of $\tilde A\mathcal M$ (exact coarse solves) by Krylov--Schur:
+\caption{Eigenvalues of $\tilde A\mathcal M$ (exact coarse solves, the Pauli--Villars factor regularized) by Krylov--Schur:
 the smallest real part, the condition numbers $\kappa=1/|y\dg x|$ of the six
 eigenvalues of smallest real part (left eigenvectors from $\mathcal M\dg\tilde A\dg$),
 the eigenvalues farthest from $1$ with their $\kappa$, and the radius about $1$ of
@@ -239,21 +238,19 @@ ranges over the four configurations, the outliers and the radius are those of co
 \toprule
  & $\min\Re\lambda$ & $\kappa$ (6 lowest) & outliers ($\kappa$) & others: $|\lambda-1|\le$\\
 \midrule
-$4^3\times8$, $m=0.05$, R & $0.857$ & $2$--$4$ & & \\
-$4^3\times8$, $m=0.05$, L & $0.854$ & $2.8$ & & $0.156$ (Ritz)\\
-$12^4$ S, R & $0.868$ & $6.3$--$14.5$ & $5.86+0.86i$ ($11.2$) & $0.434$\\
-$12^4$ S, L & $0.861$ & $7.2$--$26.2$ & $5.40+0.89i$ ($13.9$) & $0.455$\\
-$12^4$ B, R & $0.831$ & $9.4$--$20.3$ & & $0.753$\\
-$12^4$ B, L & $0.830$ & & & $0.747$\\
-$16^4$ S, R & $0.700$--$0.794$ & $3.6$--$22.8$ & \begin{tabular}[t]{@{}c@{}}$10.63+0.19i$ ($4.38$)\\ $3.13+0.02i$ ($4.74$)\end{tabular} & $0.474$\\
-$16^4$ B, R & $0.698$--$0.783$ & $9.5$--$42.9$ & & $0.840$\\
+$12^4$ S, R & $0.870$ & $5.8$--$11.3$ & $1.84+0.07i$ ($9.2$) & $0.426$\\
+$12^4$ S, L & $0.862$ & $6.4$--$14.2$ & $1.78+0.05i$ ($10.1$) & $0.447$\\
+$12^4$ B, R & $0.836$ & $10.1$--$18.2$ & & $0.670$\\
+$12^4$ B, L & $0.834$ & $10.4$--$18.7$ & & $0.674$\\
+$16^4$ S, R & $0.725$--$0.804$ & $2.9$--$19.4$ & \begin{tabular}[t]{@{}c@{}}$2.92+0.06i$ ($3.4$)\\ $1.93+0.00i$ ($5.4$)\end{tabular} & $0.453$\\
+$16^4$ B, R & $0.704$--$0.784$ & $9.2$--$33.8$ & & $0.745$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{table}[t]
 \centering
-\caption{$\min_\Gamma\sigma_{\min}(z-\AR\mathcal M)$ on circles $|z-c|=r$ (16 points
+\caption{\pending{Values of the unregularized cycle; to be replaced.} $\min_\Gamma\sigma_{\min}(z-\AR\mathcal M)$ on circles $|z-c|=r$ (16 points
 each, or the number given), and the bound~\eqref{eq:pseudobound} or~\eqref{eq:outlierbound}:
 the factor per iteration $r/c$, the constant, and the iterations it guarantees for
 $\|r_k\|/\|r_0\|<10^{-9}$. For the dense circles $\varepsilon$ is the lower bound
@@ -299,40 +296,6 @@ B, $\AR$ & $10^{-2}$ & $15$ & & & $15$ & \\
 S, $\AL$, point source & $10^{-2}$ & $11$--$19$ & & & $11$--$13$ & \\
 S, $\AL$ & $10^{-8}$ & $19$ & $16$ & $15$ & $15$ & $15$\\
 S, $\AL$ & $10^{-4}$ & $13$ & & & $12$ & \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[t]
-\centering
-\caption{GCR(2) on $\AL$ in setup~S, $m=0.001$, $\alpha=0.6$, to $|r|^2/|b|^2<10^{-16}$ (at most
-500 iterations, 300 on $24^4$): converged runs / runs, with their iterations. ``exact'': coarse
-solves to $10^{-20}$ in double precision, BiCGStab on the exact Pauli--Villars adjoint;
-``fixed'': the exact cycle plus $\delta\,\Gfive\mathcal Mr$ or plus a fixed multiple of the
-smoother polynomial, $\delta$ the relative change that coarse solves to $10^{-2}$ make
-($0.04$--$0.23$); ``random'': the exact cycle plus a random vector of relative size
-$\delta=0.02$--$0.5$, drawn anew at each application; ``solver'': the cycle of the solver
-(MINRES, $10^{-2}$), whose correction did not fit next to the exact one on $24^4$ (OOM). $Q$: the
-topological charge. Aggregates $4^4$ unless stated; configurations 2--4: three right-hand sides.}
-\label{tab:stall}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-lattice, $Q$ & exact & fixed $\Gfive\mathcal M$ & fixed $p(\AL)$ & random & solver\\
-\midrule
-$12^4$ config.~1, $+1$ & 0/5 & 0/5 & 0/5 & 75/75 (34--120) & 5/5 (12--14)\\
-$12^4$ config.~2, $+1$ & 3/3 (21--24) & & & & 3/3 (12--13)\\
-$12^4$ config.~3, $+2$ & 3/3 (18--20) & & & & 3/3 (10)\\
-$12^4$ config.~4, $+2$ & 0/3 & & & & 3/3 (84--94)\\
-$12^4$, $3^4$ aggregates & 0/3 & & & & 3/3 (11--12)\\
-$12^4$, $2^4$ aggregates & 2/3 (20, 23) & & & & 3/3 (7)\\
-$16^4$ config.~1, $0$ & 5/5 (33--36) & 5/5 & 5/5 & 75/75 (31--114) & 5/5 (12)\\
-$16^4$ config.~2, $+1$ & 3/3 (24--25) & & & & 3/3 (12--13)\\
-$16^4$ config.~3, $+1$ & 3/3 (29--31) & & & & 3/3 (11)\\
-$16^4$ config.~4, $+3$ & 3/3 (25--29) & & & & 3/3 (12)\\
-$16^4$ dynamical, $0$ & 5/5 (13) & 5/5 & 5/5 & 20/20 (13--20) & 5/5 (10)\\
-$24^4$, $+4$ & 2/2 (78, 85) & 0/2 & 2/2 (41, 42) & 4/4 (84--205) & OOM\\
 \bottomrule
 \end{tabular}
 \end{table}

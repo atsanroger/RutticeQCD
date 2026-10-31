@@ -102,6 +102,7 @@
 \newcommand{\AL}{\tilde A_{L}}
 \newcommand{\Pro}{\mathcal P}
 \newcommand{\Dc}{\mathcal D_{\mathrm c}}
+\newcommand{\pending}[1]{\textcolor{red}{[#1]}}
 \newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
 \renewcommand{\Re}{\operatorname{Re}}
 \newcommand{\Ce}{C_{e}}
@@ -137,7 +138,7 @@ deflation. These choices address the three reasons Boyle and Yamaguchi gave for 
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
 \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
-$\Re\lambda\ge0.69$, and its pseudospectra bound the convergence of full GMRES. On four quenched
+$\Re\lambda\ge0.70$, and its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
 $3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
@@ -1201,7 +1202,7 @@ iterations, although the correction is exact only for the right form. One setup 
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
-bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.69$ and its pseudospectra bound
+bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.70$ and its pseudospectra bound
 full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups}, truncated GCR(2)
 converged without a plateau in every run on every volume, but it has no guarantee.
 
