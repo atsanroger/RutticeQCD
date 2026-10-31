@@ -54,7 +54,8 @@ MultiGrid:
       maximum_number_of_iteration   : 2000
       convergence_criterion_squared : 1.0e-2
     Coarse_Solver_PV:
-      solver_type                   : MINRES
+      solver_type                   : CG
+      tikhonov_epsilon              : 1.0e-3
       maximum_number_of_iteration   : 2000
       convergence_criterion_squared : 1.0e-2
   # Levels below the coarse lattice: they must divide its extent (24^3x48 / 4^4 = 6^3x12).
