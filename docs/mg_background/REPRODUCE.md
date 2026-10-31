@@ -38,7 +38,7 @@ Coarse_Solver_PV:
 | `8ed045b` | the adjoint cycle with the regularized solve (needed for the field of values and the pseudospectra) |
 | `facb62b` | eigensolver mode `ReD`, the Hermitian part (D + D†)/2 |
 | `d61fe3c` | `dagger_precond` prints the solve with D of the same right-hand sides |
-| `d9ef1a7` | `coarse_hermiticity --bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab (Table 12, coarse) |
+| `d9ef1a7` | `coarse_hermiticity --bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab (Table 13, coarse) |
 
 Table 10 (lifts) uses branch `exp/basis-lifts-tikhonov` (`36f9079`, `RUTTICE_BASIS_LIFTS` = `st`, `sds`, `s`).
 
@@ -51,17 +51,17 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 | Table 7 (mass scan), Fig. 4 | `ruttice` | `massscan_24_configs.tsv`, `massscan_24.tsv` (configuration 1); CGNE rows and `baseline_mass_2448.tsv` from earlier builds (CGNE is not changed by the multigrid); `rerunT/T_ms_*` |
 | Table 4 (point source) | `ruttice` | `pointsource_24.tsv` (configuration 1), `pointsource_24_configs.tsv`; `rerunT/T_ps_*` (m 0.001), `psT/` (m 0.01); correlators against the CGNE logs of `p1/t5cg_*` and `final_fbc8f00/pointsource/` |
 | Table 8 (volume), Fig. 5 | `ruttice` | `volume_configs.tsv`, `baseline_volume.tsv`; `rerunT/T_vol_*` |
-| Fig. 6 (sensitivity), Table 13 (costs) | `ruttice` | `sensitivity_12_configs.tsv`, `costs_12.tsv` (medians over the four configurations); `rerunT/T_sens_*` |
+| Fig. 6 (sensitivity), Table 14 (costs) | `ruttice` | `sensitivity_12_configs.tsv`, `costs_12.tsv` (medians over the four configurations); `rerunT/T_sens_*` |
 | Table 9 (D†) | example `dagger_precond --tikhonov 1e-3 --pl 0` | `daggerT2/`, `daggerT3/` (the solve with D) |
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |
-| Table noshift (with and without the shift, seed 21) | `ruttice` | `noshift16/` (no shift: `Coarse_Solver_PV` BiCGStab; with the shift: `rerunT/T_vol_S_*`) |
+| Table 12 (with and without the shift) | `ruttice` | `noshift16/` (no shift: `Coarse_Solver_PV` BiCGStab; with the shift: `rerunT/T_vol_S_*`) |
 | Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); the 40 seeds of Sec. V.C.3: `tikhonov/status2.txt` |
-| Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsvB/` (`--bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab, as the no-shift rows of Table noshift); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
-| Table 14 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
-| Table 15 (spectrum) | example `preconditioned_fov_device --arnoldi --far 1,0 --tikhonov 1e-3` (`--left` for Ã_L) | `fovT2/far*`; `spectrum_*12.tsv` |
-| Table 16, Fig. 7 (pseudospectra) | example `preconditioned_fov_device --pseudo --contour c,0,r,n --tikhonov 1e-3` | `pseudoT/`; `pseudo_*12.tsv` |
-| Table 17 (GCR(k)) | `ruttice` | `gcrk12_configs.tsv`; `rerunT/T_gcrk12_*` |
-| Table 18 (test vectors) | `ruttice` | `tvscanT/` (status, status_redo) |
+| Table 13 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsvB/` (`--bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab, as the no-shift rows of Table 12); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
+| Table 15 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
+| Table 16 (spectrum) | example `preconditioned_fov_device --arnoldi --far 1,0 --tikhonov 1e-3` (`--left` for Ã_L) | `fovT2/far*`; `spectrum_*12.tsv` |
+| Table 17, Fig. 7 (pseudospectra) | example `preconditioned_fov_device --pseudo --contour c,0,r,n --tikhonov 1e-3` | `pseudoT/`; `pseudo_*12.tsv` |
+| Table 18 (GCR(k)) | `ruttice` | `gcrk12_configs.tsv`; `rerunT/T_gcrk12_*` |
+| Table 19 (test vectors) | `ruttice` | `tvscanT/` (status, status_redo) |
 | Fig. 8 (GCR history) | `ruttice`, `verbose_level: Detailed` | `gcr_steps_24.tsv`, `gcr_steps_24_configs.tsv`; `rerunT/T_hist_*` |
 | Sec. V.C.4, the one GCR(2) plateau | `ruttice` | `diagB10/` |
 | Open problems, field of values of the fine D_PV | `ruttice` eigensolver, `fermion_mult_mode: ReD` | `finesigmaA1/reD*` (`neff_alpha 1.0`) |

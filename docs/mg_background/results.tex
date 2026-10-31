@@ -168,8 +168,8 @@ and the setup parameters.
 The speed-up comes from the coarse correction. Without it a Krylov method on $\AL$ does not beat
 mixed-precision CGNE (Fig.~\ref{fig:massscan}). On $24^3\times48$ BiCGStab on $\AL$ alone needs fewer
 iterations than double-precision CGNE, about half in setup~B, but each of its iterations applies $\AL$ twice,
-and it is slower than mixed-precision CGNE at every mass. The Chebyshev smoother as a preconditioner
-cuts its iterations but raises the time.
+and it is slower than mixed-precision CGNE at every mass. GCR(2) with the Chebyshev smoother as its
+preconditioner needs fewer iterations than BiCGStab but more time.
 
 
 \subsubsection{Choice of the prolongation basis}
@@ -243,7 +243,7 @@ plateau comes with the regularization: without the shift the same setup converge
 We infer that the spectrum and the pseudospectra of the preconditioned operator govern the
 convergence. In both setups the field of values of $\AR\mathcal M$ reaches into the left
 half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. Its
-eigenvalues lie at $\Re\lambda\ge0.70$, and on $12^4$ its pseudospectra bound full GMRES with a fixed
+eigenvalues lie at $\Re\lambda\ge0.70$, and on $12^4$ (configuration~1) its pseudospectra bound full GMRES with a fixed
 cycle. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
 
@@ -285,8 +285,7 @@ guaranteed to converge for every $k$ with a fixed cycle~\cite{ESS}.
 
 The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
 Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with moderate condition
-numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers in setup~S
-(Table~\ref{tab:spectrum}) and on some configurations in setup~B,
+numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers (Table~\ref{tab:spectrum} gives those of configuration~1),
 and all other eigenvalues lie in a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
@@ -317,7 +316,7 @@ $|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
 $\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the contours of
 Table~\ref{tab:pseudo}, among them the dense circles $|z-1|=0.6$ (S) and
-$|z-1.4|=0.93$ (B). The field of values reaches far into the left half-plane (its real
+$|z-1.4|=0.93$ (B). The field of values reaches into the left half-plane (its real
 range in the corner), the spectrum does not.}
 \label{fig:spectrum}
 \end{figure}
@@ -329,7 +328,7 @@ enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on
 the accuracy of the Lanczos estimates; it gives $\|r_k\|/\|r_0\|<10^{-9}$ within $55$ (S) and $57$
 (B) iterations (Table~\ref{tab:pseudo}).
 
-The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
+On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
 contours with $16$ points it is an estimate. Its rate on the dense circle of setup~S, $r/c=0.6$, is
 close to the one we measure on $24^3\times48$, a larger lattice, on configurations 1 and 3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
 is $0.48$--$0.64$ in $|r|$; configuration~2 in setup~S converges more slowly. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
