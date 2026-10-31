@@ -11,9 +11,7 @@ multigrid setup ($192$--$220$\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{
 MG})$, against the double- and the mixed-precision CGNE (n/a: CGNE is faster); speed-up: the solve time of the
 mixed-precision CGNE over that of the multigrid, smallest and largest over the four configurations.
 Over the four configurations at $m=0.001$, $N_{\rm rhs}$ against mixed CGNE is $3.5$--$5.3$, and from
-$m=0.1$ to $0.001$ the iterations grow by $2.8$--$5.4$ (MG) and $18$--$27$ (mixed CGNE). The mixed-precision CGNE
-needs the iterations of the double-precision one within $1\%$, except at $m\le0.002$ (S), where it
-needs up to $30\%$ more. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\times10^{-15}$
+$m=0.1$ to $0.001$ the iterations grow by $2.8$--$5.4$ (MG) and $18$--$27$ (mixed CGNE). Appendix~\ref{sec:cgform} compares the two precisions of CGNE. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\times10^{-15}$
 (CGNE, both), $2\times10^{-19}$--$4\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
 (double) and $7.2$\,GB (mixed), MG $21.1$\,GB ($\alpha=0.6$).}
 \label{tab:massscan}
@@ -194,7 +192,8 @@ $16^4$ & stout & $0.0142$ / $0.692$ & $0.0229$ / $0.388$ & $0.0219$ / $0.656$ & 
 \centering
 \caption{The changes of Fig.~\ref{fig:sensitivity} that move the cost, with timings:
 iterations / setup seconds / solve seconds, medians over the four configurations as in
-Fig.~\ref{fig:sensitivity}. $12^4$, $m=0.001$, $\AL$, GCR(2), one random right-hand side.}
+Fig.~\ref{fig:sensitivity}. $12^4$, $m=0.001$, $\AL$, GCR(2), one random right-hand side. $n_v$ test
+vectors are the lifts $\{s_j,\hat t_j\}$ of $n_v/2$ vectors $y_j$ (Sec.~\ref{sec:basis}).}
 \label{tab:costs}
 \renewcommand{\arraystretch}{1.12}
 \begin{tabular}{@{}lcc@{}}
@@ -265,10 +264,10 @@ ranges over the four configurations, the outliers and the radius are those of co
 \midrule
 $12^4$ S, R & $0.870$ & $5.8$--$11.3$ & $1.84+0.07i$ ($9.2$) & $0.426$\\
 $12^4$ S, L & $0.862$ & $6.4$--$14.2$ & $1.78+0.05i$ ($10.1$) & $0.447$\\
-$12^4$ B, R & $0.836$ & $10.1$--$18.2$ & & $0.670$\\
-$12^4$ B, L & $0.834$ & $10.4$--$18.7$ & & $0.674$\\
+$12^4$ B, R & $0.836$ & $10.1$--$18.2$ & none & $0.670$\\
+$12^4$ B, L & $0.834$ & $10.4$--$18.7$ & none & $0.674$\\
 $16^4$ S, R & $0.725$--$0.804$ & $2.9$--$19.4$ & \begin{tabular}[t]{@{}c@{}}$2.92+0.06i$ ($3.4$)\\ $1.93+0.00i$ ($5.4$)\end{tabular} & $0.453$\\
-$16^4$ B, R & $0.704$--$0.784$ & $9.2$--$33.8$ & & $0.745$\\
+$16^4$ B, R & $0.704$--$0.784$ & $9.2$--$33.8$ & none & $0.745$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -328,7 +327,8 @@ S, $\AL$ & $10^{-4}$ & $13$ & & & $12$ & \\
 \centering
 \caption{GCR(2) iterations on $\AL$ against the number of test vectors, $m=0.001$, one random
 right-hand side, otherwise Table~\ref{tab:setups}: ranges over the four configurations; n.c.\ ($k$):
-$k$ configurations not converged in $2000$ iterations. $32$ is the multigrid of the other tables
+$k$ configurations not converged in $2000$ iterations. $n_v$ test vectors are the lifts
+$\{s_j,\hat t_j\}$ of $n_v/2$ vectors $y_j$ (Sec.~\ref{sec:basis}). $32$ is the multigrid of the other tables
 (Tables~\ref{tab:volume} and~\ref{tab:massscan}).}
 \label{tab:tvscan}
 \renewcommand{\arraystretch}{1.15}
@@ -339,11 +339,11 @@ setup & test vectors & $24^4$ & $24^3\times48$\\
 S & $16$ & n.c.\ (4) & $274$, n.c.\ (3)\\
 S & $24$ & $68$--$101$, n.c.\ (1) & $90$--$179$\\
 S & $32$ & $14$--$24$ & $22$--$43$\\
-S & $48$ & $9$--$10$ & \\
+S & $48$ & $9$--$10$ & not run\\
 B & $16$ & $72$--$79$ & $65$--$83$\\
 B & $24$ & $40$--$42$ & $38$--$45$\\
 B & $32$ & $23$--$24$ & $23$--$26$\\
-B & $48$ & $11$ & \\
+B & $48$ & $11$ & not run\\
 \bottomrule
 \end{tabular}
 \end{table}

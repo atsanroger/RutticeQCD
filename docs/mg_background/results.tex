@@ -154,10 +154,6 @@ four.
 The exact map of Eq.~\eqref{eq:g5exact} would give the null vectors of $D\dg$ and reduce $D\dg w=r$ to
 a solve with $D$, but it needs $D_-^{-1}$, which does not converge (Sec.~\ref{sec:g5fail}).
 
-\paragraph{What these solves are for.} In HMC each force evaluation needs one solve with $D$ and one
-with $D\dg$, and with $\Gfive\mathcal M\Gfive$ one setup serves both. The cost in HMC is left to
-future work (Sec.~\ref{sec:open}).
-
 
 \subsection{What each part contributes}
 \label{sec:parts}
@@ -241,11 +237,6 @@ outer solver alone. With $\kappa_s=10$ in setup~B, one of the four $12^4$ config
 to a plateau; with the same cycle GCR(16) converges, and other setup seeds converge with GCR(2). This
 plateau comes with the regularization: without the shift the same setup converges.
 
-Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain, for Wilson fermions, the effect of more test
-vectors at the coarse size of fewer by truncating them with a singular value decomposition on each
-aggregate. Here the truncated basis would no longer contain $s$ and $\hat t$ exactly; whether the
-gain outweighs that loss is open.
-
 \subsection{Why the method converges}
 \label{sec:why}
 
@@ -271,7 +262,7 @@ to $|r|^2/|b|^2<10^{-20}$ in double precision, the Pauli--Villars factor regular
 Eq.~\eqref{eq:tikhonov}, and $\mathcal M\dg$ built as its adjoint, so that
 $\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to about $10^{-10}$.
 
-\subsubsection{Field of values: the coarse correction amplifies}
+\subsubsection{Field of values}
 \label{sec:fov}
 
 The coarse correction pushes the field of values into the left half-plane (Table~\ref{tab:fov}).
@@ -289,7 +280,7 @@ without smearing is the
 amplification far smaller and $W(\AR\mathcal M)$ in the right half-plane, where truncated GCR($k$) is
 guaranteed to converge for every $k$ with a fixed cycle~\cite{ESS}.
 
-\subsubsection{Spectrum: far from the origin}
+\subsubsection{Spectrum}
 \label{sec:spectrum}
 
 The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
