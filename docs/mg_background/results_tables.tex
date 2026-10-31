@@ -149,6 +149,29 @@ $63$.}
 
 \begin{table}[t]
 \centering
+\caption{GCR(2) iterations on $\AL$ without and with the Tikhonov shift of the Pauli--Villars coarse
+solve, setup~S, $m=0.001$, seed $21$, configurations 1--4; without the shift the factor is solved by
+BiCGStab on the exact adjoint. n.c.: not converged in $2000$ iterations.}
+\label{tab:noshift}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llcccc@{}}
+\toprule
+ & & \multicolumn{4}{c}{configuration}\\
+\cmidrule(lr){3-6}
+ & & 1 & 2 & 3 & 4\\
+\midrule
+$12^4$, stout & no shift & $610$ & $84$ & $883$ & n.c.\\
+ & $\tau=10^{-3}$ & $11$ & $11$ & $11$ & $18$\\
+$16^4$, stout & no shift & $44$ & $50$ & $33$ & $29$\\
+ & $\tau=10^{-3}$ & $10$ & $11$ & $11$ & $11$\\
+$12^4$, no smearing & no shift & $14$ & $15$ & $15$ & $15$\\
+ & $\tau=10^{-3}$ & $13$ & $13$ & $14$ & $13$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
 \caption{Smallest singular value of the coarse Pauli--Villars factor $\Dcpv=\Pro\dg\Dpv\Pro$ /
 that of the fine $\Dpv$ (Lanczos on $X\dg X$), setup~S, $m=0.001$, seed $21$. Stout: the
 smearing of setup~S; none: the same setup without smearing. $\Pro$ comes from a setup whose cycle

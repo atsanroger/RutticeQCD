@@ -53,6 +53,7 @@ Data files are in `data/`; run directories under `ruttice_a30_20261016/multiconf
 | Fig. 6 (sensitivity), Table 13 (costs) | `ruttice` | `sensitivity_12_configs.tsv`, `costs_12.tsv` (medians over the four configurations); `rerunT/T_sens_*` |
 | Table 9 (D†) | example `dagger_precond --tikhonov 1e-3 --pl 0` | `daggerT2/`, `daggerT3/` (the solve with D) |
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |
+| Table noshift (with and without the shift, seed 21) | `ruttice` | `noshift16/` (no shift: `Coarse_Solver_PV` BiCGStab; with the shift: `rerunT/T_vol_S_*`) |
 | Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); the 40 seeds of Sec. V.C.3: `tikhonov/status2.txt` |
 | Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsv/`, `pvsv2/` (`e044050`, a setup without the shift); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
 | Table 14 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
