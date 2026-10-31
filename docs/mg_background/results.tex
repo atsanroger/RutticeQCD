@@ -329,10 +329,10 @@ $|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_spectrum}
-\caption{\pending{From the unregularized cycle; to be redrawn from the regularized one.} $12^4$, $m=0.001$, exact coarse solves: the six eigenvalues of
+\caption{$12^4$, $m=0.001$, exact coarse solves (the Pauli--Villars factor regularized): the six eigenvalues of
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
-$\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the real
-axis, the contours of Table~\ref{tab:pseudo} and the dense circles $|z-1|=0.6$ (S) and
+$\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the contours of
+Table~\ref{tab:pseudo}, among them the dense circles $|z-1|=0.6$ (S) and
 $|z-1.4|=0.93$ (B). The field of values reaches far into the left half-plane (its real
 range in the corner), the spectrum does not.}
 \label{fig:spectrum}
@@ -340,8 +340,9 @@ range in the corner), the spectrum does not.}
 
 On $16^4$ setup~S has two outliers; the factor $\kappa_o$ is then replaced by
 $\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the form
-$(|\lambda_o-c|+r)/|\lambda_o|$. \pending{$\sigma_{\min}(z-\AR\mathcal M)$ on the real axis and on
-the contours of Table~\ref{tab:pseudo}, and the iterations the bound guarantees.}
+$(|\lambda_o-c|+r)/|\lambda_o|$. On the dense circles of $12^4$ the spacing of the points is small
+enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on the whole circle; it
+guarantees $\|r_k\|/\|r_0\|<10^{-9}$ within $55$ (S) and $57$ (B) iterations (Table~\ref{tab:pseudo}).
 
 The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. Its rate,
 $r/c=0.5$--$0.6$ in setup~S, is close to the one we measure on $24^3\times48$ on configurations 1 and
