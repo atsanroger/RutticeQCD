@@ -54,7 +54,7 @@ Data files are in `data/`; run directories under `ruttice_a30_20261016/multiconf
 | Table 9 (D†) | example `dagger_precond --tikhonov 1e-3 --pl 0` | `daggerT2/`, `daggerT3/` (the solve with D) |
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |
 | Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); the 40 seeds of Sec. V.C.3: `tikhonov/status2.txt` |
-| Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | `pvsv/`, `pvsv2/`, `finesigma/`, `finesigma2/` |
+| Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsv/`, `pvsv2/` (`e044050`, a setup without the shift); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
 | Table 14 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
 | Table 15 (spectrum) | example `preconditioned_fov_device --arnoldi --far 1,0 --tikhonov 1e-3` (`--left` for Ã_L) | `fovT2/far*`; `spectrum_*12.tsv` |
 | Table 16, Fig. 7 (pseudospectra) | example `preconditioned_fov_device --pseudo --contour c,0,r,n --tikhonov 1e-3` | `pseudoT/`; `pseudo_*12.tsv` |
@@ -62,7 +62,7 @@ Data files are in `data/`; run directories under `ruttice_a30_20261016/multiconf
 | Table 18 (test vectors) | `ruttice` | `tvscanT/` (status, status_redo) |
 | Fig. 8 (GCR history) | `ruttice`, `verbose_level: Detailed` | `gcr_steps_24.tsv`, `gcr_steps_24_configs.tsv`; `rerunT/T_hist_*` |
 | Sec. V.C.4, the one GCR(2) plateau | `ruttice` | `diagB10/` |
-| Open problems, field of values of the fine D_PV | `ruttice` eigensolver, `fermion_mult_mode: ReD` | `fovPV/` |
+| Open problems, field of values of the fine D_PV | `ruttice` eigensolver, `fermion_mult_mode: ReD` | `finesigmaA1/reD*` (`neff_alpha 1.0`) |
 | Appendix D, CG on K†K and S†S (Fig. 10) | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
 | Table 6 (configurations) | `ruttice-flow` | |
 | Eq. (3.7) checks (Sec. III.A.3) | example `correction_exactness` (CPU) | |
