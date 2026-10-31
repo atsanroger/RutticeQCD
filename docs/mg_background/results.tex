@@ -94,8 +94,8 @@ $3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
 faster or level. The multigrid needs three times the device memory of CGNE.
 
 \paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall
-time of CGNE for a whole propagator, setup included (Table~\ref{tab:pointsource}). At $m=0.01$ the
-setup is not quite paid back within the 12 columns. The pseudoscalar correlators of the two solvers
+time of CGNE for a whole propagator, setup included (Table~\ref{tab:pointsource}). At $m=0.01$ the two
+take about the same time for the 12 columns, setup included. The pseudoscalar correlators of the two solvers
 agree to $1\times10^{-6}$ or better.
 
 \begin{table}[t]
@@ -116,8 +116,8 @@ over the four configurations and the 12 columns; at $m=0.01$: configuration~1.}
 \midrule
 S & $0.001$ & $203$--$222$ & $22$--$48$ & $11.1$--$26.4$ & $3634$--$6400$ & $52.1$--$91.6$ & $382$--$505$ & $678$--$1048$ & $\le1\times10^{-6}$\\
 B & $0.001$ & $204$--$207$ & $22$--$30$ & $10.7$--$14.5$ & $4354$--$5574$ & $62.4$--$79.8$ & $363$--$398$ & $803$--$973$ & $\le7\times10^{-7}$\\
-S & $0.01$ & $203$ & $16$--$17$ & $6.4$--$7.0$ & $1337$--$1388$ & $19.8$--$20.5$ & $305$ & $264$ & $2\times10^{-7}$\\
-B & $0.01$ & $215$ & $17$ & $8.1$ & $1641$--$1745$ & $24.2$--$25.7$ & $331$ & $324$ & $4\times10^{-8}$\\
+S & $0.01$ & $194$ & $14$ & $5.6$--$5.8$ & $1337$--$1388$ & $19.8$--$20.5$ & $283$ & $264$ & $2\times10^{-7}$\\
+B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $318$ & $324$ & $4\times10^{-8}$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -189,11 +189,12 @@ the vectors of the filter and of the bootstrap.
 
 
 With the same vectors $y$, the two lifts give the fewest iterations on every volume. In setup~S,
-replacing $\hat t$ by $Ds$ or dropping it stagnates on three of the four $12^4$ and $16^4$
-configurations and costs five times the iterations on $24^3\times48$; in setup~B it costs more
-iterations. Twice as many vectors $y$ with $\{s\}$ alone take the place of $\hat t$ on
-$24^3\times48$ but not on $12^4$, at a longer setup and twice the host memory; a point-source
-propagator is still faster with the two lifts.
+replacing $\hat t$ by $Ds$ or dropping it stagnates on one or two of the four $12^4$ and $16^4$
+configurations and takes $2.5$--$3$ times the iterations on $24^3\times48$; in setup~B it costs
+more iterations. Twice as many vectors $y$ with $\{s\}$ alone, the same number of columns, do as well
+on $12^4$ and $16^4$ and need fewer iterations on $24^3\times48$, but the filter and the bootstrap
+then handle twice the vectors and the setup takes $1.6$ times as long. So $\hat t$ is what lets a
+given number of vectors $y$ suffice.
 
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}

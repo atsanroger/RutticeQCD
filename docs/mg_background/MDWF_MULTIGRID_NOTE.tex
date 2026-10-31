@@ -891,7 +891,8 @@ But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix tha
 spin, so $\hat t'$ is in general not in the span of the right-form vectors, and the correction is
 not exact for the left form.\ifresults{} On $12^4$ it misses $y'$ by $1.6$--$24$ in relative
 norm, not much less than random vectors ($8$--$35$). The left form converges nonetheless, with the spectrum of the right form
-(Sec.~\ref{sec:spectrum}), and it still needs $\hat t$ in the basis (Sec.~\ref{sec:basischoice}).\fi
+(Sec.~\ref{sec:spectrum}), and with the same vectors $y$ it still needs $\hat t$ in the basis
+(Sec.~\ref{sec:basischoice}).\fi
 
 \subsubsection{The coarse operators}
 We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
@@ -1195,8 +1196,9 @@ than mixed-precision CGNE, so the gain comes from the coarse correction.
 Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
 four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
 the coarse lattice in place of deflation. The
-lift $\hat t$ is needed in setup~S: without it GCR(2) stagnates or takes up to five times the
-iterations, although the correction is exact only for the right form. One setup serves every value of
+lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
+configurations or takes several times the iterations, although the correction is exact only for the
+right form. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the

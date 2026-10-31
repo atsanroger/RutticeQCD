@@ -101,8 +101,8 @@ $\Gfive\mathcal M\Gfive$, GCR(2), two cycles & 9 & 9 & 10 & 9 & 10.5 & 13--15 [2
 \caption{GCR(2) iterations on $\AL$ with $\Pro$ made of different lifts of the vectors $y$,
 $m=0.001$, one random right-hand side; the other parameters as in
 Table~\ref{tab:setups}; setup seconds on $24^3\times48$. $12^4$ and $16^4$: medians over the four
-configurations, in brackets the number that do not converge in $2000$ iterations (``stag.'': three
-or four); $24^3\times48$: configuration~1.}
+configurations, in brackets the number that do not converge in $2000$ iterations (with two, the
+range of the other two); $24^3\times48$: configuration~1.}
 \label{tab:basischoice}
 \small
 \renewcommand{\arraystretch}{1.12}
@@ -113,10 +113,10 @@ or four); $24^3\times48$: configuration~1.}
 \cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
 lifts & $y$ & columns & S & B & S & B & S & B & S, B\\
 \midrule
-$\{s,\hat t\}$ & $16$ & $32$ & $14$ & $14$ & $13$ & $15$ & $28$ & $26$ & $196$, $211$\\
-$\{s,Ds\}$ & $16$ & $32$ & stag. & $30$ & stag. & $22$ & $148$ & $30$ & $193$, $207$\\
-$\{s\}$ & $16$ & $16$ & stag. & $31$ & stag. & $22$ & stag. & $32$ & $143$, $153$\\
-$\{s\}$ & $32$ & $32$ & $90$ [1] & $32$ & $27$ & $15$ & $28$ & $13$ & $346$, $337$\\
+$\{s,\hat t\}$ & $16$ & $32$ & $11$ & $13$ & $11$ & $14$ & $29$ & $25$ & $204$, $205$\\
+$\{s,Ds\}$ & $16$ & $32$ & $21$ [1] & $15$ & $22$ & $18$ & $73$ & $32$ & $209$, $205$\\
+$\{s\}$ & $16$ & $16$ & $23$ [1] & $15$ & $12$--$44$ [2] & $16$ & $92$ & $32$ & $138$, $179$\\
+$\{s\}$ & $32$ & $32$ & $12$ & $12$ & $12$ & $11$ & $13$ & $11$ & $330$, $340$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -149,7 +149,7 @@ $63$.}
 \centering
 \caption{Smallest singular value of the coarse Pauli--Villars factor $\Dcpv=\Pro\dg\Dpv\Pro$ /
 that of the fine $\Dpv$ (Lanczos on $X\dg X$), setup~S, $m=0.001$, seed $21$. Stout: the
-smearing of setup~S; none: the same setup without smearing. n.m.: not measured.}
+smearing of setup~S; none: the same setup without smearing.}
 \label{tab:pvsv}
 \renewcommand{\arraystretch}{1.15}
 \setlength{\tabcolsep}{4pt}
@@ -159,7 +159,7 @@ smearing of setup~S; none: the same setup without smearing. n.m.: not measured.}
 \midrule
 $12^4$ & stout & $0.0128$ / $0.532$ & $0.0140$ / $0.299$ & $0.0266$ / $0.401$ & $0.0033$ / $0.261$\\
 $12^4$ & none & $0.259$ / $0.262$ & $0.238$ / $0.236$ & $0.238$ / $0.244$ & $0.233$ / $0.242$\\
-$16^4$ & stout & $0.0142$ / $0.416$ & $0.0229$ / n.m. & $0.0219$ / n.m. & $0.0276$ / $0.236$\\
+$16^4$ & stout & $0.0142$ / $0.416$ & $0.0229$ / $0.233$ & $0.0219$ / $0.394$ & $0.0276$ / $0.236$\\
 \bottomrule
 \end{tabular}
 \end{table}
