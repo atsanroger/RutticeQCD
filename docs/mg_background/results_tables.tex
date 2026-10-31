@@ -79,8 +79,7 @@ B & CGNE, mixed & it & $505$--$584$ & $818$--$1249$ & $3388$--$4116$ & $4232$--$
 (32 test vectors, blocks $4^4$). ``rand'': random right-hand side; ``res'': the residual after
 one sweep of $D\dg D$. Medians over the four configurations, in brackets the number that do not
 converge in $300$ iterations (``stall'': three or four; with two, the range of the other two). One
-inner cycle per step. For comparison, the solve with $D$ takes $7$--$9$ ($16^4$) and $7$--$12$
-($12^4$) iterations on configuration~1.}
+inner cycle per step unless stated.}
 \label{tab:c4}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}lcccccccc@{}}
@@ -89,10 +88,10 @@ inner cycle per step. For comparison, the solve with $D$ takes $7$--$9$ ($16^4$)
  & \multicolumn{2}{c}{S} & \multicolumn{2}{c}{B} & \multicolumn{2}{c}{S} & \multicolumn{2}{c}{B}\\
 method & rand & res & rand & res & rand & res & rand & res\\
 \midrule
-dual cycle, GCR(2) & 16 & stall & 9 & 13 & stall & stall & 13 & 17\\
-dual cycle, GCR(8) & 10 & 20 [1] & 9 & 12 & stall & stall & 11 & 16\\
-$\Gfive\mathcal M\Gfive$, GCR(2) & 9 & 10 & 11 & 11 & 12--13 [2] & stall & 12 & 14\\
-$\Gfive\mathcal M\Gfive$, GCR(8) & 9 & 10 & 10 & 11 & 11 & 20 & 12 & 12\\
+$D$, GCR(2) & \multicolumn{8}{c}{\pending{from multiconf/daggerT3}}\\
+$\Gfive\mathcal M\Gfive$, GCR(2) & 9 & 10 & 10 & 11.5 & 13 & stall & 12 & 13.5\\
+$\Gfive\mathcal M\Gfive$, GCR(8) & 9 & 9.5 & 10 & 11 & 10.5 & 17 [1] & 11 & 13\\
+$\Gfive\mathcal M\Gfive$, GCR(2), two cycles & 9 & 9 & 10 & 9 & 10.5 & 13--15 [2] & 10 & 12.5\\
 \bottomrule
 \end{tabular}
 \end{table}

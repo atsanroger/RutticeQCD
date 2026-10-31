@@ -67,32 +67,31 @@
 \contentsline {paragraph}{Neff's $\alpha $.}{20}{section*.32}%
 \contentsline {subsubsection}{\numberline {2}Solves with $D^{\dagger }$}{20}{subsubsection.5.2.2}%
 \contentsline {paragraph}{Single solves.}{20}{section*.33}%
-\contentsline {paragraph}{What did not work.}{20}{section*.34}%
-\contentsline {paragraph}{What these solves are for.}{20}{section*.35}%
-\contentsline {subsection}{\numberline {C}What each part contributes}{21}{subsection.5.3}%
-\contentsline {subsubsection}{\numberline {1}Krylov on $\tilde A_{L}$ without the multigrid}{21}{subsubsection.5.3.1}%
+\contentsline {paragraph}{What these solves are for.}{20}{section*.34}%
+\contentsline {subsection}{\numberline {C}What each part contributes}{20}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {1}Krylov on $\tilde A_{L}$ without the multigrid}{20}{subsubsection.5.3.1}%
 \contentsline {subsubsection}{\numberline {2}Choice of the prolongation basis}{21}{subsubsection.5.3.2}%
-\contentsline {subsubsection}{\numberline {3}The regularized Pauli--Villars solve}{22}{subsubsection.5.3.3}%
+\contentsline {subsubsection}{\numberline {3}The regularized Pauli--Villars solve}{21}{subsubsection.5.3.3}%
 \contentsline {subsubsection}{\numberline {4}Sensitivity to the parameters}{22}{subsubsection.5.3.4}%
-\contentsline {subsection}{\numberline {D}Why the method converges}{23}{subsection.5.4}%
+\contentsline {subsection}{\numberline {D}Why the method converges}{22}{subsection.5.4}%
 \contentsline {subsubsection}{\numberline {1}Field of values: the coarse correction amplifies}{23}{subsubsection.5.4.1}%
 \contentsline {subsubsection}{\numberline {2}Spectrum: far from the origin}{23}{subsubsection.5.4.2}%
 \contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{23}{subsubsection.5.4.3}%
 \contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{24}{subsubsection.5.4.4}%
-\contentsline {paragraph}{Setup seeds.}{24}{section*.36}%
+\contentsline {paragraph}{Setup seeds.}{24}{section*.35}%
 \contentsline {section}{\numberline {VI}Summary}{26}{section.6}%
-\contentsline {paragraph}{Code.}{26}{section*.37}%
+\contentsline {paragraph}{Code.}{26}{section*.36}%
 \contentsline {section}{\numberline {VII}Open problems}{26}{section.7}%
-\contentsline {section}{Acknowledgments}{27}{section*.39}%
-\contentsline {section}{Appendices}{28}{section*.39}%
+\contentsline {section}{Acknowledgments}{27}{section*.38}%
+\contentsline {section}{Appendices}{28}{section*.38}%
 \contentsline {section}{\numberline {A}The notation of other references}{28}{appendix.A}%
 \contentsline {section}{\numberline {B}Spectra with other preconditioners}{28}{appendix.B}%
 \contentsline {section}{\numberline {C}Gauge configurations}{30}{appendix.C}%
 \contentsline {section}{\numberline {D}Krylov solvers}{30}{appendix.D}%
-\contentsline {paragraph}{Flexible GCR($k$).}{30}{section*.40}%
-\contentsline {paragraph}{FGMRES.}{31}{section*.41}%
-\contentsline {paragraph}{CGNE.}{31}{section*.42}%
-\contentsline {paragraph}{Mixed precision.}{32}{section*.43}%
-\contentsline {paragraph}{BiCGStab.}{32}{section*.44}%
-\contentsline {paragraph}{Two even-odd forms.}{33}{section*.45}%
+\contentsline {paragraph}{Flexible GCR($k$).}{30}{section*.39}%
+\contentsline {paragraph}{FGMRES.}{31}{section*.40}%
+\contentsline {paragraph}{CGNE.}{31}{section*.41}%
+\contentsline {paragraph}{Mixed precision.}{32}{section*.42}%
+\contentsline {paragraph}{BiCGStab.}{32}{section*.43}%
+\contentsline {paragraph}{Two even-odd forms.}{33}{section*.44}%
 \contentsline {section}{\numberline {E}Tables of the numerical results}{35}{appendix.E}%

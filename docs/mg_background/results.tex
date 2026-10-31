@@ -144,36 +144,18 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 
 \subsubsection{Solves with $D\dg$}
 \label{sec:daggerresults}
-\paragraph{Single solves.} Table~\ref{tab:c4} compares three ways to solve with $D\dg$ from one
-setup of $D$. The right-hand sides are a random vector and the residual
-$r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to $10^{-10}$. The second kind
-is the one that matters in HMC: its error lies mostly on the lowest modes.
-\begin{itemize}
-\item \emph{The cycle of $\AR\dg$ on the same $\Pro$} (the ``dual cycle''): the factorized
-correction~\eqref{eq:corr} with $D$ and $\Dpv$ exchanged.
-\item \emph{Flexible GCR on $D\dg$ with $\Gfive\mathcal M\Gfive$}, Eq.~\eqref{eq:c4}, one cycle a
-step.
-\end{itemize}
+\paragraph{Single solves.} One setup of $D$ also solves with $D\dg$: flexible GCR on $D\dg$ with
+$\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs \pending{two to three}
+iterations more than the solve with $D$ on $16^4$ (Table~\ref{tab:c4}). The right-hand sides are a
+random vector and the residual $r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to
+$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. More inner
+cycles per step hardly reduce the count on $16^4$, so the extra steps come from $N$ and not from the
+inexact $\mathcal M$. On $12^4$ in setup~S the residual right-hand side is harder: GCR(2) with one
+cycle per step does not converge, GCR(8) converges on three of the four configurations, and GCR(2)
+with two cycles per step on two.
 
-On $16^4$ the preconditioner $\Gfive\mathcal M\Gfive$ needs two to three iterations more than the solve
-with $D$, in both setups and on both kinds of right-hand side, as the heuristic predicts. In
-setup~S more inner cycles per step do not reduce the count, so the extra steps come from $N$ and
-not from the inexact $\mathcal M$. The dual cycle stalls on the residual right-hand side in setup~S
-on $12^4$ and on three of the four $16^4$ configurations.
-
-On $12^4$ in setup~S, $m=0.001$, the residual right-hand side stalls GCR(2) on all four
-configurations, and GCR(8) needs $13$--$222$ iterations. On $16^4$, where configurations 2--4 have
-$Q=+1$, $+1$ and $+3$, GCR(2) needs $9$--$10$ on all four. The stall follows the small smeared
-lattice of Sec.~\ref{sec:gcrk}, which we infer from the coincidence only: no $12^4$ run without smearing
-was made for $D\dg$. The topological charge does not predict it. On the same right-hand side the
-dual cycle does not converge on $12^4$ in setup~S.
-
-\paragraph{What did not work.} None of the other ways we tried to solve with $D\dg$ from one setup
-is as good as $\Gfive\mathcal M\Gfive$. The exact map of Eq.~\eqref{eq:g5exact} needs $D_-^{-1}$,
-which does not converge (Sec.~\ref{sec:g5fail}). For the dual cycle, $\Pro$ from $y\cup\Gfive y$
-converges but quadruples the coarse operators, other prolongations need up to $300$ iterations, and
-GCR(4) in place of BiCGStab for its Pauli--Villars factor converges at three times the cost per
-cycle.
+The exact map of Eq.~\eqref{eq:g5exact} would give the null vectors of $D\dg$ and reduce $D\dg w=r$ to
+a solve with $D$, but it needs $D_-^{-1}$, which does not converge (Sec.~\ref{sec:g5fail}).
 
 \paragraph{What these solves are for.} In HMC each force evaluation needs one solve with $D$ and one
 with $D\dg$, and with $\Gfive\mathcal M\Gfive$ one setup serves both. The cost in HMC is left to
