@@ -877,10 +877,7 @@ Finally $O_L=\Ce$ gives $e=y$.
 
 \paragraph{In practice.} Equation~\eqref{eq:exact} holds only approximately: the stored $\Pro$
 contains $s$ and $\hat t$ only up to the rounding of its reduced-precision storage, the coarse
-solves stop at a loose tolerance, and the Pauli--Villars solve is regularized.\ifresults{} With both
-coarse factors solved exactly in double precision and $\Pro$ in half precision, the correction of
-$r=\AR y_j$ returns $y_j$ to a relative error of at most $2.5\times10^{-3}$ on $4^3\times8$ and
-$12^4$, against $3$--$37$ for random vectors.\fi
+solves stop at a loose tolerance, and the Pauli--Villars solve is regularized.
 
 \paragraph{The left form.} For the left form with $\alpha$ in both operators, the same argument
 needs the quark lift $s'$ of $Q_ey'$ and the Pauli--Villars lift $\hat t'$ of
@@ -888,8 +885,7 @@ $u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ in $\operatorname{range}\Pro$
 (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For $\alpha=1$ and $y'=\Ce^{-1}y$ we have $s'=s$.
 But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that mixes $s$ and
 spin, so $\hat t'$ is in general not in the span of the right-form vectors, and the correction is
-not exact for the left form.\ifresults{} On $12^4$ it misses $y'$ by $1.6$--$24$ in relative
-norm, of the same order as for random vectors ($8$--$35$). The left form converges nonetheless, with the spectrum of the right form
+not exact for the left form.\ifresults{} The left form converges nonetheless, with the spectrum of the right form
 (Sec.~\ref{sec:spectrum}), and with the same vectors $y$ it still needs $\hat t$ in the basis
 (Sec.~\ref{sec:basischoice}).\fi
 
