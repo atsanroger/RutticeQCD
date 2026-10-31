@@ -65,9 +65,9 @@ Data files are in `data/`; run directories under `ruttice_a30_20261016/multiconf
 | Open problems, field of values of the fine D_PV | `ruttice` eigensolver, `fermion_mult_mode: ReD` | `fovPV/` |
 | Appendix D, CG on K†K and S†S (Fig. 10) | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
 | Table 6 (configurations) | `ruttice-flow` | |
-| Eq. (3.8) checks (Sec. III.A.3) | example `correction_exactness` (CPU) | |
+| Eq. (3.7) checks (Sec. III.A.3) | example `correction_exactness` (CPU) | |
 | Eqs. (2.10), (2.13) | example `mobius_gamma5_check` (CPU) | |
-| D₋ inverse (Sec. IV.D) | example `dminus_cost` | |
+| D₋ inverse (Sec. IV.C) | example `dminus_cost` | |
 
 `multiconf/rerunT/extract.py` writes the multigrid rows of the data files from the logs and prints each
 change (`extract_diff.txt`); `tables.py` computes the rows of Table 7.

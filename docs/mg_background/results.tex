@@ -49,7 +49,7 @@ links~\cite{Arthur2013}.
 steps, Sec.~\ref{sec:smearing}) and uses $M_5=1.0$, as in the JLQCD ensembles of
 Ref.~\cite{JLQCDBpi}.
 \end{itemize}
-Both keep the near-zero modes of $W=D_W(-M_5)$ small, by moving $M_5$ (B) or by smoothing the
+Both suppress the near-zero modes of $W=D_W(-M_5)$, by moving $M_5$ (B) or by smoothing the
 field (S), and so give the multigrid low modes of different character; they need different
 smoother intervals (Table~\ref{tab:setups}). Timings are from one NVIDIA data-center GPU with
 $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
@@ -120,7 +120,8 @@ B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $31
 
 \paragraph{Volume.} The advantage of the multigrid grows with the volume (Fig.~\ref{fig:volume},
 Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, about
-level on $16^4$, and clearly faster from $24^4$ on: its iterations hardly grow with the volume, those
+level (S) or faster (B) on $16^4$, and clearly faster from $24^4$ on: its iterations about double from
+$12^4$ to $24^3\times48$, those
 of CGNE do. Its setup grows with the volume. Neff's $\alpha=0.6$ saves CG far more iterations than the
 multigrid (Fig.~\ref{fig:cgform}, Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
@@ -143,9 +144,9 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 $\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs one to four
 iterations more than the solve with $D$ on $16^4$ (Table~\ref{tab:c4}). The right-hand sides are a
 random vector and the residual $r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to
-$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. On the
-random right-hand side more inner cycles per step do not reduce the count, so there the extra steps
-come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder: GCR(2) with one
+$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. On $16^4$ on
+the random right-hand side more inner cycles per step do not reduce the count, so there the extra
+steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder: GCR(2) with one
 cycle per step does not converge, GCR(8) converges on three of the four configurations, and GCR(2)
 with two cycles per step on two.
 
@@ -185,8 +186,9 @@ the vectors of the filter and of the bootstrap.
 
 
 With the same vectors $y$, the two lifts give the fewest iterations on every volume. In setup~S,
-replacing $\hat t$ by $Ds$ or dropping it stagnates on one or two of the four $12^4$ and $16^4$
-configurations and takes $2.5$--$3$ times the iterations on $24^3\times48$; in setup~B it costs
+replacing $\hat t$ by $Ds$ or dropping it stagnates or slows down several times on one or two of
+the four $12^4$ and $16^4$ configurations and takes $2.5$--$3.2$ times the iterations on
+$24^3\times48$; in setup~B it costs
 more iterations. Twice as many vectors $y$ with $\{s\}$ alone, the same number of columns, do as well
 on $12^4$ and $16^4$ and need fewer iterations on $24^3\times48$, but the filter and the bootstrap
 then handle twice the vectors and the setup takes $1.6$ times as long. So $\hat t$ is what lets a
@@ -197,12 +199,13 @@ given number of vectors $y$ suffice.
 
 With the regularized solve no slow setups remain on $12^4$: $40$ setups of setup~S (seeds $1$--$10$
 on the four configurations) need $10$--$17$ iterations, against $70$ to more than $2000$ without it
-for the slow setups of Table~\ref{tab:tikhonov}, which the unregularized solve treats by BiCGStab on
-the exact adjoint. We attribute the slow setups to the Galerkin factor. With stout smearing its
+for the slow setups of Table~\ref{tab:tikhonov} (without the shift, BiCGStab on the exact adjoint).
+The shift acts on the Galerkin factor, and we attribute the slow setups to it. With stout smearing its
 smallest singular value is $1/79$ to $1/15$ of that of the fine $\Dpv$ on the four $12^4$
-configurations; without smearing the two agree to within $4\%$ (Table~\ref{tab:pvsv}). A small
-singular value alone does not make a setup slow: on $16^4$ the ratio is also small and no setup is
-slow.
+configurations; without smearing the two agree to within $4\%$ (Table~\ref{tab:pvsv}). The exact coarse solve
+amplifies the directions of these singular values. On $16^4$ the ratio is also small, and none of
+the four setups we ran there is slow; so the small singular values do not produce a slow setup on
+their own.
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -218,7 +221,7 @@ setup, the bootstrap is necessary, and more accurate coarse solves do not help.
 \caption{GCR(2) iterations on $\AL$ when one parameter of Table~\ref{tab:setups} is changed,
 $12^4$, $m=0.001$, one random right-hand side. Lines: median over the four configurations; dots: the
 four configurations; a cross marks a median that does not converge in $1000$ iterations. The default
-is the point where the lines of the two setups pass through $14$ iterations. Values and setup and solve
+is the point of each line at $11$ (S) and $13$ (B) iterations. Values and setup and solve
 times in Table~\ref{tab:costs}.}
 \label{fig:sensitivity}
 \end{figure}
@@ -227,8 +230,8 @@ times in Table~\ref{tab:costs}.}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggregates and more test
 vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
-The number of test vectors that suffices grows from $12^4$ to $24^4$ but not from $24^4$ to
-$24^3\times48$ (Table~\ref{tab:tvscan}), as local coherence of the low modes leads one to expect once
+The number of test vectors that suffices grows from $12^4$ to $24^4$ (Table~\ref{tab:costs} and
+Table~\ref{tab:tvscan}) but not from $24^4$ to $24^3\times48$, as local coherence of the low modes leads one to expect once
 the box is large enough. In setup~B each
 count gives about the same iterations on both volumes. Setup~S needs more vectors: with fewer than
 $32$ it is slow or stagnates on both volumes. Outside the window the failures can come from the
@@ -244,14 +247,14 @@ gain outweighs that loss is open.
 \subsection{Why the method converges}
 \label{sec:why}
 
-The convergence is set by the spectrum and the pseudospectra of the preconditioned operator; its
-field of values does not decide it. In both setups the field of values of $\AR\mathcal M$ reaches into the left
+We find the convergence governed by the spectrum and the pseudospectra of the preconditioned
+operator. In both setups the field of values of $\AR\mathcal M$ reaches into the left
 half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. Its
 eigenvalues lie at $\Re\lambda\ge0.70$, and on $12^4$ its pseudospectra bound full GMRES with a fixed
 cycle. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
 
-Two notions from non-Hermitian linear algebra are used. The \emph{field of values}
+The \emph{field of values}
 $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the smallest eigenvalue
 of the Hermitian part $(X+X\dg)/2$; GCR converges at every restart length when $W$ lies in the
 right half-plane~\cite{ESS}. The \emph{$\varepsilon$-pseudospectrum} is the set of $z$ where
@@ -261,7 +264,7 @@ GMRES~\cite{TrefethenEmbree}. The condition number of an eigenvalue, $\kappa=1/|
 normalized right and left eigenvectors, is $1$ for a normal matrix and widens the pseudospectrum
 around the eigenvalue.
 
-The quantities of this subsection take $\mathcal M$ as a fixed linear map: both coarse factors solved
+For these quantities $\mathcal M$ is a fixed linear map: both coarse factors solved
 to $|r|^2/|b|^2<10^{-20}$ in double precision, the Pauli--Villars factor regularized as in
 Eq.~\eqref{eq:tikhonov}, and $\mathcal M\dg$ built as its adjoint, so that
 $\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to $10^{-10}$.
@@ -281,21 +284,20 @@ of high degree; here $\AR$ is close to the identity on the high modes, and the s
 $W(\AR\mathcal M)$ crosses the origin on every configuration in both setups: with stout smearing at
 $M_5=1$ (setup~S) and without it at $M_5=1.8$ (setup~B). Only at $M_5=1$ without smearing is the
 amplification far smaller and $W(\AR\mathcal M)$ in the right half-plane, where truncated GCR($k$) is
-guaranteed to converge for every $k$~\cite{ESS}.
+guaranteed to converge for every $k$ with a fixed cycle~\cite{ESS}.
 
 \subsubsection{Spectrum: far from the origin}
 \label{sec:spectrum}
 
 The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
 Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with moderate condition
-numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers in setup~S on
-configuration~1, and all other eigenvalues lie in a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
+numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers in both setups,
+and all other eigenvalues lie in a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
 \label{sec:pseudo}
 
-For a non-normal operator the eigenvalues alone do not bound the convergence of
-GMRES; the $\varepsilon$-pseudospectrum, the set where $\sigma_{\min}(z-X)<\varepsilon$,
+For a non-normal operator the convergence of GMRES is bounded by the $\varepsilon$-pseudospectrum, the set where $\sigma_{\min}(z-X)<\varepsilon$,
 does~\cite{NRT,TrefethenEmbree}. If a contour $\Gamma$ of length $L$ encloses the
 spectrum of $X$ but not the origin and $\sigma_{\min}(z-X)\ge\varepsilon$ on it, then
 for any polynomial $p_k$ with $p_k(0)=1$,
@@ -347,7 +349,8 @@ GCR(2) needs in the median at most one iteration more than GCR(32) on $12^4$
 to $10^{-8}$, where $\mathcal M$ is close to the fixed map, do not help: GCR(2) then needs $19$
 iterations and GCR($\ge16$) $15$.
 
-Where $E$ amplifies, the solver's cycle is better than the fixed map. At the vector $x$ at the left
+In the directions that $E$ amplifies, the solver's cycle, with coarse solves to $10^{-2}$, does
+better than the fixed map. At the vector $x$ at the left
 end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by large factors against
 exact ones and in most cases make $\Re\,x\dg\AR\mathcal Mx$ positive. With Krylov coarse solves stopped
 early the cycle is not a fixed linear map, so this holds for these vectors only.

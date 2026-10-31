@@ -144,8 +144,8 @@ $3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagat
 $0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
-$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the
-fifth dimension). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
+$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$, $R$ the reflection of the
+fifth dimension, and $N$ proportional to the M\"obius coefficient $c$). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
 second multigrid setup.
 
 \end{abstract}
@@ -252,9 +252,9 @@ the outer system is the even-odd one, as for red-black CG; its inverse contains 
 the quark operator and of the adjoint Pauli--Villars operator, and we replace each by a Galerkin
 inverse. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
 four-dimensional and both coarse operators are nearest-neighbor. Third, levels below the coarse
-lattice with a dense LU at the bottom take the place of deflation for the quark factor, and the
-Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized normal equation
-(Sec.~\ref{sec:coarse}). The prolongation lifts each test vector to all lattice sites in two ways,
+lattice with a dense LU at the bottom take the place of deflation for the quark factor
+(Sec.~\ref{sec:coarse}). The Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized
+normal equation, which removes small singular values that the Galerkin projection creates. The prolongation lifts each test vector to all lattice sites in two ways,
 one for each coarse solve, which makes the correction exact on them for the right form
 (Eq.~\eqref{eq:exact}). The smoother is a fixed Chebyshev polynomial, and the setup combines
 Chebyshev filtering with a bootstrap.
@@ -639,7 +639,7 @@ $\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alp
 \paragraph{Why both forms.} The two forms serve different purposes. The factorized correction of
 Sec.~\ref{sec:correction} is exact for the right form (Eq.~\eqref{eq:exact}), but $Q$
 cancels in it, so the right form cannot use Neff's $\alpha$. The left form keeps $\alpha$. The
-correction is not exact for it, yet it converges within a few iterations of the right form, and
+correction is not exact for it, yet it needs about as many iterations as the right form, and
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
@@ -1099,15 +1099,16 @@ $S\dg S$.\fi
 \label{sec:dagger}
 
 HMC needs $(D\dg D)^{-1}$ at every force evaluation, so it solves with $D\dg$ as often as with
-$D$. The multigrid of $D$ also solves with $D\dg$, with no second setup, coarse operator or
-cycle. The construction needs only an approximate inverse of $D$, so it applies to any
+$D$. The multigrid of $D$ also preconditions solves with $D\dg$, with no second setup, coarse
+operator or cycle. The construction needs only an approximate inverse of $D$, so it applies to any
 preconditioner built for the unsquared operator. The tool is the exact relation~\eqref{eq:g5exact} between
 $D$ and $D\dg$.
 
 \subsection{The idea}
 For Wilson fermions $D_W\dg=\gamma_5D_W\gamma_5$, so $D_W^{-\dagger}=\gamma_5D_W^{-1}\gamma_5$, and
 a solver for $D_W$ solves with $D_W\dg$ as well. For M\"obius fermions this fails at non-zero $c$
-(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$. The question is how good a preconditioner it is.
+(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$, and
+Eq.~\eqref{eq:c4} below says how good it is.
 
 Multiply $D\dg$ by $\Gfive D^{-1}\Gfive$ and use $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$ from
 Eq.~\eqref{eq:g5exact} and $\Gfive D_-\dg\Gfive=D_-$:
@@ -1230,9 +1231,8 @@ program.
 \label{sec:open}
 
 \ifresults
-The following questions remain open. Those the measurements answer are discussed where
-they arise: the left form in Sec.~\ref{sec:basis}, the field of values in Secs.~\ref{sec:spectra} and
-\ref{sec:fov}--\ref{sec:pseudo}.
+The following questions remain open; the left form and the field of values are discussed in
+Secs.~\ref{sec:basis}, \ref{sec:spectra} and \ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
 \item \textbf{Parameters from the operator.} The smoother interval
@@ -1256,12 +1256,13 @@ varies from step to step. GCR(2) can reach a residual orthogonal to its new dire
 there (Sec.~\ref{sec:gcrk}), and on the residual right-hand side of HMC the solve with $D\dg$ on
 $12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}); the solves with $D\dg$
 were tested on $12^4$ and $16^4$ only. The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
-factor regularized also solves with $D\dg$ from the same $\Pro$, with coarse operators of its own; its
-cost in HMC is left to that study. Why stout smearing gives the Galerkin
+factor regularized can also precondition solves with $D\dg$ from the same $\Pro$, with coarse
+operators of its own; it converges on $16^4$ and stagnates with GCR(2) on $12^4$ in setup~S, and its
+cost in HMC remains to be measured. Why stout smearing gives the Galerkin
 Pauli--Villars factor singular values far below those of the fine operator
 (Sec.~\ref{sec:pvcoarse}) is not understood. We find that the field of values of the fine $\Dpv$ contains the origin with and
 without smearing and reaches further left with it, also on $16^4$, where no setup is slow; the field
-of values alone does not decide it. A safeguard that changes the
+of values alone does not explain the small singular values. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
@@ -1392,12 +1393,12 @@ Equation numbers are those of the references; ``the same'' means the same operat
 Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
 Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
 Wilson part & $W=(4-M_5)-\tfrac12K$ & $D^{\mathrm{Wilson}}(M_5)$ (2.13) & $D_{\mathrm W}(-M_0)$ & $\frac1{2\kappa}D_{\mathrm W}$, $\kappa=1/(8-2M_0)$\\
-$D_\pm$ & $D_+=1+bW$, $D_-=cW-1$ (Eq.~\eqref{eq:Dpm}) & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & ---\\
+$D_\pm$ & $D_+=1+bW$, $D_-=cW-1$ (Eq.~\eqref{eq:Dpm}) & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & n/a\\
 $D$ & Eq.~\eqref{eq:D} & $D_{\mathrm{DW}}(m)$ (2.20) & $D(m)$ (1) & \texttt{Fopr\_Domainwall}, mode \texttt{D}\\
-$C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & --- & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
-Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & --- (its $\alpha=\frac{b+c}{b-c}$) & --- & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
-$\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
-4d quark & $\Pm\psi_0+\Pp\psi_{L_s-1}$ & $P_-\Psi_1$, $P_+\Psi_{L_s}$ & --- & the same\\
+$C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & n/a & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
+Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & n/a (its $\alpha=\frac{b+c}{b-c}$) & n/a & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
+$\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & n/a & n/a\\
+4d quark & $\Pm\psi_0+\Pp\psi_{L_s-1}$ & $P_-\Psi_1$, $P_+\Psi_{L_s}$ & n/a & the same\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1429,9 +1430,7 @@ All quenched configurations use the plaquette gauge action at $\beta=6.0$ and we
 HMC from a cold start, 400 trajectories of length $0.5$ (on $24^3\times48$, 400
 from a cold start and then 200); these are configurations~1. Configurations 2--4 continue the same
 chains with trajectories of length $0.5$ and are taken $100$ trajectories apart, after $502$, $602$
-and $702$ trajectories ($702$, $802$ and $902$ on $24^3\times48$). The dynamical $16^4$ configuration was generated from the
-quenched one by HMC in setup~S with mixed-precision CG: 60 trajectories at $m=0.05$, then 40 at
-$m=0.01$, of length~1 with Omelyan steps $[20,2]$. Table~\ref{tab:configs}
+and $702$ trajectories ($702$, $802$ and $902$ on $24^3\times48$). Table~\ref{tab:configs}
 gives the plaquette, the scale $t_0$ ($t^2E=0.3$, $E$ of the clover field strength) and the
 topological charge at $t_0$ after the Wilson flow (step $0.01$), of the clover field strength and
 improved with rectangles ($c_{\rm plaq}=5/3$, $c_{\rm rect}=-1/12$). On the larger lattices the
@@ -1456,7 +1455,6 @@ $16^4$ & 1 & $0.593509$ & $3.54$ & $+0.05$ & $+0.01$ & $0$\\
  & 2 & $0.593847$ & $3.55$ & $+0.95$ & $+1.00$ & $+1$\\
  & 3 & $0.594395$ & $3.18$ & $+0.96$ & $+1.00$ & $+1$\\
  & 4 & $0.593685$ & $3.03$ & $+2.53$ & $+2.88$ & $+3$\\
-$16^4$ dynamical & & $0.593809$ & $6.90$ & $-0.003$ & $-0.0002$ & $0$\\
 $24^4$ & 1 & $0.593524$ & $3.65$ & $+3.63$ & $+3.92$ & $+4$\\
  & 2 & $0.593789$ & $3.41$ & $+1.77$ & $+1.94$ & $+2$\\
  & 3 & $0.593297$ & $3.16$ & $-3.55$ & $-3.93$ & $-4$\\
@@ -1620,7 +1618,7 @@ smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at 
 and crosses $1$ near the $(b,c)=(1.5,0.5)$ used in the main text. For Shamir fermions
 $S\dg S$ is the faster form by $1.20$--$1.23$, close to the $3880/3224=1.20$ of Ref.~\cite{BY}.
 In setup~S the ratio is above $1$ except at $c=0.25$, where $S\dg S$ needs $3$--$5\%$ fewer
-iterations; we have no explanation for this dip. The three lattices agree to within $0.04$ in
+iterations; we have no explanation for this dip. The three lattices agree to within $0.05$ in
 every case, so the order is a property of the operator and its parameters and does not depend on the
 configuration.
 
@@ -1646,7 +1644,7 @@ is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. }
 \clearpage
 \section{Tables of the numerical results}
 \label{sec:tables}
-The tables that support Sec.~\ref{sec:results}, in the order in which it cites them.
+This appendix holds the tables that support Sec.~\ref{sec:results}.
 
 \input{results_tables}
 
