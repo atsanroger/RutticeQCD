@@ -361,6 +361,11 @@ mod device {
             nr[0] / nb[0]
         );
         for (name, rhs) in [("random b", &b), ("sweep residual r", &r)] {
+            // The solve with D of the same right-hand side, for comparison.
+            let mut x = rhs.zeros_like();
+            dsolve.cycles.set(0);
+            dsolve.solve(&mut x, rhs, 300, 1e-10);
+            println!("{name:18} D by GCR(2) with M_D:  {:4} its", dsolve.cycles.get());
             for k in [2, 8].into_iter().filter(|_| !nodual) {
                 let t = Instant::now();
                 let mut w = rhs.zeros_like();
