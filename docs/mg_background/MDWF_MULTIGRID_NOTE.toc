@@ -76,7 +76,7 @@
 \contentsline {subsubsection}{\numberline {1}Field of values: the coarse correction amplifies}{23}{subsubsection.5.4.1}%
 \contentsline {subsubsection}{\numberline {2}Spectrum: far from the origin}{23}{subsubsection.5.4.2}%
 \contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{23}{subsubsection.5.4.3}%
-\contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{23}{subsubsection.5.4.4}%
+\contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{24}{subsubsection.5.4.4}%
 \contentsline {section}{\numberline {VI}Summary}{26}{section.6}%
 \contentsline {paragraph}{Code.}{26}{section*.34}%
 \contentsline {section}{\numberline {VII}Open problems}{26}{section.7}%

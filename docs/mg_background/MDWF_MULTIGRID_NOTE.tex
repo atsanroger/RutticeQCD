@@ -1044,8 +1044,7 @@ inner products; the smoother is the same linear map at every application. A Kryl
 as the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps two more
 fine vectors per step, which in a fixed amount of memory lowers the largest volume that can be
 solved. We use
-only a real focal interval. The ratio $\kappa_s$ is not derived from the operator; it has to be
-chosen. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
+only a real focal interval. The ratio $\kappa_s$ is chosen by hand. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
 to the coarse correction, and an interval that is too wide or too narrow can make the outer solve
 stagnate.\ifresults{} The interval that works differs between the two setups of
 Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
@@ -1188,15 +1187,16 @@ $D_-^{-1}$ altogether.
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
 $3.2$--$5.7$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. The multigrid is the faster
-solver from $24^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
+$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. In solve time, setup
+excluded, the multigrid is faster from $24^4$ on, and in setup~B already on $16^4$. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
 four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
 the coarse lattice in place of deflation. The
 lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
-configurations or takes several times the iterations, although the correction is exact only for the
+configurations of setup~S or takes several times the iterations there, and it costs iterations in
+setup~B, although the correction is exact only for the
 right form. One setup serves every value of
 Neff's $\alpha$.
 
@@ -1206,9 +1206,9 @@ pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~
 truncated GCR(2) solved with $D$ without a plateau on every volume, but it has no guarantee.
 
 Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
-On $16^4$ it takes one to four iterations more than solving with $D$; on $12^4$ in setup~S
-the residual right-hand side converges only with more kept directions or cycles, and even then fails
-on some configurations. HMC itself is not implemented here.
+On $16^4$ at $m=0.01$ it takes one to four iterations more than solving with $D$; on $12^4$ in
+setup~S the residual right-hand side needs GCR(8) with two cycles per step, which converges on all
+four configurations. HMC itself is not implemented here.
 
 The evidence is four quenched configurations per volume up to $24^3\times48$ on one GPU, compared
 with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
