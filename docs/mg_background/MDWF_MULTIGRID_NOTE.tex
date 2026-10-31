@@ -932,9 +932,10 @@ The system is $Xw=g$ with $X=(\Dcpv)\dg$. We solve the regularized normal equati
 \big(X\dg X+\tau\big)\,w=X\dg g
 \label{eq:tikhonov}
 \end{equation}
-by CG on all coarse sites, with $\tau=10^{-3}$. The shift damps only the directions of $X$ whose
-singular values lie below $\sqrt\tau$. The Galerkin factor can have such directions although the
-fine $\Dpv$ does not (Sec.~\ref{sec:pvcoarse}).
+by CG on all coarse sites, with $\tau=10^{-3}$. Against the exact solve, the shift multiplies the component along each
+right singular vector of $X$ by $\sigma^2/(\sigma^2+\tau)$, so it damps most the directions with $\sigma$
+below about $\sqrt\tau$. The Galerkin factor can have far smaller singular values than the
+fine $\Dpv$ (Sec.~\ref{sec:pvcoarse}).
 
 \subsubsection{Levels below the coarse lattice}
 The quark factor may be preconditioned by further levels. The coarse sites are

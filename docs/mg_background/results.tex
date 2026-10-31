@@ -193,14 +193,14 @@ then handle twice the vectors and the setup takes $1.6$ times as long.
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
 
-The regularized solve removes the slow setups, and without it the solve is slow exactly where the
-Galerkin factor has small singular values (Table~\ref{tab:noshift}). Without the shift, with
+The regularized solve removes the slow setups (Table~\ref{tab:noshift}). Without the shift, with
 BiCGStab on the exact adjoint, setup~S needs $84$ to more than $2000$ iterations on $12^4$ and
 $29$--$50$ on $16^4$; with the shift it needs $10$--$18$. Without smearing it needs $13$--$15$ either
-way. With stout smearing the smallest singular value of the Galerkin factor is $1/120$ to $1/41$ of
+way. The slow solves come with stout smearing, which gives the Galerkin factor a smallest singular value of $1/120$ to $1/41$ of
 that of the fine $\Dpv$ on $12^4$ and $1/46$ to $1/9$ on $16^4$; without smearing it is about $0.6$
-of it (Table~\ref{tab:pvsv}). The exact coarse solve amplifies the directions of these singular
-values, and the shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (ten seeds
+of it (Table~\ref{tab:pvsv}). Among the smeared configurations this value does not order the
+iteration counts. The exact coarse solve amplifies the directions of small singular values, and the
+shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (ten seeds
 on each of the four configurations) need $10$--$17$ iterations, and the value of $\tau$ hardly matters
 (Table~\ref{tab:tikhonov}).
 
