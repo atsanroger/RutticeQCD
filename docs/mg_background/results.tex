@@ -227,8 +227,10 @@ times in Table~\ref{tab:costs}.}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggregates and more test
 vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
-On $24^3\times48$, $16$ test vectors do not suffice: the solve needs hundreds of iterations or does
-not converge in $2000$. Outside the window the failures can come from the outer solver alone. With
+The number of test vectors that suffices does not grow from $24^4$ to $24^3\times48$
+(Table~\ref{tab:tvscan}), as local coherence of the low modes leads one to expect. In setup~B each
+count gives about the same iterations on both volumes. Setup~S needs more vectors: with fewer than
+$32$ it is slow or stagnates on both volumes. Outside the window the failures can come from the outer solver alone. With
 $\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2) to a plateau; with the
 same cycle GCR(16) converges, and other setup seeds converge with GCR(2).
 

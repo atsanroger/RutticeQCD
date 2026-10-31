@@ -298,3 +298,26 @@ S, $\AL$ & $10^{-4}$ & $13$ & & & $12$ & \\
 \end{tabular}
 \end{table}
 
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations on $\AL$ against the number of test vectors, $m=0.001$, one random
+right-hand side, otherwise Table~\ref{tab:setups}: ranges over the four configurations; n.c.\ ($k$):
+$k$ configurations not converged in $2000$ iterations. $32$ is the multigrid of the other tables
+(Tables~\ref{tab:volume} and~\ref{tab:massscan}).}
+\label{tab:tvscan}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+setup & test vectors & $24^4$ & $24^3\times48$\\
+\midrule
+S & $16$ & n.c.\ (4) & $274$, n.c.\ (3)\\
+S & $24$ & $68$--$101$, n.c.\ (1) & $90$--$179$\\
+S & $32$ & $14$--$24$ & $22$--$43$\\
+S & $48$ & \pending{redo} & \\
+B & $16$ & $72$--$79$ & $65$--$83$\\
+B & $24$ & $40$--$42$ & $38$--$45$\\
+B & $32$ & $23$--$24$ & $23$--$26$\\
+B & $48$ & $11$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
