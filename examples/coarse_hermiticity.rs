@@ -24,8 +24,8 @@ use ruttice::fermion::{FermionOp, Mdwf, MdwfParams};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::solver::preconditioner::multigrid::{
-    pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseOp, LowModeParams,
-    PvEoParams,
+    pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseKrylov, CoarseOp,
+    LowModeParams, PvEoParams,
 };
 use ruttice::{Boundary, Coarse, Field, Lattice, LinearFn, Vector, ND};
 use std::error::Error;
@@ -125,10 +125,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     op.set_gauge(&u)?;
     let mut pv = Mdwf::<f64>::new(&lat, params(1.0));
     pv.set_gauge(&u)?;
+    // --bicgstab: the bootstrap cycle solves the Pauli-Villars factor by BiCGStab on its exact
+    // adjoint (the solve without the Tikhonov shift) instead of the default.
     let cycle = PvEoParams {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 10.0)?,
         ..PvEoParams::default()
+    };
+    let cycle = match args.iter().any(|a| a == "--bicgstab") {
+        true => PvEoParams {
+            pv_solver: CoarseKrylov::BiCgStab,
+            ..cycle
+        },
+        false => cycle,
     };
     let (y, _) = pv_eo_low_modes(&op, &pv, &lat, LowModeParams::default());
     let mut y = y.select(&(0..vectors).collect::<Vec<_>>());
