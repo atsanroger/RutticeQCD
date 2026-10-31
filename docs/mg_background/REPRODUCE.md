@@ -55,7 +55,7 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |
 | Table noshift (with and without the shift, seed 21) | `ruttice` | `noshift16/` (no shift: `Coarse_Solver_PV` BiCGStab; with the shift: `rerunT/T_vol_S_*`) |
 | Table 11 (τ) | `ruttice` | `tikhonov/` (status, status3); the 40 seeds of Sec. V.C.3: `tikhonov/status2.txt` |
-| Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsv/`, `pvsv2/` (`e044050`, a setup without the shift); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
+| Table 12 (singular values) | example `coarse_hermiticity --nsv 48` (coarse, CPU); `ruttice` eigensolver, `DdagD`, `Lexical` (fine; the logs print σ²) | coarse: `pvsvB/` (`d61fe3c` with `--bicgstab`: the bootstrap solves the Pauli–Villars factor by BiCGStab, as the no-shift rows of Table noshift); fine: `finesigmaA1/fs*` (`neff_alpha 1.0`; the earlier `finesigma*` had 0.6, i.e. D(m=1)Q) |
 | Table 14 (field of values) | example `preconditioned_fov_device --parts --tikhonov 1e-3` | `fovT2/parts*` |
 | Table 15 (spectrum) | example `preconditioned_fov_device --arnoldi --far 1,0 --tikhonov 1e-3` (`--left` for Ã_L) | `fovT2/far*`; `spectrum_*12.tsv` |
 | Table 16, Fig. 7 (pseudospectra) | example `preconditioned_fov_device --pseudo --contour c,0,r,n --tikhonov 1e-3` | `pseudoT/`; `pseudo_*12.tsv` |
