@@ -102,7 +102,6 @@
 \newcommand{\AL}{\tilde A_{L}}
 \newcommand{\Pro}{\mathcal P}
 \newcommand{\Dc}{\mathcal D_{\mathrm c}}
-\newcommand{\pending}[1]{\textcolor{red}{[#1]}}
 \newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
 \renewcommand{\Re}{\operatorname{Re}}
 \newcommand{\Ce}{C_{e}}
@@ -138,11 +137,11 @@ deflation. These choices address the three reasons Boyle and Yamaguchi gave for 
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
 \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
-$\Re\lambda\ge0.70$, and its pseudospectra bound the convergence of full GMRES. On four quenched
+$\Re\lambda\ge0.70$, and on $12^4$ its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
-time, setup included.\else{} We state
+$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes
+$0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
 $D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the
@@ -210,11 +209,11 @@ Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions; on 
 was set up and solved faster than a single even-odd CG solve. They also carried the
 Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD, where it needed about half the
 fine-matrix applications of red-black CG but $18$--$31$ times its solve time. They gave three
-reasons. Red-black CG, not the full-lattice solve, is the relevant baseline. The coarse space keeps
+reasons. The relevant baseline is red-black CG, against which the full-lattice solve is slow. The coarse space keeps
 a fifth dimension of extent $L_s$, so its cost removes the gain. And reducing that cost would need
 further levels or coarse deflation, which the PV method did not have. They also found that CG
 converges faster on the Schur complement than on its left-preconditioned form\ifresults{} (for the
-M\"obius setups of this work the order is reversed, Appendix~\ref{sec:cgform})\fi, and that an
+M\"obius setups of this work at $\alpha=0.6$ the order is reversed, Appendix~\ref{sec:cgform})\fi, and that an
 even-odd smoother did not work with the HDCR correction.
 
 \paragraph{Recent work by Boyle and collaborators.}
@@ -329,8 +328,8 @@ $32^3\times16\times12$. From Ref.~\cite{KCM2024}, Fig.~4.}
 \end{figure}
 
 \paragraph{Two caveats.}
-First, the figures show the full-lattice operator $A'$, not the even-odd operators of
-Sec.~\ref{sec:eo}. Second, eigenvalues in the right half-plane do not give a field of values
+First, the figures show the full-lattice operator $A'$; the even-odd operators of
+Sec.~\ref{sec:eo} are not shown. Second, eigenvalues in the right half-plane do not give a field of values
 there. For a non-normal operator the GCR bound~\cite{ESS} needs the Hermitian part $(A+A\dg)/2$ to
 be positive definite, which can fail while every eigenvalue has positive real part, as
 Ref.~\cite{BoyleOare} discusses for $\Dpv\dg D$.\ifresults{} It fails for the even-odd form and for
@@ -1080,15 +1079,14 @@ directions. The method allows any number $k$ of kept directions; the largest $k$
 is the natural choice. Each kept direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the
 multigrid with GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory, so $k=2$ there. For
 solves with $D$ we use $k=2$ on every volume, so that the volumes compare directly.\ifresults{} A
-larger $k$ changes only the outer solver, not the cycle, and on $12^4$ it changes the iterations by at
-most one (Sec.~\ref{sec:gcrk}).\fi
+larger $k$ changes only the outer solver and leaves the cycle as it is; on $12^4$ it changes the
+median iterations by at most one (Sec.~\ref{sec:gcrk}).\fi
 
 Flexibility alone gives no convergence guarantee. For a fixed $\mathcal M$, restarted or truncated
 methods converge for every restart length if the field of values of $\tilde A\mathcal M$ lies in
 the right half-plane~\cite{ESS}. Otherwise only the full method is covered, by the spectrum and
 the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a truncated method can
-stagnate~\cite{Embree}.\ifresults{} Secs.~\ref{sec:fov}--\ref{sec:gcrk} examine this for the
-present cycle.\fi{}
+stagnate~\cite{Embree}.
 We monitor convergence on the even-odd system and evaluate the residual of the original equation,
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
@@ -1202,14 +1200,14 @@ right form. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
-bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.70$ and its pseudospectra bound
-full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups}, truncated GCR(2)
-converged without a plateau in every run on every volume, but it has no guarantee.
+bound for GCR is lost in both setups. Its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ its
+pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups},
+truncated GCR(2) solved with $D$ without a plateau on every volume, but it has no guarantee.
 
 Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
 On $16^4$ it takes one to four iterations more than solving with $D$; on $12^4$ in setup~S
-the residual right-hand side converges only with more kept directions or cycles, and not on every
-configuration. HMC itself is not implemented here.
+the residual right-hand side converges only with more kept directions or cycles, and even then fails
+on some configurations. HMC itself is not implemented here.
 
 The evidence is four quenched configurations per volume up to $24^3\times48$ on one GPU, compared
 with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
@@ -1257,7 +1255,9 @@ does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a
 varies from step to step. GCR(2) can reach a residual orthogonal to its new direction and stay
 there (Sec.~\ref{sec:gcrk}), and on the residual right-hand side of HMC the solve with $D\dg$ on
 $12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}); the solves with $D\dg$
-were tested on $12^4$ and $16^4$ only. Why stout smearing gives the Galerkin
+were tested on $12^4$ and $16^4$ only. The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
+factor regularized also solves with $D\dg$ from the same $\Pro$, with coarse operators of its own; its
+cost in HMC is left to that study. Why stout smearing gives the Galerkin
 Pauli--Villars factor singular values far below those of the fine operator
 (Sec.~\ref{sec:pvcoarse}) is not understood. We find that the field of values of the fine $\Dpv$ contains the origin with and
 without smearing and reaches further left with it, also on $16^4$, where no setup is slow; the field
@@ -1368,7 +1368,7 @@ site part of $D_-$.
 $M_5^{\mathrm{BNO}}=-M_5$, Eq.~(2.13). The caption of Fig.~1 of Ref.~\cite{KCM2024}
 gives $M_0=-1$ for the height $1$ of its text.
 \item The $\alpha$ of Ref.~\cite{BNO}, $(b+c)/(b-c)$, is the scale factor of the
-M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), not Neff's $\alpha$ of Eq.~\eqref{eq:Q}.
+M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), unrelated to Neff's $\alpha$ of Eq.~\eqref{eq:Q}.
 \item $\Gamma_5=\gamma_5RD_-^{-1}$ in Ref.~\cite{BNO}, Eq.~(2.22); here $\Gfive=\gamma_5R$.
 \end{itemize}
 $D^{(\alpha)}$ here and the operator of Bridge++ with \texttt{parameter\_alpha} were
@@ -1613,7 +1613,7 @@ singular values of $C$ lie in $[d_+-|d_-|,\,d_++|d_-|]$ and
 \end{equation}
 for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$. The measured
 ratios of the iterations stay within this range too, although the bound is on the condition
-numbers and not on the iteration counts.
+numbers.
 
 Within the bound the order depends on $c$. In setup~B the ratio of the iterations grows
 smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at $(b,c)=(2,1)$,

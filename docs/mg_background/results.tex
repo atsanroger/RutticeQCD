@@ -1,7 +1,5 @@
 % Numerical results of the factorized Pauli--Villars multigrid (input by MDWF_MULTIGRID_NOTE.tex
-% with \resultstrue). Every number is from a log named in the text; [TODO] marks what is still
-% being measured.
-\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+% with \resultstrue).
 
 % ============================================================
 \section{Numerical results}
@@ -66,9 +64,7 @@ in Sec.~\ref{sec:pvcoarse}.
 \label{sec:massscan}
 
 On $24^3\times48$ the multigrid is $3.2$--$5.7$ times faster than mixed-precision CGNE at
-$m=0.001$, and its setup is recovered within one point-source propagator for $m\le0.005$. We
-compare first for one random right-hand side over seven masses, then for whole point-source
-propagators.
+$m=0.001$, and its setup is recovered within one point-source propagator for $m\le0.005$.
 
 \begin{figure}[t]
 \centering
@@ -123,9 +119,10 @@ B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $31
 \end{table}
 
 \paragraph{Volume.} The advantage of the multigrid grows with the volume (Fig.~\ref{fig:volume},
-Table~\ref{tab:volume}). It is slower than CGNE on $12^4$, about level on $16^4$, and clearly faster
-from $24^4$ on: its iterations hardly grow with the volume, those of CGNE do. Its setup grows with
-the volume.
+Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, about
+level on $16^4$, and clearly faster from $24^4$ on: its iterations hardly grow with the volume, those
+of CGNE do. Its setup grows with the volume. Neff's $\alpha=0.6$ saves CG far more iterations than the
+multigrid (Fig.~\ref{fig:cgform}, Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
 \begin{figure}[t]
 \centering
@@ -138,8 +135,6 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 
 
 
-\paragraph{Neff's $\alpha$.} $\alpha=0.6$ saves CG far more iterations than the multigrid
-(Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
 
 \subsubsection{Solves with $D\dg$}
@@ -148,9 +143,9 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 $\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs one to four
 iterations more than the solve with $D$ on $16^4$ (Table~\ref{tab:c4}). The right-hand sides are a
 random vector and the residual $r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to
-$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. More inner
-cycles per step hardly reduce the count on $16^4$, so the extra steps come from $N$ and not from the
-inexact $\mathcal M$. On $12^4$ in setup~S the residual right-hand side is harder: GCR(2) with one
+$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. On the
+random right-hand side more inner cycles per step do not reduce the count, so there the extra steps
+come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder: GCR(2) with one
 cycle per step does not converge, GCR(8) converges on three of the four configurations, and GCR(2)
 with two cycles per step on two.
 
@@ -167,15 +162,16 @@ future work (Sec.~\ref{sec:open}).
 
 The speed-up of Sec.~\ref{sec:massscan} rests on four choices beyond the operator $A'$: the coarse
 correction, the lift $\hat t$ in the basis, the regularized Pauli--Villars solve,
-and the setup parameters. Each part below isolates one of them.
+and the setup parameters.
 
 \subsubsection{Krylov on $\AL$ without the multigrid}
 \label{sec:nomg}
 
 The speed-up comes from the coarse correction: without it a Krylov method on $\AL$ does not beat
-CGNE (Fig.~\ref{fig:massscan}). BiCGStab on $\AL$ alone needs about as many iterations as
-double-precision CGNE, but each of its iterations applies $\AL$ twice, so it takes longer. The
-Chebyshev smoother as a preconditioner cuts its iterations but raises the time.
+mixed-precision CGNE (Fig.~\ref{fig:massscan}). BiCGStab on $\AL$ alone needs fewer iterations
+than double-precision CGNE, about half in setup~B, but each of its iterations applies $\AL$ twice,
+and it is slower than mixed-precision CGNE at every mass. The Chebyshev smoother as a preconditioner
+cuts its iterations but raises the time.
 
 
 \subsubsection{Choice of the prolongation basis}
@@ -199,11 +195,14 @@ given number of vectors $y$ suffice.
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
 
-With the regularized solve no slow setups remain on $12^4$: all $40$ setups of setup~S need
-$10$--$17$ iterations, against $70$ to more than $2000$ for the slow ones without it
-(Table~\ref{tab:tikhonov}). The cause is the Galerkin factor. With stout smearing its smallest
-singular value is $1/79$ to $1/15$ of that of the fine $\Dpv$ on the four configurations; without
-smearing the two agree to within $4\%$ (Table~\ref{tab:pvsv}).
+With the regularized solve no slow setups remain on $12^4$: $40$ setups of setup~S (seeds $1$--$10$
+on the four configurations) need $10$--$17$ iterations, against $70$ to more than $2000$ without it
+for the slow setups of Table~\ref{tab:tikhonov}, which the unregularized solve treats by BiCGStab on
+the exact adjoint. We attribute the slow setups to the Galerkin factor. With stout smearing its
+smallest singular value is $1/79$ to $1/15$ of that of the fine $\Dpv$ on the four $12^4$
+configurations; without smearing the two agree to within $4\%$ (Table~\ref{tab:pvsv}). A small
+singular value alone does not make a setup slow: on $16^4$ the ratio is also small and no setup is
+slow.
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -228,12 +227,14 @@ times in Table~\ref{tab:costs}.}
 
 Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggregates and more test
 vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
-The number of test vectors that suffices does not grow from $24^4$ to $24^3\times48$
-(Table~\ref{tab:tvscan}), as local coherence of the low modes leads one to expect. In setup~B each
+The number of test vectors that suffices grows from $12^4$ to $24^4$ but not from $24^4$ to
+$24^3\times48$ (Table~\ref{tab:tvscan}), as local coherence of the low modes leads one to expect once
+the box is large enough. In setup~B each
 count gives about the same iterations on both volumes. Setup~S needs more vectors: with fewer than
-$32$ it is slow or stagnates on both volumes. Outside the window the failures can come from the outer solver alone. With
-$\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2) to a plateau; with the
-same cycle GCR(16) converges, and other setup seeds converge with GCR(2).
+$32$ it is slow or stagnates on both volumes. Outside the window the failures can come from the
+outer solver alone. With $\kappa_s=10$ in setup~B, one of the four $12^4$ configurations brings GCR(2)
+to a plateau; with the same cycle GCR(16) converges, and other setup seeds converge with GCR(2). This
+plateau comes with the regularization: without the shift the same setup converges.
 
 Whyte, Stathopoulos and Romero~\cite{WhyteSVD} obtain, for Wilson fermions, the effect of more test
 vectors at the coarse size of fewer by truncating them with a singular value decomposition on each
@@ -243,11 +244,11 @@ gain outweighs that loss is open.
 \subsection{Why the method converges}
 \label{sec:why}
 
-The convergence is set by the spectrum and the pseudospectra of the preconditioned operator, not
-by its field of values. On the smeared lattices the field of values of $\AR\mathcal M$ reaches into
-the left half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply.
-Its eigenvalues lie at $\Re\lambda\ge0.70$ with moderate condition numbers, and its pseudospectra
-bound full GMRES. As usual for multigrid preconditioners of lattice Dirac operators, the
+The convergence is set by the spectrum and the pseudospectra of the preconditioned operator; its
+field of values does not decide it. In both setups the field of values of $\AR\mathcal M$ reaches into the left
+half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. Its
+eigenvalues lie at $\Re\lambda\ge0.70$, and on $12^4$ its pseudospectra bound full GMRES with a fixed
+cycle. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
 
 Two notions from non-Hermitian linear algebra are used. The \emph{field of values}
@@ -273,21 +274,22 @@ The field of values of $\AR$ itself reaches only just below zero and hardly depe
 and the smoother is harmless, $\|I-\AR\mathcal S\|\approx1$. The coarse correction $E$ is the identity
 on the vectors it is built from (Eq.~\eqref{eq:exact}) but amplifies other directions, like a
 strongly oblique projection, by three orders of magnitude. The post-smoothing acts as a filter
-and brings the whole cycle back close to the identity. Eick and Mawhinney~\cite{EickMawhinney}
+and brings the whole cycle back to within a factor of ten of the identity. Eick and Mawhinney~\cite{EickMawhinney}
 describe the same mechanism for a renormalization-group coarse lattice and need a Chebyshev filter
 of high degree; here $\AR$ is close to the identity on the high modes, and the smoother suffices.
 
-With stout smearing $W(\AR\mathcal M)$ crosses the origin on every configuration. Without smearing
-the amplification is far smaller and $W(\AR\mathcal M)$ lies in the right half-plane, where
-truncated GCR($k$) is guaranteed to converge for every $k$~\cite{ESS}.
+$W(\AR\mathcal M)$ crosses the origin on every configuration in both setups: with stout smearing at
+$M_5=1$ (setup~S) and without it at $M_5=1.8$ (setup~B). Only at $M_5=1$ without smearing is the
+amplification far smaller and $W(\AR\mathcal M)$ in the right half-plane, where truncated GCR($k$) is
+guaranteed to converge for every $k$~\cite{ESS}.
 
 \subsubsection{Spectrum: far from the origin}
 \label{sec:spectrum}
 
 The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
 Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with moderate condition
-numbers. Setup~S has one or two isolated outliers of larger modulus, and all other eigenvalues lie in
-a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
+numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers in setup~S on
+configuration~1, and all other eigenvalues lie in a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
 \label{sec:pseudo}
@@ -329,9 +331,9 @@ $(|\lambda_o-c|+r)/|\lambda_o|$. On the dense circles of $12^4$ the spacing of t
 enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on the whole circle; it
 guarantees $\|r_k\|/\|r_0\|<10^{-9}$ within $55$ (S) and $57$ (B) iterations (Table~\ref{tab:pseudo}).
 
-The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation. Its rate,
-$r/c=0.5$--$0.6$ in setup~S, is close to the one we measure on $24^3\times48$ on configurations 1 and
-3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
+The bound guarantees convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
+contours with $16$ points it is an estimate. Its rate on the dense circle of setup~S, $r/c=0.6$, is
+close to the one we measure on $24^3\times48$, a larger lattice, on configurations 1 and 3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
 is $0.48$--$0.64$ in $|r|$; configuration~2 in setup~S converges more slowly. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
 eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
 $\mathcal M$.
@@ -340,7 +342,8 @@ $\mathcal M$.
 \label{sec:gcrk}
 
 Truncated GCR does not need accurate coarse solves. With the usual coarse solves to $10^{-2}$,
-GCR(2) needs at most one iteration more than GCR(32) on $12^4$ (Table~\ref{tab:gcrk}). Coarse solves
+GCR(2) needs in the median at most one iteration more than GCR(32) on $12^4$
+(Table~\ref{tab:gcrk}). Coarse solves
 to $10^{-8}$, where $\mathcal M$ is close to the fixed map, do not help: GCR(2) then needs $19$
 iterations and GCR($\ge16$) $15$.
 
@@ -351,13 +354,13 @@ early the cycle is not a fixed linear map, so this holds for these vectors only.
 
 A truncated method has no guarantee when the field of values contains the origin~\cite{ESS,Embree}.
 With a fixed cycle GCR(2) can reach a fixed point, where the new direction is orthogonal to the
-residual and the next step repeats it. With the parameters of Table~\ref{tab:setups} no run reached
-a plateau. The one plateau we checked, at $\kappa_s=10$ in setup~B (Sec.~\ref{sec:sensitivity}), is
+residual and the next step repeats it. With the parameters of Table~\ref{tab:setups} no solve with
+$D$ reached a plateau. The one plateau we checked, at $\kappa_s=10$ in setup~B (Sec.~\ref{sec:sensitivity}), is
 of this kind: the same cycle converges with GCR(16).
 
-\paragraph{Setup seeds.} With the regularized Pauli--Villars solve no setup is slow on $12^4$
-(Sec.~\ref{sec:pvcoarse}). Configuration~2 of $24^3\times48$ needs more iterations than the other
-three (Table~\ref{tab:volume}); which property of that configuration causes this is open.
+Configuration~2 of $24^3\times48$ needs more iterations than the other three
+(Table~\ref{tab:volume}); which property of that configuration causes this is open. No run on
+$24^3\times48$ shows a plateau (Fig.~\ref{fig:history}).
 
 \begin{figure}[t]
 \centering
@@ -366,4 +369,3 @@ three (Table~\ref{tab:volume}); which property of that configuration causes this
 \label{fig:history}
 \end{figure}
 
-On $24^3\times48$ no run shows a plateau (Fig.~\ref{fig:history}).
