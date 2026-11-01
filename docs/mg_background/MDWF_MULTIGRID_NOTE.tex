@@ -945,8 +945,7 @@ on the coarse lattice itself the same multiplicative combination is used, and
 with the even-odd coarse form its even part preconditions the Schur system.
 
 \paragraph{Levels instead of deflation.} The levels below compress the low modes further by
-aggregation and invert the last level exactly, by LU in double precision (cuSOLVER on the
-device), so every mode that reaches that level is treated without computing any eigenvector.
+aggregation and invert the last level exactly, by LU in double precision, so every mode that reaches that level is treated without computing any eigenvector.
 The alternative, deflating the coarse factors with a few of their eigenvectors, we have not
 tried with the basis $\{s,\hat t\}$. Boyle and
 Oare~\cite{BoyleOare} use a large coarsest level that is inverted densely in the role of deflation.
@@ -1464,9 +1463,8 @@ $24^3\times48$ & 1 & $0.593548$ & $3.20$ & $+4.47$ & $+4.78$ & $+5$\\
 \label{sec:cgform}
 
 The multigrid uses four Krylov solvers, flexible GCR for the outer system, BiCGStab and CG for
-the coarse factors and FGMRES in the bootstrap, and the comparison uses CG as well. The algorithms below are
-those of RutticeQCD, which runs the same code on the CPU and on the device; $\epsilon$ is the
-tolerance on $|r|^2/|b|^2$.
+the coarse factors and FGMRES in the bootstrap, and the comparison uses CG as well. In the algorithms below
+$\epsilon$ is the tolerance on $|r|^2/|b|^2$.
 
 \paragraph{Flexible GCR($k$).} The outer solver of Sec.~\ref{sec:outer} is GCR~\cite{ESS} with a
 preconditioner $\mathcal M$ that may change from one step to the next, keeping the last $k$
