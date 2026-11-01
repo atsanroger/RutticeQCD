@@ -48,9 +48,9 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 
 | result | program | data, run directory |
 |---|---|---|
-| Table 7 (mass scan), Fig. 4 | `ruttice` | `massscan_24_configs.tsv`, `massscan_24.tsv` (configuration 1); CGNE rows and `baseline_mass_2448.tsv` from earlier builds (CGNE is not changed by the multigrid); `rerunT/T_ms_*` |
+| Table 7 (mass scan), Fig. 4 | `ruttice` | `massscan_24_configs.tsv`, `massscan_24.tsv` (configuration 1); CGNE rows from `cgneT/` (`feat/true-residual-stop` 8ae9255, `update_data.py`); `baseline_mass_2448.tsv` from earlier builds; `rerunT/T_ms_*` |
 | Table 4 (point source) | `ruttice` | `pointsource_24.tsv` (configuration 1), `pointsource_24_configs.tsv`; `rerunT/T_ps_*` (m 0.001), `psT/` (m 0.01); correlators against the CGNE logs of `p1/t5cg_*` and `final_fbc8f00/pointsource/` |
-| Table 8 (volume), Fig. 5 | `ruttice` | `volume_configs.tsv`, `baseline_volume.tsv`; `rerunT/T_vol_*` |
+| Table 8 (volume), Fig. 5 | `ruttice` | `volume_configs.tsv` (CGNE from `cgneT/`), `baseline_volume.tsv`; `rerunT/T_vol_*` |
 | Fig. 6 (sensitivity), Table 14 (costs) | `ruttice` | `sensitivity_12_configs.tsv`, `costs_12.tsv` (medians over the four configurations); `rerunT/T_sens_*` |
 | Table 9 (D†) | example `dagger_precond --tikhonov 1e-3 --pl 0` | `daggerT2/`, `daggerT3/` (the solve with D) |
 | Table 10 (lifts) | `ruttice` with `RUTTICE_BASIS_LIFTS` | `basis_configs.tsv`; `liftsT/` |

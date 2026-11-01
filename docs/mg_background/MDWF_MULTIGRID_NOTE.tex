@@ -139,8 +139,8 @@ did not beat red-black CG. A single setup serves every value of Neff's $\alpha$.
 values of the preconditioned operator reaches into the left half-plane, yet at $\alpha=1$ its spectrum has
 $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
-$m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes
+$m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
+$4.1$--$7.3$ times faster than mixed-precision CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
@@ -1174,10 +1174,10 @@ $D_-^{-1}$ altogether.
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$3.2$--$5.7$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$4.1$--$7.3$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. In solve time, setup
-excluded, the multigrid is faster from $24^4$ on, and in setup~B already on $16^4$. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
+$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $20$--$32$. In solve time, setup
+excluded, the multigrid is faster from $16^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is addressed by one choice: the even-odd system, a
@@ -1537,8 +1537,8 @@ added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG 
 the same search direction and stops only on the double-precision residual. With $\delta=0$ the
 algorithm is plain CG in double precision; in single precision it is the solver of the
 Pauli--Villars factor, Eq.~\eqref{eq:tikhonov}, started from $x=0$. On $24^3\times48$ the mixed-precision solver needs the
-iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $30\%$ more ($14\%$ on configuration~1), and takes $0.53$--$0.74$ times the
-time (over the four configurations), with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
+iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $67\%$ more ($26\%$ on configuration~1), and takes $0.53$--$0.88$ times the
+time (over the four configurations), with the same final residuals and $7.7$\,GB of device memory against $7.4$\,GB in double
 precision.
 
 \begin{algorithm}[tbp]
@@ -1627,7 +1627,8 @@ compared with it.
 dashed), with $\mathcal K=1-\Ce^{-1}D_{eo}\Co^{-1}D_{oe}$ (the even-odd operator of Bridge++) and
 $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (the Schur complement of Grid's default \texttt{SchurDiagMooeeOperator},
 there on the odd sites), against the M\"obius $c$, $b=1+c$, and below each their ratio; above $1$ the left-preconditioned form
-is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. }
+is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. CG stops at $|r|^2/|b|^2<10^{-18}$ of
+its normal equations.}
 \label{fig:cgform}
 \end{figure}
 
