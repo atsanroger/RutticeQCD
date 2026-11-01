@@ -128,7 +128,14 @@ impl fmt::Display for Params {
                     l.solver_d(true).solver_type,
                     l.solver_d(true).convergence_criterion_squared,
                     l.solver_pv().solver_type,
-                    if operator == OperatorType::NormalLeft { "P†D†P" } else { "P†D_PV†P" },
+                    match (operator, l.solver_pv().solver_type) {
+                        (OperatorType::NormalLeft, _) => "P†D†P".to_string(),
+                        (_, SolverType::Cg) => format!(
+                            "P†D_PV†P, regularized, ε {:e}",
+                            l.solver_pv().tikhonov_epsilon
+                        ),
+                        _ => "P†D_PV†P".to_string(),
+                    },
                     l.solver_pv().convergence_criterion_squared,
                     mg.coarse_precision(),
                     mg.fine_precision(),

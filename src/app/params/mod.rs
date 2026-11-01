@@ -155,6 +155,21 @@ Solver:
     }
 
     #[test]
+    fn pauli_villars_levels_need_minres() {
+        let solver = "  solver_type : gcr\n  operator_type : pv_left\n  preconditioner_type : MG\n";
+        let mg = with(solver, true).replace("MultiGrid:\n", "MultiGrid:\n  levels_for_pauli_villars : true\n");
+        let e = parse(&mg).unwrap_err().to_string();
+        assert!(e.contains("go with MultiGrid_Level1.Coarse_Solver_PV solver_type MINRES"), "{e}");
+        let minres = mg.replace(
+            "    block_size : [4, 4, 4, 4]\n",
+            "    block_size : [4, 4, 4, 4]\n    Coarse_Solver_PV:\n      solver_type : MINRES\n      convergence_criterion_squared : 1.0e-2\n",
+        );
+        if let Err(e) = parse(&minres) {
+            panic!("{e}");
+        }
+    }
+
+    #[test]
     fn confusing_combinations_are_explained() {
         let mg_block_unused = with("  solver_type : gcr\n", true);
         // Not an error: switching the multigrid off is one keyword; the block is noted.

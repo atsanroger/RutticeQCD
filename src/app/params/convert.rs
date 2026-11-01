@@ -737,6 +737,11 @@ impl MultigridBlock {
             true,
             normal,
         )?;
+        if self.levels_for_pauli_villars && level.solver_pv().solver_type != SolverType::Minres {
+            return Err(invalid(format!(
+                "{at}.levels_for_pauli_villars: the levels of the Pauli-Villars factor go with MultiGrid_Level1.Coarse_Solver_PV solver_type MINRES (the default is CG on the regularized normal equations, which takes none)"
+            )));
+        }
         let n = level.test_vectors(true);
         if !n.is_multiple_of(2) || n / 2 > self.setup.filter_number_of_vectors {
             return Err(invalid(format!(
