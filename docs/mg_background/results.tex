@@ -117,9 +117,9 @@ B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $31
 \end{table}
 
 \paragraph{Volume.} The advantage of the multigrid grows with the volume (Fig.~\ref{fig:volume},
-Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, faster on
+Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE (S) or level with it (B) on $12^4$, faster on
 $16^4$ (in setup~S the ranges overlap), and clearly faster from $24^4$ on. From $12^4$ to $24^3\times48$
-its iterations about double, while those of CGNE grow ten- to nineteenfold. Its setup grows with the
+its iterations about double, while those of CGNE grow $7$--$25$ times. Its setup grows with the
 volume. Neff's $\alpha=0.6$ saves CG a larger share of its iterations (Fig.~\ref{fig:cgform}) than the
 multigrid (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
@@ -167,7 +167,7 @@ and the setup parameters.
 
 The speed-up comes from the coarse correction. Without it a Krylov method on $\AL$ does not beat
 mixed-precision CGNE (Fig.~\ref{fig:massscan}). On $24^3\times48$ BiCGStab on $\AL$ alone needs fewer
-iterations than double-precision CGNE, about half in setup~B, but each of its iterations applies $\AL$ twice,
+iterations than double-precision CGNE, about $0.4$ of them, but each of its iterations applies $\AL$ twice,
 and it is slower than mixed-precision CGNE at every mass. GCR(2) with the Chebyshev smoother as its
 preconditioner needs fewer iterations than BiCGStab but more time.
 

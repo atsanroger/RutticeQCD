@@ -1537,8 +1537,8 @@ added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG 
 the same search direction and stops only on the double-precision residual. With $\delta=0$ the
 algorithm is plain CG in double precision; in single precision it is the solver of the
 Pauli--Villars factor, Eq.~\eqref{eq:tikhonov}, started from $x=0$. On $24^3\times48$ the mixed-precision solver needs the
-iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $30\%$ more ($14\%$ on configuration~1), and takes $0.53$--$0.74$ times the
-time (over the four configurations), with the same final residuals and $7.2$\,GB of device memory against $6.9$\,GB in double
+iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $67\%$ more ($26\%$ on configuration~1), and takes $0.53$--$0.88$ times the
+time (over the four configurations), with the same final residuals and $7.7$\,GB of device memory against $7.4$\,GB in double
 precision.
 
 \begin{algorithm}[tbp]
