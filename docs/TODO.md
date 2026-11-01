@@ -1035,14 +1035,13 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 - Optional: precondition the Tikhonov CG of the Pauli-Villars factor. (A†A+τ) is Hermitian positive
   definite, so the additive levels (`|B_ℓ|⁻¹ + Q M Q†`) apply without the c=0 restriction. Upper bound of
   the gain on 24³×48 conf 2: all coarse work is 22% (S) / 6% (B) of the solve (multiconf/tikhonov logs).
-- **Before merging the Tikhonov branches into main: review the architecture** (user, 2026-10-30).
-  The work is spread over `exp/pv-coarse-spectrum` (the solve, `Coarse_Solver_PV: CG` +
-  `tikhonov_epsilon`, `--tikhonov` in the examples) and `exp/basis-lifts-tikhonov` (the lifts of
-  the MG note on top). Decide: whether MINRES on the Σ-Hermitian form, `|H_xx|⁻¹` and the
-  Pauli-Villars levels (which need MINRES) stay as options or go; whether the regularized solve
-  belongs in `Correction` or in a coarse-solver type of its own; the CPU path (now device only,
-  it panics there); the examples' flags against the yaml parameter; whether `RUTTICE_BASIS_LIFTS`
-  becomes a parameter or stays an experiment.
+- **Tikhonov merged into main (2026-11-01, `fix/tikhonov-merge-prep`).** Done: the yaml default of
+  `Coarse_Solver_PV` is CG with `tikhonov_epsilon 1e-3`; the CPU cycle has the regularized solve;
+  `Cg::inner`; `levels_for_pauli_villars` and `Normal_left` refuse CG when read. Left open: the library
+  default `PvEoParams::default()` is still MINRES; `CoarseKrylov::Cg` is a variant that `coarse_solve`
+  cannot take and ε sits in two parallel fields (`pv_tikhonov`, `d_tikhonov`); whether MINRES, `|H_xx|⁻¹`
+  and the Pauli-Villars levels stay; `RUTTICE_BASIS_LIFTS` stays on `exp/basis-lifts-tikhonov` (not merged).
+  Review: multiconf/ARCH_REVIEW_20261101.md on the A30.
 
 - **Adjoint coarse kernel for the regularized Pauli-Villars solve** (optional; branch
   `exp/pv-coarse-spectrum`, `Coarse_Solver_PV: solver_type CG, tikhonov_epsilon`). The CG on
