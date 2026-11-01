@@ -85,7 +85,7 @@ Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterati
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
-CGNE grow about twentyfold, those of the multigrid by $2.8$--$5.4$. Its setup is paid back after
+CGNE grow by $18$--$27$, those of the multigrid by $2.8$--$5.4$. Its setup is paid back after
 $3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
 faster or level. The multigrid needs three times the device memory of CGNE.
 
@@ -143,10 +143,12 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 \paragraph{Single solves.} One setup of $D$ also solves with $D\dg$: flexible GCR on $D\dg$ with
 $\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs one to four
 iterations more than the solve with $D$ on $16^4$ at $m=0.01$ (Table~\ref{tab:c4}). The right-hand sides are a
-random vector and the residual $r=b-D\dg Dx_0$ after one sweep of the normal equations, solved to
-$10^{-10}$; the second is the one HMC meets, with its error mostly on the lowest modes. On $16^4$ on
-the random right-hand side more inner cycles per step do not reduce the count, so there the extra
-steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder. GCR(2) with one
+random vector $b$ and the residual $r=b-D\dg Dx_0$ of one sweep of the normal equations, where
+$D\dg w_0=b$ and $Dx_0=w_0$ are solved to $|r|^2/|b|^2<10^{-10}$ (the first with the cycle that has
+$D$ and $\Dpv$ exchanged, GCR(8)), which leaves $|r|^2/|b|^2=1.4\times10^{-10}$--$3\times10^{-9}$; the
+second is the one HMC meets, with its error mostly on the lowest modes. On $16^4$ on
+the random right-hand side more inner cycles per step do not reduce the count, which suggests that
+there the extra steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder. GCR(2) with one
 cycle per step does not converge, GCR(8) converges on three of the four configurations and GCR(2)
 with two cycles per step on two, and GCR(8) with two cycles per step needs $10$ iterations on all
 four.
@@ -201,8 +203,8 @@ that of the fine $\Dpv$ on $12^4$ and $1/46$ to $1/9$ on $16^4$; without smearin
 of it (Table~\ref{tab:pvsv}). Among the smeared configurations this value does not order the
 iteration counts. The exact coarse solve amplifies the directions of small singular values, and the
 shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (ten seeds
-on each of the four configurations) need $10$--$17$ iterations, and the value of $\tau$ hardly matters
-(Table~\ref{tab:tikhonov}).
+on each of the four configurations) need $10$--$17$ iterations. Other values of $\tau$ from $10^{-4}$ to $3\times10^{-2}$ give
+$11$--$19$ iterations, except one run at $\tau=10^{-2}$ (Table~\ref{tab:tikhonov}).
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -243,10 +245,11 @@ same setup converges.
 \label{sec:why}
 
 We infer that the spectrum and the pseudospectra of the preconditioned operator govern the
-convergence. In both setups the field of values of $\AR\mathcal M$ reaches into the left
-half-plane, so the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. Its
-eigenvalues lie at $\Re\lambda\ge0.70$, and on $12^4$ (configuration~1) its pseudospectra bound full GMRES with a fixed
-cycle. As usual for multigrid preconditioners of lattice Dirac operators, the
+convergence, since its field of values reaches into the left half-plane and the bound of
+Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. The quantities of this section are
+for $\alpha=1$. $\AR$ does not depend on $\alpha$, but $\AL$ at $\alpha=0.6$ is a different
+operator (Eq.~\eqref{eq:ALalpha}) that the analysis does not cover; at $\alpha=1$ the solves of
+Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
 
 The \emph{field of values}
@@ -333,8 +336,9 @@ the accuracy of the Lanczos estimates.
 
 On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
 contours with $16$ points it is an estimate. Its rate on the dense circle of setup~S, $r/c=0.6$, is
-close to the one we measure on $24^3\times48$, a larger lattice, on configurations 1 and 3, where the median factor per GCR step of $|r|^2$ is $0.23$--$0.41$ (Fig.~\ref{fig:history}), that
-is $0.48$--$0.64$ in $|r|$; configuration~2 in setup~S converges more slowly. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
+close to the one we measure on $24^3\times48$, a larger lattice, in setup~S at $m=0.001$ and
+$\alpha=0.6$: the median factor per GCR step of $|r|$ is $0.59$ and $0.50$ on configurations 1 and 3
+and $0.67$ on configuration~2 (Fig.~\ref{fig:history}). The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
 eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
 $\mathcal M$.
 
@@ -361,8 +365,7 @@ agrees with this picture, since the same cycle converges with GCR(16); we did no
 between the new direction and the residual there.
 
 Configuration~2 of $24^3\times48$ needs more iterations than the other three
-(Table~\ref{tab:volume}); which property of that configuration causes this is open. No run on
-$24^3\times48$ shows a plateau (Fig.~\ref{fig:history}).
+(Table~\ref{tab:volume}); which property of that configuration causes this is open.
 
 \begin{figure}[t]
 \centering

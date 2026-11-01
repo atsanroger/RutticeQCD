@@ -441,9 +441,6 @@ where $D_-\dg=cW\dg-1$ and $W\dg=(4-M_5)-\frac12K\dg$ were used. It vanishes for
 operator ($c=0$) and is of order $c$ otherwise; multigrid on the $\Gfive$-Hermitian operator has been used
 in the $c=0$ subspace of M\"obius fermions (as summarized in Ref.~\cite{BoyleMRHS}). Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
 fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating with $\Gfive$.
-\ifresults{} On a $12^4$ configuration with stout links ($M_5=1$, $m=0.001$),
-$\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$,
-and $0$ for $(1,0)$, for a random $b$.\fi
 
 \paragraph{The exact relation.} It is the generalized $\Gfive$-Hermiticity of
 Ref.~\cite{BNO}, Eqs.~(2.22)--(2.23), whose $\Gfive$ contains $D_-^{-1}$; here $\Gfive=\gamma_5R$
@@ -464,8 +461,7 @@ and multiplying by $D_-\Gfive$ from the left,
 \label{eq:g5exact}
 \end{equation}
 This form has no inverse, holds for any $m$ (so also for $\Dpv$, with the same $D_-$), and can
-be checked by applying both sides to a vector.\ifresults{} On the configuration above both sides
-agree to $3\times10^{-16}$ for $(b,c)=(1.5,0.5)$ and $(2,1)$.\fi{} The Hermitian operator
+be checked by applying both sides to a vector. The Hermitian operator
 of the M\"obius case is $\Gfive K_D=\Gfive D_-^{-1}D$; Ref.~\cite{BNO}, Eq.~(2.22), defines
 its $\Gamma_5$ as $\gamma_5RD_-^{-1}$ for that reason. It contains $D_-^{-1}$, whose cost
 is discussed in Sec.~\ref{sec:dagger}.
@@ -568,7 +564,7 @@ conditioning of the even-odd operator~\cite{Neff,CKMN}.
 \subsection{Even-odd forms}
 \label{sec:eo}
 
-\paragraph{The diagonal blocks are $C$.} Order the sites so that the even ones come first.
+In the even-odd block form the diagonal blocks of $D$ are $C$. Order the sites so that the even ones come first.
 We write $X_{pq}$ for the block of an operator $X$ that maps the sites of parity $q$ to those of
 parity $p$, and $\psi_e$, $\psi_o$ for the even and odd parts of a field.
 The hopping term $K$ connects nearest neighbors, which always have opposite parity, so it has
@@ -636,14 +632,14 @@ is $\rho_R=(\Spv\Cpve^{-1})\dg\eta'_e$ or $\rho_L=(\Cpve^{-1}\Spv)\dg\Ce^{-1}\et
 $\psi^{(\alpha)}_e=\Ce^{-1}y$ (right) or $y$ (left),
 $\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alpha)}$.
 
-\paragraph{Why both forms.} The two forms serve different purposes. The factorized correction of
+\paragraph{Choice of form.} The two forms serve different purposes. The factorized correction of
 Sec.~\ref{sec:correction} is exact for the right form (Eq.~\eqref{eq:exact}), but $Q$
 cancels in it, so the right form cannot use Neff's $\alpha$. The left form keeps $\alpha$. The
 correction is not exact for it, yet it needs about as many iterations as the right form, and
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
-\paragraph{How $\alpha$ acts on CG and on the multigrid.} The left Schur factor of $DQ$ is a
+\paragraph{$\alpha$ in CG and in the multigrid.} The left Schur factor of $DQ$ is a
 similarity transform of that of $D$:
 \begin{equation}
 \mathcal K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}\mathcal KQ_e,\qquad \mathcal K=\Ce^{-1}S .
@@ -859,7 +855,7 @@ The two lifts differ in the fifth dimension: their odd parts are built with $\Co
 $(\Cpvo\dg)^{-1}$, which by Eq.~\eqref{eq:Cinv} carry each chirality toward opposite ends of the
 fifth dimension. So a space built from the $s_j$ alone does not contain the $\hat t_j$.
 
-\paragraph{Exactness for the right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
+\paragraph{The right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
 and $\Pro\dg\Dpv\dg\Pro$ be invertible, and let both coarse systems in Eq.~\eqref{eq:corr} be
 solved exactly, with the exact adjoint $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form
 correction returns the vector it is built from,
@@ -1168,9 +1164,7 @@ m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
 have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
 imaginary parts of both signs, so the spectrum surrounds the origin. A Krylov method then has no
 low-degree polynomial $p$ with $p(0)=1$ that is small on the spectrum
-(Sec.~\ref{sec:spectra}), and it makes no progress.\ifresults{} Numerically ($12^4$, stout,
-$M_5=1$), GCR(8) on $D_-$ and on $D_-\dg$ stops at $|r|^2/|b|^2=0.74$ (S) and $0.96$ (B) after
-$20000$ iterations, and BiCGStab diverges.\fi{} The preconditioner of Eq.~\eqref{eq:c4} avoids
+(Sec.~\ref{sec:spectra}), and it makes no progress. The preconditioner of Eq.~\eqref{eq:c4} avoids
 $D_-^{-1}$ altogether.
 
 
@@ -1194,7 +1188,8 @@ the coarse lattice in place of deflation. The
 lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
 configurations of setup~S or takes several times the iterations there, and it costs iterations in
 setup~B, although the correction is exact only for the
-right form. One setup serves every value of
+right form. Twice as many vectors $y$ with $s$ alone need fewer iterations on $24^3\times48$, at
+$1.6$ times the setup time. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
@@ -1374,8 +1369,7 @@ M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), unrelated to Neff's $\alpha$ of Eq.~\
 $D^{(\alpha)}$ here and the operator of Bridge++ with \texttt{parameter\_alpha} were
 compared on a $12^4$ configuration with stout links, $L_s=8$, $m=0.01$: at $\alpha=0.6$
 and $\alpha=1$ CG on the even-odd normal equation took the same number of iterations
-for every column of a point source, and the pseudoscalar correlators agree to
-$10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
+for every column of a point source, and the pseudoscalar correlators agree. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
 
 \begin{table}[t]
 \centering

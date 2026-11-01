@@ -10,6 +10,8 @@ applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
 multigrid setup ($192$--$220$\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
 MG})$, against the double- and the mixed-precision CGNE (n/a: CGNE is faster); speed-up: the solve time of the
 mixed-precision CGNE over that of the multigrid, smallest and largest over the four configurations.
+Over the four configurations at $m=0.001$, $N_{\rm rhs}$ against mixed CGNE is $3.5$--$5.3$, and
+from $m=0.1$ to $0.001$ the iterations grow by $2.8$--$5.4$ (MG) and $18$--$27$ (mixed CGNE).
 Appendix~\ref{sec:cgform} compares the two precisions of CGNE. Final $|D\psi-\eta|^2/|\eta|^2$: $9\times10^{-18}$--$8\times10^{-15}$
 (CGNE, both), $2\times10^{-19}$--$4\times10^{-18}$ (MG). Device memory peak: CGNE $6.9$\,GB
 (double) and $7.2$\,GB (mixed), MG $21.1$\,GB ($\alpha=0.6$).}
@@ -76,7 +78,7 @@ B & CGNE, mixed & it & $505$--$584$ & $818$--$1249$ & $3388$--$4116$ & $4232$--$
 \centering
 \caption{GCR iterations of a solve with $D\dg$ to $|r|^2/|b|^2<10^{-10}$ from one setup of $D$
 (32 test vectors, blocks $4^4$). ``rand'': random right-hand side; ``res'': the residual after
-one sweep of $D\dg D$. Medians over the four configurations, in brackets the number that do not
+one sweep of $D\dg D$ (Sec.~\ref{sec:daggerresults}). Medians over the four configurations, in brackets the number that do not
 converge in $300$ iterations (``stall'': three or four; with two, the range of the other two). One
 inner cycle per step unless stated.}
 \label{tab:c4}
@@ -91,6 +93,7 @@ $D$, GCR(2) & 5 & 7 & 7 & 9 & 5 & 7 & 7 & 9\\
 $\Gfive\mathcal M\Gfive$, GCR(2) & 9 & 10 & 10 & 12 & 13 & stall & 12 & 14\\
 $\Gfive\mathcal M\Gfive$, GCR(8) & 9 & 10 & 10 & 11 & 11 & 17 [1] & 11 & 13\\
 $\Gfive\mathcal M\Gfive$, GCR(2), two cycles & 9 & 9 & 10 & 9 & 11 & 13--15 [2] & 10 & 13\\
+$\Gfive\mathcal M\Gfive$, GCR(8), two cycles & 9 & 9 & 9 & 9 & 10 & 10 & 10 & 11\\
 \bottomrule
 \end{tabular}
 \end{table}
