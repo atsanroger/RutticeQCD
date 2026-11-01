@@ -67,6 +67,7 @@ Data files are in `data/` (`data/unused/` holds files of earlier runs that no ta
 | Open problems, field of values of the fine D_PV | `ruttice` eigensolver, `fermion_mult_mode: ReD` | `finesigmaA1/reD*` (`neff_alpha 1.0`) |
 | Appendix D, CG on K†K and S†S (Fig. 10) | `ruttice` with `RUTTICE_CGNE_SCHUR=1` for S†S, double | `cgne_form.tsv`; `figures.py` |
 | Table 6 (configurations) | `ruttice-flow` | |
+| Sec. II.B.2, Γ5 D Γ5 against D† and Eq. (2.13) | example `mobius_gamma5_check 12 Binary conf_quench_12x12x12x12_v2.bin 1.0 0.001 1` (CPU) | `g5check/g5check_12_S.log` |
 
 `multiconf/rerunT/extract.py` writes the multigrid rows of the data files from the logs and prints each
 change (`extract_diff.txt`); `tables.py` computes the rows of Table 7.

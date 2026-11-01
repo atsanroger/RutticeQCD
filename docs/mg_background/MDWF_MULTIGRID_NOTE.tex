@@ -441,6 +441,9 @@ where $D_-\dg=cW\dg-1$ and $W\dg=(4-M_5)-\frac12K\dg$ were used. It vanishes for
 operator ($c=0$) and is of order $c$ otherwise; multigrid on the $\Gfive$-Hermitian operator has been used
 in the $c=0$ subspace of M\"obius fermions (as summarized in Ref.~\cite{BoyleMRHS}). Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
 fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating with $\Gfive$.
+\ifresults{} On configuration~1 of $12^4$ with stout links ($M_5=1$, $m=0.001$),
+$\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$
+and $0$ for $(1,0)$, for a random $b$.\fi
 
 \paragraph{The exact relation.} It is the generalized $\Gfive$-Hermiticity of
 Ref.~\cite{BNO}, Eqs.~(2.22)--(2.23), whose $\Gfive$ contains $D_-^{-1}$; here $\Gfive=\gamma_5R$
@@ -461,7 +464,8 @@ and multiplying by $D_-\Gfive$ from the left,
 \label{eq:g5exact}
 \end{equation}
 This form has no inverse, holds for any $m$ (so also for $\Dpv$, with the same $D_-$), and can
-be checked by applying both sides to a vector. The Hermitian operator
+be checked by applying both sides to a vector.\ifresults{} On the configuration above both sides
+agree to $3\times10^{-16}$ for $(b,c)=(1.5,0.5)$ and $(2,1)$.\fi{} The Hermitian operator
 of the M\"obius case is $\Gfive K_D=\Gfive D_-^{-1}D$; Ref.~\cite{BNO}, Eq.~(2.22), defines
 its $\Gamma_5$ as $\gamma_5RD_-^{-1}$ for that reason. It contains $D_-^{-1}$, whose cost
 is discussed in Sec.~\ref{sec:dagger}.
