@@ -353,7 +353,8 @@ pub struct PvEoParams {
 
 impl Default for PvEoParams {
     /// The settings of the M5 = 1.0 (stout 0.1 × 3) runs: Chebyshev 8 steps on [hi/10, hi],
-    /// coarse solves to 1e-2, the quark factor by BiCGStab, the Pauli-Villars one by MINRES.
+    /// coarse solves to 1e-2, the quark factor by BiCGStab, the Pauli-Villars one by CG on its
+    /// regularized normal equations, ε = 1e-3.
     /// M5 = 1.8 without smearing takes 12 steps on [hi/30, hi]; the smoother is not chosen
     /// from the operator: with 5 steps on [hi/30, hi] the stout 12⁴ solves at m = 0.001
     /// stagnate (|r|² about 1e-5 after 2000 GCR(32) steps, 13 with 8 on [hi/10, hi]).
@@ -368,8 +369,8 @@ impl Default for PvEoParams {
             coarse_even_odd: true,
             d_solver: CoarseKrylov::BiCgStab,
             d_tikhonov: 0.0,
-            pv_solver: CoarseKrylov::Minres,
-            pv_tikhonov: 0.0,
+            pv_solver: CoarseKrylov::Cg,
+            pv_tikhonov: 1e-3,
             power_steps: 50,
             seed: 5,
         }

@@ -58,6 +58,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cycle = PvEoParams {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 10.0)?,
+        // The Pauli-Villars factor by MINRES on its Hermitian form.
+        pv_solver: CoarseKrylov::Minres,
+        pv_tikhonov: 0.0,
         ..PvEoParams::default()
     };
     let dual = PvEoParams {

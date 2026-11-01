@@ -86,6 +86,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tuned = PvEoParams {
         chebyshev_steps: 8,
         chebyshev_ratio: 10.0,
+        // The Pauli-Villars factor by MINRES on its Hermitian form.
+        pv_solver: CoarseKrylov::Minres,
+        pv_tikhonov: 0.0,
         ..PvEoParams::default()
     };
     let basis = pv_eo_bootstrap(

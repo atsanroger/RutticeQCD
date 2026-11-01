@@ -1308,14 +1308,14 @@ fn even_odd_pv_multigrid_solves_d() {
         assert!(left[0] < 1e-16 * size[0]);
         assert!(info.iterations < unpreconditioned.iterations);
 
-        // The Pauli-Villars factor by CG on its regularized normal equations (the default of the
-        // parameter files), on the CPU: the same solution, fewer steps than BiCGStab alone.
-        let regularized = PvEoParams {
-            pv_solver: CoarseKrylov::Cg,
-            pv_tikhonov: 1e-3,
+        // The Pauli-Villars factor by MINRES on its Hermitian form: the same solution, fewer
+        // steps than BiCGStab alone.
+        let with_minres = PvEoParams {
+            pv_solver: CoarseKrylov::Minres,
+            pv_tikhonov: 0.0,
             ..PvEoParams::default()
         };
-        let mut tik = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, regularized).unwrap();
+        let mut tik = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, with_minres).unwrap();
         let mut sol = like.zeros_like();
         let tik_info = Gcr::new(stop, 2)
             .solve(&mut a, Some(&mut tik), &mut sol, &rhs)
@@ -1325,7 +1325,7 @@ fn even_odd_pv_multigrid_solves_d() {
         r.aypx(&[C64::new(-1.0, 0.0)], &b);
         r.norm_sqr(&mut left);
         eprintln!(
-            "  regularized Pauli-Villars solve: {} steps ({} coarse applications); |D x - b|^2/|b|^2 = {:e}",
+            "  MINRES for the Pauli-Villars factor: {} steps ({} coarse applications); |D x - b|^2/|b|^2 = {:e}",
             tik_info.iterations,
             tik.coarse_applications(),
             left[0] / size[0]
@@ -1357,9 +1357,14 @@ fn even_odd_pv_multigrid_solves_d() {
         assert!(left[0] < 1e-16 * size[0]);
         assert!(two_info.iterations <= info.iterations + 1);
 
-        // The same level under the solves of the second (Pauli-Villars) factor as well.
-        let mut both =
-            PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
+        // The same level under the solves of the second (Pauli-Villars) factor as well, which
+        // goes with MINRES on its Hermitian form.
+        let minres = PvEoParams {
+            pv_solver: CoarseKrylov::Minres,
+            pv_tikhonov: 0.0,
+            ..PvEoParams::default()
+        };
+        let mut both = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, minres).unwrap();
         both.add_levels(&vectors, &[2]).unwrap();
         let setup = both.add_pv_levels(&vectors, &[2]).unwrap();
         let mut sol = like.zeros_like();

@@ -18,7 +18,7 @@ use ruttice::fermion::{Bound, FermionOp, Mdwf, MdwfParams, Variant};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::hmc::{dwf_multigrid_normal_solve, DwfMultigridSetup, LinkField, Mseries};
-use ruttice::solver::preconditioner::multigrid::{MdwfMultigridSettings, PvEoParams};
+use ruttice::solver::preconditioner::multigrid::{CoarseKrylov, MdwfMultigridSettings, PvEoParams};
 use ruttice::solver::{Cg, Solver, Stop};
 use ruttice::{random_spinor, Boundary, Field, Gauge, Lattice, Normal, Spinor, Vector, ND};
 use std::error::Error;
@@ -44,6 +44,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cycle = PvEoParams {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 30.0)?,
+        // The Pauli-Villars factor by MINRES on its Hermitian form.
+        pv_solver: CoarseKrylov::Minres,
+        pv_tikhonov: 0.0,
         ..PvEoParams::default()
     };
     let inner = value("--inner", 1e-10)?;

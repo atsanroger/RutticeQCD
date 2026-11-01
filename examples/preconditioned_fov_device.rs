@@ -220,6 +220,9 @@ mod device {
         let cycle = PvEoParams {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 30.0)?,
+            // The Pauli-Villars factor by MINRES on its Hermitian form.
+            pv_solver: CoarseKrylov::Minres,
+            pv_tikhonov: 0.0,
             ..PvEoParams::default()
         };
         // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g in the setup and in the
