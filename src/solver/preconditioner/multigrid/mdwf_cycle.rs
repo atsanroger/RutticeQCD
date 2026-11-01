@@ -179,6 +179,9 @@ pub struct CoarseParts<CT: Storage> {
     blocks: (Rc<RefCell<BlockMap>>, Rc<RefCell<BlockMap>>),
     /// The levels below the coarse lattice of either factor, built on these coarse operators.
     levels: (Option<SharedLevels<CT>>, Option<SharedLevels<CT>>),
+    /// The adjoints of the coarse operators of either factor, for its regularized solve
+    /// (`CoarseKrylov::Cg`): (P†DP)† and P†D_PV P.
+    adjoints: (Option<SharedCoarse<CT>>, Option<SharedCoarse<CT>>),
     hi: f64,
 }
 
@@ -195,6 +198,7 @@ impl<CT: Storage> Clone for CoarseParts<CT> {
             coarse: (self.coarse.0.clone(), self.coarse.1.clone()),
             blocks: (self.blocks.0.clone(), self.blocks.1.clone()),
             levels: (self.levels.0.clone(), self.levels.1.clone()),
+            adjoints: (self.adjoints.0.clone(), self.adjoints.1.clone()),
             hi: self.hi,
         }
     }
@@ -338,17 +342,24 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         // matrices on the coarse sites that precondition their solves.
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
         let mut coarse_d = basis.coarse_op(op, &mut op.work()).to_storage::<f64>();
+        // The regularized solve of the first factor also applies (P†DP)†.
+        let adjoint_d = (params.d_solver == CoarseKrylov::Cg).then(|| coarse_d.adjoint());
+        // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
+        // adjoint P†D_PV†P, solved as the first factor is; the regularized solve also applies
+        // P†D_PV P.
+        let minres = params.pv_solver == CoarseKrylov::Minres;
+        let plain_pv = basis.coarse_op(pv, &mut pv.work()).to_storage::<f64>();
+        let (mut coarse_pv, adjoint_pv) = match minres {
+            true => (plain_pv, None),
+            false => {
+                let adjoint = plain_pv.adjoint();
+                let regularized = params.pv_solver == CoarseKrylov::Cg;
+                (adjoint, regularized.then_some(plain_pv))
+            }
+        };
+        // The regularized solve applies the adjoints on all coarse sites: no even-odd form.
         if params.coarse_even_odd {
             coarse_d.prepare_even_odd()?;
-        }
-        // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
-        // adjoint P†D_PV†P, solved as the first factor is.
-        let minres = params.pv_solver == CoarseKrylov::Minres;
-        let mut coarse_pv = basis.coarse_op(pv, &mut pv.work()).to_storage::<f64>();
-        if !minres {
-            coarse_pv = coarse_pv.adjoint();
-        }
-        if params.coarse_even_odd {
             coarse_pv.prepare_even_odd()?;
         }
         let blocks_d = BlockMap::inverse_diagonal(&coarse_d)?;
@@ -378,6 +389,10 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 Rc::new(RefCell::new(blocks_pv)),
             ),
             levels: (None, None),
+            adjoints: (
+                adjoint_d.map(|a| Rc::new(RefCell::new(a.to_storage::<CT>()))),
+                adjoint_pv.map(|a| Rc::new(RefCell::new(a.to_storage::<CT>()))),
+            ),
             hi,
         })
     }
@@ -424,6 +439,12 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         }
         if let Some(l) = parts.levels.1.clone() {
             correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
+        }
+        if let Some(a) = parts.adjoints.0.clone() {
+            correction.set_d_adjoint(a);
+        }
+        if let Some(a) = parts.adjoints.1.clone() {
+            correction.set_pv_adjoint(a);
         }
         let hi = parts.hi;
         let mut like_l = HalfField::<L, F>::with_shape(&lat, 24, ls, 1, 1);

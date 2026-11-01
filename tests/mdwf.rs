@@ -1308,6 +1308,31 @@ fn even_odd_pv_multigrid_solves_d() {
         assert!(left[0] < 1e-16 * size[0]);
         assert!(info.iterations < unpreconditioned.iterations);
 
+        // The Pauli-Villars factor by CG on its regularized normal equations (the default of the
+        // parameter files), on the CPU: the same solution, fewer steps than BiCGStab alone.
+        let regularized = PvEoParams {
+            pv_solver: CoarseKrylov::Cg,
+            pv_tikhonov: 1e-3,
+            ..PvEoParams::default()
+        };
+        let mut tik = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, regularized).unwrap();
+        let mut sol = like.zeros_like();
+        let tik_info = Gcr::new(stop, 2)
+            .solve(&mut a, Some(&mut tik), &mut sol, &rhs)
+            .unwrap();
+        a.solution(&mut x, &sol, &b);
+        let mut r = mult(&op, &x, Variant::D);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        r.norm_sqr(&mut left);
+        eprintln!(
+            "  regularized Pauli-Villars solve: {} steps ({} coarse applications); |D x - b|^2/|b|^2 = {:e}",
+            tik_info.iterations,
+            tik.coarse_applications(),
+            left[0] / size[0]
+        );
+        assert!(left[0] < 1e-16 * size[0]);
+        assert!(tik_info.iterations < unpreconditioned.iterations);
+
         // A level below the coarse lattice (super-blocks of 2⁴ coarse sites, the 1 × 1 × 1 × 2 of
         // them solved exactly) under the solves of the quark factor: the same solution in as many
         // outer steps.

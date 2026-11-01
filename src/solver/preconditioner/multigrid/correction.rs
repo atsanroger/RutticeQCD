@@ -79,14 +79,9 @@ pub type Levels<'a, C> = dyn Fn(&mut C, &C) + 'a;
 pub type CoarseSolve<'a, C> =
     dyn FnMut(&mut dyn LinearFn<C>, Option<&mut dyn LinearFn<C>>, &mut C, &C) + 'a;
 
-/// c = A⁻¹ g approximately for the coarse operator `a`, by `solve`: on the even coarse sites
-/// where `a` has the even-odd form (preconditioned by the inverses of the blocks there, or
-/// with `levels` by the even sites of their cycle), otherwise on all of them, right-
-/// preconditioned by `blocks` (the inverses of the blocks) and the levels as far as there are
-/// any: z₁ = L r, z = z₁ + B⁻¹ (r − A z₁), one more application of A; an additive combination
-/// made BiCGStab worse. `n` counts the applications of `a`.
-/// x = (A†A + ε)⁻¹ A† g by CG on all coarse sites, from x = 0: the singular values of A below √ε
-/// are damped by σ²/(σ² + ε). `adj` applies A†; `n` counts the applications of either.
+/// x = (A†A + ε)⁻¹ A† g by CG on all coarse sites, from x = 0: against A⁻¹ g, the component along
+/// a right singular vector of A is multiplied by σ²/(σ² + ε). `adj` applies A†; `n` counts the
+/// applications of either.
 fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
     adj: &D,
@@ -108,9 +103,15 @@ fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
         n.set(n.get() + 2 * inp.num_vectors());
         out.axpy(&shift, inp);
     });
-    let _ = crate::solver::Cg::new(stop).solve(&mut normal, None, x, &b);
+    let _ = crate::solver::Cg::inner(stop).solve(&mut normal, None, x, &b);
 }
 
+/// c = A⁻¹ g approximately for the coarse operator `a`, by `solve`: on the even coarse sites
+/// where `a` has the even-odd form (preconditioned by the inverses of the blocks there, or
+/// with `levels` by the even sites of their cycle), otherwise on all of them, right-
+/// preconditioned by `blocks` (the inverses of the blocks) and the levels as far as there are
+/// any: z₁ = L r, z = z₁ + B⁻¹ (r − A z₁), one more application of A; an additive combination
+/// made BiCGStab worse. `n` counts the applications of `a`.
 pub fn solve_shared<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
     mut blocks: Option<&mut dyn LinearFn<C>>,
@@ -441,14 +442,15 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
-        // w = (P†D_PV†P)⁻¹ g: by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its
-        // own Γ5-adjoint), or on the exact adjoint, which `coarse_pv` then is. Preconditioned
-        // by the blocks, and the levels below if there are any.
+        // w = (P†D_PV†P)⁻¹ g: by CG on the regularized normal equations of the exact adjoint
+        // (`coarse_pv`), by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its own
+        // Γ5-adjoint), or by a Krylov solver on the exact adjoint. The last two preconditioned by
+        // the blocks, and the levels below if there are any.
         w.set_zero();
         if params.pv_solver == CoarseKrylov::Cg {
             let adj = coarse_pv_adj
                 .as_ref()
-                .expect("the regularized solve needs P†D_PV P (set_pv_adjoint), made on the device");
+                .expect("the regularized solve needs P†D_PV P (set_pv_adjoint)");
             regularized_solve(coarse_pv, adj, params.pv_tikhonov, pv_stop, n, w, gc);
         } else if params.pv_solver == CoarseKrylov::Minres {
             coarse_pv.gamma5(gc);
@@ -490,7 +492,7 @@ where
         if params.d_solver == CoarseKrylov::Cg {
             let adj = coarse_d_adj
                 .as_ref()
-                .expect("the regularized solve needs the adjoint of P†DP (set_d_adjoint), made on the device");
+                .expect("the regularized solve needs the adjoint of P†DP (set_d_adjoint)");
             regularized_solve(&*coarse_d, adj, params.d_tikhonov, stop, n, c, gc);
         } else {
             let d_solver = params.d_solver;

@@ -84,6 +84,41 @@ fn cg_solves_the_normal_equations() {
     );
 }
 
+/// CG for an inner solve (x zero on entry, the recurrence's residual reported) gives the solution
+/// of `Cg::new` bit for bit, in as many iterations, two applications of A fewer.
+#[test]
+fn cg_inner_matches_cg() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 1));
+    let b = random_spinor(&lat, 1, 2);
+    let stop = Stop::simple(1e-20, 500);
+    struct Counted<A> {
+        a: A,
+        n: usize,
+    }
+    impl<A: LinearFn<V64>> LinearFn<V64> for Counted<A> {
+        fn mult(&mut self, out: &mut V64, inp: &V64) {
+            self.n += 1;
+            self.a.mult(out, inp);
+        }
+    }
+    let solve = |mut cg: Cg<V64>| {
+        let mut counted = Counted {
+            a: ddag_d(&op, &b),
+            n: 0,
+        };
+        let mut x = b.zeros_like();
+        let info = cg.solve(&mut counted, None, &mut x, &b).unwrap();
+        (x, info, counted.n)
+    };
+    let (x, info, n) = solve(Cg::new(stop));
+    let (xi, info_i, ni) = solve(Cg::inner(stop));
+    assert_eq!(info.iterations, info_i.iterations);
+    assert_eq!(ni + 2, n);
+    assert_eq!(x.as_slice(), xi.as_slice());
+    assert!(info_i.residual_sqr[0] <= 1e-20);
+}
+
 /// Three right-hand sides solved together, one of them zero, give the same answers as
 /// three separate solves.
 #[test]

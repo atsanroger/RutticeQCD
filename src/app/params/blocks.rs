@@ -755,8 +755,12 @@ fn coarse_block(solver_type: SolverType) -> SolverBlock {
 fn coarse_d() -> SolverBlock {
     coarse_block(SolverType::BiCgStab)
 }
+/// The Pauli-Villars factor by CG on its regularized normal equations, ε = 1e-3.
 fn coarse_pv() -> SolverBlock {
-    coarse_block(SolverType::Minres)
+    SolverBlock {
+        tikhonov_epsilon: 1e-3,
+        ..coarse_block(SolverType::Cg)
+    }
 }
 
 impl SolverBlock {
@@ -907,6 +911,9 @@ impl SolverBlock {
         }
         match self.solver_type {
             SolverType::BiCgStab | SolverType::Gcr => Ok(()),
+            SolverType::Cg if second && normal => Err(invalid(format!(
+                "{name}: with operator_type Normal_left the second factor is P†D†P, not the Pauli-Villars factor the regularized solve is for; use BiCGStab or GCR"
+            ))),
             SolverType::Cg if second && self.tikhonov_epsilon > 0.0 => Ok(()),
             SolverType::Cg => Err(invalid(format!(
                 "{name}: CG on the coarse lattice is the regularized solve of the Pauli-Villars factor; set tikhonov_epsilon > 0 in Coarse_Solver_PV"

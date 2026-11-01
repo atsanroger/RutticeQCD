@@ -181,6 +181,10 @@ vectors are filtered at a time: fewer take less memory. The levels below the coa
 (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
 inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
 second factor (`Coarse_Solver_PV` other than `MINRES`).
+`Coarse_Solver_PV` solves the Pauli-Villars factor by default with `solver_type : CG` on its
+regularized normal equations (A†A + ε) w = A† g, A = P†D_PV†P, `tikhonov_epsilon : 1.0e-3`, on the
+CPU and the device; `BiCGStab` and `GCR` on the exact adjoint and `MINRES` on its Γ5-Hermitian form
+remain. With `operator_type : Normal_left` the second factor is P†D†P: `BiCGStab` or `GCR`.
 Each solve and each HMC trajectory reports the work it did: Flop, GFlop/s and Flop/byte over the
 whole solve or trajectory, split into the fine
 operators (`Fine`), the coarse operators and the setup of the multigrids (`Coarse`), restriction

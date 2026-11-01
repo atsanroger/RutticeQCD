@@ -123,7 +123,8 @@ Solver:
         let p = parse(&text).unwrap();
         let (cycle, low, boot) = p.multigrid().unwrap();
         assert_eq!(cycle.d_solver, CoarseKrylov::BiCgStab);
-        assert_eq!(cycle.pv_solver, CoarseKrylov::Minres);
+        assert_eq!(cycle.pv_solver, CoarseKrylov::Cg);
+        assert_eq!(cycle.pv_tikhonov, 1e-3);
         assert_eq!(low.vectors, 16);
         assert_eq!(boot.rounds, 2);
         assert_eq!(p.form(), (EoForm::Left, false));

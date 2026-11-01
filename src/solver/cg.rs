@@ -9,6 +9,9 @@ use crate::{LinearFn, Vector, C64};
 /// positive definite and the same at every application).
 pub struct Cg<V> {
     pub stop: Stop,
+    /// An inner solve (`inner`): x is zero on entry, so the first residual is b and needs no
+    /// application of A, and the recurrence's residual is reported instead of b − A x.
+    pub inner: bool,
     work: Option<Work<V>>,
 }
 
@@ -21,7 +24,19 @@ struct Work<V> {
 
 impl<V: Vector> Cg<V> {
     pub fn new(stop: Stop) -> Self {
-        Self { stop, work: None }
+        Self {
+            stop,
+            inner: false,
+            work: None,
+        }
+    }
+
+    /// `new` for an inner solve (see `inner`): x must be zero on entry.
+    pub fn inner(stop: Stop) -> Self {
+        Self {
+            inner: true,
+            ..Self::new(stop)
+        }
     }
 }
 
@@ -81,7 +96,11 @@ impl<V: Vector> Solver<V> for Cg<V> {
             let mut narrowed: Option<Narrowed<V>> = None;
 
             // r = b - A x
-            a.mult_xpay(r, x, &minus_one, b);
+            if self.inner && restart == 0 {
+                r.copy_from(b);
+            } else {
+                a.mult_xpay(r, x, &minus_one, b);
+            }
             r.norm_sqr(&mut rr);
             // A NaN residual counts as neither converged nor active: without this the loop
             // would apply A to the end of its iterations and report `NotConverged`.
@@ -202,7 +221,18 @@ impl<V: Vector> Solver<V> for Cg<V> {
                 x.assign(&last.of, &last.x);
             }
             crate::fit(r, b);
-            true_residual(a, x, b, &all_b_norm, r, &minus_one, &mut residual);
+            if self.inner && rr.len() == nv && restart == self.stop.max_restarts {
+                // The recurrence's residual, relative to |b|²; no restart follows.
+                for j in 0..nv {
+                    residual[j] = if all_b_norm[j] > 0.0 {
+                        rr[j] / all_b_norm[j]
+                    } else {
+                        rr[j]
+                    };
+                }
+            } else {
+                true_residual(a, x, b, &all_b_norm, r, &minus_one, &mut residual);
+            }
             let info = SolveInfo {
                 iterations,
                 restarts: restart,
