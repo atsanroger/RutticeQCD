@@ -1037,23 +1037,16 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   the gain on 24³×48 conf 2: all coarse work is 22% (S) / 6% (B) of the solve (multiconf/tikhonov logs).
 - **Tikhonov merged into main (2026-11-01, `fix/tikhonov-merge-prep`).** Done: the yaml default of
   `Coarse_Solver_PV` is CG with `tikhonov_epsilon 1e-3`; the CPU cycle has the regularized solve;
-  `Cg::inner`; `levels_for_pauli_villars` and `Normal_left` refuse CG when read. Left open: the library
-  default `PvEoParams::default()` is still MINRES; `CoarseKrylov::Cg` is a variant that `coarse_solve`
-  cannot take and ε sits in two parallel fields (`pv_tikhonov`, `d_tikhonov`); whether MINRES, `|H_xx|⁻¹`
-  and the Pauli-Villars levels stay; `RUTTICE_BASIS_LIFTS` stays on `exp/basis-lifts-tikhonov` (not merged).
+  `Cg::inner`; `levels_for_pauli_villars` and `Normal_left` refuse CG when read; `PvEoParams::default()`
+  regularized too (e55771c); `FactorSolve` in place of `CoarseKrylov::Cg` and the ε fields, adjoints given
+  to `Correction::new` (61f05b0). MINRES, `|H_xx|⁻¹` and the Pauli-Villars levels stay (user, 2026-11-01); `RUTTICE_BASIS_LIFTS` stays on `exp/basis-lifts-tikhonov` (not merged).
   Review: multiconf/ARCH_REVIEW_20261101.md on the A30.
 
-- **Adjoint coarse kernel for the regularized Pauli-Villars solve** (optional; branch
-  `exp/pv-coarse-spectrum`, `Coarse_Solver_PV: solver_type CG, tikhonov_epsilon`). The CG on
-  (A†A + ε) w = A† g keeps a second copy of the coarse Pauli-Villars operator (A = P†D_PV†P and
-  A† = P†D_PV P): +0.9 GB on 24³×48 (device peak 21.1 instead of 20.2 GB). Apply A† from A
-  instead: at site x and hop d, the link of the neighbour in the opposite direction, conjugate
-  transposed, and the diagonal block conjugate transposed. `coarse_pass_kernel`
-  (`cuda_bridge/include/multigrid/fold.cuh`) reads a row per warp; M†x needs columns, which read
-  strided was about 3 times slower (README, before 2026-10-20). Keep the warp-per-row reads and
-  sum over the warps in a fixed order (no atomics), check bit-for-bit against the explicit
-  adjoint with an order-sensitive checksum, and keep `adjoint_across` (multi-GPU) for the ghosts.
-  Estimate 1–2 days.
+- **Adjoint coarse kernel for the regularized Pauli-Villars solve: done (2026-11-01, 0bced8a).**
+  `coarse_adjoint_pass_kernel` applies A† from A's blocks on one GPU (`RUTTICE_COARSE_ADJOINT=copy`
+  keeps the copy, as several processes do); 24³×48 conf 1 S: device peak 17.73 → 16.78 GB. Left: the
+  CPU path still stores a copy (`CoarseOp::mult_adjoint` could replace it); the MG note's memory
+  numbers (20.3–21.1 GB) are from before the kernel.
 
 ## Device robustness
 
