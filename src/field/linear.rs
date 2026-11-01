@@ -153,6 +153,39 @@ impl<A: LinearOp<V>, V: Vector> LinearOp<V> for Normal<A, V> {
     }
 }
 
+/// `(A + A^†)/2`, the Hermitian part: its eigenvalues span the real part of the field of values
+/// of `A`. One intermediate vector.
+pub struct HermitianPart<A, V> {
+    a: A,
+    tmp: V,
+}
+
+impl<A, V: Vector> HermitianPart<A, V> {
+    /// `like` only provides the shape of the intermediate vector.
+    pub fn new(a: A, like: &V) -> Self {
+        Self {
+            a,
+            tmp: like.zeros_like(),
+        }
+    }
+}
+
+impl<A: LinearOp<V>, V: Vector> LinearFn<V> for HermitianPart<A, V> {
+    fn mult(&mut self, out: &mut V, inp: &V) {
+        fit(&mut self.tmp, inp);
+        self.a.mult(out, inp);
+        self.a.mult_dag(&mut self.tmp, inp);
+        out.axpy(&vec![C64::new(1.0, 0.0); inp.num_vectors()], &self.tmp);
+        out.scale(&vec![0.5; inp.num_vectors()]);
+    }
+}
+
+impl<A: LinearOp<V>, V: Vector> LinearOp<V> for HermitianPart<A, V> {
+    fn mult_dag(&mut self, out: &mut V, inp: &V) {
+        self.mult(out, inp);
+    }
+}
+
 /// A mutable reference to a map is a map, so combinators can borrow instead of own.
 impl<A: LinearFn<V> + ?Sized, V: Vector> LinearFn<V> for &mut A {
     fn mult(&mut self, out: &mut V, inp: &V) {

@@ -137,14 +137,35 @@ mod device {
         let m5: f64 = args[3].parse()?;
         let smear = args[4] == "1";
         let quark = value("--mass", 0.01)?;
+        let tikhonov = value("--tikhonov", 0.0)?;
         let cycle = PvEoParams {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 10.0)?,
             ..PvEoParams::default()
         };
-        let dual = PvEoParams {
-            pv_solver: CoarseKrylov::BiCgStab,
-            ..cycle
+        // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g (CoarseKrylov::Cg).
+        let cycle = match tikhonov > 0.0 {
+            true => PvEoParams {
+                pv_solver: CoarseKrylov::Cg,
+                pv_tikhonov: tikhonov,
+                ..cycle
+            },
+            false => cycle,
+        };
+        // The dual cycle, D and D_PV exchanged: its second factor P†D†P by BiCGStab; with
+        // --tikhonov its first, P†D_PV P, regularized as the second factor of the cycle of D.
+        let dual = match tikhonov > 0.0 {
+            true => PvEoParams {
+                d_solver: CoarseKrylov::Cg,
+                d_tikhonov: tikhonov,
+                pv_solver: CoarseKrylov::BiCgStab,
+                pv_tikhonov: 0.0,
+                ..cycle
+            },
+            false => PvEoParams {
+                pv_solver: CoarseKrylov::BiCgStab,
+                ..cycle
+            },
         };
         let lat = Lattice::single_node([l; ND]);
         let u = ruttice::app::read_gauge_named(&args[1], Path::new(&args[2]), &lat)?;
@@ -340,6 +361,11 @@ mod device {
             nr[0] / nb[0]
         );
         for (name, rhs) in [("random b", &b), ("sweep residual r", &r)] {
+            // The solve with D of the same right-hand side, for comparison.
+            let mut x = rhs.zeros_like();
+            dsolve.cycles.set(0);
+            dsolve.solve(&mut x, rhs, 300, 1e-10);
+            println!("{name:18} D by GCR(2) with M_D:  {:4} its", dsolve.cycles.get());
             for k in [2, 8].into_iter().filter(|_| !nodual) {
                 let t = Instant::now();
                 let mut w = rhs.zeros_like();

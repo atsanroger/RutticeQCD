@@ -41,6 +41,10 @@ pub struct DeviceParts<CT: DeviceReal> {
     basis: Rc<DeviceBasis>,
     coarse_d: Rc<DeviceCoarseOp<CT>>,
     coarse_pv: Rc<DeviceCoarseOp<CT>>,
+    /// P†D_PV P besides its adjoint, for the regularized solve (`CoarseKrylov::Cg`), and the
+    /// adjoint of P†DP for that of the first factor.
+    coarse_pv_adj: Option<Rc<DeviceCoarseOp<CT>>>,
+    coarse_d_adj: Option<Rc<DeviceCoarseOp<CT>>>,
     /// |H_xx|⁻¹ of the second factor, for MINRES.
     abs: Option<Rc<DeviceBuffer<CT>>>,
     /// The levels below the coarse lattice of either factor (`add_levels`, `add_pv_levels`).
@@ -54,6 +58,8 @@ impl<CT: DeviceReal> Clone for DeviceParts<CT> {
             basis: self.basis.clone(),
             coarse_d: self.coarse_d.clone(),
             coarse_pv: self.coarse_pv.clone(),
+            coarse_pv_adj: self.coarse_pv_adj.clone(),
+            coarse_d_adj: self.coarse_d_adj.clone(),
             abs: self.abs.clone(),
             levels_d: self.levels_d.clone(),
             levels_pv: self.levels_pv.clone(),
@@ -109,13 +115,22 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             op.coarse_operator_on_device::<CT>(&device, even_odd)
         };
         let minres = params.pv_solver == CoarseKrylov::Minres;
-        let coarse_d = Rc::new(build(plain.0)?);
+        let d_op = build(plain.0)?;
+        let coarse_d_adj = match params.d_solver == CoarseKrylov::Cg {
+            true => Some(Rc::new(d_op.adjoint()?)),
+            false => None,
+        };
+        let coarse_d = Rc::new(d_op);
         // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
         let pv_op = build(plain.1)?;
-        let coarse_pv = Rc::new(match minres {
-            true => pv_op,
-            false => pv_op.adjoint()?,
-        });
+        let tikhonov = params.pv_solver == CoarseKrylov::Cg;
+        let (coarse_pv, coarse_pv_adj) = match minres {
+            true => (Rc::new(pv_op), None),
+            false => {
+                let adj = Rc::new(pv_op.adjoint()?);
+                (adj, tikhonov.then(|| Rc::new(pv_op)))
+            }
+        };
         for (name, op) in [("P†DP", &coarse_d), ("P†D_PV P", &coarse_pv)] {
             trace_checksum(name, || op.checksums().map(|c| c.0));
             trace_checksum(&format!("the block inverses of {name}"), || {
@@ -134,6 +149,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             basis: device,
             coarse_d,
             coarse_pv,
+            coarse_pv_adj,
+            coarse_d_adj,
             abs,
             levels_d: None,
             levels_pv: None,
@@ -200,6 +217,12 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         if let Some(l) = levels_d {
             c.correction
                 .set_levels_d(Box::new(move |out, inp| l(out, inp)));
+        }
+        if let Some(adj) = c.parts.coarse_pv_adj.clone() {
+            c.correction.set_pv_adjoint(adj);
+        }
+        if let Some(adj) = c.parts.coarse_d_adj.clone() {
+            c.correction.set_d_adjoint(adj);
         }
         if let Some(l) = levels_pv {
             c.correction

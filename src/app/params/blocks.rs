@@ -265,6 +265,10 @@ pub struct SolverBlock {
     /// Mixed precision: the fall of |r|² in single precision after which the solution and the
     /// residual are made again in double precision (a reliable update), 1e-2.
     pub convergence_criterion_squared_inner: Option<f64>,
+    /// `Coarse_Solver_PV` with `solver_type: CG`: ε of the regularized normal equations
+    /// (A†A + ε) w = A† g of the Pauli-Villars factor.
+    #[serde(default)]
+    pub tikhonov_epsilon: f64,
 }
 
 /// A file holding only the multigrid block.
@@ -745,6 +749,7 @@ fn coarse_block(solver_type: SolverType) -> SolverBlock {
         chebyshev: None,
         precision: None,
         convergence_criterion_squared_inner: None,
+        tikhonov_epsilon: 0.0,
     }
 }
 fn coarse_d() -> SolverBlock {
@@ -895,8 +900,17 @@ impl SolverBlock {
                 "{name}: coarse solvers are preconditioned by the inverses of their diagonal blocks"
             )));
         }
+        if self.tikhonov_epsilon != 0.0 && !(second && self.solver_type == SolverType::Cg) {
+            return Err(invalid(format!(
+                "{name}: tikhonov_epsilon goes with solver_type CG in Coarse_Solver_PV"
+            )));
+        }
         match self.solver_type {
             SolverType::BiCgStab | SolverType::Gcr => Ok(()),
+            SolverType::Cg if second && self.tikhonov_epsilon > 0.0 => Ok(()),
+            SolverType::Cg => Err(invalid(format!(
+                "{name}: CG on the coarse lattice is the regularized solve of the Pauli-Villars factor; set tikhonov_epsilon > 0 in Coarse_Solver_PV"
+            ))),
             SolverType::Minres if second && !normal => Ok(()),
             SolverType::Minres if second => Err(invalid(format!(
                 "{name}: with operator_type Normal_left the second factor is P†D†P, far from Γ5-Hermitian; use BiCGStab or GCR"
@@ -916,6 +930,7 @@ impl SolverBlock {
                 k: self.number_of_kept_directions,
             },
             SolverType::Minres => CoarseKrylov::Minres,
+            SolverType::Cg => CoarseKrylov::Cg,
             _ => CoarseKrylov::BiCgStab,
         }
     }

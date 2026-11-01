@@ -20,7 +20,7 @@ mod lattice;
 
 pub use comm::{opposite_face, Comm, HaloExchange, HaloSpec, LocalComm, SingleComm, FACES};
 pub use field::blas::{dot, fill, norm_sqr};
-pub use field::linear::{fit, Adjoint, LinearFn, LinearOp, Normal, Product, Subspace};
+pub use field::linear::{fit, Adjoint, HermitianPart, LinearFn, LinearOp, Normal, Product, Subspace};
 pub use field::random::{random_fifth, random_spinor, TestRng};
 pub(crate) use field::storage::{stream_fence, widen_halves};
 pub use field::storage::{Storage, F16};

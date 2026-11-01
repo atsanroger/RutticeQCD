@@ -24,8 +24,8 @@ use ruttice::fermion::{FermionOp, Mdwf, MdwfParams};
 use ruttice::gauge::smearing::{uniform, Stout};
 use ruttice::gauge::{GaugeSmearing, Smear};
 use ruttice::solver::preconditioner::multigrid::{
-    pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseOp, LowModeParams,
-    PvEoParams,
+    pv_eo_bootstrap, pv_eo_low_modes, Aggregation, BootstrapParams, CoarseKrylov, CoarseOp,
+    LowModeParams, PvEoParams,
 };
 use ruttice::{Boundary, Coarse, Field, Lattice, LinearFn, Vector, ND};
 use std::error::Error;
@@ -96,6 +96,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let block = value("--block", 4.0)? as usize;
     let vectors = value("--vectors", 16.0)? as usize;
     let nt = value("--t", l as f64)? as usize;
+    let nsv = value("--nsv", 4.0)? as usize;
+    let skip_d = value("--skipd", 0.0)? != 0.0;
     let start = Instant::now();
     let lat = Lattice::single_node([l, l, l, nt]);
     let mut u = ruttice::app::read_gauge_named(&args[1], Path::new(&args[2]), &lat)?;
@@ -123,10 +125,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     op.set_gauge(&u)?;
     let mut pv = Mdwf::<f64>::new(&lat, params(1.0));
     pv.set_gauge(&u)?;
+    // --bicgstab: the bootstrap cycle solves the Pauli-Villars factor by BiCGStab on its exact
+    // adjoint (the solve without the Tikhonov shift) instead of the default.
     let cycle = PvEoParams {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 10.0)?,
         ..PvEoParams::default()
+    };
+    let cycle = match args.iter().any(|a| a == "--bicgstab") {
+        true => PvEoParams {
+            pv_solver: CoarseKrylov::BiCgStab,
+            ..cycle
+        },
+        false => cycle,
     };
     let (y, _) = pv_eo_low_modes(&op, &pv, &lat, LowModeParams::default());
     let mut y = y.select(&(0..vectors).collect::<Vec<_>>());
@@ -150,6 +161,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let like = basis.coarse_field(1);
     for (name, fine) in [("P^dag D P", &op), ("P^dag D_PV P", &pv)] {
+        if skip_d && name == "P^dag D P" {
+            continue;
+        }
         let mut x = basis.coarse_op(fine, &mut fine.work());
         let random: Vec<f64> = (1..=4)
             .map(|s| defect(&mut x, &random_like(&like, s)))
@@ -167,9 +181,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             &mut NormalOf(&mut x, like.zeros_like()),
             &start_vector,
             LanczosParams {
-                wanted: 4,
-                keep: 10,
-                max_dim: 32,
+                wanted: nsv,
+                keep: (nsv + 6).max(10),
+                max_dim: (2 * nsv + 24).max(32),
                 tolerance: 1e-8.into(),
                 max_restarts: 2000,
                 chebyshev: None,
