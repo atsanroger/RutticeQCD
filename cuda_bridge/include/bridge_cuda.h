@@ -308,6 +308,13 @@ void bridge_cuda_coarse_pass_f64(
     int n_coarse, int dim, int parity, int minus, int gamma5, int vectors, cudaStream_t stream
 );
 void bridge_cuda_coarse_gamma5_f64(double* d_v, int n_coarse, int dim, int vectors, cudaStream_t stream);
+// The exact adjoint of a coarse operator applied from its own blocks and links (multigrid/fold.cuh,
+// coarse_adjoint_pass_kernel): out(X) = A(X)^dag v(X) + sum_dir B_dir(Y)^dag v(Y) with Y = d_from[dir][X]
+// the site whose hop dir reaches X; on one process. dim even and at most 256; d_out is not d_v.
+void bridge_cuda_coarse_adjoint_pass_f32(float* d_out, const float* d_v, const float* d_diag, const float* d_links,
+                                         const unsigned* d_from, int n_coarse, int dim, int vectors, cudaStream_t stream);
+void bridge_cuda_coarse_adjoint_pass_f64(double* d_out, const double* d_v, const double* d_diag, const double* d_links,
+                                         const unsigned* d_from, int n_coarse, int dim, int vectors, cudaStream_t stream);
 // The coarse unit vectors of the components first .. first + vectors, in a field of that many
 // vectors that is zero; and column first + v of the matrices of every coarse site (the layout
 // of bridge_cuda_coarse_pass_*, float with target_single, else double) from vector v of a

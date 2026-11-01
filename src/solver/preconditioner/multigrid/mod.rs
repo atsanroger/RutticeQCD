@@ -22,7 +22,7 @@ pub(crate) use coarse::coarse_neighbours;
 pub use coarse::CoarseOp;
 pub(crate) use correction::solve_shared;
 pub(crate) use correction::CoarseOperator;
-pub use correction::{Adjoint, Levels, Transfer};
+pub use correction::{Adjoint, ApplyAdjoint, Levels, Transfer};
 
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_backend::MdwfMultigridSettings;

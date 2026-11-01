@@ -1402,6 +1402,11 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         &self.links
     }
 
+    /// The blocks in the precision `T`, as `coarse_pass_kernel` reads them.
+    pub(super) fn diag_in_precision(&self) -> &DeviceBuffer<T> {
+        &self.diag
+    }
+
     /// The site every hop of every site comes from (`[direction][site]`), and whether each site
     /// is odd: the tables the device has, as they were made on the host.
     pub(super) fn tables(&self) -> (&[u32], &[u32]) {

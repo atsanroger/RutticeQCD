@@ -42,7 +42,7 @@ pub use field::{DeviceParities, DeviceSpinor};
 pub use gauge::DeviceLinks;
 pub use halo::SplitReal;
 pub use levels::LevelReal;
-pub use levels::{DeviceAbsMultilevel, DeviceMultilevel};
+pub use levels::{AdjointPass, DeviceAbsMultilevel, DeviceMultilevel};
 pub use mdwf::CudaMdwf;
 pub use sap::{device_sap, BlockOperator, DeviceBlocks, SapReal};
 pub use wilson::{CudaClover, CudaWilson};

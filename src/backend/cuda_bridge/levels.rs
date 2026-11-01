@@ -62,6 +62,16 @@ pub trait LevelReal: DeviceReal {
         n_coarse: i32,
         dim: i32,
     );
+    unsafe fn coarse_adjoint_pass(
+        out: *mut Self,
+        v: *const Self,
+        diag: *const Self,
+        links: *const Self,
+        from: *const u32,
+        n_coarse: i32,
+        dim: i32,
+        vectors: i32,
+    );
     unsafe fn level_probe(
         diag: *mut f64,
         links: *mut f64,
@@ -101,8 +111,19 @@ extern "C" {
 
 macro_rules! level_real {
     ($t:ty: $restrict:ident, $prolong:ident, $basis:ident, $sources:ident, $probe:ident,
-     $dense_apply:ident, $adjoint:ident) => {
+     $dense_apply:ident, $adjoint:ident, $adjoint_pass:ident) => {
         extern "C" {
+            fn $adjoint_pass(
+                out: *mut $t,
+                v: *const $t,
+                diag: *const $t,
+                links: *const $t,
+                from: *const u32,
+                n_coarse: i32,
+                dim: i32,
+                vectors: i32,
+                stream: *mut c_void,
+            );
             fn $adjoint(
                 out: *mut $t,
                 m: *const $t,
@@ -237,6 +258,18 @@ macro_rules! level_real {
             ) {
                 $adjoint(out, m, from, dirs, n_coarse, dim, STREAM)
             }
+            unsafe fn coarse_adjoint_pass(
+                out: *mut Self,
+                v: *const Self,
+                diag: *const Self,
+                links: *const Self,
+                from: *const u32,
+                n_coarse: i32,
+                dim: i32,
+                vectors: i32,
+            ) {
+                $adjoint_pass(out, v, diag, links, from, n_coarse, dim, vectors, STREAM)
+            }
             unsafe fn dense_apply(
                 out: *mut Self,
                 r: *const Self,
@@ -276,10 +309,10 @@ macro_rules! level_real {
 
 level_real!(f32: bridge_cuda_level_restrict_f32, bridge_cuda_level_prolong_f32,
     bridge_cuda_level_basis_f32, bridge_cuda_level_sources_f32, bridge_cuda_level_probe_f32,
-    bridge_cuda_dense_apply_f32, bridge_cuda_coarse_adjoint_f32);
+    bridge_cuda_dense_apply_f32, bridge_cuda_coarse_adjoint_f32, bridge_cuda_coarse_adjoint_pass_f32);
 level_real!(f64: bridge_cuda_level_restrict_f64, bridge_cuda_level_prolong_f64,
     bridge_cuda_level_basis_f64, bridge_cuda_level_sources_f64, bridge_cuda_level_probe_f64,
-    bridge_cuda_dense_apply_f64, bridge_cuda_coarse_adjoint_f64);
+    bridge_cuda_dense_apply_f64, bridge_cuda_coarse_adjoint_f64, bridge_cuda_coarse_adjoint_pass_f64);
 
 /// The dense matrix of the operator of the last level (`last`, with the links `probed`, on the
 /// lattice `lat`), in double precision, n × n for n = its sites times its components. On
@@ -1097,6 +1130,31 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
         Self::from_device_links(diag, links, &from, odd, dim, self.has_even_odd())
     }
 
+    /// The exact adjoint A† applied from the blocks and links of this operator, with no second
+    /// operator stored (`coarse_adjoint_pass_kernel`): the table of the sites every hop comes
+    /// from is the only thing made. On one process; `None` on a lattice cut between processes,
+    /// whose adjoint needs the links of the ghosts (`adjoint`).
+    pub fn adjoint_pass(self: &Rc<Self>) -> Result<Option<AdjointPass<T>>, Box<dyn Error>> {
+        if self.ghosts().is_some() {
+            return Ok(None);
+        }
+        assert!(
+            self.dim().is_multiple_of(2) && self.dim() <= 256,
+            "coarse_adjoint_pass_kernel takes an even dimension up to 256"
+        );
+        let (sites, (neighbours, _)) = (self.sites(), self.tables());
+        let mut from = vec![0u32; 2 * ND * sites];
+        for d in 0..2 * ND {
+            for y in 0..sites {
+                from[d * sites + neighbours[d * sites + y] as usize] = y as u32;
+            }
+        }
+        Ok(Some(AdjointPass {
+            op: self.clone(),
+            from: DeviceTable::from_host(&from)?,
+        }))
+    }
+
     /// `adjoint` on a lattice cut between processes: Y = the site hop d of X comes from in the
     /// adjoint is X's neighbour the other way, maybe a ghost, whose links come from the
     /// neighbouring process (exchanged on the host, once); the links of the adjoint are their
@@ -1162,5 +1220,43 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
             Self::from_device_links(diag, converted, &from, odd, dim, self.has_even_odd())?
                 .with_ghosts(Some(ghosts.clone())),
         )
+    }
+}
+
+/// The exact adjoint of a coarse operator of the device applied from its own blocks and links
+/// (`DeviceCoarseOp::adjoint_pass`): `out = A† inp`, the numbers of `adjoint().apply(out, inp)`
+/// added in another order.
+pub struct AdjointPass<T: LevelReal> {
+    op: Rc<DeviceCoarseOp<T>>,
+    /// The site every hop of every site comes from in A†: `[direction][site]`.
+    from: DeviceTable,
+}
+
+impl<T: LevelReal> AdjointPass<T> {
+    /// `out = A† inp`.
+    pub fn apply(&self, out: &mut DeviceCoarse<T>, inp: &DeviceCoarse<T>) {
+        let op = &self.op;
+        assert!((out.sites, out.dim) == (op.sites(), op.dim()) && inp.same_shape(out));
+        crate::meter::add(
+            crate::meter::Work::Coarse,
+            std::mem::size_of::<T>(),
+            8.0 * (op.dim() * op.dim() * 9 * op.sites() * out.vectors) as f64,
+            ((2 * op.dim() * op.dim() * 9 + 2 * op.dim() * 10 * out.vectors) * op.sites()
+                * std::mem::size_of::<T>()) as f64,
+        );
+        // SAFETY: fields of this lattice, `out` not `inp` (it is borrowed mutably); the blocks,
+        // links and table of the operator.
+        unsafe {
+            T::coarse_adjoint_pass(
+                out.data.ptr,
+                inp.data.ptr.cast_const(),
+                op.diag_in_precision().ptr.cast_const(),
+                op.links().ptr.cast_const(),
+                self.from.ptr.cast_const(),
+                op.sites() as i32,
+                op.dim() as i32,
+                out.vectors as i32,
+            );
+        }
     }
 }

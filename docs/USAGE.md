@@ -185,6 +185,9 @@ second factor (`Coarse_Solver_PV` other than `MINRES`).
 regularized normal equations (A†A + ε) w = A† g, A = P†D_PV†P, `tikhonov_epsilon : 1.0e-3`, on the
 CPU and the device; `BiCGStab` and `GCR` on the exact adjoint and `MINRES` on its Γ5-Hermitian form
 remain. With `operator_type : Normal_left` the second factor is P†D†P: `BiCGStab` or `GCR`.
+On one GPU the regularized solve applies A† from the blocks of A (no second coarse operator);
+`RUTTICE_COARSE_ADJOINT=copy` keeps a copy of A† instead, as on several processes, where the
+adjoint needs the links of the neighbouring process.
 Each solve and each HMC trajectory reports the work it did: Flop, GFlop/s and Flop/byte over the
 whole solve or trajectory, split into the fine
 operators (`Fine`), the coarse operators and the setup of the multigrids (`Coarse`), restriction

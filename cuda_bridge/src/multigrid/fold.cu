@@ -87,6 +87,26 @@ namespace {
             n_coarse, dim, parity, minus ? -1 : 1, gamma5, d_ghost, n_ghost);
     }
 
+    // The exact adjoint of a coarse operator applied from its own blocks (coarse_adjoint_pass_kernel),
+    // its shared memory allowed above the default 48 kB where dim asks for it.
+    template <typename Float>
+    void coarse_adjoint_pass_launch(Float* d_out, const Float* d_v, const Float* d_diag, const Float* d_links,
+                                    const unsigned* d_from, int n_coarse, int dim, int vectors,
+                                    cudaStream_t stream)
+    {
+        const size_t shared = bridge_cuda::coarse_adjoint_pass_shared<Float>(dim);
+        static size_t allowed = 48 * 1024;
+        if (shared > allowed) {
+            cudaFuncSetAttribute(bridge_cuda::coarse_adjoint_pass_kernel<Float>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
+            allowed = shared;
+        }
+        dim3 grid(n_coarse, vectors);
+        const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
+        bridge_cuda::coarse_adjoint_pass_kernel<Float><<<grid, threads, shared, stream>>>(
+            d_out, d_v, d_diag, d_links, d_from, n_coarse, dim);
+    }
+
     // |H|^-1 of the blocks: the kernel of the rounds of disjoint pairs with H and V in shared
     // memory, or H alone, where that fits; else the one of the pairs one at a time.
     template <bool VShared>
@@ -426,6 +446,18 @@ void bridge_cuda_blocks_abs_inverse(
     cudaStream_t stream)
 {
     abs_inverse_launch(d_out, d_a, d_scratch, n_sites, dim, 0, cutoff, stream);
+}
+
+void bridge_cuda_coarse_adjoint_pass_f32(float* d_out, const float* d_v, const float* d_diag, const float* d_links,
+                                         const unsigned* d_from, int n_coarse, int dim, int vectors, cudaStream_t stream)
+{
+    coarse_adjoint_pass_launch<float>(d_out, d_v, d_diag, d_links, d_from, n_coarse, dim, vectors, stream);
+}
+
+void bridge_cuda_coarse_adjoint_pass_f64(double* d_out, const double* d_v, const double* d_diag, const double* d_links,
+                                         const unsigned* d_from, int n_coarse, int dim, int vectors, cudaStream_t stream)
+{
+    coarse_adjoint_pass_launch<double>(d_out, d_v, d_diag, d_links, d_from, n_coarse, dim, vectors, stream);
 }
 
 } // extern "C"

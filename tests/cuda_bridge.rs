@@ -3773,3 +3773,95 @@ fn the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
         );
     }
 }
+
+/// The exact adjoint of a coarse operator applied from its own blocks and links
+/// (`AdjointPass`, `coarse_adjoint_pass_kernel`) gives what the explicit adjoint
+/// (`DeviceCoarseOp::adjoint`) gives up to the order of the sums, in double and single precision,
+/// for 4 and 40 test vectors (8 and 80 components a coarse site: one and two column chunks of a
+/// lane), on two vectors at once; and the same numbers on every run.
+#[test]
+fn coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
+    use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse, LevelReal};
+    use ruttice::fermion::SplitParity;
+    use ruttice::solver::preconditioner::multigrid::Aggregation;
+    use ruttice::ConvertFrom;
+    use std::rc::Rc;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 461);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    let mut d = CudaMdwf::<f64>::new(&lat, params).unwrap();
+    d.set_gauge(&u).unwrap();
+    let mut pv = CudaMdwf::<f64>::new(&lat, MdwfParams { mass: 1.0, ..params }).unwrap();
+    pv.set_gauge(&u).unwrap();
+    fn check<T: LevelReal>(
+        d: &CudaMdwf<f64>,
+        basis: &DeviceBasis,
+        x_e: &DeviceSpinor<f64>,
+        tolerance: f64,
+        name: &str,
+    ) {
+        let coarse = Rc::new(d.coarse_operator_on_device::<T>(basis, true).unwrap());
+        let copy = coarse.adjoint().unwrap();
+        let pass = coarse.adjoint_pass().unwrap().expect("one process");
+        let mut c64 = basis.coarse_field::<f64>(x_e.num_vectors());
+        basis.restrict(&mut c64, x_e);
+        let mut c = basis.coarse_field::<T>(x_e.num_vectors());
+        c.convert_from(&c64);
+        let mut by_copy = c.zeros_like();
+        copy.apply(&mut by_copy, &c, false);
+        let runs: Vec<DeviceCoarse<T>> = (0..3)
+            .map(|_| {
+                let mut out = c.zeros_like();
+                pass.apply(&mut out, &c);
+                out
+            })
+            .collect();
+        let nv = c.num_vectors();
+        let mut size = vec![0.0; nv];
+        by_copy.norm_sqr(&mut size);
+        let mut diff = runs[0].zeros_like();
+        diff.copy_from(&runs[0]);
+        diff.axpy(&vec![C64::new(-1.0, 0.0); nv], &by_copy);
+        let mut off = vec![0.0; nv];
+        diff.norm_sqr(&mut off);
+        for j in 0..nv {
+            let rel = (off[j] / size[j]).sqrt();
+            eprintln!("{name}, vector {j}: |A† c (kernel) - A† c (copy)| / |A† c| = {rel:e}");
+            assert!(rel < tolerance, "{name}: {rel:e}");
+        }
+        for run in &runs[1..] {
+            let mut again = run.zeros_like();
+            again.copy_from(run);
+            again.axpy(&vec![C64::new(-1.0, 0.0); nv], &runs[0]);
+            let mut zero = vec![0.0; nv];
+            again.norm_sqr(&mut zero);
+            assert!(zero.iter().all(|z| *z == 0.0), "{name}: runs differ by {zero:?}");
+        }
+    }
+    let x = DeviceSpinor::from_host(&random_fifth(&lat, 4, 470)).unwrap();
+    let mut x2 = x.zeros_with(2);
+    x2.assign(&[0], &x);
+    x2.assign(&[1], &DeviceSpinor::from_host(&random_fifth(&lat, 4, 471)).unwrap());
+    let mut x_e = DeviceParities.half_like(&x2, Parity::Even);
+    DeviceParities.extract(&mut x_e, &x2, Parity::Even);
+    for n in [4usize, 40] {
+        let first = DeviceSpinor::from_host(&random_fifth(&lat, 4, 480)).unwrap();
+        let mut y = first.zeros_with(n);
+        for k in 0..n {
+            y.assign(&[k], &DeviceSpinor::from_host(&random_fifth(&lat, 4, 480 + k as u64)).unwrap());
+        }
+        let mut y_e = DeviceParities.half_like(&y, Parity::Even);
+        DeviceParities.extract(&mut y_e, &y, Parity::Even);
+        let basis = DeviceBasis::pv_eo(&d, &pv, &Aggregation::new(&lat, [2, 2, 2, 2]), &y_e, false)
+            .unwrap();
+        check::<f64>(&d, &basis, &x_e, 1e-13, &format!("{n} vectors, double"));
+        check::<f32>(&d, &basis, &x_e, 1e-5, &format!("{n} vectors, single"));
+    }
+}

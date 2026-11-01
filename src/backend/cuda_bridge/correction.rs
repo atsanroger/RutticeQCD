@@ -3,9 +3,10 @@
 //! which are made here.
 
 use super::*;
+use super::levels::AdjointPass;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
-    Adjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
+    Adjoint, ApplyAdjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
 };
 use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
@@ -24,7 +25,7 @@ type OnDevice<'a, F, CT> = Correction<
 
 /// The correction for the operator `PvRatio::new(outer.0, outer.1, form, ..)` on fields in the
 /// precision `F`, the coarse solves in the precision `CT`.
-pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
+pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: LevelReal = f32> {
     correction: OnDevice<'a, F, CT>,
     /// The two coarse operators and the coarse lattice, for levels below it.
     coarse_d: Rc<DeviceCoarseOp<CT>>,
@@ -37,14 +38,14 @@ pub struct DeviceCorrection<'a, F: DeviceReal = f64, CT: DeviceReal = f32> {
 /// and the matrices on their sites. A clone (it is all shared) makes the correction for other
 /// links again without building any of it (`DeviceCorrection::from_parts`): the coarse
 /// correction is then that of the links it was built for, still a fixed map.
-pub struct DeviceParts<CT: DeviceReal> {
+pub struct DeviceParts<CT: LevelReal> {
     basis: Rc<DeviceBasis>,
     coarse_d: Rc<DeviceCoarseOp<CT>>,
     coarse_pv: Rc<DeviceCoarseOp<CT>>,
-    /// P†D_PV P besides its adjoint, for the regularized solve (`FactorSolve::Regularized`), and the
-    /// adjoint of P†DP for that of the first factor.
-    coarse_pv_adj: Option<Rc<DeviceCoarseOp<CT>>>,
-    coarse_d_adj: Option<Rc<DeviceCoarseOp<CT>>>,
+    /// The adjoints of the factors solved by `FactorSolve::Regularized`: (P†DP)† for the first,
+    /// P†D_PV P for the second.
+    coarse_pv_adj: Option<DeviceAdjoint<CT>>,
+    coarse_d_adj: Option<DeviceAdjoint<CT>>,
     /// |H_xx|⁻¹ of the second factor, for MINRES.
     abs: Option<Rc<DeviceBuffer<CT>>>,
     /// The levels below the coarse lattice of either factor (`add_levels`, `add_pv_levels`).
@@ -52,7 +53,7 @@ pub struct DeviceParts<CT: DeviceReal> {
     levels_pv: Option<Rc<Levels<'static, DeviceCoarse<CT>>>>,
 }
 
-impl<CT: DeviceReal> Clone for DeviceParts<CT> {
+impl<CT: LevelReal> Clone for DeviceParts<CT> {
     fn clone(&self) -> Self {
         Self {
             basis: self.basis.clone(),
@@ -115,20 +116,20 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             op.coarse_operator_on_device::<CT>(&device, even_odd)
         };
         let minres = params.pv_solver == CoarseKrylov::Minres;
-        let d_op = build(plain.0)?;
-        let coarse_d_adj = match params.d_solver.regularized().is_some() {
-            true => Some(Rc::new(d_op.adjoint()?)),
-            false => None,
+        let coarse_d = Rc::new(build(plain.0)?);
+        let coarse_d_adj = match params.d_solver.regularized() {
+            Some(_) => Some(DeviceAdjoint::of(&coarse_d, None)?),
+            None => None,
         };
-        let coarse_d = Rc::new(d_op);
         // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
         let pv_op = build(plain.1)?;
-        let tikhonov = params.pv_solver.regularized().is_some();
-        let (coarse_pv, coarse_pv_adj) = match minres {
-            true => (Rc::new(pv_op), None),
-            false => {
-                let adj = Rc::new(pv_op.adjoint()?);
-                (adj, tikhonov.then(|| Rc::new(pv_op)))
+        let (coarse_pv, coarse_pv_adj) = match (minres, params.pv_solver.regularized()) {
+            (true, _) => (Rc::new(pv_op), None),
+            (false, None) => (Rc::new(pv_op.adjoint()?), None),
+            (false, Some(_)) => {
+                let adjoint = Rc::new(pv_op.adjoint()?);
+                let of_it = DeviceAdjoint::of(&adjoint, Some(pv_op))?;
+                (adjoint, Some(of_it))
             }
         };
         for (name, op) in [("P†DP", &coarse_d), ("P†D_PV P", &coarse_pv)] {
@@ -206,8 +207,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 (coarse_d.clone(), coarse_pv.clone()),
                 (Box::new(blocks_d), blocks_pv),
                 (
-                    parts.coarse_d_adj.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
-                    parts.coarse_pv_adj.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+                    parts.coarse_d_adj.clone().map(DeviceAdjoint::boxed),
+                    parts.coarse_pv_adj.clone().map(DeviceAdjoint::boxed),
                 ),
                 params,
                 &like.zeros_with(1),
@@ -293,5 +294,61 @@ impl<F: DeviceReal, CT: LevelReal> DeviceCorrection<'_, F, CT> {
             .set_levels_pv(Box::new(move |out, inp| l(out, inp)));
         self.parts.levels_pv = Some(levels);
         Ok(applications)
+    }
+}
+
+/// The adjoint A† of a coarse factor A of the device for its regularized solve: applied from the
+/// blocks of A by `coarse_adjoint_pass_kernel` (one process, unless `RUTTICE_COARSE_ADJOINT=copy`),
+/// or a copy of it, a second coarse operator.
+pub(crate) enum DeviceAdjoint<CT: LevelReal> {
+    Pass(Rc<AdjointPass<CT>>),
+    Copy(Rc<DeviceCoarseOp<CT>>),
+}
+
+impl<CT: LevelReal> Clone for DeviceAdjoint<CT> {
+    fn clone(&self) -> Self {
+        match self {
+            DeviceAdjoint::Pass(p) => DeviceAdjoint::Pass(p.clone()),
+            DeviceAdjoint::Copy(c) => DeviceAdjoint::Copy(c.clone()),
+        }
+    }
+}
+
+impl<CT: LevelReal> DeviceAdjoint<CT> {
+    /// The adjoint of `a`; `copy` is A† where it has been made anyway (else `a.adjoint()` is
+    /// made when a copy is needed).
+    fn of(
+        a: &Rc<DeviceCoarseOp<CT>>,
+        copy: Option<DeviceCoarseOp<CT>>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let wants_copy = crate::env::choice("RUTTICE_COARSE_ADJOINT", &["kernel", "copy"]) == Some(1);
+        if !wants_copy {
+            if let Some(pass) = a.adjoint_pass()? {
+                return Ok(DeviceAdjoint::Pass(Rc::new(pass)));
+            }
+        }
+        Ok(DeviceAdjoint::Copy(Rc::new(match copy {
+            Some(c) => c,
+            None => a.adjoint()?,
+        })))
+    }
+
+    fn boxed<'a>(self) -> Adjoint<'a, DeviceCoarse<CT>>
+    where
+        CT: 'a,
+    {
+        match self {
+            DeviceAdjoint::Pass(p) => Box::new(SharedPass(p)),
+            DeviceAdjoint::Copy(c) => Box::new(c),
+        }
+    }
+}
+
+/// An `AdjointPass` shared by the corrections of the same parts.
+struct SharedPass<CT: LevelReal>(Rc<AdjointPass<CT>>);
+
+impl<CT: LevelReal> ApplyAdjoint<DeviceCoarse<CT>> for SharedPass<CT> {
+    fn apply_adjoint(&self, out: &mut DeviceCoarse<CT>, inp: &DeviceCoarse<CT>) {
+        self.0.apply(out, inp);
     }
 }

@@ -1055,6 +1055,103 @@ __global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
     }
 }
 
+// Columns per lane of coarse_adjoint_pass_kernel: 2 lane + 2 WarpSize i, i < this, so dim at
+// most 2 WarpSize CoarseAdjointChunks.
+constexpr int CoarseAdjointChunks = 4;
+
+// Shared memory of coarse_adjoint_pass_kernel: the fields at X and at the eight sites whose hops
+// reach X (9 x 2 dim), and the sums of every warp (warps x 2 dim).
+template <typename Float>
+__host__ __device__ __forceinline__ size_t coarse_adjoint_pass_shared(int dim) {
+    return static_cast<size_t>(18 + 2 * coarse_pass_warps(dim)) * dim * sizeof(Float);
+}
+
+// The exact adjoint of the coarse operator applied without building it:
+//   out(X) = A(X)^dag v(X) + sum_dir B_dir(Y)^dag v(Y),  Y = d_from[dir][X],
+// the site whose hop dir reaches X (d_neighbours[dir][Y] = X). The matrices are read as
+// coarse_pass_kernel reads them, a row at a time across the lanes of a warp: warp w takes the
+// rows k = w, w + warps, ... of every matrix M and adds conj(M[k][c]) v_k into column c, a lane
+// holding the columns 2 lane + 2 WarpSize i. The sums of the warps are then added in the order
+// of the warps, so the result does not depend on the scheduling (no atomics).
+template <typename Float>
+__global__ void __launch_bounds__(256) coarse_adjoint_pass_kernel(
+    Float* __restrict__ d_out,
+    const Float* __restrict__ d_v,
+    const Float* __restrict__ d_diag,
+    const Float* __restrict__ d_links,
+    const unsigned* __restrict__ d_from,
+    int n_coarse, int dim)
+{
+    extern __shared__ __align__(16) unsigned char shared_bytes[];
+    // Site s (0: X, 1 + dir: the site hop dir comes from): re at fields[2 s dim + k], im dim further.
+    Float* fields = reinterpret_cast<Float*>(shared_bytes);
+    Float* part = fields + 18 * dim;
+    const int X = blockIdx.x;
+    const int lane = threadIdx.x % WarpSize, warp = threadIdx.x / WarpSize, warps = blockDim.x / WarpSize;
+    const size_t first = blockIdx.y * coarse_reals(n_coarse, dim);
+    const size_t matrix = static_cast<size_t>(dim) * dim;
+
+    for (int e = threadIdx.x; e < 9 * dim; e += blockDim.x) {
+        const int s = e / dim, k = e % dim;
+        const size_t Y = (s == 0) ? X : d_from[static_cast<size_t>(s - 1) * n_coarse + X];
+        const size_t q = first + coarse_index(Y * dim + k);
+        fields[2 * s * dim + k] = d_v[q];
+        fields[(2 * s + 1) * dim + k] = d_v[q + WarpSize];
+    }
+    __syncthreads();
+
+    Float re[2 * CoarseAdjointChunks], im[2 * CoarseAdjointChunks];
+    #pragma unroll
+    for (int i = 0; i < 2 * CoarseAdjointChunks; ++i) re[i] = im[i] = 0;
+    for (int s = 0; s < 9; ++s) {
+        const Float* m = (s == 0)
+            ? d_diag + 2 * matrix * X
+            : d_links + 2 * matrix * (static_cast<size_t>(s - 1) * n_coarse
+                                      + d_from[static_cast<size_t>(s - 1) * n_coarse + X]);
+        const Float* vr = fields + 2 * s * dim;
+        const Float* vi = vr + dim;
+        for (int k = warp; k < dim; k += warps) {
+            const Float* m_row = m + 2 * static_cast<size_t>(dim) * k;
+            const Float xr = vr[k], xi = vi[k];
+            #pragma unroll
+            for (int i = 0; i < CoarseAdjointChunks; ++i) {
+                const int col = 2 * lane + 2 * WarpSize * i;
+                if (col < dim) {
+                    Float a0, b0, a1, b1;
+                    coarse_pass_pair(m_row + 2 * col, a0, b0, a1, b1);
+                    // conj(a + i b) (xr + i xi) = (a xr + b xi) + i (a xi - b xr)
+                    re[2 * i] += a0 * xr + b0 * xi;
+                    im[2 * i] += a0 * xi - b0 * xr;
+                    re[2 * i + 1] += a1 * xr + b1 * xi;
+                    im[2 * i + 1] += a1 * xi - b1 * xr;
+                }
+            }
+        }
+    }
+    Float* mine = part + 2 * static_cast<size_t>(dim) * warp;
+    #pragma unroll
+    for (int i = 0; i < CoarseAdjointChunks; ++i) {
+        const int col = 2 * lane + 2 * WarpSize * i;
+        if (col < dim) {
+            mine[col] = re[2 * i];
+            mine[col + 1] = re[2 * i + 1];
+            mine[dim + col] = im[2 * i];
+            mine[dim + col + 1] = im[2 * i + 1];
+        }
+    }
+    __syncthreads();
+    for (int c = threadIdx.x; c < dim; c += blockDim.x) {
+        Float r = 0, i = 0;
+        for (int w = 0; w < warps; ++w) {
+            r += part[2 * static_cast<size_t>(dim) * w + c];
+            i += part[2 * static_cast<size_t>(dim) * w + dim + c];
+        }
+        const size_t at = first + coarse_index(static_cast<size_t>(X) * dim + c);
+        d_out[at] = r;
+        d_out[at + WarpSize] = i;
+    }
+}
+
 // Several processes: the sites d_sites[0 .. n) of a coarse field of n_coarse sites to d_buf, a
 // coarse field of n sites (a face to send), and such a field to sites first .. first + n of a
 // field of n_ghost sites (the ghosts of a face received). A thread for each complex number,

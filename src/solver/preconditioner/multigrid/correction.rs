@@ -74,9 +74,21 @@ impl<C, D: CoarseOperator<C>> CoarseOperator<C> for Rc<D> {
 /// Levels below the coarse lattice, as a map of a coarse field.
 pub type Levels<'a, C> = dyn Fn(&mut C, &C) + 'a;
 
-/// The adjoint of a coarse operator, for its regularized solve: a copy of it, or a map applying
-/// it from the operator's own blocks.
-pub type Adjoint<'a, C> = Box<dyn CoarseOperator<C> + 'a>;
+/// `out = A† inp` for the regularized solve of a coarse factor A: by a coarse operator that is
+/// A† (a copy), or from the blocks of A themselves.
+pub trait ApplyAdjoint<C> {
+    fn apply_adjoint(&self, out: &mut C, inp: &C);
+}
+
+/// A copy of the adjoint: its `mult`.
+impl<C, D: CoarseOperator<C>> ApplyAdjoint<C> for D {
+    fn apply_adjoint(&self, out: &mut C, inp: &C) {
+        self.mult(out, inp);
+    }
+}
+
+/// The adjoint of a coarse factor, for its regularized solve.
+pub type Adjoint<'a, C> = Box<dyn ApplyAdjoint<C> + 'a>;
 
 /// A solver of a coarse system, as `solve_shared` calls it: operator, preconditioner, solution
 /// (zero on entry), right-hand side.
@@ -88,7 +100,7 @@ pub type CoarseSolve<'a, C> =
 /// applications of either.
 fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
-    adj: &dyn CoarseOperator<C>,
+    adj: &dyn ApplyAdjoint<C>,
     eps: f64,
     stop: Stop,
     n: &Cell<usize>,
@@ -97,13 +109,13 @@ fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
 ) {
     let nv = g.num_vectors();
     let mut b = g.zeros_like();
-    adj.mult(&mut b, g);
+    adj.apply_adjoint(&mut b, g);
     n.set(n.get() + nv);
     let mut t = g.zeros_like();
     let shift = vec![C64::new(eps, 0.0); nv];
     let mut normal = FnMap(|out: &mut C, inp: &C| {
         a.mult(&mut t, inp);
-        adj.mult(out, &t);
+        adj.apply_adjoint(out, &t);
         n.set(n.get() + 2 * inp.num_vectors());
         out.axpy(&shift, inp);
     });
