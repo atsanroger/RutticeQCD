@@ -111,6 +111,41 @@ impl std::error::Error for CliError {}
 /// A sound solve ends within a few times the tolerance (it stops on the residual of the system
 /// it solved, which differs from D's by a preconditioner); below 1e-20, about where double
 /// precision stops, nothing is refused.
+/// Corrections after the first solve of a propagator run at most: each solves D δ = b − D x for
+/// the solution x so far, until |D x − b|²/|b|² is below the tolerance of the parameter file.
+pub(crate) const MAX_CORRECTIONS: usize = 5;
+
+/// The tolerance of the solver's own system for a correction on the residual r = b − D x, with
+/// |r_j|² (`rr`) and |b_j|² (`bb`) of every right-hand side: tolerance |b_j|²/|r_j|² at the
+/// smallest, which brings |D x − b|²/|b|² below `tolerance` if the solver's residual and that of
+/// D fall alike.
+pub(crate) fn correction_tolerance(tolerance: f64, rr: &[f64], bb: &[f64]) -> f64 {
+    rr.iter()
+        .zip(bb)
+        .filter(|(r, _)| **r > 0.0)
+        .map(|(r, b)| tolerance * b / r)
+        .fold(1.0, f64::min)
+}
+
+/// The iterations of the rounds of a solve, `results` in order: their sum, with `!` if the last
+/// did not converge.
+pub(crate) fn rounds_text(results: &[Result<crate::solver::SolveInfo, crate::solver::SolveError>]) -> String {
+    use crate::solver::SolveError;
+    let mut total = 0;
+    for r in results {
+        total += match r {
+            Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
+            Err(SolveError::Breakdown { iterations, .. }) => *iterations,
+            Err(SolveError::MissingPreconditioner) => 0,
+        };
+    }
+    match results.last() {
+        Some(Ok(_)) | None => format!("{total}"),
+        Some(Err(SolveError::NotConverged(_))) => format!("{total}!"),
+        Some(Err(e)) => format!("{total}, failed: {e}"),
+    }
+}
+
 pub(crate) fn check_solution(what: &str, worst: f64, tolerance_sqr: f64) -> Result<(), CliError> {
     const MARGIN: f64 = 1e3;
     const ROUNDOFF: f64 = 1e-20;

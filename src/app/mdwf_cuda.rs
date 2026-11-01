@@ -13,11 +13,12 @@
 //! device as well: the CPU has the four-dimensional source, the random right-hand sides and
 //! the contractions.
 
-use super::mdwf::{iterations_text, load, solve_sources, SourceFields};
+use super::mdwf::{load, solve_sources, SourceFields};
 use super::memory_line;
 use super::params::{Params, PrecisionType, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::mdwf_backend::OnDevice;
 use crate::backend::cuda_bridge::multigrid::top_of;
+use crate::backend::cuda_bridge::Stashed;
 use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
 };
@@ -274,7 +275,8 @@ pub(super) fn run(
 
     let op = &ops.op;
     let mut a = operator();
-    let stop: Stop = s.stop();
+    // The solvers stop on |D x − b|²/|b|² (one more field on the even sites).
+    a.keep_true_residual();
     // Mixed precision (CGNE only): CG in single precision on K†K, K the left Schur factor of the
     // operator in single precision on the links of `op`, with reliable updates in double
     // precision each time |r|² has fallen by `drop_sqr`.
@@ -295,23 +297,86 @@ pub(super) fn run(
                  out: &mut dyn Write|
      -> Result<DeviceSpinor, Box<dyn Error>> {
         let nv = b.num_vectors();
-        let mut rhs = even.zeros_with(nv);
-        a.right_hand_side(&DeviceParities, &mut rhs, &b);
-        // b waits on the host during the solve.
+        // The tolerance of the parameter file is on |D x − b|²/|b|²: after the first solve,
+        // corrections D δ = b − D x until it is reached. b, the solution so far and the
+        // right-hand side of a correction wait on the host during the solves.
+        let tolerance = s.stop().tolerance_sqr;
+        let mut bb = vec![0.0; nv];
+        b.norm_sqr(&mut bb);
         let b_host = b.stash()?;
-        let mut sol = rhs.zeros_like();
+        let (mut x_host, mut target_host): (Option<Stashed<f64>>, Option<Stashed<f64>>) = (None, None);
+        let mut rr = vec![0.0; nv];
         let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
         let counted = crate::meter::Counts::now();
         let start = Instant::now();
-        let m = pre
-            .as_mut()
-            .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
-        let (result, history) = match (s.solver_type, single.as_mut()) {
-            (SolverType::Cg, Some((sc, drop_sqr))) => {
-                let solved = sc.reliable_normal(&mut a, &mut sol, &rhs, stop, *drop_sqr);
-                (solved, None)
+        let (mut results, mut history) = (Vec::new(), None);
+        let mut worst;
+        let x = loop {
+            let target = match &target_host {
+                None => b_host.restore()?,
+                Some(t) => t.restore()?,
+            };
+            let stop = match results.len() {
+                0 => s.stop(),
+                _ => Stop {
+                    tolerance_sqr: super::correction_tolerance(tolerance, &rr, &bb),
+                    ..s.stop()
+                },
+            };
+            let mut rhs = even.zeros_with(nv);
+            a.right_hand_side(&DeviceParities, &mut rhs, &target);
+            let target = target.stash()?;
+            let mut sol = rhs.zeros_like();
+            let m = pre
+                .as_mut()
+                .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
+            let (result, recorded) = match (s.solver_type, single.as_mut()) {
+                (SolverType::Cg, Some((sc, drop_sqr))) => {
+                    let solved = sc.reliable_normal(&mut a, &mut sol, &rhs, stop, *drop_sqr);
+                    (solved, None)
+                }
+                _ => s.solve_with(stop, &mut a, m, &mut sol, &rhs, detailed),
+            };
+            if history.is_none() {
+                history = recorded;
             }
-            _ => s.solve(&mut a, m, &mut sol, &rhs, detailed),
+            if results.is_empty() {
+                checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;
+            }
+            // δ^(α), then δ = Q δ^(α), the correction for the plain operator.
+            let target = target.restore()?;
+            let mut delta = target.zeros_like();
+            a.solution(&DeviceParities, &mut delta, &sol, &target);
+            drop((rhs, sol, target));
+            if op.alpha() != 1.0 {
+                let mut plain = delta.zeros_like();
+                op.mult_q(&mut plain, &delta, false);
+                delta = plain;
+            }
+            let x = match x_host.take() {
+                None => delta,
+                Some(h) => {
+                    let mut x = h.restore()?;
+                    x.axpy(&vec![C64::new(1.0, 0.0); nv], &delta);
+                    drop(delta);
+                    x
+                }
+            };
+            // Its residual by the plain operator on the whole lattice, with three fields there.
+            let b = b_host.restore()?;
+            let mut r = b.zeros_like();
+            op.mult_plain(&mut r, &x);
+            r.aypx(&vec![C64::new(-1.0, 0.0); nv], &b);
+            drop(b);
+            r.norm_sqr(&mut rr);
+            worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
+            let failed = result.is_err();
+            results.push(result);
+            if failed || worst <= tolerance || results.len() > super::MAX_CORRECTIONS {
+                break x;
+            }
+            x_host = Some(x.stash()?);
+            target_host = Some(r.stash()?);
         };
         let seconds = start.elapsed().as_secs_f64();
         let work = crate::meter::Counts::now().since(&counted);
@@ -321,39 +386,19 @@ pub(super) fn run(
             }
             _ => String::new(),
         };
-        checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;
-        let b = b_host.restore()?;
-        // x^(α), then x = Q x^(α), the solution of the plain operator; its residual by that
-        // operator on the whole lattice, with three fields there at most.
-        let mut x = b.zeros_like();
-        a.solution(&DeviceParities, &mut x, &sol, &b);
-        drop((rhs, sol));
-        if op.alpha() != 1.0 {
-            let mut plain = x.zeros_like();
-            op.mult_q(&mut plain, &x, false);
-            x = plain;
-        }
-        let worst = {
-            let mut r = b.zeros_like();
-            op.mult_plain(&mut r, &x);
-            r.aypx(&vec![C64::new(-1.0, 0.0); nv], &b);
-            let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
-            r.norm_sqr(&mut rr);
-            b.norm_sqr(&mut bb);
-            rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b))
-        };
         writeln!(
             out,
-            "  {label}: {}{} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}",
+            "  {label}: {}{} {} iterations on the device{coarse}; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}; corrections {}",
             s.solver_type,
             if single.is_some() { " (mixed precision)" } else { "" },
-            iterations_text(&result),
+            super::rounds_text(&results),
             work.line(seconds),
-            memory()
+            memory(),
+            results.len() - 1
         )?;
         super::history_lines(out, label, history);
-        if result.is_ok() {
-            super::check_solution(label, worst, s.stop().tolerance_sqr)?;
+        if results.last().is_some_and(|r| r.is_ok()) {
+            super::check_solution(label, worst, tolerance)?;
         }
         Ok(x)
     };

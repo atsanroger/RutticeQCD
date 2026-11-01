@@ -1,6 +1,6 @@
 //! Flexible GCR keeping the last k directions (truncated GCR, Orthomin(k)).
 
-use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, true_residual_met, SolveError, SolveInfo, Solver, Stop};
 use crate::{LinearFn, Vector, C64};
 
 /// Flexible GCR(k): every step applies the preconditioner once, z = M r, makes q = A z orthogonal
@@ -55,6 +55,9 @@ impl<V: Vector> Solver<V> for Gcr<V> {
         let mut b_norm = vec![0.0; nv];
         b.norm_sqr(&mut b_norm);
         let tol = self.stop.tolerance_sqr;
+        // The own tolerance of every vector: `tol`, lowered where the residual of D misses it.
+        let check = a.has_true_residual();
+        let (mut tols, mut checks) = (vec![tol; nv], 0);
         let limit = self.stop.max_iterations * (self.stop.max_restarts + 1);
         let (mut rr, mut nq, mut residual) = (vec![0.0; nv], vec![0.0; nv], vec![0.0; nv]);
         let mut dots = vec![C64::ZERO; nv];
@@ -80,9 +83,14 @@ impl<V: Vector> Solver<V> for Gcr<V> {
                             .collect(),
                     );
                 }
-                let active: Vec<bool> = (0..nv).map(|j| rr[j] > tol * b_norm[j]).collect();
+                let mut active: Vec<bool> =
+                    (0..nv).map(|j| rr[j] > tols[j] * b_norm[j]).collect();
                 if !active.iter().any(|a| *a) {
-                    break;
+                    let now: Vec<f64> = (0..nv).map(|j| rr[j] / b_norm[j].max(f64::MIN_POSITIVE)).collect();
+                    if !check || true_residual_met(a, x, tol, (&mut tols, &now), &mut checks) {
+                        break;
+                    }
+                    active = (0..nv).map(|j| rr[j] > tols[j] * b_norm[j]).collect();
                 }
                 let slots = self.pairs.len();
                 let z = next;

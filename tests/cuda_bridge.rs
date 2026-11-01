@@ -3865,3 +3865,62 @@ fn coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
         check::<f32>(&d, &basis, &x_e, 1e-5, &format!("{n} vectors, single"));
     }
 }
+
+/// `PvRatio::true_residual` of a solution y of its system is |D x − b|²/|b|² of the x that
+/// `solution` makes of y (with Q for Neff's α), computed here on the whole lattice: for any y, in
+/// both forms, at α = 1 and 0.6.
+#[test]
+fn pv_ratio_true_residual_is_that_of_d() {
+    use ruttice::fermion::SplitParity;
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 491);
+    let params = MdwfParams {
+        ls: 4,
+        m5: 1.8,
+        mass: 0.05,
+        b: 1.5,
+        c: 0.5,
+        boundary: ANTIPERIODIC_T,
+    };
+    for alpha in [1.0, 0.6] {
+        let mut d = CudaMdwf::<f64>::new(&lat, params).unwrap();
+        d.set_gauge(&u).unwrap();
+        d.set_alpha(alpha);
+        let mut pv = CudaMdwf::<f64>::new(&lat, MdwfParams { mass: 1.0, ..params }).unwrap();
+        pv.set_gauge(&u).unwrap();
+        let mut plain_d = CudaMdwf::<f64>::new(&lat, params).unwrap();
+        plain_d.set_gauge(&u).unwrap();
+        let b = DeviceSpinor::from_host(&random_fifth(&lat, 4, 492)).unwrap();
+        let mut even = DeviceParities.half_like(&b, Parity::Even);
+        DeviceParities.extract(&mut even, &b, Parity::Even);
+        let odd = DeviceParities.half_like(&b, Parity::Odd);
+        let mut y_whole = DeviceSpinor::from_host(&random_fifth(&lat, 4, 493)).unwrap();
+        y_whole.scale(&[0.01]);
+        let mut y = DeviceParities.half_like(&y_whole, Parity::Even);
+        DeviceParities.extract(&mut y, &y_whole, Parity::Even);
+        for form in [EoForm::Right, EoForm::Left] {
+            let mut a = PvRatio::new(&d, &pv, form, &even, &odd);
+            a.keep_true_residual();
+            assert!(a.has_true_residual());
+            let mut rhs = even.zeros_like();
+            a.right_hand_side(&DeviceParities, &mut rhs, &b);
+            let t = a.true_residual(&y).unwrap();
+            let mut x = b.zeros_like();
+            a.solution(&DeviceParities, &mut x, &y, &b);
+            if alpha != 1.0 {
+                let mut plain = x.zeros_like();
+                d.mult_q(&mut plain, &x, false);
+                x = plain;
+            }
+            let mut r = b.zeros_like();
+            Bound::new(&plain_d, Variant::D).mult(&mut r, &x);
+            r.aypx(&[C64::new(-1.0, 0.0)], &b);
+            let (mut rr, mut bb) = ([0.0], [0.0]);
+            r.norm_sqr(&mut rr);
+            b.norm_sqr(&mut bb);
+            let direct = rr[0] / bb[0];
+            eprintln!("α {alpha}, {form:?}: true_residual {:e}, |Dx − b|²/|b|² {direct:e}", t[0]);
+            assert!((t[0] - direct).abs() <= 1e-10 * direct, "{alpha} {form:?}: {} {direct}", t[0]);
+        }
+    }
+}

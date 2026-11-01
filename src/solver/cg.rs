@@ -1,7 +1,8 @@
 //! Conjugate gradient for Hermitian positive-definite operators.
 
 use super::{
-    fewer, kept, not_finite, true_residual, Narrowed, SolveError, SolveInfo, Solver, Stop,
+    fewer, kept, not_finite, true_residual, true_residual_met, Narrowed, SolveError, SolveInfo,
+    Solver, Stop,
 };
 use crate::{LinearFn, Vector, C64};
 
@@ -70,8 +71,17 @@ impl<V: Vector> Solver<V> for Cg<V> {
         let mut b_norm = vec![0.0; nv];
         b.norm_sqr(&mut b_norm);
         let tol = self.stop.tolerance_sqr;
-        let converged =
-            |rr: &[f64], b_norm: &[f64]| rr.iter().zip(b_norm).all(|(r, n)| *r <= tol * n);
+        // The own tolerance of every vector: `tol`, lowered where the residual of D misses it
+        // (`true_residual_met`); without that check the vectors that have converged leave.
+        let check = a.has_true_residual();
+        let (mut tols, mut checks) = (vec![tol; nv], 0);
+        let own = |tols: &[f64], j: usize| tols[j.min(tols.len() - 1)];
+        let converged = |rr: &[f64], b_norm: &[f64], tols: &[f64]| {
+            rr.iter()
+                .zip(b_norm)
+                .enumerate()
+                .all(|(j, (r, n))| *r <= own(tols, j) * n)
+        };
 
         let mut rr = vec![0.0; nv];
         let mut rz = vec![C64::ZERO; nv];
@@ -117,7 +127,8 @@ impl<V: Vector> Solver<V> for Cg<V> {
                     p.copy_from(z);
                     r.dot(z, &mut rz);
                     if (0..nv).any(|j| {
-                        rr[j] > tol * b_norm[j] && !(rz[j].re > 0.0 && rz[j].re.is_finite())
+                        rr[j] > own(&tols, j) * b_norm[j]
+                            && !(rz[j].re > 0.0 && rz[j].re.is_finite())
                     }) {
                         return Err(SolveError::Breakdown {
                             iterations,
@@ -134,11 +145,16 @@ impl<V: Vector> Solver<V> for Cg<V> {
             }
 
             for _ in 0..self.stop.max_iterations {
-                if converged(&rr, &b_norm) {
-                    break;
+                if converged(&rr, &b_norm, &tols) {
+                    let now: Vec<f64> = rr.iter().zip(&b_norm).map(|(r, n)| r / n.max(f64::MIN_POSITIVE)).collect();
+                    if !check || true_residual_met(a, x, tol, (&mut tols, &now), &mut checks) {
+                        break;
+                    }
                 }
-                let active: Vec<bool> = (0..rr.len()).map(|j| rr[j] > tol * b_norm[j]).collect();
-                if let Some(keep) = fewer(&active).filter(|_| m.is_none()) {
+                let active: Vec<bool> = (0..rr.len())
+                    .map(|j| rr[j] > own(&tols, j) * b_norm[j])
+                    .collect();
+                if let Some(keep) = fewer(&active).filter(|_| m.is_none() && !check) {
                     narrowed = Some(Narrowed::narrow(narrowed, x, &keep));
                     for w in [&mut *r, &mut *p] {
                         *w = w.select(&keep);
@@ -154,7 +170,7 @@ impl<V: Vector> Solver<V> for Cg<V> {
                 let nv = rr.len();
                 a.mult_dot(ap, p, &mut pap);
                 for j in 0..nv {
-                    let active = rr[j] > tol * b_norm[j];
+                    let active = rr[j] > own(&tols, j) * b_norm[j];
                     if active && !(pap[j].re > 0.0 && pap[j].re.is_finite()) {
                         return Err(SolveError::Breakdown {
                             iterations,
@@ -187,7 +203,7 @@ impl<V: Vector> Solver<V> for Cg<V> {
                         m.mult(z, r);
                         r.dot(z, &mut rz_new);
                         if (0..nv).any(|j| {
-                            rr[j] > tol * b_norm[j]
+                            rr[j] > own(&tols, j) * b_norm[j]
                                 && !(rz_new[j].re > 0.0 && rz_new[j].re.is_finite())
                         }) {
                             return Err(SolveError::Breakdown {

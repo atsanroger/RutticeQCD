@@ -523,58 +523,93 @@ where
             Some(c) => c.inner().inner_applications(steps),
             None => pre.inner_applications(steps),
         };
-        let mut sol = rhs.zeros_like();
         let counted = crate::meter::Counts::now();
         let start = Instant::now();
-        let (result, history): (Result<SolveInfo, SolveError>, _) = {
-            let mut counted_a = Counted {
-                a: &mut a,
-                n: &outer,
-            };
-            let m: Option<&mut dyn LinearFn<H<L>>> = match single_pre.as_mut() {
-                Some(c) => Some(c),
-                None => pre.as_fn(),
-            };
-            let mut counted_pre = m.map(|m| Counted { a: m, n: &applied });
-            let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
-            match (s.solver_type, single.as_mut()) {
-                (SolverType::Cg, Some((sc, drop_sqr))) => {
-                    let stop = s.stop();
-                    let solved =
-                        sc.reliable_normal(&mut counted_a, &mut sol, &rhs, stop, *drop_sqr);
-                    (solved, None)
+        // The tolerance of the parameter file is on |D x − b|²/|b|²: after the first solve,
+        // corrections D δ = b − D x until it is reached.
+        let tolerance = s.stop().tolerance_sqr;
+        let mut bb = vec![0.0; nv];
+        b.norm_sqr(&mut bb);
+        let mut x = b.zeros_like();
+        let mut target = b.zeros_like();
+        target.copy_from(b);
+        let (mut results, mut history) = (Vec::new(), None);
+        let mut worst;
+        loop {
+            let stop = match results.len() {
+                0 => s.stop(),
+                _ => {
+                    let mut rr = vec![0.0; nv];
+                    target.norm_sqr(&mut rr);
+                    crate::solver::Stop {
+                        tolerance_sqr: super::correction_tolerance(tolerance, &rr, &bb),
+                        ..s.stop()
+                    }
                 }
-                _ => s.solve(&mut counted_a, m, &mut sol, &rhs, detailed),
+            };
+            if !results.is_empty() {
+                a.right_hand_side(&mut rhs, &target);
             }
-        };
+            let mut sol = rhs.zeros_like();
+            let (result, recorded): (Result<SolveInfo, SolveError>, _) = {
+                let mut counted_a = Counted {
+                    a: &mut a,
+                    n: &outer,
+                };
+                let m: Option<&mut dyn LinearFn<H<L>>> = match single_pre.as_mut() {
+                    Some(c) => Some(c),
+                    None => pre.as_fn(),
+                };
+                let mut counted_pre = m.map(|m| Counted { a: m, n: &applied });
+                let m = counted_pre.as_mut().map(|c| c as &mut dyn LinearFn<H<L>>);
+                match (s.solver_type, single.as_mut()) {
+                    (SolverType::Cg, Some((sc, drop_sqr))) => {
+                        let solved =
+                            sc.reliable_normal(&mut counted_a, &mut sol, &rhs, stop, *drop_sqr);
+                        (solved, None)
+                    }
+                    _ => s.solve_with(stop, &mut counted_a, m, &mut sol, &rhs, detailed),
+                }
+            };
+            if history.is_none() {
+                history = recorded;
+            }
+            let mut delta = b.zeros_like();
+            a.solution(&mut delta, &sol, &target);
+            x.axpy(&vec![C64::new(1.0, 0.0); nv], &delta);
+            let mut r = b.zeros_like();
+            op_check.mult(&mut op_check.work(), &mut r, &x, Variant::D);
+            r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
+            let mut rr = vec![0.0; nv];
+            r.norm_sqr(&mut rr);
+            worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
+            let failed = result.is_err();
+            results.push(result);
+            if failed || worst <= tolerance || results.len() > super::MAX_CORRECTIONS {
+                break;
+            }
+            target = r;
+        }
         let seconds = start.elapsed().as_secs_f64();
         let work = crate::meter::Counts::now().since(&counted);
-        let iterations = iterations_text(&result);
+        let iterations = super::rounds_text(&results);
         // Applications of the operator, per right-hand side.
         let applications = (outer.get() + applied.get() * inner_per) / nv;
         let coarse = (coarse_applications(&pre, &single_pre) - coarse_before) / nv;
-        let mut x = b.zeros_like();
-        a.solution(&mut x, &sol, b);
-        let mut r = b.zeros_like();
-        op_check.mult(&mut op_check.work(), &mut r, &x, Variant::D);
-        r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
-        let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
-        r.norm_sqr(&mut rr);
-        b.norm_sqr(&mut bb);
-        let worst = rr.iter().zip(&bb).fold(0.0_f64, |m, (r, b)| m.max(r / b));
         writeln!(
             out,
-            "  {label}: {}{} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}",
+            "  {label}: {}{} {iterations} iterations; per right-hand side {} preconditioner applications, {applications} applications of the operator = {} Wilson sweeps, {coarse} coarse; worst |Dx−b|² {worst:.0e}; {seconds:.1} s, {}; {}; corrections {}",
             s.solver_type,
             if single.is_some() { " (mixed precision)" } else { "" },
             applied.get() / nv,
             2 * applications,
             work.line(seconds),
-            memory_line()
+            memory_line(),
+            results.len() - 1
         )?;
         super::history_lines(out, label, history);
-        if result.is_ok() {
-            super::check_solution(label, worst, s.stop().tolerance_sqr)?;
+        if results.last().is_some_and(|r| r.is_ok()) {
+            super::check_solution(label, worst, tolerance)?;
         }
         Ok(x)
     };
@@ -584,15 +619,6 @@ where
         ls,
     };
     solve_sources(params, &lat, seeds, &mut fields, solve, out)
-}
-
-/// The iterations of a solve as the report shows them: with `!` if it did not converge.
-pub(super) fn iterations_text(result: &Result<SolveInfo, SolveError>) -> String {
-    match result {
-        Ok(i) => format!("{}", i.iterations),
-        Err(SolveError::NotConverged(i)) => format!("{}!", i.iterations),
-        Err(e) => format!("failed: {e}"),
-    }
 }
 
 /// Where a backend keeps the five-dimensional fields of a propagator run, and how it makes

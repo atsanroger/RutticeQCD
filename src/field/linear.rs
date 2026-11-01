@@ -22,6 +22,18 @@ pub trait LinearFn<V: Vector> {
         self.mult(out, inp);
         out.aypx(a, b);
     }
+
+    /// Whether `true_residual` gives the residual of the system the solve is for.
+    fn has_true_residual(&self) -> bool {
+        false
+    }
+
+    /// |D ψ − η|²/|η|² of every vector for the solution ψ that the solution `x` of this
+    /// operator's system stands for, where this operator is a transform of D ψ = η (the even-odd
+    /// and preconditioned systems); `None` if it does not know D or η.
+    fn true_residual(&mut self, _x: &V) -> Option<Vec<f64>> {
+        None
+    }
 }
 
 /// Make a temporary hold as many vectors as `like` does. Its content is lost when it has
@@ -197,6 +209,12 @@ impl<A: LinearFn<V> + ?Sized, V: Vector> LinearFn<V> for &mut A {
     fn mult_xpay(&mut self, out: &mut V, inp: &V, a: &[C64], b: &V) {
         (**self).mult_xpay(out, inp, a, b);
     }
+    fn has_true_residual(&self) -> bool {
+        (**self).has_true_residual()
+    }
+    fn true_residual(&mut self, x: &V) -> Option<Vec<f64>> {
+        (**self).true_residual(x)
+    }
 }
 
 impl<A: LinearOp<V> + ?Sized, V: Vector> LinearOp<V> for Box<A> {
@@ -215,6 +233,12 @@ impl<A: LinearFn<V> + ?Sized, V: Vector> LinearFn<V> for Box<A> {
     }
     fn mult_xpay(&mut self, out: &mut V, inp: &V, a: &[C64], b: &V) {
         (**self).mult_xpay(out, inp, a, b);
+    }
+    fn has_true_residual(&self) -> bool {
+        (**self).has_true_residual()
+    }
+    fn true_residual(&mut self, x: &V) -> Option<Vec<f64>> {
+        (**self).true_residual(x)
     }
 }
 

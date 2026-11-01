@@ -756,3 +756,43 @@ fn a_nan_from_the_operator_is_a_breakdown() {
         }
     }
 }
+
+/// CG on an operator that knows a residual of its system other than its own (`true_residual`,
+/// here 1e4 times the own one) goes on with the same iteration until that is below the
+/// tolerance: it ends with its own residual 1e4 times further down, in more iterations than
+/// without the check, and with no restart.
+#[test]
+fn cg_goes_on_until_the_true_residual_is_met() {
+    struct Strict<A> {
+        a: A,
+        b: V64,
+    }
+    impl<A: LinearFn<V64>> LinearFn<V64> for Strict<A> {
+        fn mult(&mut self, out: &mut V64, inp: &V64) {
+            self.a.mult(out, inp);
+        }
+        fn has_true_residual(&self) -> bool {
+            true
+        }
+        fn true_residual(&mut self, x: &V64) -> Option<Vec<f64>> {
+            Some(residual_sqr(&mut self.a, x, &self.b).iter().map(|r| 1e4 * r).collect())
+        }
+    }
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let op = wilson::<f64>(&lat, &random_gauge(&lat, 1));
+    let b = random_spinor(&lat, 1, 2);
+    let tol = 1e-14;
+    let mut plain = ddag_d(&op, &b);
+    let mut x0 = b.zeros_like();
+    let own = Cg::new(Stop::simple(tol, 2000)).solve(&mut plain, None, &mut x0, &b).unwrap();
+    let mut copy = b.zeros_like();
+    copy.copy_from(&b);
+    let mut strict = Strict { a: ddag_d(&op, &b), b: copy };
+    let mut x = b.zeros_like();
+    let info = Cg::new(Stop::simple(tol, 2000)).solve(&mut strict, None, &mut x, &b).unwrap();
+    let r = residual_sqr(&mut plain, &x, &b);
+    eprintln!("own tolerance: {} iterations; with the check: {} iterations, own residual {:e}", own.iterations, info.iterations, r[0]);
+    assert!(1e4 * r[0] <= tol, "{:e}", r[0]);
+    assert!(info.iterations > own.iterations);
+    assert_eq!(info.restarts, 0);
+}

@@ -1,7 +1,7 @@
 //! The generic pieces that mixed precision is assembled from:
 //! defect correction, precision conversion, and a solver bound to its operator.
 
-use super::{not_finite, true_residual, SolveError, SolveInfo, Solver, Stop};
+use super::{not_finite, true_residual, true_residual_met, SolveError, SolveInfo, Solver, Stop};
 use crate::{ConvertFrom, LinearFn, LinearOp, Vector, C64};
 
 /// Defect correction: `x += M (b - A x)` until the true residual is small enough. `A` is
@@ -159,6 +159,9 @@ where
     let mut b_norm = vec![0.0; nv];
     b.norm_sqr(&mut b_norm);
     let tol = stop.tolerance_sqr;
+    // The own tolerance of every vector: `tol`, lowered where the residual of D misses it.
+    let check = a.has_true_residual();
+    let (mut tols, mut checks) = (vec![tol; nv], 0);
 
     let (mut r, mut t) = (b.zeros_like(), b.zeros_like());
     let mut residual = vec![0.0; nv];
@@ -168,7 +171,9 @@ where
         restarts: 0,
         residual_sqr: residual.clone(),
     };
-    if residual.iter().all(|r| *r <= tol) {
+    if residual.iter().zip(&tols).all(|(r, t)| r <= t)
+        && (!check || true_residual_met(a, x, tol, (&mut tols, &residual.clone()), &mut checks))
+    {
         return Ok(info);
     }
     let not_finite_error = |iterations| SolveError::Breakdown {
@@ -192,7 +197,7 @@ where
     let limit = stop.max_iterations * (stop.max_restarts + 1);
     while info.iterations < limit {
         // A vector whose residual of the higher precision is below the tolerance stays put.
-        let active: Vec<bool> = residual.iter().map(|r| *r > tol).collect();
+        let active: Vec<bool> = residual.iter().zip(&tols).map(|(r, t)| r > t).collect();
         low.mult_dot(&mut ap, &p, &mut pap);
         for j in 0..nv {
             if active[j] && !(pap[j].re > 0.0 && pap[j].re.is_finite()) {
@@ -218,7 +223,7 @@ where
         }
 
         let update = (0..nv).any(|j| {
-            active[j] && (rr_new[j] < drop_sqr * largest[j] || rr_new[j] <= tol * b_norm[j])
+            active[j] && (rr_new[j] < drop_sqr * largest[j] || rr_new[j] <= tols[j] * b_norm[j])
         });
         if update {
             t.convert_from(&x2);
@@ -226,7 +231,10 @@ where
             x2.set_zero();
             true_residual(a, x, b, &b_norm, &mut r, &minus_one, &mut residual);
             info.restarts += 1;
-            if residual.iter().all(|r| *r <= tol) {
+            if residual.iter().zip(&tols).all(|(r, t)| r <= t)
+                && (!check
+                    || true_residual_met(a, x, tol, (&mut tols, &residual.clone()), &mut checks))
+            {
                 info.residual_sqr = residual;
                 return Ok(info);
             }
@@ -242,7 +250,7 @@ where
             }
         }
         for j in 0..nv {
-            beta[j] = if residual[j] > tol {
+            beta[j] = if residual[j] > tols[j] {
                 real(rr_new[j] / rr[j])
             } else {
                 C64::ZERO

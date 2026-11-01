@@ -794,8 +794,23 @@ impl SolverBlock {
         Result<crate::solver::SolveInfo, crate::solver::SolveError>,
         Option<Vec<Vec<f64>>>,
     ) {
+        self.solve_with(self.stop(), a, m, x, b, record)
+    }
+
+    /// `solve` with the stopping rule `stop` in place of the block's own.
+    pub fn solve_with<V: crate::Vector>(
+        &self,
+        stop: Stop,
+        a: &mut dyn crate::LinearFn<V>,
+        m: Option<&mut dyn crate::LinearFn<V>>,
+        x: &mut V,
+        b: &V,
+        record: bool,
+    ) -> (
+        Result<crate::solver::SolveInfo, crate::solver::SolveError>,
+        Option<Vec<Vec<f64>>>,
+    ) {
         use crate::solver::{BiCgStab, BlockGcr, Cg, Fgmres, Gcr, Solver};
-        let stop = self.stop();
         let k = self.number_of_kept_directions;
         let solved = match self.solver_type {
             SolverType::Gcr => {

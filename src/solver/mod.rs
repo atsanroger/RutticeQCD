@@ -178,6 +178,39 @@ pub(crate) fn true_residual<V: Vector>(
     }
 }
 
+/// Checks of the residual of D (`LinearFn::true_residual`) in one solve at most; after them the
+/// solver stops on its own residual.
+pub(crate) const TRUE_RESIDUAL_CHECKS: usize = 8;
+
+/// When a solver's own residual has met `tols` on every vector: whether the residual of the
+/// system the solve is for, |D ψ − η|²/|η|² from `a.true_residual(x)`, is below `tol` too. If not,
+/// the own tolerance of a vector that misses is lowered by half the factor it misses by, by ten
+/// at most (the two residuals need not fall alike), and below half its own residual now (`own`,
+/// relative to |b|²), and the solver goes on with the same iteration. Without that residual, or after `TRUE_RESIDUAL_CHECKS` checks, it stops.
+pub(crate) fn true_residual_met<V: Vector>(
+    a: &mut dyn LinearFn<V>,
+    x: &V,
+    tol: f64,
+    (tols, own): (&mut [f64], &[f64]),
+    checks: &mut usize,
+) -> bool {
+    if *checks >= TRUE_RESIDUAL_CHECKS {
+        return true;
+    }
+    let Some(t) = a.true_residual(x) else {
+        return true;
+    };
+    *checks += 1;
+    let mut met = true;
+    for ((t_own, now), d) in tols.iter_mut().zip(own).zip(&t) {
+        if *d > tol {
+            *t_own = (*t_own * (0.5 * tol / d).max(0.1)).min(0.5 * now);
+            met = false;
+        }
+    }
+    met
+}
+
 /// Solve `A x = b` for a general `A` through the normal equations `A A^† y = b`,
 /// `x = A^† y` (CGNE when `solver` is CG). The residual the solver sees is that of the
 /// original system. Starts from zero; the content of `x` on entry is ignored.

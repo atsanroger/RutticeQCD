@@ -298,6 +298,9 @@ pub struct PvRatio<'a, F: EvenOdd<H>, H> {
     work_pv: F::Work,
     odd: [H; 2],
     even: [H; 2],
+    /// With `keep_true_residual`: b′_e = b_e − D_eo C_o⁻¹ b_o and |b|² of the last
+    /// `right_hand_side`, for `true_residual`.
+    kept: Option<Option<(H, Vec<f64>)>>,
 }
 
 impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
@@ -311,7 +314,14 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
             work_pv: pv.even_odd_work(),
             odd: [like_odd.zeros_like(), like_odd.zeros_like()],
             even: [like_even.zeros_like(), like_even.zeros_like()],
+            kept: None,
         }
+    }
+
+    /// Keep b′_e of every `right_hand_side` (one field on the even sites more), so that the
+    /// solvers can stop on |D x − b|²/|b|² (`LinearFn::true_residual`).
+    pub fn keep_true_residual(&mut self) {
+        self.kept = Some(None);
     }
 
     /// The work fields for as many vectors as `like` has: the solvers go on with fewer once
@@ -358,6 +368,14 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
             .hop(&mut self.work, &mut t_e, &t_o, even, Dagger::No);
         let minus = vec![C64::new(-1.0, 0.0); b_e.num_vectors()];
         t_e.aypx(&minus, &b_e);
+        if let Some(kept) = self.kept.as_mut() {
+            let (mut n_e, mut n_o) = (vec![0.0; b_e.num_vectors()], vec![0.0; b_e.num_vectors()]);
+            b_e.norm_sqr(&mut n_e);
+            b_o.norm_sqr(&mut n_o);
+            let mut b_prime = t_e.zeros_like();
+            b_prime.copy_from(&t_e);
+            *kept = Some((b_prime, n_e.iter().zip(&n_o).map(|(e, o)| e + o).collect()));
+        }
         if self.form == EoForm::Left {
             self.op
                 .diag_inv(&mut self.work, &mut b_e, &t_e, even, Dagger::No);
@@ -596,6 +614,41 @@ impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
     /// `out = Ã inp`: the factor of the operator, then the adjoint of the Pauli-Villars one.
     fn mult(&mut self, out: &mut H, inp: &H) {
         self.product(out, inp, (false, Dagger::No), (true, Dagger::Yes));
+    }
+
+    fn has_true_residual(&self) -> bool {
+        self.kept.is_some()
+    }
+
+    /// |M x − b|²/|b|² for the x of `solution(y)`: x_o makes the odd rows exact, so it is the
+    /// even residual Ŝ x_e − b′_e, with Ŝ x_e the right Schur factor of y (right form, x_e =
+    /// M_ee⁻¹ y) or M_ee times the left one (left form, x_e = y); the work fields hold it.
+    fn true_residual(&mut self, y: &H) -> Option<Vec<f64>> {
+        let (b_prime, b_norm) = self.kept.as_ref()?.as_ref()?;
+        if b_prime.num_vectors() != y.num_vectors() {
+            return None;
+        }
+        let even = Parity::Even;
+        for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
+            crate::fit(f, y);
+        }
+        let [e0, e1] = &mut self.even;
+        let scratch = (&mut self.odd, &mut *e0);
+        schur_factor(self.op, &mut self.work, self.form, scratch, e1, y, Dagger::No);
+        if self.form == EoForm::Left {
+            self.op.diag(&mut self.work, e0, e1, even, Dagger::No);
+            std::mem::swap(e0, e1);
+        }
+        let nv = y.num_vectors();
+        e1.axpy(&vec![C64::new(-1.0, 0.0); nv], b_prime);
+        let mut rr = vec![0.0; nv];
+        e1.norm_sqr(&mut rr);
+        Some(
+            rr.iter()
+                .zip(b_norm)
+                .map(|(r, b)| r / b.max(f64::MIN_POSITIVE))
+                .collect(),
+        )
     }
 }
 
