@@ -62,7 +62,7 @@ Every setup uses the same random seed except where other seeds are stated
 \subsubsection{Comparison with CGNE}
 \label{sec:massscan}
 
-On $24^3\times48$ the multigrid is $3.2$--$5.7$ times faster than mixed-precision CGNE at
+On $24^3\times48$ the multigrid is $4.1$--$7.3$ times faster than mixed-precision CGNE at
 $m=0.001$, and its setup is recovered within one point-source propagator for $m\le0.005$.
 
 \begin{figure}[t]
@@ -84,9 +84,8 @@ Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterati
 
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
-CGNE grow by $18$--$27$, those of the multigrid by $2.8$--$5.4$. Its setup is paid back after
-$3.5$--$5.3$ right-hand sides at $m=0.001$. For $m\ge0.05$ in setup~S, CGNE is
-faster or level. The multigrid needs three times the device memory of CGNE.
+CGNE grow by $20$--$32$, those of the multigrid by $2.8$--$5.4$. Its setup is paid back after
+$2.6$--$4.8$ right-hand sides at $m=0.001$. The multigrid is faster at every mass. The multigrid needs three times the device memory of CGNE.
 
 \paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.40$--$0.56$ of the wall
 time of CGNE for a whole propagator, setup included (Table~\ref{tab:pointsource}). At $m=0.01$ the two
@@ -118,9 +117,9 @@ B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $31
 \end{table}
 
 \paragraph{Volume.} The advantage of the multigrid grows with the volume (Fig.~\ref{fig:volume},
-Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, about
-level (S) or faster (B) on $16^4$, and clearly faster from $24^4$ on. From $12^4$ to $24^3\times48$
-its iterations about double, while those of CGNE grow eight- to fifteenfold. Its setup grows with the
+Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, faster on
+$16^4$ (in setup~S the ranges overlap), and clearly faster from $24^4$ on. From $12^4$ to $24^3\times48$
+its iterations about double, while those of CGNE grow ten- to nineteenfold. Its setup grows with the
 volume. Neff's $\alpha=0.6$ saves CG a larger share of its iterations (Fig.~\ref{fig:cgform}) than the
 multigrid (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 

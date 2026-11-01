@@ -139,8 +139,8 @@ did not beat red-black CG. A single setup serves every value of Neff's $\alpha$.
 values of the preconditioned operator reaches into the left half-plane, yet at $\alpha=1$ its spectrum has
 $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
-$m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes
+$m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
+$4.1$--$7.3$ times faster than mixed-precision CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
@@ -1174,10 +1174,10 @@ $D_-^{-1}$ altogether.
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$3.2$--$5.7$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$4.1$--$7.3$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. In solve time, setup
-excluded, the multigrid is faster from $24^4$ on, and in setup~B already on $16^4$. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
+$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $20$--$32$. In solve time, setup
+excluded, the multigrid is faster from $16^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is addressed by one choice: the even-odd system, a
