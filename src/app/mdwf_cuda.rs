@@ -309,6 +309,9 @@ pub(super) fn run(
         let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
         let counted = crate::meter::Counts::now();
         let start = Instant::now();
+        // The seconds of the solves themselves, as without corrections: not the right-hand
+        // sides, the solutions, the residuals of D or the copies to the host between them.
+        let mut solving = std::time::Duration::ZERO;
         let (mut results, mut history) = (Vec::new(), None);
         let mut worst;
         let x = loop {
@@ -330,6 +333,7 @@ pub(super) fn run(
             let m = pre
                 .as_mut()
                 .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
+            let began = Instant::now();
             let (result, recorded) = match (s.solver_type, single.as_mut()) {
                 (SolverType::Cg, Some((sc, drop_sqr))) => {
                     let solved = sc.reliable_normal(&mut a, &mut sol, &rhs, stop, *drop_sqr);
@@ -337,6 +341,7 @@ pub(super) fn run(
                 }
                 _ => s.solve_with(stop, &mut a, m, &mut sol, &rhs, detailed),
             };
+            solving += began.elapsed();
             if history.is_none() {
                 history = recorded;
             }
@@ -378,7 +383,7 @@ pub(super) fn run(
             x_host = Some(x.stash()?);
             target_host = Some(r.stash()?);
         };
-        let seconds = start.elapsed().as_secs_f64();
+        let (seconds, all) = (solving.as_secs_f64(), start.elapsed().as_secs_f64());
         let work = crate::meter::Counts::now().since(&counted);
         let coarse = match (&cycles, coarse_before) {
             (Some(c), Some(before)) => {
@@ -392,7 +397,7 @@ pub(super) fn run(
             s.solver_type,
             if single.is_some() { " (mixed precision)" } else { "" },
             super::rounds_text(&results),
-            work.line(seconds),
+            work.line(all),
             memory(),
             results.len() - 1
         )?;

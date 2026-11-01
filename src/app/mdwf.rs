@@ -525,6 +525,8 @@ where
         };
         let counted = crate::meter::Counts::now();
         let start = Instant::now();
+        // The seconds of the solves themselves (not the right-hand sides, solutions and residuals).
+        let mut solving = std::time::Duration::ZERO;
         // The tolerance of the parameter file is on |D x − b|²/|b|²: after the first solve,
         // corrections D δ = b − D x until it is reached.
         let tolerance = s.stop().tolerance_sqr;
@@ -551,6 +553,7 @@ where
                 a.right_hand_side(&mut rhs, &target);
             }
             let mut sol = rhs.zeros_like();
+            let began = Instant::now();
             let (result, recorded): (Result<SolveInfo, SolveError>, _) = {
                 let mut counted_a = Counted {
                     a: &mut a,
@@ -571,6 +574,7 @@ where
                     _ => s.solve_with(stop, &mut counted_a, m, &mut sol, &rhs, detailed),
                 }
             };
+            solving += began.elapsed();
             if history.is_none() {
                 history = recorded;
             }
@@ -590,7 +594,7 @@ where
             }
             target = r;
         }
-        let seconds = start.elapsed().as_secs_f64();
+        let (seconds, all) = (solving.as_secs_f64(), start.elapsed().as_secs_f64());
         let work = crate::meter::Counts::now().since(&counted);
         let iterations = super::rounds_text(&results);
         // Applications of the operator, per right-hand side.
@@ -603,7 +607,7 @@ where
             if single.is_some() { " (mixed precision)" } else { "" },
             applied.get() / nv,
             2 * applications,
-            work.line(seconds),
+            work.line(all),
             memory_line(),
             results.len() - 1
         )?;
