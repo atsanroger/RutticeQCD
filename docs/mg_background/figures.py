@@ -10,6 +10,7 @@ fig_sensitivity.pdf: GCR(2) iterations on 12^4 when one parameter of the setup i
 """
 import csv
 import os
+import statistics
 
 import matplotlib
 
@@ -198,7 +199,7 @@ def volume():
             pts = points(setup, method)
             for row in range(2):
                 ax = axes[row, col]
-                med = [sorted(p[row] for p in pts[v])[len(pts[v]) // 2 - 1 + len(pts[v]) % 2] for v in vols]
+                med = [statistics.median(p[row] for p in pts[v]) for v in vols]
                 ax.plot(sites, med, fmt, color=color, label=lab)
         bi = {r["volume"]: r for r in rows("baseline_volume.tsv") if r["setup"] == setup
               and r["mass"] == "0.001" and r["method"] == "bicg"}
@@ -223,7 +224,6 @@ def volume():
 
 
 def sensitivity():
-    import statistics
     data = rows("sensitivity_12_configs.tsv")
     prefix = {"S": "stout", "B": "m18"}
     base_x = {"block": 4, "vectors": 32, "steps": {"S": 8, "B": 12}, "ratio": {"S": 10, "B": 30},

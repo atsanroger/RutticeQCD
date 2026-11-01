@@ -137,15 +137,15 @@ deflation. These choices address the three reasons Boyle and Yamaguchi gave for 
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
 \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
-$\Re\lambda\ge0.69$, and its pseudospectra bound the convergence of full GMRES. On four quenched
-$24^3\times48$ configurations the iteration count grows by a factor of $1.6$--$4.1$ from $m=0.1$ to
+$\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
+$24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$2.9$--$6.0$ times faster than mixed-precision CGNE, and a point-source propagator takes half its
-time, setup included.\else{} We state
+$3.2$--$5.7$ times faster than mixed-precision CGNE, and a point-source propagator takes
+$0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
-$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$ and $R$ the reflection of the
-fifth dimension). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
+$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$, $R$ the reflection of the
+fifth dimension, and $N$ proportional to the M\"obius coefficient $c$). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
 second multigrid setup.
 
 \end{abstract}
@@ -209,11 +209,11 @@ Boyle and Yamaguchi~\cite{BY} compared these approaches for Shamir fermions; on 
 was set up and solved faster than a single even-odd CG solve. They also carried the
 Pauli--Villars method of Ref.~\cite{BCHW} to four-dimensional QCD, where it needed about half the
 fine-matrix applications of red-black CG but $18$--$31$ times its solve time. They gave three
-reasons. Red-black CG, not the full-lattice solve, is the relevant baseline. The coarse space keeps
+reasons. The relevant baseline is red-black CG, against which the full-lattice solve is slow. The coarse space keeps
 a fifth dimension of extent $L_s$, so its cost removes the gain. And reducing that cost would need
 further levels or coarse deflation, which the PV method did not have. They also found that CG
 converges faster on the Schur complement than on its left-preconditioned form\ifresults{} (for the
-M\"obius setups of this work the order is reversed, Appendix~\ref{sec:cgform})\fi, and that an
+M\"obius setups of this work at $\alpha=0.6$ the order is reversed, Appendix~\ref{sec:cgform})\fi, and that an
 even-odd smoother did not work with the HDCR correction.
 
 \paragraph{Recent work by Boyle and collaborators.}
@@ -252,9 +252,9 @@ the outer system is the even-odd one, as for red-black CG; its inverse contains 
 the quark operator and of the adjoint Pauli--Villars operator, and we replace each by a Galerkin
 inverse. Second, every aggregate contains the whole fifth dimension, so the coarse lattice is
 four-dimensional and both coarse operators are nearest-neighbor. Third, levels below the coarse
-lattice with a dense LU at the bottom take the place of deflation for the quark factor, and the
-Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized normal equation
-(Sec.~\ref{sec:coarse}). The prolongation lifts each test vector to all lattice sites in two ways,
+lattice with a dense LU at the bottom take the place of deflation for the quark factor
+(Sec.~\ref{sec:coarse}). The Pauli--Villars coarse system is solved by CG on a Tikhonov-regularized
+normal equation, which removes small singular values that the Galerkin projection creates. The prolongation lifts each test vector to all lattice sites in two ways,
 one for each coarse solve, which makes the correction exact on them for the right form
 (Eq.~\eqref{eq:exact}). The smoother is a fixed Chebyshev polynomial, and the setup combines
 Chebyshev filtering with a bootstrap.
@@ -291,25 +291,25 @@ From Ref.~\cite{KCM2024}, Fig.~1.}
 \end{figure}
 
 \paragraph{The unpreconditioned operator.}
-The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$. On a
-$2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec}, Fig.~\ref{fig:pv}) the real parts
-lie in $[-1.29,13.2]$. So CG and BiCGStab~\cite{vanderVorst} do not work on $D$ itself, and the practical choice has
+The free spectrum (Fig.~\ref{fig:free}) is a band that reaches into $\Re\lambda<0$, and so does
+the spectrum on a $2+1$-flavor configuration at the physical point (Appendix~\ref{sec:otherprec},
+Fig.~\ref{fig:pv}). So CG and BiCGStab~\cite{vanderVorst} do not work on $D$ itself, and the practical choice has
 been CG on a positive definite squared operator.
 
 \paragraph{Site-diagonal preconditioning.}
 The site-diagonal part $C$ has an inverse that is the same matrix on every site
-(Sec.~\ref{sec:C}). With it, $DC^{-1}$ has real parts in $[-0.22,2.22]$. The
-spectrum shrinks, but it still lies on both sides of the origin.
+(Sec.~\ref{sec:C}). With it the spectrum of $DC^{-1}$ shrinks, but it still lies on both sides of
+the origin.
 
 \paragraph{Pauli--Villars preconditioning.}
 The operator $\Dpv^{-1}D$, with $\Dpv=D(m=1)$, approximates the overlap operator~\cite{BCHW}.
 Since $\Dpv^{-1}$ costs as much as a solve with $D$, Ref.~\cite{BCHW} used $\Dpv\dg$ instead.
 $\Dpv\dg D$ has positive real parts. Its low modes lie close to the imaginary axis,
-shifted by about the quark mass, as for an overlap operator. Its high end, however, reaches about
-$187$, which an overlap operator would not.
+shifted by about the quark mass, as for an overlap operator. Its high end, however, reaches far
+beyond that of an overlap operator.
 
 \paragraph{Both together.}
-The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has real parts in $[2.67\times10^{-4},\,5.22]$
+The operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ has all its eigenvalues in the right half-plane
 (Fig.~\ref{fig:A}, left), with the smallest condition number in Ref.~\cite{KCM2024}. With
 $\Dpv$ replaced by its block-diagonal approximation $\Bpv$, which drops the hops between $4^4$
 blocks, negative real parts come back (right). Our method therefore keeps the factor exact on the
@@ -328,8 +328,8 @@ $32^3\times16\times12$. From Ref.~\cite{KCM2024}, Fig.~4.}
 \end{figure}
 
 \paragraph{Two caveats.}
-First, the figures show the full-lattice operator $A'$, not the even-odd operators of
-Sec.~\ref{sec:eo}. Second, eigenvalues in the right half-plane do not give a field of values
+First, the figures show the full-lattice operator $A'$; the even-odd operators of
+Sec.~\ref{sec:eo} are not shown. Second, eigenvalues in the right half-plane do not give a field of values
 there. For a non-normal operator the GCR bound~\cite{ESS} needs the Hermitian part $(A+A\dg)/2$ to
 be positive definite, which can fail while every eigenvalue has positive real part, as
 Ref.~\cite{BoyleOare} discusses for $\Dpv\dg D$.\ifresults{} It fails for the even-odd form and for
@@ -441,9 +441,6 @@ where $D_-\dg=cW\dg-1$ and $W\dg=(4-M_5)-\frac12K\dg$ were used. It vanishes for
 operator ($c=0$) and is of order $c$ otherwise; multigrid on the $\Gfive$-Hermitian operator has been used
 in the $c=0$ subspace of M\"obius fermions (as summarized in Ref.~\cite{BoyleMRHS}). Thus $\Gfive D\Gfive\neq D\dg$ for M\"obius
 fermions: a multigrid built for $D$ cannot be used for $D\dg$ by conjugating with $\Gfive$.
-\ifresults{} On a $12^4$ configuration with stout links ($M_5=1$, $m=0.001$),
-$\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for $(b,c)=(1.5,0.5)$, $0.22$ for $(2,1)$,
-and $0$ for $(1,0)$, for a random $b$.\fi
 
 \paragraph{The exact relation.} It is the generalized $\Gfive$-Hermiticity of
 Ref.~\cite{BNO}, Eqs.~(2.22)--(2.23), whose $\Gfive$ contains $D_-^{-1}$; here $\Gfive=\gamma_5R$
@@ -464,8 +461,7 @@ and multiplying by $D_-\Gfive$ from the left,
 \label{eq:g5exact}
 \end{equation}
 This form has no inverse, holds for any $m$ (so also for $\Dpv$, with the same $D_-$), and can
-be checked by applying both sides to a vector.\ifresults{} On the configuration above both sides
-agree to $3\times10^{-16}$ for $(b,c)=(1.5,0.5)$ and $(2,1)$.\fi{} The Hermitian operator
+be checked by applying both sides to a vector. The Hermitian operator
 of the M\"obius case is $\Gfive K_D=\Gfive D_-^{-1}D$; Ref.~\cite{BNO}, Eq.~(2.22), defines
 its $\Gamma_5$ as $\gamma_5RD_-^{-1}$ for that reason. It contains $D_-^{-1}$, whose cost
 is discussed in Sec.~\ref{sec:dagger}.
@@ -568,7 +564,7 @@ conditioning of the even-odd operator~\cite{Neff,CKMN}.
 \subsection{Even-odd forms}
 \label{sec:eo}
 
-\paragraph{The diagonal blocks are $C$.} Order the sites so that the even ones come first.
+In the even-odd block form the diagonal blocks of $D$ are $C$. Order the sites so that the even ones come first.
 We write $X_{pq}$ for the block of an operator $X$ that maps the sites of parity $q$ to those of
 parity $p$, and $\psi_e$, $\psi_o$ for the even and odd parts of a field.
 The hopping term $K$ connects nearest neighbors, which always have opposite parity, so it has
@@ -636,14 +632,14 @@ is $\rho_R=(\Spv\Cpve^{-1})\dg\eta'_e$ or $\rho_L=(\Cpve^{-1}\Spv)\dg\Ce^{-1}\et
 $\psi^{(\alpha)}_e=\Ce^{-1}y$ (right) or $y$ (left),
 $\psi^{(\alpha)}_o=\Co^{-1}(\eta_o-D_{oe}\psi^{(\alpha)}_e)$, $\psi=Q\psi^{(\alpha)}$.
 
-\paragraph{Why both forms.} The two forms serve different purposes. The factorized correction of
+\paragraph{Choice of form.} The two forms serve different purposes. The factorized correction of
 Sec.~\ref{sec:correction} is exact for the right form (Eq.~\eqref{eq:exact}), but $Q$
 cancels in it, so the right form cannot use Neff's $\alpha$. The left form keeps $\alpha$. The
-correction is not exact for it, yet it converges within a few iterations of the right form, and
+correction is not exact for it, yet it needs about as many iterations as the right form, and
 with $\alpha$ it can save iterations. The outer solver therefore uses the left form in practice.\ifresults{} The measurements of
 Sec.~\ref{sec:results} are on the left form unless stated.\fi
 
-\paragraph{How $\alpha$ acts on CG and on the multigrid.} The left Schur factor of $DQ$ is a
+\paragraph{$\alpha$ in CG and in the multigrid.} The left Schur factor of $DQ$ is a
 similarity transform of that of $D$:
 \begin{equation}
 \mathcal K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}\mathcal KQ_e,\qquad \mathcal K=\Ce^{-1}S .
@@ -652,9 +648,7 @@ similarity transform of that of $D$:
 So $\mathcal K^{(\alpha)}$ and $\mathcal K$ have the same eigenvalues but different singular values,
 because $Q_e$ is not unitary. CG on the normal equation converges at a rate set by the singular
 values and sees the change at every mass. In the multigrid the coarse correction removes the low
-modes for any $\alpha$, so we expect $\alpha$ to help it less than CG.\ifresults{} At $m=0.001$ on
-$24^3\times48$, $\alpha=0.6$ saves CG $25$--$35\%$ of its iterations and the multigrid at most three
-(Sec.~\ref{sec:massscan}).\fi
+modes for any $\alpha$, so we expect $\alpha$ to help it less than CG.\ifresults{} The measurements bear this out (Sec.~\ref{sec:massscan}).\fi
 
 % ============================================================
 \section{The two-grid method}
@@ -861,7 +855,7 @@ The two lifts differ in the fifth dimension: their odd parts are built with $\Co
 $(\Cpvo\dg)^{-1}$, which by Eq.~\eqref{eq:Cinv} carry each chirality toward opposite ends of the
 fifth dimension. So a space built from the $s_j$ alone does not contain the $\hat t_j$.
 
-\paragraph{Exactness for the right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
+\paragraph{The right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
 and $\Pro\dg\Dpv\dg\Pro$ be invertible, and let both coarse systems in Eq.~\eqref{eq:corr} be
 solved exactly, with the exact adjoint $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form
 correction returns the vector it is built from,
@@ -879,10 +873,7 @@ Finally $O_L=\Ce$ gives $e=y$.
 
 \paragraph{In practice.} Equation~\eqref{eq:exact} holds only approximately: the stored $\Pro$
 contains $s$ and $\hat t$ only up to the rounding of its reduced-precision storage, the coarse
-solves stop at a loose tolerance, and the Pauli--Villars solve is regularized.\ifresults{} With both
-coarse factors solved exactly in double precision and $\Pro$ in half precision, the correction of
-$r=\AR y_j$ returns $y_j$ to a relative error of at most $2.5\times10^{-3}$ on $4^3\times8$ and
-$12^4$, against $3$--$37$ for random vectors.\fi
+solves stop at a loose tolerance, and the Pauli--Villars solve is regularized.
 
 \paragraph{The left form.} For the left form with $\alpha$ in both operators, the same argument
 needs the quark lift $s'$ of $Q_ey'$ and the Pauli--Villars lift $\hat t'$ of
@@ -890,9 +881,9 @@ $u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ in $\operatorname{range}\Pro$
 (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For $\alpha=1$ and $y'=\Ce^{-1}y$ we have $s'=s$.
 But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that mixes $s$ and
 spin, so $\hat t'$ is in general not in the span of the right-form vectors, and the correction is
-not exact for the left form.\ifresults{} On $12^4$ it misses $y'$ by $1.6$--$24$ in relative
-norm, not much less than random vectors ($8$--$35$). The left form converges nonetheless, with the spectrum of the right form
-(Sec.~\ref{sec:spectrum}), and it still needs $\hat t$ in the basis (Sec.~\ref{sec:basischoice}).\fi
+not exact for the left form.\ifresults{} The left form converges nonetheless, with the spectrum of the right form
+(Sec.~\ref{sec:spectrum}), and with the same vectors $y$ it still needs $\hat t$ in the basis
+(Sec.~\ref{sec:basischoice}).\fi
 
 \subsubsection{The coarse operators}
 We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
@@ -933,9 +924,10 @@ The system is $Xw=g$ with $X=(\Dcpv)\dg$. We solve the regularized normal equati
 \big(X\dg X+\tau\big)\,w=X\dg g
 \label{eq:tikhonov}
 \end{equation}
-by CG on all coarse sites, with $\tau=10^{-3}$. The shift damps only the directions of $X$ whose
-singular values lie below $\sqrt\tau$. The Galerkin factor can have such directions although the
-fine $\Dpv$ does not (Sec.~\ref{sec:pvcoarse}).
+by CG on all coarse sites, with $\tau=10^{-3}$. Against the exact solve, the shift multiplies the component along each
+right singular vector of $X$ by $\sigma^2/(\sigma^2+\tau)$, so it damps most the directions with $\sigma$
+below about $\sqrt\tau$. The Galerkin factor can have far smaller singular values than the
+fine $\Dpv$ (Sec.~\ref{sec:pvcoarse}).
 
 \subsubsection{Levels below the coarse lattice}
 The quark factor may be preconditioned by further levels. The coarse sites are
@@ -1045,8 +1037,7 @@ inner products; the smoother is the same linear map at every application. A Kryl
 as the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps two more
 fine vectors per step, which in a fixed amount of memory lowers the largest volume that can be
 solved. We use
-only a real focal interval. The ratio $\kappa_s$ is not derived from the operator; it has to be
-chosen. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
+only a real focal interval. The ratio $\kappa_s$ is chosen by hand. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
 to the coarse correction, and an interval that is too wide or too narrow can make the outer solve
 stagnate.\ifresults{} The interval that works differs between the two setups of
 Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
@@ -1076,14 +1067,18 @@ The outer iteration solves $\tilde Ay=\rho$ with the cycle as a right preconditi
 rebuild $\psi$ as in Sec.~\ref{sec:eo}. The cycle $\mathcal M$ changes from one application to the
 next, so the outer method must be flexible: FGMRES or flexible GCR (Algorithms~\ref{alg:fgmres}
 and~\ref{alg:gcr}, Appendix~\ref{sec:cgform}), which keep the preconditioned
-directions.
+directions. The method allows any number $k$ of kept directions; the largest $k$ that fits in memory
+is the natural choice. Each kept direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the
+multigrid with GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory, so $k=2$ there. For
+solves with $D$ we use $k=2$ on every volume, so that the volumes compare directly.\ifresults{} A
+larger $k$ changes only the outer solver and leaves the cycle as it is; on $12^4$ it changes the
+median iterations by at most one (Sec.~\ref{sec:gcrk}).\fi
 
 Flexibility alone gives no convergence guarantee. For a fixed $\mathcal M$, restarted or truncated
 methods converge for every restart length if the field of values of $\tilde A\mathcal M$ lies in
 the right half-plane~\cite{ESS}. Otherwise only the full method is covered, by the spectrum and
 the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a truncated method can
-stagnate~\cite{Embree}.\ifresults{} Secs.~\ref{sec:fov}--\ref{sec:gcrk} examine this for the
-present cycle.\fi{}
+stagnate~\cite{Embree}.
 We monitor convergence on the even-odd system and evaluate the residual of the original equation,
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
@@ -1096,15 +1091,16 @@ $S\dg S$.\fi
 \label{sec:dagger}
 
 HMC needs $(D\dg D)^{-1}$ at every force evaluation, so it solves with $D\dg$ as often as with
-$D$. The multigrid of $D$ also solves with $D\dg$, with no second setup, coarse operator or
-cycle. The construction needs only an approximate inverse of $D$, so it applies to any
+$D$. The multigrid of $D$ also preconditions solves with $D\dg$, with no second setup, coarse
+operator or cycle. The construction needs only an approximate inverse of $D$, so it applies to any
 preconditioner built for the unsquared operator. The tool is the exact relation~\eqref{eq:g5exact} between
 $D$ and $D\dg$.
 
 \subsection{The idea}
 For Wilson fermions $D_W\dg=\gamma_5D_W\gamma_5$, so $D_W^{-\dagger}=\gamma_5D_W^{-1}\gamma_5$, and
 a solver for $D_W$ solves with $D_W\dg$ as well. For M\"obius fermions this fails at non-zero $c$
-(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$. The question is how good a preconditioner it is.
+(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$, and
+Eq.~\eqref{eq:c4} below says how good it is.
 
 Multiply $D\dg$ by $\Gfive D^{-1}\Gfive$ and use $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$ from
 Eq.~\eqref{eq:g5exact} and $\Gfive D_-\dg\Gfive=D_-$:
@@ -1168,9 +1164,7 @@ m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
 have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
 imaginary parts of both signs, so the spectrum surrounds the origin. A Krylov method then has no
 low-degree polynomial $p$ with $p(0)=1$ that is small on the spectrum
-(Sec.~\ref{sec:spectra}), and it makes no progress.\ifresults{} Numerically ($12^4$, stout,
-$M_5=1$), GCR(8) on $D_-$ and on $D_-\dg$ stops at $|r|^2/|b|^2=0.74$ (S) and $0.96$ (B) after
-$20000$ iterations, and BiCGStab diverges.\fi{} The preconditioner of Eq.~\eqref{eq:c4} avoids
+(Sec.~\ref{sec:spectra}), and it makes no progress. The preconditioner of Eq.~\eqref{eq:c4} avoids
 $D_-^{-1}$ altogether.
 
 
@@ -1182,29 +1176,31 @@ $D_-^{-1}$ altogether.
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$2.9$--$6.0$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$3.2$--$5.7$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$1.6$--$4.1$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. The multigrid is the faster
-solver from $24^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
+$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. In solve time, setup
+excluded, the multigrid is faster from $24^4$ on, and in setup~B already on $16^4$. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
 four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
 the coarse lattice in place of deflation. The
-lift $\hat t$ is needed in setup~S: without it GCR(2) stagnates or takes up to five times the
-iterations, although the correction is exact only for the right form. One setup serves every value of
+lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
+configurations of setup~S or takes several times the iterations there, and it costs iterations in
+setup~B, although the correction is exact only for the
+right form. Twice as many vectors $y$ with $s$ alone need fewer iterations on $24^3\times48$, at
+$1.6$ times the setup time. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
-bound for GCR is lost. Its spectrum has $\Re\lambda\ge0.69$ and its pseudospectra bound
-full GMRES with a fixed cycle. Truncated GCR(2) with accurate coarse solves stagnates on two of the
-four $12^4$ configurations in setup~S, and with the solver's inexact cycle on about one setup in eight
-there. We saw no plateau on $16^4$ or $24^3\times48$, but truncated GCR has no guarantee.
+bound for GCR is lost in both setups. Its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its
+pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups},
+truncated GCR(2) solved with $D$ without a plateau on every volume, but it has no guarantee.
 
 Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
-On $16^4$ it takes two to three iterations more than solving with $D$; on $12^4$ in setup~S GCR(2)
-stalls on the residual right-hand side. Other constructions we tried were worse. HMC itself is not
-implemented here.
+On $16^4$ at $m=0.01$ it takes one to four iterations more than solving with $D$; on $12^4$ in
+setup~S the residual right-hand side needs GCR(8) with two cycles per step, which converges on all
+four configurations. HMC itself is not implemented here.
 
 The evidence is four quenched configurations per volume up to $24^3\times48$ on one GPU, compared
 with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
@@ -1219,43 +1215,48 @@ Bridge++ computes the same quantity, the results of RutticeQCD are compared with
 number: the plaquette, the Wilson, clover and domain-wall operators applied to a vector, solver
 iteration counts, meson correlators, and single HMC trajectories. The domain-wall multigrid, which
 Bridge++ does not have, is checked against CGNE, whose propagators it reproduces
-(Sec.~\ref{sec:massscan}).
+(Sec.~\ref{sec:massscan}). Its parameters in Table~\ref{tab:setups}, $k$ included, are inputs of the
+program.
 \fi
 % ============================================================
 \section{Open problems}
 \label{sec:open}
 
 \ifresults
-The following questions remain open. Those the measurements answer are discussed where
-they arise: the left form in Sec.~\ref{sec:basis}, the field of values in Secs.~\ref{sec:spectra} and
-\ref{sec:fov}--\ref{sec:pseudo}.
+The following questions remain open; the left form and the field of values are discussed in
+Secs.~\ref{sec:basis}, \ref{sec:spectra} and \ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
 \item \textbf{Parameters from the operator.} The smoother interval
 $[\lambda_{\rm hi}/\kappa_s,\lambda_{\rm hi}]$ uses a ratio chosen per setup, and a wrong one makes
 the solve stagnate (Sec.~\ref{sec:sensitivity}); the setup works with singular values of $\AR$,
 which for a non-normal operator need not match its eigenvalues. How to set the interval from the
-operator, whether an ellipse with complex foci should replace the real interval, and how the
-required number of test vectors scales with the volume remain to be understood. Local coherence suggests that the number of test vectors does not grow with the volume,
-yet $16$ suffice on $12^4$ and $24$ do not on $24^3\times48$ (Sec.~\ref{sec:sensitivity}). Part of this difference may come from the small physical box of $12^4$ ($\approx(1.2\,\mathrm{fm})^4$, with fewer low modes) and from the additional coarse levels used on $24^3\times48$ (Table~\ref{tab:setups}); the
-low modes may also vary in the fifth dimension more than vectors not split in $s$ can follow (Eick and
+operator, whether an ellipse with complex foci should replace the real interval, and why setup~S
+needs more test vectors than setup~B remain to be understood (Sec.~\ref{sec:sensitivity}). The
+low modes may vary in the fifth dimension more than vectors not split in $s$ can follow (Eick and
 Mawhinney~\cite{EickMawhinney} find their fifth-dimensional profiles to differ between
 lattices); a test vector split in $s$, as it is now split in chirality, would keep $s$ and
 $\hat t$ in the range of $\Pro$, and Lüscher's coherence test would measure what the coarse space
-captures.
+captures. Whyte, Stathopoulos and Romero~\cite{WhyteSVD} truncate the test vectors of Wilson fermions
+by a singular value decomposition on each aggregate; here the truncated basis would no longer contain
+$s$ and $\hat t$ exactly, and whether the gain outweighs that loss is open.
 
 \item \textbf{Convergence theory.} The pseudospectral bound rests on Lanczos estimates of
 $\sigma_{\min}$, which approach it from above, and on the eigenvalues farthest from the center
 found by Arnoldi (Sec.~\ref{sec:pseudo}). Obtaining a bound from an inclusion theorem, and tracking how the outliers
 of setup~S and the pseudospectra develop beyond $16^4$, remain to be done; on $24^4$ the Arnoldi iteration
 does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
-varies from step to step. On $12^4$ in setup~S, GCR(2) with accurate coarse solves
-can reach a residual orthogonal to its new direction and stay there (Sec.~\ref{sec:gcrk}), and on the
-residual right-hand side of HMC the solve with $D\dg$ needs GCR(8) ($13$--$222$ iterations) on $12^4$ in setup~S (Sec.~\ref{sec:daggerresults}). GCR(2) does not
-reach such a fixed point on $16^4$ and $24^4$, although $24^4$ has $Q=+4$; the solves with $D\dg$
-were tested on $16^4$ but not on $24^4$. Why stout smearing gives the Galerkin
+varies from step to step. GCR(2) can reach a residual orthogonal to its new direction and stay
+there (Sec.~\ref{sec:gcrk}), and on the residual right-hand side of HMC the solve with $D\dg$ on
+$12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}); the solves with $D\dg$
+were tested on $12^4$ and $16^4$ only. The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
+factor regularized can also precondition solves with $D\dg$ from the same $\Pro$, with coarse
+operators of its own; it converges on $16^4$ and stagnates with GCR(2) on $12^4$ in setup~S, and its
+cost in HMC remains to be measured. Why stout smearing gives the Galerkin
 Pauli--Villars factor singular values far below those of the fine operator
-(Sec.~\ref{sec:pvcoarse}) is not understood. A safeguard that changes the
+(Sec.~\ref{sec:pvcoarse}) is not understood. We find that the field of values of the fine $\Dpv$ contains the origin with and
+without smearing and reaches further left with it, also on $16^4$; the field of values alone does not
+explain the small singular values. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
 below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
@@ -1316,7 +1317,9 @@ with $\mathcal M$ as preconditioner has no theoretical justification.
 
 \item \textbf{Solving with $D\dg$.} Sec.~\ref{sec:dagger} uses $\Gfive D^{-1}\Gfive$ as a
 preconditioner of $D\dg$; its error $N=c[Y,W]D^{-1}$ is argued to have a small square. A
-bound on $\|N^2\|$ on the low modes has not been derived.
+bound on $\|N^2\|$ on the low modes has not been derived. The cycle with $D$ and $\Dpv$ exchanged
+and its Pauli--Villars factor regularized also solves with $D\dg$ from the same $\Pro$, with coarse
+operators of its own; its cost in HMC is left to that study.
 \end{enumerate}
 
 \fi
@@ -1360,14 +1363,13 @@ site part of $D_-$.
 $M_5^{\mathrm{BNO}}=-M_5$, Eq.~(2.13). The caption of Fig.~1 of Ref.~\cite{KCM2024}
 gives $M_0=-1$ for the height $1$ of its text.
 \item The $\alpha$ of Ref.~\cite{BNO}, $(b+c)/(b-c)$, is the scale factor of the
-M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), not Neff's $\alpha$ of Eq.~\eqref{eq:Q}.
+M\"obius kernel ($2$ at $b=1.5$, $c=0.5$), unrelated to Neff's $\alpha$ of Eq.~\eqref{eq:Q}.
 \item $\Gamma_5=\gamma_5RD_-^{-1}$ in Ref.~\cite{BNO}, Eq.~(2.22); here $\Gfive=\gamma_5R$.
 \end{itemize}
 $D^{(\alpha)}$ here and the operator of Bridge++ with \texttt{parameter\_alpha} were
 compared on a $12^4$ configuration with stout links, $L_s=8$, $m=0.01$: at $\alpha=0.6$
 and $\alpha=1$ CG on the even-odd normal equation took the same number of iterations
-for every column of a point source, and the pseudoscalar correlators agree to
-$10^{-11}$. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
+for every column of a point source, and the pseudoscalar correlators agree. Bridge++ returns $\psi^{(\alpha)}$; $\psi=Q\psi^{(\alpha)}$.
 
 \begin{table}[t]
 \centering
@@ -1384,12 +1386,12 @@ Equation numbers are those of the references; ``the same'' means the same operat
 Height & $M_5>0$ & $-M_5$, $M_5=O(-1)$ (2.13) & $M_0$ & $M_0$, \texttt{domain\_wall\_height}\\
 Fifth dim. & $s=0,\dots,L_s-1$ & $s=1,\dots,L_s$ & $s=1,\dots,N_s$ & $0,\dots,N_s-1$, \texttt{extent\_of\_5th\_\allowbreak dimension}\\
 Wilson part & $W=(4-M_5)-\tfrac12K$ & $D^{\mathrm{Wilson}}(M_5)$ (2.13) & $D_{\mathrm W}(-M_0)$ & $\frac1{2\kappa}D_{\mathrm W}$, $\kappa=1/(8-2M_0)$\\
-$D_\pm$ & $D_+=1+bW$, $D_-=cW-1$ (Eq.~\eqref{eq:Dpm}) & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & ---\\
+$D_\pm$ & $D_+=1+bW$, $D_-=cW-1$ (Eq.~\eqref{eq:Dpm}) & $D_+=bD^{\mathrm{W}}+1$, $D_-=cD^{\mathrm{W}}-1$ (2.18) & the same (2) & n/a\\
 $D$ & Eq.~\eqref{eq:D} & $D_{\mathrm{DW}}(m)$ (2.20) & $D(m)$ (1) & \texttt{Fopr\_Domainwall}, mode \texttt{D}\\
-$C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & --- & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
-Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & --- (its $\alpha=\frac{b+c}{b-c}$) & --- & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
-$\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & --- & ---\\
-4d quark & $\Pm\psi_0+\Pp\psi_{L_s-1}$ & $P_-\Psi_1$, $P_+\Psi_{L_s}$ & --- & the same\\
+$C$ & $d_++d_-Y$, Eq.~\eqref{eq:Cblocks} & n/a & $\mathrm{diag}(D_{ee},D_{oo})$ (4) & $D_{ee}$, $D_{oo}$ of \texttt{\_eo}; \texttt{m\_dp}${}=\alpha d_+$, \texttt{m\_dm}${}=\alpha d_-$\\
+Neff's $\alpha$ & $DQ$, Eq.~\eqref{eq:Q} & n/a (its $\alpha=\frac{b+c}{b-c}$) & n/a & \texttt{parameter\_alpha}: $DQ$, site part $CQ$\\
+$\Gamma_5$ & $\gamma_5R$ & $\gamma_5RD_-^{-1}$ (2.22) & n/a & n/a\\
+4d quark & $\Pm\psi_0+\Pp\psi_{L_s-1}$ & $P_-\Psi_1$, $P_+\Psi_{L_s}$ & n/a & the same\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1421,9 +1423,7 @@ All quenched configurations use the plaquette gauge action at $\beta=6.0$ and we
 HMC from a cold start, 400 trajectories of length $0.5$ (on $24^3\times48$, 400
 from a cold start and then 200); these are configurations~1. Configurations 2--4 continue the same
 chains with trajectories of length $0.5$ and are taken $100$ trajectories apart, after $502$, $602$
-and $702$ trajectories ($702$, $802$ and $902$ on $24^3\times48$). The dynamical $16^4$ configuration was generated from the
-quenched one by HMC in setup~S with mixed-precision CG: 60 trajectories at $m=0.05$, then 40 at
-$m=0.01$, of length~1 with Omelyan steps $[20,2]$. Table~\ref{tab:configs}
+and $702$ trajectories ($702$, $802$ and $902$ on $24^3\times48$). Table~\ref{tab:configs}
 gives the plaquette, the scale $t_0$ ($t^2E=0.3$, $E$ of the clover field strength) and the
 topological charge at $t_0$ after the Wilson flow (step $0.01$), of the clover field strength and
 improved with rectangles ($c_{\rm plaq}=5/3$, $c_{\rm rect}=-1/12$). On the larger lattices the
@@ -1448,7 +1448,6 @@ $16^4$ & 1 & $0.593509$ & $3.54$ & $+0.05$ & $+0.01$ & $0$\\
  & 2 & $0.593847$ & $3.55$ & $+0.95$ & $+1.00$ & $+1$\\
  & 3 & $0.594395$ & $3.18$ & $+0.96$ & $+1.00$ & $+1$\\
  & 4 & $0.593685$ & $3.03$ & $+2.53$ & $+2.88$ & $+3$\\
-$16^4$ dynamical & & $0.593809$ & $6.90$ & $-0.003$ & $-0.0002$ & $0$\\
 $24^4$ & 1 & $0.593524$ & $3.65$ & $+3.63$ & $+3.92$ & $+4$\\
  & 2 & $0.593789$ & $3.41$ & $+1.77$ & $+1.94$ & $+2$\\
  & 3 & $0.593297$ & $3.16$ & $-3.55$ & $-3.93$ & $-4$\\
@@ -1591,7 +1590,7 @@ Krylov solver on $\AL$ alone of Sec.~\ref{sec:nomg}.\fi
 
 \paragraph{Two even-odd forms.} Boyle and Yamaguchi~\cite{BY} used CG
 on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned
-form. Table~\ref{tab:cgform} and Fig.~\ref{fig:cgform} compare the two on the three quenched
+form. Fig.~\ref{fig:cgform} compares the two on the three quenched
 lattices at $m=0.001$, in double precision with one random right-hand side, for $b-c=1$ and five
 values of $c$; all other parameters are those of setups S and B.
 
@@ -1605,14 +1604,14 @@ singular values of $C$ lie in $[d_+-|d_-|,\,d_++|d_-|]$ and
 \end{equation}
 for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$. The measured
 ratios of the iterations stay within this range too, although the bound is on the condition
-numbers and not on the iteration counts.
+numbers.
 
 Within the bound the order depends on $c$. In setup~B the ratio of the iterations grows
 smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at $(b,c)=(2,1)$,
 and crosses $1$ near the $(b,c)=(1.5,0.5)$ used in the main text. For Shamir fermions
 $S\dg S$ is the faster form by $1.20$--$1.23$, close to the $3880/3224=1.20$ of Ref.~\cite{BY}.
 In setup~S the ratio is above $1$ except at $c=0.25$, where $S\dg S$ needs $3$--$5\%$ fewer
-iterations; we have no explanation for this dip. The three lattices agree to within $0.04$ in
+iterations; we have no explanation for this dip. The three lattices agree to within $0.05$ in
 every case, so the order is a property of the operator and its parameters and does not depend on the
 configuration.
 
@@ -1624,38 +1623,6 @@ only. The singular values of the two operators would show whether this is the ca
 For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
-\begin{table}[tbp]
-\centering
-\caption{CG iterations on $\mathcal K\dg\mathcal K$ / on $S\dg S$, $m=0.001$, $b=1+c$, $\alpha=1$
-unless stated, one random right-hand side to $|r|^2/|b|^2<10^{-18}$, double precision. Final
-$|D\psi-\eta|^2/|\eta|^2\le4\times10^{-16}$ in every run except $(2,1)$ on $24^3\times48$, S
-(up to $2\times10^{-15}$).}
-\label{tab:cgform}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}llccccc@{}}
-\toprule
-setup & lattice & $c=0$ & $0.25$ & $0.5$ & $0.75$ & $1$\\
-\midrule
-S & $12^4$ & $343$/$371$ & $352$/$336$ & $358$/$390$ & $362$/$445$ & $362$/$494$\\
-S & $16^4$ & $543$/$575$ & $533$/$517$ & $552$/$601$ & $559$/$682$ & $566$/$762$\\
-S & $24^3\times48$ & $4527$/$4979$ & $5459$/$5222$ & $5576$/$6061$ & $5653$/$6869$ & $5512$/$7414$\\
-\addlinespace
-B & $12^4$ & $622$/$514$ & $657$/$579$ & $664$/$681$ & $653$/$763$ & $633$/$827$\\
-B & $16^4$ & $1033$/$839$ & $1039$/$917$ & $1056$/$1083$ & $1060$/$1238$ & $975$/$1262$\\
-B & $24^3\times48$ & $2954$/$2439$ & $6269$/$5532$ & $5620$/$5770$ & $3248$/$3772$ & $1924$/$2443$\\
-\addlinespace
-S, $\alpha=0.6$ & $12^4$ & $234$/$364$ & $226$/$331$ & $234$/$344$ & $249$/$378$ & $263$/$415$\\
-S, $\alpha=0.6$ & $16^4$ & $373$/$576$ & $346$/$511$ & $358$/$528$ & $378$/$576$ & $403$/$638$\\
-S, $\alpha=0.6$ & $24^3\times48$ & $3095$/$4881$ & $3506$/$5166$ & $3602$/$5349$ & $3790$/$5785$ & $3878$/$6127$\\
-\addlinespace
-B, $\alpha=0.6$ & $12^4$ & $451$/$521$ & $478$/$545$ & $505$/$601$ & $525$/$660$ & $542$/$717$\\
-B, $\alpha=0.6$ & $16^4$ & $742$/$851$ & $762$/$877$ & $817$/$983$ & $840$/$1068$ & $827$/$1086$\\
-B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ & $4539$/$5194$ & $4228$/$5097$ & $2576$/$3239$ & $1620$/$2093$\\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \begin{figure}[tbp]
 \centering
 \includegraphics[height=0.78\textheight]{fig_cgform}
@@ -1663,14 +1630,15 @@ B, $\alpha=0.6$ & $24^3\times48$ & $2137$/$2474$ & $4539$/$5194$ & $4228$/$5097$
 dashed), with $\mathcal K=1-\Ce^{-1}D_{eo}\Co^{-1}D_{oe}$ (the even-odd operator of Bridge++) and
 $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (the Schur complement of Grid's default \texttt{SchurDiagMooeeOperator},
 there on the odd sites), against the M\"obius $c$, $b=1+c$, and below each their ratio; above $1$ the left-preconditioned form
-is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. The data of Table~\ref{tab:cgform}.}
+is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. }
 \label{fig:cgform}
 \end{figure}
 
 \clearpage
 \section{Tables of the numerical results}
 \label{sec:tables}
-The tables that support Sec.~\ref{sec:results}, in the order in which it cites them.
+This appendix holds the tables that support Sec.~\ref{sec:results}. Medians over an even number of
+configurations are the mean of the two middle values; halves are rounded up.
 
 \input{results_tables}
 

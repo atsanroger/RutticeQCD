@@ -1,142 +1,113 @@
 re	im	sigma_min	source
--0.500	+0.000	5.175504e-1	pseudo_12_m18.txt
-+0.000	+0.000	2.711909e-1	pseudo_12_m18.txt
-+0.250	+0.000	1.716399e-1	pseudo_12_m18.txt
-+0.500	+0.000	8.954246e-2	pseudo_12_m18.txt
-+0.700	+0.000	3.125669e-2	pseudo_12_m18.txt
-+1.800	+0.000	7.525165e-3	pseudo_12_m18.txt
-+1.566	+0.566	6.086861e-2	pseudo_12_m18.txt
-+1.000	+0.800	1.264522e-1	pseudo_12_m18.txt
-+0.434	+0.566	1.705751e-1	pseudo_12_m18.txt
-+0.200	+0.000	1.901774e-1	pseudo_12_m18.txt
-+0.434	-0.566	1.780330e-1	pseudo_12_m18.txt
-+1.000	-0.800	1.351575e-1	pseudo_12_m18.txt
-+1.566	-0.566	6.433390e-2	pseudo_12_m18.txt
-+2.330	+0.000	1.352562e-1	pseudo3_12_m18.txt
-+2.259	+0.356	1.456451e-1	pseudo3_12_m18.txt
-+2.058	+0.658	1.583470e-1	pseudo3_12_m18.txt
-+1.756	+0.859	1.629481e-1	pseudo3_12_m18.txt
-+1.400	+0.930	1.557884e-1	pseudo3_12_m18.txt
-+1.044	+0.859	1.405505e-1	pseudo3_12_m18.txt
-+0.742	+0.658	1.207199e-1	pseudo3_12_m18.txt
-+0.541	+0.356	1.030162e-1	pseudo3_12_m18.txt
-+0.470	+0.000	9.847616e-2	pseudo3_12_m18.txt
-+0.541	-0.356	1.100493e-1	pseudo3_12_m18.txt
-+0.742	-0.658	1.293197e-1	pseudo3_12_m18.txt
-+1.044	-0.859	1.492659e-1	pseudo3_12_m18.txt
-+1.400	-0.930	1.608669e-1	pseudo3_12_m18.txt
-+1.756	-0.859	1.585248e-1	pseudo3_12_m18.txt
-+2.058	-0.658	1.471863e-1	pseudo3_12_m18.txt
-+2.259	-0.356	1.362865e-1	pseudo3_12_m18.txt
-+2.170	+0.000	8.598910e-2	pseudo3_12_m18.txt
-+2.104	+0.333	1.009094e-1	pseudo3_12_m18.txt
-+1.915	+0.615	1.206817e-1	pseudo3_12_m18.txt
-+1.633	+0.804	1.327677e-1	pseudo3_12_m18.txt
-+1.300	+0.870	1.352509e-1	pseudo3_12_m18.txt
-+0.967	+0.804	1.305152e-1	pseudo3_12_m18.txt
-+0.685	+0.615	1.209207e-1	pseudo3_12_m18.txt
-+0.496	+0.333	1.119768e-1	pseudo3_12_m18.txt
-+0.430	+0.000	1.107645e-1	pseudo3_12_m18.txt
-+0.496	-0.333	1.183783e-1	pseudo3_12_m18.txt
-+0.685	-0.615	1.294281e-1	pseudo3_12_m18.txt
-+0.967	-0.804	1.392754e-1	pseudo3_12_m18.txt
-+1.300	-0.870	1.423081e-1	pseudo3_12_m18.txt
-+1.633	-0.804	1.316898e-1	pseudo3_12_m18.txt
-+1.915	-0.615	1.108800e-1	pseudo3_12_m18.txt
-+2.104	-0.333	9.083845e-2	pseudo3_12_m18.txt
-+2.330	+0.000	1.352562e-1	dense_12_m18.txt
-+2.328	+0.061	1.363518e-1	dense_12_m18.txt
-+2.322	+0.121	1.377641e-1	dense_12_m18.txt
-+2.312	+0.181	1.394512e-1	dense_12_m18.txt
-+2.298	+0.241	1.413634e-1	dense_12_m18.txt
-+2.281	+0.299	1.434466e-1	dense_12_m18.txt
-+2.259	+0.356	1.456451e-1	dense_12_m18.txt
-+2.234	+0.411	1.479038e-1	dense_12_m18.txt
-+2.205	+0.465	1.501702e-1	dense_12_m18.txt
-+2.173	+0.517	1.523947e-1	dense_12_m18.txt
-+2.138	+0.566	1.545302e-1	dense_12_m18.txt
-+2.099	+0.613	1.565301e-1	dense_12_m18.txt
-+2.058	+0.658	1.583470e-1	dense_12_m18.txt
-+2.013	+0.699	1.599315e-1	dense_12_m18.txt
-+1.966	+0.738	1.612341e-1	dense_12_m18.txt
-+1.917	+0.773	1.622102e-1	dense_12_m18.txt
-+1.865	+0.805	1.628274e-1	dense_12_m18.txt
-+1.811	+0.834	1.630716e-1	dense_12_m18.txt
-+1.756	+0.859	1.629481e-1	dense_12_m18.txt
-+1.699	+0.881	1.624765e-1	dense_12_m18.txt
-+1.641	+0.898	1.616839e-1	dense_12_m18.txt
-+1.581	+0.912	1.605972e-1	dense_12_m18.txt
-+1.521	+0.922	1.592401e-1	dense_12_m18.txt
-+1.461	+0.928	1.576318e-1	dense_12_m18.txt
-+1.400	+0.930	1.557884e-1	dense_12_m18.txt
-+1.339	+0.928	1.537241e-1	dense_12_m18.txt
-+1.279	+0.922	1.514520e-1	dense_12_m18.txt
-+1.219	+0.912	1.489851e-1	dense_12_m18.txt
-+1.159	+0.898	1.463365e-1	dense_12_m18.txt
-+1.101	+0.881	1.435199e-1	dense_12_m18.txt
-+1.044	+0.859	1.405505e-1	dense_12_m18.txt
-+0.989	+0.834	1.374455e-1	dense_12_m18.txt
-+0.935	+0.805	1.342249e-1	dense_12_m18.txt
-+0.883	+0.773	1.309125e-1	dense_12_m18.txt
-+0.834	+0.738	1.275356e-1	dense_12_m18.txt
-+0.787	+0.699	1.241260e-1	dense_12_m18.txt
-+0.742	+0.658	1.207199e-1	dense_12_m18.txt
-+0.701	+0.613	1.173582e-1	dense_12_m18.txt
-+0.662	+0.566	1.140866e-1	dense_12_m18.txt
-+0.627	+0.517	1.109569e-1	dense_12_m18.txt
-+0.595	+0.465	1.080265e-1	dense_12_m18.txt
-+0.566	+0.411	1.053579e-1	dense_12_m18.txt
-+0.541	+0.356	1.030162e-1	dense_12_m18.txt
-+0.519	+0.299	1.010633e-1	dense_12_m18.txt
-+0.502	+0.241	9.955207e-2	dense_12_m18.txt
-+0.488	+0.181	9.852184e-2	dense_12_m18.txt
-+0.478	+0.121	9.799669e-2	dense_12_m18.txt
-+0.472	+0.061	9.798452e-2	dense_12_m18.txt
-+0.470	+0.000	9.847616e-2	dense_12_m18.txt
-+0.472	-0.061	9.944791e-2	dense_12_m18.txt
-+0.478	-0.121	1.008667e-1	dense_12_m18.txt
-+0.488	-0.181	1.026915e-1	dense_12_m18.txt
-+0.502	-0.241	1.048704e-1	dense_12_m18.txt
-+0.519	-0.299	1.073426e-1	dense_12_m18.txt
-+0.541	-0.356	1.100493e-1	dense_12_m18.txt
-+0.566	-0.411	1.129453e-1	dense_12_m18_b.txt
-+0.595	-0.465	1.159995e-1	dense_12_m18_b.txt
-+0.627	-0.517	1.191878e-1	dense_12_m18_b.txt
-+0.662	-0.566	1.224874e-1	dense_12_m18_b.txt
-+0.701	-0.613	1.258738e-1	dense_12_m18_b.txt
-+0.742	-0.658	1.293197e-1	dense_12_m18_b.txt
-+0.787	-0.699	1.327943e-1	dense_12_m18_b.txt
-+0.834	-0.738	1.362635e-1	dense_12_m18_b.txt
-+0.883	-0.773	1.396892e-1	dense_12_m18_b.txt
-+0.935	-0.805	1.430297e-1	dense_12_m18_b.txt
-+0.989	-0.834	1.462386e-1	dense_12_m18_b.txt
-+1.044	-0.859	1.492659e-1	dense_12_m18_b.txt
-+1.101	-0.881	1.520584e-1	dense_12_m18_b.txt
-+1.159	-0.898	1.545629e-1	dense_12_m18_b.txt
-+1.219	-0.912	1.567300e-1	dense_12_m18_b.txt
-+1.279	-0.922	1.585191e-1	dense_12_m18_b.txt
-+1.339	-0.928	1.599025e-1	dense_12_m18_b.txt
-+1.400	-0.930	1.608669e-1	dense_12_m18_b.txt
-+1.461	-0.928	1.614128e-1	dense_12_m18_b.txt
-+1.521	-0.922	1.615520e-1	dense_12_m18_b.txt
-+1.581	-0.912	1.613045e-1	dense_12_m18_b.txt
-+1.641	-0.898	1.606965e-1	dense_12_m18_b.txt
-+1.699	-0.881	1.597585e-1	dense_12_m18_b.txt
-+1.756	-0.859	1.585248e-1	dense_12_m18_b.txt
-+1.811	-0.834	1.570329e-1	dense_12_m18_b.txt
-+1.865	-0.805	1.553232e-1	dense_12_m18_b.txt
-+1.917	-0.773	1.534384e-1	dense_12_m18_b.txt
-+1.966	-0.738	1.514231e-1	dense_12_m18_b.txt
-+2.013	-0.699	1.493234e-1	dense_12_m18_b.txt
-+2.058	-0.658	1.471863e-1	dense_12_m18_b.txt
-+2.099	-0.613	1.450598e-1	dense_12_m18_b.txt
-+2.138	-0.566	1.429924e-1	dense_12_m18_b.txt
-+2.173	-0.517	1.410332e-1	dense_12_m18_b.txt
-+2.205	-0.465	1.392309e-1	dense_12_m18_b.txt
-+2.234	-0.411	1.376334e-1	dense_12_m18_b.txt
-+2.259	-0.356	1.362865e-1	dense_12_m18_b.txt
-+2.281	-0.299	1.352318e-1	dense_12_m18_b.txt
-+2.298	-0.241	1.345047e-1	dense_12_m18_b.txt
-+2.312	-0.181	1.341327e-1	dense_12_m18_b.txt
-+2.322	-0.121	1.341326e-1	dense_12_m18_b.txt
-+2.328	-0.061	1.345097e-1	dense_12_m18_b.txt
++2.330	+0.000	2.610625e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.328	+0.061	2.607074e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.322	+0.121	2.601946e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.312	+0.181	2.595038e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.298	+0.241	2.586184e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.281	+0.299	2.575297e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.259	+0.356	2.562420e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.234	+0.411	2.547775e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.205	+0.465	2.531782e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.173	+0.517	2.515068e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.138	+0.566	2.498417e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.099	+0.613	2.482704e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.058	+0.658	2.468799e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.013	+0.699	2.457457e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.966	+0.738	2.449218e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.917	+0.773	2.444314e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.865	+0.805	2.442580e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.811	+0.834	2.443372e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.756	+0.859	2.445416e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.699	+0.881	2.446523e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.641	+0.898	2.443026e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.581	+0.912	2.429494e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.521	+0.922	2.401638e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.461	+0.928	2.361044e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.400	+0.930	2.312321e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.339	+0.928	2.258722e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.279	+0.922	2.201946e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.219	+0.912	2.142906e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.159	+0.898	2.082168e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.101	+0.881	2.020153e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.044	+0.859	1.957224e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.989	+0.834	1.893727e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.935	+0.805	1.830015e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.883	+0.773	1.766472e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.834	+0.738	1.703529e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.787	+0.699	1.641688e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.742	+0.658	1.581539e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.701	+0.613	1.523771e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.662	+0.566	1.469164e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.627	+0.517	1.418568e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.595	+0.465	1.372865e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.566	+0.411	1.332914e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.541	+0.356	1.299457e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.519	+0.299	1.272957e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.502	+0.241	1.253307e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.488	+0.181	1.239503e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.478	+0.121	1.229946e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.472	+0.061	1.223923e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.470	+0.000	1.222163e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.472	-0.061	1.225914e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.478	-0.121	1.236324e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.488	-0.181	1.254128e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.502	-0.241	1.279424e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.519	-0.299	1.311515e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.541	-0.356	1.349121e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.566	-0.411	1.391091e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.595	-0.465	1.436849e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.627	-0.517	1.486125e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.662	-0.566	1.538619e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.701	-0.613	1.593937e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.742	-0.658	1.651630e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.787	-0.699	1.711228e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.834	-0.738	1.772242e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.883	-0.773	1.834158e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.935	-0.805	1.896427e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.989	-0.834	1.958448e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.044	-0.859	2.019560e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.101	-0.881	2.079039e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.159	-0.898	2.136124e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.219	-0.912	2.190101e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.279	-0.922	2.240426e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.339	-0.928	2.286843e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.400	-0.930	2.329376e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.461	-0.928	2.368184e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.521	-0.922	2.403400e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.581	-0.912	2.435074e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.641	-0.898	2.463203e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.699	-0.881	2.487807e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.756	-0.859	2.508985e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.811	-0.834	2.526942e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.865	-0.805	2.541989e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.917	-0.773	2.554511e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.966	-0.738	2.564933e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.013	-0.699	2.573669e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.058	-0.658	2.581081e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.099	-0.613	2.587458e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.138	-0.566	2.593010e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.173	-0.517	2.597870e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.205	-0.465	2.602109e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.234	-0.411	2.605753e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.259	-0.356	2.608790e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.281	-0.299	2.611184e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.298	-0.241	2.612875e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.312	-0.181	2.613784e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.322	-0.121	2.613805e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.328	-0.061	2.612806e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.170	+0.000	1.829750e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.104	+0.333	1.805589e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.915	+0.615	1.797239e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.633	+0.804	1.993874e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.300	+0.870	1.977438e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.967	+0.804	1.787273e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.685	+0.615	1.570246e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.496	+0.333	1.417968e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.430	+0.000	1.381926e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.496	-0.333	1.458480e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.685	-0.615	1.639722e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++0.967	-0.804	1.852997e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.300	-0.870	2.012464e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.633	-0.804	2.033727e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++1.915	-0.615	1.950210e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)
++2.104	-0.333	1.863845e-1	multiconf/pseudoT/ps12_B__v2.log (8ed045b)

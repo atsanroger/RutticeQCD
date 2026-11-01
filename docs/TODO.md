@@ -146,6 +146,17 @@ whether NCCL's own symmetric memory does the same. Notes:
 
 ## Structure
 
+### 0. Neff's α on every MDWF operator (user, 2026-11-01)
+
+The solver, the eigensolver and HMC take α (`neff_alpha`, `set_alpha`), but the examples and apps that
+build `Mdwf`/`CudaMdwf` themselves do not: `preconditioned_fov(_device)`, `dagger_precond`,
+`coarse_hermiticity`, `correction_spectrum`, `adjoint_cycle`, `dual_basis`, `dminus_cost`,
+`mobius_gamma5_check`, `hmc_solve_cost`, the benches, `apps/low_modes`, `apps/bench_cuda`. Give each an
+α (D of the solved operator and of the cycle with α; setup and coarse operators with α = 1, as
+`app/mdwf_cuda.rs`), so that the spectral quantities of the MG note can be measured at α = 0.6, the α of
+the solves (the note's Sec. V.D is at α = 1). A first `--alpha` for `preconditioned_fov_device --left`:
+multiconf/alpha06/alpha_option_on_d9ef1a7.patch (not committed).
+
 ### 1. One propagator driver for the CPU and the device (done 2026-10-24)
 
 What follows the setup is written once (`solve_sources`, 2026-10-19), and since 2026-10-24 the

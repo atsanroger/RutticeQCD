@@ -635,55 +635,30 @@ the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
 \big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)c_e&=g_e-B_{eo}A_{oo}^{-1}g_o,\\
 c_o&=A_{oo}^{-1}\big(g_o-B_{oe}c_e\big).
 \end{align}
-\paragraph{Pauli--Villars factor.} $(\Pro\dg\Dpv\dg\Pro)w=g$. With $\Gfive\Pro=\Pro\Sigma$,
-\begin{align}
-\Pro\dg(\Gfive\Dpv\Gfive)\Pro&=\Pro\dg\Gfive\,\Dpv\,\Gfive\Pro\\
-&=(\Gfive\Pro)\dg\,\Dpv\,(\Gfive\Pro)\\
-&=\Sigma\Pro\dg\Dpv\Pro\Sigma=\Sigma\Dcpv\Sigma .
-\end{align}
-If $\Gfive\Dpv\Gfive=\Dpv\dg$ (true for $c=0$, off by $O(c)$ otherwise, Sec.~\ref{sec:dagger}),
-the adjoint coarse factor is $\Sigma\Dcpv\Sigma$, and
-\begin{align}
-\Sigma\Dcpv\Sigma\,w&=g\\
-\Dcpv\Sigma\,w&=\Sigma g\qquad(\Sigma^2=1)\\
-\mathcal H_c\,w&=\Sigma g,\qquad \mathcal H_c\equiv\Dcpv\Sigma ,
-\end{align}
-$\mathcal H_c$ Hermitian (indefinite) for $c=0$, solved by MINRES with the absolute value of the
-diagonal blocks as a positive preconditioner. Both factors stop at $|r|^2/|b|^2<10^{-2}$.
-
-
-\paragraph{Why $\mathcal H_c$ is Hermitian when $\Gfive\Dpv\Gfive=\Dpv\dg$.} Then
-$(\Dcpv)\dg=\Sigma\Dcpv\Sigma$, and with $\Sigma\dg=\Sigma$, $\Sigma^2=1$,
+\paragraph{Pauli--Villars factor.} $Xw=g$ with $X=\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. The code stores
+$X$ itself (the adjoint of the probed $\Dcpv$, \code{CoarseOp::adjoint}) and a second copy $\Dcpv=X\dg$,
+and solves the Tikhonov-regularized normal equation by CG on all coarse sites, without a preconditioner:
 \begin{equation}
-\mathcal H_c\dg=(\Dcpv\Sigma)\dg=\Sigma(\Dcpv)\dg=\Sigma\Sigma\Dcpv\Sigma=\Dcpv\Sigma=\mathcal H_c .
+\big(X\dg X+\tau\big)\,w=X\dg g,\qquad \tau=10^{-3}.
 \end{equation}
-For $c\neq0$ this holds only approximately (the non-Hermitian part is a few percent, note
-Sec.~V.C.3), and MINRES is used anyway.
-
-\paragraph{The even-odd form of $\mathcal H_c$.} $\Sigma$ is site-local, so with the coarse blocks of
-$\Dcpv$ the blocks of $\mathcal H_c=\Dcpv\Sigma$ are $A_{ee}\Sigma_e$, $B_{eo}\Sigma_o$,
-$B_{oe}\Sigma_e$, $A_{oo}\Sigma_o$. Its Schur complement:
-\begin{align}
-A_{ee}\Sigma_e-B_{eo}\Sigma_o(A_{oo}\Sigma_o)^{-1}B_{oe}\Sigma_e
-&=A_{ee}\Sigma_e-B_{eo}\Sigma_o\Sigma_o^{-1}A_{oo}^{-1}B_{oe}\Sigma_e\\
-&=\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)\Sigma_e=S_c\Sigma_e ,
-\end{align}
-the Schur complement $S_c$ of $\Dcpv$ times $\Sigma_e$. So MINRES runs on the even coarse sites
-with $u_e=\Sigma w_e$, and the odd sites follow as for the quark factor.
-
-\paragraph{The preconditioner of MINRES.} MINRES needs a Hermitian positive preconditioner. On
-each coarse site take the Hermitian part of the diagonal block,
-$\tfrac12(\mathcal H_{xx}+\mathcal H_{xx}\dg)=V\Lambda V\dg$, and use
+Write $X=\sum_k\sigma_ku_kv_k\dg$. The exact solution is $w=\sum_k\sigma_k^{-1}(u_k\dg g)\,v_k$; the
+regularized one is
 \begin{equation}
-|\mathcal H_{xx}|^{-1}=V|\Lambda|^{-1}V\dg,\qquad
-z\dg|\mathcal H_{xx}|^{-1}z=\sum_k\frac{|(V\dg z)_k|^2}{|\lambda_k|}>0 ,
+w_\tau=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,(u_k\dg g)\,v_k
+=\sum_k\frac{\sigma_k^2}{\sigma_k^2+\tau}\,\frac{u_k\dg g}{\sigma_k}\,v_k ,
 \end{equation}
-Hermitian and positive however indefinite $\mathcal H_{xx}$ is.
+so each component is multiplied by $\sigma_k^2/(\sigma_k^2+\tau)$: close to $1$ for
+$\sigma_k\gg\sqrt\tau$, close to $\sigma_k^2/\tau$ for $\sigma_k\ll\sqrt\tau$. With stout smearing
+the Galerkin factor has singular values far below those of the fine $\Dpv$ (note Sec.~V.C.3); the
+exact solve would amplify those directions by $1/\sigma_k$, and the shift caps the amplification at
+$1/(2\sqrt\tau)$. CG on $X\dg X+\tau$ needs one application of $X$ and one of $X\dg$ per iteration.
+Both factors stop at $|r|^2/|b|^2<10^{-2}$ (for the Pauli--Villars factor, the residual of the normal
+equation).
 
 \paragraph{Levels below.} At small masses the coarse solves themselves become expensive (on
 $24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse sites are then
 grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_j$, $\Pro\dg\hat
-t_j$, and a V-cycle preconditions the coarse Krylov solve: with $Q_\ell$ the prolongation into
+t_j$, and a V-cycle preconditions the coarse solve of the quark factor: with $Q_\ell$ the prolongation into
 level $\ell-1$ and $B_\ell$ its diagonal blocks,
 \begin{equation}
 z=Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg r,\qquad M_\ell r=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big),
@@ -875,7 +850,7 @@ only on the low modes of $D$. There the commutator flips chirality and moves the
 wall, out of the low-mode span, so $N^2$ is small and $(1-N)^{-1}\approx1+N$: GCR needs only a few
 more steps than for the identity. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S, GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
-\subsection{On the even sites, step by step (note Secs.~IV.B--C)}
+\subsection{On the even sites, step by step (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
 and $\iota$, and with Eq.~\eqref{eq:Sinv}
 \begin{equation}
@@ -898,7 +873,7 @@ one cycle, as for $D$.
 
 % ======================================================================
 
-\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.D)}
+\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.C)}
 \label{sec:dminus}
 The exact relation of Sec.~\ref{sec:g5} contains $D_-$, and one could try to solve with $D\dg$
 through $D$ exactly by inverting $D_-$. Rewrite it:
@@ -1226,6 +1201,8 @@ A kept coarse space is the coarse space of slightly different links. It is still
 preconditioner; GCR on the operator of the current links keeps the solve exact.
 
 \subsection{Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}
+The memory table and the measurements below were taken with MINRES on the Pauli--Villars factor,
+before the regularized solve; they have not been repeated with it.
 \begin{center}
 \begin{tabular}{@{}lr@{}}
 \toprule
