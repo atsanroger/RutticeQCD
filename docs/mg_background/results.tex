@@ -122,8 +122,8 @@ B & $0.01$ & $204$ & $17$ & $7.8$--$7.9$ & $1641$--$1745$ & $24.2$--$25.7$ & $31
 Table~\ref{tab:volume}). In solve time, setup excluded, it is slower than CGNE on $12^4$, about
 level (S) or faster (B) on $16^4$, and clearly faster from $24^4$ on. From $12^4$ to $24^3\times48$
 its iterations about double, while those of CGNE grow eight- to fifteenfold. Its setup grows with the
-volume. Neff's $\alpha=0.6$ saves CG far more iterations (Fig.~\ref{fig:cgform}) than the multigrid
-(Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
+volume. Neff's $\alpha=0.6$ saves CG a larger share of its iterations (Fig.~\ref{fig:cgform}) than the
+multigrid (Table~\ref{tab:massscan}), as Sec.~\ref{sec:eo} expects.
 
 \begin{figure}[t]
 \centering
@@ -144,11 +144,11 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 $\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs one to four
 iterations more than the solve with $D$ on $16^4$ at $m=0.01$ (Table~\ref{tab:c4}). The right-hand sides are a
 random vector $b$ and the residual $r=b-D\dg Dx_0$ of one sweep of the normal equations, where
-$D\dg w_0=b$ and $Dx_0=w_0$ are solved to $|r|^2/|b|^2<10^{-10}$ (the first with the cycle that has
-$D$ and $\Dpv$ exchanged, GCR(8)), which leaves $|r|^2/|b|^2=1.4\times10^{-10}$--$3\times10^{-9}$; the
-second is the one HMC meets, with its error mostly on the lowest modes. On $16^4$ on
+$D\dg w_0=b$ and $Dx_0=w_0$ are solved to $|r|^2/|b|^2<10^{-10}$ (the first by GCR(8) with the cycle
+that has $D$ and $\Dpv$ exchanged, Sec.~\ref{sec:open}), which leaves
+$|r|^2/|b|^2=1.4\times10^{-10}$--$3\times10^{-9}$; HMC meets right-hand sides of the second kind. On $16^4$ on
 the random right-hand side more inner cycles per step do not reduce the count, which suggests that
-there the extra steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S the residual right-hand side is harder. GCR(2) with one
+there the extra steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S at $m=0.001$ the residual right-hand side is harder. GCR(2) with one
 cycle per step does not converge, GCR(8) converges on three of the four configurations and GCR(2)
 with two cycles per step on two, and GCR(8) with two cycles per step needs $10$ iterations on all
 four.
@@ -190,12 +190,12 @@ the four $12^4$ and $16^4$ configurations and takes $2.5$--$3.2$ times the itera
 $24^3\times48$; in setup~B it costs
 more iterations. Twice as many vectors $y$ with $\{s\}$ alone, the same number of columns, do as well
 on $12^4$ and $16^4$ and need fewer iterations on $24^3\times48$, but the filter and the bootstrap
-then handle twice the vectors and the setup takes $1.6$ times as long.
+then handle twice the vectors and the setup takes $1.6$--$1.7$ times as long.
 
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
 
-The regularized solve removes the slow setups (Table~\ref{tab:noshift}). Without the shift, with
+The regularized solve removes the slow solves (Table~\ref{tab:noshift}). Without the shift, with
 BiCGStab on the exact adjoint, setup~S needs $84$ to more than $2000$ iterations on $12^4$ and
 $29$--$50$ on $16^4$; with the shift it needs $10$--$18$. Without smearing it needs $13$--$15$ either
 way. The slow solves come with stout smearing, which gives the Galerkin factor a smallest singular value of $1/120$ to $1/41$ of
@@ -231,8 +231,8 @@ Fewer iterations are not always less time (Table~\ref{tab:costs}). Smaller aggre
 vectors save iterations, but the larger coarse space makes the setup and each iteration longer.
 
 The number of test vectors that suffices grows from $12^4$ to $24^4$ (Table~\ref{tab:costs} and
-Table~\ref{tab:tvscan}) but not from $24^4$ to $24^3\times48$, as local coherence of the low modes leads one to expect once
-the box is large enough. In setup~B each
+Table~\ref{tab:tvscan}); in setup~B it does not grow further to $24^3\times48$, as local coherence of
+the low modes leads one to expect once the box is large enough. In setup~B each
 count gives about the same iterations on both volumes. Setup~S needs more vectors; with fewer than
 $32$ it is slow or stagnates on both volumes.
 
@@ -249,7 +249,8 @@ convergence, since its field of values reaches into the left half-plane and the 
 Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. The quantities of this section are
 for $\alpha=1$. $\AR$ does not depend on $\alpha$, but $\AL$ at $\alpha=0.6$ is a different
 operator (Eq.~\eqref{eq:ALalpha}) that the analysis does not cover; at $\alpha=1$ the solves of
-Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$. As usual for multigrid preconditioners of lattice Dirac operators, the
+Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$ in the mean over the
+configurations. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
 
 The \emph{field of values}
@@ -273,8 +274,9 @@ $\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ a
 The coarse correction pushes the field of values into the left half-plane (Table~\ref{tab:fov}).
 The field of values of $\AR$ itself reaches only just below zero, a little further on larger volumes,
 and the smoother is harmless, $\|I-\AR\mathcal S\|\approx1$. Without the shift the coarse correction $E$ is the identity
-on the vectors it is built from (Eq.~\eqref{eq:exact}). With the shift, as measured here, it amplifies other directions, like a
-strongly oblique projection, by three orders of magnitude. The post-smoothing acts as a filter
+on the vectors it is built from (Eq.~\eqref{eq:exact}). With stout smearing it amplifies other
+directions, like a strongly oblique projection, by three orders of magnitude, without smearing by
+less than a hundred (both with the shift). The post-smoothing acts as a filter
 and brings the whole cycle back to within a factor of ten of the identity. Eick and Mawhinney~\cite{EickMawhinney}
 describe the same mechanism for a renormalization-group coarse lattice and need a Chebyshev filter
 of high degree; here $\AR$ is close to the identity on the high modes, and the smoother suffices.
@@ -337,8 +339,8 @@ the accuracy of the Lanczos estimates.
 On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
 contours with $16$ points it is an estimate. Its rate on the dense circle of setup~S, $r/c=0.6$, is
 close to the one we measure on $24^3\times48$, a larger lattice, in setup~S at $m=0.001$ and
-$\alpha=0.6$: the median factor per GCR step of $|r|$ is $0.59$ and $0.50$ on configurations 1 and 3
-and $0.67$ on configuration~2 (Fig.~\ref{fig:history}). The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
+$\alpha=1$ on configuration~1, where the median factor per GCR step of $|r|$ is $0.64$
+(Fig.~\ref{fig:history}). The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
 eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
 $\mathcal M$.
 

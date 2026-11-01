@@ -87,7 +87,7 @@ seed 91: GCR 29 iterations on the device; 3958 coarse applications; worst |Dx−
 Memory: on 24³×48 the multigrid needs 20.3–21.1 GB of device memory (23.0 GB for a point source;
 CGNE 6.9 GB double, 7.2 GB mixed), measured with a copy of the adjoint of the coarse Pauli–Villars
 operator; `main` from 0bced8a applies it from the operator's blocks instead, about 0.9 GB less
-(24³×48, configuration 1, setup S: device peak 17.73 → 16.78 GB). The 4⁴ aggregates must divide the lattice, and
+(24³×48, configuration 1, setup S, m = 0.001: device peak of the run 21.06 → 20.11 GB). The 4⁴ aggregates must divide the lattice, and
 each level below must divide the extent of the level above (`MultiGrid_Level2`, `_Level3`).
 
 ## Spectral quantities

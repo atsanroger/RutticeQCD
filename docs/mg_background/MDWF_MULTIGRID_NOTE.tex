@@ -136,7 +136,7 @@ is four-dimensional with nearest-neighbor couplings, and levels below the coarse
 deflation. These choices address the three reasons Boyle and Yamaguchi gave for why this approach
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
 \ifresults{} The field of
-values of the preconditioned operator reaches into the left half-plane, yet its spectrum has
+values of the preconditioned operator reaches into the left half-plane, yet at $\alpha=1$ its spectrum has
 $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
 $m=0.001$, against $18$--$27$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
@@ -881,7 +881,7 @@ $u=\Cpve^{\dagger\,-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ in $\operatorname{range}\Pro$
 (Table~\ref{tab:factors} gives $O_Mu=SQ_ey'$). For $\alpha=1$ and $y'=\Ce^{-1}y$ we have $s'=s$.
 But $u=\Cpve^{\dagger\,-1}\Ce^{-1}a$ differs from $a$ by a site-local matrix that mixes $s$ and
 spin, so $\hat t'$ is in general not in the span of the right-form vectors, and the correction is
-not exact for the left form.\ifresults{} The left form converges nonetheless, with the spectrum of the right form
+not exact for the left form.\ifresults{} The left form converges nonetheless, at $\alpha=1$ with the spectrum of the right form
 (Sec.~\ref{sec:spectrum}), and with the same vectors $y$ it still needs $\hat t$ in the basis
 (Sec.~\ref{sec:basischoice}).\fi
 
@@ -1127,7 +1127,7 @@ span, and $N^2$ is small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method needs
 steps more than for the identity.
 \end{itemize}
 The third remark is a heuristic\ifresults{}; Sec.~\ref{sec:daggerresults} tests it and finds
-that it fails on the smallest smeared lattice ($12^4$ in setup~S)\fi.
+that it fails on $12^4$ in setup~S at $m=0.001$\fi.
 
 \subsection{On the even sites}
 The solves of HMC are on the even sites, so we need the same idea for the Schur complement $S$.
@@ -1181,18 +1181,18 @@ $2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $18$--$27$. In solve ti
 excluded, the multigrid is faster from $24^4$ on, and in setup~B already on $16^4$. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
-Each of the three reasons of Boyle and Yamaguchi is met by one choice: the even-odd system, a
+Each of the three reasons of Boyle and Yamaguchi is addressed by one choice: the even-odd system, a
 four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
-the coarse lattice in place of deflation. The
+the coarse lattice in place of deflation; the effect of the levels was not measured on its own. The
 lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
 configurations of setup~S or takes several times the iterations there, and it costs iterations in
 setup~B, although the correction is exact only for the
 right form. Twice as many vectors $y$ with $s$ alone need fewer iterations on $24^3\times48$, at
-$1.6$ times the setup time. One setup serves every value of
+$1.6$--$1.7$ times the setup time. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
-bound for GCR is lost in both setups. Its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its
+bound for GCR is lost in both setups. At $\alpha=1$ its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its
 pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups},
 truncated GCR(2) solved with $D$ without a plateau on every volume, but it has no guarantee.
 

@@ -139,8 +139,8 @@ Conventions:
   `coarse_pass_kernel` does and adds conj(M[k][c]) v_k into column c, and the warps' sums are
   added in the order of the warps (no atomics). Against the copy of the adjoint it agrees to
   2e-16 to 6e-16 in double and 1e-7 to 3e-7 in single precision, three runs are the same bit for
-  bit, and on 24^3x48 (configuration 1, setup S, m = 0.001) the device peak falls from 17.73 to
-  16.78 GB, the solve 28 against 29 outer iterations, 13.5 s against 13.8 s (2026-11-01).
+  bit, and on 24^3x48 (configuration 1, setup S, m = 0.001) the device peak of the run falls from
+  21.06 to 20.11 GB (that of the setup from 17.73 to 16.78 GB), the solve 28 against 29 outer iterations, 13.5 s against 13.8 s (2026-11-01).
 - The fields of the Rust side (`DeviceBuffer`) come from the stream-ordered memory pool of the
   device (`cudaMallocAsync`, freed by `cudaFreeAsync` on the default stream, on which every
   kernel runs), set to keep what is freed; until 2026-10-20 every field was a `cudaMalloc` of

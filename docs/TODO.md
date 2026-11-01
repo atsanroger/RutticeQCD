@@ -1044,7 +1044,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
 - **Adjoint coarse kernel for the regularized Pauli-Villars solve: done (2026-11-01, 0bced8a).**
   `coarse_adjoint_pass_kernel` applies A† from A's blocks on one GPU (`RUTTICE_COARSE_ADJOINT=copy`
-  keeps the copy, as several processes do); 24³×48 conf 1 S: device peak 17.73 → 16.78 GB. Left: the
+  keeps the copy, as several processes do); 24³×48 conf 1 S: device peak of the run 21.06 → 20.11 GB. Left: the
   CPU path still stores a copy (`CoarseOp::mult_adjoint` could replace it); the MG note's memory
   numbers (20.3–21.1 GB) are from before the kernel.
 
