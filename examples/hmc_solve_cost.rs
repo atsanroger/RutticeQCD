@@ -45,8 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 30.0)?,
         // The Pauli-Villars factor by MINRES on its Hermitian form.
-        pv_solver: CoarseKrylov::Minres,
-        pv_tikhonov: 0.0,
+        pv_solver: CoarseKrylov::Minres.into(),
         ..PvEoParams::default()
     };
     let inner = value("--inner", 1e-10)?;

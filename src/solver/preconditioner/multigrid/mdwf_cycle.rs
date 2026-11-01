@@ -1,7 +1,7 @@
 //! The cycle of the even-odd domain-wall multigrid (`mdwf_even_odd`): y = S b,
 //! y += e(b − Ã y), y += S(b − Ã y), in the usual layout or in blocks of W sites.
 
-use super::correction::{Correction, NeffQ, Transfer};
+use super::correction::{Adjoint, Correction, NeffQ, Transfer};
 use super::cycle::{Corrects, TwoGrid};
 use super::levels::{AbsMultilevel, BlockMap};
 use super::mdwf_even_odd::{coarse_field, CoarseKrylov, PvEoBasis, PvEoParams, SharedOperator};
@@ -180,7 +180,7 @@ pub struct CoarseParts<CT: Storage> {
     /// The levels below the coarse lattice of either factor, built on these coarse operators.
     levels: (Option<SharedLevels<CT>>, Option<SharedLevels<CT>>),
     /// The adjoints of the coarse operators of either factor, for its regularized solve
-    /// (`CoarseKrylov::Cg`): (P†DP)† and P†D_PV P.
+    /// (`FactorSolve::Regularized`): (P†DP)† and P†D_PV P.
     adjoints: (Option<SharedCoarse<CT>>, Option<SharedCoarse<CT>>),
     hi: f64,
 }
@@ -343,7 +343,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
         let mut coarse_d = basis.coarse_op(op, &mut op.work()).to_storage::<f64>();
         // The regularized solve of the first factor also applies (P†DP)†.
-        let adjoint_d = (params.d_solver == CoarseKrylov::Cg).then(|| coarse_d.adjoint());
+        let adjoint_d = params.d_solver.regularized().map(|_| coarse_d.adjoint());
         // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
         // adjoint P†D_PV†P, solved as the first factor is; the regularized solve also applies
         // P†D_PV P.
@@ -353,7 +353,7 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
             true => (plain_pv, None),
             false => {
                 let adjoint = plain_pv.adjoint();
-                let regularized = params.pv_solver == CoarseKrylov::Cg;
+                let regularized = params.pv_solver.regularized().is_some();
                 (adjoint, regularized.then_some(plain_pv))
             }
         };
@@ -430,6 +430,10 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 Box::new(SharedBlocks(parts.blocks.0.clone())),
                 Box::new(SharedBlocks(parts.blocks.1.clone())),
             ),
+            (
+                parts.adjoints.0.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+                parts.adjoints.1.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+            ),
             params,
             &like,
             &coarse_field::<CT, F>(basis, 1),
@@ -439,12 +443,6 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         }
         if let Some(l) = parts.levels.1.clone() {
             correction.set_levels_pv(Box::new(move |out, inp| l(out, inp)));
-        }
-        if let Some(a) = parts.adjoints.0.clone() {
-            correction.set_d_adjoint(a);
-        }
-        if let Some(a) = parts.adjoints.1.clone() {
-            correction.set_pv_adjoint(a);
         }
         let hi = parts.hi;
         let mut like_l = HalfField::<L, F>::with_shape(&lat, 24, ls, 1, 1);

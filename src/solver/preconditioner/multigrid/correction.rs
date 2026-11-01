@@ -2,7 +2,7 @@
 //! domain-wall fermions (the top of `mdwf_even_odd`), and the solve of a coarse system, for
 //! any kind of field: on the CPU and on a device they are this.
 
-use super::mdwf_even_odd::{coarse_solve, CoarseKrylov, PvEoParams};
+use super::mdwf_even_odd::{coarse_solve, CoarseKrylov, FactorSolve, PvEoParams};
 use crate::fermion::{Dagger, EoForm, EvenOdd};
 use crate::solver::{Solver, Stop};
 use crate::{fit, ConvertFrom, LinearFn, Parity, Vector, C64};
@@ -74,6 +74,10 @@ impl<C, D: CoarseOperator<C>> CoarseOperator<C> for Rc<D> {
 /// Levels below the coarse lattice, as a map of a coarse field.
 pub type Levels<'a, C> = dyn Fn(&mut C, &C) + 'a;
 
+/// The adjoint of a coarse operator, for its regularized solve: a copy of it, or a map applying
+/// it from the operator's own blocks.
+pub type Adjoint<'a, C> = Box<dyn CoarseOperator<C> + 'a>;
+
 /// A solver of a coarse system, as `solve_shared` calls it: operator, preconditioner, solution
 /// (zero on entry), right-hand side.
 pub type CoarseSolve<'a, C> =
@@ -84,7 +88,7 @@ pub type CoarseSolve<'a, C> =
 /// applications of either.
 fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
     a: &D,
-    adj: &D,
+    adj: &dyn CoarseOperator<C>,
     eps: f64,
     stop: Stop,
     n: &Cell<usize>,
@@ -284,6 +288,8 @@ pub trait NeffQ<V>: EvenOdd<V> {
 ///   operator is the exact adjoint P†D_PV†P itself (`CoarseOp::adjoint`), solved as the first
 ///   (`solve_shared`, on the even coarse sites where it has the even-odd form) with
 ///   `blocks_pv` the inverses of its blocks;
+/// - a factor solved by `FactorSolve::Regularized` applies its adjoint as well (`adjoints`:
+///   (P†DP)† for the first, P†D_PV P for the second), however it is applied;
 /// - levels below the coarse lattice for either factor, if they are set.
 pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     plain: (&'a O, &'a O),
@@ -296,10 +302,9 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     blocks_pv: Box<dyn LinearFn<C> + 'a>,
     levels_d: Option<Box<Levels<'a, C>>>,
     levels_pv: Option<Box<Levels<'a, C>>>,
-    /// A† = P†D_PV P for the regularized solve of the second factor (`CoarseKrylov::Cg`) ...
-    coarse_pv_adj: Option<D>,
-    /// ... and A† of the first, for its regularized solve.
-    coarse_d_adj: Option<D>,
+    /// The adjoints of the coarse factors solved by `FactorSolve::Regularized`.
+    coarse_d_adj: Option<Adjoint<'a, C>>,
+    coarse_pv_adj: Option<Adjoint<'a, C>>,
     params: PvEoParams,
     work: (O::Work, O::Work),
     /// Scratch on the even sites and on the coarse lattice: `g` as P gives it, the others
@@ -321,7 +326,8 @@ where
     T: Transfer<V, G>,
     D: CoarseOperator<C>,
 {
-    /// `blocks_d`: the inverses of the blocks of P†DP. `like`: a field on the even sites;
+    /// `blocks_d`: the inverses of the blocks of P†DP; `adjoints`: those of the factors solved
+    /// by `FactorSolve::Regularized`, exactly those. `like`: a field on the even sites;
     /// `coarse_like`: a coarse field as the coarse systems are solved.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -331,6 +337,7 @@ where
         transfer: T,
         (coarse_d, coarse_pv): (D, D),
         (blocks_d, blocks_pv): (Box<dyn LinearFn<C> + 'a>, Box<dyn LinearFn<C> + 'a>),
+        (coarse_d_adj, coarse_pv_adj): (Option<Adjoint<'a, C>>, Option<Adjoint<'a, C>>),
         params: PvEoParams,
         like: &V,
         coarse_like: &C,
@@ -339,6 +346,16 @@ where
             params.d_solver != CoarseKrylov::Minres,
             "MINRES needs a Hermitian operator: not for the quark factor"
         );
+        for (name, solve, adjoint) in [
+            ("first", params.d_solver, coarse_d_adj.is_some()),
+            ("second", params.pv_solver, coarse_pv_adj.is_some()),
+        ] {
+            assert_eq!(
+                solve.regularized().is_some(),
+                adjoint,
+                "the {name} coarse factor: its adjoint goes with the regularized solve, and only with it"
+            );
+        }
         Self {
             work: (plain.0.even_odd_work(), outer.0.even_odd_work()),
             plain,
@@ -352,8 +369,8 @@ where
             blocks_pv,
             levels_d: None,
             levels_pv: None,
-            coarse_pv_adj: None,
-            coarse_d_adj: None,
+            coarse_d_adj,
+            coarse_pv_adj,
             params,
             h: like.zeros_with(1),
             gc: coarse_like.zeros_with(1),
@@ -381,16 +398,6 @@ where
             "levels for the second factor go with MINRES"
         );
         self.levels_pv = Some(levels);
-    }
-
-    /// A† of the second coarse factor, for the regularized solve (`CoarseKrylov::Cg`).
-    pub(crate) fn set_pv_adjoint(&mut self, adj: D) {
-        self.coarse_pv_adj = Some(adj);
-    }
-
-    /// A† of the first coarse factor, for its regularized solve (`CoarseKrylov::Cg`).
-    pub(crate) fn set_d_adjoint(&mut self, adj: D) {
-        self.coarse_d_adj = Some(adj);
     }
 
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
@@ -447,11 +454,8 @@ where
         // Γ5-adjoint), or by a Krylov solver on the exact adjoint. The last two preconditioned by
         // the blocks, and the levels below if there are any.
         w.set_zero();
-        if params.pv_solver == CoarseKrylov::Cg {
-            let adj = coarse_pv_adj
-                .as_ref()
-                .expect("the regularized solve needs P†D_PV P (set_pv_adjoint)");
-            regularized_solve(coarse_pv, adj, params.pv_tikhonov, pv_stop, n, w, gc);
+        if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.pv_solver, coarse_pv_adj) {
+            regularized_solve(coarse_pv, &**adj, eps, pv_stop, n, w, gc);
         } else if params.pv_solver == CoarseKrylov::Minres {
             coarse_pv.gamma5(gc);
             minres_on_hermitian(
@@ -465,7 +469,7 @@ where
             );
             coarse_pv.gamma5(w);
         } else {
-            let pv_solver = params.pv_solver;
+            let pv_solver = params.pv_solver.krylov().expect("a Krylov solver");
             solve_shared(
                 coarse_pv,
                 Some(&mut **blocks_pv),
@@ -489,13 +493,10 @@ where
 
         // c = (P†DP)⁻¹ g, or regularized as the second factor.
         c.set_zero();
-        if params.d_solver == CoarseKrylov::Cg {
-            let adj = coarse_d_adj
-                .as_ref()
-                .expect("the regularized solve needs the adjoint of P†DP (set_d_adjoint)");
-            regularized_solve(&*coarse_d, adj, params.d_tikhonov, stop, n, c, gc);
+        if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.d_solver, coarse_d_adj) {
+            regularized_solve(&*coarse_d, &**adj, eps, stop, n, c, gc);
         } else {
-            let d_solver = params.d_solver;
+            let d_solver = params.d_solver.krylov().expect("a Krylov solver");
             solve_shared(
                 &*coarse_d,
                 Some(&mut **blocks_d),

@@ -600,9 +600,8 @@ impl MultigridBlock {
             coarse_max_iterations: coarse_d.maximum_number_of_iteration,
             pv_tolerance_sqr: coarse_pv.convergence_criterion_squared,
             pv_max_iterations: coarse_pv.maximum_number_of_iteration,
-            d_solver: coarse_d.krylov(),
-            pv_solver: coarse_pv.krylov(),
-            pv_tikhonov: coarse_pv.tikhonov_epsilon,
+            d_solver: coarse_d.factor_solve(),
+            pv_solver: coarse_pv.factor_solve(),
             ..PvEoParams::default()
         };
         let low = LowModeParams {

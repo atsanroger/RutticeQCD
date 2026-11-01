@@ -117,8 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Exact coarse solves.
     let exact = PvEoParams {
-        d_solver: CoarseKrylov::BiCgStab,
-        pv_solver: CoarseKrylov::BiCgStab,
+        d_solver: CoarseKrylov::BiCgStab.into(),
+        pv_solver: CoarseKrylov::BiCgStab.into(),
         coarse_tolerance_sqr: 1e-24,
         pv_tolerance_sqr: 1e-24,
         coarse_max_iterations: 50_000,
@@ -221,7 +221,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // cycle, the coarse solves as the solver stops them (1e-2; BiCGStab for both factors in both
     // directions, for a like comparison), to |r|^2/|b|^2 < 1e-18 from the same random b.
     let solver = PvEoParams {
-        pv_solver: CoarseKrylov::BiCgStab,
+        pv_solver: CoarseKrylov::BiCgStab.into(),
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 10.0)?,
         ..PvEoParams::default()

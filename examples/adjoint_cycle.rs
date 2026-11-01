@@ -87,8 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         chebyshev_steps: 8,
         chebyshev_ratio: 10.0,
         // The Pauli-Villars factor by MINRES on its Hermitian form.
-        pv_solver: CoarseKrylov::Minres,
-        pv_tikhonov: 0.0,
+        pv_solver: CoarseKrylov::Minres.into(),
         ..PvEoParams::default()
     };
     let basis = pv_eo_bootstrap(
@@ -157,7 +156,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("MINRES, Γ5 form", CoarseKrylov::Minres),
         ("BiCGStab, exact adjoint", CoarseKrylov::BiCgStab),
     ] {
-        let dual = PvEoParams { pv_solver, ..tuned };
+        let dual = PvEoParams {
+            pv_solver: pv_solver.into(),
+            ..tuned
+        };
         let mut cycle = PvEoCycle::new(&pv, &op, (&pv, &op, EoForm::Right), &basis, dual)?;
         run(
             &format!("Ã† with M† (P†D†P by {name})"),

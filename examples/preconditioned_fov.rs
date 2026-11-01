@@ -127,8 +127,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         chebyshev_steps: value("--steps", 8.0)? as usize,
         chebyshev_ratio: value("--ratio", 30.0)?,
         // The Pauli-Villars factor by MINRES on its Hermitian form.
-        pv_solver: CoarseKrylov::Minres,
-        pv_tikhonov: 0.0,
+        pv_solver: CoarseKrylov::Minres.into(),
         ..PvEoParams::default()
     };
     let (y, _) = pv_eo_low_modes(&op, &pv, &lat, LowModeParams::default());
@@ -152,7 +151,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         start.elapsed().as_secs_f64()
     );
     let exact = PvEoParams {
-        pv_solver: CoarseKrylov::BiCgStab,
+        pv_solver: CoarseKrylov::BiCgStab.into(),
         coarse_tolerance_sqr: coarse,
         pv_tolerance_sqr: coarse,
         coarse_max_iterations: 20_000,

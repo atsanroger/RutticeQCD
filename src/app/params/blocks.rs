@@ -931,14 +931,18 @@ impl SolverBlock {
         }
     }
 
-    pub(super) fn krylov(&self) -> CoarseKrylov {
+    /// How the coarse factor is solved (after `check_coarse`).
+    pub(super) fn factor_solve(&self) -> FactorSolve {
         match self.solver_type {
             SolverType::Gcr => CoarseKrylov::Gcr {
                 k: self.number_of_kept_directions,
+            }
+            .into(),
+            SolverType::Minres => CoarseKrylov::Minres.into(),
+            SolverType::Cg => FactorSolve::Regularized {
+                eps: self.tikhonov_epsilon,
             },
-            SolverType::Minres => CoarseKrylov::Minres,
-            SolverType::Cg => CoarseKrylov::Cg,
-            _ => CoarseKrylov::BiCgStab,
+            _ => CoarseKrylov::BiCgStab.into(),
         }
     }
 }

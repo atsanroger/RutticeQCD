@@ -294,10 +294,46 @@ pub enum CoarseKrylov {
     /// second (Pauli-Villars) factor, and exact only where A† = Γ5 A Γ5, which for Möbius
     /// domain-wall fermions holds approximately.
     Minres,
-    /// CG on the regularized normal equations (A†A + ε) w = A† g on all coarse sites, ε =
-    /// `PvEoParams::pv_tikhonov` (second factor) or `d_tikhonov` (first): singular values of A
-    /// below √ε are damped by σ²/(σ² + ε). On the device.
-    Cg,
+}
+
+/// How a coarse factor A is solved: by a Krylov solver on A (`CoarseKrylov`), or by CG on the
+/// regularized normal equations (A†A + ε) w = A† g on all coarse sites, which against A⁻¹ g
+/// multiplies the component along a right singular vector of A by σ²/(σ² + ε).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FactorSolve {
+    Krylov(CoarseKrylov),
+    Regularized { eps: f64 },
+}
+
+impl FactorSolve {
+    /// ε of the regularized solve, if it is one.
+    pub fn regularized(self) -> Option<f64> {
+        match self {
+            FactorSolve::Regularized { eps } => Some(eps),
+            FactorSolve::Krylov(_) => None,
+        }
+    }
+
+    /// The Krylov solver, if it is one.
+    pub fn krylov(self) -> Option<CoarseKrylov> {
+        match self {
+            FactorSolve::Krylov(k) => Some(k),
+            FactorSolve::Regularized { .. } => None,
+        }
+    }
+}
+
+impl From<CoarseKrylov> for FactorSolve {
+    fn from(k: CoarseKrylov) -> Self {
+        FactorSolve::Krylov(k)
+    }
+}
+
+/// `solve == CoarseKrylov::Minres`: whether the factor is solved by that Krylov solver.
+impl PartialEq<CoarseKrylov> for FactorSolve {
+    fn eq(&self, other: &CoarseKrylov) -> bool {
+        matches!(self, FactorSolve::Krylov(k) if k == other)
+    }
 }
 
 /// x = A⁻¹ b approximately by kind, preconditioned by m, from x = 0 (inner solves: no
@@ -315,7 +351,6 @@ pub fn coarse_solve<V: Vector>(
         CoarseKrylov::BiCgStab => BiCgStab::inner(stop).solve(a, m, x, b),
         CoarseKrylov::Gcr { k } => crate::solver::Gcr::new(stop, k).solve(a, m, x, b),
         CoarseKrylov::Minres => Minres::inner(stop).solve(a, m, x, b),
-        CoarseKrylov::Cg => unreachable!("the regularized solve of the second factor is done by the correction"),
     };
 }
 
@@ -337,15 +372,11 @@ pub struct PvEoParams {
     /// `CoarseOp`) where the coarse lattice allows it: the quark factor, with or without
     /// levels below it, and the second factor when it is solved by MINRES.
     pub coarse_even_odd: bool,
-    /// The solver of the quark factor P†DP (not `Minres`) ...
-    pub d_solver: CoarseKrylov,
-    /// ε of its regularized solve (`CoarseKrylov::Cg`; the adjoint cycle, whose first factor
-    /// is the Pauli-Villars one).
-    pub d_tikhonov: f64,
+    /// The solve of the quark factor P†DP (not by `Minres`; regularized in the adjoint
+    /// cycle, whose first factor is the Pauli-Villars one) ...
+    pub d_solver: FactorSolve,
     /// ... and that of the second factor, P†D_PV†P (P†D†P for the normal equations).
-    pub pv_solver: CoarseKrylov,
-    /// ε of the regularized solve of the second factor (`CoarseKrylov::Cg`).
-    pub pv_tikhonov: f64,
+    pub pv_solver: FactorSolve,
     /// Steps of the power iteration for |λ_max|, from a random vector with this seed.
     pub power_steps: usize,
     pub seed: u64,
@@ -367,10 +398,8 @@ impl Default for PvEoParams {
             pv_tolerance_sqr: 1e-2,
             pv_max_iterations: 2000,
             coarse_even_odd: true,
-            d_solver: CoarseKrylov::BiCgStab,
-            d_tikhonov: 0.0,
-            pv_solver: CoarseKrylov::Cg,
-            pv_tikhonov: 1e-3,
+            d_solver: FactorSolve::Krylov(CoarseKrylov::BiCgStab),
+            pv_solver: FactorSolve::Regularized { eps: 1e-3 },
             power_steps: 50,
             seed: 5,
         }

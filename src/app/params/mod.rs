@@ -55,7 +55,7 @@ use crate::fermion::{EoForm, MdwfParams};
 use crate::gauge::CoulombParams;
 use crate::keyword_enum;
 use crate::solver::preconditioner::multigrid::{
-    BootstrapParams, CoarseKrylov, LevelBootstrap, LowModeParams, PvEoParams,
+    BootstrapParams, CoarseKrylov, FactorSolve, LevelBootstrap, LowModeParams, PvEoParams,
 };
 use crate::solver::Stop;
 use crate::{Boundary, ND};
@@ -123,8 +123,7 @@ Solver:
         let p = parse(&text).unwrap();
         let (cycle, low, boot) = p.multigrid().unwrap();
         assert_eq!(cycle.d_solver, CoarseKrylov::BiCgStab);
-        assert_eq!(cycle.pv_solver, CoarseKrylov::Cg);
-        assert_eq!(cycle.pv_tikhonov, 1e-3);
+        assert_eq!(cycle.pv_solver, FactorSolve::Regularized { eps: 1e-3 });
         assert_eq!(low.vectors, 16);
         assert_eq!(boot.rounds, 2);
         assert_eq!(p.form(), (EoForm::Left, false));

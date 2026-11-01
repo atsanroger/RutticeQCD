@@ -39,7 +39,7 @@ mod device {
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::hmc::LinkField;
     use ruttice::solver::preconditioner::multigrid::{
-        Aggregation, BootstrapParams, CoarseKrylov, LowModeParams, PvEoParams,
+        Aggregation, BootstrapParams, CoarseKrylov, FactorSolve, LowModeParams, PvEoParams,
     };
     use ruttice::solver::{Gcr, SolveError, Solver, Stop};
     use ruttice::{
@@ -142,15 +142,13 @@ mod device {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 10.0)?,
             // The Pauli-Villars factor by MINRES on its Hermitian form.
-            pv_solver: CoarseKrylov::Minres,
-            pv_tikhonov: 0.0,
+            pv_solver: CoarseKrylov::Minres.into(),
             ..PvEoParams::default()
         };
         // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g (CoarseKrylov::Cg).
         let cycle = match tikhonov > 0.0 {
             true => PvEoParams {
-                pv_solver: CoarseKrylov::Cg,
-                pv_tikhonov: tikhonov,
+                pv_solver: FactorSolve::Regularized { eps: tikhonov },
                 ..cycle
             },
             false => cycle,
@@ -159,14 +157,12 @@ mod device {
         // --tikhonov its first, P†D_PV P, regularized as the second factor of the cycle of D.
         let dual = match tikhonov > 0.0 {
             true => PvEoParams {
-                d_solver: CoarseKrylov::Cg,
-                d_tikhonov: tikhonov,
-                pv_solver: CoarseKrylov::BiCgStab,
-                pv_tikhonov: 0.0,
+                d_solver: FactorSolve::Regularized { eps: tikhonov },
+                pv_solver: CoarseKrylov::BiCgStab.into(),
                 ..cycle
             },
             false => PvEoParams {
-                pv_solver: CoarseKrylov::BiCgStab,
+                pv_solver: CoarseKrylov::BiCgStab.into(),
                 ..cycle
             },
         };
@@ -442,7 +438,7 @@ mod device {
                 ("PV BiCGStab 8 its fixed", {
                     let (k, t, i) = fixed(CoarseKrylov::BiCgStab, 8);
                     PvEoParams {
-                        d_solver: k,
+                        d_solver: k.into(),
                         coarse_tolerance_sqr: t,
                         coarse_max_iterations: i,
                         ..dual
@@ -451,7 +447,7 @@ mod device {
                 ("PV GCR(4) 4 its fixed", {
                     let (k, t, i) = fixed(CoarseKrylov::Gcr { k: 4 }, 4);
                     PvEoParams {
-                        d_solver: k,
+                        d_solver: k.into(),
                         coarse_tolerance_sqr: t,
                         coarse_max_iterations: i,
                         ..dual
@@ -460,7 +456,7 @@ mod device {
                 (
                     "PV GCR(4) 4 its, quark BiCGStab 16 its, fixed",
                     PvEoParams {
-                        d_solver: CoarseKrylov::Gcr { k: 4 },
+                        d_solver: CoarseKrylov::Gcr { k: 4 }.into(),
                         coarse_tolerance_sqr: 1e-30,
                         coarse_max_iterations: 4,
                         pv_tolerance_sqr: 1e-30,
@@ -598,7 +594,7 @@ mod device {
             Ok(z)
         };
         let gcr4 = PvEoParams {
-            d_solver: CoarseKrylov::Gcr { k: 4 },
+            d_solver: CoarseKrylov::Gcr { k: 4 }.into(),
             ..dual
         };
         let copy = |z: &V| {

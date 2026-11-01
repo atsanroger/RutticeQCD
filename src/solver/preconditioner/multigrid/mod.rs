@@ -22,7 +22,7 @@ pub(crate) use coarse::coarse_neighbours;
 pub use coarse::CoarseOp;
 pub(crate) use correction::solve_shared;
 pub(crate) use correction::CoarseOperator;
-pub use correction::{Levels, Transfer};
+pub use correction::{Adjoint, Levels, Transfer};
 
 pub use levels::{AbsMultilevel, BlockMap, LevelBootstrap, SignedMultilevel};
 pub use mdwf_backend::MdwfMultigridSettings;
@@ -40,7 +40,9 @@ pub use mdwf_cycle::PvEoCycle;
 pub(crate) use mdwf_cycle::{CoarseParts, CycleLayout};
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use mdwf_even_odd::lifted_vectors;
-pub use mdwf_even_odd::{pv_eo_basis, pv_eo_coarse_vectors, CoarseKrylov, PvEoBasis, PvEoParams};
+pub use mdwf_even_odd::{
+    pv_eo_basis, pv_eo_coarse_vectors, CoarseKrylov, FactorSolve, PvEoBasis, PvEoParams,
+};
 pub(crate) use mdwf_even_odd::{pv_eo_basis_stored, BasisStorage, SharedOperator};
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub(crate) use mdwf_vectors::pv_eo_bootstrap_stored;

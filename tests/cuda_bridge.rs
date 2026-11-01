@@ -1874,7 +1874,7 @@ fn multigrid_correction_on_the_device() {
         ..PvEoParams::default()
     };
     let adjoint = PvEoParams {
-        pv_solver: CoarseKrylov::BiCgStab,
+        pv_solver: CoarseKrylov::BiCgStab.into(),
         ..minres
     };
     let r = half(nv, 443);

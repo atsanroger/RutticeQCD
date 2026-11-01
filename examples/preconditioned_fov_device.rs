@@ -56,7 +56,7 @@ mod device {
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::solver::preconditioner::multigrid::Transfer;
     use ruttice::solver::preconditioner::multigrid::{
-        Aggregation, BootstrapParams, CoarseKrylov, LowModeParams, PvEoParams,
+        Aggregation, BootstrapParams, CoarseKrylov, FactorSolve, LowModeParams, PvEoParams,
     };
     use ruttice::solver::Chebyshev;
     use ruttice::{
@@ -132,14 +132,12 @@ mod device {
     /// A† = P†D_PV P, which is the first factor there; the second, P†D†P, is solved exactly.
     fn dual_params(p: PvEoParams) -> PvEoParams {
         match p.pv_solver {
-            CoarseKrylov::Cg => PvEoParams {
-                d_solver: CoarseKrylov::Cg,
-                d_tikhonov: p.pv_tikhonov,
-                pv_solver: CoarseKrylov::BiCgStab,
-                pv_tikhonov: 0.0,
+            FactorSolve::Regularized { eps } => PvEoParams {
+                d_solver: FactorSolve::Regularized { eps },
+                pv_solver: CoarseKrylov::BiCgStab.into(),
                 ..p
             },
-            _ => p,
+            FactorSolve::Krylov(_) => p,
         }
     }
 
@@ -221,16 +219,14 @@ mod device {
             chebyshev_steps: value("--steps", 8.0)? as usize,
             chebyshev_ratio: value("--ratio", 30.0)?,
             // The Pauli-Villars factor by MINRES on its Hermitian form.
-            pv_solver: CoarseKrylov::Minres,
-            pv_tikhonov: 0.0,
+            pv_solver: CoarseKrylov::Minres.into(),
             ..PvEoParams::default()
         };
         // --tikhonov eps: the second factor by CG on (A†A + eps) w = A† g in the setup and in the
         // exact cycle (CoarseKrylov::Cg), as the solver with Coarse_Solver_PV: CG.
         let cycle = match tikhonov > 0.0 {
             true => PvEoParams {
-                pv_solver: CoarseKrylov::Cg,
-                pv_tikhonov: tikhonov,
+                pv_solver: FactorSolve::Regularized { eps: tikhonov },
                 ..cycle
             },
             false => cycle,
@@ -258,8 +254,8 @@ mod device {
         drop(y);
         let exact = PvEoParams {
             pv_solver: match tikhonov > 0.0 {
-                true => CoarseKrylov::Cg,
-                false => CoarseKrylov::BiCgStab,
+                true => FactorSolve::Regularized { eps: tikhonov },
+                false => CoarseKrylov::BiCgStab.into(),
             },
             coarse_tolerance_sqr: coarse,
             pv_tolerance_sqr: coarse,

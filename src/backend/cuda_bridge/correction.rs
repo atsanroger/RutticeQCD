@@ -5,7 +5,7 @@
 use super::*;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
-    CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
+    Adjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
 };
 use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
@@ -41,7 +41,7 @@ pub struct DeviceParts<CT: DeviceReal> {
     basis: Rc<DeviceBasis>,
     coarse_d: Rc<DeviceCoarseOp<CT>>,
     coarse_pv: Rc<DeviceCoarseOp<CT>>,
-    /// P†D_PV P besides its adjoint, for the regularized solve (`CoarseKrylov::Cg`), and the
+    /// P†D_PV P besides its adjoint, for the regularized solve (`FactorSolve::Regularized`), and the
     /// adjoint of P†DP for that of the first factor.
     coarse_pv_adj: Option<Rc<DeviceCoarseOp<CT>>>,
     coarse_d_adj: Option<Rc<DeviceCoarseOp<CT>>>,
@@ -116,14 +116,14 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         };
         let minres = params.pv_solver == CoarseKrylov::Minres;
         let d_op = build(plain.0)?;
-        let coarse_d_adj = match params.d_solver == CoarseKrylov::Cg {
+        let coarse_d_adj = match params.d_solver.regularized().is_some() {
             true => Some(Rc::new(d_op.adjoint()?)),
             false => None,
         };
         let coarse_d = Rc::new(d_op);
         // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
         let pv_op = build(plain.1)?;
-        let tikhonov = params.pv_solver == CoarseKrylov::Cg;
+        let tikhonov = params.pv_solver.regularized().is_some();
         let (coarse_pv, coarse_pv_adj) = match minres {
             true => (Rc::new(pv_op), None),
             false => {
@@ -205,6 +205,10 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 device,
                 (coarse_d.clone(), coarse_pv.clone()),
                 (Box::new(blocks_d), blocks_pv),
+                (
+                    parts.coarse_d_adj.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+                    parts.coarse_pv_adj.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+                ),
                 params,
                 &like.zeros_with(1),
                 &coarse_like,
@@ -217,12 +221,6 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         if let Some(l) = levels_d {
             c.correction
                 .set_levels_d(Box::new(move |out, inp| l(out, inp)));
-        }
-        if let Some(adj) = c.parts.coarse_pv_adj.clone() {
-            c.correction.set_pv_adjoint(adj);
-        }
-        if let Some(adj) = c.parts.coarse_d_adj.clone() {
-            c.correction.set_d_adjoint(adj);
         }
         if let Some(l) = levels_pv {
             c.correction

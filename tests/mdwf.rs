@@ -1311,8 +1311,7 @@ fn even_odd_pv_multigrid_solves_d() {
         // The Pauli-Villars factor by MINRES on its Hermitian form: the same solution, fewer
         // steps than BiCGStab alone.
         let with_minres = PvEoParams {
-            pv_solver: CoarseKrylov::Minres,
-            pv_tikhonov: 0.0,
+            pv_solver: CoarseKrylov::Minres.into(),
             ..PvEoParams::default()
         };
         let mut tik = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, with_minres).unwrap();
@@ -1360,8 +1359,7 @@ fn even_odd_pv_multigrid_solves_d() {
         // The same level under the solves of the second (Pauli-Villars) factor as well, which
         // goes with MINRES on its Hermitian form.
         let minres = PvEoParams {
-            pv_solver: CoarseKrylov::Minres,
-            pv_tikhonov: 0.0,
+            pv_solver: CoarseKrylov::Minres.into(),
             ..PvEoParams::default()
         };
         let mut both = PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, minres).unwrap();
@@ -1709,7 +1707,7 @@ fn cgne_with_alpha_and_the_multigrid() {
         let mut plain = like.zeros_like();
         let cg = Cg::new(stop).solve(&mut n, None, &mut plain, &rhs).unwrap();
         let params = PvEoParams {
-            pv_solver: CoarseKrylov::BiCgStab,
+            pv_solver: CoarseKrylov::BiCgStab.into(),
             ..PvEoParams::default()
         };
         let mut cycle =

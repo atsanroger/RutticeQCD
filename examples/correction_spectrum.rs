@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             pv_tolerance_sqr: 1e-22,
             coarse_max_iterations: 5000,
             pv_max_iterations: 5000,
-            pv_solver,
+            pv_solver: pv_solver.into(),
             ..PvEoParams::default()
         };
         let mut cycle = PvEoCycle::new(&op, &pv, (&op, &pv, EoForm::Right), &basis, exact)?;
