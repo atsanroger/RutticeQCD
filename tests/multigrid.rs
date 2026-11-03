@@ -42,7 +42,7 @@ fn lattice() -> Arc<Lattice> {
 /// of the inner products of every pair: of two sets of different sizes, and of a set with
 /// itself.
 #[test]
-fn gram_matrix_in_one_sweep() {
+fn test_mg_gram_matrix_in_one_sweep() {
     use ruttice::solver::preconditioner::multigrid::random_even;
     use ruttice::{EvenOddIndex, Subspace};
     let lat = lattice();
@@ -127,7 +127,7 @@ fn max_abs_diff_coarse(a: &C64Field, b: &C64Field) -> f64 {
 }
 
 #[test]
-fn restriction_undoes_prolongation() {
+fn test_mg_restriction_undoes_prolongation() {
     let lat = lattice();
     for block in [[2, 2, 2, 2], [2, 2, 2, 4], [4, 4, 4, 8], [1, 2, 4, 2]] {
         let agg = Aggregation::new(&lat, block);
@@ -146,7 +146,7 @@ fn restriction_undoes_prolongation() {
 /// P R is the orthogonal projector onto the range of P: it is idempotent, and R is the
 /// adjoint of P.
 #[test]
-fn prolongation_after_restriction_is_an_orthogonal_projector() {
+fn test_mg_prolongation_after_restriction_is_an_orthogonal_projector() {
     let lat = lattice();
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = basis64(&agg, &random_spinor(&lat, 4, 411)).unwrap();
@@ -175,7 +175,7 @@ fn prolongation_after_restriction_is_an_orthogonal_projector() {
 /// With one block covering the whole lattice per chirality, the chiral halves of every test
 /// vector are in the range of P.
 #[test]
-fn test_vectors_are_reproduced() {
+fn test_mg_test_vectors_are_reproduced() {
     let lat = lattice();
     let vectors = random_spinor(&lat, 3, 421);
     for block in [[2, 2, 2, 2], [4, 4, 2, 4]] {
@@ -191,7 +191,7 @@ fn test_vectors_are_reproduced() {
 }
 
 #[test]
-fn prolongation_commutes_with_gamma5() {
+fn test_mg_prolongation_commutes_with_gamma5() {
     let lat = lattice();
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 431));
     let mut work = op.work();
@@ -221,7 +221,7 @@ fn prolongation_commutes_with_gamma5() {
 }
 
 #[test]
-fn dependent_test_vectors_are_reported() {
+fn test_mg_dependent_test_vectors_are_reported() {
     let lat = lattice();
     let mut vectors = random_spinor(&lat, 3, 441);
     for site in 0..lat.num_sites() {
@@ -260,7 +260,7 @@ fn check_galerkin<F: HopTerms<V64>>(op: &F, block: [usize; ND], seed: u64) -> f6
 }
 
 #[test]
-fn coarse_operator_is_the_galerkin_product() {
+fn test_mg_coarse_operator_is_the_galerkin_product() {
     let lat = lattice();
     let u = random_gauge(&lat, 451);
     let w = wilson::<f64>(&lat, &u);
@@ -277,7 +277,7 @@ fn coarse_operator_is_the_galerkin_product() {
 
 /// `<a, D_c b> = <D_c† a, b>`, and `D_c†` agrees with `R D† P`.
 #[test]
-fn coarse_adjoint() {
+fn test_mg_coarse_adjoint() {
     let lat = lattice();
     let op = clover::<f64>(&lat, &random_gauge(&lat, 461));
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
@@ -320,7 +320,7 @@ impl<F: HopTerms<V64>> LinearFn<V64> for SiteDiagonal<'_, F> {
 
 /// With a site-local right factor R the coarse operator is P† D R P.
 #[test]
-fn coarse_operator_with_a_right_factor() {
+fn test_mg_coarse_operator_with_a_right_factor() {
     let lat = lattice();
     let u = random_gauge(&lat, 481);
     let op = wilson::<f64>(&lat, &u);
@@ -362,7 +362,7 @@ impl LinearFn<C64Field> for CoarseSchur<'_> {
 /// The even-odd form of the coarse operator: solving the Schur complement on the even coarse sites
 /// and filling in the odd ones solves D_c c = g, and the Schur complement stays on the even sites.
 #[test]
-fn coarse_even_odd_solves_the_coarse_system() {
+fn test_mg_coarse_even_odd_solves_the_coarse_system() {
     let lat = lattice();
     let op = clover::<f64>(&lat, &random_gauge(&lat, 471));
     for block in [[2, 2, 2, 2], [2, 2, 2, 4]] {
@@ -420,7 +420,7 @@ fn coarse_even_odd_solves_the_coarse_system() {
 /// Preconditioned by its diagonal blocks the coarse operator is A^{-1} D_c, and its
 /// adjoint is still the adjoint.
 #[test]
-fn diagonally_preconditioned_coarse_operator() {
+fn test_mg_diagonally_preconditioned_coarse_operator() {
     let lat = lattice();
     let op = clover::<f64>(&lat, &random_gauge(&lat, 491));
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
@@ -451,7 +451,7 @@ fn diagonally_preconditioned_coarse_operator() {
 
 /// The single-precision hierarchy is the double-precision one rounded.
 #[test]
-fn single_precision_agrees_with_double() {
+fn test_mg_single_precision_agrees_with_double() {
     let lat = lattice();
     let u = random_gauge(&lat, 471);
     let vectors = random_spinor(&lat, 4, 472);
@@ -507,7 +507,7 @@ fn residual_sqr<F: FermionOp<V64>>(op: &F, x: &V64, b: &V64) -> Vec<f64> {
 /// SAP on its own is a convergent iteration for a heavy enough quark: more cycles, smaller
 /// residual.
 #[test]
-fn sap_reduces_the_residual() {
+fn test_mg_sap_reduces_the_residual() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 501), 0.12);
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
@@ -528,7 +528,7 @@ fn sap_reduces_the_residual() {
 
 /// Vectors of a multi-vector are smoothed independently.
 #[test]
-fn sap_treats_vectors_independently() {
+fn test_mg_sap_treats_vectors_independently() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 511), 0.12);
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
@@ -556,7 +556,7 @@ fn sap_treats_vectors_independently() {
 /// The test vectors handed out are orthonormal on the aggregates: restricting them gives
 /// the coarse vectors they were built from.
 #[test]
-fn test_vectors_restrict_to_unit_coarse_vectors() {
+fn test_mg_test_vectors_restrict_to_unit_coarse_vectors() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 521), 0.12);
     let mut params = MultigridParams::bridge([2, 2, 2, 2]);
@@ -581,7 +581,7 @@ fn test_vectors_restrict_to_unit_coarse_vectors() {
 /// iterations than without, in double and in single precision inside a double outer
 /// solve.
 #[test]
-fn multigrid_preconditioned_fgmres_converges() {
+fn test_multigrid_preconditioned_fgmres_converges() {
     let lat = lattice();
     let u = random_gauge(&lat, 531);
     let op = clover_at::<f64>(&lat, &u, 0.2);
@@ -625,7 +625,7 @@ fn multigrid_preconditioned_fgmres_converges() {
 /// The single-precision preconditioner really works in single precision: every component
 /// it returns is a single-precision number.
 #[test]
-fn single_precision_multigrid_returns_single_precision_values() {
+fn test_mg_single_precision_multigrid_returns_single_precision_values() {
     let lat = lattice();
     let op32 = clover_at::<f32>(&lat, &random_gauge(&lat, 541), 0.12);
     let mut params = MultigridParams::bridge([2, 2, 2, 2]);
@@ -644,7 +644,7 @@ fn single_precision_multigrid_returns_single_precision_values() {
 /// (`test_alt_Multigrid.yaml`: clover, κ = 0.13, c_SW = 1.1, periodic) and its multigrid parameters
 /// on 2^4 blocks.
 #[test]
-fn multigrid_on_the_bridge_configuration() {
+fn test_multigrid_on_the_bridge_configuration() {
     let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
         eprintln!(
             "SKIPPED: set {} to a directory containing conf_04040408.txt",
@@ -692,7 +692,7 @@ fn multigrid_on_the_bridge_configuration() {
 /// preconditioned by its diagonal blocks), here on a clover operator, still make a good
 /// preconditioner.
 #[test]
-fn exchangeable_members_and_outer_solvers() {
+fn test_mg_exchangeable_members_and_outer_solvers() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 561), 0.2);
     let b = random_spinor(&lat, 1, 562);
@@ -752,7 +752,7 @@ fn exchangeable_members_and_outer_solvers() {
 /// cycle as on one process: with a fixed number of coarse iterations and SAP steps, one
 /// application and a whole FGMRES solve agree to rounding, in as many iterations.
 #[test]
-fn multigrid_on_several_processes() {
+fn test_multigrid_on_several_processes() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 571);
@@ -818,7 +818,7 @@ fn multigrid_on_several_processes() {
 /// of an approximate inverse of D approximates the inverse of the Schur complement, so FGMRES on
 /// the Schur complement needs about as many iterations as on D, and far fewer than without it.
 #[test]
-fn multigrid_under_an_even_odd_solver() {
+fn test_multigrid_under_an_even_odd_solver() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 581), 0.2);
     let b = random_spinor(&lat, 1, 582);
@@ -859,7 +859,7 @@ fn multigrid_under_an_even_odd_solver() {
 /// under the coarse solves of the clover multigrid, from the setup's test vectors on the
 /// coarse lattice: FGMRES still converges, in about as many iterations.
 #[test]
-fn multigrid_with_a_level_below_the_coarse_lattice() {
+fn test_multigrid_with_a_level_below_the_coarse_lattice() {
     let lat = lattice();
     let op = clover_at::<f64>(&lat, &random_gauge(&lat, 591), 0.2);
     let b = random_spinor(&lat, 1, 592);

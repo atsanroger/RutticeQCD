@@ -41,7 +41,7 @@ fn to_sites<const W: usize>(b: &B<W>) -> V {
 /// Converting to blocks and back gives the same field, and the blocks hold every real of
 /// a block once per lane.
 #[test]
-fn conversion_is_a_rearrangement() {
+fn test_simd_conversion_is_a_rearrangement() {
     let lat = lattice();
     let a = random_spinor(&lat, 2, 901);
     fn check<const W: usize>(a: &V) {
@@ -67,7 +67,7 @@ fn conversion_is_a_rearrangement() {
 /// The vector operations the solvers use give the same results in both layouts: updates
 /// bit for bit, sums up to the order of the additions.
 #[test]
-fn vector_operations_agree_with_the_usual_layout() {
+fn test_simd_vector_operations_agree_with_the_usual_layout() {
     let lat = lattice();
     let (x, y) = (random_spinor(&lat, 3, 911), random_spinor(&lat, 3, 912));
     let coefficients = [C64::new(0.3, -1.1), C64::new(-0.7, 0.2), C64::new(1.5, 0.9)];
@@ -109,7 +109,7 @@ fn vector_operations_agree_with_the_usual_layout() {
 
 /// Single precision blocks from a double precision field, and back.
 #[test]
-fn conversion_can_change_the_precision() {
+fn test_simd_conversion_can_change_the_precision() {
     let lat = lattice();
     let a = random_spinor(&lat, 1, 921);
     let mut single =
@@ -147,7 +147,7 @@ where
 /// The operator on blocks gives every site the bits the operator on sites gives it: D, D† and γ5 D,
 /// two spinors per site, every kind of boundary, every width.
 #[test]
-fn wilson_on_blocks_is_identical() {
+fn test_simd_wilson_on_blocks_is_identical() {
     let lat = lattice();
     let u = random_gauge(&lat, 931);
     let psi = random_spinor(&lat, 2, 932);
@@ -178,7 +178,7 @@ fn wilson_on_blocks_is_identical() {
 }
 
 #[test]
-fn wilson_on_blocks_is_identical_in_single_precision() {
+fn test_simd_wilson_on_blocks_is_identical_in_single_precision() {
     let lat = lattice();
     let u = random_gauge(&lat, 941);
     let mut psi = Field::<f32, Spinor>::spinor(&lat, 1);
@@ -212,7 +212,7 @@ fn wilson_on_blocks_is_identical_in_single_precision() {
 
 /// The solvers know only vectors and operators, so they run on blocks as they are.
 #[test]
-fn solvers_run_on_blocks() {
+fn test_simd_solvers_run_on_blocks() {
     let lat = lattice();
     let u = random_gauge(&lat, 951);
     let b = random_spinor(&lat, 2, 952);
@@ -258,7 +258,7 @@ fn solvers_run_on_blocks() {
 /// A lattice that cannot be cut into W equal sub-lattices is refused when the operator is
 /// built.
 #[test]
-fn lattices_that_cannot_be_cut_are_refused() {
+fn test_simd_lattices_that_cannot_be_cut_are_refused() {
     let odd = Lattice::single_node([3, 3, 3, 4]);
     assert!(WilsonSimd::<f64, 4>::new(&odd, params()).is_some());
     assert!(WilsonSimd::<f64, 8>::new(&odd, params()).is_none());
@@ -275,7 +275,7 @@ fn clover_params() -> CloverParams {
 /// The clover operator on blocks gives every site the bits the operator on sites gives it.
 /// Its hopping term works on blocks, its clover term on one lane at a time.
 #[test]
-fn clover_on_blocks_is_identical() {
+fn test_simd_clover_on_blocks_is_identical() {
     let lat = lattice();
     let u = random_gauge(&lat, 961);
     let psi = random_spinor(&lat, 2, 962);
@@ -377,7 +377,7 @@ fn even_odd_blocks_agree<D: DiagTerm<f64>, const W: usize>(
 }
 
 #[test]
-fn even_odd_blocks_of_wilson_are_identical() {
+fn test_simd_even_odd_blocks_of_wilson_are_identical() {
     let lat = lattice();
     let u = random_gauge(&lat, 971);
     let psi = random_spinor(&lat, 2, 972);
@@ -390,7 +390,7 @@ fn even_odd_blocks_of_wilson_are_identical() {
 }
 
 #[test]
-fn even_odd_blocks_of_clover_are_identical() {
+fn test_simd_even_odd_blocks_of_clover_are_identical() {
     let lat = lattice();
     let u = random_gauge(&lat, 981);
     let psi = random_spinor(&lat, 2, 982);
@@ -411,7 +411,7 @@ fn even_odd_blocks_of_clover_are_identical() {
 /// The even-odd solve is the same generic code for both layouts; on blocks it gives a
 /// solution of the whole system, checked with the operator on sites.
 #[test]
-fn even_odd_solve_runs_on_blocks() {
+fn test_simd_even_odd_solve_runs_on_blocks() {
     let lat = lattice();
     let u = random_gauge(&lat, 991);
     let b = random_spinor(&lat, 2, 992);
@@ -477,7 +477,7 @@ fn even_odd_solve_runs_on_blocks() {
 /// Blocks have one parity only if the lattice of blocks has even extents; otherwise the
 /// operator offers no even-odd numbering.
 #[test]
-fn even_odd_needs_a_lattice_of_blocks_with_even_extents() {
+fn test_simd_even_odd_needs_a_lattice_of_blocks_with_even_extents() {
     let lat = Lattice::single_node([4, 4, 6, 8]);
     // Four lanes halve t and z: the blocks form a 4 x 4 x 3 x 4 lattice.
     let op = WilsonSimd::<f64, 4>::new(&lat, params()).unwrap();
@@ -490,7 +490,7 @@ fn even_odd_needs_a_lattice_of_blocks_with_even_extents() {
 /// vectors bit for bit, and the sums too, because both add the sites in the same chunks.
 /// Checked on a lattice large enough for the parallel path, in both layouts.
 #[test]
-fn fused_vector_operations_are_their_compositions() {
+fn test_simd_fused_vector_operations_are_their_compositions() {
     fn check<X: Vector>(x: &X, y: &X, z: &X, same: impl Fn(&X, &X) -> bool, layout: &str) {
         let a = [C64::new(0.3, -1.1), C64::new(-0.7, 0.2)];
         let b = [C64::new(1.5, 0.9), C64::new(0.0, -0.4)];
@@ -687,7 +687,7 @@ fn blocks_on_processes_agree<D: DiagTerm<f64>, const W: usize>(
 }
 
 #[test]
-fn wilson_on_blocks_is_identical_on_several_processes() {
+fn test_simd_wilson_on_blocks_is_identical_on_several_processes() {
     let whole = Lattice::single_node(GLOBAL);
     let u = random_gauge(&whole, 1001);
     let psi = random_spinor(&whole, 2, 1002);
@@ -719,7 +719,7 @@ fn wilson_on_blocks_is_identical_on_several_processes() {
 }
 
 #[test]
-fn clover_on_blocks_is_identical_on_several_processes() {
+fn test_simd_clover_on_blocks_is_identical_on_several_processes() {
     let whole = Lattice::single_node(GLOBAL);
     let u = random_gauge(&whole, 1011);
     let psi = random_spinor(&whole, 2, 1012);
@@ -731,7 +731,7 @@ fn clover_on_blocks_is_identical_on_several_processes() {
 /// The even-odd solve on blocks on several processes solves the system of the whole
 /// lattice.
 #[test]
-fn even_odd_solve_runs_on_blocks_on_several_processes() {
+fn test_simd_even_odd_solve_runs_on_blocks_on_several_processes() {
     let whole = Lattice::single_node(GLOBAL);
     let u = random_gauge(&whole, 1021);
     let b = random_spinor(&whole, 1, 1022);
@@ -803,7 +803,7 @@ const MOBIUS: MdwfParams = MdwfParams {
 /// Γ5 D, with and without Neff's α; the even-odd Pauli-Villars operator Ã in both forms; and the
 /// solution of D x = b through it.
 #[test]
-fn mdwf_on_blocks_is_identical() {
+fn test_simd_mdwf_on_blocks_is_identical() {
     let lat = lattice();
     let u = random_gauge(&lat, 991);
     let psi = random_5d(&lat, MOBIUS.ls, 2, 992);
@@ -907,7 +907,7 @@ fn mdwf_on_blocks_is_identical() {
 /// sites (the coarse correction in the usual layout): GCR(2) with it takes as many steps as
 /// with the cycle in the usual layout, and gives the same solution.
 #[test]
-fn mdwf_multigrid_on_blocks_agrees() {
+fn test_simd_mdwf_multigrid_on_blocks_agrees() {
     let lat = lattice();
     let u = random_gauge(&lat, 995);
     let pv_params = MdwfParams {

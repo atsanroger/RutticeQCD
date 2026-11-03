@@ -6,7 +6,7 @@ mod common;
 use std::io::ErrorKind;
 
 #[test]
-fn distributed_results_match_a_single_process() {
+fn test_mpirun_distributed_results_match_a_single_process() {
     for grid in [
         [1, 1, 1, 1],
         [2, 1, 1, 1],

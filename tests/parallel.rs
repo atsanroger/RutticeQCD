@@ -73,7 +73,7 @@ fn wilson<T: Storage>(
 }
 
 #[test]
-fn shift_across_processes() {
+fn test_parallel_shift_across_processes() {
     let lat = whole();
     let a = random_gauge(&lat, 501);
     let mut boundary = [Boundary::Periodic; ND];
@@ -100,7 +100,7 @@ fn shift_across_processes() {
 
 /// D, D† and γ5 D on two spinors at once, bit for bit.
 #[test]
-fn wilson_mult_is_identical() {
+fn test_parallel_wilson_mult_is_identical() {
     let lat = whole();
     let u = random_gauge(&lat, 511);
     let psi = random_spinor(&lat, 2, 512);
@@ -130,7 +130,7 @@ fn wilson_mult_is_identical() {
 }
 
 #[test]
-fn wilson_mult_is_identical_in_single_precision() {
+fn test_parallel_wilson_mult_is_identical_in_single_precision() {
     let lat = whole();
     let u = random_gauge(&lat, 521);
     let mut psi = Field::<f32, Spinor>::spinor(&lat, 1);
@@ -151,7 +151,7 @@ fn wilson_mult_is_identical_in_single_precision() {
 }
 
 #[test]
-fn hopping_terms_are_identical() {
+fn test_parallel_hopping_terms_are_identical() {
     let lat = whole();
     let u = random_gauge(&lat, 531);
     let psi = random_spinor(&lat, 2, 532);
@@ -185,7 +185,7 @@ fn hopping_terms_are_identical() {
 
 /// The even-odd hopping blocks, written back into a full field for comparison.
 #[test]
-fn even_odd_blocks_are_identical() {
+fn test_parallel_even_odd_blocks_are_identical() {
     let lat = whole();
     let u = random_gauge(&lat, 541);
     let psi = random_spinor(&lat, 2, 542);
@@ -222,7 +222,7 @@ fn even_odd_blocks_are_identical() {
 /// bits. They differ from the single-process value by rounding only: the order of the sum
 /// follows the process grid.
 #[test]
-fn reductions_are_global() {
+fn test_parallel_reductions_are_global() {
     let lat = whole();
     let a = random_spinor(&lat, 2, 551);
     let b = random_spinor(&lat, 2, 552);
@@ -266,7 +266,7 @@ fn residual_sqr(u: &Field<f64, Gauge>, x: &V, b: &V) -> Vec<f64> {
 
 /// The solvers run unchanged on several processes: they only see vectors and operators.
 #[test]
-fn solvers_converge_on_several_processes() {
+fn test_parallel_solvers_converge_on_several_processes() {
     let lat = whole();
     let u = random_gauge(&lat, 561);
     let b = random_spinor(&lat, 2, 562);

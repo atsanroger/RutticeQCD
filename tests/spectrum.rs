@@ -56,7 +56,7 @@ fn propagator(op: &Wilson<f64>, lat: &Arc<Lattice>, position: [usize; ND], stop:
 }
 
 #[test]
-fn point_source_has_one_unit_entry_per_vector() {
+fn test_spectrum_point_source_has_one_unit_entry_per_vector() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let position = [1, 2, 3, 5];
     let b = point_source::<f64>(&lat, position);
@@ -74,7 +74,7 @@ fn point_source_has_one_unit_entry_per_vector() {
 /// With γ5 at source and sink the general contraction reduces to the sum of |S|^2 per
 /// time slice, and the time slices add up to the norm of the whole field.
 #[test]
-fn gamma5_channel_is_the_norm_per_time_slice() {
+fn test_spectrum_gamma5_channel_is_the_norm_per_time_slice() {
     let lat = Lattice::single_node([4, 4, 2, 6]);
     let s = random_spinor(&lat, NUM_SOURCES, 90);
     let g5 = &Dirac::GAMMA5;
@@ -97,7 +97,7 @@ fn gamma5_channel_is_the_norm_per_time_slice() {
 
 /// The pion correlator is gauge invariant, and moving the source shifts it in time.
 #[test]
-fn pion_correlator_from_a_solved_propagator() {
+fn test_spectrum_pion_correlator_from_a_solved_propagator() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson(&lat, &random_gauge(&lat, 91));
     let stop = Stop {
@@ -125,7 +125,7 @@ fn pion_correlator_from_a_solved_propagator() {
 const BRIDGE_PION_CORRELATOR_T0: f64 = 14.2250394502083;
 
 #[test]
-fn bridge_spectrum_wilson_pion() {
+fn test_spectrum_bridge_spectrum_wilson_pion() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -160,7 +160,7 @@ fn bridge_spectrum_wilson_pion() {
 /// and γ5 γ4 at the source the correlator is `Σ_x Tr[γ4 S γ4 S†]`, and γ4 is diagonal in
 /// the Dirac representation, so the trace is a sum of `±|S|²` over the elements.
 #[test]
-fn axial_axial_channel_is_the_trace_with_gamma4_on_both_sides() {
+fn test_spectrum_axial_axial_channel_is_the_trace_with_gamma4_on_both_sides() {
     assert!(CHANNELS.contains(&"A4_A4"));
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson(&lat, &random_gauge(&lat, 91));

@@ -73,7 +73,7 @@ fn dot(a: &V, b: &V) -> C64 {
 /// The Bridge++ test `Mult_Domainwall`: Shamir's operator on a field of ones, on the
 /// Bridge++ test configuration. The reference is the norm Bridge++ expects.
 #[test]
-fn bridge_mult_domainwall() {
+fn test_bridge_mult_domainwall() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -104,7 +104,7 @@ fn bridge_mult_domainwall() {
 /// D† is the adjoint of D, and Γ5 D is Hermitian for Shamir's operator; with the Möbius
 /// coefficients it is D† that is checked, Γ5 D is not Hermitian there.
 #[test]
-fn dagger_is_the_adjoint() {
+fn test_op_dagger_is_the_adjoint() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let u = random_gauge(&lat, 41);
     for params in [
@@ -143,7 +143,7 @@ fn dagger_is_the_adjoint() {
 
 /// Two vectors in one field give what each gives by itself.
 #[test]
-fn several_vectors_are_independent() {
+fn test_op_several_vectors_are_independent() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 51));
     let both = random(&lat, MOBIUS.ls, 2, 52);
@@ -160,7 +160,7 @@ fn several_vectors_are_independent() {
 
 /// On several processes the operator gives the bits it gives on one.
 #[test]
-fn several_processes_give_the_same_bits() {
+fn test_comm_several_processes_give_the_same_bits() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 61);
@@ -198,7 +198,7 @@ fn max_diff(a: &V, b: &V) -> f64 {
 /// at the Pauli-Villars mass; and C is what is left of D when the links are switched off:
 /// with all links zero the Wilson kernel is its diagonal, so D = C.
 #[test]
-fn site_local_part_and_its_inverse() {
+fn test_op_site_local_part_and_its_inverse() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 71));
     let psi = random(&lat, MOBIUS.ls, 2, 72);
@@ -225,7 +225,7 @@ fn site_local_part_and_its_inverse() {
 
 /// A† is the adjoint of A.
 #[test]
-fn preconditioned_operator_has_its_adjoint() {
+fn test_op_preconditioned_operator_has_its_adjoint() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 81));
     let (x, y) = (
@@ -246,7 +246,7 @@ fn preconditioned_operator_has_its_adjoint() {
 /// Solving A y = X† b with BiCGStab and x = C^-1 y gives the solution of D x = b, checked with D
 /// itself.
 #[test]
-fn bicgstab_on_the_preconditioned_operator_solves_d() {
+fn test_solver_bicgstab_on_the_preconditioned_operator_solves_d() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -307,7 +307,7 @@ fn bicgstab_on_the_preconditioned_operator_solves_d() {
 /// The parts multigrid coarsening uses add up to the operator: D = diagonal part +
 /// coefficient x (the eight hopping terms).
 #[test]
-fn parts_add_up_to_the_operator() {
+fn test_op_parts_add_up_to_the_operator() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 101));
     let psi = random(&lat, MOBIUS.ls, 1, 102);
@@ -333,7 +333,7 @@ fn parts_add_up_to_the_operator() {
 /// The multigrid cycle as the preconditioner of BiCGStab on A: the solver converges and
 /// the solution solves D x = b. On the Bridge++ test configuration.
 #[test]
-fn multigrid_cycle_runs_as_a_preconditioner() {
+fn test_mg_multigrid_cycle_runs_as_a_preconditioner() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -385,7 +385,7 @@ fn multigrid_cycle_runs_as_a_preconditioner() {
 /// The even-odd blocks put together are D, and those of the adjoint are D†; also in
 /// Neff's form D^(α).
 #[test]
-fn even_odd_blocks_add_up_to_the_operator() {
+fn test_eo_even_odd_blocks_add_up_to_the_operator() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let mut op = operator(&lat, MOBIUS, &random_gauge(&lat, 31));
     for alpha in [1.0, 0.5] {
@@ -397,7 +397,7 @@ fn even_odd_blocks_add_up_to_the_operator() {
 /// The fused hops (`hop_then`, `inverse_hops_twice`: Neff's Q inside the sweeps) are the blocks
 /// one after the other.
 #[test]
-fn fused_hops_are_the_blocks() {
+fn test_eo_fused_hops_are_the_blocks() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let mut op = operator(&lat, MOBIUS, &random_gauge(&lat, 35));
     let index = op.even_odd_index().unwrap().clone();
@@ -516,7 +516,7 @@ fn even_odd_blocks_of(lat: &Arc<Lattice>, op: &Mdwf<f64>) {
 /// Neff's form D^(α) = D Q (arXiv:2602.14454): it is D applied after Q, its adjoint is Q D†, Γ5
 /// D^(α) = Γ5 D Q, and its site-local part C Q has the inverse Q⁻¹ C⁻¹.
 #[test]
-fn neff_alpha_form() {
+fn test_op_neff_alpha_form() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let u = random_gauge(&lat, 91);
     let plain = operator(&lat, MOBIUS, &u);
@@ -595,7 +595,7 @@ fn neff_alpha_form() {
 /// CG on the normal equations of the Schur complement solves D x = b, in fewer iterations
 /// than on those of D.
 #[test]
-fn even_odd_solve_solves_the_full_system() {
+fn test_eo_even_odd_solve_solves_the_full_system() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 33));
     let b = random(&lat, MOBIUS.ls, 2, 34);
@@ -641,7 +641,7 @@ fn even_odd_solve_solves_the_full_system() {
 /// (`adjoint_right_hand_side`, `adjoint_solution`): GCR on Ã† y = rhs, then x from y, solves
 /// D† x = b; and Ã† is the adjoint of Ã.
 #[test]
-fn adjoint_pv_operator_solves_d_dagger() {
+fn test_solver_adjoint_pv_operator_solves_d_dagger() {
     use ruttice::fermion::{adjoint_right_hand_side, adjoint_solution, PvRatio};
     type H = Field<f64, Spinor, Half>;
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -719,7 +719,7 @@ fn adjoint_pv_operator_solves_d_dagger() {
 /// every input; further passes reduce the residual further; and BiCGStab preconditioned by
 /// a cycle that smooths with it solves D x = b.
 #[test]
-fn frozen_polynomial_smoother() {
+fn test_mg_frozen_polynomial_smoother() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 17);
     let params = MdwfParams {
@@ -814,7 +814,7 @@ fn frozen_polynomial_smoother() {
 /// vector, against restricting A applied to the prolonged vector. The difference is the
 /// couplings to diagonal neighbours that probing leaves out.
 #[test]
-fn probed_coarse_operator_against_the_projection() {
+fn test_mg_probed_coarse_operator_against_the_projection() {
     let lat = Lattice::single_node([8, 8, 4, 4]);
     let u = random_gauge(&lat, 111);
     let params = MdwfParams { ls: 4, ..MOBIUS };
@@ -872,7 +872,7 @@ fn probed_coarse_operator_against_the_projection() {
 /// BiCGStab preconditioned by a cycle that smooths with Chebyshev iteration solves D x = b;
 /// the cycle is then a fixed linear map (apart from the coarse solve).
 #[test]
-fn chebyshev_smoother_in_the_cycle() {
+fn test_mg_chebyshev_smoother_in_the_cycle() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 17);
     let params = MdwfParams {
@@ -938,7 +938,7 @@ fn folded_and_full(op: &Mdwf<f64>, lat: &Arc<Lattice>, fold: Option<Gamma>) -> B
 /// A basis folded on the fifth dimension (Γ5 = γ5 R, only s < Ls/2 kept) restricts and
 /// prolongs as the full one does, in half the memory.
 #[test]
-fn folded_basis_acts_as_the_full_one() {
+fn test_mg_folded_basis_acts_as_the_full_one() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
     let full = folded_and_full(&op, &lat, None);
@@ -976,7 +976,7 @@ fn folded_basis_acts_as_the_full_one() {
 /// With a wrong reflection (here -γ5) the builder refuses the test vectors.
 #[test]
 #[should_panic(expected = "Γ5 is not R ⊗ g")]
-fn folding_with_the_wrong_reflection_is_refused() {
+fn test_mg_folding_with_the_wrong_reflection_is_refused() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
     let minus = Gamma {
@@ -990,7 +990,7 @@ fn folding_with_the_wrong_reflection_is_refused() {
 /// operator alone or in both: its adjoint is its adjoint, and BiCGStab on it with its
 /// right-hand side and solution solves D x = b (checked with the plain D).
 #[test]
-fn even_odd_pv_operator_solves_d_in_every_form() {
+fn test_eo_even_odd_pv_operator_solves_d_in_every_form() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 141);
     let plain = operator(&lat, MOBIUS, &u);
@@ -1072,7 +1072,7 @@ fn even_odd_pv_operator_solves_d_in_every_form() {
 /// The Schur factors of `PvEvenOdd` do C⁻¹ and the difference with the input in the sweeps
 /// of the hops. Ã and Ã† are what the even-odd blocks give one pass at a time, in both forms.
 #[test]
-fn even_odd_pv_operator_is_made_of_the_blocks() {
+fn test_eo_even_odd_pv_operator_is_made_of_the_blocks() {
     type H = Field<f64, Spinor, Half>;
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 151);
@@ -1171,7 +1171,7 @@ fn even_odd_pv_operator_is_made_of_the_blocks() {
 /// P† ι and π P on the sites of one parity give what restricting the field put onto the
 /// whole lattice and taking the sites of the prolongation give, folded or not.
 #[test]
-fn restriction_and_prolongation_on_one_parity() {
+fn test_mg_restriction_and_prolongation_on_one_parity() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
     let index = op.even_odd_index().unwrap();
@@ -1216,7 +1216,7 @@ fn restriction_and_prolongation_on_one_parity() {
 /// the left form, and in the left form with Neff's α in D, each in fewer steps than
 /// BiCGStab without a preconditioner needs.
 #[test]
-fn even_odd_pv_multigrid_solves_d() {
+fn test_mg_even_odd_pv_multigrid_solves_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 161);
     let pv_params = MdwfParams {
@@ -1389,7 +1389,7 @@ fn even_odd_pv_multigrid_solves_d() {
 /// cycle, with and without a level below the coarse lattice, gives the same solution in as many
 /// steps.
 #[test]
-fn even_odd_pv_multigrid_on_several_processes() {
+fn test_comm_even_odd_pv_multigrid_on_several_processes() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 181);
@@ -1600,7 +1600,7 @@ fn setup_from_scratch<T: Storage>() -> usize {
 
 /// In single precision above the coarse lattice the multigrid is as good a preconditioner.
 #[test]
-fn even_odd_pv_multigrid_setup_from_scratch() {
+fn test_mg_even_odd_pv_multigrid_setup_from_scratch() {
     let (double, single) = (setup_from_scratch::<f64>(), setup_from_scratch::<f32>());
     assert!(single <= double + 1, "{single} steps against {double}");
 }
@@ -1610,7 +1610,7 @@ fn even_odd_pv_multigrid_setup_from_scratch() {
 /// where D itself is Γ5-Hermitian): `mult_dag` refuses it instead of answering wrongly.
 #[test]
 #[should_panic(expected = "right factor")]
-fn the_adjoint_of_a_coarse_operator_with_a_right_factor_is_refused() {
+fn test_mg_the_adjoint_of_a_coarse_operator_with_a_right_factor_is_refused() {
     use ruttice::LinearOp;
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let params = MdwfParams {
@@ -1635,7 +1635,7 @@ fn the_adjoint_of_a_coarse_operator_with_a_right_factor_is_refused() {
 /// The exact adjoint of a coarse operator: <x, D_c y> = <D_c† x, y>; and it differs from
 /// the Γ5-adjoint for Möbius (c ≠ 0), where D† = Γ5 D Γ5 holds only approximately.
 #[test]
-fn coarse_operator_exact_adjoint() {
+fn test_mg_coarse_operator_exact_adjoint() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = operator(&lat, MOBIUS, &random_gauge(&lat, 119));
     let basis = folded_and_full(&op, &lat, Some(Dirac::GAMMA5));
@@ -1677,7 +1677,7 @@ fn coarse_operator_exact_adjoint() {
 /// Pauli-Villars one), whose inverse the cycle approximates with the second coarse factor P†D†P
 /// solved on the exact adjoint.
 #[test]
-fn cgne_with_alpha_and_the_multigrid() {
+fn test_solver_cgne_with_alpha_and_the_multigrid() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 181);
     let op = operator(&lat, MOBIUS, &u);
@@ -1740,7 +1740,7 @@ fn cgne_with_alpha_and_the_multigrid() {
 /// an overlap-type operator, up to a contact term), which the wrong pairing of walls and
 /// chiralities is not; and it and the midpoint field do not depend on Neff's α.
 #[test]
-fn four_dimensional_propagator_is_gamma5_hermitian_and_alpha_free() {
+fn test_op_four_dimensional_propagator_is_gamma5_hermitian_and_alpha_free() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let u = random_gauge(&lat, 191);
     let four = |seed: u64| {
@@ -1857,7 +1857,7 @@ fn four_dimensional_propagator_is_gamma5_hermitian_and_alpha_free() {
 const BRIDGE_DW_PION_T0: f64 = 0.434204939377926;
 
 #[test]
-fn bridge_spectrum_domainwall_pion_and_residual_mass() {
+fn test_bridge_spectrum_domainwall_pion_and_residual_mass() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -1978,7 +1978,7 @@ fn printed_pion(text: &str) -> Vec<f64> {
 /// Chebyshev polynomial of Ã, and with the multigrid. The three give the same correlator, and so
 /// does the configuration read from Bridge++'s binary format.
 #[test]
-fn a_domain_wall_run_on_several_processes() {
+fn test_comm_a_domain_wall_run_on_several_processes() {
     let dir = std::env::temp_dir().join(format!("ruttice_mdwf_ranks_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let whole = Lattice::single_node([4, 4, 4, 8]);

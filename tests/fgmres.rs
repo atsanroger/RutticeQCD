@@ -54,7 +54,7 @@ fn residual_sqr(a: &mut dyn LinearFn<V64>, x: &V64, b: &V64) -> Vec<f64> {
 /// Three right-hand sides at once, one of them zero, with a Krylov space too small to
 /// converge without restarting.
 #[test]
-fn solves_d_with_restarts() {
+fn test_fgmres_solves_d_with_restarts() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 301));
     let mut b = random_spinor(&lat, 3, 302);
@@ -98,7 +98,7 @@ fn solves_d_with_restarts() {
 /// A point source, which makes BiCGStab break down, is no problem for GMRES; and on a
 /// Hermitian positive system it agrees with conjugate gradient.
 #[test]
-fn point_source_and_agreement_with_cg() {
+fn test_fgmres_point_source_and_agreement_with_cg() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 303));
     let mut b = V64::spinor(&lat, 1);
@@ -136,7 +136,7 @@ fn point_source_and_agreement_with_cg() {
 /// stopped early, so it is a different linear map every time it is applied. The outer
 /// iteration still converges to double precision, in fewer steps than without it.
 #[test]
-fn an_inner_solver_as_preconditioner() {
+fn test_fgmres_an_inner_solver_as_preconditioner() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 304);
     let mut op64 = Clover::<f64>::new(
@@ -201,7 +201,7 @@ fn an_inner_solver_as_preconditioner() {
 /// with a preconditioner that changes from one application to the next (a few FGMRES
 /// steps on D).
 #[test]
-fn truncated_gcr_solves_d() {
+fn test_fgmres_truncated_gcr_solves_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 311));
     let mut b = random_spinor(&lat, 3, 312);
@@ -244,7 +244,7 @@ fn truncated_gcr_solves_d() {
 /// MINRES on γ5 D, Hermitian and indefinite: three right-hand sides, one zero, with
 /// restarts; and with a fixed positive preconditioner (a multiple of the identity).
 #[test]
-fn minres_solves_gamma5_d() {
+fn test_fgmres_minres_solves_gamma5_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 321));
     let mut b = random_spinor(&lat, 3, 322);
@@ -287,7 +287,7 @@ fn minres_solves_gamma5_d() {
 /// Inner solves (`BiCgStab::inner`, `Minres::inner`): the same solution as the ordinary
 /// solve from x = 0 with two applications of A fewer (the first residual and the last).
 #[test]
-fn inner_solves_save_two_applications() {
+fn test_fgmres_inner_solves_save_two_applications() {
     use std::cell::Cell;
     struct Counting<'a, A> {
         a: A,

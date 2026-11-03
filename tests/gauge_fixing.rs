@@ -1,5 +1,5 @@
 //! Checks: gauge transformations and Coulomb gauge fixing. These hold for any
-//! configuration; the comparison with Bridge++ is `clover_two_flavours_coulomb_gauge` in
+//! configuration; the comparison with Bridge++ is `test_ref_clover_two_flavours_coulomb_gauge` in
 //! `reference_runs.rs`.
 
 mod common;
@@ -32,7 +32,7 @@ fn spatial_trace(u: &Field<f64, Gauge>) -> f64 {
 }
 
 #[test]
-fn gauge_transform_matches_the_reference_helper() {
+fn test_gaugefix_gauge_transform_matches_the_reference_helper() {
     let lat = whole();
     let st = Stencil::nearest(&lat, PERIODIC);
     let u = random_gauge(&lat, 11);
@@ -51,7 +51,7 @@ fn gauge_transform_matches_the_reference_helper() {
 /// From a random configuration: the violation ends below the tolerance on every time
 /// slice, the plaquette does not change, and the functional has grown.
 #[test]
-fn coulomb_gauge_is_reached() {
+fn test_gaugefix_coulomb_gauge_is_reached() {
     let lat = whole();
     let st = Stencil::nearest(&lat, PERIODIC);
     let original = random_gauge(&lat, 1);
@@ -69,7 +69,7 @@ fn coulomb_gauge_is_reached() {
 }
 
 #[test]
-fn gauge_fixing_reports_failure() {
+fn test_gaugefix_gauge_fixing_reports_failure() {
     let mut u = random_gauge(&whole(), 1);
     let params = CoulombParams {
         max_iterations: 30,
@@ -104,7 +104,7 @@ fn distributed_fix(
 }
 
 #[test]
-fn same_result_on_several_processes() {
+fn test_gaugefix_same_result_on_several_processes() {
     let u = random_gauge(&whole(), 1);
     let params = CoulombParams::default();
     let (reference, n) = distributed_fix(&u, [1; ND], &params);
@@ -121,7 +121,7 @@ fn same_result_on_several_processes() {
 /// The random transformations depend on the global site only, so every process grid gives
 /// the same configuration, and it is still gauge equivalent to the original.
 #[test]
-fn resets_do_not_depend_on_the_process_grid() {
+fn test_gaugefix_resets_do_not_depend_on_the_process_grid() {
     let lat = whole();
     let st = Stencil::nearest(&lat, PERIODIC);
     let u = random_gauge(&lat, 1);

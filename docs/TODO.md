@@ -286,7 +286,7 @@ products and 1024 copies of fine vectors for 32 vectors). It is now `Subspace::g
 CPU one sweep over the sites (a site holds every vector of a set), on the device
 `blas_gram_kernel`, tiles of 4 × 4 pairs in double precision in a fixed order (a vector read
 once for every four of the other set). 16⁴ with levels: setup 30 s against 29 s, the same
-iterations; tests `gram_matrix_in_one_sweep` (`tests/multigrid.rs`) and in
+iterations; tests `test_mg_gram_matrix_in_one_sweep` (`tests/multigrid.rs`) and in
 `tests/cuda_bridge.rs`. Not measured on the A30 (estimated about 2 s for each of the six Gram
 matrices of a setup before).
 

@@ -71,7 +71,7 @@ fn table(text: &str) -> Vec<(String, f64, f64)> {
 }
 
 #[test]
-fn the_program_gives_the_same_correlators_on_several_processes() {
+fn test_mpi_the_program_gives_the_same_correlators_on_several_processes() {
     let dir = std::env::temp_dir().join(format!("ruttice_mpi_program_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let whole = Lattice::single_node([4, 4, 4, 8]);

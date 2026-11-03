@@ -112,7 +112,7 @@ fn same_solution<C: FermionOp<Psi>, G: FermionOp<DeviceSpinor>>(
 /// The operations of `Vector` on the device are those on the CPU, on a lattice whose sites do
 /// not fill the blocks of 32.
 #[test]
-fn linear_algebra_on_the_device_is_that_on_the_cpu() {
+fn test_op_linear_algebra_on_the_device_is_that_on_the_cpu() {
     let lat = Lattice::single_node([2, 2, 2, 6]);
     let (mut x, y) = (random_fifth(&lat, 3, 341), random_fifth(&lat, 3, 342));
     let (mut dx, dy) = (
@@ -171,7 +171,7 @@ fn wilson_pair(
 /// Links in SU(3) are kept as two rows on the device and others whole: the operators agree
 /// with the CPU on both.
 #[test]
-fn links_outside_su3_on_the_device() {
+fn test_op_links_outside_su3_on_the_device() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let mut u = random_gauge(&lat, 401);
     assert!(ruttice::fermion::links_in_su3(&u));
@@ -199,7 +199,7 @@ fn links_outside_su3_on_the_device() {
 
 /// The Wilson operator, for the three kinds of boundary.
 #[test]
-fn wilson_on_the_device_is_wilson_on_the_cpu() {
+fn test_op_wilson_on_the_device_is_wilson_on_the_cpu() {
     for (dims, boundary) in [
         ([4, 4, 4, 8], PERIODIC),
         ([4, 4, 4, 8], ANTIPERIODIC_T),
@@ -231,7 +231,7 @@ fn clover_pair(
 
 /// The clover operator, and T⁻¹ T = 1.
 #[test]
-fn clover_on_the_device_is_clover_on_the_cpu() {
+fn test_op_clover_on_the_device_is_clover_on_the_cpu() {
     for (dims, csw, boundary) in [([4, 4, 4, 8], 1.0, PERIODIC), ([6, 4, 2, 6], 1.7, MIXED)] {
         let lat = Lattice::single_node(dims);
         let u = random_gauge(&lat, 331);
@@ -294,7 +294,7 @@ fn mdwf_pair(
 }
 
 #[test]
-fn mdwf_on_the_device_is_mdwf_on_the_cpu() {
+fn test_op_mdwf_on_the_device_is_mdwf_on_the_cpu() {
     for (dims, params) in mdwf_cases() {
         let lat = Lattice::single_node(dims);
         let u = random_gauge(&lat, 311);
@@ -437,7 +437,7 @@ fn solves_even_odd<C: FermionOp<Psi>, G: EvenOdd<DeviceSpinor>>(
 }
 
 #[test]
-fn even_odd_blocks_on_the_device_are_those_on_the_cpu() {
+fn test_op_even_odd_blocks_on_the_device_are_those_on_the_cpu() {
     for (dims, boundary) in [([4, 4, 4, 8], ANTIPERIODIC_T), ([6, 4, 2, 6], MIXED)] {
         let lat = Lattice::single_node(dims);
         let u = random_gauge(&lat, 361);
@@ -477,7 +477,7 @@ fn even_odd_blocks_on_the_device_are_those_on_the_cpu() {
 
 /// The solvers run on the device as they are: CG on D†D for the three operators.
 #[test]
-fn conjugate_gradient_on_the_device_solves_as_on_the_cpu() {
+fn test_solver_conjugate_gradient_on_the_device_solves_as_on_the_cpu() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 351);
     let b = random_spinor(&lat, 1, 352);
@@ -511,7 +511,7 @@ fn conjugate_gradient_on_the_device_solves_as_on_the_cpu() {
 
 /// The even-odd solve runs on the device as it is, for the three operators.
 #[test]
-fn even_odd_solve_on_the_device_solves() {
+fn test_solver_even_odd_solve_on_the_device_solves() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 351);
     let b = random_spinor(&lat, 1, 352);
@@ -546,7 +546,7 @@ fn even_odd_solve_on_the_device_solves() {
 /// The operators in single precision on the device are those in double precision on the CPU,
 /// as far as single precision goes.
 #[test]
-fn single_precision_on_the_device() {
+fn test_op_single_precision_on_the_device() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 371);
     let psi = random_spinor(&lat, 1, 372);
@@ -584,7 +584,7 @@ fn single_precision_on_the_device() {
 /// The five-dimensional source of a four-dimensional one and the four-dimensional fields of a
 /// five-dimensional solution, made on the device, are those of the CPU.
 #[test]
-fn four_dimensional_fields_of_mdwf_on_the_device() {
+fn test_op_four_dimensional_fields_of_mdwf_on_the_device() {
     let lat = Lattice::single_node([4, 4, 2, 6]);
     let u = random_gauge(&lat, 421);
     let (ls, nv) = (6, 3);
@@ -627,7 +627,7 @@ fn four_dimensional_fields_of_mdwf_on_the_device() {
 /// The matrix products of the fifth dimension in TF32 are those of single precision to the
 /// ten bits of mantissa of TF32, and not better: they are another kernel.
 #[test]
-fn tf32_products_on_the_device() {
+fn test_op_tf32_products_on_the_device() {
     use ruttice::fermion::SplitParity;
     for ls in [4, 8, 12, 16] {
         let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -668,7 +668,7 @@ fn tf32_products_on_the_device() {
 /// Mixed precision on the device: defect correction in double precision around CG in single
 /// precision reaches the residual of double precision, as the operator on the CPU sees it.
 #[test]
-fn mixed_precision_solve_on_the_device() {
+fn test_solver_mixed_precision_solve_on_the_device() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 381);
     let params = MdwfParams {
@@ -720,7 +720,7 @@ fn mixed_precision_solve_on_the_device() {
 /// Neff's α on the device, and the Pauli-Villars preconditioned operator on the even sites in
 /// both forms, are those on the CPU.
 #[test]
-fn pauli_villars_preconditioned_operator_on_the_device() {
+fn test_op_pauli_villars_preconditioned_operator_on_the_device() {
     for alpha in [1.0, 0.6] {
         for (dims, params) in mdwf_cases().into_iter().take(3) {
             let what = format!("MDWF {dims:?} {params:?} α {alpha}");
@@ -761,7 +761,7 @@ fn pauli_villars_preconditioned_operator_on_the_device() {
 /// The fused operations of `Vector` on the device (one pass, the sums finished on the device)
 /// against those of the CPU, for more vectors than one launch takes coefficients for (16).
 #[test]
-fn fused_vector_operations_on_the_device() {
+fn test_op_fused_vector_operations_on_the_device() {
     let lat = Lattice::single_node([4, 4, 2, 6]);
     let (ls, nv) = (4, 19);
     let many = |seed| {
@@ -893,7 +893,7 @@ fn fused_vector_operations_on_the_device() {
 /// Several vectors in one field on the device: the linear algebra with a coefficient for each,
 /// taking some out and putting them back, the operators, and a solve of all of them together.
 #[test]
-fn several_vectors_in_a_field_on_the_device() {
+fn test_op_several_vectors_in_a_field_on_the_device() {
     let lat = Lattice::single_node([4, 4, 2, 6]);
     let u = random_gauge(&lat, 411);
     let (ls, nv) = (4, 3);
@@ -1068,11 +1068,11 @@ fn run_with_backend(text: &str, backend: &str, name: &str) -> String {
 }
 
 /// The iterations of the clover multigrid on the device, pinned as on the CPU
-/// (`tests/run.rs`, `the_clover_multigrid_takes_the_iterations_it_took`): 7 on the even
+/// (`tests/run.rs`, `test_mg_the_clover_multigrid_takes_the_iterations_it_took`): 7 on the even
 /// sites and on the whole lattice, and the final |D S − b|²/|b|² within a factor 1.5, as of
 /// 2026-10-26.
 #[test]
-fn the_clover_multigrid_on_the_device_takes_the_iterations_it_took() {
+fn test_mg_the_clover_multigrid_on_the_device_takes_the_iterations_it_took() {
     let text = include_str!("../examples/clover_mg.yaml")
         .replace("  ## backend   : simd", "  backend : BACKEND")
         .replace("conf_04040408.txt", "CONF");
@@ -1166,7 +1166,7 @@ Source:
 /// `ruttice` with `backend : cuda_bridge`: the correlators of the CPU, for the Wilson and
 /// clover solvers on the whole lattice and on the even sites.
 #[test]
-fn wilson_runs_from_a_parameter_file_on_the_device() {
+fn test_run_wilson_runs_from_a_parameter_file_on_the_device() {
     for (fermion, solver, operator) in [
         ("Wilson", "CG", "Even_odd"),
         ("Wilson", "BiCGStab", "Lexical"),
@@ -1188,7 +1188,7 @@ fn wilson_runs_from_a_parameter_file_on_the_device() {
 /// The same for domain-wall fermions: the correlators and the residual mass, for the outer
 /// solvers, both forms of the operator, with Neff's α and with the Chebyshev preconditioner.
 #[test]
-fn domain_wall_runs_from_a_parameter_file_on_the_device() {
+fn test_run_domain_wall_runs_from_a_parameter_file_on_the_device() {
     for (solver, operator, alpha, preconditioner, rhs) in [
         ("GCR", "PV_right", "1.0", "None", "1"),
         ("GCR", "PV_left", "0.6", "None", "12"),
@@ -1216,7 +1216,7 @@ fn domain_wall_runs_from_a_parameter_file_on_the_device() {
 /// vector and several. P kept in single precision on both, so the two differ by the order of
 /// their sums only.
 #[test]
-fn wilson_transfers_on_the_device() {
+fn test_mg_wilson_transfers_on_the_device() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse};
     use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis};
     use ruttice::{extract_parity, Coarse};
@@ -1294,7 +1294,7 @@ fn dirac_gamma5(x: &Psi) -> Psi {
 /// (`coarse_blocks`: P of unit vectors, the part within a site and the eight hops sorted by
 /// whether they leave the aggregate) are those `CoarseOp::build` makes on the CPU, on the same P.
 #[test]
-fn wilson_and_clover_coarse_operators_on_the_device() {
+fn test_mg_wilson_and_clover_coarse_operators_on_the_device() {
     use ruttice::backend::cuda_bridge::DeviceBasis;
     use ruttice::solver::preconditioner::multigrid::{Aggregation, Basis, CoarseOp};
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1348,7 +1348,7 @@ fn wilson_and_clover_coarse_operators_on_the_device() {
 /// CPU: the same algorithm (`Sap`) with the block operator, the block minimal-residual steps
 /// and the colours of the device; to rounding, for one vector and several.
 #[test]
-fn sap_on_the_device_is_sap_on_the_cpu() {
+fn test_mg_sap_on_the_device_is_sap_on_the_cpu() {
     use ruttice::backend::cuda_bridge::device_sap;
     use ruttice::solver::preconditioner::multigrid::{Aggregation, Sap};
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1400,7 +1400,7 @@ fn sap_on_the_device_is_sap_on_the_cpu() {
 /// takes the iterations it takes on the CPU (P is kept in single precision on the device, so
 /// they may differ by one), and the solutions agree to the tolerance.
 #[test]
-fn wilson_and_clover_multigrid_on_the_device() {
+fn test_mg_wilson_and_clover_multigrid_on_the_device() {
     use ruttice::backend::cuda_bridge::device_multigrid;
     use ruttice::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
     use ruttice::solver::Fgmres;
@@ -1487,7 +1487,7 @@ fn wilson_and_clover_multigrid_on_the_device() {
 /// P gives; FGMRES preconditioned by it takes the iterations of one process to within the sums
 /// of its coarse solves, which go in another order, and agrees to the tolerance.
 #[test]
-fn clover_multigrid_on_several_processes_is_that_on_one() {
+fn test_comm_clover_multigrid_on_several_processes_is_that_on_one() {
     use ruttice::backend::cuda_bridge::{DeviceMultigrid, WilsonOnDevice};
     use ruttice::solver::preconditioner::multigrid::{random_vectors, MultigridParams};
     use ruttice::solver::Fgmres;
@@ -1574,7 +1574,7 @@ fn clover_multigrid_on_several_processes_is_that_on_one() {
 /// the clover multigrid on the device (even-odd with the cycle on the even sites, and on the
 /// whole lattice; the cycle in single and in double precision), and Wilson fermions.
 #[test]
-fn clover_multigrid_files_on_the_device() {
+fn test_mg_clover_multigrid_files_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = std::fs::read_to_string(examples.join("clover_mg.yaml"))
         .unwrap()
@@ -1605,7 +1605,7 @@ fn clover_multigrid_files_on_the_device() {
 /// The prolongation of the domain-wall multigrid and its adjoint on the device are those of
 /// the CPU, on the whole lattice and on the sites of either parity, for several vectors.
 #[test]
-fn multigrid_transfers_on_the_device() {
+fn test_mg_multigrid_transfers_on_the_device() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse};
     use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation};
     use ruttice::{extract_parity, Coarse, ConvertFrom};
@@ -1821,7 +1821,7 @@ fn multigrid_transfers_on_the_device() {
 /// BiCGStab on its exact adjoint: with the coarse systems solved to rounding in double
 /// precision the two agree to that.
 #[test]
-fn multigrid_correction_on_the_device() {
+fn test_mg_multigrid_correction_on_the_device() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCorrection};
     use ruttice::fermion::EoForm;
     use ruttice::kernel::Dirac;
@@ -1926,7 +1926,7 @@ fn multigrid_correction_on_the_device() {
 /// first of them refined by the bootstrap, and with a last level larger than a block of threads
 /// (1536 complex numbers); and the setups take as many applications of the coarse operators.
 #[test]
-fn multigrid_levels_on_the_device() {
+fn test_mg_multigrid_levels_on_the_device() {
     use ruttice::backend::cuda_bridge::{
         DeviceAbsMultilevel, DeviceBasis, DeviceCoarse, DeviceCoarseOp, DeviceMultilevel,
     };
@@ -2079,7 +2079,7 @@ fn multigrid_levels_on_the_device() {
 /// and one of weights only in space, the chain rule of the force through them, and the domain-
 /// wall operator on the links smeared there.
 #[test]
-fn stout_smearing_on_the_device() {
+fn test_hmc_stout_smearing_on_the_device() {
     use ruttice::backend::cuda_bridge::DeviceLinks;
     use ruttice::gauge::smearing::{spatial, uniform, Stout};
     use ruttice::gauge::{GaugeSmearing, Smear};
@@ -2172,7 +2172,7 @@ fn stout_smearing_on_the_device() {
 /// The derivative of the pseudofermion action by the links for the domain-wall operator on the
 /// device is that of the CPU (`ForceOp::derivative`), with and without Neff's α.
 #[test]
-fn domain_wall_force_on_the_device() {
+fn test_hmc_domain_wall_force_on_the_device() {
     use ruttice::hmc::ForceOp;
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 471);
@@ -2215,7 +2215,7 @@ fn domain_wall_force_on_the_device() {
 /// (`ForceOp::derivative`), the clover term of two weighted pairs walked at once, ln |det T| on
 /// each parity, and the even-odd clover term with the derivative of ln |det T_o|.
 #[test]
-fn wilson_and_clover_forces_on_the_device() {
+fn test_hmc_wilson_and_clover_forces_on_the_device() {
     use ruttice::backend::cuda_bridge::DeviceLinks;
     use ruttice::hmc::{EvenOddForceOp, ForceOp};
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -2302,7 +2302,7 @@ fn wilson_and_clover_forces_on_the_device() {
 /// fields of the device): the right-hand side is that of the CPU, and the x of the device
 /// solves D† x = b on the CPU.
 #[test]
-fn d_dagger_through_the_adjoint_pv_operator_on_the_device() {
+fn test_solver_d_dagger_through_the_adjoint_pv_operator_on_the_device() {
     use ruttice::fermion::{adjoint_right_hand_side, adjoint_solution, EoForm, PvRatio};
     use ruttice::solver::{Gcr, Solver};
     use ruttice::Half;
@@ -2364,7 +2364,7 @@ fn d_dagger_through_the_adjoint_pv_operator_on_the_device() {
 /// device, on all sites and even-odd, and as a cache: the trajectories of CG on the CPU, the
 /// plaquette to rounding and ΔH to the tolerance of the solves.
 #[test]
-fn hmc_with_the_domain_wall_multigrid_on_the_device() {
+fn test_hmc_with_the_domain_wall_multigrid_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let cg = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
         .unwrap()
@@ -2438,7 +2438,7 @@ fn hmc_with_the_domain_wall_multigrid_on_the_device() {
 /// the Ratio action on all sites and even-odd and the Standard action: the trajectories of CG
 /// in double precision on the CPU.
 #[test]
-fn hmc_with_mixed_precision_on_the_device() {
+fn test_hmc_with_mixed_precision_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let cg = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
         .unwrap()
@@ -2499,7 +2499,7 @@ fn hmc_with_mixed_precision_on_the_device() {
 /// test_HMC_Domainwall_Nf2_PV (stout links, Iwasaki action) gives the trajectories of the CPU,
 /// the plaquette to rounding and ΔH to the tolerance of the solves.
 #[test]
-fn hmc_with_domain_wall_fermions_on_the_device() {
+fn test_hmc_with_domain_wall_fermions_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = std::fs::read_to_string(examples.join("hmc_domainwall_pv.yaml"))
         .unwrap()
@@ -2600,7 +2600,7 @@ fn hmc_with_domain_wall_fermions_on_the_device() {
 /// Bridge++; so does it with the Standard action even-odd (ln det T_oo and its force), and with
 /// Wilson fermions in an even-odd Ratio.
 #[test]
-fn hmc_with_wilson_and_clover_fermions_on_the_device() {
+fn test_hmc_with_wilson_and_clover_fermions_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
         .unwrap()
@@ -2672,7 +2672,7 @@ fn hmc_with_wilson_and_clover_fermions_on_the_device() {
 /// for every force solve from the kept test vectors), on all sites and even-odd (the cycle of
 /// the whole operator on the even sites), gives the trajectory of the CPU.
 #[test]
-fn hmc_with_the_clover_multigrid_on_the_device() {
+fn test_hmc_with_the_clover_multigrid_on_the_device() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
         .unwrap()
@@ -2776,7 +2776,7 @@ const MULTIGRID: &str = "MultiGrid:
 /// to rounding, and so are the cycles: as many iterations. In single precision (the default)
 /// they are not; the correlators are the same either way.
 #[test]
-fn domain_wall_multigrid_runs_on_the_device() {
+fn test_run_domain_wall_multigrid_runs_on_the_device() {
     let text = MDWF_RUN
         .replace("RHS", "4")
         .replace("SOLVER", "GCR")
@@ -2940,7 +2940,7 @@ fn mdwf_results(
 /// spinors of the legs and the surface sums every leg of a site in the order of one process.
 /// Cut along t, along x and t, and along every direction (local extents 2 in x, y, z).
 #[test]
-fn mdwf_on_several_processes_is_mdwf_on_one() {
+fn test_comm_mdwf_on_several_processes_is_mdwf_on_one() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 411);
@@ -3095,7 +3095,7 @@ fn wilson_clover_results(
 /// CGNE on the Schur complement, the derivatives of HMC (the leaves read the links and the
 /// insertions extended); the sums the same up to their order, CG the same iterations.
 #[test]
-fn wilson_and_clover_on_several_processes_are_those_on_one() {
+fn test_comm_wilson_and_clover_on_several_processes_are_those_on_one() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 501);
@@ -3164,7 +3164,7 @@ fn wilson_and_clover_on_several_processes_are_those_on_one() {
                         "sums {s:?} against {sums:?} on the grid {grid:?}"
                     );
                 }
-                // CG's iterations, as in `cgne_on_several_processes_is_cgne_on_one`.
+                // CG's iterations, as in `test_comm_cgne_on_several_processes_is_cgne_on_one`.
                 assert!(
                     (s[3] - sums[3]).abs() * 500.0 <= sums[3].max(500.0),
                     "{} iterations against {} on the grid {grid:?}",
@@ -3219,7 +3219,7 @@ fn mdwf_cgne(
 /// The solvers on several processes: CGNE takes as many iterations as on one (but one), and its
 /// solution is that of one up to the order of the sums over the processes.
 #[test]
-fn cgne_on_several_processes_is_cgne_on_one() {
+fn test_comm_cgne_on_several_processes_is_cgne_on_one() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 421);
@@ -3316,7 +3316,7 @@ fn hmc_parts(
 /// those of one process bit for bit (the halos of the extended links carry the neighbours,
 /// corners included), the sums the same up to their order.
 #[test]
-fn hmc_on_several_processes_is_hmc_on_one() {
+fn test_comm_hmc_on_several_processes_is_hmc_on_one() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 431);
@@ -3448,7 +3448,7 @@ fn coarse_results(
 /// across the cuts (the legs from the faces of the probing vectors) and its hops through the
 /// ghosts of the coarse lattice give what one process gives, bit for bit.
 #[test]
-fn coarse_lattice_on_several_processes_is_that_on_one() {
+fn test_comm_coarse_lattice_on_several_processes_is_that_on_one() {
     let global = [4, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 441);
@@ -3566,7 +3566,7 @@ fn level_results(
 /// their operators probed through the ghosts (colours by the global coordinates), the last level
 /// dense over all of them: what one process gives, bit for bit.
 #[test]
-fn levels_on_several_processes_are_those_on_one() {
+fn test_comm_levels_on_several_processes_are_those_on_one() {
     let global = [8, 4, 4, 8];
     let whole = Lattice::single_node(global);
     let u = random_gauge(&whole, 461);
@@ -3631,7 +3631,7 @@ fn levels_on_several_processes_are_those_on_one() {
 /// two rows of a link and the CPU three); the vectors, whose work an iteration depends on the
 /// shifts still active, to 1e-3.
 #[test]
-fn the_work_of_a_trajectory_is_counted_alike_on_both() {
+fn test_meter_the_work_of_a_trajectory_is_counted_alike_on_both() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = std::fs::read_to_string(examples.join("hmc_clover_rhmc_nf2p1.yaml"))
         .unwrap()
@@ -3701,7 +3701,7 @@ fn the_work_of_a_trajectory_is_counted_alike_on_both() {
 /// device, three on the CPU) and P (folded in spin on the device, both chirality parts in full
 /// on the CPU).
 #[test]
-fn the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
+fn test_meter_the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
     use ruttice::backend::cuda_bridge::device_multigrid;
     use ruttice::meter::Counts;
     use ruttice::solver::preconditioner::multigrid::{Multigrid, MultigridParams};
@@ -3780,7 +3780,7 @@ fn the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
 /// for 4 and 40 test vectors (8 and 80 components a coarse site: one and two column chunks of a
 /// lane), on two vectors at once; and the same numbers on every run.
 #[test]
-fn coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
+fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse, LevelReal};
     use ruttice::fermion::SplitParity;
     use ruttice::solver::preconditioner::multigrid::Aggregation;
@@ -3870,7 +3870,7 @@ fn coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
 /// `solution` makes of y (with Q for Neff's α), computed here on the whole lattice: for any y, in
 /// both forms, at α = 1 and 0.6.
 #[test]
-fn pv_ratio_true_residual_is_that_of_d() {
+fn test_op_pv_ratio_true_residual_is_that_of_d() {
     use ruttice::fermion::SplitParity;
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 491);

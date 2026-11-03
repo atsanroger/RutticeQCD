@@ -52,7 +52,7 @@ fn wilson<T: Storage>(lat: &Arc<Lattice>, u: &Field<f64, Gauge>, format: LinkFor
 
 /// The rebuilt third row differs from the stored one by rounding only.
 #[test]
-fn wilson_agrees_with_full_links() {
+fn test_link_wilson_agrees_with_full_links() {
     let lat = Lattice::single_node(DIMS);
     let u = products(&lat, 801);
     let psi = random_spinor(&lat, 2, 802);
@@ -74,7 +74,7 @@ fn wilson_agrees_with_full_links() {
 }
 
 #[test]
-fn single_precision_agrees_with_full_links() {
+fn test_link_single_precision_agrees_with_full_links() {
     let lat = Lattice::single_node(DIMS);
     let u = products(&lat, 811);
     let mut psi = Field::<f32, Spinor>::spinor(&lat, 1);
@@ -93,7 +93,7 @@ fn single_precision_agrees_with_full_links() {
 
 /// The hopping terms one direction at a time and the even-odd blocks use the same links.
 #[test]
-fn hopping_terms_and_even_odd_blocks_agree() {
+fn test_link_hopping_terms_and_even_odd_blocks_agree() {
     let lat = Lattice::single_node(DIMS);
     let u = products(&lat, 821);
     let psi = random_spinor(&lat, 2, 822);
@@ -127,7 +127,7 @@ fn hopping_terms_and_even_odd_blocks_agree() {
 }
 
 #[test]
-fn clover_agrees_with_full_links() {
+fn test_link_clover_agrees_with_full_links() {
     let lat = Lattice::single_node(DIMS);
     let u = products(&lat, 831);
     let psi = random_spinor(&lat, 1, 832);
@@ -150,7 +150,7 @@ fn clover_agrees_with_full_links() {
 /// On several processes the faces are packed with the same links: bit for bit the result
 /// of one process.
 #[test]
-fn several_processes_give_the_same_bits() {
+fn test_link_several_processes_give_the_same_bits() {
     let lat = Lattice::single_node(DIMS);
     let u = products(&lat, 841);
     let psi = random_spinor(&lat, 2, 842);
@@ -173,7 +173,7 @@ fn several_processes_give_the_same_bits() {
 /// Two rows are only enough for links in SU(3). Anything else is refused when the gauge
 /// field is set, with the place of the first bad link; the full format takes it.
 #[test]
-fn links_outside_su3_are_refused() {
+fn test_link_links_outside_su3_are_refused() {
     let lat = Lattice::single_node(DIMS);
     let mut u = products(&lat, 851);
     let (mu, site) = (2, lat.site([1, 3, 0, 5]));

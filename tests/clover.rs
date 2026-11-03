@@ -66,7 +66,7 @@ fn mult(op: &Clover<f64>, inp: &V, variant: Variant) -> V {
 // ---- Field strength ----
 
 #[test]
-fn field_strength_is_antihermitian_and_vanishes_for_unit_links() {
+fn test_clover_field_strength_is_antihermitian_and_vanishes_for_unit_links() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let st = Stencil::nearest(&lat, PERIODIC);
     let mut unit = Field::<f64, Gauge>::gauge(&lat);
@@ -94,7 +94,7 @@ fn field_strength_is_antihermitian_and_vanishes_for_unit_links() {
 
 /// F(x) -> G(x) F(x) G(x)^† under a gauge transformation.
 #[test]
-fn field_strength_is_gauge_covariant() {
+fn test_clover_field_strength_is_gauge_covariant() {
     let lat = Lattice::single_node([4, 4, 6, 4]);
     let st = Stencil::nearest(&lat, PERIODIC);
     let u = random_gauge(&lat, 202);
@@ -121,7 +121,7 @@ fn field_strength_is_gauge_covariant() {
 
 /// Without the clover term, or without a field strength, the operator is Wilson's.
 #[test]
-fn reduces_to_wilson_when_the_clover_term_vanishes() {
+fn test_clover_reduces_to_wilson_when_the_clover_term_vanishes() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let psi = random_spinor(&lat, 1, 210);
     let wilson = |u: &Field<f64, Gauge>| {
@@ -163,7 +163,7 @@ fn reduces_to_wilson_when_the_clover_term_vanishes() {
 }
 
 #[test]
-fn gauge_covariance() {
+fn test_clover_gauge_covariance() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 220);
     let psi = random_spinor(&lat, 1, 221);
@@ -182,7 +182,7 @@ fn gauge_covariance() {
 }
 
 #[test]
-fn dagger_is_the_adjoint() {
+fn test_clover_dagger_is_the_adjoint() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = clover(&lat, 1.0, MIXED, &random_gauge(&lat, 230));
     let (psi, chi) = (random_spinor(&lat, 1, 231), random_spinor(&lat, 1, 232));
@@ -198,7 +198,7 @@ fn dagger_is_the_adjoint() {
 /// The fused sweep equals the diagonal block plus the eight hopping terms, and the
 /// even-odd blocks reassemble to the same thing.
 #[test]
-fn parts_and_blocks_reproduce_the_full_operator() {
+fn test_clover_parts_and_blocks_reproduce_the_full_operator() {
     let lat = Lattice::single_node([4, 6, 4, 4]);
     let op = clover(&lat, 1.0, MIXED, &random_gauge(&lat, 240));
     let psi = random_spinor(&lat, 2, 241);
@@ -239,7 +239,7 @@ fn parts_and_blocks_reproduce_the_full_operator() {
 }
 
 #[test]
-fn diagonal_block_times_its_inverse_is_the_identity() {
+fn test_clover_diagonal_block_times_its_inverse_is_the_identity() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = clover(&lat, 1.5, PERIODIC, &random_gauge(&lat, 250));
     let idx = op.even_odd_index().unwrap();
@@ -261,7 +261,7 @@ fn diagonal_block_times_its_inverse_is_the_identity() {
 }
 
 #[test]
-fn even_odd_solve_solves_the_full_system() {
+fn test_clover_even_odd_solve_solves_the_full_system() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = clover(&lat, 1.0, TIME_ANTIPERIODIC, &random_gauge(&lat, 260));
     let b = random_spinor(&lat, 1, 261);
@@ -292,7 +292,7 @@ fn even_odd_solve_solves_the_full_system() {
 /// defining formula applied directly, T ψ = ψ - κ c_SW Σ_{mu<nu} F_mu_nu γ_mu γ_nu ψ,
 /// for a clover coefficient other than one.
 #[test]
-fn diagonal_block_matches_the_direct_formula() {
+fn test_clover_diagonal_block_matches_the_direct_formula() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let u = random_gauge(&lat, 270);
     let (kappa, csw) = (0.12, 1.7);
@@ -347,7 +347,7 @@ fn bridge_clover() -> Option<(Arc<Lattice>, Clover<f64>)> {
 }
 
 #[test]
-fn bridge_mult_clover() {
+fn test_clover_bridge_mult_clover() {
     let Some((lat, op)) = bridge_clover() else {
         return;
     };
@@ -360,7 +360,7 @@ fn bridge_mult_clover() {
 }
 
 #[test]
-fn bridge_mult_clover_eo() {
+fn test_clover_bridge_mult_clover_eo() {
     let Some((lat, op)) = bridge_clover() else {
         return;
     };

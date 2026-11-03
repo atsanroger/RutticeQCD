@@ -131,7 +131,7 @@ fn compare(table: &str, props: &[&V]) -> usize {
 /// All thirteen meson channels on all time slices for Wilson fermions with a point source.
 /// Bridge++ fixed the gauge to Landau gauge first; these correlators do not depend on it.
 #[test]
-fn wilson_meson_channels() {
+fn test_ref_wilson_meson_channels() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(u) = gauge(&lat) else { return };
     let mut op = Wilson::<f64>::new(
@@ -150,7 +150,7 @@ fn wilson_meson_channels() {
 /// Clover fermions, two flavours, exponential source, no gauge fixing on either side:
 /// all channels and time slices for the pairs (1,1), (2,2) and (1,2).
 #[test]
-fn clover_two_flavours_exponential_source() {
+fn test_ref_clover_two_flavours_exponential_source() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(u) = gauge(&lat) else { return };
     let (s1, s2) = clover_two_flavours(&lat, &u);
@@ -162,9 +162,9 @@ fn clover_two_flavours_exponential_source() {
 }
 
 /// Meson correlators with momentum, Bridge++'s `meson_momentum_all`: PS, V1, V2, V3 at ten
-/// momenta for the pairs (1,1), (2,2) and (1,2) of `clover_two_flavours_exponential_source`.
+/// momenta for the pairs (1,1), (2,2) and (1,2) of `test_ref_clover_two_flavours_exponential_source`.
 #[test]
-fn clover_mesons_with_momentum() {
+fn test_ref_clover_mesons_with_momentum() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(u) = gauge(&lat) else { return };
     let (s1, s2) = clover_two_flavours(&lat, &u);
@@ -223,7 +223,7 @@ fn clover_mesons_with_momentum() {
 /// Proton correlators, Bridge++'s `proton_test`: Γ = 1, γ4 and their mean (UPPER), with
 /// u = flavour 1 and d = flavour 2, and with both from flavour 1.
 #[test]
-fn clover_proton() {
+fn test_ref_clover_proton() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(u) = gauge(&lat) else { return };
     let (s1, s2) = clover_two_flavours(&lat, &u);
@@ -295,10 +295,10 @@ fn clover_two_flavours(lat: &Arc<Lattice>, u: &Field<f64, Gauge>) -> (V, V) {
 }
 
 /// The unmodified Bridge++ test `Spectrum_Clover_Hadron2ptFunction`: Coulomb gauge first,
-/// then the same as `clover_two_flavours_exponential_source`. Its `expected_result` is the
+/// then the same as `test_ref_clover_two_flavours_exponential_source`. Its `expected_result` is the
 /// first row of the table.
 #[test]
-fn clover_two_flavours_coulomb_gauge() {
+fn test_ref_clover_two_flavours_coulomb_gauge() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(mut u) = gauge(&lat) else { return };
     let st = Stencil::nearest(&lat, [Boundary::Periodic; ND]);
@@ -319,7 +319,7 @@ fn clover_two_flavours_coulomb_gauge() {
 const BRIDGE_MULT_CLOVER_CSW_1_7_NORM: f64 = 1.24728260729018e+02;
 
 #[test]
-fn clover_mult_with_another_coefficient() {
+fn test_ref_clover_mult_with_another_coefficient() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let Some(u) = gauge(&lat) else { return };
     let mut op = Clover::<f64>::new(

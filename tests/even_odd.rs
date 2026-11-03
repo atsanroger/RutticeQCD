@@ -51,7 +51,7 @@ fn halves(op: &Wilson<f64>, full: &V) -> (H, H) {
 
 /// Assembling M ψ from the four blocks gives the same bits as the full-lattice sweep.
 #[test]
-fn blocks_reproduce_the_full_operator() {
+fn test_eo_blocks_reproduce_the_full_operator() {
     let lat = Lattice::single_node([4, 6, 4, 8]);
     let u = random_gauge(&lat, 61);
     let psi = random_spinor(&lat, 2, 62);
@@ -85,7 +85,7 @@ fn blocks_reproduce_the_full_operator() {
 
 /// <χ, S ψ> = <S† χ, ψ> for the Schur complement on either parity.
 #[test]
-fn schur_dagger_is_the_adjoint() {
+fn test_eo_schur_dagger_is_the_adjoint() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson(&lat, MIXED, &random_gauge(&lat, 63));
     let (psi_e, psi_o) = halves(&op, &random_spinor(&lat, 1, 64));
@@ -114,7 +114,7 @@ fn schur_dagger_is_the_adjoint() {
 /// Solving through the Schur complement gives the solution of the full system, in fewer
 /// iterations than solving the full system directly.
 #[test]
-fn even_odd_solve_solves_the_full_system() {
+fn test_even_odd_solve_solves_the_full_system() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson(&lat, ANTIPERIODIC, &random_gauge(&lat, 66));
     let b = random_spinor(&lat, 2, 67);
@@ -173,7 +173,7 @@ fn even_odd_solve_solves_the_full_system() {
 const BRIDGE_MULT_WILSON_EO_NORM: f64 = 8.07908371651806e+01;
 
 #[test]
-fn bridge_mult_wilson_eo() {
+fn test_eo_bridge_mult_wilson_eo() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;

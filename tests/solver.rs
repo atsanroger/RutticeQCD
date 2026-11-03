@@ -60,7 +60,7 @@ fn residual_sqr(a: &mut dyn LinearFn<V64>, x: &V64, b: &V64) -> Vec<f64> {
 }
 
 #[test]
-fn cg_solves_the_normal_equations() {
+fn test_solver_cg_solves_the_normal_equations() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 1));
     let b = random_spinor(&lat, 1, 2);
@@ -87,7 +87,7 @@ fn cg_solves_the_normal_equations() {
 /// CG for an inner solve (x zero on entry, the recurrence's residual reported) gives the solution
 /// of `Cg::new` bit for bit, in as many iterations, two applications of A fewer.
 #[test]
-fn cg_inner_matches_cg() {
+fn test_solver_cg_inner_matches_cg() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 1));
     let b = random_spinor(&lat, 1, 2);
@@ -122,7 +122,7 @@ fn cg_inner_matches_cg() {
 /// Three right-hand sides solved together, one of them zero, give the same answers as
 /// three separate solves.
 #[test]
-fn cg_with_several_vectors_matches_separate_solves() {
+fn test_solver_cg_with_several_vectors_matches_separate_solves() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 3));
     let singles = [
@@ -177,7 +177,7 @@ impl<A: LinearFn<V64>> LinearFn<V64> for Counted<'_, A> {
 /// operator is applied to fewer vectors, and the vectors that go on get the bits they get when they
 /// are solved by themselves.
 #[test]
-fn converged_vectors_leave_the_iteration() {
+fn test_solver_converged_vectors_leave_the_iteration() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 31));
     let hard = random_spinor(&lat, 2, 32);
@@ -230,7 +230,7 @@ fn converged_vectors_leave_the_iteration() {
 }
 
 #[test]
-fn bicgstab_solves_d() {
+fn test_solver_bicgstab_solves_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 4));
     let b = random_spinor(&lat, 2, 5);
@@ -250,7 +250,7 @@ fn bicgstab_solves_d() {
 /// back is projected to zero, so the residual has no component along the source. The
 /// solver has to recover by starting a new cycle, not report failure.
 #[test]
-fn bicgstab_recovers_from_the_point_source_breakdown() {
+fn test_solver_bicgstab_recovers_from_the_point_source_breakdown() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 8));
     let mut b = V64::spinor(&lat, 1);
@@ -271,7 +271,7 @@ fn bicgstab_recovers_from_the_point_source_breakdown() {
 /// Double-precision accuracy from single-precision solves: defect correction outside,
 /// a converted f32 CG inside.
 #[test]
-fn mixed_precision_reaches_double_accuracy() {
+fn test_solver_mixed_precision_reaches_double_accuracy() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 6);
     let (op64, op32) = (wilson::<f64>(&lat, &u), wilson::<f32>(&lat, &u));
@@ -314,7 +314,7 @@ fn mixed_precision_reaches_double_accuracy() {
 /// double precision, in about the iterations of CG in double precision (no restarts from zero),
 /// on several vectors, one of them zero.
 #[test]
-fn reliable_updates_reach_double_accuracy_in_cg_iterations() {
+fn test_solver_reliable_updates_reach_double_accuracy_in_cg_iterations() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 6);
     let (op64, op32) = (wilson::<f64>(&lat, &u), wilson::<f32>(&lat, &u));
@@ -361,7 +361,7 @@ fn reliable_updates_reach_double_accuracy_in_cg_iterations() {
 /// The ownership pattern in use: an outer and an inner solver share
 /// operators through short-lived bindings, and the gauge field is replaced between solves.
 #[test]
-fn nested_solves_across_gauge_updates() {
+fn test_solver_nested_solves_across_gauge_updates() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let b = random_spinor(&lat, 1, 20);
     let like32 = V32::spinor(&lat, 1);
@@ -402,7 +402,7 @@ fn nested_solves_across_gauge_updates() {
 const BRIDGE_CGNE_NCONV_OVER_10: f64 = 11.0;
 
 #[test]
-fn bridge_solver_wilson_cgne_iteration_count() {
+fn test_solver_bridge_solver_wilson_cgne_iteration_count() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -473,7 +473,7 @@ fn off_by(out: &V64, v: &V64, factor: f64) -> f64 {
 /// The Chebyshev filter is T_n(ℓ(λ)) on an eigenvalue λ: bounded by one on [lo, hi],
 /// growing below lo.
 #[test]
-fn chebyshev_filter_is_the_chebyshev_polynomial() {
+fn test_solver_chebyshev_filter_is_the_chebyshev_polynomial() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let v: V64 = random_spinor(&lat, 1, 3);
     let (lo, hi) = (0.1, 4.0);
@@ -495,7 +495,7 @@ fn chebyshev_filter_is_the_chebyshev_polynomial() {
 /// Far below `lo` and at a high degree T_n passes the largest double: the filter scales the
 /// vector down as it goes and gives a finite positive multiple of it, the direction T_n gives.
 #[test]
-fn chebyshev_filter_does_not_overflow() {
+fn test_solver_chebyshev_filter_does_not_overflow() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let v: V64 = random_spinor(&lat, 1, 3);
     // ℓ(0) = −5/3: T_1000 is about e^1099.
@@ -517,7 +517,7 @@ fn chebyshev_filter_does_not_overflow() {
 /// T_k((θ - λ)/δ) / T_k(θ/δ) on an eigenvalue λ (Saad, Iterative Methods, eq. 12.8): one at
 /// λ = 0, small on [lo, hi], and k steps apply A k - 1 times.
 #[test]
-fn chebyshev_iteration_leaves_its_residual_polynomial() {
+fn test_solver_chebyshev_iteration_leaves_its_residual_polynomial() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let b: V64 = random_spinor(&lat, 1, 4);
     let (lo, hi) = (0.2, 3.0);
@@ -544,7 +544,7 @@ fn chebyshev_iteration_leaves_its_residual_polynomial() {
 /// random one it came from; Chebyshev iteration is linear and reduces the residual; the
 /// power iteration finds the top of the spectrum.
 #[test]
-fn chebyshev_on_the_wilson_normal_operator() {
+fn test_solver_chebyshev_on_the_wilson_normal_operator() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 21);
     let op = wilson::<f64>(&lat, &u);
@@ -601,7 +601,7 @@ fn chebyshev_on_the_wilson_normal_operator() {
 /// A preconditioner that starts returning NaN after a few steps is reported as a breakdown, not as
 /// a solve that ran out of iterations with a NaN solution.
 #[test]
-fn bicgstab_reports_a_non_finite_preconditioner() {
+fn test_solver_bicgstab_reports_a_non_finite_preconditioner() {
     struct Poisoned(usize);
     impl LinearFn<V64> for Poisoned {
         fn mult(&mut self, out: &mut V64, inp: &V64) {
@@ -657,7 +657,7 @@ impl<A: LinearFn<V64>> LinearFn<V64> for Poisoned<'_, A> {
 /// reported `NotConverged`, which HMC takes for a slow solve and retries; MINRES returned
 /// `Ok` (`max` dropped the NaN, γ became zero and the solve looked converged).
 #[test]
-fn a_nan_from_the_operator_is_a_breakdown() {
+fn test_solver_a_nan_from_the_operator_is_a_breakdown() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let op = wilson::<f64>(&lat, &random_gauge(&lat, 3));
     let b: V64 = random_spinor(&lat, 2, 4);
@@ -762,7 +762,7 @@ fn a_nan_from_the_operator_is_a_breakdown() {
 /// tolerance: it ends with its own residual 1e4 times further down, in more iterations than
 /// without the check, and with no restart.
 #[test]
-fn cg_goes_on_until_the_true_residual_is_met() {
+fn test_solver_cg_goes_on_until_the_true_residual_is_met() {
     struct Strict<A> {
         a: A,
         b: V64,

@@ -115,7 +115,7 @@ fn check_charge<K: Sink>(s: &Setup, sink: &K, f: usize, quarks: f64) {
 }
 
 #[test]
-fn meson_charge_is_conserved() {
+fn test_threept_meson_charge_is_conserved() {
     let s = setup();
     let g5 = Dirac::GAMMA5;
     let sink = MesonSink::<Dirac> {
@@ -127,7 +127,7 @@ fn meson_charge_is_conserved() {
 }
 
 #[test]
-fn proton_charges_are_conserved() {
+fn test_threept_proton_charges_are_conserved() {
     let s = setup();
     let identity = Dirac::GAMMA[3].mul(&Dirac::GAMMA[3]);
     let half = C64::new(0.5, 0.0);
@@ -145,7 +145,7 @@ fn proton_charges_are_conserved() {
 /// Through the sink against through the current: C3(τ) is the two-point function with S_u
 /// replaced by D_u⁻¹ (e^{+i q·(y − x0)} Γ_J S_u on time slice τ).
 #[test]
-fn sequential_source_through_the_sink_is_that_through_the_current() {
+fn test_threept_sequential_source_through_the_sink_is_that_through_the_current() {
     let s = setup();
     let (g, g5) = (Dirac::GAMMA, Dirac::GAMMA5);
     // A pion-like sink and source that differ, so a swap of the two would show.

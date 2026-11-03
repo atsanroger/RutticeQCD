@@ -33,7 +33,7 @@ fn quenched(step: f64, steps: usize) -> Hmc<'static> {
 /// The momenta of the first trajectory: the generator and the order of the draws are those
 /// of Bridge++, on any process grid.
 #[test]
-fn momenta_are_those_of_bridge() {
+fn test_hmc_momenta_are_those_of_bridge() {
     let lat = Lattice::single_node([12; ND]);
     let p = draw_momenta(&lat, &mut Mseries::new(0));
     let h = kinetic_energy(&p);
@@ -52,7 +52,7 @@ fn momenta_are_those_of_bridge() {
 /// The first two trajectories of the Bridge++ run: the first ends with these energies and
 /// plaquette and is rejected; the second starts with these momenta.
 #[test]
-fn first_trajectories_are_those_of_bridge() {
+fn test_hmc_first_trajectories_are_those_of_bridge() {
     let lat = Lattice::single_node([12; ND]);
     let mut u = cold_start(&lat);
     let mut rng = Mseries::new(0);
@@ -100,7 +100,7 @@ fn first_trajectories_are_those_of_bridge() {
 /// action β = 6.0, 10 leapfrog steps of 0.01, M-series numbers from trajectory number 200000, one
 /// trajectory): the plaquette after it, 0.623852461953823.
 #[test]
-fn bridge_test_quenched_leapfrog() {
+fn test_hmc_bridge_test_quenched_leapfrog() {
     let Some(path) = common::bridge_test_file("conf_04040408.txt") else {
         eprintln!(
             "SKIPPED: set {} to a directory containing conf_04040408.txt",
@@ -210,14 +210,14 @@ fn bridge_general_with(
 
 /// `test_HMC_Quenched`.
 #[test]
-fn bridge_test_quenched_rectangle() {
+fn test_hmc_bridge_test_quenched_rectangle() {
     bridge_general(0.627477459735022, None);
 }
 
 /// `test_HMC_Wilson_Nf2`: two flavours of Wilson fermions (κ = 0.12, antiperiodic in time,
 /// Dirac γ matrices) on links smeared once by stout smearing with ρ = 0.1.
 #[test]
-fn bridge_test_wilson_nf2_stout() {
+fn test_hmc_bridge_test_wilson_nf2_stout() {
     use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     bridge_general(
@@ -231,7 +231,7 @@ fn bridge_test_wilson_nf2_stout() {
 
 /// `test_HMC_Clover_Nf2`: as `test_HMC_Wilson_Nf2` with clover fermions, c_SW = 1.
 #[test]
-fn bridge_test_clover_nf2_stout() {
+fn test_hmc_bridge_test_clover_nf2_stout() {
     use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};
     bridge_general_with(
@@ -497,19 +497,19 @@ fn bridge_alt_wilson(
 /// `test_HMC_Wilson_Nf2_alt` (8⁴): the action of the whole lattice, links smeared once. It
 /// checks the tiling of the configuration for the even-odd tests below.
 #[test]
-fn bridge_test_wilson_nf2_alt_8888() {
+fn test_hmc_bridge_test_wilson_nf2_alt_8888() {
     bridge_alt_wilson(Some(0.624961897149602), 1, false, true, 0);
 }
 
 /// `test_HMC_Wilson_Nf2_alt_eo` (8⁴): even-odd, links smeared twice, no Metropolis test.
 #[test]
-fn bridge_test_wilson_nf2_alt_eo_8888() {
+fn test_hmc_bridge_test_wilson_nf2_alt_eo_8888() {
     bridge_alt_wilson(Some(0.624921816342905), 2, true, false, 0);
 }
 
 /// `test_HMC_Wilson_Nf2_alt_eo_nosmr` (8⁴): even-odd without smearing, no Metropolis test.
 #[test]
-fn bridge_test_wilson_nf2_alt_eo_nosmr_8888() {
+fn test_hmc_bridge_test_wilson_nf2_alt_eo_nosmr_8888() {
     bridge_alt_wilson(Some(0.625038361335609), 0, true, false, 0);
 }
 
@@ -518,7 +518,7 @@ fn bridge_test_wilson_nf2_alt_eo_nosmr_8888() {
 /// force solves of the whole-lattice and of the even-odd action, each from zero and with the guess
 /// from the last four solutions.
 #[test]
-fn even_odd_and_guess_save_iterations() {
+fn test_hmc_even_odd_and_guess_save_iterations() {
     let e = Some(0.624921816342905);
     let Some((eo, eo_s)) = bridge_alt_wilson(e, 2, true, false, 0) else {
         return;
@@ -537,20 +537,20 @@ fn even_odd_and_guess_save_iterations() {
 
 /// `test_HMC_Domainwall_Nf2`.
 #[test]
-fn bridge_test_domain_wall_nf2() {
+fn test_hmc_bridge_test_domain_wall_nf2() {
     bridge_domain_wall(0.62862305031787, false);
 }
 
 /// `test_HMC_Domainwall_Nf2_PV`.
 #[test]
-fn bridge_test_domain_wall_nf2_pv() {
+fn test_hmc_bridge_test_domain_wall_nf2_pv() {
     bridge_domain_wall(0.62754640357188, true);
 }
 
 /// `test_HMC_Domainwall_Moebius_Nf2_PV` (new in Bridge++ 2.1.3): Möbius' operator, b = 1.5,
 /// c = 0.5, over two Pauli-Villars flavours.
 #[test]
-fn bridge_test_domain_wall_moebius_nf2_pv() {
+fn test_hmc_bridge_test_domain_wall_moebius_nf2_pv() {
     bridge_domain_wall_bc(0.627_529_000_118_808_1, true, (1.5, 0.5));
 }
 
@@ -646,7 +646,7 @@ fn bridge_alt_domain_wall_pv(expected: f64, steps: usize, even_odd: bool) {
 /// outer level and the even-odd action of κ = 0.11 with the rectangle gauge action on the inner
 /// one; leapfrog [5, 4] over 0.1, no Metropolis test.
 #[test]
-fn bridge_test_wilson_nf2_alt_eo_ratio_8888() {
+fn test_hmc_bridge_test_wilson_nf2_alt_eo_ratio_8888() {
     use ruttice::fermion::{Wilson, WilsonParams};
     use ruttice::hmc::{Hmc, RectangleAction, Scheme, Term, TwoFlavorEo, TwoFlavorRatioEo};
     use ruttice::solver::Stop;
@@ -723,13 +723,13 @@ fn bridge_test_wilson_nf2_alt_eo_ratio_8888() {
 
 /// `test_HMC_Domainwall_Nf2_PV_alt` (8⁴, links smeared twice).
 #[test]
-fn bridge_test_domain_wall_nf2_pv_alt_8888() {
+fn test_hmc_bridge_test_domain_wall_nf2_pv_alt_8888() {
     bridge_alt_domain_wall_pv(0.624958020749689, 2, false);
 }
 
 /// `test_HMC_Domainwall_Nf2_PV_alt_nosmr` (8⁴, no smearing).
 #[test]
-fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
+fn test_hmc_bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
     bridge_alt_domain_wall_pv(0.624866718847932, 0, false);
 }
 
@@ -739,9 +739,9 @@ fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
 /// and 0.624865517099993 against 0.624876160774692 without smearing; ΔH is 3e-4 and 6e-4. What
 /// these tests share with the ones that agree to 1e-11 is checked: the lexical ratio of the same
 /// operator on the same 8⁴ lattice (`bridge_test_domain_wall_nf2_pv_alt*`), the even-odd ratio
-/// of Wilson fermions (`bridge_test_wilson_nf2_alt_eo_ratio_8888`), and of domain-wall fermions
+/// of Wilson fermions (`test_hmc_bridge_test_wilson_nf2_alt_eo_ratio_8888`), and of domain-wall fermions
 /// on their own K = T_ee⁻¹ Ŝ and K† against the blocks, Γ5 on the even sites against that of the
-/// whole lattice (`even_odd_pv_operator_is_made_of_the_blocks`), the force against the action and
+/// whole lattice (`test_eo_even_odd_pv_operator_is_made_of_the_blocks`), the force against the action and
 /// S = |ξ_e|² after the heat bath (`even_odd_ratio_force_is_the_derivative`). On Bridge++'s side,
 /// its D_ee⁻¹ and D_ee⁻† by L_inv, U_inv, Ldag_inv, Udag_inv were transcribed and are exact (to
 /// 4e-16), and Index_eo::convertField maps the noise site by site, every s alike. Seven other
@@ -755,22 +755,22 @@ fn bridge_test_domain_wall_nf2_pv_alt_nosmr_8888() {
 /// are the lexical ones with even-odd solves, so it has no even-odd pseudofermion to compare with.
 #[test]
 #[ignore = "7e-6 from Bridge++'s expected_result, not understood (see the comment)"]
-fn bridge_test_domain_wall_nf2_pv_alt_eo_8888() {
+fn test_hmc_bridge_test_domain_wall_nf2_pv_alt_eo_8888() {
     bridge_alt_domain_wall_pv(0.624964691911979, 2, true);
 }
 
 /// `test_HMC_Domainwall_Nf2_PV_alt_eo_nosmr` (8⁴, no smearing). Not passing: see
-/// `bridge_test_domain_wall_nf2_pv_alt_eo_8888`.
+/// `test_hmc_bridge_test_domain_wall_nf2_pv_alt_eo_8888`.
 #[test]
 #[ignore = "1e-5 from Bridge++'s expected_result, not understood"]
-fn bridge_test_domain_wall_nf2_pv_alt_eo_nosmr_8888() {
+fn test_hmc_bridge_test_domain_wall_nf2_pv_alt_eo_nosmr_8888() {
     bridge_alt_domain_wall_pv(0.624876160774692, 0, true);
 }
 
 /// `test_HMC_Clover_RHMC_Nf2p1`: 2 + 1 flavours of clover fermions (c_SW = 1, Dirac γ matrices,
 /// antiperiodic in time) on links smeared twice (stout, ρ = 0.1), with the rectangle gauge action.
 #[test]
-fn bridge_test_clover_rhmc_nf2p1() {
+fn test_hmc_bridge_test_clover_rhmc_nf2p1() {
     use ruttice::fermion::{Clover, CloverParams};
     use ruttice::gauge::smearing::Stout;
     use ruttice::gauge::{GaugeSmearing, Smear};

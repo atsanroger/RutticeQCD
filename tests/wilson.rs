@@ -44,7 +44,7 @@ fn mult(op: &Wilson<f64>, inp: &Field<f64, Spinor>, variant: Variant) -> Field<f
 /// The operator and the inner product give the same bits for every number of threads, on a
 /// lattice large enough for the site loops to be split over the thread pool.
 #[test]
-fn results_do_not_depend_on_thread_count() {
+fn test_wilson_results_do_not_depend_on_thread_count() {
     let lat = Lattice::single_node([8, 8, 8, 8]);
     assert!(lat.num_sites() > 2 * ruttice::min_sites_per_task());
     let op = wilson(&lat, 0.12, MIXED, &random_gauge(&lat, 21));
@@ -74,7 +74,7 @@ fn results_do_not_depend_on_thread_count() {
 /// term up to a spin matrix:
 /// D ψ = (1 - 2κ Σ cos p_mu) ψ + 2iκ Σ sin p_mu γ_mu ψ.
 #[test]
-fn free_field_plane_wave() {
+fn test_wilson_free_field_plane_wave() {
     let dims = [4, 6, 4, 8];
     let lat = Lattice::single_node(dims);
     let mut u = Field::<f64, Gauge>::gauge(&lat);
@@ -119,7 +119,7 @@ fn free_field_plane_wave() {
 
 /// D[U^g] (g ψ) = g (D[U] ψ).
 #[test]
-fn gauge_covariance() {
+fn test_wilson_gauge_covariance() {
     let lat = Lattice::single_node([4, 4, 6, 8]);
     let u = random_gauge(&lat, 101);
     let psi = random_spinor(&lat, 1, 7);
@@ -147,7 +147,7 @@ fn gauge_covariance() {
 
 /// <χ, D ψ> = <D† χ, ψ>, and γ5 D is exactly γ5 applied to D ψ.
 #[test]
-fn dagger_is_the_adjoint_and_gamma5d_is_gamma5_times_d() {
+fn test_wilson_dagger_is_the_adjoint_and_gamma5d_is_gamma5_times_d() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 21);
     let psi = random_spinor(&lat, 1, 8);
@@ -175,7 +175,7 @@ fn dagger_is_the_adjoint_and_gamma5d_is_gamma5_times_d() {
 
 /// The fused sweep equals the diagonal term plus the eight hopping terms applied one by one.
 #[test]
-fn fused_kernel_equals_sum_of_hop_terms() {
+fn test_wilson_fused_kernel_equals_sum_of_hop_terms() {
     let lat = Lattice::single_node([4, 6, 4, 8]);
     let u = random_gauge(&lat, 33);
     let psi = random_spinor(&lat, 2, 12);
@@ -204,7 +204,7 @@ fn fused_kernel_equals_sum_of_hop_terms() {
 /// Several spinor fields stored together give the same bits as applying the operator to
 /// each one separately.
 #[test]
-fn vectors_stored_together_are_independent() {
+fn test_wilson_vectors_stored_together_are_independent() {
     let lat = Lattice::single_node([4, 4, 4, 4]);
     let u = random_gauge(&lat, 2);
     let op = wilson(&lat, 0.12, ANTIPERIODIC, &u);
@@ -228,7 +228,7 @@ fn vectors_stored_together_are_independent() {
 }
 
 #[test]
-fn single_precision_agrees_with_double() {
+fn test_wilson_single_precision_agrees_with_double() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let u = random_gauge(&lat, 77);
     let psi = random_spinor(&lat, 1, 78);
@@ -271,7 +271,7 @@ fn single_precision_agrees_with_double() {
 const BRIDGE_MULT_WILSON_NORM: f64 = 1.23160709257508e+02;
 
 #[test]
-fn bridge_mult_wilson() {
+fn test_wilson_bridge_mult_wilson() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;

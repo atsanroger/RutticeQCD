@@ -27,7 +27,7 @@ fn su3_defect(m: &ColorMatrix<f64>) -> f64 {
 // ---- Physics checks: no reference values needed ----
 
 #[test]
-fn unit_gauge_has_plaquette_one() {
+fn test_gauge_unit_gauge_has_plaquette_one() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
     let st = Stencil::nearest(&lat, PERIODIC);
     let mut u = Field::<f64, Gauge>::gauge(&lat);
@@ -36,7 +36,7 @@ fn unit_gauge_has_plaquette_one() {
 }
 
 #[test]
-fn plaquette_is_gauge_invariant() {
+fn test_gauge_plaquette_is_gauge_invariant() {
     let lat = Lattice::single_node([4, 6, 4, 8]);
     let st = Stencil::nearest(&lat, PERIODIC);
     let u = random_gauge(&lat, 11);
@@ -54,7 +54,7 @@ fn plaquette_is_gauge_invariant() {
 }
 
 #[test]
-fn plaquette_does_not_depend_on_thread_count() {
+fn test_gauge_plaquette_does_not_depend_on_thread_count() {
     let lat = Lattice::single_node([8, 8, 8, 8]);
     let st = Stencil::nearest(&lat, PERIODIC);
     let u = random_gauge(&lat, 5);
@@ -76,7 +76,7 @@ fn plaquette_does_not_depend_on_thread_count() {
 const BRIDGE_GAUGE_LEX_PLAQUETTE: f64 = 0.625129946974942;
 
 #[test]
-fn bridge_gauge_lex_plaquette() {
+fn test_gauge_bridge_gauge_lex_plaquette() {
     let Some(path) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -106,7 +106,7 @@ const BRIDGE_GRADIENT_FLOW_RK3: f64 = 0.0154888237555128;
 const BRIDGE_TOPOLOGICAL_CHARGE: f64 = -4.53173555809789e-04;
 
 #[test]
-fn bridge_gradient_flow_energy_density_and_topological_charge() {
+fn test_gauge_bridge_gradient_flow_energy_density_and_topological_charge() {
     use ruttice::gauge::flow::{
         energy_density_clover, energy_density_plaq, topological_charge, WilsonFlow,
     };

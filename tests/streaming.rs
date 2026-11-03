@@ -59,7 +59,7 @@ fn domain_wall_pion(dir: &std::path::Path, stream_min_bytes: &str) -> Vec<String
 /// site its sweeps have just written (`After`). With stores that bypass the cache the site
 /// is computed in a buffer and written once; that gives the same correlator, digit by digit.
 #[test]
-fn streaming_stores_do_not_change_a_domain_wall_run() {
+fn test_streaming_stores_do_not_change_a_domain_wall_run() {
     use ruttice::gauge::random_gauge;
     use ruttice::Lattice;
     let dir = std::env::temp_dir().join(format!("ruttice_stream_dw_{}", std::process::id()));
@@ -76,7 +76,7 @@ fn streaming_stores_do_not_change_a_domain_wall_run() {
 }
 
 #[test]
-fn streaming_stores_do_not_change_the_result() {
+fn test_streaming_stores_do_not_change_the_result() {
     let streamed = norms("0");
     let ordinary = norms(&usize::MAX.to_string());
     assert!(streamed.len() >= 8, "{streamed:?}");

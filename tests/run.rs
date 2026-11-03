@@ -37,7 +37,7 @@ fn with(text: &str, old: &str, new: &str) -> String {
 }
 
 #[test]
-fn the_example_files_parse() {
+fn test_parse_the_example_files_parse() {
     let wilson = config(WILSON_YAML);
     assert_eq!(wilson.lattice, [4, 4, 4, 8]);
     assert_eq!(wilson.process_grid, None);
@@ -97,7 +97,7 @@ fn the_example_files_parse() {
 /// Gauge smearing is the block `GaugeSmearing`; Bridge++'s `Smear` and its companions are
 /// refused, because "smear" alone does not say whether links or sources are smeared.
 #[test]
-fn gauge_smearing_has_its_own_name() {
+fn test_parse_gauge_smearing_has_its_own_name() {
     use ruttice::app::GaugeSmearingConfig;
     let c = config(&format!(
         "{WILSON_YAML}GaugeSmearing:\n  smear_type : Stout\n  rho_uniform : 0.1\n  number_of_smearing : 3\n"
@@ -137,7 +137,7 @@ fn gauge_smearing_has_its_own_name() {
 
 /// A run on gauge-smeared links reports the plaquette before and after the smearing.
 #[test]
-fn a_run_on_smeared_links() {
+fn test_prop_a_run_on_smeared_links() {
     let dir = scratch("smeared");
     let lat = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 5)).unwrap();
@@ -158,7 +158,7 @@ fn a_run_on_smeared_links() {
 /// The same parameters written in TOML and in YAML describe the same run, and keywords are
 /// read in any case, with or without `_`.
 #[test]
-fn toml_and_yaml_are_equivalent() {
+fn test_parse_toml_and_yaml_are_equivalent() {
     let toml = r#"
 [Main]
 lattice_size = [4, 4, 4, 8]
@@ -190,7 +190,7 @@ file = "wilson_pion.out"
 }
 
 #[test]
-fn mistakes_in_the_file_are_reported() {
+fn test_parse_mistakes_in_the_file_are_reported() {
     let message = |text: String| match Params::from_yaml(&text) {
         Err(CliError::Parse(m)) => m,
         other => panic!("expected a parse error, got {:?}", other.map(|_| ())),
@@ -234,7 +234,7 @@ fn mistakes_in_the_file_are_reported() {
 }
 
 #[test]
-fn impossible_requests_are_rejected_before_any_work() {
+fn test_parse_impossible_requests_are_rejected_before_any_work() {
     // Refused when the file is read, or when the run is set up, before the gauge
     // configuration is looked for.
     let invalid = |text: String| {
@@ -344,7 +344,7 @@ fn impossible_requests_are_rejected_before_any_work() {
 }
 
 #[test]
-fn a_missing_gauge_file_is_an_error_not_a_panic() {
+fn test_parse_a_missing_gauge_file_is_an_error_not_a_panic() {
     assert!(matches!(
         run(&config(WILSON_YAML), &scratch("missing")),
         Err(CliError::Gauge(_))
@@ -354,7 +354,7 @@ fn a_missing_gauge_file_is_an_error_not_a_panic() {
 /// End to end on a configuration written by this code: every way of solving that the
 /// parameter file offers gives the same correlator, and the output file is written.
 #[test]
-fn every_solver_choice_gives_the_same_correlator() {
+fn test_prop_every_solver_choice_gives_the_same_correlator() {
     let dir = scratch("solvers");
     let lat = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 500)).unwrap();
@@ -494,7 +494,7 @@ fn compare_with_table(report: &ruttice::app::Report, table: &str) {
 
 /// Bridge++'s binary file of its test configuration reads as its text file does.
 #[test]
-fn the_binary_file_of_bridge_is_its_text_file() {
+fn test_io_the_binary_file_of_bridge_is_its_text_file() {
     let (Some(text), Some(binary)) = (
         bridge_test_file("conf_04040408.txt"),
         bridge_test_file("conf_binary.dat"),
@@ -516,7 +516,7 @@ fn the_binary_file_of_bridge_is_its_text_file() {
 /// The two-flavour example, run on the Bridge++ test configuration, reproduces the
 /// reference table produced with Bridge++ (tests/data).
 #[test]
-fn clover_example_reproduces_the_reference_table() {
+fn test_prop_clover_example_reproduces_the_reference_table() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -531,7 +531,7 @@ fn clover_example_reproduces_the_reference_table() {
 
 /// The same run with the fields in blocks of eight sites.
 #[test]
-fn clover_example_in_blocks_reproduces_the_reference_table() {
+fn test_prop_clover_example_in_blocks_reproduces_the_reference_table() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -553,7 +553,7 @@ fn clover_example_in_blocks_reproduces_the_reference_table() {
 /// The same with Coulomb gauge fixing at its default parameters: the unmodified Bridge++
 /// test `Spectrum_Clover_Hadron2ptFunction`.
 #[test]
-fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
+fn test_prop_clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -578,7 +578,7 @@ fn clover_example_in_coulomb_gauge_reproduces_the_reference_table() {
 /// started from zero instead of x = b moves it 3 to 12 times, and the iterations only for
 /// Wilson); the pion correlator of the even-odd run is pinned to 1e-12.
 #[test]
-fn the_clover_multigrid_takes_the_iterations_it_took() {
+fn test_mg_the_clover_multigrid_takes_the_iterations_it_took() {
     let dir = scratch("mg_iterations");
     let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/conf_04040408.txt");
     let base = with(CLOVER_MG_YAML, "conf_04040408.txt", conf.to_str().unwrap());
@@ -685,7 +685,7 @@ fn the_clover_multigrid_takes_the_iterations_it_took() {
 /// runs through `run_file`, says what it runs in comment lines, and gives the pion correlator
 /// of CG on the same operator.
 #[test]
-fn the_multigrid_example_runs_clover_fermions() {
+fn test_mg_the_multigrid_example_runs_clover_fermions() {
     let dir = scratch("bridge_style");
     let lat = Lattice::single_node([4, 4, 4, 8]);
     write_bridge_text(&dir.join("conf_04040408.txt"), &random_gauge(&lat, 600)).unwrap();
@@ -731,7 +731,7 @@ Measure: {channels: [PS]}
 /// The HMC example file: one trajectory of Bridge++'s test_HMC_Domainwall_Nf2_PV, through the
 /// program; also its file is recognised as an HMC file.
 #[test]
-fn the_hmc_example_repeats_bridge() {
+fn test_hmc_the_hmc_example_repeats_bridge() {
     use ruttice::app::hmc::{is_hmc_file, run_on, HmcConfig};
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
@@ -769,7 +769,7 @@ fn the_hmc_example_repeats_bridge() {
 /// (its forces left out), a save interval of zero (a division by zero after the first
 /// trajectory).
 #[test]
-fn hmc_refuses_zero_steps_orders_and_intervals() {
+fn test_hmc_refuses_zero_steps_orders_and_intervals() {
     use ruttice::app::hmc::HmcConfig;
     let file = |steps: &str, interval: &str| {
         format!(
@@ -830,7 +830,7 @@ Action_G:
 /// repeats the trajectories of the run that saved them bit for bit; started from the
 /// trajectory number alone, it does not.
 #[test]
-fn hmc_goes_on_from_the_saved_random_numbers() {
+fn test_hmc_goes_on_from_the_saved_random_numbers() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     let dir = scratch("hmc_continue");
     let file = |start: &str, trajectories: usize| {
@@ -892,7 +892,7 @@ Action_G:
 /// the files of a run on [1, 1, 2, 2] are the bytes of those of a run on one process, in the
 /// text format and in ILDG (whose date of writing is left out of the comparison).
 #[test]
-fn hmc_saves_configurations_on_several_processes() {
+fn test_hmc_saves_configurations_on_several_processes() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     use ruttice::LocalComm;
     let without_date = |path: &Path| {
@@ -972,7 +972,7 @@ Action_G:
 /// with what `flow_to_t0` finds on that configuration, the same on several processes, and the
 /// Γ-method for the series at the end.
 #[test]
-fn hmc_measures_the_flow_along_the_run() {
+fn test_hmc_measures_the_flow_along_the_run() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     use ruttice::LocalComm;
     let yaml = |grid: &str| {
@@ -1069,7 +1069,7 @@ GradientFlow:
 /// HMC with the multigrid in the force solves on several processes: the trajectory of one
 /// process, to the tolerance of the solves; blocks that a process cuts are refused.
 #[test]
-fn hmc_with_the_multigrid_on_several_processes() {
+fn test_hmc_with_the_multigrid_on_several_processes() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     use ruttice::LocalComm;
     let yaml = |grid: &str, block: &str| {
@@ -1146,7 +1146,7 @@ Action_F_1:
 /// flavours, the strange quark by a rational approximation computed by the program), to
 /// Bridge++'s relative 1e-11.
 #[test]
-fn the_rhmc_example_repeats_bridge() {
+fn test_hmc_the_rhmc_example_repeats_bridge() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
@@ -1196,7 +1196,7 @@ fn the_rhmc_example_repeats_bridge() {
 /// the trajectory conserves H, and the coefficients read from Bridge++-format files in
 /// `coefficients` give the run of the computed ones.
 #[test]
-fn rational_action_from_a_parameter_file() {
+fn test_hmc_rational_action_from_a_parameter_file() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     use ruttice::numerics::{RationalApprox, RationalSpec};
     let dir = scratch("rhmc_wilson");
@@ -1268,7 +1268,7 @@ Action_F_1:
 /// hand, number by number; with the guess the same to the precision of the solves; and a
 /// guess on a ratio action is refused.
 #[test]
-fn hmc_file_even_odd_and_initial_guess() {
+fn test_hmc_file_even_odd_and_initial_guess() {
     use ruttice::app::hmc::{run_on, HmcConfig};
     use ruttice::fermion::{Clover, CloverParams};
     use ruttice::hmc::{Hmc, Mseries, RectangleAction, Scheme, Term, TwoFlavorEo};
@@ -1410,7 +1410,7 @@ Action_F_1:
 
 /// The solver keys of an HMC file: which solvers and preconditioners go with which action.
 #[test]
-fn hmc_solver_keys_are_checked() {
+fn test_hmc_solver_keys_are_checked() {
     use ruttice::app::hmc::HmcConfig;
     // `action`: the lines of the action after its type; `solver`: the lines of its Solver.
     let file = |fopr: &str, action: &str, solver: &[&str]| {
@@ -1630,7 +1630,7 @@ Action_F_1:
 /// Bridge++'s numbers, and the charge of the conserved current in three-point functions (a
 /// meson sink with the current on u, a proton sink with the current on d).
 #[test]
-fn measurements_of_the_measure_section() {
+fn test_measure_measurements_of_the_measure_section() {
     let Some(conf) = bridge_test_file("conf_04040408.txt") else {
         eprintln!("SKIPPED: set {BRIDGE_TESTS_ENV} to a directory containing conf_04040408.txt");
         return;
@@ -1727,7 +1727,7 @@ fn measurements_of_the_measure_section() {
 
 /// The proton at zero momentum is printed once, `momenta` listing [0, 0, 0] or not.
 #[test]
-fn the_proton_at_zero_momentum_once() {
+fn test_measure_the_proton_at_zero_momentum_once() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let text = format!(
         "{CLOVER_YAML}Measure:\n  channels : [PS]\n  momenta : [[0, 0, 0]]\n  proton : true\n"
@@ -1743,7 +1743,7 @@ fn the_proton_at_zero_momentum_once() {
 
 /// Mistakes in the `Measure` section are refused before any work.
 #[test]
-fn mistakes_in_the_measure_section_are_refused() {
+fn test_measure_mistakes_in_the_measure_section_are_refused() {
     let dir = scratch("measure_mistakes");
     let three_point = |body: &str| format!("{CLOVER_YAML}Measure:\n  three_point:\n{body}");
     let ok = "    t_sink : 4\n    sink : PS\n    current_on : u\n    currents : [V4]\n";
@@ -1793,7 +1793,7 @@ fn mistakes_in_the_measure_section_are_refused() {
 /// preconditioner, are refused when the HMC file is read, naming the key; before, they were
 /// ignored.
 #[test]
-fn hmc_options_an_action_does_not_have_are_refused() {
+fn test_hmc_options_an_action_does_not_have_are_refused() {
     use ruttice::app::hmc::HmcConfig;
     let yaml = |action: &str, fopr: &str, solver: &str| {
         format!(
