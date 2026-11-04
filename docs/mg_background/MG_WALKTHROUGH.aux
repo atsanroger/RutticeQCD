@@ -48,7 +48,7 @@
 \newlabel{sec:pvforms}{{2.4}{9}{The Pauli--Villars preconditioned forms}{subsection.2.4}{}}
 \@writefile{toc}{\contentsline {paragraph}{Right form.}{9}{section*.14}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Left form with $\alpha $ in $D$ only.}{9}{section*.15}\protected@file@percent }
-\newlabel{eq:Ksim}{{2.9}{9}{Left form with $\alpha $ in $D$ only}{equation.2.9}{}}
+\newlabel{eq:Ksim}{{2.9}{10}{Left form with $\alpha $ in $D$ only}{equation.2.9}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {3}The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}{10}{section.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}The factorized coarse correction}{10}{subsection.3.1}\protected@file@percent }
 \newlabel{sec:factor}{{3.1}{10}{The factorized coarse correction}{subsection.3.1}{}}
@@ -60,65 +60,65 @@
 \newlabel{alg:corr}{{1}{11}{The size of the coarse stencil}{alg.1}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces One factorized coarse correction, from $r$ (left) to $e$ (right), on its three lattices (the Pauli--Villars coarse solve in orange, the quark one in green): $u=\mathcal  P(\mathcal  P^{\dagger }D_{\mathrm  {PV}}^{\dagger }\mathcal  P)^{-1}\mathcal  P^{\dagger }\iota O_Rr$ is the result of the first coarse solve, its even part times $O_M$ is the right-hand side of the second, whose result is $v=\mathcal  P\mathcal  D_{\mathrm  c}^{-1}\mathcal  P^{\dagger }\iota O_M\pi u$, and $e=O_L\pi v$. In blue, after ``$=$'', the values for $r=\tilde  A_{R}y$ in the right form with exact coarse solves and $s,\hat  t\in \operatorname  {range}\mathcal  P$ (Sec.~\ref {sec:exact}; $O_R=C_{\mathrm  {PV},e}^{\dagger }$, $O_M=1$, $O_L=C_{e}$): the first solve returns the lift $\hat  t$, whose even part is $a=\pi Ds$, the second returns the lift $s$, and the correction returns $y$.}}{11}{figure.1}\protected@file@percent }
 \newlabel{fig:correction}{{1}{11}{One factorized coarse correction, from $r$ (left) to $e$ (right), on its three lattices (the Pauli--Villars coarse solve in orange, the quark one in green): $u=\Pro (\Pro \dg \Dpv \dg \Pro )^{-1}\Pro \dg \iota O_Rr$ is the result of the first coarse solve, its even part times $O_M$ is the right-hand side of the second, whose result is $v=\Pro \Dc ^{-1}\Pro \dg \iota O_M\pi u$, and $e=O_L\pi v$. In blue, after ``$=$'', the values for $r=\AR y$ in the right form with exact coarse solves and $s,\hat t\in \operatorname {range}\Pro $ (Sec.~\ref {sec:exact}; $O_R=\Cpve \dg $, $O_M=1$, $O_L=\Ce $): the first solve returns the lift $\hat t$, whose even part is $a=\pi Ds$, the second returns the lift $s$, and the correction returns $y$}{figure.1}{}}
-\@writefile{toc}{\contentsline {paragraph}{The left form with $\alpha $.}{11}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The left form with $\alpha $.}{12}{section*.20}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Aggregation and the chirality split}{12}{subsection.3.2}\protected@file@percent }
 \newlabel{sec:agg}{{3.2}{12}{Aggregation and the chirality split}{subsection.3.2}{}}
 \@writefile{toc}{\contentsline {paragraph}{Half the storage.}{12}{section*.21}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{12}{subsection.3.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}The basis $\{s,\hat  t\}$ and why the correction is exact}{12}{subsection.3.4}\protected@file@percent }
-\newlabel{sec:exact}{{3.4}{12}{The basis $\{s,\hat t\}$ and why the correction is exact}{subsection.3.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{$Ds$ vanishes on the odd sites.}{13}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}The basis $\{s,\hat  t\}$ and why the correction is exact}{13}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:exact}{{3.4}{13}{The basis $\{s,\hat t\}$ and why the correction is exact}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{$D|s\rangle $ vanishes on the odd sites.}{13}{section*.22}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Exactness of the right form.}{13}{section*.23}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Why the left form is not exact.}{13}{section*.24}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}The coarse operators by probing}{13}{subsection.3.5}\protected@file@percent }
-\newlabel{sec:probe}{{3.5}{13}{The coarse operators by probing}{subsection.3.5}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{14}{section.4}\protected@file@percent }
-\newlabel{sec:coarsesolve}{{4}{14}{The coarse solvers (note Sec.~III.B)}{section.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{Quark factor.}{14}{section*.25}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Pauli--Villars factor.}{14}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why the left form is not exact.}{14}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}The coarse operators by probing}{14}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:probe}{{3.5}{14}{The coarse operators by probing}{subsection.3.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{15}{section.4}\protected@file@percent }
+\newlabel{sec:coarsesolve}{{4}{15}{The coarse solvers (note Sec.~III.B)}{section.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Quark factor.}{15}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Pauli--Villars factor.}{15}{section*.26}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Levels below.}{15}{section*.27}\protected@file@percent }
 \newlabel{alg:vcycle}{{2}{15}{Levels below}{alg.2}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Setup (note Sec.~III.C)}{15}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{15}{subsection.5.1}\protected@file@percent }
-\newlabel{sec:filter}{{5.1}{15}{Chebyshev-filtered subspace iteration}{subsection.5.1}{}}
-\newlabel{alg:filter}{{3}{15}{Chebyshev-filtered subspace iteration}{alg.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{16}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:filter}{{5.1}{16}{Chebyshev-filtered subspace iteration}{subsection.5.1}{}}
+\newlabel{alg:filter}{{3}{16}{Chebyshev-filtered subspace iteration}{alg.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{How much the filter amplifies, and the degree.}{16}{section*.28}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Bootstrap}{16}{subsection.5.2}\protected@file@percent }
-\newlabel{alg:boot}{{4}{16}{Bootstrap}{alg.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Cost and memory}{16}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}The Chebyshev smoother and the cycle (note Sec.~III.D)}{16}{section.6}\protected@file@percent }
-\newlabel{sec:cycle}{{6}{16}{The Chebyshev smoother and the cycle (note Sec.~III.D)}{section.6}{}}
+\newlabel{alg:boot}{{4}{17}{Bootstrap}{alg.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Cost and memory}{17}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}The Chebyshev smoother and the cycle (note Sec.~III.D)}{17}{section.6}\protected@file@percent }
+\newlabel{sec:cycle}{{6}{17}{The Chebyshev smoother and the cycle (note Sec.~III.D)}{section.6}{}}
 \newlabel{alg:cycle}{{5}{17}{The Chebyshev smoother and the cycle (note Sec.~III.D)}{alg.5}{}}
 \@writefile{toc}{\contentsline {paragraph}{Cost of one cycle.}{17}{section*.29}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {6.1}The Chebyshev smoother, derived}{17}{subsection.6.1}\protected@file@percent }
 \newlabel{alg:cheb}{{6}{18}{The Chebyshev smoother, derived}{alg.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7}The outer solver: flexible GCR (note Sec.~III.E)}{18}{section.7}\protected@file@percent }
-\newlabel{sec:gcr}{{7}{18}{The outer solver: flexible GCR (note Sec.~III.E)}{section.7}{}}
-\newlabel{alg:gcr}{{7}{18}{The outer solver: flexible GCR (note Sec.~III.E)}{alg.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}The outer solver: flexible GCR (note Sec.~III.E)}{19}{section.7}\protected@file@percent }
+\newlabel{sec:gcr}{{7}{19}{The outer solver: flexible GCR (note Sec.~III.E)}{section.7}{}}
+\newlabel{alg:gcr}{{7}{19}{The outer solver: flexible GCR (note Sec.~III.E)}{alg.7}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {8}Solving with $D^{\dagger }$ (note Sec.~IV)}{19}{section.8}\protected@file@percent }
 \newlabel{sec:dagger}{{8}{19}{Solving with $D\dg $ (note Sec.~IV)}{section.8}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{19}{subsection.8.1}\protected@file@percent }
 \newlabel{sec:c4}{{8.1}{19}{$\Gfive D^{-1}\Gfive $ as a preconditioner of $D\dg $ (note Sec.~IV.A)}{subsection.8.1}{}}
-\@writefile{toc}{\contentsline {paragraph}{The commutator written out.}{19}{section*.30}\protected@file@percent }
-\newlabel{eq:YWcomm}{{8.6}{19}{The commutator written out}{equation.8.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{The commutator written out.}{20}{section*.30}\protected@file@percent }
+\newlabel{eq:YWcomm}{{8.6}{20}{The commutator written out}{equation.8.6}{}}
 \@writefile{toc}{\contentsline {paragraph}{$N^2$ written out.}{20}{section*.31}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.2}On the even sites (note Sec.~IV.B)}{20}{subsection.8.2}\protected@file@percent }
-\newlabel{alg:dag}{{8}{20}{On the even sites (note Sec.~IV.B)}{alg.8}{}}
+\newlabel{alg:dag}{{8}{21}{On the even sites (note Sec.~IV.B)}{alg.8}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.C)}{21}{subsection.8.3}\protected@file@percent }
 \newlabel{sec:dminus}{{8.3}{21}{Why $D_-$ cannot be inverted (note Sec.~IV.C)}{subsection.8.3}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {9}Why the method converges (note Sec.~V.D)}{21}{section.9}\protected@file@percent }
 \newlabel{sec:why}{{9}{21}{Why the method converges (note Sec.~V.D)}{section.9}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.1}The field of values and the bound for GCR}{21}{subsection.9.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Definition.}{21}{section*.32}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{One step of GCR.}{21}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{One step of GCR.}{22}{section*.33}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{When $W$ contains the origin.}{22}{section*.34}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.2}The spectrum and eigenvalue condition numbers}{22}{subsection.9.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Pseudospectra and the bound for GMRES}{22}{subsection.9.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Definition.}{22}{section*.35}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{The bound.}{22}{section*.36}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{A circle.}{22}{section*.37}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{An outlier.}{22}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{A circle.}{23}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{An outlier.}{23}{section*.38}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Checking a contour with finitely many points.}{23}{section*.39}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {9.4}Truncated GCR with inexact coarse solves}{23}{subsection.9.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10}Map to the code}{23}{section.10}\protected@file@percent }
-\gdef \@abspage@last{23}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Map to the code}{24}{section.10}\protected@file@percent }
+\gdef \@abspage@last{24}

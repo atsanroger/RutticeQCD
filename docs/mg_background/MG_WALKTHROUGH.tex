@@ -70,14 +70,15 @@ Nothing here is new with respect to the note and the code.
 
 \section*{The solver in one page}
 \addcontentsline{toc}{section}{The solver in one page}
-The task is $D\psi=\eta$ for the M\"obius operator at a light quark mass. The solver goes through
+The task is $D|\psi\rangle=|\eta\rangle$ for the M\"obius operator at a light quark mass. The solver goes through
 the following steps; each later section derives one of them.
 \begin{enumerate}
 \item \emph{Even-odd reduction} (Sec.~\ref{sec:schur}). Eliminate the odd sites:
-$S\psi_e=\eta'_e$ on the even sites, then $\psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e)$. This needs
+$S|\psi_e\rangle=|\eta'_e\rangle$ on the even sites, then
+$|\psi_o\rangle=\Co^{-1}(|\eta_o\rangle-D_{oe}|\psi_e\rangle)$. This needs
 $C^{-1}$ exact and cheap (Sec.~\ref{sec:Cinv}).
-\item \emph{Pauli--Villars preconditioning} (Sec.~\ref{sec:pvforms}). With $\psi_e=\Ce^{-1}y$ and
-the factor $(\Spv\Cpve^{-1})\dg$ from the left, solve $\AR y=\rho_R$, whose spectrum lies in the
+\item \emph{Pauli--Villars preconditioning} (Sec.~\ref{sec:pvforms}). With $|\psi_e\rangle=\Ce^{-1}|y\rangle$
+and the factor $(\Spv\Cpve^{-1})\dg$ from the left, solve $\AR|y\rangle=|\rho_R\rangle$, whose spectrum lies in the
 right half-plane.
 \item \emph{Outer solver} (Sec.~\ref{sec:gcr}). Flexible GCR(2) on $\AR$ (or $\AL$) with one
 multigrid cycle $\mathcal M$ as right preconditioner per step.
@@ -131,7 +132,7 @@ $\tau$ & shift of the regularized Pauli--Villars solve & \ref{sec:coarsesolve} &
 $\mathcal D_\ell$, $B_\ell$, $\Pro_\ell$ & operator, diagonal blocks, prolongation of level $\ell$ & \ref{sec:coarsesolve} & $Q_\ell$\\
 $H_n$, $\mathcal Y$, $\ell$, $T_d$ & $\AR\dg\AR$; filter block; interval map; Chebyshev polynomial & \ref{sec:filter} & $X$ for $\mathcal Y$\\
 $\mathcal M$, $\nu$, $\kappa_s$ & cycle; smoother steps; smoother interval ratio & \ref{sec:cycle} & \\
-$z_i$, $q_i$, $\gamma_{ij}$, $\beta_i$ & GCR directions, $\tilde Az_i$, orthogonalization, step length & \ref{sec:gcr} & \\
+$|z\rangle$, $|q\rangle$, $\gamma_j$, $\beta$ & GCR direction, $\tilde A|z\rangle$, orthogonalization, step length & \ref{sec:gcr} & \\
 $N$ & $c[Y,W]D^{-1}$, the error of $\Gfive D^{-1}\Gfive$ for $D\dg$ & \ref{sec:c4} & \\
 $\mathcal A$, $W(\mathcal A)$, $\kappa_\lambda$ & $\tilde A\mathcal M$; field of values; eigenvalue condition number & \ref{sec:why} & \\
 \bottomrule
@@ -329,13 +330,13 @@ $|r|^2/|b|^2\approx0.74$).
 method:
 \begin{itemize}
 \item the Pauli--Villars preconditioned operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ and the
-substitution $\psi=C^{-1}y$ (Sec.~\ref{sec:Aprime});
+substitution $|\psi\rangle=C^{-1}|y\rangle$ (Sec.~\ref{sec:Aprime});
 \item the Schur complement $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (Eq.~\eqref{eq:schur}), so every
 application of $S$ contains one $\Co^{-1}$; one application of $\AR=(\Spv\Cpve^{-1})\dg(S\Ce^{-1})$
 (Sec.~\ref{sec:pvforms}) contains four site inversions, $\Co^{-1}$, $\Ce^{-1}$,
 $(\Cpvo\dg)^{-1}$ in $\Spv\dg$ and $(\Cpve^{-1})\dg$;
-\item the reconstruction $\psi_e=\Ce^{-1}y$, $\psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e)$;
-\item the two lifts $s$ and $\hat t$ of the prolongation, whose odd parts are built with
+\item the reconstruction $|\psi_e\rangle=\Ce^{-1}|y\rangle$, $|\psi_o\rangle=\Co^{-1}(|\eta_o\rangle-D_{oe}|\psi_e\rangle)$;
+\item the two lifts $|s\rangle$ and $|\hat t\rangle$ of the prolongation, whose odd parts are built with
 $\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$ (Sec.~\ref{sec:exact});
 \item the solve with $D\dg$, through $(\Ce\dg)^{-1}$ and $(\Co\dg)^{-1}$ (Sec.~\ref{sec:dagger});
 \item in HMC, $\det\Ce\det\Co$ is a constant and drops out of the probability of the links.
@@ -384,18 +385,18 @@ the same way from the other end.
 
 \subsection{The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}
 \label{sec:Aprime}
-Kanamori, Chen and Matsufuru multiply $D\psi=\eta$ by $(\Dpv\Cpv^{-1})\dg$ from the left and set
-$\psi=C^{-1}y$:
+Kanamori, Chen and Matsufuru multiply $D|\psi\rangle=|\eta\rangle$ by $(\Dpv\Cpv^{-1})\dg$ from the
+left and set $|\psi\rangle=C^{-1}|y\rangle$:
 \begin{align}
-D\psi&=\eta\nonumber\\
-DC^{-1}y&=\eta\nonumber\\
-(\Dpv\Cpv^{-1})\dg DC^{-1}y&=(\Dpv\Cpv^{-1})\dg\eta\nonumber\\
-A'y&=(\Dpv\Cpv^{-1})\dg\eta,\qquad A'\equiv(\Dpv\Cpv^{-1})\dg DC^{-1}.
+D|\psi\rangle&=|\eta\rangle\nonumber\\
+DC^{-1}|y\rangle&=|\eta\rangle\nonumber\\
+(\Dpv\Cpv^{-1})\dg DC^{-1}|y\rangle&=(\Dpv\Cpv^{-1})\dg|\eta\rangle\nonumber\\
+A'|y\rangle&=(\Dpv\Cpv^{-1})\dg|\eta\rangle,\qquad A'\equiv(\Dpv\Cpv^{-1})\dg DC^{-1}.
 \end{align}
 \paragraph{At $m=1$ it is Hermitian positive.} Then $D=\Dpv$ and $C=\Cpv$, so with
 $X=\Dpv\Cpv^{-1}$,
 \begin{equation}
-A'=X\dg X,\qquad z\dg A'z=\|Xz\|^2>0\ \ (z\neq0,\ X\ \text{invertible}).
+A'=X\dg X,\qquad \langle z|A'|z\rangle=\big\|X|z\rangle\big\|^2>0\ \ (|z\rangle\neq0,\ X\ \text{invertible}).
 \end{equation}
 \paragraph{At $m<1$ it is a perturbation of that.} $m$ enters $D$ only in the two corners of the
 matrix in $s$ ($-mD_-\Pp$ and $-mD_-\Pm$), and $C$ only in its corner $m\,d_-$:
@@ -412,10 +413,10 @@ Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
 Q=\operatorname{diag}_s\big(\Pm+\alpha\Pp,\;\alpha,\;\dots,\;\alpha,\;\Pp+\alpha\Pm\big),
 \end{equation}
 one entry per slice $s=0,\dots,L_s-1$, each acting on the spin.
-$Q$ is Hermitian and $Q^{-1}$ is the same with $\alpha\to1/\alpha$. If $D^{(\alpha)}\psi^{(\alpha)}=\eta$, then
+$Q$ is Hermitian and $Q^{-1}$ is the same with $\alpha\to1/\alpha$. If $D^{(\alpha)}|\psi^{(\alpha)}\rangle=|\eta\rangle$, then
 \begin{equation}
-\eta=D^{(\alpha)}\psi^{(\alpha)}=DQ\psi^{(\alpha)}\quad\Longrightarrow\quad\psi=Q\psi^{(\alpha)}
-\ \text{solves}\ D\psi=\eta .
+|\eta\rangle=D^{(\alpha)}|\psi^{(\alpha)}\rangle=DQ|\psi^{(\alpha)}\rangle\quad\Longrightarrow\quad|\psi\rangle=Q|\psi^{(\alpha)}\rangle
+\ \text{solves}\ D|\psi\rangle=|\eta\rangle .
 \end{equation}
 $Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ alone, so the quark propagator is unchanged.
 
@@ -435,18 +436,19 @@ $\Ce$ and $\Co$ are the same matrix $C$ on the even and the odd sites.
 
 \subsection{The Schur complement}
 \label{sec:schur}
-Solve $D\psi=\eta$ block by block. The odd rows:
+Solve $D|\psi\rangle=|\eta\rangle$ block by block, with $|\psi\rangle=(|\psi_e\rangle,|\psi_o\rangle)$
+and the same for $|\eta\rangle$. The odd rows:
 \begin{align}
-D_{oe}\psi_e+\Co\psi_o&=\eta_o\nonumber\\
-\psi_o&=\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big).
+D_{oe}|\psi_e\rangle+\Co|\psi_o\rangle&=|\eta_o\rangle\nonumber\\
+|\psi_o\rangle&=\Co^{-1}\big(|\eta_o\rangle-D_{oe}|\psi_e\rangle\big).
 \label{eq:psio}
 \end{align}
 Insert into the even rows:
 \begin{align}
-\Ce\psi_e+D_{eo}\psi_o&=\eta_e\nonumber\\
-\Ce\psi_e+D_{eo}\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big)&=\eta_e\nonumber\\
-\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\psi_e&=\eta_e-D_{eo}\Co^{-1}\eta_o\nonumber\\
-S\psi_e&=\eta'_e,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad \eta'_e\equiv\eta_e-D_{eo}\Co^{-1}\eta_o .
+\Ce|\psi_e\rangle+D_{eo}|\psi_o\rangle&=|\eta_e\rangle\nonumber\\
+\Ce|\psi_e\rangle+D_{eo}\Co^{-1}\big(|\eta_o\rangle-D_{oe}|\psi_e\rangle\big)&=|\eta_e\rangle\nonumber\\
+\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)|\psi_e\rangle&=|\eta_e\rangle-D_{eo}\Co^{-1}|\eta_o\rangle\nonumber\\
+S|\psi_e\rangle&=|\eta'_e\rangle,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad |\eta'_e\rangle\equiv|\eta_e\rangle-D_{eo}\Co^{-1}|\eta_o\rangle .
 \label{eq:schur}
 \end{align}
 
@@ -455,13 +457,13 @@ S\psi_e&=\eta'_e,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad \eta'_e\equiv\eta_
 Let $\iota$ put an even-site field on the whole lattice (zero on the odd sites) and $\pi$ take
 the even part:
 \begin{equation}
-\iota y=\begin{pmatrix}y\\0\end{pmatrix},\qquad
-\pi\begin{pmatrix}\psi_e\\\psi_o\end{pmatrix}=\psi_e .
+\iota|y\rangle=\begin{pmatrix}|y\rangle\\0\end{pmatrix},\qquad
+\pi\begin{pmatrix}|\psi_e\rangle\\|\psi_o\rangle\end{pmatrix}=|\psi_e\rangle .
 \end{equation}
-For $\eta=\iota\eta_e$ we have $\eta_o=0$, so $\eta'_e=\eta_e$ and Eq.~\eqref{eq:schur} reads
-$S\psi_e=\eta_e$. Hence
+For $|\eta\rangle=\iota|\eta_e\rangle$ we have $|\eta_o\rangle=0$, so $|\eta'_e\rangle=|\eta_e\rangle$
+and Eq.~\eqref{eq:schur} reads $S|\psi_e\rangle=|\eta_e\rangle$. Hence
 \begin{equation}
-S^{-1}\eta_e=\psi_e=\pi D^{-1}\iota\eta_e\quad\Longrightarrow\quad S^{-1}=\pi D^{-1}\iota .
+S^{-1}|\eta_e\rangle=|\psi_e\rangle=\pi D^{-1}\iota|\eta_e\rangle\quad\Longrightarrow\quad S^{-1}=\pi D^{-1}\iota .
 \label{eq:Sinv}
 \end{equation}
 The same for $D\dg$: its block form is $\begin{pmatrix}\Ce\dg & D_{oe}\dg\\ D_{eo}\dg & \Co\dg\end{pmatrix}$,
@@ -479,12 +481,13 @@ divide the site part out. Two placements of $\Ce$ give two forms:
 For $m=1$ both become $X\dg X$, Hermitian positive; for $m<1$ they are perturbations of it, with
 all eigenvalues in the right half-plane.
 
-\paragraph{Right form.} Start from $S\psi_e=\eta'_e$ and substitute $\psi_e=\Ce^{-1}y$:
+\paragraph{Right form.} Start from $S|\psi_e\rangle=|\eta'_e\rangle$ and substitute
+$|\psi_e\rangle=\Ce^{-1}|y\rangle$:
 \begin{align}
-S\Ce^{-1}y&=\eta'_e\nonumber\\
-(\Spv\Cpve^{-1})\dg S\Ce^{-1}y&=(\Spv\Cpve^{-1})\dg\eta'_e\nonumber\\
-\AR\,y&=\rho_R,\qquad \rho_R\equiv(\Spv\Cpve^{-1})\dg\eta'_e,\nonumber\\
-\psi_e&=\Ce^{-1}y,\qquad \psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e).
+S\Ce^{-1}|y\rangle&=|\eta'_e\rangle\nonumber\\
+(\Spv\Cpve^{-1})\dg S\Ce^{-1}|y\rangle&=(\Spv\Cpve^{-1})\dg|\eta'_e\rangle\nonumber\\
+\AR|y\rangle&=|\rho_R\rangle,\qquad |\rho_R\rangle\equiv(\Spv\Cpve^{-1})\dg|\eta'_e\rangle,\nonumber\\
+|\psi_e\rangle&=\Ce^{-1}|y\rangle,\qquad |\psi_o\rangle=\Co^{-1}\big(|\eta_o\rangle-D_{oe}|\psi_e\rangle\big).
 \end{align}
 
 \paragraph{Left form with $\alpha$ in $D$ only.} For $DQ$ the blocks are $\Ce Q_e$, $D_{eo}Q_o$,
@@ -530,11 +533,11 @@ Both coarse operators $\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\dg\Pro$ are nearest-n
 coarse lattice, because $D$ is one hop and every aggregate contains the whole fifth dimension.
 
 \paragraph{Why the Galerkin approximation is exact on $\operatorname{range}\Pro$.} For any $X$
-with $\Pro\dg X\Pro$ invertible and any coarse vector $c$,
+with $\Pro\dg X\Pro$ invertible and any coarse vector $|c\rangle$,
 \begin{equation}
-\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg X\,(\Pro c)=\Pro\big(\Pro\dg X\Pro\big)^{-1}\big(\Pro\dg X\Pro\big)c=\Pro c .
+\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg X\,\Pro|c\rangle=\Pro\big(\Pro\dg X\Pro\big)^{-1}\big(\Pro\dg X\Pro\big)|c\rangle=\Pro|c\rangle .
 \end{equation}
-So the approximation of $X^{-1}$ inverts $X$ exactly on vectors $X\Pro c$. This is used in the
+So the approximation of $X^{-1}$ inverts $X$ exactly on vectors $X\Pro|c\rangle$. This is used in the
 exactness proof below.
 
 \paragraph{The size of the coarse stencil.} An operator that reaches $k$ hops on the fine lattice
@@ -650,24 +653,29 @@ $\Cpve\dg$ lands between the two coarse solves, in $O_M$.
 \subsection{Aggregation and the chirality split}
 \label{sec:agg}
 The fine lattice is divided into $4^4$ blocks, each with the whole fifth dimension; each block is
-one coarse site. Every test vector $v$ is split by $\Gfive=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$:
+one coarse site. For a test vector $|v\rangle$ and a block $X$, restrict it to the block and split it
+by $\Gfive=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$:
 \begin{equation}
-v_\pm=\tfrac12(1\pm\Gfive)v,\qquad \Gfive v_\pm=\pm v_\pm .
+|X,v\rangle=\begin{cases}|v\rangle, & x\in X,\\ 0, & x\notin X,\end{cases}\qquad
+|X,v,\pm\rangle=\tfrac12(1\pm\Gfive)|X,v\rangle,\qquad \Gfive|X,v,\pm\rangle=\pm|X,v,\pm\rangle .
 \end{equation}
+$\Gfive$ acts within a site, so the split commutes with the restriction to $X$.
 With $n_v$ test vectors a coarse site has $2n_v$ components, the $+$ parts first. Each column of
 $\Pro$ is then an eigenvector of $\Gfive$, so with $\Sigma=\mathrm{diag}(\mathbf 1_{n_v},-\mathbf
 1_{n_v})$ per coarse site
 \begin{equation}
 \Gfive\Pro=\Pro\Sigma .
 \end{equation}
-\paragraph{Half the storage.} Write the condition $\Gfive v_\pm=\pm v_\pm$ out slice by slice:
+\paragraph{Half the storage.} Write the condition $\Gfive|v_\pm\rangle=\pm|v_\pm\rangle$ out slice by
+slice, with $v_\pm(s)$ the slice $s$ of $|v_\pm\rangle$:
 \begin{align}
 (\Gfive v_\pm)_s&=\gamma_5\,(Rv_\pm)_s=\gamma_5\,v_\pm(L_s-1-s)\nonumber\\
 \pm v_\pm(s)&=\gamma_5\,v_\pm(L_s-1-s)\nonumber\\
 v_\pm(L_s-1-s)&=\pm\gamma_5\,v_\pm(s) .
 \end{align}
 So each part is fixed by its slices $s<L_s/2$; $\Pro$ is stored only there (``folded''), in half
-precision. Restriction and prolongation unfold on the fly: for the restriction of a fine field $f$,
+precision. Restriction and prolongation unfold on the fly: for the restriction of a fine field
+$|f\rangle$, with $f_s$ its slice $s$,
 \begin{equation}
 \big(\Pro\dg f\big)_{X,k}=\sum_{x\in X}\sum_{s<L_s/2}\Pro_{x,s;k}^{\,*}\,
 \big(f_s\pm\gamma_5f_{L_s-1-s}\big)
@@ -695,38 +703,38 @@ columns), the code falls back to Gram--Schmidt for those blocks.
 
 \subsection{The basis $\{s,\hat t\}$ and why the correction is exact}
 \label{sec:exact}
-The setup produces vectors $y_j$ on the even sites (next section). Each is lifted to the whole
-lattice in two ways, one for each coarse solve:
+The setup produces vectors $|y_j\rangle$ on the even sites (next section). Each is lifted to the
+whole lattice in two ways, one for each coarse solve:
 \begin{equation}
-s=\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix},\qquad
-\hat t=\begin{pmatrix}a\\-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg a\end{pmatrix},\qquad a=\pi Ds ,
+|s\rangle=\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix},\qquad
+|\hat t\rangle=\begin{pmatrix}|a\rangle\\-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg|a\rangle\end{pmatrix},\qquad |a\rangle=\pi D|s\rangle ,
 \end{equation}
 with the even sites on top, as in the block form of $D$ below.
-\paragraph{$Ds$ vanishes on the odd sites.}
+\paragraph{$D|s\rangle$ vanishes on the odd sites.}
 \begin{align}
-Ds&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
-\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\nonumber\\
-&=\begin{pmatrix}\Ce\Ce^{-1}y-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}y\\
-D_{oe}\Ce^{-1}y-\Co\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\nonumber\\
-&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}y\\0\end{pmatrix}\nonumber\\
-&=\iota\,S\Ce^{-1}y .
+D|s\rangle&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
+\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
+&=\begin{pmatrix}\Ce\Ce^{-1}|y\rangle-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\\
+D_{oe}\Ce^{-1}|y\rangle-\Co\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
+&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}|y\rangle\\0\end{pmatrix}\nonumber\\
+&=\iota\,S\Ce^{-1}|y\rangle .
 \end{align}
-In the same way $\Dpv\dg\hat t=\iota\Spv\dg a$.
-\paragraph{Exactness of the right form.} Let $s,\hat t\in\operatorname{range}\Pro$ and solve both
-coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the identity on
-$\operatorname{range}\Pro$. Follow $r=\AR y$ through the correction ($O_R=\Cpve\dg$, $O_M=1$,
-$O_L=\Ce$):
+In the same way $\Dpv\dg|\hat t\rangle=\iota\Spv\dg|a\rangle$.
+\paragraph{Exactness of the right form.} Let $|s\rangle,|\hat t\rangle\in\operatorname{range}\Pro$
+and solve both coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the
+identity on $\operatorname{range}\Pro$. Follow $|r\rangle=\AR|y\rangle$ through
+Algorithm~\ref{alg:corr} ($O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$):
 \begin{align}
-O_Rr&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}y\nonumber\\
-&=\Cpve\dg(\Cpve^{-1})\dg\Spv\dg S\Ce^{-1}y\nonumber\\
-&=\Spv\dg\,a,\qquad (a=S\Ce^{-1}y=\pi Ds)\nonumber\\
-\iota O_Rr&=\iota\Spv\dg a=\Dpv\dg\hat t\nonumber\\
-\Pro\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\,\Dpv\dg\hat t&=\hat t
-\qquad(\hat t\in\operatorname{range}\Pro)\nonumber\\
-\pi\hat t&=a=\pi Ds\nonumber\\
-\iota O_M\pi\hat t&=\iota\pi Ds=Ds\qquad(Ds\ \text{is zero on the odd sites})\nonumber\\
-\Pro\Dc^{-1}\Pro\dg Ds&=s\qquad(s\in\operatorname{range}\Pro)\nonumber\\
-e=O_L\pi s&=\Ce\Ce^{-1}y=y .
+O_R|r\rangle&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}|y\rangle\nonumber\\
+&=\Cpve\dg(\Cpve^{-1})\dg\Spv\dg S\Ce^{-1}|y\rangle\nonumber\\
+&=\Spv\dg|a\rangle,\qquad (|a\rangle=S\Ce^{-1}|y\rangle=\pi D|s\rangle)\nonumber\\
+\iota O_R|r\rangle&=\iota\Spv\dg|a\rangle=\Dpv\dg|\hat t\rangle\nonumber\\
+\Pro\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\,\Dpv\dg|\hat t\rangle&=|\hat t\rangle
+\qquad(|\hat t\rangle\in\operatorname{range}\Pro)\nonumber\\
+\pi|\hat t\rangle&=|a\rangle=\pi D|s\rangle\nonumber\\
+\iota O_M\pi|\hat t\rangle&=\iota\pi D|s\rangle=D|s\rangle\qquad(D|s\rangle\ \text{is zero on the odd sites})\nonumber\\
+\Pro\Dc^{-1}\Pro\dg D|s\rangle&=|s\rangle\qquad(|s\rangle\in\operatorname{range}\Pro)\nonumber\\
+|e\rangle=O_L\pi|s\rangle&=\Ce\Ce^{-1}|y\rangle=|y\rangle .
 \end{align}
 So the correction inverts $\AR$ exactly on the span of the $y_j$. In practice $\Pro$ is in half
 precision and the coarse solves are inexact (relative residual $10^{-1}$), and the left form is
@@ -734,12 +742,12 @@ not exact at all; the cycle converges nonetheless.
 
 
 \paragraph{Why the left form is not exact.} Repeat the argument for $\AL$ with $\alpha=1$ and
-$r=\AL y'$, $y'=\Ce^{-1}y$ ($O_R=1$, $O_M=\Ce\Cpve\dg$, $O_L=1$):
+$|r\rangle=\AL|y'\rangle$, $|y'\rangle=\Ce^{-1}|y\rangle$ ($O_R=1$, $O_M=\Ce\Cpve\dg$, $O_L=1$):
 \begin{align}
-r&=(\Cpve^{-1}\Spv)\dg\Ce^{-1}S\,\Ce^{-1}y=\Spv\dg(\Cpve^{-1})\dg\Ce^{-1}a,\qquad a=S\Ce^{-1}y,\nonumber\\
-\iota O_Rr&=\iota\Spv\dg u,\qquad u\equiv(\Cpve\dg)^{-1}\Ce^{-1}a .
+|r\rangle&=(\Cpve^{-1}\Spv)\dg\Ce^{-1}S\,\Ce^{-1}|y\rangle=\Spv\dg(\Cpve^{-1})\dg\Ce^{-1}|a\rangle,\qquad |a\rangle=S\Ce^{-1}|y\rangle,\nonumber\\
+\iota O_R|r\rangle&=\iota\Spv\dg|u\rangle,\qquad |u\rangle\equiv(\Cpve\dg)^{-1}\Ce^{-1}|a\rangle .
 \end{align}
-The first solve returns the Pauli--Villars lift of $u$, not of $a$. $u$ differs from $a$ by the
+The first solve returns the Pauli--Villars lift of $|u\rangle$, not of $|a\rangle$. $|u\rangle$ differs from $|a\rangle$ by the
 site-local matrix $(\Cpve\dg)^{-1}\Ce^{-1}$, which mixes the slices $s$ and the spin, so its lift
 is in general not in the span of the $\hat t_j$ made from $a$. The correction is then only
 approximate. In practice the left form converges within a few iterations of the right form (note
@@ -765,44 +773,49 @@ and in the same way for $\Dpv\dg$. $D$ hops only to nearest neighbors in four di
 block holds the whole fifth dimension, so $(\Dc)(X,Y)$ vanishes unless $Y=X$ or $Y=X\pm\hat\mu$.
 Each coarse site $X$ therefore has a $2n_v\times2n_v$ diagonal block $A(X)=\Dc(X,X)$ and one link
 block $B_\mu^\pm(X)=\Dc(X,X\pm\hat\mu)$ per direction: nine blocks. They are found column by column. For component $k$,
-put a unit vector $\epsilon_k$ on \emph{every} coarse site and prolong:
-$\phi=\Pro\epsilon_k$. Split $D=C+H$ ($H$ the hops) and $H$ by leg (direction and sign), and split
-each leg into the part that stays inside its block and the part that crosses to the neighbor
-block:
+put the unit vector of component $k$ on \emph{every} coarse site and prolong:
+$|\phi\rangle=\Pro\sum_Y|Y,k\rangle=\sum_Y|\phi_{Y,k}\rangle$. Split $D=C+H$ ($H$ the hops) and $H$
+by leg (direction and sign), and split each leg into the part that stays inside its block and the
+part that crosses to the neighbor block:
 \begin{align}
-D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\nonumber\\
-&=\underbrace{C\phi+\sum_lH_l^{\rm in}\phi}_{\text{stays in }X}
-+\sum_l\underbrace{H_l^{\rm cross}\phi}_{\text{comes from }X\pm\hat\mu} .
+D|\phi\rangle&=C|\phi\rangle+\sum_{\text{legs }l}H_l|\phi\rangle\nonumber\\
+&=\underbrace{C|\phi\rangle+\sum_lH_l^{\rm in}|\phi\rangle}_{\text{stays in }X}
++\sum_l\underbrace{H_l^{\rm cross}|\phi\rangle}_{\text{comes from }X\pm\hat\mu} .
 \end{align}
-Restricting, $\big(\Pro\dg(C\phi+\sum_lH^{\rm in}_l\phi)\big)_{X}$ is column $k$ of $A(X)$, and
-$\big(\Pro\dg H^{\rm cross}_l\phi\big)_X$ is column $k$ of the link block of leg $l$, since every
-coarse site carries the same unit vector and a crossing hop brings exactly the neighbor's
-contribution. Doing this for all $2n_v$ components fills all nine blocks (\code{coarse\_blocks},
+Restricting to block $X$,
+\begin{equation}
+\langle\phi_{X,j}|\Big(C+\sum_lH^{\rm in}_l\Big)|\phi\rangle=A_{jk}(X),\qquad
+\langle\phi_{X,j}|H^{\rm cross}_l|\phi\rangle=\big(B_l(X)\big)_{jk},
+\end{equation}
+column $k$ of the diagonal block and of the link block of leg $l$: every coarse site carries the
+same unit vector, and a crossing hop brings exactly the neighbor's contribution. Doing this for all $2n_v$ components fills all nine blocks (\code{coarse\_blocks},
 \code{hop\_split}, \code{restrict\_leg}). Several components are probed at a time, as many as a
 quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is read once for them.
 
 % ======================================================================
 \section{The coarse solvers (note Sec.~III.B)}
 \label{sec:coarsesolve}
-\paragraph{Quark factor.} $\Dc c=g$ by BiCGStab on its even-odd Schur complement, preconditioned by
-the inverse diagonal blocks. With $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on
-the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
+\paragraph{Quark factor.} $\Dc|c\rangle=|g\rangle$ by BiCGStab on its even-odd Schur complement,
+preconditioned by the inverse diagonal blocks. With
+$\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on the coarse lattice, exactly as in
+Eq.~\eqref{eq:schur},
 \begin{align}
-\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)c_e&=g_e-B_{eo}A_{oo}^{-1}g_o,\nonumber\\
-c_o&=A_{oo}^{-1}\big(g_o-B_{oe}c_e\big).
+\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)|c_e\rangle&=|g_e\rangle-B_{eo}A_{oo}^{-1}|g_o\rangle,\nonumber\\
+|c_o\rangle&=A_{oo}^{-1}\big(|g_o\rangle-B_{oe}|c_e\rangle\big).
 \end{align}
-\paragraph{Pauli--Villars factor.} $Xw=g$ with $X=\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. The code stores
+\paragraph{Pauli--Villars factor.} $X|w\rangle=|g\rangle$ with $X=\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. The code stores
 $X$ itself (the adjoint of the probed $\Dcpv$, \code{CoarseOp::adjoint}) and a second copy $\Dcpv=X\dg$,
 and solves the Tikhonov-regularized normal equation by CG on all coarse sites, without a preconditioner:
 \begin{equation}
-\big(X\dg X+\tau\big)\,w=X\dg g,\qquad \tau=10^{-3}.
+\big(X\dg X+\tau\big)|w\rangle=X\dg|g\rangle,\qquad \tau=10^{-3}.
 \end{equation}
-To see what the shift does, write the singular value decomposition $X=\sum_k\sigma_ku_kv_k\dg$ ($\sigma_k>0$,
-the $u_k$ and the $v_k$ orthonormal). The exact solution is $w=\sum_k\sigma_k^{-1}(u_k\dg g)\,v_k$; the
-regularized one is
+To see what the shift does, write the singular value decomposition
+$X=\sum_k\sigma_k|u_k\rangle\langle v_k|$ ($\sigma_k>0$, the $|u_k\rangle$ and the $|v_k\rangle$
+orthonormal). The exact solution is $|w\rangle=\sum_k\sigma_k^{-1}\langle u_k|g\rangle\,|v_k\rangle$;
+the regularized one is
 \begin{equation}
-w_\tau=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,(u_k\dg g)\,v_k
-=\sum_k\frac{\sigma_k^2}{\sigma_k^2+\tau}\,\frac{u_k\dg g}{\sigma_k}\,v_k ,
+|w_\tau\rangle=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,\langle u_k|g\rangle\,|v_k\rangle
+=\sum_k\frac{\sigma_k^2}{\sigma_k^2+\tau}\,\frac{\langle u_k|g\rangle}{\sigma_k}\,|v_k\rangle ,
 \end{equation}
 so each component is multiplied by $\sigma_k^2/(\sigma_k^2+\tau)$: close to $1$ for
 $\sigma_k\gg\sqrt\tau$, close to $\sigma_k^2/\tau$ for $\sigma_k\ll\sqrt\tau$. With stout smearing
@@ -814,8 +827,8 @@ equation).
 
 \paragraph{Levels below.} At small masses the coarse solves themselves become expensive (on
 $24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse sites are then
-grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_j$, $\Pro\dg\hat
-t_j$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
+grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg|s_j\rangle$,
+$\Pro\dg|\hat t_j\rangle$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
 coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
 diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$ ($Q_{\ell+1}$ in the note). The
 preconditioner $M_\ell$ on level $\ell$ is defined from the one below (Algorithm~\ref{alg:vcycle}).
@@ -948,14 +961,14 @@ $\nu=8$ means 16 applications, $64$ applications of $D_{eo}$ or $D_{oe}$, per cy
 much as about 24 iterations of CG on $\mathcal K\dg \mathcal K$ (two hops each with $\mathcal K$ and $\mathcal K\dg$).
 
 \subsection{The Chebyshev smoother, derived}
-The smoother is $\nu$ steps of Chebyshev iteration on $\tilde Ax=b$ from $x=0$. Choose the interval
+The smoother is $\nu$ steps of Chebyshev iteration on $\tilde A|x\rangle=|b\rangle$ from $|x\rangle=0$. Choose the interval
 $[\lambda_{\rm lo},\lambda_{\rm hi}]$ that it damps ($\lambda_{\rm hi}$ slightly above the spectral
 radius from a power iteration, $\lambda_{\rm lo}=\lambda_{\rm hi}/\kappa_s$) and set
 \begin{equation}
 \theta=\tfrac12(\lambda_{\rm hi}+\lambda_{\rm lo}),\qquad
 \delta=\tfrac12(\lambda_{\rm hi}-\lambda_{\rm lo}),\qquad \sigma=\theta/\delta .
 \end{equation}
-The residual after $k$ steps is $r_k=R_k(\tilde A)r_0$ with the scaled Chebyshev polynomial
+The residual after $k$ steps is $|r_k\rangle=R_k(\tilde A)|r_0\rangle$ with the scaled Chebyshev polynomial
 \begin{equation}
 R_k(\lambda)=\frac{T_k\big((\theta-\lambda)/\delta\big)}{T_k(\sigma)},\qquad R_k(0)=1,
 \end{equation}
@@ -981,17 +994,17 @@ R_{k+1}&=\rho_k\Big[\big(2\sigma-\tfrac{2\lambda}{\delta}\big)R_k-\rho_{k-1}R_{k
 &=\rho_k\Big[\big(\tfrac1{\rho_k}+\rho_{k-1}\big)R_k-\tfrac{2\lambda}{\delta}R_k-\rho_{k-1}R_{k-1}\Big]\nonumber\\
 &=R_k+\rho_k\rho_{k-1}\big(R_k-R_{k-1}\big)-\frac{2\rho_k}{\delta}\lambda R_k .
 \end{align}
-Apply to $r_0$, with $\lambda\to\tilde A$:
+Apply to $|r_0\rangle$, with $\lambda\to\tilde A$:
 \begin{equation}
-r_{k+1}-r_k=\rho_k\rho_{k-1}(r_k-r_{k-1})-\frac{2\rho_k}{\delta}\tilde Ar_k .
+|r_{k+1}\rangle-|r_k\rangle=\rho_k\rho_{k-1}\big(|r_k\rangle-|r_{k-1}\rangle\big)-\frac{2\rho_k}{\delta}\tilde A|r_k\rangle .
 \end{equation}
-Since $r=b-\tilde Ax$, a step $x_{k+1}=x_k+d_k$ changes the residual by $-\tilde Ad_k$. Matching
-the two sides,
+Since $|r\rangle=|b\rangle-\tilde A|x\rangle$, a step $|x_{k+1}\rangle=|x_k\rangle+|d_k\rangle$ changes
+the residual by $-\tilde A|d_k\rangle$. Matching the two sides,
 \begin{equation}
-d_k=\rho_k\rho_{k-1}\,d_{k-1}+\frac{2\rho_k}{\delta}\,r_k .
+|d_k\rangle=\rho_k\rho_{k-1}\,|d_{k-1}\rangle+\frac{2\rho_k}{\delta}\,|r_k\rangle .
 \end{equation}
-The first step: $R_1=T_1(t)/T_1(\sigma)=t/\sigma=1-\lambda/\theta$, so $x_1=b/\theta$ and
-$d_0=r_0/\theta$. Algorithm~\ref{alg:cheb} collects these updates, as in the code
+The first step: $R_1=T_1(t)/T_1(\sigma)=t/\sigma=1-\lambda/\theta$, so $|x_1\rangle=|b\rangle/\theta$
+and $|d_0\rangle=|r_0\rangle/\theta$. Algorithm~\ref{alg:cheb} collects these updates, as in the code
 (\code{BlasChebyshevStep}): $\nu$ steps cost $\nu-1$ applications of $\tilde A$, and the polynomial
 is fixed, so the smoother is a linear map.
 \begin{algo}{alg:cheb}{Chebyshev smoother, $\nu$ steps from $|x\rangle=0$}
@@ -1013,10 +1026,10 @@ The runs use $\nu=8$, $\kappa_s=10$ with stout links ($M_5=1$) and $\nu=12$, $\k
 % ======================================================================
 \section{The outer solver: flexible GCR (note Sec.~III.E)}
 \label{sec:gcr}
-The outer iteration solves $\tilde Ay=\rho$ ($\tilde A=\AR$ or $\AL$) with a right preconditioner
+The outer iteration solves $\tilde A|y\rangle=|\rho\rangle$ ($\tilde A=\AR$ or $\AL$) with a right preconditioner
 $\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves stopped by a
 residual test, it changes from one application to the next, so the method must be flexible: it
-keeps the preconditioned directions $z_i$ themselves.
+keeps the preconditioned directions $|z\rangle$ themselves.
 
 \begin{algo}{alg:gcr}{Flexible GCR($k$)}
 \AIn{source vector $|\rho\rangle$; $k$; tolerance $\epsilon$}
@@ -1142,10 +1155,11 @@ The solve of $D\dg|w\rangle=|r\rangle$ is Algorithm~\ref{alg:dag}.
 \item $|w_o\rangle:=(\Co\dg)^{-1}\big(|r_o\rangle-D_{eo}\dg|w_e\rangle\big)$
 \end{steps}
 \end{algo}
-Line~2 uses $\mathcal K=\Ce^{-1}S$: $\mathcal K\dg=S\dg(\Ce\dg)^{-1}$. The approximation for $S^{-1}$
-comes from Eq.~\eqref{eq:ARinv}: $S^{-1}=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg$. In the
-preconditioner, $(\Spv\Cpve^{-1})\dg t$ is the right-hand side of $\AR$ for the source $(t,0)$ (no
-odd part), so it is applied directly as one adjoint Schur factor of $\Dpv$. Each GCR step costs
+Line~2 follows from line~6: with $|w_e\rangle=(\Ce\dg)^{-1}|z\rangle$,
+$S\dg|w_e\rangle=S\dg(\Ce\dg)^{-1}|z\rangle=\mathcal K\dg|z\rangle$, since $\mathcal K=\Ce^{-1}S$. The
+approximation for $S^{-1}$ in lines 3--4 comes from Eq.~\eqref{eq:ARinv}:
+$S^{-1}=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg$. In line~3, $(\Spv\Cpve^{-1})\dg\Gfive|t\rangle$ is the
+right-hand side of $\AR$ for the source $\iota\Gfive|t\rangle$ (no odd part), so it is applied directly as one adjoint Schur factor of $\Dpv$. Each GCR step costs
 one cycle, as for $D$.
 
 % ======================================================================
