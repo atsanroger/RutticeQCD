@@ -1,33 +1,33 @@
 \contentsline {section}{\numberline {1}The operator and Pauli--Villars preconditioning (note Sec.~II.B)}{2}{section.1}%
 \contentsline {subsection}{\numberline {1.1}Ingredients}{2}{subsection.1.1}%
-\contentsline {subsection}{\numberline {1.2}The free spectrum of $W$}{3}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.2}The free spectrum of $W$}{2}{subsection.1.2}%
 \contentsline {subsection}{\numberline {1.3}The operator in Brower--Neff--Orginos form (note Sec.~II.B.1)}{3}{subsection.1.3}%
 \contentsline {subsection}{\numberline {1.4}Splitting off the fifth-dimension hop}{3}{subsection.1.4}%
 \contentsline {subsection}{\numberline {1.5}The $\Gamma _5$-transformation (note Sec.~II.B.2)}{4}{subsection.1.5}%
 \contentsline {paragraph}{$K$.}{4}{section*.2}%
 \contentsline {paragraph}{$Y$.}{4}{section*.3}%
-\contentsline {paragraph}{$W$ and $Y$ do not commute.}{5}{section*.4}%
-\contentsline {paragraph}{Consequence: $\Gamma _5D\Gamma _5\neq D^{\dagger }$.}{5}{section*.5}%
+\contentsline {paragraph}{$W$ and $Y$ do not commute.}{4}{section*.4}%
+\contentsline {paragraph}{Consequence: $\Gamma _5D\Gamma _5\neq D^{\dagger }$.}{4}{section*.5}%
 \contentsline {paragraph}{The exact relation.}{5}{section*.6}%
 \contentsline {subsection}{\numberline {1.6}The site-diagonal part $C$ and its inverse (note Sec.~II.B.3)}{5}{subsection.1.6}%
 \contentsline {subsection}{\numberline {1.7}The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}{6}{subsection.1.7}%
 \contentsline {paragraph}{At $m=1$ it is Hermitian positive.}{6}{section*.7}%
 \contentsline {paragraph}{At $m<1$ it is a perturbation of that.}{6}{section*.8}%
-\contentsline {subsection}{\numberline {1.8}Neff's $\alpha $ (note Sec.~II.B.6)}{7}{subsection.1.8}%
-\contentsline {section}{\numberline {2}Even-odd forms (note Sec.~II.C)}{7}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Blocks}{7}{subsection.2.1}%
+\contentsline {subsection}{\numberline {1.8}Neff's $\alpha $ (note Sec.~II.B.6)}{6}{subsection.1.8}%
+\contentsline {section}{\numberline {2}Even-odd forms (note Sec.~II.C)}{6}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Blocks}{6}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}The Schur complement}{7}{subsection.2.2}%
 \contentsline {subsection}{\numberline {2.3}$S^{-1}=\pi D^{-1}\iota $}{7}{subsection.2.3}%
-\contentsline {subsection}{\numberline {2.4}The Pauli--Villars preconditioned forms}{8}{subsection.2.4}%
-\contentsline {paragraph}{Right form, step by step.}{8}{section*.9}%
+\contentsline {subsection}{\numberline {2.4}The Pauli--Villars preconditioned forms}{7}{subsection.2.4}%
+\contentsline {paragraph}{Right form, step by step.}{7}{section*.9}%
 \contentsline {paragraph}{Left form with $\alpha $ in $D$ only.}{8}{section*.10}%
 \contentsline {section}{\numberline {3}The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}{8}{section.3}%
 \contentsline {subsection}{\numberline {3.1}The factorized coarse correction}{8}{subsection.3.1}%
 \contentsline {paragraph}{The inverse of the right form.}{8}{section*.11}%
-\contentsline {paragraph}{Galerkin replacement.}{9}{section*.12}%
-\contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{9}{section*.13}%
-\contentsline {paragraph}{The size of the coarse stencil.}{9}{section*.14}%
-\contentsline {paragraph}{The left form with $\alpha $, step by step.}{9}{section*.15}%
+\contentsline {paragraph}{Galerkin replacement.}{8}{section*.12}%
+\contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{8}{section*.13}%
+\contentsline {paragraph}{The size of the coarse stencil.}{8}{section*.14}%
+\contentsline {paragraph}{The left form with $\alpha $, step by step.}{10}{section*.15}%
 \contentsline {subsection}{\numberline {3.2}Aggregation and the chirality split}{10}{subsection.3.2}%
 \contentsline {paragraph}{Half the storage.}{10}{section*.16}%
 \contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{10}{subsection.3.3}%
@@ -36,8 +36,8 @@
 \contentsline {paragraph}{Exactness of the right form.}{11}{section*.18}%
 \contentsline {paragraph}{Why the left form is not exact.}{12}{section*.19}%
 \contentsline {subsection}{\numberline {3.5}The coarse operators by probing}{12}{subsection.3.5}%
-\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{13}{section.4}%
-\contentsline {paragraph}{Quark factor.}{13}{section*.20}%
+\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{12}{section.4}%
+\contentsline {paragraph}{Quark factor.}{12}{section*.20}%
 \contentsline {paragraph}{Pauli--Villars factor.}{13}{section*.21}%
 \contentsline {paragraph}{Levels below.}{13}{section*.22}%
 \contentsline {section}{\numberline {5}Setup (note Sec.~III.C)}{13}{section.5}%
@@ -53,34 +53,4 @@
 \contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{16}{subsection.8.1}%
 \contentsline {subsection}{\numberline {8.2}On the even sites, step by step (note Sec.~IV.B)}{17}{subsection.8.2}%
 \contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.C)}{17}{subsection.8.3}%
-\contentsline {section}{\numberline {9}HMC}{18}{section.9}%
-\contentsline {subsection}{\numberline {9.1}What we want to compute}{18}{subsection.9.1}%
-\contentsline {paragraph}{The Pauli--Villars ratio.}{18}{section*.25}%
-\contentsline {subsection}{\numberline {9.2}Pseudofermions: a determinant as a Gaussian integral}{19}{subsection.9.2}%
-\contentsline {paragraph}{One complex variable.}{19}{section*.26}%
-\contentsline {paragraph}{Many variables.}{19}{section*.27}%
-\contentsline {paragraph}{The ratio.}{19}{section*.28}%
-\contentsline {subsection}{\numberline {9.3}Even-odd: only $\mathcal K$ depends on the links}{19}{subsection.9.3}%
-\contentsline {subsection}{\numberline {9.4}The idea of HMC}{20}{subsection.9.4}%
-\contentsline {paragraph}{Fictitious momenta.}{20}{section*.29}%
-\contentsline {paragraph}{One trajectory.}{20}{section*.30}%
-\contentsline {paragraph}{Why the result is exact.}{20}{section*.31}%
-\contentsline {subsection}{\numberline {9.5}The integrator}{21}{subsection.9.5}%
-\contentsline {paragraph}{Leapfrog.}{21}{section*.32}%
-\contentsline {paragraph}{Omelyan.}{21}{section*.33}%
-\contentsline {paragraph}{Nested steps.}{21}{section*.34}%
-\contentsline {paragraph}{How many solves.}{21}{section*.35}%
-\contentsline {paragraph}{Step size and stability.}{21}{section*.36}%
-\contentsline {subsection}{\numberline {9.6}The heat bath for $\phi _e$}{21}{subsection.9.6}%
-\contentsline {subsection}{\numberline {9.7}The force}{22}{subsection.9.7}%
-\contentsline {subsection}{\numberline {9.8}How precisely to solve}{22}{subsection.9.8}%
-\contentsline {paragraph}{Energy.}{22}{section*.37}%
-\contentsline {paragraph}{Force.}{22}{section*.38}%
-\contentsline {subsection}{\numberline {9.9}Solving $(\mathcal K^{\dagger }\mathcal K)^{-1}$}{22}{subsection.9.9}%
-\contentsline {paragraph}{With CG.}{22}{section*.39}%
-\contentsline {paragraph}{With the multigrid: two solves.}{23}{section*.40}%
-\contentsline {paragraph}{When the sweeps stall.}{23}{section*.41}%
-\contentsline {subsection}{\numberline {9.10}What the multigrid keeps along a trajectory}{23}{subsection.9.10}%
-\contentsline {subsection}{\numberline {9.11}Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}{24}{subsection.9.11}%
-\contentsline {subsection}{\numberline {9.12}What the measurements say so far}{24}{subsection.9.12}%
-\contentsline {section}{\numberline {10}Map to the code}{25}{section.10}%
+\contentsline {section}{\numberline {9}Map to the code}{18}{section.9}%

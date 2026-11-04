@@ -1,0 +1,30 @@
+\contentsline {section}{\numberline {1}What we want to compute}{2}{section.1}%
+\contentsline {paragraph}{The Pauli--Villars ratio.}{2}{section*.2}%
+\contentsline {section}{\numberline {2}Pseudofermions: a determinant as a Gaussian integral}{2}{section.2}%
+\contentsline {paragraph}{One complex variable.}{2}{section*.3}%
+\contentsline {paragraph}{Many variables.}{3}{section*.4}%
+\contentsline {paragraph}{The ratio.}{3}{section*.5}%
+\contentsline {section}{\numberline {3}Even-odd: only $\mathcal K$ depends on the links}{3}{section.3}%
+\contentsline {section}{\numberline {4}The idea of HMC}{4}{section.4}%
+\contentsline {paragraph}{Fictitious momenta.}{4}{section*.6}%
+\contentsline {paragraph}{One trajectory.}{4}{section*.7}%
+\contentsline {paragraph}{Why the result is exact.}{4}{section*.8}%
+\contentsline {section}{\numberline {5}The integrator}{5}{section.5}%
+\contentsline {paragraph}{Leapfrog.}{5}{section*.9}%
+\contentsline {paragraph}{Omelyan.}{5}{section*.10}%
+\contentsline {paragraph}{Nested steps.}{5}{section*.11}%
+\contentsline {paragraph}{How many solves.}{5}{section*.12}%
+\contentsline {paragraph}{Step size and stability.}{5}{section*.13}%
+\contentsline {section}{\numberline {6}The heat bath for $\phi _e$}{5}{section.6}%
+\contentsline {section}{\numberline {7}The force}{6}{section.7}%
+\contentsline {section}{\numberline {8}How precisely to solve}{6}{section.8}%
+\contentsline {paragraph}{Energy.}{6}{section*.14}%
+\contentsline {paragraph}{Force.}{6}{section*.15}%
+\contentsline {section}{\numberline {9}Solving $(\mathcal K^{\dagger }\mathcal K)^{-1}$}{6}{section.9}%
+\contentsline {paragraph}{With CG.}{6}{section*.16}%
+\contentsline {paragraph}{With the multigrid: two solves.}{7}{section*.17}%
+\contentsline {paragraph}{When the sweeps stall.}{7}{section*.18}%
+\contentsline {section}{\numberline {10}What the multigrid keeps along a trajectory}{7}{section.10}%
+\contentsline {section}{\numberline {11}Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}{8}{section.11}%
+\contentsline {section}{\numberline {12}What the measurements say so far}{8}{section.12}%
+\contentsline {section}{\numberline {13}Map to the code}{8}{section.13}%
