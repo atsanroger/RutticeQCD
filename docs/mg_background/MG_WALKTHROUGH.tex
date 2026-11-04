@@ -294,8 +294,9 @@ right half-plane (note Figs.~2 and~7), which is what a Krylov method and a polyn
 \subsection{Neff's $\alpha$ (note Sec.~II.B.6)}
 Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
 \begin{equation}
-Q_0=\Pm+\alpha\Pp,\qquad Q_s=\alpha\ (0<s<L_s-1),\qquad Q_{L_s-1}=\Pp+\alpha\Pm .
+Q=\operatorname{diag}_s\big(\Pm+\alpha\Pp,\;\alpha,\;\dots,\;\alpha,\;\Pp+\alpha\Pm\big),
 \end{equation}
+one entry per slice $s=0,\dots,L_s-1$, each acting on the spin.
 $Q$ is Hermitian and $Q^{-1}$ is the same with $\alpha\to1/\alpha$. If $D^{(\alpha)}\psi^{(\alpha)}=\eta$, then
 \begin{equation}
 \eta=D^{(\alpha)}\psi^{(\alpha)}=DQ\psi^{(\alpha)}\quad\Longrightarrow\quad\psi=Q\psi^{(\alpha)}
@@ -560,10 +561,11 @@ columns), the code falls back to Gram--Schmidt for those blocks.
 \label{sec:exact}
 The setup produces vectors $y_j$ on the even sites (next section). Each is lifted to the whole
 lattice in two ways, one for each coarse solve:
-\begin{align}
-s&=\big(\Ce^{-1}y,\;-\Co^{-1}D_{oe}\Ce^{-1}y\big),\\
-\hat t&=\big(a,\;-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg a\big),\qquad a=\pi Ds .
-\end{align}
+\begin{equation}
+s=\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix},\qquad
+\hat t=\begin{pmatrix}a\\-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg a\end{pmatrix},\qquad a=\pi Ds ,
+\end{equation}
+with the even sites on top, as in the block form of $D$ below.
 \paragraph{$Ds$ vanishes on the odd sites.}
 \begin{align}
 Ds&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
@@ -608,8 +610,24 @@ approximate. In practice the left form converges within a few iterations of the 
 Sec.~V), so the cycle does not need the exactness.
 
 \subsection{The coarse operators by probing}
-$\Dc=\Pro\dg D\Pro$ has on each coarse site $X$ a $2n_v\times2n_v$ diagonal block $A(X)$ and one link
-block $B_\mu^\pm(X)$ per direction: nine blocks. They are found column by column. For component $k$,
+Write $\phi_{X,k}$ for column $k$ ($k=1,\dots,2n_v$) of $\Pro$ on block $X$: it equals the
+orthonormalized vector on the sites of $X$ and vanishes outside $X$. By the two previous
+subsections
+\begin{equation}
+\langle\phi_{X,j}|\phi_{Y,k}\rangle=\delta_{XY}\delta_{jk},\qquad
+\Pro=\sum_{X,k}|\phi_{X,k}\rangle\langle X,k| ,
+\end{equation}
+where $|X,k\rangle$ is the unit vector of component $k$ on coarse site $X$. The coarse operator
+$\Dc=\Pro\dg D\Pro$ (the ``little Dirac operator'' of L\"uscher's deflation) and the coarse
+correction are then
+\begin{equation}
+(\Dc)_{jk}(X,Y)=\langle\phi_{X,j}|D|\phi_{Y,k}\rangle,\qquad
+\Pro\Dc^{-1}\Pro\dg=\sum_{X,Y,j,k}|\phi_{X,j}\rangle\,(\Dc^{-1})_{jk}(X,Y)\,\langle\phi_{Y,k}| ,
+\end{equation}
+and in the same way for $\Dpv\dg$. $D$ hops only to nearest neighbors in four dimensions and a
+block holds the whole fifth dimension, so $(\Dc)(X,Y)$ vanishes unless $Y=X$ or $Y=X\pm\hat\mu$.
+Each coarse site $X$ therefore has a $2n_v\times2n_v$ diagonal block $A(X)=\Dc(X,X)$ and one link
+block $B_\mu^\pm(X)=\Dc(X,X\pm\hat\mu)$ per direction: nine blocks. They are found column by column. For component $k$,
 put a unit vector $\epsilon_k$ on \emph{every} coarse site and prolong:
 $\phi=\Pro\epsilon_k$. Split $D=C+H$ ($H$ the hops) and $H$ by leg (direction and sign), and split
 each leg into the part that stays inside its block and the part that crosses to the neighbor
@@ -673,17 +691,23 @@ The setup produces the vectors $y_j$, then $\{s_j,\hat t_j\}$, $\Pro$, the coars
 levels. It always uses the right form.
 
 \subsection{Chebyshev-filtered subspace iteration}
+\label{sec:filter}
 The $y_j$ should approximate the low right singular vectors of $\AR$, i.e.\ the low eigenvectors of
 $H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm
 hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
 $[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. One round on a block
 $X$ of $m$ vectors:
 \begin{align}
-X&\leftarrow T_d\big(\ell(H_n)\big)X &&\text{(three-term recurrence, $d$ applications of $H_n$)}\\
+X&\leftarrow T_d\big(\ell(H_n)\big)X &&\text{(recurrence below)}\\
 X&\leftarrow\text{orthonormalize }X\\
 G&=X\dg H_nX=V\Theta V\dg,\quad X\leftarrow XV &&\text{(Rayleigh--Ritz)}\\
 \lambda_{\rm lo}&\leftarrow\theta_{\max} .
 \end{align}
+The filter is applied without the coefficients of the polynomial. With $L=\ell(H_n)$,
+\begin{equation}
+T_0(L)X=X,\qquad T_1(L)X=LX,\qquad T_{k+1}(L)X=2L\,T_k(L)X-T_{k-1}(L)X ,
+\end{equation}
+so $T_d(L)X$ costs $d$ applications of $H_n$.
 
 \paragraph{How much the filter amplifies, and the degree.} For $|t|\ge1$,
 $|T_d(t)|=\cosh\!\big(d\operatorname{arccosh}|t|\big)$. A mode with $x$ just below $\lambda_{\rm lo}$
@@ -763,7 +787,12 @@ The residual after $k$ steps is $r_k=R_k(\tilde A)r_0$ with the scaled Chebyshev
 \begin{equation}
 R_k(\lambda)=\frac{T_k\big((\theta-\lambda)/\delta\big)}{T_k(\sigma)},\qquad R_k(0)=1,
 \end{equation}
-which is at most $1/T_k(\sigma)$ in modulus on the interval. Write $t=(\theta-\lambda)/\delta$ and
+which is at most $1/T_k(\sigma)$ in modulus on the interval. With $\ell$ of
+Sec.~\ref{sec:filter} built on this interval, $(\theta-\lambda)/\delta=-\ell(\lambda)$ and
+$\sigma=-\ell(0)$, so $R_k(\lambda)=T_k(\ell(\lambda))/T_k(\ell(0))$: the polynomial of the setup
+filter, normalized to $1$ at the origin. The filter applies it to $H_n$ to amplify the modes below
+$\lambda_{\rm lo}$; the smoother applies it to $\tilde A$ to damp the modes in
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and leaves the low modes to the coarse correction. Write $t=(\theta-\lambda)/\delta$ and
 use $T_{k+1}(t)=2tT_k(t)-T_{k-1}(t)$:
 \begin{align}
 T_{k+1}(\sigma)R_{k+1}&=2t\,T_k(\sigma)R_k-T_{k-1}(\sigma)R_{k-1}\\
