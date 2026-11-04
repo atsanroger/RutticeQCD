@@ -996,12 +996,51 @@ The factor $D_-$ cancels against $D_-^{-1}$:
 \begin{equation}
 \boxed{\;D\dg\,\Gfive D^{-1}\Gfive=\Gfive\,(1-N)\,\Gfive,\qquad N=c\,[Y,W]\,D^{-1}\;}
 \end{equation}
-$[Y,W]=-\frac12[Y,K]$ is bounded (one hop in four dimensions, one in the fifth), so $N$ is large
-only on the low modes of $D$. Write $N^2=c[Y,W]\,D^{-1}\,c[Y,W]\,D^{-1}$ and follow a low mode through it from the right. The
-first $D^{-1}$ amplifies it. The commutator flips its chirality and moves it to the other wall,
-out of the low-mode span. The second $D^{-1}$ therefore acts on a vector with little low-mode
-component and is not large. So $N^2$ is small and $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs
-only a few more steps than for the identity. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~1), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
+\paragraph{The commutator written out.} Split the hop into its spin-scalar part and its
+$\gamma$ part, $K=K_0-K_\gamma$ with
+\begin{align}
+(K_0\psi)(x)&=\sum_\mu\big[U_\mu(x)\psi(x+\hat\mu)+U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\big],\nonumber\\
+(K_\gamma\psi)(x)&=\sum_\mu\gamma_\mu\big[U_\mu(x)\psi(x+\hat\mu)-U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\big].
+\end{align}
+$K_0$ commutes with $Y$. $K_\gamma$ does not: $\gamma_\mu P_\mp=P_\pm\gamma_\mu$, so
+$K_\gamma P_\mp=P_\pm K_\gamma$. Slice by slice,
+\begin{align}
+(YK_\gamma\psi)_s&=-\Pm K_\gamma\psi_{s+1}-\Pp K_\gamma\psi_{s-1},\nonumber\\
+(K_\gamma Y\psi)_s&=-\Pp K_\gamma\psi_{s+1}-\Pm K_\gamma\psi_{s-1},\nonumber\\
+([Y,K_\gamma]\psi)_s&=(\Pp-\Pm)K_\gamma\big(\psi_{s+1}-\psi_{s-1}\big)=\gamma_5K_\gamma\big(\psi_{s+1}-\psi_{s-1}\big),
+\end{align}
+with the wrap-around of $Y$. The constant part of $W$ commutes with $Y$, so
+$[Y,W]=-\frac12[Y,K]=\frac12[Y,K_\gamma]$:
+\begin{equation}
+\big([Y,W]\psi\big)_s=\tfrac12\,\gamma_5K_\gamma\big(\psi_{s+1}-\psi_{s-1}\big).
+\label{eq:YWcomm}
+\end{equation}
+It is a difference in $s$ followed by one hop that flips chirality ($\gamma_5$ keeps it,
+$\gamma_\mu$ flips it). It is bounded, so $N$ is large only through $D^{-1}$.
+
+\paragraph{$N^2$ written out.} Expand $D^{-1}$ in the right and left eigenvectors of $D$
+(assumed diagonalizable), $D|u_k\rangle=\lambda_k|u_k\rangle$, $\langle w_k|D=\lambda_k\langle w_k|$,
+$\langle w_k|u_l\rangle=\delta_{kl}$:
+\begin{align}
+D^{-1}&=\sum_k\frac{|u_k\rangle\langle w_k|}{\lambda_k},\nonumber\\
+N&=c\sum_k\frac{[Y,W]|u_k\rangle\,\langle w_k|}{\lambda_k},\nonumber\\
+N^2&=c^2\sum_{k,l}\frac{[Y,W]|u_k\rangle\;\langle w_k|[Y,W]|u_l\rangle\;\langle w_l|}{\lambda_k\lambda_l} .
+\end{align}
+$N$ is large through the terms of small $\lambda_k$, one per low mode: a large part of low rank,
+which GCR removes in about as many extra steps as there are such modes. $N^2$ would be large
+through the terms where both $\lambda_k$ and $\lambda_l$ are small, and each of them carries the
+matrix element $\langle w_k|[Y,W]|u_l\rangle$ between two low modes. By Eq.~\eqref{eq:YWcomm}
+this matrix element is small: a low mode carries $\Pm$ at the wall $s=0$ and $\Pp$ at
+$s=L_s-1$, so $[Y,W]|u_l\rangle$ carries the opposite chirality on each wall, and its overlap with
+another low mode comes only from the bulk of the fifth dimension, where the low modes have
+decayed. The left eigenvectors are localized in the same way, since $\Gfive D\Gfive=D\dg$ up to
+$O(c)$. So $N^2$ is small to the extent that
+\begin{equation}
+c\,\big|\langle w_k|[Y,W]|u_l\rangle\big|\ll|\lambda_k|\qquad\text{for the low modes }k,l,
+\end{equation}
+and then $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs only a few more steps than for the
+identity. This is an argument, not a bound: the matrix elements have not been computed, and the
+iteration counts are the test. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~1), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
 \subsection{On the even sites, step by step (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
