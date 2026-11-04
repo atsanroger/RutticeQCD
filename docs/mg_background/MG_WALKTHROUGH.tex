@@ -49,6 +49,35 @@ side by side. The last section maps each step to the code. HMC, which the note l
 work, is derived in a separate walkthrough.\footnote{\code{docs/mg\_background/MG\_HMC\_WALKTHROUGH.tex}.}
 Nothing here is new with respect to the note and the code.
 
+
+\section*{The solver in one page}
+\addcontentsline{toc}{section}{The solver in one page}
+The task is $D\psi=\eta$ for the M\"obius operator at a light quark mass. The solver goes through
+the following steps; each later section derives one of them.
+\begin{enumerate}
+\item \emph{Even-odd reduction} (Sec.~\ref{sec:schur}). Eliminate the odd sites:
+$S\psi_e=\eta'_e$ on the even sites, then $\psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e)$. This needs
+$C^{-1}$ exact and cheap (Sec.~\ref{sec:Cinv}).
+\item \emph{Pauli--Villars preconditioning} (Sec.~\ref{sec:pvforms}). With $\psi_e=\Ce^{-1}y$ and
+the factor $(\Spv\Cpve^{-1})\dg$ from the left, solve $\AR y=\rho_R$, whose spectrum lies in the
+right half-plane.
+\item \emph{Outer solver} (Sec.~\ref{sec:gcr}). Flexible GCR(2) on $\AR$ (or $\AL$) with one
+multigrid cycle $\mathcal M$ as right preconditioner per step.
+\item \emph{One cycle} (Sec.~\ref{sec:cycle}). A Chebyshev smoother before and after the coarse
+correction.
+\item \emph{The coarse correction} (Sec.~\ref{sec:factor}). $\AR^{-1}$ factorizes into
+$\Ce\,\pi D^{-1}\iota\,\pi(\Dpv\dg)^{-1}\iota\,\Cpve\dg$; each inverse is replaced by a solve on
+the coarse lattice, the Pauli--Villars factor by CG on a regularized normal equation and the quark
+factor by BiCGStab with further levels (Sec.~\ref{sec:coarsesolve}).
+\item \emph{The coarse space} (Secs.~\ref{sec:agg}--\ref{sec:probe} and \ref{sec:filter}).
+The setup finds vectors $y_j$ near the low modes of $\AR\dg\AR$ by a Chebyshev filter and a
+bootstrap, lifts each to $s_j$ and $\hat t_j$ so that the correction is exact on their span
+(Sec.~\ref{sec:exact}), and builds $\Pro$ and the coarse operators from them.
+\item \emph{Solves with $D\dg$} (Sec.~\ref{sec:dagger}) reuse the same setup through
+$\Gfive D^{-1}\Gfive$.
+\item \emph{Why it converges} (Sec.~\ref{sec:why}): the spectrum and pseudospectra of $\tilde A\mathcal M$.
+\end{enumerate}
+
 \tableofcontents
 
 \section*{Symbols}
