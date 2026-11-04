@@ -1,4 +1,4 @@
-\contentsline {section}{\numberline {1}What we want to compute}{2}{section.1}%
+\contentsline {section}{\numberline {1}What we want to compute}{1}{section.1}%
 \contentsline {paragraph}{The Pauli--Villars ratio.}{2}{section*.2}%
 \contentsline {section}{\numberline {2}Pseudofermions: a determinant as a Gaussian integral}{2}{section.2}%
 \contentsline {paragraph}{One complex variable.}{2}{section*.3}%
