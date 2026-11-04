@@ -177,14 +177,12 @@ and the wrap-around $\psi_{L_s}=-m\psi_0$, $\psi_{-1}=-m\psi_{L_s-1}$:
 Y=\begin{pmatrix}0&-\Pm&0&m\Pp\\-\Pp&0&-\Pm&0\\0&-\Pp&0&-\Pm\\m\Pm&0&-\Pp&0\end{pmatrix}.
 \end{equation}
 $\gamma_5$ commutes with $P_\pm$, so $\Gfive Y\Gfive=RYR$, whose entry $(s,s')$ is
-$Y_{L_s-1-s,\,L_s-1-s'}$: the matrix rotated by $180^\circ$. Compare with $Y\dg$, whose entry
-$(s,s')$ is $(Y_{s',s})\dg$:
-\begin{align}
-(RYR)_{0,1}&=Y_{3,2}=-\Pp,& (Y\dg)_{0,1}&=(Y_{1,0})\dg=-\Pp,\nonumber\\
-(RYR)_{1,0}&=Y_{2,3}=-\Pm,& (Y\dg)_{1,0}&=(Y_{0,1})\dg=-\Pm,\nonumber\\
-(RYR)_{0,3}&=Y_{3,0}=m\Pm,& (Y\dg)_{0,3}&=(Y_{3,0})\dg=m\Pm,
-\end{align}
-and so on for every entry. Hence $\Gfive Y\Gfive=Y\dg$.
+$Y_{L_s-1-s,\,L_s-1-s'}$: the matrix rotated by $180^\circ$. $Y\dg$ has the entry
+$(Y_{s',s})\dg$, the transpose with each $P_\pm$ unchanged ($P_\pm\dg=P_\pm$, $m$ real). Both give
+\begin{equation}
+RYR=Y\dg=\begin{pmatrix}0&-\Pp&0&m\Pm\\-\Pm&0&-\Pp&0\\0&-\Pm&0&-\Pp\\m\Pp&0&-\Pm&0\end{pmatrix},
+\end{equation}
+so $\Gfive Y\Gfive=Y\dg$.
 
 \paragraph{$W$ and $Y$ do not commute.} $K$ contains $\gamma_\mu$, and
 $\gamma_\mu\Pp=\Pm\gamma_\mu$, so a hop of $K$ exchanges the two projectors of $Y$: $[Y,W]\neq0$.
