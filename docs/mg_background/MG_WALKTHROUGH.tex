@@ -31,6 +31,22 @@
 \newcommand{\Cpve}{C_{\mathrm{PV},e}}
 \newcommand{\Cpvo}{C_{\mathrm{PV},o}}
 \newcommand{\code}[1]{\texttt{\small #1}}
+% ----- algorithms, in the layout of Kanamori's dwf_multigrid note -----
+\newcounter{alg}
+\newcounter{algline}
+\newenvironment{algo}[2]{\par\medskip\noindent\begin{minipage}{\linewidth}\hrule\vspace{3pt}%
+  \refstepcounter{alg}\label{#1}\textbf{Algorithm~\thealg:} #2\par\vspace{3pt}\hrule\vspace{3pt}\small
+  \setlength{\parskip}{1pt}}{\par\vspace{3pt}\hrule\end{minipage}\par\medskip}
+\newcommand{\AIn}[1]{\hspace*{1em}\textbf{input:} #1\par}
+\newcommand{\AOut}[1]{\hspace*{1em}\textbf{output:} #1\par}
+\newcommand{\AReq}[1]{\hspace*{1em}\textbf{require:} #1\par}
+\newenvironment{steps}{\begin{list}{\scriptsize\arabic{algline}}{\usecounter{algline}%
+  \setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{2pt}%
+  \setlength{\leftmargin}{2.2em}\setlength{\labelwidth}{1.4em}}}{\end{list}}
+\newcommand{\Ind}{\hspace*{1.4em}}
+\newcommand{\Cm}[1]{\hfill{\ttfamily\footnotesize /* #1 */}}
+\newcommand{\kw}[1]{\textbf{#1}}
+
 
 \title{\textsf{\bfseries Even-odd Multigrid Solver: for M\"obius Domainwall Fermion}}
 \author{CHEN, Wei-Lun}
@@ -551,10 +567,25 @@ left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$
 \bottomrule
 \end{tabular}
 \end{center}
-In words: (i) put $O_Rr$ on the whole lattice, restrict, solve with the adjoint Pauli--Villars
-coarse operator, prolong; (ii) take the even part, multiply by $O_M$, put it back on the whole
-lattice, restrict, solve with the quark coarse operator, prolong; (iii) take the even part and
-multiply by $O_L$ (Fig.~\ref{fig:correction}). The coarse operators are always those of the plain
+Algorithm~\ref{alg:corr} lists the steps, and Fig.~\ref{fig:correction} shows them on the three
+lattices.
+\begin{algo}{alg:corr}{Factorized coarse-grid correction}
+\AIn{residual $|r\rangle$ on the even sites}
+\AOut{correction $|e\rangle$}
+\AReq{prolongation $\Pro$; coarse solvers for $\Pro\dg\Dpv\dg\Pro$ and $\Dc$; $O_R$, $O_M$, $O_L$ of the table}
+\begin{steps}
+\item $|w\rangle:=\iota\,O_R|r\rangle$\Cm{to the whole lattice}
+\item $|w_c\rangle:=\Pro\dg|w\rangle$\Cm{restriction}
+\item $|u_c\rangle:=(\Pro\dg\Dpv\dg\Pro)^{-1}|w_c\rangle$\Cm{Pauli--Villars coarse solve}
+\item $|u\rangle:=\Pro|u_c\rangle$\Cm{prolongation}
+\item $|g\rangle:=\iota\,O_M\,\pi|u\rangle$\Cm{even part, site factor, whole lattice}
+\item $|g_c\rangle:=\Pro\dg|g\rangle$\Cm{restriction}
+\item $|v_c\rangle:=\Dc^{-1}|g_c\rangle$\Cm{quark coarse solve}
+\item $|v\rangle:=\Pro|v_c\rangle$\Cm{prolongation}
+\item $|e\rangle:=O_L\,\pi|v\rangle$\Cm{even part, site factor}
+\end{steps}
+\end{algo}
+The coarse operators are always those of the plain
 $D$ and $\Dpv$, so one setup serves both forms and every $\alpha$.
 
 \begin{figure}[htbp]
@@ -787,12 +818,17 @@ grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_
 t_j$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
 coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
 diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$ ($Q_{\ell+1}$ in the note). The
-preconditioner $M_\ell$ on level $\ell$ is defined from the one below:
-\begin{align}
-z&=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg\,r &&\text{(restrict, precondition one level down, prolong)}\nonumber\\
-M_\ell\,r&=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big) &&\text{(one block-Jacobi step on the residual)}
-\end{align}
-and on the last level $M_\ell=\mathcal D_\ell^{-1}$, inverted densely. This brings the coarse cost down to about 50 applications per
+preconditioner $M_\ell$ on level $\ell$ is defined from the one below (Algorithm~\ref{alg:vcycle}).
+\begin{algo}{alg:vcycle}{Preconditioner $M_\ell$ on level $\ell$ (V-cycle)}
+\AIn{vector $|r\rangle$ on level $\ell$}
+\AOut{$M_\ell|r\rangle$}
+\AReq{$\mathcal D_\ell$, its diagonal blocks $B_\ell$, the prolongation $\Pro_{\ell+1}$}
+\begin{steps}
+\item \kw{if} $\ell$ is the last level \kw{then} \kw{return} $\mathcal D_\ell^{-1}|r\rangle$\Cm{dense inverse}
+\item $|z\rangle:=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg|r\rangle$\Cm{restrict, recurse, prolong}
+\item \kw{return} $|z\rangle+B_\ell^{-1}\big(|r\rangle-\mathcal D_\ell|z\rangle\big)$\Cm{one block-Jacobi step}
+\end{steps}
+\end{algo} This brings the coarse cost down to about 50 applications per
 correction.
 
 % ======================================================================
@@ -807,23 +843,27 @@ The $y_j$ should approximate the low right singular vectors of $\AR$, i.e.\ the 
 $H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm
 hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
 $[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. Collect the $n_f$ vectors as the columns of $\mathcal Y=(y_1,\dots,y_{n_f})$ ($X$ in the note's
-Algorithm~1). One round:
-\begin{align}
-\mathcal Y&\leftarrow T_d\big(\ell(H_n)\big)\mathcal Y &&\text{(recurrence below)}\nonumber\\
-\mathcal Y&\leftarrow\text{orthonormalize }\mathcal Y\nonumber\\
-G&=\mathcal Y\dg H_n\mathcal Y=V\Theta V\dg,\quad \mathcal Y\leftarrow\mathcal YV &&\text{(Rayleigh--Ritz)}\nonumber\\
-\lambda_{\rm lo}&\leftarrow\theta_{\max} .
-\end{align}
+Algorithm~1). One round is Algorithm~\ref{alg:filter}.
+\begin{algo}{alg:filter}{One round of the Chebyshev filter}
+\AIn{$\mathcal Y=(|y_1\rangle,\dots,|y_{n_f}\rangle)$; interval $[\lambda_{\rm lo},\lambda_{\rm hi}]$}
+\AOut{filtered and rotated $\mathcal Y$; new $\lambda_{\rm lo}$}
+\AReq{$H_n=\AR\dg\AR$; $L=\ell(H_n)$}
+\begin{steps}
+\item $d:=1.5\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$, kept between $40$ and $1000$\Cm{degree}
+\item $\mathcal Y_0:=\mathcal Y$;\quad $\mathcal Y_1:=L\mathcal Y$
+\item \kw{for} $k=1,\dots,d-1$ \kw{do} $\mathcal Y_{k+1}:=2L\,\mathcal Y_k-\mathcal Y_{k-1}$ \kw{end}\Cm{three-term recurrence}
+\item $\mathcal Y:=\mathcal Y_d$\Cm{$=T_d(L)\mathcal Y$, $d$ applications of $H_n$}
+\item orthonormalize $\mathcal Y$
+\item $G:=\mathcal Y\dg H_n\mathcal Y=V\Theta V\dg$;\quad $\mathcal Y:=\mathcal YV$\Cm{Rayleigh--Ritz}
+\item $\lambda_{\rm lo}:=\theta_{\max}$
+\end{steps}
+\end{algo}
 $G$ is the $n_f\times n_f$ matrix of $H_n$ in the span of $\mathcal Y$; its eigenvalues
 $\theta_1\le\dots\le\theta_{\max}$ (the Ritz values) estimate the $n_f$ lowest eigenvalues of
 $H_n$, and $\mathcal YV$ the eigenvectors. Setting $\lambda_{\rm lo}=\theta_{\max}$ makes the
-next round damp everything above the span already found and amplify what lies below it. The
-filter is applied without the coefficients of the polynomial. With $L=\ell(H_n)$,
-\begin{equation}
-T_0(L)\mathcal Y=\mathcal Y,\qquad T_1(L)\mathcal Y=L\mathcal Y,\qquad
-T_{k+1}(L)\mathcal Y=2L\,T_k(L)\mathcal Y-T_{k-1}(L)\mathcal Y ,
-\end{equation}
-so $T_d(L)\mathcal Y$ costs $d$ applications of $H_n$ per column.
+next round damp everything above the span already found and amplify what lies below it. Lines
+2--3 apply the filter without the coefficients of the polynomial, through
+$T_{k+1}(L)=2L\,T_k(L)-T_{k-1}(L)$ with $T_0=1$, $T_1=L$.
 
 \paragraph{How much the filter amplifies, and the degree.} For $|t|\ge1$,
 $|T_d(t)|=\cosh\!\big(d\operatorname{arccosh}|t|\big)$. A mode with $x$ just below $\lambda_{\rm lo}$
@@ -851,9 +891,19 @@ second round has degree 40 and damps only the top two thirds of the spectrum. Th
 the bootstrap does most of the work.
 
 \subsection{Bootstrap}
-Each round builds $\Pro$ and the cycle $\mathcal M$ from the current $y$, replaces every $y_j$ by four
-steps of FGMRES on $\AR x=y_j$ from $x=0$ preconditioned by $\mathcal M$, and orthonormalizes $y$
-through its Gram matrix. To see why this works, write $y_j$ in eigenvectors of the preconditioned operator. The
+Each round is Algorithm~\ref{alg:boot}.
+\begin{algo}{alg:boot}{One bootstrap round}
+\AIn{vectors $|y_1\rangle,\dots,|y_n\rangle$ on the even sites}
+\AOut{improved $|y_j\rangle$}
+\begin{steps}
+\item lift each $|y_j\rangle$ to $|s_j\rangle$ and $|\hat t_j\rangle$\Cm{Sec.~\ref{sec:exact}}
+\item split by chirality, orthonormalize per block (CholeskyQR2): $\Pro$\Cm{Secs.~\ref{sec:agg}--\ref{sec:exact}}
+\item probe $\Dc$ and $\Dcpv$; build the levels below\Cm{Secs.~\ref{sec:probe}, \ref{sec:coarsesolve}}
+\item build the cycle $\mathcal M$\Cm{Algorithm~\ref{alg:cycle}}
+\item \kw{for} each $j$ \kw{do} $|y_j\rangle:=$ four steps of FGMRES on $\AR|x\rangle=|y_j\rangle$ from $|x\rangle=0$ with $\mathcal M$ \kw{end}
+\item orthonormalize the $|y_j\rangle$ through their Gram matrix
+\end{steps}
+\end{algo} To see why this works, write $y_j$ in eigenvectors of the preconditioned operator. The
 cycle already handles the components inside its coarse space, and FGMRES with it removes them
 first; what remains, and is therefore amplified relative to the rest, is what the coarse space
 misses. In HMC the levels below are used from the second round on (in the first, on the filtered
@@ -872,14 +922,19 @@ object, about 4.7\,GB.
 % ======================================================================
 \section{The Chebyshev smoother and the cycle (note Sec.~III.D)}
 \label{sec:cycle}
-One cycle $y=\mathcal Mb$ is
-\begin{align}
-y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\nonumber\\
-r&\leftarrow b-\tilde Ay\nonumber\\
-y&\leftarrow y+e(r) &&\text{(coarse correction)}\nonumber\\
-r&\leftarrow b-\tilde Ay\nonumber\\
-y&\leftarrow y+p(\tilde A)\,r &&\text{(post-smoothing)}.
-\end{align}
+One cycle is Algorithm~\ref{alg:cycle}.
+\begin{algo}{alg:cycle}{Multigrid cycle}
+\AIn{source vector $|b\rangle$ on the even sites}
+\AOut{$|y\rangle=\mathcal M|b\rangle$}
+\AReq{Chebyshev smoother $p(\tilde A)$ (Algorithm~\ref{alg:cheb}); coarse correction $E$ (Algorithm~\ref{alg:corr})}
+\begin{steps}
+\item $|y\rangle:=p(\tilde A)|b\rangle$\Cm{pre-smoothing}
+\item $|r\rangle:=|b\rangle-\tilde A|y\rangle$
+\item $|y\rangle:=|y\rangle+E|r\rangle$\Cm{coarse correction}
+\item $|r\rangle:=|b\rangle-\tilde A|y\rangle$
+\item $|y\rangle:=|y\rangle+p(\tilde A)|r\rangle$\Cm{post-smoothing}
+\end{steps}
+\end{algo}
 
 
 \paragraph{Cost of one cycle.} Count the applications of $\tilde A$: the pre-smoothing ($\nu$
@@ -936,8 +991,22 @@ the two sides,
 d_k=\rho_k\rho_{k-1}\,d_{k-1}+\frac{2\rho_k}{\delta}\,r_k .
 \end{equation}
 The first step: $R_1=T_1(t)/T_1(\sigma)=t/\sigma=1-\lambda/\theta$, so $x_1=b/\theta$ and
-$d_0=r_0/\theta$. These are the updates of the code (\code{BlasChebyshevStep}): $\nu$ steps cost
-$\nu-1$ applications of $\tilde A$, and the polynomial is fixed, so the smoother is a linear map.
+$d_0=r_0/\theta$. Algorithm~\ref{alg:cheb} collects these updates, as in the code
+(\code{BlasChebyshevStep}): $\nu$ steps cost $\nu-1$ applications of $\tilde A$, and the polynomial
+is fixed, so the smoother is a linear map.
+\begin{algo}{alg:cheb}{Chebyshev smoother, $\nu$ steps from $|x\rangle=0$}
+\AIn{source vector $|b\rangle$; $\nu$; $\theta$, $\delta$, $\sigma=\theta/\delta$ of the interval}
+\AOut{$|x\rangle=p(\tilde A)|b\rangle$}
+\begin{steps}
+\item $\rho_0:=1/\sigma$;\quad $|r\rangle:=|b\rangle$;\quad $|d\rangle:=|r\rangle/\theta$;\quad $|x\rangle:=|d\rangle$
+\item \kw{for} $k=1,\dots,\nu-1$ \kw{do}
+\item \Ind $|r\rangle:=|r\rangle-\tilde A|d\rangle$\Cm{the one application of $\tilde A$}
+\item \Ind $\rho_k:=1/(2\sigma-\rho_{k-1})$
+\item \Ind $|d\rangle:=\rho_k\rho_{k-1}|d\rangle+(2\rho_k/\delta)\,|r\rangle$
+\item \Ind $|x\rangle:=|x\rangle+|d\rangle$
+\item \kw{end}
+\end{steps}
+\end{algo}
 The runs use $\nu=8$, $\kappa_s=10$ with stout links ($M_5=1$) and $\nu=12$, $\kappa_s=30$ without
 ($M_5=1.8$).
 
@@ -949,23 +1018,30 @@ $\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves s
 residual test, it changes from one application to the next, so the method must be flexible: it
 keeps the preconditioned directions $z_i$ themselves.
 
-One step of GCR($k$), from the residual $|r_i\rangle=|\rho\rangle-\tilde A|y_i\rangle$, with $j$
-running over the last $k$ kept pairs:
-\begin{align}
-|z_i\rangle&=\mathcal M|r_i\rangle &&\text{(one cycle)}\nonumber\\
-|q_i\rangle&=\tilde A|z_i\rangle &&\text{(one application of }\tilde A)\nonumber\\
-\gamma_{ij}&=\frac{\langle q_j|q_i\rangle}{\langle q_j|q_j\rangle},\quad
-|q_i\rangle\leftarrow|q_i\rangle-\sum_j\gamma_{ij}|q_j\rangle,\quad
-|z_i\rangle\leftarrow|z_i\rangle-\sum_j\gamma_{ij}|z_j\rangle\nonumber\\
-\beta_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\nonumber\\
-|y_{i+1}\rangle&=|y_i\rangle+\beta_i|z_i\rangle,\qquad |r_{i+1}\rangle=|r_i\rangle-\beta_i|q_i\rangle .
-\end{align}
-The third line applies the projector $1-\sum_j|q_j\rangle\langle q_j|/\langle q_j|q_j\rangle$ to
-$|q_i\rangle$, so the kept $|q_j\rangle$ are mutually orthogonal, and the same combination of the
-$|z_j\rangle$ keeps $\tilde A|z_i\rangle=|q_i\rangle$ true. The step length $\beta_i$ ($\gamma$ and $\beta$ as in the note's Algorithm~4, which also normalizes
-each $|q_i\rangle$) minimizes
-$\big\||r_i\rangle-\beta|q_i\rangle\big\|$: it removes from $|r_i\rangle$ its component along
-$|q_i\rangle$, and $|r_{i+1}\rangle=|\rho\rangle-\tilde A|y_{i+1}\rangle$ holds exactly. With $k=2$
+\begin{algo}{alg:gcr}{Flexible GCR($k$)}
+\AIn{source vector $|\rho\rangle$; $k$; tolerance $\epsilon$}
+\AOut{$|y\rangle$ with $\||\rho\rangle-\tilde A|y\rangle\|^2<\epsilon\,\langle\rho|\rho\rangle$}
+\AReq{cycle $\mathcal M$ (Algorithm~\ref{alg:cycle})}
+\begin{steps}
+\item $|y\rangle:=0$;\quad $|r\rangle:=|\rho\rangle$
+\item \kw{while} $\langle r|r\rangle\ge\epsilon\,\langle\rho|\rho\rangle$ \kw{do}
+\item \Ind $|z\rangle:=\mathcal M|r\rangle$\Cm{one cycle}
+\item \Ind $|q\rangle:=\tilde A|z\rangle$
+\item \Ind \kw{for} each of the last $k$ kept pairs $(|z_j\rangle,|q_j\rangle)$ \kw{do}
+\item \Ind\Ind $\gamma_j:=\langle q_j|q\rangle/\langle q_j|q_j\rangle$;\quad $|q\rangle:=|q\rangle-\gamma_j|q_j\rangle$;\quad $|z\rangle:=|z\rangle-\gamma_j|z_j\rangle$
+\item \Ind \kw{end}
+\item \Ind $\beta:=\langle q|r\rangle/\langle q|q\rangle$
+\item \Ind $|y\rangle:=|y\rangle+\beta|z\rangle$;\quad $|r\rangle:=|r\rangle-\beta|q\rangle$
+\item \Ind keep $(|z\rangle,|q\rangle)$
+\item \kw{end}
+\end{steps}
+\end{algo}
+Line~6 applies the projector $1-\sum_j|q_j\rangle\langle q_j|/\langle q_j|q_j\rangle$ to
+$|q\rangle$, so the kept $|q_j\rangle$ are mutually orthogonal, and the same combination of the
+$|z_j\rangle$ keeps $\tilde A|z\rangle=|q\rangle$ true. The step length $\beta$ of line~8 ($\gamma$ and
+$\beta$ as in the note's Algorithm~4, which also normalizes each $|q\rangle$) minimizes
+$\big\||r\rangle-\beta|q\rangle\big\|$: it removes from $|r\rangle$ its component along
+$|q\rangle$, and $|r\rangle=|\rho\rangle-\tilde A|y\rangle$ holds exactly after line~9. With $k=2$
 (GCR(2)) the code keeps $k+1=3$ pairs $(z,q)$ and the residual, seven fields on the even sites, at
 the price of no optimality over the whole Krylov space.
 
@@ -1051,15 +1127,22 @@ and $\iota$, and with Eq.~\eqref{eq:Sinv}
 S^{-\dagger}=\pi D^{-\dagger}\iota\approx\pi\Gfive D^{-1}\Gfive\iota=\Gfive\,\pi D^{-1}\iota\,\Gfive
 =\Gfive S^{-1}\Gfive .
 \end{equation}
-The solve of $D\dg w=r$:
-\begin{align}
-r'_e&=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o &&\text{so that }S\dg w_e=r'_e,\nonumber\\
-w_e&=(\Ce\dg)^{-1}z &&\Longrightarrow\ S\dg(\Ce\dg)^{-1}z=r'_e\ \Longleftrightarrow\ \mathcal K\dg z=r'_e,\nonumber\\
-z&=\text{GCR on }\mathcal K\dg\text{ with preconditioner }\Ce\dg\,\Gfive S^{-1}\Gfive,\nonumber\\
-S^{-1}t&\approx\Ce^{-1}\,\mathcal M\,(\Spv\Cpve^{-1})\dg t &&\text{(one cycle of }\AR),\nonumber\\
-w_e&=(\Ce\dg)^{-1}z,\qquad w_o=(\Co\dg)^{-1}\big(r_o-D_{eo}\dg w_e\big).
-\end{align}
-The line $\mathcal K\dg z=r'_e$ uses $\mathcal K=\Ce^{-1}S$: $\mathcal K\dg=S\dg(\Ce\dg)^{-1}$. The approximation for $S^{-1}$
+The solve of $D\dg|w\rangle=|r\rangle$ is Algorithm~\ref{alg:dag}.
+\begin{algo}{alg:dag}{Solve with $D\dg$ through the multigrid of $D$}
+\AIn{source vector $|r\rangle=(|r_e\rangle,|r_o\rangle)$}
+\AOut{$|w\rangle=D^{-\dagger}|r\rangle$}
+\AReq{cycle $\mathcal M$ of $\AR$ (Algorithm~\ref{alg:cycle}), the same setup as for $D$}
+\begin{steps}
+\item $|r'_e\rangle:=|r_e\rangle-D_{oe}\dg(\Co\dg)^{-1}|r_o\rangle$\Cm{then $S\dg|w_e\rangle=|r'_e\rangle$}
+\item solve $\mathcal K\dg|z\rangle=|r'_e\rangle$ by GCR (Algorithm~\ref{alg:gcr}); its preconditioner maps $|t\rangle$ to
+\item \Ind $|t_1\rangle:=(\Spv\Cpve^{-1})\dg\,\Gfive|t\rangle$\Cm{right-hand side of $\AR$}
+\item \Ind $|t_2\rangle:=\Ce^{-1}\mathcal M|t_1\rangle$\Cm{one cycle: $\approx S^{-1}\Gfive|t\rangle$}
+\item \Ind $\Ce\dg\,\Gfive|t_2\rangle$\Cm{$\approx\Ce\dg\Gfive S^{-1}\Gfive|t\rangle$}
+\item $|w_e\rangle:=(\Ce\dg)^{-1}|z\rangle$
+\item $|w_o\rangle:=(\Co\dg)^{-1}\big(|r_o\rangle-D_{eo}\dg|w_e\rangle\big)$
+\end{steps}
+\end{algo}
+Line~2 uses $\mathcal K=\Ce^{-1}S$: $\mathcal K\dg=S\dg(\Ce\dg)^{-1}$. The approximation for $S^{-1}$
 comes from Eq.~\eqref{eq:ARinv}: $S^{-1}=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg$. In the
 preconditioner, $(\Spv\Cpve^{-1})\dg t$ is the right-hand side of $\AR$ for the source $(t,0)$ (no
 odd part), so it is applied directly as one adjoint Schur factor of $\Dpv$. Each GCR step costs
