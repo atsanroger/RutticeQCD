@@ -703,7 +703,7 @@ $24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse
 grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_j$, $\Pro\dg\hat
 t_j$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
 coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
-diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$. The
+diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$ ($Q_{\ell+1}$ in the note). The
 preconditioner $M_\ell$ on level $\ell$ is defined from the one below:
 \begin{align}
 z&=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg\,r &&\text{(restrict, precondition one level down, prolong)}\nonumber\\
@@ -723,7 +723,8 @@ levels. It always uses the right form.
 The $y_j$ should approximate the low right singular vectors of $\AR$, i.e.\ the low eigenvectors of
 $H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm
 hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
-$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. Collect the $n_f$ vectors as the columns of $\mathcal Y=(y_1,\dots,y_{n_f})$. One round:
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. Collect the $n_f$ vectors as the columns of $\mathcal Y=(y_1,\dots,y_{n_f})$ ($X$ in the note's
+Algorithm~1). One round:
 \begin{align}
 \mathcal Y&\leftarrow T_d\big(\ell(H_n)\big)\mathcal Y &&\text{(recurrence below)}\nonumber\\
 \mathcal Y&\leftarrow\text{orthonormalize }\mathcal Y\nonumber\\
