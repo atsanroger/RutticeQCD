@@ -52,7 +52,7 @@
 \contentsline {section}{\numberline {8}Solving with $D^{\dagger }$ (note Sec.~IV)}{16}{section.8}%
 \contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{16}{subsection.8.1}%
 \contentsline {subsection}{\numberline {8.2}On the even sites, step by step (note Sec.~IV.B)}{17}{subsection.8.2}%
-\contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.D)}{17}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.C)}{17}{subsection.8.3}%
 \contentsline {section}{\numberline {9}HMC}{18}{section.9}%
 \contentsline {subsection}{\numberline {9.1}What we want to compute}{18}{subsection.9.1}%
 \contentsline {paragraph}{The Pauli--Villars ratio.}{18}{section*.25}%

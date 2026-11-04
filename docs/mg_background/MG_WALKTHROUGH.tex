@@ -662,9 +662,7 @@ and solves the Tikhonov-regularized normal equation by CG on all coarse sites, w
 \begin{equation}
 \big(X\dg X+\tau\big)\,w=X\dg g,\qquad \tau=10^{-3}.
 \end{equation}
-The note (Sec.~III.B.2) gives two other treatments, the exact adjoint and MINRES on a
-$\Sigma$-Hermitian form; the code's default is the regularized normal equation above. To see what
-the shift does, write the singular value decomposition $X=\sum_k\sigma_ku_kv_k\dg$ ($\sigma_k>0$,
+To see what the shift does, write the singular value decomposition $X=\sum_k\sigma_ku_kv_k\dg$ ($\sigma_k>0$,
 the $u_k$ and the $v_k$ orthonormal). The exact solution is $w=\sum_k\sigma_k^{-1}(u_k\dg g)\,v_k$; the
 regularized one is
 \begin{equation}
@@ -673,7 +671,7 @@ w_\tau=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,(u_k\dg g)\,v_k
 \end{equation}
 so each component is multiplied by $\sigma_k^2/(\sigma_k^2+\tau)$: close to $1$ for
 $\sigma_k\gg\sqrt\tau$, close to $\sigma_k^2/\tau$ for $\sigma_k\ll\sqrt\tau$. With stout smearing
-the Galerkin factor has singular values far below those of the fine $\Dpv$; the
+the Galerkin factor has singular values far below those of the fine $\Dpv$ (note Sec.~V.C.3); the
 exact solve would amplify those directions by $1/\sigma_k$, and the shift caps the amplification at
 $1/(2\sqrt\tau)$. CG on $X\dg X+\tau$ needs one application of $X$ and one of $X\dg$ per iteration.
 Both factors stop at $|r|^2/|b|^2<10^{-2}$ (for the Pauli--Villars factor, the residual of the normal
@@ -922,7 +920,7 @@ one cycle, as for $D$.
 
 % ======================================================================
 
-\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.D)}
+\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.C)}
 \label{sec:dminus}
 The exact relation of Sec.~\ref{sec:g5} contains $D_-$, and one could try to solve with $D\dg$
 through $D$ exactly by inverting $D_-$. Rewrite it:
