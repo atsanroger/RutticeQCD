@@ -5,6 +5,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{geometry}
+\usepackage{xr-hyper}
 \usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
 \usepackage{xcolor}
 \usepackage{tikz}
@@ -13,6 +14,7 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.6ex}
 \numberwithin{equation}{section}
+\externaldocument[N-]{MDWF_MULTIGRID_NOTE}
 
 \newcommand{\dg}{^{\dagger}}
 \newcommand{\Dpv}{D_{\mathrm{PV}}}
@@ -737,7 +739,7 @@ O_R|r\rangle&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}|y\rangle\nonumber\\
 |e\rangle=O_L\pi|s\rangle&=\Ce\Ce^{-1}|y\rangle=|y\rangle .
 \end{align}
 So the correction inverts $\AR$ exactly on the span of the $y_j$. In practice $\Pro$ is in half
-precision and the coarse solves are inexact (relative residual $10^{-1}$), and the left form is
+precision and the coarse solves are inexact ($|r|^2/|b|^2<10^{-2}$), and the left form is
 not exact at all; the cycle converges nonetheless.
 
 
@@ -1131,7 +1133,7 @@ c\,\big|\langle w_k|[Y,W]|u_l\rangle\big|\ll|\lambda_k|\qquad\text{for the low m
 \end{equation}
 and then $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs only a few more steps than for the
 identity. This is an argument, not a bound: the matrix elements have not been computed, and the
-iteration counts are the test. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~1), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
+iteration counts are the test. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~\ref{N-tab:setups}), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
 \subsection{On the even sites (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
@@ -1316,9 +1318,9 @@ parameter that selects them, and the section of the note that compares them wher
   \end{itemize}
 \item The Pauli--Villars coarse solve (\code{Coarse\_Solver\_PV})
   \begin{itemize}
-  \item CG on the regularized normal equation, $\tau=10^{-3}$ (\code{tikhonov\_epsilon}): default
-  \item MINRES on the $\Sigma$-Hermitian form, exact only for $c=0$ (\code{solver\_type: MINRES})
-  \item compared in the note, Sec.~V.C.3
+  \item CG on the regularized normal equation, $\tau=10^{-3}$ (\code{solver\_type: CG}, \code{tikhonov\_epsilon}): default
+  \item BiCGStab or GCR on the exact adjoint, without the shift (\code{solver\_type: BiCGStab}, \code{GCR}): the note compares it with the default (Sec.~\ref{N-sec:pvcoarse})
+  \item MINRES on the $\Sigma$-Hermitian form, exact only for $c=0$ (\code{solver\_type: MINRES}): kept in the code, not compared in the note
   \end{itemize}
 \item The quark coarse solve (\code{Coarse\_Solver\_D})
   \begin{itemize}
@@ -1328,7 +1330,7 @@ parameter that selects them, and the section of the note that compares them wher
 \item The smoother (\code{Smoother})
   \begin{itemize}
   \item Chebyshev, $\nu=8$ steps on $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$: default, for setup~S
-  \item $\nu=12$ on $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: setup~B (note Table~1; the sensitivity in Sec.~V.C.4)
+  \item $\nu=12$ on $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: setup~B (note Table~\ref{N-tab:setups}; the sensitivity in Sec.~V.C.4)
   \end{itemize}
 \item The setup (\code{Setup})
   \begin{itemize}
