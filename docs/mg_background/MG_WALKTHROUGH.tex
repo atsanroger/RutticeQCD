@@ -92,8 +92,10 @@ so its eigenvalues are $\pm(\sum_\mu\sin^2p_\mu)^{1/2}$. The eigenvalues of $W$ 
 w(p)=-M_5+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2}.
 \label{eq:wfree}
 \end{equation}
-Their real parts run from $-M_5$ ($p=0$) to $8-M_5$ ($p_\mu=\pi$); the zeros of the real part at
-small $|p|$ are the physical domain-wall modes.
+Their real parts run from $-M_5$ ($p=0$) to $8-M_5$ ($p_\mu=\pi$). A mode bound to the walls
+exists only where the real part is negative. At the corner with $n$ of the four $p_\mu$ equal to
+$\pi$ and the others $0$ the real part is $2n-M_5$, so for $0<M_5<2$ only the region around $p=0$
+qualifies: the walls carry one light quark and no doublers.
 
 \subsection{The operator in Brower--Neff--Orginos form (note Sec.~II.B.1)}
 With $b$, $c$ the M\"obius parameters, define
@@ -227,7 +229,8 @@ and multiplying by $D_-\Gfive$ from the left,
 \boxed{\;D_-\,\Gfive\,D\dg=D\,\Gfive\,D_-\dg\;}
 \end{equation}
 with no inverse left. $D_-$ itself cannot be inverted in practice: $D_-=c(W-1/c)$ is $c$ times a
-Wilson operator of mass $-M_5-1/c=-3$, whose spectrum surrounds the origin (GCR stalls at
+Wilson operator of mass $-M_5-1/c$ ($-3$ for $M_5=1$, $c=0.5$), whose spectrum surrounds the
+origin (Sec.~\ref{sec:dminus}) (GCR stalls at
 $|r|^2/|b|^2\approx0.74$).
 
 
@@ -659,7 +662,10 @@ and solves the Tikhonov-regularized normal equation by CG on all coarse sites, w
 \begin{equation}
 \big(X\dg X+\tau\big)\,w=X\dg g,\qquad \tau=10^{-3}.
 \end{equation}
-Write $X=\sum_k\sigma_ku_kv_k\dg$. The exact solution is $w=\sum_k\sigma_k^{-1}(u_k\dg g)\,v_k$; the
+The note (Sec.~III.B.2) gives two other treatments, the exact adjoint and MINRES on a
+$\Sigma$-Hermitian form; the code's default is the regularized normal equation above. To see what
+the shift does, write the singular value decomposition $X=\sum_k\sigma_ku_kv_k\dg$ ($\sigma_k>0$,
+the $u_k$ and the $v_k$ orthonormal). The exact solution is $w=\sum_k\sigma_k^{-1}(u_k\dg g)\,v_k$; the
 regularized one is
 \begin{equation}
 w_\tau=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,(u_k\dg g)\,v_k
@@ -667,7 +673,7 @@ w_\tau=\sum_k\frac{\sigma_k}{\sigma_k^2+\tau}\,(u_k\dg g)\,v_k
 \end{equation}
 so each component is multiplied by $\sigma_k^2/(\sigma_k^2+\tau)$: close to $1$ for
 $\sigma_k\gg\sqrt\tau$, close to $\sigma_k^2/\tau$ for $\sigma_k\ll\sqrt\tau$. With stout smearing
-the Galerkin factor has singular values far below those of the fine $\Dpv$ (note Sec.~V.C.3); the
+the Galerkin factor has singular values far below those of the fine $\Dpv$; the
 exact solve would amplify those directions by $1/\sigma_k$, and the shift caps the amplification at
 $1/(2\sqrt\tau)$. CG on $X\dg X+\tau$ needs one application of $X$ and one of $X\dg$ per iteration.
 Both factors stop at $|r|^2/|b|^2<10^{-2}$ (for the Pauli--Villars factor, the residual of the normal
@@ -676,12 +682,15 @@ equation).
 \paragraph{Levels below.} At small masses the coarse solves themselves become expensive (on
 $24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse sites are then
 grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg s_j$, $\Pro\dg\hat
-t_j$, and a V-cycle preconditions the coarse solve of the quark factor: with $Q_\ell$ the prolongation into
-level $\ell-1$ and $B_\ell$ its diagonal blocks,
-\begin{equation}
-z=Q_{\ell+1}M_{\ell+1}Q_{\ell+1}\dg r,\qquad M_\ell r=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big),
-\end{equation}
-the last level inverted densely. This brings the coarse cost down to about 50 applications per
+t_j$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
+coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
+diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$. The
+preconditioner $M_\ell$ on level $\ell$ is defined from the one below:
+\begin{align}
+z&=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg\,r &&\text{(restrict, precondition one level down, prolong)}\\
+M_\ell\,r&=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big) &&\text{(one block-Jacobi step on the residual)}
+\end{align}
+and on the last level $M_\ell=\mathcal D_\ell^{-1}$, inverted densely. This brings the coarse cost down to about 50 applications per
 correction.
 
 % ======================================================================
@@ -695,19 +704,23 @@ levels. It always uses the right form.
 The $y_j$ should approximate the low right singular vectors of $\AR$, i.e.\ the low eigenvectors of
 $H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm
 hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
-$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. One round on a block
-$X$ of $m$ vectors:
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. Collect the $n_f$ vectors as the columns of $\mathcal Y=(y_1,\dots,y_{n_f})$. One round:
 \begin{align}
-X&\leftarrow T_d\big(\ell(H_n)\big)X &&\text{(recurrence below)}\\
-X&\leftarrow\text{orthonormalize }X\\
-G&=X\dg H_nX=V\Theta V\dg,\quad X\leftarrow XV &&\text{(Rayleigh--Ritz)}\\
+\mathcal Y&\leftarrow T_d\big(\ell(H_n)\big)\mathcal Y &&\text{(recurrence below)}\\
+\mathcal Y&\leftarrow\text{orthonormalize }\mathcal Y\\
+G&=\mathcal Y\dg H_n\mathcal Y=V\Theta V\dg,\quad \mathcal Y\leftarrow\mathcal YV &&\text{(Rayleigh--Ritz)}\\
 \lambda_{\rm lo}&\leftarrow\theta_{\max} .
 \end{align}
-The filter is applied without the coefficients of the polynomial. With $L=\ell(H_n)$,
+$G$ is the $n_f\times n_f$ matrix of $H_n$ in the span of $\mathcal Y$; its eigenvalues
+$\theta_1\le\dots\le\theta_{\max}$ (the Ritz values) estimate the $n_f$ lowest eigenvalues of
+$H_n$, and $\mathcal YV$ the eigenvectors. Setting $\lambda_{\rm lo}=\theta_{\max}$ makes the
+next round damp everything above the span already found and amplify what lies below it. The
+filter is applied without the coefficients of the polynomial. With $L=\ell(H_n)$,
 \begin{equation}
-T_0(L)X=X,\qquad T_1(L)X=LX,\qquad T_{k+1}(L)X=2L\,T_k(L)X-T_{k-1}(L)X ,
+T_0(L)\mathcal Y=\mathcal Y,\qquad T_1(L)\mathcal Y=L\mathcal Y,\qquad
+T_{k+1}(L)\mathcal Y=2L\,T_k(L)\mathcal Y-T_{k-1}(L)\mathcal Y ,
 \end{equation}
-so $T_d(L)X$ costs $d$ applications of $H_n$.
+so $T_d(L)\mathcal Y$ costs $d$ applications of $H_n$ per column.
 
 \paragraph{How much the filter amplifies, and the degree.} For $|t|\ge1$,
 $|T_d(t)|=\cosh\!\big(d\operatorname{arccosh}|t|\big)$. A mode with $x$ just below $\lambda_{\rm lo}$
@@ -880,9 +893,11 @@ The factor $D_-$ cancels against $D_-^{-1}$:
 \boxed{\;D\dg\,\Gfive D^{-1}\Gfive=\Gfive\,(1-N)\,\Gfive,\qquad N=c\,[Y,W]\,D^{-1}\;}
 \end{equation}
 $[Y,W]=-\frac12[Y,K]$ is bounded (one hop in four dimensions, one in the fifth), so $N$ is large
-only on the low modes of $D$. There the commutator flips chirality and moves the mode to the other
-wall, out of the low-mode span, so $N^2$ is small and $(1-N)^{-1}\approx1+N$: GCR needs only a few
-more steps than for the identity. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S, GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
+only on the low modes of $D$. Write $N^2=c[Y,W]\,D^{-1}\,c[Y,W]\,D^{-1}$ and follow a low mode through it from the right. The
+first $D^{-1}$ amplifies it. The commutator flips its chirality and moves it to the other wall,
+out of the low-mode span. The second $D^{-1}$ therefore acts on a vector with little low-mode
+component and is not large. So $N^2$ is small and $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs
+only a few more steps than for the identity. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S, GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
 \subsection{On the even sites, step by step (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
@@ -907,7 +922,7 @@ one cycle, as for $D$.
 
 % ======================================================================
 
-\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.C)}
+\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.D)}
 \label{sec:dminus}
 The exact relation of Sec.~\ref{sec:g5} contains $D_-$, and one could try to solve with $D\dg$
 through $D$ exactly by inverting $D_-$. Rewrite it:
@@ -952,12 +967,18 @@ Z&=\int\mathcal DU\;e^{-S_g[U]}\,\det D[U]\,\det D[U]\\
 \end{align}
 where the second line uses that $\det D$ is real, so $(\det D)^2=\det D^*\det D=\det(D\dg D)$.
 That $\det D$ is real follows from the exact relation $D_-\Gfive D\dg=D\Gfive D_-\dg$ of
-Sec.~\ref{sec:dagger}, taking determinants ($\det\Gfive=\pm1$ cancels on both sides):
+Sec.~\ref{sec:g5}, taking determinants ($\det\Gfive=\pm1$ cancels on both sides):
 \begin{align}
 \det D_-\,\det D\dg&=\det D\,\det D_-\dg\\
 \det D_-\,(\det D)^*&=\det D\,(\det D_-)^*\\
-(\det D)^*&=\det D\qquad\big(\det D_-\ \text{is real: }D_-=cW-1\ \text{and}\ \gamma_5W\gamma_5=W\dg\big).
+(\det D)^*&=\det D .
 \end{align}
+The last step divides by $\det D_-$, which is real: since $\Gfive D_-\Gfive=D_-\dg$
+(Sec.~\ref{sec:g5}),
+\begin{equation}
+\det D_-=\det(\Gfive D_-\Gfive)=\det D_-\dg=(\det D_-)^* .
+\end{equation}
+
 So the problem is to generate gauge fields $U$ with the probability
 \begin{equation}
 P[U]\;\propto\;e^{-S_g[U]}\det\!\big(D\dg D\big)[U] .
@@ -1052,21 +1073,21 @@ Sampling $U$ with $P[U]\propto e^{-S[U]}$, $S=S_g+S_F$, by small random changes 
 accepted change moves one link a little. HMC moves all links at once along a long path, and still
 samples $P[U]$ exactly.
 
-\paragraph{Fictitious momenta.} For every link introduce a momentum $\pi_\mu(x)$, a traceless
+\paragraph{Fictitious momenta.} For every link introduce a momentum $\Pi_\mu(x)$, a traceless
 Hermitian $3\times3$ matrix, and the Hamiltonian
 \begin{equation}
-\mathcal H[U,\pi]=\tfrac12\sum_{x,\mu}\operatorname{tr}\pi_\mu(x)^2+S[U] .
+\mathcal H[U,\Pi]=\tfrac12\sum_{x,\mu}\operatorname{tr}\Pi_\mu(x)^2+S[U] .
 \end{equation}
-The joint distribution $e^{-\mathcal H}=e^{-\frac12\sum\operatorname{tr}\pi^2}\,e^{-S[U]}$ is a
-product: the momenta are Gaussian and independent of $U$. Sampling $(U,\pi)$ from $e^{-\mathcal
-H}$ and forgetting $\pi$ samples $U$ from $e^{-S}$.
+The joint distribution $e^{-\mathcal H}=e^{-\frac12\sum\operatorname{tr}\Pi^2}\,e^{-S[U]}$ is a
+product: the momenta are Gaussian and independent of $U$. Sampling $(U,\Pi)$ from $e^{-\mathcal
+H}$ and forgetting $\Pi$ samples $U$ from $e^{-S}$.
 
 \paragraph{One trajectory.}
 \begin{enumerate}
-\item Draw $\pi$ from its Gaussian and $\phi_e$ by the heat bath (below).
-\item Evolve $(U,\pi)$ for a fictitious time $\tau$ (here $\tau=1$) by Hamilton's equations,
+\item Draw $\Pi$ from its Gaussian and $\phi_e$ by the heat bath (below).
+\item Evolve $(U,\Pi)$ for a fictitious time $\tau$ (here $\tau=1$) by Hamilton's equations,
 \begin{equation}
-\dot U_\mu(x)=i\,\pi_\mu(x)\,U_\mu(x),\qquad \dot\pi_\mu(x)=-F_\mu(x),
+\dot U_\mu(x)=i\,\Pi_\mu(x)\,U_\mu(x),\qquad \dot\Pi_\mu(x)=-F_\mu(x),
 \end{equation}
 with the force $F$ the derivative of $S$ with respect to $U$ (below). Exactly solved, these
 conserve $\mathcal H$.
@@ -1076,13 +1097,13 @@ H_{\rm start}$; otherwise keep the old $U$ (the Metropolis test).
 \end{enumerate}
 \paragraph{Why the result is exact.} The test makes the method exact for any step size, provided
 the integrator has two properties: it is \emph{reversible} (running it with the momenta reversed
-brings $(U,-\pi)$ back) and it \emph{preserves volume} in $(U,\pi)$ space. Then the proposal
-$(U,\pi)\to(U',\pi')$ is as likely as its reverse, and the acceptance $\min(1,e^{-\Delta\mathcal H})$
+brings $(U,-\Pi)$ back) and it \emph{preserves volume} in $(U,\Pi)$ space. Then the proposal
+$(U,\Pi)\to(U',\Pi')$ is as likely as its reverse, and the acceptance $\min(1,e^{-\Delta\mathcal H})$
 gives detailed balance with $e^{-\mathcal H}$:
 \begin{align}
-e^{-\mathcal H(U,\pi)}\min\big(1,e^{-[\mathcal H(U',\pi')-\mathcal H(U,\pi)]}\big)
-&=\min\big(e^{-\mathcal H(U,\pi)},e^{-\mathcal H(U',\pi')}\big)\\
-&=e^{-\mathcal H(U',\pi')}\min\big(1,e^{-[\mathcal H(U,\pi)-\mathcal H(U',\pi')]}\big),
+e^{-\mathcal H(U,\Pi)}\min\big(1,e^{-[\mathcal H(U',\Pi')-\mathcal H(U,\Pi)]}\big)
+&=\min\big(e^{-\mathcal H(U,\Pi)},e^{-\mathcal H(U',\Pi')}\big)\\
+&=e^{-\mathcal H(U',\Pi')}\min\big(1,e^{-[\mathcal H(U,\Pi)-\mathcal H(U',\Pi')]}\big),
 \end{align}
 which is symmetric in the two states. A small step size only raises the acceptance.
 
@@ -1090,24 +1111,24 @@ which is symmetric in the two states. A small step size only raises the acceptan
 \paragraph{Leapfrog.} Split a step of size $\epsilon$ into half a momentum update, a full link
 update, and half a momentum update:
 \begin{align}
-\pi&\leftarrow\pi-\tfrac\epsilon2F(U),\\
-U&\leftarrow e^{i\epsilon\pi}U,\\
-\pi&\leftarrow\pi-\tfrac\epsilon2F(U).
+\Pi&\leftarrow\Pi-\tfrac\epsilon2F(U),\\
+U&\leftarrow e^{i\epsilon\Pi}U,\\
+\Pi&\leftarrow\Pi-\tfrac\epsilon2F(U).
 \end{align}
-Each of the three updates changes only $U$ or only $\pi$ by an amount that depends on the other
-one, so each is volume preserving (a shear), and the product of shears is too. Reversing $\pi$
+Each of the three updates changes only $U$ or only $\Pi$ by an amount that depends on the other
+one, so each is volume preserving (a shear), and the product of shears is too. Reversing $\Pi$
 and running the step again undoes it, update by update. The energy error after a trajectory is
 $O(\epsilon^2)$.
 
 \paragraph{Omelyan.} With a parameter $\lambda\approx0.193$,
 \begin{equation}
-\pi\leftarrow\pi-\lambda\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\pi}U,\quad
-\pi\leftarrow\pi-(1-2\lambda)\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\pi}U,\quad
-\pi\leftarrow\pi-\lambda\epsilon F .
+\Pi\leftarrow\Pi-\lambda\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\Pi}U,\quad
+\Pi\leftarrow\Pi-(1-2\lambda)\epsilon F,\quad U\leftarrow e^{i\frac\epsilon2\Pi}U,\quad
+\Pi\leftarrow\Pi-\lambda\epsilon F .
 \end{equation}
 It is still reversible and volume preserving, and $\lambda$ is chosen to make the leading error
 term about ten times smaller than that of leapfrog, at two force evaluations per step instead of
-one. $e^{i\epsilon\pi}$ is evaluated by its Taylor series (order 8 in the runs).
+one. $e^{i\epsilon\Pi}$ is evaluated by its Taylor series (order 8 in the runs).
 
 \paragraph{Nested steps.} The gauge force is cheap and the fermion force expensive. The runs use
 two levels: the fermion force with $n$ Omelyan steps, and within each of its link updates the gauge
@@ -1140,7 +1161,9 @@ e^{-|\xi_e|^2}$, and set
 \begin{equation}
 \phi_e=H_{\rm PV}\,(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\,\xi_e .
 \end{equation}
-Then $S_F=|\xi_e|^2$, so $\phi_e$ has the right distribution:
+This is $\phi_e=(H_{\rm PV}\dg)^{-1}H\dg\xi_e$, written through the normal equation so that CG
+can do the solve. Then $S_F=|\xi_e|^2$; the map $\xi_e\mapsto\phi_e$ is linear and does not depend
+on $\phi_e$, so its Jacobian is a constant and $\phi_e$ has the distribution $e^{-S_F}$:
 \begin{align}
 H_{\rm PV}\dg\phi_e&=H_{\rm PV}\dg H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e=H\dg\xi_e,\\
 S_F&=(H_{\rm PV}\dg\phi_e)\dg(H\dg H)^{-1}(H_{\rm PV}\dg\phi_e)\\
@@ -1163,7 +1186,9 @@ $\delta(M^{-1})=-M^{-1}(\delta M)M^{-1}$:
 &=2\,\Re\,(\delta \mathcal K_{\rm PV}\dg\chi)\dg v_2-v_2\dg\big(\delta \mathcal K\dg\,\mathcal K+\mathcal K\dg\,\delta \mathcal K\big)v_2\\
 &=2\,\Re\,\chi\dg\,\delta \mathcal K_{\rm PV}\,v_2-2\,\Re\,(\mathcal Kv_2)\dg\,\delta \mathcal K\,v_2 .
 \end{align}
-So one force evaluation needs exactly one solve, $v_2=(\mathcal K\dg \mathcal K)^{-1}v_1$; the rest are
+The fourth line uses that $(\mathcal K\dg\mathcal K)^{-1}$ is Hermitian, so
+$v_1\dg(\mathcal K\dg\mathcal K)^{-1}=v_2\dg$, and that $a\dg b+b\dg a=2\Re\,a\dg b$. So one force
+evaluation needs exactly one solve, $v_2=(\mathcal K\dg \mathcal K)^{-1}v_1$; the rest are
 multiplications. $\delta \mathcal K$ comes from the hops in $S$ alone ($\Ce$ does not depend on the links):
 for a variation of one link, only the hops through that link contribute, and the two terms above
 become a local outer product of $v_2$, $\mathcal Kv_2$ and $\chi$ at the two ends of the link. With stout
@@ -1210,7 +1235,9 @@ solves are repeated on the residual of the normal equation (iterative refinement
 r^{(k)}&=b-\mathcal K\dg\mathcal Kz^{(k)},\\
 z^{(k+1)}&=z^{(k)}+\mathcal K^{-1}\mathcal K^{-\dagger}r^{(k)} ,
 \end{align}
-each sweep gaining about ten digits, at most eleven sweeps. With $\alpha$ the solve with $D$ uses
+where $\mathcal K^{-1}\mathcal K^{-\dagger}r^{(k)}$ stands for the two inexact solves above. If
+they reduce the residual by a factor $\epsilon$, then $|r^{(k+1)}|\lesssim\epsilon|r^{(k)}|$,
+and each sweep gains about ten digits; the code allows at most eleven sweeps. With $\alpha$ the solve with $D$ uses
 $D^{-1}=QD^{(\alpha)-1}$ (the left form $\AL^{(\alpha)}$); the solve with $D\dg$ is unchanged, since
 $D^{(\alpha)\dagger}=QD\dg$ only rescales its right-hand side.
 
