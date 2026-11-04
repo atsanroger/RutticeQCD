@@ -51,10 +51,52 @@ Nothing here is new with respect to the note and the code.
 
 \tableofcontents
 
+\section*{Symbols}
+\addcontentsline{toc}{section}{Symbols}
+The symbols in the order they appear, with the section that defines them. Where the note writes
+a symbol differently, its name is in the last column.
+\begin{center}
+\small
+\begin{tabular}{@{}lp{0.52\linewidth}lc@{}}
+\toprule
+symbol & meaning & defined & note\\
+\midrule
+$P_\pm$, $K$, $W$, $M_5$ & chiral projectors, Wilson hop, Wilson operator of mass $-M_5$ & \ref{sec:ingr} & \\
+$b$, $c$, $m$, $L_s$, $s$ & M\"obius parameters, quark mass, fifth extent and index & \ref{sec:bno} & \\
+$D_\pm$, $D$ & $1+bW$, $cW-1$; the domain-wall operator & \ref{sec:bno} & \\
+$Y$, $C$, $d_\pm$ & fifth-dimension hop; site-diagonal part $d_++d_-Y$ & \ref{sec:split} & \\
+$\Dpv$, $\Cpv$ & $D$, $C$ at $m=1$ & \ref{sec:split} & \\
+$R$, $\Gfive$ & reflection $s\to L_s-1-s$; $\gamma_5R$ & \ref{sec:g5} & \\
+$K_D$ & $D_-^{-1}D_+-Y$, $\Gfive$-Hermitian & \ref{sec:g5} & \\
+$A'$, $X$ & $(\Dpv\Cpv^{-1})\dg DC^{-1}$; $X=\Dpv\Cpv^{-1}$ & \ref{sec:Aprime} & \\
+$Q$, $\alpha$ & Neff's rescaling and its parameter & \ref{sec:neff} & \\
+$\Ce,\Co,D_{eo},D_{oe}$ & even-odd blocks of $D$ & \ref{sec:eoblocks} & \\
+$S$ & Schur complement of $D$ on the even sites ($\Spv$: of $\Dpv$) & \ref{sec:schur} & \\
+$\iota$, $\pi$ & embed an even field; take the even part & \ref{sec:Sinv} & \\
+$\AR$, $\AL$ & right and left preconditioned forms & \ref{sec:pvforms} & \\
+$\mathcal K$, $\mathcal K^{(\alpha)}$ & left Schur factor $\Ce^{-1}S$, and with $\alpha$ & \ref{sec:pvforms} & \\
+$\Pro$, $\Dc$, $\Dcpv$ & prolongation; coarse operators $\Pro\dg D\Pro$, $\Pro\dg\Dpv\Pro$ & \ref{sec:factor} & \\
+$O_R,O_M,O_L$, $e$ & site-local factors of the correction; the correction & \ref{sec:factor} & \\
+$n_v$, $\Sigma$ & test vectors ($2n_v$ components per coarse site); their chirality signs & \ref{sec:agg} & \\
+$y_j$, $s$, $\hat t$, $a$ & setup vectors; their two lifts; $a=\pi Ds$ & \ref{sec:exact} & \\
+$\phi_{X,k}$, $A(X)$, $B^\pm_\mu(X)$ & basis vector on block $X$; diagonal and link blocks of $\Dc$ & \ref{sec:probe} & \\
+$\tau$ & shift of the regularized Pauli--Villars solve & \ref{sec:coarsesolve} & \\
+$\mathcal D_\ell$, $B_\ell$, $\Pro_\ell$ & operator, diagonal blocks, prolongation of level $\ell$ & \ref{sec:coarsesolve} & $Q_\ell$\\
+$H_n$, $\mathcal Y$, $\ell$, $T_d$ & $\AR\dg\AR$; filter block; interval map; Chebyshev polynomial & \ref{sec:filter} & $X$ for $\mathcal Y$\\
+$\mathcal M$, $\nu$, $\kappa_s$ & cycle; smoother steps; smoother interval ratio & \ref{sec:cycle} & \\
+$z_i$, $q_i$, $\gamma_{ij}$, $\beta_i$ & GCR directions, $\tilde Az_i$, orthogonalization, step length & \ref{sec:gcr} & \\
+$N$ & $c[Y,W]D^{-1}$, the error of $\Gfive D^{-1}\Gfive$ for $D\dg$ & \ref{sec:c4} & \\
+$\mathcal A$, $W(\mathcal A)$, $\kappa_\lambda$ & $\tilde A\mathcal M$; field of values; eigenvalue condition number & \ref{sec:why} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
 % ======================================================================
 \section{The operator and Pauli--Villars preconditioning (note Sec.~II.B)}
 
 \subsection{Ingredients}
+\label{sec:ingr}
 The field $\psi$ lives on the four-dimensional lattice and carries a fifth index
 $s=0,\dots,L_s-1$; each $\psi_s$ is a Dirac field. The chiral projectors are
 \begin{equation}
@@ -98,6 +140,7 @@ $\pi$ and the others $0$ the real part is $2n-M_5$, so for $0<M_5<2$ only the re
 qualifies: the walls carry one light quark and no doublers.
 
 \subsection{The operator in Brower--Neff--Orginos form (note Sec.~II.B.1)}
+\label{sec:bno}
 With $b$, $c$ the M\"obius parameters, define
 \begin{equation}
 D_+=1+bW,\qquad D_-=cW-1 .
@@ -121,6 +164,7 @@ The physical quark field is $q=\Pm\psi_0+\Pp\psi_{L_s-1}$; the runs use $b=1.5$,
 $L_s=8$.
 
 \subsection{Splitting off the fifth-dimension hop}
+\label{sec:split}
 Define the hop in the fifth dimension, with a minus sign,
 \begin{equation}
 (Y\psi)_s=-\Pm\psi_{s+1}-\Pp\psi_{s-1}\qquad\text{(same wrap-around)}.
@@ -315,6 +359,7 @@ a term localized at the walls. So $A'$ is $X\dg X$ plus a wall term; its eigenva
 right half-plane (note Fig.~2), which is what a Krylov method and a polynomial smoother need.
 
 \subsection{Neff's $\alpha$ (note Sec.~II.B.6)}
+\label{sec:neff}
 Neff's operator is $D^{(\alpha)}=DQ$ with the site-local
 \begin{equation}
 Q=\operatorname{diag}_s\big(\Pm+\alpha\Pp,\;\alpha,\;\dots,\;\alpha,\;\Pp+\alpha\Pm\big),
@@ -332,6 +377,7 @@ $Q$ leaves $\Pm\psi_0$ and $\Pp\psi_{L_s-1}$ alone, so the quark propagator is u
 \section{Even-odd forms (note Sec.~II.C)}
 
 \subsection{Blocks}
+\label{sec:eoblocks}
 Order the sites even first. $K$ connects nearest neighbors, which have opposite parity, so in
 Eq.~\eqref{eq:Dsplit} the diagonal blocks come from $C$ alone:
 \begin{equation}
@@ -341,6 +387,7 @@ D_{pq}=-\tfrac12K_{pq}(b-cY)\quad(p\neq q).
 $\Ce$ and $\Co$ are the same matrix $C$ on the even and the odd sites.
 
 \subsection{The Schur complement}
+\label{sec:schur}
 Solve $D\psi=\eta$ block by block. The odd rows:
 \begin{align}
 D_{oe}\psi_e+\Co\psi_o&=\eta_o\nonumber\\
@@ -357,6 +404,7 @@ S\psi_e&=\eta'_e,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad \eta'_e\equiv\eta_
 \end{align}
 
 \subsection{$S^{-1}=\pi D^{-1}\iota$}
+\label{sec:Sinv}
 Let $\iota$ put an even-site field on the whole lattice (zero on the odd sites) and $\pi$ take
 the even part:
 \begin{equation}
@@ -413,6 +461,7 @@ form the two $Q_e$ cancel: $SQ_e(\Ce Q_e)^{-1}=S\Ce^{-1}$, so $\AR$ does not see
 \section{The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}
 
 \subsection{The factorized coarse correction}
+\label{sec:factor}
 \paragraph{The inverse of the right form.} Invert the product one factor at a time:
 \begin{align}
 \AR^{-1}&=\big[(\Spv\Cpve^{-1})\dg(S\Ce^{-1})\big]^{-1}\nonumber\\
@@ -537,6 +586,7 @@ Unlike the right form, the Galerkin factor of $\Dpv\dg$ acts on the plain residu
 $\Cpve\dg$ lands between the two coarse solves, in $O_M$.
 
 \subsection{Aggregation and the chirality split}
+\label{sec:agg}
 The fine lattice is divided into $4^4$ blocks, each with the whole fifth dimension; each block is
 one coarse site. Every test vector $v$ is split by $\Gfive=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$:
 \begin{equation}
@@ -634,6 +684,7 @@ approximate. In practice the left form converges within a few iterations of the 
 Sec.~V), so the cycle does not need the exactness.
 
 \subsection{The coarse operators by probing}
+\label{sec:probe}
 Write $\phi_{X,k}$ for column $k$ ($k=1,\dots,2n_v$) of $\Pro$ on block $X$: it equals the
 orthonormalized vector on the sites of $X$ and vanishes outside $X$. By the two previous
 subsections
@@ -670,6 +721,7 @@ quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is rea
 
 % ======================================================================
 \section{The coarse solvers (note Sec.~III.B)}
+\label{sec:coarsesolve}
 \paragraph{Quark factor.} $\Dc c=g$ by BiCGStab on its even-odd Schur complement, preconditioned by
 the inverse diagonal blocks. With $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on
 the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
@@ -788,6 +840,7 @@ object, about 4.7\,GB.
 % ======================================================================
 % ======================================================================
 \section{The Chebyshev smoother and the cycle (note Sec.~III.D)}
+\label{sec:cycle}
 One cycle $y=\mathcal Mb$ is
 \begin{align}
 y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\nonumber\\
@@ -859,6 +912,7 @@ The runs use $\nu=8$, $\kappa_s=10$ with stout links ($M_5=1$) and $\nu=12$, $\k
 
 % ======================================================================
 \section{The outer solver: flexible GCR (note Sec.~III.E)}
+\label{sec:gcr}
 The outer iteration solves $\tilde Ay=\rho$ ($\tilde A=\AR$ or $\AL$) with a right preconditioner
 $\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves stopped by a
 residual test, it changes from one application to the next, so the method must be flexible: it
@@ -869,16 +923,17 @@ running over the last $k$ kept pairs:
 \begin{align}
 |z_i\rangle&=\mathcal M|r_i\rangle &&\text{(one cycle)}\nonumber\\
 |q_i\rangle&=\tilde A|z_i\rangle &&\text{(one application of }\tilde A)\nonumber\\
-\beta_{ij}&=\frac{\langle q_j|q_i\rangle}{\langle q_j|q_j\rangle},\quad
-|q_i\rangle\leftarrow|q_i\rangle-\sum_j\beta_{ij}|q_j\rangle,\quad
-|z_i\rangle\leftarrow|z_i\rangle-\sum_j\beta_{ij}|z_j\rangle\nonumber\\
-\alpha_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\nonumber\\
-|y_{i+1}\rangle&=|y_i\rangle+\alpha_i|z_i\rangle,\qquad |r_{i+1}\rangle=|r_i\rangle-\alpha_i|q_i\rangle .
+\gamma_{ij}&=\frac{\langle q_j|q_i\rangle}{\langle q_j|q_j\rangle},\quad
+|q_i\rangle\leftarrow|q_i\rangle-\sum_j\gamma_{ij}|q_j\rangle,\quad
+|z_i\rangle\leftarrow|z_i\rangle-\sum_j\gamma_{ij}|z_j\rangle\nonumber\\
+\beta_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\nonumber\\
+|y_{i+1}\rangle&=|y_i\rangle+\beta_i|z_i\rangle,\qquad |r_{i+1}\rangle=|r_i\rangle-\beta_i|q_i\rangle .
 \end{align}
 The third line applies the projector $1-\sum_j|q_j\rangle\langle q_j|/\langle q_j|q_j\rangle$ to
 $|q_i\rangle$, so the kept $|q_j\rangle$ are mutually orthogonal, and the same combination of the
-$|z_j\rangle$ keeps $\tilde A|z_i\rangle=|q_i\rangle$ true. The coefficient $\alpha_i$ minimizes
-$\big\||r_i\rangle-\alpha|q_i\rangle\big\|$: it removes from $|r_i\rangle$ its component along
+$|z_j\rangle$ keeps $\tilde A|z_i\rangle=|q_i\rangle$ true. The step length $\beta_i$ ($\gamma$ and $\beta$ as in the note's Algorithm~4, which also normalizes
+each $|q_i\rangle$) minimizes
+$\big\||r_i\rangle-\beta|q_i\rangle\big\|$: it removes from $|r_i\rangle$ its component along
 $|q_i\rangle$, and $|r_{i+1}\rangle=|\rho\rangle-\tilde A|y_{i+1}\rangle$ holds exactly. With $k=2$
 (GCR(2)) the code keeps $k+1=3$ pairs $(z,q)$ and the residual, seven fields on the even sites, at
 the price of no optimality over the whole Krylov space.
@@ -987,9 +1042,9 @@ $\langle z|\mathcal A\dg|z\rangle=\langle z|\mathcal A|z\rangle^*$,
 so $\min\Re W(\mathcal A)=\lambda_{\min}(\mathcal H)$.
 
 \paragraph{One step of GCR.} Take the residual $|r\rangle$ and the new direction $\mathcal M|r\rangle$,
-so $|q\rangle=\tilde A\mathcal M|r\rangle=\mathcal A|r\rangle$. Minimizing over $\alpha$ alone,
+so $|q\rangle=\tilde A\mathcal M|r\rangle=\mathcal A|r\rangle$. Minimizing over $\beta$ alone,
 \begin{equation}
-\min_\alpha\big\||r\rangle-\alpha|q\rangle\big\|^2=\langle r|r\rangle-\frac{|\langle q|r\rangle|^2}{\langle q|q\rangle}
+\min_\beta\big\||r\rangle-\beta|q\rangle\big\|^2=\langle r|r\rangle-\frac{|\langle q|r\rangle|^2}{\langle q|q\rangle}
 \le\langle r|r\rangle-\frac{\big(\Re\langle r|\mathcal A|r\rangle\big)^2}{\|\mathcal A\|^2\langle r|r\rangle},
 \end{equation}
 using $|\langle q|r\rangle|\ge|\Re\langle r|\mathcal A|r\rangle|$ and $\langle q|q\rangle\le\|\mathcal A\|^2\langle r|r\rangle$.
@@ -1004,7 +1059,7 @@ for every $k$, including $k=0$.
 
 \paragraph{When $W$ contains the origin.} Then some $|r\rangle$ has $\langle r|\mathcal A|r\rangle=0$.
 If such an $|r\rangle$ is reached and the kept directions do not help, $\langle q|r\rangle$ can vanish,
-so $\alpha=0$, the residual does not change, and with a fixed cycle the next step repeats the same
+so $\beta=0$, the residual does not change, and with a fixed cycle the next step repeats the same
 direction. The bound gives nothing, and convergence has to come from elsewhere. The note finds
 that the coarse correction pushes $W$ across the origin, and that the spectrum stays away from it.
 
