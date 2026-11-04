@@ -831,17 +831,22 @@ $\mathcal M$, the multigrid cycle. Because $\mathcal M$ contains Krylov solves s
 residual test, it changes from one application to the next, so the method must be flexible: it
 keeps the preconditioned directions $z_i$ themselves.
 
-One step of GCR($k$), from the residual $r_i=\rho-\tilde Ay_i$:
+One step of GCR($k$), from the residual $|r_i\rangle=|\rho\rangle-\tilde A|y_i\rangle$, with $j$
+running over the last $k$ kept pairs:
 \begin{align}
-z_i&=\mathcal M r_i &&\text{(one cycle)}\\
-q_i&=\tilde Az_i &&\text{(one application of }\tilde A)\\
-q_i&\leftarrow q_i-\sum_{j}\frac{(q_j,q_i)}{(q_j,q_j)}q_j,\quad
-z_i\leftarrow z_i-\sum_{j}\frac{(q_j,q_i)}{(q_j,q_j)}z_j &&\text{(the last $k$ kept pairs)}\\
-\alpha_i&=\frac{(q_i,r_i)}{(q_i,q_i)}\\
-y_{i+1}&=y_i+\alpha_iz_i,\qquad r_{i+1}=r_i-\alpha_iq_i .
+|z_i\rangle&=\mathcal M|r_i\rangle &&\text{(one cycle)}\\
+|q_i\rangle&=\tilde A|z_i\rangle &&\text{(one application of }\tilde A)\\
+\beta_{ij}&=\frac{\langle q_j|q_i\rangle}{\langle q_j|q_j\rangle},\quad
+|q_i\rangle\leftarrow|q_i\rangle-\sum_j\beta_{ij}|q_j\rangle,\quad
+|z_i\rangle\leftarrow|z_i\rangle-\sum_j\beta_{ij}|z_j\rangle\\
+\alpha_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\\
+|y_{i+1}\rangle&=|y_i\rangle+\alpha_i|z_i\rangle,\qquad |r_{i+1}\rangle=|r_i\rangle-\alpha_i|q_i\rangle .
 \end{align}
-The coefficient $\alpha_i$ minimizes $\|r_i-\alpha q_i\|$, and the orthogonalization keeps
-$\tilde Az_i=q_i$ true after the update, so $r_{i+1}=\rho-\tilde Ay_{i+1}$ exactly. With $k=2$
+The third line applies the projector $1-\sum_j|q_j\rangle\langle q_j|/\langle q_j|q_j\rangle$ to
+$|q_i\rangle$, so the kept $|q_j\rangle$ are mutually orthogonal, and the same combination of the
+$|z_j\rangle$ keeps $\tilde A|z_i\rangle=|q_i\rangle$ true. The coefficient $\alpha_i$ minimizes
+$\big\||r_i\rangle-\alpha|q_i\rangle\big\|$: it removes from $|r_i\rangle$ its component along
+$|q_i\rangle$, and $|r_{i+1}\rangle=|\rho\rangle-\tilde A|y_{i+1}\rangle$ holds exactly. With $k=2$
 (GCR(2)) the code keeps $k+1=3$ pairs $(z,q)$ and the residual, seven fields on the even sites, at
 the price of no optimality over the whole Krylov space.
 
