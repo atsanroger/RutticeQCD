@@ -33,16 +33,16 @@
 \newcommand{\code}[1]{\texttt{\small #1}}
 
 \title{The even-odd multigrid of RutticeQCD:\\
-a step-by-step walkthrough}
+a walkthrough}
 \author{Wei-Lun Chen}
 \date{\today\quad(internal note)}
 
 \begin{document}
 \maketitle
 
-This document derives, step by step, what the MG note\footnote{\code{docs/mg\_background/MDWF\_MULTIGRID\_NOTE.tex}
-in the RutticeQCD repository.} (``the note'') states. The note gives the method and its results in compact form; here every formula
-is taken apart line by line, with every symbol defined before it is used, so that the method can be
+This document derives what the MG note\footnote{\code{docs/mg\_background/MDWF\_MULTIGRID\_NOTE.tex}
+in the RutticeQCD repository.} (``the note'') states. The note gives the method and its results in compact form; here each formula
+is derived with every symbol defined before it is used, so that the method can be
 followed with nothing more than standard graduate coursework in lattice QCD. The sections follow the
 note: each heading names the section of the note it derives (Secs.~II--IV), so the two can be read
 side by side. The last section maps each step to the code. HMC, which the note leaves to future
@@ -461,7 +461,7 @@ divide the site part out. Two placements of $\Ce$ give two forms:
 For $m=1$ both become $X\dg X$, Hermitian positive; for $m<1$ they are perturbations of it, with
 all eigenvalues in the right half-plane.
 
-\paragraph{Right form, step by step.} Start from $S\psi_e=\eta'_e$ and substitute $\psi_e=\Ce^{-1}y$:
+\paragraph{Right form.} Start from $S\psi_e=\eta'_e$ and substitute $\psi_e=\Ce^{-1}y$:
 \begin{align}
 S\Ce^{-1}y&=\eta'_e\nonumber\\
 (\Spv\Cpve^{-1})\dg S\Ce^{-1}y&=(\Spv\Cpve^{-1})\dg\eta'_e\nonumber\\
@@ -602,7 +602,7 @@ returns $y$.}
 \end{figure}
 
 
-\paragraph{The left form with $\alpha$, step by step.} For $\alpha$ in $D$ only,
+\paragraph{The left form with $\alpha$.} For $\alpha$ in $D$ only,
 \begin{align}
 \AL^{(\alpha)\,-1}&=\big[(\Cpve^{-1}\Spv)\dg\,Q_e^{-1}\Ce^{-1}SQ_e\big]^{-1}\nonumber\\
 &=\big(Q_e^{-1}\Ce^{-1}SQ_e\big)^{-1}\,\big[(\Cpve^{-1}\Spv)\dg\big]^{-1}\nonumber\\
@@ -1042,7 +1042,7 @@ and then $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs only a few more steps t
 identity. This is an argument, not a bound: the matrix elements have not been computed, and the
 iteration counts are the test. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~1), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
-\subsection{On the even sites, step by step (note Sec.~IV.B)}
+\subsection{On the even sites (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
 and $\iota$, and with Eq.~\eqref{eq:Sinv}
 \begin{equation}

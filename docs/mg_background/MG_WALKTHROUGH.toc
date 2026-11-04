@@ -24,7 +24,7 @@
 \contentsline {subsection}{\numberline {2.2}The Schur complement}{8}{subsection.2.2}%
 \contentsline {subsection}{\numberline {2.3}$S^{-1}=\pi D^{-1}\iota $}{9}{subsection.2.3}%
 \contentsline {subsection}{\numberline {2.4}The Pauli--Villars preconditioned forms}{9}{subsection.2.4}%
-\contentsline {paragraph}{Right form, step by step.}{9}{section*.14}%
+\contentsline {paragraph}{Right form.}{9}{section*.14}%
 \contentsline {paragraph}{Left form with $\alpha $ in $D$ only.}{9}{section*.15}%
 \contentsline {section}{\numberline {3}The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}{10}{section.3}%
 \contentsline {subsection}{\numberline {3.1}The factorized coarse correction}{10}{subsection.3.1}%
@@ -32,7 +32,7 @@
 \contentsline {paragraph}{Galerkin replacement.}{10}{section*.17}%
 \contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{10}{section*.18}%
 \contentsline {paragraph}{The size of the coarse stencil.}{10}{section*.19}%
-\contentsline {paragraph}{The left form with $\alpha $, step by step.}{11}{section*.20}%
+\contentsline {paragraph}{The left form with $\alpha $.}{11}{section*.20}%
 \contentsline {subsection}{\numberline {3.2}Aggregation and the chirality split}{11}{subsection.3.2}%
 \contentsline {paragraph}{Half the storage.}{12}{section*.21}%
 \contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{12}{subsection.3.3}%
@@ -58,7 +58,7 @@
 \contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{18}{subsection.8.1}%
 \contentsline {paragraph}{The commutator written out.}{18}{section*.30}%
 \contentsline {paragraph}{$N^2$ written out.}{18}{section*.31}%
-\contentsline {subsection}{\numberline {8.2}On the even sites, step by step (note Sec.~IV.B)}{19}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.2}On the even sites (note Sec.~IV.B)}{19}{subsection.8.2}%
 \contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.C)}{19}{subsection.8.3}%
 \contentsline {section}{\numberline {9}Why the method converges (note Sec.~V.D)}{20}{section.9}%
 \contentsline {subsection}{\numberline {9.1}The field of values and the bound for GCR}{20}{subsection.9.1}%
