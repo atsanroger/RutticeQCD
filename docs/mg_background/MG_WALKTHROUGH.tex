@@ -63,7 +63,7 @@ P_\pm=\frac{1\pm\gamma_5}{2},\qquad P_\pm^2=P_\pm,\qquad P_+P_-=0,\qquad P_++P_-
 The Wilson hopping term and the Wilson operator of mass $-M_5$ are
 \begin{align}
 (K\psi)(x)&=\sum_{\mu=1}^{4}\Big[(1-\gamma_\mu)U_\mu(x)\psi(x+\hat\mu)
-+(1+\gamma_\mu)U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\Big],\\
++(1+\gamma_\mu)U_\mu\dg(x-\hat\mu)\psi(x-\hat\mu)\Big],\nonumber\\
 W&=(4-M_5)-\tfrac12K .
 \end{align}
 $W$ acts on every slice $s$ alike and does not mix slices.
@@ -75,10 +75,10 @@ The spectrum of $W$ on the free field ($U_\mu=1$) is needed twice: for the spect
 (Sec.~II.A) and for $D_-$ (Sec.~\ref{sec:dminus}). Take a plane wave $\psi(x)=e^{ip\cdot x}u$ with
 a constant spinor $u$:
 \begin{align}
-(K\psi)(x)&=\sum_\mu\Big[(1-\gamma_\mu)e^{ip_\mu}+(1+\gamma_\mu)e^{-ip_\mu}\Big]\psi(x)\\
-&=\sum_\mu\Big[\big(e^{ip_\mu}+e^{-ip_\mu}\big)-\gamma_\mu\big(e^{ip_\mu}-e^{-ip_\mu}\big)\Big]\psi(x)\\
-&=\sum_\mu\Big[2\cos p_\mu-2i\gamma_\mu\sin p_\mu\Big]\psi(x),\\
-W\psi&=\Big[(4-M_5)-\sum_\mu\cos p_\mu+i\sum_\mu\gamma_\mu\sin p_\mu\Big]\psi\\
+(K\psi)(x)&=\sum_\mu\Big[(1-\gamma_\mu)e^{ip_\mu}+(1+\gamma_\mu)e^{-ip_\mu}\Big]\psi(x)\nonumber\\
+&=\sum_\mu\Big[\big(e^{ip_\mu}+e^{-ip_\mu}\big)-\gamma_\mu\big(e^{ip_\mu}-e^{-ip_\mu}\big)\Big]\psi(x)\nonumber\\
+&=\sum_\mu\Big[2\cos p_\mu-2i\gamma_\mu\sin p_\mu\Big]\psi(x),\nonumber\\
+W\psi&=\Big[(4-M_5)-\sum_\mu\cos p_\mu+i\sum_\mu\gamma_\mu\sin p_\mu\Big]\psi\nonumber\\
 &=\Big[-M_5+\sum_\mu(1-\cos p_\mu)+i\sum_\mu\gamma_\mu\sin p_\mu\Big]\psi .
 \end{align}
 The matrix $G=\sum_\mu\gamma_\mu\sin p_\mu$ is Hermitian, and since the $\gamma_\mu$ anticommute,
@@ -132,12 +132,12 @@ D=D_+-D_-Y .
 \end{equation}
 Now insert $D_\pm$ and then $W$, one substitution per line:
 \begin{align}
-D&=(1+bW)-(cW-1)Y\\
-&=1+bW-cWY+Y\\
-&=1+Y+W\,(b-cY)\\
-&=1+Y+\Big[(4-M_5)-\tfrac12K\Big](b-cY)\\
+D&=(1+bW)-(cW-1)Y\nonumber\\
+&=1+bW-cWY+Y\nonumber\\
+&=1+Y+W\,(b-cY)\nonumber\\
+&=1+Y+\Big[(4-M_5)-\tfrac12K\Big](b-cY)\nonumber\\
 &=\underbrace{\big[1+b(4-M_5)\big]}_{d_+}+\underbrace{\big[1-c(4-M_5)\big]}_{d_-}Y
--\tfrac12K\,(b-cY)\\
+-\tfrac12K\,(b-cY)\nonumber\\
 &=C-\tfrac12K\,(b-cY),\qquad C\equiv d_++d_-Y .
 \label{eq:Dsplit}
 \end{align}
@@ -161,7 +161,7 @@ K_{x,x+\hat\mu}=(1-\gamma_\mu)U_\mu(x),\qquad K_{x+\hat\mu,x}=(1+\gamma_\mu)U_\m
 The adjoint swaps the indices and conjugates each block (spin and color commute, and the
 $\gamma_\mu$ are Hermitian):
 \begin{align}
-(K\dg)_{x,x+\hat\mu}&=\big(K_{x+\hat\mu,x}\big)\dg=U_\mu(x)\,(1+\gamma_\mu)=(1+\gamma_\mu)U_\mu(x),\\
+(K\dg)_{x,x+\hat\mu}&=\big(K_{x+\hat\mu,x}\big)\dg=U_\mu(x)\,(1+\gamma_\mu)=(1+\gamma_\mu)U_\mu(x),\nonumber\\
 (K\dg)_{x+\hat\mu,x}&=\big(K_{x,x+\hat\mu}\big)\dg=(1-\gamma_\mu)U_\mu\dg(x).
 \end{align}
 So $K\dg$ is $K$ with $\gamma_\mu\to-\gamma_\mu$. Since $\gamma_5\gamma_\mu\gamma_5=-\gamma_\mu$,
@@ -180,8 +180,8 @@ $\gamma_5$ commutes with $P_\pm$, so $\Gfive Y\Gfive=RYR$, whose entry $(s,s')$ 
 $Y_{L_s-1-s,\,L_s-1-s'}$: the matrix rotated by $180^\circ$. Compare with $Y\dg$, whose entry
 $(s,s')$ is $(Y_{s',s})\dg$:
 \begin{align}
-(RYR)_{0,1}&=Y_{3,2}=-\Pp,& (Y\dg)_{0,1}&=(Y_{1,0})\dg=-\Pp,\\
-(RYR)_{1,0}&=Y_{2,3}=-\Pm,& (Y\dg)_{1,0}&=(Y_{0,1})\dg=-\Pm,\\
+(RYR)_{0,1}&=Y_{3,2}=-\Pp,& (Y\dg)_{0,1}&=(Y_{1,0})\dg=-\Pp,\nonumber\\
+(RYR)_{1,0}&=Y_{2,3}=-\Pm,& (Y\dg)_{1,0}&=(Y_{0,1})\dg=-\Pm,\nonumber\\
 (RYR)_{0,3}&=Y_{3,0}=m\Pm,& (Y\dg)_{0,3}&=(Y_{3,0})\dg=m\Pm,
 \end{align}
 and so on for every entry. Hence $\Gfive Y\Gfive=Y\dg$.
@@ -193,13 +193,13 @@ This one fact makes the M\"obius case different from Shamir's.
 \paragraph{Consequence: $\Gfive D\Gfive\neq D\dg$.}
 From the three rules above and $D=D_+-D_-Y$,
 \begin{align}
-\Gfive D\Gfive&=\Gfive D_+\Gfive-\Gfive D_-\Gfive\,\Gfive Y\Gfive=D_+\dg-D_-\dg Y\dg,\\
+\Gfive D\Gfive&=\Gfive D_+\Gfive-\Gfive D_-\Gfive\,\Gfive Y\Gfive=D_+\dg-D_-\dg Y\dg,\nonumber\\
 D\dg&=D_+\dg-(D_-Y)\dg=D_+\dg-Y\dg D_-\dg .
 \end{align}
 The order of the last product differs. Subtracting,
 \begin{align}
-\Gfive D\Gfive-D\dg&=Y\dg D_-\dg-D_-\dg Y\dg\\
-&=Y\dg(cW\dg-1)-(cW\dg-1)Y\dg\\
+\Gfive D\Gfive-D\dg&=Y\dg D_-\dg-D_-\dg Y\dg\nonumber\\
+&=Y\dg(cW\dg-1)-(cW\dg-1)Y\dg\nonumber\\
 &=c\,\big(Y\dg W\dg-W\dg Y\dg\big)=c\,[Y\dg,W\dg],
 \end{align}
 which is of order $c$ (zero for Shamir, $0.15$ relative on a $12^4$ stout configuration at
@@ -213,15 +213,15 @@ D=D_-K_D,\qquad K_D=D_-^{-1}D_+-Y .
 \end{equation}
 $K_D$ is $\Gfive$-Hermitian:
 \begin{align}
-\Gfive K_D\Gfive&=\Gfive D_-^{-1}\Gfive\,\Gfive D_+\Gfive-\Gfive Y\Gfive\\
-&=(D_-\dg)^{-1}D_+\dg-Y\dg\\
-&=D_+\dg(D_-\dg)^{-1}-Y\dg\qquad(D_\pm\dg\text{ commute})\\
+\Gfive K_D\Gfive&=\Gfive D_-^{-1}\Gfive\,\Gfive D_+\Gfive-\Gfive Y\Gfive\nonumber\\
+&=(D_-\dg)^{-1}D_+\dg-Y\dg\nonumber\\
+&=D_+\dg(D_-\dg)^{-1}-Y\dg\qquad(D_\pm\dg\text{ commute})\nonumber\\
 &=(D_-^{-1}D_+)\dg-Y\dg=K_D\dg .
 \end{align}
 So
 \begin{align}
-D\dg&=K_D\dg D_-\dg\\
-&=\Gfive K_D\Gfive\,D_-\dg\\
+D\dg&=K_D\dg D_-\dg\nonumber\\
+&=\Gfive K_D\Gfive\,D_-\dg\nonumber\\
 &=\Gfive D_-^{-1}D\,\Gfive\,D_-\dg ,
 \end{align}
 and multiplying by $D_-\Gfive$ from the left,
@@ -255,16 +255,16 @@ x_s=p_s+q^sx_0,\qquad p_0=0,\qquad p_s=\frac{r_s+d_-p_{s-1}}{d_+}.
 \end{equation}
 Check by induction:
 \begin{align}
-x_s&=\frac{r_s+d_-x_{s-1}}{d_+}\\
-&=\frac{r_s+d_-(p_{s-1}+q^{s-1}x_0)}{d_+}\\
-&=\frac{r_s+d_-p_{s-1}}{d_+}+\frac{d_-}{d_+}q^{s-1}x_0\\
+x_s&=\frac{r_s+d_-x_{s-1}}{d_+}\nonumber\\
+&=\frac{r_s+d_-(p_{s-1}+q^{s-1}x_0)}{d_+}\nonumber\\
+&=\frac{r_s+d_-p_{s-1}}{d_+}+\frac{d_-}{d_+}q^{s-1}x_0\nonumber\\
 &=p_s+q^sx_0 .
 \end{align}
 The remaining row $s=0$ fixes $x_0$:
 \begin{align}
-d_+x_0+m\,d_-x_{L_s-1}&=r_0\\
-d_+x_0+m\,d_-\big(p_{L_s-1}+q^{L_s-1}x_0\big)&=r_0\\
-\big(d_++m\,d_-q^{L_s-1}\big)x_0&=r_0-m\,d_-p_{L_s-1}\\
+d_+x_0+m\,d_-x_{L_s-1}&=r_0\nonumber\\
+d_+x_0+m\,d_-\big(p_{L_s-1}+q^{L_s-1}x_0\big)&=r_0\nonumber\\
+\big(d_++m\,d_-q^{L_s-1}\big)x_0&=r_0-m\,d_-p_{L_s-1}\nonumber\\
 x_0&=\frac{r_0-m\,d_-p_{L_s-1}}{d_++m\,d_-q^{L_s-1}} .
 \end{align}
 The block on $\psi^-$ is the same with $s\to L_s-1-s$. So $C^{-1}$ costs $O(L_s)$ per site, is
@@ -276,9 +276,9 @@ the same way from the other end.
 Kanamori, Chen and Matsufuru multiply $D\psi=\eta$ by $(\Dpv\Cpv^{-1})\dg$ from the left and set
 $\psi=C^{-1}y$:
 \begin{align}
-D\psi&=\eta\\
-DC^{-1}y&=\eta\\
-(\Dpv\Cpv^{-1})\dg DC^{-1}y&=(\Dpv\Cpv^{-1})\dg\eta\\
+D\psi&=\eta\nonumber\\
+DC^{-1}y&=\eta\nonumber\\
+(\Dpv\Cpv^{-1})\dg DC^{-1}y&=(\Dpv\Cpv^{-1})\dg\eta\nonumber\\
 A'y&=(\Dpv\Cpv^{-1})\dg\eta,\qquad A'\equiv(\Dpv\Cpv^{-1})\dg DC^{-1}.
 \end{align}
 \paragraph{At $m=1$ it is Hermitian positive.} Then $D=\Dpv$ and $C=\Cpv$, so with
@@ -323,15 +323,15 @@ $\Ce$ and $\Co$ are the same matrix $C$ on the even and the odd sites.
 \subsection{The Schur complement}
 Solve $D\psi=\eta$ block by block. The odd rows:
 \begin{align}
-D_{oe}\psi_e+\Co\psi_o&=\eta_o\\
+D_{oe}\psi_e+\Co\psi_o&=\eta_o\nonumber\\
 \psi_o&=\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big).
 \label{eq:psio}
 \end{align}
 Insert into the even rows:
 \begin{align}
-\Ce\psi_e+D_{eo}\psi_o&=\eta_e\\
-\Ce\psi_e+D_{eo}\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big)&=\eta_e\\
-\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\psi_e&=\eta_e-D_{eo}\Co^{-1}\eta_o\\
+\Ce\psi_e+D_{eo}\psi_o&=\eta_e\nonumber\\
+\Ce\psi_e+D_{eo}\Co^{-1}\big(\eta_o-D_{oe}\psi_e\big)&=\eta_e\nonumber\\
+\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\psi_e&=\eta_e-D_{eo}\Co^{-1}\eta_o\nonumber\\
 S\psi_e&=\eta'_e,\qquad S\equiv\Ce-D_{eo}\Co^{-1}D_{oe},\quad \eta'_e\equiv\eta_e-D_{eo}\Co^{-1}\eta_o .
 \label{eq:schur}
 \end{align}
@@ -357,7 +357,7 @@ $S$ is not suitable for a Krylov method: its spectrum surrounds the origin. Foll
 Chen and Matsufuru we multiply from the left by the adjoint of the Pauli--Villars factor and
 divide the site part out. Two placements of $\Ce$ give two forms:
 \begin{align}
-\AR&=(\Spv\Cpve^{-1})\dg\,(S\Ce^{-1}),\\
+\AR&=(\Spv\Cpve^{-1})\dg\,(S\Ce^{-1}),\nonumber\\
 \AL&=(\Cpve^{-1}\Spv)\dg\,(\Ce^{-1}S).
 \end{align}
 For $m=1$ both become $X\dg X$, Hermitian positive; for $m<1$ they are perturbations of it, with
@@ -365,18 +365,18 @@ all eigenvalues in the right half-plane.
 
 \paragraph{Right form, step by step.} Start from $S\psi_e=\eta'_e$ and substitute $\psi_e=\Ce^{-1}y$:
 \begin{align}
-S\Ce^{-1}y&=\eta'_e\\
-(\Spv\Cpve^{-1})\dg S\Ce^{-1}y&=(\Spv\Cpve^{-1})\dg\eta'_e\\
-\AR\,y&=\rho_R,\qquad \rho_R\equiv(\Spv\Cpve^{-1})\dg\eta'_e,\\
+S\Ce^{-1}y&=\eta'_e\nonumber\\
+(\Spv\Cpve^{-1})\dg S\Ce^{-1}y&=(\Spv\Cpve^{-1})\dg\eta'_e\nonumber\\
+\AR\,y&=\rho_R,\qquad \rho_R\equiv(\Spv\Cpve^{-1})\dg\eta'_e,\nonumber\\
 \psi_e&=\Ce^{-1}y,\qquad \psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e).
 \end{align}
 
 \paragraph{Left form with $\alpha$ in $D$ only.} For $DQ$ the blocks are $\Ce Q_e$, $D_{eo}Q_o$,
 $D_{oe}Q_e$, $\Co Q_o$, and the Schur complement is
 \begin{align}
-S^{(\alpha)}&=\Ce Q_e-D_{eo}Q_o(\Co Q_o)^{-1}D_{oe}Q_e\\
-&=\Ce Q_e-D_{eo}Q_oQ_o^{-1}\Co^{-1}D_{oe}Q_e\\
-&=\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)Q_e\\
+S^{(\alpha)}&=\Ce Q_e-D_{eo}Q_o(\Co Q_o)^{-1}D_{oe}Q_e\nonumber\\
+&=\Ce Q_e-D_{eo}Q_oQ_o^{-1}\Co^{-1}D_{oe}Q_e\nonumber\\
+&=\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)Q_e\nonumber\\
 &=SQ_e .
 \end{align}
 So the left Schur factor of $DQ$ is
@@ -394,10 +394,10 @@ form the two $Q_e$ cancel: $SQ_e(\Ce Q_e)^{-1}=S\Ce^{-1}$, so $\AR$ does not see
 \subsection{The factorized coarse correction}
 \paragraph{The inverse of the right form.} Invert the product one factor at a time:
 \begin{align}
-\AR^{-1}&=\big[(\Spv\Cpve^{-1})\dg(S\Ce^{-1})\big]^{-1}\\
-&=(S\Ce^{-1})^{-1}\,\big[(\Spv\Cpve^{-1})\dg\big]^{-1}\\
-&=\Ce S^{-1}\,\big[(\Cpve^{-1})\dg\Spv\dg\big]^{-1}\\
-&=\Ce S^{-1}\,(\Spv\dg)^{-1}\Cpve\dg\\
+\AR^{-1}&=\big[(\Spv\Cpve^{-1})\dg(S\Ce^{-1})\big]^{-1}\nonumber\\
+&=(S\Ce^{-1})^{-1}\,\big[(\Spv\Cpve^{-1})\dg\big]^{-1}\nonumber\\
+&=\Ce S^{-1}\,\big[(\Cpve^{-1})\dg\Spv\dg\big]^{-1}\nonumber\\
+&=\Ce S^{-1}\,(\Spv\dg)^{-1}\Cpve\dg\nonumber\\
 &=\Ce\;\pi D^{-1}\iota\;\;\pi(\Dpv\dg)^{-1}\iota\;\;\Cpve\dg ,
 \label{eq:ARinv}
 \end{align}
@@ -426,8 +426,8 @@ sites can then be coupled only if their coordinates differ by at most $1$ in at 
 directions. Counting the coarse neighbors that differ in exactly $j$ directions ($\binom4j$ choices
 of directions, $2^j$ signs):
 \begin{align}
-k=1:&\quad 1+\tbinom41 2=1+8=9,\\
-k=2:&\quad 1+8+\tbinom42 2^2=1+8+24=33,\\
+k=1:&\quad 1+\tbinom41 2=1+8=9,\nonumber\\
+k=2:&\quad 1+8+\tbinom42 2^2=1+8+24=33,\nonumber\\
 k\ge4:&\quad \sum_{j=0}^{4}\tbinom4j2^j=3^4=81 .
 \end{align}
 $D$ and $\Dpv$ are one hop: 9 points each. $\AR$ reaches four hops ($S$ is two hops, and $\AR$
@@ -505,10 +505,10 @@ returns $y$.}
 
 \paragraph{The left form with $\alpha$, step by step.} For $\alpha$ in $D$ only,
 \begin{align}
-\AL^{(\alpha)\,-1}&=\big[(\Cpve^{-1}\Spv)\dg\,Q_e^{-1}\Ce^{-1}SQ_e\big]^{-1}\\
-&=\big(Q_e^{-1}\Ce^{-1}SQ_e\big)^{-1}\,\big[(\Cpve^{-1}\Spv)\dg\big]^{-1}\\
-&=Q_e^{-1}S^{-1}\Ce Q_e\,\big[\Spv\dg(\Cpve^{-1})\dg\big]^{-1}\\
-&=Q_e^{-1}S^{-1}\Ce Q_e\,\Cpve\dg\,(\Spv\dg)^{-1}\\
+\AL^{(\alpha)\,-1}&=\big[(\Cpve^{-1}\Spv)\dg\,Q_e^{-1}\Ce^{-1}SQ_e\big]^{-1}\nonumber\\
+&=\big(Q_e^{-1}\Ce^{-1}SQ_e\big)^{-1}\,\big[(\Cpve^{-1}\Spv)\dg\big]^{-1}\nonumber\\
+&=Q_e^{-1}S^{-1}\Ce Q_e\,\big[\Spv\dg(\Cpve^{-1})\dg\big]^{-1}\nonumber\\
+&=Q_e^{-1}S^{-1}\Ce Q_e\,\Cpve\dg\,(\Spv\dg)^{-1}\nonumber\\
 &=\underbrace{Q_e^{-1}}_{O_L}\;\pi D^{-1}\iota\;\underbrace{\Ce Q_e\Cpve\dg}_{O_M}\;
 \pi(\Dpv\dg)^{-1}\iota\;\underbrace{1}_{O_R} .
 \end{align}
@@ -529,8 +529,8 @@ $\Pro$ is then an eigenvector of $\Gfive$, so with $\Sigma=\mathrm{diag}(\mathbf
 \end{equation}
 \paragraph{Half the storage.} Write the condition $\Gfive v_\pm=\pm v_\pm$ out slice by slice:
 \begin{align}
-(\Gfive v_\pm)_s&=\gamma_5\,(Rv_\pm)_s=\gamma_5\,v_\pm(L_s-1-s)\\
-\pm v_\pm(s)&=\gamma_5\,v_\pm(L_s-1-s)\\
+(\Gfive v_\pm)_s&=\gamma_5\,(Rv_\pm)_s=\gamma_5\,v_\pm(L_s-1-s)\nonumber\\
+\pm v_\pm(s)&=\gamma_5\,v_\pm(L_s-1-s)\nonumber\\
 v_\pm(L_s-1-s)&=\pm\gamma_5\,v_\pm(s) .
 \end{align}
 So each part is fixed by its slices $s<L_s/2$; $\Pro$ is stored only there (``folded''), in half
@@ -547,9 +547,9 @@ In each block and chirality the columns $w_1,\dots,w_n$ ($n=2\times$ the number 
 vectors, see below) are made orthonormal. Collect them as the columns of $W$ and write the QR
 decomposition with a positive diagonal of $R$:
 \begin{align}
-W&=QR\\
-W\dg W&=R\dg Q\dg QR=R\dg R\\
-G\equiv W\dg W&=R\dg R\quad\text{(Cholesky)}\\
+W&=QR\nonumber\\
+W\dg W&=R\dg Q\dg QR=R\dg R\nonumber\\
+G\equiv W\dg W&=R\dg R\quad\text{(Cholesky)}\nonumber\\
 Q&=WR^{-1} .
 \end{align}
 So one Gram matrix ($n\times n$), one Cholesky factor and one triangular solve give $Q$; the
@@ -572,10 +572,10 @@ with the even sites on top, as in the block form of $D$ below.
 \paragraph{$Ds$ vanishes on the odd sites.}
 \begin{align}
 Ds&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
-\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\\
+\begin{pmatrix}\Ce^{-1}y\\-\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\nonumber\\
 &=\begin{pmatrix}\Ce\Ce^{-1}y-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}y\\
-D_{oe}\Ce^{-1}y-\Co\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\\
-&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}y\\0\end{pmatrix}\\
+D_{oe}\Ce^{-1}y-\Co\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}\nonumber\\
+&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}y\\0\end{pmatrix}\nonumber\\
 &=\iota\,S\Ce^{-1}y .
 \end{align}
 In the same way $\Dpv\dg\hat t=\iota\Spv\dg a$.
@@ -584,15 +584,15 @@ coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is 
 $\operatorname{range}\Pro$. Follow $r=\AR y$ through the correction ($O_R=\Cpve\dg$, $O_M=1$,
 $O_L=\Ce$):
 \begin{align}
-O_Rr&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}y\\
-&=\Cpve\dg(\Cpve^{-1})\dg\Spv\dg S\Ce^{-1}y\\
-&=\Spv\dg\,a,\qquad (a=S\Ce^{-1}y=\pi Ds)\\
-\iota O_Rr&=\iota\Spv\dg a=\Dpv\dg\hat t\\
+O_Rr&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}y\nonumber\\
+&=\Cpve\dg(\Cpve^{-1})\dg\Spv\dg S\Ce^{-1}y\nonumber\\
+&=\Spv\dg\,a,\qquad (a=S\Ce^{-1}y=\pi Ds)\nonumber\\
+\iota O_Rr&=\iota\Spv\dg a=\Dpv\dg\hat t\nonumber\\
 \Pro\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\,\Dpv\dg\hat t&=\hat t
-\qquad(\hat t\in\operatorname{range}\Pro)\\
-\pi\hat t&=a=\pi Ds\\
-\iota O_M\pi\hat t&=\iota\pi Ds=Ds\qquad(Ds\ \text{is zero on the odd sites})\\
-\Pro\Dc^{-1}\Pro\dg Ds&=s\qquad(s\in\operatorname{range}\Pro)\\
+\qquad(\hat t\in\operatorname{range}\Pro)\nonumber\\
+\pi\hat t&=a=\pi Ds\nonumber\\
+\iota O_M\pi\hat t&=\iota\pi Ds=Ds\qquad(Ds\ \text{is zero on the odd sites})\nonumber\\
+\Pro\Dc^{-1}\Pro\dg Ds&=s\qquad(s\in\operatorname{range}\Pro)\nonumber\\
 e=O_L\pi s&=\Ce\Ce^{-1}y=y .
 \end{align}
 So the correction inverts $\AR$ exactly on the span of the $y_j$. In practice $\Pro$ is in half
@@ -603,7 +603,7 @@ not exact at all; the cycle converges nonetheless.
 \paragraph{Why the left form is not exact.} Repeat the argument for $\AL$ with $\alpha=1$ and
 $r=\AL y'$, $y'=\Ce^{-1}y$ ($O_R=1$, $O_M=\Ce\Cpve\dg$, $O_L=1$):
 \begin{align}
-r&=(\Cpve^{-1}\Spv)\dg\Ce^{-1}S\,\Ce^{-1}y=\Spv\dg(\Cpve^{-1})\dg\Ce^{-1}a,\qquad a=S\Ce^{-1}y,\\
+r&=(\Cpve^{-1}\Spv)\dg\Ce^{-1}S\,\Ce^{-1}y=\Spv\dg(\Cpve^{-1})\dg\Ce^{-1}a,\qquad a=S\Ce^{-1}y,\nonumber\\
 \iota O_Rr&=\iota\Spv\dg u,\qquad u\equiv(\Cpve\dg)^{-1}\Ce^{-1}a .
 \end{align}
 The first solve returns the Pauli--Villars lift of $u$, not of $a$. $u$ differs from $a$ by the
@@ -636,7 +636,7 @@ $\phi=\Pro\epsilon_k$. Split $D=C+H$ ($H$ the hops) and $H$ by leg (direction an
 each leg into the part that stays inside its block and the part that crosses to the neighbor
 block:
 \begin{align}
-D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\\
+D\phi&=C\phi+\sum_{\text{legs }l}H_l\phi\nonumber\\
 &=\underbrace{C\phi+\sum_lH_l^{\rm in}\phi}_{\text{stays in }X}
 +\sum_l\underbrace{H_l^{\rm cross}\phi}_{\text{comes from }X\pm\hat\mu} .
 \end{align}
@@ -653,7 +653,7 @@ quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is rea
 the inverse diagonal blocks. With $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on
 the coarse lattice, exactly as in Eq.~\eqref{eq:schur},
 \begin{align}
-\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)c_e&=g_e-B_{eo}A_{oo}^{-1}g_o,\\
+\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)c_e&=g_e-B_{eo}A_{oo}^{-1}g_o,\nonumber\\
 c_o&=A_{oo}^{-1}\big(g_o-B_{oe}c_e\big).
 \end{align}
 \paragraph{Pauli--Villars factor.} $Xw=g$ with $X=\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. The code stores
@@ -685,7 +685,7 @@ coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $
 diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$. The
 preconditioner $M_\ell$ on level $\ell$ is defined from the one below:
 \begin{align}
-z&=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg\,r &&\text{(restrict, precondition one level down, prolong)}\\
+z&=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg\,r &&\text{(restrict, precondition one level down, prolong)}\nonumber\\
 M_\ell\,r&=z+B_\ell^{-1}\big(r-\mathcal D_\ell z\big) &&\text{(one block-Jacobi step on the residual)}
 \end{align}
 and on the last level $M_\ell=\mathcal D_\ell^{-1}$, inverted densely. This brings the coarse cost down to about 50 applications per
@@ -704,9 +704,9 @@ $H_n=\AR\dg\AR$. With $\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/
 hi}-\lambda_{\rm lo})$, the polynomial $T_d(\ell(x))$ is bounded by $1$ on
 $[\lambda_{\rm lo},\lambda_{\rm hi}]$ and grows fast below $\lambda_{\rm lo}$. Collect the $n_f$ vectors as the columns of $\mathcal Y=(y_1,\dots,y_{n_f})$. One round:
 \begin{align}
-\mathcal Y&\leftarrow T_d\big(\ell(H_n)\big)\mathcal Y &&\text{(recurrence below)}\\
-\mathcal Y&\leftarrow\text{orthonormalize }\mathcal Y\\
-G&=\mathcal Y\dg H_n\mathcal Y=V\Theta V\dg,\quad \mathcal Y\leftarrow\mathcal YV &&\text{(Rayleigh--Ritz)}\\
+\mathcal Y&\leftarrow T_d\big(\ell(H_n)\big)\mathcal Y &&\text{(recurrence below)}\nonumber\\
+\mathcal Y&\leftarrow\text{orthonormalize }\mathcal Y\nonumber\\
+G&=\mathcal Y\dg H_n\mathcal Y=V\Theta V\dg,\quad \mathcal Y\leftarrow\mathcal YV &&\text{(Rayleigh--Ritz)}\nonumber\\
 \lambda_{\rm lo}&\leftarrow\theta_{\max} .
 \end{align}
 $G$ is the $n_f\times n_f$ matrix of $H_n$ in the span of $\mathcal Y$; its eigenvalues
@@ -724,7 +724,7 @@ so $T_d(L)\mathcal Y$ costs $d$ applications of $H_n$ per column.
 $|T_d(t)|=\cosh\!\big(d\operatorname{arccosh}|t|\big)$. A mode with $x$ just below $\lambda_{\rm lo}$
 has $\ell(x)=-(1+\delta)$ with small $\delta>0$, and
 \begin{align}
-\operatorname{arccosh}(1+\delta)&=\ln\!\Big(1+\delta+\sqrt{2\delta+\delta^2}\Big)\approx\sqrt{2\delta},\\
+\operatorname{arccosh}(1+\delta)&=\ln\!\Big(1+\delta+\sqrt{2\delta+\delta^2}\Big)\approx\sqrt{2\delta},\nonumber\\
 |T_d(\ell(x))|&\approx\cosh\!\big(d\sqrt{2\delta}\big).
 \end{align}
 The lowest modes have $x\approx0$, where
@@ -768,10 +768,10 @@ object, about 4.7\,GB.
 \section{The Chebyshev smoother and the cycle (note Sec.~III.D)}
 One cycle $y=\mathcal Mb$ is
 \begin{align}
-y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\\
-r&\leftarrow b-\tilde Ay\\
-y&\leftarrow y+e(r) &&\text{(coarse correction)}\\
-r&\leftarrow b-\tilde Ay\\
+y&\leftarrow p(\tilde A)\,b &&\text{(pre-smoothing)}\nonumber\\
+r&\leftarrow b-\tilde Ay\nonumber\\
+y&\leftarrow y+e(r) &&\text{(coarse correction)}\nonumber\\
+r&\leftarrow b-\tilde Ay\nonumber\\
 y&\leftarrow y+p(\tilde A)\,r &&\text{(post-smoothing)}.
 \end{align}
 
@@ -806,18 +806,18 @@ $\lambda_{\rm lo}$; the smoother applies it to $\tilde A$ to damp the modes in
 $[\lambda_{\rm lo},\lambda_{\rm hi}]$ and leaves the low modes to the coarse correction. Write $t=(\theta-\lambda)/\delta$ and
 use $T_{k+1}(t)=2tT_k(t)-T_{k-1}(t)$:
 \begin{align}
-T_{k+1}(\sigma)R_{k+1}&=2t\,T_k(\sigma)R_k-T_{k-1}(\sigma)R_{k-1}\\
+T_{k+1}(\sigma)R_{k+1}&=2t\,T_k(\sigma)R_k-T_{k-1}(\sigma)R_{k-1}\nonumber\\
 R_{k+1}&=\rho_k\big[2t\,R_k-\rho_{k-1}R_{k-1}\big],\qquad \rho_k\equiv\frac{T_k(\sigma)}{T_{k+1}(\sigma)} .
 \end{align}
 The same recurrence at $t=\sigma$ gives the $\rho$'s:
 \begin{align}
-T_{k+1}(\sigma)&=2\sigma T_k(\sigma)-T_{k-1}(\sigma)\\
+T_{k+1}(\sigma)&=2\sigma T_k(\sigma)-T_{k-1}(\sigma)\nonumber\\
 \frac1{\rho_k}&=2\sigma-\rho_{k-1},\qquad \rho_0=\frac{T_0(\sigma)}{T_1(\sigma)}=\frac1\sigma .
 \end{align}
 Now split $2t=2\sigma-2\lambda/\delta$ and use $2\sigma=1/\rho_k+\rho_{k-1}$:
 \begin{align}
-R_{k+1}&=\rho_k\Big[\big(2\sigma-\tfrac{2\lambda}{\delta}\big)R_k-\rho_{k-1}R_{k-1}\Big]\\
-&=\rho_k\Big[\big(\tfrac1{\rho_k}+\rho_{k-1}\big)R_k-\tfrac{2\lambda}{\delta}R_k-\rho_{k-1}R_{k-1}\Big]\\
+R_{k+1}&=\rho_k\Big[\big(2\sigma-\tfrac{2\lambda}{\delta}\big)R_k-\rho_{k-1}R_{k-1}\Big]\nonumber\\
+&=\rho_k\Big[\big(\tfrac1{\rho_k}+\rho_{k-1}\big)R_k-\tfrac{2\lambda}{\delta}R_k-\rho_{k-1}R_{k-1}\Big]\nonumber\\
 &=R_k+\rho_k\rho_{k-1}\big(R_k-R_{k-1}\big)-\frac{2\rho_k}{\delta}\lambda R_k .
 \end{align}
 Apply to $r_0$, with $\lambda\to\tilde A$:
@@ -845,12 +845,12 @@ keeps the preconditioned directions $z_i$ themselves.
 One step of GCR($k$), from the residual $|r_i\rangle=|\rho\rangle-\tilde A|y_i\rangle$, with $j$
 running over the last $k$ kept pairs:
 \begin{align}
-|z_i\rangle&=\mathcal M|r_i\rangle &&\text{(one cycle)}\\
-|q_i\rangle&=\tilde A|z_i\rangle &&\text{(one application of }\tilde A)\\
+|z_i\rangle&=\mathcal M|r_i\rangle &&\text{(one cycle)}\nonumber\\
+|q_i\rangle&=\tilde A|z_i\rangle &&\text{(one application of }\tilde A)\nonumber\\
 \beta_{ij}&=\frac{\langle q_j|q_i\rangle}{\langle q_j|q_j\rangle},\quad
 |q_i\rangle\leftarrow|q_i\rangle-\sum_j\beta_{ij}|q_j\rangle,\quad
-|z_i\rangle\leftarrow|z_i\rangle-\sum_j\beta_{ij}|z_j\rangle\\
-\alpha_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\\
+|z_i\rangle\leftarrow|z_i\rangle-\sum_j\beta_{ij}|z_j\rangle\nonumber\\
+\alpha_i&=\frac{\langle q_i|r_i\rangle}{\langle q_i|q_i\rangle}\nonumber\\
 |y_{i+1}\rangle&=|y_i\rangle+\alpha_i|z_i\rangle,\qquad |r_{i+1}\rangle=|r_i\rangle-\alpha_i|q_i\rangle .
 \end{align}
 The third line applies the projector $1-\sum_j|q_j\rangle\langle q_j|/\langle q_j|q_j\rangle$ to
@@ -875,15 +875,15 @@ The $\Gfive$-transformation and the exact relation it rests on were derived in S
 Multiply $D\dg$ from the right by $\Gfive D^{-1}\Gfive$ and use the exact relation of Sec.~\ref{sec:g5} in the form
 $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$, together with $\Gfive D_-\dg\Gfive=D_-$:
 \begin{align}
-D\dg\,\Gfive D^{-1}\Gfive&=\Gfive D_-^{-1}D\,\Gfive D_-\dg\,\Gfive\,D^{-1}\Gfive\\
-&=\Gfive D_-^{-1}D\,D_-\,D^{-1}\,\Gfive\\
-&=\Gfive D_-^{-1}\big(D_-D+[D,D_-]\big)D^{-1}\Gfive\\
+D\dg\,\Gfive D^{-1}\Gfive&=\Gfive D_-^{-1}D\,\Gfive D_-\dg\,\Gfive\,D^{-1}\Gfive\nonumber\\
+&=\Gfive D_-^{-1}D\,D_-\,D^{-1}\,\Gfive\nonumber\\
+&=\Gfive D_-^{-1}\big(D_-D+[D,D_-]\big)D^{-1}\Gfive\nonumber\\
 &=\Gfive\big(1+D_-^{-1}[D,D_-]D^{-1}\big)\Gfive .
 \end{align}
 The commutator, with $D=D_+-D_-Y$ and $[D_+,D_-]=0$:
 \begin{align}
-[D,D_-]&=[D_+,D_-]-[D_-Y,D_-]\\
-&=-\big(D_-YD_--D_-D_-Y\big)=-D_-[Y,D_-]\\
+[D,D_-]&=[D_+,D_-]-[D_-Y,D_-]\nonumber\\
+&=-\big(D_-YD_--D_-D_-Y\big)=-D_-[Y,D_-]\nonumber\\
 &=-D_-[Y,cW-1]=-c\,D_-[Y,W] .
 \end{align}
 The factor $D_-$ cancels against $D_-^{-1}$:
@@ -906,10 +906,10 @@ S^{-\dagger}=\pi D^{-\dagger}\iota\approx\pi\Gfive D^{-1}\Gfive\iota=\Gfive\,\pi
 \end{equation}
 The solve of $D\dg w=r$:
 \begin{align}
-r'_e&=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o &&\text{so that }S\dg w_e=r'_e,\\
-w_e&=(\Ce\dg)^{-1}z &&\Longrightarrow\ S\dg(\Ce\dg)^{-1}z=r'_e\ \Longleftrightarrow\ \mathcal K\dg z=r'_e,\\
-z&=\text{GCR on }\mathcal K\dg\text{ with preconditioner }\Ce\dg\,\Gfive S^{-1}\Gfive,\\
-S^{-1}t&\approx\Ce^{-1}\,\mathcal M\,(\Spv\Cpve^{-1})\dg t &&\text{(one cycle of }\AR),\\
+r'_e&=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o &&\text{so that }S\dg w_e=r'_e,\nonumber\\
+w_e&=(\Ce\dg)^{-1}z &&\Longrightarrow\ S\dg(\Ce\dg)^{-1}z=r'_e\ \Longleftrightarrow\ \mathcal K\dg z=r'_e,\nonumber\\
+z&=\text{GCR on }\mathcal K\dg\text{ with preconditioner }\Ce\dg\,\Gfive S^{-1}\Gfive,\nonumber\\
+S^{-1}t&\approx\Ce^{-1}\,\mathcal M\,(\Spv\Cpve^{-1})\dg t &&\text{(one cycle of }\AR),\nonumber\\
 w_e&=(\Ce\dg)^{-1}z,\qquad w_o=(\Co\dg)^{-1}\big(r_o-D_{eo}\dg w_e\big).
 \end{align}
 The line $\mathcal K\dg z=r'_e$ uses $\mathcal K=\Ce^{-1}S$: $\mathcal K\dg=S\dg(\Ce\dg)^{-1}$. The approximation for $S^{-1}$

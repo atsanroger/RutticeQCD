@@ -67,15 +67,15 @@ exactly:
 \end{equation}
 For two degenerate flavors (up and down) each flavor gives one $\det D$:
 \begin{align}
-Z&=\int\mathcal DU\;e^{-S_g[U]}\,\det D[U]\,\det D[U]\\
+Z&=\int\mathcal DU\;e^{-S_g[U]}\,\det D[U]\,\det D[U]\nonumber\\
 &=\int\mathcal DU\;e^{-S_g[U]}\,\det\!\big(D\dg D\big)[U],
 \end{align}
 where the second line uses that $\det D$ is real, so $(\det D)^2=\det D^*\det D=\det(D\dg D)$.
 That $\det D$ is real follows from the exact relation $D_-\Gfive D\dg=D\Gfive D_-\dg$ of
 Sec.~\ref{W-sec:g5} of the MG walkthrough, taking determinants ($\det\Gfive=\pm1$ cancels on both sides):
 \begin{align}
-\det D_-\,\det D\dg&=\det D\,\det D_-\dg\\
-\det D_-\,(\det D)^*&=\det D\,(\det D_-)^*\\
+\det D_-\,\det D\dg&=\det D\,\det D_-\dg\nonumber\\
+\det D_-\,(\det D)^*&=\det D\,(\det D_-)^*\nonumber\\
 (\det D)^*&=\det D .
 \end{align}
 The last step divides by $\det D_-$, which is real: since $\Gfive D_-\Gfive=D_-\dg$
@@ -105,16 +105,16 @@ This is the ``Ratio'' action.
 \paragraph{One complex variable.} For a number $a>0$ and a complex variable $\phi=x+iy$,
 \begin{align}
 \int\frac{dx\,dy}{\pi}\;e^{-\phi^*a^{-1}\phi}
-&=\int\frac{dx\,dy}{\pi}\;e^{-(x^2+y^2)/a}\\
-&=\frac1\pi\Big(\int dx\,e^{-x^2/a}\Big)\Big(\int dy\,e^{-y^2/a}\Big)\\
+&=\int\frac{dx\,dy}{\pi}\;e^{-(x^2+y^2)/a}\nonumber\\
+&=\frac1\pi\Big(\int dx\,e^{-x^2/a}\Big)\Big(\int dy\,e^{-y^2/a}\Big)\nonumber\\
 &=\frac1\pi\,\sqrt{\pi a}\,\sqrt{\pi a}=a .
 \end{align}
 \paragraph{Many variables.} For a Hermitian positive matrix $A=V\Lambda V\dg$ (eigenvalues
 $a_k>0$), change variables $\phi=V\chi$; the Jacobian of a unitary change is $1$:
 \begin{align}
 \int\mathcal D\phi\;e^{-\phi\dg A^{-1}\phi}
-&=\int\mathcal D\chi\;e^{-\chi\dg V\dg V\Lambda^{-1}V\dg V\chi}\\
-&=\int\mathcal D\chi\;e^{-\sum_k|\chi_k|^2/a_k}\\
+&=\int\mathcal D\chi\;e^{-\chi\dg V\dg V\Lambda^{-1}V\dg V\chi}\nonumber\\
+&=\int\mathcal D\chi\;e^{-\sum_k|\chi_k|^2/a_k}\nonumber\\
 &=\prod_k a_k=\det A .
 \end{align}
 So a determinant is a Gaussian integral over \emph{bosonic} fields $\phi$, the pseudofermions:
@@ -124,7 +124,7 @@ So a determinant is a Gaussian integral over \emph{bosonic} fields $\phi$, the p
 \paragraph{The ratio.} Take $A$ such that $\det A$ is our ratio. With $H=\Gfive D$ (whose
 determinant has the modulus of $\det D$),
 \begin{align}
-A&=H_{\rm PV}\,(H\dg H)^{-1}\,H_{\rm PV}\dg,\\
+A&=H_{\rm PV}\,(H\dg H)^{-1}\,H_{\rm PV}\dg,\nonumber\\
 \det A&=\det H_{\rm PV}\,\det(H\dg H)^{-1}\,\det H_{\rm PV}\dg
 =\frac{\det(H_{\rm PV}\dg H_{\rm PV})}{\det(H\dg H)}.
 \end{align}
@@ -150,15 +150,15 @@ Factor $D$ into block triangular matrices (LDU):
 Check by multiplying out the last two factors and then the first:
 \begin{align}
 \begin{pmatrix}S&0\\0&\Co\end{pmatrix}\begin{pmatrix}1&0\\\Co^{-1}D_{oe}&1\end{pmatrix}
-&=\begin{pmatrix}S&0\\D_{oe}&\Co\end{pmatrix},\\
+&=\begin{pmatrix}S&0\\D_{oe}&\Co\end{pmatrix},\nonumber\\
 \begin{pmatrix}1&D_{eo}\Co^{-1}\\0&1\end{pmatrix}\begin{pmatrix}S&0\\D_{oe}&\Co\end{pmatrix}
 &=\begin{pmatrix}S+D_{eo}\Co^{-1}D_{oe}&D_{eo}\\D_{oe}&\Co\end{pmatrix}
 =\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}.
 \end{align}
 The triangular factors have determinant $1$, so
 \begin{align}
-\det D&=\det S\,\det\Co\\
-&=\det\big(\Ce \mathcal K\big)\det\Co\qquad(\mathcal K=\Ce^{-1}S)\\
+\det D&=\det S\,\det\Co\nonumber\\
+&=\det\big(\Ce \mathcal K\big)\det\Co\qquad(\mathcal K=\Ce^{-1}S)\nonumber\\
 &=\det\Ce\,\det\Co\,\det \mathcal K .
 \end{align}
 $\Ce$ and $\Co$ do not depend on the links (Sec.~\ref{W-sec:Cinv} of the MG walkthrough), so they are constants and drop out of
@@ -207,7 +207,7 @@ $(U,\Pi)\to(U',\Pi')$ is as likely as its reverse, and the acceptance $\min(1,e^
 gives detailed balance with $e^{-\mathcal H}$:
 \begin{align}
 e^{-\mathcal H(U,\Pi)}\min\big(1,e^{-[\mathcal H(U',\Pi')-\mathcal H(U,\Pi)]}\big)
-&=\min\big(e^{-\mathcal H(U,\Pi)},e^{-\mathcal H(U',\Pi')}\big)\\
+&=\min\big(e^{-\mathcal H(U,\Pi)},e^{-\mathcal H(U',\Pi')}\big)\nonumber\\
 &=e^{-\mathcal H(U',\Pi')}\min\big(1,e^{-[\mathcal H(U,\Pi)-\mathcal H(U',\Pi')]}\big),
 \end{align}
 which is symmetric in the two states. A small step size only raises the acceptance.
@@ -216,8 +216,8 @@ which is symmetric in the two states. A small step size only raises the acceptan
 \paragraph{Leapfrog.} Split a step of size $\epsilon$ into half a momentum update, a full link
 update, and half a momentum update:
 \begin{align}
-\Pi&\leftarrow\Pi-\tfrac\epsilon2F(U),\\
-U&\leftarrow e^{i\epsilon\Pi}U,\\
+\Pi&\leftarrow\Pi-\tfrac\epsilon2F(U),\nonumber\\
+U&\leftarrow e^{i\epsilon\Pi}U,\nonumber\\
 \Pi&\leftarrow\Pi-\tfrac\epsilon2F(U).
 \end{align}
 Each of the three updates changes only $U$ or only $\Pi$ by an amount that depends on the other
@@ -270,10 +270,10 @@ This is $\phi_e=(H_{\rm PV}\dg)^{-1}H\dg\xi_e$, written through the normal equat
 can do the solve. Then $S_F=|\xi_e|^2$; the map $\xi_e\mapsto\phi_e$ is linear and does not depend
 on $\phi_e$, so its Jacobian is a constant and $\phi_e$ has the distribution $e^{-S_F}$:
 \begin{align}
-H_{\rm PV}\dg\phi_e&=H_{\rm PV}\dg H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e=H\dg\xi_e,\\
-S_F&=(H_{\rm PV}\dg\phi_e)\dg(H\dg H)^{-1}(H_{\rm PV}\dg\phi_e)\\
-&=(H\dg\xi_e)\dg(H\dg H)^{-1}(H\dg\xi_e)\\
-&=\xi_e\dg H\,H^{-1}H^{-\dagger}\,H\dg\xi_e\\
+H_{\rm PV}\dg\phi_e&=H_{\rm PV}\dg H_{\rm PV}(H_{\rm PV}\dg H_{\rm PV})^{-1}H\dg\xi_e=H\dg\xi_e,\nonumber\\
+S_F&=(H_{\rm PV}\dg\phi_e)\dg(H\dg H)^{-1}(H_{\rm PV}\dg\phi_e)\nonumber\\
+&=(H\dg\xi_e)\dg(H\dg H)^{-1}(H\dg\xi_e)\nonumber\\
+&=\xi_e\dg H\,H^{-1}H^{-\dagger}\,H\dg\xi_e\nonumber\\
 &=\xi_e\dg\xi_e .
 \end{align}
 This costs one solve with the Pauli--Villars operator ($H_{\rm PV}\dg H_{\rm PV}$, well conditioned:
@@ -284,11 +284,11 @@ The force is the change of $S_F$ when the links change. Vary $U$; $\phi_e$ is fi
 $\chi=\Gfive\phi_e$, $v_1=\mathcal K_{\rm PV}\dg\chi$ and $v_2=(\mathcal K\dg \mathcal K)^{-1}v_1$, and using
 $\delta(M^{-1})=-M^{-1}(\delta M)M^{-1}$:
 \begin{align}
-\delta S_F&=\delta\big[v_1\dg(\mathcal K\dg \mathcal K)^{-1}v_1\big]\\
-&=(\delta v_1)\dg(\mathcal K\dg \mathcal K)^{-1}v_1+v_1\dg(\mathcal K\dg \mathcal K)^{-1}\delta v_1+v_1\dg\,\delta\big[(\mathcal K\dg \mathcal K)^{-1}\big]\,v_1\\
-&=(\delta v_1)\dg v_2+v_2\dg\,\delta v_1-v_1\dg(\mathcal K\dg \mathcal K)^{-1}\,\delta(\mathcal K\dg \mathcal K)\,(\mathcal K\dg \mathcal K)^{-1}v_1\\
-&=2\,\Re\,(\delta v_1)\dg v_2-v_2\dg\,\delta(\mathcal K\dg \mathcal K)\,v_2\\
-&=2\,\Re\,(\delta \mathcal K_{\rm PV}\dg\chi)\dg v_2-v_2\dg\big(\delta \mathcal K\dg\,\mathcal K+\mathcal K\dg\,\delta \mathcal K\big)v_2\\
+\delta S_F&=\delta\big[v_1\dg(\mathcal K\dg \mathcal K)^{-1}v_1\big]\nonumber\\
+&=(\delta v_1)\dg(\mathcal K\dg \mathcal K)^{-1}v_1+v_1\dg(\mathcal K\dg \mathcal K)^{-1}\delta v_1+v_1\dg\,\delta\big[(\mathcal K\dg \mathcal K)^{-1}\big]\,v_1\nonumber\\
+&=(\delta v_1)\dg v_2+v_2\dg\,\delta v_1-v_1\dg(\mathcal K\dg \mathcal K)^{-1}\,\delta(\mathcal K\dg \mathcal K)\,(\mathcal K\dg \mathcal K)^{-1}v_1\nonumber\\
+&=2\,\Re\,(\delta v_1)\dg v_2-v_2\dg\,\delta(\mathcal K\dg \mathcal K)\,v_2\nonumber\\
+&=2\,\Re\,(\delta \mathcal K_{\rm PV}\dg\chi)\dg v_2-v_2\dg\big(\delta \mathcal K\dg\,\mathcal K+\mathcal K\dg\,\delta \mathcal K\big)v_2\nonumber\\
 &=2\,\Re\,\chi\dg\,\delta \mathcal K_{\rm PV}\,v_2-2\,\Re\,(\mathcal Kv_2)\dg\,\delta \mathcal K\,v_2 .
 \end{align}
 The fourth line uses that $(\mathcal K\dg\mathcal K)^{-1}$ is Hermitian, so
@@ -314,9 +314,9 @@ breaks reversibility at the level of the tolerance; it is off by default.)
 two applications of $\mathcal K$. Mixed precision runs CG in single precision with corrections in double.
 With Neff's $\alpha$, Eq.~(\ref{W-eq:Ksim}) of the MG walkthrough gives $\mathcal K=Q_e\mathcal K^{(\alpha)}Q_e^{-1}$ and
 \begin{align}
-\mathcal K\dg \mathcal K&=Q_e^{-1}\mathcal K^{(\alpha)\dagger}Q_e\,Q_e\mathcal K^{(\alpha)}Q_e^{-1}\\
-&=Q_e^{-1}\,(Q_e\mathcal K^{(\alpha)})\dg(Q_e\mathcal K^{(\alpha)})\,Q_e^{-1}\\
-&=Q_e^{-1}\,(\mathcal KQ_e)\dg(\mathcal KQ_e)\,Q_e^{-1}\qquad(Q_e\mathcal K^{(\alpha)}=\mathcal KQ_e),\\
+\mathcal K\dg \mathcal K&=Q_e^{-1}\mathcal K^{(\alpha)\dagger}Q_e\,Q_e\mathcal K^{(\alpha)}Q_e^{-1}\nonumber\\
+&=Q_e^{-1}\,(Q_e\mathcal K^{(\alpha)})\dg(Q_e\mathcal K^{(\alpha)})\,Q_e^{-1}\nonumber\\
+&=Q_e^{-1}\,(\mathcal KQ_e)\dg(\mathcal KQ_e)\,Q_e^{-1}\qquad(Q_e\mathcal K^{(\alpha)}=\mathcal KQ_e),\nonumber\\
 (\mathcal K\dg \mathcal K)^{-1}&=Q_e\big[(\mathcal KQ_e)\dg(\mathcal KQ_e)\big]^{-1}Q_e ,
 \end{align}
 so CG runs on the normal equation of $\mathcal KQ_e$, better conditioned, while the action and the force stay
@@ -325,19 +325,19 @@ those of $\mathcal K$ (on $24^4$ at $m=0.001$: 22\% fewer iterations).
 \paragraph{With the multigrid: two solves.} The multigrid solves with $D$ and $D\dg$, not with
 $\mathcal K\dg \mathcal K$. Invert the product, with $\mathcal K=\Ce^{-1}S$:
 \begin{align}
-(\mathcal K\dg \mathcal K)^{-1}&=\mathcal K^{-1}\mathcal K^{-\dagger}\\
-&=(\Ce^{-1}S)^{-1}\big[(\Ce^{-1}S)\dg\big]^{-1}\\
+(\mathcal K\dg \mathcal K)^{-1}&=\mathcal K^{-1}\mathcal K^{-\dagger}\nonumber\\
+&=(\Ce^{-1}S)^{-1}\big[(\Ce^{-1}S)\dg\big]^{-1}\nonumber\\
 &=S^{-1}\Ce\;\Ce\dg S^{-\dagger} .
 \end{align}
 So $z=(\mathcal K\dg \mathcal K)^{-1}r$ is two solves:
 \begin{align}
-w&=\Ce\dg\,S^{-\dagger}r=\Ce\dg\,\pi D^{-\dagger}\iota\,r &&\text{(with $D\dg$, MG walkthrough Sec.~\ref{W-sec:dagger})},\\
+w&=\Ce\dg\,S^{-\dagger}r=\Ce\dg\,\pi D^{-\dagger}\iota\,r &&\text{(with $D\dg$, MG walkthrough Sec.~\ref{W-sec:dagger})},\nonumber\\
 z&=S^{-1}\Ce\,w=\pi D^{-1}\iota\,\Ce w &&\text{(with $D$)}.
 \end{align}
 Each solve stops at $10^{-10}$, while the normal equation needs $10^{-16}$ or $10^{-24}$. So the two
 solves are repeated on the residual of the normal equation (iterative refinement):
 \begin{align}
-r^{(k)}&=b-\mathcal K\dg\mathcal Kz^{(k)},\\
+r^{(k)}&=b-\mathcal K\dg\mathcal Kz^{(k)},\nonumber\\
 z^{(k+1)}&=z^{(k)}+\mathcal K^{-1}\mathcal K^{-\dagger}r^{(k)} ,
 \end{align}
 where $\mathcal K^{-1}\mathcal K^{-\dagger}r^{(k)}$ stands for the two inexact solves above. If
