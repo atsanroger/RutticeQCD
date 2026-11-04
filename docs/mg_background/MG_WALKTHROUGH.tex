@@ -962,6 +962,114 @@ $|p(0)|=1$). GCR(8) on $D_-$ indeed stops at $|r|^2/|b|^2\approx0.74$ after 2000
 The preconditioner of Sec.~\ref{sec:c4} never inverts $D_-$.
 
 % ======================================================================
+% ======================================================================
+\section{Why the method converges (note Sec.~V.D)}
+\label{sec:why}
+The outer solver works on $\mathcal A\equiv\tilde A\mathcal M$, the operator times the cycle. The
+note asks which property of $\mathcal A$ explains the convergence it measures. The tools below
+need $\mathcal A$ to be one fixed linear map, so in this section the coarse solves are exact; with
+Krylov coarse solves stopped at $10^{-2}$ the cycle changes from one application to the next.
+
+\subsection{The field of values and the bound for GCR}
+\paragraph{Definition.} The field of values of a matrix $\mathcal A$ is the set of Rayleigh
+quotients,
+\begin{equation}
+W(\mathcal A)=\Big\{\frac{\langle z|\mathcal A|z\rangle}{\langle z|z\rangle}\;:\;|z\rangle\neq0\Big\}.
+\end{equation}
+It contains the spectrum: for an eigenvector, $\mathcal A|x\rangle=\lambda|x\rangle$ gives
+$\langle x|\mathcal A|x\rangle/\langle x|x\rangle=\lambda$. Its leftmost point is set by the Hermitian
+part $\mathcal H=\frac12(\mathcal A+\mathcal A\dg)$. Since
+$\langle z|\mathcal A\dg|z\rangle=\langle z|\mathcal A|z\rangle^*$,
+\begin{equation}
+\Re\langle z|\mathcal A|z\rangle=\tfrac12\big(\langle z|\mathcal A|z\rangle+\langle z|\mathcal A|z\rangle^*\big)
+=\langle z|\mathcal H|z\rangle\ \ge\ \lambda_{\min}(\mathcal H)\,\langle z|z\rangle ,
+\end{equation}
+so $\min\Re W(\mathcal A)=\lambda_{\min}(\mathcal H)$.
+
+\paragraph{One step of GCR.} Take the residual $|r\rangle$ and the new direction $\mathcal M|r\rangle$,
+so $|q\rangle=\tilde A\mathcal M|r\rangle=\mathcal A|r\rangle$. Minimizing over $\alpha$ alone,
+\begin{equation}
+\min_\alpha\big\||r\rangle-\alpha|q\rangle\big\|^2=\langle r|r\rangle-\frac{|\langle q|r\rangle|^2}{\langle q|q\rangle}
+\le\langle r|r\rangle-\frac{\big(\Re\langle r|\mathcal A|r\rangle\big)^2}{\|\mathcal A\|^2\langle r|r\rangle},
+\end{equation}
+using $|\langle q|r\rangle|\ge|\Re\langle r|\mathcal A|r\rangle|$ and $\langle q|q\rangle\le\|\mathcal A\|^2\langle r|r\rangle$.
+If $W(\mathcal A)$ lies in the right half-plane, $c\equiv\lambda_{\min}(\mathcal H)>0$ and
+\begin{equation}
+\frac{\|r_{\rm new}\|^2}{\|r\|^2}\le1-\frac{c^2}{\|\mathcal A\|^2}<1 .
+\end{equation}
+GCR($k$) does at least as well: its residual is orthogonal to the kept $|q_j\rangle$, so it
+minimizes over their span together with $\mathcal A|r\rangle$, which contains the one-direction
+choice above. This is the bound of Eisenstat, Elman and Schultz: every step reduces the residual,
+for every $k$, including $k=0$.
+
+\paragraph{When $W$ contains the origin.} Then some $|r\rangle$ has $\langle r|\mathcal A|r\rangle=0$.
+If such an $|r\rangle$ is reached and the kept directions do not help, $\langle q|r\rangle$ can vanish,
+so $\alpha=0$, the residual does not change, and with a fixed cycle the next step repeats the same
+direction. The bound gives nothing, and convergence has to come from elsewhere. The note finds
+that the coarse correction pushes $W$ across the origin, and that the spectrum stays away from it.
+
+\subsection{The spectrum and eigenvalue condition numbers}
+The spectrum lies inside $W$, so it can stay far from the origin while $W$ does not. For a
+non-normal $\mathcal A$ the eigenvalues alone do not bound the residual: the eigenvectors are not
+orthogonal. Let $|x\rangle$ and $\langle y|$ be the normalized right and left eigenvectors of
+$\lambda$. The spectral projector onto $\lambda$ is
+\begin{equation}
+P_\lambda=\frac{|x\rangle\langle y|}{\langle y|x\rangle},\qquad
+\|P_\lambda\|=\frac{\|x\|\,\|y\|}{|\langle y|x\rangle|}=\frac1{|\langle y|x\rangle|}\equiv\kappa_\lambda ,
+\end{equation}
+the condition number of $\lambda$. It is $1$ when $|x\rangle$ and $|y\rangle$ coincide (a normal matrix)
+and large when they are nearly orthogonal.
+
+\subsection{Pseudospectra and the bound for GMRES}
+\paragraph{Definition.} The $\varepsilon$-pseudospectrum is the set of $z$ where
+$\sigma_{\min}(z-\mathcal A)<\varepsilon$, i.e.\ where $\|(z-\mathcal A)^{-1}\|>1/\varepsilon$. For a
+normal matrix it is the $\varepsilon$-neighborhood of the spectrum; for a non-normal one it can be
+much larger.
+
+\paragraph{The bound.} Full GMRES picks the best polynomial with $p_k(0)=1$:
+$|r_k\rangle=p_k(\mathcal A)|r_0\rangle$ with $\|r_k\|$ minimal, so for any such polynomial
+$\|r_k\|/\|r_0\|\le\|p_k(\mathcal A)\|$. Let a contour $\Gamma$ of length $L$ enclose the spectrum
+but not the origin, with $\sigma_{\min}(z-\mathcal A)\ge\varepsilon$ on $\Gamma$. By Cauchy's formula
+for a matrix,
+\begin{align}
+p_k(\mathcal A)&=\frac1{2\pi i}\oint_\Gamma p_k(z)\,(z-\mathcal A)^{-1}\,dz,\nonumber\\
+\|p_k(\mathcal A)\|&\le\frac1{2\pi}\,L\,\max_{z\in\Gamma}|p_k(z)|\,\max_{z\in\Gamma}\|(z-\mathcal A)^{-1}\|
+\le\frac{L}{2\pi\varepsilon}\max_{z\in\Gamma}|p_k(z)| .
+\end{align}
+\paragraph{A circle.} Take $\Gamma$ the circle $|z-c|=r$ with $r<c$ (it excludes the origin) and
+$p_k(z)=(1-z/c)^k$. On the circle $|1-z/c|=|c-z|/c=r/c$ and $L=2\pi r$, so
+\begin{equation}
+\frac{\|r_k\|}{\|r_0\|}\le\frac r\varepsilon\Big(\frac rc\Big)^k :
+\end{equation}
+convergence at the rate $r/c$ per iteration, with the constant $r/\varepsilon$ set by how far the
+pseudospectrum reaches.
+
+\paragraph{An outlier.} An eigenvalue $\lambda_o$ outside the circle is removed by a factor of the
+polynomial, $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$, which vanishes at $\lambda_o$. For a simple
+$\lambda_o$,
+$p_k(\mathcal A)P_o=p_k(\lambda_o)P_o=0$, so $p_k(\mathcal A)=p_k(\mathcal A)(I-P_o)$, and the
+integral needs only the part of the spectrum inside the circle:
+\begin{align}
+\|(z-\mathcal A)^{-1}(I-P_o)\|&\le\|(z-\mathcal A)^{-1}\|\,\|I-P_o\|\le\frac{\kappa_o}{\varepsilon},\nonumber\\
+|1-z/\lambda_o|&=\frac{|\lambda_o-z|}{|\lambda_o|}\le\frac{|\lambda_o-c|+r}{|\lambda_o|}\qquad(|z-c|=r),\nonumber\\
+\frac{\|r_k\|}{\|r_0\|}&\le\kappa_o\,\frac r\varepsilon\,\frac{|\lambda_o-c|+r}{|\lambda_o|}\Big(\frac rc\Big)^{k-1},
+\end{align}
+using $\|I-P_o\|=\|P_o\|=\kappa_o$ for an oblique projector. The outlier costs one iteration and a
+constant factor, not the rate.
+
+\paragraph{Checking a contour with finitely many points.} $\sigma_{\min}$ is $1$-Lipschitz:
+$|\sigma_{\min}(z-\mathcal A)-\sigma_{\min}(z'-\mathcal A)|\le\|(z-z')I\|=|z-z'|$. If it is at least
+$\varepsilon_0$ at points spaced by $h$ on $\Gamma$, it is at least $\varepsilon_0-h/2$ everywhere on
+$\Gamma$. This is why the note can state the bound on its dense circles and only an estimate on the
+contours with 16 points.
+
+\subsection{Truncated GCR with inexact coarse solves}
+The bounds above are for a fixed $\mathcal M$ and, for the pseudospectra, for full GMRES. The
+solver runs GCR(2) with coarse solves to $10^{-2}$, so $\mathcal M$ changes from step to step and
+neither bound applies directly. The note checks this case numerically (Sec.~V.D.4). The one
+mechanism of failure that a fixed cycle allows is the repeated direction of the previous
+subsection, a plateau of the residual.
+
 \section{Map to the code}
 \begin{center}
 \small
