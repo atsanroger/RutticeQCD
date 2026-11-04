@@ -9,7 +9,7 @@ precision against the multigrid (GCR(2) on $\AL$), $\alpha=0.6$ for both and
 $\alpha=1$ for the multigrid; iterations (for CGNE in double precision), solve time in seconds, coarse-operator
 applications, and $N_{\rm rhs}$, the number of right-hand sides at which the
 multigrid setup ($192$--$220$\,s) is paid back, $t_{\rm setup}/(t_{\rm CGNE}-t_{\rm
-MG})$, against the double- and the mixed-precision CGNE (n/a: CGNE is faster); speed-up: the solve time of the
+MG})$, against the double- and the mixed-precision CGNE; speed-up: the solve time of the
 mixed-precision CGNE over that of the multigrid, smallest and largest over the four configurations.
 Over the four configurations at $m=0.001$, $N_{\rm rhs}$ against mixed CGNE is $2.6$--$4.8$, and
 from $m=0.1$ to $0.001$ the iterations grow by $2.8$--$5.4$ (MG) and $20$--$32$ (mixed CGNE).
@@ -306,8 +306,7 @@ $16^4$ B & $1.45$ & $1.1$ & $0.1189$ & $0.76$ & $9.3$ & $84$\\
 \centering
 \caption{GCR($k$) iterations to $|r|^2/|b|^2<10^{-18}$, $12^4$, $m=0.001$, the
 multigrid of Table~\ref{tab:setups} (no levels below the coarse lattice), one
-random right-hand side: medians over the four configurations, in brackets the number that do not
-converge in $1000$ iterations; the point source: range over its $12$ columns and the
+random right-hand side: medians over the four configurations; the point source: range over its $12$ columns and the
 configurations. Empty cells: not run.}
 \label{tab:gcrk}
 \renewcommand{\arraystretch}{1.15}
