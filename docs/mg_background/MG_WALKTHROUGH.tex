@@ -234,7 +234,28 @@ $|r|^2/|b|^2\approx0.74$).
 
 \subsection{The site-diagonal part $C$ and its inverse (note Sec.~II.B.3)}
 \label{sec:Cinv}
-$Y$ maps $\Pp\psi$ to $\Pp\psi$ and $\Pm\psi$ to $\Pm\psi$, so $C$ splits into a block on
+\paragraph{Where $C^{-1}$ is used.} $C^{-1}$ and $(C\dg)^{-1}$ enter almost every step of the
+method:
+\begin{itemize}
+\item the Pauli--Villars preconditioned operator $A'=(\Dpv\Cpv^{-1})\dg DC^{-1}$ and the
+substitution $\psi=C^{-1}y$ (Sec.~\ref{sec:Aprime});
+\item the Schur complement $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (Eq.~\eqref{eq:schur}), so every
+application of $S$ contains one $\Co^{-1}$; one application of $\AR=(\Spv\Cpve^{-1})\dg(S\Ce^{-1})$
+(Sec.~\ref{sec:pvforms}) contains four site inversions, $\Co^{-1}$, $\Ce^{-1}$,
+$(\Cpvo\dg)^{-1}$ in $\Spv\dg$ and $(\Cpve^{-1})\dg$;
+\item the reconstruction $\psi_e=\Ce^{-1}y$, $\psi_o=\Co^{-1}(\eta_o-D_{oe}\psi_e)$;
+\item the two lifts $s$ and $\hat t$ of the prolongation, whose odd parts are built with
+$\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$ (Sec.~\ref{sec:exact});
+\item the solve with $D\dg$, through $(\Ce\dg)^{-1}$ and $(\Co\dg)^{-1}$ (Sec.~\ref{sec:dagger});
+\item in HMC, $\det\Ce\det\Co$ is a constant and drops out of the probability of the links.
+\end{itemize}
+\paragraph{Why it must be exact and cheap.} If $C^{-1}$ needed an iterative solve, each
+application of $S$ would contain an inner solve, and the inner tolerance would enter every
+Krylov step and every cycle. The derivation below shows that $C^{-1}$ has a closed form: it is
+exact, costs $O(L_s)$ per site, is the same matrix on every site, and does not depend on the
+gauge field. These four properties are what the uses above assume.
+
+\paragraph{The blocks.} $Y$ maps $\Pp\psi$ to $\Pp\psi$ and $\Pm\psi$ to $\Pm\psi$, so $C$ splits into a block on
 $\psi^+=\Pp\psi$ and one on $\psi^-=\Pm\psi$. On $\psi^+$, $Y$ brings $\psi^+_{s-1}$ to slice $s$
 with the factor $-1$, and across the wall the factor is $-(-m)=+m$:
 \begin{equation}
@@ -271,6 +292,7 @@ the same way from the other end.
 
 
 \subsection{The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}
+\label{sec:Aprime}
 Kanamori, Chen and Matsufuru multiply $D\psi=\eta$ by $(\Dpv\Cpv^{-1})\dg$ from the left and set
 $\psi=C^{-1}y$:
 \begin{align}
@@ -351,6 +373,7 @@ The same for $D\dg$: its block form is $\begin{pmatrix}\Ce\dg & D_{oe}\dg\\ D_{e
 and elimination gives $\Ce\dg-D_{oe}\dg(\Co\dg)^{-1}D_{eo}\dg=S\dg$, so $S^{-\dagger}=\pi D^{-\dagger}\iota$.
 
 \subsection{The Pauli--Villars preconditioned forms}
+\label{sec:pvforms}
 $S$ is not suitable for a Krylov method: its spectrum surrounds the origin. Following Kanamori,
 Chen and Matsufuru we multiply from the left by the adjoint of the Pauli--Villars factor and
 divide the site part out. Two placements of $\Ce$ give two forms:

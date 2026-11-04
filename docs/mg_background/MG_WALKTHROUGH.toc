@@ -10,47 +10,50 @@
 \contentsline {paragraph}{Consequence: $\Gamma _5D\Gamma _5\neq D^{\dagger }$.}{4}{section*.5}%
 \contentsline {paragraph}{The exact relation.}{5}{section*.6}%
 \contentsline {subsection}{\numberline {1.6}The site-diagonal part $C$ and its inverse (note Sec.~II.B.3)}{5}{subsection.1.6}%
+\contentsline {paragraph}{Where $C^{-1}$ is used.}{5}{section*.7}%
+\contentsline {paragraph}{Why it must be exact and cheap.}{5}{section*.8}%
+\contentsline {paragraph}{The blocks.}{6}{section*.9}%
 \contentsline {subsection}{\numberline {1.7}The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}{6}{subsection.1.7}%
-\contentsline {paragraph}{At $m=1$ it is Hermitian positive.}{6}{section*.7}%
-\contentsline {paragraph}{At $m<1$ it is a perturbation of that.}{6}{section*.8}%
-\contentsline {subsection}{\numberline {1.8}Neff's $\alpha $ (note Sec.~II.B.6)}{6}{subsection.1.8}%
-\contentsline {section}{\numberline {2}Even-odd forms (note Sec.~II.C)}{6}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Blocks}{6}{subsection.2.1}%
+\contentsline {paragraph}{At $m=1$ it is Hermitian positive.}{6}{section*.10}%
+\contentsline {paragraph}{At $m<1$ it is a perturbation of that.}{7}{section*.11}%
+\contentsline {subsection}{\numberline {1.8}Neff's $\alpha $ (note Sec.~II.B.6)}{7}{subsection.1.8}%
+\contentsline {section}{\numberline {2}Even-odd forms (note Sec.~II.C)}{7}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Blocks}{7}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}The Schur complement}{7}{subsection.2.2}%
 \contentsline {subsection}{\numberline {2.3}$S^{-1}=\pi D^{-1}\iota $}{7}{subsection.2.3}%
-\contentsline {subsection}{\numberline {2.4}The Pauli--Villars preconditioned forms}{7}{subsection.2.4}%
-\contentsline {paragraph}{Right form, step by step.}{7}{section*.9}%
-\contentsline {paragraph}{Left form with $\alpha $ in $D$ only.}{8}{section*.10}%
-\contentsline {section}{\numberline {3}The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}{8}{section.3}%
-\contentsline {subsection}{\numberline {3.1}The factorized coarse correction}{8}{subsection.3.1}%
-\contentsline {paragraph}{The inverse of the right form.}{8}{section*.11}%
-\contentsline {paragraph}{Galerkin replacement.}{8}{section*.12}%
-\contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{8}{section*.13}%
-\contentsline {paragraph}{The size of the coarse stencil.}{8}{section*.14}%
-\contentsline {paragraph}{The left form with $\alpha $, step by step.}{10}{section*.15}%
+\contentsline {subsection}{\numberline {2.4}The Pauli--Villars preconditioned forms}{8}{subsection.2.4}%
+\contentsline {paragraph}{Right form, step by step.}{8}{section*.12}%
+\contentsline {paragraph}{Left form with $\alpha $ in $D$ only.}{8}{section*.13}%
+\contentsline {section}{\numberline {3}The factorized coarse-grid correction and the prolongation (note Sec.~III.A)}{9}{section.3}%
+\contentsline {subsection}{\numberline {3.1}The factorized coarse correction}{9}{subsection.3.1}%
+\contentsline {paragraph}{The inverse of the right form.}{9}{section*.14}%
+\contentsline {paragraph}{Galerkin replacement.}{9}{section*.15}%
+\contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{9}{section*.16}%
+\contentsline {paragraph}{The size of the coarse stencil.}{9}{section*.17}%
+\contentsline {paragraph}{The left form with $\alpha $, step by step.}{10}{section*.18}%
 \contentsline {subsection}{\numberline {3.2}Aggregation and the chirality split}{10}{subsection.3.2}%
-\contentsline {paragraph}{Half the storage.}{10}{section*.16}%
-\contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{10}{subsection.3.3}%
+\contentsline {paragraph}{Half the storage.}{11}{section*.19}%
+\contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{11}{subsection.3.3}%
 \contentsline {subsection}{\numberline {3.4}The basis $\{s,\hat t\}$ and why the correction is exact}{11}{subsection.3.4}%
-\contentsline {paragraph}{$Ds$ vanishes on the odd sites.}{11}{section*.17}%
-\contentsline {paragraph}{Exactness of the right form.}{11}{section*.18}%
-\contentsline {paragraph}{Why the left form is not exact.}{12}{section*.19}%
+\contentsline {paragraph}{$Ds$ vanishes on the odd sites.}{11}{section*.20}%
+\contentsline {paragraph}{Exactness of the right form.}{12}{section*.21}%
+\contentsline {paragraph}{Why the left form is not exact.}{12}{section*.22}%
 \contentsline {subsection}{\numberline {3.5}The coarse operators by probing}{12}{subsection.3.5}%
-\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{12}{section.4}%
-\contentsline {paragraph}{Quark factor.}{12}{section*.20}%
-\contentsline {paragraph}{Pauli--Villars factor.}{13}{section*.21}%
-\contentsline {paragraph}{Levels below.}{13}{section*.22}%
-\contentsline {section}{\numberline {5}Setup (note Sec.~III.C)}{13}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{13}{subsection.5.1}%
-\contentsline {paragraph}{How much the filter amplifies, and the degree.}{14}{section*.23}%
+\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{13}{section.4}%
+\contentsline {paragraph}{Quark factor.}{13}{section*.23}%
+\contentsline {paragraph}{Pauli--Villars factor.}{13}{section*.24}%
+\contentsline {paragraph}{Levels below.}{13}{section*.25}%
+\contentsline {section}{\numberline {5}Setup (note Sec.~III.C)}{14}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{14}{subsection.5.1}%
+\contentsline {paragraph}{How much the filter amplifies, and the degree.}{14}{section*.26}%
 \contentsline {subsection}{\numberline {5.2}Bootstrap}{14}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Cost and memory}{14}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.3}Cost and memory}{15}{subsection.5.3}%
 \contentsline {section}{\numberline {6}The Chebyshev smoother and the cycle (note Sec.~III.D)}{15}{section.6}%
-\contentsline {paragraph}{Cost of one cycle.}{15}{section*.24}%
+\contentsline {paragraph}{Cost of one cycle.}{15}{section*.27}%
 \contentsline {subsection}{\numberline {6.1}The Chebyshev smoother, derived}{15}{subsection.6.1}%
 \contentsline {section}{\numberline {7}The outer solver: flexible GCR (note Sec.~III.E)}{16}{section.7}%
 \contentsline {section}{\numberline {8}Solving with $D^{\dagger }$ (note Sec.~IV)}{16}{section.8}%
-\contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{16}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.A)}{17}{subsection.8.1}%
 \contentsline {subsection}{\numberline {8.2}On the even sites, step by step (note Sec.~IV.B)}{17}{subsection.8.2}%
 \contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.C)}{17}{subsection.8.3}%
 \contentsline {section}{\numberline {9}Map to the code}{18}{section.9}%
