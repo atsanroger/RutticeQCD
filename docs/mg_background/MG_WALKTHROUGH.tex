@@ -1292,6 +1292,56 @@ neither bound applies directly. The note checks this case numerically (Sec.~V.D.
 mechanism of failure that a fixed cycle allows is the repeated direction of the previous
 subsection, a plateau of the residual.
 
+% ======================================================================
+\section{Choices of the detail}
+\label{sec:choices}
+Each step above has alternatives. The list gives them with the default of the code first, the
+parameter that selects them, and the section of the note that compares them where it does.
+\begin{itemize}
+\item The outer system (\code{operator\_type})
+  \begin{itemize}
+  \item $\AR$ (\code{PV\_right}): default; does not see Neff's $\alpha$, the correction is exact on its span
+  \item $\AL^{(\alpha)}$ (\code{PV\_left}): sees $\alpha$; the runs of the note use it at $\alpha=0.6$
+  \item CGNE on $\mathcal K\dg\mathcal K$ (\code{Normal\_left}): the comparison without the multigrid (note Sec.~V.B.1)
+  \end{itemize}
+\item The outer solver
+  \begin{itemize}
+  \item flexible GCR($k$) with $k=2$ (\code{number\_of\_kept\_directions}): default
+  \item larger $k$: at most one iteration fewer in the median on $12^4$ (note Sec.~V.D.4)
+  \end{itemize}
+\item The prolongation basis
+  \begin{itemize}
+  \item both lifts $\{|s_j\rangle,|\hat t_j\rangle\}$, split by $\Gfive$-chirality: fixed in the code
+  \item $\{|s_j\rangle,D|s_j\rangle\}$ or $\{|s_j\rangle\}$ alone: compared in the note (Sec.~V.C.2)
+  \end{itemize}
+\item The Pauli--Villars coarse solve (\code{Coarse\_Solver\_PV})
+  \begin{itemize}
+  \item CG on the regularized normal equation, $\tau=10^{-3}$ (\code{tikhonov\_epsilon}): default
+  \item MINRES on the $\Sigma$-Hermitian form, exact only for $c=0$ (\code{solver\_type: MINRES})
+  \item compared in the note, Sec.~V.C.3
+  \end{itemize}
+\item The quark coarse solve (\code{Coarse\_Solver\_D})
+  \begin{itemize}
+  \item BiCGStab on the even-odd coarse Schur complement, to $|r|^2/|b|^2<10^{-2}$: default
+  \item with levels below (\code{super\_block\_size}): on $24^4$ at $m=0.001$ about $50$ instead of $2000$ applications of $\Dc$ per correction (Sec.~\ref{sec:coarsesolve})
+  \end{itemize}
+\item The smoother (\code{Smoother})
+  \begin{itemize}
+  \item Chebyshev, $\nu=8$ steps on $[\lambda_{\rm hi}/10,\lambda_{\rm hi}]$: default, for setup~S
+  \item $\nu=12$ on $[\lambda_{\rm hi}/30,\lambda_{\rm hi}]$: setup~B (note Table~1; the sensitivity in Sec.~V.C.4)
+  \end{itemize}
+\item The setup (\code{Setup})
+  \begin{itemize}
+  \item filter: $16$ vectors, $2$ rounds; bootstrap: $2$ rounds of $4$ FGMRES steps: default
+  \item $32$ test vectors ($16$ lifts of each kind, \code{number\_of\_test\_vectors}); $4^4$ blocks in the runs (\code{block\_size}, no default)
+  \end{itemize}
+\item The solve with $D\dg$
+  \begin{itemize}
+  \item GCR on $\mathcal K\dg$ preconditioned by $\Gfive D^{-1}\Gfive$, the setup of $D$: default (Algorithm~\ref{alg:dag})
+  \item a second setup for $D\dg$: avoided, since it would double the cost of the setup (Sec.~\ref{sec:dagger})
+  \end{itemize}
+\end{itemize}
+
 \section{Map to the code}
 \begin{center}
 \small

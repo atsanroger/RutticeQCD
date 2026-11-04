@@ -73,4 +73,5 @@
 \contentsline {paragraph}{An outlier.}{23}{section*.38}%
 \contentsline {paragraph}{Checking a contour with finitely many points.}{23}{section*.39}%
 \contentsline {subsection}{\numberline {9.4}Truncated GCR with inexact coarse solves}{23}{subsection.9.4}%
-\contentsline {section}{\numberline {10}Map to the code}{24}{section.10}%
+\contentsline {section}{\numberline {10}Choices of the detail}{23}{section.10}%
+\contentsline {section}{\numberline {11}Map to the code}{24}{section.11}%
