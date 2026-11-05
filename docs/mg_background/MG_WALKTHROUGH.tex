@@ -67,7 +67,8 @@ followed with nothing more than standard graduate coursework in lattice QCD. The
 note: each heading names the section of the note it derives (Secs.~II--IV), so the two can be read
 side by side. The last section maps each step to the code. HMC, which the note leaves to future
 work, is derived in a separate walkthrough.\footnote{\code{docs/mg\_background/MG\_HMC\_WALKTHROUGH.tex}.}
-Nothing here is new with respect to the note and the code.
+Apart from a few numbers from the development log of the code (\code{docs/TODO.md}), marked as
+such, nothing here is new with respect to the note and the code.
 
 
 \section*{The solver in one page}
@@ -80,8 +81,8 @@ $S|\psi_e\rangle=|\eta'_e\rangle$ on the even sites, then
 $|\psi_o\rangle=\Co^{-1}(|\eta_o\rangle-D_{oe}|\psi_e\rangle)$. This needs
 $C^{-1}$ exact and cheap (Sec.~\ref{sec:Cinv}).
 \item \emph{Pauli--Villars preconditioning} (Sec.~\ref{sec:pvforms}). With $|\psi_e\rangle=\Ce^{-1}|y\rangle$
-and the factor $(\Spv\Cpve^{-1})\dg$ from the left, solve $\AR|y\rangle=|\rho_R\rangle$, whose spectrum lies in the
-right half-plane.
+and the factor $(\Spv\Cpve^{-1})\dg$ from the left, solve $\AR|y\rangle=|\rho_R\rangle$. For the full-lattice form $A'$ the note
+shows the spectrum in the right half-plane (note Fig.~2).
 \item \emph{Outer solver} (Sec.~\ref{sec:gcr}). Flexible GCR(2) on $\AR$ (or $\AL$) with one
 multigrid cycle $\mathcal M$ as right preconditioner per step.
 \item \emph{One cycle} (Sec.~\ref{sec:cycle}). A Chebyshev smoother before and after the coarse
@@ -294,8 +295,8 @@ The order of the last product differs. Subtracting,
 &=Y\dg(cW\dg-1)-(cW\dg-1)Y\dg\nonumber\\
 &=c\,\big(Y\dg W\dg-W\dg Y\dg\big)=c\,[Y\dg,W\dg],
 \end{align}
-which is of order $c$ (zero for Shamir, $0.15$ relative on a $12^4$ stout configuration at
-$c=0.5$).
+which is of order $c$: zero for Shamir, and $\|\Gfive D\Gfive b-D\dg b\|/\|D\dg b\|=0.15$ for a
+random $b$ at $(b,c)=(1.5,0.5)$ on a $12^4$ stout configuration (note Sec.~II.B.2).
 
 
 \paragraph{The exact relation.}
@@ -322,8 +323,7 @@ and multiplying by $D_-\Gfive$ from the left,
 \end{equation}
 with no inverse left. $D_-$ itself cannot be inverted in practice: $D_-=c(W-1/c)$ is $c$ times a
 Wilson operator of mass $-M_5-1/c$ ($-3$ for $M_5=1$, $c=0.5$), whose spectrum surrounds the
-origin (Sec.~\ref{sec:dminus}) (GCR stalls at
-$|r|^2/|b|^2\approx0.74$).
+origin (Sec.~\ref{sec:dminus}).
 
 
 \subsection{The site-diagonal part $C$ and its inverse (note Sec.~II.B.3)}
@@ -400,13 +400,15 @@ $X=\Dpv\Cpv^{-1}$,
 \begin{equation}
 A'=X\dg X,\qquad \langle z|A'|z\rangle=\big\|X|z\rangle\big\|^2>0\ \ (|z\rangle\neq0,\ X\ \text{invertible}).
 \end{equation}
-\paragraph{At $m<1$ it is a perturbation of that.} $m$ enters $D$ only in the two corners of the
-matrix in $s$ ($-mD_-\Pp$ and $-mD_-\Pm$), and $C$ only in its corner $m\,d_-$:
+\paragraph{At $m<1$.} $m$ enters $D$ only in the two corners of the matrix in $s$ ($-mD_-\Pp$
+and $-mD_-\Pm$), and $C$ only in its two corners $m\,d_-$:
 \begin{equation}
 D-\Dpv=(1-m)\,D_-\,\big(\Pp\ \text{in corner }(0,L_s-1)+\Pm\ \text{in corner }(L_s-1,0)\big),
 \end{equation}
-a term localized at the walls. So $A'$ is $X\dg X$ plus a wall term; its eigenvalues stay in the
-right half-plane (note Fig.~2), which is what a Krylov method and a polynomial smoother need.
+a term at the walls. Its coefficient $1-m$ is close to $1$, so the change is not small, but it
+has low rank in $s$; after the factors $C^{-1}$, which are dense in $s$, the change of $A'$ is no
+longer localized at the walls but keeps a low rank in $s$. That the eigenvalues of $A'$ stay in
+the right half-plane is an observation (note Fig.~2); it does not follow from this argument.
 
 \subsection{Neff's $\alpha$ (note Sec.~II.B.6)}
 \label{sec:neff}
@@ -480,8 +482,10 @@ divide the site part out. Two placements of $\Ce$ give two forms:
 \AR&=(\Spv\Cpve^{-1})\dg\,(S\Ce^{-1}),\nonumber\\
 \AL&=(\Cpve^{-1}\Spv)\dg\,(\Ce^{-1}S).
 \end{align}
-For $m=1$ both become $X\dg X$, Hermitian positive; for $m<1$ they are perturbations of it, with
-all eigenvalues in the right half-plane.
+For $m=1$ both become $Z\dg Z$ with $Z$ the Schur factor of $\Dpv$ ($\Spv\Cpve^{-1}$ or
+$\Cpve^{-1}\Spv$), Hermitian positive. For $m<1$ the note shows the spectrum in the right
+half-plane only for the full-lattice $A'$ (Fig.~2); for the even-odd forms it is assumed, not
+shown.
 
 \paragraph{Right form.} Start from $S|\psi_e\rangle=|\eta'_e\rangle$ and substitute
 $|\psi_e\rangle=\Ce^{-1}|y\rangle$:
@@ -543,9 +547,9 @@ So the approximation of $X^{-1}$ inverts $X$ exactly on vectors $X\Pro|c\rangle$
 exactness proof below.
 
 \paragraph{The size of the coarse stencil.} An operator that reaches $k$ hops on the fine lattice
-connects a fine site to sites at most $k$ hops away. With blocks at least two sites wide, two coarse
-sites can then be coupled only if their coordinates differ by at most $1$ in at most $k$ of the four
-directions. Counting the coarse neighbors that differ in exactly $j$ directions ($\binom4j$ choices
+connects a fine site to sites at most $k$ hops away. With blocks at least $k$ sites wide in every
+direction ($4^4$ blocks for $k\le4$), two coarse sites can then be coupled only if their coordinates
+differ by at most $1$ in at most $k$ of the four directions. Counting the coarse neighbors that differ in exactly $j$ directions ($\binom4j$ choices
 of directions, $2^j$ signs):
 \begin{align}
 k=1:&\quad 1+\tbinom41 2=1+8=9,\nonumber\\
@@ -699,9 +703,10 @@ So one Gram matrix ($n\times n$), one Cholesky factor and one triangular solve g
 factorization is unique, so this $Q$ equals what modified Gram--Schmidt produces. In floating
 point one pass loses orthogonality like the square of the condition number of $W$, so the pass
 is done twice (CholeskyQR2): the second $G$ is close to the identity and repairs the first. Each
-pass reads $W$ twice, against one sweep per pair of columns for Gram--Schmidt (800 sweeps for
-$n=40$). Where a pivot of the first pass falls below $10^{-12}$ of its diagonal (nearly dependent
-columns), the code falls back to Gram--Schmidt for those blocks.
+pass reads $W$ twice, against one sweep per pair of columns for Gram--Schmidt ($n(n-1)/2=780$
+sweeps for $n=40$). Where a pivot of the first pass falls below $10^{-12}$ of its diagonal (nearly
+dependent columns) in any block, the code redoes the whole batch of blocks by Gram--Schmidt; for
+$n>48$ it uses Gram--Schmidt throughout.
 
 \subsection{The basis $\{s,\hat t\}$ and why the correction is exact}
 \label{sec:exact}
@@ -739,8 +744,9 @@ O_R|r\rangle&=\Cpve\dg(\Spv\Cpve^{-1})\dg S\Ce^{-1}|y\rangle\nonumber\\
 |e\rangle=O_L\pi|s\rangle&=\Ce\Ce^{-1}|y\rangle=|y\rangle .
 \end{align}
 So the correction inverts $\AR$ exactly on the span of the $y_j$. In practice $\Pro$ is in half
-precision and the coarse solves are inexact ($|r|^2/|b|^2<10^{-2}$), and the left form is
-not exact at all; the cycle converges nonetheless.
+precision, the coarse solves are inexact ($|r|^2/|b|^2<10^{-2}$), the Pauli--Villars solve is
+regularized ($\tau=10^{-3}$, which alone breaks the exactness), and the left form is not exact at
+all; the cycle converges nonetheless.
 
 
 \paragraph{Why the left form is not exact.} Repeat the argument for $\AL$ with $\alpha=1$ and
@@ -827,8 +833,7 @@ $1/(2\sqrt\tau)$. CG on $X\dg X+\tau$ needs one application of $X$ and one of $X
 Both factors stop at $|r|^2/|b|^2<10^{-2}$ (for the Pauli--Villars factor, the residual of the normal
 equation).
 
-\paragraph{Levels below.} At small masses the coarse solves themselves become expensive (on
-$24^4$ at $m=0.001$ about 2000 applications of $\Dc$ per correction). The coarse sites are then
+\paragraph{Levels below.} At small masses the coarse solves themselves become expensive. The coarse sites are then
 grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg|s_j\rangle$,
 $\Pro\dg|\hat t_j\rangle$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
 coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
@@ -843,8 +848,7 @@ preconditioner $M_\ell$ on level $\ell$ is defined from the one below (Algorithm
 \item $|z\rangle:=\Pro_{\ell+1}\,M_{\ell+1}\,\Pro_{\ell+1}\dg|r\rangle$\Cm{restrict, recurse, prolong}
 \item \kw{return} $|z\rangle+B_\ell^{-1}\big(|r\rangle-\mathcal D_\ell|z\rangle\big)$\Cm{one block-Jacobi step}
 \end{steps}
-\end{algo} This brings the coarse cost down to about 50 applications per
-correction.
+\end{algo}
 
 % ======================================================================
 % ======================================================================
@@ -900,7 +904,7 @@ $\cosh3\approx10$ per round over the damped ones: the degree is chosen for a fix
 per round.
 
 In the code the degree is $d=1.5\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$, between 40 and 1000; the first round
-uses $\lambda_{\rm lo}=\lambda_{\rm hi}/1000$. \emph{Observation} ($24^4$, $m=0.001$, 20 vectors): after
+uses $\lambda_{\rm lo}=\lambda_{\rm hi}/1000$. \emph{Observation} (development log, $24^4$, $m=0.001$, 20 vectors): after
 the first round (degree 48) the largest Ritz value is still $0.34\,\lambda_{\rm hi}$, so the
 second round has degree 40 and damps only the top two thirds of the spectrum. The filter is weak;
 the bootstrap does most of the work.
@@ -913,7 +917,7 @@ Each round is Algorithm~\ref{alg:boot}.
 \begin{steps}
 \item lift each $|y_j\rangle$ to $|s_j\rangle$ and $|\hat t_j\rangle$\Cm{Sec.~\ref{sec:exact}}
 \item split by chirality, orthonormalize per block (CholeskyQR2): $\Pro$\Cm{Secs.~\ref{sec:agg}--\ref{sec:exact}}
-\item probe $\Dc$ and $\Dcpv$; build the levels below\Cm{Secs.~\ref{sec:probe}, \ref{sec:coarsesolve}}
+\item probe $\Dc$ and $\Dcpv$; from the second round on, build the levels below\Cm{Secs.~\ref{sec:probe}, \ref{sec:coarsesolve}}
 \item build the cycle $\mathcal M$\Cm{Algorithm~\ref{alg:cycle}}
 \item \kw{for} each $j$ \kw{do} $|y_j\rangle:=$ four steps of FGMRES on $\AR|x\rangle=|y_j\rangle$ from $|x\rangle=0$ with $\mathcal M$ \kw{end}
 \item orthonormalize the $|y_j\rangle$ through their Gram matrix
@@ -921,17 +925,14 @@ Each round is Algorithm~\ref{alg:boot}.
 \end{algo} To see why this works, write $y_j$ in eigenvectors of the preconditioned operator. The
 cycle already handles the components inside its coarse space, and FGMRES with it removes them
 first; what remains, and is therefore amplified relative to the rest, is what the coarse space
-misses. In HMC the levels below are used from the second round on (in the first, on the filtered
+misses. The levels below are built from the second round on (in the first, on the filtered
 vectors, the coarse solves were as fast without them).
 
 \subsection{Cost and memory}
-On $24^4$ ($L_s=8$, 20 filtered vectors, $m=0.001$; the $24^3\times48$ runs of the note use
-16, $n=32$): the filter about 35\,s and the bootstrap
-about 77\,s, the setup in all about 113\,s. A bootstrap round makes its correction ($\Pro$ 1.8\,s,
-the two coarse operators about 4.4\,s each, the inverse blocks 0.8\,s, the top of the smoother
-1.3\,s; the levels 7\,s more in the second round) and then improves the 20 vectors (about 20\,s in
-the first round, 26\,s in the second). $\Pro$ ($40$ columns, half precision, whole lattice) is the largest
-object, about 4.7\,GB.
+The development log gives one measurement, on $24^4$ ($L_s=8$, $m=0.001$, 20 filtered vectors,
+levels below; the $24^3\times48$ runs of the note use 16): the filter about 35\,s and the setup in
+all 117\,s, before $\Pro$ was built by CholeskyQR2 (which took $\Pro$ from 4.0\,s to 1.8\,s per
+round). $\Pro$ ($40$ columns, half precision, whole lattice) is the largest object, 4.75\,GB.
 
 % ======================================================================
 % ======================================================================
@@ -959,8 +960,9 @@ correction $1$, the post-smoothing $\nu-1$:
 (\nu-1)+1+1+(\nu-1)=2\nu ,
 \end{equation}
 plus the two coarse solves. One application of $\tilde A$ is two Schur factors, each two hops:
-$\nu=8$ means 16 applications, $64$ applications of $D_{eo}$ or $D_{oe}$, per cycle. This is why one multigrid iteration costs as
-much as about 24 iterations of CG on $\mathcal K\dg \mathcal K$ (two hops each with $\mathcal K$ and $\mathcal K\dg$).
+$\nu=8$ means 16 applications, $64$ applications of $D_{eo}$ or $D_{oe}$, per cycle. One iteration
+of CG on $\mathcal K\dg\mathcal K$ has four (two each with $\mathcal K$ and $\mathcal K\dg$), so the
+hops of one cycle are those of about 16 CG iterations, before the coarse solves.
 
 \subsection{The Chebyshev smoother, derived}
 The smoother is $\nu$ steps of Chebyshev iteration on $\tilde A|x\rangle=|b\rangle$ from $|x\rangle=0$. Choose the interval
@@ -1133,7 +1135,8 @@ c\,\big|\langle w_k|[Y,W]|u_l\rangle\big|\ll|\lambda_k|\qquad\text{for the low m
 \end{equation}
 and then $(1-N)^{-1}=1+N+N^2+\dots\approx1+N$: GCR needs only a few more steps than for the
 identity. This is an argument, not a bound: the matrix elements have not been computed, and the
-iteration counts are the test. On $16^4$ it needs 2--3 iterations more than the solve with $D$; on $12^4$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~\ref{N-tab:setups}), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
+iteration counts are the test. On $16^4$ at $m=0.01$ it needs one to four iterations more than the solve with $D$ (note
+Table~\ref{N-tab:c4}); on $12^4$ at $m=0.001$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~\ref{N-tab:setups}), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
 \subsection{On the even sites (note Sec.~IV.B)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
@@ -1182,7 +1185,8 @@ For $M_5=1$, $c=0.5$ the real part of the bracket runs from $-3$ to $5$; near re
 imaginary parts have both signs. The spectrum surrounds the origin. A Krylov method needs a
 polynomial $p$ with $p(0)=1$ that is small on the spectrum, and on a set around the origin no
 low-degree polynomial does that (by the maximum principle $|p|$ on a curve around $0$ is at least
-$|p(0)|=1$). GCR(8) on $D_-$ indeed stops at $|r|^2/|b|^2\approx0.74$ after 20000 iterations.
+$|p(0)|=1$). GCR(8) on $D_-$ indeed stops at $|r|^2/|b|^2\approx0.74$ after 20000 iterations (development
+log: $12^4$, setup~S; $0.96$ in setup~B).
 The preconditioner of Sec.~\ref{sec:c4} never inverts $D_-$.
 
 % ======================================================================
@@ -1191,7 +1195,8 @@ The preconditioner of Sec.~\ref{sec:c4} never inverts $D_-$.
 \label{sec:why}
 The outer solver works on $\mathcal A\equiv\tilde A\mathcal M$, the operator times the cycle. The
 note asks which property of $\mathcal A$ explains the convergence it measures. The tools below
-need $\mathcal A$ to be one fixed linear map, so in this section the coarse solves are exact; with
+need $\mathcal A$ to be one fixed linear map, so in this section the coarse solves are done to
+$|r|^2/|b|^2<10^{-20}$, the Pauli--Villars one regularized as in the code; with
 Krylov coarse solves stopped at $10^{-2}$ the cycle changes from one application to the next.
 
 \subsection{The field of values and the bound for GCR}
@@ -1290,8 +1295,8 @@ contours with 16 points.
 \subsection{Truncated GCR with inexact coarse solves}
 The bounds above are for a fixed $\mathcal M$ and, for the pseudospectra, for full GMRES. The
 solver runs GCR(2) with coarse solves to $10^{-2}$, so $\mathcal M$ changes from step to step and
-neither bound applies directly. The note checks this case numerically (Sec.~V.D.4). The one
-mechanism of failure that a fixed cycle allows is the repeated direction of the previous
+neither bound applies directly. The note checks this case numerically (Sec.~V.D.4). One mechanism
+of failure with a fixed cycle, the one the note checks, is the repeated direction of the previous
 subsection, a plateau of the residual.
 
 % ======================================================================
@@ -1313,8 +1318,8 @@ parameter that selects them, and the section of the note that compares them wher
   \end{itemize}
 \item The prolongation basis
   \begin{itemize}
-  \item both lifts $\{|s_j\rangle,|\hat t_j\rangle\}$, split by $\Gfive$-chirality: fixed in the code
-  \item $\{|s_j\rangle,D|s_j\rangle\}$ or $\{|s_j\rangle\}$ alone: compared in the note (Sec.~V.C.2)
+  \item both lifts $\{|s_j\rangle,|\hat t_j\rangle\}$, split by $\Gfive$-chirality: fixed on \code{main}
+  \item $\{|s_j\rangle,D|s_j\rangle\}$ or $\{|s_j\rangle\}$ alone: compared in the note (Sec.~V.C.2); those runs used the branch \code{exp/\allowbreak basis-\allowbreak lifts-\allowbreak tikhonov} and \code{RUTTICE\_BASIS\_LIFTS}
   \end{itemize}
 \item The Pauli--Villars coarse solve (\code{Coarse\_Solver\_PV})
   \begin{itemize}
@@ -1325,7 +1330,7 @@ parameter that selects them, and the section of the note that compares them wher
 \item The quark coarse solve (\code{Coarse\_Solver\_D})
   \begin{itemize}
   \item BiCGStab on the even-odd coarse Schur complement, to $|r|^2/|b|^2<10^{-2}$: default
-  \item with levels below (\code{super\_block\_size}): on $24^4$ at $m=0.001$ about $50$ instead of $2000$ applications of $\Dc$ per correction (Sec.~\ref{sec:coarsesolve})
+  \item with levels below (\code{super\_block\_size}): cheaper coarse solves at small masses (Sec.~\ref{sec:coarsesolve})
   \end{itemize}
 \item The smoother (\code{Smoother})
   \begin{itemize}
@@ -1354,12 +1359,13 @@ step & where\\
 $C$, $C^{-1}$, hops, $\Gfive$, $Q$ on the device & \code{src/backend/cuda\_bridge/mdwf.rs};\newline \code{cuda\_bridge/include/fermion/}\\
 even-odd forms, $\AR$, $\AL$ (\code{PvRatio}, \code{SchurFactor}, \code{AfterQ}) & \code{src/fermion/even\_odd.rs}\\
 GCR, FGMRES, BiCGStab, MINRES, CG & \code{src/solver/}\\
-Chebyshev smoother, two-grid cycle & \code{src/solver/preconditioner/multigrid/cycle.rs};\newline \code{src/backend/cuda\_bridge/multigrid.rs}\\
+Chebyshev smoother & \code{src/solver/preconditioner/chebyshev.rs}\\
+cycle & \code{src/solver/preconditioner/multigrid/mdwf\_cycle.rs};\newline \code{src/backend/cuda\_bridge/multigrid.rs}\\
 factorized correction & \code{src/solver/preconditioner/multigrid/correction.rs};\newline \code{src/backend/cuda\_bridge/correction.rs}\\
 $\Pro$: fold, restrict, prolong, CholeskyQR2 & \code{src/backend/cuda\_bridge/coarse.rs};\newline \code{cuda\_bridge/include/multigrid/fold.cuh}\\
 coarse operators by probing & \code{CudaMdwf::coarse\_blocks} in\newline \code{src/backend/cuda\_bridge/mdwf.rs}\\
 levels below & \code{src/backend/cuda\_bridge/levels.rs}\\
-filter, bootstrap & \code{low\_modes} in\newline \code{src/solver/preconditioner/multigrid/mdwf\_even\_odd.rs};\newline \code{bootstrap} in \code{src/backend/cuda\_bridge/multigrid.rs}\\
+filter, bootstrap & \code{low\_modes}, \code{bootstrap\_rounds} in\newline \code{src/solver/preconditioner/multigrid/mdwf\_vectors.rs};\newline \code{bootstrap} in \code{src/backend/cuda\_bridge/multigrid.rs}\\
 solve with $D\dg$ & \code{adjoint\_by\_gamma5} in \code{src/fermion/even\_odd.rs}\\
 \bottomrule
 \end{tabular}
