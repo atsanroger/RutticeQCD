@@ -1,5 +1,5 @@
 //! What the solves of HMC cost with and without the multigrid of domain-wall fermions: x =
-//! (D†D)⁻¹ b by CG, and by the two solves through Ã and Ã† with the cycles M and M†
+//! (D†D)⁻¹ b by CG, and by the two solves, D through Ã with the cycle M and D† with Γ5 M Γ5
 //! (`hmc::dwf_multigrid_normal_solve`), on a configuration and then on links moved as a step of
 //! the molecular dynamics moves them (U → exp(ε iP) U, P Gaussian), where the multigrid keeps its
 //! test vectors and only makes P and the coarse operators again.

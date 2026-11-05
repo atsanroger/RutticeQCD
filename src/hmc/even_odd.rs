@@ -38,6 +38,11 @@ pub trait EvenOddHalves: ForceOp + EvenOdd<Self::Half> {
     type Half: Vector;
     /// A zero field on the sites of `parity` of the shape the operator acts on.
     fn new_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half;
+    /// A field of one parity for its shape only, to make others like it: with no vectors
+    /// where the backend allows that (the device), else a zero field.
+    fn shape_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half {
+        self.new_half(lat, parity)
+    }
     /// `ForceOp::right` on the sites of one parity.
     fn right_half(&self, out: &mut Self::Half, inp: &Self::Half);
     /// `ForceOp::gamma5` on the sites of one parity (Γ5 acts within a site).
@@ -731,12 +736,13 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
         b: &O::Half,
         stop: Stop,
     ) -> Result<SolveInfo, SolveError> {
-        let odd = op.new_half(lat, Parity::Odd);
-        let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
+        // A field of the odd sites for its shape (no vectors where the backend allows it).
+        let odd = op.shape_half(lat, Parity::Odd);
+        let schur = || SchurFactor::new(op, EoForm::Left, b, &odd);
         match pre {
-            Preconditioner::None => solver.solve(&mut k, Pre::None, z, b, stop),
+            Preconditioner::None => solver.solve(&mut schur(), Pre::None, z, b, stop),
             Preconditioner::Chebyshev { steps, ratio, hi } => chebyshev_cg(
-                &mut k,
+                &mut schur(),
                 SchurFactor::new(op, EoForm::Left, b, &odd),
                 (*steps, *ratio, hi),
                 fresh,
@@ -755,7 +761,8 @@ impl<O: EvenOddHalves> TwoFlavorRatioEo<O> {
                         stop,
                     )
                     .expect("an operator with the domain-wall multigrid");
-                cg_after_multigrid(&mut k, result, z, b, stop)
+                // K only now: during the multigrid solve its fields would be idle.
+                cg_after_multigrid(&mut schur(), result, z, b, stop)
             }
             Preconditioner::Multigrid(_) => unreachable!("refused by with_preconditioner"),
         }

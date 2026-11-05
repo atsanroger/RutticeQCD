@@ -470,7 +470,8 @@ pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     assert_eq!(b.num_vectors(), 1, "one right-hand side");
-    let odd = op.new_half(lat, Parity::Odd);
+    // K for the residual between the sweeps; a field of the odd sites for its shape.
+    let odd = op.shape_half(lat, Parity::Odd);
     let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
     let mut work = op.even_odd_work();
     // The sources have nothing on the odd sites: the solves on the even sites alone, no field of

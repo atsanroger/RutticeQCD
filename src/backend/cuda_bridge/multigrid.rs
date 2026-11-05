@@ -133,7 +133,7 @@ pub fn device_correction<'o, T: DeviceReal>(
 /// them (`bootstrap_rounds`), from P† of the vectors of the round: super-blocks and refinements
 /// as the files give them. At small masses the coarse solves of the bootstrap are most of its
 /// time without them (24⁴, m 0.001: 65 of 101 s).
-pub fn device_correction_with_levels<'o, T: DeviceReal>(
+pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
     cycle: PvEoParams,

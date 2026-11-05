@@ -1060,7 +1060,7 @@ mod tests {
     }
 
     /// The Ratio action of domain-wall fermions over Pauli-Villars fields with the multigrid in
-    /// its solves (D† through Ã† and M†, D through Ã and M) gives the energy and the force of CG
+    /// its solves (D† with Γ5 M Γ5, D through Ã and M) gives the energy and the force of CG
     /// to the tolerance of the solves, and keeps its test vectors along the solves.
     #[test]
     fn domain_wall_multigrid_gives_the_action_and_force_of_cg() {

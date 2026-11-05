@@ -362,8 +362,8 @@ pub(crate) struct MultigridHmcBlock {
     pub(crate) reuse_vectors: bool,
     #[serde(default)]
     pub(crate) number_of_reuse_iterations: usize,
-    /// Domain-wall fermions: where each of the two solves on the even sites (through Ã† and
-    /// Ã) stops, |r|²/|b|² (1e-10); then they are repeated on the residual of D†D until
+    /// Domain-wall fermions: where each of the two solves on the even sites (D† with Γ5 M Γ5,
+    /// D through Ã) stops, |r|²/|b|² (1e-10); then they are repeated on the residual of D†D until
     /// `Solver.convergence_criterion_squared`.
     pub convergence_criterion_squared_inner: Option<f64>,
     /// Domain-wall fermions: keep P and the coarse operators from solve to solve, and make them

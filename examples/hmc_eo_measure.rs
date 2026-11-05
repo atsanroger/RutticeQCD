@@ -1,5 +1,5 @@
-//! Scratch: CG iterations and seconds of one trajectory, whole lattice against even-odd, with
-//! and without the chronological guess. Not committed.
+//! CG iterations and seconds of one trajectory, whole lattice against even-odd, with and without
+//! the chronological guess.
 use ruttice::fermion::{Clover, CloverParams, Wilson, WilsonParams};
 use ruttice::gauge::smearing::Stout;
 use ruttice::gauge::{link, set_link, GaugeSmearing, Smear};

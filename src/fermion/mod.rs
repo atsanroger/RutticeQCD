@@ -10,11 +10,11 @@ mod wilson;
 pub use clover::{Clover, CloverDiag, CloverParams, CloverSimd};
 pub use single::{SingleAll, SingleEven, SingleOperator};
 
+pub(crate) use even_odd::adjoint_by_gamma5_even;
 pub use even_odd::{
-    adjoint_by_gamma5, adjoint_by_gamma5_even, adjoint_by_gamma5_finish, adjoint_by_gamma5_rhs,
-    adjoint_right_hand_side, adjoint_solution, hop_then_of_blocks, inverse_hops_twice_of,
-    schur_factor, solve_even_odd, AfterQ, Dagger, EoForm, EvenOdd, OnParity, PvRatio, Schur,
-    SchurFactor, SplitParity, Then,
+    adjoint_by_gamma5, adjoint_right_hand_side, adjoint_solution, hop_then_of_blocks,
+    inverse_hops_twice_of, schur_factor, solve_even_odd, AfterQ, Dagger, EoForm, EvenOdd, OnParity,
+    PvRatio, Schur, SchurFactor, SplitParity, Then,
 };
 pub use wilson::links_in_su3;
 

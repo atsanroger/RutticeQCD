@@ -321,8 +321,19 @@ impl<CT: LevelReal> DeviceAdjoint<CT> {
         a: &Rc<DeviceCoarseOp<CT>>,
         copy: Option<DeviceCoarseOp<CT>>,
     ) -> Result<Self, Box<dyn Error>> {
-        let wants_copy =
-            crate::env::choice("RUTTICE_COARSE_ADJOINT", &["kernel", "copy"]) == Some(1);
+        // Read once: it changes the rounding of the coarse solves and their memory, so the run
+        // says so on stderr.
+        static WANTS_COPY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let wants_copy = *WANTS_COPY.get_or_init(|| {
+            let copy =
+                crate::env::choice("RUTTICE_COARSE_ADJOINT", &["kernel", "copy"]) == Some(1);
+            if copy {
+                eprintln!(
+                    "RUTTICE_COARSE_ADJOINT=copy: the adjoint coarse operators are stored copies (another rounding, more memory)"
+                );
+            }
+            copy
+        });
         if !wants_copy {
             if let Some(pass) = a.adjoint_pass()? {
                 return Ok(DeviceAdjoint::Pass(Rc::new(pass)));

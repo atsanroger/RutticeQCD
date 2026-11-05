@@ -58,7 +58,9 @@ GCR check it when they meet the tolerance on their own system and, where it is m
 their own tolerance and go on with the same iteration (one more field on the even sites). On the
 CPU, and wherever that check is not there, a solve that ends above the bound is repeated on its
 residual, D δ = η − D ψ, ψ ← ψ + δ, up to five times; the line of each solve gives the iterations
-of all of them and the number of these corrections.
+of all of them and the number of these corrections. The same file can therefore report different iteration
+counts on the CPU and on the device: the device stops when D ψ meets the bound, the CPU when its
+own system does and then corrects.
 
 For every quark the propagator is computed for all twelve spin-colour components of the
 source. Wilson and clover runs print the meson correlators of every pair of quarks (i, j)
