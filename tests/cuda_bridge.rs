@@ -3798,7 +3798,14 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
     };
     let mut d = CudaMdwf::<f64>::new(&lat, params).unwrap();
     d.set_gauge(&u).unwrap();
-    let mut pv = CudaMdwf::<f64>::new(&lat, MdwfParams { mass: 1.0, ..params }).unwrap();
+    let mut pv = CudaMdwf::<f64>::new(
+        &lat,
+        MdwfParams {
+            mass: 1.0,
+            ..params
+        },
+    )
+    .unwrap();
     pv.set_gauge(&u).unwrap();
     fn check<T: LevelReal>(
         d: &CudaMdwf<f64>,
@@ -3842,20 +3849,29 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
             again.axpy(&vec![C64::new(-1.0, 0.0); nv], &runs[0]);
             let mut zero = vec![0.0; nv];
             again.norm_sqr(&mut zero);
-            assert!(zero.iter().all(|z| *z == 0.0), "{name}: runs differ by {zero:?}");
+            assert!(
+                zero.iter().all(|z| *z == 0.0),
+                "{name}: runs differ by {zero:?}"
+            );
         }
     }
     let x = DeviceSpinor::from_host(&random_fifth(&lat, 4, 470)).unwrap();
     let mut x2 = x.zeros_with(2);
     x2.assign(&[0], &x);
-    x2.assign(&[1], &DeviceSpinor::from_host(&random_fifth(&lat, 4, 471)).unwrap());
+    x2.assign(
+        &[1],
+        &DeviceSpinor::from_host(&random_fifth(&lat, 4, 471)).unwrap(),
+    );
     let mut x_e = DeviceParities.half_like(&x2, Parity::Even);
     DeviceParities.extract(&mut x_e, &x2, Parity::Even);
     for n in [4usize, 40] {
         let first = DeviceSpinor::from_host(&random_fifth(&lat, 4, 480)).unwrap();
         let mut y = first.zeros_with(n);
         for k in 0..n {
-            y.assign(&[k], &DeviceSpinor::from_host(&random_fifth(&lat, 4, 480 + k as u64)).unwrap());
+            y.assign(
+                &[k],
+                &DeviceSpinor::from_host(&random_fifth(&lat, 4, 480 + k as u64)).unwrap(),
+            );
         }
         let mut y_e = DeviceParities.half_like(&y, Parity::Even);
         DeviceParities.extract(&mut y_e, &y, Parity::Even);
@@ -3886,7 +3902,14 @@ fn test_op_pv_ratio_true_residual_is_that_of_d() {
         let mut d = CudaMdwf::<f64>::new(&lat, params).unwrap();
         d.set_gauge(&u).unwrap();
         d.set_alpha(alpha);
-        let mut pv = CudaMdwf::<f64>::new(&lat, MdwfParams { mass: 1.0, ..params }).unwrap();
+        let mut pv = CudaMdwf::<f64>::new(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+        )
+        .unwrap();
         pv.set_gauge(&u).unwrap();
         let mut plain_d = CudaMdwf::<f64>::new(&lat, params).unwrap();
         plain_d.set_gauge(&u).unwrap();
@@ -3919,8 +3942,15 @@ fn test_op_pv_ratio_true_residual_is_that_of_d() {
             r.norm_sqr(&mut rr);
             b.norm_sqr(&mut bb);
             let direct = rr[0] / bb[0];
-            eprintln!("α {alpha}, {form:?}: true_residual {:e}, |Dx − b|²/|b|² {direct:e}", t[0]);
-            assert!((t[0] - direct).abs() <= 1e-10 * direct, "{alpha} {form:?}: {} {direct}", t[0]);
+            eprintln!(
+                "α {alpha}, {form:?}: true_residual {:e}, |Dx − b|²/|b|² {direct:e}",
+                t[0]
+            );
+            assert!(
+                (t[0] - direct).abs() <= 1e-10 * direct,
+                "{alpha} {form:?}: {} {direct}",
+                t[0]
+            );
         }
     }
 }

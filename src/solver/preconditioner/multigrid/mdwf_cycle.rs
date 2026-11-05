@@ -431,8 +431,16 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
                 Box::new(SharedBlocks(parts.blocks.1.clone())),
             ),
             (
-                parts.adjoints.0.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
-                parts.adjoints.1.clone().map(|a| Box::new(a) as Adjoint<'a, _>),
+                parts
+                    .adjoints
+                    .0
+                    .clone()
+                    .map(|a| Box::new(a) as Adjoint<'a, _>),
+                parts
+                    .adjoints
+                    .1
+                    .clone()
+                    .map(|a| Box::new(a) as Adjoint<'a, _>),
             ),
             params,
             &like,

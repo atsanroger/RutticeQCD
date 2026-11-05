@@ -634,7 +634,15 @@ impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
         }
         let [e0, e1] = &mut self.even;
         let scratch = (&mut self.odd, &mut *e0);
-        schur_factor(self.op, &mut self.work, self.form, scratch, e1, y, Dagger::No);
+        schur_factor(
+            self.op,
+            &mut self.work,
+            self.form,
+            scratch,
+            e1,
+            y,
+            Dagger::No,
+        );
         if self.form == EoForm::Left {
             self.op.diag(&mut self.work, e0, e1, even, Dagger::No);
             std::mem::swap(e0, e1);

@@ -12,8 +12,8 @@ use crate::fermion::{
 use crate::kernel::Dirac;
 use crate::solver::preconditioner::multigrid::random_even;
 use crate::{
-    random_fifth, random_spinor, Adjoint, Comm, Field, Gauge, Half, HermitianPart, Lattice, LinearOp, Normal,
-    Parity, Spinor, Vector, C64, ND,
+    random_fifth, random_spinor, Adjoint, Comm, Field, Gauge, Half, HermitianPart, Lattice,
+    LinearOp, Normal, Parity, Spinor, Vector, C64, ND,
 };
 use std::io::Write;
 use std::path::{Path, PathBuf};

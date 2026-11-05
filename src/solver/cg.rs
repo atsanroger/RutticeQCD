@@ -146,7 +146,11 @@ impl<V: Vector> Solver<V> for Cg<V> {
 
             for _ in 0..self.stop.max_iterations {
                 if converged(&rr, &b_norm, &tols) {
-                    let now: Vec<f64> = rr.iter().zip(&b_norm).map(|(r, n)| r / n.max(f64::MIN_POSITIVE)).collect();
+                    let now: Vec<f64> = rr
+                        .iter()
+                        .zip(&b_norm)
+                        .map(|(r, n)| r / n.max(f64::MIN_POSITIVE))
+                        .collect();
                     if !check || true_residual_met(a, x, tol, (&mut tols, &now), &mut checks) {
                         break;
                     }

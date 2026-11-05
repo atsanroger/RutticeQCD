@@ -83,10 +83,11 @@ impl<V: Vector> Solver<V> for Gcr<V> {
                             .collect(),
                     );
                 }
-                let mut active: Vec<bool> =
-                    (0..nv).map(|j| rr[j] > tols[j] * b_norm[j]).collect();
+                let mut active: Vec<bool> = (0..nv).map(|j| rr[j] > tols[j] * b_norm[j]).collect();
                 if !active.iter().any(|a| *a) {
-                    let now: Vec<f64> = (0..nv).map(|j| rr[j] / b_norm[j].max(f64::MIN_POSITIVE)).collect();
+                    let now: Vec<f64> = (0..nv)
+                        .map(|j| rr[j] / b_norm[j].max(f64::MIN_POSITIVE))
+                        .collect();
                     if !check || true_residual_met(a, x, tol, (&mut tols, &now), &mut checks) {
                         break;
                     }

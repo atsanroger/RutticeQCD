@@ -439,8 +439,10 @@ mod device {
         let correction = |p: &DeviceParts<f64>, a, b, q| {
             DeviceCorrection::<f64, f64>::from_parts(p.clone(), (a, b), (a, b), form(), q, even)
         };
-        let (mut cm, mut cm_dag) =
-            (correction(parts, d, pv, exact)?, correction(parts_dag, pv, d, dual_params(exact))?);
+        let (mut cm, mut cm_dag) = (
+            correction(parts, d, pv, exact)?,
+            correction(parts_dag, pv, d, dual_params(exact))?,
+        );
         let m = two_grid(
             (d, pv),
             form(),
@@ -810,8 +812,10 @@ mod device {
             Box::new(move |o, i| s.mult(o, i)),
             Box::new(move |o, i| s_dag.mult(o, i)),
         );
-        let (mut e, mut e_dag) =
-            (correction(&parts, d, pv, exact)?, correction(&parts_dag, pv, d, dual_params(exact))?);
+        let (mut e, mut e_dag) = (
+            correction(&parts, d, pv, exact)?,
+            correction(&parts_dag, pv, d, dual_params(exact))?,
+        );
         let mut with_e = product(
             (d, pv),
             (even, odd),

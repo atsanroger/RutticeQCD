@@ -2,8 +2,8 @@
 //! `Correction` of the multigrid with the fields, P and the coarse operators of the device,
 //! which are made here.
 
-use super::*;
 use super::levels::AdjointPass;
+use super::*;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
     Adjoint, ApplyAdjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
@@ -321,7 +321,8 @@ impl<CT: LevelReal> DeviceAdjoint<CT> {
         a: &Rc<DeviceCoarseOp<CT>>,
         copy: Option<DeviceCoarseOp<CT>>,
     ) -> Result<Self, Box<dyn Error>> {
-        let wants_copy = crate::env::choice("RUTTICE_COARSE_ADJOINT", &["kernel", "copy"]) == Some(1);
+        let wants_copy =
+            crate::env::choice("RUTTICE_COARSE_ADJOINT", &["kernel", "copy"]) == Some(1);
         if !wants_copy {
             if let Some(pass) = a.adjoint_pass()? {
                 return Ok(DeviceAdjoint::Pass(Rc::new(pass)));

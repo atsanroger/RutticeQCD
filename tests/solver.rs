@@ -775,7 +775,12 @@ fn test_solver_cg_goes_on_until_the_true_residual_is_met() {
             true
         }
         fn true_residual(&mut self, x: &V64) -> Option<Vec<f64>> {
-            Some(residual_sqr(&mut self.a, x, &self.b).iter().map(|r| 1e4 * r).collect())
+            Some(
+                residual_sqr(&mut self.a, x, &self.b)
+                    .iter()
+                    .map(|r| 1e4 * r)
+                    .collect(),
+            )
         }
     }
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -784,14 +789,24 @@ fn test_solver_cg_goes_on_until_the_true_residual_is_met() {
     let tol = 1e-14;
     let mut plain = ddag_d(&op, &b);
     let mut x0 = b.zeros_like();
-    let own = Cg::new(Stop::simple(tol, 2000)).solve(&mut plain, None, &mut x0, &b).unwrap();
+    let own = Cg::new(Stop::simple(tol, 2000))
+        .solve(&mut plain, None, &mut x0, &b)
+        .unwrap();
     let mut copy = b.zeros_like();
     copy.copy_from(&b);
-    let mut strict = Strict { a: ddag_d(&op, &b), b: copy };
+    let mut strict = Strict {
+        a: ddag_d(&op, &b),
+        b: copy,
+    };
     let mut x = b.zeros_like();
-    let info = Cg::new(Stop::simple(tol, 2000)).solve(&mut strict, None, &mut x, &b).unwrap();
+    let info = Cg::new(Stop::simple(tol, 2000))
+        .solve(&mut strict, None, &mut x, &b)
+        .unwrap();
     let r = residual_sqr(&mut plain, &x, &b);
-    eprintln!("own tolerance: {} iterations; with the check: {} iterations, own residual {:e}", own.iterations, info.iterations, r[0]);
+    eprintln!(
+        "own tolerance: {} iterations; with the check: {} iterations, own residual {:e}",
+        own.iterations, info.iterations, r[0]
+    );
     assert!(1e4 * r[0] <= tol, "{:e}", r[0]);
     assert!(info.iterations > own.iterations);
     assert_eq!(info.restarts, 0);

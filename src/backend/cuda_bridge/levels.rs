@@ -1241,7 +1241,8 @@ impl<T: LevelReal> AdjointPass<T> {
             crate::meter::Work::Coarse,
             std::mem::size_of::<T>(),
             8.0 * (op.dim() * op.dim() * 9 * op.sites() * out.vectors) as f64,
-            ((2 * op.dim() * op.dim() * 9 + 2 * op.dim() * 10 * out.vectors) * op.sites()
+            ((2 * op.dim() * op.dim() * 9 + 2 * op.dim() * 10 * out.vectors)
+                * op.sites()
                 * std::mem::size_of::<T>()) as f64,
         );
         // SAFETY: fields of this lattice, `out` not `inp` (it is borrowed mutably); the blocks,

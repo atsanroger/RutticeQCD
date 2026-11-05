@@ -448,7 +448,9 @@ fn test_prop_every_solver_choice_gives_the_same_correlator() {
     assert!(
         printed.contains("# Wilson: κ = 0.12")
             && printed.contains("# plaquette")
-            && printed.lines().any(|l| l.split_whitespace().take(3).eq(["11", "PS", "0"])),
+            && printed
+                .lines()
+                .any(|l| l.split_whitespace().take(3).eq(["11", "PS", "0"])),
         "{printed}"
     );
     let written = std::fs::read_to_string(dir.join("wilson_pion.out")).unwrap();

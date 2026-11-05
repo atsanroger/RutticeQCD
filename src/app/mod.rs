@@ -129,7 +129,9 @@ pub(crate) fn correction_tolerance(tolerance: f64, rr: &[f64], bb: &[f64]) -> f6
 
 /// The iterations of the rounds of a solve, `results` in order: their sum, with `!` if the last
 /// did not converge.
-pub(crate) fn rounds_text(results: &[Result<crate::solver::SolveInfo, crate::solver::SolveError>]) -> String {
+pub(crate) fn rounds_text(
+    results: &[Result<crate::solver::SolveInfo, crate::solver::SolveError>],
+) -> String {
     use crate::solver::SolveError;
     let mut total = 0;
     for r in results {

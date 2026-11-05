@@ -304,7 +304,8 @@ pub(super) fn run(
         let mut bb = vec![0.0; nv];
         b.norm_sqr(&mut bb);
         let b_host = b.stash()?;
-        let (mut x_host, mut target_host): (Option<Stashed<f64>>, Option<Stashed<f64>>) = (None, None);
+        let (mut x_host, mut target_host): (Option<Stashed<f64>>, Option<Stashed<f64>>) =
+            (None, None);
         let mut rr = vec![0.0; nv];
         let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
         let counted = crate::meter::Counts::now();

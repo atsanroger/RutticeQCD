@@ -933,7 +933,12 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
         .solves
         .iter()
         .map(|s| (s.quark.to_string(), s))
-        .chain(report.sequential_solves.iter().map(|s| (format!("seq {}", s.quark), s)))
+        .chain(
+            report
+                .sequential_solves
+                .iter()
+                .map(|s| (format!("seq {}", s.quark), s)),
+        )
         .collect();
     if !solves.is_empty() {
         writeln!(
@@ -950,11 +955,16 @@ pub fn write_report(report: &Report, config: &Config, out: &mut dyn Write) -> st
                 s.restarts,
                 s.worst_residual_sqr,
                 s.seconds,
-                s.peak_memory_gb.map_or("-".to_string(), |p| format!("{p:.2}"))
+                s.peak_memory_gb
+                    .map_or("-".to_string(), |p| format!("{p:.2}"))
             )?;
         }
         for (quark, s) in &solves {
-            writeln!(out, "# perf   quark {quark}, whole solve: {}", s.work.summary(s.seconds))?;
+            writeln!(
+                out,
+                "# perf   quark {quark}, whole solve: {}",
+                s.work.summary(s.seconds)
+            )?;
         }
     }
     if let Some(t) = &config.measure.three_point {
