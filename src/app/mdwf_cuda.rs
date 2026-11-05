@@ -347,21 +347,28 @@ pub(super) fn run(
             outcome(info)
         };
         let gamma5 = |o: &mut DeviceSpinor, i: &DeviceSpinor| d.mult_gamma5_on(o, i);
+        // D† w = b in the three parts of `adjoint_by_gamma5`, b on the host while the even
+        // sites are solved (as the solves with D keep their fields of the whole lattice there).
         let solve_dag = |m: &mut dyn LinearFn<DeviceSpinor>,
                          w: &mut DeviceSpinor,
-                         b: &DeviceSpinor,
-                         max: usize| {
+                         b: DeviceSpinor,
+                         max: usize|
+         -> Result<(DeviceSpinor, (usize, bool)), Box<dyn Error>> {
+            let rhs = crate::fermion::adjoint_by_gamma5_rhs(d, &DeviceParities, &b);
+            let parked = b.stash()?;
             let mut gcr = crate::solver::Gcr::new(Stop::simple(1e-10, max), k);
-            outcome(crate::fermion::adjoint_by_gamma5(
+            let (x_e, info) = crate::fermion::adjoint_by_gamma5_even(
                 (d, pv),
-                &DeviceParities,
                 &gamma5,
                 m,
                 &mut gcr,
                 (even, odd),
-                w,
-                b,
-            ))
+                &rhs,
+            );
+            drop(rhs);
+            let b = parked.restore()?;
+            crate::fermion::adjoint_by_gamma5_finish(d, &DeviceParities, &x_e, &b, w);
+            Ok((b, outcome(info)))
         };
         // |X x − b|²/|b|² with X = D or D†.
         let relative = |variant: crate::fermion::Variant, x: &DeviceSpinor, b: &DeviceSpinor| {
@@ -378,7 +385,7 @@ pub(super) fn run(
         // The sweep.
         let b = b_host.restore()?;
         let mut w0 = b.zeros_like();
-        let (it_w, ok_w) = solve_dag(m, &mut w0, &b, 2000);
+        let (b, (it_w, ok_w)) = solve_dag(m, &mut w0, b, 2000)?;
         drop(b);
         let mut x0 = w0.zeros_like();
         let (it_x, ok_x) = solve_d(m, &mut x0, &w0, 2000);
@@ -419,7 +426,7 @@ pub(super) fn run(
             )?;
             let t = Instant::now();
             let mut w = rhs.zeros_like();
-            let (it, ok) = solve_dag(m, &mut w, &rhs, 300);
+            let (rhs, (it, ok)) = solve_dag(m, &mut w, rhs, 300)?;
             let rel = relative(crate::fermion::Variant::Dagger, &w, &rhs);
             drop(w);
             let later = cycles.as_ref().map_or(0, |c| c.coarse_applications());
