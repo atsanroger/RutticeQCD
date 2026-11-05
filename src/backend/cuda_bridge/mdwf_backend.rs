@@ -245,6 +245,10 @@ impl MdwfBackend for OnDevice {
         op.mult_q(out, inp, false);
     }
 
+    fn mult_q_half(op: &CudaMdwf<f64>, out: &mut V, inp: &V) {
+        op.mult_q(out, inp, false);
+    }
+
     fn with_alpha(op: &CudaMdwf<f64>, alpha: f64) -> Result<CudaMdwf<f64>, Box<dyn Error>> {
         Ok(with_alpha(op, alpha)?)
     }

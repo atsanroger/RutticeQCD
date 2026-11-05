@@ -376,10 +376,33 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
             b_prime.copy_from(&t_e);
             *kept = Some((b_prime, n_e.iter().zip(&n_o).map(|(e, o)| e + o).collect()));
         }
+        drop((b_o, t_o));
+        self.rhs_of(rhs, t_e, b_e);
+    }
+
+    /// `right_hand_side` for a b with nothing on the odd sites, given by its even part: then
+    /// b′_e = b_e, and no field of the whole lattice is needed.
+    pub fn right_hand_side_even(&mut self, rhs: &mut H, b_e: &H) {
+        let mut t_e = b_e.zeros_like();
+        t_e.copy_from(b_e);
+        if let Some(kept) = self.kept.as_mut() {
+            let mut n_e = vec![0.0; b_e.num_vectors()];
+            b_e.norm_sqr(&mut n_e);
+            let mut b_prime = t_e.zeros_like();
+            b_prime.copy_from(&t_e);
+            *kept = Some((b_prime, n_e));
+        }
+        self.rhs_of(rhs, t_e, b_e.zeros_like());
+    }
+
+    /// The right-hand side of Ã from b′_e (`t_e`); `spare` is a field on the even sites the
+    /// left form may use.
+    fn rhs_of(&mut self, rhs: &mut H, mut t_e: H, mut spare: H) {
+        let even = Parity::Even;
         if self.form == EoForm::Left {
             self.op
-                .diag_inv(&mut self.work, &mut b_e, &t_e, even, Dagger::No);
-            t_e = b_e;
+                .diag_inv(&mut self.work, &mut spare, &t_e, even, Dagger::No);
+            t_e = spare;
         }
         self.fit_all(&t_e);
         let scratch = (&mut self.odd, &mut self.even[0]);
@@ -400,12 +423,7 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
     pub fn solution<V, P: SplitParity<V, H>>(&mut self, split: &P, x: &mut V, y: &H, b: &V) {
         let (even, odd) = (Parity::Even, Parity::Odd);
         let mut x_e = split.half_like(b, even);
-        match self.form {
-            EoForm::Right => self
-                .op
-                .diag_inv(&mut self.work, &mut x_e, y, even, Dagger::No),
-            EoForm::Left => x_e.copy_from(y),
-        }
+        self.solution_even(&mut x_e, y);
         let (mut b_o, mut t_o) = (split.half_like(b, odd), split.half_like(b, odd));
         split.extract(&mut b_o, b, odd);
         self.op.hop(&mut self.work, &mut t_o, &x_e, odd, Dagger::No);
@@ -416,6 +434,16 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
             .diag_inv(&mut self.work, &mut x_o, &t_o, odd, Dagger::No);
         split.insert(x, &x_e);
         split.insert(x, &x_o);
+    }
+
+    /// The even part x_e of `solution`: M_ee⁻¹ y (right form) or y (left form).
+    pub fn solution_even(&mut self, x_e: &mut H, y: &H) {
+        match self.form {
+            EoForm::Right => self
+                .op
+                .diag_inv(&mut self.work, x_e, y, Parity::Even, Dagger::No),
+            EoForm::Left => x_e.copy_from(y),
+        }
     }
 }
 

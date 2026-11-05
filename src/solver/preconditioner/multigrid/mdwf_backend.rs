@@ -177,6 +177,8 @@ pub trait MdwfBackend {
     fn gamma5(op: &Self::Op, out: &mut Self::Half, inp: &Self::Half);
     /// `out = Q inp` on all sites, Q at the α of `op`.
     fn mult_q(op: &Self::Op, out: &mut Self::Field, inp: &Self::Field);
+    /// The same on the sites of one parity (Q acts within a site).
+    fn mult_q_half(op: &Self::Op, out: &mut Self::Half, inp: &Self::Half);
     /// D^(α) on the links of `op`.
     fn with_alpha(op: &Self::Op, alpha: f64) -> Result<Self::Op, Box<dyn Error>>;
     /// Test vectors given on the host in double precision (a checkpoint), kept as the backend
@@ -503,6 +505,10 @@ impl<G: GammaRepre> MdwfBackend for OnCpu<G> {
     }
 
     fn mult_q(op: &Mdwf<f64, G>, out: &mut Field<f64, Spinor>, inp: &Field<f64, Spinor>) {
+        op.mult_q(out, inp, false);
+    }
+
+    fn mult_q_half(op: &Mdwf<f64, G>, out: &mut HalfOf<f64>, inp: &HalfOf<f64>) {
         op.mult_q(out, inp, false);
     }
 
