@@ -336,8 +336,15 @@ pub(super) fn run(
             let mut rhs = even.zeros_with(b.num_vectors());
             a.right_hand_side(&DeviceParities, &mut rhs, b);
             let mut y = rhs.zeros_like();
+            // The true residual is recomputed and GCR restarted every 100 steps, as in the
+            // solves of the sources (`maximum_number_of_iteration` of the files).
+            let stop = Stop {
+                tolerance_sqr: 1e-10,
+                max_iterations: max.min(100),
+                max_restarts: max.div_ceil(100).saturating_sub(1),
+            };
             let info = crate::solver::Solver::solve(
-                &mut crate::solver::Gcr::new(Stop::simple(1e-10, max), k),
+                &mut crate::solver::Gcr::new(stop, k),
                 &mut a,
                 Some(m),
                 &mut y,
