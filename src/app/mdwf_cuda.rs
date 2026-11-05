@@ -308,6 +308,133 @@ pub(super) fn run(
         }
         None => None,
     };
+    // RUTTICE_DAGGER_TEST: instead of the sources, the solves with D† of the note (Sec. IV) on
+    // this lattice, with the multigrid of D: a random b (seed 91) and the residual
+    // r = b − D†D x0 of one sweep of the normal equations (D† w0 = b and D x0 = w0 to 1e-10),
+    // each solved with D by GCR(k) on Ã with the cycle M, and with D† by GCR(k) on K† with
+    // Γ5 M Γ5 (`adjoint_by_gamma5`, as in HMC), one cycle per step, to 1e-10.
+    if crate::env::switch("RUTTICE_DAGGER_TEST") {
+        if form != crate::fermion::EoForm::Right || ops.op.alpha() != 1.0 {
+            return Err("RUTTICE_DAGGER_TEST needs operator_type PV_right and neff_alpha 1.0".into());
+        }
+        let m = pre
+            .as_mut()
+            .ok_or("RUTTICE_DAGGER_TEST needs preconditioner_type MG")?
+            .as_mut();
+        let (d, pv) = outer;
+        let k = s.number_of_kept_directions;
+        let outcome = |info: Result<crate::solver::SolveInfo, crate::solver::SolveError>| match info {
+            Ok(i) => (i.iterations, true),
+            Err(crate::solver::SolveError::NotConverged(i)) => (i.iterations, false),
+            Err(_) => (0, false),
+        };
+        let solve_d = |m: &mut dyn LinearFn<DeviceSpinor>,
+                       x: &mut DeviceSpinor,
+                       b: &DeviceSpinor,
+                       max: usize| {
+            let mut a = PvRatio::new(d, pv, crate::fermion::EoForm::Right, even, odd);
+            let mut rhs = even.zeros_with(b.num_vectors());
+            a.right_hand_side(&DeviceParities, &mut rhs, b);
+            let mut y = rhs.zeros_like();
+            let info = crate::solver::Solver::solve(
+                &mut crate::solver::Gcr::new(Stop::simple(1e-10, max), k),
+                &mut a,
+                Some(m),
+                &mut y,
+                &rhs,
+            );
+            a.solution(&DeviceParities, x, &y, b);
+            outcome(info)
+        };
+        let gamma5 = |o: &mut DeviceSpinor, i: &DeviceSpinor| d.mult_gamma5_on(o, i);
+        let solve_dag = |m: &mut dyn LinearFn<DeviceSpinor>,
+                         w: &mut DeviceSpinor,
+                         b: &DeviceSpinor,
+                         max: usize| {
+            let mut gcr = crate::solver::Gcr::new(Stop::simple(1e-10, max), k);
+            outcome(crate::fermion::adjoint_by_gamma5(
+                (d, pv),
+                &DeviceParities,
+                &gamma5,
+                m,
+                &mut gcr,
+                (even, odd),
+                w,
+                b,
+            ))
+        };
+        // |X x − b|²/|b|² with X = D or D†.
+        let relative = |variant: crate::fermion::Variant, x: &DeviceSpinor, b: &DeviceSpinor| {
+            let mut ax = b.zeros_like();
+            d.mult(&mut d.work(), &mut ax, x, variant);
+            ax.axpy(&[C64::new(-1.0, 0.0)], b);
+            let (mut n, mut nb) = ([0.0], [0.0]);
+            ax.norm_sqr(&mut n);
+            b.norm_sqr(&mut nb);
+            n[0] / nb[0]
+        };
+        let b = DeviceSpinor::from_host(&random_fifth(lat, ls, 91))?;
+        let b_host = b.stash()?;
+        // The sweep.
+        let b = b_host.restore()?;
+        let mut w0 = b.zeros_like();
+        let (it_w, ok_w) = solve_dag(m, &mut w0, &b, 2000);
+        drop(b);
+        let mut x0 = w0.zeros_like();
+        let (it_x, ok_x) = solve_d(m, &mut x0, &w0, 2000);
+        drop(w0);
+        let mut dx = x0.zeros_like();
+        d.mult(&mut d.work(), &mut dx, &x0, crate::fermion::Variant::D);
+        drop(x0);
+        let b = b_host.restore()?;
+        let mut r = b.zeros_like();
+        d.mult(&mut d.work(), &mut r, &dx, crate::fermion::Variant::Dagger);
+        drop(dx);
+        r.aypx(&[C64::new(-1.0, 0.0)], &b);
+        let (mut nr, mut nb) = ([0.0], [0.0]);
+        r.norm_sqr(&mut nr);
+        b.norm_sqr(&mut nb);
+        drop(b);
+        let r_host = r.stash()?;
+        writeln!(
+            out,
+            "  sweep: D† w0 = b by GCR({k}) with Γ5 M Γ5 {it_w} its (converged {ok_w}), D x0 = w0 {it_x} its (converged {ok_x}); |b − D†D x0|²/|b|² = {:.1e}",
+            nr[0] / nb[0]
+        )?;
+        for (name, host) in [("random b", &b_host), ("sweep residual r", &r_host)] {
+            let rhs = host.restore()?;
+            let before = cycles.as_ref().map_or(0, |c| c.coarse_applications());
+            let t = Instant::now();
+            let mut x = rhs.zeros_like();
+            let (it, ok) = solve_d(m, &mut x, &rhs, 300);
+            let rel = relative(crate::fermion::Variant::D, &x, &rhs);
+            drop(x);
+            let after = cycles.as_ref().map_or(0, |c| c.coarse_applications());
+            writeln!(
+                out,
+                "  {name}: D  by GCR({k}) with M:      {it:4} its{}  |Dx − b|²/|b|² {rel:.1e}  {:.1} s  {} coarse applications",
+                if ok { "" } else { " (not converged)" },
+                t.elapsed().as_secs_f64(),
+                after - before
+            )?;
+            let t = Instant::now();
+            let mut w = rhs.zeros_like();
+            let (it, ok) = solve_dag(m, &mut w, &rhs, 300);
+            let rel = relative(crate::fermion::Variant::Dagger, &w, &rhs);
+            drop(w);
+            let later = cycles.as_ref().map_or(0, |c| c.coarse_applications());
+            writeln!(
+                out,
+                "  {name}: D† by GCR({k}) with Γ5 M Γ5: {it:4} its{}  |D†w − b|²/|b|² {rel:.1e}  {:.1} s  {} coarse applications; {}",
+                if ok { "" } else { " (not converged)" },
+                t.elapsed().as_secs_f64(),
+                later - after,
+                memory()
+            )?;
+        }
+        return Ok(());
+    }
+
     // Solves D ψ = b (any number of vectors) and reports it in one line, under `label`.
     let solve = |b: DeviceSpinor,
                  label: &str,
