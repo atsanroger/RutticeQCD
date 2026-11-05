@@ -120,3 +120,10 @@ codegen-units = 1
 
 [profile.test]
 opt-level = 2
+
+# CI (`cargo test --profile ci`): the release build with parallel code generation, which builds
+# several times faster on few cores. Rust does not reorder floating-point operations, so the
+# numbers are those of the release build.
+[profile.ci]
+inherits = "release"
+codegen-units = 16

@@ -1,10 +1,13 @@
 # Continuous integration on the CPU (GitHub's runners have no GPU). The CUDA backend
 # (`--features cuda-bridge`) is tested by hand on a machine with a GPU, see docs/DEVELOPMENT.md.
+# Changes to the documents alone (docs/, Markdown) run nothing.
 name: CI
 
 on:
   push:
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,14 +25,15 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --release --all-targets -- -D warnings
 
-  bridge:
-    # The comparisons with Bridge++ on its test configuration conf_04040408 (4^3 x 8), the
-    # counterpart of the tests of Bridge++'s installation (build/tests/bridge.elf): plaquette,
-    # operators applied to a vector, solver iteration counts, spectrum, gradient flow, HMC.
-    # Without the configuration they print SKIPPED and pass, so the job fails on SKIPPED. The one
-    # exception is the reading of Bridge++'s binary file conf_binary.dat, which Bridge++ 2.1.3 does
-    # not ship (it writes it in its IO test): that test stays skipped here.
-    name: comparisons with Bridge++
+  test:
+    # One build (profile ci) for both steps. First the comparisons with Bridge++ on its test
+    # configuration conf_04040408 (4^3 x 8), the counterpart of the tests of Bridge++'s
+    # installation (build/tests/bridge.elf): plaquette, operators applied to a vector, solver
+    # iteration counts, spectrum, gradient flow, HMC. Without the configuration they print
+    # SKIPPED and pass, so the step fails on SKIPPED. The one exception is the reading of
+    # Bridge++'s binary file conf_binary.dat, which Bridge++ 2.1.3 does not ship (it writes it in
+    # its IO test). Then all CPU tests.
+    name: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,19 +41,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: the Bridge++ test configuration is in the repository
         run: test -f examples/conf_04040408.txt
-      - name: cargo test -- bridge
+      - name: comparisons with Bridge++
         run: |
-          cargo test --release -- bridge --nocapture 2>&1 | tee bridge.log
+          cargo test --profile ci -- bridge --nocapture 2>&1 | tee bridge.log
           test "${PIPESTATUS[0]}" -eq 0
           if grep SKIPPED bridge.log | grep -v conf_binary.dat; then
             echo "comparisons with Bridge++ were skipped (above)"; exit 1
           fi
-
-  test:
-    name: all CPU tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release
+      - name: all CPU tests
+        run: cargo test --profile ci
