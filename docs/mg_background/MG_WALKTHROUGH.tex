@@ -64,7 +64,7 @@ This document derives what the MG note\footnote{\code{docs/mg\_background/MDWF\_
 in the RutticeQCD repository.} (``the note'') states. The note gives the method and its results in compact form; here each formula
 is derived with every symbol defined before it is used, so that the method can be
 followed with nothing more than standard graduate coursework in lattice QCD. The sections follow the
-note: each heading names the section of the note it derives (Secs.~II--IV), so the two can be read
+note: each heading names the section of the note it derives (Secs.~II--V), so the two can be read
 side by side. The last section maps each step to the code. HMC, which the note leaves to future
 work, is derived in a separate walkthrough.\footnote{\code{docs/mg\_background/MG\_HMC\_WALKTHROUGH.tex}.}
 Apart from a few numbers from the development log of the code (\code{docs/TODO.md}), marked as
@@ -141,6 +141,15 @@ $\mathcal A$, $W(\mathcal A)$, $\kappa_\lambda$ & $\tilde A\mathcal M$; field of
 \bottomrule
 \end{tabular}
 \end{center}
+\paragraph{Symbols with more than one meaning.} A few letters are reused where the context
+leaves no doubt; they follow the note or the standard notation of each topic.
+$X$ is a coarse site (block), $\Dpv\Cpv^{-1}$ in Sec.~\ref{sec:Aprime}, and
+$\Pro\dg\Dpv\dg\Pro$ in Sec.~\ref{sec:coarsesolve}. $W$ is the Wilson operator, the matrix of
+columns in CholeskyQR2, and the field of values $W(\mathcal A)$. $G$ is $\sum_\mu\gamma_\mu\sin p_\mu$
+in Sec.~\ref{sec:free} and a Gram or Rayleigh--Ritz matrix elsewhere. $\ell$ is the interval map
+of the Chebyshev polynomials and the index of a level; $L$ is $\ell(H_n)$, and $L_s$ the fifth
+extent. $R$ is the reflection in $s$, the factor of QR, and $R_k$ the residual polynomial. $c$ is
+only the M\"obius parameter; $Q$ is Neff's rescaling and the orthonormal factor of QR.
 
 
 % ======================================================================
@@ -381,8 +390,8 @@ d_+x_0+m\,d_-\big(p_{L_s-1}+q^{L_s-1}x_0\big)&=r_0\nonumber\\
 x_0&=\frac{r_0-m\,d_-p_{L_s-1}}{d_++m\,d_-q^{L_s-1}} .
 \end{align}
 The block on $\psi^-$ is the same with $s\to L_s-1-s$. So $C^{-1}$ costs $O(L_s)$ per site, is
-exact, and does not depend on the gauge field. $C\dg$ has the transposed blocks and is inverted
-the same way from the other end.
+exact, and does not depend on the gauge field. It exists unless $d_++m\,d_-q^{L_s-1}=0$. $C\dg$
+has the transposed blocks and is inverted the same way from the other end.
 
 
 \subsection{The Pauli--Villars preconditioned operator (note Sec.~II.B.4)}
@@ -496,6 +505,14 @@ S\Ce^{-1}|y\rangle&=|\eta'_e\rangle\nonumber\\
 |\psi_e\rangle&=\Ce^{-1}|y\rangle,\qquad |\psi_o\rangle=\Co^{-1}\big(|\eta_o\rangle-D_{oe}|\psi_e\rangle\big).
 \end{align}
 
+\paragraph{Left form.} Multiply $S|\psi_e\rangle=|\eta'_e\rangle$ by $\Ce^{-1}$ and then by
+$(\Cpve^{-1}\Spv)\dg$:
+\begin{align}
+\Ce^{-1}S|\psi_e\rangle&=\Ce^{-1}|\eta'_e\rangle\nonumber\\
+\AL|y\rangle&=|\rho_L\rangle,\qquad |\rho_L\rangle\equiv(\Cpve^{-1}\Spv)\dg\,\Ce^{-1}|\eta'_e\rangle,\qquad |\psi_e\rangle=|y\rangle .
+\end{align}
+The unknown is $|\psi_e\rangle$ itself; $|\psi_o\rangle$ follows as in the right form.
+
 \paragraph{Left form with $\alpha$ in $D$ only.} For $DQ$ the blocks are $\Ce Q_e$, $D_{eo}Q_o$,
 $D_{oe}Q_e$, $\Co Q_o$, and the Schur complement is
 \begin{align}
@@ -509,7 +526,9 @@ So the left Schur factor of $DQ$ is
 \mathcal K^{(\alpha)}=(\Ce Q_e)^{-1}SQ_e=Q_e^{-1}\Ce^{-1}SQ_e=Q_e^{-1}\mathcal KQ_e,\qquad \mathcal K\equiv\Ce^{-1}S,
 \label{eq:Ksim}
 \end{equation}
-and the left form becomes $\AL^{(\alpha)}=(\Cpve^{-1}\Spv)\dg Q_e^{-1}(\Ce^{-1}S)Q_e$. In the right
+and the left form becomes $\AL^{(\alpha)}=(\Cpve^{-1}\Spv)\dg Q_e^{-1}(\Ce^{-1}S)Q_e$, with
+$|\rho_L^{(\alpha)}\rangle=(\Cpve^{-1}\Spv)\dg Q_e^{-1}\Ce^{-1}|\eta'_e\rangle$ and the solution
+$|\psi^{(\alpha)}_e\rangle=|y\rangle$, $|\psi\rangle=Q|\psi^{(\alpha)}\rangle$ (Sec.~\ref{sec:neff}). In the right
 form the two $Q_e$ cancel: $SQ_e(\Ce Q_e)^{-1}=S\Ce^{-1}$, so $\AR$ does not see $\alpha$.
 
 % ======================================================================
@@ -539,11 +558,11 @@ Both coarse operators $\Dc=\Pro\dg D\Pro$ and $\Pro\dg\Dpv\dg\Pro$ are nearest-n
 coarse lattice, because $D$ is one hop and every aggregate contains the whole fifth dimension.
 
 \paragraph{Why the Galerkin approximation is exact on $\operatorname{range}\Pro$.} For any $X$
-with $\Pro\dg X\Pro$ invertible and any coarse vector $|c\rangle$,
+with $\Pro\dg X\Pro$ invertible and any coarse vector $|\zeta\rangle$,
 \begin{equation}
-\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg X\,\Pro|c\rangle=\Pro\big(\Pro\dg X\Pro\big)^{-1}\big(\Pro\dg X\Pro\big)|c\rangle=\Pro|c\rangle .
+\Pro\big(\Pro\dg X\Pro\big)^{-1}\Pro\dg X\,\Pro|\zeta\rangle=\Pro\big(\Pro\dg X\Pro\big)^{-1}\big(\Pro\dg X\Pro\big)|\zeta\rangle=\Pro|\zeta\rangle .
 \end{equation}
-So the approximation of $X^{-1}$ inverts $X$ exactly on vectors $X\Pro|c\rangle$. This is used in the
+So the approximation of $X^{-1}$ inverts $X$ exactly on vectors $X\Pro|\zeta\rangle$. This is used in the
 exactness proof below.
 
 \paragraph{The size of the coarse stencil.} An operator that reaches $k$ hops on the fine lattice
@@ -690,6 +709,7 @@ $|f\rangle$, with $f_s$ its slice $s$,
 computes.
 
 \subsection{Orthonormalization per block: CholeskyQR2}
+\label{sec:cholqr}
 In each block and chirality the columns $w_1,\dots,w_n$ ($n=2\times$ the number of filtered
 vectors, see below) are made orthonormal. Collect them as the columns of $W$ and write the QR
 decomposition with a positive diagonal of $R$:
@@ -764,8 +784,8 @@ Sec.~V), so the cycle does not need the exactness.
 \subsection{The coarse operators by probing}
 \label{sec:probe}
 Write $\phi_{X,k}$ for column $k$ ($k=1,\dots,2n_v$) of $\Pro$ on block $X$: it equals the
-orthonormalized vector on the sites of $X$ and vanishes outside $X$. By the two previous
-subsections
+orthonormalized vector on the sites of $X$ and vanishes outside $X$. By
+Secs.~\ref{sec:agg} and~\ref{sec:cholqr}
 \begin{equation}
 \langle\phi_{X,j}|\phi_{Y,k}\rangle=\delta_{XY}\delta_{jk},\qquad
 \Pro=\sum_{X,k}|\phi_{X,k}\rangle\langle X,k| ,
@@ -803,13 +823,13 @@ quarter of the free device memory allows (four on $24^4$), so that $\Pro$ is rea
 % ======================================================================
 \section{The coarse solvers (note Sec.~III.B)}
 \label{sec:coarsesolve}
-\paragraph{Quark factor.} $\Dc|c\rangle=|g\rangle$ by BiCGStab on its even-odd Schur complement,
+\paragraph{Quark factor.} $\Dc|\zeta\rangle=|g\rangle$ by BiCGStab on its even-odd Schur complement,
 preconditioned by the inverse diagonal blocks. With
 $\Dc=\begin{pmatrix}A_{ee}&B_{eo}\\B_{oe}&A_{oo}\end{pmatrix}$ on the coarse lattice, exactly as in
 Eq.~\eqref{eq:schur},
 \begin{align}
-\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)|c_e\rangle&=|g_e\rangle-B_{eo}A_{oo}^{-1}|g_o\rangle,\nonumber\\
-|c_o\rangle&=A_{oo}^{-1}\big(|g_o\rangle-B_{oe}|c_e\rangle\big).
+\big(A_{ee}-B_{eo}A_{oo}^{-1}B_{oe}\big)|\zeta_e\rangle&=|g_e\rangle-B_{eo}A_{oo}^{-1}|g_o\rangle,\nonumber\\
+|\zeta_o\rangle&=A_{oo}^{-1}\big(|g_o\rangle-B_{oe}|\zeta_e\rangle\big).
 \end{align}
 \paragraph{Pauli--Villars factor.} $X|w\rangle=|g\rangle$ with $X=\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. The code stores
 $X$ itself (the adjoint of the probed $\Dcpv$, \code{CoarseOp::adjoint}) and a second copy $\Dcpv=X\dg$,
@@ -916,16 +936,19 @@ Each round is Algorithm~\ref{alg:boot}.
 \AOut{improved $|y_j\rangle$}
 \begin{steps}
 \item lift each $|y_j\rangle$ to $|s_j\rangle$ and $|\hat t_j\rangle$\Cm{Sec.~\ref{sec:exact}}
-\item split by chirality, orthonormalize per block (CholeskyQR2): $\Pro$\Cm{Secs.~\ref{sec:agg}--\ref{sec:exact}}
+\item split by chirality, orthonormalize per block (CholeskyQR2): $\Pro$\Cm{Secs.~\ref{sec:agg}, \ref{sec:cholqr}}
 \item probe $\Dc$ and $\Dcpv$; from the second round on, build the levels below\Cm{Secs.~\ref{sec:probe}, \ref{sec:coarsesolve}}
 \item build the cycle $\mathcal M$\Cm{Algorithm~\ref{alg:cycle}}
 \item \kw{for} each $j$ \kw{do} $|y_j\rangle:=$ four steps of FGMRES on $\AR|x\rangle=|y_j\rangle$ from $|x\rangle=0$ with $\mathcal M$ \kw{end}
 \item orthonormalize the $|y_j\rangle$ through their Gram matrix
 \end{steps}
-\end{algo} To see why this works, write $y_j$ in eigenvectors of the preconditioned operator. The
-cycle already handles the components inside its coarse space, and FGMRES with it removes them
-first; what remains, and is therefore amplified relative to the rest, is what the coarse space
-misses. The levels below are built from the second round on (in the first, on the filtered
+\end{algo}
+To see why line~5 improves the vectors, look at the preconditioned operator $\AR\mathcal M$. On the
+modes the coarse space already captures, its eigenvalues are close to $1$; on the low modes it
+misses, they are small, $\mu\ll1$. A few FGMRES steps on $\AR|x\rangle=|y_j\rangle$ return
+$|x\rangle\approx\mathcal M\,q(\AR\mathcal M)|y_j\rangle$ with a polynomial $q$ that is close to
+$1/\mu$ on such outliers. So the components along the missed modes are amplified by about
+$1/\mu$ against the rest, and the next coarse space contains them. The levels below are built from the second round on (in the first, on the filtered
 vectors, the coarse solves were as fast without them).
 
 \subsection{Cost and memory}
@@ -976,7 +999,10 @@ The residual after $k$ steps is $|r_k\rangle=R_k(\tilde A)|r_0\rangle$ with the 
 \begin{equation}
 R_k(\lambda)=\frac{T_k\big((\theta-\lambda)/\delta\big)}{T_k(\sigma)},\qquad R_k(0)=1,
 \end{equation}
-which is at most $1/T_k(\sigma)$ in modulus on the interval. With $\ell$ of
+which is at most $1/T_k(\sigma)$ in modulus on the interval. The eigenvalues of $\tilde A$ are
+complex, and the interval is real; the polynomial also stays small, though less, on the thin
+ellipses with foci $\lambda_{\rm lo}$ and $\lambda_{\rm hi}$, which is how the note describes the
+smoother (an ellipse with real foci). With $\ell$ of
 Sec.~\ref{sec:filter} built on this interval, $(\theta-\lambda)/\delta=-\ell(\lambda)$ and
 $\sigma=-\ell(0)$, so $R_k(\lambda)=T_k(\ell(\lambda))/T_k(\ell(0))$: the polynomial of the setup
 filter, normalized to $1$ at the origin. The filter applies it to $H_n$ to amplify the modes below
@@ -1060,7 +1086,9 @@ $\beta$ as in the note's Algorithm~4, which also normalizes each $|q\rangle$) mi
 $\big\||r\rangle-\beta|q\rangle\big\|$: it removes from $|r\rangle$ its component along
 $|q\rangle$, and $|r\rangle=|\rho\rangle-\tilde A|y\rangle$ holds exactly after line~9. With $k=2$
 (GCR(2)) the code keeps $k+1=3$ pairs $(z,q)$ and the residual, seven fields on the even sites, at
-the price of no optimality over the whole Krylov space.
+the price of no optimality over the whole Krylov space. Like the note's Algorithm~4, the code
+also recomputes the true residual $|\rho\rangle-\tilde A|y\rangle$ after a fixed number of steps
+and restarts from it; Algorithm~\ref{alg:gcr} leaves this out.
 
 % ======================================================================
 % ======================================================================
@@ -1222,9 +1250,9 @@ so $|q\rangle=\tilde A\mathcal M|r\rangle=\mathcal A|r\rangle$. Minimizing over 
 \le\langle r|r\rangle-\frac{\big(\Re\langle r|\mathcal A|r\rangle\big)^2}{\|\mathcal A\|^2\langle r|r\rangle},
 \end{equation}
 using $|\langle q|r\rangle|\ge|\Re\langle r|\mathcal A|r\rangle|$ and $\langle q|q\rangle\le\|\mathcal A\|^2\langle r|r\rangle$.
-If $W(\mathcal A)$ lies in the right half-plane, $c\equiv\lambda_{\min}(\mathcal H)>0$ and
+If $W(\mathcal A)$ lies in the right half-plane, $\mu_0\equiv\lambda_{\min}(\mathcal H)>0$ and
 \begin{equation}
-\frac{\|r_{\rm new}\|^2}{\|r\|^2}\le1-\frac{c^2}{\|\mathcal A\|^2}<1 .
+\frac{\|r_{\rm new}\|^2}{\|r\|^2}\le1-\frac{\mu_0^2}{\|\mathcal A\|^2}<1 .
 \end{equation}
 GCR($k$) does at least as well: its residual is orthogonal to the kept $|q_j\rangle$, so it
 minimizes over their span together with $\mathcal A|r\rangle$, which contains the one-direction
@@ -1257,31 +1285,32 @@ much larger.
 
 \paragraph{The bound.} Full GMRES picks the best polynomial with $p_k(0)=1$:
 $|r_k\rangle=p_k(\mathcal A)|r_0\rangle$ with $\|r_k\|$ minimal, so for any such polynomial
-$\|r_k\|/\|r_0\|\le\|p_k(\mathcal A)\|$. Let a contour $\Gamma$ of length $L$ enclose the spectrum
+$\|r_k\|/\|r_0\|\le\|p_k(\mathcal A)\|$. Let a contour $\Gamma$ of length $|\Gamma|$ enclose the spectrum
 but not the origin, with $\sigma_{\min}(z-\mathcal A)\ge\varepsilon$ on $\Gamma$. By Cauchy's formula
 for a matrix,
 \begin{align}
 p_k(\mathcal A)&=\frac1{2\pi i}\oint_\Gamma p_k(z)\,(z-\mathcal A)^{-1}\,dz,\nonumber\\
-\|p_k(\mathcal A)\|&\le\frac1{2\pi}\,L\,\max_{z\in\Gamma}|p_k(z)|\,\max_{z\in\Gamma}\|(z-\mathcal A)^{-1}\|
-\le\frac{L}{2\pi\varepsilon}\max_{z\in\Gamma}|p_k(z)| .
+\|p_k(\mathcal A)\|&\le\frac1{2\pi}\,|\Gamma|\,\max_{z\in\Gamma}|p_k(z)|\,\max_{z\in\Gamma}\|(z-\mathcal A)^{-1}\|
+\le\frac{|\Gamma|}{2\pi\varepsilon}\max_{z\in\Gamma}|p_k(z)| .
 \end{align}
-\paragraph{A circle.} Take $\Gamma$ the circle $|z-c|=r$ with $r<c$ (it excludes the origin) and
-$p_k(z)=(1-z/c)^k$. On the circle $|1-z/c|=|c-z|/c=r/c$ and $L=2\pi r$, so
+\paragraph{A circle.} Take $\Gamma$ the circle $|z-z_0|=r$ with real $z_0>r$ (it excludes the origin; the note writes $c$
+for $z_0$) and $p_k(z)=(1-z/z_0)^k$. On the circle $|1-z/z_0|=|z_0-z|/z_0=r/z_0$ and
+$|\Gamma|=2\pi r$, so
 \begin{equation}
-\frac{\|r_k\|}{\|r_0\|}\le\frac r\varepsilon\Big(\frac rc\Big)^k :
+\frac{\|r_k\|}{\|r_0\|}\le\frac r\varepsilon\Big(\frac r{z_0}\Big)^k :
 \end{equation}
-convergence at the rate $r/c$ per iteration, with the constant $r/\varepsilon$ set by how far the
+convergence at the rate $r/z_0$ per iteration, with the constant $r/\varepsilon$ set by how far the
 pseudospectrum reaches.
 
 \paragraph{An outlier.} An eigenvalue $\lambda_o$ outside the circle is removed by a factor of the
-polynomial, $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$, which vanishes at $\lambda_o$. For a simple
+polynomial, $p_k(z)=(1-z/\lambda_o)(1-z/z_0)^{k-1}$, which vanishes at $\lambda_o$. For a simple
 $\lambda_o$,
 $p_k(\mathcal A)P_o=p_k(\lambda_o)P_o=0$, so $p_k(\mathcal A)=p_k(\mathcal A)(I-P_o)$, and the
 integral needs only the part of the spectrum inside the circle:
 \begin{align}
 \|(z-\mathcal A)^{-1}(I-P_o)\|&\le\|(z-\mathcal A)^{-1}\|\,\|I-P_o\|\le\frac{\kappa_o}{\varepsilon},\nonumber\\
-|1-z/\lambda_o|&=\frac{|\lambda_o-z|}{|\lambda_o|}\le\frac{|\lambda_o-c|+r}{|\lambda_o|}\qquad(|z-c|=r),\nonumber\\
-\frac{\|r_k\|}{\|r_0\|}&\le\kappa_o\,\frac r\varepsilon\,\frac{|\lambda_o-c|+r}{|\lambda_o|}\Big(\frac rc\Big)^{k-1},
+|1-z/\lambda_o|&=\frac{|\lambda_o-z|}{|\lambda_o|}\le\frac{|\lambda_o-z_0|+r}{|\lambda_o|}\qquad(|z-z_0|=r),\nonumber\\
+\frac{\|r_k\|}{\|r_0\|}&\le\kappa_o\,\frac r\varepsilon\,\frac{|\lambda_o-z_0|+r}{|\lambda_o|}\Big(\frac r{z_0}\Big)^{k-1},
 \end{align}
 using $\|I-P_o\|=\|P_o\|=\kappa_o$ for an oblique projector. The outlier costs one iteration and a
 constant factor, not the rate.
