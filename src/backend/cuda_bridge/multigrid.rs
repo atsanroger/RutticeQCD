@@ -147,7 +147,7 @@ pub fn device_correction<'o, T: DeviceReal>(
 /// as the files give them. At small masses the coarse solves of the bootstrap are most of its
 /// time without them (24⁴, m 0.001: 65 of 101 s). With `ending`, the parts of the correction the
 /// bootstrap ends on are put there: the solve can take them instead of making them again.
-pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
+pub fn device_correction_with_levels<'o, T: DeviceReal>(
     (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
     cycle: PvEoParams,

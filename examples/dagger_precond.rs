@@ -27,7 +27,8 @@ fn main() {
 #[cfg(feature = "cuda-bridge")]
 mod device {
     use ruttice::backend::cuda_bridge::multigrid::{
-        bootstrap, device_correction, filtered_test_vectors, two_grid, DeviceCycle, Stage,
+        bootstrap, device_correction, device_correction_with_levels, filtered_test_vectors,
+        two_grid, DeviceCycle, Stage,
     };
     use ruttice::backend::cuda_bridge::{
         CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceSpinor,
@@ -39,7 +40,8 @@ mod device {
     use ruttice::gauge::{GaugeSmearing, Smear};
     use ruttice::hmc::LinkField;
     use ruttice::solver::preconditioner::multigrid::{
-        Aggregation, BootstrapParams, CoarseKrylov, FactorSolve, LowModeParams, PvEoParams,
+        Aggregation, BootstrapParams, CoarseKrylov, FactorSolve, LevelBootstrap, LowModeParams,
+        PvEoParams,
     };
     use ruttice::solver::{Gcr, SolveError, Solver, Stop};
     use ruttice::{
@@ -134,6 +136,31 @@ mod device {
             }
         };
         let l: usize = args[0].parse()?;
+        // --dims X,Y,Z,T for a lattice other than L^4 (L is then ignored).
+        let dims: [usize; ND] = match args.iter().position(|a| a == "--dims") {
+            Some(i) => {
+                let v: Vec<usize> = args.get(i + 1).ok_or("--dims needs X,Y,Z,T")?
+                    .split(',')
+                    .map(|x| x.parse())
+                    .collect::<Result<_, _>>()?;
+                v.try_into().map_err(|_| "--dims needs four extents")?
+            }
+            None => [l; ND],
+        };
+        // --levels 1: the levels below the coarse lattice of the 24^3x48 runs, super-blocks
+        // 2 and 3 refined by one round of four steps, in the bootstrap from its second round
+        // and in the correction of the solves.
+        let levels = value("--levels", 0.0)? != 0.0;
+        let super_blocks: Vec<usize> = if levels { vec![2, 3] } else { vec![] };
+        let refine: Vec<LevelBootstrap> = super_blocks
+            .iter()
+            .map(|_| LevelBootstrap { rounds: 1, iterations: 4 })
+            .collect();
+        // --sweepk K: GCR(K) for the D-dagger solve of the sweep (8 by default); --k K: the
+        // only GCR(K) of the solves with Gamma5 M_D Gamma5 (default: 2 and 4, or 2 and 8).
+        let sweep_k = value("--sweepk", 8.0)? as usize;
+        let only_k = value("--k", 0.0)? as usize;
+        let nodual = value("--nodual", 0.0)? != 0.0;
         let m5: f64 = args[3].parse()?;
         let smear = args[4] == "1";
         let quark = value("--mass", 0.01)?;
@@ -166,7 +193,7 @@ mod device {
                 ..cycle
             },
         };
-        let lat = Lattice::single_node([l; ND]);
+        let lat = Lattice::single_node(dims);
         let u = ruttice::app::read_gauge_named(&args[1], Path::new(&args[2]), &lat)?;
         let v = match smear {
             true => GaugeSmearing {
@@ -205,7 +232,7 @@ mod device {
         let agg = Aggregation::new(&lat, [4; ND]);
         let quiet = &mut |_: Stage<'_, f64>| {};
         println!(
-            "# {l}^4 M5 {m5} stout {smear}, m {quark}, Ls 8, b 1.5 c 0.5; 32 vectors, blocks 4^4, Chebyshev {} on [hi/{}, hi]",
+            "# {dims:?} M5 {m5} stout {smear}, m {quark}, Ls 8, b 1.5 c 0.5; 32 vectors, blocks 4^4, Chebyshev {} on [hi/{}, hi]; levels below {super_blocks:?}",
             cycle.chebyshev_steps, cycle.chebyshev_ratio
         );
         let t = Instant::now();
@@ -223,7 +250,14 @@ mod device {
             c.copy_from(&y);
             c
         };
-        let mut with = device_correction((&d, &pv), &agg, cycle, &even, true);
+        let mut with = device_correction_with_levels(
+            (&d, &pv),
+            &agg,
+            cycle,
+            &even,
+            true,
+            (&super_blocks, &refine, false),
+        );
         bootstrap(
             (&d, &pv),
             (&even, &odd),
@@ -247,6 +281,11 @@ mod device {
             cycle,
             &even,
         )?;
+        if levels {
+            let v = basis.pv_eo_coarse_vectors(&d, &pv, &y)?;
+            let applications = c.add_levels(&v, &super_blocks, &refine)?;
+            println!("# levels below {super_blocks:?}: {applications} coarse applications");
+        }
         let m = two_grid(
             (&d, &pv),
             EoForm::Right,
@@ -264,23 +303,29 @@ mod device {
             m: RefCell::new(m),
             cycles: Cell::new(0),
         };
-        let mut c_dag = DeviceCorrection::<f64, f32>::shared(
-            basis.clone(),
-            (&pv, &d),
-            (&pv, &d),
-            EoForm::Right,
-            dual,
-            &even,
-        )?;
-        let mut m_dag = two_grid(
-            (&pv, &d),
-            EoForm::Right,
-            (&even, &odd),
-            &lat,
-            dual,
-            Box::new(move |e, r| c_dag.correct(e, r)),
-            None,
-        )?;
+        // The dual cycle only without --nodual (its coarse operators take device memory).
+        let mut m_dag = match nodual {
+            true => None,
+            false => {
+                let mut c_dag = DeviceCorrection::<f64, f32>::shared(
+                    basis.clone(),
+                    (&pv, &d),
+                    (&pv, &d),
+                    EoForm::Right,
+                    dual,
+                    &even,
+                )?;
+                Some(two_grid(
+                    (&pv, &d),
+                    EoForm::Right,
+                    (&even, &odd),
+                    &lat,
+                    dual,
+                    Box::new(move |e, r| c_dag.correct(e, r)),
+                    None,
+                )?)
+            }
+        };
         // D† w = b on Ã† by GCR(k) with the cycle `m`.
         let by_cycle =
             |m: &mut dyn LinearFn<V>, w: &mut V, b: &V, k: usize, tol: f64, max: usize| {
@@ -301,7 +346,7 @@ mod device {
             let mut yv = rhs.zeros_like();
             let info = Gcr::new(Stop::simple(tol, max), k).solve(
                 &mut a,
-                Some(&mut m_dag as &mut dyn LinearFn<V>),
+                Some(m_dag.as_mut().expect("the dual cycle") as &mut dyn LinearFn<V>),
                 &mut yv,
                 &rhs,
             );
@@ -325,7 +370,6 @@ mod device {
         let b = V::from_host(&host)?;
         let mut w0 = b.zeros_like();
         // Sweep 1: D† by flexible GCR(8) with Γ5 M_D Γ5 (as HMC would solve it), or the dual.
-        let nodual = value("--nodual", 0.0)? != 0.0;
         let (it, ok) = if nodual {
             let mut prec = Gamma5Prec {
                 solve: &dsolve,
@@ -336,7 +380,7 @@ mod device {
                 d: &d,
                 variant: Variant::Dagger,
             };
-            outcome(Gcr::new(Stop::simple(1e-10, 2000), 8).solve(
+            outcome(Gcr::new(Stop::simple(1e-10, 2000), sweep_k).solve(
                 &mut a,
                 Some(&mut prec as &mut dyn LinearFn<V>),
                 &mut w0,
@@ -356,7 +400,8 @@ mod device {
         r.norm_sqr(&mut nr);
         b.norm_sqr(&mut nb);
         println!(
-            "# sweep 1: D† by the dual GCR(8) {it} its (converged {ok}); |b - D†D x0|²/|b|² = {:.1e}",
+            "# sweep 1: D† by {} {it} its (converged {ok}); |b - D†D x0|²/|b|² = {:.1e}",
+            if nodual { format!("GCR({sweep_k}) with Γ5 M_D Γ5") } else { "the dual GCR(8)".into() },
             nr[0] / nb[0]
         );
         for (name, rhs) in [("random b", &b), ("sweep residual r", &r)] {
@@ -379,9 +424,10 @@ mod device {
                     t.elapsed().as_secs_f64()
                 );
             }
-            let ks: Vec<usize> = match nodual {
-                true => vec![2, 4],
-                false => vec![2, 8],
+            let ks: Vec<usize> = match (only_k, nodual) {
+                (k, _) if k > 0 => vec![k],
+                (_, true) => vec![2, 4],
+                (_, false) => vec![2, 8],
             };
             let js: Vec<usize> = match nodual {
                 true => vec![1],
@@ -556,7 +602,7 @@ mod device {
                 let mut ad = PvRatio::new(&pv, &d, EoForm::Right, &even, &odd);
                 let info = Gcr::new(Stop::simple(1e-10, 300), 2).solve(
                     &mut ad,
-                    Some(&mut m_dag as &mut dyn LinearFn<V>),
+                    Some(m_dag.as_mut().expect("the dual cycle") as &mut dyn LinearFn<V>),
                     &mut yv,
                     &rho,
                 );
