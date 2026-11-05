@@ -528,7 +528,7 @@ pub fn adjoint_by_gamma5<F, H, V, P>(
     gamma5: &dyn Fn(&mut H, &H),
     m: &mut dyn LinearFn<H>,
     solver: &mut dyn crate::solver::Solver<H>,
-    (like_even, like_odd): (&H, &H),
+    like: (&H, &H),
     x: &mut V,
     b: &V,
 ) -> Result<crate::solver::SolveInfo, crate::solver::SolveError>
@@ -538,11 +538,25 @@ where
     V: Vector,
     P: SplitParity<V, H>,
 {
+    let rhs = adjoint_by_gamma5_rhs(op, split, b);
+    let (x_e, info) = adjoint_by_gamma5_even((op, pv), gamma5, m, solver, like, &rhs);
+    drop(rhs);
+    adjoint_by_gamma5_finish(op, split, &x_e, b, x);
+    info
+}
+
+/// The first part of `adjoint_by_gamma5`: b′_e = b_e − (M_oe)† C_o⁻† b_o. A caller short of
+/// memory can keep b elsewhere until `adjoint_by_gamma5_finish`.
+pub fn adjoint_by_gamma5_rhs<F, H, V, P>(op: &F, split: &P, b: &V) -> H
+where
+    F: EvenOdd<H>,
+    H: Vector,
+    V: Vector,
+    P: SplitParity<V, H>,
+{
     let (even, odd) = (Parity::Even, Parity::Odd);
     let mut work = op.even_odd_work();
-    let nv = b.num_vectors();
-    let minus = vec![C64::new(-1.0, 0.0); nv];
-    // b′_e.
+    let minus = vec![C64::new(-1.0, 0.0); b.num_vectors()];
     let (mut b_e, mut b_o) = (split.half_like(b, even), split.half_like(b, odd));
     split.extract(&mut b_e, b, even);
     split.extract(&mut b_o, b, odd);
@@ -550,64 +564,117 @@ where
     op.diag_inv(&mut work, &mut t_o, &b_o, odd, Dagger::Yes);
     op.hop(&mut work, &mut rhs, &t_o, even, Dagger::Yes);
     rhs.aypx(&minus, &b_e);
-    drop(b_e);
+    rhs
+}
+
+/// The second part of `adjoint_by_gamma5`, on the even sites only: K† z = b′_e (`rhs`) with the
+/// preconditioner C_e† Γ5 S⁻¹ Γ5, and x_e = C_e⁻† z. Returns x_e and what `solver` returns.
+pub fn adjoint_by_gamma5_even<F, H>(
+    (op, pv): (&F, &F),
+    gamma5: &dyn Fn(&mut H, &H),
+    m: &mut dyn LinearFn<H>,
+    solver: &mut dyn crate::solver::Solver<H>,
+    (like_even, like_odd): (&H, &H),
+    rhs: &H,
+) -> (
+    H,
+    Result<crate::solver::SolveInfo, crate::solver::SolveError>,
+)
+where
+    F: EvenOdd<H>,
+    H: Vector,
+{
+    let nv = rhs.num_vectors();
     // K† z = b′_e with the preconditioner C_e† Γ5 S⁻¹ Γ5.
     let mut k = SchurFactor::new(op, EoForm::Left, like_even, like_odd);
     let mut a = crate::Adjoint(&mut k);
-    // Its fields are made once: the solves on 24⁴ are short of device memory.
+    // Its fields are made once and kept to two on each parity.
     struct Prec<'p, F: EvenOdd<H>, H> {
         op: &'p F,
+        pv: &'p F,
         gamma5: &'p dyn Fn(&mut H, &H),
         m: &'p mut dyn LinearFn<H>,
-        /// X_PV = S_PV C_PV,e⁻¹.
-        x_pv: SchurFactor<'p, F, H>,
         t: H,
         rho: H,
-        y: H,
+        odd: [H; 2],
         work: F::Work,
+        work_pv: F::Work,
     }
     impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for Prec<'_, F, H> {
         fn mult(&mut self, out: &mut H, inp: &H) {
-            let even = Parity::Even;
-            for f in [&mut self.t, &mut self.rho, &mut self.y] {
+            let (even, odd) = (Parity::Even, Parity::Odd);
+            for f in [&mut self.t, &mut self.rho] {
                 crate::fit(f, inp);
             }
+            for f in self.odd.iter_mut() {
+                crate::fit(f, inp);
+            }
+            let minus = vec![C64::new(-1.0, 0.0); inp.num_vectors()];
+            let [oa, ob] = &mut self.odd;
+            // t = Γ5 inp; ρ = X_PV† t = C_PV,e⁻† S_PV† t (X_PV = S_PV C_PV,e⁻¹), the right-hand
+            // side of Ã for the source (t, 0), with S_PV† = C_PV,e† − D_oe† C_PV,o⁻† D_eo†.
             (self.gamma5)(&mut self.t, inp);
-            // ρ = X_PV† t: the right-hand side of Ã for the source (t, 0) (`PvRatio::
-            // right_hand_side`, with nothing on the odd sites).
-            self.x_pv.mult_dag(&mut self.rho, &self.t);
-            self.m.mult(&mut self.y, &self.rho);
-            // S⁻¹ t ≈ C_e⁻¹ y, then Γ5 and C_e†.
+            self.pv
+                .hop(&mut self.work_pv, oa, &self.t, odd, Dagger::Yes);
+            self.pv
+                .diag_inv(&mut self.work_pv, ob, oa, odd, Dagger::Yes);
+            self.pv
+                .diag(&mut self.work_pv, &mut self.rho, &self.t, even, Dagger::Yes);
+            self.pv
+                .hop(&mut self.work_pv, &mut self.t, ob, even, Dagger::Yes);
+            self.rho.axpy(&minus, &self.t);
+            self.pv
+                .diag_inv(&mut self.work_pv, &mut self.t, &self.rho, even, Dagger::Yes);
+            // One application of M, S⁻¹ t ≈ C_e⁻¹ M ρ, then Γ5 and C_e†.
+            self.m.mult(&mut self.rho, &self.t);
             self.op
-                .diag_inv(&mut self.work, &mut self.t, &self.y, even, Dagger::No);
-            (self.gamma5)(&mut self.y, &self.t);
+                .diag_inv(&mut self.work, &mut self.t, &self.rho, even, Dagger::No);
+            (self.gamma5)(&mut self.rho, &self.t);
             self.op
-                .diag(&mut self.work, out, &self.y, even, Dagger::Yes);
+                .diag(&mut self.work, out, &self.rho, even, Dagger::Yes);
         }
     }
     let mut prec = Prec {
         op,
+        pv,
         gamma5,
         m,
-        x_pv: SchurFactor::new(pv, EoForm::Right, like_even, like_odd),
         t: rhs.zeros_like(),
         rho: rhs.zeros_like(),
-        y: rhs.zeros_like(),
+        odd: [like_odd.zeros_with(nv), like_odd.zeros_with(nv)],
         work: op.even_odd_work(),
+        work_pv: pv.even_odd_work(),
     };
     let mut z = rhs.zeros_like();
-    let info = solver.solve(&mut a, Some(&mut prec), &mut z, &rhs);
+    let info = solver.solve(&mut a, Some(&mut prec), &mut z, rhs);
     drop(prec);
-    // x_e = C_e⁻† z, x_o = C_o⁻† (b_o − (M_eo)† x_e).
-    let mut x_e = rhs.zeros_like();
-    op.diag_inv(&mut work, &mut x_e, &z, even, Dagger::Yes);
-    op.hop(&mut work, &mut t_o, &x_e, odd, Dagger::Yes);
+    drop(k);
+    let mut work = op.even_odd_work();
+    let mut x_e = z.zeros_like();
+    op.diag_inv(&mut work, &mut x_e, &z, Parity::Even, Dagger::Yes);
+    (x_e, info)
+}
+
+/// The last part of `adjoint_by_gamma5`: x_o = C_o⁻† (b_o − (M_eo)† x_e), and x from x_e and x_o.
+pub fn adjoint_by_gamma5_finish<F, H, V, P>(op: &F, split: &P, x_e: &H, b: &V, x: &mut V)
+where
+    F: EvenOdd<H>,
+    H: Vector,
+    V: Vector,
+    P: SplitParity<V, H>,
+{
+    let odd = Parity::Odd;
+    let mut work = op.even_odd_work();
+    let minus = vec![C64::new(-1.0, 0.0); b.num_vectors()];
+    let mut b_o = split.half_like(b, odd);
+    split.extract(&mut b_o, b, odd);
+    let mut t_o = split.half_like(b, odd);
+    op.hop(&mut work, &mut t_o, x_e, odd, Dagger::Yes);
     t_o.aypx(&minus, &b_o);
     let mut x_o = b_o;
     op.diag_inv(&mut work, &mut x_o, &t_o, odd, Dagger::Yes);
-    split.insert(x, &x_e);
+    split.insert(x, x_e);
     split.insert(x, &x_o);
-    info
 }
 
 impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
