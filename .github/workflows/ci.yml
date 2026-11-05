@@ -26,7 +26,9 @@ jobs:
     # The comparisons with Bridge++ on its test configuration conf_04040408 (4^3 x 8), the
     # counterpart of the tests of Bridge++'s installation (build/tests/bridge.elf): plaquette,
     # operators applied to a vector, solver iteration counts, spectrum, gradient flow, HMC.
-    # Without the configuration they print SKIPPED and pass, so the job fails on SKIPPED.
+    # Without the configuration they print SKIPPED and pass, so the job fails on SKIPPED. The one
+    # exception is the reading of Bridge++'s binary file conf_binary.dat, which Bridge++ 2.1.3 does
+    # not ship (it writes it in its IO test): that test stays skipped here.
     name: comparisons with Bridge++
     runs-on: ubuntu-latest
     steps:
@@ -39,8 +41,8 @@ jobs:
         run: |
           cargo test --release -- bridge --nocapture 2>&1 | tee bridge.log
           test "${PIPESTATUS[0]}" -eq 0
-          if grep -q SKIPPED bridge.log; then
-            echo "comparisons with Bridge++ were skipped:"; grep SKIPPED bridge.log; exit 1
+          if grep SKIPPED bridge.log | grep -v conf_binary.dat; then
+            echo "comparisons with Bridge++ were skipped (above)"; exit 1
           fi
 
   test:
