@@ -169,6 +169,12 @@ impl<V: Vector> LinearFn<V> for Counted<'_, V> {
         self.n.set(self.n.get() + inp.num_vectors());
         self.a.mult(out, inp);
     }
+    fn has_true_residual(&self) -> bool {
+        self.a.has_true_residual()
+    }
+    fn true_residual(&mut self, x: &V) -> Option<Vec<f64>> {
+        self.a.true_residual(x)
+    }
 }
 
 /// Run what a domain-wall parameter file (`Params`) describes: random right-hand sides with seeds
@@ -496,6 +502,8 @@ where
         Preconditioner::Double(c) => c.operator(),
         _ => SharedOperator::new(PvEvenOdd::new(op_l, pv_l, form, &like_l)),
     };
+    // The solvers stop on |D x − b|²/|b|², as on the device (one more field on the even sites).
+    a.keep_true_residual();
     let coarse_applications = |pre: &Preconditioner<L>, single_pre: &Option<SinglePre<L>>| {
         single_pre.as_ref().map_or(pre.coarse_applications(), |c| {
             c.inner().coarse_applications()

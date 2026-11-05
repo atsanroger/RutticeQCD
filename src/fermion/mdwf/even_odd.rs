@@ -5,6 +5,8 @@ use super::*;
 use crate::fermion::{schur_factor, EoForm, Then};
 
 type HalfSpinorField<T, L = Aos> = Field<T, Spinor, Half, L>;
+/// b′_e and |b|² of a right-hand side (`PvEvenOdd::keep_true_residual`).
+type KeptRhs<T, L> = (HalfSpinorField<T, L>, Vec<f64>);
 
 /// The Pauli-Villars preconditioned operator on the even sites, in the form `form`, of a quark
 /// operator and a Pauli-Villars operator (normally the same at mass 1), each with its own α
@@ -17,6 +19,9 @@ pub struct PvEvenOdd<'a, T: Storage, G: GammaRepre = Dirac, L: MdwfLayout<T> = A
     work_pv: MdwfHalfWork<T, L>,
     odd: [HalfSpinorField<T, L>; 2],
     even: [HalfSpinorField<T, L>; 2],
+    /// b′_e and |b|² of the last `right_hand_side`, kept when the solvers are to stop on
+    /// |D x − b|²/|b|² (`keep_true_residual`), as `PvRatio` does on any backend.
+    kept: Option<Option<KeptRhs<T, L>>>,
 }
 
 impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
@@ -40,7 +45,14 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
             work_pv: pv.even_odd_work(),
             odd: [odd.zeros_like(), odd],
             even: [even.zeros_like(), even],
+            kept: None,
         }
+    }
+
+    /// Keep b′_e of every `right_hand_side` (one field on the even sites more), so that the
+    /// solvers can stop on |D x − b|²/|b|² (`LinearFn::true_residual`).
+    pub fn keep_true_residual(&mut self) {
+        self.kept = Some(None);
     }
 
     fn fit_all(&mut self, like: &HalfSpinorField<T, L>) {
@@ -98,6 +110,15 @@ impl<'a, T: Storage, G: GammaRepre, L: MdwfLayout<T>> PvEvenOdd<'a, T, G, L> {
             .hop(&mut self.work, &mut t_e, &t_o, Parity::Even, Dagger::No);
         let minus = vec![C64::new(-1.0, 0.0); b_e.num_vectors()];
         t_e.aypx(&minus, &b_e);
+        if let Some(kept) = self.kept.as_mut() {
+            let nv = b_e.num_vectors();
+            let (mut n_e, mut n_o) = (vec![0.0; nv], vec![0.0; nv]);
+            b_e.norm_sqr(&mut n_e);
+            b_o.norm_sqr(&mut n_o);
+            let mut b_prime = t_e.zeros_like();
+            b_prime.copy_from(&t_e);
+            *kept = Some((b_prime, n_e.iter().zip(&n_o).map(|(e, o)| e + o).collect()));
+        }
         if self.form == EoForm::Left {
             self.op
                 .diag_inv(&mut self.work, &mut b_e, &t_e, Parity::Even, Dagger::No);
@@ -281,6 +302,47 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> LinearFn<HalfSpinorField<T, L>
     /// `out = Ã inp`: the quark factor, then the adjoint of the Pauli-Villars one.
     fn mult(&mut self, out: &mut HalfSpinorField<T, L>, inp: &HalfSpinorField<T, L>) {
         self.product(out, inp, (false, Dagger::No), (true, Dagger::Yes));
+    }
+
+    fn has_true_residual(&self) -> bool {
+        self.kept.is_some()
+    }
+
+    /// |D x − b|²/|b|² for the x of `solution(y)`, as `PvRatio::true_residual`: x_o makes the
+    /// odd rows exact, so it is the even residual Ŝ x_e − b′_e, with Ŝ x_e the right Schur
+    /// factor of y (right form, x_e = C_e⁻¹ y) or C_e times the left one (left form, x_e = y).
+    fn true_residual(&mut self, y: &HalfSpinorField<T, L>) -> Option<Vec<f64>> {
+        let nv = y.num_vectors();
+        match self.kept.as_ref()? {
+            Some((b_prime, _)) if b_prime.num_vectors() == nv => {}
+            _ => return None,
+        }
+        self.fit_all(y);
+        let [e0, e1] = &mut self.even;
+        schur_factor(
+            self.op,
+            &mut self.work,
+            self.form,
+            (&mut self.odd, &mut *e0),
+            e1,
+            y,
+            Dagger::No,
+        );
+        if self.form == EoForm::Left {
+            self.op
+                .diag(&mut self.work, e0, e1, Parity::Even, Dagger::No);
+            std::mem::swap(e0, e1);
+        }
+        let (b_prime, b_norm) = self.kept.as_ref()?.as_ref()?;
+        e1.axpy(&vec![C64::new(-1.0, 0.0); nv], b_prime);
+        let mut rr = vec![0.0; nv];
+        e1.norm_sqr(&mut rr);
+        Some(
+            rr.iter()
+                .zip(b_norm)
+                .map(|(r, b)| r / b.max(f64::MIN_POSITIVE))
+                .collect(),
+        )
     }
 }
 
