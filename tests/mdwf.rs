@@ -1069,6 +1069,64 @@ fn test_eo_even_odd_pv_operator_solves_d_in_every_form() {
     }
 }
 
+/// With `keep_true_residual` the even-odd Pauli-Villars operator gives the solvers
+/// |D x − b|²/|b|² for the x its `solution` makes of y, in every form and with Neff's α, as
+/// `PvRatio` does on the device: checked against the residual of the plain D, after a few
+/// steps of BiCGStab (far from converged, where the two residuals differ most from Ã's).
+#[test]
+fn test_eo_even_odd_pv_operator_true_residual_is_that_of_d() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 161);
+    let plain = operator(&lat, MOBIUS, &u);
+    let b = random(&lat, MOBIUS.ls, 2, 162);
+    let mut even = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+    even.set_parity(Parity::Even);
+    for (form, alpha, alpha_pv) in [
+        (EoForm::Right, 1.0, 1.0),
+        (EoForm::Left, 1.0, 1.0),
+        (EoForm::Left, 0.6, 1.0),
+        (EoForm::Right, 0.6, 0.6),
+    ] {
+        let mut op = operator(&lat, MOBIUS, &u);
+        op.set_alpha(alpha);
+        let mut pv = operator(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..MOBIUS
+            },
+            &u,
+        );
+        pv.set_alpha(alpha_pv);
+        let mut a = PvEvenOdd::new(&op, &pv, form, &even);
+        assert!(!a.has_true_residual());
+        a.keep_true_residual();
+        assert!(a.has_true_residual());
+        let mut rhs = even.zeros_like();
+        a.right_hand_side(&mut rhs, &b);
+        for steps in [1, 5] {
+            let mut sol = even.zeros_like();
+            let _ = BiCgStab::new(Stop::simple(1e-30, steps)).solve(&mut a, None, &mut sol, &rhs);
+            let kept = a.true_residual(&sol).expect("kept");
+            let mut x = b.zeros_like();
+            a.solution(&mut x, &sol, &b);
+            let mut r = mult(&plain, &x, Variant::D);
+            r.aypx(&[C64::new(-1.0, 0.0); 2], &b);
+            let (mut left, mut size) = ([0.0; 2], [0.0; 2]);
+            r.norm_sqr(&mut left);
+            b.norm_sqr(&mut size);
+            for j in 0..2 {
+                let direct = left[j] / size[j];
+                assert!(
+                    (kept[j] - direct).abs() <= 1e-10 * direct,
+                    "{form:?} α {alpha}/{alpha_pv}, {steps} steps, vector {j}: {} kept, {direct} direct",
+                    kept[j]
+                );
+            }
+        }
+    }
+}
+
 /// The Schur factors of `PvEvenOdd` do C⁻¹ and the difference with the input in the sweeps
 /// of the hops. Ã and Ã† are what the even-odd blocks give one pass at a time, in both forms.
 #[test]

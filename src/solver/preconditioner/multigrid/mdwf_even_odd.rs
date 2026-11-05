@@ -423,6 +423,11 @@ impl<'a, G: GammaRepre, L: MdwfLayout<F>, F: Storage> SharedOperator<'a, G, L, F
         Self(Rc::new(RefCell::new(a)))
     }
 
+    /// See `PvEvenOdd::keep_true_residual`.
+    pub fn keep_true_residual(&self) {
+        self.0.borrow_mut().keep_true_residual();
+    }
+
     /// See `PvEvenOdd::right_hand_side`.
     pub fn right_hand_side(&self, rhs: &mut HalfField<L, F>, b: &Field<F, Spinor, Lexical, L>) {
         self.0.borrow_mut().right_hand_side(rhs, b);
@@ -444,6 +449,12 @@ impl<G: GammaRepre, L: MdwfLayout<F>, F: Storage> LinearFn<HalfField<L, F>>
 {
     fn mult(&mut self, out: &mut HalfField<L, F>, inp: &HalfField<L, F>) {
         self.0.borrow_mut().mult(out, inp);
+    }
+    fn has_true_residual(&self) -> bool {
+        self.0.borrow().has_true_residual()
+    }
+    fn true_residual(&mut self, x: &HalfField<L, F>) -> Option<Vec<f64>> {
+        self.0.borrow_mut().true_residual(x)
     }
 }
 
