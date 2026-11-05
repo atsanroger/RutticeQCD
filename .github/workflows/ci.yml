@@ -1,0 +1,53 @@
+# Continuous integration on the CPU (GitHub's runners have no GPU). The CUDA backend
+# (`--features cuda-bridge`) is tested by hand on a machine with a GPU, see docs/DEVELOPMENT.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: fmt and clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --release --all-targets -- -D warnings
+
+  bridge:
+    # The comparisons with Bridge++ on its test configuration conf_04040408 (4^3 x 8), the
+    # counterpart of the tests of Bridge++'s installation (build/tests/bridge.elf): plaquette,
+    # operators applied to a vector, solver iteration counts, spectrum, gradient flow, HMC.
+    # Without the configuration they print SKIPPED and pass, so the job fails on SKIPPED.
+    name: comparisons with Bridge++
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: the Bridge++ test configuration is in the repository
+        run: test -f examples/conf_04040408.txt
+      - name: cargo test -- bridge
+        run: |
+          cargo test --release -- bridge --nocapture 2>&1 | tee bridge.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if grep -q SKIPPED bridge.log; then
+            echo "comparisons with Bridge++ were skipped:"; grep SKIPPED bridge.log; exit 1
+          fi
+
+  test:
+    name: all CPU tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release

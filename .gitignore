@@ -2,6 +2,7 @@
 # is listed here, so runs, logs, build directories and binaries need no rule of their own.
 /*
 !/.gitignore
+!/.github/
 !/Cargo.toml
 !/Cargo.lock
 !/build.rs
