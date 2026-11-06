@@ -1,5 +1,6 @@
 pub(crate) mod blas;
 pub(crate) mod linear;
+pub(crate) mod park;
 pub(crate) mod random;
 pub(crate) mod storage;
 pub(crate) mod vector;

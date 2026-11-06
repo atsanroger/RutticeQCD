@@ -225,6 +225,20 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     }
 }
 
+/// A field of the device parks on the host (`DeviceSpinor::stash`).
+impl<T: DeviceReal> crate::field::park::Park for DeviceSpinor<T> {
+    type Parked = Stashed<T>;
+    fn park(self) -> Result<Stashed<T>, Box<dyn std::error::Error>> {
+        Ok(self.stash()?)
+    }
+    fn restore(parked: &Stashed<T>) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(parked.restore()?)
+    }
+    fn unpark(parked: Stashed<T>) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(parked.restore()?)
+    }
+}
+
 /// Fields kept on the host as they are on the device, while the device needs the room
 /// (`DeviceSpinor::stash`): back all at once or one vector at a time.
 pub(crate) struct Stashed<T> {

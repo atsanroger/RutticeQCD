@@ -18,11 +18,11 @@ use super::memory_line;
 use super::params::{Params, PrecisionType, PreconditionerType, SolverType};
 use crate::backend::cuda_bridge::mdwf_backend::OnDevice;
 use crate::backend::cuda_bridge::multigrid::top_of;
-use crate::backend::cuda_bridge::Stashed;
 use crate::backend::cuda_bridge::{
     CudaError, CudaMdwf, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
 };
 use crate::fermion::{FermionOp, PvRatio};
+use crate::field::park::{Park, Parked};
 use crate::solver::preconditioner::multigrid::{MdwfBackend, SetupStage};
 use crate::solver::{Chebyshev, Stop};
 use crate::{random_fifth, Field, Gauge, Half, Lattice, LinearFn, Parity, Spinor, Vector, C64};
@@ -303,9 +303,11 @@ pub(super) fn run(
         let tolerance = s.stop().tolerance_sqr;
         let mut bb = vec![0.0; nv];
         b.norm_sqr(&mut bb);
-        let b_host = b.stash()?;
-        let (mut x_host, mut target_host): (Option<Stashed<f64>>, Option<Stashed<f64>>) =
-            (None, None);
+        let b_host = b.park()?;
+        let (mut x_host, mut target_host): (
+            Option<Parked<DeviceSpinor>>,
+            Option<Parked<DeviceSpinor>>,
+        ) = (None, None);
         let mut rr = vec![0.0; nv];
         let coarse_before = cycles.as_ref().map(|c| c.coarse_applications());
         let counted = crate::meter::Counts::now();
@@ -317,8 +319,8 @@ pub(super) fn run(
         let mut worst;
         let x = loop {
             let target = match &target_host {
-                None => b_host.restore()?,
-                Some(t) => t.restore()?,
+                None => DeviceSpinor::restore(&b_host)?,
+                Some(t) => DeviceSpinor::restore(t)?,
             };
             let stop = match results.len() {
                 0 => s.stop(),
@@ -329,7 +331,7 @@ pub(super) fn run(
             };
             let mut rhs = even.zeros_with(nv);
             a.right_hand_side(&DeviceParities, &mut rhs, &target);
-            let target = target.stash()?;
+            let target = target.park()?;
             let mut sol = rhs.zeros_like();
             let m = pre
                 .as_mut()
@@ -350,7 +352,7 @@ pub(super) fn run(
                 checksum_line(out, &format!("the solution of {label}"), || sol.checksum())?;
             }
             // δ^(α), then δ = Q δ^(α), the correction for the plain operator.
-            let target = target.restore()?;
+            let target = DeviceSpinor::unpark(target)?;
             let mut delta = target.zeros_like();
             a.solution(&DeviceParities, &mut delta, &sol, &target);
             drop((rhs, sol, target));
@@ -362,14 +364,14 @@ pub(super) fn run(
             let x = match x_host.take() {
                 None => delta,
                 Some(h) => {
-                    let mut x = h.restore()?;
+                    let mut x = DeviceSpinor::unpark(h)?;
                     x.axpy(&vec![C64::new(1.0, 0.0); nv], &delta);
                     drop(delta);
                     x
                 }
             };
             // Its residual by the plain operator on the whole lattice, with three fields there.
-            let b = b_host.restore()?;
+            let b = DeviceSpinor::restore(&b_host)?;
             let mut r = b.zeros_like();
             op.mult_plain(&mut r, &x);
             r.aypx(&vec![C64::new(-1.0, 0.0); nv], &b);
@@ -381,8 +383,8 @@ pub(super) fn run(
             if failed || worst <= tolerance || results.len() > super::MAX_CORRECTIONS {
                 break x;
             }
-            x_host = Some(x.stash()?);
-            target_host = Some(r.stash()?);
+            x_host = Some(x.park()?);
+            target_host = Some(r.park()?);
         };
         let (seconds, all) = (solving.as_secs_f64(), start.elapsed().as_secs_f64());
         let work = crate::meter::Counts::now().since(&counted);
