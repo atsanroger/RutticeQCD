@@ -43,6 +43,13 @@ pub trait EvenOddHalves: ForceOp + EvenOdd<Self::Half> {
     fn shape_half(&self, lat: &Arc<Lattice>, parity: Parity) -> Self::Half {
         self.new_half(lat, parity)
     }
+    /// `f` set aside while the solves need the room: where the backend has the room elsewhere
+    /// (the device: the host), `f` is left with no vectors and the closure returned gives it
+    /// back as it was; None, `f` left alone, otherwise.
+    #[allow(clippy::type_complexity)]
+    fn set_aside(&self, _f: &mut Self::Half) -> Option<Box<dyn FnOnce() -> Self::Half>> {
+        None
+    }
     /// `ForceOp::right` on the sites of one parity.
     fn right_half(&self, out: &mut Self::Half, inp: &Self::Half);
     /// `ForceOp::gamma5` on the sites of one parity (Γ5 acts within a site).

@@ -1102,6 +1102,14 @@ impl crate::hmc::EvenOddHalves for CudaMdwf<f64> {
     fn shape_half(&self, lat: &Arc<Lattice>, parity: Parity) -> DeviceSpinor<f64> {
         must(DeviceSpinor::shape_half(lat, self.params.ls, parity))
     }
+    fn set_aside(
+        &self,
+        f: &mut DeviceSpinor<f64>,
+    ) -> Option<Box<dyn FnOnce() -> DeviceSpinor<f64>>> {
+        let shell = f.zeros_with(0);
+        let parked = must(std::mem::replace(f, shell).stash());
+        Some(Box::new(move || must(parked.restore())))
+    }
     fn right_half(&self, out: &mut DeviceSpinor<f64>, inp: &DeviceSpinor<f64>) {
         self.mult_q(out, inp, false);
     }

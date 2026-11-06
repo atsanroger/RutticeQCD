@@ -73,9 +73,10 @@ impl<V: Vector> Solver<V> for Refine<V> {
 
 /// How `refine_normal` gets a correction: `e` ≈ (A†A + σ)⁻¹ `r` for the operator `a`, with
 /// `scratch` free to use and `residual_sqr` the |r|²/|b|² of every vector; returns the
-/// iterations it took.
-pub(crate) type NormalCorrection<'c, V> =
-    dyn FnMut(&mut dyn LinearOp<V>, &mut V, &V, &mut V, &[f64]) -> Result<usize, SolveError> + 'c;
+/// iterations it took. The arguments: `a`, the solution `x` so far, `e`, `r`, `scratch`,
+/// `residual_sqr`; `x` may be set aside meanwhile but must be given back as it was.
+pub(crate) type NormalCorrection<'c, V> = dyn FnMut(&mut dyn LinearOp<V>, &mut V, &mut V, &V, &mut V, &[f64]) -> Result<usize, SolveError>
+    + 'c;
 
 /// (A†A + σ) x = b by defect correction: the residual r = b − (A†A + σ) x of the operator `a`,
 /// then `x += e` with the correction e of `correct`, until |r|²/|b|² is below the tolerance
@@ -123,7 +124,7 @@ pub(crate) fn refine_normal<V: Vector>(
         if sweep == stop.max_restarts {
             break;
         }
-        info.iterations += correct(a, &mut e, &r, &mut t, &info.residual_sqr)?;
+        info.iterations += correct(a, x, &mut e, &r, &mut t, &info.residual_sqr)?;
         x.axpy(&vec![C64::new(1.0, 0.0); n], &e);
     }
     Err(SolveError::NotConverged(info))

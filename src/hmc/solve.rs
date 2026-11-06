@@ -103,36 +103,37 @@ impl NormalSolver {
         stop: Stop,
     ) -> Result<SolveInfo, SolveError> {
         let mut w = b.zeros_like();
-        let mut correct = |a: &mut dyn LinearOp<V>, e: &mut V, r: &V, t: &mut V, _: &[f64]| {
-            let mut iterations = 0;
-            match hermitian.as_mut() {
-                None => {
-                    w.set_zero();
-                    e.set_zero();
-                    iterations += self.one(&mut Adjoint(&mut *a), None, &mut w, r, stop)?;
-                    iterations += self.one(&mut &mut *a, None, e, &w, stop)?;
-                }
-                Some(Hermitian { gamma, m }) => {
-                    for sign in [1.0, -1.0] {
-                        // The right-hand side of this half: Γ r, then Γ w.
-                        gamma.mult(t, if sign > 0.0 { r } else { &w });
+        let mut correct =
+            |a: &mut dyn LinearOp<V>, _: &mut V, e: &mut V, r: &V, t: &mut V, _: &[f64]| {
+                let mut iterations = 0;
+                match hermitian.as_mut() {
+                    None => {
+                        w.set_zero();
                         e.set_zero();
-                        let mut twisted = Twisted {
-                            a: &mut *a,
-                            gamma: &mut **gamma,
-                            mu: sign * mu,
-                            turned: b.zeros_like(),
-                        };
-                        let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
-                        iterations += self.one(&mut twisted, pre, e, t, stop)?;
-                        if sign > 0.0 {
-                            w.copy_from(e);
+                        iterations += self.one(&mut Adjoint(&mut *a), None, &mut w, r, stop)?;
+                        iterations += self.one(&mut &mut *a, None, e, &w, stop)?;
+                    }
+                    Some(Hermitian { gamma, m }) => {
+                        for sign in [1.0, -1.0] {
+                            // The right-hand side of this half: Γ r, then Γ w.
+                            gamma.mult(t, if sign > 0.0 { r } else { &w });
+                            e.set_zero();
+                            let mut twisted = Twisted {
+                                a: &mut *a,
+                                gamma: &mut **gamma,
+                                mu: sign * mu,
+                                turned: b.zeros_like(),
+                            };
+                            let pre = m.as_mut().map(|m| &mut **m as &mut dyn LinearFn<V>);
+                            iterations += self.one(&mut twisted, pre, e, t, stop)?;
+                            if sign > 0.0 {
+                                w.copy_from(e);
+                            }
                         }
                     }
                 }
-            }
-            Ok(iterations)
-        };
+                Ok(iterations)
+            };
         refine_normal(a, mu * mu, x, b, stop, &mut correct)
     }
 

@@ -132,13 +132,15 @@ impl<'a, U: LinkField> Hmc<'a, U> {
     /// P ← P + ε F_ℓ(U).
     fn update_p(&mut self, level: usize, eps: f64, p: &mut U, u: &U) {
         if self.cache[level].is_none() {
-            let mut sum = u.zeros_like();
+            // The sum made after the first force, not during its solves.
+            let mut sum: Option<U> = None;
             let links = Links::new(u, &self.smeared);
             for t in self.terms.iter_mut().filter(|t| t.level == level) {
                 let f = t.action.force(&links);
-                sum.add_scaled(1.0, &f);
+                sum.get_or_insert_with(|| u.zeros_like())
+                    .add_scaled(1.0, &f);
             }
-            self.cache[level] = Some(sum);
+            self.cache[level] = Some(sum.unwrap_or_else(|| u.zeros_like()));
         }
         let f = self.cache[level].as_ref().expect("just computed");
         p.add_scaled(eps, f);
@@ -240,21 +242,24 @@ impl<'a, U: LinkField> Hmc<'a, U> {
     /// One trajectory from `u`, which becomes the new configuration if it is accepted.
     pub fn trajectory(&mut self, u: &mut U, rng: &mut Mseries) -> HmcTrajectory {
         let lat = u.lattice().clone();
-        let mut trial = u.duplicate();
+        // The links of the start on the host (on the CPU, a copy) for a rejected trajectory:
+        // the trajectory evolves `u` itself, so that the device holds one field of links.
+        let start = u.to_host();
+        let trial = u;
         self.invalidate();
         let mut p = U::draw_momenta(&lat, rng);
         let k0 = p.kinetic_energy();
         let a0: Vec<f64> = {
-            let links = Links::new(&trial, &self.smeared);
+            let links = Links::new(trial, &self.smeared);
             self.terms
                 .iter_mut()
                 .map(|t| t.action.langevin(&links, rng))
                 .collect()
         };
-        self.evolve(0, self.trajectory_length, &mut p, &mut trial);
+        self.evolve(0, self.trajectory_length, &mut p, trial);
         let k1 = p.kinetic_energy();
         let a1: Vec<f64> = {
-            let links = Links::new(&trial, &self.smeared);
+            let links = Links::new(trial, &self.smeared);
             self.terms
                 .iter_mut()
                 .map(|t| t.action.hamiltonian(&links))
@@ -266,8 +271,8 @@ impl<'a, U: LinkField> Hmc<'a, U> {
         let random = if self.metropolis { rng.uniform() } else { -1.0 };
         let accepted = random <= (-delta_h).exp();
         let plaquette_trial = trial.plaquette();
-        if accepted {
-            *u = trial;
+        if !accepted {
+            *trial = U::from_host(&start);
         }
         HmcTrajectory {
             kinetic: [k0, k1],
@@ -276,7 +281,7 @@ impl<'a, U: LinkField> Hmc<'a, U> {
             random,
             accepted,
             plaquette_trial,
-            plaquette: u.plaquette(),
+            plaquette: trial.plaquette(),
         }
     }
 }

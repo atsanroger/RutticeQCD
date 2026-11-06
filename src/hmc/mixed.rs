@@ -94,7 +94,7 @@ pub(crate) fn mixed_normal<V: Vector, L>(
     b: &V,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    refine_normal(a, 0.0, x, b, stop, &mut |_, e, r, _, residual_sqr| {
+    refine_normal(a, 0.0, x, b, stop, &mut |_, _, e, r, _, residual_sqr| {
         let worst = residual_sqr.iter().fold(0.0f64, |m, r| m.max(*r));
         let needed = (0.5 * stop.tolerance_sqr / worst).min(1e-2);
         single.normal(e, r, needed, stop.max_iterations)

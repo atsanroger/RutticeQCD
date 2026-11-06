@@ -41,7 +41,7 @@ use crate::solver::preconditioner::multigrid::{
     Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
 };
 use crate::solver::{refine_normal, Gcr, SolveError, SolveInfo, Solver, Stop};
-use crate::{Lattice, Parity, Vector};
+use crate::{Lattice, LinearFn, LinearOp, Parity, Vector};
 use std::any::Any;
 use std::error::Error;
 use std::sync::Arc;
@@ -354,46 +354,54 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
     }
 
     /// `forward` for an r with nothing on the odd sites, on the even sites only: e is the even
-    /// part of D⁻¹ (r, 0).
-    fn forward_even(&mut self, e: &mut B::Half, r: &B::Half) -> Result<(), SolveError> {
+    /// part of D⁻¹ (r, 0); r is overwritten.
+    fn forward_even(&mut self, e: &mut B::Half, r: &mut B::Half) -> Result<(), SolveError> {
         let (d, form) = match self.d_alpha {
             Some(d) => (d, EoForm::Left),
             None => (self.d, EoForm::Right),
         };
         let mut a = PvRatio::new(d, self.pv, form, &self.even, &self.odd);
-        let mut rhs = self.even.zeros_with(r.num_vectors());
-        a.right_hand_side_even(&mut rhs, r);
-        let mut y = rhs.zeros_like();
+        // The right-hand side in e; r, not needed after it, holds y.
+        let (rhs, y) = (e, r);
+        crate::fit(rhs, y);
+        a.right_hand_side_even(rhs, y);
+        y.set_zero();
         let mut m = self.cycles.cycle(usize::from(self.d_alpha.is_some()));
-        let info = self.gcr.solve(&mut a, Some(m.as_mut()), &mut y, &rhs);
+        let info = self.gcr.solve(&mut a, Some(m.as_mut()), y, rhs);
         drop(m);
+        let e = rhs;
         match self.d_alpha {
             Some(d) => {
                 let mut x = e.zeros_like();
-                a.solution_even(&mut x, &y);
+                a.solution_even(&mut x, y);
                 B::mult_q_half(d, e, &x);
             }
-            None => a.solution_even(e, &y),
+            None => a.solution_even(e, y),
         }
         self.counted(info)
     }
 
     /// `adjoint` for an r with nothing on the odd sites, on the even sites only: e is the even
-    /// part of D⁻† (r, 0) (`adjoint_by_gamma5_even`, for which b′_e = r).
-    fn adjoint_even(&mut self, e: &mut B::Half, r: &B::Half) -> Result<(), SolveError> {
+    /// part of D⁻† (r, 0) (`adjoint_by_gamma5_even`, for which b′_e = r); `spare` is overwritten.
+    fn adjoint_even(
+        &mut self,
+        e: &mut B::Half,
+        r: &B::Half,
+        spare: &mut B::Half,
+    ) -> Result<(), SolveError> {
         let mut m = self.cycles.cycle(0);
         let d = self.d;
         let gamma5 = |out: &mut B::Half, inp: &B::Half| B::gamma5(d, out, inp);
-        let (x_e, info) = adjoint_by_gamma5_even(
+        let info = adjoint_by_gamma5_even(
             (self.d, self.pv),
             &gamma5,
             m.as_mut(),
             &mut self.gcr,
             (&self.even, &self.odd),
             r,
+            (e, spare),
         );
         drop(m);
-        *e = x_e;
         self.counted(info)
     }
 }
@@ -404,8 +412,10 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
 pub(crate) trait EvenSolves<V, H> {
     fn forward(&mut self, e: &mut V, r: &V) -> Result<(), SolveError>;
     fn adjoint(&mut self, e: &mut V, r: &V) -> Result<(), SolveError>;
-    fn forward_even(&mut self, e: &mut H, r: &H) -> Result<(), SolveError>;
-    fn adjoint_even(&mut self, e: &mut H, r: &H) -> Result<(), SolveError>;
+    /// `r` is overwritten.
+    fn forward_even(&mut self, e: &mut H, r: &mut H) -> Result<(), SolveError>;
+    /// `spare` is overwritten.
+    fn adjoint_even(&mut self, e: &mut H, r: &H, spare: &mut H) -> Result<(), SolveError>;
 }
 
 /// x = (D†D)⁻¹ b for `op` with the multigrid of `setup` (module documentation), on the CPU;
@@ -456,11 +466,29 @@ pub(crate) fn two_solves<O: super::ForceOp, H>(
 ) -> Result<SolveInfo, SolveError> {
     use crate::fermion::{Bound, Variant};
     let mut d = Bound::new(op, Variant::D);
-    refine_normal(&mut d, 0.0, x, b, stop, &mut |_, e, r, w, _| {
+    refine_normal(&mut d, 0.0, x, b, stop, &mut |_, _, e, r, w, _| {
         solves.adjoint(w, r)?;
         solves.forward(e, w)?;
         Ok(0)
     })
+}
+
+/// The left Schur factor K of `op` with its fields made for each application (`SchurFactor`).
+struct KOnDemand<'k, F, H> {
+    op: &'k F,
+    like: (&'k H, &'k H),
+}
+
+impl<F: crate::fermion::EvenOdd<H>, H: Vector> LinearFn<H> for KOnDemand<'_, F, H> {
+    fn mult(&mut self, out: &mut H, inp: &H) {
+        SchurFactor::new(self.op, EoForm::Left, self.like.0, self.like.1).mult(out, inp);
+    }
+}
+
+impl<F: crate::fermion::EvenOdd<H>, H: Vector> LinearOp<H> for KOnDemand<'_, F, H> {
+    fn mult_dag(&mut self, out: &mut H, inp: &H) {
+        SchurFactor::new(self.op, EoForm::Left, self.like.0, self.like.1).mult_dag(out, inp);
+    }
 }
 
 /// K†K z = b on the even sites, K = T_ee⁻¹ Ŝ, by w = T_ee† Ŝ⁻† r and e = Ŝ⁻¹ T_ee w on the
@@ -475,18 +503,32 @@ pub(crate) fn two_solves_half<O: super::EvenOddHalves>(
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
     assert_eq!(b.num_vectors(), 1, "one right-hand side");
-    // K for the residual between the sweeps; a field of the odd sites for its shape.
+    // K for the residual between the sweeps, its fields made for each application and given
+    // back after it, so that it holds nothing during the solves; a field of the odd sites for
+    // its shape (on the device with no vectors, on the CPU a zero field).
     let odd = op.shape_half(lat, Parity::Odd);
-    let mut k = SchurFactor::new(op, EoForm::Left, b, &odd);
+    let mut k = KOnDemand {
+        op,
+        like: (b, &odd),
+    };
     let mut work = op.even_odd_work();
     // The sources have nothing on the odd sites: the solves on the even sites alone, no field of
     // the whole lattice.
-    refine_normal(&mut k, 0.0, z, b, stop, &mut |_, e, r, t, _| {
-        // t = Ŝ⁻† r, then T_ee T_ee† t (e as the field between), then e = Ŝ⁻¹ t.
-        solves.adjoint_even(t, r)?;
-        op.diag(&mut work, e, t, Parity::Even, Dagger::Yes);
-        op.diag(&mut work, t, e, Parity::Even, Dagger::No);
-        solves.forward_even(e, t)?;
-        Ok(0)
+    refine_normal(&mut k, 0.0, z, b, stop, &mut |_, x, e, r, t, _| {
+        // x is not needed by the two solves: set aside meanwhile (on the device, to the host).
+        let back = op.set_aside(x);
+        // t = Ŝ⁻† r (e as the solver's field), then T_ee T_ee† t (e as the field between), then
+        // e = Ŝ⁻¹ t.
+        let mut solve = || {
+            solves.adjoint_even(t, r, e)?;
+            op.diag(&mut work, e, t, Parity::Even, Dagger::Yes);
+            op.diag(&mut work, t, e, Parity::Even, Dagger::No);
+            solves.forward_even(e, t)
+        };
+        let done = solve();
+        if let Some(back) = back {
+            *x = back();
+        }
+        done.map(|_| 0)
     })
 }

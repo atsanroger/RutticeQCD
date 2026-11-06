@@ -568,7 +568,9 @@ where
     P: SplitParity<V, H>,
 {
     let rhs = adjoint_by_gamma5_rhs(op, split, b);
-    let (x_e, info) = adjoint_by_gamma5_even((op, pv), gamma5, m, solver, like, &rhs);
+    let (mut x_e, mut z) = (rhs.zeros_like(), rhs.zeros_like());
+    let info = adjoint_by_gamma5_even((op, pv), gamma5, m, solver, like, &rhs, (&mut x_e, &mut z));
+    drop(z);
     drop(rhs);
     adjoint_by_gamma5_finish(op, split, &x_e, b, x);
     info
@@ -597,7 +599,9 @@ where
 }
 
 /// The second part of `adjoint_by_gamma5`, on the even sites only: K† z = b′_e (`rhs`) with the
-/// preconditioner C_e† Γ5 S⁻¹ Γ5, and x_e = C_e⁻† z. Returns x_e and what `solver` returns.
+/// preconditioner C_e† Γ5 S⁻¹ Γ5, and x_e = C_e⁻† z. `x_e` is the preconditioner's field on the
+/// even sites until z is found, `spare` holds z; both take the shape of `rhs`. Returns what
+/// `solver` returns.
 pub(crate) fn adjoint_by_gamma5_even<F, H>(
     (op, pv): (&F, &F),
     gamma5: &dyn Fn(&mut H, &H),
@@ -605,59 +609,95 @@ pub(crate) fn adjoint_by_gamma5_even<F, H>(
     solver: &mut dyn crate::solver::Solver<H>,
     (like_even, like_odd): (&H, &H),
     rhs: &H,
-) -> (
-    H,
-    Result<crate::solver::SolveInfo, crate::solver::SolveError>,
-)
+    (x_e, spare): (&mut H, &mut H),
+) -> Result<crate::solver::SolveInfo, crate::solver::SolveError>
 where
     F: EvenOdd<H>,
     H: Vector,
 {
     let nv = rhs.num_vectors();
-    // K† z = b′_e with the preconditioner C_e† Γ5 S⁻¹ Γ5.
-    let mut k = SchurFactor::new(op, EoForm::Left, like_even, like_odd);
-    let mut a = crate::Adjoint(&mut k);
-    // Its fields are made once: two on each parity besides `out`.
+    // K† z = b′_e with the preconditioner C_e† Γ5 S⁻¹ Γ5. GCR applies K† and the
+    // preconditioner one after the other, never one inside the other, so the two share their
+    // fields of the odd sites and one of the even sites: they are made once.
+    struct Scratch<H> {
+        odd: [H; 2],
+        even: H,
+    }
+    impl<H: Vector> Scratch<H> {
+        fn fit(&mut self, like: &H) {
+            for f in self.odd.iter_mut().chain([&mut self.even]) {
+                crate::fit(f, like);
+            }
+        }
+    }
+    let scratch = std::rc::Rc::new(std::cell::RefCell::new(Scratch {
+        odd: [like_odd.zeros_with(nv), like_odd.zeros_with(nv)],
+        even: like_even.zeros_with(nv),
+    }));
+    // K† = (C_e⁻¹ S)†, the left Schur factor's adjoint, on the shared fields.
+    struct KDag<'k, F: EvenOdd<H>, H> {
+        op: &'k F,
+        work: F::Work,
+        scratch: std::rc::Rc<std::cell::RefCell<Scratch<H>>>,
+    }
+    impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for KDag<'_, F, H> {
+        fn mult(&mut self, out: &mut H, inp: &H) {
+            let mut s = self.scratch.borrow_mut();
+            s.fit(inp);
+            let Scratch { odd, even } = &mut *s;
+            schur_factor(
+                self.op,
+                &mut self.work,
+                EoForm::Left,
+                (odd, even),
+                out,
+                inp,
+                Dagger::Yes,
+            );
+        }
+    }
+    let mut a = KDag {
+        op,
+        work: op.even_odd_work(),
+        scratch: scratch.clone(),
+    };
     struct Prec<'p, F: EvenOdd<H>, H> {
         op: &'p F,
         pv: &'p F,
         gamma5: &'p dyn Fn(&mut H, &H),
         m: &'p mut dyn LinearFn<H>,
-        t: H,
-        rho: H,
-        odd: [H; 2],
+        t: &'p mut H,
+        scratch: std::rc::Rc<std::cell::RefCell<Scratch<H>>>,
         work: F::Work,
         work_pv: F::Work,
     }
     impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for Prec<'_, F, H> {
         fn mult(&mut self, out: &mut H, inp: &H) {
             let even = Parity::Even;
-            for f in [&mut self.t, &mut self.rho] {
-                crate::fit(f, inp);
-            }
-            for f in self.odd.iter_mut() {
-                crate::fit(f, inp);
-            }
+            crate::fit(&mut *self.t, inp);
+            let mut s = self.scratch.borrow_mut();
+            s.fit(inp);
+            let Scratch { odd, even: rho } = &mut *s;
             // t = Γ5 inp; ρ = X_PV† t (X_PV = S_PV C_PV,e⁻¹), the right-hand side of Ã for the
             // source (t, 0), by the fused passes of the Schur factor, with `out` as its field on
             // the even sites (it is free until the last line).
-            (self.gamma5)(&mut self.t, inp);
+            (self.gamma5)(&mut *self.t, inp);
             schur_factor(
                 self.pv,
                 &mut self.work_pv,
                 EoForm::Right,
-                (&mut self.odd, &mut *out),
-                &mut self.rho,
-                &self.t,
+                (odd, &mut *out),
+                rho,
+                &*self.t,
                 Dagger::Yes,
             );
             // One application of M, S⁻¹ t ≈ C_e⁻¹ M ρ, then Γ5 and C_e†.
-            self.m.mult(&mut self.t, &self.rho);
+            self.m.mult(&mut *self.t, rho);
             self.op
-                .diag_inv(&mut self.work, &mut self.rho, &self.t, even, Dagger::No);
-            (self.gamma5)(&mut self.t, &self.rho);
+                .diag_inv(&mut self.work, rho, &*self.t, even, Dagger::No);
+            (self.gamma5)(&mut *self.t, rho);
             self.op
-                .diag(&mut self.work, out, &self.t, even, Dagger::Yes);
+                .diag(&mut self.work, out, &*self.t, even, Dagger::Yes);
         }
     }
     let mut prec = Prec {
@@ -665,20 +705,20 @@ where
         pv,
         gamma5,
         m,
-        t: rhs.zeros_like(),
-        rho: rhs.zeros_like(),
-        odd: [like_odd.zeros_with(nv), like_odd.zeros_with(nv)],
+        t: &mut *x_e,
+        scratch,
         work: op.even_odd_work(),
         work_pv: pv.even_odd_work(),
     };
-    let mut z = rhs.zeros_like();
-    let info = solver.solve(&mut a, Some(&mut prec), &mut z, rhs);
+    crate::fit(spare, rhs);
+    spare.set_zero();
+    let info = solver.solve(&mut a, Some(&mut prec), spare, rhs);
     drop(prec);
-    drop(k);
+    drop(a);
     let mut work = op.even_odd_work();
-    let mut x_e = z.zeros_like();
-    op.diag_inv(&mut work, &mut x_e, &z, Parity::Even, Dagger::Yes);
-    (x_e, info)
+    crate::fit(x_e, rhs);
+    op.diag_inv(&mut work, x_e, spare, Parity::Even, Dagger::Yes);
+    info
 }
 
 /// The last part of `adjoint_by_gamma5`: x_o = C_o⁻† (b_o − (M_eo)† x_e), and x from x_e and x_o.
