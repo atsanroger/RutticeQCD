@@ -843,7 +843,7 @@ impl FermionActionBlock {
             }
             mg.check_domain_wall(&at, lattice, false)?;
             Ok(HmcMultigrid::DomainWall {
-                settings: mg.mdwf_settings(PrecisionType::Double),
+                settings: mg.mdwf_settings(PrecisionType::Single),
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 rebuild_growth: match h.rebuild_iteration_growth {

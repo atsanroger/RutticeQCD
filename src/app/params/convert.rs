@@ -619,8 +619,8 @@ impl MultigridBlock {
     }
 
     /// What the block asks of the domain-wall multigrid, the same for the propagator runs and
-    /// HMC; the cycle above the coarse lattice in `fine_default` unless `fine_precision` says (the
-    /// propagator files take single, HMC double).
+    /// HMC; the cycle above the coarse lattice in `fine_default` unless `fine_precision` says
+    /// (single for both).
     pub(crate) fn mdwf_settings(&self, fine_default: PrecisionType) -> MdwfMultigridSettings {
         let (cycle, low_modes, bootstrap) = self.domain_wall();
         MdwfMultigridSettings {

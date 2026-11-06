@@ -1544,7 +1544,7 @@ Action_F_1:
     ));
     // The multigrid of HMC takes the keys of the propagator files on the CPU as on the device.
     for keys in [
-        &["  fine_precision : single"][..],
+        &["  fine_precision : double"][..],
         &["  basis_precision : single"],
         &["  MultiGrid_Level2:", "    super_block_size : 2"],
     ] {

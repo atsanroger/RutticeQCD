@@ -349,8 +349,8 @@ With `preconditioner_type : MG` the action has a `MultiGrid` section beside its 
 with `block_size`, `number_of_test_vectors` and the coarse solvers, `Setup`, `Smoother`), so a
 multigrid tuned on propagators is copied over as it is. The domain-wall coarse solves are in
 single precision unless `coarse_precision : double`, as in the propagator files; the rest of
-the cycle is in double precision unless `fine_precision : single` (the cycle on the operators in
-single precision, the outer GCR in double); P in half precision unless `basis_precision :
+the cycle is in single precision unless `fine_precision : double`, as in the propagator files (the
+outer GCR in double either way, so the solves reach the same tolerance); P in half precision unless `basis_precision :
 single`. The levels below the coarse lattice (`MultiGrid_Level2` and on,
 `levels_for_pauli_villars`) are made with P and kept with it; at small masses on large lattices
 they are what keeps the coarse solves cheap. All of it is the same on the CPU and on the device.
