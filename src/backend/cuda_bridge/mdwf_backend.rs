@@ -291,6 +291,8 @@ impl MdwfBackend for OnDevice {
                 let y = vectors_in(ops, halves, lat, &agg, settings, $kept, due, report)?;
                 let seconds = start.elapsed().as_secs_f64();
                 let (basis, levels) = basis_in(ops, &agg, settings, &y, report)?;
+                // The test vectors are not needed for the coarse parts: on the host from here.
+                let parked = y.stash()?;
                 let levels = levels.as_ref();
                 let parts = match settings.coarse_double {
                     false => DeviceKept::Single(
@@ -302,7 +304,7 @@ impl MdwfBackend for OnDevice {
                         tops,
                     ),
                 };
-                ($stash(y.stash()?), parts, seconds)
+                ($stash(parked), parts, seconds)
             }};
         }
         let (vectors, parts, seconds) = match settings.fine_single {
