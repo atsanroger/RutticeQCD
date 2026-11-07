@@ -18,7 +18,8 @@
 //! of the smoothers) are kept from solve to solve and the cycles made from them for the new
 //! links, the smoother and GCR working with the operators of the new links; they are made again
 //! when the vectors change (a bootstrap) or when the GCR iterations per solve on the even sites
-//! have grown to `rebuild_growth` times those after the last rebuild. Where the sweeps stall,
+//! have grown to `rebuild_growth` times those after the last rebuild, and then after a bootstrap
+//! of y for the links of now. Where the sweeps stall,
 //! the solve is done again with P made for the links of now, then after a bootstrap.
 //!
 //! The even-odd Ratio action solves K†K on the even sites, K = T_ee⁻¹ Ŝ (the left
@@ -55,9 +56,9 @@ pub struct DwfMultigridSetup {
     /// The bootstrap is run again after every this many force solves (and when the
     /// pseudofermions are drawn); 0: only then.
     pub(crate) refresh_every: usize,
-    /// Keep P and the coarse parts from solve to solve and make them again when the GCR
-    /// iterations per solve on the even sites have grown to this many times those after the last
-    /// rebuild (module documentation); 0: make them for every solve.
+    /// Keep P and the coarse parts from solve to solve and make them again, after a bootstrap of
+    /// the vectors, when the GCR iterations per solve on the even sites have grown to this many
+    /// times those after the last rebuild (module documentation); 0: make them for every solve.
     pub(crate) rebuild_growth: f64,
     /// Neff's α of the solves with D: D^(α) in the left form, the setup that of D; 1 (the
     /// default): D in the right form.
@@ -192,7 +193,9 @@ fn solves_once<B: MdwfBackend + 'static>(
 ) -> Result<Result<SolveInfo, SolveError>, Box<dyn Error>> {
     let start = std::time::Instant::now();
     let caching = setup.rebuild_growth > 0.0;
-    let due = setup.due(fresh);
+    // A rebuild improves the vectors first: P made of the kept y for links that have moved
+    // away from those y was made for is worse than the P kept.
+    let due = setup.due(fresh) || setup.rebuild_due;
     let mut kept = setup
         .state
         .take()

@@ -1182,3 +1182,34 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   worse than MINRES on `H_c`, also for `c = 0` (373 against 14 outer iterations, stout 12⁴).
 - The Bridge++ `alt_eo` reference for the domain-wall even-odd Pauli-Villars ratio differs from
   Ruttice by 1e-5; external checks agree with Ruttice.
+
+## HMC multigrid after the rebuild fix (2026-11-07)
+
+Found while bisecting a +29% in the iterations of the 16⁴ HMC (therm16/t_mg_m0.001.yaml, m 0.001,
+α 0.6) to beeeb18: the cause was the rebuild of the cache, which made P of the kept test vectors
+for links that had moved away (5-9× the iterations after it), not the Tikhonov default; a rebuild
+now runs the bootstrap first and the cache is the default (`rebuild_iteration_growth` 1.5, 0 for
+none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
+
+- **`maximum_number_of_restart` in the HMC solvers.** Bridge++'s HMC files have it; the HMC
+  `Solver` block refuses it and the inner GCR of the multigrid is `Stop::simple` (no restarts,
+  `app/hmc.rs:369`). Restarts did not cure the stall below (exp/dagger-2448), so this is for
+  compatibility and a bound on a stalled solve.
+- **`maximum_number_of_iteration` of HMC defaults to 10000** (`hmc_params.rs:418`): a stalled
+  solve then runs for hours before the retries (P again, bootstrap, CG) start; 300 as in the
+  16⁴ file reaches them in minutes.
+- **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs:421`), while the files
+  use 2 (24³×48 fits only with 2). Decide the default.
+- **Without the cache** (`rebuild_iteration_growth : 0`) every solve still makes P of the kept
+  vectors for the links of now, the bad rebuild; with a bootstrap for every solve it converges
+  but the setup takes 784 of 1031 s (16⁴). Decide what this mode is for, or drop it.
+- **The stall of the second sweep's D solve on quenched 24⁴** (hmc2424, m 0.001): with GCR(2)
+  and GCR(4) |r|²/|b|² stays at 0.77 after 1575 iterations, in the right form and with α 0.6;
+  GCR(8) needs 18-20 and GCR(16) 15-16. GCR(8) costs about 6 GB more on 24³×48 (estimated), so
+  it does not fit there. To try: FGMRES at the same memory, more test vectors, an earlier
+  fallback. The mechanism (low modes amplified by D⁻† in the right-hand side) is not verified.
+- **ΔH = +1.29e4 on that 24⁴ file with GCR(8)** (rejected; the same with main), a one-step
+  trajectory of length 0.01 from a quenched configuration: not looked into.
+- **Iteration counts in CI** with a tolerance (more than max(2, 5%) above the reference fails,
+  more than 10% below too), references made on the CI machine, the files naming
+  `Coarse_Solver_PV`; the noise measured over thread counts first.

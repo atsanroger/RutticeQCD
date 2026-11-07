@@ -368,7 +368,7 @@ pub(crate) struct MultigridHmcBlock {
     pub convergence_criterion_squared_inner: Option<f64>,
     /// Domain-wall fermions: keep P and the coarse operators from solve to solve, and make them
     /// again when the GCR iterations per solve have grown to this many times those after the
-    /// last rebuild (`hmc::DwfMultigridSetup::rebuild_growth`); left out: for every solve.
+    /// last rebuild (`hmc::DwfMultigridSetup::rebuild_growth`); left out: 1.5; 0: for every solve.
     pub rebuild_iteration_growth: Option<f64>,
 }
 
@@ -847,12 +847,13 @@ impl FermionActionBlock {
                 refresh_every: h.refresh_interval,
                 inner_tolerance_squared: h.convergence_criterion_squared_inner.unwrap_or(1e-10),
                 rebuild_growth: match h.rebuild_iteration_growth {
+                    Some(0.0) => 0.0,
                     Some(g) if g.is_nan() || g <= 1.0 => {
                         return invalid(format!(
-                            "{name}.MultiGrid_HMC.rebuild_iteration_growth: above 1"
-                        ))
+                        "{name}.MultiGrid_HMC.rebuild_iteration_growth: above 1, or 0 for no cache"
+                    ))
                     }
-                    g => g.unwrap_or(0.0),
+                    g => g.unwrap_or(1.5),
                 },
             })
         } else {

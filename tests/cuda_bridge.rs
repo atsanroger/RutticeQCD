@@ -2400,11 +2400,11 @@ fn test_hmc_with_the_domain_wall_multigrid_on_the_device() {
     for (name, cg, mg) in [
         ("hmc_mg_lex", cg.clone(), mg.clone()),
         ("hmc_mg_eo", even_odd(&cg), even_odd(&mg)),
-        // P and the coarse parts kept from solve to solve.
+        // P and the coarse parts made for every solve (kept from solve to solve by default).
         (
-            "hmc_mg_cache",
+            "hmc_mg_no_cache",
             cg.clone(),
-            mg.clone() + "  MultiGrid_HMC:\n    rebuild_iteration_growth : 1.5\n",
+            mg.clone() + "  MultiGrid_HMC:\n    rebuild_iteration_growth : 0\n",
         ),
         // The cycle in double precision (single by default), the outer GCR in double.
         (
