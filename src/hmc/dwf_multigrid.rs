@@ -19,8 +19,8 @@
 //! links, the smoother and GCR working with the operators of the new links; they are made again
 //! when the vectors change (a bootstrap) or when the GCR iterations per solve on the even sites
 //! have grown to `rebuild_growth` times those after the last rebuild, and then after a bootstrap
-//! of y for the links of now. Where the sweeps stall,
-//! the solve is done again with P made for the links of now, then after a bootstrap.
+//! of y for the links of now. Where the sweeps stall, the solve is done again after a bootstrap,
+//! twice.
 //!
 //! The even-odd Ratio action solves K†K on the even sites, K = T_ee⁻¹ Ŝ (the left
 //! `SchurFactor`): K⁻† r = T_ee† Ŝ⁻† r and K⁻¹ w = Ŝ⁻¹ T_ee w, where Ŝ⁻¹ u is the even part of
@@ -53,8 +53,8 @@ pub struct DwfMultigridSetup {
     /// GCR of each solve on the even sites: directions kept, and when it stops.
     pub directions: usize,
     pub inner: Stop,
-    /// The bootstrap is run again after every this many force solves (and when the
-    /// pseudofermions are drawn); 0: only then.
+    /// The bootstrap is run again after this many force solves since the last one, whatever made
+    /// that (the pseudofermions drawn, a rebuild, a stall); 0: only when they are needed.
     pub(crate) refresh_every: usize,
     /// Keep P and the coarse parts from solve to solve and make them again, after a bootstrap of
     /// the vectors, when the GCR iterations per solve on the even sites have grown to this many
@@ -160,10 +160,10 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
     };
     let mut result = attempt(setup, flags);
     let mut stalled = 0;
-    // When the sweeps stall: P and the coarse parts again for the links of now (those kept may be
-    // of links far from them), then the test vectors improved by a bootstrap as well. Each goes
-    // on from the solution so far (`run` starts from it).
-    for (what, fresh) in [("P made again", flags.0), ("a bootstrap", true)] {
+    // When the sweeps stall: the test vectors improved by a bootstrap for the links of now, and P
+    // and the coarse parts made of them (a rebuild bootstraps first), twice. Each goes on from the
+    // solution so far (`run` starts from it).
+    for (what, fresh) in [("a bootstrap", flags.0), ("another bootstrap", true)] {
         let Err(SolveError::NotConverged(info)) = &result else {
             break;
         };
@@ -239,6 +239,8 @@ fn solves_once<B: MdwfBackend + 'static>(
                 setup.since = 0;
             }
             setup.rebuilds += 1;
+            // Consumed; with the cache `after_solve` decides the next one.
+            setup.rebuild_due = false;
             kept.vectors = Some(vectors);
             parts
         }

@@ -1196,7 +1196,7 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   `app/hmc.rs:369`). Restarts did not cure the stall below (exp/dagger-2448), so this is for
   compatibility and a bound on a stalled solve.
 - **`maximum_number_of_iteration` of HMC defaults to 10000** (`hmc_params.rs:418`): a stalled
-  solve then runs for hours before the retries (P again, bootstrap, CG) start; 300 as in the
+  solve then runs for hours before the retries (two bootstraps, then CG) start; 300 as in the
   16⁴ file reaches them in minutes.
 - **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs:421`), while the files
   use 2 (24³×48 fits only with 2). Decide the default.
@@ -1222,3 +1222,9 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   to real histories) and then a larger space or an early end handed to the retries. Needs: FGMRES
   as a choice in HMC, GCR(3) against FGMRES(3), the propagator comparison
   (therm16/regcheck_20261106/propfg).
+- **The stall retries are two bootstraps in a row** since a rebuild bootstraps first (before:
+  P of the kept vectors, then a bootstrap). Decide whether one retry before CG is enough. The
+  baseline of the cache after a retry is the retry's count, which may be low; not checked.
+- **`DwfMultigridSetup::new` keeps `rebuild_growth` 0** (the library default) while parameter
+  files default to 1.5; `examples/hmc_solve_cost.rs` and the unit tests in `src/hmc/mod.rs`
+  measure the no-cache mode only (the field is `pub(crate)`).

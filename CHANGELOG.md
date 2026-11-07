@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid: a rebuild of the cache (`rebuild_iteration_growth`)
+  improves the test vectors by a bootstrap first; P made of the kept vectors for links that had
+  moved away took 5-9 times the iterations of the P kept (16⁴ dynamical, m 0.001: 5852 against
+  2792 iterations, 243 against 143 s per trajectory). The cache is now the default
+  (`rebuild_iteration_growth` left out: 1.5; `0`: P made for every solve, as before by default).
+
 - APE smearing: the sum that stops the projection to SU(3) is added in a fixed order
   (`reduce_sites_mut`); rayon's `sum` changed its last bits with the number of threads, and so
   could change the number of sweeps (`ape_sweep_sum_does_not_depend_on_threads`, which failed
