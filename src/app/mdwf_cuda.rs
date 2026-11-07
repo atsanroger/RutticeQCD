@@ -315,7 +315,9 @@ pub(super) fn run(
     // Γ5 M Γ5 (`adjoint_by_gamma5`, as in HMC), one cycle per step, to 1e-10.
     if crate::env::switch("RUTTICE_DAGGER_TEST") {
         if form != crate::fermion::EoForm::Right || ops.op.alpha() != 1.0 {
-            return Err("RUTTICE_DAGGER_TEST needs operator_type PV_right and neff_alpha 1.0".into());
+            return Err(
+                "RUTTICE_DAGGER_TEST needs operator_type PV_right and neff_alpha 1.0".into(),
+            );
         }
         let m = pre
             .as_mut()
@@ -323,7 +325,8 @@ pub(super) fn run(
             .as_mut();
         let (d, pv) = outer;
         let k = s.number_of_kept_directions;
-        let outcome = |info: Result<crate::solver::SolveInfo, crate::solver::SolveError>| match info {
+        let outcome = |info: Result<crate::solver::SolveInfo, crate::solver::SolveError>| match info
+        {
             Ok(i) => (i.iterations, true),
             Err(crate::solver::SolveError::NotConverged(i)) => (i.iterations, false),
             Err(_) => (0, false),
@@ -364,18 +367,56 @@ pub(super) fn run(
             let rhs = crate::fermion::adjoint_by_gamma5_rhs(d, &DeviceParities, &b);
             let parked = b.stash()?;
             let mut gcr = crate::solver::Gcr::new(Stop::simple(1e-10, max), k);
-            let (x_e, info) = crate::fermion::adjoint_by_gamma5_even(
+            let (mut x_e, mut z) = (rhs.zeros_like(), rhs.zeros_like());
+            let info = crate::fermion::adjoint_by_gamma5_even(
                 (d, pv),
                 &gamma5,
                 m,
                 &mut gcr,
                 (even, odd),
                 &rhs,
+                (&mut x_e, &mut z),
             );
-            drop(rhs);
+            drop((z, rhs));
             let b = parked.restore()?;
             crate::fermion::adjoint_by_gamma5_finish(d, &DeviceParities, &x_e, &b, w);
             Ok((b, outcome(info)))
+        };
+        // B5 = b − cY: the site-local part C = d+ + d- Y of the operator with d+ = b, d- = −c
+        // (M5 = 3, b − 1, c + 1), so that Γ5 D† Γ5 = 1 + Y + B5 W = B5 D B5⁻¹ and
+        // D† w = b is D y = B5⁻¹ Γ5 b, w = Γ5 B5 y.
+        let b5 = {
+            let p = *d.params();
+            crate::backend::cuda_bridge::CudaMdwf::on_the_links_of(
+                d,
+                crate::fermion::MdwfParams {
+                    m5: 3.0,
+                    b: p.b - 1.0,
+                    c: p.c + 1.0,
+                    ..p
+                },
+            )?
+        };
+        let b5_apply = |x: &DeviceSpinor, inverse: bool| {
+            use crate::fermion::{Dagger, EvenOdd, SplitParity};
+            let mut out = x.zeros_like();
+            let mut work = b5.even_odd_work();
+            for parity in [Parity::Even, Parity::Odd] {
+                let mut h = DeviceParities.half_like(x, parity);
+                DeviceParities.extract(&mut h, x, parity);
+                let mut g = h.zeros_like();
+                match inverse {
+                    false => b5.diag(&mut work, &mut g, &h, parity, Dagger::No),
+                    true => b5.diag_inv(&mut work, &mut g, &h, parity, Dagger::No),
+                }
+                DeviceParities.insert(&mut out, &g);
+            }
+            out
+        };
+        let g5_of = |x: &DeviceSpinor| {
+            let mut out = x.zeros_like();
+            d.mult_gamma5_on(&mut out, x);
+            out
         };
         // |X x − b|²/|b|² with X = D or D†.
         let relative = |variant: crate::fermion::Variant, x: &DeviceSpinor, b: &DeviceSpinor| {
@@ -444,6 +485,24 @@ pub(super) fn run(
                 t.elapsed().as_secs_f64(),
                 later - after,
                 memory()
+            )?;
+            // The same D† w = b by one solve with D.
+            let t = Instant::now();
+            let src = b5_apply(&g5_of(&rhs), true);
+            let mut y = src.zeros_like();
+            let (it, ok) = solve_d(m, &mut y, &src, 300);
+            drop(src);
+            let w = g5_of(&b5_apply(&y, false));
+            drop(y);
+            let rel = relative(crate::fermion::Variant::Dagger, &w, &rhs);
+            drop(w);
+            let last = cycles.as_ref().map_or(0, |c| c.coarse_applications());
+            writeln!(
+                out,
+                "  {name}: D† by D, Γ5 B5 D⁻¹ B5⁻¹ Γ5:  {it:4} its{}  |D†w − b|²/|b|² {rel:.1e}  {:.1} s  {} coarse applications",
+                if ok { "" } else { " (not converged)" },
+                t.elapsed().as_secs_f64(),
+                last - later
             )?;
         }
         return Ok(());

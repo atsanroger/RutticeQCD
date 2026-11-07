@@ -135,11 +135,19 @@ mod device {
                 None => Ok(default),
             }
         };
+        // --auto: the number of bootstrap rounds by the probe (`BootstrapParams::automatic`), as the
+        // parameter files without `bootstrap_number_of_rounds`; otherwise two rounds.
+        let boot_base = match args.iter().any(|a| a == "--auto") {
+            true => BootstrapParams::automatic(),
+            false => BootstrapParams::default(),
+        };
         let l: usize = args[0].parse()?;
         // --dims X,Y,Z,T for a lattice other than L^4 (L is then ignored).
         let dims: [usize; ND] = match args.iter().position(|a| a == "--dims") {
             Some(i) => {
-                let v: Vec<usize> = args.get(i + 1).ok_or("--dims needs X,Y,Z,T")?
+                let v: Vec<usize> = args
+                    .get(i + 1)
+                    .ok_or("--dims needs X,Y,Z,T")?
                     .split(',')
                     .map(|x| x.parse())
                     .collect::<Result<_, _>>()?;
@@ -154,7 +162,10 @@ mod device {
         let super_blocks: Vec<usize> = if levels { vec![2, 3] } else { vec![] };
         let refine: Vec<LevelBootstrap> = super_blocks
             .iter()
-            .map(|_| LevelBootstrap { rounds: 1, iterations: 4 })
+            .map(|_| LevelBootstrap {
+                rounds: 1,
+                iterations: 4,
+            })
             .collect();
         // --sweepk K: GCR(K) for the D-dagger solve of the sweep (8 by default); --k K: the
         // only GCR(K) of the solves with Gamma5 M_D Gamma5 (default: 2 and 4, or 2 and 8).
@@ -257,16 +268,14 @@ mod device {
             &even,
             true,
             (&super_blocks, &refine, false),
+            None,
         );
         bootstrap(
             (&d, &pv),
             (&even, &odd),
             &lat,
             &mut y,
-            BootstrapParams {
-                cycle,
-                ..BootstrapParams::default()
-            },
+            BootstrapParams { cycle, ..boot_base },
             &mut with,
             quiet,
         )?;
@@ -401,7 +410,11 @@ mod device {
         b.norm_sqr(&mut nb);
         println!(
             "# sweep 1: D† by {} {it} its (converged {ok}); |b - D†D x0|²/|b|² = {:.1e}",
-            if nodual { format!("GCR({sweep_k}) with Γ5 M_D Γ5") } else { "the dual GCR(8)".into() },
+            if nodual {
+                format!("GCR({sweep_k}) with Γ5 M_D Γ5")
+            } else {
+                "the dual GCR(8)".into()
+            },
             nr[0] / nb[0]
         );
         for (name, rhs) in [("random b", &b), ("sweep residual r", &r)] {
@@ -635,7 +648,7 @@ mod device {
                 &mut z,
                 BootstrapParams {
                     cycle: params,
-                    ..BootstrapParams::default()
+                    ..boot_base
                 },
                 &mut with,
                 &mut |_: Stage<'_, f64>| {},
