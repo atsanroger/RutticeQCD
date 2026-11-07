@@ -304,6 +304,13 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         m.alpha = op.alpha;
         m
     }
+
+    /// The operator with `params` on the links of `op` (α 1), as `CudaMdwf::on_the_links_of`.
+    pub(crate) fn on_the_links_of(op: &Self, params: MdwfParams) -> Self {
+        let mut m = Self::new(op.wilson.lattice(), params);
+        m.wilson.take_links_of(&op.wilson);
+        m
+    }
 }
 
 impl<T: Storage, G: GammaRepre, const W: usize> Mdwf<T, G, Aosoa<W>>

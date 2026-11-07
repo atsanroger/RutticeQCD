@@ -34,7 +34,7 @@
 use super::fermion_action::Psi;
 use super::HalfPsi;
 use crate::fermion::{
-    adjoint_by_gamma5, adjoint_by_gamma5_even, Dagger, EoForm, Mdwf, PvRatio, SchurFactor,
+    adjoint_by_gamma5, adjoint_by_gamma5_even, Dagger, EoForm, EvenOdd, Mdwf, PvRatio, SchurFactor,
 };
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
@@ -257,6 +257,10 @@ fn solves_once<B: MdwfBackend + 'static>(
             d,
             pv,
             d_alpha: d_alpha.as_ref(),
+            b5: match std::env::var("RUTTICE_B5_DAGGER").is_ok() {
+                true => Some(B::b5_of(d)?),
+                false => None,
+            },
             even,
             odd,
             gcr: Gcr::new(setup.inner, setup.directions),
@@ -288,6 +292,8 @@ struct Solves<'a, B: MdwfBackend> {
     d: &'a B::Op,
     pv: &'a B::Op,
     d_alpha: Option<&'a B::Op>,
+    /// exp/b5-dagger (`RUTTICE_B5_DAGGER`): D† through D, Γ5 D† Γ5 = B5 D B5⁻¹.
+    b5: Option<B::Op>,
     even: B::Half,
     odd: B::Half,
     gcr: Gcr<B::Half>,
@@ -389,6 +395,23 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         r: &B::Half,
         spare: &mut B::Half,
     ) -> Result<(), SolveError> {
+        // exp: D† e = (r, 0) as e = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (r, 0): Γ5 and B5 act within a site, so
+        // the source stays on the even sites and one solve with D on them does it.
+        if let Some(b5) = self.b5.take() {
+            let even = Parity::Even;
+            let mut work = b5.even_odd_work();
+            crate::fit(e, r);
+            crate::fit(spare, r);
+            B::gamma5(self.d, e, r);
+            b5.diag_inv(&mut work, spare, e, even, Dagger::No);
+            let done = self.forward_even(e, spare);
+            if done.is_ok() {
+                b5.diag(&mut work, spare, e, even, Dagger::No);
+                B::gamma5(self.d, e, spare);
+            }
+            self.b5 = Some(b5);
+            return done;
+        }
         let mut m = self.cycles.cycle(0);
         let d = self.d;
         let gamma5 = |out: &mut B::Half, inp: &B::Half| B::gamma5(d, out, inp);

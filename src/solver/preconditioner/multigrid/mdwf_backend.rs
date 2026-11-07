@@ -181,6 +181,9 @@ pub trait MdwfBackend {
     fn mult_q_half(op: &Self::Op, out: &mut Self::Half, inp: &Self::Half);
     /// D^(α) on the links of `op`.
     fn with_alpha(op: &Self::Op, alpha: f64) -> Result<Self::Op, Box<dyn Error>>;
+    /// exp/b5-dagger: an operator whose site-local part C = d+ + d- Y is B5 = b − cY of `op`
+    /// (d+ = b, d- = −c: M5 = 3, b − 1, c + 1), for its `diag` and `diag_inv`.
+    fn b5_of(op: &Self::Op) -> Result<Self::Op, Box<dyn Error>>;
     /// Test vectors given on the host in double precision (a checkpoint), kept as the backend
     /// keeps them.
     fn vectors_from_host(
@@ -516,6 +519,19 @@ impl<G: GammaRepre> MdwfBackend for OnCpu<G> {
         let mut a = Mdwf::converted_from(op);
         a.set_alpha(alpha);
         Ok(a)
+    }
+
+    fn b5_of(op: &Mdwf<f64, G>) -> Result<Mdwf<f64, G>, Box<dyn Error>> {
+        let p = *op.params();
+        Ok(Mdwf::on_the_links_of(
+            op,
+            crate::fermion::MdwfParams {
+                m5: 3.0,
+                b: p.b - 1.0,
+                c: p.c + 1.0,
+                ..p
+            },
+        ))
     }
 
     fn vectors_from_host(
