@@ -1228,3 +1228,7 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 - **`DwfMultigridSetup::new` keeps `rebuild_growth` 0** (the library default) while parameter
   files default to 1.5; `examples/hmc_solve_cost.rs` and the unit tests in `src/hmc/mod.rs`
   measure the no-cache mode only (the field is `pub(crate)`).
+- **`RUTTICE_B5_DAGGER` (D† through D, MG note Sec. IV.D) on quenched 24⁴ with GCR(8)**: the
+  forward solve of the second sweep plateaus at |r|²/|b|² ≈ 7e-9 (inner tolerance 1e-10) where
+  the default route converges in 18-20; GCR(16) converges in both (258 against 256 iterations).
+  Decide which route stays once this is understood (both are kept, the default is Γ5 M Γ5).

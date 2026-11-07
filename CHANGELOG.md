@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid: `RUTTICE_B5_DAGGER=1` solves with D† by one solve with D,
+  D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (exact for constant b, c; MG note Sec. IV.D), on all
+  sites and on the even sites; the default stays GCR with Γ5 M Γ5. 16⁴ dynamical, m 0.001: 2223
+  against 2792 iterations per trajectory; on quenched 24⁴ with GCR(8) it stalls where the default
+  does not (TODO).
 - HMC with the domain-wall multigrid: about 3.3 GB less on the device during the MD solves of
   24³×48 (fields shared and borrowed between the solves, the solution and the links of the start
   on the host meanwhile), the same arithmetic.
