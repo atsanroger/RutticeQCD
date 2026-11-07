@@ -257,7 +257,7 @@ fn solves_once<B: MdwfBackend + 'static>(
             d,
             pv,
             d_alpha: d_alpha.as_ref(),
-            b5: match std::env::var("RUTTICE_B5_DAGGER").is_ok() {
+            b5: match crate::env::switch("RUTTICE_B5_DAGGER") {
                 true => Some(B::b5_of(d)?),
                 false => None,
             },
@@ -388,7 +388,8 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
     }
 
     /// `adjoint` for an r with nothing on the odd sites, on the even sites only: e is the even
-    /// part of D⁻† (r, 0) (`adjoint_by_gamma5_even`, for which b′_e = r); `spare` is overwritten.
+    /// part of D⁻† (r, 0) (`adjoint_by_gamma5_even`, for which b′_e = r; with
+    /// `RUTTICE_B5_DAGGER` one solve with D, Γ5 B5 D⁻¹ B5⁻¹ Γ5); `spare` is overwritten.
     fn adjoint_even(
         &mut self,
         e: &mut B::Half,

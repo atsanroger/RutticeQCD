@@ -6,7 +6,7 @@
 use ruttice::fermion::{FermionOp, Mdwf, MdwfParams, Variant};
 use ruttice::gauge::random_gauge;
 use ruttice::solver::{solve_cgne, Cg, Stop};
-use ruttice::{random_spinor, Boundary, Field, Lattice, Spinor, Vector, C64, ND};
+use ruttice::{random_spinor, Boundary, Field, Lattice, Spinor, Vector, C64};
 use std::sync::Arc;
 
 type V = Field<f64, Spinor>;
@@ -48,16 +48,7 @@ fn test_b5_dagger_through_d() {
         };
         let mut op = Mdwf::<f64>::new(&lat, params);
         op.set_gauge(&u).unwrap();
-        let b5 = Mdwf::<f64>::new(
-            &lat,
-            MdwfParams {
-                m5: 3.0,
-                b: params.b - 1.0,
-                c: params.c + 1.0,
-                ..params
-            },
-        );
-        let _ = ND;
+        let b5 = Mdwf::<f64>::new(&lat, params.b5_site());
         let apply = |v: Variant, x: &V| {
             let mut out = x.zeros_like();
             op.mult(&mut op.work(), &mut out, x, v);

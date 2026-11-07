@@ -57,6 +57,18 @@ pub struct MdwfParams {
 }
 
 impl MdwfParams {
+    /// The parameters whose site-local part C = d+ + d- Y is B5 = b − cY of these (d+ = b,
+    /// d- = −c: M5 = 3, b − 1, c + 1), so that `diag` and `diag_inv` apply B5 and B5⁻¹:
+    /// Γ5 D† Γ5 = B5 D B5⁻¹ for constant b, c.
+    pub fn b5_site(&self) -> Self {
+        Self {
+            m5: 3.0,
+            b: self.b - 1.0,
+            c: self.c + 1.0,
+            ..*self
+        }
+    }
+
     /// The parameters of the Pauli-Villars operator: the same operator at unit mass.
     pub fn pauli_villars(self) -> Self {
         Self { mass: 1.0, ..self }
@@ -305,11 +317,10 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         m
     }
 
-    /// The operator with `params` on the links of `op` (α 1), as `CudaMdwf::on_the_links_of`.
-    pub(crate) fn on_the_links_of(op: &Self, params: MdwfParams) -> Self {
-        let mut m = Self::new(op.wilson.lattice(), params);
-        m.wilson.take_links_of(&op.wilson);
-        m
+    /// The operator with `params` on the lattice of `op`, without links (α 1): for its
+    /// site-local parts only (`diag`, `diag_inv`), which do not read the links.
+    pub(crate) fn site_only(op: &Self, params: MdwfParams) -> Self {
+        Self::new(op.wilson.lattice(), params)
     }
 }
 

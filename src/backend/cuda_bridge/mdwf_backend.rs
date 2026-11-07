@@ -254,16 +254,8 @@ impl MdwfBackend for OnDevice {
     }
 
     fn b5_of(op: &CudaMdwf<f64>) -> Result<CudaMdwf<f64>, Box<dyn Error>> {
-        let p = *op.params();
-        Ok(CudaMdwf::on_the_links_of(
-            op,
-            crate::fermion::MdwfParams {
-                m5: 3.0,
-                b: p.b - 1.0,
-                c: p.c + 1.0,
-                ..p
-            },
-        )?)
+        debug_assert_eq!(op.alpha(), 1.0, "B5 of the plain operator");
+        Ok(CudaMdwf::on_the_links_of(op, op.params().b5_site())?)
     }
 
     fn vectors_from_host(
