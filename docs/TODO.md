@@ -1213,3 +1213,12 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 - **Iteration counts in CI** with a tolerance (more than max(2, 5%) above the reference fails,
   more than 10% below too), references made on the CI machine, the files naming
   `Coarse_Solver_PV`; the noise measured over thread counts first.
+- **Which Krylov solver and size cannot be known before the run.** 16⁴ dynamical needs only
+  GCR(2); quenched 24⁴ stalls with GCR(2), GCR(4) and FGMRES(2) (the same memory as GCR(2), 2m + 3
+  vectors) and converges with FGMRES(3) (38/23/20 iterations, 148 s), FGMRES(5) (15, 138 s) and
+  GCR(8) (18-20, 143 s); experiment switch `RUTTICE_FGMRES=m` in the exp worktree, HMC's inner
+  solver is GCR only. Proposal: the largest Krylov space that fits (`device_room`, the k rule),
+  stagnation detected (e.g. |r|² down by less than 10× in 50 iterations, thresholds to be fitted
+  to real histories) and then a larger space or an early end handed to the retries. Needs: FGMRES
+  as a choice in HMC, GCR(3) against FGMRES(3), the propagator comparison
+  (therm16/regcheck_20261106/propfg).
