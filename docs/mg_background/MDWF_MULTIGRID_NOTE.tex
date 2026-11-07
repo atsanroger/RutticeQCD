@@ -1181,6 +1181,83 @@ origin, so a Krylov method reduces the residual only by resolving single eigenva
 degree of the order of their number (Sec.~\ref{sec:spectra}). The preconditioner of Eq.~\eqref{eq:c4} avoids
 $D_-^{-1}$ altogether.
 
+\subsection{\textcolor{red}{New!!!} \texorpdfstring{$D\dg$}{D-dagger} through \texorpdfstring{$D$}{D} itself}
+\label{sec:b5}
+We found a second way to solve with $D\dg$ from $D$ itself without a second setup, and this one is
+exact. Write the operator of Eq.~\eqref{eq:D} as
+\begin{equation}
+D=1+Y+W B_5,\qquad B_5=b-cY .
+\end{equation}
+$B_5$ acts within each four-dimensional site, on the fifth dimension and the spin. The properties
+of Sec.~\ref{sec:g5} give $\Gfive Y\dg\Gfive=Y$ and $\Gfive W\dg\Gfive=W$, hence
+$\Gfive B_5\dg\Gfive=B_5$ and $\Gfive D\dg\Gfive=1+Y+B_5W$. Because $B_5$ is a polynomial in $Y$, it
+commutes with $1+Y$, so $B_5DB_5^{-1}=1+Y+B_5W$ as well, and
+\begin{equation}
+\boxed{\;\Gfive D\dg\Gfive=B_5\,D\,B_5^{-1},\qquad
+(D\dg)^{-1}=\Gfive B_5\,D^{-1}B_5^{-1}\,\Gfive .\;}
+\label{eq:b5}
+\end{equation}
+The solve of $D\dg w=r$ is then the solve of $Dx=B_5^{-1}\Gfive r$, and $w=\Gfive B_5x$. Compared
+with Eq.~\eqref{eq:g5exact}, the factor between $D$ and $D\dg$ is $B_5$ instead of $D_-=cW-1$.
+$D_-$ couples neighboring sites and cannot be inverted (Sec.~\ref{sec:g5fail}); $B_5$ has the form
+$d_++d_-Y$ of the site-local part $C$ of Sec.~\ref{sec:C}, with $d_+=b$ and $d_-=-c$, so the exact
+inverse of $C$ inverts it, and by the argument of Eq.~\eqref{eq:kappaC}
+\begin{equation}
+\kappa(B_5)\le\frac{b+c}{b-c}=2\qquad(b=1.5,\ c=0.5).
+\end{equation}
+Equation~\eqref{eq:b5} needs $b$ and $c$ independent of $s$, as they are here; it does not hold
+for the $s$-dependent coefficients of Zolotarev domain-wall fermions.
+
+On the even sites the relation carries over directly. $\Gfive$ and $B_5$ act within a site, so they
+commute with the restriction $\pi$ and the embedding $\iota$, and
+\begin{equation}
+S^{-\dagger}=\pi D^{-\dagger}\iota=\Gfive B_5\,S^{-1}B_5^{-1}\,\Gfive
+\end{equation}
+with $B_5$ on the even sites. A source with nothing on the odd sites keeps that property under
+$B_5^{-1}\Gfive$, so the solve with $D\dg$ of HMC is one even-site solve with $D$, with the same
+cycle $\mathcal M$ and the same Krylov method, and it costs what a solve with $D$ costs. The
+preconditioner $\Gfive\mathcal M\Gfive$ of Eq.~\eqref{eq:c4} and its analysis are then no longer
+needed for the solver.
+\ifresults
+
+Table~\ref{tab:b5} compares the two ways on the GPU, with GCR(2), one cycle per step and
+$|r|^2/|b|^2<10^{-10}$, on the right-hand sides of Sec.~\ref{sec:daggerresults}. The solve through
+$D$ needs the iterations of a solve with $D$, within two either way, because it is one. The
+preconditioner $\Gfive\mathcal M\Gfive$ needs two to four more on the random right-hand side and
+one to five more on the residual, and on $12^4$ in setup~S it stalls on the residual of all four
+configurations, which the solve through $D$ does in $7$ to $11$ iterations. In setup~S on $24^4$
+and $24^3\times48$ the solve $Dx_0=w_0$ of the sweep does not converge in $2000$ iterations on two
+of the four configurations, the stall of $D$ on right-hand sides $D^{-\dagger}b$; the residual
+right-hand side of those two is that of the unconverged sweep.
+
+\begin{table}[t]
+\centering
+\caption{GCR(2) iterations of solves with $D$ and with $D\dg$ from one setup of $D$ on the GPU,
+one cycle per step, to $|r|^2/|b|^2<10^{-10}$, medians over four configurations (in brackets the
+number that do not converge in $300$ iterations; ``stall'': all four). ``rand'': random
+right-hand side; ``res'': the residual of one sweep of $D\dg D$ (Sec.~\ref{sec:daggerresults}).
+$16^4$ at $m=0.01$, the others at $m=0.001$; $24^4$ and $24^3\times48$ with the levels below the
+coarse lattice.}
+\label{tab:b5}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+ & & \multicolumn{2}{c}{$D$} & \multicolumn{2}{c}{$D\dg$ by $\Gfive\mathcal M\Gfive$} & \multicolumn{2}{c}{$D\dg$ through $D$, Eq.~\eqref{eq:b5}}\\
+lattice & setup & rand & res & rand & res & rand & res\\
+\midrule
+$12^4$ & S & 5 & 7 & 11 [1] & stall & 5 & 8\\
+ & B & 7 & 9 & 11 & 14 & 7 & 10\\
+$16^4$ & S & 5 & 6.5 & 8.5 & 10.5 & 5 & 7.5\\
+ & B & 7 & 8.5 & 10 & 12 & 7 & 10\\
+$24^4$ & S & 7.5 & 12.5 & 10.5 & 14 & 7.5 & 11\\
+ & B & 11 & 17.5 & 14.5 & 20 & 11 & 16.5\\
+$24^3\times48$ & S & 11 & 19 & 13.5 & 20.5 & 10 & 17\\
+ & B & 11 & 18 & 14.5 & 21 & 11 & 17\\
+\bottomrule
+\end{tabular}
+\end{table}
+\fi
+
 
 \ifresults
 \input{results}
@@ -1339,8 +1416,9 @@ operators of its own; its cost in HMC is left to that study.
 \fi
 % ============================================================
 \phantomsection
-\section*{Corrections}
-\textit{2026-11-08.} Appendix~\ref{sec:cgform}: the even-odd equation of CGNE with Neff's
+\section*{Changes}
+\textit{2026-11-08.} New Sec.~\ref{sec:b5}: an exact solve with $D\dg$ through one solve with
+$D$, Eq.~\eqref{eq:b5}, and its comparison with $\Gfive\mathcal M\Gfive$. Appendix~\ref{sec:cgform}: the even-odd equation of CGNE with Neff's
 $\alpha$ is $\mathcal K^{(\alpha)}y=Q_e^{-1}\Ce^{-1}\eta'_e$; the factor $Q_e^{-1}$ was missing
 there and in $b$ (the code solves the corrected equation). Sec.~\ref{sec:g5fail}: a spectrum that
 surrounds the origin does not stop a Krylov method; it forces a degree of the order of the number
