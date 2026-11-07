@@ -1175,9 +1175,10 @@ eigenvalues of that operator,
 m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
 \end{equation}
 have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
-imaginary parts of both signs, so the spectrum surrounds the origin. A Krylov method then has no
-low-degree polynomial $p$ with $p(0)=1$ that is small on the spectrum
-(Sec.~\ref{sec:spectra}), and it makes no progress. The preconditioner of Eq.~\eqref{eq:c4} avoids
+imaginary parts of both signs, so the spectrum surrounds the origin. By the maximum principle
+no polynomial $p$ with $p(0)=1$ is smaller than $1$ everywhere on a closed curve around the
+origin, so a Krylov method reduces the residual only by resolving single eigenvalues, with a
+degree of the order of their number (Sec.~\ref{sec:spectra}). The preconditioner of Eq.~\eqref{eq:c4} avoids
 $D_-^{-1}$ altogether.
 
 
@@ -1338,6 +1339,14 @@ operators of its own; its cost in HMC is left to that study.
 \fi
 % ============================================================
 \phantomsection
+\section*{Corrections}
+\textit{2026-11-08.} Appendix~\ref{sec:cgform}: the even-odd equation of CGNE with Neff's
+$\alpha$ is $\mathcal K^{(\alpha)}y=Q_e^{-1}\Ce^{-1}\eta'_e$; the factor $Q_e^{-1}$ was missing
+there and in $b$ (the code solves the corrected equation). Sec.~\ref{sec:g5fail}: a spectrum that
+surrounds the origin does not stop a Krylov method; it forces a degree of the order of the number
+of eigenvalues. Algorithms~\ref{alg:bicgstab} and~\ref{alg:fgmres}: the checks for an exact
+solution before $\omega$ is computed and before the Arnoldi vector is normalized.
+
 \section*{Acknowledgments}
 \addcontentsline{toc}{section}{Acknowledgments}
 I thank Hideo Matsufuru and Issaku Kanamori for many discussions on the multigrid solver.
@@ -1525,7 +1534,8 @@ rotations at every step.
     \For{two passes}
       \For{$i=0,\dots,k$} $h_{ik}\gets h_{ik}+\langle v_i|w\rangle$;\quad $w\gets w-\langle v_i|w\rangle v_i$ \EndFor
     \EndFor
-    \State $h_{k+1,k}\gets|w|$;\quad $v_{k+1}\gets w/h_{k+1,k}$;\quad update the Givens rotations and the residual estimate
+    \State $h_{k+1,k}\gets|w|$; \textbf{if} $h_{k+1,k}=0$ \textbf{then} update the rotations and leave the loop (the solution lies in the space)
+    \State $v_{k+1}\gets w/h_{k+1,k}$;\quad update the Givens rotations and the residual estimate
   \EndFor
   \State $c\gets\arg\min_c|\beta e_0-Hc|$;\quad $x\gets x+\sum_ic_iz_i$
 \Until{$|b-Ax|^2<\epsilon|b|^2$}
@@ -1536,10 +1546,10 @@ rotations at every step.
 $\mathcal K=\Ce^{-1}S$, the even-odd operator of Bridge++, with Neff's $\alpha$ as for the
 multigrid, in double or in mixed precision.
 
-For $D\psi=\eta$ the even-odd reduction of Sec.~\ref{sec:eo} gives $\mathcal K^{(\alpha)}y=\Ce^{-1}\eta'_e$
+For $D\psi=\eta$ the even-odd reduction of Sec.~\ref{sec:eo} gives $\mathcal K^{(\alpha)}y=Q_e^{-1}\Ce^{-1}\eta'_e$
 with $\mathcal K^{(\alpha)}=Q_e^{-1}\mathcal KQ_e$, Eq.~\eqref{eq:Ksimilar}, and CG solves its normal
 equation $A y=b$, $A=\mathcal K^{(\alpha)\dagger}\mathcal K^{(\alpha)}$,
-$b=\mathcal K^{(\alpha)\dagger}\Ce^{-1}\eta'_e$; $\psi_o$ and $\psi=Q\psi^{(\alpha)}$ follow as for the
+$b=\mathcal K^{(\alpha)\dagger}Q_e^{-1}\Ce^{-1}\eta'_e$; $\psi_o$ and $\psi=Q\psi^{(\alpha)}$ follow as for the
 multigrid. The stopping criterion is $|b-Ay|^2/|b|^2<10^{-18}$. Since the unknown
 is $y$ itself and $A$ has $\mathcal K^{(\alpha)}$ on the right, Bridge++ and Ref.~\cite{Saad} call this method CGNR; we
 keep the name CGNE that is common in lattice QCD.
@@ -1591,6 +1601,7 @@ Krylov solver on $\AL$ alone of Sec.~\ref{sec:nomg}.\fi
   \State $r\gets g-Ax$;\quad $r_0\gets r$;\quad $p\gets r$;\quad $\rho\gets\langle r_0|r\rangle$
   \For{at most $n_{\max}$ steps, while $|r|^2\ge\epsilon|g|^2$}
     \State $\hat p\gets\mathcal M_Ap$;\quad $v\gets A\hat p$;\quad $\alpha\gets\rho/\langle r_0|v\rangle$;\quad $s\gets r-\alpha v$
+    \State \textbf{if} $|s|^2<\epsilon|g|^2$ \textbf{then} $x\gets x+\alpha\hat p$ and \textbf{return} $x$
     \State $\hat s\gets\mathcal M_As$;\quad $t\gets A\hat s$;\quad $\omega\gets\langle t|s\rangle/|t|^2$
     \State $\gamma\gets|\langle t|s\rangle|/(|t|\,|s|)$; \textbf{if} $\gamma<\omega_c$ \textbf{then} $\omega\gets\omega\,\omega_c/\gamma$
     \State $x\gets x+\alpha\hat p+\omega\hat s$;\quad $r\gets s-\omega t$;\quad $\rho'\gets\langle r_0|r\rangle$

@@ -1,4 +1,4 @@
-PWD /home/chen/test/RutticeQCD/docs/mg_background
+PWD /home/chen/test/RutticeQCD-note/docs/mg_background
 INPUT /home/chen/.TinyTeX/texmf.cnf
 INPUT /home/chen/.TinyTeX/texmf-dist/web2c/texmf.cnf
 INPUT /home/chen/.TinyTeX/texmf-var/web2c/pdftex/pdflatex.fmt
@@ -426,6 +426,8 @@ INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmrc8t.tfm
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmb8t.vf
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8r.tfm
 INPUT ./spectrum_fig4.png
 INPUT ./spectrum_fig4.png
 INPUT ./spectrum_fig4.png
@@ -433,12 +435,10 @@ INPUT ./spectrum_fig4.png
 INPUT ./spectrum_fig4.png
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmrc8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8r.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmb8t.vf
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8r.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmbi8t.tfm
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8t.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmbi8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmbi8r.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8t.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss10.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
@@ -447,12 +447,6 @@ INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmri8t.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmss9.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx10.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx8.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx6.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx10.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx7.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx5.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmri8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmri8r.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmrc8t.tfm
@@ -488,7 +482,6 @@ INPUT ./fig_history.pdf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/jknappen/ec/ectt1095.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8t.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8t.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/cm/cmbx9.tfm
 INPUT ./spectrum_fig3.png
 INPUT ./spectrum_fig3.png
 INPUT ./spectrum_fig3.png
@@ -511,7 +504,6 @@ INPUT ./MDWF_MULTIGRID_NOTE.out
 INPUT /home/chen/.TinyTeX/texmf-var/fonts/pk/ljfour/jknappen/ec/ectt1095.600pk
 INPUT /home/chen/.TinyTeX/texmf-var/fonts/pk/ljfour/jknappen/ec/ectt0900.600pk
 INPUT /home/chen/.TinyTeX/texmf-var/fonts/pk/ljfour/jknappen/ec/ectt1000.600pk
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb
