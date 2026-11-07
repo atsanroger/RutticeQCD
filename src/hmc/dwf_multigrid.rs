@@ -8,6 +8,10 @@
 //! links of every solve, and y itself is improved (the bootstrap, from the y of before) when the
 //! pseudofermions are drawn and after every `refresh_every` force solves.
 //!
+//! With `RUTTICE_B5_DAGGER=1` the solves with D† are instead one solve with D each: for Möbius
+//! fermions with constant b, c, Γ5 D† Γ5 = B5 D B5⁻¹ with B5 = b − cY, which acts within a site,
+//! so D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 on all sites and on the even sites alike (the note, Sec. IV.D).
+//!
 //! With Neff's α (`DwfMultigridSetup::alpha`) the solves with D are those of D^(α) = D Q in the
 //! left form, Ã_L^(α), as in the propagator runs, and x = Q x^(α): the setup, P and the coarse
 //! operators are those of D, and only the smoother has a range of its own. The solves with D†
@@ -35,6 +39,7 @@ use super::fermion_action::Psi;
 use super::HalfPsi;
 use crate::fermion::{
     adjoint_by_gamma5, adjoint_by_gamma5_even, Dagger, EoForm, EvenOdd, Mdwf, PvRatio, SchurFactor,
+    SplitParity,
 };
 use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
@@ -304,6 +309,29 @@ struct Solves<'a, B: MdwfBackend> {
 }
 
 impl<B: MdwfBackend> Solves<'_, B> {
+    /// `out = B5⁻¹ Γ5 inp` (`inverse`) or `out = Γ5 B5 inp` on fields of the whole lattice, parity
+    /// by parity: Γ5 and B5 act within a site.
+    fn site_b5(&self, b5: &B::Op, out: &mut B::Field, inp: &B::Field, inverse: bool) {
+        let split = self.backend.split();
+        let mut work = b5.even_odd_work();
+        for parity in [Parity::Even, Parity::Odd] {
+            let mut h = split.half_like(inp, parity);
+            split.extract(&mut h, inp, parity);
+            let mut g = h.zeros_like();
+            match inverse {
+                true => {
+                    B::gamma5(self.d, &mut g, &h);
+                    b5.diag_inv(&mut work, &mut h, &g, parity, Dagger::No);
+                }
+                false => {
+                    b5.diag(&mut work, &mut g, &h, parity, Dagger::No);
+                    B::gamma5(self.d, &mut h, &g);
+                }
+            }
+            split.insert(out, &h);
+        }
+    }
+
     fn counted(&mut self, info: Result<SolveInfo, SolveError>) -> Result<(), SolveError> {
         self.inner += match info {
             Ok(i) | Err(SolveError::NotConverged(i)) => i.iterations,
@@ -340,8 +368,20 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         self.counted(info)
     }
 
-    /// D† e = r with Γ5 M Γ5 (`adjoint_by_gamma5`).
+    /// D† e = r with Γ5 M Γ5 (`adjoint_by_gamma5`), or with `RUTTICE_B5_DAGGER` by one solve
+    /// with D, e = Γ5 B5 D⁻¹ B5⁻¹ Γ5 r.
     fn adjoint(&mut self, e: &mut B::Field, r: &B::Field) -> Result<(), SolveError> {
+        if let Some(b5) = self.b5.take() {
+            let mut src = r.zeros_like();
+            self.site_b5(&b5, &mut src, r, true);
+            let done = self.forward(e, &src);
+            if done.is_ok() {
+                src.copy_from(e);
+                self.site_b5(&b5, e, &src, false);
+            }
+            self.b5 = Some(b5);
+            return done;
+        }
         let mut m = self.cycles.cycle(0);
         let d = self.d;
         let gamma5 = |out: &mut B::Half, inp: &B::Half| B::gamma5(d, out, inp);

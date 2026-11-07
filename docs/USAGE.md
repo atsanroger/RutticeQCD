@@ -164,6 +164,9 @@ Variables for tuning, all optional: `RUTTICE_SCHEDULE` (`steal`, the default, `s
 cores), `RUTTICE_POOL_SPIN` (turns a thread of `pool` spins before it sleeps, 100000),
 `RUTTICE_MIN_SITES_PER_TASK` (sites a task takes at least, above zero) and
 `RUTTICE_STREAM_MIN_BYTES` (outputs from this size on are written past the cache, 32 MiB).
+`RUTTICE_B5_DAGGER=1` makes the domain-wall multigrid of HMC solve with D† by one solve with D,
+D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (the MG note, Sec. IV.D), instead of GCR with Γ5 M Γ5
+(the default).
 Every `RUTTICE_*` variable is checked when read: a value it cannot take (`RUTTICE_PIN=yes`,
 `RUTTICE_POOL_SPIN=4k`, `RUTTICE_HALO=gpu`, a `RUTTICE_DEVICE` the process does not see) stops
 the run with a message naming the variable and what it takes. An empty value is unset.
