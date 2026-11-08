@@ -349,9 +349,9 @@ $D^{-1}=QD^{(\alpha)-1}$ (the left form $\AL^{(\alpha)}$); the solve with $D\dg$
 $D^{(\alpha)\dagger}=QD\dg$ only rescales its right-hand side.
 
 \paragraph{When the sweeps stall.} If the sweeps stop gaining (the coarse space no longer fits the
-links, as after large link changes), the solve is repeated from the current $z$ with $\Pro$ and the
-coarse operators rebuilt for the current links, then also after a bootstrap; if it still stalls, CG
-finishes it from the current $z$, with a warning. A trajectory is never lost to the multigrid.
+links, as after large link changes), the solve is repeated from the current $z$ after a bootstrap
+of the test vectors for the current links, twice; if it still stalls, CG finishes it from the
+current $z$, with a warning. A trajectory is never lost to the multigrid.
 
 \section{What the multigrid keeps along a trajectory}
 The links change a little at every step of the integrator, and the setup is expensive, so the
@@ -361,12 +361,49 @@ multigrid is not rebuilt for every solve.
 a bootstrap, from the old $y$, when the pseudofermions are drawn; the filter runs only for the
 first trajectory.
 \item $\Pro$, the coarse operators and the top of the smoother's interval are kept while the links
-move and rebuilt for the current links when the GCR iterations per solve have grown by half
-(\code{rebuild\_iteration\_growth}~$=1.5$) or after a bootstrap.
+move (the default, \code{rebuild\_iteration\_growth}~$=1.5$). When the GCR iterations per solve
+have grown by half, the test vectors are first improved by a bootstrap for the current links and
+then $\Pro$ and the coarse operators are made again. Making $\Pro$ from the kept vectors alone,
+for links that have moved, gave 5--9 times the iterations of the $\Pro$ kept (dynamical $16^4$,
+$m=0.001$).
 \item The cycle is made for each solve from these parts and dropped after it.
 \end{itemize}
 A kept coarse space is the coarse space of slightly different links. It is still a good
 preconditioner; GCR on the operator of the current links keeps the solve exact.
+
+\section{\textcolor{red}{New!!!} The solve with $D\dg$: $\Gfive\mathcal M\Gfive$ or through $D$}
+For constant $b$ and $c$ the MG note (Sec.~IV.D) gives the exact relation
+$D^{-\dagger}=\Gfive B_5D^{-1}B_5^{-1}\Gfive$ with $B_5=b-cY$, which acts within a site. The solve
+with $D\dg$ of HMC can therefore be one solve with $D$ on the right-hand side $B_5^{-1}\Gfive r$
+instead of GCR with $\Gfive\mathcal M\Gfive$. Both are in the code; \code{RUTTICE\_B5\_DAGGER=1}
+selects the solve through $D$, the default is $\Gfive\mathcal M\Gfive$. Same binary (main
+\code{092f332}), $m=0.001$, $\alpha=0.6$, GCR, cache on:
+\begin{center}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+ & & \multicolumn{2}{c}{$\Gfive\mathcal M\Gfive$} & \multicolumn{2}{c}{through $D$}\\
+lattice & inner tolerance & iterations & s & iterations & s\\
+\midrule
+dynamical $16^4$, 5 trajectories, GCR(2) & $10^{-10}$ & 15208 & 754 & 12328 & 646\\
+quenched $24^4$ conf.\ v2, GCR(8) & $10^{-10}$ & 274 & 141 & -- & --\\
+ & $10^{-8}$ & 332 & 155 & 299 & 147\\
+\phantom{quenched $24^4$} conf.\ 502 & $10^{-10}$ & 240 & 130 & 304 & 145\\
+ & $10^{-8}$ & 296 & 144 & 262 & 136\\
+\phantom{quenched $24^4$} conf.\ 602 & $10^{-10}$, $10^{-8}$ & -- & -- & -- & --\\
+\phantom{quenched $24^4$} conf.\ 702 & $10^{-10}$ & -- & -- & 633 & 312\\
+ & $10^{-8}$ & -- & -- & 532 & 286\\
+\bottomrule
+\end{tabular}
+\end{center}
+``--'': not finished in 20 minutes. On the dynamical $16^4$ lattice the solve through $D$ takes
+19\% fewer iterations and 14\% less time, with $\Delta\mathcal H$ the same to three digits and all
+five trajectories accepted. The quenched $24^4$ runs are single steps of length $0.01$ from
+quenched configurations ($\Delta\mathcal H$ of $10^3$--$10^4$, all rejected), so they test the
+solvers, not HMC. There $\Gfive\mathcal M\Gfive$ does not finish four of the eight runs and the
+solve through $D$ three; configuration 602 stalls with both, configuration 702 only with
+$\Gfive\mathcal M\Gfive$, and configuration v2 at $10^{-10}$ only through $D$, where the second
+sweep's solve with $D$ levels off at $|r|^2/|b|^2\approx7\times10^{-9}$, just above the inner
+tolerance. Neither route is the better one on these configurations, so both are kept.
 
 \section{Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}
 The memory table and the measurements below were taken with MINRES on the Pauli--Villars factor,
