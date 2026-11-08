@@ -52,8 +52,9 @@ use super::hmc::{
     StartConfig,
 };
 use super::params::{
-    Backend, ChebyshevBlock, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
-    MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision, SolverType,
+    Backend, ChebyshevBlock, DaggerSolve, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType,
+    MainBlock, MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision,
+    SolverType,
 };
 use super::CliError;
 use crate::gauge::flow::WilsonFlow;
@@ -301,8 +302,12 @@ pub(crate) struct HmcSolverBlock {
     /// Of the energies at the ends of a trajectory; the same as the forces if not given.
     #[serde(rename = "convergence_criterion_squared_H")]
     pub(crate) convergence_criterion_squared_h: Option<f64>,
-    #[serde(default = "md_iterations")]
-    pub maximum_number_of_iteration: usize,
+    /// Of each force solve; 10000 by default, 1000 with `preconditioner_type MG` (where a
+    /// stalled solve should reach the retries of the multigrid in minutes).
+    pub maximum_number_of_iteration: Option<usize>,
+    /// Restarts of each force solve from its true residual, as in Bridge++; by default 10, and
+    /// none for the solves of the domain-wall multigrid.
+    pub maximum_number_of_restart: Option<usize>,
     /// The cycle of FGMRES, the directions GCR keeps.
     #[serde(default = "kept")]
     pub number_of_kept_directions: usize,
@@ -334,7 +339,8 @@ impl Default for HmcSolverBlock {
             solver_type: None,
             convergence_criterion_squared: md_tolerance(),
             convergence_criterion_squared_h: None,
-            maximum_number_of_iteration: md_iterations(),
+            maximum_number_of_iteration: None,
+            maximum_number_of_restart: None,
             number_of_kept_directions: kept(),
             number_of_initial_guess: 0,
             operator_type: None,
@@ -370,6 +376,9 @@ pub(crate) struct MultigridHmcBlock {
     /// again when the GCR iterations per solve have grown to this many times those after the
     /// last rebuild (`hmc::DwfMultigridSetup::rebuild_growth`); left out: 1.5; 0: for every solve.
     pub rebuild_iteration_growth: Option<f64>,
+    /// Domain-wall fermions: how the solves with D† are made (`Gamma5_cycle`, the default, or
+    /// `Through_D`).
+    pub dagger_solve: Option<DaggerSolve>,
 }
 
 impl Default for MultigridHmcBlock {
@@ -380,6 +389,7 @@ impl Default for MultigridHmcBlock {
             number_of_reuse_iterations: 0,
             convergence_criterion_squared_inner: None,
             rebuild_iteration_growth: None,
+            dagger_solve: None,
         }
     }
 }
@@ -743,7 +753,13 @@ impl FermionActionBlock {
             energy_tolerance_squared: s
                 .convergence_criterion_squared_h
                 .unwrap_or(s.convergence_criterion_squared),
-            max_iterations: s.maximum_number_of_iteration,
+            max_iterations: s
+                .maximum_number_of_iteration
+                .unwrap_or(match s.preconditioner_type {
+                    PreconditionerType::Multigrid => 1000,
+                    _ => md_iterations(),
+                }),
+            max_restarts: s.maximum_number_of_restart,
             initial_guess: s.number_of_initial_guess,
         };
         let fermion_of = fermion(&self.fopr, &format!("{name}.Fopr"))?;
@@ -855,13 +871,15 @@ impl FermionActionBlock {
                     }
                     g => g.unwrap_or(1.5),
                 },
+                through_d: h.dagger_solve == Some(DaggerSolve::ThroughD),
             })
         } else {
             if h.convergence_criterion_squared_inner.is_some()
                 || h.rebuild_iteration_growth.is_some()
+                || h.dagger_solve.is_some()
             {
                 return invalid(format!(
-                    "{name}.MultiGrid_HMC: convergence_criterion_squared_inner and rebuild_iteration_growth are for domain-wall fermions"
+                    "{name}.MultiGrid_HMC: convergence_criterion_squared_inner, rebuild_iteration_growth and dagger_solve are for domain-wall fermions"
                 ));
             }
             let mut unused = Vec::new();

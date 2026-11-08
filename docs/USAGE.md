@@ -164,9 +164,6 @@ Variables for tuning, all optional: `RUTTICE_SCHEDULE` (`steal`, the default, `s
 cores), `RUTTICE_POOL_SPIN` (turns a thread of `pool` spins before it sleeps, 100000),
 `RUTTICE_MIN_SITES_PER_TASK` (sites a task takes at least, above zero) and
 `RUTTICE_STREAM_MIN_BYTES` (outputs from this size on are written past the cache, 32 MiB).
-`RUTTICE_B5_DAGGER=1` makes the domain-wall multigrid of HMC solve with D† by one solve with D,
-D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (the MG note, Sec. IV.D), instead of GCR with Γ5 M Γ5
-(the default).
 Every `RUTTICE_*` variable is checked when read: a value it cannot take (`RUTTICE_PIN=yes`,
 `RUTTICE_POOL_SPIN=4k`, `RUTTICE_HALO=gpu`, a `RUTTICE_DEVICE` the process does not see) stops
 the run with a message naming the variable and what it takes. An empty value is unset.
@@ -340,7 +337,8 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
-| `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves |
+| `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves; `maximum_number_of_iteration` 10000, or 1000 with `preconditioner_type MG` (a stalled multigrid solve then reaches its retries in minutes) |
+| `maximum_number_of_restart` | restarts of each solve from its true residual, as in Bridge++ (10; none for the solves of the domain-wall multigrid unless given) |
 
 `Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α, the action unchanged:
 CG on all sites; CG on the even-odd Ratio (CG on the normal equations of K Q_e, no
@@ -366,6 +364,7 @@ What only HMC has is in `MultiGrid_HMC`:
 | `reuse_vectors`, `number_of_reuse_iterations` | Wilson and clover: start each setup but the first from the vectors before, improved this many times (`false`: from random vectors) |
 | `convergence_criterion_squared_inner` | domain-wall fermions: where each of the two solves on the even sites stops (1e-10), before they are repeated on the residual of D†D |
 | `rebuild_iteration_growth` | domain-wall fermions: keep P and the coarse operators (and the tops of the smoothers) from solve to solve, the cycles made from them for the links of each solve, and make them again, after improving the test vectors for the links of that solve, when the GCR iterations per solve have grown to this many times those after the last rebuild (above 1; left out: 1.5; 0: made for every solve). The test vectors are improved, and everything made again, as `refresh_interval` says |
+| `dagger_solve` | domain-wall fermions: how the solves with D† are made. `Gamma5_cycle` (the default): GCR on K† with Γ5 M Γ5. `Through_D`: one solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (exact for b and c independent of s; the MG note, Sec. IV.D) |
 
 The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
 from them for the operator on the links of that solve. The domain-wall multigrid solves

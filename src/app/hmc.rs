@@ -269,6 +269,8 @@ pub enum HmcMultigrid {
         inner_tolerance_squared: f64,
         /// Keep P and the coarse parts until the iterations grow this much; 0: never kept.
         rebuild_growth: f64,
+        /// The solves with D† by one solve with D (`DaggerSolve::ThroughD`).
+        through_d: bool,
     },
 }
 
@@ -296,6 +298,9 @@ pub struct HmcSolver {
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
     pub(crate) energy_tolerance_squared: f64,
     pub max_iterations: usize,
+    /// Restarts of each force solve (`maximum_number_of_restart`); None: 10, and 0 for the
+    /// solves of the domain-wall multigrid.
+    pub max_restarts: Option<usize>,
     /// Mixed precision: CG in single precision to this |r|²/|b|², corrected in double.
     pub mixed: Option<f64>,
     /// Start each force solve from the best combination of the solutions of the last this
@@ -364,13 +369,19 @@ impl HmcSolver {
                     refresh_every,
                     inner_tolerance_squared,
                     rebuild_growth,
+                    through_d,
                 }),
             ) => {
-                let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
+                let inner = Stop {
+                    tolerance_sqr: inner_tolerance_squared,
+                    max_iterations: self.max_iterations,
+                    max_restarts: self.max_restarts.unwrap_or(0),
+                };
                 let mut setup = DwfMultigridSetup::new(settings, inner);
                 setup.directions = self.restart;
                 setup.refresh_every = refresh_every;
                 setup.rebuild_growth = rebuild_growth;
+                setup.through_d = through_d;
                 setup.alpha = self.neff_alpha;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }
@@ -443,6 +454,7 @@ impl Default for HmcSolver {
             tolerance_squared: md_tolerance(),
             energy_tolerance_squared: md_tolerance(),
             max_iterations: md_iterations(),
+            max_restarts: None,
             initial_guess: 0,
         }
     }
@@ -814,7 +826,7 @@ impl HmcConfig {
             let stop = |t: f64| Stop {
                 tolerance_sqr: t,
                 max_iterations: s.max_iterations,
-                max_restarts: 10,
+                max_restarts: s.max_restarts.unwrap_or(10),
             };
             (stop(s.tolerance_squared), stop(s.energy_tolerance_squared))
         };
@@ -994,7 +1006,7 @@ impl HmcConfig {
                     let stop = |t: f64| Stop {
                         tolerance_sqr: t,
                         max_iterations: solver.max_iterations,
-                        max_restarts: 10,
+                        max_restarts: solver.max_restarts.unwrap_or(10),
                     };
                     let c = Common {
                         smearing: smearing.filter(|_| smeared),
@@ -1069,7 +1081,7 @@ impl HmcConfig {
                         let stop = |t: f64| Stop {
                             tolerance_sqr: t,
                             max_iterations: solver.max_iterations,
-                            max_restarts: 10,
+                            max_restarts: solver.max_restarts.unwrap_or(10),
                         };
                         let c = Common {
                             smearing: smearing.filter(|_| *smeared),
@@ -1095,7 +1107,7 @@ impl HmcConfig {
                         let stop = |t: f64| Stop {
                             tolerance_sqr: t,
                             max_iterations: solver.max_iterations,
-                            max_restarts: 10,
+                            max_restarts: solver.max_restarts.unwrap_or(10),
                         };
                         let c = Common {
                             smearing: smearing.filter(|_| *smeared),

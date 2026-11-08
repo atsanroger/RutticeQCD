@@ -1864,3 +1864,167 @@ Action_F_1:
     ))
     .unwrap();
 }
+
+/// Iteration counts pinned within a tolerance, so that a change of the algorithm that costs
+/// iterations without failing a correctness test is seen (the HMC multigrid's rebuild of
+/// P from stale test vectors took 29% more iterations unseen, 2026-11-06). A count passes when it
+/// is at most max(2, 5%) above the reference and at most max(2, 10%) below it; a large drop can
+/// mean a broken stopping rule. The references are those of the CPU, measured with 1, 4 and 16
+/// threads; the files name every choice that sets the count (`Coarse_Solver_PV` included).
+fn within_reference(what: &str, count: usize, reference: usize) {
+    let up = (reference / 20).max(2);
+    let down = (reference / 10).max(2);
+    assert!(
+        count <= reference + up && count + down >= reference,
+        "{what}: {count} iterations, the reference {reference} (+{up}, -{down})"
+    );
+}
+
+/// The multigrid of domain-wall fermions on the 4^3x8 test configuration, Möbius (1.5, 0.5) at
+/// m = 0.01, setups S and B (MG note, Table setups) shrunk to the lattice.
+fn mdwf_mg_yaml(setup: char) -> String {
+    let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/conf_04040408.txt");
+    let base = include_str!("../examples/mdwf_pv_eo_mg.yaml");
+    let mut y = with(base, "[12, 12, 12, 12]", "[4, 4, 4, 8]");
+    y = with(
+        &y,
+        "gauge_config_type_input : Binary",
+        "gauge_config_type_input : Text",
+    );
+    y = with(&y, "conf_quench_12x12x12x12_v2.bin", conf.to_str().unwrap());
+    y = with(
+        &y,
+        "quark_mass               : 0.001",
+        "quark_mass               : 0.01",
+    );
+    y = with(
+        &y,
+        "filter_number_of_vectors   : 16",
+        "filter_number_of_vectors   : 4",
+    );
+    y = with(
+        &y,
+        "block_size             : [4, 4, 4, 4]",
+        "block_size             : [2, 2, 2, 2]",
+    );
+    y = with(
+        &y,
+        "number_of_test_vectors : 32",
+        "number_of_test_vectors : 8",
+    );
+    y = with(
+        &y,
+        "    Coarse_Solver_PV:\n      solver_type                   : MINRES\n",
+        "    Coarse_Solver_PV:\n      solver_type                   : CG\n      tikhonov_epsilon              : 1.0e-3\n",
+    );
+    if setup == 'B' {
+        y = with(
+            &y,
+            "domain_wall_height       : 1.0",
+            "domain_wall_height       : 1.8",
+        );
+        y = with(
+            &y,
+            "number_of_steps : 8\n    interval_ratio  : 10",
+            "number_of_steps : 12\n    interval_ratio  : 30",
+        );
+        let i = y.find("\nGaugeSmearing:").expect("the smearing section");
+        y.truncate(i + 1);
+    }
+    y
+}
+
+#[test]
+fn test_mg_the_domain_wall_multigrid_takes_the_iterations_it_took() {
+    let dir = scratch("dw_mg_iterations");
+    for (setup, reference) in [('S', 11), ('B', 11)] {
+        let file = dir.join(format!("mg_{setup}.yaml"));
+        std::fs::write(&file, mdwf_mg_yaml(setup)).unwrap();
+        let mut printed = Vec::new();
+        ruttice::app::run_file(&file, &mut printed).unwrap();
+        let printed = String::from_utf8(printed).unwrap();
+        let count: usize = printed
+            .lines()
+            .find_map(|l| {
+                let w: Vec<&str> = l.split_whitespace().collect();
+                let i = w.iter().position(|x| x.starts_with("iterations"))?;
+                (i >= 1 && w[i - 2] == "GCR")
+                    .then(|| w[i - 1].trim_end_matches('!').parse().ok())?
+            })
+            .unwrap_or_else(|| panic!("no iteration count in\n{printed}"));
+        eprintln!("setup {setup}: {count} iterations");
+        within_reference(&format!("setup {setup}"), count, reference);
+    }
+}
+
+/// HMC with the domain-wall multigrid on the 4^3x8 test configuration, Möbius (1.5, 0.5) at
+/// m = 0.01, trajectories of length 1 in two fermion steps with the cache rebuilt at 1.1 times
+/// the iterations: with `Gamma5_cycle` two trajectories, which the rebuild from stale test
+/// vectors of before 1e1646c makes 12% longer (703 against 787 iterations), with `Through_D` one.
+#[test]
+fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
+    let dir = scratch("dw_hmc_iterations");
+    let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/conf_04040408.txt");
+    let mut base = with(
+        include_str!("../examples/hmc_domainwall_pv.yaml"),
+        "conf_04040408.txt",
+        conf.to_str().unwrap(),
+    );
+    base = with(&base, "trajectory_length : 0.1", "trajectory_length : 1.0");
+    base = with(
+        &base,
+        "number_of_steps : [5, 4]",
+        "number_of_steps : [2, 2]",
+    );
+    base = with(
+        &base,
+        "coefficient_b           : 1.0",
+        "coefficient_b           : 1.5",
+    );
+    base = with(
+        &base,
+        "coefficient_c           : 0.0",
+        "coefficient_c           : 0.5",
+    );
+    base = with(
+        &base,
+        "quark_mass              : 0.1",
+        "quark_mass              : 0.01",
+    );
+    base = with(
+        &base,
+        "action_type     : Ratio",
+        "action_type     : Ratio\n  operator_type   : Even_odd",
+    );
+    base = with(
+        &base,
+        "    solver_type                   : CG",
+        "    solver_type                   : GCR\n    preconditioner_type           : MG\n    number_of_kept_directions     : 8",
+    );
+    base.push_str("  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n      Coarse_Solver_PV:\n        solver_type                   : CG\n        tikhonov_epsilon              : 1.0e-3\n        maximum_number_of_iteration   : 2000\n        convergence_criterion_squared : 1.0e-2\n");
+    for (route, trajectories, reference) in [("Gamma5_cycle", 2, 703), ("Through_D", 1, 296)] {
+        let text = with(
+            &base,
+            "number_of_trajectories  : 1",
+            &format!("number_of_trajectories  : {trajectories}"),
+        );
+        let text = format!("{text}  MultiGrid_HMC:\n    rebuild_iteration_growth : 1.1\n    dagger_solve : {route}\n");
+        let file = dir.join(format!("hmc_{route}.yaml"));
+        std::fs::write(&file, text).unwrap();
+        let mut printed = Vec::new();
+        ruttice::app::run_file(&file, &mut printed).unwrap();
+        let printed = String::from_utf8(printed).unwrap();
+        let count: usize = printed
+            .lines()
+            .filter(|l| l.starts_with("# cost"))
+            .filter_map(|l| {
+                let w: Vec<&str> = l.split_whitespace().collect();
+                let i = w.iter().position(|x| x.starts_with("iterations"))?;
+                w[i - 1].parse::<usize>().ok()
+            })
+            .sum();
+        assert!(count > 0, "no cost lines in\n{printed}");
+        eprintln!("{route}: {count} iterations");
+        within_reference(route, count, reference);
+    }
+}

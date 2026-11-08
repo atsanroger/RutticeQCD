@@ -8,7 +8,7 @@
 //! links of every solve, and y itself is improved (the bootstrap, from the y of before) when the
 //! pseudofermions are drawn and after every `refresh_every` force solves.
 //!
-//! With `RUTTICE_B5_DAGGER=1` the solves with D† are instead one solve with D each: for Möbius
+//! With `through_d` (`MultiGrid_HMC.dagger_solve : Through_D`) the solves with D† are instead one solve with D each: for Möbius
 //! fermions with constant b, c, Γ5 D† Γ5 = B5 D B5⁻¹ with B5 = b − cY, which acts within a site,
 //! so D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 on all sites and on the even sites alike (the note, Sec. IV.D).
 //!
@@ -65,6 +65,9 @@ pub struct DwfMultigridSetup {
     /// the vectors, when the GCR iterations per solve on the even sites have grown to this many
     /// times those after the last rebuild (module documentation); 0: make them for every solve.
     pub(crate) rebuild_growth: f64,
+    /// The solves with D† by one solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (constant b, c); false:
+    /// GCR with Γ5 M Γ5.
+    pub(crate) through_d: bool,
     /// Neff's α of the solves with D: D^(α) in the left form, the setup that of D; 1 (the
     /// default): D in the right form.
     pub alpha: f64,
@@ -103,6 +106,7 @@ impl DwfMultigridSetup {
             inner,
             refresh_every: 0,
             rebuild_growth: 0.0,
+            through_d: false,
             alpha: 1.0,
             state: None,
             since: 0,
@@ -262,7 +266,7 @@ fn solves_once<B: MdwfBackend + 'static>(
             d,
             pv,
             d_alpha: d_alpha.as_ref(),
-            b5: match crate::env::switch("RUTTICE_B5_DAGGER") {
+            b5: match setup.through_d {
                 true => Some(B::b5_of(d)?),
                 false => None,
             },
@@ -297,7 +301,7 @@ struct Solves<'a, B: MdwfBackend> {
     d: &'a B::Op,
     pv: &'a B::Op,
     d_alpha: Option<&'a B::Op>,
-    /// exp/b5-dagger (`RUTTICE_B5_DAGGER`): D† through D, Γ5 D† Γ5 = B5 D B5⁻¹.
+    /// With `through_d`: D† through D, Γ5 D† Γ5 = B5 D B5⁻¹.
     b5: Option<B::Op>,
     even: B::Half,
     odd: B::Half,
@@ -368,7 +372,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         self.counted(info)
     }
 
-    /// D† e = r with Γ5 M Γ5 (`adjoint_by_gamma5`), or with `RUTTICE_B5_DAGGER` by one solve
+    /// D† e = r with Γ5 M Γ5 (`adjoint_by_gamma5`), or with `through_d` by one solve
     /// with D, e = Γ5 B5 D⁻¹ B5⁻¹ Γ5 r.
     fn adjoint(&mut self, e: &mut B::Field, r: &B::Field) -> Result<(), SolveError> {
         if let Some(b5) = self.b5.take() {
@@ -429,7 +433,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
 
     /// `adjoint` for an r with nothing on the odd sites, on the even sites only: e is the even
     /// part of D⁻† (r, 0) (`adjoint_by_gamma5_even`, for which b′_e = r; with
-    /// `RUTTICE_B5_DAGGER` one solve with D, Γ5 B5 D⁻¹ B5⁻¹ Γ5); `spare` is overwritten.
+    /// `through_d` one solve with D, Γ5 B5 D⁻¹ B5⁻¹ Γ5); `spare` is overwritten.
     fn adjoint_even(
         &mut self,
         e: &mut B::Half,

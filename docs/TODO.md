@@ -1191,13 +1191,6 @@ for links that had moved away (5-9× the iterations after it), not the Tikhonov 
 now runs the bootstrap first and the cache is the default (`rebuild_iteration_growth` 1.5, 0 for
 none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 
-- **`maximum_number_of_restart` in the HMC solvers.** Bridge++'s HMC files have it; the HMC
-  `Solver` block refuses it and the inner GCR of the multigrid is `Stop::simple` (no restarts,
-  `app/hmc.rs:369`). Restarts did not cure the stall below (exp/dagger-2448), so this is for
-  compatibility and a bound on a stalled solve.
-- **`maximum_number_of_iteration` of HMC defaults to 10000** (`hmc_params.rs:418`): a stalled
-  solve then runs for hours before the retries (two bootstraps, then CG) start; 300 as in the
-  16⁴ file reaches them in minutes.
 - **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs:421`), while the files
   use 2 (24³×48 fits only with 2). Decide the default.
 - **Without the cache** (`rebuild_iteration_growth : 0`) every solve still makes P of the kept
@@ -1210,9 +1203,6 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   fallback. The mechanism (low modes amplified by D⁻† in the right-hand side) is not verified.
 - **ΔH = +1.29e4 on that 24⁴ file with GCR(8)** (rejected; the same with main), a one-step
   trajectory of length 0.01 from a quenched configuration: not looked into.
-- **Iteration counts in CI** with a tolerance (more than max(2, 5%) above the reference fails,
-  more than 10% below too), references made on the CI machine, the files naming
-  `Coarse_Solver_PV`; the noise measured over thread counts first.
 - **Which Krylov solver and size cannot be known before the run.** 16⁴ dynamical needs only
   GCR(2); quenched 24⁴ stalls with GCR(2), GCR(4) and FGMRES(2) (the same memory as GCR(2), 2m + 3
   vectors) and converges with FGMRES(3) (38/23/20 iterations, 148 s), FGMRES(5) (15, 138 s) and
@@ -1228,14 +1218,11 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 - **`DwfMultigridSetup::new` keeps `rebuild_growth` 0** (the library default) while parameter
   files default to 1.5; `examples/hmc_solve_cost.rs` and the unit tests in `src/hmc/mod.rs`
   measure the no-cache mode only (the field is `pub(crate)`).
-- **`RUTTICE_B5_DAGGER` (D† through D, MG note Sec. IV.D) on quenched 24⁴ with GCR(8)**: the
+- **`dagger_solve : Through_D` (D† through D, MG note Sec. IV.D) on quenched 24⁴ with GCR(8)**: the
   forward solve of the second sweep plateaus at |r|²/|b|² ≈ 7e-9 (inner tolerance 1e-10) where
   the default route converges in 18-20; GCR(16) converges in both (258 against 256 iterations).
   Decide which route stays once this is understood (both are kept, the default is Γ5 M Γ5).
-- **Both D† routes stay** (`RUTTICE_B5_DAGGER`, default Γ5 M Γ5): the solve through D needs b and c
+- **Both D† routes stay** (`MultiGrid_HMC.dagger_solve`, default Γ5 M Γ5): the solve through D needs b and c
   independent of s (Γ5 B5† Γ5 = B − YC ≠ B5 for diagonal B, C), while Γ5 M Γ5 and the exact D₋
   relation of BNO also hold for reflection-symmetric b_s, c_s. When s-dependent coefficients are
   added to `MdwfParams`, `MdwfBackend::b5_of` must refuse them instead of computing a wrong B5.
-- **The D† route as a parameter-file choice** instead of the environment variable, e.g.
-  `MultiGrid_HMC: dagger_solve : gamma5_cycle | through_d` (default `gamma5_cycle`), echoed in the
-  output, so that a log says which route ran.
