@@ -56,16 +56,14 @@ $24$\,GB of device memory; a second GPU was used for iteration counts and spectr
 Every setup uses the same random seed except where other seeds are stated
 (Secs.~\ref{sec:pvcoarse} and~\ref{sec:sensitivity}).
 
-\paragraph{\textcolor{red}{New!!!} Bori\c{c}i's operator.} With $(b,c)=(1,1)$ and the other
-parameters of Table~\ref{tab:setups}, the multigrid needs a narrower smoother interval in setup~S.
-On $24^3\times48$ (configuration~1, one random right-hand side, $m=0.001$) GCR(2) does not
-converge in $2000$ iterations with $\kappa_s=10$ and converges in $27$ with $\kappa_s=3$, on $\AL$
-and on $\AR$ alike. In setup~B it converges in $94$ iterations on $\AR$ with $\kappa_s=30$, and on
-$\AL$ in $115$ with $\kappa_s=3$ but not with $\kappa_s=30$; the M\"obius operator needs
-$23$--$26$. The residual mass does not explain the difference. At $m=0.001$ on $12^4$ and $16^4$
-(four configurations each) $m_{\rm res}$ of Bori\c{c}i's operator is $(0.7$--$2.2)\times10^{-4}$ in
-setup~S, as for the M\"obius operator, and $(0.8$--$0.9)\times10^{-3}$ in setup~B, below the
-$(2.4$--$2.7)\times10^{-3}$ of the M\"obius operator; both have $b+c=2$.
+\paragraph{\textcolor{red}{New!!!} Bori\c{c}i's operator.} The multigrid also works for
+Bori\c{c}i's operator, $(b,c)=(1,1)$, but its smoother interval has to be chosen for it. In
+setup~S the interval of Table~\ref{tab:setups} makes the solve stagnate on $24^3\times48$; a
+narrower one ($\kappa_s=3$) brings back the iteration count of the M\"obius operator. In setup~B
+the solve converges with the interval of the table on $\AR$, but takes about four times the
+iterations of the M\"obius operator. Its residual mass is not the reason: at $L_s=8$ it is of the
+same size as that of the M\"obius operator, which has the same $b+c$, in setup~S and smaller in
+setup~B.
 
 \subsection{Performance}
 \label{sec:performance}

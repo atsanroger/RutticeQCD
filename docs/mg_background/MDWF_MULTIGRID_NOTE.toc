@@ -64,7 +64,7 @@
 \contentsline {paragraph}{The reference solver.}{20}{section*.28}%
 \contentsline {paragraph}{Mass dependence.}{20}{section*.29}%
 \contentsline {paragraph}{A point-source propagator.}{20}{section*.30}%
-\contentsline {paragraph}{Volume.}{21}{section*.31}%
+\contentsline {paragraph}{Volume.}{20}{section*.31}%
 \contentsline {subsubsection}{\numberline {2}Solves with $D^{\dagger }$}{21}{subsubsection.5.2.2}%
 \contentsline {paragraph}{Single solves.}{21}{section*.32}%
 \contentsline {subsection}{\numberline {C}What each part contributes}{22}{subsection.5.3}%
@@ -72,11 +72,11 @@
 \contentsline {subsubsection}{\numberline {2}Choice of the prolongation basis}{22}{subsubsection.5.3.2}%
 \contentsline {subsubsection}{\numberline {3}The regularized Pauli--Villars solve}{23}{subsubsection.5.3.3}%
 \contentsline {subsubsection}{\numberline {4}Sensitivity to the parameters}{23}{subsubsection.5.3.4}%
-\contentsline {subsection}{\numberline {D}Why the method converges}{23}{subsection.5.4}%
+\contentsline {subsection}{\numberline {D}Why the method converges}{24}{subsection.5.4}%
 \contentsline {subsubsection}{\numberline {1}Field of values}{24}{subsubsection.5.4.1}%
 \contentsline {subsubsection}{\numberline {2}Spectrum}{24}{subsubsection.5.4.2}%
 \contentsline {subsubsection}{\numberline {3}Pseudospectra and a bound for GMRES}{25}{subsubsection.5.4.3}%
-\contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{26}{subsubsection.5.4.4}%
+\contentsline {subsubsection}{\numberline {4}Truncated GCR and inexact coarse solves}{25}{subsubsection.5.4.4}%
 \contentsline {section}{\numberline {VI}Summary}{26}{section.6}%
 \contentsline {paragraph}{Code.}{27}{section*.33}%
 \contentsline {section}{\numberline {VII}Open problems}{27}{section.7}%
