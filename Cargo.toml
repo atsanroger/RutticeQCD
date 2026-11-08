@@ -2,10 +2,10 @@
 # examples/.
 [package]
 name = "ruttice"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-publish = false
+exclude = ["docs/*", ".github/*"]
 
 description = "A Rust library and toolkit for lattice QCD simulations"
 homepage = "https://github.com/atsanroger/RutticeQCD"

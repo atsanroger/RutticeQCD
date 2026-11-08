@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (2026-11-08)
 
 - HMC parameter files: `MultiGrid_HMC.dagger_solve` (`Gamma5_cycle`, the default, or
   `Through_D`) chooses how the domain-wall multigrid solves with D†;
