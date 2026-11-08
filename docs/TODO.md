@@ -1191,7 +1191,7 @@ for links that had moved away (5-9× the iterations after it), not the Tikhonov 
 now runs the bootstrap first and the cache is the default (`rebuild_iteration_growth` 1.5, 0 for
 none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 
-- **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs:421`), while the files
+- **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs`, `kept()`), while the files
   use 2 (24³×48 fits only with 2). Decide the default.
 - **Without the cache** (`rebuild_iteration_growth : 0`) every solve still makes P of the kept
   vectors for the links of now, the bad rebuild; with a bootstrap for every solve it converges
@@ -1226,3 +1226,6 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   independent of s (Γ5 B5† Γ5 = B − YC ≠ B5 for diagonal B, C), while Γ5 M Γ5 and the exact D₋
   relation of BNO also hold for reflection-symmetric b_s, c_s. When s-dependent coefficients are
   added to `MdwfParams`, `MdwfBackend::b5_of` must refuse them instead of computing a wrong B5.
+- **HMC prints no parameter summary**: a log does not say which `MultiGrid_HMC` choices ran
+  (`dagger_solve`, `rebuild_iteration_growth`, ...), unlike the propagator echo. Print one line per
+  action next to the header.

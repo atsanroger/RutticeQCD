@@ -337,8 +337,8 @@ The `Solver` section of a fermion action says how its forces and energies are so
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
 | `number_of_kept_directions` | the cycle of FGMRES, the directions GCR keeps (32) |
-| `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves; `maximum_number_of_iteration` 10000, or 1000 with `preconditioner_type MG` (a stalled multigrid solve then reaches its retries in minutes) |
-| `maximum_number_of_restart` | restarts of each solve from its true residual, as in Bridge++ (10; none for the solves of the domain-wall multigrid unless given) |
+| `convergence_criterion_squared`, `convergence_criterion_squared_H`, `maximum_number_of_iteration` | the stopping rule of the force solves and of the energy solves; `maximum_number_of_iteration` 10000, or 1000 with the domain-wall multigrid (a stalled solve then reaches its retries in minutes); FGMRES counts all its iterations, the other solvers those of one cycle |
+| `maximum_number_of_restart` | restarts of each solve from its true residual (10, at least 1); with the domain-wall multigrid the sweeps of D†D, whose two solves never restart |
 
 `Fopr.neff_alpha` solves domain-wall fermions with Neff's D Q at that α, the action unchanged:
 CG on all sites; CG on the even-odd Ratio (CG on the normal equations of K Q_e, no

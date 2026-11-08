@@ -302,11 +302,12 @@ pub(crate) struct HmcSolverBlock {
     /// Of the energies at the ends of a trajectory; the same as the forces if not given.
     #[serde(rename = "convergence_criterion_squared_H")]
     pub(crate) convergence_criterion_squared_h: Option<f64>,
-    /// Of each force solve; 10000 by default, 1000 with `preconditioner_type MG` (where a
-    /// stalled solve should reach the retries of the multigrid in minutes).
+    /// Of each force and energy solve; 10000 by default, 1000 with the domain-wall multigrid
+    /// (where a stalled solve should reach the retries of the multigrid in minutes). FGMRES
+    /// counts all its iterations, the other solvers those of one cycle.
     pub maximum_number_of_iteration: Option<usize>,
-    /// Restarts of each force solve from its true residual, as in Bridge++; by default 10, and
-    /// none for the solves of the domain-wall multigrid.
+    /// Restarts of each force and energy solve from its true residual (10 by default, at least
+    /// 1); with the domain-wall multigrid the sweeps of D†D.
     pub maximum_number_of_restart: Option<usize>,
     /// The cycle of FGMRES, the directions GCR keeps.
     #[serde(default = "kept")]
@@ -753,12 +754,15 @@ impl FermionActionBlock {
             energy_tolerance_squared: s
                 .convergence_criterion_squared_h
                 .unwrap_or(s.convergence_criterion_squared),
-            max_iterations: s
-                .maximum_number_of_iteration
-                .unwrap_or(match s.preconditioner_type {
-                    PreconditionerType::Multigrid => 1000,
+            max_iterations: s.maximum_number_of_iteration.unwrap_or(
+                match (
+                    s.preconditioner_type,
+                    self.fopr.fermion_type.is_domain_wall(),
+                ) {
+                    (PreconditionerType::Multigrid, true) => 1000,
                     _ => md_iterations(),
-                }),
+                },
+            ),
             max_restarts: s.maximum_number_of_restart,
             initial_guess: s.number_of_initial_guess,
         };

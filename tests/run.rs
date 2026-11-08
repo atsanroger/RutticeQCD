@@ -1948,8 +1948,10 @@ fn test_mg_the_domain_wall_multigrid_takes_the_iterations_it_took() {
             .find_map(|l| {
                 let w: Vec<&str> = l.split_whitespace().collect();
                 let i = w.iter().position(|x| x.starts_with("iterations"))?;
-                (i >= 1 && w[i - 2] == "GCR")
-                    .then(|| w[i - 1].trim_end_matches('!').parse().ok())?
+                (i >= 2 && w[i - 2] == "GCR").then(|| {
+                    assert!(!w[i - 1].ends_with('!'), "not converged:\n{l}");
+                    w[i - 1].parse().ok()
+                })?
             })
             .unwrap_or_else(|| panic!("no iteration count in\n{printed}"));
         eprintln!("setup {setup}: {count} iterations");
@@ -1960,7 +1962,8 @@ fn test_mg_the_domain_wall_multigrid_takes_the_iterations_it_took() {
 /// HMC with the domain-wall multigrid on the 4^3x8 test configuration, Möbius (1.5, 0.5) at
 /// m = 0.01, trajectories of length 1 in two fermion steps with the cache rebuilt at 1.1 times
 /// the iterations: with `Gamma5_cycle` two trajectories, which the rebuild from stale test
-/// vectors of before 1e1646c makes 12% longer (703 against 787 iterations), with `Through_D` one.
+/// vectors of before 1e1646c makes 12% longer (703 against 787 iterations, measured with the
+/// command-line program on this file), with `Through_D` one.
 #[test]
 fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
     let dir = scratch("dw_hmc_iterations");

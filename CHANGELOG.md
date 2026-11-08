@@ -4,10 +4,10 @@
 
 - HMC parameter files: `MultiGrid_HMC.dagger_solve` (`Gamma5_cycle`, the default, or
   `Through_D`) chooses how the domain-wall multigrid solves with D†;
-  `Solver.maximum_number_of_restart` (10 by default, none for the solves of
-  the domain-wall multigrid unless given); `Solver.maximum_number_of_iteration` defaults to 1000
-  with `preconditioner_type MG` (10000 otherwise), so that a stalled multigrid solve reaches its
-  retries in minutes.
+  `Solver.maximum_number_of_restart` (10 by default, at least 1; with the domain-wall multigrid
+  the sweeps of D†D); `Solver.maximum_number_of_iteration` defaults to 1000 with the domain-wall
+  multigrid (10000 otherwise), so that a stalled solve reaches its retries in minutes. The removed
+  variable `RUTTICE_B5_DAGGER` is reported when set.
 - Tests pin the iteration counts of the domain-wall multigrid (propagator, setups S and B) and of
   its HMC (both D† routes) within max(2, 5%) above and max(2, 10%) below; the HMC case is chosen so
   that the rebuild from stale test vectors of before this release fails it (787 against 703).

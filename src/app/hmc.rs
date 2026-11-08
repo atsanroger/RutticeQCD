@@ -298,8 +298,9 @@ pub struct HmcSolver {
     /// The energies at the start and the end of a trajectory: as precise as the force or more.
     pub(crate) energy_tolerance_squared: f64,
     pub max_iterations: usize,
-    /// Restarts of each force solve (`maximum_number_of_restart`); None: 10, and 0 for the
-    /// solves of the domain-wall multigrid.
+    /// Restarts of the force and energy solves (`maximum_number_of_restart`, at least 1); None:
+    /// 10. For the domain-wall multigrid they bound the sweeps of D†D; its two solves per sweep
+    /// never restart.
     pub max_restarts: Option<usize>,
     /// Mixed precision: CG in single precision to this |r|²/|b|², corrected in double.
     pub mixed: Option<f64>,
@@ -372,11 +373,9 @@ impl HmcSolver {
                     through_d,
                 }),
             ) => {
-                let inner = Stop {
-                    tolerance_sqr: inner_tolerance_squared,
-                    max_iterations: self.max_iterations,
-                    max_restarts: self.max_restarts.unwrap_or(0),
-                };
+                // The two solves of each sweep run without restarts: a stall should end in
+                // `max_iterations` and reach the retries; `max_restarts` bounds the sweeps.
+                let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
                 let mut setup = DwfMultigridSetup::new(settings, inner);
                 setup.directions = self.restart;
                 setup.refresh_every = refresh_every;
@@ -826,7 +825,7 @@ impl HmcConfig {
             let stop = |t: f64| Stop {
                 tolerance_sqr: t,
                 max_iterations: s.max_iterations,
-                max_restarts: s.max_restarts.unwrap_or(10),
+                max_restarts: s.max_restarts.map_or(10, |r| r.max(1)),
             };
             (stop(s.tolerance_squared), stop(s.energy_tolerance_squared))
         };
@@ -1006,7 +1005,7 @@ impl HmcConfig {
                     let stop = |t: f64| Stop {
                         tolerance_sqr: t,
                         max_iterations: solver.max_iterations,
-                        max_restarts: solver.max_restarts.unwrap_or(10),
+                        max_restarts: solver.max_restarts.map_or(10, |r| r.max(1)),
                     };
                     let c = Common {
                         smearing: smearing.filter(|_| smeared),
@@ -1081,7 +1080,7 @@ impl HmcConfig {
                         let stop = |t: f64| Stop {
                             tolerance_sqr: t,
                             max_iterations: solver.max_iterations,
-                            max_restarts: solver.max_restarts.unwrap_or(10),
+                            max_restarts: solver.max_restarts.map_or(10, |r| r.max(1)),
                         };
                         let c = Common {
                             smearing: smearing.filter(|_| *smeared),
@@ -1107,7 +1106,7 @@ impl HmcConfig {
                         let stop = |t: f64| Stop {
                             tolerance_sqr: t,
                             max_iterations: solver.max_iterations,
-                            max_restarts: solver.max_restarts.unwrap_or(10),
+                            max_restarts: solver.max_restarts.map_or(10, |r| r.max(1)),
                         };
                         let c = Common {
                             smearing: smearing.filter(|_| *smeared),
@@ -1588,6 +1587,11 @@ pub fn run_on(
     out: &mut dyn Write,
     comm: Arc<dyn Comm>,
 ) -> Result<HmcReport, CliError> {
+    if std::env::var_os("RUTTICE_B5_DAGGER").is_some() {
+        eprintln!(
+            "RUTTICE_B5_DAGGER is no longer read: MultiGrid_HMC.dagger_solve : Through_D chooses the solve with D-dagger through D"
+        );
+    }
     let grid = super::grid_for(config.lattice, config.process_grid, comm.size())?;
     let lat = Lattice::new(config.lattice, grid, comm);
     config.check_blocks(lat.local)?;
