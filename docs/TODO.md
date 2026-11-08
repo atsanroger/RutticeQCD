@@ -1232,3 +1232,10 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   forward solve of the second sweep plateaus at |r|²/|b|² ≈ 7e-9 (inner tolerance 1e-10) where
   the default route converges in 18-20; GCR(16) converges in both (258 against 256 iterations).
   Decide which route stays once this is understood (both are kept, the default is Γ5 M Γ5).
+- **Both D† routes stay** (`RUTTICE_B5_DAGGER`, default Γ5 M Γ5): the solve through D needs b and c
+  independent of s (Γ5 B5† Γ5 = B − YC ≠ B5 for diagonal B, C), while Γ5 M Γ5 and the exact D₋
+  relation of BNO also hold for reflection-symmetric b_s, c_s. When s-dependent coefficients are
+  added to `MdwfParams`, `MdwfBackend::b5_of` must refuse them instead of computing a wrong B5.
+- **The D† route as a parameter-file choice** instead of the environment variable, e.g.
+  `MultiGrid_HMC: dagger_solve : gamma5_cycle | through_d` (default `gamma5_cycle`), echoed in the
+  output, so that a log says which route ran.
