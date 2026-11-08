@@ -1225,7 +1225,10 @@ $|r|^2/|b|^2<10^{-10}$, on the right-hand sides of Sec.~\ref{sec:daggerresults}.
 $D$ needs the iterations of a solve with $D$, within two either way, because it is one. The
 preconditioner $\Gfive\mathcal M\Gfive$ needs two to four more on the random right-hand side and
 one to five more on the residual, and on $12^4$ in setup~S it stalls on the residual of all four
-configurations, which the solve through $D$ does in $7$ to $11$ iterations. In setup~S on $24^4$
+configurations, which the solve through $D$ does in $7$ to $11$ iterations. In time the solve
+through $D$ takes $0.5$--$0.8$ of the solve with $\Gfive\mathcal M\Gfive$ on every lattice and
+right-hand side (medians, e.g.\ $5.2$ against $7.7$\,s and $8.8$ against $11.1$\,s on
+$24^3\times48$ in setup~S), since each of its steps is a step of the solve with $D$. In setup~S on $24^4$
 and $24^3\times48$ the solve $Dx_0=w_0$ of the sweep does not converge in $2000$ iterations on two
 of the four configurations, the stall of $D$ on right-hand sides $D^{-\dagger}b$; the residual
 right-hand side of those two is that of the unconverged sweep.
