@@ -467,6 +467,9 @@ INPUT ./fig_volume.pdf
 INPUT ./fig_volume.pdf
 INPUT ./fig_volume.pdf
 INPUT ./fig_volume.pdf
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmr8t.vf
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmr8t.vf
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8r.tfm
 INPUT ./fig_sensitivity.pdf
 INPUT ./fig_sensitivity.pdf
 INPUT ./fig_sensitivity.pdf

@@ -51,19 +51,16 @@ Ref.~\cite{JLQCDBpi}.
 \end{itemize}
 Both suppress the near-zero modes of $W=D_W(-M_5)$, by moving $M_5$ (B) or by smoothing the
 field (S), and so give the multigrid low modes of different character; they need different
-smoother intervals (Table~\ref{tab:setups}). Timings are from one NVIDIA data-center GPU with
+smoother intervals (Table~\ref{tab:setups}).\footnote{\textcolor{red}{New!!!} The multigrid also
+works for Bori\c{c}i's operator, $(b,c)=(1,1)$, with a smoother interval chosen for it: on $24^3\times48$, in
+setup~S a narrower one ($\kappa_s=3$) is needed and then gives the iteration count of the M\"obius
+operator, and in setup~B the solve takes about four times the M\"obius iterations. Its residual
+mass is not the reason; at $L_s=8$ it is of the same size as the M\"obius one in setup~S and
+smaller in setup~B.} Timings are from one NVIDIA data-center GPU with
 $24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
 Every setup uses the same random seed except where other seeds are stated
 (Secs.~\ref{sec:pvcoarse} and~\ref{sec:sensitivity}).
 
-\paragraph{\textcolor{red}{New!!!} Bori\c{c}i's operator.} The multigrid also works for
-Bori\c{c}i's operator, $(b,c)=(1,1)$, but its smoother interval has to be chosen for it. In
-setup~S the interval of Table~\ref{tab:setups} makes the solve stagnate on $24^3\times48$; a
-narrower one ($\kappa_s=3$) brings back the iteration count of the M\"obius operator. In setup~B
-the solve converges with the interval of the table on $\AR$, but takes about four times the
-iterations of the M\"obius operator. Its residual mass is not the reason: at $L_s=8$ it is of the
-same size as that of the M\"obius operator, which has the same $b+c$, in setup~S and smaller in
-setup~B.
 
 \subsection{Performance}
 \label{sec:performance}
