@@ -1222,6 +1222,11 @@ inverse of $C$ inverts it, and by the argument of Eq.~\eqref{eq:kappaC}
 \begin{equation}
 \kappa(B_5)\le\frac{b+c}{b-c}=2\qquad(b=1.5,\ c=0.5).
 \end{equation}
+The bound holds for $b>c$. For $b=c$ (Bori\c{c}i's operator) it is not finite, but
+Eq.~\eqref{eq:b5} still holds: $B_5$ is singular only if $b/c$ is an eigenvalue of $Y$, and the
+eigenvalues of $Y$ have modulus $m^{1/L_s}<1$, so $B_5=b(1-Y)$ is invertible for $m<1$. Its
+condition number grows with $L_s$; numerically $\kappa(B_5)\approx11$ for $L_s=8$ and $21$ for
+$L_s=16$ at $m=0.001$, against $1.9$ and $2.0$ for $(b,c)=(1.5,0.5)$.
 Equation~\eqref{eq:b5} needs $b$ and $c$ independent of $s$, as they are here; it does not hold
 for the $s$-dependent coefficients of Zolotarev domain-wall fermions.
 
