@@ -1515,9 +1515,12 @@ Action_F_1:
             "    block_size : [3, 2, 2, 2]"
         ]
     ));
-    // The domain-wall multigrid: the Ratio action over Pauli-Villars fields, GCR, PV_right.
+    // The domain-wall multigrid: the Ratio action over Pauli-Villars fields, GCR or FGMRES,
+    // PV_right.
     let ratio = "  action_type : Ratio\n";
     assert!(ok(wall, ratio, &with("solver_type : GCR", &mg)));
+    assert!(ok(wall, ratio, &with("solver_type : FGMRES", &mg)));
+    assert!(!ok(wall, ratio, &with("solver_type : BiCGStab", &mg)));
     assert!(ok(
         wall,
         ratio,

@@ -1208,12 +1208,14 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 - **Which Krylov solver and size cannot be known before the run.** 16⁴ dynamical needs only
   GCR(2); quenched 24⁴ stalls with GCR(2), GCR(4) and FGMRES(2) (the same memory as GCR(2), 2m + 3
   vectors) and converges with FGMRES(3) (38/23/20 iterations, 148 s), FGMRES(5) (15, 138 s) and
-  GCR(8) (18-20, 143 s); experiment switch `RUTTICE_FGMRES=m` in the exp worktree, HMC's inner
-  solver is GCR only. Proposal: the largest Krylov space that fits (`device_room`, the k rule),
+  GCR(8) (18-20, 143 s). FGMRES is a choice of HMC since 2026-11-09 (`solver_type : FGMRES`);
+  at the same memory FGMRES(3) takes 305 iterations (148 s, as the experiment) and GCR(3) 9506
+  (2498 s), FGMRES(2) 9454 (2395 s): the last two stall once at |r|²/|b|² 1.0e-10 and 3.7e-11,
+  just above the inner tolerance 1e-10, after the 1000 iterations, and converge after one
+  bootstrap (therm16/fgmres_hmc_20261109). Proposal: the largest Krylov space that fits (`device_room`, the k rule),
   stagnation detected (e.g. |r|² down by less than 10× in 50 iterations, thresholds to be fitted
-  to real histories) and then a larger space or an early end handed to the retries. Needs: FGMRES
-  as a choice in HMC, GCR(3) against FGMRES(3), the propagator comparison
-  (therm16/regcheck_20261106/propfg).
+  to real histories) and then a larger space or an early end handed to the retries. Needs: the
+  propagator comparison (therm16/regcheck_20261106/propfg).
 - **The stall retries are two bootstraps in a row** since a rebuild bootstraps first (before:
   P of the kept vectors, then a bootstrap). Decide whether one retry before CG is enough. The
   baseline of the cache after a retry is the retry's count, which may be low; not checked.

@@ -45,7 +45,7 @@ use crate::kernel::GammaRepre;
 use crate::solver::preconditioner::multigrid::{
     Cycles, MdwfBackend, MdwfMultigridSettings, OnCpu, SetupStage,
 };
-use crate::solver::{refine_normal, Gcr, SolveError, SolveInfo, Solver, Stop};
+use crate::solver::{refine_normal, Fgmres, Gcr, SolveError, SolveInfo, Solver, Stop};
 use crate::{Lattice, LinearFn, LinearOp, Parity, Vector};
 use std::any::Any;
 use std::error::Error;
@@ -55,9 +55,11 @@ use std::sync::Arc;
 pub struct DwfMultigridSetup {
     /// What the parameter file asks of the multigrid, as the propagator runs take it.
     pub mg: MdwfMultigridSettings,
-    /// GCR of each solve on the even sites: directions kept, and when it stops.
+    /// The Krylov solver of each solve on the even sites: GCR keeping `directions` directions,
+    /// or with `fgmres` FGMRES restarted after `directions` steps; and when it stops.
     pub directions: usize,
     pub inner: Stop,
+    pub(crate) fgmres: bool,
     /// The bootstrap is run again after this many force solves since the last one, whatever made
     /// that (the pseudofermions drawn, a rebuild, a stall); 0: only when they are needed.
     pub(crate) refresh_every: usize,
@@ -104,6 +106,7 @@ impl DwfMultigridSetup {
             mg,
             directions: 8,
             inner,
+            fgmres: false,
             refresh_every: 0,
             rebuild_growth: 0.0,
             through_d: false,
@@ -272,7 +275,15 @@ fn solves_once<B: MdwfBackend + 'static>(
             },
             even,
             odd,
-            gcr: Gcr::new(setup.inner, setup.directions),
+            krylov: match setup.fgmres {
+                // As many steps in all as GCR, in cycles of `directions`.
+                true => Box::new(Fgmres::new(Stop {
+                    max_iterations: setup.directions,
+                    max_restarts: setup.inner.max_iterations / setup.directions.max(1),
+                    ..setup.inner
+                })),
+                false => Box::new(Gcr::new(setup.inner, setup.directions)),
+            },
             cycles,
             inner: 0,
             count: 0,
@@ -305,7 +316,7 @@ struct Solves<'a, B: MdwfBackend> {
     b5: Option<B::Op>,
     even: B::Half,
     odd: B::Half,
-    gcr: Gcr<B::Half>,
+    krylov: Box<dyn Solver<B::Half>>,
     cycles: Box<dyn Cycles<B::Half> + 'a>,
     /// GCR iterations and solves so far.
     inner: usize,
@@ -359,7 +370,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         a.right_hand_side(split, &mut rhs, r);
         let mut y = rhs.zeros_like();
         let mut m = self.cycles.cycle(usize::from(self.d_alpha.is_some()));
-        let info = self.gcr.solve(&mut a, Some(m.as_mut()), &mut y, &rhs);
+        let info = self.krylov.solve(&mut a, Some(m.as_mut()), &mut y, &rhs);
         drop(m);
         match self.d_alpha {
             Some(d) => {
@@ -394,7 +405,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
             self.backend.split(),
             &gamma5,
             m.as_mut(),
-            &mut self.gcr,
+            self.krylov.as_mut(),
             (&self.even, &self.odd),
             e,
             r,
@@ -417,7 +428,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         a.right_hand_side_even(rhs, y);
         y.set_zero();
         let mut m = self.cycles.cycle(usize::from(self.d_alpha.is_some()));
-        let info = self.gcr.solve(&mut a, Some(m.as_mut()), y, rhs);
+        let info = self.krylov.solve(&mut a, Some(m.as_mut()), y, rhs);
         drop(m);
         let e = rhs;
         match self.d_alpha {
@@ -464,7 +475,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
             (self.d, self.pv),
             &gamma5,
             m.as_mut(),
-            &mut self.gcr,
+            self.krylov.as_mut(),
             (&self.even, &self.odd),
             r,
             (e, spare),

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- HMC with the domain-wall multigrid takes `solver_type : FGMRES` as well as GCR: FGMRES restarted
+  after `number_of_kept_directions` steps, with as many vectors as GCR keeping as many directions.
+  On quenched 24⁴ (m 0.001, stout, one trajectory) FGMRES(3) takes 305 iterations and 148 s where
+  GCR(3) stalls once and takes 9506 iterations and 2498 s.
+
 ## 0.10.1 (2026-11-09)
 
 - HMC prints one line per action after its header: the action, the fermion, even-odd or the full

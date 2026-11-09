@@ -521,11 +521,13 @@ impl HmcSolver {
                     through_d,
                 }),
             ) => {
-                // The two solves of each sweep run without restarts: a stall should end in
-                // `max_iterations` and reach the retries; `max_restarts` bounds the sweeps.
+                // The two solves of each sweep stop after `max_iterations` (FGMRES: in all, over
+                // its restarts): a stall should end there and reach the retries; `max_restarts`
+                // bounds the sweeps.
                 let inner = Stop::simple(inner_tolerance_squared, self.max_iterations);
                 let mut setup = DwfMultigridSetup::new(settings, inner);
                 setup.directions = self.restart;
+                setup.fgmres = self.kind == Some(HmcSolverKind::Fgmres);
                 setup.refresh_every = refresh_every;
                 setup.rebuild_growth = rebuild_growth;
                 setup.through_d = through_d;
@@ -769,9 +771,12 @@ impl HmcConfig {
                                 "{at}.Solver.preconditioner_type: the multigrid of domain-wall fermions is for the Ratio action over Pauli-Villars fields"
                             ));
                         }
-                        if solver.kind != Some(HmcSolverKind::Gcr) {
+                        if !matches!(
+                            solver.kind,
+                            Some(HmcSolverKind::Gcr | HmcSolverKind::Fgmres)
+                        ) {
                             return invalid(format!(
-                                "{at}.Solver.solver_type: GCR with the multigrid of domain-wall fermions"
+                                "{at}.Solver.solver_type: GCR or FGMRES with the multigrid of domain-wall fermions"
                             ));
                         }
                     }

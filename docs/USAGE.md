@@ -332,7 +332,7 @@ The `Solver` section of a fermion action says how its forces and energies are so
 |---|---|
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
 | `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
-| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` for the domain-wall Ratio action over Pauli-Villars fields (Lexical or Even_odd) |
+| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` or `FGMRES` for the domain-wall Ratio action over Pauli-Villars fields (Lexical or Even_odd; FGMRES restarts after `number_of_kept_directions` steps and needs as many vectors as GCR keeping as many directions) |
 | `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio (Lexical or Even_odd) actions, CG without a preconditioner |
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |
@@ -369,7 +369,7 @@ What only HMC has is in `MultiGrid_HMC`:
 The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
 from them for the operator on the links of that solve. The domain-wall multigrid solves
 (D†D)⁻¹ as D† through the Pauli-Villars operator with D and D_PV exchanged and D through Ã,
-both by GCR on the even sites. Without the multigrid, domain-wall fermions are solved by CG:
+both by GCR (or FGMRES) on the even sites. Without the multigrid, domain-wall fermions are solved by CG:
 BiCGStab and GMRES do not converge on D itself.
 
 The momenta, the pseudofermions and the Metropolis test use the random numbers of
