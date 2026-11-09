@@ -82,8 +82,8 @@ Start from an example; each one is commented.
 | [clover_mg.yaml](examples/clover_mg.yaml) | clover fermions with the multigrid |
 | [clover_measurements.yaml](examples/clover_measurements.yaml) | mesons at momenta, the proton, a three-point function |
 | [mdwf_pv_eo_mg.yaml](examples/mdwf_pv_eo_mg.yaml) | domain-wall fermions with the multigrid |
-| [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavours of domain-wall fermions |
-| [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavours of clover fermions (RHMC) |
+| [hmc_domainwall_pv.yaml](examples/hmc_domainwall_pv.yaml) | HMC, two flavors of domain-wall fermions |
+| [hmc_clover_rhmc_nf2p1.yaml](examples/hmc_clover_rhmc_nf2p1.yaml) | HMC, 2 + 1 flavors of clover fermions (RHMC) |
 
 All of them run as they are on the configuration in `examples/`, except the domain-wall
 multigrid, which wants a larger one: give your own with `Gauge.config_filename_input`, or take
@@ -149,7 +149,7 @@ rows marked *expected* have not been measured:
 | Domain-wall | small | `CG` on `Normal_left` with `neff_alpha : 0.6` |
 | Domain-wall | large | `GCR` or `FGMRES` with the multigrid |
 
-In HMC the default is CG on D†D for two flavours and multi-shift CG for RHMC. Wilson and
+In HMC the default is CG on D†D for two flavors and multi-shift CG for RHMC. Wilson and
 clover fermions also take BiCGStab, FGMRES or GCR, with the multigrid; domain-wall fermions
 take CG only, with Neff's α. [docs/USAGE.md](docs/USAGE.md) has the keys.
 
@@ -171,7 +171,7 @@ RutticeQCD supports following formats of gauge configuration formats (`src/io`):
 | Format (`gauge_config_type_input`) | Description | Precision / Notes |
 |---|---|---|
 | `ILDG` | International Lattice Data Grid standard format: LIME container with `ildg-format` and `ildg-binary-data` records. | Single or Double precision (`FilePrecision`); fully compatible with QIO/SciDAC. |
-| `SciDAC` | SciDAC QIO lattice-colour-matrix record: LIME container with `scidac-binary-data`. | Single or Double precision; verifies SciDAC checksum when present. |
+| `SciDAC` | SciDAC QIO lattice-color-matrix record: LIME container with `scidac-binary-data`. | Single or Double precision; verifies SciDAC checksum when present. |
 | `Binary` | Headerless binary format of Bridge++. | Big-endian double precision. |
 | `Text` | Plain ASCII text format with one real number per line (Bridge++ Text format). | Double precision text. |
 | `NERSC` | Standard NERSC (Gauge Connection) format with text header (`4D_SU3_GAUGE` or `4D_SU3_GAUGE_3x3`). | Single or Double precision; big/little endian; checksum is verified. Written as full matrices in big-endian double. |

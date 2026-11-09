@@ -19,8 +19,8 @@ The commented examples show every key:
 | [examples/clover_two_flavours.yaml](../examples/clover_two_flavours.yaml) | clover fermions, two quarks, smeared sources, every channel |
 | [examples/clover_mg.yaml](../examples/clover_mg.yaml) | clover fermions with the multigrid |
 | [examples/mdwf_pv_eo_mg.yaml](../examples/mdwf_pv_eo_mg.yaml) | Möbius domain-wall fermions with the multigrid (and `.toml`: the same in TOML, the multigrid from a file of its own) |
-| [examples/hmc_domainwall_pv.yaml](../examples/hmc_domainwall_pv.yaml) | HMC: two flavours of domain-wall fermions over Pauli-Villars, stout links |
-| [examples/hmc_clover_rhmc_nf2p1.yaml](../examples/hmc_clover_rhmc_nf2p1.yaml) | HMC: 2 + 1 flavours of clover fermions, the strange quark by RHMC |
+| [examples/hmc_domainwall_pv.yaml](../examples/hmc_domainwall_pv.yaml) | HMC: two flavors of domain-wall fermions over Pauli-Villars, stout links |
+| [examples/hmc_clover_rhmc_nf2p1.yaml](../examples/hmc_clover_rhmc_nf2p1.yaml) | HMC: 2 + 1 flavors of clover fermions, the strange quark by RHMC |
 
 The sections of a file that solves for propagators:
 
@@ -61,7 +61,7 @@ solver that does not check) is repeated on its residual, D δ = η − D ψ, ψ 
 times; the line of each solve gives the iterations of all of them and the number of these
 corrections.
 
-For every quark the propagator is computed for all twelve spin-colour components of the
+For every quark the propagator is computed for all twelve spin-color components of the
 source. Wilson and clover runs print the meson correlators of every pair of quarks (i, j)
 with i ≤ j; domain-wall runs print the pion correlator and the residual mass.
 
@@ -95,7 +95,7 @@ three-point function need their sources at the same place.
 
 `C3_conserved_V4` is a check that the three-point function is right: its charge does not
 change between the source and the sink, and at the sink it jumps by the number of quarks of
-that flavour (1 for a meson; 2 for u and 1 for d in the proton) times `C2_<sink>` there, on
+that flavor (1 for a meson; 2 for u and 1 for d in the proton) times `C2_<sink>` there, on
 every configuration, to the precision of the solves.
 
 ### Eigenvalues
@@ -197,7 +197,7 @@ CPU and the device; `BiCGStab` and `GCR` on the exact adjoint and `MINRES` on it
 remain. With `operator_type : Normal_left` the second factor is P†D†P: `BiCGStab` or `GCR`.
 On one GPU the regularized solve applies A† from the blocks of A (no second coarse operator);
 `RUTTICE_COARSE_ADJOINT=copy` keeps a copy of A† instead, as on several processes, where the
-adjoint needs the links of the neighbouring process.
+adjoint needs the links of the neighboring process.
 Each solve and each HMC trajectory reports the work it did: Flop, GFlop/s and Flop/byte over the
 whole solve or trajectory, split into the fine
 operators (`Fine`), the coarse operators and the setup of the multigrids (`Coarse`), restriction
@@ -306,7 +306,7 @@ for files that fit in memory. The results agree with a single process up to roun
 ### Generating configurations
 
 `ruttice` given an HMC file runs trajectories and saves configurations. The actions: the
-plaquette and rectangle (Iwasaki, …) gauge actions; two flavours of Wilson, clover or
+plaquette and rectangle (Iwasaki, …) gauge actions; two flavors of Wilson, clover or
 domain-wall fermions, on all sites or on the even sites; their ratio to Pauli-Villars
 fermions; and fractional powers of the determinant by a rational approximation (RHMC), with
 the coefficients computed by the program. The links the fermions see can be stout smeared.
@@ -419,7 +419,7 @@ in biases the mean and shows up as a long τ_int.
 | `Binary` | big-endian double precision reals without a header, the format Bridge++ calls `Binary` |
 | `NERSC` | the NERSC (Gauge Connection) format: a text header, then whole matrices (`4D_SU3_GAUGE_3x3`) or their first two rows (`4D_SU3_GAUGE`), single or double precision, either byte order; the checksum is verified, and the header's `PLAQUETTE` and `LINK_TRACE` against the links read (to 1e-5 and 1e-6, as Grid checks them), which catches a byte order read wrong: `FLOATING_POINT = IEEE32` is read as big-endian (QIO's qlua, Grid reads it little-endian), `IEEE64` as little-endian (Grid). Written as whole matrices in big-endian double precision. Not yet checked against a file of another program (Bridge++ reads only `IEEE64BIG` whole matrices and writes none) |
 | `ILDG` | the ILDG format: a LIME container with the records `ildg-format` and `ildg-binary-data` |
-| `SciDAC` | a lattice-colour-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
+| `SciDAC` | a lattice-color-matrix record written by the SciDAC QIO library: a LIME container with `scidac-binary-data` |
 | `HDF5` | the dataset `gauge` of an HDF5 file, double precision, of shape `[Lt, Lz, Ly, Lx, 4, 3, 3, 2]`; needs a program built with `--features hdf5` and the HDF5 library (on Debian and Ubuntu `libhdf5-dev`, built with `HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial`) |
 
 All six keep the numbers in the same order, from the outermost loop to the innermost:

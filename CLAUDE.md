@@ -86,14 +86,14 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
 - Fields are blocks of 32 sites, the same component of the 32 sites consecutive
   (`base/aosoa.cuh`). Give consecutive threads consecutive sites (`threadIdx.x`) so a warp reads
   one transaction; loop over a site's components inside the thread.
-- Fermion kernels use a 2D grid: `threadIdx.x` the site, `threadIdx.y` the fibre (one s of one
-  vector); the fibres of a site share its links. At most 256 threads a block.
+- Fermion kernels use a 2D grid: `threadIdx.x` the site, `threadIdx.y` the fiber (one s of one
+  vector); the fibers of a site share its links. At most 256 threads a block.
 - A field on one parity numbers sites by x/2; several vectors follow one another, each padded to
   whole blocks (`vector_reals`).
 - A kernel over n independent elements (BLAS, casts, per-site operations of one thread a site)
   uses the grid-stride loop `for (size_t i : GridStride(n))` (`base/aosoa.cuh`) with a capped grid
   (`get_grid_size`): it covers any n, and consecutive threads take consecutive indices. Do not
-  hand-write the loop. Kernels with a 2D (site, fibre) grid or a block per site keep one thread
+  hand-write the loop. Kernels with a 2D (site, fiber) grid or a block per site keep one thread
   per element and return early past the end.
 
 **Writing a kernel**
@@ -103,7 +103,7 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
   declared and commented in `bridge_cuda.h`.
 - Rust binds it in a trait over the precisions (`DeviceReal` in `ffi.rs`, or a module trait such
   as `SplitReal`, `LevelReal`) and wraps it in a method that checks shapes.
-- Kernels are asynchronous; do not synchronise in a wrapper. Memory comes from the stream-ordered
+- Kernels are asynchronous; do not synchronize in a wrapper. Memory comes from the stream-ordered
   pool (`DeviceBuffer`), never `cudaMalloc` in a loop.
 - The wrapper counts the launch (`meter::add`, `count_fine`): its flops (Bridge++'s count) and
   bytes (QUDA's convention: every value a site reads from memory). The same for a new CPU
@@ -127,9 +127,9 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
   `a * b + c` kernel by kernel, so otherwise two kernels round the same sum differently.
 
 **Several processes**
-- A kernel that reads neighbours handles a cut lattice: fermion hops through `Halo` and the
+- A kernel that reads neighbors handles a cut lattice: fermion hops through `Halo` and the
   interior/surface parts; gauge paths through an extended field; coarse operators through ghost
-  sites in the neighbour table. A kernel that reads only its own site needs nothing.
+  sites in the neighbor table. A kernel that reads only its own site needs nothing.
 
 **Documentation**
 - Every kernel and every trick in it is explained in `docs/implementation/KERNELS_NOTE`

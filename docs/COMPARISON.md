@@ -16,7 +16,7 @@ developers have not reviewed them.
 | Input file | md5 `a8cd38fbb5711577001d85bd12d29422`, 36864 values |
 | RutticeQCD | test `test_gauge_bridge_gauge_lex_plaquette` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
-| Settings | `f64`, `Aos`, single process, periodic neighbours |
+| Settings | `f64`, `Aos`, single process, periodic neighbors |
 
 | | Value |
 |---|---|
@@ -28,7 +28,7 @@ developers have not reviewed them.
 Also checked on the same file: every link is unitary to 1e-12.
 
 What this validates: the text reader (site outermost, then direction, then 18 reals
-row-major), lexicographic site numbering with x fastest, the nearest-neighbour stencil,
+row-major), lexicographic site numbering with x fastest, the nearest-neighbor stencil,
 3×3 complex multiplication and adjoint, and the fixed-order reduction.
 
 What it does not validate: anything with a boundary phase, any fermion code, layouts other
@@ -57,7 +57,7 @@ than `Aos`, more than one process.
 
 What this validates: the gamma matrices and the spinor component order, the sign and
 orientation of both hopping terms, the link and its adjoint, the antiperiodic phase on
-hops across the boundary, and the normalisation D = 1 - κ (hops).
+hops across the boundary, and the normalization D = 1 - κ (hops).
 
 What it does not validate: D† and γ5 D against a reference (they are checked against D by
 adjointness and by γ5 hermiticity only), other boundary types, other gamma representations,
@@ -77,7 +77,7 @@ applied separately.
 | Reference | Bridge++ test `Solver_Wilson_CGNE`, `expected_result` in `tests/test_Solver_Wilson_CGNE.yaml` |
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
-| Parameters | κ = 0.12, antiperiodic in all directions; point source at the origin, spin 0, colour 0; CG on D D† starting from x = b; stop at \|r\|²/\|b\|² < 1e-28; true residual and restart every 100 steps |
+| Parameters | κ = 0.12, antiperiodic in all directions; point source at the origin, spin 0, color 0; CG on D D† starting from x = b; stop at \|r\|²/\|b\|² < 1e-28; true residual and restart every 100 steps |
 | RutticeQCD | test `test_solver_bridge_solver_wilson_cgne_iteration_count`; `Cg` on `Product(D, Adjoint(D))` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
@@ -138,7 +138,7 @@ are checked against the full operator only), a non-trivial diagonal block.
 | Reference | Bridge++ test `Spectrum_Wilson_Hadron2ptFunction`, `expected_result` in the yaml file of that name |
 | Reference code | Bridge++ 2.0 series working tree at git `5540a26` with local modifications; the value is the one shipped in the yaml file, not recomputed |
 | Input file | `conf_04040408.txt`, md5 `a8cd38fbb5711577001d85bd12d29422` |
-| Parameters | κ = 0.12, antiperiodic in all four directions, point source at the origin, all 12 spin-colour components |
+| Parameters | κ = 0.12, antiperiodic in all four directions, point source at the origin, all 12 spin-color components |
 | RutticeQCD | test `test_spectrum_bridge_spectrum_wilson_pion`; 12 right-hand sides solved together by even-odd preconditioned CGNE to \|r\|²/\|b\|² < 1e-28, then `pion_correlator` |
 | Toolchain | rustc 1.99.0, x86-64 Linux (WSL2) |
 | Settings | `f64`, `Aos`, single process |
@@ -185,13 +185,13 @@ channels are compared in entry 8.
 | Result | pass |
 
 What this validates: the clover-leaf field strength (orientation of the four leaves, the
-1/8, no trace removal), the sign and normalisation of the clover term, the spin matrices
+1/8, no trace removal), the sign and normalization of the clover term, the spin matrices
 that multiply it, and a boundary that differs between directions.
 
 What it does not validate against Bridge++: c_SW other than 1, other gamma
 representations. For c_SW = 1.7 the stored diagonal block is checked against the defining
 formula applied directly (test `test_clover_diagonal_block_matches_the_direct_formula`); together with
-this entry, which fixes the sign and normalisation of that formula at c_SW = 1, that covers
+this entry, which fixes the sign and normalization of that formula at c_SW = 1, that covers
 other values without a second reference number.
 
 ## 7. Even-odd preconditioned clover operator applied to a constant spinor
@@ -215,7 +215,7 @@ other values without a second reference number.
 | Tolerance | 1e-13 relative (the Bridge++ test itself uses 1e-14) |
 | Result | pass |
 
-Bridge++ normalises the preconditioned operator by the inverse diagonal block; the Schur
+Bridge++ normalizes the preconditioned operator by the inverse diagonal block; the Schur
 complement here is T_ee - M_eo T_oo^-1 M_oe, so one more multiplication by T_ee^-1 is
 needed to compare.
 
@@ -248,17 +248,17 @@ itself is in this repository.
 | Tolerance | 2.9e-11 absolute (2e-12 of the largest value) |
 | Result | pass, all 104 |
 
-What this validates: the sign and normalisation conventions of `meson_correlator` for
+What this validates: the sign and normalization conventions of `meson_correlator` for
 every channel the Bridge++ spectrum test prints, including the composite gamma matrices.
 
-## 9. Clover, two flavours, exponential source
+## 9. Clover, two flavors, exponential source
 
 | | |
 |---|---|
 | Date | 2026-10-06 |
-| What | the same 13 channels and 8 time slices for the flavour pairs (1,1), (2,2) and (1,2): 312 complex numbers |
+| What | the same 13 channels and 8 time slices for the flavor pairs (1,1), (2,2) and (1,2): 312 complex numbers |
 | Reference | output of the Bridge++ test `Spectrum.Clover.Hadron2ptFunction` with `gauge_fixing_type` changed from `Coulomb` to `None` |
-| Parameters | c_SW = 1, periodic in space, antiperiodic in time; exponential source at the origin with power 2. Flavour 1: κ = 0.12, slope 0.25. Flavour 2: κ = 0.115, slope 0.5 |
+| Parameters | c_SW = 1, periodic in space, antiperiodic in time; exponential source at the origin with power 2. Flavor 1: κ = 0.12, slope 0.25. Flavor 2: κ = 0.115, slope 0.5 |
 | RutticeQCD | test `test_ref_clover_two_flavours_exponential_source`; `exponential_source`, even-odd CGNE, `meson_correlator` with two propagators |
 | Precision of the reference | 13 significant digits |
 
@@ -291,7 +291,7 @@ Coulomb gauge first (entry 11).
 | Tolerance | 1e-13 relative |
 | Result | pass |
 
-## 11. Clover, two flavours, exponential source, Coulomb gauge
+## 11. Clover, two flavors, exponential source, Coulomb gauge
 
 | | |
 |---|---|
@@ -306,7 +306,7 @@ Coulomb gauge first (entry 11).
 |---|---|---|
 | Sweeps until converged | 120 | 120 |
 | Plaquette change | 4.9e-15 | below 1e-13 (checked) |
-| `expected_result` (PS, flavours 1 1, t = 0) | 81.2796854325709 | within 6.5e-12 |
+| `expected_result` (PS, flavors 1 1, t = 0) | 81.2796854325709 | within 6.5e-12 |
 
 | | |
 |---|---|
@@ -315,7 +315,7 @@ Coulomb gauge first (entry 11).
 | Result | pass, all 312 |
 
 What this validates: the Coulomb gauge-fixing algorithm and its convergence measure
-(stopping at the same sweep requires the same normalisation of the violation and the
+(stopping at the same sweep requires the same normalization of the violation and the
 same sequence of sweeps), and that the gauge it reaches is the same one: the exponential
 source is gauge dependent: the first value is 81.28 here and 15.24 without gauge fixing
 (entry 9).
@@ -341,7 +341,7 @@ gauge transformation against a separate reference implementation.
 |---|---|---|
 | \|D 1\| | 1.02352320377108e+03 | agrees to 1e-12 relative (the tolerance of the test) |
 
-What this validates: the normalisation of the Wilson kernel inside the operator
+What this validates: the normalization of the Wilson kernel inside the operator
 (κ = 1/(8 - 2 M5), the factor 4 - M5), the projectors and the sign of the hops in the fifth
 dimension, and the mass term across the walls.
 

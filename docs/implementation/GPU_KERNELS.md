@@ -23,14 +23,14 @@ addresses are consecutive: one memory transaction. So:
 Most kernels are limited by memory, not arithmetic. A kernel that reads in another order loses
 most of the bandwidth.
 
-## 2. Threads: (site, fibre)
+## 2. Threads: (site, fiber)
 
 The fermion kernels launch a 2D grid (`site_grid`, `site_block` in `fermion/hops.cuh`):
 
 - `threadIdx.x`: the site;
-- `threadIdx.y`: the fibre — one fifth coordinate s of one vector.
+- `threadIdx.y`: the fiber — one fifth coordinate s of one vector.
 
-The fibres of a site read the same links, which come from the cache after the first. At most 256
+The fibers of a site read the same links, which come from the cache after the first. At most 256
 threads a block: a thread may use 255 registers and a block has 65536.
 
 ## 3. Where the code goes
@@ -55,11 +55,11 @@ New `.cu` files go into `BRIDGE_CUDA_SOURCES` in `cuda_bridge/CMakeLists.txt`.
 ## 4. Memory and streams
 
 - Allocate with `DeviceBuffer` (`mod.rs`): it takes memory from a stream-ordered pool and frees it
-  in stream order. A `cudaMalloc` and a synchronising `cudaFree` per temporary field cost about
+  in stream order. A `cudaMalloc` and a synchronizing `cudaFree` per temporary field cost about
   0.65 ms each; the pool about 17 µs.
 - Launch on `STREAM` (the default stream) unless the kernel is part of an overlap (the halo code
   has its own stream for NCCL, joined by events).
-- Do not synchronise in a wrapper. Kernels are asynchronous; what needs their result on the host
+- Do not synchronize in a wrapper. Kernels are asynchronous; what needs their result on the host
   waits (a reduction, a transfer). `finish()` exists for the places that must wait.
 
 ## 5. Determinism
@@ -88,22 +88,22 @@ Runs repeat bit for bit; keep it so.
 
 ## 7. Several processes
 
-A kernel that reads neighbours must handle a cut lattice (see
+A kernel that reads neighbors must handle a cut lattice (see
 [MULTI_GPU_NOTE.pdf](MULTI_GPU_NOTE.pdf)):
 
 - fermion hops: template on `Part` (whole, interior, surface) and read remote legs from a `Halo`
   (`hops<Float, Split>`);
 - gauge paths: read an extended field (`StoutGeometry` with local extents and depths);
-- coarse operators: neighbours through a table that may point at ghost sites.
+- coarse operators: neighbors through a table that may point at ghost sites.
 
-A kernel that does not read neighbours needs nothing.
+A kernel that does not read neighbors needs nothing.
 
 ## 8. Counting the work
 
 Every kernel launch adds its floating-point operations and the bytes it moves to the counter of
 `src/meter.rs` (as QUDA's `Tunable::flops`, `bytes`): in the Rust wrapper, from the shapes, one
 call of `meter::add` (or the helpers `count_fine` in `mod.rs`, `count` in `columns.rs`). The
-bytes are counted as QUDA counts them: every value a site reads from memory (eight neighbouring
+bytes are counted as QUDA counts them: every value a site reads from memory (eight neighboring
 spinors and eight links for a hop), the caches left out, so the intensity can be compared with
 the literature. A new kernel gets its count in its wrapper; the runs print the totals (Flop,
 GFlop/s, Flop/byte by kind of work and precision) after each solve and trajectory. A count costs

@@ -74,7 +74,7 @@ for periodic, antiperiodic and Dirichlet boundaries:
 - `bridge_cuda_fifth_gemm_tf32_f32`: the product in the fifth dimension in TF32, to what TF32
   allows.
 - The domain-wall multigrid (`multigrid/fold.cuh`): P folded on the fifth dimension, made from
-  test vectors and orthonormalised on the device (`bridge_cuda_fold_fill_*`,
+  test vectors and orthonormalized on the device (`bridge_cuda_fold_fill_*`,
   `bridge_cuda_fold_orthonormalise`), the restriction and prolongation
   (`bridge_cuda_fold_restrict_*`, `bridge_cuda_fold_prolong_*`), with P in single or half
   precision; the coarse operators built on the device (`bridge_cuda_hop_split_*`, put together

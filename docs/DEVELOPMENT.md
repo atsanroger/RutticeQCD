@@ -18,10 +18,10 @@ One Cargo package, `ruttice`.
 | Directory under `src/` | Contents |
 |---|---|
 | `field` | fields, storage types, the vector and linear-operator interfaces |
-| `lattice` | lattice geometry, neighbour tables, even-odd decomposition, loops over sites in parallel |
+| `lattice` | lattice geometry, neighbor tables, even-odd decomposition, loops over sites in parallel |
 | `comm` | communication between processes |
 | `backend` | backends that need an external library: the communicator on MPI (feature `mpi`) |
-| `kernel` | arithmetic on single sites: complex numbers, colour matrices, spinors, gamma matrices, SIMD lanes |
+| `kernel` | arithmetic on single sites: complex numbers, color matrices, spinors, gamma matrices, SIMD lanes |
 | `numerics` | small dense linear algebra; rational approximations |
 | `io` | reading and writing gauge configurations |
 | `gauge` | plaquette, field strength, gauge fixing, smearing, products of links along paths |
@@ -71,7 +71,7 @@ an option only where it lacks a kernel. For the domain-wall fermions (decided 20
 | the setup of the multigrid as the propagator runs and HMC take it: what the file asks (`MdwfMultigridSettings`, from `MultigridBlock::mdwf_settings` for both), the test vectors from a checkpoint or the filter and the bootstrap, P, the levels, the coarse parts, the tops of the smoothers, all of the cycle in its precision (`solver::preconditioner::multigrid::MdwfBackend::rebuild`) | `MdwfBackend`: its fields and the kernels of those steps, the cycles made of the parts (`OnCpu`, `cuda_bridge::mdwf_backend::OnDevice`) |
 | the multigrid of HMC: when to set up, bootstrap or rebuild, the cache, the retries before CG, the solves with D (Neff's α by the left form and Q) and with D† (`hmc::dwf_multigrid::with_solves`) | — |
 | the multigrid of Wilson and clover fermions: the setup (test vectors, setup iterations, P, the coarse operator, the levels) and the cycle (`multigrid::WilsonMultigrid`); its kept test vectors in HMC (`MultigridSetup::cycle_on`); the cycle on the even sites (`fermion::OnParity`) | `MultigridBackend`: P from test vectors, the coarse operator, the smoother (`WilsonOnCpu`, `cuda_bridge::WilsonOnDevice`) |
-| SAP: the cycles, colours and minimal-residual steps (`multigrid::Sap`) | `SapBlocks`: the block operator, a step on every block, keeping one colour (`CpuBlocks`, `cuda_bridge::DeviceBlocks`) |
+| SAP: the cycles, colors and minimal-residual steps (`multigrid::Sap`) | `SapBlocks`: the block operator, a step on every block, keeping one color (`CpuBlocks`, `cuda_bridge::DeviceBlocks`) |
 | mixed precision: CG on D†D or K†K in single precision, with Q for Neff's α, for the defect correction of HMC and the reliable updates of the CGNE of the propagators (`fermion::SingleAll`, `SingleEven`) | `SingleOperator`: its operator in single precision |
 | the eigensolver run: the operator of the mode, the start vector, Lanczos or Arnoldi (`app::eigen`) | `EigenBackend`: its operators, the start vector on it |
 | the propagator run: sources, solves, the four-dimensional fields, the measurements (`app::mdwf::solve_sources`) | where the fields live |
@@ -121,7 +121,7 @@ times the two-point function).
 
 **Comparisons with Bridge++.** The plaquette; the Wilson, clover and domain-wall operators
 applied to a vector; solver iteration counts; meson correlators in thirteen channels on
-every time slice, for one and two quark flavours and for point and smeared sources, with
+every time slice, for one and two quark flavors and for point and smeared sources, with
 and without Coulomb gauge fixing; meson correlators at ten momenta and the proton correlator
 (numbers no Bridge++ test checks, printed by a driver linked to Bridge++); the domain-wall pion
 correlator; and one trajectory of

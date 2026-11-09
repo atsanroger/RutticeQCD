@@ -298,7 +298,7 @@ for every batch of components (`DeviceCoarse::values`), put them into the matric
 of a batch were made on the host too. Now `coarse_operator_on_device`: the matrices are written
 on the device as they are made (`coarse_columns_kernel`, the links directly in the precision of
 the coarse solves; `coarse_units_kernel`), and only the tables of the coarse lattice (its
-neighbours and parities) go up from the host. The checksums of P†DP and of the whole run the
+neighbors and parities) go up from the host. The checksums of P†DP and of the whole run the
 same bit for bit; setup of 16⁴ with levels 29 s against 27 s, of 12⁴ 15 s against 14 s. The
 device holds the links while the fine fields of the build are there: peak of the bootstrap on
 16⁴ 1.76 GB against 1.68 GB (estimated about 0.3 GB more on 24³×48). `coarse_operator` (on the
@@ -321,7 +321,7 @@ an iteration against about 5.5 ms). Nsight Compute (`ncu` works under WSL; nsys 
 kernels there), one iteration:
 
 - `hop_gemm_kernel` four times, 215 µs each, 112 MB from DRAM where about 62 MB is needed
-  (input, output, links): the neighbours read again from DRAM.
+  (input, output, links): the neighbors read again from DRAM.
 - `fifth_gemm_columns_kernel` about three times, 85 µs: `B Q` before the hops of K (twice) and
   `(C Q)⁻†` before K†, passes of their own. **Done 2026-10-20:** two of them. `B Q (C Q)⁻¹ =
   B C⁻¹`, so the matrix of the second hops of K goes into the product after the first
@@ -342,10 +342,10 @@ memory a block, so two blocks on an SM: 16 warps, a third of the RTX 3080's 48 (
 A30's 64), 70% of the bandwidth; 74–104 MB read where 38–63 MB is needed (L2 hits 53–63%), 5.3
 sectors a request (coalesced). Fewer registers by `-maxrregcount` spill and are slower (96: 2.5
 times, 80: 5.6 times the time): for a kernel that waits on memory, more warps bought with local
-or shared memory move more bytes and gain little. What helps is fewer bytes (the neighbours
+or shared memory move more bytes and gain little. What helps is fewer bytes (the neighbors
 read again from DRAM: an order of the sites that keeps them in L2; the fields in half precision
 in the inner solve; the links of several right-hand sides read once) and more loads in flight
-from each thread (all the neighbour loads of a site issued before the arithmetic, wider loads).
+from each thread (all the neighbor loads of a site issued before the arithmetic, wider loads).
 
 On the A30 (24³×48 setup S, m = 0.001, 702c471, 2026-10-20; `ncu` locks the clocks and flushes
 the caches, so its times are longer than those of a plain run): 21.7 ms an iteration in a plain
@@ -373,7 +373,7 @@ result was written, its latency after everything else. Now: `__launch_bounds__(2
 the float kernel (128 registers, no spill for sm_80 and sm_86 by `ptxas -v`; in double 128
 spills 4 KB, so none there), `d_from` read before the product of the fifth dimension, and
 without α `B C⁻¹` as the matrix of the first hops of K (`Matrices::pre_inv`), so the second
-read one spinor of a neighbour and not three. A30, mixed CGNE, one right-hand side: α = 0.6
+read one spinor of a neighbor and not three. A30, mixed CGNE, one right-hand side: α = 0.6
 83.1 → 59.1 s (4012 iterations both, 14.7 ms an iteration), α = 1 130.3 → 89.6 s (6237 → 6157
 iterations: B in the matrix rounds differently in single precision). A launch 4.13/6.79 → 3.18/
 3.37 ms, active warps 12 → 25%. It is no longer waiting on DRAM (39–46% of it): it issues
@@ -382,7 +382,7 @@ instructions (every one of the Ls threads of a site rebuilds the third row of th
 the index arithmetic), then the fields in half precision.
 
 Tried and not kept (A30):
-- The blocks in chunks of time slices, so that the neighbours in t are still in L2: DRAM read
+- The blocks in chunks of time slices, so that the neighbors in t are still in L2: DRAM read
   of a launch 894 → 464 MB, L2 hits 60 → 74%, the time the same. Worth trying again once the
   kernel waits on DRAM.
 - Q made by the hop kernel as it reads (`(b − c Y) Q ψ`), instead of the `B Q` pass before the
@@ -463,8 +463,8 @@ pass of its own.
 - The clover term on the CPU (found 2026-10-26): `CloverDiag::set_gauge` takes 0.40 s on 16⁴
   (24 threads), about 50 applications of D, and HMC calls it at every force. 0.36 s of it is
   `gauge::field_strength`, which makes 26 shifted copies of the whole gauge field (the eight
-  neighbours, then three more for each of the six planes: about 1 GB moved on 16⁴) and then
-  reads the leaves from them. Reading the neighbours through the stencil (with a halo of the
+  neighbors, then three more for each of the six planes: about 1 GB moved on 16⁴) and then
+  reads the leaves from them. Reading the neighbors through the stencil (with a halo of the
   links on several processes, as the device's extended field) would move a fraction of that.
   The blocks and their inverses after it are made by the threads of the pool since this date
   (by the difference of the two timings: 0.15 s to 0.04 s).
@@ -509,7 +509,7 @@ The multigrid, in this order:
 5. *Fewer instructions in the hop kernel* (item 14): 735 warp-instructions a 5D site and CG
    iteration against QUDA's 343 (ncu, A30); `hop_gemm` 366–401 million a launch, DRAM 39–46%.
    Every one of the Ls threads of a site rebuilds the third row of the same links and repeats
-   the neighbours' index arithmetic: links of three rows (the bytes are no longer the limit),
+   the neighbors' index arithmetic: links of three rows (the bytes are no longer the limit),
    or links and indices once a site. It is 22% of the multigrid's solve, and its filter and
    bootstrap. Then the chunked order of the blocks again (DRAM read −48% on the A30, no time
    gained while the kernel issues).
@@ -559,7 +559,7 @@ More directions, decided 2026-10-20:
 - *Bootstrap and filter parameters* (rounds, steps, the interval): tune on the A30.
 - *`hop_split`* (29 s of the setup): look at it with the hop kernel.
 - *`blocks_abs_inverse_gamma5_kernel`*: one launch a setup (Jacobi with many block
-  synchronisations); low priority.
+  synchronizations); low priority.
 - Not pursued: the setup reused across masses (not how the propagators are used), CUDA graphs
   (not now).
 
@@ -693,7 +693,7 @@ The ncu of the setup (A30, 85fea29): the filter's `hop_kernel<float, many>` (728
 was the Chebyshev step's last hop, which 7b2c1fc sends through `hop_gemm`. `fold_restrict` in the
 bootstrap has the shape of the solve's (DRAM 11–12%, L1 hits 92%, long scoreboard and LSU
 throttle): a thread for each (coarse site, component) reads its part of P one half at a time,
-neighbouring threads 192 B apart, so nothing is coalesced.
+neighboring threads 192 B apart, so nothing is coalesced.
 
 Rules:
 1. A kernel is done at 60–70% of the DRAM bandwidth, or within 1.5 times its floor. Beyond
@@ -746,9 +746,9 @@ for the device, to put the items below in order.
    On the CPU check that a thread walks P of one aggregate contiguously and that all vectors
    of a site are done in one pass; P in f32 (not half: item 8's note).
 6. **The coarse operator apply** (`coarse.rs`): on the device, reading a coarse site's and
-   its neighbours' fields once and the matrices in wide words gave 25–35%. On the CPU: the
-   nine 2n_v × 2n_v blocks as a small complex GEMV per neighbour, vectorized (or a small GEMM
-   when several right-hand sides are solved together), the neighbour fields kept in cache by
+   its neighbors' fields once and the matrices in wide words gave 25–35%. On the CPU: the
+   nine 2n_v × 2n_v blocks as a small complex GEMV per neighbor, vectorized (or a small GEMM
+   when several right-hand sides are solved together), the neighbor fields kept in cache by
    the site order.
 7. **The levels below and the small coarse solves.** On the device the last level was a single
    block until each output got a warp; on the CPU the analogue is rayon overhead on tiny
@@ -764,7 +764,7 @@ One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below, A3
 (`/home/chen/red_gpu/ruttice_a30_20261016/prof/` on as13). 242 s wall, 211 s of it in kernels
 (87%): not launch latency, the kernels themselves. By GPU time: the fine hops 41%
 (`hop_gemm<float>` alone 27%), the coarse operator 29% (`coarse_pass<float,1>` 24%), P
-(restrict 12%, prolong 8%, orthonormalise 5%) 24%.
+(restrict 12%, prolong 8%, orthonormalize 5%) 24%.
 
 | kernel | DRAM of peak | occupancy | what limits it |
 |---|---|---|---|
@@ -775,11 +775,11 @@ One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below, A3
 | `coarse_pass` of the levels below | 13–25% | 18% | 81 blocks: too little to fill the device; small in total |
 
 **`hop_gemm<float>`: tried and reverted** (`examples/hop_gemm_bench`, 24⁴ Ls 8, D 1.53 ms, D†
-1.15 ms; the gap is c Y applied at the neighbours, three spinors read for each):
+1.15 ms; the gap is c Y applied at the neighbors, three spinors read for each):
 - three blocks an SM (`__launch_bounds__(256, 3)`, 80 registers): 3.13 ms, a variant spills;
 - (b − c Y) with one sum per projector and multiply-adds instead of the projected spinors:
   1.60 ms, double 2.94 ms (the compiler had folded the multiplications already);
-- the neighbours' Ls spinors through the shared memory, each read once (16 barriers): 1.98 ms,
+- the neighbors' Ls spinors through the shared memory, each read once (16 barriers): 1.98 ms,
   bitwise the same results; the triple reads hit L1 (68%), and the barriers stop two blocks
   from hiding the loads.
 What is left for it is a redesign (more sites a thread for independent loads, or the loads of
@@ -819,7 +819,7 @@ already gives Coarse single 0.98 Flop/byte; the 12 columns of a point source wou
 ### 21. CPU domain-wall: the factor b − c Y once, not on eight legs (found 2026-10-25)
 
 The even-odd hops of the CPU apply B = (4 − M5)(b − c Y) to the input as the sweep reads it
-(`Pre::Fifth`): every leg reads a neighbour and makes its B again, 8 × 312 Flop a spinor beside
+(`Pre::Fifth`): every leg reads a neighbor and makes its B again, 8 × 312 Flop a spinor beside
 the hops' 1320, more than the hops themselves (counted since 607d923; the device does one dense
 Ls × Ls product, 768 at Ls 8). B made once on the input field, then plain hops, does an eighth of
 that work, for one more field of memory and one more pass over it. Whether it is faster depends
@@ -928,7 +928,7 @@ parity of the coarse lattice (3⁴ blocks give 4⁴ and stagnate). Open: why 12�
   low modes fall off more slowly in s and are more jagged than the fine ones). Two steps:
   (a) look first — the s-profile of our filtered low modes per aggregate, and how many
   different profiles a block sees (the singular values of a test vector's restriction to one
-  aggregate, arranged as s × (sites, spin, colour)); (b) if there are several, split each
+  aggregate, arranged as s × (sites, spin, color)); (b) if there are several, split each
   test vector in s as it is split in chirality now (the walls apart from the bulk), which
   enlarges the coarse space without more setup vectors and keeps s and t̂ in the span
   (Proposition 1 still exact); the coarse operator grows as the square of its dimension.
@@ -1005,9 +1005,9 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   Kanamori, Chen and Matsufuru); (c) whole lattice, A′, the two factors apart (9 points each,
   BCHW-like with C); (d) even-odd Ã, factors apart (the note). (a)↔(b) operator, (b)↔(c) product
   against factors, (c)↔(d) even-odd. Reuse: `PvPreconditioned`, `MdwfAt`, `Adjoint`, `Product`,
-  `Multigrid`/`mdwf_lexical.rs` (its `MdwfCoarse::Galerkin` cuts P†AP to 8 neighbours; (a)(b) need
+  `Multigrid`/`mdwf_lexical.rs` (its `MdwfCoarse::Galerkin` cuts P†AP to 8 neighbors; (a)(b) need
   the exact 33 points), 5D folded bases, Chebyshev, levels, dense LU. New: a 2-hop coarse operator
-  (`coarse.rs`) and its probing (colours ≥ 5 apart), `MdwfCoarse::ProductGalerkin`, the whole-lattice
+  (`coarse.rs`) and its probing (colors ≥ 5 apart), `MdwfCoarse::ProductGalerkin`, the whole-lattice
   factorized correction and its lifts (to derive), a shift in the Chebyshev smoother (Boyle's m_adj),
   device kernels (2-hop coarse pass, probing, a whole-lattice MDWF MG backend), parameter keys.
   External checks: F and A′ against Bridge++ `afopr_Domainwall(_PVprec)` on 4³×8; the 2-hop P†FP

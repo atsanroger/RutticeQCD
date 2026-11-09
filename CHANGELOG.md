@@ -267,7 +267,7 @@ device count every kind of a trajectory and of a multigrid solve alike.
 
 - Meson correlators with momentum (`measure::meson_correlator_with_momentum`): the sink weighted by
   e^{+i p·(x − x0)}, p = 2π n / L, as Bridge++'s `meson_momentum_correlator`. Checked against
-  Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavour pairs of clover propagators:
+  Bridge++'s numbers (PS, V1–V3 at ten momenta, three flavor pairs of clover propagators:
   960 values, which no Bridge++ test checks, printed by a driver linked to Bridge++). The
   `measure` module is split into `source` and `meson`, its correlators unchanged to the last
   bit.
@@ -314,10 +314,10 @@ multigrid, SAP and `OnParity` are generic over a backend (`WilsonMultigrid<B>`, 
   are written once over a backend (`WilsonMultigrid`, `MultigridBackend`: `WilsonOnCpu`,
   `WilsonOnDevice`), and so are SAP (`Sap`, `SapBlocks`), the cycle on one parity (`OnParity`
   over `SplitParity`) and the kept test vectors of HMC (`MultigridSetup::cycle_on`); the CPU's
-  results are those of before to the last digit. Checked: the device takes the CPU's iterations
-  (clover_mg.yaml: 7, 0.26 s against 2.7 s on two CPU threads) and gives its correlators; HMC
-  with the multigrid gives the CPU's trajectory; on several processes P and the test vectors are
-  those of one bit for bit and FGMRES takes the same iterations. Refused on the device so far:
+  results are those of before to the last digit. We checked that the device takes the CPU's iterations
+  (clover_mg.yaml: 7, 0.26 s against 2.7 s on two CPU threads) and gives its correlators, that HMC
+  with the multigrid gives the CPU's trajectory, and that on several processes P and the test
+  vectors are those of one bit for bit and FGMRES takes the same iterations. Refused on the device so far:
   the levels below the coarse lattice and `precondition_diagonal` of the Wilson multigrid.
 - Fixed: the Wilson and clover multigrid with even-odd solves (`coarse_even_odd`, set by an
   even-odd solver) prepared its coarse operator for solves on the even coarse sites only
@@ -330,7 +330,7 @@ multigrid, SAP and `OnParity` are generic over a backend (`WilsonMultigrid<B>`, 
   and HMC (Standard, Ratio, Rational; the clover term and its force on extended links), each
   process with its GPU, the result of one GPU bit for bit (checked up to 16 ranks with
   `LocalComm`). The Wilson and clover operators are now the hop kernel of the domain-wall
-  operator, specialised (`hop_kernel` with `FourD`, `Clover`), so they take the interior and
+  operator, specialized (`hop_kernel` with `FourD`, `Clover`), so they take the interior and
   surface parts of several processes; `wilson_interior_kernel` and `clover_dslash_kernel` are
   removed. On the A30 at 16⁴ the time is that of the old kernels within 2%, the results the same
   to the last bit.
@@ -405,7 +405,7 @@ pseudospectra on the device. Parameter files are unchanged; `Main.grid_size` now
   fields summed over the processes. P, the coarse operator and its applications are those of one
   process bit for bit; with two MPI processes the propagator and HMC take the same iterations.
   The levels below the coarse lattice too: each level a lattice cut as the one above (a
-  super-block within a process), its operator probed through ghosts with colours by the global
+  super-block within a process), its operator probed through ghosts with colors by the global
   coordinates, the last level gathered over the processes and inverted whole on every GPU; bit
   for bit those of one process. The exact adjoint of the second factor (a `Coarse_Solver_PV`
   other than MINRES) too: the links of the ghost sites exchanged once at setup, their conjugate
@@ -429,8 +429,8 @@ pseudospectra on the device. Parameter files are unchanged; `Main.grid_size` now
 - `docs/implementation/`: the architecture, how to write a GPU kernel, every CUDA kernel derived
   line by line, and several GPUs with an evaluation of NVSHMEM.
 
-Not checked: NCCL itself and several real GPUs (the test machine has one GPU, so the faces went
-through the host), and the speed of the exchanges.
+We have not checked NCCL itself or several real GPUs (the test machine has one GPU, so the
+faces went through the host), nor the speed of the exchanges.
 
 ## 0.5.0 (2026-10-24)
 
@@ -491,7 +491,7 @@ setup 141 → 113 s.
   24⁴, P†DP in single precision 6.5 → 4.4 s.
 - P made orthonormal on its aggregates by CholeskyQR2 (`fold_orthonormalise_cholesky_kernel`:
   twice the Gram matrix, its Cholesky factor and W R⁻¹, two sweeps over the vectors a pass
-  instead of one for every pair), with as many coarse sites a launch as an eighth of the free
+  instead of one for every pair), with as many coarse sites per launch as an eighth of the free
   device memory holds (up to 2 GB): the same Q as modified Gram-Schmidt, and P, kept in half
   precision, bitwise the same on 24⁴. Where a pivot is below 1e-12 of its diagonal (nearly
   dependent vectors), Gram-Schmidt does those sites. 24⁴, 20 test vectors (40 columns):
@@ -575,7 +575,7 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   are in another order, so the last digits move. The old kernel stays for where the new one's
   shared memory does not fit.
 - `cuda_bridge` coarse operator (`coarse_pass_kernel`): the fields at a coarse site and its
-  eight neighbours, the same for every row, are read once into shared memory instead of once a
+  eight neighbors, the same for every row, are read once into shared memory instead of once a
   row, and the matrices two columns at a time in 16-byte words, the eight links of a row read
   before they are used. RTX 3080, 16⁴: 82.5 → 62.6 µs a pass with the hops, DRAM 62 → 82%,
   instructions −42%; the coarse dimension must be even (it is twice the test vectors).
@@ -585,8 +585,8 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   no spill, where nvcc chose 168): RTX 3080, 16⁴, 1.9–2.1 → 1.5–1.6 ms a launch, DRAM 66 → 88%.
 - `cuda_bridge`: |H|⁻¹ of the coarse blocks (`blocks_abs_inverse_gamma5_rounds_kernel`) by the
   cyclic Jacobi method in rounds of disjoint pairs at once, with H in shared memory, where the
-  pairs went one at a time with H and V in global memory (3.8 s a launch on the A30, 1.15 TB of
-  DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s a launch. The old kernel stays where the shared
+  pairs went one at a time with H and V in global memory (3.8 s per launch on the A30, 1.15 TB of
+  DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s per launch. The old kernel stays where the shared
   memory does not fit. Where H and V both fit (the A30 and A100 at a coarse dimension of 64,
   not the RTX 3080), V is in shared memory too: on the A30 the kernel with V in global memory
   had 6% of its warps active, waiting on V.
@@ -666,7 +666,7 @@ overwritten). Runs of the same program now agree to the bit on the A30 too.
   stout smearing and its chain rule, and the domain-wall Ratio action with its solves and force;
   the links cross over only for the flow and to be saved. Bridge++'s
   test_HMC_Domainwall_Nf2_PV gives the trajectories of the CPU.
-- The even-odd ratio of two flavours over two Pauli-Villars (or Hasenbusch) flavours
+- The even-odd ratio of two flavors over two Pauli-Villars (or Hasenbusch) flavors
   (`hmc::TwoFlavorRatioEo`, as Bridge++'s `Action_F_alt_Ratio_eo`), Wilson and domain-wall, on
   the CPU and the device. Bridge++'s test_HMC_Wilson_Nf2_alt_eo_ratio agrees to 1e-11.
 - The domain-wall multigrid in HMC, on the CPU and on the device, for the Ratio action on all
@@ -786,12 +786,12 @@ The first tagged version.
   the pion correlator and the residual mass of domain-wall fermions; point and smeared
   sources; Coulomb gauge fixing; stout and APE smearing of the links.
 - **Generating configurations.** HMC with the plaquette and rectangle gauge actions; two
-  flavours of Wilson, clover or domain-wall fermions, on all sites or on the even sites;
+  flavors of Wilson, clover or domain-wall fermions, on all sites or on the even sites;
   ratios to Pauli-Villars fermions; RHMC with rational approximations computed by a Remez
   iteration; leapfrog and Omelyan integrators on several time scales; initial guesses from
   earlier solutions; saving configurations on several processes.
 - **Input and output.** Gauge configurations as Bridge++ text and binary, NERSC, ILDG, SciDAC and HDF5.
-- **Solvers of HMC.** CG, BiCGStab, FGMRES and GCR for the two-flavour actions, multi-shift CG
+- **Solvers of HMC.** CG, BiCGStab, FGMRES and GCR for the two-flavor actions, multi-shift CG
   or CG pole by pole for RHMC; Chebyshev and (Wilson, clover) multigrid preconditioners; Neff's
   α for domain-wall fermions.
 - **Block GCR** (`Block_GCR`) for domain-wall fermions: the right-hand sides of a solve share

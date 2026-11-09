@@ -12,9 +12,9 @@ Each layer knows only the traits of the one below it.
 
 | Layer | Directory | What it provides | Its traits |
 |---|---|---|---|
-| site arithmetic | `src/kernel` | complex numbers, colour matrices, spinors, gamma matrices, SIMD lanes | `Number`, `Real`, `GammaRepre`, `Lane` |
+| site arithmetic | `src/kernel` | complex numbers, color matrices, spinors, gamma matrices, SIMD lanes | `Number`, `Real`, `GammaRepre`, `Lane` |
 | fields | `src/field` | `Field<T, Kind, Sites, Layout>`; vectors and linear maps | `Vector`, `LinearFn`, `LinearOp`, `Subspace`, `Storage` |
-| lattice and processes | `src/lattice`, `src/comm` | geometry, neighbours, even-odd numbering; global sums and halo exchanges | `Comm`, `HaloExchange` |
+| lattice and processes | `src/lattice`, `src/comm` | geometry, neighbors, even-odd numbering; global sums and halo exchanges | `Comm`, `HaloExchange` |
 | operators | `src/fermion` | Wilson, clover, Möbius domain-wall; their even-odd blocks | `FermionOp`, `EvenOdd`, `HopTerms`, `SplitParity`, `SingleOperator` |
 | solvers | `src/solver` | CG, BiCGStab, GCR, FGMRES, MINRES, multishift, mixed precision | `Solver` |
 | preconditioners | `src/solver/preconditioner` | Chebyshev, the multigrids (Wilson, domain-wall), the levels below the coarse lattice | `CoarseOperator`, `Transfer`, `Corrects`, `MdwfBackend`, `Cycles` |
