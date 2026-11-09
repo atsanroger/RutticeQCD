@@ -2,6 +2,15 @@
 
 ## 0.10.0 (2026-11-08)
 
+- The Pauli-Villars coarse factor of the domain-wall multigrid is solved by CG on its
+  Tikhonov-regularized normal equations, (A†A + ε) w = A† g with ε = 10⁻³, by default
+  (`Coarse_Solver_PV: solver_type CG, tikhonov_epsilon`), on the CPU and the device; the exact
+  adjoint of the coarse operator is applied from its own blocks on the device. On smeared links
+  the Galerkin Pauli-Villars coarse operator is spuriously near-singular, and MINRES on it left a
+  long tail of slow GCR(2) solves (12⁴ setup S: 6 of 40 seeds); with the regularized solve all 40
+  take 10 to 17 iterations. MINRES, BiCGStab and GCR remain choices.
+- Domain-wall solves stop on the residual of D, |D x − b|²/|b|², on the CPU as on the device,
+  instead of the residual of the preconditioned even-site system.
 - HMC parameter files: `MultiGrid_HMC.dagger_solve` (`Gamma5_cycle`, the default, or
   `Through_D`) chooses how the domain-wall multigrid solves with D†;
   `Solver.maximum_number_of_restart` (10 by default, at least 1; with the domain-wall multigrid
