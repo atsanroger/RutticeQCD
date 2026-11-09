@@ -63,6 +63,7 @@ extern "C" {
     #[cfg(feature = "nccl")]
     pub(super) fn cudaStreamWaitEvent(stream: *mut c_void, event: *mut c_void, flags: u32) -> i32;
     pub(super) fn cudaMemGetInfo(free: *mut usize, total: *mut usize) -> i32;
+    pub(super) fn cudaGetErrorName(code: i32) -> *const std::ffi::c_char;
     pub(super) fn cudaDeviceGetAttribute(value: *mut i32, attribute: i32, device: i32) -> i32;
     pub(super) fn cudaDeviceGetDefaultMemPool(pool: *mut *mut c_void, device: i32) -> i32;
     pub(super) fn cudaMemPoolSetAttribute(

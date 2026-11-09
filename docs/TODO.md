@@ -23,7 +23,7 @@ with confidence:
 - **Fast**: the multigrid clearly faster than mixed CGNE on one GPU, and on an A100 at least
   comparable with Grid's HDCG, or a documented reason why not.
 - **Engineering**: CI green on the CPU paths; running out of device memory a readable error,
-  not a panic; published on crates.io.
+  not a panic (done 2026-11-09); published on crates.io (0.10.0, 2026-11-08).
 - **The paper**: the MG note on arXiv as the reference for the method.
 
 Not needed for 1.0: autotuning, CUDA graphs, a QUDA backend.
@@ -1059,9 +1059,11 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   bootstrap rounds). The barrier of 0c13b18 costs nothing measurable (2592 blocks of dim 64:
   12 s either way on the RTX 3080). The run-to-run differences are gone: two runs at cbe655b
   gave the same checksums (`cuda_bridge/README.md`).
-- **Running out of device memory panics.** `Vector` has no `Result`, so `zeros_like`,
-  `zeros_with` and `select` of the device fields panic (`must`) when the device refuses; the
-  message is the CUDA error. A solver that narrows its vectors (`Narrowed::narrow`) holds the
+- **Running out of device memory panics inside the library** (readable since 2026-11-09).
+  `Vector` has no `Result`, so `zeros_like`, `zeros_with` and `select` of the device fields
+  panic (`must`) when the device refuses. The message says how much was asked for, held and
+  available, and which parameters need less; `command_line` prints it as an error and exits
+  with 1 (several processes: aborts them all). A solver that narrows its vectors (`Narrowed::narrow`) holds the
   old set and at most three quarters of it at once. Making `Vector` fallible would touch every
   solver; not planned. (`Subspace::rotate` of more than 32 vectors used to make n full copies
   one after the other; since 2026-10-19 it needs one more set only.)
@@ -1226,6 +1228,21 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
   independent of s (Γ5 B5† Γ5 = B − YC ≠ B5 for diagonal B, C), while Γ5 M Γ5 and the exact D₋
   relation of BNO also hold for reflection-symmetric b_s, c_s. When s-dependent coefficients are
   added to `MdwfParams`, `MdwfBackend::b5_of` must refuse them instead of computing a wrong B5.
-- **HMC prints no parameter summary**: a log does not say which `MultiGrid_HMC` choices ran
-  (`dagger_solve`, `rebuild_iteration_growth`, ...), unlike the propagator echo. Print one line per
-  action next to the header.
+
+## Beyond SU(3) (evaluated 2026-11-09, not started)
+
+- **Colors as a parameter.** `NC = 3` (`src/kernel/mod.rs`, 19 files) and `Nc = 3`
+  (`cuda_bridge/include/base/constant.h`) become a const generic N, one monomorphized copy per N
+  (Grid fixes Nc at configure time, `Grid/qcd/QCD.h`: one build per Nc). Code valid for any N
+  (hopping, `exp_update` by Taylor series) needs only the constant. SU(3)-only code picks its
+  version by `if N == 3` (no specialization in stable Rust; `if constexpr` on the device):
+  `reunitarize` (third row by a cross product), `random_su3`, and the stout `exp` and `lambda`
+  (Morningstar–Peardon, 3 × 3 only). The stout force for general N is the largest part; quenched
+  SU(N) without smearing is the cheap first step.
+- **Heat bath and overrelaxation** for quenched configurations: none (overrelaxation exists only in
+  gauge fixing). Natural to add with SU(N), by Cabibbo–Marinari SU(2) subgroups.
+- **Dimension**: `ND = 4` (`src/lattice/mod.rs`); also fixes the γ matrices and the fifth
+  dimension of domain-wall fermions. Only when a project needs it.
+- **Python**: a separate crate on the public API (pyo3), as GPT is on Grid; not in ruttice.
+- **Quantum simulation** (Hamiltonian lattice gauge theory, tensor networks): a separate project;
+  at most a shared SU(N) algebra crate.

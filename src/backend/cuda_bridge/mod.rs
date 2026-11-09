@@ -48,6 +48,7 @@ pub use sap::{device_sap, BlockOperator, DeviceBlocks, SapReal};
 pub use wilson::{CudaClover, CudaWilson};
 pub use wilson_multigrid::{device_multigrid, DeviceMultigrid, MultigridOperator, WilsonOnDevice};
 
+use crate::app::OUT_OF_DEVICE_MEMORY;
 use crate::fermion::GaugeError;
 use crate::{Boundary, Field, Gauge, Lattice, Parity, Stencil, ND};
 use ffi::*;
@@ -62,13 +63,51 @@ const SPINOR: usize = 24;
 /// Reals of one row of the four links of a site.
 const LINK_ROW: usize = 24;
 
-/// A call of the CUDA runtime failed with this code.
+/// A call of the CUDA runtime failed with this code; for an allocation the device refused, how
+/// much it was asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CudaError(pub i32);
+pub struct CudaError(pub i32, pub Option<Refused>);
+
+/// An allocation the device refused, in bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Refused {
+    pub asked: usize,
+    /// Held by this program at the time (`device_memory`).
+    pub held: usize,
+    /// The memory of the device.
+    pub total: usize,
+}
+
+/// `cudaErrorMemoryAllocation`.
+const OUT_OF_MEMORY: i32 = 2;
 
 impl std::fmt::Display for CudaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the CUDA runtime returned error {}", self.0)
+        // SAFETY: the runtime returns a static string for any code.
+        let name = unsafe { cudaGetErrorName(self.0) };
+        let name = if name.is_null() {
+            "unknown".into()
+        } else {
+            // SAFETY: a null-terminated static string of the runtime.
+            unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy()
+        };
+        match self.1 {
+            Some(r) if self.0 == OUT_OF_MEMORY => {
+                let gb = |b: usize| b as f64 / (1u64 << 30) as f64;
+                write!(
+                    f,
+                    "{OUT_OF_DEVICE_MEMORY}: {:.2} GB asked for while this program holds {:.2} GB of the {:.2} GB of the device ({name}). \
+                     Less memory is needed with fewer test vectors (MultiGrid_Level1.number_of_test_vectors), \
+                     fewer GCR or FGMRES directions (Solver.number_of_kept_directions), \
+                     fewer right-hand sides per solve (Source.number_of_rhs_per_solve), \
+                     fine_precision Single, or a smaller lattice on each device (more processes)",
+                    gb(r.asked),
+                    gb(r.held),
+                    gb(r.total)
+                )
+            }
+            _ => write!(f, "the CUDA runtime returned error {} ({name})", self.0),
+        }
     }
 }
 
@@ -78,7 +117,7 @@ fn check(code: i32) -> Result<(), CudaError> {
     if code == 0 {
         Ok(())
     } else {
-        Err(CudaError(code))
+        Err(CudaError(code, None))
     }
 }
 
@@ -212,6 +251,25 @@ fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
             }
         }
     };
+    if code == OUT_OF_MEMORY {
+        // The refusal is not an error of the kernels: not for `finish` to find.
+        // SAFETY: no arguments.
+        unsafe { cudaGetLastError() };
+        let (mut free, mut total) = (0usize, 0usize);
+        // SAFETY: places for the two numbers.
+        if unsafe { cudaMemGetInfo(&mut free, &mut total) } != 0 {
+            // SAFETY: no arguments.
+            unsafe { cudaGetLastError() };
+        }
+        return Err(CudaError(
+            code,
+            Some(Refused {
+                asked: bytes,
+                held: IN_USE.load(Ordering::Relaxed),
+                total,
+            }),
+        ));
+    }
     check(code)?;
     PEAK.fetch_max(
         IN_USE.fetch_add(bytes, Ordering::Relaxed) + bytes,

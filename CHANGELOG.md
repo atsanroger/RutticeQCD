@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1 (2026-11-09)
+
+- HMC prints one line per action after its header: the action, the fermion, even-odd or the full
+  lattice, the solver with its stops, and the preconditioner with its choices (`dagger_solve`,
+  `rebuild_iteration_growth`, `refresh_interval`, ...).
+- A device that runs out of memory is an error, `ruttice: out of device memory: …`, with exit
+  code 1, instead of a panic with "the CUDA runtime returned error 2": it says how much was asked
+  for, held and available, and which parameters need less. Other CUDA errors carry their names.
+
 ## 0.10.0 (2026-11-08)
 
 - The Pauli-Villars coarse factor of the domain-wall multigrid is solved by CG on its

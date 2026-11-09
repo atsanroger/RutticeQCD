@@ -332,6 +332,154 @@ impl HmcSolver {
     }
 }
 
+/// One line of the choices of an action that ran, after the header of the output.
+fn action_summary(action: &ActionConfig) -> String {
+    let fermion = |f: &HmcFermion| match f {
+        HmcFermion::Wilson { kappa, .. } => format!("Wilson kappa {kappa}"),
+        HmcFermion::Clover { kappa, csw, .. } => format!("clover kappa {kappa} csw {csw}"),
+        HmcFermion::DomainWall {
+            ls, m5, mass, b, c, ..
+        } => format!("domain-wall Ls {ls} M5 {m5} mass {mass} b {b} c {c}"),
+    };
+    let links = |smeared: bool| if smeared { "smeared" } else { "thin" };
+    let eo = |even_odd: bool| if even_odd { "even-odd" } else { "full lattice" };
+    match action {
+        ActionConfig::Plaquette { beta, level } => format!("plaquette beta {beta}, level {level}"),
+        ActionConfig::Rectangle {
+            beta,
+            c_plaq,
+            c_rect,
+            level,
+        } => format!("rectangle beta {beta} c_plaq {c_plaq} c_rect {c_rect}, level {level}"),
+        ActionConfig::TwoFlavor {
+            fermion: f,
+            level,
+            smeared,
+            even_odd,
+            solver,
+        } => format!(
+            "two flavors, {}, {}, {} links, level {level}; {}",
+            fermion(f),
+            eo(*even_odd),
+            links(*smeared),
+            solver.summary(false)
+        ),
+        ActionConfig::TwoFlavorRatio {
+            fermion: f,
+            denominator,
+            level,
+            smeared,
+            even_odd,
+            solver,
+        } => format!(
+            "ratio, {} over {}, {}, {} links, level {level}; {}",
+            fermion(f),
+            denominator
+                .as_ref()
+                .map_or("Pauli-Villars".to_string(), fermion),
+            eo(*even_odd),
+            links(*smeared),
+            solver.summary(false)
+        ),
+        ActionConfig::Rational {
+            fermion: f,
+            level,
+            poles,
+            bounds,
+            power,
+            smeared,
+            solver,
+            ..
+        } => format!(
+            "rational power {}/{}, {poles} poles on [{}, {}], {}, {} links, level {level}; {}",
+            power[0],
+            power[1],
+            bounds[0],
+            bounds[1],
+            fermion(f),
+            links(*smeared),
+            solver.summary(true)
+        ),
+    }
+}
+
+impl HmcSolver {
+    /// The solver, its stops and its preconditioner, as `action_summary` writes them; `rational`:
+    /// the solver of a `rational` action, multi-shift CG unless it asks for another.
+    fn summary(&self, rational: bool) -> String {
+        let kind = match self.kind {
+            None if rational => "multi-shift CG".to_string(),
+            Some(HmcSolverKind::Cg) if rational => "CG pole by pole".to_string(),
+            None | Some(HmcSolverKind::Cg) => "CG".to_string(),
+            Some(HmcSolverKind::Bicgstab) => "BiCGStab".to_string(),
+            Some(HmcSolverKind::Fgmres) => format!("FGMRES({})", self.restart),
+            Some(HmcSolverKind::Gcr) => format!("GCR({})", self.restart),
+            Some(HmcSolverKind::MultishiftCg) => "multi-shift CG".to_string(),
+        };
+        let mut s = format!(
+            "{kind}, tolerance^2 {:e} (energy {:e}), iterations {}, restarts {}",
+            self.tolerance_squared,
+            self.energy_tolerance_squared,
+            self.max_iterations,
+            self.max_restarts.map_or(10, |r| r.max(1))
+        );
+        if let Some(inner) = self.mixed {
+            s += &format!(", mixed precision inner {inner:e}");
+        }
+        if self.neff_alpha != 1.0 {
+            s += &format!(", Neff alpha {}", self.neff_alpha);
+        }
+        if self.initial_guess > 0 {
+            s += &format!(", initial guess from {} solves", self.initial_guess);
+        }
+        match (self.preconditioner, &self.multigrid) {
+            (Some(HmcPreconditioner::Chebyshev), _) => {
+                s += &format!(
+                    "; Chebyshev steps {} ratio {}",
+                    self.chebyshev.steps, self.chebyshev.ratio
+                );
+            }
+            (
+                Some(HmcPreconditioner::Multigrid),
+                Some(HmcMultigrid::Wilson {
+                    params,
+                    refresh_every,
+                    reuse,
+                }),
+            ) => {
+                s += &format!(
+                    "; multigrid block {:?}, refresh_interval {refresh_every}, reuse {}",
+                    params.block,
+                    reuse.map_or("none".to_string(), |r| r.to_string())
+                );
+            }
+            (
+                Some(HmcPreconditioner::Multigrid),
+                Some(HmcMultigrid::DomainWall {
+                    settings,
+                    refresh_every,
+                    inner_tolerance_squared,
+                    rebuild_growth,
+                    through_d,
+                }),
+            ) => {
+                s += &format!(
+                    "; multigrid block {:?}, number_of_test_vectors {}, dagger_solve {}, rebuild_iteration_growth {}, refresh_interval {refresh_every}, inner tolerance^2 {inner_tolerance_squared:e}",
+                    settings.block,
+                    2 * settings.test_vectors,
+                    if *through_d { "Through_D" } else { "Gamma5_cycle" },
+                    match rebuild_growth {
+                        0.0 => "0 (no cache)".to_string(),
+                        g => g.to_string(),
+                    }
+                );
+            }
+            _ => s += "; no preconditioner",
+        }
+        s
+    }
+}
+
 impl HmcSolver {
     pub(super) fn asks_for(&self, p: HmcPreconditioner) -> bool {
         self.preconditioner == Some(p)
@@ -1721,6 +1869,10 @@ fn chain<U: LinkField>(
             config.actions.len()
         )
         .map_err(io)?;
+        for (i, action) in config.actions.iter().enumerate() {
+            let name = config.action_names.get(i).map_or("action", String::as_str);
+            writeln!(out, "# {name}: {}", action_summary(action)).map_err(io)?;
+        }
         writeln!(
             out,
             "# trajectory  plaquette  dH  exp(-dH)  accepted  seconds"

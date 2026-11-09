@@ -474,7 +474,27 @@ pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write
             return 1;
         }
     };
-    match run_file_on(Path::new(file), stdout, comm) {
+    quiet_out_of_device_memory();
+    let several = comm.size() > 1;
+    let rank = comm.rank();
+    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_file_on(Path::new(file), stdout, comm)
+    })) {
+        Ok(result) => result,
+        Err(payload) => match out_of_device_memory(&*payload) {
+            Some(message) => {
+                if several {
+                    eprintln!("ruttice: process {rank}: {message}");
+                    // The other processes may be waiting for this one: `mpi::run` takes them down.
+                    std::panic::resume_unwind(payload);
+                }
+                eprintln!("ruttice: {message}");
+                return 1;
+            }
+            None => std::panic::resume_unwind(payload),
+        },
+    };
+    match result {
         Ok(()) => 0,
         Err(e) => {
             if root {
@@ -483,6 +503,33 @@ pub fn command_line(args: &[String], comm: Arc<dyn Comm>, stdout: &mut dyn Write
             1
         }
     }
+}
+
+/// The start of the message of the panic of a device that refused memory
+/// (`backend::cuda_bridge::CudaError`): `command_line` reports it as an error.
+pub(crate) const OUT_OF_DEVICE_MEMORY: &str = "out of device memory";
+
+/// The message of a panic for memory the device refused, if it is one.
+fn out_of_device_memory(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())?;
+    message.starts_with(OUT_OF_DEVICE_MEMORY).then_some(message)
+}
+
+/// The panic hook leaves out the panics for memory the device refused (`command_line` prints
+/// them as errors) and prints every other panic as before.
+fn quiet_out_of_device_memory() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if out_of_device_memory(info.payload()).is_none() {
+                previous(info);
+            }
+        }));
+    });
 }
 
 /// With `Main.verbose_level : Detailed`: the residual history of GCR, one line per step.
