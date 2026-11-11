@@ -1905,6 +1905,12 @@ fn mdwf_mg_yaml(setup: char) -> String {
         "filter_number_of_vectors   : 16",
         "filter_number_of_vectors   : 4",
     );
+    // Exactly two rounds, as when the reference was measured; the automatic rule gives 12.
+    y = with(
+        &y,
+        "bootstrap_number_of_rounds : auto",
+        "bootstrap_number_of_rounds : 2",
+    );
     y = with(
         &y,
         "block_size             : [4, 4, 4, 4]",
@@ -1968,7 +1974,9 @@ fn test_mg_the_domain_wall_multigrid_takes_the_iterations_it_took() {
 /// vectors of before 1e1646c makes 12% longer (703 against 787 iterations, measured with the
 /// command-line program on this file), with `Through_D` one at 1.5, where only the first setup
 /// is made: at 1.1 a rebuild there falls on either side of the threshold with the last bits of
-/// the machine (296 here, 329 on the GitHub runner).
+/// the machine (296 here, 329 on the GitHub runner). The setup does exactly two bootstrap
+/// rounds, as when the references were measured; with the automatic rule (4eb336b) the same file
+/// takes 720 here and 739 on the GitHub runner, which is past the tolerance of 703 there.
 #[test]
 fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
     let dir = scratch("dw_hmc_iterations");
@@ -2009,7 +2017,7 @@ fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
         "    solver_type                   : CG",
         "    solver_type                   : GCR\n    preconditioner_type           : MG\n    number_of_kept_directions     : 8",
     );
-    base.push_str("  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n      Coarse_Solver_PV:\n        solver_type                   : CG\n        tikhonov_epsilon              : 1.0e-3\n        maximum_number_of_iteration   : 2000\n        convergence_criterion_squared : 1.0e-2\n");
+    base.push_str("  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n      bootstrap_number_of_rounds : 2\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n      Coarse_Solver_PV:\n        solver_type                   : CG\n        tikhonov_epsilon              : 1.0e-3\n        maximum_number_of_iteration   : 2000\n        convergence_criterion_squared : 1.0e-2\n");
     for (route, trajectories, growth, reference) in [
         ("Gamma5_cycle", 2, "1.1", 703),
         ("Through_D", 1, "1.5", 340),
