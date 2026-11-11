@@ -3,17 +3,16 @@
 ## Unreleased
 
 - The bootstrap of the domain-wall multigrid ends by itself. After every round it measures the
-  lowest Ritz value of Ã†Ã on the test vectors; a round that lowers it by less than
-  `Setup.bootstrap_minimum_gain` (4) is the last, after at most 8. This is
+  lowest Ritz value of Ã†Ã on the test vectors, and the next round begins by improving the lowest
+  Ritz vector alone with its cycle: when that gains less than `Setup.bootstrap_minimum_gain` (4)
+  the round is not done and the bootstrap ends, after at most 8 rounds. This is
   `Setup.bootstrap_number_of_rounds : auto`, and the default without the key; a number there
   does exactly that many rounds, as before, and is the most rounds when the gain is given too.
   Two rounds, the earlier default, leave the test vectors a factor 40-60 above the lowest modes
   on quenched 24⁴ at m 0.001 (lowest Ritz value 2.1e-6 to 3.1e-6, lowest eigenvalue 5.5e-8 to
-  7.8e-8), and the solves with D of HMC then stall. With `auto` the setup takes four rounds
-  there (153-157 s against 95 s) and one HMC trajectory takes 261-268 iterations and 190-194 s
-  with GCR(2) and GCR(3) on three configurations, without a stall; with two rounds GCR(3) took
-  9506 iterations and 2498 s. Files that give `bootstrap_number_of_rounds : 2` keep two rounds.
-  The device prints the lowest Ritz value after every round.
+  7.8e-8), and the solves with D of HMC then stall. With `auto` the setup takes three rounds
+  there and 141-146 s against 95 s. Files that give `bootstrap_number_of_rounds : 2` keep two
+  rounds. The device prints the lowest Ritz value after every round.
 
 - HMC with the domain-wall multigrid takes `solver_type : FGMRES` as well as GCR: FGMRES restarted
   after `number_of_kept_directions` steps, with as many vectors as GCR keeping as many directions.

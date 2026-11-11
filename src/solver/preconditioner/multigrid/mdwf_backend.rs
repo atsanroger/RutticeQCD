@@ -141,6 +141,14 @@ pub enum SetupStage<'s> {
     /// the test vectors after it.
     #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
     Round { round: usize, lowest: f64 },
+    /// The bootstrap ended before round `round` (reported by the device): its cycle lowers the
+    /// lowest Ritz value `lowest` only to `probed`.
+    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
+    Ended {
+        round: usize,
+        lowest: f64,
+        probed: f64,
+    },
     /// The levels below the coarse lattice made, for the quark factor or the Pauli-Villars one:
     /// the applications of the coarse operator that took, and the seconds.
     Levels {

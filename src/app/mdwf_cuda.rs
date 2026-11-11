@@ -203,6 +203,17 @@ pub(super) fn run(
                         start.elapsed().as_secs_f64(),
                         memory()
                     ),
+                    SetupStage::Ended {
+                        round,
+                        lowest,
+                        probed,
+                    } => writeln!(
+                        out,
+                        "  bootstrap round {} not needed: its cycle lowers {lowest:.3e} to {probed:.3e}; {:.0} s; {}",
+                        round + 1,
+                        start.elapsed().as_secs_f64(),
+                        memory()
+                    ),
                     SetupStage::Levels {
                         pauli_villars: false,
                         applications,

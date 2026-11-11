@@ -915,6 +915,27 @@ parity of the coarse lattice (3⁴ blocks give 4⁴ and stagnate). Open: why 12�
   in the production runs (expected 0). A `fix/` or `feat/` branch.
 - **Tests.** The 12⁴ S exact cycle converges with it; production iteration counts unchanged.
 
+### 26. The bootstrap ended by a floor from the quark mass (2026-11-11, not started)
+
+The bootstrap ends when the cycle of the next round gains less than `bootstrap_minimum_gain` on
+the lowest Ritz vector (`bootstrap_rounds`). The probe needs that cycle made: on 24⁴ at m 0.001
+about 13 s of the 141-146 s of the setup, after the three rounds that are needed. A floor known
+beforehand would end the rounds without it.
+
+- Measured (T1 of 2026-11-10, Lanczos on Ã†Ã, m 0.001 and 0.0012): on configurations with
+  topological charge the lowest singular value of Ã at m 0.001 is 2.1-2.4 × 10⁻⁴ on 12⁴ and 16⁴,
+  with d ln σ / d ln m = 0.94-0.99, so σ ≈ 0.23 m there; on 24⁴ it is 2.3-3.0 × 10⁻⁴ with
+  d ln σ / d ln m = 0.69-0.89 (an intercept of the size of the mass term). After the third round
+  the lowest Ritz value is 1.3-2.6 times (0.23 m)² on the three 24⁴ configurations.
+- To do: derive the factor (0.23 is measured for b 1.5, c 0.5, L_s 8, M5 1, α 1 in the
+  even-odd right form; for the overlap operator the eigenvalue on a zero mode is m itself, and
+  the site-diagonal factors of the even-odd form rescale it). Then end the rounds once the
+  lowest Ritz value is within a factor of the floor, without a probe.
+- A configuration without such modes (16⁴ v2, Q = 0: lowest σ 3.2 × 10⁻³) never reaches the
+  floor; there the probe stays.
+- The probe makes P of the same vectors as the setup after it; handing that P over would save a
+  few seconds more.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,

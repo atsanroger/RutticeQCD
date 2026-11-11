@@ -1656,9 +1656,9 @@ fn setup_from_scratch<T: Storage>() -> usize {
     info.iterations
 }
 
-/// The rounds of the bootstrap end on the gain of the lowest Ritz value: with a gain no round
-/// reaches, the vectors are those of one round bit for bit; with a gain every round reaches,
-/// those of all the rounds; and two rounds give other vectors than three.
+/// The rounds of the bootstrap end on the gain of the lowest Ritz vector: with a gain no round
+/// reaches, the vectors stay as they were, bit for bit; with a gain every round reaches, they
+/// are those of all the rounds; and two rounds give other vectors than three.
 #[test]
 fn bootstrap_rounds_end_on_the_gain() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1698,9 +1698,11 @@ fn bootstrap_rounds_end_on_the_gain() {
     };
     let (one, two, three) = (after(1, None), after(2, None), after(3, None));
     assert!(!same(&two, &three) && !same(&one, &two));
+    let start = filtered.select(&[0, 1, 2, 3, 4, 5]);
+    assert!(!same(&start, &one));
     assert!(
-        same(&after(3, Some(1e300)), &one),
-        "a gain never reached ends after one round"
+        same(&after(3, Some(1e300)), &start),
+        "a gain never reached ends before a round"
     );
     assert!(
         same(&after(3, Some(1e-300)), &three),

@@ -14,7 +14,7 @@ use super::{
 };
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_rounds, low_modes, lowest_ritz_value, random_even, Aggregation, BootstrapParams,
+    bootstrap_rounds, low_modes, lowest_ritz_pair, random_even, Aggregation, BootstrapParams,
     LevelLists, LowModeParams, PvEoParams, TwoGrid, Waiting,
 };
 use crate::solver::{largest_magnitude, Chebyshev};
@@ -68,6 +68,13 @@ pub enum Stage<'s, T: DeviceReal> {
         round: usize,
         vectors: &'s DeviceSpinor<T>,
         lowest: f64,
+    },
+    /// Round `round` was not needed: its cycle lowers the lowest Ritz value `lowest` only to
+    /// `probed`.
+    Ended {
+        round: usize,
+        lowest: f64,
+        probed: f64,
     },
 }
 
@@ -223,7 +230,7 @@ pub fn bootstrap<T: DeviceReal>(
                 waiting.back()
             })
         },
-        &mut |y| lowest_ritz_value(&mut ratio(), y),
+        &mut |y| lowest_ritz_pair(&mut ratio(), y),
         &mut |round, index, vector| {
             (report.borrow_mut())(Stage::Vector {
                 round,
@@ -236,6 +243,13 @@ pub fn bootstrap<T: DeviceReal>(
                 round,
                 vectors,
                 lowest,
+            })
+        },
+        &mut |round, lowest, probed| {
+            (report.borrow_mut())(Stage::Ended {
+                round,
+                lowest,
+                probed,
             })
         },
     )?;

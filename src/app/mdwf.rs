@@ -408,7 +408,7 @@ where
                         out,
                         "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({seconds:.0} s)"
                     ),
-                    SetupStage::Round { .. } | SetupStage::Checksum(..) => Ok(()),
+                    SetupStage::Round { .. } | SetupStage::Ended { .. } | SetupStage::Checksum(..) => Ok(()),
                 };
                 if let Err(e) = line {
                     failed.get_or_insert(e);

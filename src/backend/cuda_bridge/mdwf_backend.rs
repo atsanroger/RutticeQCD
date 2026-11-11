@@ -83,6 +83,15 @@ fn reported<T: DeviceReal>(report: &mut dyn FnMut(SetupStage<'_>), stage: Stage<
             report(SetupStage::Checksum(&what, &|| sum(vectors)));
             report(SetupStage::Round { round, lowest });
         }
+        Stage::Ended {
+            round,
+            lowest,
+            probed,
+        } => report(SetupStage::Ended {
+            round,
+            lowest,
+            probed,
+        }),
     }
 }
 

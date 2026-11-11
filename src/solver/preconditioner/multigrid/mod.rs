@@ -47,7 +47,7 @@ pub(crate) use mdwf_even_odd::{pv_eo_basis_stored, BasisStorage, SharedOperator}
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};
 pub(crate) use mdwf_vectors::pv_eo_bootstrap_stored;
 #[cfg(feature = "cuda-bridge")]
-pub(crate) use mdwf_vectors::{bootstrap_rounds, low_modes, lowest_ritz_value, Waiting};
+pub(crate) use mdwf_vectors::{bootstrap_rounds, low_modes, lowest_ritz_pair, Waiting};
 pub use mdwf_vectors::{
     pv_eo_bootstrap, pv_eo_low_modes, random_even, BootstrapParams, LowModeParams,
 };
