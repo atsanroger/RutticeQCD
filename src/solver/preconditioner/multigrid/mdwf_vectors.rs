@@ -247,7 +247,11 @@ pub fn pv_eo_low_modes<F: Storage, G: GammaRepre>(
 /// Settings of the multigrid-accelerated improvement of the test vectors.
 #[derive(Clone, Copy, Debug)]
 pub struct BootstrapParams {
+    /// The rounds: exactly this many without `min_gain`, at most this many with it.
     pub rounds: usize,
+    /// The rounds end once one lowers the lowest Ritz value of Ã†Ã on the vectors by less than
+    /// this factor: the vectors have reached the lowest modes. `None`: all `rounds` are done.
+    pub min_gain: Option<f64>,
     /// Steps of FGMRES on Ã x = y with the cycle, per vector and round.
     pub steps: usize,
     /// Settings of the cycle used (its coarse tolerance, smoother).
@@ -255,10 +259,13 @@ pub struct BootstrapParams {
 }
 
 impl Default for BootstrapParams {
-    /// Two rounds of four steps (the log: as good as two more filter rounds, cheaper).
+    /// Rounds of four steps until one gains less than a factor 4, at most 8. Two rounds leave
+    /// the vectors a factor 60 above the lowest modes on 24⁴ at m = 0.001, where the solves with
+    /// D of HMC then stall; the third round gains 25-45, the fourth less than 2.
     fn default() -> Self {
         Self {
-            rounds: 2,
+            rounds: 8,
+            min_gain: Some(4.0),
             steps: 4,
             cycle: PvEoParams::default(),
         }
@@ -281,6 +288,23 @@ pub fn bootstrap_vector<V: Vector>(
     let mut x = yj.zeros_like();
     let _ = fgmres.solve(a, Some(cycle), &mut x, yj);
     x
+}
+
+/// The lowest Ritz value of A†A on the vectors y, which are orthonormal: the lowest eigenvalue
+/// of (A y)†(A y). It measures how near the vectors are to the lowest modes of A; it costs one
+/// application of A per vector. (The residual |A†A u − θ u| of its Ritz vector does not: on
+/// 24⁴ at m = 0.001, θ is 1.4e-8 of the largest eigenvalue, below single precision, and the
+/// residual stays at 400 θ from the third round on.)
+pub(crate) fn lowest_ritz_value<H: Subspace>(a: &mut dyn LinearFn<H>, y: &H) -> f64 {
+    let n = y.num_vectors();
+    let mut ay = y.zeros_like();
+    for j in 0..n {
+        let yj = y.select(&[j]);
+        let mut t = yj.zeros_like();
+        a.mult(&mut t, &yj);
+        ay.assign(&[j], &t);
+    }
+    sorted_eigen(n, &ay.gram(&ay)).0[0]
 }
 
 /// The levels below the coarse lattice of a cycle: the super-blocks of each level, how each is
@@ -333,9 +357,12 @@ pub(crate) type RoundWork<'r, H, W, E> =
 pub(crate) type WithCycle<'w, H, W, E> =
     dyn FnMut(H, bool, &mut RoundWork<'_, H, W, E>) -> Result<H, E> + 'w;
 
-/// The bootstrap, the same on every backend: `params.rounds` rounds, each improving every test
-/// vector with the cycle made of the vectors of the round before (`with_cycle`), then the
-/// vectors orthonormalised. `on_vector(round, j, x)` and `on_round(round, y)` report.
+/// The bootstrap, the same on every backend: rounds, each improving every test vector with the
+/// cycle made of the vectors of the round before (`with_cycle`), then the vectors
+/// orthonormalised. `lowest(y)` is the lowest Ritz value of Ã†Ã on them (`lowest_ritz_value`
+/// with the backend's Ã). With `params.min_gain` the rounds end once one lowers it by less than
+/// that factor, else after `params.rounds`. `on_vector(round, j, x)` and
+/// `on_round(round, y, lowest)` report.
 ///
 /// The cycles have the levels below the coarse lattice from the second round on. In the first,
 /// on the filtered vectors, the coarse solves were as fast without them (24⁴, m 0.001, on the
@@ -345,9 +372,11 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
     mut y: H,
     params: BootstrapParams,
     with_cycle: &mut WithCycle<'_, H, W, E>,
+    lowest: &mut dyn FnMut(&H) -> f64,
     on_vector: &mut dyn FnMut(usize, usize, &H),
-    on_round: &mut dyn FnMut(usize, &H),
+    on_round: &mut dyn FnMut(usize, &H, f64),
 ) -> Result<H, E> {
+    let mut before = lowest(&y);
     for round in 0..params.rounds {
         let mut work = |a: &mut dyn LinearFn<H>, cycle: &mut dyn LinearFn<H>, vectors: H| {
             let mut waiting = W::wait(vectors)?;
@@ -360,7 +389,12 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
         };
         y = with_cycle(y, round > 0, &mut work)?;
         orthonormalise_all(&mut y);
-        on_round(round, &y);
+        let now = lowest(&y);
+        on_round(round, &y, now);
+        if params.min_gain.is_some_and(|gain| before < gain * now) {
+            break;
+        }
+        before = now;
     }
     Ok(y)
 }
@@ -420,8 +454,9 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
             drop(cycle);
             waiting.back()
         },
+        &mut |y| lowest_ritz_value(&mut PvEvenOdd::new(op, pv, EoForm::Right, &like), y),
         &mut |_, _, _| {},
-        &mut |_, _| {},
+        &mut |_, _, _| {},
     )?;
     pv_eo_basis_stored(op, pv, agg, y, storage)
 }

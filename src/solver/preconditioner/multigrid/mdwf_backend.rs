@@ -137,9 +137,10 @@ impl MdwfMultigridSettings {
 pub enum SetupStage<'s> {
     /// The filter: the Ritz values of Ã†Ã of the test vectors.
     Filtered(&'s [f64]),
-    /// A round of the bootstrap (reported by the device).
+    /// A round of the bootstrap (reported by the device), and the lowest Ritz value of Ã†Ã on
+    /// the test vectors after it.
     #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
-    Round(usize),
+    Round { round: usize, lowest: f64 },
     /// The levels below the coarse lattice made, for the quark factor or the Pauli-Villars one:
     /// the applications of the coarse operator that took, and the seconds.
     Levels {

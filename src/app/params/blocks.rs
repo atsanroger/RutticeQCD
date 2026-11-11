@@ -513,6 +513,14 @@ pub(crate) struct SubLevelBlock {
     pub(crate) bootstrap_iterations: usize,
 }
 
+/// `bootstrap_number_of_rounds`: a number, or the word `auto` (checked when the file is read).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum BootstrapRounds {
+    Number(usize),
+    Word(String),
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetupBlock {
@@ -523,9 +531,14 @@ pub struct SetupBlock {
     pub filter_number_of_rounds: usize,
     #[serde(default = "four")]
     pub filter_number_in_block: usize,
-    /// The multigrid bootstrap after it: rounds, FGMRES steps per vector and round (2 by
-    /// default). Wilson and clover: the setup iterations of Bridge++ (4 by default).
-    pub bootstrap_number_of_rounds: Option<usize>,
+    /// The multigrid bootstrap after it: rounds, FGMRES steps per vector and round. Domain-wall
+    /// fermions: without this key the rounds end once one lowers the lowest Ritz value of Ã†Ã
+    /// on the test vectors by less than `bootstrap_minimum_gain`, at most 8; with it, exactly
+    /// this many, or at most this many when `bootstrap_minimum_gain` is given too; `auto` is
+    /// the same as no key. Wilson and clover: the setup iterations of Bridge++ (4 by default).
+    pub bootstrap_number_of_rounds: Option<BootstrapRounds>,
+    /// Domain-wall fermions: the factor a round must gain for another to follow (4 by default).
+    pub bootstrap_minimum_gain: Option<f64>,
     #[serde(default = "four")]
     pub bootstrap_number_of_steps: usize,
     #[serde(default = "setup_seed")]
@@ -541,6 +554,7 @@ impl Default for SetupBlock {
             filter_number_of_rounds: two(),
             filter_number_in_block: four(),
             bootstrap_number_of_rounds: None,
+            bootstrap_minimum_gain: None,
             bootstrap_number_of_steps: four(),
             seed: setup_seed(),
             checkpoint: None,
@@ -627,9 +641,39 @@ impl LevelBlock {
 }
 
 impl SetupBlock {
-    pub fn rounds(&self, domain_wall: bool) -> usize {
-        self.bootstrap_number_of_rounds
-            .unwrap_or(if domain_wall { 2 } else { 4 })
+    /// The rounds of the domain-wall bootstrap and the gain that ends them (`BootstrapParams`):
+    /// a number of rounds alone is done exactly; otherwise the rounds end on the gain.
+    pub(crate) fn domain_wall_rounds(&self) -> (usize, Option<f64>) {
+        let default = BootstrapParams::default();
+        match (self.number_of_rounds(), self.bootstrap_minimum_gain) {
+            (Some(rounds), None) => (rounds, None),
+            (rounds, gain) => (rounds.unwrap_or(default.rounds), gain.or(default.min_gain)),
+        }
+    }
+
+    /// The setup iterations of the multigrid of Wilson and clover fermions.
+    pub fn rounds(&self) -> usize {
+        self.number_of_rounds().unwrap_or(4)
+    }
+
+    /// The number `bootstrap_number_of_rounds` gives; none without the key or with `auto`.
+    fn number_of_rounds(&self) -> Option<usize> {
+        match &self.bootstrap_number_of_rounds {
+            Some(BootstrapRounds::Number(n)) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Whether `bootstrap_number_of_rounds` is the word `auto`, in any case; another word is
+    /// refused.
+    pub(crate) fn rounds_auto(&self, at: &str) -> Result<bool, CliError> {
+        match &self.bootstrap_number_of_rounds {
+            Some(BootstrapRounds::Word(w)) if w.eq_ignore_ascii_case("auto") => Ok(true),
+            Some(BootstrapRounds::Word(w)) => Err(CliError::Invalid(format!(
+                "{at}.Setup.bootstrap_number_of_rounds : {w} is neither a number of rounds nor auto (the rounds end when one gains less than bootstrap_minimum_gain)"
+            ))),
+            _ => Ok(false),
+        }
     }
 }
 

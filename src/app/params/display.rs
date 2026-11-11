@@ -112,7 +112,7 @@ impl fmt::Display for Params {
                     "\npreconditioned by the multigrid of the whole lattice: {:?} blocks, {} test vectors, {} setup iterations; coarse {} to {:e} in {}; smoother {smoother}",
                     l.block_size,
                     l.test_vectors(false),
-                    mg.setup.rounds(false),
+                    mg.setup.rounds(),
                     coarse.solver_type,
                     coarse.convergence_criterion_squared,
                     mg.coarse_precision(),

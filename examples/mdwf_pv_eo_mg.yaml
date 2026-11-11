@@ -75,7 +75,12 @@ MultiGrid:
     filter_number_of_vectors   : 16
     filter_number_of_rounds    : 2
     filter_number_in_block     : 4
-    bootstrap_number_of_rounds : 2
+    ## The rounds of the bootstrap end once one lowers the lowest Ritz value of A^dag A on the
+    ## test vectors by less than bootstrap_minimum_gain (4), after at most 8.
+    ## bootstrap_number_of_rounds = {auto, N}: N alone does exactly N rounds; with
+    ## bootstrap_minimum_gain it is the most rounds.
+    bootstrap_number_of_rounds : auto
+    # bootstrap_minimum_gain     : 4
     bootstrap_number_of_steps  : 4
     seed                       : 21
     ## low modes from a checkpoint file (study program mdwf_evenodd_coherence, tag mdwf-mg-studies) instead of the filter:

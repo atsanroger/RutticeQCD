@@ -125,9 +125,54 @@ Solver:
         assert_eq!(cycle.d_solver, CoarseKrylov::BiCgStab);
         assert_eq!(cycle.pv_solver, FactorSolve::Regularized { eps: 1e-3 });
         assert_eq!(low.vectors, 16);
-        assert_eq!(boot.rounds, 2);
+        assert_eq!((boot.rounds, boot.min_gain), (8, Some(4.0)));
         assert_eq!(p.form(), (EoForm::Left, false));
         assert!(p.multigrid.as_ref().unwrap().super_blocks().is_empty());
+    }
+
+    /// A number of bootstrap rounds alone is done exactly; with a gain it is their limit; a gain
+    /// that would never end the rounds is refused.
+    #[test]
+    fn bootstrap_rounds_and_gain() {
+        let solver =
+            "  solver_type : gcr\n  operator_type : pv_left\n  preconditioner_type : multi_grid\n";
+        let rule = |setup: &str| {
+            let text = with(solver, true) + "  Setup:\n" + setup;
+            parse(&text).map(|p| {
+                let (_, _, boot) = p.multigrid().unwrap();
+                (boot.rounds, boot.min_gain)
+            })
+        };
+        assert_eq!(
+            rule("    bootstrap_number_of_rounds : 2\n").unwrap(),
+            (2, None)
+        );
+        assert_eq!(
+            rule("    bootstrap_minimum_gain : 10\n").unwrap(),
+            (8, Some(10.0))
+        );
+        assert_eq!(
+            rule("    bootstrap_number_of_rounds : 5\n    bootstrap_minimum_gain : 10\n").unwrap(),
+            (5, Some(10.0))
+        );
+        assert_eq!(
+            rule("    bootstrap_number_of_rounds : AUTO\n").unwrap(),
+            (8, Some(4.0))
+        );
+        let word = rule("    bootstrap_number_of_rounds : some\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            word.contains("neither a number of rounds nor auto"),
+            "{word}"
+        );
+        let refused = rule("    bootstrap_minimum_gain : 1\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("bootstrap_minimum_gain must be above 1"),
+            "{refused}"
+        );
     }
 
     #[test]

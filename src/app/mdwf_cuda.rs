@@ -196,9 +196,9 @@ pub(super) fn run(
                         start.elapsed().as_secs_f64(),
                         memory()
                     ),
-                    SetupStage::Round(round) => writeln!(
+                    SetupStage::Round { round, lowest } => writeln!(
                         out,
-                        "  bootstrap round {}: {:.0} s; {}",
+                        "  bootstrap round {}: lowest Ritz value of Ã†Ã {lowest:.3e}; {:.0} s; {}",
                         round + 1,
                         start.elapsed().as_secs_f64(),
                         memory()

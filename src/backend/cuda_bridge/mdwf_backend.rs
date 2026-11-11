@@ -74,10 +74,14 @@ fn reported<T: DeviceReal>(report: &mut dyn FnMut(SetupStage<'_>), stage: Stage<
             report(SetupStage::Checksum(&what, &|| sum(vector)));
         }
         Stage::Vector { .. } => {}
-        Stage::Round { round, vectors } => {
+        Stage::Round {
+            round,
+            vectors,
+            lowest,
+        } => {
             let what = format!("the vectors after round {}", round + 1);
             report(SetupStage::Checksum(&what, &|| sum(vectors)));
-            report(SetupStage::Round(round));
+            report(SetupStage::Round { round, lowest });
         }
     }
 }

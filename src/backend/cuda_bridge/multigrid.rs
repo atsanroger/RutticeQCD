@@ -14,8 +14,8 @@ use super::{
 };
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
-    bootstrap_rounds, low_modes, random_even, Aggregation, BootstrapParams, LevelLists,
-    LowModeParams, PvEoParams, TwoGrid, Waiting,
+    bootstrap_rounds, low_modes, lowest_ritz_value, random_even, Aggregation, BootstrapParams,
+    LevelLists, LowModeParams, PvEoParams, TwoGrid, Waiting,
 };
 use crate::solver::{largest_magnitude, Chebyshev};
 use crate::{
@@ -63,10 +63,11 @@ pub enum Stage<'s, T: DeviceReal> {
         index: usize,
         vector: &'s DeviceSpinor<T>,
     },
-    /// All the vectors after round `round`.
+    /// All the vectors after round `round`, and the lowest Ritz value of Ã†Ã on them.
     Round {
         round: usize,
         vectors: &'s DeviceSpinor<T>,
+        lowest: f64,
     },
 }
 
@@ -180,7 +181,7 @@ impl<T: DeviceReal> Waiting<DeviceSpinor<T>, Box<dyn Error>> for Stashed<T> {
     }
 }
 
-/// The bootstrap (`bootstrap_rounds`): `params.rounds` rounds of `params.steps` steps of FGMRES
+/// The bootstrap (`bootstrap_rounds`): rounds (`params.rounds`, `params.min_gain`) of `params.steps` steps of FGMRES
 /// on Ã x = y_j with the cycle of the vectors of the round before, for every vector, then
 /// orthonormalised. Each round hands the current vectors to `with_correction`, which makes their
 /// coarse correction and passes it on to the round (`Round`) with the vectors; the vectors wait
@@ -222,6 +223,7 @@ pub fn bootstrap<T: DeviceReal>(
                 waiting.back()
             })
         },
+        &mut |y| lowest_ritz_value(&mut ratio(), y),
         &mut |round, index, vector| {
             (report.borrow_mut())(Stage::Vector {
                 round,
@@ -229,7 +231,13 @@ pub fn bootstrap<T: DeviceReal>(
                 vector,
             })
         },
-        &mut |round, vectors| (report.borrow_mut())(Stage::Round { round, vectors }),
+        &mut |round, vectors, lowest| {
+            (report.borrow_mut())(Stage::Round {
+                round,
+                vectors,
+                lowest,
+            })
+        },
     )?;
     Ok(())
 }

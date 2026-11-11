@@ -187,7 +187,13 @@ preconditioner, `Chebyshev` or the multigrid with its setup, the same keys meani
 thing (above the coarse lattice in single precision unless `MultiGrid.fine_precision : double`,
 the outer solver in double precision either way; the prolongation in half precision unless
 `basis_precision : single`, which is most of its memory). `Setup.filter_number_in_block`
-vectors are filtered at a time: fewer take less memory. The levels below the coarse lattice
+vectors are filtered at a time: fewer take less memory. The bootstrap of the domain-wall
+multigrid ends by itself: after every round it measures the lowest Ritz value of Ã†Ã on the test
+vectors (printed on the device), and a round that lowers it by less than
+`Setup.bootstrap_minimum_gain` (4) is the last, after at most 8. That is `Setup.bootstrap_number_of_rounds : auto`, the same as no key. A file with
+`Setup.bootstrap_number_of_rounds : N` and no gain does exactly N rounds, as before; with both
+keys N is the most rounds. Two rounds, the earlier default, leave the vectors short of the lowest
+modes on 24⁴ at m = 0.001, and the solves with D of HMC then stall. The levels below the coarse lattice
 (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
 inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
 second factor (`Coarse_Solver_PV` other than `MINRES`).

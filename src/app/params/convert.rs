@@ -610,8 +610,10 @@ impl MultigridBlock {
             chunk: self.setup.filter_number_in_block,
             seed: self.setup.seed,
         };
+        let (rounds, min_gain) = self.setup.domain_wall_rounds();
         let boot = BootstrapParams {
-            rounds: self.setup.rounds(true),
+            rounds,
+            min_gain,
             steps: self.setup.bootstrap_number_of_steps,
             cycle,
         };
@@ -648,7 +650,7 @@ impl MultigridBlock {
         MultigridConfig {
             block: l.block_size,
             test_vectors: l.test_vectors(false),
-            setup_iterations: self.setup.rounds(false),
+            setup_iterations: self.setup.rounds(),
             coarse_solver: match coarse.solver_type {
                 SolverType::Fgmres => CoarseSolverKind::Gmres,
                 _ => CoarseSolverKind::Bicgstab,
@@ -741,6 +743,16 @@ impl MultigridBlock {
                 "{at}.levels_for_pauli_villars: the levels of the Pauli-Villars factor go with MultiGrid_Level1.Coarse_Solver_PV solver_type MINRES (the default is CG on the regularized normal equations, which takes none)"
             )));
         }
+        self.setup.rounds_auto(at)?;
+        if self
+            .setup
+            .bootstrap_minimum_gain
+            .is_some_and(|gain| gain.is_nan() || gain <= 1.0)
+        {
+            return Err(invalid(format!(
+                "{at}.Setup.bootstrap_minimum_gain must be above 1: it is the factor by which a round of the bootstrap must lower the lowest Ritz value for another round to follow (4 by default)"
+            )));
+        }
         let n = level.test_vectors(true);
         if !n.is_multiple_of(2) || n / 2 > self.setup.filter_number_of_vectors {
             return Err(invalid(format!(
@@ -786,6 +798,14 @@ impl MultigridBlock {
             ("basis_precision", self.basis_precision_given.is_some()),
             ("levels_for_pauli_villars", self.levels_for_pauli_villars),
             ("Setup.checkpoint", self.setup.checkpoint.is_some()),
+            (
+                "Setup.bootstrap_minimum_gain",
+                self.setup.bootstrap_minimum_gain.is_some(),
+            ),
+            (
+                "Setup.bootstrap_number_of_rounds : auto",
+                self.setup.rounds_auto(at)?,
+            ),
         ] {
             if given {
                 notes.push(format!(
