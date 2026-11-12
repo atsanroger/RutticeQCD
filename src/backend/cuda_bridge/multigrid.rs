@@ -9,8 +9,8 @@
 //! the device does not have) through `bootstrap`'s `with_correction`.
 
 use super::{
-    CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceReal, DeviceSpinor,
-    Stashed,
+    CudaError, CudaMdwf, DeviceBasis, DeviceCorrection, DeviceParities, DeviceParts, DeviceReal,
+    DeviceSpinor, Stashed,
 };
 use crate::fermion::{EoForm, PvRatio, SplitParity};
 use crate::solver::preconditioner::multigrid::{
@@ -21,7 +21,7 @@ use crate::solver::{largest_magnitude, Chebyshev};
 use crate::{
     random_spinor, EvenOddIndex, Field, Lattice, LinearFn, Normal, Parity, Spinor, Vector,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::sync::Arc;
 
@@ -32,9 +32,14 @@ pub type Correction<'c, T> = Box<dyn FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T
 pub(crate) type Grown<T> = Result<DeviceSpinor<T>, Box<dyn Error>>;
 
 /// What a round of `bootstrap` does with the coarse correction of the current vectors: given it,
-/// the top of the smoother if known, and the vectors themselves, it returns the new vectors.
-pub(crate) type Round<'r, T> =
-    dyn FnMut(Correction<'_, T>, Option<f64>, DeviceSpinor<T>) -> Grown<T> + 'r;
+/// the top of the smoother if known, and the vectors themselves, it returns the new vectors and
+/// whether the bootstrap ends on this correction (the vectors are then those it was made of).
+pub(crate) type Round<'r, T> = dyn FnMut(
+        Correction<'_, T>,
+        Option<f64>,
+        DeviceSpinor<T>,
+    ) -> Result<(DeviceSpinor<T>, bool), Box<dyn Error>>
+    + 'r;
 
 /// How `bootstrap` gets the coarse correction of the current vectors: it makes it (with the
 /// levels below the coarse lattice it has when asked) and hands it with the vectors to the round.
@@ -133,14 +138,15 @@ pub fn device_correction<'o, T: DeviceReal>(
     even: &'o DeviceSpinor<T>,
     half: bool,
 ) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
-    device_correction_with_levels(ops, agg, cycle, even, half, (&[], &[], false))
+    device_correction_with_levels(ops, agg, cycle, even, half, (&[], &[], false), None)
 }
 
 /// `device_correction` with the levels below the coarse lattice for its coarse solves
 /// (`DeviceCorrection::add_levels`, `add_pv_levels` with `for_pv`) in the rounds that ask for
 /// them (`bootstrap_rounds`), from P† of the vectors of the round: super-blocks and refinements
 /// as the files give them. At small masses the coarse solves of the bootstrap are most of its
-/// time without them (24⁴, m 0.001: 65 of 101 s).
+/// time without them (24⁴, m 0.001: 65 of 101 s). With `ending`, the parts of the correction the
+/// bootstrap ends on are put there: the solve can take them instead of making them again.
 pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     (d, pv): (&'o CudaMdwf<T>, &'o CudaMdwf<T>),
     agg: &'o Arc<Aggregation>,
@@ -148,6 +154,7 @@ pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     even: &'o DeviceSpinor<T>,
     half: bool,
     (super_blocks, refine, for_pv): LevelLists<'o>,
+    ending: Option<&'o RefCell<Option<DeviceParts<f32>>>>,
 ) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
     move |y, with_levels, round| {
         let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half)?;
@@ -164,7 +171,13 @@ pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
             }
         }
         drop(level_vectors);
-        round(Box::new(|e, r| c.correct(e, r)), None, y)
+        let (y, ends) = round(Box::new(|e, r| c.correct(e, r)), None, y)?;
+        // The first round's cycle has no levels: the solve's would differ.
+        let complete = with_levels || super_blocks.is_empty();
+        if let (true, true, Some(slot)) = (ends, complete, ending) {
+            *slot.borrow_mut() = Some(c.parts());
+        }
+        Ok(y)
     }
 }
 
@@ -205,6 +218,8 @@ pub fn bootstrap<T: DeviceReal>(
     let ratio = || PvRatio::new(d, pv, EoForm::Right, even, odd);
     let cycle = params.cycle;
     let report = RefCell::new(report);
+    // The top of the smoother is that of Ã, the same in every round: one power iteration.
+    let top = Cell::new(None);
     // A set of no vectors stands in for the vectors while they go through the rounds.
     let taken = std::mem::replace(y, y.zeros_with(0));
     *y = bootstrap_rounds::<_, Stashed<T>, _>(
@@ -212,10 +227,11 @@ pub fn bootstrap<T: DeviceReal>(
         params,
         &mut |current, with_levels, work| {
             with_correction(current, with_levels, &mut |correction, hi, vectors| {
-                let hi = match hi {
+                let hi = match hi.or(top.get()) {
                     Some(hi) => hi,
                     None => top_of(&mut ratio(), lat, even, cycle.seed, cycle.power_steps)?,
                 };
+                top.set(Some(hi));
                 (report.borrow_mut())(Stage::Top(hi));
                 let smoother = Chebyshev::new(
                     ratio(),
@@ -225,9 +241,9 @@ pub fn bootstrap<T: DeviceReal>(
                     even,
                 );
                 let mut two_grid = TwoGrid::new(smoother, correction, even);
-                let waiting = work(&mut ratio(), &mut two_grid, vectors)?;
+                let (waiting, ends) = work(&mut ratio(), &mut two_grid, vectors)?;
                 drop(two_grid);
-                waiting.back()
+                Ok((waiting.back()?, ends))
             })
         },
         &mut |y| lowest_ritz_pair(&mut ratio(), y),

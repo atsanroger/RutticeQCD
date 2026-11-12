@@ -1133,14 +1133,15 @@ impl<T: LevelReal> DeviceCoarseOp<T> {
     /// The exact adjoint A† applied from the blocks and links of this operator, with no second
     /// operator stored (`coarse_adjoint_pass_kernel`): the table of the sites every hop comes
     /// from is the only thing made. On one process; `None` on a lattice cut between processes,
-    /// whose adjoint needs the links of the ghosts (`adjoint`).
+    /// whose adjoint needs the links of the ghosts (`adjoint`), and above the dimension 256
+    /// (128 test vectors) the kernel takes, where the copy serves.
     pub fn adjoint_pass(self: &Rc<Self>) -> Result<Option<AdjointPass<T>>, Box<dyn Error>> {
-        if self.ghosts().is_some() {
+        if self.ghosts().is_some() || self.dim() > 256 {
             return Ok(None);
         }
         assert!(
-            self.dim().is_multiple_of(2) && self.dim() <= 256,
-            "coarse_adjoint_pass_kernel takes an even dimension up to 256"
+            self.dim().is_multiple_of(2),
+            "coarse_adjoint_pass_kernel takes an even dimension"
         );
         let (sites, (neighbours, _)) = (self.sites(), self.tables());
         let mut from = vec![0u32; 2 * ND * sites];

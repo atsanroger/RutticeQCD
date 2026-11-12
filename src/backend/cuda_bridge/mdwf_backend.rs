@@ -22,7 +22,7 @@ use crate::solver::preconditioner::multigrid::{
 };
 use crate::solver::Convert;
 use crate::{EvenOddIndex, Field, Half, Lattice, LinearFn, Parity, Spinor};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -95,8 +95,15 @@ fn reported<T: DeviceReal>(report: &mut dyn FnMut(SetupStage<'_>), stage: Stage<
     }
 }
 
+/// The test vectors, and the parts of the correction the bootstrap ended on when the solve can
+/// take them (`vectors_in`).
+type Bootstrapped<T> = (DeviceSpinor<T>, Option<DeviceParts<f32>>);
+
 /// The test vectors for `ops` from those `kept`: a full setup without any, a bootstrap from
-/// them when `due`, else as they are.
+/// them when `due`, else as they are. With them the parts of the correction the bootstrap ended
+/// on, when the probe ended it and the solve would make the same parts: the settings of the
+/// bootstrap's cycle are those of the solve's, and the coarse operators are in single precision
+/// as in the bootstrap.
 #[allow(clippy::too_many_arguments)]
 fn vectors_in<T: DeviceReal>(
     ops: (&CudaMdwf<T>, &CudaMdwf<T>),
@@ -107,7 +114,7 @@ fn vectors_in<T: DeviceReal>(
     kept: Option<&Stashed<T>>,
     due: bool,
     report: &mut dyn FnMut(SetupStage<'_>),
-) -> Result<DeviceSpinor<T>, Box<dyn Error>> {
+) -> Result<Bootstrapped<T>, Box<dyn Error>> {
     let mut stages = |s: Stage<'_, T>| reported(report, s);
     let mut y = match kept {
         None => filtered_test_vectors(
@@ -120,8 +127,10 @@ fn vectors_in<T: DeviceReal>(
             &mut stages,
         )?,
         Some(k) if due => k.restore()?,
-        Some(k) => return Ok(k.restore()?),
+        Some(k) => return Ok((k.restore()?, None)),
     };
+    let ending = RefCell::new(None);
+    let same = settings.bootstrap.cycle == settings.cycle && !settings.coarse_double;
     let mut with = device_correction_with_levels(
         ops,
         agg,
@@ -129,6 +138,7 @@ fn vectors_in<T: DeviceReal>(
         even,
         !settings.basis_single,
         settings.levels(),
+        same.then_some(&ending),
     );
     bootstrap(
         ops,
@@ -139,7 +149,8 @@ fn vectors_in<T: DeviceReal>(
         &mut with,
         &mut stages,
     )?;
-    Ok(y)
+    drop(with);
+    Ok((y, ending.into_inner()))
 }
 
 /// `op` in single precision on its links, Neff's α kept (`converted_from` takes the parameters,
@@ -306,22 +317,39 @@ impl MdwfBackend for OnDevice {
             ($ops:expr, $outers:expr, $halves:expr, $kept:expr, $stash:path) => {{
                 let (ops, halves) = ($ops, $halves);
                 let tops = tops_in($outers, halves, lat, settings.cycle)?;
-                let y = vectors_in(ops, halves, lat, &agg, settings, $kept, due, report)?;
+                let (y, ended) = vectors_in(ops, halves, lat, &agg, settings, $kept, due, report)?;
                 let seconds = start.elapsed().as_secs_f64();
-                let (basis, levels) = basis_in(ops, &agg, settings, &y, report)?;
-                // The test vectors are not needed for the coarse parts: on the host from here.
-                let parked = y.stash()?;
-                let levels = levels.as_ref();
-                let parts = match settings.coarse_double {
-                    false => DeviceKept::Single(
-                        coarse_parts(basis, ops, halves.0, settings, levels, report)?,
-                        tops,
-                    ),
-                    true => DeviceKept::Double(
-                        coarse_parts(basis, ops, halves.0, settings, levels, report)?,
-                        tops,
-                    ),
+                let parts = match ended {
+                    // The cycle the probe ended the bootstrap on: made of these vectors with the
+                    // settings of the solve, so the parts below would be the same.
+                    Some(parts) => {
+                        report(SetupStage::Checksum("P", &|| {
+                            parts.basis().checksum().expect("a checksum on the device")
+                        }));
+                        report(SetupStage::Kept);
+                        let parked = y.stash()?;
+                        (parked, DeviceKept::Single(parts, tops))
+                    }
+                    None => {
+                        let (basis, levels) = basis_in(ops, &agg, settings, &y, report)?;
+                        // The test vectors are not needed for the coarse parts: on the host
+                        // from here.
+                        let parked = y.stash()?;
+                        let levels = levels.as_ref();
+                        let parts = match settings.coarse_double {
+                            false => DeviceKept::Single(
+                                coarse_parts(basis, ops, halves.0, settings, levels, report)?,
+                                tops,
+                            ),
+                            true => DeviceKept::Double(
+                                coarse_parts(basis, ops, halves.0, settings, levels, report)?,
+                                tops,
+                            ),
+                        };
+                        (parked, parts)
+                    }
                 };
+                let (parked, parts) = parts;
                 ($stash(parked), parts, seconds)
             }};
         }

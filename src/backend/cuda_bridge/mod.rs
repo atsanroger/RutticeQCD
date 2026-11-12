@@ -419,7 +419,17 @@ impl<T: DeviceReal> DeviceBuffer<T> {
     /// The reals as they are, on the host.
     fn download_raw(&self) -> Result<Vec<T>, CudaError> {
         let mut host = vec![T::default(); self.len];
-        // SAFETY: as in `from_host`, the other way.
+        self.download_into(&mut host)?;
+        Ok(host)
+    }
+
+    /// The reals as they are, into `host`. Into memory already written this is several times
+    /// faster than into a new `Vec`, whose pages the copy first has to fault in (0.035 s against
+    /// 0.16 s for 0.27 GB on the A30).
+    fn download_into(&self, host: &mut [T]) -> Result<(), CudaError> {
+        assert_eq!(host.len(), self.len, "the host range must hold the buffer");
+        // SAFETY: both ranges hold `len` reals (asserted for the host one; the device one was
+        // allocated with that size), and `host` is borrowed mutably, so nothing else reads it.
         check(unsafe {
             cudaMemcpy(
                 host.as_mut_ptr().cast(),
@@ -427,8 +437,7 @@ impl<T: DeviceReal> DeviceBuffer<T> {
                 self.bytes(),
                 DEVICE_TO_HOST,
             )
-        })?;
-        Ok(host)
+        })
     }
 }
 

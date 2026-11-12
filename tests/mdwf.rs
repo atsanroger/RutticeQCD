@@ -1727,6 +1727,168 @@ fn bootstrap_rounds_end_on_the_gain() {
     );
 }
 
+/// The bootstrap that ends on the gain, split over processes (threads standing in for them),
+/// ends after the same round as on one process (the third, with the gain 1.2): its vectors differ from those of one process by
+/// rounding, far less than from those of one round fewer. On one process it repeats bit for bit.
+#[test]
+fn bootstrap_rounds_end_alike_on_several_processes() {
+    let global = [4, 4, 4, 8];
+    let whole = Lattice::single_node(global);
+    let u = random_gauge(&whole, 171);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let (op, pv) = (
+        operator(&whole, MOBIUS, &u),
+        operator(&whole, pv_params, &u),
+    );
+    let (filtered, _) = pv_eo_low_modes(
+        &op,
+        &pv,
+        &whole,
+        LowModeParams {
+            vectors: 6,
+            rounds: 2,
+            chunk: 3,
+            seed: 172,
+        },
+    );
+    let index = op.even_odd_index().unwrap().clone();
+    let mut start = Field::<f64, Spinor>::with_shape(&whole, 24, MOBIUS.ls, 6, 1);
+    insert_parity(&mut start, &filtered, &index);
+    // The gains of the rounds here are 2.7, 1.41, 1.085, 1.015: a gain of 4 would end before the
+    // first round, 1.2 ends before the third, well apart from both neighbors.
+    let automatic = BootstrapParams {
+        min_gain: Some(1.2),
+        ..BootstrapParams::automatic()
+    };
+    // The bootstrap on the processes of `lat`, its vectors put back on the full lattice of the
+    // process.
+    let run = |lat: Arc<Lattice>, params: BootstrapParams| {
+        let u = local_part(&u, &lat);
+        let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+        let index = op.even_odd_index().unwrap().clone();
+        let mut y = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 6, 1);
+        extract_parity(&mut y, &local_part(&start, &lat), &index, Parity::Even);
+        let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+        pv_eo_bootstrap(&op, &pv, &agg, &mut y, params).unwrap();
+        let mut full = Field::<f64, Spinor>::with_shape(&lat, 24, MOBIUS.ls, 6, 1);
+        insert_parity(&mut full, &y, &index);
+        full
+    };
+    let all = [0, 1, 2, 3, 4, 5];
+    let rel = |want: &V, got: &V| {
+        let mut d = got.select(&all);
+        d.aypx(&vec![C64::new(-1.0, 0.0); want.num_vectors()], want);
+        let (mut e, mut n) = (vec![0.0; want.num_vectors()], vec![0.0; want.num_vectors()]);
+        d.norm_sqr(&mut e);
+        want.norm_sqr(&mut n);
+        e.iter()
+            .zip(&n)
+            .fold(0.0_f64, |m, (e, n)| m.max((e / n).sqrt()))
+    };
+    let bits = |x: &V| x.as_slice().iter().map(|a| a.to_bits()).collect::<Vec<_>>();
+
+    let one = run(whole.clone(), automatic);
+    assert_eq!(
+        bits(&one),
+        bits(&run(whole.clone(), automatic)),
+        "one process repeats"
+    );
+    // The round the gain ends on: the exact rounds whose vectors are those of the gain.
+    let exact = |rounds| {
+        run(
+            whole.clone(),
+            BootstrapParams {
+                rounds,
+                min_gain: None,
+                ..automatic
+            },
+        )
+    };
+    let mut before = start.select(&all);
+    let rounds = (1..automatic.rounds)
+        .find(|&k| {
+            let x = exact(k);
+            let found = bits(&x) == bits(&one);
+            if !found {
+                before = x;
+            }
+            found
+        })
+        .expect("the gain ends the rounds before the last");
+    let apart = rel(&one, &before);
+    eprintln!("one process: {rounds} rounds; one round fewer differs by {apart:.1e}");
+    assert_eq!(rounds, 2, "the rounds the gain 1.2 ends after");
+    assert!(apart > 1e-4, "{apart:e}");
+    for grid in [[1, 1, 1, 2], [2, 1, 1, 2]] {
+        let parts = LocalComm::run(global, grid, |lat| run(lat, automatic));
+        let diff = rel(&one, &assemble(&whole, &parts));
+        eprintln!("grid {grid:?}: the vectors differ by {diff:.1e} from one process");
+        assert!(diff < 1e-8, "grid {grid:?}: {diff:e}");
+    }
+}
+
+/// The cycle with the regularized coarse CG on two vectors, one of them 0: CG drops the zero
+/// vector at once and goes on with the other, which comes out as on its own.
+#[test]
+fn cycle_on_vectors_that_converge_apart() {
+    let lat = Lattice::single_node([4, 4, 4, 8]);
+    let u = random_gauge(&lat, 171);
+    let pv_params = MdwfParams {
+        mass: 1.0,
+        ..MOBIUS
+    };
+    let (op, pv) = (operator(&lat, MOBIUS, &u), operator(&lat, pv_params, &u));
+    let (y, _) = pv_eo_low_modes(
+        &op,
+        &pv,
+        &lat,
+        LowModeParams {
+            vectors: 6,
+            rounds: 2,
+            chunk: 3,
+            seed: 172,
+        },
+    );
+    let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+    let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+    let mut cycle = PvEoCycle::new(
+        &op,
+        &pv,
+        (&op, &pv, EoForm::Right),
+        &basis,
+        PvEoParams::default(),
+    )
+    .unwrap();
+    let index = op.even_odd_index().unwrap().clone();
+    let mut two = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 2, 1);
+    extract_parity(
+        &mut two,
+        &random(&lat, MOBIUS.ls, 2, 174),
+        &index,
+        Parity::Even,
+    );
+    let zero = two.select(&[1]).zeros_like();
+    two.assign(&[1], &zero);
+    let mut out = two.zeros_like();
+    cycle.mult(&mut out, &two);
+    let alone = two.select(&[0]);
+    let mut out_alone = alone.zeros_like();
+    cycle.mult(&mut out_alone, &alone);
+    assert!(out.select(&[1]).as_slice().iter().all(|a| *a == 0.0));
+    let (first, want) = (out.select(&[0]), out_alone.as_slice());
+    assert!(
+        first
+            .as_slice()
+            .iter()
+            .zip(want)
+            .all(|(a, b)| (a - b).abs() <= 1e-12 * (1.0 + b.abs())),
+        "the nonzero vector differs from the cycle on it alone"
+    );
+}
+
 /// In single precision above the coarse lattice the multigrid is as good a preconditioner.
 #[test]
 fn test_mg_even_odd_pv_multigrid_setup_from_scratch() {

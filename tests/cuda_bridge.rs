@@ -1817,7 +1817,8 @@ fn test_mg_multigrid_transfers_on_the_device() {
 }
 
 /// The coarse correction of the domain-wall multigrid on the device is that of the CPU, for
-/// both forms of the operator and the second factor by MINRES on its Hermitian form or by
+/// both forms of the operator and the second factor by the regularized CG (the default, with
+/// the adjoint applied by `coarse_adjoint_pass_kernel`), by MINRES on its Hermitian form or by
 /// BiCGStab on its exact adjoint: with the coarse systems solved to rounding in double
 /// precision the two agree to that.
 #[test]
@@ -1866,21 +1867,33 @@ fn test_mg_multigrid_correction_on_the_device() {
     };
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
     let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &half(n, 442)).unwrap();
-    let minres = PvEoParams {
+    // The default: the regularized CG of the Pauli-Villars factor.
+    let regularized = PvEoParams {
         coarse_tolerance_sqr: 1e-26,
         pv_tolerance_sqr: 1e-26,
         coarse_max_iterations: 400,
         pv_max_iterations: 400,
         ..PvEoParams::default()
     };
+    let minres = PvEoParams {
+        pv_solver: CoarseKrylov::Minres.into(),
+        ..regularized
+    };
     let adjoint = PvEoParams {
         pv_solver: CoarseKrylov::BiCgStab.into(),
-        ..minres
+        ..regularized
     };
     let r = half(nv, 443);
     let device_r = DeviceSpinor::from_host_half(&r, &index).unwrap();
     let even = device_r.zeros_like();
     for (form, cpu_outer, gpu_outer, settings) in [
+        (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv), regularized),
+        (
+            EoForm::Left,
+            (&cpu_a, &cpu_pv),
+            (&gpu_a, &gpu_pv),
+            regularized,
+        ),
         (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv), minres),
         (EoForm::Left, (&cpu_a, &cpu_pv), (&gpu_a, &gpu_pv), minres),
         (EoForm::Right, (&cpu, &cpu_pv), (&gpu, &gpu_pv), adjoint),
@@ -3777,8 +3790,10 @@ fn test_meter_the_work_of_a_multigrid_solve_is_counted_alike_on_both() {
 /// The exact adjoint of a coarse operator applied from its own blocks and links
 /// (`AdjointPass`, `coarse_adjoint_pass_kernel`) gives what the explicit adjoint
 /// (`DeviceCoarseOp::adjoint`) gives up to the order of the sums, in double and single precision,
-/// for 4 and 40 test vectors (8 and 80 components a coarse site: one and two column chunks of a
-/// lane), on two vectors at once; and the same numbers on every run.
+/// for P made of 1 to 64 vectors (4 to 256 components per coarse site: fewer rows than warps,
+/// and one to four column chunks of a lane), on two vectors at once; ⟨c, A A† c⟩ = |A† c|² with
+/// the forward operator; the same numbers on every run; and above 256 components no pass (the
+/// copy serves).
 #[test]
 fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
     use ruttice::backend::cuda_bridge::{DeviceBasis, DeviceCoarse, LevelReal};
@@ -3843,6 +3858,18 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
             eprintln!("{name}, vector {j}: |A† c (kernel) - A† c (copy)| / |A† c| = {rel:e}");
             assert!(rel < tolerance, "{name}: {rel:e}");
         }
+        // Against the forward operator, which reads the neighbor table itself rather than the
+        // inverted one: ⟨c, A (A† c)⟩ = |A† c|².
+        let mut forward = c.zeros_like();
+        coarse.apply(&mut forward, &runs[0], false);
+        let (mut lhs, mut rhs) = (vec![C64::new(0.0, 0.0); nv], vec![C64::new(0.0, 0.0); nv]);
+        c.dot(&forward, &mut lhs);
+        runs[0].dot(&runs[0], &mut rhs);
+        for j in 0..nv {
+            let rel = ((lhs[j] - rhs[j]).norm_sqr() / rhs[j].norm_sqr()).sqrt();
+            eprintln!("{name}, vector {j}: ⟨c, A A† c⟩ against |A† c|²: {rel:e}");
+            assert!(rel < tolerance, "{name}: ⟨c, A A† c⟩ {rel:e}");
+        }
         for run in &runs[1..] {
             let mut again = run.zeros_like();
             again.copy_from(run);
@@ -3864,7 +3891,7 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
     );
     let mut x_e = DeviceParities.half_like(&x2, Parity::Even);
     DeviceParities.extract(&mut x_e, &x2, Parity::Even);
-    for n in [4usize, 40] {
+    for n in [1usize, 2, 4, 40, 48, 64, 65] {
         let first = DeviceSpinor::from_host(&random_fifth(&lat, 4, 480)).unwrap();
         let mut y = first.zeros_with(n);
         for k in 0..n {
@@ -3877,6 +3904,12 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
         DeviceParities.extract(&mut y_e, &y, Parity::Even);
         let basis = DeviceBasis::pv_eo(&d, &pv, &Aggregation::new(&lat, [2, 2, 2, 2]), &y_e, false)
             .unwrap();
+        if n > 64 {
+            // A coarse dimension above 256: the kernel's limit; the solve takes the copy.
+            let coarse = Rc::new(d.coarse_operator_on_device::<f64>(&basis, true).unwrap());
+            assert!(coarse.dim() > 256 && coarse.adjoint_pass().unwrap().is_none());
+            continue;
+        }
         check::<f64>(&d, &basis, &x_e, 1e-13, &format!("{n} vectors, double"));
         check::<f32>(&d, &basis, &x_e, 1e-5, &format!("{n} vectors, single"));
     }

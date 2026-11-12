@@ -1,4 +1,4 @@
-//! exp/b5-dagger: D† through D for Möbius fermions with constant b, c. With D = 1 + Y + W B5,
+//! D† through D for Möbius fermions with constant b, c. With D = 1 + Y + W B5,
 //! B5 = b − cY, the Γ5 properties of Y and W give Γ5 D† Γ5 = 1 + Y + B5 W = B5 D B5⁻¹, so
 //! (D†)⁻¹ = Γ5 B5 D⁻¹ B5⁻¹ Γ5. B5 is the site-local part C = d+ + d- Y of an operator with
 //! d+ = b, d- = −c (M5 = 3, b − 1, c + 1).

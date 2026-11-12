@@ -234,6 +234,12 @@ pub(super) fn run(
                         "  the same levels for the Pauli-Villars factor on the device: {applications} coarse applications ({seconds:.0} s); {}",
                         memory()
                     ),
+                    SetupStage::Kept => writeln!(
+                        out,
+                        "  P, the coarse operators and the levels of that cycle kept for the solve; {:.0} s; {}",
+                        start.elapsed().as_secs_f64(),
+                        memory()
+                    ),
                     SetupStage::Checksum(what, sum) => match checksums() {
                         true => writeln!(out, "  checksum of {what}: {:016x}", sum()),
                         false => Ok(()),

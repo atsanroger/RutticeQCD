@@ -285,7 +285,8 @@ impl<T: DeviceReal> Stashed<T> {
     pub(crate) fn set_vector(&mut self, j: usize, v: &DeviceSpinor<T>) -> Result<(), CudaError> {
         let one = self.one();
         assert!(v.vectors == 1 && v.data.len == one && v.parity == self.parity);
-        self.host[j * one..(j + 1) * one].copy_from_slice(&v.data.download_raw()?);
+        v.data
+            .download_into(&mut self.host[j * one..(j + 1) * one])?;
         Ok(())
     }
 }

@@ -767,6 +767,159 @@ fn test_hmc_the_hmc_example_repeats_bridge() {
     assert!(HmcConfig::from_yaml(&bad).is_err());
 }
 
+/// Keys that would make HMC run another action than the file states are refused when it is
+/// read, with the key named: a Pauli-Villars mass, keys of the other fermion kind, the
+/// coefficients of the rectangle action with the plaquette action, a Dirichlet domain-wall
+/// boundary, a denominator of another L_s, an L_s out of range; and lengths, stops and couplings
+/// that are 0 or not finite; a start key of another start; `MultiGrid_HMC` without the
+/// multigrid.
+#[test]
+fn test_hmc_refuses_keys_of_another_action() {
+    use ruttice::app::hmc::HmcConfig;
+    let dw = include_str!("../examples/hmc_domainwall_pv.yaml");
+    let clover = include_str!("../examples/hmc_clover_rhmc_nf2p1.yaml");
+    assert!(HmcConfig::from_yaml(dw).is_ok() && HmcConfig::from_yaml(clover).is_ok());
+    let dw_fopr = "    extent_of_5th_dimension : 8\n";
+    let dw_boundary = "    boundary_condition      : [1, 1, 1, -1]\n";
+    let denominator = "  Fopr_denominator:\n    fermion_type            : Domainwall\n    extent_of_5th_dimension : 12\n    domain_wall_height      : 1.6\n    quark_mass              : 1.0\n    boundary_condition      : [1, 1, 1, -1]\n";
+    let cases = [
+        (
+            dw.replace(
+                dw_fopr,
+                &format!("{dw_fopr}    quark_mass_PauliVillars : 0.5\n"),
+            ),
+            "quark_mass_PauliVillars",
+        ),
+        (
+            dw.replace(dw_fopr, &format!("{dw_fopr}    hopping_parameter : 0.1\n")),
+            "hopping_parameter",
+        ),
+        (
+            dw.replace(dw_boundary, "    boundary_condition      : [1, 1, 1, 0]\n"),
+            "boundary_condition",
+        ),
+        (
+            dw.replace(dw_fopr, "    extent_of_5th_dimension : 200\n"),
+            "extent_of_5th_dimension",
+        ),
+        (
+            dw.replace(dw_boundary, &format!("{dw_boundary}{denominator}")),
+            "Fopr_denominator",
+        ),
+        (dw.replace("Action_G_Rectangle", "Action_G_Plaq"), "c_plaq"),
+        (
+            clover.replacen(
+                "fermion_type       : Clover",
+                "fermion_type       : Wilson",
+                1,
+            ),
+            "clover_coefficient",
+        ),
+        (
+            dw.replace("trajectory_length : 0.1", "trajectory_length : 0"),
+            "trajectory_length",
+        ),
+        (
+            dw.replace(
+                "convergence_criterion_squared : 1.0e-28",
+                "convergence_criterion_squared : .nan",
+            ),
+            "convergence_criterion_squared",
+        ),
+        (dw.replace("beta            : 2.3", "beta : .inf"), "beta"),
+        (
+            dw.replace(
+                "  number_of_trajectories  : 1\n",
+                "  number_of_trajectories  : 1\n  seed_for_random_number  : 3\n",
+            ),
+            "seed_for_random_number",
+        ),
+        (
+            dw.replace(
+                "  Solver:\n",
+                "  MultiGrid_HMC:\n    refresh_interval : 5\n  Solver:\n",
+            ),
+            "MultiGrid_HMC",
+        ),
+        (
+            clover.replacen(
+                "    clover_coefficient : 1.0\n",
+                "    clover_coefficient : 1.0\n    quark_mass : 0.1\n",
+                1,
+            ),
+            "quark_mass",
+        ),
+    ];
+    for (text, key) in cases {
+        match HmcConfig::from_yaml(&text) {
+            Ok(_) => panic!("{key}: accepted"),
+            Err(e) => assert!(e.to_string().contains(key), "{key}: {e}"),
+        }
+    }
+}
+
+/// Keys that are given but not used are accepted with a note naming them, printed after the
+/// header: a start format with a cold start, an Omelyan λ with Leapfrog, smearing no action
+/// uses, kept directions with CG, a verbose level HMC does not have.
+#[test]
+fn test_hmc_notes_keys_it_does_not_use() {
+    use ruttice::app::hmc::HmcConfig;
+    let dw = include_str!("../examples/hmc_domainwall_pv.yaml");
+    assert!(HmcConfig::from_yaml(dw).unwrap().notes().is_empty());
+    let cold = dw
+        .replace(
+            "  gauge_config_status     : Continue",
+            "  gauge_config_status     : Cold_start",
+        )
+        .replace(
+            "  gauge_config_type_input : Text
+",
+            "  gauge_config_type_input : Binary
+",
+        )
+        .replace(
+            "  config_filename_input   : conf_04040408.txt
+",
+            "",
+        );
+    let cases = [
+        (cold, "gauge_config_type_input"),
+        (
+            dw.replace(
+                "  lattice_size : [4, 4, 4, 8]\n",
+                "  lattice_size : [4, 4, 4, 8]\n  verbose_level : Detailed\n",
+            ),
+            "verbose_level",
+        ),
+        (
+            dw.replace(
+                "  integrator      : Omelyan",
+                "  integrator      : Leapfrog\n  lambda_Omelyan  : 0.2",
+            ),
+            "lambda_Omelyan",
+        ),
+        (
+            dw.replace("  smeared         : true", "  smeared         : false"),
+            "GaugeSmearing",
+        ),
+        (
+            dw.replace(
+                "    solver_type                   : CG\n",
+                "    solver_type                   : CG\n    number_of_kept_directions : 5\n",
+            ),
+            "number_of_kept_directions",
+        ),
+    ];
+    for (text, key) in cases {
+        let config = HmcConfig::from_yaml(&text).unwrap_or_else(|e| panic!("{key}: {e}"));
+        assert!(
+            config.notes().iter().any(|n| n.contains(key)),
+            "{key}: {:?}",
+            config.notes()
+        );
+    }
+}
+
 /// Settings that would run wrongly are refused when the file is read: a level of no steps
 /// (its forces left out), a save interval of zero (a division by zero after the first
 /// trajectory).
@@ -2019,6 +2172,21 @@ fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
         "    solver_type                   : GCR\n    preconditioner_type           : MG\n    number_of_kept_directions     : 8",
     );
     base.push_str("  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n      bootstrap_number_of_rounds : 2\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n      Coarse_Solver_PV:\n        solver_type                   : CG\n        tikhonov_epsilon              : 1.0e-3\n        maximum_number_of_iteration   : 2000\n        convergence_criterion_squared : 1.0e-2\n");
+    // b = c = 0 makes B5 = b − cY zero: Through_D is refused when the file is read.
+    let singular = with(
+        &with(
+            &base,
+            "coefficient_b           : 1.5",
+            "coefficient_b           : 0.0",
+        ),
+        "coefficient_c           : 0.5",
+        "coefficient_c           : 0.0",
+    ) + "  MultiGrid_HMC:\n    dagger_solve : Through_D\n";
+    let refused = match ruttice::app::hmc::HmcConfig::from_yaml(&singular) {
+        Ok(_) => panic!("b = c = 0 with Through_D: accepted"),
+        Err(e) => e.to_string(),
+    };
+    assert!(refused.contains("Through_D needs B5"), "{refused}");
     for (route, trajectories, growth, reference) in [
         ("Gamma5_cycle", 2, "1.1", 703),
         ("Through_D", 1, "1.5", 340),

@@ -111,13 +111,14 @@ fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
     let mut b = g.zeros_like();
     adj.apply_adjoint(&mut b, g);
     n.set(n.get() + nv);
+    // CG drops the vectors that have converged, so `t` and the shift follow `inp`.
     let mut t = g.zeros_like();
-    let shift = vec![C64::new(eps, 0.0); nv];
     let mut normal = FnMap(|out: &mut C, inp: &C| {
+        fit(&mut t, inp);
         a.mult(&mut t, inp);
         adj.apply_adjoint(out, &t);
         n.set(n.get() + 2 * inp.num_vectors());
-        out.axpy(&shift, inp);
+        out.axpy(&vec![C64::new(eps, 0.0); inp.num_vectors()], inp);
     });
     let _ = crate::solver::Cg::inner(stop).solve(&mut normal, None, x, &b);
 }

@@ -936,6 +936,114 @@ beforehand would end the rounds without it.
 - The probe makes P of the same vectors as the setup after it; handing that P over would save a
   few seconds more.
 
+### 27. Findings of the reviews of 2026-11-12
+
+Four independent reviews (the bootstrap stop, the HMC multigrid and D† through D, the device
+code of 0.10.0, the HMC parameter file), all from reading the code and small CPU runs.
+
+Fixed (CHANGELOG, Unreleased): the regularized coarse CG that panicked once it dropped converged
+vectors (`cycle_on_vectors_that_converge_apart`, which panicked before the fix); HMC keys that
+gave another action than the file states (the Fopr checks of the propagator files, the
+Pauli-Villars mass, `c_plaq`/`c_rect` with the plaquette action, a domain-wall boundary of 0, a
+denominator of another L_s or boundary or with `neff_alpha`, L_s out of range); `adjoint_pass`
+above 128 test vectors (the copy instead); `tikhonov_epsilon` not finite; a breakdown of the HMC
+inner solver (CG instead); the stall retry with 0 rounds; ranges of `trajectory_length`, the
+stops, the flow, `beta`, `lambda_Omelyan`, `Rational.upper_bound`, `maximum_number_of_restart`;
+the refresh tick of a retried solve; the FGMRES step limit; the test named `minres` (now the
+regularized solve, MINRES and BiCGStab); KERNELS_NOTE on `coarse_adjoint_pass_kernel`; USAGE on
+the stop of the coarse CG; the "exp:" labels.
+
+Fixed afterwards: a `MultiGrid_HMC` block without the multigrid, start keys of another start,
+multigrid keys of the other fermion kind (refused for domain-wall fermions, noted for Wilson and
+clover where they differ from their defaults), the Chebyshev default of HMC (8 steps with the
+block or without), and the device test of `adjoint_pass` (⟨c, A A† c⟩ = |A† c|² with the forward
+operator; 2 to 128 test vectors).
+
+Left:
+
+- Keys HMC does not use are now notes printed after the header (`# note:`): a start format
+  with a cold or hot start, an output format without an output file, `lambda_Omelyan` with
+  Leapfrog, `GaugeSmearing` no action uses, kept directions with CG or BiCGStab,
+  `Main.verbose_level` and `simd_lanes`, a flow that skips every trajectory.
+- `dagger_solve : Through_D` refuses b = 0 with c = 0 or m = 0, where B5 = b − cY is singular
+  (Y^L_s = ±m on each chirality, so |λ|^L_s = |m| for the eigenvalues of Y). B5 is also
+  singular when b/c is exactly an eigenvalue of Y, (b/c)^L_s = ±m with the sign of the corner of
+  Y; that case, of measure zero, is not refused, and the sign was derived and has not been checked
+  numerically.
+- Under the regularized solve the PV block inverses are still made and unused (setup time; a
+  singular PV block stops the setup for nothing). Removing them changes `CoarseParts` on both
+  backends; measure the setup time first.
+- The launcher of `coarse_adjoint_pass_kernel` keeps its shared-memory limit in a static that is
+  not per device, and does not check `cudaFuncSetAttribute` (as `coarse_pass_launch_as`).
+- A regression test of HMC by CG, Gamma5_cycle and Through_D on 4³×8 (about 4 minutes on the
+  CPU; the reviewer's runs gave the same plaquette to 15 digits).
+
+### 28. Setup time (2026-11-12, in progress)
+
+With `bootstrap_number_of_rounds : auto` the setup on 24³×48 (S, m 0.001, v2) takes 305 s
+against 203 s with 2 rounds: the filter 59 s, rounds 1–3 50, 70 and 67 s, the probe of round 4
+33 s, the final P, coarse operators and levels 26 s. From the probe's 33 s a cycle takes about
+30 s to make and the 16 vectors about 40 s per round (an estimate by difference; nothing timed
+inside the setup yet). The rerun with `auto` (`rerunA/` on as13) keeps the worst configuration at
+21–22 iterations against 43–44 with 2 rounds at m 0.001, and stops after 1 round at m 0.1–0.05.
+
+Two changes are made and checked on the device (2026-11-13):
+- The final setup takes the cycle the probe ended the bootstrap on (P, P†DP, P†D_PV P, the
+  levels) instead of making it again, when the bootstrap's cycle settings are the solve's and
+  the coarse operators are in single precision. The inputs are the same (the same function on
+  the same vectors; the level vectors f32 → f64 → f32 are exact). Checked with
+  `RUTTICE_CHECKSUM=1` on `rerunA/T_ps_S__v2` with the old and the new binary
+  (`filterscanA/checksum_*.log`): the probe's P†DP, P†D_PV P and their block inverses have the
+  checksums of the old final setup, P the same, and the 12 solutions the same checksums,
+  iterations, coarse applications and residuals.
+- The top of the smoother (50 steps of the power iteration on Ã) once for all rounds of the
+  bootstrap: it is that of Ã, which the vectors do not change. Its checksum is the same in every
+  round and in both binaries.
+
+Without checksums the setup of the same job takes 273 s against 305 s (`filterscanA/keep_*`).
+
+A profile by nsys (`filterscanA/prof_T_ms_S_v2*`) found the device idle while the host worked:
+- 16 s at the start of the filter: `random_even` drew the 2·10⁹ reals of the 16 start vectors
+  one after the other on one thread, the odd sites included. SplitMix64 adds a constant to its
+  state per draw, so each site now starts at its own draw (`TestRng::skipped`) and the sites
+  are filled in parallel; `random_spinor` the same. A test compares both with the draws one
+  after the other, on one process and on a split lattice.
+- 2.2 s per round in `Stashed::set_vector`: each vector came back into a new `Vec` (0.16 s for
+  0.27 GB, the pages faulted in during the copy) and was then copied. It now goes straight into
+  the stash (`download_into`; 0.035 s in a test program).
+- 2.3 s per round in `stash`, the 4 GB of the vectors into a new `Vec` (1.8 GB/s). Into pinned
+  memory the copy takes 0.22 s (test program), but pinning 4 GB takes 2.0 s: a pinned buffer
+  kept from round to round would recover about 2 s per round. Not done.
+
+With both changes the checksums of `rerunA/T_ps_S__v2` are those of the build before at every
+stage (`filterscanA/checksum_hostfast_*`), and the setup of T_ms_S m 0.001 v2 takes 258 s
+(262 s with `RAYON_NUM_THREADS=2`): the filter 50 s, the rounds 48, 65 and 62 s, the probe 31 s.
+
+The kernels of that setup by device time: the fine hops (`hop_gemm`) 73 s, the coarse
+operator in the cycles (`coarse_pass`) 36 s, the restriction (`fold_restrict_tiled`) 34 s,
+the probing of the coarse operators (`hop_split`) 26 s, the prolongation 8 s. The restriction
+reads all of P per call (4 GB in half precision, 6.7 ms); each coarse operator is made with
+about 1000 of them.
+
+The filter scan (`filterscanA/F*`, m 0.001, α 0.6, 4 configurations): with 1 filter round
+instead of 2 the filter takes 42 s against 59 s, but the bootstrap needs 4 rounds on S (setup
+344–358 s against 305–323 s), and on S 000802 it stops after 2 rounds with the gain of the
+probe 3.9 and the solve takes 86 iterations (18 with 2 filter rounds). With none the bootstrap
+needs 4–5 rounds (setup 315–396 s). Two filter rounds stay.
+
+Next:
+- A pinned host buffer for the stash, kept from round to round (about 2 s per round).
+- The restriction in the making of the coarse operators: probe vectors restricted several at a
+  time would read P once for all of them (34 s of restriction, most of it there; to be counted).
+- The stop of the bootstrap on S 000802 with 1 filter round: a gain of 3.9 against the
+  threshold 4 left the solve at 86 iterations. With 2 filter rounds no stop of rerunA was that
+  bad, but the threshold has no margin for it.
+- The PV block inverses made and unused under the regularized solve (item 27).
+- `bootstrap_number_of_steps` (4) and the gain of the probe (4): scans once the profile is in.
+- The 16 vectors of a round through the cycle together: the coarse operators would be read once
+  for all of them, but 16 FGMRES(4) at once need about 50 GB on 24³×48 (estimated: about 3 GB per
+  vector in single precision), beyond the A30; at most 2 at a time there.
+
 ## Ideas from the literature (to evaluate later)
 
 - **Test vectors from a renormalization-group blocked lattice** (Eick and Mawhinney,

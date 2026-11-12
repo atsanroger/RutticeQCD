@@ -190,8 +190,9 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
         stalled += info.iterations;
         setup.rebuild_due = true;
         setup.after_stall = true;
-        // The same solve: a force solve counts once towards `refresh_every`.
-        result = attempt(setup, (fresh, false));
+        // The same solve: a force solve counts once towards `refresh_every`, from the bootstrap
+        // of the retry (which sets the count to 0).
+        result = attempt(setup, (fresh, flags.1));
     }
     if let Ok(info) | Err(SolveError::NotConverged(info)) = &mut result {
         info.iterations += stalled;
@@ -247,10 +248,13 @@ fn solves_once<B: MdwfBackend + 'static>(
             }
             let kept_vectors = kept.vectors.take();
             let quiet = &mut |_: SetupStage<'_>| {};
-            // After a stall the probe could end the bootstrap at once on vectors that gave it.
+            // After a stall the probe could end the bootstrap at once on vectors that gave it,
+            // and with no rounds the retry would make the same P again.
             let mut mg = setup.mg;
             if setup.after_stall {
-                mg.bootstrap.min_rounds = mg.bootstrap.min_rounds.max(1);
+                let b = &mut mg.bootstrap;
+                b.min_rounds = b.min_rounds.max(1);
+                b.rounds = b.rounds.max(1);
             }
             let (vectors, parts, vector_seconds) =
                 backend.rebuild((d, pv), &outers, lat, &mg, kept_vectors, due, quiet)?;
@@ -287,10 +291,16 @@ fn solves_once<B: MdwfBackend + 'static>(
             even,
             odd,
             krylov: match setup.fgmres {
-                // As many steps in all as GCR, in cycles of `directions`.
+                // As many steps in all as GCR, rounded up to whole cycles of `directions`: the
+                // first cycle and `max_restarts` more.
                 true => Box::new(Fgmres::new(Stop {
                     max_iterations: setup.directions,
-                    max_restarts: setup.inner.max_iterations / setup.directions.max(1),
+                    max_restarts: setup
+                        .inner
+                        .max_iterations
+                        .div_ceil(setup.directions.max(1))
+                        .max(1)
+                        - 1,
                     ..setup.inner
                 })),
                 false => Box::new(Gcr::new(setup.inner, setup.directions)),
@@ -462,7 +472,7 @@ impl<B: MdwfBackend> EvenSolves<B::Field, B::Half> for Solves<'_, B> {
         r: &B::Half,
         spare: &mut B::Half,
     ) -> Result<(), SolveError> {
-        // exp: D† e = (r, 0) as e = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (r, 0): Γ5 and B5 act within a site, so
+        // D† e = (r, 0) as e = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (r, 0): Γ5 and B5 act within a site, so
         // the source stays on the even sites and one solve with D on them does it.
         if let Some(b5) = self.b5.take() {
             let even = Parity::Even;

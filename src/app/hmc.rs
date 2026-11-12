@@ -44,6 +44,8 @@ pub struct HmcConfig {
     pub actions: Vec<ActionConfig>,
     /// The section of each action in the file (`Action_G`, `Action_F_1`, ...), for messages.
     pub(crate) action_names: Vec<String>,
+    /// What the file gives but the run does not use, printed after the header.
+    pub(crate) notes: Vec<String>,
     pub output: HmcOutput,
     /// The Wilson flow measured along the run.
     pub flow: Option<FlowMonitor>,
@@ -656,6 +658,11 @@ pub fn is_hmc_file(path: &Path) -> Result<bool, CliError> {
 }
 
 impl HmcConfig {
+    /// What was given but is not used, printed after the header.
+    pub fn notes(&self) -> &[String] {
+        &self.notes
+    }
+
     pub fn load(path: &Path) -> Result<Self, CliError> {
         let text = std::fs::read_to_string(path).map_err(|e| CliError::Io {
             path: path.to_path_buf(),
@@ -1877,6 +1884,9 @@ fn chain<U: LinkField>(
         for (i, action) in config.actions.iter().enumerate() {
             let name = config.action_names.get(i).map_or("action", String::as_str);
             writeln!(out, "# {name}: {}", action_summary(action)).map_err(io)?;
+        }
+        for note in &config.notes {
+            writeln!(out, "# note: {note}").map_err(io)?;
         }
         writeln!(
             out,

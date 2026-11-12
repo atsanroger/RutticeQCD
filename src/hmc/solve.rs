@@ -328,13 +328,31 @@ pub(crate) fn cg_after_multigrid<V: Vector>(
     b: &V,
     stop: Stop,
 ) -> Result<SolveInfo, SolveError> {
-    let Err(SolveError::NotConverged(info)) = result else {
-        return result;
+    let done = match result {
+        Err(SolveError::NotConverged(info)) => {
+            eprintln!(
+                "the multigrid of HMC did not converge (|r|²/|b|² {:.1e}); CG finishes the solve",
+                info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
+            );
+            info.iterations
+        }
+        // A breakdown of GCR or FGMRES (a direction that vanished, a value not finite): CG from
+        // the solution so far where it is finite, else from 0.
+        Err(SolveError::Breakdown { iterations, what }) => {
+            let mut sizes = vec![0.0; z.num_vectors()];
+            z.norm_sqr(&mut sizes);
+            let finite = sizes.iter().all(|s| s.is_finite());
+            if !finite {
+                *z = z.zeros_like();
+            }
+            eprintln!(
+                "the multigrid of HMC broke down ({what}); CG finishes the solve from {}",
+                if finite { "the solution so far" } else { "0" }
+            );
+            iterations
+        }
+        _ => return result,
     };
-    eprintln!(
-        "the multigrid of HMC did not converge (|r|²/|b|² {:.1e}); CG finishes the solve",
-        info.residual_sqr.iter().fold(0.0_f64, |m, r| m.max(*r))
-    );
     // The iterations of the file are those of the multigrid's GCR (a few hundred): CG at a small
     // mass needs thousands (24⁴, m 0.001: about 6400 a solve), so at least 50000 for it.
     let stop = Stop {
@@ -343,9 +361,9 @@ pub(crate) fn cg_after_multigrid<V: Vector>(
     };
     NormalSolver::Cg
         .solve(a, Pre::None, z, b, stop)
-        .map(|mut done| {
-            done.iterations += info.iterations;
-            done
+        .map(|mut info| {
+            info.iterations += done;
+            info
         })
 }
 

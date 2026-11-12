@@ -9,7 +9,10 @@ A parameter file has the sections and keys of a Bridge++ parameter file, in YAML
 `.yml`) or TOML (`.toml`). Keywords (the values of choices) are read in any case and with or
 without `_`: `BiCGStab`, `bicgstab` and `BICG_STAB` are the same. A key that does not exist
 is an error when the file is read, with the alternatives; a key that is there but not used
-by the run is named in a note.
+by the run is named in a note (`note: …` after the parameters; in an HMC run `# note: …` after
+the lines of the actions). A key that would make the run differ from what the file states (an
+HMC Pauli-Villars mass other than 1, a clover coefficient with `fermion_type : Wilson`) is an
+error with the key named and the fix.
 
 The commented examples show every key:
 
@@ -206,9 +209,13 @@ second factor (`Coarse_Solver_PV` other than `MINRES`).
 regularized normal equations (A†A + ε) w = A† g, A = P†D_PV†P, `tikhonov_epsilon : 1.0e-3`, on the
 CPU and the device; `BiCGStab` and `GCR` on the exact adjoint and `MINRES` on its Γ5-Hermitian form
 remain. With `operator_type : Normal_left` the second factor is P†D†P: `BiCGStab` or `GCR`.
-On one GPU the regularized solve applies A† from the blocks of A (no second coarse operator);
-`RUTTICE_COARSE_ADJOINT=copy` keeps a copy of A† instead, as on several processes, where the
-adjoint needs the links of the neighboring process.
+The CG stops on the residual of the normal equations, |A†g − (A†A + ε)w|² below
+`convergence_criterion_squared` times |A†g|², where the other solvers stop on |g − Aw|²/|g|².
+`tikhonov_epsilon` must be finite and above 0.
+On one GPU the regularized solve applies A† from the blocks of A (no second coarse operator), up
+to 128 test vectors; above that, on several processes (where the adjoint needs the links of the
+neighboring process) and with `RUTTICE_COARSE_ADJOINT=copy` it keeps a copy of A†. The two add
+the terms in different orders, so one GPU and several differ by rounding in A†.
 Each solve and each HMC trajectory reports the work it did: Flop, GFlop/s and Flop/byte over the
 whole solve or trajectory, split into the fine
 operators (`Fine`), the coarse operators and the setup of the multigrids (`Coarse`), restriction
@@ -343,7 +350,7 @@ The `Solver` section of a fermion action says how its forces and energies are so
 |---|---|
 | `solver_type` | `CG` (the default): CG on D†D. `BiCGStab`, `FGMRES`, `GCR`: D† y = φ and then D x = y; Wilson and clover fermions only. A `Rational` action without it uses multi-shift CG; with `CG` one solve per pole; with the others the poles through γ5 D: D†D + σ = γ5 (D + i√σ γ5) γ5 (D − i√σ γ5) |
 | `operator_type` | what the solver works on, as in the propagator files; only what the action solves is accepted: `Lexical` (on all sites), `Even_odd` (Wilson and clover, `operator_type : Even_odd` of the action), `Normal_left` (the even-odd domain-wall Ratio), `PV_right` (the domain-wall multigrid) |
-| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` or `FGMRES` for the domain-wall Ratio action over Pauli-Villars fields (Lexical or Even_odd; FGMRES restarts after `number_of_kept_directions` steps and needs as many vectors as GCR keeping as many directions) |
+| `preconditioner_type` | `Chebyshev`, with `CG`, for any fermions (`Chebyshev: {number_of_steps: 8, interval_ratio: 30}`, a polynomial of D†D; the same defaults with the block or without it). `MG`, with `BiCGStab`, `FGMRES` or `GCR` for Wilson and clover fermions, with `GCR` or `FGMRES` for the domain-wall Ratio action over Pauli-Villars fields (Lexical or Even_odd; FGMRES restarts after `number_of_kept_directions` steps and needs as many vectors as GCR keeping as many directions) |
 | `precision` | `double` (the default) or `mixed`: CG in single precision on the same operator, corrected in double on the residual of D†D (K†K even-odd) until the tolerance; domain-wall fermions, the Standard (Lexical) and Ratio (Lexical or Even_odd) actions, CG without a preconditioner |
 | `convergence_criterion_squared_inner` | `mixed`: where each CG in single precision stops (1e-10) |
 | `number_of_initial_guess` | `Standard`: start the force solves from the last n solutions |

@@ -355,7 +355,7 @@ pub fn coarse_solve<V: Vector>(
 }
 
 /// Settings of the cycle.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PvEoParams {
     /// Steps of the Chebyshev smoother (applications of the operator: one fewer).
     pub chebyshev_steps: usize,

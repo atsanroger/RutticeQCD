@@ -14,6 +14,7 @@ use crate::{
     Aos, EvenOddIndex, Field, Half, Lattice, LinearFn, Parity, Spinor, Storage, Subspace, TestRng,
     Vector, C64,
 };
+use rayon::prelude::*;
 use std::sync::Arc;
 
 type HalfField<L = Aos, F = f64> = Field<F, Spinor, Half, L>;
@@ -137,8 +138,8 @@ pub fn orthonormalise_all<V: Subspace>(x: &mut V) {
 }
 
 /// `vectors` random vectors with `ls` spinors per site on the even sites, from `seed`: the
-/// even sites of `random_spinor(lat, ls * vectors, seed)`, drawn site by site in the same
-/// order, without that field on the whole lattice.
+/// even sites of `random_spinor(lat, ls * vectors, seed)`, each site from its own draw of the
+/// generator, without that field on the whole lattice.
 pub fn random_even<F: Storage>(
     lat: &Arc<Lattice>,
     index: &EvenOddIndex,
@@ -148,22 +149,19 @@ pub fn random_even<F: Storage>(
 ) -> HalfField<Aos, F> {
     let mut x = HalfField::<Aos, F>::with_shape(lat, 24, ls, vectors, 1);
     x.set_parity(Parity::Even);
-    let mut rng = TestRng::new(seed);
-    let mut reals = vec![0.0; x.site_len()];
-    for global in 0..lat.num_global_sites() {
-        for r in reals.iter_mut() {
-            *r = rng.uniform();
-        }
-        let Some(site) = lat.local_site(lat.global_site_coords(global)) else {
-            continue;
-        };
-        let (parity, half) = index.half_site(site);
-        if parity == Parity::Even {
-            for (d, r) in x.site_mut(0, half).iter_mut().zip(&reals) {
-                *d = F::store(Number::from_f64(*r));
+    let n = x.site_len();
+    let globals: Vec<usize> = (0..x.num_sites())
+        .map(|half| lat.global_site_index(lat.global_coords(index.full_site(Parity::Even, half))))
+        .collect();
+    x.as_mut_slice()
+        .par_chunks_mut(n)
+        .zip(&globals)
+        .for_each(|(d, &global)| {
+            let mut rng = TestRng::skipped(seed, (global * n) as u64);
+            for d in d {
+                *d = F::store(Number::from_f64(rng.uniform()));
             }
-        }
-    }
+        });
     x
 }
 
@@ -381,12 +379,14 @@ impl<H: Vector, E> Waiting<H, E> for InPlace<H> {
 /// What a round of the bootstrap does with Ã and the cycle of the current vectors, given the
 /// vectors: `bootstrap_vector` for each, the vectors waiting in `W` meanwhile.
 pub(crate) type RoundWork<'r, H, W, E> =
-    dyn FnMut(&mut dyn LinearFn<H>, &mut dyn LinearFn<H>, H) -> Result<W, E> + 'r;
+    dyn FnMut(&mut dyn LinearFn<H>, &mut dyn LinearFn<H>, H) -> Result<(W, bool), E> + 'r;
 
 /// How a backend makes the cycle of a round of the bootstrap: `with_cycle(y, levels, work)`
 /// makes P and the coarse correction of the vectors y (with the levels below the coarse lattice
 /// of its settings when `levels`) and the smoother, hands them with Ã and y to `work`, and gives
-/// the vectors back once its cycle is gone.
+/// the vectors back once its cycle is gone. `work` also says whether the bootstrap ends on this
+/// cycle (the probe found the round not needed): its P and coarse operators are then those of
+/// the vectors returned, and a backend may keep them for the solve.
 pub(crate) type WithCycle<'w, H, W, E> =
     dyn FnMut(H, bool, &mut RoundWork<'_, H, W, E>) -> Result<H, E> + 'w;
 
@@ -431,7 +431,7 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
                     let probed = rayleigh_quotient(&mut *a, &x);
                     if value < gain * probed {
                         ended = Some(probed);
-                        return Ok(waiting);
+                        return Ok((waiting, true));
                     }
                 }
                 for j in 0..waiting.num_vectors() {
@@ -440,7 +440,7 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
                     on_vector(round, j, &x);
                     waiting.set_vector(j, &x)?;
                 }
-                Ok(waiting)
+                Ok((waiting, false))
             };
             y = with_cycle(y, round > 0, &mut work)?;
         }
@@ -506,7 +506,7 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
                 }
             }
             let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
-            let waiting = work(&mut a, &mut cycle, y)?;
+            let (waiting, _) = work(&mut a, &mut cycle, y)?;
             drop(cycle);
             waiting.back()
         },

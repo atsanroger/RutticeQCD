@@ -195,6 +195,37 @@ Solver:
         }
     }
 
+    /// Keys of the Wilson and clover multigrid are refused for domain-wall fermions, which do
+    /// not use them.
+    #[test]
+    fn domain_wall_refuses_wilson_multigrid_keys() {
+        let solver =
+            "  solver_type : gcr\n  operator_type : pv_left\n  preconditioner_type : multi_grid\n";
+        assert!(parse(&with(solver, true)).is_ok());
+        for (extra, key) in [
+            (
+                "  Smoother:\n    pre_smoothing : true\n",
+                "Smoother.pre_smoothing",
+            ),
+            (
+                "  Smoother:\n    number_of_cycles : 2\n",
+                "Smoother.number_of_cycles",
+            ),
+            (
+                "    precondition_diagonal : true\n",
+                "MultiGrid_Level1.precondition_diagonal",
+            ),
+        ] {
+            let e = parse(&(with(solver, true) + extra))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                e.contains(key) && e.contains("domain-wall fermions do not use it"),
+                "{e}"
+            );
+        }
+    }
+
     #[test]
     fn levels_below_the_coarse_lattice() {
         let solver = "  solver_type : gcr\n  preconditioner_type : MG\n";

@@ -93,6 +93,14 @@ impl Lattice {
         })
     }
 
+    /// The number of the site with global coordinates `x` on the whole lattice, x fastest: the
+    /// inverse of `global_site_coords`.
+    pub(crate) fn global_site_index(&self, x: [usize; ND]) -> usize {
+        (0..ND)
+            .rev()
+            .fold(0, |index, mu| index * self.global[mu] + x[mu])
+    }
+
     /// The local site with the given global coordinates, if this process holds it.
     pub(crate) fn local_site(&self, global: [usize; ND]) -> Option<usize> {
         let mut x = [0; ND];

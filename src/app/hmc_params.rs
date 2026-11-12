@@ -52,8 +52,8 @@ use super::hmc::{
     StartConfig,
 };
 use super::params::{
-    Backend, ChebyshevBlock, DaggerSolve, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType,
-    MainBlock, MultigridBlock, OperatorType, PrecisionType, PreconditionerType, SolverPrecision,
+    Backend, DaggerSolve, FermionType, FoprBlock, GaugeSmearingBlock, GaugeType, MainBlock,
+    MultigridBlock, OperatorType, Params, PrecisionType, PreconditionerType, SolverPrecision,
     SolverType,
 };
 use super::CliError;
@@ -173,17 +173,16 @@ impl FlowBlock {
         if self.order_of_runge_kutta != 3 {
             return invalid("GradientFlow.order_of_RungeKutta: only 3".into());
         }
-        if self.measurement_interval == 0
-            || self.step_size.is_nan()
-            || self.step_size <= 0.0
-            || self.order_of_exp_ip == 0
-        {
+        if self.measurement_interval == 0 || self.order_of_exp_ip == 0 {
             return invalid(
-                "GradientFlow: measurement_interval, step_size and order_of_approx_for_exp_iP \
-                 must be positive"
+                "GradientFlow: measurement_interval and order_of_approx_for_exp_iP must be positive"
                     .into(),
             );
         }
+        positive(self.step_size, "GradientFlow.step_size")?;
+        // The flow goes on until t²E reaches 0.3 or this time: on links that never reach it
+        // (a cold start) an infinite time would never end.
+        positive(self.max_flow_time, "GradientFlow.max_flow_time")?;
         Ok(FlowMonitor {
             interval: self.measurement_interval,
             flow: WilsonFlow {
@@ -283,8 +282,9 @@ pub(crate) struct FermionActionBlock {
     /// propagator files.
     #[serde(rename = "MultiGrid")]
     pub multigrid: Option<MultigridBlock>,
-    #[serde(rename = "MultiGrid_HMC", default)]
-    pub(crate) multigrid_hmc: MultigridHmcBlock,
+    /// With `Solver.preconditioner_type : MG` only; left out: its defaults.
+    #[serde(rename = "MultiGrid_HMC")]
+    pub(crate) multigrid_hmc: Option<MultigridHmcBlock>,
     #[serde(rename = "Rational")]
     pub rational: Option<RationalBlock>,
 }
@@ -323,7 +323,7 @@ pub(crate) struct HmcSolverBlock {
     pub preconditioner_type: PreconditionerType,
     /// The polynomial preconditioner of CG (the smoother of the multigrid is in `MultiGrid`).
     #[serde(rename = "Chebyshev")]
-    pub chebyshev: Option<ChebyshevBlock>,
+    pub(crate) chebyshev: Option<HmcChebyshevBlock>,
     /// `double` (the default) or `mixed`: CG in single precision corrected in double, for
     /// domain-wall fermions with CG and no preconditioner.
     pub precision: Option<SolverPrecision>,
@@ -352,6 +352,24 @@ impl Default for HmcSolverBlock {
             moved_multigrid: None,
         }
     }
+}
+
+/// `Solver.Chebyshev` of HMC: the defaults are those without the block (`HmcChebyshev`), 8
+/// steps where the propagator files take 5.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HmcChebyshevBlock {
+    #[serde(default = "hmc_chebyshev_steps")]
+    number_of_steps: usize,
+    #[serde(default = "hmc_chebyshev_ratio")]
+    interval_ratio: f64,
+}
+
+fn hmc_chebyshev_steps() -> usize {
+    HmcChebyshev::default().steps
+}
+fn hmc_chebyshev_ratio() -> f64 {
+    HmcChebyshev::default().ratio
 }
 
 /// What only HMC has of the multigrid.
@@ -446,6 +464,24 @@ fn invalid<T>(message: String) -> Result<T, CliError> {
     Err(CliError::Invalid(message))
 }
 
+/// A value that runs wrongly unless finite and above 0 (a length, a stop, a step).
+fn positive(value: f64, key: &str) -> Result<(), CliError> {
+    match value.is_finite() && value > 0.0 {
+        true => Ok(()),
+        false => invalid(format!(
+            "{key} must be a finite number above 0, not {value}"
+        )),
+    }
+}
+
+/// A value that runs wrongly unless finite (a coupling, a bound).
+fn finite(value: f64, key: &str) -> Result<(), CliError> {
+    match value.is_finite() {
+        true => Ok(()),
+        false => invalid(format!("{key} must be a finite number, not {value}")),
+    }
+}
+
 /// Whether the text has the sections of an HMC file.
 pub(crate) fn is_hmc_text(text: &str, toml: bool) -> bool {
     const KEY: &str = "HMC_General";
@@ -481,7 +517,39 @@ impl HmcParams {
                 ),
                 _ => return invalid("Main.backend: HMC runs on cpu or cuda_bridge".into()),
             };
+        positive(
+            self.general.trajectory_length,
+            "HMC_General.trajectory_length",
+        )?;
+        finite(
+            self.integrator.lambda_omelyan,
+            "Builder_Integrator.lambda_Omelyan",
+        )?;
+        if let Some(g) = &self.action_g {
+            finite(g.beta, "Action_G.beta")?;
+        }
         let run = &self.hmc;
+        // A key of another start would be ignored: the links would not be those the file names.
+        let wrong_start = match run.gauge_config_status {
+            StartStatus::Continue => run.seed_for_random_number.map(|_| "seed_for_random_number"),
+            StartStatus::ColdStart => run
+                .seed_for_random_number
+                .map(|_| "seed_for_random_number")
+                .or(run
+                    .config_filename_input
+                    .as_ref()
+                    .map(|_| "config_filename_input")),
+            StartStatus::HotStart => run
+                .config_filename_input
+                .as_ref()
+                .map(|_| "config_filename_input"),
+        };
+        if let Some(key) = wrong_start {
+            return invalid(format!(
+                "HMC.{key}: not used with gauge_config_status {} (Continue reads config_filename_input, Hot_start takes seed_for_random_number, Cold_start neither)",
+                run.gauge_config_status
+            ));
+        }
         let start = match run.gauge_config_status {
             StartStatus::Continue => StartConfig::File {
                 file: run.config_filename_input.clone().ok_or_else(|| {
@@ -500,6 +568,11 @@ impl HmcParams {
         if let Some(g) = self.action_g {
             names.push("Action_G".to_string());
             actions.push(match g.action_type {
+                GaugeActionType::Plaquette if g.c_plaq.is_some() || g.c_rect.is_some() => {
+                    return invalid(
+                        "Action_G: c_plaq and c_rect are for action_type Action_G_Rectangle; Action_G_Plaq takes beta alone".into(),
+                    )
+                }
                 GaugeActionType::Plaquette => ActionConfig::Plaquette {
                     beta: g.beta,
                     level: g.level_of_action,
@@ -527,6 +600,8 @@ impl HmcParams {
             &self.action_f_5,
             &self.action_f_6,
         ];
+        // What is given but not used: a line in the output, as the propagator files have.
+        let mut notes = Vec::new();
         let mut ended = false;
         for (i, f) in fermions.into_iter().enumerate() {
             let name = format!("Action_F_{}", i + 1);
@@ -535,7 +610,7 @@ impl HmcParams {
                     return invalid(format!("{name}: Action_F_{i} is missing"));
                 }
                 Some(f) => {
-                    actions.push(f.to_config(&name, self.main.lattice_size)?);
+                    actions.push(f.to_config(&name, self.main.lattice_size, &mut notes)?);
                     names.push(name);
                 }
                 None => ended = true,
@@ -558,6 +633,54 @@ impl HmcParams {
                 "{}: the force on smeared links needs stout smearing; GaugeSmearing.smear_type APE is not differentiable",
                 names[i]
             ));
+        }
+        if self.main.verbose_level != super::params::VerboseLevel::General {
+            notes.push("Main.verbose_level: HMC prints the same at every level".into());
+        }
+        if self.main.simd_lanes != 4 {
+            notes
+                .push("Main.simd_lanes is for backend simd; HMC runs on cpu or cuda_bridge".into());
+        }
+        if run.gauge_config_status != StartStatus::Continue && run.gauge_config_type_input != text()
+        {
+            notes.push(format!(
+                "HMC.gauge_config_type_input is for Continue; not used with {}",
+                run.gauge_config_status
+            ));
+        }
+        if run.config_filename_output.is_none() && run.gauge_config_type_output != text() {
+            notes.push(
+                "HMC.gauge_config_type_output goes with config_filename_output; nothing is saved"
+                    .into(),
+            );
+        }
+        if self.integrator.integrator == IntegratorType::Leapfrog
+            && self.integrator.lambda_omelyan != omelyan_lambda()
+        {
+            notes.push(
+                "Builder_Integrator.lambda_Omelyan is for Omelyan; not used by Leapfrog".into(),
+            );
+        }
+        let smeared = actions.iter().any(|a| {
+            matches!(
+                a,
+                ActionConfig::TwoFlavor { smeared: true, .. }
+                    | ActionConfig::TwoFlavorRatio { smeared: true, .. }
+                    | ActionConfig::Rational { smeared: true, .. }
+            )
+        });
+        if self.gauge_smearing.is_some() && !smeared {
+            notes.push(
+                "GaugeSmearing: no action has smeared : true, so the smearing is not used".into(),
+            );
+        }
+        if let Some(f) = &self.gradient_flow {
+            if f.skip_trajectories >= run.number_of_trajectories {
+                notes.push(format!(
+                    "GradientFlow.skip_trajectories {} leaves all {} trajectories out of the Γ-method at the end",
+                    f.skip_trajectories, run.number_of_trajectories
+                ));
+            }
         }
         let grid = self.main.grid_size;
         if device {
@@ -638,6 +761,7 @@ impl HmcParams {
             },
             actions,
             action_names: names,
+            notes,
             output: HmcOutput {
                 save_every: run.save_config_interval,
                 file: run.config_filename_output.clone(),
@@ -652,6 +776,30 @@ impl HmcParams {
 
 /// The operator of an action from its `Fopr` section.
 fn fermion(f: &FoprBlock, name: &str) -> Result<HmcFermion, CliError> {
+    // The checks of the propagator files; a key they would note as not used is refused here, as
+    // the action would differ from the one the file states.
+    let mut notes = Vec::new();
+    match f.fermion_type.is_domain_wall() {
+        true => Params::check_domain_wall_fopr(f, name, &mut notes)?,
+        false => Params::check_wilson_fopr(f, name, &mut notes)?,
+    }
+    if let Some(note) = notes.first() {
+        return invalid(format!("{note} in HMC; remove it"));
+    }
+    if f.quark_mass_pauli_villars != 1.0 || f.neff_alpha_pauli_villars != 1.0 {
+        return invalid(format!(
+            "{name}.quark_mass_PauliVillars and neff_alpha_PauliVillars are for the propagator files; HMC's Pauli-Villars field has mass 1 and α 1 (another denominator is Fopr_denominator)"
+        ));
+    }
+    if let Some(ls) = f
+        .extent_of_5th_dimension
+        .filter(|ls| !(2..=crate::fermion::MAX_LS).contains(ls))
+    {
+        return invalid(format!(
+            "{name}.extent_of_5th_dimension: from 2 to {}, not {ls}",
+            crate::fermion::MAX_LS
+        ));
+    }
     let need = |v: Option<f64>, key: &str| {
         v.ok_or_else(|| {
             CliError::Invalid(format!("{name}: {key} is needed for {}", f.fermion_type))
@@ -682,12 +830,57 @@ fn fermion(f: &FoprBlock, name: &str) -> Result<HmcFermion, CliError> {
 }
 
 impl FermionActionBlock {
-    fn to_config(&self, name: &str, lattice: [usize; ND]) -> Result<ActionConfig, CliError> {
+    fn to_config(
+        &self,
+        name: &str,
+        lattice: [usize; ND],
+        notes: &mut Vec<String>,
+    ) -> Result<ActionConfig, CliError> {
         let s = &self.solver;
         if s.moved_multigrid.is_some() {
             return invalid(format!(
                 "{name}.Solver.MultiGrid: the multigrid is the section {name}.MultiGrid now, that of the propagator files (MultiGrid_Level1: block_size, number_of_test_vectors; Setup: bootstrap_number_of_rounds for the setup iterations), and {name}.MultiGrid_HMC has refresh_interval, reuse_vectors and number_of_reuse_iterations"
             ));
+        }
+        positive(
+            s.convergence_criterion_squared,
+            &format!("{name}.Solver.convergence_criterion_squared"),
+        )?;
+        for (value, key) in [
+            (
+                s.convergence_criterion_squared_h,
+                "convergence_criterion_squared_H",
+            ),
+            (
+                s.convergence_criterion_squared_inner,
+                "convergence_criterion_squared_inner",
+            ),
+        ] {
+            if let Some(v) = value {
+                positive(v, &format!("{name}.Solver.{key}"))?;
+            }
+        }
+        if self.multigrid_hmc.is_some() && s.preconditioner_type != PreconditionerType::Multigrid {
+            return invalid(format!(
+                "{name}.MultiGrid_HMC: for Solver.preconditioner_type MG"
+            ));
+        }
+        if let Some(v) = self
+            .multigrid_hmc
+            .and_then(|h| h.convergence_criterion_squared_inner)
+        {
+            positive(
+                v,
+                &format!("{name}.MultiGrid_HMC.convergence_criterion_squared_inner"),
+            )?;
+        }
+        if s.maximum_number_of_restart == Some(0) {
+            return invalid(format!(
+                "{name}.Solver.maximum_number_of_restart: at least 1 (the first run counts)"
+            ));
+        }
+        if let Some(r) = &self.rational {
+            finite(r.upper_bound, &format!("{name}.Rational.upper_bound"))?;
         }
         let kind = match s.solver_type {
             None => None,
@@ -701,6 +894,14 @@ impl FermionActionBlock {
                 ))
             }
         };
+        let multigrid = s.preconditioner_type == PreconditionerType::Multigrid;
+        let keeps = matches!(kind, Some(HmcSolverKind::Fgmres | HmcSolverKind::Gcr))
+            || (kind.is_none() && multigrid);
+        if !keeps && s.number_of_kept_directions != kept() {
+            notes.push(format!(
+                "{name}.Solver.number_of_kept_directions is for GCR and FGMRES; not used by this solver"
+            ));
+        }
         if s.chebyshev.is_some() && s.preconditioner_type != PreconditionerType::Chebyshev {
             return invalid(format!(
                 "{name}.Solver.Chebyshev: for preconditioner_type Chebyshev (the smoother of the multigrid is MultiGrid.Smoother)"
@@ -797,6 +998,21 @@ impl FermionActionBlock {
         if self.fopr_denominator.is_some() && self.action_type != FermionActionType::Ratio {
             return invalid(format!("{name}.Fopr_denominator: for action_type Ratio"));
         }
+        if let Some(d) = &self.fopr_denominator {
+            let n = &self.fopr;
+            if d.extent_of_5th_dimension != n.extent_of_5th_dimension
+                || d.boundary_condition != n.boundary_condition
+            {
+                return invalid(format!(
+                    "{name}.Fopr_denominator: extent_of_5th_dimension and boundary_condition must be those of {name}.Fopr"
+                ));
+            }
+            if d.neff_alpha != 1.0 {
+                return invalid(format!(
+                    "{name}.Fopr_denominator.neff_alpha: only {name}.Fopr.neff_alpha is used (it changes the solver, not the action); remove it"
+                ));
+            }
+        }
         if self.rational.is_some() != (self.action_type == FermionActionType::Rational) {
             return invalid(format!(
                 "{name}: the section Rational goes with action_type Rational"
@@ -847,7 +1063,7 @@ impl FermionActionBlock {
         lattice: [usize; ND],
     ) -> Result<HmcMultigrid, CliError> {
         let at = format!("{name}.MultiGrid");
-        let h = &self.multigrid_hmc;
+        let h = &self.multigrid_hmc.unwrap_or_default();
         let refused = |what: &str, why: &str| invalid(format!("{at}.{what}: {why}"));
         if mg.setup.checkpoint.is_some() {
             return refused(
@@ -862,6 +1078,18 @@ impl FermionActionBlock {
                 ));
             }
             mg.check_domain_wall(&at, lattice, false)?;
+            // Through_D needs B5 = b − cY invertible. Y^L_s is ±m on each chirality, so the
+            // eigenvalues of Y have |λ|^L_s = |m|, and B5 is singular when b = cλ: with b = 0
+            // when c = 0 or m = 0.
+            let f = &self.fopr;
+            if h.dagger_solve == Some(DaggerSolve::ThroughD)
+                && f.coefficient_b == 0.0
+                && (f.coefficient_c == 0.0 || f.quark_mass == Some(0.0))
+            {
+                return invalid(format!(
+                    "{name}.MultiGrid_HMC.dagger_solve: Through_D needs B5 = b − cY invertible, which coefficient_b 0 with coefficient_c 0 or quark_mass 0 is not; use Gamma5_cycle"
+                ));
+            }
             Ok(HmcMultigrid::DomainWall {
                 settings: mg.mdwf_settings(PrecisionType::Single),
                 refresh_every: h.refresh_interval,

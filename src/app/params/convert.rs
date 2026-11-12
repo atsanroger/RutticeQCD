@@ -127,7 +127,7 @@ impl Params {
     }
 
     /// What a domain-wall quark needs of its `Fopr`.
-    pub(super) fn check_domain_wall_fopr(
+    pub(crate) fn check_domain_wall_fopr(
         f: &FoprBlock,
         at: &str,
         notes: &mut Vec<String>,
@@ -341,7 +341,7 @@ impl Params {
     }
 
     /// What a Wilson or clover quark needs of its `Fopr`.
-    pub(super) fn check_wilson_fopr(
+    pub(crate) fn check_wilson_fopr(
         f: &FoprBlock,
         at: &str,
         notes: &mut Vec<String>,
@@ -719,6 +719,11 @@ impl MultigridBlock {
         lattice: [usize; ND],
         normal: bool,
     ) -> Result<(), CliError> {
+        if let Some(key) = self.unused_by_domain_wall().first() {
+            return Err(invalid(format!(
+                "{at}.{key} is for Wilson and clover fermions; domain-wall fermions do not use it"
+            )));
+        }
         let level = &self.level1;
         if let Some(t) = self
             .smoother
@@ -813,6 +818,11 @@ impl MultigridBlock {
                     "{at}.{key} is for domain-wall fermions; not used for {name}"
                 ));
             }
+        }
+        for key in self.unused_by_wilson() {
+            notes.push(format!(
+                "{at}.{key} is for domain-wall fermions; not used for {name}"
+            ));
         }
         self.check_levels(at, lattice)
     }

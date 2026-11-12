@@ -364,3 +364,10 @@ impl<CT: LevelReal> ApplyAdjoint<DeviceCoarse<CT>> for SharedPass<CT> {
         self.0.apply(out, inp);
     }
 }
+
+impl<CT: LevelReal> DeviceParts<CT> {
+    /// The prolongation the parts were made on.
+    pub(crate) fn basis(&self) -> &DeviceBasis {
+        &self.basis
+    }
+}

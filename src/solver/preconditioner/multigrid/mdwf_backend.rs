@@ -156,6 +156,10 @@ pub enum SetupStage<'s> {
         applications: usize,
         seconds: f64,
     },
+    /// The bootstrap ended on the probe, and its cycle (P, the coarse operators, the levels) is
+    /// that of the solve: it is kept, not made again (reported by the device).
+    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
+    Kept,
     /// A checksum of what a stage made, computed when asked (on the device, to compare runs bit
     /// by bit).
     #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
@@ -190,7 +194,7 @@ pub trait MdwfBackend {
     fn mult_q_half(op: &Self::Op, out: &mut Self::Half, inp: &Self::Half);
     /// D^(α) on the links of `op`.
     fn with_alpha(op: &Self::Op, alpha: f64) -> Result<Self::Op, Box<dyn Error>>;
-    /// exp/b5-dagger: an operator whose site-local part C = d+ + d- Y is B5 = b − cY of `op`
+    /// An operator whose site-local part C = d+ + d- Y is B5 = b − cY of `op`
     /// (d+ = b, d- = −c: M5 = 3, b − 1, c + 1), for its `diag` and `diag_inv`.
     fn b5_of(op: &Self::Op) -> Result<Self::Op, Box<dyn Error>>;
     /// Test vectors given on the host in double precision (a checkpoint), kept as the backend

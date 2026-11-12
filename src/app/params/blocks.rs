@@ -478,6 +478,67 @@ impl MultigridBlock {
             .collect()
     }
 
+    /// Keys of the domain-wall multigrid given other than their defaults, which Wilson and
+    /// clover fermions do not use.
+    pub(crate) fn unused_by_wilson(&self) -> Vec<&'static str> {
+        let (s, d) = (&self.setup, self.level1.coarse_d.as_ref());
+        let levels = [&self.level2, &self.level3].into_iter().flatten();
+        let mut unused = Vec::new();
+        for (key, given) in [
+            (
+                "Setup.filter_number_of_vectors",
+                s.filter_number_of_vectors != filter_vectors(),
+            ),
+            ("Setup.filter_number_of_rounds", s.filter_number_of_rounds != two()),
+            ("Setup.filter_number_in_block", s.filter_number_in_block != four()),
+            (
+                "Setup.bootstrap_number_of_steps",
+                s.bootstrap_number_of_steps != four(),
+            ),
+            ("Smoother.interval_ratio", self.smoother.interval_ratio != cheb_ratio()),
+            (
+                "MultiGrid_Level2/3.bootstrap_rounds, bootstrap_iterations",
+                levels
+                    .clone()
+                    .any(|l| l.bootstrap_rounds != one() || l.bootstrap_iterations != four()),
+            ),
+            (
+                "MultiGrid_Level1.Coarse_Solver_D.preconditioner_type, operator_type, precision, tikhonov_epsilon",
+                d.is_some_and(|d| {
+                    d.preconditioner_type != no_preconditioner()
+                        || d.operator_type.is_some()
+                        || d.precision.is_some()
+                        || d.tikhonov_epsilon != 0.0
+                }),
+            ),
+        ] {
+            if given {
+                unused.push(key);
+            }
+        }
+        unused
+    }
+
+    /// Keys of the Wilson and clover multigrid that domain-wall fermions do not use.
+    pub(crate) fn unused_by_domain_wall(&self) -> Vec<&'static str> {
+        let sm = &self.smoother;
+        [
+            (
+                "MultiGrid_Level1.precondition_diagonal",
+                self.level1.precondition_diagonal,
+            ),
+            ("Smoother.number_of_cycles", sm.number_of_cycles.is_some()),
+            (
+                "Smoother.convergence_criterion_squared",
+                sm.convergence_criterion_squared.is_some(),
+            ),
+            ("Smoother.pre_smoothing", sm.pre_smoothing),
+        ]
+        .into_iter()
+        .filter_map(|(key, given)| given.then_some(key))
+        .collect()
+    }
+
     /// The refinement of the test vectors on the lattice of each level below the coarse
     /// one, in the same order.
     pub(crate) fn level_bootstrap(&self) -> Vec<LevelBootstrap> {
@@ -984,9 +1045,13 @@ impl SolverBlock {
             SolverType::Cg if second && normal => Err(invalid(format!(
                 "{name}: with operator_type Normal_left the second factor is P†D†P, not the Pauli-Villars factor the regularized solve is for; use BiCGStab or GCR"
             ))),
-            SolverType::Cg if second && self.tikhonov_epsilon > 0.0 => Ok(()),
+            SolverType::Cg
+                if second && self.tikhonov_epsilon > 0.0 && self.tikhonov_epsilon.is_finite() =>
+            {
+                Ok(())
+            }
             SolverType::Cg => Err(invalid(format!(
-                "{name}: CG on the coarse lattice is the regularized solve of the Pauli-Villars factor; set tikhonov_epsilon > 0 in Coarse_Solver_PV"
+                "{name}: CG on the coarse lattice is the regularized solve of the Pauli-Villars factor; set a finite tikhonov_epsilon > 0 in Coarse_Solver_PV"
             ))),
             SolverType::Minres if second && !normal => Ok(()),
             SolverType::Minres if second => Err(invalid(format!(

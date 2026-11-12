@@ -648,6 +648,56 @@ with eigenvalues below a cutoff times the largest left out (they come from depen
 (derived in the other note); the kernel writes $B_d(X)\dg$ at the place of $Y$, entry by entry:
 $(m\dg)_{ij} = \overline{m_{ji}}$.
 
+\subsection{The adjoint without a copy: \code{coarse\_adjoint\_pass\_kernel}}
+
+On one GPU the regularized solve of the Pauli-Villars factor applies $A\dg$ from the blocks of
+$A$, so that no second coarse operator is stored. Let $N[d][Y]$ be the neighbor of $Y$ in
+direction $d$ (eight directions $\pm\mu$), so that $A$ is
+\begin{equation}
+(Av)(X) = A(X)\,v(X) + \sum_d B_d(X)\,v\big(N[d][X]\big).
+\end{equation}
+The term $B_d(Y)\,v(N[d][Y])$ couples the output at $Y$ to the input at $X=N[d][Y]$. Its
+adjoint therefore couples the output at $X$ to the input at $Y$, with the matrix $B_d(Y)\dg$:
+\begin{equation}
+(A\dg u)(X) = A(X)\dg u(X) + \sum_d B_d\big(F[d][X]\big)\dg\,u\big(F[d][X]\big),
+\qquad F[d][N[d][Y]] = Y.
+\end{equation}
+$F[d][X]$ is the site whose hop $d$ reaches $X$. On one process every site has exactly one such
+site for each $d$, so the table $F$ is $N$ inverted, one direction at a time; it is the only
+thing made for the pass (\code{adjoint\_pass}). On a lattice cut between processes $F[d][X]$ can
+be a ghost whose links live on the neighboring process, and the copy of the previous subsection
+is used.
+
+\textbf{The matrix product.} With $m = B_d(Y)$ and $u = u(Y)$, the entry $c$ of $m\dg u$ is
+\begin{equation}
+(m\dg u)_c = \sum_k \overline{m_{kc}}\,u_k ,\qquad
+\overline{(a+ib)}\,(x_r+ix_i) = (a x_r + b x_i) + i\,(a x_i - b x_r),
+\end{equation}
+a sum over the rows $k$ of $m$. The kernel reads $m$ as \code{coarse\_pass\_kernel} does, a row
+at a time, which keeps the reads coalesced; only what is added changes: row $k$ times the one
+number $u_k$ goes into every column $c$.
+
+\textbf{Threads.} A block per (coarse site $X$, vector). The fields at $X$ and at the eight sites
+$F[d][X]$ are first read into shared memory ($9\times2\,\text{dim}$ reals). Warp $w$ of $W$ takes
+the rows $k = w, w+W, w+2W,\dots$ of each of the nine matrices; lane $\ell$ holds the columns
+$c = 2\ell + 64i$, $i = 0,\dots,3$, in registers (16 reals), so $\text{dim}\le256$, that is
+\code{number\_of\_test\_vectors} at most 128 (dim is twice the columns of P); above that the
+copy is used. All lanes of a warp read the same $u_k$ from
+shared memory, a broadcast. After the nine matrices each warp writes its partial sums of all
+columns to shared memory ($W\times2\,\text{dim}$ reals), and thread $c$ adds the $W$ parts in
+the order $w = 0,1,\dots,W-1$. No atomics are used, so the result repeats bit for bit.
+
+\textbf{Order of the sum.} The copy (\code{coarse\_pass\_kernel} on the stored $A\dg$) adds the
+terms of a row across the lanes by a butterfly; the pass adds them along the rows of a warp and
+then over the warps. The two give $A\dg$ to rounding but not bit for bit, so a run on one GPU and
+one on several (which uses the copy) differ by rounding in the coarse solve of the
+Pauli-Villars factor.
+
+\textbf{What limits it.} Like the forward pass it reads the nine matrices of $\text{dim}^2$
+complex numbers per site once, and is bound by memory. The final writes of the partial sums
+have a stride of two reals per lane: a two-way bank conflict in single precision, four-way in
+double, once per block.
+
 %======================================================================
 \section{The levels below the coarse lattice}
 

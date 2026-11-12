@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- The device setup no longer makes the cycle twice when the probe ends the bootstrap: the solve
+  takes that cycle's P, coarse operators and levels (printed as "kept for the solve") when its
+  settings are those of the bootstrap and the coarse operators are in single precision. The
+  bootstrap computes the top of the smoother once for all its rounds. Neither changes a number
+  of the solve: on 24³×48 (12 point sources) the checksums of P, the coarse operators and the
+  12 solutions are those of the previous build.
+- The random start vectors of the device setup are drawn per site in parallel, each site from
+  its own draw of the generator (the same numbers as before), and a vector the bootstrap
+  brings back to the host goes straight into its place. With the two changes above the setup
+  on 24³×48 (S, m 0.001) takes 258 s against 305 s.
+- The regularized coarse CG of the Pauli-Villars factor no longer panics when some of its
+  vectors converge before others (it applied A to a scratch of the original width after CG had
+  dropped the converged vectors): a propagator with `number_of_rhs_per_solve` above 1 and the
+  default `Coarse_Solver_PV` panicked when the vectors converged on different iterations, and at
+  once on a zero coarse right-hand side. More than 128 test vectors on one GPU take the stored
+  adjoint instead of panicking; `tikhonov_epsilon` must be finite.
+- HMC refuses what would run another action than the file states: `quark_mass_PauliVillars` or
+  `neff_alpha_PauliVillars` other than 1, Fopr keys of the other fermion kind (the checks of the
+  propagator files, their notes made errors), `c_plaq`/`c_rect` with `Action_G_Plaq`, a
+  domain-wall boundary of 0, a `Fopr_denominator` with another `extent_of_5th_dimension` or
+  boundary or with `neff_alpha`, and L_s outside 2 to 64. It refuses `trajectory_length`, the
+  solver stops and the flow's `step_size`/`max_flow_time` that are not finite and above 0, a
+  `beta`, `lambda_Omelyan` or `Rational.upper_bound` that is not finite, and
+  `maximum_number_of_restart : 0`, a start key of another start (`seed_for_random_number` with
+  Continue or Cold_start, `config_filename_input` with Cold_start or Hot_start), and a
+  `MultiGrid_HMC` block without `preconditioner_type : MG`. HMC's `Solver.Chebyshev` block
+  defaults to 8 steps, as without the block (it gave 5).
+- `dagger_solve : Through_D` is refused for coefficient_b 0 with coefficient_c 0 or quark_mass
+  0, where B5 = b − cY is singular.
+- HMC prints a note after its header (`# note: …`) for keys it is given but does not use: a
+  start format with a cold or hot start, an output format without an output file,
+  `lambda_Omelyan` with Leapfrog, `GaugeSmearing` when no action is smeared,
+  `number_of_kept_directions` with CG or BiCGStab, `Main.verbose_level` and `simd_lanes`, and a
+  `GradientFlow.skip_trajectories` that leaves every trajectory out.
+- Multigrid keys of the other fermion kind: refused for domain-wall fermions
+  (`precondition_diagonal`, `Smoother.number_of_cycles`, `convergence_criterion_squared`,
+  `pre_smoothing`), noted as not used for Wilson and clover where they differ from their
+  defaults (the filter and bootstrap steps, `Smoother.interval_ratio`, the level bootstraps,
+  `Coarse_Solver_D` keys of the domain-wall solve).
+- HMC's domain-wall multigrid: a breakdown of GCR or FGMRES hands the solve to CG (from 0 when
+  the solution so far is not finite), as a stall does; the bootstrap after a stall does a round
+  also with `bootstrap_number_of_rounds : 0`; the force solve retried after a stall counts
+  towards `refresh_interval`; FGMRES takes at most `maximum_number_of_iteration` rounded up to
+  whole cycles.
+
 - The bootstrap of the domain-wall multigrid ends by itself. After every round it measures the
   lowest Ritz value of Ã†Ã on the test vectors, and the next round begins by improving the lowest
   Ritz vector alone with its cycle: when that gains less than `Setup.bootstrap_minimum_gain` (4)
