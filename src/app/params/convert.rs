@@ -614,6 +614,7 @@ impl MultigridBlock {
         let boot = BootstrapParams {
             rounds,
             min_gain,
+            min_rounds: 0,
             steps: self.setup.bootstrap_number_of_steps,
             cycle,
         };
@@ -747,10 +748,10 @@ impl MultigridBlock {
         if self
             .setup
             .bootstrap_minimum_gain
-            .is_some_and(|gain| gain.is_nan() || gain <= 1.0)
+            .is_some_and(|gain| !gain.is_finite() || gain <= 1.0)
         {
             return Err(invalid(format!(
-                "{at}.Setup.bootstrap_minimum_gain must be above 1: it is the factor by which a round of the bootstrap must lower the lowest Ritz value for another round to follow (4 by default)"
+                "{at}.Setup.bootstrap_minimum_gain must be a finite number above 1: it is the factor by which a round of the bootstrap must lower the lowest Ritz value for another round to follow (4 by default)"
             )));
         }
         let n = level.test_vectors(true);

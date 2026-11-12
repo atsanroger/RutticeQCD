@@ -80,6 +80,9 @@ pub struct DwfMultigridSetup {
     /// solve rebuilds.
     baseline: Option<f64>,
     rebuild_due: bool,
+    /// The next rebuild follows a stalled solve: its bootstrap does at least one round, whatever
+    /// the gain (`BootstrapParams::min_rounds`).
+    after_stall: bool,
     /// Rebuilds of P and the coarse parts for new links, and solves that reused them.
     pub(crate) rebuilds: usize,
     pub(crate) reuses: usize,
@@ -115,6 +118,7 @@ impl DwfMultigridSetup {
             since: 0,
             baseline: None,
             rebuild_due: false,
+            after_stall: false,
             rebuilds: 0,
             reuses: 0,
             setups: 0,
@@ -185,6 +189,7 @@ pub(crate) fn with_solves<B: MdwfBackend + 'static>(
         );
         stalled += info.iterations;
         setup.rebuild_due = true;
+        setup.after_stall = true;
         // The same solve: a force solve counts once towards `refresh_every`.
         result = attempt(setup, (fresh, false));
     }
@@ -242,8 +247,13 @@ fn solves_once<B: MdwfBackend + 'static>(
             }
             let kept_vectors = kept.vectors.take();
             let quiet = &mut |_: SetupStage<'_>| {};
+            // After a stall the probe could end the bootstrap at once on vectors that gave it.
+            let mut mg = setup.mg;
+            if setup.after_stall {
+                mg.bootstrap.min_rounds = mg.bootstrap.min_rounds.max(1);
+            }
             let (vectors, parts, vector_seconds) =
-                backend.rebuild((d, pv), &outers, lat, &setup.mg, kept_vectors, due, quiet)?;
+                backend.rebuild((d, pv), &outers, lat, &mg, kept_vectors, due, quiet)?;
             // The vectors count as the setup, P and the coarse parts as the rebuild.
             setup.seconds.setup += vector_seconds;
             setup.seconds.rebuild += start.elapsed().as_secs_f64() - vector_seconds;
@@ -253,6 +263,7 @@ fn solves_once<B: MdwfBackend + 'static>(
             setup.rebuilds += 1;
             // Consumed; with the cache `after_solve` decides the next one.
             setup.rebuild_due = false;
+            setup.after_stall = false;
             kept.vectors = Some(vectors);
             parts
         }

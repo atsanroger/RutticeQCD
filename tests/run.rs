@@ -1905,7 +1905,8 @@ fn mdwf_mg_yaml(setup: char) -> String {
         "filter_number_of_vectors   : 16",
         "filter_number_of_vectors   : 4",
     );
-    // Exactly two rounds, as when the reference was measured; the automatic rule gives 12.
+    // Exactly two rounds, as when the reference was measured; the automatic rule needs 12
+    // iterations of the outer solver here.
     y = with(
         &y,
         "bootstrap_number_of_rounds : auto",

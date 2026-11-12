@@ -253,6 +253,10 @@ pub struct BootstrapParams {
     /// vectors by less than this factor (`bootstrap_rounds`): the vectors have reached the
     /// lowest modes. `None`: all `rounds` are done.
     pub min_gain: Option<f64>,
+    /// Rounds done before `min_gain` can end them. HMC sets 1 when it bootstraps again after a
+    /// stalled solve: the stall shows that the vectors are not good enough, whatever the probe
+    /// on the lowest Ritz vector says.
+    pub min_rounds: usize,
     /// Steps of FGMRES on Ã x = y with the cycle, per vector and round.
     pub steps: usize,
     /// Settings of the cycle used (its coarse tolerance, smoother).
@@ -260,15 +264,28 @@ pub struct BootstrapParams {
 }
 
 impl Default for BootstrapParams {
-    /// Rounds of four steps until the next would gain less than a factor 4, at most 8. Two
-    /// rounds leave the vectors a factor 60 above the lowest modes on 24⁴ at m = 0.001, where
-    /// the solves with D of HMC then stall; the third round gains 20-31, a fourth less than 2.
+    /// Two rounds of four steps, without the gain; the parameter files use `automatic`.
     fn default() -> Self {
+        Self {
+            rounds: 2,
+            min_gain: None,
+            min_rounds: 0,
+            steps: 4,
+            cycle: PvEoParams::default(),
+        }
+    }
+}
+
+impl BootstrapParams {
+    /// Rounds of four steps until the next would gain less than a factor 4, at most 8: what a
+    /// parameter file without `bootstrap_number_of_rounds` asks. Two rounds leave the vectors a
+    /// factor 60 above the lowest modes on 24⁴ at m = 0.001, where the solves with D of HMC then
+    /// stall; the third round gains 20-31, a fourth less than 2.
+    pub fn automatic() -> Self {
         Self {
             rounds: 8,
             min_gain: Some(4.0),
-            steps: 4,
-            cycle: PvEoParams::default(),
+            ..Self::default()
         }
     }
 }
@@ -375,13 +392,13 @@ pub(crate) type WithCycle<'w, H, W, E> =
 
 /// The bootstrap, the same on every backend: rounds, each improving every test vector with the
 /// cycle made of the vectors of the round before (`with_cycle`), then the vectors
-/// orthonormalised. `lowest(y)` is the lowest Ritz pair of Ã†Ã on them (`lowest_ritz_pair` with
+/// orthonormalized. `lowest(y)` is the lowest Ritz pair of Ã†Ã on them (`lowest_ritz_pair` with
 /// the backend's Ã).
 ///
 /// Without `params.min_gain` all `params.rounds` are done. With it a round begins with a probe:
 /// its cycle improves the lowest Ritz vector alone, and when that lowers |Ã x|²/|x|² by less
 /// than the gain against the Ritz value, the vectors have reached the lowest modes and the
-/// bootstrap ends with them unchanged. The probe needs the cycle of the round, that of the
+/// bootstrap ends with them unchanged; the first `params.min_rounds` rounds have no probe. The probe needs the cycle of the round, that of the
 /// current vectors: the cycle of the round before, made of the vectors before it, does not tell
 /// (24⁴, m 0.001: after two rounds it gains 1.0-1.5 where the next round gains 20-31). So ending
 /// costs one cycle made and one vector improved, about half a round.
@@ -407,15 +424,16 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
         let mut ended = None;
         {
             let mut work = |a: &mut dyn LinearFn<H>, cycle: &mut dyn LinearFn<H>, vectors: H| {
-                if let Some(gain) = params.min_gain {
+                // The vectors wait first: on the device the probe then has the room of a round.
+                let mut waiting = W::wait(vectors)?;
+                if let Some(gain) = params.min_gain.filter(|_| round >= params.min_rounds) {
                     let x = bootstrap_vector(&mut *a, &mut *cycle, &vector, params.steps);
                     let probed = rayleigh_quotient(&mut *a, &x);
                     if value < gain * probed {
                         ended = Some(probed);
-                        return W::wait(vectors);
+                        return Ok(waiting);
                     }
                 }
-                let mut waiting = W::wait(vectors)?;
                 for j in 0..waiting.num_vectors() {
                     let x =
                         bootstrap_vector(&mut *a, &mut *cycle, &waiting.vector(j)?, params.steps);

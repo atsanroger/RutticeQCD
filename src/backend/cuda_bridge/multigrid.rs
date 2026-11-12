@@ -188,9 +188,9 @@ impl<T: DeviceReal> Waiting<DeviceSpinor<T>, Box<dyn Error>> for Stashed<T> {
     }
 }
 
-/// The bootstrap (`bootstrap_rounds`): rounds (`params.rounds`, `params.min_gain`) of `params.steps` steps of FGMRES
-/// on Ã x = y_j with the cycle of the vectors of the round before, for every vector, then
-/// orthonormalised. Each round hands the current vectors to `with_correction`, which makes their
+/// The bootstrap (`bootstrap_rounds`): rounds (`params.rounds`, `params.min_gain`) of
+/// `params.steps` steps of FGMRES on Ã x = y_j with the cycle of the vectors of the round
+/// before, for every vector, then orthonormalized. Each round hands the current vectors to `with_correction`, which makes their
 /// coarse correction and passes it on to the round (`Round`) with the vectors; the vectors wait
 /// on the host while the cycle works on one at a time.
 pub fn bootstrap<T: DeviceReal>(

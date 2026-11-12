@@ -12,7 +12,12 @@
   on quenched 24⁴ at m 0.001 (lowest Ritz value 2.1e-6 to 3.1e-6, lowest eigenvalue 5.5e-8 to
   7.8e-8), and the solves with D of HMC then stall. With `auto` the setup takes three rounds
   there and 141-146 s against 95 s. Files that give `bootstrap_number_of_rounds : 2` keep two
-  rounds. The device prints the lowest Ritz value after every round.
+  rounds. The device prints the lowest Ritz value after every round. When a solve of HMC
+  stalls, the bootstrap before the retry does at least one round whatever the gain. On the
+  device the test vectors move to the host before the probe, so the probe needs no more device
+  memory than a round. `bootstrap_minimum_gain` must be finite and above 1, and a
+  `bootstrap_number_of_rounds` that is neither a number nor `auto` (-1, 2.0, true) is refused
+  with the key named; a number in quotes counts as the number.
 
 - HMC with the domain-wall multigrid takes `solver_type : FGMRES` as well as GCR: FGMRES restarted
   after `number_of_kept_directions` steps, with as many vectors as GCR keeping as many directions.

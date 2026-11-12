@@ -514,11 +514,13 @@ pub(crate) struct SubLevelBlock {
 }
 
 /// `bootstrap_number_of_rounds`: a number, or the word `auto` (checked when the file is read).
+/// Any other value is kept as `Other`, so that the check refuses it with the key named.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum BootstrapRounds {
     Number(usize),
     Word(String),
+    Other(serde_yaml_ng::Value),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -644,7 +646,7 @@ impl SetupBlock {
     /// The rounds of the domain-wall bootstrap and the gain that ends them (`BootstrapParams`):
     /// a number of rounds alone is done exactly; otherwise the rounds end on the gain.
     pub(crate) fn domain_wall_rounds(&self) -> (usize, Option<f64>) {
-        let default = BootstrapParams::default();
+        let default = BootstrapParams::automatic();
         match (self.number_of_rounds(), self.bootstrap_minimum_gain) {
             (Some(rounds), None) => (rounds, None),
             (rounds, gain) => (rounds.unwrap_or(default.rounds), gain.or(default.min_gain)),
@@ -656,10 +658,12 @@ impl SetupBlock {
         self.number_of_rounds().unwrap_or(4)
     }
 
-    /// The number `bootstrap_number_of_rounds` gives; none without the key or with `auto`.
+    /// The number `bootstrap_number_of_rounds` gives, also written in quotes; none without the
+    /// key or with `auto`.
     fn number_of_rounds(&self) -> Option<usize> {
         match &self.bootstrap_number_of_rounds {
             Some(BootstrapRounds::Number(n)) => Some(*n),
+            Some(BootstrapRounds::Word(w)) => w.trim().parse().ok(),
             _ => None,
         }
     }
@@ -667,11 +671,18 @@ impl SetupBlock {
     /// Whether `bootstrap_number_of_rounds` is the word `auto`, in any case; another word is
     /// refused.
     pub(crate) fn rounds_auto(&self, at: &str) -> Result<bool, CliError> {
+        let refused = |w: &str| {
+            CliError::Invalid(format!(
+                "{at}.Setup.bootstrap_number_of_rounds : {w} is neither a number of rounds nor auto (write 0, 1, 2, ... or auto; with auto the rounds end when one gains less than bootstrap_minimum_gain)"
+            ))
+        };
         match &self.bootstrap_number_of_rounds {
-            Some(BootstrapRounds::Word(w)) if w.eq_ignore_ascii_case("auto") => Ok(true),
-            Some(BootstrapRounds::Word(w)) => Err(CliError::Invalid(format!(
-                "{at}.Setup.bootstrap_number_of_rounds : {w} is neither a number of rounds nor auto (the rounds end when one gains less than bootstrap_minimum_gain)"
-            ))),
+            Some(BootstrapRounds::Word(w)) if w.trim().eq_ignore_ascii_case("auto") => Ok(true),
+            Some(BootstrapRounds::Word(w)) if w.trim().parse::<usize>().is_ok() => Ok(false),
+            Some(BootstrapRounds::Word(w)) => Err(refused(w)),
+            Some(BootstrapRounds::Other(v)) => Err(refused(
+                serde_yaml_ng::to_string(v).unwrap_or_default().trim(),
+            )),
             _ => Ok(false),
         }
     }

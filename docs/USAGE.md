@@ -191,10 +191,14 @@ vectors are filtered at a time: fewer take less memory. The bootstrap of the dom
 multigrid ends by itself: after every round it measures the lowest Ritz value of Ã†Ã on the test
 vectors (printed on the device), and the next round begins by improving the lowest Ritz vector
 alone; when that gains less than `Setup.bootstrap_minimum_gain` (4), the round is not done and
-the bootstrap ends, after at most 8 rounds. That is `Setup.bootstrap_number_of_rounds : auto`, the same as no key. A file with
-`Setup.bootstrap_number_of_rounds : N` and no gain does exactly N rounds, as before; with both
-keys N is the most rounds. Two rounds, the earlier default, leave the vectors short of the lowest
-modes on 24⁴ at m = 0.001, and the solves with D of HMC then stall. The levels below the coarse lattice
+the bootstrap ends, after at most 8 rounds. That is `Setup.bootstrap_number_of_rounds : auto`,
+the same as no key or an empty value. A file with `Setup.bootstrap_number_of_rounds : N` and no
+gain does exactly N rounds, as before; with both keys N is the most rounds. Two rounds, the
+earlier default, leave the vectors short of the lowest modes on 24⁴ at m = 0.001, and the solves
+with D of HMC then stall. When a solve of HMC stalls, the bootstrap before the retry does at
+least one round whatever the gain. The device and the CPU measure the gain in different
+precisions, so near the threshold they can end after different rounds. The levels below the
+coarse lattice
 (`MultiGrid_Level2` and on, `levels_for_pauli_villars`) are there too, the last of them
 inverted densely by cuSOLVER (any size that fits in memory), and so is the exact adjoint of the
 second factor (`Coarse_Solver_PV` other than `MINRES`).

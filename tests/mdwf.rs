@@ -1658,7 +1658,8 @@ fn setup_from_scratch<T: Storage>() -> usize {
 
 /// The rounds of the bootstrap end on the gain of the lowest Ritz vector: with a gain no round
 /// reaches, the vectors stay as they were, bit for bit; with a gain every round reaches, they
-/// are those of all the rounds; and two rounds give other vectors than three.
+/// are those of all the rounds; and two rounds give other vectors than three. With rounds before
+/// the probe (`min_rounds`), the vectors are those of exactly those rounds.
 #[test]
 fn bootstrap_rounds_end_on_the_gain() {
     let lat = Lattice::single_node([4, 4, 4, 8]);
@@ -1680,16 +1681,18 @@ fn bootstrap_rounds_end_on_the_gain() {
         },
     );
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    let after = |rounds: usize, min_gain: Option<f64>| {
+    let after_from = |rounds: usize, min_gain: Option<f64>, min_rounds: usize| {
         let mut y = filtered.select(&[0, 1, 2, 3, 4, 5]);
         let params = BootstrapParams {
             rounds,
             min_gain,
+            min_rounds,
             ..BootstrapParams::default()
         };
         pv_eo_bootstrap(&op, &pv, &agg, &mut y, params).unwrap();
         y
     };
+    let after = |rounds: usize, min_gain: Option<f64>| after_from(rounds, min_gain, 0);
     let same = |x: &Field<f64, Spinor, Half>, y: &Field<f64, Spinor, Half>| {
         x.as_slice()
             .iter()
@@ -1707,6 +1710,20 @@ fn bootstrap_rounds_end_on_the_gain() {
     assert!(
         same(&after(3, Some(1e-300)), &three),
         "a gain always reached takes every round"
+    );
+    assert!(
+        same(&after(0, Some(1e-300)), &start),
+        "no rounds, whatever the gain"
+    );
+    // Rounds before the probe (HMC after a stall): the gain never reached ends the rounds after
+    // them, with the vectors of exactly those rounds.
+    assert!(
+        same(&after_from(3, Some(1e300), 1), &one),
+        "one round before the probe"
+    );
+    assert!(
+        same(&after_from(3, Some(1e300), 2), &two),
+        "two rounds before the probe"
     );
 }
 

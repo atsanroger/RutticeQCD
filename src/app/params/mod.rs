@@ -166,13 +166,33 @@ Solver:
             word.contains("neither a number of rounds nor auto"),
             "{word}"
         );
-        let refused = rule("    bootstrap_minimum_gain : 1\n")
-            .unwrap_err()
-            .to_string();
-        assert!(
-            refused.contains("bootstrap_minimum_gain must be above 1"),
-            "{refused}"
+        assert_eq!(
+            rule("    bootstrap_number_of_rounds : \"3\"\n").unwrap(),
+            (3, None)
         );
+        assert_eq!(
+            rule("    bootstrap_number_of_rounds :\n").unwrap(),
+            (8, Some(4.0))
+        );
+        for value in ["-1", "2.0", "true", "[2]"] {
+            let refused = rule(&format!("    bootstrap_number_of_rounds : {value}\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                refused.contains("Setup.bootstrap_number_of_rounds")
+                    && refused.contains("neither a number of rounds"),
+                "{value}: {refused}"
+            );
+        }
+        for gain in ["1", ".inf", ".nan", "-3"] {
+            let refused = rule(&format!("    bootstrap_minimum_gain : {gain}\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                refused.contains("bootstrap_minimum_gain must be a finite number above 1"),
+                "{gain}: {refused}"
+            );
+        }
     }
 
     #[test]
