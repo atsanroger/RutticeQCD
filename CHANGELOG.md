@@ -10,8 +10,13 @@
   12 solutions are those of the previous build.
 - The random start vectors of the device setup are drawn per site in parallel, each site from
   its own draw of the generator (the same numbers as before), and a vector the bootstrap
-  brings back to the host goes straight into its place. With the two changes above the setup
-  on 24³×48 (S, m 0.001) takes 258 s against 305 s.
+  brings back to the host goes straight into its place. Fields stashed on the host wait in
+  pinned memory, reused from a cache of the process (a copy at about 20 GB/s against 1.8 GB/s
+  into a new `Vec`). The coarse operators are made from as many components at a time as fit
+  in half of the free device memory (a quarter before), at most 6 GB, so P is read fewer
+  times. With the changes above the setup on 24³×48 (S, m 0.001) takes 233 s against 305 s;
+  the host keeps about 4 GB more after the setup, and the device peak of the setup is 18.4 GB
+  against 17.0 GB.
 - The regularized coarse CG of the Pauli-Villars factor no longer panics when some of its
   vectors converge before others (it applied A to a scratch of the original width after CG had
   dropped the converged vectors): a propagator with `number_of_rhs_per_solve` above 1 and the

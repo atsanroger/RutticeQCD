@@ -215,8 +215,10 @@ impl<T: DeviceReal> DeviceSpinor<T> {
 
     /// The fields to the host, to make room on the device.
     pub(crate) fn stash(self) -> Result<Stashed<T>, CudaError> {
+        let mut host = PinnedHost::new(self.data.len)?;
+        self.data.download_into(&mut host)?;
         Ok(Stashed {
-            host: self.data.download_raw()?,
+            host,
             lat: self.lat.clone(),
             ls: self.ls,
             parity: self.parity,
@@ -240,9 +242,10 @@ impl<T: DeviceReal> crate::field::park::Park for DeviceSpinor<T> {
 }
 
 /// Fields kept on the host as they are on the device, while the device needs the room
-/// (`DeviceSpinor::stash`): back all at once or one vector at a time.
+/// (`DeviceSpinor::stash`): back all at once or one vector at a time. The bootstrap moves its
+/// vectors through here every round, so they wait in pinned memory (`PinnedHost`).
 pub(crate) struct Stashed<T> {
-    host: Vec<T>,
+    host: PinnedHost<T>,
     lat: Arc<Lattice>,
     ls: usize,
     parity: Option<Parity>,

@@ -1012,8 +1012,12 @@ A profile by nsys (`filterscanA/prof_T_ms_S_v2*`) found the device idle while th
   0.27 GB, the pages faulted in during the copy) and was then copied. It now goes straight into
   the stash (`download_into`; 0.035 s in a test program).
 - 2.3 s per round in `stash`, the 4 GB of the vectors into a new `Vec` (1.8 GB/s). Into pinned
-  memory the copy takes 0.22 s (test program), but pinning 4 GB takes 2.0 s: a pinned buffer
-  kept from round to round would recover about 2 s per round. Not done.
+  memory the copy takes 0.22 s (test program), but pinning 4 GB takes 2.0 s. `Stashed` now
+  holds its fields in pinned memory (`PinnedHost`) from a cache of the process: a dropped block
+  is taken again by a request of at least half its size. Checksums of `rerunA/T_ps_S__v2` the
+  same at every stage (`filterscanA/checksum_pinned_*`); setup 246 s against 258 s. The cache
+  keeps the host memory of the process 3.8 GB higher after the setup (4.6 GB against 0.8 GB);
+  the peak (19.7 GB) is the same.
 
 With both changes the checksums of `rerunA/T_ps_S__v2` are those of the build before at every
 stage (`filterscanA/checksum_hostfast_*`), and the setup of T_ms_S m 0.001 v2 takes 258 s
@@ -1032,9 +1036,20 @@ probe 3.9 and the solve takes 86 iterations (18 with 2 filter rounds). With none
 needs 4–5 rounds (setup 315–396 s). Two filter rounds stay.
 
 Next:
-- A pinned host buffer for the stash, kept from round to round (about 2 s per round).
-- The restriction in the making of the coarse operators: probe vectors restricted several at a
-  time would read P once for all of them (34 s of restriction, most of it there; to be counted).
+- The making of the coarse operators, 15 s per cycle and 4 cycles per setup. Per operator and
+  batch of components: 8 `hop_split` (6.2 ms each), 8 restrictions of a leg (4.7 ms; they read
+  only the face sites already) and one of the inside (18.3 ms), one prolongation (11.6 ms). The
+  batch is 1 component on 24³×48: the budget is a quarter of the free device memory, at most
+  3 GB, and a component takes three fine fields (1.5 GB). So P is read 9 times per component
+  and operator, 64 components, 2 operators: the restrictions are 7.2 s per cycle.
+  (a) Done: a budget of half the room, at most 6 GB. The checksums of `rerunA/T_ps_S__v2` the
+  same at every stage (`filterscanA/checksum_batch_*`); the setup of T_ms_S m 0.001 v2 takes
+  233 s against 246 s, its device peak 18.4 GB against 17.0 GB (the solve's 20.6 GB the same).
+  (b) One kernel for the 8 legs, writing `cross` only on the face sites (a quarter of the
+  sites per leg), restricted in one pass: an estimated 5 s or more less per cycle. A new
+  kernel; design and check to be agreed first.
+- The halo exchange of several processes without NCCL (`Transport::Host`) copies the faces
+  through pageable host buffers every hop; they are reused, but not pinned.
 - The stop of the bootstrap on S 000802 with 1 filter round: a gain of 3.9 against the
   threshold 4 left the solve at 86 iterations. With 2 filter rounds no stop of rerunA was that
   bad, but the threshold has no margin for it.

@@ -45,6 +45,7 @@ pub(super) const POOL_RELEASE_THRESHOLD: i32 = 4;
 extern "C" {
     pub(super) fn cudaMalloc(ptr: *mut *mut c_void, bytes: usize) -> i32;
     pub(super) fn cudaFree(ptr: *mut c_void) -> i32;
+    pub(super) fn cudaMallocHost(ptr: *mut *mut c_void, bytes: usize) -> i32;
     pub(super) fn cudaMallocAsync(ptr: *mut *mut c_void, bytes: usize, stream: *mut c_void) -> i32;
     pub(super) fn cudaFreeAsync(ptr: *mut c_void, stream: *mut c_void) -> i32;
     pub(super) fn cudaGetDevice(device: *mut i32) -> i32;
