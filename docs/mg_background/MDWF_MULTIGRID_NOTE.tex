@@ -728,11 +728,14 @@ and $2$ this gives $1+8=9$ and $1+8+24=33$ points, and for $k\ge4$ all $3^4=81$.
 =\Ce\,\pi D^{-1}\iota\;\pi(\Dpv\dg)^{-1}\iota\;\Cpve\dg ,
 \label{eq:ARinv}
 \end{equation}
-a product of two inverses of one-hop operators and site-local factors. The Galerkin operator of
-$\AR$ itself would have a large coarse stencil, since $\AR$ reaches four hops. The Galerkin
+a product of two inverses of one-hop operators and site-local factors. \textcolor{red}{New!!!} The
+Galerkin operator of $\AR$ itself would have all $81$ points. $S$ reaches two hops, through
+$D_{oe}$ and then $D_{eo}$, and $\AR$ contains $S$ and $\Spv\dg$, so it reaches four. The Galerkin
 operators of $D$ and $\Dpv$ are nearest-neighbor, since $D$ is nearest-neighbor in four dimensions
 and every aggregate contains the whole fifth dimension. We therefore replace each inverse by its
-Galerkin approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. For both forms and any $\alpha$, the
+Galerkin approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. The outer system stays on the even
+sites, and the coarse operators are those of the whole lattice; $\iota$ and $\pi$ carry the
+residual from the even sites to the whole lattice and back. For both forms and any $\alpha$, the
 correction of a residual $r$ on the even sites is
 \begin{equation}
 e=O_L\;\pi\Pro\,\Dc^{-1}\Pro\dg\iota\;\;O_M\;\;
@@ -750,6 +753,15 @@ so $O_R=Q_e^{-1}$, $O_M=\Ce Q_e^2\Cpve\dg$ and $O_L=Q_e^{-1}$. The two coarse in
 of the plain $D$ and $\Dpv$; within the correction, $\alpha$ is in these factors only. Figure~\ref{fig:correction} follows a residual through Eq.~\eqref{eq:corr}. It moves
 between the even sites, all lattice sites and the coarse lattice twice, and the result of the
 first coarse solve, taken on the even sites, is the right-hand side of the second.
+
+\paragraph{\textcolor{red}{New!!!} The cost of two factors.} Coarsened apart, the two factors keep
+nine points each. The $\Dpv\dg D$ of all lattice sites coarsens to $33$
+points~\cite{BoyleOare}, and $\AR$ as a whole to $81$, as above. A truncation of either to nearest neighbors
+is no longer a Galerkin projection. Coarsening apart incurs two costs. First, each cycle solves two
+coarse systems, where the product needs one. Second, the product of the two Galerkin inverses in
+Eq.~\eqref{eq:corr} differs from the Galerkin inverse of the product. The two lifts of each test
+vector (Sec.~\ref{sec:basis}) make the correction exact on the test vectors again
+(Eq.~\eqref{eq:exact}), at twice the columns of $\Pro$.
 
 \begin{figure}[tbp]
 \centering
@@ -1007,17 +1019,59 @@ $\AR x=y_j$ from $x=0$, preconditioned by that cycle. And it orthonormalizes the
 their Gram matrix ($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$). The cycle damps
 the components it already handles, so the new vectors are enriched in what it does not.
 
+\paragraph{\textcolor{red}{New!!!} Number of rounds.}
+\label{sec:autoboot}
+The bootstrap stops when one more round would no longer bring the vectors closer to the low modes.
+We measure that distance by the lowest Ritz value of $H_n=\AR\dg\AR$ on the vectors. After round
+$r$ the vectors $y$ are orthonormal, so the Ritz values are the eigenvalues of the $n\times n$
+matrix $(\AR y)\dg(\AR y)$. We call the lowest one $\theta_r$ and its Ritz vector $u_r$; the
+filter gives $\theta_0$ and $u_0$. Computing them costs one application of $\AR$ per vector.
+
+Round $r+1$ begins with a probe. It builds the cycle $\mathcal M_{r+1}$ from the current $y$, as
+the round would, and improves $u_r$ alone with the same FGMRES steps:
+\begin{equation}
+x=\textsc{Fgmres}_k(\AR,\mathcal M_{r+1},u_r),\qquad
+\rho_{r+1}=\frac{|\AR x|^2}{|x|^2},\qquad g_{r+1}=\frac{\theta_r}{\rho_{r+1}}.
+\label{eq:probe}
+\end{equation}
+Here $k$ is the number of FGMRES steps per vector and round (4), $\rho_{r+1}$ is the Rayleigh
+quotient of $H_n$ at the improved vector, and $g_{r+1}$ is the gain of the probe. The gain says how
+much the round would lower the lowest Ritz value if it lowered it as much as it lowers $u_r$. If
+$g_{r+1}<g_{\min}$ the round is not done, and the bootstrap ends with $y$ unchanged. Otherwise
+the round improves every vector with $\mathcal M_{r+1}$. We take $g_{\min}=4$ and at most $8$
+rounds. The first $r_{\min}$ rounds run without a probe; $r_{\min}=0$, except that HMC sets
+$r_{\min}=1$ when it repeats the setup after a stalled solve, since the stall itself shows that the
+vectors are not good enough.
+
+We define the probe as in Eq.~\eqref{eq:probe} for three reasons. (i) We use $\theta_r$ and not the residual
+$|H_nu_r-\theta_ru_r|$. On $24^4$ at $m=0.001$, $\theta_r$ is $1.4\times10^{-8}$ of the largest
+eigenvalue of $H_n$, below single precision, and from the third round on the residual stays at
+about $400\,\theta_r$ while $\theta_r$ still falls. (ii) The probe uses the cycle of the next
+round. The cycle of the round just done is built from the vectors before it and does not tell: on
+$24^4$ at $m=0.001$, after two rounds it gains $1.0$--$1.5$ on $u_r$, while the third round lowers
+$\theta$ by a factor $20$--$31$. (iii) When the probe ends the bootstrap, $\mathcal M_{r+1}$ is
+built from the final vectors, so its $\Pro$ and coarse operators are those of the solve, and we
+keep them. Stopping then costs one vector of FGMRES steps beyond a fixed count, plus the Ritz pair
+after each round.
+
+On $24^3\times48$ with setup~S at $m=0.001$, the lowest Ritz value of $H_n$ falls from
+$1.46\times10^{-2}$ after the filter to $1.54\times10^{-4}$, $6.16\times10^{-6}$ and
+$1.46\times10^{-7}$ after rounds 1, 2 and 3. The probe of round 4 gives $9.76\times10^{-8}$, a gain
+of $1.5$, and the bootstrap ends after three rounds.
+
 \begin{algorithm}
-\caption{Setup of the two-grid method.}
+\caption{Setup of the two-grid method. \textcolor{red}{New!!!} With a fixed number of rounds $R$, the loop runs $R$ times without the test.}
 \label{alg:setup}
 \begin{algorithmic}
-\State $y\gets\textsc{LowModes}(H_n)$
-\For{each bootstrap round}
+\State $y\gets\textsc{LowModes}(H_n)$;\quad $(\theta,u)\gets$ lowest Ritz pair of $H_n$ on $y$
+\For{$r=0,\dots,7$}
   \State build $\Pro$ from $\{s_j,\hat t_j\}$ of $y$ and the cycle $\mathcal M$ on it
+  \If{$r\ge r_{\min}$ and $\theta<g_{\min}\,\rho$ for $\rho$ of Eq.~\eqref{eq:probe}} \textbf{break} \Comment{\textcolor{red}{New!!!} keep $\Pro$, $\mathcal M$}
+  \EndIf
   \For{$j=1,\dots,n$}
     \State $y_j\gets$ a few FGMRES steps on $\AR x=y_j$, preconditioned by $\mathcal M$
   \EndFor
-  \State orthonormalize $y$
+  \State orthonormalize $y$;\quad $(\theta,u)\gets$ lowest Ritz pair of $H_n$ on $y$
 \EndFor
 \State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalize per block $\to\Pro$
 \State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
@@ -1244,7 +1298,8 @@ needed for the solver.
 
 Table~\ref{tab:b5} compares the two ways on the GPU, with GCR(2), one cycle per step and
 $|r|^2/|b|^2<10^{-10}$, on the right-hand sides of Sec.~\ref{sec:daggerresults}. The solve through
-$D$ needs the iterations of a solve with $D$, within two either way, because it is one. The
+$D$ is a solve with $D$ on the right-hand side $B_5^{-1}\Gfive b$, and it needs the same
+iterations as a solve with $D$, within two either way. The
 preconditioner $\Gfive\mathcal M\Gfive$ needs two to four more on the random right-hand side and
 one to five more on the residual, and on $12^4$ in setup~S it stalls on the residual of all four
 configurations, which the solve through $D$ does in $7$ to $11$ iterations. In time the solve
@@ -1322,7 +1377,9 @@ The evidence is four quenched configurations per volume up to $24^3\times48$ on 
 with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
 $\Dpv\dg D$ in one code, larger volumes and HMC are the next steps (Sec.~\ref{sec:open}). Applying the coarse operators to the 12 columns of a point
 source together should raise the arithmetic intensity from about one flop per byte to about ten, as
-estimated for Wilson-clover multigrid~\cite{Grebe}; we have not measured this.
+estimated for Wilson-clover multigrid~\cite{Grebe}. Boyle's multigrid for domain-wall fermions
+does this with batched matrix products in the coarse space~\cite{BoyleMRHS}; we have not
+measured it here.
 
 \paragraph{Code.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{BridgeUeda,Bridge} in Rust
@@ -1381,7 +1438,11 @@ Sec.~\ref{sec:dagger}, is also lacking.
 solvers on $\AL$ alone. How the two
 nine-point factors compare with the $81$-point HDCG operator and with the $33$-point coarsening of
 $\Dpv\dg D$~\cite{BoyleOare}, in cost per iteration and in iterations, needs all of them in one
-code on the same lattices. 
+code on the same lattices. \textcolor{red}{New!!!} One application of the two nine-point operators
+reads $18n^2$ complex numbers per coarse site, and one of the $33$-point operator reads $33n'^2$,
+with $n$ and $n'$ the columns of the two prolongations. Which method is cheaper also depends on the
+coarse iterations per cycle and on the outer iterations. Ref.~\cite{BoyleOare} does not report
+them, and we have not implemented the product coarsening.
 \begin{comment}
 The same holds for the full-lattice $A'$ against the even-odd system.
 Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction
@@ -1450,6 +1511,11 @@ there and in $b$ (the code solves the corrected equation). Sec.~\ref{sec:g5fail}
 surrounds the origin does not stop a Krylov method; it forces a degree of the order of the number
 of eigenvalues. Algorithms~\ref{alg:bicgstab} and~\ref{alg:fgmres}: the checks for an exact
 solution before $\omega$ is computed and before the Arnoldi vector is normalized.
+
+\textit{2026-11-12.} The correction states why $\AR$ reaches four hops and how $\iota$ and $\pi$
+connect the even-odd system with the coarse operators of the whole lattice. Sec.~\ref{sec:basis}
+is preceded by a paragraph on the cost of coarsening the two factors apart. The open problem on formulations gives the memory read per coarse application
+of the two methods.
 
 \section*{Acknowledgments}
 \addcontentsline{toc}{section}{Acknowledgments}

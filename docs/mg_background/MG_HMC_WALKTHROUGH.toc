@@ -26,6 +26,7 @@
 \contentsline {paragraph}{When the sweeps stall.}{7}{section*.18}%
 \contentsline {section}{\numberline {10}What the multigrid keeps along a trajectory}{7}{section.10}%
 \contentsline {section}{\numberline {11}\textcolor {red}{New!!!} The solve with $D^{\dagger }$: $\Gamma _5\mathcal M\Gamma _5$ or through $D$}{8}{section.11}%
-\contentsline {section}{\numberline {12}Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}{8}{section.12}%
-\contentsline {section}{\numberline {13}What the measurements say so far}{8}{section.13}%
-\contentsline {section}{\numberline {14}Map to the code}{9}{section.14}%
+\contentsline {section}{\numberline {12}\textcolor {red}{New!!!} Why the solve with $D$ stalls}{8}{section.12}%
+\contentsline {section}{\numberline {13}Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}{9}{section.13}%
+\contentsline {section}{\numberline {14}What the measurements say so far}{9}{section.14}%
+\contentsline {section}{\numberline {15}Map to the code}{10}{section.15}%

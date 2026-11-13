@@ -28,7 +28,7 @@ Chebyshev smoother $\nu$, $\kappa_s$ & $8$, $10$ & $12$, $30$ \\
 \multicolumn{3}{@{}l}{multigrid (both setups)}\\
 aggregates & \multicolumn{2}{l}{$4^4$ ($24^3\times48$: levels below with super-blocks $2$, $3$)} \\
 test vectors & \multicolumn{2}{l}{$32$ ($16$ filtered low modes of $\AR\dg\AR$, lifted to $\{s,\hat t\}$)} \\
-setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps} \\
+setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps (\textcolor{red}{New!!!} automatic count: Sec.~\ref{sec:autorounds})} \\
 coarse solves & \multicolumn{2}{l}{single precision, $|r|^2/|b|^2<10^{-2}$; Pauli--Villars $\tau=10^{-3}$} \\
 precision & \multicolumn{2}{l}{$\Pro$ half, cycle single, outer solver double} \\
 outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
@@ -240,6 +240,23 @@ Table~\ref{tab:tvscan}); in setup~B it does not grow further to $24^3\times48$, 
 the low modes leads one to expect once the box is large enough. In setup~B each
 count gives about the same iterations on both volumes. Setup~S needs more vectors; with fewer than
 $32$ it is slow or stagnates on both volumes.
+
+\paragraph{\textcolor{red}{New!!!} Automatic number of rounds.}
+\label{sec:autorounds}
+The rule of Sec.~\ref{sec:autoboot} does more rounds at small masses and fewer at large ones. We
+compare it with the two rounds of Table~\ref{tab:setups} on the mass scan on $24^3\times48$, four
+configurations and $\alpha=0.6$, $1.0$, one random right-hand side per run. In setup~S it does one
+round at $m\ge0.05$, two at $m=0.01$ and $0.02$, two or three at $m=0.005$ and three at
+$m\le0.002$. In setup~B it does two rounds at $m\ge0.02$ (one on one configuration at $m=0.1$),
+two or three at $m=0.01$ and three at $m\le0.005$. At $m=0.001$ the GCR(2) iterations fall from
+$22$--$44$ to $18$--$22$ in setup~S and from $23$--$29$ to $16$--$18$ in setup~B. At
+$m\ge0.05$ in setup~S the single round costs up to three iterations ($8$--$14$ become $8$--$16$),
+under $1$~s of solve, against $40$--$65$~s per round. On this scan the probe gains of the rounds not done lie
+between $1.2$ and $3.9$. The case at $3.9$, closest to $g_{\min}$, is setup~B at $m=0.1$ on one
+configuration: it stops after one round and needs $9$ and $12$ iterations, against $7$ and $10$
+with two rounds. With the current code the three rounds at $m=0.001$ in setup~S take $204$~s of
+setup on the A30, the time two rounds took with the code of the tables ($203$~s); the tables
+themselves still use two rounds.
 
 Outside the window the failures can come from the outer solver alone. With $\kappa_s=10$ in
 setup~B, GCR(2) reaches a plateau on one of the four $12^4$ configurations, and other setup seeds

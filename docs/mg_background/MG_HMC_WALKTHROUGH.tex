@@ -324,7 +324,7 @@ With Neff's $\alpha$, Eq.~(\ref{W-eq:Ksim}) of the MG walkthrough gives $\mathca
 so CG runs on the normal equation of $\mathcal KQ_e$, better conditioned, while the action and the force stay
 those of $\mathcal K$ (on $24^4$ at $m=0.001$: 22\% fewer iterations).
 
-\paragraph{With the multigrid: two solves.} The multigrid solves with $D$ and $D\dg$, not with
+\paragraph{With the multigrid: two solves.}\label{sec:twosolves} The multigrid solves with $D$ and $D\dg$, not with
 $\mathcal K\dg \mathcal K$. Invert the product, with $\mathcal K=\Ce^{-1}S$:
 \begin{align}
 (\mathcal K\dg \mathcal K)^{-1}&=\mathcal K^{-1}\mathcal K^{-\dagger}\nonumber\\
@@ -348,10 +348,10 @@ and each sweep gains about ten digits; the code allows at most eleven sweeps. Wi
 $D^{-1}=QD^{(\alpha)-1}$ (the left form $\AL^{(\alpha)}$); the solve with $D\dg$ is unchanged, since
 $D^{(\alpha)\dagger}=QD\dg$ only rescales its right-hand side.
 
-\paragraph{When the sweeps stall.} If the sweeps stop gaining (the coarse space no longer fits the
-links, as after large link changes), the solve is repeated from the current $z$ after a bootstrap
-of the test vectors for the current links, twice; if it still stalls, CG finishes it from the
-current $z$, with a warning. A trajectory is never lost to the multigrid.
+\paragraph{When the sweeps stall.} If the sweeps stop gaining (Sec.~\ref{sec:stall}), the solve
+is repeated from the current $z$ after a bootstrap of the test vectors for the current links,
+twice; if it still stalls, CG finishes it from the current $z$, with a warning. A trajectory is
+never lost to the multigrid.
 
 \section{What the multigrid keeps along a trajectory}
 The links change a little at every step of the integrator, and the setup is expensive, so the
@@ -404,6 +404,66 @@ solve through $D$ three; configuration 602 stalls with both, configuration 702 o
 $\Gfive\mathcal M\Gfive$, and configuration v2 at $10^{-10}$ only through $D$, where the second
 sweep's solve with $D$ levels off at $|r|^2/|b|^2\approx7\times10^{-9}$, just above the inner
 tolerance. Neither route is the better one on these configurations, so both are kept.
+
+\section{\textcolor{red}{New!!!} Why the solve with $D$ stalls}\label{sec:stall}
+The solves of the sweeps that stall are solves with $D$, and their right-hand side comes out of a
+solve with $D\dg$. That makes it lie where $D$ is small. Write $S=\sum_i\sigma_iu_iv_i\dg$ for
+the singular values $\sigma_i$ of the Schur complement and its left and right singular vectors
+$u_i$, $v_i$. The two solves of Sec.~\ref{sec:twosolves} give, up to the site-local factor
+$\Ce\Ce\dg$,
+\begin{align}
+S^{-\dagger}r&=\sum_iu_i\,\frac{v_i\dg r}{\sigma_i}, &
+S^{-1}S^{-\dagger}r&=(S\dg S)^{-1}r=\sum_iv_i\,\frac{v_i\dg r}{\sigma_i^2}.
+\end{align}
+The solve with $D$ thus receives a right-hand side whose $i$-th direction carries $1/\sigma_i$
+more weight than in $r$, and its solution $1/\sigma_i^2$ more. On quenched $24^4$ at $m=0.001$ the
+smallest $\sigma$ is of order $10^{-3}$. A propagator solve has a right-hand side of ordinary
+weights; every solve with $D$ in HMC has this one. In the second and later sweeps it is $Se$,
+with $e$ the error the sweep before left, which also lies where $S$ is small.
+
+This right-hand side stalls GCR only where the cycle is poor. GCR($k$) builds a polynomial in
+$\AR\mathcal M$ and reduces quickly the part of the residual on which $\AR\mathcal M$ is close to
+the identity. At the residual $s$ of a stalled solve we measure $|\AR\mathcal Ms|/|s|=6$--$10$ and
+$|\langle s,\AR\mathcal Ms\rangle|/(|s|\,|\AR\mathcal Ms|)\approx10^{-4}$, while the Ritz values
+of $\AR\mathcal M$ lie between $0.6$ and $1.7$: there the cycle amplifies instead of inverting,
+and $\AR\mathcal M$ is far from normal, so two kept directions cannot lower the residual. How
+well the cycle inverts $D$ on its lowest modes is a property of the multigrid; this section only
+records where HMC meets it.
+
+The table shows the solves with $D$ of $D\dg D$ solved by sweeps from a random $b$, outside HMC
+(setup S of the MG note, $m=0.001$, inner tolerance $10^{-10}$, one GCR solve of up to 2000 steps
+in the first sweep and 1000 in the second; iterations, or ``stalls'' with the residual
+$|r|^2/|b|^2$ of the solve after 1000 steps where it was recorded).
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+quenched $24^4$ & & first sweep & second sweep & random right-hand side\\
+\midrule
+GCR(2) & conf.\ v2 & 15 & stalls ($0.83$) & 7\\
+ & conf.\ 502 & 13 & stalls ($0.02$) & 6\\
+ & conf.\ 602 & stalls & stalls ($0.98$) & 8\\
+ & conf.\ 702 & stalls & stalls ($0.99$) & 10\\
+GCR(8) & conf.\ v2 & 13 & 16 & \\
+ & conf.\ 602 & 16 & 24 & 8\\
+ & conf.\ 702 & 19 & 361 & 8\\
+\bottomrule
+\end{tabular}
+\end{center}
+The solves with $D\dg$ of the same sweeps converge in 10--15 steps on every configuration: their
+right-hand side is $b$ or the residual of the normal equation. On the dynamical $16^4$ lattice none
+of 330 solves with $D$ stalls with GCR(2).
+
+The sweeps add the correction whether or not its solve converged, and a stalled correction makes
+the residual larger: on configuration v2 the stalled second sweep raises $|r|^2/|b|^2$ of the normal equation from
+$2.8\times10^{-10}$ to $1.8\times10^{-8}$, and every later sweep stalls at that level.
+
+A larger Krylov space gets past the stall. GCR(8) converges on all four configurations, on
+configuration 702 only after a plateau at $0.57$ from step 10 to beyond step 50. FGMRES($k$) (\code{solver\_type FGMRES})
+needs as many vectors as GCR($k$); in one HMC trajectory on configuration v2 FGMRES(3) takes 305
+iterations and 148\,s, GCR(3) 9506 iterations and 2498\,s. Not yet in the code: ending a solve once
+it stops gaining, and dropping a stalled correction. Increasing the Chebyshev steps of the
+smoother from 8 to 16 cures the second sweep on configuration v2 but in HMC only moves the stall
+to a smaller residual ($5\times10^{-14}$ instead of $10^{-10}$).
 
 \section{Memory ($24^4$, $m=0.001$, 20 vectors, levels below)}
 The memory table and the measurements below were taken with MINRES on the Pauli--Villars factor,

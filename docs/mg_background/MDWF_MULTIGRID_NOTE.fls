@@ -1,4 +1,4 @@
-PWD /home/chen/test/RutticeQCD-b5doc/docs/mg_background
+PWD /home/chen/test/RutticeQCD/docs/mg_background
 INPUT /home/chen/.TinyTeX/texmf.cnf
 INPUT /home/chen/.TinyTeX/texmf-dist/web2c/texmf.cnf
 INPUT /home/chen/.TinyTeX/texmf-var/web2c/pdftex/pdflatex.fmt
@@ -463,13 +463,13 @@ INPUT ./fig_massscan.pdf
 INPUT ./fig_massscan.pdf
 INPUT ./fig_massscan.pdf
 INPUT ./fig_massscan.pdf
-INPUT ./fig_volume.pdf
-INPUT ./fig_volume.pdf
-INPUT ./fig_volume.pdf
-INPUT ./fig_volume.pdf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmr8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmr8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmr8r.tfm
+INPUT ./fig_volume.pdf
+INPUT ./fig_volume.pdf
+INPUT ./fig_volume.pdf
+INPUT ./fig_volume.pdf
 INPUT ./fig_sensitivity.pdf
 INPUT ./fig_sensitivity.pdf
 INPUT ./fig_sensitivity.pdf

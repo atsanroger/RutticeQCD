@@ -443,7 +443,11 @@ pass of its own.
 ### 16. Smaller ones
 
 - `DeviceBasis::pv_eo_coarse_vectors` computes s and t̂ again that `pv_eo` has just made; they
-  could be restricted there.
+  could be restricted there. Estimated 2026-11-13 from the nsys profile of the 24³×48 setup (T_ms_S
+  m 0.001): every kernel that makes s and t̂ (`mdwf_dslash_1pass`, `hop_kernel`, `parity_copy`,
+  `fold_fill`) sums to about 2.3 s over the whole setup, both calls together (the second about
+  half), and the second call restricts 32 pairs of vectors per cycle with levels, about 0.3 s
+  (10 ms per launch, three cycles): about 2 s of 204 s, 1%. Not worth it for the time (rule 2 of item 18: below 5% end to end).
 - (Done 2026-10-20.) A step of `ChebyshevFilter` was the operator and five passes over the
   vectors (scale, axpy, scale, axpy, norm: 11 reads and writes of a field); it is now the
   operator and `Vector::scale_axpy2_norm_sqr` (4), on the CPU and the device. Below the one
@@ -973,8 +977,9 @@ Left:
 - Under the regularized solve the PV block inverses are still made and unused (setup time; a
   singular PV block stops the setup for nothing). Removing them changes `CoarseParts` on both
   backends; measure the setup time first.
-- The launcher of `coarse_adjoint_pass_kernel` keeps its shared-memory limit in a static that is
-  not per device, and does not check `cudaFuncSetAttribute` (as `coarse_pass_launch_as`).
+- (Fixed 2026-11-13 on exp/small-fixes.) The launchers of `fold.cu` did not check
+  `cudaFuncSetAttribute` (`coarse_pass_launch_as` neither); all six now go through
+  `allow_shared`. The static limit is per process, which is per device (one device per process).
 - A regression test of HMC by CG, Gamma5_cycle and Through_D on 4³×8 (about 4 minutes on the
   CPU; the reviewer's runs gave the same plaquette to 15 digits).
 
@@ -1229,21 +1234,14 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
 ## Bugs
 
-- **The Γ-method gives an error of 0 and a negative τ_int on short series, silently** (found
-  2026-10-28 by the flow of the 15 new quenched configs on wlcheninhonngo). `ruttice-flow` printed
-  "+- 0.000000, tau_int -2.50 +- -7.07" for 24⁴ 602/702 (N = 2) and "tau_int -0.06 +- -0.08" for
-  32⁴ (N = 3); the per-file plaquette, t0 and Q are not affected. Cause, in
-  `src/numerics/autocorrelation.rs::gamma_method`: for N < 4, t_max = N/2 = 1 and the window is
-  W = 1; Γ(1) of a short series is strongly negative (N = 2: δ = (d, −d), Γ(0) = d², Γ(1) = −d²), so
-  C_F(W) = Γ(0) + 2Γ(1) ≤ 0, the bias correction makes it more negative, τ_int = C/(2Γ(0)) < 0, the
-  error `(c / nf).max(0.0).sqrt()` is clamped to 0, and `window_found` is still true at W = 1, so
-  no warning appears. The same path serves the GradientFlow section of HMC (`src/app/flow.rs`,
-  `gamma_lines`). Fix: when C_F(W) ≤ 0 or τ_int < 0.5 after the bias correction, report the
-  analysis as failed (Wolff's UWerr stops with an error) — `gamma_method` returns None or a
-  `reliable: false`, and `gamma_lines` prints "too few measurements for the Γ-method"; possibly
-  require N ≥ 4 (t_max ≥ 2). Test: anti-correlated series of N = 2 and 3 must not print an error of
-  0 (break the check once and see the test fail); external check against UWerr or pyerrors on
-  short and long series. ENSEMBLES.md does not use these summary lines.
+- (Fixed 2026-11-13 on exp/small-fixes, CHANGELOG.) The Γ-method gave an error of 0 and a
+  negative τ_int on short series, silently (the flow of 24⁴ 602/702, N = 2). `gamma_method` now
+  returns `GammaFailure::Pathological` with the mean when C_F(W) ≤ 0 after the bias correction,
+  as UWerr; the flow prints that the measurements are too few. Checked against pyerrors 2.17.0
+  (errors to 9 digits on long AR(1) series). Open: pyerrors takes τ_int ≥ ½ always, Wolff and
+  we do not, so on 10 anti-correlated measurements we give τ_int 0.32 and an error 0.72 times
+  pyerrors'. Whether to floor τ_int at ½ (never an error below that of independent
+  measurements) is undecided.
 
 ## Known, not understood
 
@@ -1357,11 +1355,52 @@ none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 - **Without the cache** (`rebuild_iteration_growth : 0`) every solve still makes P of the kept
   vectors for the links of now, the bad rebuild; with a bootstrap for every solve it converges
   but the setup takes 784 of 1031 s (16⁴). Decide what this mode is for, or drop it.
-- **The stall of the second sweep's D solve on quenched 24⁴** (hmc2424, m 0.001): with GCR(2)
-  and GCR(4) |r|²/|b|² stays at 0.77 after 1575 iterations, in the right form and with α 0.6;
-  GCR(8) needs 18-20 and GCR(16) 15-16. GCR(8) costs about 6 GB more on 24³×48 (estimated), so
-  it does not fit there. To try: FGMRES at the same memory, more test vectors, an earlier
-  fallback. The mechanism (low modes amplified by D⁻† in the right-hand side) is not verified.
+- **The stall of the second sweep's D solve on quenched 24⁴** (hmc2424, m 0.001): GCR(2), GCR(3),
+  GCR(4), FGMRES(2) stall, GCR(8), GCR(16), FGMRES(3) converge. Measured 2026-11-09 on conf v2,
+  setup S, outside HMC (`RUTTICE_DAGGER_TEST` in exp/dagger-2448, uncommitted; logs
+  multiconf/daggerD1_20261109):
+  - The stall reproduces outside HMC: random b and r = b − D†D x0 converge in 7-15 iterations;
+    only D x1 = w1 with w1 = D⁻† r stalls (GCR(2) 0.83 after 1000), with or without restarts.
+  - Not the cause (stall unchanged): coarse D solve to 1e-8, coarse double, Pauli-Villars ε
+    1e-5 or its solve to 1e-8. 16 Chebyshev steps converge that solve but only delay the stall
+    in HMC (9394 iterations, stalled at outer 5e-14 instead of 1e-10).
+  - At the stalled residual s, cos(s, ÃM s) ≈ 1e-4 and |ÃM s|/|s| ≈ 6-10, while the Ritz values
+    of ÃM lie in 0.6-1.7: ÃM is strongly non-normal there, its field of values reaches 0.
+  - Sweep by sweep: w = D e (e the error of the sweep before); its |D† w|²/|w|² is 1.7 where
+    GCR(2) stalls against 12 where the other settings go on (40 for a random vector). A stalled
+    δ applied anyway raises the outer residual 64× (2.75e-10 → 1.75e-8), and every later sweep
+    stalls: HMC applies it too.
+  - The lowest singular modes of Ã, by Lanczos on Ã†Ã with a Chebyshev polynomial (lo 1e-3,
+    degree 300, residuals ~1e-10; the earlier Lanczos without it had not converged and gave
+    wrong σ and wrong negative results), conf v2: σ = 2.3, 2.6, 3.1, 4.8, 7.5, 11 × 10⁻⁴, a
+    cluster of four below 5e-4. ÃM gains 10-12 on the lowest three, 6 on
+    the fourth, 3 above; |<u_i, v_i>| 0.96-0.82 for the four, |<u, Γ5 v>| ≤ 0.07.
+  - Cause on conf v2 (verified): solving the four lowest exactly, or adding v0..v3 to the coarse
+    space (M' = Q + M(1 − ÃQ), Q = Z(Z†ÃZ)⁻¹Z†), makes GCR(2) converge (14 and 13 its); one or
+    two modes, u0..u3, or four random vectors do not (solving them exactly removes their
+    components from the right-hand side; only H8 changes the operator). M amplifies a cluster of
+    near-zero modes, and the right-hand side D⁻†(·) of the second solve lies on them. Conf 000602 (converged): σ = 2.8, 3.4, 4.2, 6.4, 7.7, 10 × 10⁻⁴, ÃM gains 19 and 16 on the lowest two; solving the lowest one exactly, or
+    adding v0 alone to the coarse space, makes GCR(2) converge (15, 14 its); u0..u3 and random
+    vectors do not. The modes needed are those with a large gain and weight in the right-hand
+    side (one on 000602, four on v2), not |Q| of them (its "second sweep" there starts from the stalled first sweep). Not
+    measured: how much of these modes P holds; |π P P† ι v|²/|v|² (H6, H9 "holds", 32-41% for
+    every mode alike) is a block of the projector, not a projection (review 2026-11-10); the
+    projection of the lift of v is the right measure. The gains times σ are about constant
+    (2.5-6 × 10⁻³ on both configurations): a fixed error of M amplified by 1/σ fits as well. P
+    is kept in half precision by default (`basis_precision`), not ablated yet: P1 queued. The
+    setup's filter ends at Ritz values 1.4e-2..2.8e-2 of Ã†Ã, against λ0 = 5.5e-8; H9 (after the
+    bootstrap; local coherence) pending. Whether the near-zero modes are topological (count =
+    |Q|, σ ∝ m): T1 queued (multiconf/topo_T1_20261110).
+  - Four configurations (v2, 000502, 000602, 000702; GCR(2)): the second sweep stalls on all
+    four; on 000602 and 000702 the first already does (rhs D⁻† b with b random, 2000 its; also
+    in the 11-05 logs, daggerA/A24_S__*); cos(s, ÃM s) ~1e-4 at every stall. GCR(8) converges on
+    all four (000702 second sweep: 361 its). The per-mode numbers there were taken with
+    unconverged Lanczos vectors and are not reliable.
+  - Fixes: on the Krylov side FGMRES(3) (works now), stall detection (|r|² down < 2× in 100
+    iterations: 0 false alarms in 355 converging solves, therm16/fgmres_hmc_20261109) and not
+    applying a stalled δ; on the MG side the near-zero modes deflated or added to the coarse
+    space (cures conf v2, above). Where to write it (MG note or the HMC walkthrough): to discuss
+    with Kanamori (2026-11-29); for now the HMC walkthrough only.
 - **ΔH = +1.29e4 on that 24⁴ file with GCR(8)** (rejected; the same with main), a one-step
   trajectory of length 0.01 from a quenched configuration: not looked into.
 - **Which Krylov solver and size cannot be known before the run.** 16⁴ dynamical needs only
