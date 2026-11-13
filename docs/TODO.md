@@ -1050,9 +1050,19 @@ Next:
   compact faces, which the restriction reads in its leg mode. 20 ms per two components against
   8 × 6.2 ms per component, 25.6 s → 5.2 s per setup (`filterscanA/prof_faces2*`). The
   checksums of `rerunA/T_ps_S__v2` the same at every stage (`checksum_faces2_*`); the setup of
-  T_ms_S m 0.001 v2 takes 219 s against 233 s, its device peak 17.9 GB. Left: the 8
-  restrictions of the faces in one pass, P read once per site for all its legs (an estimated
-  2.5 s per cycle).
+  T_ms_S m 0.001 v2 takes 219 s against 233 s, its device peak 17.9 GB.
+  (c) Done: a budget of 3/4 of the room, at most 8 GB, gives batches of 3 (fewer reads of P):
+  restriction 24.1 → 20.9 s, prolongation 11.2 → 9.6 s, setup 219 → 214 s, its device peak
+  17.9 → 19.8 GB (the solve's 20.6 GB the same); checksums the same (`checksum_batch3_*`).
+  Not done: the 8 restrictions of the faces in one pass, P read once per site for all its legs
+  (an estimated 2.5 s per cycle). The sites of a face would fall into other groups of the
+  tiled restriction, so the sums would round differently: the coarse operators would no
+  longer be those of before bit for bit.
+- Done: `DeviceSpinor::upload` put the reals in the order of the device on one thread, through
+  a buffer in double precision (9.5 s for the 16 start vectors of the filter, 10⁹ reals, and
+  4 s at the first round). The sites now go in parallel straight into the precision of the
+  device. Checksums the same (`checksum_upload_*`); setup 214 → 204 s, the filter 49 → 41 s,
+  the host peak 19.7 → 12.1 GB.
 - The halo exchange of several processes without NCCL (`Transport::Host`) copies the faces
   through pageable host buffers every hop; they are reused, but not pinned.
 - The stop of the bootstrap on S 000802 with 1 filter round: a gain of 3.9 against the

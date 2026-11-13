@@ -11,6 +11,20 @@ fn at_fifth(c: usize, s: usize, x: usize, ls: usize) -> usize {
     (((x / W) * ls + s) * SPINOR + c) * W + x % W
 }
 
+/// The reals of a host buffer that the threads of a loop write, each its own (`upload`).
+struct Scatter<T>(*mut T);
+
+// SAFETY: the threads write different reals of one buffer (see `upload`).
+unsafe impl<T: Send> Sync for Scatter<T> {}
+
+impl<T> Scatter<T> {
+    /// # Safety
+    /// `i` is in the buffer, and no other thread writes or reads real `i` meanwhile.
+    unsafe fn put(&self, i: usize, value: T) {
+        self.0.add(i).write(value);
+    }
+}
+
 /// Where the site `full` of the whole lattice is in the field of its parity.
 fn in_half(full: usize, nx: usize) -> usize {
     (full % nx) / 2 + (nx / 2) * (full / nx)
@@ -95,24 +109,34 @@ impl<T: DeviceReal> DeviceSpinor<T> {
     fn upload<S: Sites>(
         psi: &Field<f64, Spinor, S>,
         parity: Option<Parity>,
-        place: impl Fn(usize) -> usize,
+        place: impl Fn(usize) -> usize + Sync,
     ) -> Result<Self, CudaError> {
+        use rayon::prelude::*;
         let (lat, ls, vectors) = (psi.lattice(), psi.ls(), psi.num_vectors());
         let mut out = Self::new(lat, ls, parity, vectors)?;
         let one = out.reals();
-        let mut host = vec![0.0; out.data.len];
-        for h in 0..psi.num_sites() {
+        // The reals in the order of the device and its precision, the padding zero; the sites
+        // in parallel (16 vectors on 24³×48, Ls 8: 10⁹ reals, 9.5 s on one thread).
+        let mut host = vec![T::default(); out.data.len];
+        let len = host.len();
+        let to = Scatter(host.as_mut_ptr());
+        (0..psi.num_sites()).into_par_iter().for_each(|h| {
             let x = place(h);
             // A site of the host field: its vectors one after the other, the `ls` spinors of
             // each together.
             for (k, spinor) in psi.site(0, h).as_chunks::<SPINOR>().0.iter().enumerate() {
                 let (v, s) = (k / ls, k % ls);
                 for (c, value) in spinor.iter().enumerate() {
-                    host[v * one + at_fifth(c, s, x, ls)] = *value;
+                    let i = v * one + at_fifth(c, s, x, ls);
+                    assert!(i < len);
+                    // SAFETY: `i` is in `host` (asserted), which lives until after the loop;
+                    // `place` is one to one and so is `at_fifth` over (c, s, x), so no two
+                    // sites write the same real and nothing reads `host` during the loop.
+                    unsafe { to.put(i, T::from_f64(*value)) };
                 }
             }
-        }
-        out.data = DeviceBuffer::from_host(&host)?;
+        });
+        out.data = DeviceBuffer::upload(&host)?;
         Ok(out)
     }
 

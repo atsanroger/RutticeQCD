@@ -1007,12 +1007,12 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
     let links = DeviceBuffer::<L>::zeros(8 * sites * matrix)?;
     let links_single = std::any::TypeId::of::<L>() == std::any::TypeId::of::<f32>();
     // As many components at a time as keep their fields (phi, inside and the faces of the 8
-    // legs) within half of the room on the device, between half a GB and 6 GB: P is read once
+    // legs) within 3/4 of the room on the device, between half a GB and 8 GB: P is read once
     // for all of them (24⁴, Ls 8, 40 components in single precision: one at a time 6.5 s, four
     // 4.4 s). On 24³×48 a quarter of the room, at most 3 GB, held one component.
     // Whole groups of the vectors P is read once for, if that is several.
     let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
-    let budget = (super::device_room() / 2).clamp(1 << 29, 6 << 30);
+    let budget = (super::device_room() / 4 * 3).clamp(1 << 29, 8 << 30);
     let per_component = 2 * phi.data.bytes() + AggregateFaces::<T>::bytes_per_vector(basis);
     let fit = (budget / per_component).clamp(1, dim);
     let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
