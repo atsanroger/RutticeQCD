@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The build compiles the kernels for the GPUs of the machine it runs on (`nvidia-smi`), for
+  `80;86;90` with `RUTTICE_CUDA_ARCH=all` or where it sees no GPU, or for the list the
+  variable gives; it can be set in `.cargo/config.toml`, and the build prints its choice.
+  Before, the default was `80;86`, and an H100 ran the PTX of sm_86 compiled when the program
+  started. The default of cmake alone is `80;86;90` (it had 89 besides). With ptxas of CUDA 13.1 no kernel spills
+  on sm_90 where it does not on sm_80, except `hop_faces_kernel` in double precision (16 bytes,
+  8 on sm_80); the stout kernels spill on both.
 - The device setup no longer makes the cycle twice when the probe ends the bootstrap: the solve
   takes that cycle's P, coarse operators and levels (printed as "kept for the solve") when its
   settings are those of the bootstrap and the coarse operators are in single precision. The

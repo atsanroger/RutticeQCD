@@ -120,5 +120,5 @@ about 3 ns on the host and nothing on the device.
 ## 10. Building
 
 `cargo build --release --features cuda-bridge` runs cmake on `cuda_bridge/` (`build.rs`).
-`RUTTICE_CUDA_ARCH` chooses the architectures (default `80;86`); one architecture compiles faster.
+`RUTTICE_CUDA_ARCH` chooses the architectures: by default those of the GPUs on the building machine (`nvidia-smi`), `all` for `80;86;90` (the default of a cmake build of `cuda_bridge/` alone), or a cmake list; it can be set in the `[env]` table of `.cargo/config.toml` (`docs/USAGE.md`).
 `--features nccl` links NCCL (`NCCL_HOME`).
