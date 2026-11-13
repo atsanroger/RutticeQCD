@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The Γ-method no longer prints an error of 0 and a negative τ_int for a short series. When the
+  variance of the mean it estimates, C_F(W)/N after the bias correction, is not positive (two
+  or three anti-correlated measurements, as the flow of 24⁴ 602/702 gave), `gamma_method`
+  returns `GammaFailure::Pathological` with the mean, as UWerr stops with "Gamma
+  pathological", and the flow summary prints the mean and that the measurements are too few.
+  On long series the errors are those of pyerrors 2.17.0 to 9 digits (AR(1), ρ 0.5 and 0.9,
+  1000 and 5000 measurements, S = 1.5; τ_int within 0.3%, from another form of the bias
+  correction). pyerrors refuses fewer than 5 measurements and never takes τ_int below ½;
+  `gamma_method` follows Wolff and does (10 AR(1) measurements: τ_int 0.32, pyerrors 0.59).
+- The launchers of `fold.cu` that allow a kernel more than 48 kB of shared memory check
+  `cudaFuncSetAttribute` (`allow_shared`) and record the larger limit only when it is set.
 - The build compiles the kernels for the GPUs of the machine it runs on (`nvidia-smi`), for
   `80;86;90` with `RUTTICE_CUDA_ARCH=all` or where it sees no GPU, or for the list the
   variable gives; it can be set in `.cargo/config.toml`, and the build prints its choice.

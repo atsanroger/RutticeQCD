@@ -4,7 +4,7 @@ mod autocorrelation;
 mod lsq;
 mod rational;
 
-pub use autocorrelation::{gamma_method, GammaAnalysis};
+pub use autocorrelation::{gamma_method, GammaAnalysis, GammaFailure};
 pub(crate) use lsq::HessenbergLsq;
 pub use rational::{RationalApprox, RationalError, RationalSpec};
 

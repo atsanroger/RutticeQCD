@@ -9,6 +9,18 @@ namespace {
         return (vectors + bridge_cuda::FoldVectors - 1) / bridge_cuda::FoldVectors;
     }
 
+    // Let `kernel` take `shared` bytes of dynamic shared memory, above the default 48 kB.
+    // `allowed` is what it was last allowed (a static of its launcher: one device per process,
+    // `device_of_this_process`). It grows only when the attribute is set; on a failure the error
+    // stays for the next cudaGetLastError, and the launch that follows fails as well.
+    template <typename Kernel>
+    void allow_shared(Kernel kernel, size_t shared, size_t& allowed) {
+        if (shared <= allowed) return;
+        if (cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                 static_cast<int>(shared)) == cudaSuccess)
+            allowed = shared;
+    }
+
     // dims: the extents of the fine lattice; fold: col[4] and sign[4] of gamma_5, then whether P
     // is in half precision.
     inline bridge_cuda::FoldGeometry geometry(
@@ -54,11 +66,7 @@ namespace {
                 d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors, g);
             return;
         }
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::fold_restrict_tiled_kernel<Float, Stored>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::fold_restrict_tiled_kernel<Float, Stored>, shared, allowed);
         dim3 grid(n_coarse, groups(vectors));
         bridge_cuda::fold_restrict_tiled_kernel<Float, Stored><<<grid, threads, shared, stream>>>(
             d_coarse, d_fine, d_p, d_sites, n_coarse, block_volume, n, vectors, per_site, g);
@@ -75,11 +83,7 @@ namespace {
     {
         const size_t shared = bridge_cuda::coarse_pass_shared<Float>(dim, Hops);
         static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::coarse_pass_kernel<Float, Hops>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::coarse_pass_kernel<Float, Hops>, shared, allowed);
         dim3 grid(n_coarse, vectors);
         const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
         bridge_cuda::coarse_pass_kernel<Float, Hops><<<grid, threads, shared, stream>>>(
@@ -96,11 +100,7 @@ namespace {
     {
         const size_t shared = bridge_cuda::coarse_adjoint_pass_shared<Float>(dim);
         static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::coarse_adjoint_pass_kernel<Float>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::coarse_adjoint_pass_kernel<Float>, shared, allowed);
         dim3 grid(n_coarse, vectors);
         const int threads = bridge_cuda::WarpSize * bridge_cuda::coarse_pass_warps(dim);
         bridge_cuda::coarse_adjoint_pass_kernel<Float><<<grid, threads, shared, stream>>>(
@@ -114,11 +114,7 @@ namespace {
                             int gamma5, double cutoff, size_t shared, cudaStream_t stream)
     {
         static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared>, shared, allowed);
         bridge_cuda::blocks_abs_inverse_gamma5_rounds_kernel<VShared><<<n_sites, dim, shared, stream>>>(
             d_out, d_a, d_scratch, dim, gamma5, cutoff);
     }
@@ -291,20 +287,12 @@ void bridge_cuda_fold_orthonormalise_cholesky(
     const size_t shared = bridge_cuda::fold_cholesky_shared(n);
     if (half) {
         static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::fold_orthonormalise_cholesky_kernel<__half>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::fold_orthonormalise_cholesky_kernel<__half>, shared, allowed);
         bridge_cuda::fold_orthonormalise_cholesky_kernel<__half><<<2 * count, bridge_cuda::FoldThreads, shared, stream>>>(
             static_cast<__half*>(d_p), d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
     } else {
         static size_t allowed = 48 * 1024;
-        if (shared > allowed) {
-            cudaFuncSetAttribute(bridge_cuda::fold_orthonormalise_cholesky_kernel<float>,
-                                 cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(shared));
-            allowed = shared;
-        }
+        allow_shared(bridge_cuda::fold_orthonormalise_cholesky_kernel<float>, shared, allowed);
         bridge_cuda::fold_orthonormalise_cholesky_kernel<float><<<2 * count, bridge_cuda::FoldThreads, shared, stream>>>(
             static_cast<float*>(d_p), d_w, d_sites, d_fail, first_site, block_volume, n, kept, scale);
     }

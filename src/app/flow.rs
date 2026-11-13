@@ -17,7 +17,7 @@
 
 use crate::gauge::flow::{flow_to_t0, AtT0, WilsonFlow, T0_LEVEL};
 use crate::gauge::plaquette;
-use crate::numerics::gamma_method;
+use crate::numerics::{gamma_method, GammaFailure};
 use crate::{Boundary, Comm, Lattice, Stencil, ND};
 use std::io::Write;
 use std::path::Path;
@@ -149,8 +149,18 @@ pub(super) fn gamma_lines(
         ("Q_imp", found.iter().map(|a| a.q_improved).collect()),
     ];
     for (name, x) in series {
-        let Some(g) = gamma_method(&x, 1.5) else {
-            continue;
+        let g = match gamma_method(&x, 1.5) {
+            Ok(g) => g,
+            Err(GammaFailure::TooFew) => continue,
+            Err(GammaFailure::Pathological { mean }) => {
+                writeln!(
+                    out,
+                    "# {name}: {mean:.6}, no error: {} measurements are too few for the \
+                     Γ-method (its variance of the mean is not positive)",
+                    x.len()
+                )?;
+                continue;
+            }
         };
         let s = spacing as f64;
         writeln!(

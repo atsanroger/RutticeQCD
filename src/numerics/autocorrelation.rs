@@ -19,13 +19,24 @@ pub struct GammaAnalysis {
     pub(crate) window_found: bool,
 }
 
+/// Why the Γ-method gives no error for a series.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GammaFailure {
+    /// Fewer than two measurements.
+    TooFew,
+    /// The estimated variance of the mean, C_F(W)/N after the bias correction, is not
+    /// positive. On a short series Γ(1) can be as large as −Γ(0) (two measurements: δ = (d, −d),
+    /// Γ(0) = d², Γ(1) = −d²), so C_F(W) = Γ(0) + 2 Σ Γ(t) ≤ 0 and τ_int = C_F/(2 Γ(0)) ≤ 0;
+    /// UWerr stops there ("Gamma pathological"). The mean of the series is still given.
+    Pathological { mean: f64 },
+}
+
 /// The Γ-method for `series`, with the automatic window of Wolff with parameter `s_tau`
-/// (1.5 is the usual choice; larger for slowly decaying autocorrelations). `None` for fewer
-/// than two measurements.
-pub fn gamma_method(series: &[f64], s_tau: f64) -> Option<GammaAnalysis> {
+/// (1.5 is the usual choice; larger for slowly decaying autocorrelations).
+pub fn gamma_method(series: &[f64], s_tau: f64) -> Result<GammaAnalysis, GammaFailure> {
     let n = series.len();
     if n < 2 {
-        return None;
+        return Err(GammaFailure::TooFew);
     }
     let nf = n as f64;
     let mean = series.iter().sum::<f64>() / nf;
@@ -44,7 +55,7 @@ pub fn gamma_method(series: &[f64], s_tau: f64) -> Option<GammaAnalysis> {
         .collect();
     if gamma[0] <= 0.0 {
         // A constant series.
-        return Some(GammaAnalysis {
+        return Ok(GammaAnalysis {
             mean,
             error: 0.0,
             tau_int: 0.5,
@@ -77,11 +88,14 @@ pub fn gamma_method(series: &[f64], s_tau: f64) -> Option<GammaAnalysis> {
         *g += shift;
     }
     let c = c_f(&gamma);
+    if c <= 0.0 || gamma[0] <= 0.0 {
+        return Err(GammaFailure::Pathological { mean });
+    }
     let tau_int = c / (2.0 * gamma[0]);
     let w = window as f64;
-    Some(GammaAnalysis {
+    Ok(GammaAnalysis {
         mean,
-        error: (c / nf).max(0.0).sqrt(),
+        error: (c / nf).sqrt(),
         tau_int,
         tau_int_error: 2.0 * tau_int * ((w - tau_int + 0.5).max(0.0) / nf).sqrt(),
         window,
@@ -138,8 +152,22 @@ mod tests {
     /// A constant series has no error, and fewer than two numbers no analysis.
     #[test]
     fn degenerate_series() {
-        assert!(gamma_method(&[1.0], 1.5).is_none());
+        assert_eq!(gamma_method(&[1.0], 1.5), Err(GammaFailure::TooFew));
         let r = gamma_method(&[2.0; 10], 1.5).unwrap();
         assert_eq!((r.mean, r.error, r.tau_int), (2.0, 0.0, 0.5));
+    }
+
+    /// Anti-correlated short series, as the flow of two and three configurations gave
+    /// ("+- 0.000000, tau_int -2.50"): no error of 0, but a failure with the mean.
+    #[test]
+    fn short_anticorrelated_series_fail() {
+        for x in [&[1.0, 3.0][..], &[2.0, 2.2], &[1.0, 3.0, 1.5]] {
+            let mean = x.iter().sum::<f64>() / x.len() as f64;
+            assert_eq!(
+                gamma_method(x, 1.5),
+                Err(GammaFailure::Pathological { mean }),
+                "{x:?}"
+            );
+        }
     }
 }
