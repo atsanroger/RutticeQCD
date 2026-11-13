@@ -533,7 +533,7 @@ half of every inner product, so the result is scaled by $1/\sqrt2$.
 %======================================================================
 \section{The multigrid: the coarse operator}
 
-\subsection{Probing: \code{hop\_split\_kernel}, \code{coarse\_units}, \code{coarse\_columns}}
+\subsection{Probing: \code{hop\_faces\_kernel}, \code{coarse\_units}, \code{coarse\_columns}}
 
 With $e_j$ the unit vector of component $j$ on every coarse site:
 \begin{align}
@@ -541,10 +541,36 @@ With $e_j$ the unit vector of component $j$ on every coarse site:
 A(X)_{\cdot j} &= \big[P\dg\,C\phi_j\big](X) + \sum_{\text{legs inside the block}}\big[P\dg\,\text{leg}\,\phi_j\big](X),\\
 B_d(X)_{\cdot j} &= \big[P\dg\,\text{leg}_d\,\phi_j\big](X)\quad\text{on the sites whose leg }d\text{ leaves the block}.
 \end{align}
-\code{hop\_split\_kernel} computes one leg and sorts it: into \code{cross} where it comes from
-another block, added to \code{inside} elsewhere. The restriction of \code{cross} is column $j$ of
-$B_d$; \code{coarse\_columns} writes it straight into the matrices, in the precision they are kept
-in. Several $j$ at a time, as the vectors of the fields.
+\code{hop\_faces\_kernel} computes the eight legs of a site one after the other and sorts
+each: a leg that comes from another block goes into the face of that leg, and a leg from the
+same block is added to \code{inside}. The face of leg $d$ (direction $\mu$, forward or
+backward) is the set of sites whose leg $d$ comes from another block, $x_\mu \bmod b_\mu = b_\mu-1$
+forward and $0$ backward, with $b_\mu$ the extent of a block in $\mu$. Its sites form a lattice
+with extent $L_\mu/b_\mu$ in $\mu$ and coordinate $\lfloor x_\mu/b_\mu\rfloor$ there, numbered
+like the lattice (\code{aggregate\_face\_site}); a field on it holds $\text{leg}_d\,\phi_j$
+where that is not zero. The restriction of the face is column $j$ of $B_d$: in its leg mode the
+restriction kernel visits the sites of the face only and reads the field at their number on
+the face lattice. \code{coarse\_columns} writes the result straight into the matrices, in the
+precision they are kept in. Several $j$ at a time, as the vectors of the fields.
+
+Each sum into \code{inside} is a rounded addition (\code{\_\_fadd\_rn}) in the order of the
+legs, forward $\mu=0$ to $3$, then backward. A launch for each leg rounded the same sums
+through memory, so the coarse operators are the same bit for bit (checksums of
+$P\dg DP$ and $P\dg D_{PV}P$ on $24^3\times48$). One pass reads $\phi$ and writes
+\code{inside} once and the faces once. With blocks of $4^4$ the faces have $2$ fields' worth of
+sites. A launch for each leg read and wrote \code{inside} eight times and wrote eight fields,
+each zero on $3/4$ of its sites.
+
+The sum lasts across the legs, and that sets the thread layout. A block is a warp of sites
+times 4 fibers (128 threads). Each thread keeps the 24 reals of its sum in shared memory, at a
+stride of the block, so a warp reads 32 consecutive words. Each leg calls \code{hops} with its
+mask known at compile time, through a \code{switch} on the leg. In single precision the kernel
+then runs four blocks an SM at 128 registers without spilling. Three other layouts failed on
+the A30. The sum in registers spilled 448 bytes per thread at 128 registers. One block of 256
+threads an SM, with no spill, was latency bound: 57~ms for two vectors on $24^3\times48$,
+$L_s=8$. With the leg known only at run time, \code{hops} kept the code of all eight legs and
+spilled 384 bytes. The kernel takes 20~ms for two vectors. The eight launches of one leg each
+took $8\times6.2$~ms for one vector, so the pass is 4.9 times faster.
 
 One function makes this for the three operators (\code{coarse::coarse\_blocks}); an operator
 gives its part within a site, $C\phi_j$ above, and the coefficients of its hops: $C$ and the hops

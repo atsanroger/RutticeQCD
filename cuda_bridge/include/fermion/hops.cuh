@@ -7,6 +7,7 @@
 #include "../base/su3.cuh"
 #include "../base/gamma.cuh"
 #include <cuda_runtime.h>
+#include <type_traits>
 
 // What the Wilson, clover and domain-wall operators share, in the Dirac representation: the
 // hops of the Wilson kernel,
@@ -749,26 +750,75 @@ __global__ void hop_pack_kernel(
 }
 
 // -------------------------------------------------------------------------
-// One leg of H (b - c Y) in on the whole lattice (leg mu: the forward hop in direction mu,
-// 4 + mu: the backward one), sorted by whether it comes from another block of the lattice
-// (blocks of bx by bz bt sites: the aggregates of a multigrid): cross = the leg where it
-// does and zero elsewhere, and inside += the leg elsewhere. For the coarse operator.
-// The fibres of a site as in hop_kernel. In single precision two blocks of 256 an SM (128
-// registers, no spill): with the 168 nvcc chose, one block, 8 warps, at 25% of the bandwidth on
-// the A30. In double precision 128 registers spill 700 bytes, so it keeps its 168.
+// The faces of the aggregates of a multigrid (blocks of `block` sites): the face of leg `leg`
+// of the hops (mu = leg % 4; forward for leg < 4, backward otherwise) is the set of sites whose
+// leg comes from another aggregate, x_mu % block_mu = block_mu - 1 forward and 0 backward. Its
+// sites form a lattice with extent dims_mu / block_mu in direction mu, x_mu / block_mu the
+// coordinate there, numbered x fastest like the lattice: a field on it holds a leg of the hops
+// only where the leg is not zero (hop_faces_kernel, fold_restrict_kernel).
+// -------------------------------------------------------------------------
+__host__ __device__ __forceinline__ bool aggregate_face_has(const int xc[4], int leg, const int block[4])
+{
+    const int mu = leg % 4, at = xc[mu] % block[mu];
+    return (leg < 4) ? (at == block[mu] - 1) : (at == 0);
+}
+
+__host__ __device__ __forceinline__ int aggregate_face_sites(int leg, const int dims[4], const int block[4])
+{
+    return dims[0] * dims[1] * dims[2] * dims[3] / block[leg % 4];
+}
+
+__host__ __device__ __forceinline__ int aggregate_face_site(const int xc[4], int leg, const int dims[4], const int block[4])
+{
+    const int mu = leg % 4;
+    int f[4] = {xc[0], xc[1], xc[2], xc[3]}, d[4] = {dims[0], dims[1], dims[2], dims[3]};
+    f[mu] /= block[mu];
+    d[mu] /= block[mu];
+    return coords_to_site(f[0], f[1], f[2], f[3], d[0], d[1], d[2], d[3]);
+}
+
+// Reals of the faces of the legs before `leg`, `vectors` vectors each: where the field of leg
+// `leg` starts in the buffer of hop_faces_kernel.
+__host__ __device__ __forceinline__ size_t aggregate_faces_offset(int leg, const int dims[4], const int block[4], int Ls, int vectors)
+{
+    size_t reals = 0;
+    for (int l = 0; l < leg; ++l) reals += vectors * vector_reals(aggregate_face_sites(l, dims, block), Ls);
+    return reals;
+}
+
+// -------------------------------------------------------------------------
+// H (b - c Y) in on the whole lattice, leg by leg, sorted by whether the leg comes from another
+// aggregate (blocks of `block` sites): inside += the legs that do not, one after the other in
+// the order of the legs (forward mu = 0 to 3, then backward), and each leg that does into its
+// face (aggregate_face_site; d_faces holds the faces of the 8 legs one after the other, at
+// aggregate_faces_offset). For the coarse operator: in one pass, where one launch a leg read and
+// wrote `inside` 8 times and wrote 8 fields that were zero on 3/4 of the sites (block 4).
+// The fibres of a site as in hop_kernel. `sum` is added with add_rn so that it rounds as the
+// sums one launch a leg made through memory did. The block is FacesSites x FacesFibres
+// (launch with faces_block). `sum` lives in shared memory, 24 reals a thread at a stride of the
+// block (no bank conflicts), since it lasts across the legs, and each leg calls hops with its
+// mask known at compile time (the switch). In registers, in single precision, the sum spilled
+// 448 bytes a thread at 128 registers, and one block of 256 an SM was latency bound (57 ms for
+// two vectors on 24^3x48); with the leg known only at run time hops spilled 384 bytes.
 // With `Split` (several processes), a leg across a cut comes from the buffers of `halo`; a
 // block never spans two processes, so such a leg always crosses.
 // -------------------------------------------------------------------------
+// The block of threads of hop_faces_kernel: a warp of sites and 4 fibres, 128 threads; in
+// single precision four blocks an SM, 128 registers a thread, no spill.
+constexpr int FacesSites = WarpSize, FacesFibres = 4, FacesThreads = FacesSites * FacesFibres;
+
+__device__ __forceinline__ float add_rn(float a, float b) { return __fadd_rn(a, b); }
+__device__ __forceinline__ double add_rn(double a, double b) { return __dadd_rn(a, b); }
+
 template <typename Float, bool Split = false>
-__global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_kernel(
-    Float* __restrict__ d_cross,
+__global__ void __launch_bounds__(FacesThreads, sizeof(Float) == 4 ? 4 : 2) hop_faces_kernel(
+    Float* __restrict__ d_faces,
     Float* __restrict__ d_inside,
     const Float* __restrict__ d_in,
     const Float* __restrict__ d_gauge, int link_rows,
     int nx, int ny, int nz, int nt,
     Float bcx, Float bcy, Float bcz, Float bct,
     int Ls, int vectors,
-    int leg,
     int bx, int by, int bz, int bt,
     Float kappa,
     Float mass, Float b5, Float c5,
@@ -778,28 +828,86 @@ __global__ void __launch_bounds__(256, sizeof(Float) == 4 ? 2 : 1) hop_split_ker
     const int site  = blockIdx.x * blockDim.x + threadIdx.x;
     const int fibre = blockIdx.y * blockDim.y + threadIdx.y;
     if (site >= sites || fibre >= Ls * vectors) return;
-    const int is = fibre % Ls;
-    const size_t first = (fibre / Ls) * vector_reals(sites, Ls);
+    const int is = fibre % Ls, vec = fibre / Ls;
+    const size_t first = vec * vector_reals(sites, Ls);
 
     const int dims[4] = {nx, ny, nz, nt};
     const int block[4] = {bx, by, bz, bt};
     const Float bc[4] = {bcx, bcy, bcz, bct};
     int xc[4];
     site_to_coords(site, xc[0], xc[1], xc[2], xc[3], nx, ny, nz, nt);
-    Float acc[Nspin][Nc][Ncomplex] = {0};
-    hops<Float, Split>(acc, d_in + first, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
-                       static_cast<Float>(1.0), kappa, mass, b5, c5, 1 << leg, &halo, fibre / Ls);
-    const int mu = leg % 4, at = xc[mu] % block[mu];
-    const bool crosses = (leg < 4) ? (at == block[mu] - 1) : (at == 0);
+    __shared__ Float sum_shared[Nspin * Nc * Ncomplex * FacesThreads];
+    const int tid = threadIdx.y * FacesSites + threadIdx.x, stride = FacesThreads;
+    // Real r of this thread's sum.
+    auto sum = [&](int s, int c, int ri) -> Float& {
+        return sum_shared[((s * Nc + c) * Ncomplex + ri) * stride + tid];
+    };
     #pragma unroll
     for (int s = 0; s < Nspin; ++s) {
         #pragma unroll
         for (int c = 0; c < Nc; ++c) {
             #pragma unroll
             for (int ri = 0; ri < Ncomplex; ++ri) {
-                const size_t k = first + aosoa_5d_spinor_idx(c, s, ri, is, Ls, site);
-                d_cross[k] = crosses ? acc[s][c][ri] : static_cast<Float>(0.0);
-                if (!crosses) d_inside[k] += acc[s][c][ri];
+                sum(s, c, ri) = d_inside[first + aosoa_5d_spinor_idx(c, s, ri, is, Ls, site)];
+            }
+        }
+    }
+    size_t face_first = 0;
+    #pragma unroll 1
+    for (int leg = 0; leg < 2 * Ndim; ++leg) {
+        const int face_n = aggregate_face_sites(leg, dims, block);
+        Float acc[Nspin][Nc][Ncomplex] = {0};
+        // hops of one leg known at compile time: with the leg known only at run time it keeps
+        // the code of all eight and spills.
+        auto leg_of = [&](auto known) {
+            hops<Float, Split>(acc, d_in + first, d_gauge, link_rows, xc, is, Ls, dims, bc, false,
+                               static_cast<Float>(1.0), kappa, mass, b5, c5, 1 << decltype(known)::value,
+                               &halo, vec);
+        };
+        switch (leg) {
+            case 0: leg_of(std::integral_constant<int, 0>{}); break;
+            case 1: leg_of(std::integral_constant<int, 1>{}); break;
+            case 2: leg_of(std::integral_constant<int, 2>{}); break;
+            case 3: leg_of(std::integral_constant<int, 3>{}); break;
+            case 4: leg_of(std::integral_constant<int, 4>{}); break;
+            case 5: leg_of(std::integral_constant<int, 5>{}); break;
+            case 6: leg_of(std::integral_constant<int, 6>{}); break;
+            default: leg_of(std::integral_constant<int, 7>{}); break;
+        }
+        if (aggregate_face_has(xc, leg, block)) {
+            Float* face = d_faces + face_first + vec * vector_reals(face_n, Ls);
+            const int at = aggregate_face_site(xc, leg, dims, block);
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s) {
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c) {
+                    #pragma unroll
+                    for (int ri = 0; ri < Ncomplex; ++ri) {
+                        face[aosoa_5d_spinor_idx(c, s, ri, is, Ls, at)] = acc[s][c][ri];
+                    }
+                }
+            }
+        } else {
+            #pragma unroll
+            for (int s = 0; s < Nspin; ++s) {
+                #pragma unroll
+                for (int c = 0; c < Nc; ++c) {
+                    #pragma unroll
+                    for (int ri = 0; ri < Ncomplex; ++ri) {
+                        sum(s, c, ri) = add_rn(sum(s, c, ri), acc[s][c][ri]);
+                    }
+                }
+            }
+        }
+        face_first += vectors * vector_reals(face_n, Ls);
+    }
+    #pragma unroll
+    for (int s = 0; s < Nspin; ++s) {
+        #pragma unroll
+        for (int c = 0; c < Nc; ++c) {
+            #pragma unroll
+            for (int ri = 0; ri < Ncomplex; ++ri) {
+                d_inside[first + aosoa_5d_spinor_idx(c, s, ri, is, Ls, site)] = sum(s, c, ri);
             }
         }
     }

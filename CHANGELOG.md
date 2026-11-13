@@ -14,8 +14,10 @@
   pinned memory, reused from a cache of the process (a copy at about 20 GB/s against 1.8 GB/s
   into a new `Vec`). The coarse operators are made from as many components at a time as fit
   in half of the free device memory (a quarter before), at most 6 GB, so P is read fewer
-  times. With the changes above the setup on 24³×48 (S, m 0.001) takes 233 s against 305 s;
-  the host keeps about 4 GB more after the setup, and the device peak of the setup is 18.4 GB
+  times. The probing makes the 8 legs of the hops in one pass (`hop_faces_kernel`), the legs
+  that leave an aggregate kept on its faces only; the coarse operators are the same bit for
+  bit. With the changes above the setup on 24³×48 (S, m 0.001) takes 219 s against 305 s; the
+  host keeps about 4 GB more after the setup, and the device peak of the setup is 17.9 GB
   against 17.0 GB.
 - The regularized coarse CG of the Pauli-Villars factor no longer panics when some of its
   vectors converge before others (it applied A to a scratch of the original width after CG had

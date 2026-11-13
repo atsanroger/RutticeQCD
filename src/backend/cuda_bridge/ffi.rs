@@ -286,8 +286,10 @@ pub trait DeviceReal:
         vectors: i32,
     );
     unsafe fn coarse_gamma5(v: *mut Self, n_coarse: i32, dim: i32, vectors: i32);
-    unsafe fn hop_split(
-        cross: *mut Self,
+    /// `bridge_cuda_hop_faces`: the hops of `inp` sorted by whether a leg comes from another
+    /// block of `block` sites, into `inside` (added) and `faces` (the faces of the 8 legs).
+    unsafe fn hop_faces(
+        faces: *mut Self,
         inside: *mut Self,
         inp: *const Self,
         gauge: *const Self,
@@ -296,7 +298,6 @@ pub trait DeviceReal:
         mass: f64,
         b5: f64,
         c5: f64,
-        leg: i32,
         block: *const i32,
         vectors: i32,
     );
@@ -322,7 +323,7 @@ macro_rules! device_real {
     ($t:ty: $clover_term:ident, $mdwf:ident, $hop:ident,
      $fifth:ident, $gemm:ident, $hop_gemm:ident, $gamma5:ident, $parity_copy:ident, $scal:ident,
      $caxpy:ident, $caypx:ident, $walls:ident, $restrict:ident, $prolong:ident, $pass:ident,
-     $coarse_gamma5:ident, $hop_split:ident, $fill:ident, $rotate:ident) => {
+     $coarse_gamma5:ident, $hop_faces:ident, $fill:ident, $rotate:ident) => {
         extern "C" {
             fn $clover_term(
                 out: *mut $t,
@@ -480,8 +481,8 @@ macro_rules! device_real {
                 vectors: i32,
                 stream: *mut c_void,
             );
-            fn $hop_split(
-                cross: *mut $t,
+            fn $hop_faces(
+                faces: *mut $t,
                 inside: *mut $t,
                 inp: *const $t,
                 gauge: *const $t,
@@ -490,7 +491,6 @@ macro_rules! device_real {
                 mass: f64,
                 b5: f64,
                 c5: f64,
-                leg: i32,
                 block: *const i32,
                 vectors: i32,
                 stream: *mut c_void,
@@ -742,8 +742,8 @@ macro_rules! device_real {
             unsafe fn coarse_gamma5(v: *mut Self, n_coarse: i32, dim: i32, vectors: i32) {
                 $coarse_gamma5(v, n_coarse, dim, vectors, STREAM)
             }
-            unsafe fn hop_split(
-                cross: *mut Self,
+            unsafe fn hop_faces(
+                faces: *mut Self,
                 inside: *mut Self,
                 inp: *const Self,
                 gauge: *const Self,
@@ -752,12 +752,11 @@ macro_rules! device_real {
                 mass: f64,
                 b5: f64,
                 c5: f64,
-                leg: i32,
                 block: *const i32,
                 vectors: i32,
             ) {
-                $hop_split(
-                    cross, inside, inp, gauge, geometry, kappa, mass, b5, c5, leg, block, vectors,
+                $hop_faces(
+                    faces, inside, inp, gauge, geometry, kappa, mass, b5, c5, block, vectors,
                     STREAM,
                 )
             }
@@ -794,12 +793,12 @@ device_real!(f32: bridge_cuda_clover_term_f32, bridge_cuda_mdwf_dslash_1pass_f32
     bridge_cuda_parity_copy_f32, bridge_cuda_blas_scal_f32, bridge_cuda_blas_caxpy_f32,
     bridge_cuda_blas_caypx_f32, 
     bridge_cuda_walls_f32, bridge_cuda_fold_restrict_f32, bridge_cuda_fold_prolong_f32,
-    bridge_cuda_coarse_pass_f32, bridge_cuda_coarse_gamma5_f32, bridge_cuda_hop_split_f32,
+    bridge_cuda_coarse_pass_f32, bridge_cuda_coarse_gamma5_f32, bridge_cuda_hop_faces_f32,
     bridge_cuda_fold_fill_f32, bridge_cuda_blas_rotate_f32);
 device_real!(f64: bridge_cuda_clover_term_f64, bridge_cuda_mdwf_dslash_1pass_f64, bridge_cuda_hop_f64,
     bridge_cuda_mdwf_fifth_f64, bridge_cuda_fifth_gemm_f64, bridge_cuda_hop_gemm_f64, bridge_cuda_gamma5_f64,
     bridge_cuda_parity_copy_f64, bridge_cuda_blas_scal_f64, bridge_cuda_blas_caxpy_f64,
     bridge_cuda_blas_caypx_f64, 
     bridge_cuda_walls_f64, bridge_cuda_fold_restrict_f64, bridge_cuda_fold_prolong_f64,
-    bridge_cuda_coarse_pass_f64, bridge_cuda_coarse_gamma5_f64, bridge_cuda_hop_split_f64,
+    bridge_cuda_coarse_pass_f64, bridge_cuda_coarse_gamma5_f64, bridge_cuda_hop_faces_f64,
     bridge_cuda_fold_fill_f64, bridge_cuda_blas_rotate_f64);

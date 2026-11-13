@@ -77,7 +77,7 @@ for periodic, antiperiodic and Dirichlet boundaries:
   test vectors and orthonormalized on the device (`bridge_cuda_fold_fill_*`,
   `bridge_cuda_fold_orthonormalise`), the restriction and prolongation
   (`bridge_cuda_fold_restrict_*`, `bridge_cuda_fold_prolong_*`), with P in single or half
-  precision; the coarse operators built on the device (`bridge_cuda_hop_split_*`, put together
+  precision; the coarse operators built on the device (`bridge_cuda_hop_faces_*`, put together
   there by `bridge_cuda_coarse_units_*` and `bridge_cuda_coarse_columns_*`), applied
   (`bridge_cuda_coarse_pass_*`, `bridge_cuda_coarse_gamma5_*`), the inverses of their blocks
   and |H_xx|^-1 (`bridge_cuda_blocks_inverse`, `bridge_cuda_blocks_abs_inverse_gamma5`); the

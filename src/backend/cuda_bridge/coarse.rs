@@ -833,57 +833,90 @@ impl DeviceBasis {
     /// `coarse = P† fine`, or `P† ι fine` for a field on the sites of one parity (ι puts it
     /// onto the whole lattice, zero on the other sites).
     pub fn restrict<T: DeviceReal>(&self, coarse: &mut DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
-        self.restrict_leg(coarse, fine, None);
+        self.check(coarse, fine);
+        let sites = fine.sites();
+        self.count(coarse, sites, fine.vectors, fine.data.len, 1.0);
+        // SAFETY: the field is one of this basis (checked), on `sites` sites.
+        unsafe { self.fold_restrict(coarse, fine.data.ptr, parity_number(fine.parity), -1) }
     }
 
-    /// `restrict` of a field that is zero but where leg `leg` of the hops comes from another
-    /// aggregate (`CudaMdwf::coarse_operator`): only those sites are read.
-    pub(super) fn restrict_leg<T: DeviceReal>(
+    /// `restrict` of the field on the whole lattice that is leg `leg` of the hops where it comes
+    /// from another aggregate and zero elsewhere, given as its face (`AggregateFaces`): only
+    /// the sites of the face are read.
+    pub(super) fn restrict_face<T: DeviceReal>(
         &self,
         coarse: &mut DeviceCoarse<T>,
-        fine: &DeviceSpinor<T>,
-        leg: Option<usize>,
+        faces: &AggregateFaces<T>,
+        leg: usize,
     ) {
-        self.check(coarse, fine);
-        self.count(coarse, fine);
-        // SAFETY: the fields are those of this basis (checked), P and the tables those of its
-        // lattices; the small arrays outlive the call, which copies them.
+        assert!(Arc::ptr_eq(&self.lat, &faces.lat) && faces.ls == self.ls && leg < 2 * ND);
+        assert!((coarse.sites, coarse.dim) == (self.coarse_sites, 2 * self.n));
+        assert_eq!(coarse.vectors, faces.vectors, "another number of vectors");
+        let len = faces.offsets[leg + 1] - faces.offsets[leg];
+        // P is read on the sites of the face only.
+        let p_read = faces.sites[leg] as f64 / self.lat.num_sites() as f64;
+        self.count(coarse, faces.sites[leg], faces.vectors, len, p_read);
+        // SAFETY: the faces are those of this basis's lattice and blocks (asserted; `new` made
+        // them with `block`), leg `leg` from `offsets[leg]` on.
         unsafe {
-            T::fold_restrict(
-                coarse.data.ptr,
-                fine.data.ptr,
-                self.p.ptr,
-                self.fine_sites.ptr,
-                self.coarse_sites as i32,
-                self.block_volume as i32,
-                self.n as i32,
-                self.dims.as_ptr(),
-                self.ls as i32,
-                parity_number(fine.parity),
-                self.gamma.as_ptr(),
-                leg.map_or(-1, |l| l as i32),
-                self.block.as_ptr(),
-                fine.vectors as i32,
-            );
+            let at = faces.data.ptr.add(faces.offsets[leg]);
+            self.fold_restrict(coarse, at, -1, leg as i32);
         }
     }
 
+    /// `bridge_cuda_fold_restrict` of the field at `fine`.
+    ///
+    /// # Safety
+    /// `fine` holds `coarse.vectors` fields of the basis's lattice: on the whole lattice
+    /// (`parity` -1), on the sites of one parity, or the face of `leg` (>= 0, parity -1).
+    unsafe fn fold_restrict<T: DeviceReal>(
+        &self,
+        coarse: &mut DeviceCoarse<T>,
+        fine: *const T,
+        parity: i32,
+        leg: i32,
+    ) {
+        T::fold_restrict(
+            coarse.data.ptr,
+            fine,
+            self.p.ptr,
+            self.fine_sites.ptr,
+            self.coarse_sites as i32,
+            self.block_volume as i32,
+            self.n as i32,
+            self.dims.as_ptr(),
+            self.ls as i32,
+            parity,
+            self.gamma.as_ptr(),
+            leg,
+            self.block.as_ptr(),
+            coarse.vectors as i32,
+        );
+    }
+
     /// Counts a restriction or a prolongation (`meter`): for every fine spinor and test vector
-    /// 6 Ls complex products in each chirality, 96 Ls n flops; P read once, the fine and the
-    /// coarse field once a vector.
-    fn count<T: DeviceReal>(&self, coarse: &DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
-        let (sites, v) = (fine.sites() as f64, fine.vectors as f64);
+    /// 6 Ls complex products in each chirality, 96 Ls n flops; P read once (the part `p_read`
+    /// of it that the sites read take), the fine and the coarse field once a vector.
+    fn count<T: DeviceReal>(
+        &self,
+        coarse: &DeviceCoarse<T>,
+        sites: usize,
+        vectors: usize,
+        fine_len: usize,
+        p_read: f64,
+    ) {
+        let (sites, v) = (sites as f64, vectors as f64);
         let flops = 96.0 * (self.ls * self.n) as f64 * sites * v;
         let size = std::mem::size_of::<T>();
-        let fields = (fine.data.len + coarse.data.len) * size;
-        let bytes = self.p.bytes as f64 + fields as f64;
+        let fields = (fine_len + coarse.data.len) * size;
+        let bytes = p_read * self.p.bytes as f64 + fields as f64;
         crate::meter::add(crate::meter::Work::Transfer, size, flops, bytes);
     }
 
     /// `fine = P coarse`, or `π P coarse` on the sites of the parity `fine` is on.
     pub fn prolong<T: DeviceReal>(&self, fine: &mut DeviceSpinor<T>, coarse: &DeviceCoarse<T>) {
         self.check(coarse, fine);
-        self.count(coarse, fine);
+        self.count(coarse, fine.sites(), fine.vectors, fine.data.len, 1.0);
         // SAFETY: as in `restrict`.
         unsafe {
             T::fold_prolong(
@@ -900,6 +933,55 @@ impl DeviceBasis {
                 fine.vectors as i32,
             );
         }
+    }
+}
+
+/// The faces of the aggregates (`fermion/hops.cuh`, `aggregate_face_site`) of the 8 legs of the
+/// hops of `vectors` fields, one leg after the other (`bridge_cuda_hop_faces`): the face of
+/// leg mu (forward; 4 + mu backward) has a quarter of the sites with blocks of 4 in mu.
+pub(super) struct AggregateFaces<T> {
+    data: DeviceBuffer<T>,
+    /// Where the faces of each leg start; the last entry the length.
+    offsets: [usize; 2 * ND + 1],
+    /// Sites of the face of each leg.
+    sites: [usize; 2 * ND],
+    lat: Arc<Lattice>,
+    ls: usize,
+    vectors: usize,
+}
+
+impl<T: DeviceReal> AggregateFaces<T> {
+    /// The faces of `vectors` fields of `basis`'s lattice and blocks, not yet written.
+    pub(super) fn new(basis: &DeviceBasis, vectors: usize) -> Result<Self, CudaError> {
+        let (whole, ls) = (basis.lat.num_sites(), basis.ls);
+        let sites: [usize; 2 * ND] = std::array::from_fn(|leg| {
+            let b = basis.block[leg % ND] as usize;
+            assert!(b > 0 && whole.is_multiple_of(b));
+            whole / b
+        });
+        let mut offsets = [0; 2 * ND + 1];
+        for leg in 0..2 * ND {
+            offsets[leg + 1] = offsets[leg] + vectors * super::padded(sites[leg]) * ls * SPINOR;
+        }
+        Ok(Self {
+            data: DeviceBuffer::uninitialised(offsets[2 * ND])?,
+            offsets,
+            sites,
+            lat: basis.lat.clone(),
+            ls,
+            vectors,
+        })
+    }
+
+    /// Bytes of the faces of one field.
+    pub(super) fn bytes_per_vector(basis: &DeviceBasis) -> usize {
+        let whole = basis.lat.num_sites();
+        (0..2 * ND)
+            .map(|leg| super::padded(whole / basis.block[leg % ND] as usize))
+            .sum::<usize>()
+            * basis.ls
+            * SPINOR
+            * std::mem::size_of::<T>()
     }
 }
 
@@ -924,14 +1006,15 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
     let diag = DeviceBuffer::<f64>::zeros(sites * matrix)?;
     let links = DeviceBuffer::<L>::zeros(8 * sites * matrix)?;
     let links_single = std::any::TypeId::of::<L>() == std::any::TypeId::of::<f32>();
-    // As many components at a time as keep the three fine fields within half of the room on
-    // the device, between half a GB and 6 GB: P is read once for all of them (24⁴, Ls 8, 40
-    // components in single precision: one at a time 6.5 s, four 4.4 s). On 24³×48 one
-    // component takes 1.5 GB, so a quarter of the room, at most 3 GB, held one.
+    // As many components at a time as keep their fields (phi, inside and the faces of the 8
+    // legs) within half of the room on the device, between half a GB and 6 GB: P is read once
+    // for all of them (24⁴, Ls 8, 40 components in single precision: one at a time 6.5 s, four
+    // 4.4 s). On 24³×48 a quarter of the room, at most 3 GB, held one component.
     // Whole groups of the vectors P is read once for, if that is several.
     let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
     let budget = (super::device_room() / 2).clamp(1 << 29, 6 << 30);
-    let fit = (budget / (3 * phi.data.bytes())).clamp(1, dim);
+    let per_component = 2 * phi.data.bytes() + AggregateFaces::<T>::bytes_per_vector(basis);
+    let fit = (budget / per_component).clamp(1, dim);
     let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
     // Columns `first ..` of the matrices from `target` on (f32 with `single`, else f64) from
     // the vectors of a coarse field.
@@ -951,48 +1034,48 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
             );
         }
     };
+    let mut faces: Option<AggregateFaces<T>> = None;
     for first in (0..dim).step_by(batch) {
         let nv = batch.min(dim - first);
         let unit = DeviceCoarse::<T>::units(sites, dim, first, nv)?;
         if phi.vectors != nv {
             phi = phi.zeros_with(nv);
         }
-        let (mut inside, cross) = (phi.zeros_like(), phi.zeros_like());
+        if faces.as_ref().is_none_or(|f| f.vectors != nv) {
+            // The old faces are freed before the new ones are made.
+            drop(faces.take());
+            faces = Some(AggregateFaces::new(basis, nv)?);
+        }
+        let faces = faces.as_mut().expect("made above");
+        let mut inside = phi.zeros_like();
         let mut restricted = unit.zeros_like();
         basis.prolong(&mut phi, &unit);
         site(&mut inside, &phi);
-        // On several processes the legs across a cut read the faces of phi, the hops
-        // H (b − c Y) of the operator.
+        // The 8 legs of the hops H (b − c Y) in one pass: inside += those within an aggregate,
+        // the others into their faces. On several processes the legs across a cut read the
+        // faces of phi.
         let links_ptr = gauge.links.ptr.cast_const();
-        let faces = halos.map(|h| h.exchanged(geometry, links_ptr, &phi, [mass, b, c], 3));
-        for leg in 0..8 {
-            if let Some(halo) = &faces {
-                // SAFETY: as below; the faces are those of phi.
-                unsafe {
-                    T::hop_split_halo(
-                        cross.data.ptr,
-                        inside.data.ptr,
-                        phi.data.ptr,
-                        links_ptr,
-                        geometry,
-                        [kappa, mass, b, c],
-                        leg as i32,
-                        basis.block.as_ptr(),
-                        nv as i32,
-                        halo,
-                    );
-                }
-                basis.restrict_leg(&mut restricted, &cross, Some(leg));
-                // SAFETY: the links of `leg` are those from `leg sites matrix` on.
-                let at = unsafe { links.ptr.add(leg * sites * matrix) };
-                columns(at.cast(), links_single, first, &restricted);
-                continue;
-            }
-            // SAFETY: three fields on the whole lattice with `ls` spinors per site and as
-            // many vectors, the links of the lattice; `block` is copied.
-            unsafe {
-                T::hop_split(
-                    cross.data.ptr,
+        match halos.map(|h| h.exchanged(geometry, links_ptr, &phi, [mass, b, c], 3)) {
+            // SAFETY: as below; the faces of the exchange are those of phi.
+            Some(halo) => unsafe {
+                T::hop_faces_halo(
+                    faces.data.ptr,
+                    inside.data.ptr,
+                    phi.data.ptr,
+                    links_ptr,
+                    geometry,
+                    [kappa, mass, b, c],
+                    basis.block.as_ptr(),
+                    nv as i32,
+                    &halo,
+                );
+            },
+            // SAFETY: phi and inside are fields on the whole lattice with `ls` spinors per site
+            // and `nv` vectors, the faces those of as many fields of this lattice and these
+            // blocks (`AggregateFaces::new`), the links those of the lattice; `block` is copied.
+            None => unsafe {
+                T::hop_faces(
+                    faces.data.ptr,
                     inside.data.ptr,
                     phi.data.ptr,
                     gauge.links.ptr,
@@ -1001,12 +1084,13 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
                     mass,
                     b,
                     c,
-                    leg as i32,
                     basis.block.as_ptr(),
                     nv as i32,
                 );
-            }
-            basis.restrict_leg(&mut restricted, &cross, Some(leg));
+            },
+        }
+        for leg in 0..8 {
+            basis.restrict_face(&mut restricted, faces, leg);
             // SAFETY: the links of `leg` are those from `leg sites matrix` on.
             let at = unsafe { links.ptr.add(leg * sites * matrix) };
             columns(at.cast(), links_single, first, &restricted);

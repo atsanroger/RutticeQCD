@@ -1045,9 +1045,14 @@ Next:
   (a) Done: a budget of half the room, at most 6 GB. The checksums of `rerunA/T_ps_S__v2` the
   same at every stage (`filterscanA/checksum_batch_*`); the setup of T_ms_S m 0.001 v2 takes
   233 s against 246 s, its device peak 18.4 GB against 17.0 GB (the solve's 20.6 GB the same).
-  (b) One kernel for the 8 legs, writing `cross` only on the face sites (a quarter of the
-  sites per leg), restricted in one pass: an estimated 5 s or more less per cycle. A new
-  kernel; design and check to be agreed first.
+  (b) Done for the hops: `hop_faces_kernel` makes the 8 legs in one pass, adds those within
+  an aggregate to `inside` in the order of the legs (`__fadd_rn`) and writes the others into
+  compact faces, which the restriction reads in its leg mode. 20 ms per two components against
+  8 × 6.2 ms per component, 25.6 s → 5.2 s per setup (`filterscanA/prof_faces2*`). The
+  checksums of `rerunA/T_ps_S__v2` the same at every stage (`checksum_faces2_*`); the setup of
+  T_ms_S m 0.001 v2 takes 219 s against 233 s, its device peak 17.9 GB. Left: the 8
+  restrictions of the faces in one pass, P read once per site for all its legs (an estimated
+  2.5 s per cycle).
 - The halo exchange of several processes without NCCL (`Transport::Host`) copies the faces
   through pageable host buffers every hop; they are reused, but not pinned.
 - The stop of the bootstrap on S 000802 with 1 filter round: a gain of 3.9 against the

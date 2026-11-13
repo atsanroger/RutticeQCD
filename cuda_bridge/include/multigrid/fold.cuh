@@ -42,8 +42,9 @@ struct FoldGeometry {
     int parity;
     int col[Nspin];
     int sign[Nspin];
-    // For a field that is zero but where leg `leg` of the hops (fermion/hops.cuh) comes from
-    // another aggregate of `block` sites: only those sites are read. leg < 0: all sites.
+    // leg >= 0: the field is the face of leg `leg` of the aggregates of `block` sites, on the
+    // face lattice (fermion/hops.cuh, aggregate_face_site), for the field on the whole lattice
+    // that is zero off the face; only the sites of the face are read. leg < 0: all sites.
     int leg;
     int block[4];
 };
@@ -58,6 +59,28 @@ __device__ __forceinline__ void to_stored(__half& slot, float x) { slot = __floa
 // (fold_restrict_tiled_kernel had a 96-byte stack frame and 0.5 GB of local loads a launch).
 __device__ __forceinline__ int fold_pick(const int (&v)[4], int a) {
     return a == 0 ? v[0] : a == 1 ? v[1] : a == 2 ? v[2] : v[3];
+}
+
+// The face of leg g.leg (fermion/hops.cuh: aggregate_face_has, aggregate_face_site) with
+// fold_pick for the entries, so that no array is indexed at run time: whether site xc is on it,
+// and if so its number on the face lattice in `at`.
+__device__ __forceinline__ bool fold_face_site(const int (&xc)[4], const FoldGeometry& g, int& at) {
+    const int mu = g.leg % 4, b = fold_pick(g.block, mu), x = fold_pick(xc, mu);
+    if (x % b != (g.leg < 4 ? b - 1 : 0)) return false;
+    const int f0 = mu == 0 ? x / b : xc[0], f1 = mu == 1 ? x / b : xc[1];
+    const int f2 = mu == 2 ? x / b : xc[2], f3 = mu == 3 ? x / b : xc[3];
+    const int d0 = mu == 0 ? g.nx / b : g.nx, d1 = mu == 1 ? g.ny / b : g.ny;
+    const int d2 = mu == 2 ? g.nz / b : g.nz;
+    at = coords_to_site(f0, f1, f2, f3, d0, d1, d2, mu == 3 ? g.nt / b : g.nt);
+    return true;
+}
+
+// Sites of the fields a kernel below reads: the face lattice of g.leg, the sites of one parity
+// or the whole lattice.
+__device__ __forceinline__ int fold_fine_sites(const FoldGeometry& g) {
+    const int whole = g.nx * g.ny * g.nz * g.nt;
+    if (g.leg >= 0) return whole / fold_pick(g.block, g.leg % 4);
+    return g.parity >= 0 ? whole / 2 : whole;
 }
 
 // The complex number (re, im) of P at p, an even index: one 4-byte (half) or 8-byte (float) load.
@@ -117,7 +140,7 @@ constexpr int FoldVectors = 8;
 // -------------------------------------------------------------------------
 // coarse = P^dag fine. A thread for each (coarse site, component).
 // d_sites: the block_volume sites (of the whole lattice) of every coarse site.
-// A field of g.leg takes the sites it is not zero on.
+// A field of g.leg is the face of that leg (FoldGeometry), read at its own numbering.
 // -------------------------------------------------------------------------
 template <typename Float, typename Stored>
 __global__ void fold_restrict_kernel(
@@ -134,7 +157,7 @@ __global__ void fold_restrict_kernel(
     const int X = t / dim, k = t % dim, c = k / n, i = k % n;
     const int Ls = g.Ls, kept = 12 * Ls;
     const bool half = (g.parity >= 0);
-    const int sites = (half ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
+    const int sites = fold_fine_sites(g);
     const int first = blockIdx.y * FoldVectors;
     const int count = (vectors - first < FoldVectors) ? vectors - first : FoldVectors;
     const size_t fine_reals = vector_reals(sites, Ls);
@@ -157,10 +180,7 @@ __global__ void fold_restrict_kernel(
                 if (((xc[0] + xc[1] + xc[2] + xc[3]) & 1) != g.parity) continue;
                 at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
             }
-            if (g.leg >= 0) {
-                const int mu = g.leg % 4, in_block = xc[mu] % g.block[mu];
-                if (in_block != (g.leg < 4 ? g.block[mu] - 1 : 0)) continue;
-            }
+            if (g.leg >= 0 && !fold_face_site(xc, g, at)) continue;
         }
         const Stored* b = d_p + ((static_cast<size_t>(x) * n + i) * 2 + c) * kept;
         // The kept numbers in order: s, spin, colour (Ls = 1: the spins 0 and 1 of s = 0,
@@ -248,7 +268,7 @@ __global__ void fold_restrict_tiled_kernel(
     const int tid = threadIdx.x, slot = tid / dim, k = tid % dim;
     const int X = blockIdx.x;
     const bool half = (g.parity >= 0);
-    const int sites = (half ? g.nx / 2 : g.nx) * g.ny * g.nz * g.nt;
+    const int sites = fold_fine_sites(g);
     const int first = blockIdx.y * FoldVectors;
     const int count = (vectors - first < FoldVectors) ? vectors - first : FoldVectors;
     const size_t fine_reals = vector_reals(sites, Ls);
@@ -280,11 +300,7 @@ __global__ void fold_restrict_tiled_kernel(
                         take = ((xc[0] + xc[1] + xc[2] + xc[3]) & 1) == g.parity;
                         at = xc[0] / 2 + (g.nx / 2) * (x / g.nx);
                     }
-                    if (take && g.leg >= 0) {
-                        const int mu = g.leg % 4, extent = fold_pick(g.block, mu);
-                        const int in_block = fold_pick(xc, mu) % extent;
-                        take = in_block == (g.leg < 4 ? extent - 1 : 0);
-                    }
+                    if (take && g.leg >= 0) take = fold_face_site(xc, g, at);
                 }
             }
             const unsigned mask = __ballot_sync(0xffffffffu, take);

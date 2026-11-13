@@ -99,19 +99,18 @@ pub trait SplitReal: Sized + Copy + Default + Send + 'static {
     fn host_exchange(comm: &dyn crate::Comm, spec: &HaloSpec) -> Box<dyn HaloExchange<Self>>;
     /// `ncclDataType_t` of this precision.
     const NCCL_TYPE: i32;
-    /// `bridge_cuda_hop_split_halo`.
+    /// `bridge_cuda_hop_faces_halo`.
     ///
     /// # Safety
-    /// As `DeviceReal::hop_split`; `halo` as for `hop_part`.
+    /// As `DeviceReal::hop_faces`; `halo` as for `hop_part`.
     #[allow(clippy::too_many_arguments)]
-    unsafe fn hop_split_halo(
-        cross: *mut Self,
+    unsafe fn hop_faces_halo(
+        faces: *mut Self,
         inside: *mut Self,
         inp: *const Self,
         gauge: *const Self,
         geometry: *const Geometry,
         fifth: [f64; 4],
-        leg: i32,
         block: *const i32,
         vectors: i32,
         halo: *const HaloArgs,
@@ -167,7 +166,7 @@ macro_rules! split_real {
      $split:ident, $pass:ident, $gather:ident, $place:ident) => {
         extern "C" {
             fn $split(
-                cross: *mut $t,
+                faces: *mut $t,
                 inside: *mut $t,
                 inp: *const $t,
                 gauge: *const $t,
@@ -176,7 +175,6 @@ macro_rules! split_real {
                 mass: f64,
                 b5: f64,
                 c5: f64,
-                leg: i32,
                 block: *const i32,
                 vectors: i32,
                 halo: *const HaloArgs,
@@ -269,21 +267,20 @@ macro_rules! split_real {
 
         impl SplitReal for $t {
             const NCCL_TYPE: i32 = $nccl;
-            unsafe fn hop_split_halo(
-                cross: *mut $t,
+            unsafe fn hop_faces_halo(
+                faces: *mut $t,
                 inside: *mut $t,
                 inp: *const $t,
                 gauge: *const $t,
                 geometry: *const Geometry,
                 [kappa, mass, b5, c5]: [f64; 4],
-                leg: i32,
                 block: *const i32,
                 vectors: i32,
                 halo: *const HaloArgs,
             ) {
                 $split(
-                    cross, inside, inp, gauge, geometry, kappa, mass, b5, c5, leg, block, vectors,
-                    halo, STREAM,
+                    faces, inside, inp, gauge, geometry, kappa, mass, b5, c5, block, vectors, halo,
+                    STREAM,
                 )
             }
             unsafe fn coarse_pass_ghost(
@@ -399,10 +396,10 @@ macro_rules! split_real {
 }
 
 split_real!(f32: bridge_cuda_hop_part_f32, bridge_cuda_mdwf_dslash_part_f32,
-    bridge_cuda_hop_pack_f32, halo_f32, 7, bridge_cuda_hop_split_halo_f32,
+    bridge_cuda_hop_pack_f32, halo_f32, 7, bridge_cuda_hop_faces_halo_f32,
     bridge_cuda_coarse_pass_ghost_f32, bridge_cuda_coarse_gather_f32, bridge_cuda_coarse_place_f32);
 split_real!(f64: bridge_cuda_hop_part_f64, bridge_cuda_mdwf_dslash_part_f64,
-    bridge_cuda_hop_pack_f64, halo_f64, 8, bridge_cuda_hop_split_halo_f64,
+    bridge_cuda_hop_pack_f64, halo_f64, 8, bridge_cuda_hop_faces_halo_f64,
     bridge_cuda_coarse_pass_ghost_f64, bridge_cuda_coarse_gather_f64, bridge_cuda_coarse_place_f64);
 
 /// NCCL between the devices of the processes.
