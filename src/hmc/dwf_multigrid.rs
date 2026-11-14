@@ -248,11 +248,16 @@ fn solves_once<B: MdwfBackend + 'static>(
             }
             let kept_vectors = kept.vectors.take();
             let quiet = &mut |_: SetupStage<'_>| {};
+            let mut mg = setup.mg;
+            let b = &mut mg.bootstrap;
+            // From the vectors of before the probe may end the bootstrap at once: the rounds a
+            // setup from the filtered vectors must do are not needed.
+            if kept_vectors.is_some() {
+                b.min_rounds = 0;
+            }
             // After a stall the probe could end the bootstrap at once on vectors that gave it,
             // and with no rounds the retry would make the same P again.
-            let mut mg = setup.mg;
             if setup.after_stall {
-                let b = &mut mg.bootstrap;
                 b.min_rounds = b.min_rounds.max(1);
                 b.rounds = b.rounds.max(1);
             }

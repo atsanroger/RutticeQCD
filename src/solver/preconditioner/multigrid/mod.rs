@@ -41,7 +41,7 @@ pub(crate) use mdwf_cycle::{CoarseParts, CycleLayout};
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use mdwf_even_odd::lifted_vectors;
 pub use mdwf_even_odd::{
-    pv_eo_basis, pv_eo_coarse_vectors, CoarseKrylov, FactorSolve, PvEoBasis, PvEoParams,
+    pv_eo_basis, pv_eo_coarse_vectors, CoarseKrylov, FactorSolve, Lifts, PvEoBasis, PvEoParams,
 };
 pub(crate) use mdwf_even_odd::{pv_eo_basis_stored, BasisStorage, SharedOperator};
 pub use mdwf_lexical::{mdwf_multigrid, MdwfCoarse, MdwfMultigridParams, MdwfSmoother};

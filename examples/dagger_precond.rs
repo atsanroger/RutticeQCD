@@ -26,6 +26,27 @@ fn main() {
 
 #[cfg(feature = "cuda-bridge")]
 mod device {
+
+    /// Prints each round of the bootstrap and where the probe ends it.
+    fn print_rounds(stage: Stage<'_, f64>) {
+        match stage {
+            Stage::Round { round, lowest, .. } => {
+                println!(
+                    "# bootstrap round {}: lowest Ritz value of Ã†Ã {lowest:.3e}",
+                    round + 1
+                )
+            }
+            Stage::Ended {
+                round,
+                lowest,
+                probed,
+            } => println!(
+                "# bootstrap round {} not needed: its cycle lowers {lowest:.3e} to {probed:.3e}",
+                round + 1
+            ),
+            _ => {}
+        }
+    }
     use ruttice::backend::cuda_bridge::multigrid::{
         bootstrap, device_correction, device_correction_with_levels, filtered_test_vectors,
         two_grid, DeviceCycle, Stage,
@@ -277,7 +298,7 @@ mod device {
             &mut y,
             BootstrapParams { cycle, ..boot_base },
             &mut with,
-            quiet,
+            &mut print_rounds,
         )?;
         drop(with);
         let basis = Rc::new(DeviceBasis::pv_eo(&d, &pv, &agg, &y, true)?);
@@ -651,7 +672,7 @@ mod device {
                     ..boot_base
                 },
                 &mut with,
-                &mut |_: Stage<'_, f64>| {},
+                &mut print_rounds,
             )?;
             Ok(z)
         };

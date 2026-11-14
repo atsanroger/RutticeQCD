@@ -70,7 +70,7 @@ fn main() {
 /// - `all`: `ALL`;
 /// - anything else: passed to cmake as it is, e.g. `80` or `80;90`.
 fn architectures() -> String {
-    // 80 the A100 and A30, 86 the RTX 30 series, 90 the H100. Without its own code a GPU
+    // 80 the A100, 86 the RTX 30 series, 90 the H100. Without its own code a GPU
     // compiles the PTX of a lower architecture at its first start, with the register limits
     // ptxas chose for that one.
     const ALL: &str = "80;86;90";

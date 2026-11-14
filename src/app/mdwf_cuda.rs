@@ -289,6 +289,11 @@ pub(super) fn run(
         start.elapsed().as_secs_f64(),
         memory()
     )?;
+    writeln!(
+        out,
+        "  basis lifts: {:?}",
+        crate::solver::preconditioner::multigrid::Lifts::from_env()
+    )?;
 
     let op = &ops.op;
     let mut a = operator();

@@ -38,7 +38,7 @@ constexpr int LevelThreads = 256;
 // take every WarpSize-th of the bs pd terms, so that a warp reads consecutive entries of Q and
 // of v, and the sums are added across the warp. (A thread for each output summed its bs pd
 // terms alone: on the last level, with fewer outputs than a block, that was one block on one
-// SM, 1.2 ms a launch on the A30.)
+// SM, 1.2 ms a launch on the GPU.)
 // -------------------------------------------------------------------------
 template <typename Float>
 __global__ void level_restrict_kernel(

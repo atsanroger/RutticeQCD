@@ -83,6 +83,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() < 6 {
         return Err("L FORMAT FILE M5 MASS SMEAR [--c C] [--block B] [--vectors N] [--t T]".into());
     }
+    // --auto: the number of bootstrap rounds by the probe (`BootstrapParams::automatic`), as the
+    // parameter files without `bootstrap_number_of_rounds`; otherwise two rounds.
+    let boot_base = match args.iter().any(|a| a == "--auto") {
+        true => BootstrapParams::automatic(),
+        false => BootstrapParams::default(),
+    };
     let value = |name: &str, default: f64| -> Result<f64, Box<dyn Error>> {
         match args.iter().position(|a| a == name) {
             Some(i) => Ok(args.get(i + 1).ok_or("a value")?.parse()?),
@@ -149,10 +155,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &pv,
         &agg,
         &mut y,
-        BootstrapParams {
-            cycle,
-            ..BootstrapParams::default()
-        },
+        BootstrapParams { cycle, ..boot_base },
     )?;
     println!(
         "# {l}^3x{nt} {}; M5 {m5}, m {mass}, b {}, c {c}, stout 0.1x3: {smear}; blocks {block}^4, {} coarse components per site; setup {:.0} s",

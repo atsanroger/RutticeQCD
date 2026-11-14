@@ -43,6 +43,27 @@ fn main() {
 
 #[cfg(feature = "cuda-bridge")]
 mod device {
+
+    /// Prints each round of the bootstrap and where the probe ends it.
+    fn print_rounds(stage: Stage<'_, f64>) {
+        match stage {
+            Stage::Round { round, lowest, .. } => {
+                println!(
+                    "# bootstrap round {}: lowest Ritz value of Ã†Ã {lowest:.3e}",
+                    round + 1
+                )
+            }
+            Stage::Ended {
+                round,
+                lowest,
+                probed,
+            } => println!(
+                "# bootstrap round {} not needed: its cycle lowers {lowest:.3e} to {probed:.3e}",
+                round + 1
+            ),
+            _ => {}
+        }
+    }
     use ruttice::backend::cuda_bridge::multigrid::{
         bootstrap, device_correction, filtered_test_vectors, top_of, two_grid, DeviceCycle, Stage,
     };
@@ -158,6 +179,12 @@ mod device {
         if args.len() < 7 {
             return Err("L T FORMAT FILE M5 MASS SMEAR [--block B] [--vectors N] [--steps S] [--ratio R] [--coarse T] [--tol T] [--dim D]".into());
         }
+        // --auto: the number of bootstrap rounds by the probe (`BootstrapParams::automatic`), as the
+        // parameter files without `bootstrap_number_of_rounds`; otherwise two rounds.
+        let boot_base = match args.iter().any(|a| a == "--auto") {
+            true => BootstrapParams::automatic(),
+            false => BootstrapParams::default(),
+        };
         let value = |name: &str, default: f64| -> Result<f64, Box<dyn Error>> {
             match args.iter().position(|a| a == name) {
                 Some(i) => Ok(args.get(i + 1).ok_or("a value")?.parse()?),
@@ -244,12 +271,17 @@ mod device {
             quiet,
         )?;
         let agg = Aggregation::new(&lat, [block; 4]);
-        let boot = BootstrapParams {
-            cycle,
-            ..BootstrapParams::default()
-        };
+        let boot = BootstrapParams { cycle, ..boot_base };
         let mut with = device_correction((d, pv), &agg, cycle, &even, true);
-        bootstrap((d, pv), (&even, &odd), &lat, &mut y, boot, &mut with, quiet)?;
+        bootstrap(
+            (d, pv),
+            (&even, &odd),
+            &lat,
+            &mut y,
+            boot,
+            &mut with,
+            &mut print_rounds,
+        )?;
         let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &y, true)?);
         drop(y);
         let exact = PvEoParams {

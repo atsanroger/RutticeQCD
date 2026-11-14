@@ -1,7 +1,7 @@
 //! Page-locked (pinned) host memory, for data that crosses the bus often.
 //!
 //! A copy between the device and pageable memory goes through a staging buffer of the driver,
-//! and into a new `Vec` it also faults in every page: 4.3 GB from the A30 take 2.5 s into a
+//! and into a new `Vec` it also faults in every page: 4.3 GB from the GPU take 2.5 s into a
 //! new `Vec`, 1.1 s into memory written before, 0.22 s into pinned memory. Pinning itself is
 //! slow (2.0 s for 4.3 GB), so a dropped buffer goes back to a cache of the process and the
 //! next request of at least half its size takes it (so a small request does not hold a large

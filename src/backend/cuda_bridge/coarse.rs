@@ -5,7 +5,7 @@ use super::halo::{Faces, Halos};
 use super::*;
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
 use crate::solver::preconditioner::multigrid::{
-    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
+    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, Lifts, MultigridError, Transfer,
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
@@ -670,7 +670,7 @@ impl DeviceBasis {
         // The vectors of an aggregate and chirality in double precision: as many coarse sites
         // at a time as an eighth of the room on the device holds, between a quarter of a GB and
         // 2 GB (a quarter of a GB was 34 blocks a launch on 24⁴ with 20 test vectors, too few
-        // for CholeskyQR2 on the 56 SMs of an A30: P 2.9 s, against 1.8 s with 2 GB).
+        // for CholeskyQR2 on the SMs of the GPU: P 2.9 s, against 1.8 s with 2 GB).
         let per_site = 2 * n * dim * 2;
         let budget = (super::device_room() / 8).clamp(1 << 28, 1 << 31) / 8;
         let count = (budget / per_site).clamp(1, self.coarse_sites);
@@ -747,7 +747,7 @@ impl DeviceBasis {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut basis = Self::empty(agg, ls, 2 * n, half)?;
+        let mut basis = Self::empty(agg, ls, Lifts::from_env().columns(n), half)?;
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         let sites = Some(lat.num_global_sites() as f64);
         // Two vectors at a time: the fields on the whole lattice are large.
@@ -770,8 +770,12 @@ impl DeviceBasis {
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut out =
-            DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?.on(&self.coarse);
+        let mut out = DeviceCoarse::<T>::zeros(
+            self.coarse_sites,
+            self.coarse_dim(),
+            Lifts::from_env().columns(n),
+        )?
+        .on(&self.coarse);
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, None, |i, s| {
             let mut c = self.coarse_field::<T>(s.vectors);

@@ -137,6 +137,35 @@ impl<F: Storage> PvEoBasis<F> {
     }
 }
 
+/// Which full-lattice vectors P is made of, for each y_j (`RUTTICE_BASIS_LIFTS`, for the
+/// basis-lift runs of the MG note): `st` {s_j, t̂_j} (the default), `sds` {s_j, D s_j}, where
+/// D s_j = ι π D s_j vanishes on the odd sites, or `s` {s_j} alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lifts {
+    ST,
+    SDs,
+    S,
+}
+
+impl Lifts {
+    pub fn from_env() -> Self {
+        match std::env::var("RUTTICE_BASIS_LIFTS").as_deref() {
+            Err(_) | Ok("st") => Lifts::ST,
+            Ok("sds") => Lifts::SDs,
+            Ok("s") => Lifts::S,
+            Ok(other) => panic!("RUTTICE_BASIS_LIFTS: {other} is not st, sds or s"),
+        }
+    }
+
+    /// The columns of P for n vectors y.
+    pub fn columns(self, n: usize) -> usize {
+        match self {
+            Lifts::S => n,
+            Lifts::ST | Lifts::SDs => 2 * n,
+        }
+    }
+}
+
 /// The vectors s_j and t̂_j on the whole lattice of the vectors y_j on the even sites (see the
 /// top of the file), on every backend: `chunk` of the j at a time, `visit(j, s)` getting the s
 /// of y_j .. y_(j+k−1) and `visit(n + j, t̂)` their t̂, in fields like `whole`. With
@@ -160,6 +189,7 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
     let n = y.num_vectors();
     let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
     let mut full_work = op.work();
+    let lifts = Lifts::from_env();
     let all: Vec<usize> = (0..n).collect();
     for which in all.chunks(chunk.max(1)) {
         let nv = which.len();
@@ -183,6 +213,17 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
         // t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s), in the fields of s
         let mut ds = s.zeros_like();
         op.mult(&mut full_work, &mut ds, &s, Variant::D);
+        match lifts {
+            Lifts::S => continue,
+            Lifts::SDs => {
+                if let Some(sites) = unit_sites {
+                    to_unit_sites(&mut ds, sites);
+                }
+                visit(n + which[0], &ds);
+                continue;
+            }
+            Lifts::ST => {}
+        }
         split.extract(&mut x_e, &ds, Parity::Even);
         drop(ds);
         pv.hop(&mut work_pv, &mut t, &x_e, Parity::Odd, Dagger::Yes);
@@ -240,7 +281,8 @@ pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
     ) -> Result<Basis<F, S>, MultigridError> {
         let lat = agg.fine_lattice().clone();
         let mut builder =
-            BasisBuilder::<F, S>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
+            BasisBuilder::<F, S>::new(agg, Lifts::from_env().columns(y.num_vectors()))
+                .folded(Reflection(G::GAMMA5));
         let mut work = op.work();
         let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
         let mut g5 = whole.zeros_like();
@@ -266,7 +308,9 @@ pub fn pv_eo_coarse_vectors<F: Storage, G: GammaRepre>(
     y: &HalfField<Aos, F>,
 ) -> Vec<CoarseField> {
     let lat = basis.aggregation().fine_lattice().clone();
-    let mut restricted: Vec<Option<CoarseField>> = (0..2 * y.num_vectors()).map(|_| None).collect();
+    let mut restricted: Vec<Option<CoarseField>> = (0..Lifts::from_env().columns(y.num_vectors()))
+        .map(|_| None)
+        .collect();
     let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
     lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, None, |i, v| {
         let mut c = basis.coarse_field(1);

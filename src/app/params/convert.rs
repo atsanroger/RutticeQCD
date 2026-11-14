@@ -614,7 +614,7 @@ impl MultigridBlock {
         let boot = BootstrapParams {
             rounds,
             min_gain,
-            min_rounds: 0,
+            min_rounds: BootstrapParams::automatic().min_rounds,
             steps: self.setup.bootstrap_number_of_steps,
             cycle,
         };
