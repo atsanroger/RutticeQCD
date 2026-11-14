@@ -127,9 +127,10 @@ keyword_enum! {
 keyword_enum! {
     /// How the domain-wall multigrid of HMC solves with D†.
     pub enum DaggerSolve {
-        /// GCR on K† with the preconditioner Γ5 M Γ5 (the default).
+        /// GCR on K† with the preconditioner Γ5 M Γ5 (the default where B5 is singular).
         Gamma5Cycle => ["Gamma5_cycle", "Gamma5MGamma5"],
-        /// One solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (constant b, c; MG note Sec. IV.D).
+        /// One solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (constant b, c; MG note Sec. IV.A): the
+        /// default.
         ThroughD => ["Through_D"],
     }
 }

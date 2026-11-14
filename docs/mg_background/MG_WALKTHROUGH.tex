@@ -1099,7 +1099,7 @@ would double the cost. The tool that avoids it is an exact relation between $D$ 
 
 The $\Gfive$-transformation and the exact relation it rests on were derived in Sec.~\ref{sec:g5}.
 
-\subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$ (note Sec.~IV.A)}
+\subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$ (note Sec.~IV.B)}
 \label{sec:c4}
 Multiply $D\dg$ from the right by $\Gfive D^{-1}\Gfive$ and use the exact relation of Sec.~\ref{sec:g5} in the form
 $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$, together with $\Gfive D_-\dg\Gfive=D_-$:
@@ -1166,7 +1166,7 @@ identity. This is an argument, not a bound: the matrix elements have not been co
 iteration counts are the test. On $16^4$ at $m=0.01$ it needs one to four iterations more than the solve with $D$ (note
 Table~\ref{N-tab:c4}); on $12^4$ at $m=0.001$ in setup~S (stout links with $\rho=0.1$ and three steps, $M_5=1$; note Table~\ref{N-tab:setups}), GCR(2) stalls on the residual right-hand side of HMC (note, Sec.~V.B.2).
 
-\subsection{On the even sites (note Sec.~IV.B)}
+\subsection{On the even sites (note Sec.~IV.C)}
 The solves of HMC are on the even sites. Since $\Gfive$ acts within a site it commutes with $\pi$
 and $\iota$, and with Eq.~\eqref{eq:Sinv}
 \begin{equation}
@@ -1197,7 +1197,7 @@ one cycle, as for $D$.
 
 % ======================================================================
 
-\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.C)}
+\subsection{Why $D_-$ cannot be inverted (note Sec.~IV.D)}
 \label{sec:dminus}
 The exact relation of Sec.~\ref{sec:g5} contains $D_-$, and one could try to solve with $D\dg$
 through $D$ exactly by inverting $D_-$. Rewrite it:

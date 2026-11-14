@@ -44,7 +44,7 @@ Table 10 (lifts) uses branch `exp/basis-lifts-tikhonov` (`36f9079`, `RUTTICE_BAS
 
 ## Where each result comes from
 
-Data files are in `data/` (`data/unused/` holds files of earlier runs that no table uses); run directories under `ruttice_a30_20261016/multiconf/` on the A30 machine.
+Data files are in `data/` (`data/unused/` holds files of earlier runs that no table uses); run directories under `ruttice_20261016/multiconf/` on the GPU machine.
 
 | result | program | data, run directory |
 |---|---|---|

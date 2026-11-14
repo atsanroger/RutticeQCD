@@ -117,14 +117,14 @@ Conventions:
   to the host (page-locked, one wait for the stream); the fused operations of `Vector`
   (`axpy_norm_sqr`, `xpay_norm_sqr_dot`, `dot_norms`, `xpay`, `axpy2`, `axpy_aypx`,
   `scale_axpy2_norm_sqr`) are one pass each.
-- On an A30 the domain-wall multigrid on 28^4 and 24^3x48 gave different last digits from run
+- On the GPU the domain-wall multigrid on 28^4 and 24^3x48 gave different last digits from run
   to run, from the first round of the bootstrap on. A data race is the likely cause, fixed on
   2026-10-19: in the Jacobi kernel of `|H_xx|^-1` (`multigrid/fold.cuh`,
   `blocks_abs_inverse_gamma5_kernel`) thread p overwrote a_pq while the other warps of the
   block (dim > 32) could still be reading it. It never showed in the runs on an RTX 3080 (12^4,
   81 coarse sites: the same bit for bit with and without the fix), but it does there on 2592
   random blocks of dim 64 (up to 6e-2 apart, 2026-10-20). With the fix (cbe655b) two runs of
-  24^3x48 on the A30 gave the same 29 checksums, for both domain-wall setups (2026-10-19).
+  24^3x48 on the GPU gave the same 29 checksums, for both domain-wall setups (2026-10-19).
 - The coarse operator (`coarse_pass_kernel`, `multigrid/fold.cuh`) has a warp for each row of
   a site's matrices, its lanes the columns, so that a warp reads a row as one stretch of
   memory; the matrices stay row-major. A thread for each row (until 2026-10-20) read the rows

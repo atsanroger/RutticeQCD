@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid solves with D† through one solve with D by default
+  (`MultiGrid_HMC.dagger_solve : Through_D`, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5), which is exact for the
+  constant b and c of this code. Before, the default was GCR with Γ5 M Γ5, which on 12⁴ in
+  setup S at m = 0.001 stalls on the residual right-hand side of a sweep on every configuration
+  (the MG note, Table 3) where the solve through D converges in 7 to 8 iterations.
+  `Gamma5_cycle` stays the default where B5 = b − cY is singular (b = 0 with c = 0 or m = 0).
+  `DwfMultigridSetup::new` chooses the same way, from the b, c and m of the operator
+  (`MdwfParams::b5_invertible`).
+- The automatic bootstrap does at least two rounds from the filtered vectors (`min_rounds` 2 in
+  `BootstrapParams::automatic`). After one round a cycle of few test vectors or few smoother
+  steps can gain less than the factor 4 on vectors still far from the lowest modes: with one
+  round, 12⁴ with 6 smoother steps and 24⁴ with 24 test vectors in setup S did not converge in
+  1000 and 2000 iterations; on 24⁴ v2, which went on to four rounds, the same setting converges
+  in 27. A bootstrap of HMC from the vectors of an earlier solve keeps no minimum.
 - The Γ-method no longer prints an error of 0 and a negative τ_int for a short series. When the
   variance of the mean it estimates, C_F(W)/N after the bias correction, is not positive (two
   or three anti-correlated measurements, as the flow of 24⁴ 602/702 gave), `gamma_method`
@@ -383,7 +397,7 @@ device count every kind of a trajectory and of a multigrid solve alike.
 
 The device does every fermion on one GPU or several, now with the Wilson and clover multigrid.
 A clover propagator with the multigrid (examples/clover_mg.yaml, 4³×8) takes the CPU's 7
-iterations and gives its correlators, in 0.26 s on an A30 against 2.7 s on two CPU threads; HMC
+iterations and gives its correlators, in 0.26 s on the GPU against 2.7 s on two CPU threads; HMC
 with the multigrid gives the CPU's plaquettes and ΔH. Wilson and clover operators and their
 multigrid on several processes give the result of one (P and the test vectors bit for bit, the
 same iterations). Parameter files are unchanged; on the device the Wilson multigrid refuses its
@@ -420,7 +434,7 @@ multigrid, SAP and `OnParity` are generic over a backend (`WilsonMultigrid<B>`, 
   `LocalComm`). The Wilson and clover operators are now the hop kernel of the domain-wall
   operator, specialized (`hop_kernel` with `FourD`, `Clover`), so they take the interior and
   surface parts of several processes; `wilson_interior_kernel` and `clover_dslash_kernel` are
-  removed. On the A30 at 16⁴ the time is that of the old kernels within 2%, the results the same
+  removed. On the GPU at 16⁴ the time is that of the old kernels within 2%, the results the same
   to the last bit.
 - The sums of a leg of the hops are explicit fused multiply-adds in a fixed order (`c_macc`,
   `add_leg`, the third row of a link, the clover blocks): nvcc chooses which `a b + c` to fuse
@@ -435,7 +449,7 @@ Wilson and clover HMC on the device, and every run reporting the work it did. Br
 test_HMC_Clover_RHMC_Nf2p1 (Ratio, Standard and Rational clover actions on stout links) now runs
 on the GPU and gives the trajectory of the CPU and of Bridge++ (plaquette 0.627668186553636;
 Bridge++ 0.627668186553629). Each solve and trajectory prints Flop, GFlop/s and Flop/byte by kind
-of work, for a roofline estimate: a 16⁴ domain-wall trajectory on an A30 runs its fine operator
+of work, for a roofline estimate: a 16⁴ domain-wall trajectory on the GPU runs its fine operator
 in single precision at 2.38 Flop/byte, 1570 GFlop/s in all. Parameter files are unchanged; the
 library's public interface is narrower (a breaking change for code using its internals).
 
@@ -565,7 +579,7 @@ the mixed solvers and of the HMC multigrid setup changed (`DwfMultigridSetup::ne
 ## 0.4.1 (2026-10-23)
 
 Faster setup and prolongation of the domain-wall multigrid on the device. HMC on 24⁴ with stout
-links at m 0.001 (one short trajectory, 20 test vectors, levels below, A30): 242 → 203 s, the
+links at m 0.001 (one short trajectory, 20 test vectors, levels below): 242 → 203 s, the
 setup 141 → 113 s.
 
 - The prolongation P for one vector (`fold_prolong_tiled_kernel`): a block for 32 fine sites, a
@@ -600,7 +614,7 @@ setup 141 → 113 s.
 
 The multigrid in HMC. The domain-wall Ratio action over Pauli-Villars fields solves with the
 multigrid on the device: D† by the multigrid of D (no second setup), the levels below the
-coarse lattice, Neff's α, and the memory to run 24⁴ on the A30. On 24⁴ with stout links at
+coarse lattice, Neff's α, and the memory to run 24⁴ on the GPU. On 24⁴ with stout links at
 m 0.001 (one short trajectory, 5 solves, 20 test vectors, levels below) the multigrid takes
 242 s with its setup (141 s), mixed CG on the even-odd Ratio 264 s at α 0.6 and 301 s at α 1;
 the solves alone 63 s against 264 s. ΔH the same.
@@ -637,11 +651,11 @@ the solves alone 63 s against 264 s. ΔH the same.
   73 s; the rebuild 24 → 15 s; ΔH the same), and on 12⁴ with stout links at m 0.001, where
   the old dual cycle did not converge, a solve takes 10–20 iterations of GCR(8). On 24⁴
   (m 0.01, GCR(2), 16 single-precision test vectors) a short trajectory takes 174 s and
-  20.5 GB on the A30.
+  20.5 GB on the GPU.
 - HMC with the domain-wall multigrid on the device takes less memory: the test vectors are
   kept on the host between the solves (`DeviceSpinor::stash`) and on the device only while P
   is made or the bootstrap runs, and the cycle is made for each solve on the even sites and
-  dropped after it. On 24⁴ (stout, m 0.01) HMC went from out of memory on the A30 to fitting.
+  dropped after it. On 24⁴ (stout, m 0.01) HMC went from out of memory on the GPU to fitting.
 - The examples on the device only (`dminus_cost`, `dual_basis`) need the feature
   `cuda-bridge`, so that `cargo check --all-targets` passes without it.
 - `examples/hop_gemm_bench`: the even-odd hop of the Möbius operator on the device alone, its
@@ -651,14 +665,14 @@ the solves alone 63 s against 264 s. ΔH the same.
 
 Faster device kernels for the MDWF multigrid; no new features and no change to parameter
 files. Some kernels add in another order, so the last digits, and at times an iteration or
-two, move. On the A30 (24³×48, m 0.001, a point-source
+two, move. On the GPU (24³×48, m 0.001, a point-source
 propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 s, the solves
 251 → 170 s, the same iterations.
 
 - `cuda_bridge` multigrid: the restriction P† reads P coalesced (`fold_restrict_tiled_kernel`):
   a block for each coarse site reads the P of two fine sites at a time in 16-byte words into
   shared memory, and the fine spinors folded by chirality, where a thread for each output read
-  its own row of P one number at a time (11% of the bandwidth on the A30). RTX 3080, 16⁴:
+  its own row of P one number at a time (11% of the bandwidth on the GPU). RTX 3080, 16⁴:
   4.64 → 1.31 ms a launch, setup 25 → 21 s, solve 0.6 → 0.5 s, the same iterations; the sums
   are in another order, so the last digits move. The old kernel stays for where the new one's
   shared memory does not fit.
@@ -668,23 +682,23 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   before they are used. RTX 3080, 16⁴: 82.5 → 62.6 µs a pass with the hops, DRAM 62 → 82%,
   instructions −42%; the coarse dimension must be even (it is twice the test vectors).
   A pass without the hops is a kernel of its own, without the registers of the unrolled links
-  (on the A30 those passes had become 18% slower): RTX 3080, 70 → 44 registers, 19 → 16 µs.
+  (on the GPU those passes had become 18% slower): RTX 3080, 70 → 44 registers, 19 → 16 µs.
 - `cuda_bridge`: `hop_split_kernel` in single precision runs two blocks an SM (128 registers,
   no spill, where nvcc chose 168): RTX 3080, 16⁴, 1.9–2.1 → 1.5–1.6 ms a launch, DRAM 66 → 88%.
 - `cuda_bridge`: |H|⁻¹ of the coarse blocks (`blocks_abs_inverse_gamma5_rounds_kernel`) by the
   cyclic Jacobi method in rounds of disjoint pairs at once, with H in shared memory, where the
-  pairs went one at a time with H and V in global memory (3.8 s per launch on the A30, 1.15 TB of
+  pairs went one at a time with H and V in global memory (3.8 s per launch on the GPU, 1.15 TB of
   DRAM traffic). RTX 3080, 16⁴: 0.70 → 0.10 s per launch. The old kernel stays where the shared
-  memory does not fit. Where H and V both fit (the A30 and A100 at a coarse dimension of 64,
-  not the RTX 3080), V is in shared memory too: on the A30 the kernel with V in global memory
+  memory does not fit. Where H and V both fit (the GPU and the A100 at a coarse dimension of 64,
+  not the RTX 3080), V is in shared memory too: on the GPU the kernel with V in global memory
   had 6% of its warps active, waiting on V.
 - `cuda_bridge`: the coarse operator with the hops at most 85 registers (`__launch_bounds__(256,
-  3)`; CUDA 13 gave 128 for sm_80, 24% warps active on the A30), and the restriction copies P to
+  3)`; CUDA 13 gave 128 for sm_80, 24% warps active on the GPU), and the restriction copies P to
   shared memory with `cp.async`, its copies in flight while the fine fields are folded.
 - `cuda_bridge`: the kernels of P read the entries of their geometry (γ5's columns and signs,
   the blocks) without an index known only at run time, which had put the whole kernel argument
   on the stack (a 96-byte frame and 0.5 GB of local loads a launch of the restriction on the
-  A30); the prolongation reads P a complex number at a time. RTX 3080, 16⁴: restriction 1.29 →
+  GPU); the prolongation reads P a complex number at a time. RTX 3080, 16⁴: restriction 1.29 →
   1.15 ms, prolongation 2.93 → 2.85 ms; the results the same bit for bit.
 - `cuda_bridge` multigrid: the restriction to the levels below the coarse lattice takes a warp
   for each output instead of a thread (`level_restrict_kernel`); on the last level that was a
@@ -693,7 +707,7 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   so the last digits move.
 - Corrections to 0.3.0: the double-precision `hop_gemm` at Ls 8 runs blocks of 128 threads
   (192 is the bound of its launch), three an SM with 168 registers where two fitted with 255.
-  On the A30 (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
+  On the GPU (24³×48) it is 18% faster, a double CG iteration 31.0 → 28.0 ms. The stout
   smearing on the device saves nothing there yet: the CPU smeared in about 2 s (the 11.7 s
   that was the reason came from a run under nsys).
 - Example `correction_exactness` (CPU): how exact the factorized coarse correction is on the
@@ -701,7 +715,7 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
   correction, and GCR(2) on Ã_R with the cycle against Ã_R† with the dual cycle.
   `preconditioned_fov_device` prints, for the leftmost vector of the field of values, what the
   cycle does to it at several coarse tolerances.
-- MG note: the timings again at 6d5bf18 on the A30 (mass scan, point-source propagators), the
+- MG note: the timings again at 6d5bf18 on the GPU (mass scan, point-source propagators), the
   results in the order of the abstract, the implementation in an appendix.
 
 ### Known issues
@@ -719,10 +733,10 @@ propagator of 12 columns, setup included): 584 → 401 s, the setup 311 → 207 
 
 ## 0.3.0 (2026-10-20)
 
-**Fixed: the known issue of 0.2.0.** The domain-wall multigrid on an A30 gave different last
+**Fixed: the known issue of 0.2.0.** The domain-wall multigrid on the GPU gave different last
 digits from run to run on large lattices: a race in the Jacobi kernel of |H_xx|⁻¹ (threads of
 different warps for blocks of dimension above 32, without a barrier before a_pq was
-overwritten). Runs of the same program now agree to the bit on the A30 too.
+overwritten). Runs of the same program now agree to the bit on the GPU too.
 
 ### Changes that affect existing parameter files or results
 
@@ -743,7 +757,7 @@ overwritten). Runs of the same program now agree to the bit on the A30 too.
   with those of the CPU to rounding, not to the bit. The coarse operator kernel sums in
   another order than in 0.2.0, so the multigrid's results move in the last digits (the
   iterations the same or within one).
-- The CUDA kernels are compiled for the architectures 80 and 86 by default (A100, A30, RTX 30
+- The CUDA kernels are compiled for the architectures 80 and 86 by default (A100, RTX 30
   series); `RUTTICE_CUDA_ARCH` takes a cmake list. It was 86 only.
 - Precisions are read in their usual spellings, in any case (`single`, `float`, `f32`, `FP32`,
   `double`, `f64`, `FP64`, `half`, `f16`, …).
@@ -785,12 +799,12 @@ overwritten). Runs of the same program now agree to the bit on the A30 too.
 
 ### Performance
 
-On an A30, 24³×48, Möbius m = 0.001 with stout links, a point-source two-point function (12
+On the GPU, 24³×48, Möbius m = 0.001 with stout links, a point-source two-point function (12
 columns): the multigrid 584 s with its setup, mixed CGNE 804 s, double CGNE 1333 s.
 
 - Device hop kernel: two blocks of 256 threads an SM in single precision (128 registers; sm_80
   gave 168), the field it is subtracted from read early, the matrix of Neff's α folded into
-  the next hop. A30 mixed CGNE at α = 0.6: 83.1 → 59.1 s. In double precision blocks of 192
+  the next hop. GPU mixed CGNE at α = 0.6: 83.1 → 59.1 s. In double precision blocks of 192
   threads with the legs one at a time (168 registers instead of 254).
 - Device multigrid: the coarse operator kernel reads a row per warp (3.6 → 1.1 ms an
   application on an RTX 3080); work fields from the stream-ordered memory pool; the Gram
@@ -823,7 +837,7 @@ columns): the multigrid 584 s with its setup, mixed CGNE 804 s, double CGNE 1333
 
 ### Known issues
 
-- Mixed CGNE on 24³×48 at m = 0.001 (A30): |Dx−b|² ends at 5e-17–3e-16 for a target of 1e-18;
+- Mixed CGNE on 24³×48 at m = 0.001: |Dx−b|² ends at 5e-17–3e-16 for a target of 1e-18;
   the correlator is 2e-7 from that of the multigrid. Use double precision where the true
   residual matters. QUDA's sloppy CG shows the same.
 - Bridge++'s even-odd domain-wall HMC tests test_HMC_Domainwall_Nf2_PV_alt_eo and _nosmr (8⁴)
@@ -833,7 +847,7 @@ columns): the multigrid 584 s with its setup, mixed CGNE 804 s, double CGNE 1333
 
 ## 0.2.0 (2026-10-14)
 
-Known issue: on an A30, the domain-wall multigrid on large lattices (28^4, 24^3x48) gives
+Known issue: on the GPU, the domain-wall multigrid on large lattices (28^4, 24^3x48) gives
 different last digits from run to run of the same program, from the first round of the
 bootstrap on; not on 12^4, and not on an RTX 3080. Not understood yet. (Fixed in 0.3.0: a race
 in the Jacobi kernel of |H_xx|⁻¹.)
@@ -843,7 +857,7 @@ in the Jacobi kernel of |H_xx|⁻¹.)
   mixed precision, several right-hand sides in one launch, optionally TF32 on the tensor cores.
   The domain-wall multigrid is on the device with its setup (the filter, the bootstrap, P, the
   coarse operators and their solves). Not on the device: the multigrid of Wilson and clover
-  fermions, HMC. On an A30, large lattices gave different last digits from run to run: not
+  fermions, HMC. On the GPU, large lattices gave different last digits from run to run: not
   understood yet.
 - The domain-wall multigrid of the CPU: single precision above the coarse lattice
   (`MultiGrid.fine_precision`), P in half precision (`F16`, with F16C where the processor has

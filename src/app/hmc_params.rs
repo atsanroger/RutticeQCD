@@ -1080,12 +1080,13 @@ impl FermionActionBlock {
             mg.check_domain_wall(&at, lattice, false)?;
             // Through_D needs B5 = b − cY invertible. Y^L_s is ±m on each chirality, so the
             // eigenvalues of Y have |λ|^L_s = |m|, and B5 is singular when b = cλ: with b = 0
-            // when c = 0 or m = 0.
+            // when c = 0 or m = 0. The coefficients b and c do not depend on s here, so where B5
+            // is invertible the solve through D is exact, and it is the default; Γ5 M Γ5 is the
+            // default only where B5 is singular.
             let f = &self.fopr;
-            if h.dagger_solve == Some(DaggerSolve::ThroughD)
-                && f.coefficient_b == 0.0
-                && (f.coefficient_c == 0.0 || f.quark_mass == Some(0.0))
-            {
+            let b5_singular =
+                f.coefficient_b == 0.0 && (f.coefficient_c == 0.0 || f.quark_mass == Some(0.0));
+            if h.dagger_solve == Some(DaggerSolve::ThroughD) && b5_singular {
                 return invalid(format!(
                     "{name}.MultiGrid_HMC.dagger_solve: Through_D needs B5 = b − cY invertible, which coefficient_b 0 with coefficient_c 0 or quark_mass 0 is not; use Gamma5_cycle"
                 ));
@@ -1103,7 +1104,11 @@ impl FermionActionBlock {
                     }
                     g => g.unwrap_or(1.5),
                 },
-                through_d: h.dagger_solve == Some(DaggerSolve::ThroughD),
+                through_d: match h.dagger_solve {
+                    Some(DaggerSolve::ThroughD) => true,
+                    Some(DaggerSolve::Gamma5Cycle) => false,
+                    None => !b5_singular,
+                },
             })
         } else {
             if h.convergence_criterion_squared_inner.is_some()

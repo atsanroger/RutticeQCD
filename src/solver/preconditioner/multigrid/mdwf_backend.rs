@@ -195,8 +195,9 @@ pub trait MdwfBackend {
     /// D^(α) on the links of `op`.
     fn with_alpha(op: &Self::Op, alpha: f64) -> Result<Self::Op, Box<dyn Error>>;
     /// An operator whose site-local part C = d+ + d- Y is B5 = b − cY of `op`
-    /// (d+ = b, d- = −c: M5 = 3, b − 1, c + 1), for its `diag` and `diag_inv`.
-    fn b5_of(op: &Self::Op) -> Result<Self::Op, Box<dyn Error>>;
+    /// (d+ = b, d- = −c: M5 = 3, b − 1, c + 1), for its `diag` and `diag_inv`; `None` where B5
+    /// is singular (`MdwfParams::b5_invertible`).
+    fn b5_of(op: &Self::Op) -> Result<Option<Self::Op>, Box<dyn Error>>;
     /// Test vectors given on the host in double precision (a checkpoint), kept as the backend
     /// keeps them.
     fn vectors_from_host(
@@ -534,9 +535,10 @@ impl<G: GammaRepre> MdwfBackend for OnCpu<G> {
         Ok(a)
     }
 
-    fn b5_of(op: &Mdwf<f64, G>) -> Result<Mdwf<f64, G>, Box<dyn Error>> {
+    fn b5_of(op: &Mdwf<f64, G>) -> Result<Option<Mdwf<f64, G>>, Box<dyn Error>> {
         debug_assert_eq!(op.alpha(), 1.0, "B5 of the plain operator");
-        Ok(Mdwf::site_only(op, op.params().b5_site()))
+        let p = op.params();
+        Ok(p.b5_invertible().then(|| Mdwf::site_only(op, p.b5_site())))
     }
 
     fn vectors_from_host(

@@ -8,9 +8,10 @@
 //! links of every solve, and y itself is improved (the bootstrap, from the y of before) when the
 //! pseudofermions are drawn and after every `refresh_every` force solves.
 //!
-//! With `through_d` (`MultiGrid_HMC.dagger_solve : Through_D`) the solves with D† are instead one solve with D each: for Möbius
+//! With `through_d` (`MultiGrid_HMC.dagger_solve : Through_D`, the default where B5 is
+//! invertible) the solves with D† are instead one solve with D each: for Möbius
 //! fermions with constant b, c, Γ5 D† Γ5 = B5 D B5⁻¹ with B5 = b − cY, which acts within a site,
-//! so D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 on all sites and on the even sites alike (the note, Sec. IV.D).
+//! so D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 on all sites and on the even sites alike (the note, Sec. IV.A).
 //!
 //! With Neff's α (`DwfMultigridSetup::alpha`) the solves with D are those of D^(α) = D Q in the
 //! left form, Ã_L^(α), as in the propagator runs, and x = Q x^(α): the setup, P and the coarse
@@ -68,8 +69,8 @@ pub struct DwfMultigridSetup {
     /// times those after the last rebuild (module documentation); 0: make them for every solve.
     pub(crate) rebuild_growth: f64,
     /// The solves with D† by one solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 (constant b, c); false:
-    /// GCR with Γ5 M Γ5.
-    pub(crate) through_d: bool,
+    /// GCR with Γ5 M Γ5; `None` (the default): through D where B5 is invertible.
+    pub(crate) through_d: Option<bool>,
     /// Neff's α of the solves with D: D^(α) in the left form, the setup that of D; 1 (the
     /// default): D in the right form.
     pub alpha: f64,
@@ -112,7 +113,7 @@ impl DwfMultigridSetup {
             fgmres: false,
             refresh_every: 0,
             rebuild_growth: 0.0,
-            through_d: false,
+            through_d: None,
             alpha: 1.0,
             state: None,
             since: 0,
@@ -290,8 +291,9 @@ fn solves_once<B: MdwfBackend + 'static>(
             pv,
             d_alpha: d_alpha.as_ref(),
             b5: match setup.through_d {
-                true => Some(B::b5_of(d)?),
-                false => None,
+                Some(true) => Some(B::b5_of(d)?.ok_or("Through_D needs B5 = b − cY invertible")?),
+                Some(false) => None,
+                None => B::b5_of(d)?,
             },
             even,
             odd,

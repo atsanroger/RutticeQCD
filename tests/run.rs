@@ -1208,10 +1208,14 @@ GradientFlow:
         text.contains("# without the first 2 trajectories:"),
         "{text}"
     );
+    // Two measurements give no error: from two points the Γ-method's variance of the mean,
+    // Γ(0) + 2Γ(1), is not positive.
+    let t0: Vec<&str> = text.lines().filter(|l| l.starts_with("# t0/a^2")).collect();
     assert!(
-        text.lines()
-            .filter(|l| l.starts_with("# t0/a^2"))
-            .all(|l| l.ends_with("; 2 measurements)")),
+        !t0.is_empty()
+            && t0
+                .iter()
+                .all(|l| l.contains("no error: 2 measurements are too few")),
         "{text}"
     );
 
@@ -2187,6 +2191,35 @@ fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
         Err(e) => e.to_string(),
     };
     assert!(refused.contains("Through_D needs B5"), "{refused}");
+    // Without dagger_solve: through D where B5 is invertible, Γ5 M Γ5 where it is singular; a
+    // file that names Gamma5_cycle gets it.
+    let through_d = |text: &str| -> bool {
+        let config = ruttice::app::hmc::HmcConfig::from_yaml(text).unwrap();
+        let routes: Vec<bool> = config
+            .actions
+            .iter()
+            .filter_map(|a| match a {
+                ruttice::app::hmc::ActionConfig::TwoFlavor { solver, .. }
+                | ruttice::app::hmc::ActionConfig::TwoFlavorRatio { solver, .. }
+                | ruttice::app::hmc::ActionConfig::Rational { solver, .. } => solver.multigrid,
+                _ => None,
+            })
+            .map(|m| match m {
+                ruttice::app::hmc::HmcMultigrid::DomainWall { through_d, .. } => through_d,
+                _ => panic!("not the domain-wall multigrid"),
+            })
+            .collect();
+        assert!(!routes.is_empty(), "no multigrid action in\n{text}");
+        assert!(routes.iter().all(|&r| r == routes[0]));
+        routes[0]
+    };
+    assert!(through_d(&base), "the default is not Through_D");
+    assert!(!through_d(singular.trim_end_matches(
+        "  MultiGrid_HMC:\n    dagger_solve : Through_D\n"
+    )));
+    assert!(!through_d(&format!(
+        "{base}  MultiGrid_HMC:\n    dagger_solve : Gamma5_cycle\n"
+    )));
     for (route, trajectories, growth, reference) in [
         ("Gamma5_cycle", 2, "1.1", 703),
         ("Through_D", 1, "1.5", 340),

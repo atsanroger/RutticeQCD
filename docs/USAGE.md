@@ -182,11 +182,11 @@ CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 ```
 
 (`RUTTICE_CUDA_ARCH` chooses the architectures the kernels are compiled for. Unset or `auto`:
-those of the GPUs `nvidia-smi` sees on the machine that builds, so a build on an A30 compiles
-only `80`; where it sees none (a login node), `all`. `all`: `80;86;90`, the A100 and A30, the
+those of the GPUs `nvidia-smi` sees on the machine that builds, so a build on an A100 compiles
+only `80`; where it sees none (a login node), `all`. `all`: `80;86;90`, the A100, the
 RTX 30 series and the H100. Anything else is a list as cmake takes it, e.g. `80;90`. The build
 prints its choice. A binary built for one architecture does not run on a GPU of a lower one
-(built on an H100, it does not run on an A30); a build for other machines sets the list. It
+(built on an H100, it does not run on an A100); a build for other machines sets the list. It
 can be kept in the project's or the user's `.cargo/config.toml`:
 
 ```toml
@@ -202,9 +202,10 @@ the outer solver in double precision either way; the prolongation in half precis
 `basis_precision : single`, which is most of its memory). `Setup.filter_number_in_block`
 vectors are filtered at a time: fewer take less memory. The bootstrap of the domain-wall
 multigrid ends by itself: after every round it measures the lowest Ritz value of Ã†Ã on the test
-vectors (printed on the device), and the next round begins by improving the lowest Ritz vector
-alone; when that gains less than `Setup.bootstrap_minimum_gain` (4), the round is not done and
-the bootstrap ends, after at most 8 rounds. That is `Setup.bootstrap_number_of_rounds : auto`,
+vectors (printed on the device), and from the third round on a round begins by improving the
+lowest Ritz vector alone; when that gains less than `Setup.bootstrap_minimum_gain` (4), the
+round is not done and the bootstrap ends, after at least 2 and at most 8 rounds. HMC, when it
+improves the vectors of an earlier solve, may end the bootstrap before its first round. That is `Setup.bootstrap_number_of_rounds : auto`,
 the same as no key or an empty value. A file with `Setup.bootstrap_number_of_rounds : N` and no
 gain does exactly N rounds, as before; with both keys N is the most rounds. Two rounds, the
 earlier default, leave the vectors short of the lowest modes on 24⁴ at m = 0.001, and the solves
@@ -392,7 +393,7 @@ What only HMC has is in `MultiGrid_HMC`:
 | `reuse_vectors`, `number_of_reuse_iterations` | Wilson and clover: start each setup but the first from the vectors before, improved this many times (`false`: from random vectors) |
 | `convergence_criterion_squared_inner` | domain-wall fermions: where each of the two solves on the even sites stops (1e-10), before they are repeated on the residual of D†D |
 | `rebuild_iteration_growth` | domain-wall fermions: keep P and the coarse operators (and the tops of the smoothers) from solve to solve, the cycles made from them for the links of each solve, and make them again, after improving the test vectors for the links of that solve, when the GCR iterations per solve have grown to this many times those after the last rebuild (above 1; left out: 1.5; 0: made for every solve). The test vectors are improved, and everything made again, as `refresh_interval` says |
-| `dagger_solve` | domain-wall fermions: how the solves with D† are made. `Gamma5_cycle` (the default): GCR on K† with Γ5 M Γ5. `Through_D`: one solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (exact for b and c independent of s; the MG note, Sec. IV.D) |
+| `dagger_solve` | domain-wall fermions: how the solves with D† are made. `Through_D` (the default): one solve with D, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 with B5 = b − cY (exact for b and c independent of s, as they are here; the MG note, Sec. IV.A). `Gamma5_cycle`: GCR on K† with Γ5 M Γ5, the default only where B5 is singular (b = 0 with c = 0 or m = 0) |
 
 The multigrid keeps its test vectors along a trajectory and makes the cycle of every solve
 from them for the operator on the links of that solve. The domain-wall multigrid solves
