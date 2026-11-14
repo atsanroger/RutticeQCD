@@ -182,11 +182,11 @@ CUDA_HOME=/usr/local/cuda cargo build --release --features cuda-bridge
 ```
 
 (`RUTTICE_CUDA_ARCH` chooses the architectures the kernels are compiled for. Unset or `auto`:
-those of the GPUs `nvidia-smi` sees on the machine that builds, so a build on an A30 compiles
-only `80`; where it sees none (a login node), `all`. `all`: `80;86;90`, the A100 and A30, the
+those of the GPUs `nvidia-smi` sees on the machine that builds, so a build on an A100 compiles
+only `80`; where it sees none (a login node), `all`. `all`: `80;86;90`, the A100, the
 RTX 30 series and the H100. Anything else is a list as cmake takes it, e.g. `80;90`. The build
 prints its choice. A binary built for one architecture does not run on a GPU of a lower one
-(built on an H100, it does not run on an A30); a build for other machines sets the list. It
+(built on an H100, it does not run on an A100); a build for other machines sets the list. It
 can be kept in the project's or the user's `.cargo/config.toml`:
 
 ```toml

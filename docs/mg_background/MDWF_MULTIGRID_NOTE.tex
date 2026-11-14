@@ -143,9 +143,12 @@ $m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE. At $m=0.001$ a 
 $4.1$--$7.3$ times faster than mixed-precision CGNE, and a point-source propagator takes
 $0.40$--$0.56$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
-For future HMC work, which needs solves with $D\dg$, we derive an exact relation,
-$D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ (with $\Gfive=\gamma_5R$, $R$ the reflection of the
-fifth dimension, and $N$ proportional to the M\"obius coefficient $c$). It makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves without a
+For future HMC work, which needs solves with $D\dg$, \textcolor{red}{New!!!} we show that for
+coefficients $b$, $c$ independent of the fifth coordinate $(D\dg)^{-1}=\Gfive B_5D^{-1}B_5^{-1}\Gfive$
+exactly, with $\Gfive=\gamma_5R$, $R$ the reflection of the fifth dimension, and $B_5=b-cY$ local
+to a site; a solve with $D\dg$ is then one solve with $D$ with the same multigrid. For coefficients
+that depend on the fifth coordinate, $D\dg\Gfive D^{-1}\Gfive=\Gfive(1-N)\Gfive$ with $N$
+proportional to $c$ makes $\Gfive D^{-1}\Gfive$ a preconditioner for these solves. Neither needs a
 second multigrid setup.
 
 \end{abstract}
@@ -259,9 +262,11 @@ one for each coarse solve, which makes the correction exact on them for the righ
 (Eq.~\eqref{eq:exact}). The smoother is a fixed Chebyshev polynomial, and the setup combines
 Chebyshev filtering with a bootstrap.
 
-The second result concerns HMC, which solves with $D\dg$ as often as with $D$. We derive an exact
-relation, Eq.~\eqref{eq:c4}, that makes the multigrid of $D$, placed between two
-$\Gfive=\gamma_5R$, a preconditioner for $D\dg$, with no second setup.\ifresults{} We test the
+The second result concerns HMC, which solves with $D\dg$ as often as with $D$. \textcolor{red}{New!!!}
+For coefficients $b$, $c$ independent of $s$, an exact relation, Eq.~\eqref{eq:b5}, turns the solve
+with $D\dg$ into a solve with $D$ with the same multigrid. For coefficients that depend on $s$,
+Eq.~\eqref{eq:c4} makes the multigrid of $D$, placed between two $\Gfive=\gamma_5R$, a
+preconditioner for $D\dg$. Neither needs a second setup.\ifresults{} We test the
 method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd
 CGNE.\fi
 
@@ -711,9 +716,9 @@ method & system solved & operator coarsened & coarse stencil\\
 \midrule
 HDCG~\cite{HDCG,BoyleMRHS} & even sites, $S\dg S$ & $S\dg S$ (four hops) & $81$ points\\
 HDCR~\cite{HDCR} & all sites, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
-MG-PV~\cite{BCHW,BY} & all sites, $\Dpv\dg D$ & $D$ and $\Dpv$ apart, $c=0$ & $9$ points per slice\\
+MG-PV~\cite{BCHW,BY} & all sites, $\Dpv\dg D$ & $D$ and $\Dpv$ separately, $c=0$ & $9$ points per slice\\
 Boyle and Oare~\cite{BoyleOare} & all sites, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
-this work & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ apart (one hop each) & $9$ points each\\
+this work & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ separately (one hop each) & $9$ points each\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -754,10 +759,10 @@ of the plain $D$ and $\Dpv$; within the correction, $\alpha$ is in these factors
 between the even sites, all lattice sites and the coarse lattice twice, and the result of the
 first coarse solve, taken on the even sites, is the right-hand side of the second.
 
-\paragraph{\textcolor{red}{New!!!} The cost of two factors.} Coarsened apart, the two factors keep
+\paragraph{\textcolor{red}{New!!!} The cost of two factors.} Coarsened separately, the two factors keep
 nine points each. The $\Dpv\dg D$ of all lattice sites coarsens to $33$
 points~\cite{BoyleOare}, and $\AR$ as a whole to $81$, as above. A truncation of either to nearest neighbors
-is no longer a Galerkin projection. Coarsening apart incurs two costs. First, each cycle solves two
+is no longer a Galerkin projection. Coarsening them separately incurs two costs. First, each cycle solves two
 coarse systems, where the product needs one. Second, the product of the two Galerkin inverses in
 Eq.~\eqref{eq:corr} differs from the Galerkin inverse of the product. The two lifts of each test
 vector (Sec.~\ref{sec:basis}) make the correction exact on the test vectors again
@@ -832,7 +837,15 @@ left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$
 We divide the fine lattice into rectangular four-dimensional blocks. Each block contains the
 whole fifth dimension and becomes one coarse site. We split each test vector $v$ into its $\Gfive$
 eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$ and orthonormalize the $+$ parts and the $-$ parts
-separately within each block. With $n_v$ test vectors a coarse site then carries $2n_v$
+separately within each block. \textcolor{red}{New!!!} We orthonormalize by CholeskyQR2. With the
+$n$ columns of one block and chirality collected in $W$, the Gram matrix $G=W\dg W=R\dg R$ has the
+Cholesky factor $R$ of the QR decomposition $W=QR$, so $Q=WR^{-1}$ needs one Gram matrix, one
+Cholesky factor and one triangular solve. One pass loses orthogonality like the square of the
+condition number of $W$, so we do it twice; the second Gram matrix is close to the identity. Each
+pass reads $W$ twice, where Gram--Schmidt reads it once per pair of columns. Where a pivot of the
+first pass falls below $10^{-12}$ of its diagonal, the block's vectors are nearly dependent and we
+use Gram--Schmidt instead. On $24^4$ with $40$ columns this took the construction of $\Pro$ from
+$4.0$\,s to $1.8$\,s. With $n_v$ test vectors a coarse site then carries $2n_v$
 components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
 
 As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
@@ -950,7 +963,7 @@ The system is $Xw=g$ with $X=(\Dcpv)\dg$. We solve the regularized normal equati
 \big(X\dg X+\tau\big)\,w=X\dg g
 \label{eq:tikhonov}
 \end{equation}
-by CG on all coarse sites, with $\tau=10^{-3}$. Against the exact solve, the shift multiplies the component along each
+by CG on all coarse sites, with $\tau=10^{-3}$. Compared with the exact solve, the shift multiplies the component along each
 right singular vector of $X$ by $\sigma^2/(\sigma^2+\tau)$, so it damps most the directions with $\sigma$
 below about $\sqrt\tau$. The Galerkin factor can have far smaller singular values than the
 fine $\Dpv$ (Sec.~\ref{sec:pvcoarse}).
@@ -973,8 +986,7 @@ with the even-odd coarse form its even part preconditions the Schur system.
 
 \paragraph{Levels instead of deflation.} The levels below compress the low modes further by
 aggregation and invert the last level exactly, by LU in double precision, so every mode that reaches that level is treated without computing any eigenvector.
-The alternative, deflating the coarse factors with a few of their eigenvectors, we have not
-tried with the basis $\{s,\hat t\}$. Boyle and
+Boyle and
 Oare~\cite{BoyleOare} use a large coarsest level that is inverted densely in the role of deflation.
 
 % ============================================================
@@ -1039,25 +1051,21 @@ quotient of $H_n$ at the improved vector, and $g_{r+1}$ is the gain of the probe
 much the round would lower the lowest Ritz value if it lowered it as much as it lowers $u_r$. If
 $g_{r+1}<g_{\min}$ the round is not done, and the bootstrap ends with $y$ unchanged. Otherwise
 the round improves every vector with $\mathcal M_{r+1}$. We take $g_{\min}=4$ and at most $8$
-rounds. The first $r_{\min}$ rounds run without a probe; $r_{\min}=0$, except that HMC sets
-$r_{\min}=1$ when it repeats the setup after a stalled solve, since the stall itself shows that the
-vectors are not good enough.
+rounds. The first $r_{\min}$ rounds run without a probe. A setup from the filtered vectors has
+$r_{\min}=2$, since the cycle of the second round, when it is made of few vectors or few smoother
+steps, can lower $u_1$ by less than $g_{\min}$ although the vectors are still far from the lowest
+modes. When HMC
+starts the bootstrap from the vectors of an earlier solve, $r_{\min}=0$, and $r_{\min}=1$ after a
+stalled solve, since the stall itself shows that the vectors are not good enough.
 
-We define the probe as in Eq.~\eqref{eq:probe} for three reasons. (i) We use $\theta_r$ and not the residual
-$|H_nu_r-\theta_ru_r|$. On $24^4$ at $m=0.001$, $\theta_r$ is $1.4\times10^{-8}$ of the largest
-eigenvalue of $H_n$, below single precision, and from the third round on the residual stays at
-about $400\,\theta_r$ while $\theta_r$ still falls. (ii) The probe uses the cycle of the next
-round. The cycle of the round just done is built from the vectors before it and does not tell: on
-$24^4$ at $m=0.001$, after two rounds it gains $1.0$--$1.5$ on $u_r$, while the third round lowers
-$\theta$ by a factor $20$--$31$. (iii) When the probe ends the bootstrap, $\mathcal M_{r+1}$ is
+The probe of Eq.~\eqref{eq:probe} uses $\theta_r$ in place of the residual
+$|H_nu_r-\theta_ru_r|$, because at small masses $\theta_r$ falls below single precision relative to
+the largest eigenvalue of $H_n$, and the residual then stops falling while $\theta_r$ still falls.
+It uses the cycle of the next round, because the cycle of the round just done is built from the
+earlier vectors and does not see what the last round gained. When the probe ends the bootstrap, $\mathcal M_{r+1}$ is
 built from the final vectors, so its $\Pro$ and coarse operators are those of the solve, and we
-keep them. Stopping then costs one vector of FGMRES steps beyond a fixed count, plus the Ritz pair
-after each round.
-
-On $24^3\times48$ with setup~S at $m=0.001$, the lowest Ritz value of $H_n$ falls from
-$1.46\times10^{-2}$ after the filter to $1.54\times10^{-4}$, $6.16\times10^{-6}$ and
-$1.46\times10^{-7}$ after rounds 1, 2 and 3. The probe of round 4 gives $9.76\times10^{-8}$, a gain
-of $1.5$, and the bootstrap ends after three rounds.
+keep them. Compared with a fixed number of rounds, the probe costs the FGMRES steps on a single vector
+and a Ritz pair after each round. Sec.~\ref{sec:autorounds} gives the rounds the rule chooses.
 
 \begin{algorithm}
 \caption{Setup of the two-grid method. \textcolor{red}{New!!!} With a fixed number of rounds $R$, the loop runs $R$ times without the test.}
@@ -1073,9 +1081,11 @@ of $1.5$, and the bootstrap ends after three rounds.
   \EndFor
   \State orthonormalize $y$;\quad $(\theta,u)\gets$ lowest Ritz pair of $H_n$ on $y$
 \EndFor
-\State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalize per block $\to\Pro$
-\State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
-\State optionally, build the levels below from $\Pro\dg s_j$, $\Pro\dg\hat t_j$
+\If{the loop did not end by the test} \Comment{\textcolor{red}{New!!!}}
+  \State compute $s_j,\hat t_j$ by Eqs.~\eqref{eq:s}--\eqref{eq:that}; split by $\Gfive$; orthonormalize per block $\to\Pro$
+  \State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
+  \State optionally, build the levels below from $\Pro\dg s_j$, $\Pro\dg\hat t_j$
+\EndIf
 \end{algorithmic}
 \end{algorithm}
 
@@ -1123,7 +1133,10 @@ Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
 \end{algorithm}
 
 One cycle costs $2\nu$ applications of $\tilde A$ (two smoothings and two
-residuals) plus the two coarse solves. Because the coarse solves are Krylov
+residuals) plus the two coarse solves. \textcolor{red}{New!!!} One application of $\tilde A$ is two
+Schur factors of two hops each, so $\nu=8$ means $64$ applications of $D_{eo}$ or $D_{oe}$ per
+cycle. One CG iteration on $\mathcal K\dg\mathcal K$ has four, so the hops of one cycle are those of
+$16$ CG iterations, before the coarse solves. Because the coarse solves are Krylov
 iterations stopped by a residual test, $\mathcal M$ is not a fixed linear map.
 
 % ============================================================
@@ -1158,87 +1171,17 @@ $S\dg S$.\fi
 \label{sec:dagger}
 
 HMC needs $(D\dg D)^{-1}$ at every force evaluation, so it solves with $D\dg$ as often as with
-$D$. The multigrid of $D$ also preconditions solves with $D\dg$, with no second setup, coarse
-operator or cycle. The construction needs only an approximate inverse of $D$, so it applies to any
-preconditioner built for the unsquared operator. The tool is the exact relation~\eqref{eq:g5exact} between
-$D$ and $D\dg$.
-
-\subsection{The idea}
-For Wilson fermions $D_W\dg=\gamma_5D_W\gamma_5$, so $D_W^{-\dagger}=\gamma_5D_W^{-1}\gamma_5$, and
-a solver for $D_W$ solves with $D_W\dg$ as well. For M\"obius fermions this fails at non-zero $c$
-(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$, and
-Eq.~\eqref{eq:c4} below says how good it is.
-
-Multiply $D\dg$ by $\Gfive D^{-1}\Gfive$ and use $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$ from
-Eq.~\eqref{eq:g5exact} and $\Gfive D_-\dg\Gfive=D_-$:
-\begin{equation}
-D\dg\,\Gfive D^{-1}\Gfive=\Gfive D_-^{-1}D\,D_-D^{-1}\,\Gfive
-=\Gfive\big(1+D_-^{-1}[D,D_-]D^{-1}\big)\Gfive .
-\end{equation}
-The commutator follows from $D=D_+-D_-Y$ and $[D_+,D_-]=0$:
-$[D,D_-]=-D_-[Y,D_-]=-c\,D_-[Y,W]$. The factor $D_-$ cancels, and
-\begin{equation}
-\boxed{\;D\dg\,\Gfive D^{-1}\Gfive=\Gfive\,(1-N)\,\Gfive,\qquad N=c\,[Y,W]\,D^{-1}.\;}
-\label{eq:c4}
-\end{equation}
-Equation~\eqref{eq:c4} has three properties used below:
-\begin{itemize}
-\item $D_-^{-1}$ has dropped out. We never invert $D_-$, which we cannot do
-(Sec.~\ref{sec:g5fail}).
-\item $[Y,W]=-\tfrac12[Y,K]$ is a bounded operator: one hop in four dimensions and one in the
-fifth. So $N$ is large only where $D^{-1}$ is large, on the low modes of $D$.
-\item On a low mode $v$ the commutator acts through the $\gamma_\mu$ in $K$, which flip
-chirality. A low mode of $D$ carries on each wall the chirality bound there, $\Pm$ at $s=0$ and
-$\Pp$ at $s=L_s-1$; $[Y,W]v$ carries on each wall the opposite chirality, which no low mode has
-there. So $N$ takes the low modes out of their
-span, and $N^2$ is small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method needs only a few
-steps more than for the identity.
-\end{itemize}
-The third remark is a heuristic\ifresults{}; Sec.~\ref{sec:daggerresults} tests it and finds
-that it fails on $12^4$ in setup~S at $m=0.001$\fi.
-
-\subsection{On the even sites}
-The solves of HMC are on the even sites, so we need the same idea for the Schur complement $S$.
-The blocks of $D\dg$ are $\Ce\dg$, $\Co\dg$ on the diagonal and $D_{oe}\dg$, $D_{eo}\dg$ off it, so
-its Schur complement is $S\dg$, and
-$S^{-1}=\pi D^{-1}\iota$. Because $\Gfive$ acts within a site, it commutes with $\pi$ and
-$\iota$, and
-\begin{equation}
-S^{-\dagger}=\pi D^{-\dagger}\iota\approx\pi\,\Gfive D^{-1}\Gfive\,\iota=\Gfive S^{-1}\Gfive .
-\end{equation}
-The solve of $D\dg w=r$ then goes as follows.
-\begin{enumerate}
-\item Form $r'_e=r_e-D_{oe}\dg(\Co\dg)^{-1}r_o$, so that $S\dg w_e=r'_e$.
-\item Write $w_e=(\Ce\dg)^{-1}z$. Then $\mathcal K\dg z=r'_e$ with $\mathcal K=\Ce^{-1}S$, the operator HMC
-already uses.
-\item Solve for $z$ by flexible GCR with the preconditioner $\Ce\dg\,\Gfive S^{-1}\Gfive$. The
-inverse $S^{-1}$ is one application of the cycle $\mathcal M$ of $\AR$:
-$S^{-1}t=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg t\approx\Ce^{-1}\mathcal M\,(\Spv\Cpve^{-1})\dg t$.
-\item Recover $w_e=(\Ce\dg)^{-1}z$ and $w_o=(\Co\dg)^{-1}(r_o-D_{eo}\dg w_e)$.
-\end{enumerate}
-Each GCR step costs one cycle, as a step of the solve with $D$ does.
-
-\subsection{Why \texorpdfstring{$D_-$}{D-} cannot be inverted}
-\label{sec:g5fail}
-Eq.~\eqref{eq:g5exact} seems to offer more: the exact null vectors of $D\dg$, and an exact
-reduction of $D\dg w=r$ to a solve with $D$. Both need $D_-^{-1}$, and $D_-$ cannot be inverted
-in practice because of its spectrum. Since $D_-=cW-1=c\,(W-1/c)$, $D_-$ is $c$ times the
-Wilson operator of mass $m_0=-M_5-1/c$: $-3$ in setup~S and $-3.8$ in setup~B. The free
-eigenvalues of that operator,
-\begin{equation}
-m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
-\end{equation}
-have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
-imaginary parts of both signs, so the spectrum surrounds the origin. By the maximum principle
-no polynomial $p$ with $p(0)=1$ is smaller than $1$ everywhere on a closed curve around the
-origin, so a Krylov method reduces the residual only by resolving single eigenvalues, with a
-degree of the order of their number (Sec.~\ref{sec:spectra}). The preconditioner of Eq.~\eqref{eq:c4} avoids
-$D_-^{-1}$ altogether.
+$D$. The multigrid of $D$ also serves the solves with $D\dg$, with no second setup, coarse
+operator or cycle. \textcolor{red}{New!!!} We give two ways. For coefficients $b$ and $c$ that do
+not depend on $s$, as in this work, an exact relation turns the solve with $D\dg$ into a solve
+with $D$ (Sec.~\ref{sec:b5}). Where the coefficients depend on $s$ that relation fails, and
+$\Gfive D^{-1}\Gfive$ serves as a preconditioner for $D\dg$ (Secs.~\ref{sec:c4idea}--\ref{sec:g5fail}).
+This second way needs only an approximate inverse of $D$, so it applies to any preconditioner built
+for the unsquared operator.
 
 \subsection{\textcolor{red}{New!!!} \texorpdfstring{$D\dg$}{D-dagger} through \texorpdfstring{$D$}{D} itself}
 \label{sec:b5}
-We found a second way to solve with $D\dg$ from $D$ itself without a second setup, and this one is
-exact. Write the operator of Eq.~\eqref{eq:D} as
+Write the operator of Eq.~\eqref{eq:D} as
 \begin{equation}
 D=1+Y+W B_5,\qquad B_5=b-cY .
 \end{equation}
@@ -1281,8 +1224,16 @@ Eq.~\eqref{eq:b5} still holds: $B_5$ is singular only if $b/c$ is an eigenvalue 
 eigenvalues of $Y$ have modulus $m^{1/L_s}<1$, so $B_5=b(1-Y)$ is invertible for $m<1$. Its
 condition number grows with $L_s$; numerically $\kappa(B_5)\approx11$ for $L_s=8$ and $21$ for
 $L_s=16$ at $m=0.001$, against $1.9$ and $2.0$ for $(b,c)=(1.5,0.5)$.
-Equation~\eqref{eq:b5} needs $b$ and $c$ independent of $s$, as they are here; it does not hold
-for the $s$-dependent coefficients of Zolotarev domain-wall fermions.
+\textcolor{red}{New!!!} Equation~\eqref{eq:b5} needs $b$ and $c$ independent of $s$, as they are
+here. With coefficients $b_s$, $c_s$ that depend on $s$, $B_5=B-CY$ with the diagonal matrices
+$B=\operatorname{diag}(b_s)$ and $C=\operatorname{diag}(c_s)$ in $s$. $Y$ shifts $s$ by one, so $B$
+and $C$ commute with $Y$ only when they are multiples of the identity: $B_5$ no longer commutes
+with $1+Y$, and $\Gfive$ also turns $b_s$ into $b_{L_s-1-s}$. Coefficients that depend on $s$
+are used in practice. The Zolotarev choice of optimal domain-wall fermions~\cite{ChiuZolo} depends on $s$,
+and Yasunaga, Yoshimura, Tomiya and Nagai~\cite{YasunagaML} train $b_s$ and $c_s$ on each slice by
+machine learning, with the residual mass as the loss, and find a smaller residual mass than with
+constant coefficients. For such operators the solve with $D\dg$
+needs the preconditioner of Sec.~\ref{sec:c4idea}.
 
 On the even sites the relation carries over directly. $\Gfive$ and $B_5$ act within a site, so they
 commute with the restriction $\pi$ and the embedding $\iota$, and
@@ -1291,24 +1242,121 @@ S^{-\dagger}=\pi D^{-\dagger}\iota=\Gfive B_5\,S^{-1}B_5^{-1}\,\Gfive
 \end{equation}
 with $B_5$ on the even sites. A source with nothing on the odd sites keeps that property under
 $B_5^{-1}\Gfive$, so the solve with $D\dg$ of HMC is one even-site solve with $D$, with the same
-cycle $\mathcal M$ and the same Krylov method, and it costs what a solve with $D$ costs. The
-preconditioner $\Gfive\mathcal M\Gfive$ of Eq.~\eqref{eq:c4} and its analysis are then no longer
-needed for the solver.
+cycle $\mathcal M$ and the same Krylov method, and it costs what a solve with $D$ costs.
+
+\subsection{\textcolor{red}{New!!!} A preconditioner for any coefficients}
+\label{sec:c4idea}
+For Wilson fermions $D_W\dg=\gamma_5D_W\gamma_5$, so $D_W^{-\dagger}=\gamma_5D_W^{-1}\gamma_5$, and
+a solver for $D_W$ solves with $D_W\dg$ as well. For M\"obius fermions this fails at non-zero $c$
+(Sec.~\ref{sec:g5}). We use $\Gfive D^{-1}\Gfive$ anyway, as a preconditioner for $D\dg$. It needs
+no relation between $D$ and $D\dg$ to be applied, so it remains available where Eq.~\eqref{eq:b5}
+fails. Equation~\eqref{eq:c4} below says how good it is for constant $b$ and $c$.
+
+Multiply $D\dg$ by $\Gfive D^{-1}\Gfive$ and use $D\dg=\Gfive D_-^{-1}D\,\Gfive D_-\dg$ from
+Eq.~\eqref{eq:g5exact} and $\Gfive D_-\dg\Gfive=D_-$:
+\begin{equation}
+D\dg\,\Gfive D^{-1}\Gfive=\Gfive D_-^{-1}D\,D_-D^{-1}\,\Gfive
+=\Gfive\big(1+D_-^{-1}[D,D_-]D^{-1}\big)\Gfive .
+\end{equation}
+The commutator follows from $D=D_+-D_-Y$ and $[D_+,D_-]=0$:
+$[D,D_-]=-D_-[Y,D_-]=-c\,D_-[Y,W]$. The factor $D_-$ cancels, and
+\begin{equation}
+\boxed{\;D\dg\,\Gfive D^{-1}\Gfive=\Gfive\,(1-N)\,\Gfive,\qquad N=c\,[Y,W]\,D^{-1}.\;}
+\label{eq:c4}
+\end{equation}
+Equation~\eqref{eq:c4} has three properties used below:
+\begin{itemize}
+\item $D_-^{-1}$ has dropped out. We never invert $D_-$, which we cannot do
+(Sec.~\ref{sec:g5fail}).
+\item $[Y,W]=-\tfrac12[Y,K]$ is a bounded operator: one hop in four dimensions and one in the
+fifth. So $N$ is large only where $D^{-1}$ is large, on the low modes of $D$.
+\item On a low mode $v$ the commutator acts through the $\gamma_\mu$ in $K$, which flip
+chirality. A low mode of $D$ carries on each wall the chirality bound there, $\Pm$ at $s=0$ and
+$\Pp$ at $s=L_s-1$; $[Y,W]v$ carries on each wall the opposite chirality, which no low mode has
+there. So $N$ takes the low modes out of their
+span, and $N^2$ is small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method needs only a few
+steps more than for the identity.
+\end{itemize}
+The third remark is a heuristic\ifresults{}; Sec.~\ref{sec:daggerresults} tests it and finds
+that it fails on $12^4$ in setup~S at $m=0.001$\fi.
+
+\subsection{On the even sites}
+The solves of HMC are on the even sites, so we need the same idea for the Schur complement $S$.
+The blocks of $D\dg$ are $\Ce\dg$, $\Co\dg$ on the diagonal and $D_{oe}\dg$, $D_{eo}\dg$ off it, so
+its Schur complement is $S\dg$, and
+$S^{-1}=\pi D^{-1}\iota$. Because $\Gfive$ acts within a site, it commutes with $\pi$ and
+$\iota$, and
+\begin{equation}
+S^{-\dagger}=\pi D^{-\dagger}\iota\approx\pi\,\Gfive D^{-1}\Gfive\,\iota=\Gfive S^{-1}\Gfive .
+\end{equation}
+The solve of $D\dg w=r$ is Algorithm~\ref{alg:dag}. \textcolor{red}{New!!!} Line~2 follows from
+line~5: with $w_e=(\Ce\dg)^{-1}z$, $S\dg w_e=S\dg(\Ce\dg)^{-1}z=\mathcal K\dg z$, since
+$\mathcal K=\Ce^{-1}S$ is the operator HMC already uses. Lines~3--4 apply the preconditioner
+$\Ce\dg\,\Gfive S^{-1}\Gfive$ with one cycle $\mathcal M$ of $\AR$ for $S^{-1}$, from
+Eq.~\eqref{eq:ARinv}: $S^{-1}t=\Ce^{-1}\AR^{-1}(\Spv\Cpve^{-1})\dg t\approx\Ce^{-1}\mathcal M\,(\Spv\Cpve^{-1})\dg t$.
+Each GCR step costs one cycle, as a step of the solve with $D$ does.
+
+\begin{algorithm}
+\caption{Solve of $D\dg w=r$ with the cycle of $D$ (no second setup).}
+\label{alg:dag}
+\begin{algorithmic}
+\State $r'_e\gets r_e-D_{oe}\dg(\Co\dg)^{-1}r_o$ \Comment{then $S\dg w_e=r'_e$}
+\State solve $\mathcal K\dg z=r'_e$ by flexible GCR, whose preconditioner maps $t$ to
+\State \quad $t_1\gets(\Spv\Cpve^{-1})\dg\,\Gfive t$;\quad $t_2\gets\Ce^{-1}\mathcal M\,t_1$ \Comment{$t_2\approx S^{-1}\Gfive t$}
+\State \quad $\Ce\dg\,\Gfive t_2$ \Comment{$\approx\Ce\dg\Gfive S^{-1}\Gfive t$}
+\State $w_e\gets(\Ce\dg)^{-1}z$
+\State $w_o\gets(\Co\dg)^{-1}\big(r_o-D_{eo}\dg w_e\big)$
+\State \Return $w=(w_e,w_o)$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Why \texorpdfstring{$D_-$}{D-} cannot be inverted}
+\label{sec:g5fail}
+Eq.~\eqref{eq:g5exact} seems to offer more: the exact null vectors of $D\dg$, and an exact
+reduction of $D\dg w=r$ to a solve with $D$. Both need $D_-^{-1}$, and $D_-$ cannot be inverted
+in practice because of its spectrum. Since $D_-=cW-1=c\,(W-1/c)$, $D_-$ is $c$ times the
+Wilson operator of mass $m_0=-M_5-1/c$: $-3$ in setup~S and $-3.8$ in setup~B. The free
+eigenvalues of that operator,
+\begin{equation}
+m_0+\sum_\mu(1-\cos p_\mu)\pm i\Big(\sum_\mu\sin^2p_\mu\Big)^{1/2},
+\end{equation}
+have real parts from $m_0$ to $m_0+8$, here from $-3$ to $5$. Near real part zero they have
+imaginary parts of both signs, so the spectrum surrounds the origin. By the maximum principle
+no polynomial $p$ with $p(0)=1$ is smaller than $1$ everywhere on a closed curve around the
+origin, so a Krylov method reduces the residual only by resolving single eigenvalues, with a
+degree of the order of their number (Sec.~\ref{sec:spectra}). The preconditioner of Eq.~\eqref{eq:c4} avoids
+$D_-^{-1}$ altogether.
+
 \ifresults
 
 Table~\ref{tab:b5} compares the two ways on the GPU, with GCR(2), one cycle per step and
-$|r|^2/|b|^2<10^{-10}$, on the right-hand sides of Sec.~\ref{sec:daggerresults}. The solve through
-$D$ is a solve with $D$ on the right-hand side $B_5^{-1}\Gfive b$, and it needs the same
-iterations as a solve with $D$, within two either way. The
-preconditioner $\Gfive\mathcal M\Gfive$ needs two to four more on the random right-hand side and
-one to five more on the residual, and on $12^4$ in setup~S it stalls on the residual of all four
-configurations, which the solve through $D$ does in $7$ to $11$ iterations. In time the solve
-through $D$ takes $0.5$--$0.8$ of the solve with $\Gfive\mathcal M\Gfive$ on every lattice and
-right-hand side (medians, e.g.\ $5.2$ against $7.7$\,s and $8.8$ against $11.1$\,s on
-$24^3\times48$ in setup~S), since each of its steps is a step of the solve with $D$. In setup~S on $24^4$
-and $24^3\times48$ the solve $Dx_0=w_0$ of the sweep does not converge in $2000$ iterations on two
-of the four configurations, the stall of $D$ on right-hand sides $D^{-\dagger}b$; the residual
-right-hand side of those two is that of the unconverged sweep.
+$|r|^2/|b|^2<10^{-10}$, on the right-hand sides of Sec.~\ref{sec:daggerresults}. Equation~\eqref{eq:b5}
+reduces $D\dg w=b$ to one solve with $D$ on the right-hand side $B_5^{-1}\Gfive b$, and it needs
+the iterations of a solve with $D$ within two. The
+preconditioner $\Gfive\mathcal M\Gfive$ needs a few more, and on $12^4$ in setup~S it stalls on the
+residual right-hand side, where Eq.~\eqref{eq:b5} converges. Equation~\eqref{eq:b5} is also the
+faster of the two on every lattice and right-hand side. In setup~S on $24^4$ and $24^3\times48$ the solve $Dx_0=w_0$
+of the sweep does not converge in $2000$ iterations on two of the four configurations. This is the
+stall of $D$ on right-hand sides $D^{-\dagger}b$ explained below, and on those two configurations
+the residual right-hand side is that of the unconverged sweep.
+
+\paragraph{\textcolor{red}{New!!!} Why the solve with $D$ stalls on these right-hand sides.} The
+right-hand side $w_0$ of the solve with $D$ in a sweep comes out of a solve with $D\dg$, so it lies
+where $D$ is small. With the singular values $\sigma_i$ of the Schur complement and its left and
+right singular vectors $u_i$, $v_i$, the two solves give, up to the site-local factor $\Ce\Ce\dg$,
+\begin{equation}
+S^{-\dagger}r=\sum_iu_i\,\frac{v_i\dg r}{\sigma_i},\qquad
+S^{-1}S^{-\dagger}r=\sum_iv_i\,\frac{v_i\dg r}{\sigma_i^2}.
+\end{equation}
+The solve with $D$ thus receives a right-hand side weighted toward the smallest singular values,
+and the later sweeps receive the error left by the sweep before, which lies there too. GCR(2)
+stalls on it where the cycle inverts $D$ poorly on these directions. At a stalled residual $s$ the
+cycle amplifies $s$ several times and turns it almost orthogonal to itself, although the Ritz
+values of $\AR\mathcal M$ lie near $1$; $\AR\mathcal M$ is far from normal there, and two kept
+directions cannot lower the residual. A larger Krylov space gets past the stall, and so do better
+test vectors: with the automatic number of bootstrap rounds of Sec.~\ref{sec:autoboot}, one HMC
+step on three of these quenched $24^4$ configurations finishes its solves with GCR(2) in about
+$50$ iterations each, where two rounds stall.
 
 \begin{table}[t]
 \centering
@@ -1355,31 +1403,30 @@ than mixed-precision CGNE, so the gain comes from the coarse correction.
 
 Each of the three reasons of Boyle and Yamaguchi is addressed by one choice: the even-odd system, a
 four-dimensional coarse lattice with the whole fifth dimension in each aggregate, and levels below
-the coarse lattice in place of deflation; the effect of the levels was not measured on its own. The
-lift $\hat t$ makes a given number of vectors $y$ suffice: without it GCR(2) stagnates on some
-configurations of setup~S or takes several times the iterations there, and it costs iterations in
-setup~B, although the correction is exact only for the
-right form. Twice as many vectors $y$ with $s$ alone need fewer iterations on $24^3\times48$, at
+the coarse lattice in place of deflation. Without the lift $\hat t$, GCR(2) stagnates on some
+configurations of setup~S or takes several times the iterations there, and needs more iterations
+in setup~B, although the correction is exact only for the right form. Twice as many vectors $y$ with $s$ alone need fewer iterations on $24^3\times48$, at
 $1.6$--$1.7$ times the setup time. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
 bound for GCR is lost in both setups. At $\alpha=1$ its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its
 pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups},
-truncated GCR(2) solved with $D$ without a plateau on every volume, but it has no guarantee.
+truncated GCR(2) solved with $D$ without a plateau on every volume on random and point-source
+right-hand sides.
 
 Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
 On $16^4$ at $m=0.01$ it takes one to four iterations more than solving with $D$; on $12^4$ in
 setup~S the residual right-hand side needs GCR(8) with two cycles per step, which converges on all
-four configurations. HMC itself is not implemented here.
+four configurations. \textcolor{red}{New!!!} The exact relation of Sec.~\ref{sec:b5} turns the
+solve with $D\dg$ into a solve with $D$, which needs the iterations of a solve with $D$ within two
+on every volume up to $24^3\times48$; on that residual right-hand side of $12^4$ it converges with
+GCR(2) in $7$ to $11$ iterations (Table~\ref{tab:b5}).
 
-The evidence is four quenched configurations per volume up to $24^3\times48$ on one GPU, compared
-with CGNE and with single-grid Krylov solvers only. A comparison with HDCG and with the coarsening of
-$\Dpv\dg D$ in one code, larger volumes and HMC are the next steps (Sec.~\ref{sec:open}). Applying the coarse operators to the 12 columns of a point
+Applying the coarse operators to the 12 columns of a point
 source together should raise the arithmetic intensity from about one flop per byte to about ten, as
 estimated for Wilson-clover multigrid~\cite{Grebe}. Boyle's multigrid for domain-wall fermions
-does this with batched matrix products in the coarse space~\cite{BoyleMRHS}; we have not
-measured it here.
+does this with batched matrix products in the coarse space~\cite{BoyleMRHS}.
 
 \paragraph{Code.} All results were obtained with RutticeQCD,
 \url{https://github.com/atsanroger/RutticeQCD}, a rewrite of Bridge++~\cite{BridgeUeda,Bridge} in Rust
@@ -1421,8 +1468,7 @@ of setup~S and the pseudospectra develop beyond $16^4$, remain to be done; on $2
 does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
 varies from step to step. GCR(2) can reach a residual orthogonal to its new direction and stay
 there (Sec.~\ref{sec:gcrk}), and on the residual right-hand side of HMC the solve with $D\dg$ on
-$12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}); the solves with $D\dg$
-were tested on $12^4$ and $16^4$ only. The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
+$12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}). The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
 factor regularized can also precondition solves with $D\dg$ from the same $\Pro$, with coarse
 operators of its own; it converges on $16^4$ and stagnates with GCR(2) on $12^4$ in setup~S, and its
 cost in HMC remains to be measured. Why stout smearing gives the Galerkin
@@ -1431,7 +1477,7 @@ Pauli--Villars factor singular values far below those of the fine operator
 without smearing and reaches further left with it, also on $16^4$; the field of values alone does not
 explain the small singular values. A safeguard that changes the
 direction when $|\langle r|\tilde A\mathcal Mr\rangle|/(\|r\|\,\|\tilde A\mathcal Mr\|)$ falls
-below a threshold would remove such fixed points for one inner product per step; we have not implemented it. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
+below a threshold would remove such fixed points for one inner product per step. A quantitative explanation for why $N=c[Y,W]D^{-1}$ has a small square, beyond the heuristic of
 Sec.~\ref{sec:dagger}, is also lacking.
 
 \item \textbf{Formulations and coarse spaces.} The comparisons here are with CGNE and with Krylov
@@ -1443,6 +1489,15 @@ reads $18n^2$ complex numbers per coarse site, and one of the $33$-point operato
 with $n$ and $n'$ the columns of the two prolongations. Which method is cheaper also depends on the
 coarse iterations per cycle and on the outer iterations. Ref.~\cite{BoyleOare} does not report
 them, and we have not implemented the product coarsening.
+
+\item \textcolor{red}{New!!!} \textbf{HMC.} In HMC the setup cannot be repeated at every solve.
+Our implementation keeps the test vectors from solve to solve and improves them by a bootstrap when
+the pseudofermions are drawn; it keeps $\Pro$ and the coarse operators while the links move and
+makes them again, after a bootstrap, once the iterations per solve have grown by half. On a
+dynamical $16^4$ lattice the multigrid reproduces the trajectories of CG, but it is slower per
+trajectory: the finite volume holds up the lowest eigenvalues, so CG needs few iterations there.
+The next step is HMC on $24^4$ and larger volumes, where a single solve with the multigrid is
+several times faster than CGNE (Table~\ref{tab:massscan}).
 \begin{comment}
 The same holds for the full-lattice $A'$ against the even-odd system.
 Boyle and Yamaguchi~\cite{BY} found a red-black smoother ineffective with the HDCR correction
@@ -1506,15 +1561,14 @@ operators of its own; its cost in HMC is left to that study.
 \textit{2026-11-08.} New Sec.~\ref{sec:b5}: an exact solve with $D\dg$ through one solve with
 $D$, Eq.~\eqref{eq:b5}, and its comparison with $\Gfive\mathcal M\Gfive$. Sec.~\ref{sec:setups}, footnote: Bori\c{c}i's operator, which needs a narrower smoother
 interval in setup~S. Appendix~\ref{sec:cgform}: the even-odd equation of CGNE with Neff's
-$\alpha$ is $\mathcal K^{(\alpha)}y=Q_e^{-1}\Ce^{-1}\eta'_e$; the factor $Q_e^{-1}$ was missing
-there and in $b$ (the code solves the corrected equation). Sec.~\ref{sec:g5fail}: a spectrum that
+$\alpha$, $\mathcal K^{(\alpha)}y=Q_e^{-1}\Ce^{-1}\eta'_e$. Sec.~\ref{sec:g5fail}: a spectrum that
 surrounds the origin does not stop a Krylov method; it forces a degree of the order of the number
 of eigenvalues. Algorithms~\ref{alg:bicgstab} and~\ref{alg:fgmres}: the checks for an exact
 solution before $\omega$ is computed and before the Arnoldi vector is normalized.
 
 \textit{2026-11-12.} The correction states why $\AR$ reaches four hops and how $\iota$ and $\pi$
 connect the even-odd system with the coarse operators of the whole lattice. Sec.~\ref{sec:basis}
-is preceded by a paragraph on the cost of coarsening the two factors apart. The open problem on formulations gives the memory read per coarse application
+is preceded by a paragraph on the cost of coarsening the two factors separately. The open problem on formulations gives the memory read per coarse application
 of the two methods.
 
 \section*{Acknowledgments}
@@ -1732,9 +1786,9 @@ added to $y$ and the true residual $b-Ay$ is recomputed in double precision; CG 
 the same search direction and stops only on the double-precision residual. With $\delta=0$ the
 algorithm is plain CG in double precision; in single precision it is the solver of the
 Pauli--Villars factor, Eq.~\eqref{eq:tikhonov}, started from $x=0$. On $24^3\times48$ the mixed-precision solver needs the
-iterations of double precision within $1\%$ except at $m\le0.002$ in setup~S, where it needs up to $67\%$ more ($26\%$ on configuration~1), and takes $0.53$--$0.88$ times the
-time (over the four configurations), with the same final residuals and $7.7$\,GB of device memory against $7.4$\,GB in double
-precision.
+iterations of double precision within $1\%$, except at $m\le0.002$ in setup~S, where it needs up
+to $67\%$ more. It reaches the same final residuals in $0.53$--$0.88$ of the time, with $7.7$\,GB
+of device memory against $7.4$\,GB in double precision.
 
 \begin{algorithm}[tbp]
 \caption{CGNE with reliable updates. Hats: single precision; $\hat A$ is $A$ on the single-precision links.}
@@ -1799,21 +1853,16 @@ for $\alpha<1$ the bound is $1/\alpha$ times larger, since $\kappa(Q)=1/\alpha$.
 ratios of the iterations stay within this range too, although the bound is on the condition
 numbers.
 
-Within the bound the order depends on $c$. In setup~B the ratio of the iterations grows
-smoothly with $c$, from $0.81$--$0.83$ for Shamir fermions to $1.27$--$1.31$ at $(b,c)=(2,1)$,
-and crosses $1$ near the $(b,c)=(1.5,0.5)$ used in the main text. For Shamir fermions
-$S\dg S$ is the faster form by $1.20$--$1.23$, close to the $3880/3224=1.20$ of Ref.~\cite{BY}.
-In setup~S the ratio is above $1$ except at $c=0.25$, where $S\dg S$ needs $3$--$5\%$ fewer
-iterations; we have no explanation for this dip. The three lattices agree to within $0.05$ in
-every case, so the order is a property of the operator and its parameters and does not depend on the
-configuration.
+Within the bound the order depends on $c$ (Fig.~\ref{fig:cgform}). In setup~B the ratio of
+the iterations grows smoothly with $c$ and crosses $1$ near the $(b,c)=(1.5,0.5)$ of the main text.
+For Shamir fermions $S\dg S$ is faster by a factor $1.20$--$1.23$, in agreement with the
+$3880/3224=1.20$ of Ref.~\cite{BY}. In setup~S the ratio is above $1$ except at $c=0.25$. The three
+lattices give the same ratios, so the order depends on the operator and its parameters and not on
+the configuration.
 
-Neff's $\alpha$ favors $\mathcal K\dg\mathcal K$. With $\alpha=0.6$, $S\dg S$ needs $46$--$58\%$
-more iterations in setup~S and $14$--$32\%$ more in setup~B, for every $c$ and on all three
-lattices, Shamir fermions included. In $\mathcal K^{(\alpha)}$ the
-factor $\Ce Q_e$ is divided out on the left, whereas in $SQ_e$ the rescaling acts on the right
-only. The singular values of the two operators would show whether this is the cause.
-For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
+With $\alpha=0.6$, $S\dg S$ needs more iterations than $\mathcal K\dg\mathcal K$ for every $c$ on
+all three lattices, by about half in setup~S. In $\mathcal K^{(\alpha)}$ the factor $\Ce Q_e$ is
+divided out on the left, whereas in $SQ_e$ the rescaling acts on the right only. For the setups of this work $\mathcal K\dg\mathcal K$ is the faster form, and the multigrid is
 compared with it.
 
 \begin{figure}[tbp]
@@ -1918,6 +1967,8 @@ Numer.\ Math.\ \textbf{28} (1977) 307.
 SIAM Rev.\ \textbf{45} (2003) 259.
 \bibitem{EickMawhinney} J.~Eick and R.~Mawhinney, \emph{Toward a renormalization-group preconditioned conjugate gradient for domain wall fermions}, PoS \textbf{LATTICE2025} (2025) 048.
 \bibitem{Arthur2013} R.~Arthur \emph{et al.} (RBC and UKQCD), \emph{Domain wall QCD with near-physical pions}, Phys.\ Rev.\ D \textbf{87} (2013) 094514 [arXiv:1208.4412].
+\bibitem{ChiuZolo} T.-W.~Chiu, \emph{Optimal domain wall fermions}, Phys.\ Rev.\ Lett.\ \textbf{90} (2003) 071601 [hep-lat/0209153].
+\bibitem{YasunagaML} S.~Yasunaga, K.~Yoshimura, A.~Tomiya and Y.~Nagai, \emph{Parameter optimization of domain-wall fermion using machine learning}, contribution to LATTICE2025, arXiv:2603.16329.
 \bibitem{WhyteSVD} T.~Whyte, A.~Stathopoulos and E.~Romero, \emph{Accelerating multigrid with streaming chiral SVD for Wilson fermions in lattice QCD}, arXiv:2505.14399.
 \end{thebibliography}
 

@@ -35,7 +35,7 @@ paper, not the MG note; not to be written yet.
 
 0.4.0 is released when HMC with the domain-wall multigrid is usable and compared fairly with CG:
 
-1. **Runs**: HMC with the multigrid on 24⁴ on the A30 with room to spare (20.5 GB with GCR(2)
+1. **Runs**: HMC with the multigrid on 24⁴ on the GPU with room to spare (20.5 GB with GCR(2)
    since the solves with D† use Γ5 M Γ5, 2026-10-22).
 2. **Neff's α in the multigrid of HMC** (CG has it, so the comparison is not fair without it).
    The right form Ã_R, which HMC uses, does not depend on α (Sec. V of the note); the solves
@@ -52,7 +52,7 @@ paper, not the MG note; not to be written yet.
    the cache, `fine_precision`, α); the note has the HMC results.
 
 **HMC cost, measured (2026-10-23):** on a dynamical 16⁴ configuration (thermalized from the
-quenched one: 60 trajectories at m 0.05, 40 at m 0.01, `therm16/` on as13) CG needs about 300
+quenched one: 60 trajectories at m 0.05, 40 at m 0.01, `therm16/`) CG needs about 300
 iterations a solve at m 0.01 and at m 0.001 (finite volume), and the multigrid is 3.4 (m 0.01) and
 4.2 (m 0.001) times slower a trajectory; tuning (smoother 4/6/8, coarse 1e-1, inner 1e-14,
 bootstrap 1 round, GCR(4)) gains at most 6%. The 24⁴ quenched configuration, where CG needs 6400,
@@ -69,7 +69,7 @@ configurations were deleted).
 2 done (the left form for D, D† unchanged; CG on the even-odd Ratio takes α too, on K Q_e);
 3 measured on one short trajectory only (24⁴, m 0.001, length 0.01: multigrid 242 s with its
 setup against mixed CG at α 0.6 264 s) — a trajectory of length 1 is still to be run; 4 by ΔH
-on the device runs only (the HMC tests with the multigrid and the CPU path were not run: as13's
+on the device runs only (the HMC tests with the multigrid and the CPU path were not run: the test machine's
 CPU is shared); 5 USAGE yes, the note's HMC results not yet. After 0.4.0: optimization (item 20).
 
 **0.4.1 (2026-10-23)**: the setup and prolongation faster (24⁴ short trajectory 242 → 203 s),
@@ -133,7 +133,7 @@ for the Wilson and clover multigrid (LocalComm only), the speed of the device mu
 4³×8 (its P is made on the host: a setup on a large lattice spends its time there).
 
 **Several GPUs (2026-10-24)**: domain-wall fermions without the multigrid on several GPUs
-(CHANGELOG). Not checked: NCCL itself and several real GPUs (as13 has one A30; there NCCL is
+(CHANGELOG). Not checked: NCCL itself and several real GPUs (the test machine has one GPU; there NCCL is
 refused for ranks sharing a device and the host path runs), the speed of the exchanges (on one
 GPU shared by two processes every exchange pays a context switch: HMC with the multigrid 48 s
 against 1.6 s). The multigrid, its levels and the exact adjoint of the second factor run on several
@@ -251,7 +251,7 @@ vectors (the CPU already loops over the vectors inside a site).
 1.13 ms per application on 2592 sites of dim 64 in single precision on an RTX 3080. Setup of
 16⁴ with Level2 + Level3 of 2: 45 s against 35 s; 12⁴: 18 s against 17 s, the solve 1.2 s
 (15 iterations) against 0.9 s (14). The checksums differ from earlier runs from the first
-bootstrap vector on (another order of the sums); runs agree with each other. On the A30
+bootstrap vector on (another order of the sums); runs agree with each other. On the GPU
 (24³×48 setup S, 7009fbb = items 9, 10 and the filter step of 15, without `RUTTICE_CHECKSUM`,
 one run each, 2026-10-20): setup 391 s against 368 s (filter 85 s either way; bootstrap rounds
 106 and 125 s against 101 and 111 s; levels 15 against 11 s), solve 25.4 s (27 iterations)
@@ -287,7 +287,7 @@ CPU one sweep over the sites (a site holds every vector of a set), on the device
 `blas_gram_kernel`, tiles of 4 × 4 pairs in double precision in a fixed order (a vector read
 once for every four of the other set). 16⁴ with levels: setup 30 s against 29 s, the same
 iterations; tests `test_mg_gram_matrix_in_one_sweep` (`tests/multigrid.rs`) and in
-`tests/cuda_bridge.rs`. Not measured on the A30 (estimated about 2 s for each of the six Gram
+`tests/cuda_bridge.rs`. Not measured on the GPU (estimated about 2 s for each of the six Gram
 matrices of a setup before).
 
 ### 13. Device: the coarse operator made on the host (done 2026-10-20)
@@ -316,7 +316,7 @@ basis (kilobytes); sources and propagators.
 Mixed CGNE on 16⁴ (setup S, m = 0.01, RTX 3080): 355 iterations, 0.7 s, about 2.0 ms an
 iteration; in double 349 iterations, 4.7 s (the RTX 3080 has little FP64). What an iteration
 should move (four passes of the Schur factor and the vectors of CG) is about 0.5 GB, 0.66 ms
-at the bandwidth of the card: it runs at about a third of it (on the A30, 24³×48: about 21–24 ms
+at the bandwidth of the card: it runs at about a third of it (on the GPU, 24³×48: about 21–24 ms
 an iteration against about 5.5 ms). Nsight Compute (`ncu` works under WSL; nsys does not trace
 kernels there), one iteration:
 
@@ -333,13 +333,13 @@ kernels there), one iteration:
   `reduce<Norm>` (|A p|² of `Normal::mult_dot`) at 30%: 114 µs for 25 MB. Probably the
   RTX 3080's FP64 (1/64 of FP32: two conversions and two FMAs in double for every complex
   number), as `reduce<AxpyNorm>` takes as long for three times the bytes; not expected on the
-  A30.
+  GPU.
 - The kernels make about 1.7 of the 2.0 ms; the rest is launches and the waits of the
   reductions.
 
 `hop_gemm_kernel` itself (`ncu`, 16⁴): 128 registers a thread, 256 threads and 25.6 KB of shared
 memory a block, so two blocks on an SM: 16 warps, a third of the RTX 3080's 48 (a quarter of the
-A30's 64), 70% of the bandwidth; 74–104 MB read where 38–63 MB is needed (L2 hits 53–63%), 5.3
+GPU's 64), 70% of the bandwidth; 74–104 MB read where 38–63 MB is needed (L2 hits 53–63%), 5.3
 sectors a request (coalesced). Fewer registers by `-maxrregcount` spill and are slower (96: 2.5
 times, 80: 5.6 times the time): for a kernel that waits on memory, more warps bought with local
 or shared memory move more bytes and gain little. What helps is fewer bytes (the neighbors
@@ -347,25 +347,25 @@ read again from DRAM: an order of the sites that keeps them in L2; the fields in
 in the inner solve; the links of several right-hand sides read once) and more loads in flight
 from each thread (all the neighbor loads of a site issued before the arithmetic, wider loads).
 
-On the A30 (24³×48 setup S, m = 0.001, 702c471, 2026-10-20; `ncu` locks the clocks and flushes
+On the GPU (24³×48 setup S, m = 0.001, 702c471, 2026-10-20; `ncu` locks the clocks and flushes
 the caches, so its times are longer than those of a plain run): 21.7 ms an iteration in a plain
 run (about the RTX 3080's 2.0 ms on 16⁴ times the volume). `hop_gemm_kernel` 5.4 ms a launch at
 27% of the DRAM bandwidth, 12% active warps, 1.30 GB a launch, L2 hits 55%: four of them are
 about three quarters of an iteration. `fifth_gemm_columns_kernel` 1.12 ms at 48%; the BLAS
 kernels at 73–85% (`reduce<Norm>` too: its 30% on the RTX 3080 was the FP64 of that card). So
-on the A30 the hop kernel is the whole question: it waits on memory, at 27% of the bandwidth
+on the GPU the hop kernel is the whole question: it waits on memory, at 27% of the bandwidth
 and with 1.30 GB a launch where about 0.64–0.89 GB is needed (input, output, links, and the
 field it is subtracted from where there is one). At the bandwidth of the BLAS kernels and with
 the bytes it needs it would take about 1–1.5 ms instead of 5.4, and an iteration about half its
 time. That is the next step for CGNE (and for the smoother and outer operator of the multigrid,
 which use the same kernel); see above for the means.
 
-On the A30 at 4826b93 (24³×48 setup S, point source, 12 columns, 2026-10-20): CGNE in double at
+On the GPU at 4826b93 (24³×48 setup S, point source, 12 columns, 2026-10-20): CGNE in double at
 m = 0.001 3613–3619 iterations a column, 109 s each (30.2 ms an iteration), 1333 s in all; the
 multigrid 637 s (setup 329 s, 23.8 s a column), so 2.1 times faster with its setup. PS of the
 two agree to about 1e-8; CGNE at t = 0 is Bridge++ 2.1.3's to the digits printed.
 
-**Done 2026-10-20, the hop kernel on the A30.** Its stalls (`ncu`, A30, 24³×48 mixed CGNE): nvcc
+**Done 2026-10-20, the hop kernel on the GPU.** Its stalls (`ncu`, GPU, 24³×48 mixed CGNE): nvcc
 gave `hop_gemm_kernel<float>` 168 registers for sm_80 (128 for sm_86, by chance), so one block of
 256 threads on an SM, 8 warps of 64; and the second hop of K, the one with `d_from`, took 6.79
 ms against 4.13 for the first (long scoreboard 4.0 against 1.0): `d_from` was read when the
@@ -373,7 +373,7 @@ result was written, its latency after everything else. Now: `__launch_bounds__(2
 the float kernel (128 registers, no spill for sm_80 and sm_86 by `ptxas -v`; in double 128
 spills 4 KB, so none there), `d_from` read before the product of the fifth dimension, and
 without α `B C⁻¹` as the matrix of the first hops of K (`Matrices::pre_inv`), so the second
-read one spinor of a neighbor and not three. A30, mixed CGNE, one right-hand side: α = 0.6
+read one spinor of a neighbor and not three. GPU, mixed CGNE, one right-hand side: α = 0.6
 83.1 → 59.1 s (4012 iterations both, 14.7 ms an iteration), α = 1 130.3 → 89.6 s (6237 → 6157
 iterations: B in the matrix rounds differently in single precision). A launch 4.13/6.79 → 3.18/
 3.37 ms, active warps 12 → 25%. It is no longer waiting on DRAM (39–46% of it): it issues
@@ -381,7 +381,7 @@ iterations: B in the matrix rounds differently in single precision). A launch 4.
 instructions (every one of the Ls threads of a site rebuilds the third row of the same links;
 the index arithmetic), then the fields in half precision.
 
-Tried and not kept (A30):
+Tried and not kept:
 - The blocks in chunks of time slices, so that the neighbors in t are still in L2: DRAM read
   of a launch 894 → 464 MB, L2 hits 60 → 74%, the time the same. Worth trying again once the
   kernel waits on DRAM.
@@ -401,7 +401,7 @@ precision (404–495 before), |Dx−b|² 4e-18–8e-18 as in double (8e-20–7e-
 from double (2.5e-8 before), 0.9 s a column against 5.6 in double. HMC keeps the defect
 correction (`hmc::mixed`).
 
-On the A30 (24³×48, m = 0.001, 85fea29) only half of it holds. The point source at α = 0.6:
+On the GPU (24³×48, m = 0.001, 85fea29) only half of it holds. The point source at α = 0.6:
 4220–4574 iterations a column (5261–5951 before, 3613–3619 in double), 65 s (80.7), 804 s for
 the 12 columns (994), PS 2e-7 from the multigrid (3e-6); but |Dx−b|² ends at 5e-17–3e-16, not
 1e-18. One random right-hand side: α = 1 6802 iterations, 98.9 s (old mixed 6157, 89.6 s;
@@ -475,7 +475,7 @@ pass of its own.
 
 ### 17. Where to look next (collected 2026-10-20)
 
-From the A30 runs (24³×48 setup S, m = 0.001, 12 columns of a point source) and the comparison
+From the GPU runs (24³×48 setup S, m = 0.001, 12 columns of a point source) and the comparison
 with QUDA develop e75ee88 on the same links. The final benchmarks are for the A100 of the
 collaborators; these say where the time goes.
 
@@ -500,7 +500,7 @@ iteration but 32.5 ms each, `fold_prolong` 15 ms, `level_restrict` 11%), the fin
 The multigrid, in this order:
 1. *Restriction and prolongation* (`fold_restrict`, `fold_prolong`): 82 s of the setup and 14%
    of the solve. A launch takes 21–32 ms where reading P once in half precision should take a
-   few: why is in the ncu asked of the A30. Then the bootstrap's 1280 restrictions a round one
+   few: why is in the ncu asked of the GPU. Then the bootstrap's 1280 restrictions a round one
    vector at a time (item 11): several vectors for one read of P.
 2. *The coarse operator* (`coarse_pass_kernel`): 30% of the solve, 370 launches a GCR
    iteration (about 107 coarse applications), 558 µs each; how far from the bandwidth, and
@@ -511,11 +511,11 @@ The multigrid, in this order:
    filter) was the last hop of `hop_then` without C⁻¹, which now goes through `hop_gemm` with
    the unit matrix (bit for bit the same; the 16⁴ filter on the RTX 3080 7 → 5 s).
 5. *Fewer instructions in the hop kernel* (item 14): 735 warp-instructions a 5D site and CG
-   iteration against QUDA's 343 (ncu, A30); `hop_gemm` 366–401 million a launch, DRAM 39–46%.
+   iteration against QUDA's 343 (ncu); `hop_gemm` 366–401 million a launch, DRAM 39–46%.
    Every one of the Ls threads of a site rebuilds the third row of the same links and repeats
    the neighbors' index arithmetic: links of three rows (the bytes are no longer the limit),
    or links and indices once a site. It is 22% of the multigrid's solve, and its filter and
-   bootstrap. Then the chunked order of the blocks again (DRAM read −48% on the A30, no time
+   bootstrap. Then the chunked order of the blocks again (DRAM read −48% on the GPU, no time
    gained while the kernel issues).
 6. *Half precision* where the result is approximate anyway: the smoother and the coarse
    correction (QUDA's half is 27% faster an iteration than its single).
@@ -527,16 +527,16 @@ The multigrid, in this order:
    splitting in t first.
 
 CGNE:
-- (b) *The double hop kernel* (done 2026-10-20, not yet timed on the A30):
+- (b) *The double hop kernel* (done 2026-10-20, not yet timed on the GPU):
   `hop_gemm_kernel<double>` used 255 registers; at Ls 8 its blocks are 128 threads (16 sites:
   32 would not fit the shared memory), two an SM by the registers, 8 warps; a bound of 128
   registers spilled 4 KB. Now the legs one at a time in double and `__launch_bounds__(192, 2)`:
   168 registers, no spill, so three blocks of 128 an SM, 12 warps. The last change to CGNE.
-  ncu of a double CG iteration on the A30 at 85fea29 (24³×48): 40.1 ms, the four hops 30.7 ms
+  ncu of a double CG iteration on the GPU at 85fea29 (24³×48): 40.1 ms, the four hops 30.7 ms
   (77%; 9.5, 7.8, 5.7, 7.7 ms) at 12% warps active with the FP64 pipe 39–52% busy, the
   fifth-dimension product on the DMMA tensor cores (also inside the hops), the BLAS at 86–89% of
   the DRAM bandwidth; 6.7 kB of DRAM traffic and 757 warp-instructions a 5D site.
-  At 7b2c1fc (A30, one run each against 85fea29): the four hops 30.7 → 25.1 ms (−18%; warps
+  At 7b2c1fc (one run each against 85fea29): the four hops 30.7 → 25.1 ms (−18%; warps
   active 12.4 → 18.5%, FP64 pipe 39–52 → 49–60%, the same instructions), a double CG
   iteration 31.0 → 28.0 ms (−9.7%). The multigrid, one column (24³×48, m 0.001): setup 315 →
   299 s (filter 64 → 59 s, bootstrap rounds 90/99 → 84/94 s), solve 18.6 → 18.1 s, the
@@ -548,7 +548,7 @@ CGNE:
 More directions, decided 2026-10-20:
 - *Several right-hand sides a solve*: a YAML/TOML parameter, never fixed in the code (a fixed
   number may not fit the memory of a larger lattice); it is one already
-  (`Source.number_of_rhs_per_solve`). On the A30 (24³×48 MG, 85fea29) 2 does not fit: the
+  (`Source.number_of_rhs_per_solve`). On the GPU (24³×48 MG, 85fea29) 2 does not fit: the
   setup peaks at 16.4 GB, a solve of one right-hand side at 21.8 GB of the 24, and the first
   solve of two dies with `cudaErrorMemoryAllocation` (a panic: "the CUDA runtime returned
   error 2"). To measure on an A100 (40/80 GB). The message should say what ran out and that
@@ -557,10 +557,10 @@ More directions, decided 2026-10-20:
   pass over the vectors (`Vector::chebyshev_step`), bit for bit the same.
 - *Stout smearing on the device* (done 2026-10-20): `load_links_on_device` for the
   `cuda_bridge` backend (it was on the device only for HMC); agrees with the CPU to rounding,
-  not bit for bit. APE stays on the CPU. On the A30 (24³×48) it saves nothing: the CPU smeared
+  not bit for bit. APE stays on the CPU. On the GPU (24³×48) it saves nothing: the CPU smeared
   in 1.9 s in a plain run; the 11.7 s idle GPU that was the reason was the nsys run's own
   start-up. Kept for larger volumes and more steps.
-- *Bootstrap and filter parameters* (rounds, steps, the interval): tune on the A30.
+- *Bootstrap and filter parameters* (rounds, steps, the interval): tune on the GPU.
 - *`hop_split`* (29 s of the setup): look at it with the hop kernel.
 - *`blocks_abs_inverse_gamma5_kernel`*: one launch a setup (Jacobi with many block
   synchronizations); low priority.
@@ -578,12 +578,12 @@ Weinberg). Grid (Boyle) has HDCG in production.
 ### 18. Closing this phase (decided 2026-10-20)
 
 After the Grid comparison and the multigrid items of 17 (at least `fold_restrict`), on the
-A30 at one commit, without `RUTTICE_CHECKSUM`, the numbers of the MG note that are timings
+GPU at one commit, without `RUTTICE_CHECKSUM`, the numbers of the MG note that are timings
 run again and put in `docs/mg_background/results.tex`; then this phase ends.
 
 - Timings (change with the code): the mass scan (Table `tab:massscan`, Fig. `fig:massscan`,
   `data/massscan_24.tsv`; seven masses, setups S and B; about 1.5 h MG and 40 min CGNE on
-  the A30, plus the mixed CGNE of the figure, now by reliable updates); the point-source
+  the GPU, plus the mixed CGNE of the figure, now by reliable updates); the point-source
   propagators (Table `tab:pointsource`, MG against mixed CGNE, 12 columns); the costs of the
   parameter changes on 12⁴ (Table `tab:costs`, at 8ce4c14 now). The commit in each caption.
 - Iterations and spectra (the field of values, Arnoldi, pseudospectra, GCR(k), the residual
@@ -591,7 +591,7 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   unless the iterations of a rerun differ.
 - New: the comparison with Grid's HDCG (and QUDA's CG) on the same links, each code with its
   best method (our Neff α included: it is a right preconditioner, the physics is the same),
-  as a subsection of the results. On the A30 (2026-10-21, Grid develop 3232b43,
+  as a subsection of the results. On the GPU (2026-10-21, Grid develop 3232b43,
   `examples/Example_hdcg_multigrid.cc` with Boyle's parameters, Ls 8, m 0.001, block
   {4,4,6,4}): **Grid's HDCG does not fit in 24 GB**. NBASIS 24 and 16 (production: 62) run out
   of memory building the 81-point coarse operator; NBASIS 8 spends 877 s making the subspace
@@ -602,7 +602,7 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   (`Grid/algorithms/multigrid/PVdagM*`); not run, same memory constraints.
 - The figures `fig_massscan.pdf` and `fig_history.pdf` are regenerated then; until now they
   are kept out of the commits.
-- With the A30 numbers (decided 2026-10-21): the results section in the order of the
+- With the GPU numbers (decided 2026-10-21): the results section in the order of the
   abstract, the analysis of why it converges first (field of values, spectrum,
   pseudospectra, truncated GCR), then the comparison with CGNE (mass scan, point source).
   **Done 2026-10-21 at 6d5bf18**: mass scan (MG 13–28 / 7–26 iterations, at m 0.001 7.5× (S)
@@ -611,7 +611,7 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   against 810/918 s at m 0.001; 305/331 against 264/324 at m 0.01), the abstract; the
   implementation and the reproduction in Appendix B, the precision row in Table setups. The
   regenerated `fig_massscan.pdf` committed with the OK (5dfa821). Fewer test vectors on
-  24³×48 (S, m 0.001, point source, A30): 16 stagnate (910–940 iterations or the 2000 cap),
+  24³×48 (S, m 0.001, point source): 16 stagnate (910–940 iterations or the 2000 cap),
   24 need 162 for column 0; 32 stay (29–32). In the sensitivity text.
 - Readability, with the same pass (from a review of the PDF, checked against the text; done
   2026-10-21: Fig. 4, Table 2, "Why both forms", the roadmap of Sec. XI.C, and the figures
@@ -631,22 +631,22 @@ run again and put in `docs/mg_background/results.tex`; then this phase ends.
   converges because the coarse solves stop at 10⁻²; subsection titles that say so.
 
 **The aim and the end of the optimization.** The measure is the whole two-point function on
-the A30: 24³×48, m = 0.001, point source, 12 columns, setup included; 584 s at 85fea29 (setup
+the GPU: 24³×48, m = 0.001, point source, 12 columns, setup included; 584 s at 85fea29 (setup
 311, solves 251). The aim is about 400 s, from the bandwidth floors of the ncu profiles
 (estimates, each to be measured):
 
 | | now | near the bandwidth (estimate) | saved |
 |---|---|---|---|
-| `fold_restrict` (setup 3800 launches, solve 2 an iteration) | 32.5 ms, DRAM 11% | about 5 ms (done: P read coalesced through shared memory; RTX 3080 16⁴ 4.64 → 1.31 ms, DRAM 31% with 256 blocks for 68 SMs; A30 to measure) | setup −65 s, solves −17 s |
-| `coarse_pass` (30% of a solve, 28 s of the setup) | DRAM 22–37% | DRAM 60–70% (done: fields in shared memory, 16-byte matrix loads; RTX 3080 16⁴ 82.5 → 62.6 µs, DRAM 62 → 82%; A30 to measure) | solves −38 s, setup −14 s |
+| `fold_restrict` (setup 3800 launches, solve 2 an iteration) | 32.5 ms, DRAM 11% | about 5 ms (done: P read coalesced through shared memory; RTX 3080 16⁴ 4.64 → 1.31 ms, DRAM 31% with 256 blocks for 68 SMs; GPU to measure) | setup −65 s, solves −17 s |
+| `coarse_pass` (30% of a solve, 28 s of the setup) | DRAM 22–37% | DRAM 60–70% (done: fields in shared memory, 16-byte matrix loads; RTX 3080 16⁴ 82.5 → 62.6 µs, DRAM 62 → 82%; GPU to measure) | solves −38 s, setup −14 s |
 | setup host time and idle GPU | 19 + 40 s under nsys; the 19 s before the first kernel is nsys's own (plain run: smearing done at 1.9 s) | to be measured in a plain run | unknown |
-| `level_restrict` (11% of a solve) | 47 single-block launches an iteration, 1.2 ms each (8.4%) | a warp an output (done; RTX 3080: 187 → 11 µs, 16⁴ setup 32 → 25 s) | A30, 6269f81: solves 251.2 → 215.5 s with 7b2c1fc's hop, setup unchanged |
+| `level_restrict` (11% of a solve) | 47 single-block launches an iteration, 1.2 ms each (8.4%) | a warp an output (done; RTX 3080: 187 → 11 µs, 16⁴ setup 32 → 25 s) | GPU, 6269f81: solves 251.2 → 215.5 s with 7b2c1fc's hop, setup unchanged |
 
-`level_restrict` on the A30 at 6269f81 (ncu): the last level 1.2 ms → 133 µs (16 blocks, still
+`level_restrict` on the GPU at 6269f81 (ncu): the last level 1.2 ms → 133 µs (16 blocks, still
 latency-bound, but under 1% of a solve now), the grid-41 level 392 → 140 µs at 67% of the DRAM
 bandwidth: done.
 
-Measured on the A30 (12 columns, one run): 85fea29 584 s; 6269f81 535.9 s (setup 298 s,
+Measured on the GPU (12 columns, one run): 85fea29 584 s; 6269f81 535.9 s (setup 298 s,
 solves 215.5 s, the rest 22 s; 362 GCR iterations as before, PS within 7.3e-9); f63b8ad
 (`fold_restrict` coalesced, `coarse_pass` fields in shared memory) **460.9 s** (setup 244 s:
 bootstrap rounds 83 → 67 and 94 → 75 s; solves 191.6 s; the rest 25 s; 365 GCR iterations;
@@ -666,34 +666,34 @@ done), without 140/242 → 129/223 µs; `fold_restrict` −15% everywhere (long 
 frame; the prolongation by pairs) **401.1 s** (filter 58 s, setup 207 s, solves 170.1 s, the
 rest 24 s against 21 before; iterations, residuals and PS bit for bit those of 6ccca76). From
 85fea29: −31%, setup 311 → 207 s, solves 251 → 170 s. Its ncu: `fold_restrict` without local
-memory (0.26–0.5 GB of loads before), 3% faster on the A30, now held up by wait and short
+memory (0.26–0.5 GB of loads before), 3% faster on the GPU, now held up by wait and short
 scoreboard at 35% of the DRAM bandwidth; `fold_prolong` 17.4 ms a solve launch (19.9 at
 85fea29), still long scoreboard 14. **The kernel work of this phase ends here (2026-10-21,
 the aim taken as met).** Left for later: `fold_restrict` and `fold_prolong` at 27–35% of the
 bandwidth, the filter (58 s, its cost the number of operator applications).
-The ncu of 68b76e7 (A30, ncu times): `hop_split` 13.5 → 7.9–8.6 ms (DRAM 39–41%, warps 24%,
+The ncu of 68b76e7 (ncu times): `hop_split` 13.5 → 7.9–8.6 ms (DRAM 39–41%, warps 24%,
 long scoreboard); |H|⁻¹ 4.8 → 1.2 s a launch, now latency-bound (2 blocks of 64 an SM, 6% warps,
-waiting on V in global memory: V in shared memory too fits the A30's 164 kB, not the RTX
+waiting on V in global memory: V in shared memory too fits the GPU's 164 kB, not the RTX
 3080's); `coarse_pass` without hops 219/397 → 140/242 µs, with hops unchanged at 810–916 µs:
 128 registers there with CUDA 13 (96 with 12.5), warps 24% — `__launch_bounds__(256, 3)` gives
 62 registers without spills.
 | `fold_prolong` | DRAM 31% | | −6 s |
-| `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | H in shared memory, rounds of disjoint pairs (done; RTX 3080 0.70 → 0.10 s; A30 to measure) | −11 s |
-| `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, 128 registers (done; RTX 3080 −20%, DRAM 88%; A30 to measure) | about −8 s |
-| `fold_orthonormalise` | 42 blocks on 56 SMs, 12% warps active | more blocks | a few s |
+| `blocks_abs_inverse_gamma5` | 3 launches a setup, 3.8 s each, 1.15 TB of DRAM traffic | H in shared memory, rounds of disjoint pairs (done; RTX 3080 0.70 → 0.10 s; GPU to measure) | −11 s |
+| `hop_split<float>` (2 × 1024 launches, 9.4 ms) | 168 registers, one block an SM | two blocks an SM, 128 registers (done; RTX 3080 −20%, DRAM 88%; GPU to measure) | about −8 s |
+| `fold_orthonormalise` | 42 blocks, 12% warps active | more blocks | a few s |
 
-`fold_restrict_tiled_kernel` on the A30 (f63b8ad): 11.6–12.2 ms in a solve (was 32.5), 5.8 ms in
+`fold_restrict_tiled_kernel` on the GPU (f63b8ad): 11.6–12.2 ms in a solve (was 32.5), 5.8 ms in
 the bootstrap (was 21.7), DRAM 29–34%, warps active 30%: shared memory (28 kB a block) allows 5
 blocks an SM, and it waits on its loads (long scoreboard, wait). Tried on the RTX 3080 and not
 kept: four loads of a thread issued before their stores (72 registers instead of 56, 10–15%
 slower); P read straight into registers, no tiles (31% warps active, but the half-used sectors
 are fetched again from DRAM: 307 → 510 MB a launch, the heavy shape 5.0 → 5.4 ms). Left:
 copies to shared memory that do not go through registers (`cp.async`, sm_80), double-buffered.
-`coarse_pass_kernel` on the A30 (f63b8ad): the passes with the hops 19–21% faster (DRAM 37 →
+`coarse_pass_kernel` on the GPU (f63b8ad): the passes with the hops 19–21% faster (DRAM 37 →
 46%), those without 18% slower (128 registers for the unrolled links, warps 35 → 24%); now a
 kernel of its own without the hops (RTX 3080: 70 → 44 registers, 19 → 16 µs).
 
-The ncu of the setup (A30, 85fea29): the filter's `hop_kernel<float, many>` (728 launches, 15.8 s)
+The ncu of the setup (85fea29): the filter's `hop_kernel<float, many>` (728 launches, 15.8 s)
 was the Chebyshev step's last hop, which 7b2c1fc sends through `hop_gemm`. `fold_restrict` in the
 bootstrap has the shape of the solve's (DRAM 11–12%, L1 hits 92%, long scoreboard and LSU
 throttle): a thread for each (coarse site, component) reads its part of P one half at a time,
@@ -702,16 +702,16 @@ neighboring threads 192 B apart, so nothing is coalesced.
 Rules:
 1. A kernel is done at 60–70% of the DRAM bandwidth, or within 1.5 times its floor. Beyond
    that only fewer bytes help (half precision, several right-hand sides): the next phase.
-2. A change that gains less than 5% end to end on the A30 is reverted.
+2. A change that gains less than 5% end to end on the GPU is reverted.
 3. The phase ends when no part is above 10% of the total and far from its floor.
 4. Against Grid's HDCG: if we are clearly faster (1.5 times or more), finish the table and
    stop. If not, find where: more iterations or coarse applications is the algorithm (next
    phase, noted here), more time an application is this phase.
-5. A30 budget: one ncu and one plain run a change; the final numbers of the note about 3 h.
+5. GPU budget: one ncu and one plain run a change; the final numbers of the note about 3 h.
 
 Not in this phase: multi-GPU, autotuning, CUDA graphs, half precision, a QUDA backend,
 cuda-rust, CGNE (the double `hop_gemm` was the last change). Several right-hand sides a solve
-as a parameter (item 17) only if the A30 memory test allows it.
+as a parameter (item 17) only if the GPU memory test allows it.
 
 ### 19. CPU multigrid: the next optimization phase (decided 2026-10-21)
 
@@ -764,8 +764,8 @@ and the PS correlator as before, to rounding; the commit and the numbers in this
 
 ### 20. Device: the HMC multigrid profiled (2026-10-23)
 
-One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below, A30), nsys and ncu
-(`/home/chen/red_gpu/ruttice_a30_20261016/prof/` on as13). 242 s wall, 211 s of it in kernels
+One short trajectory on 24⁴ (stout, m 0.001, 20 test vectors, levels below), nsys and ncu
+(`ruttice_20261016/prof/`). 242 s wall, 211 s of it in kernels
 (87%): not launch latency, the kernels themselves. By GPU time: the fine hops 41%
 (`hop_gemm<float>` alone 27%), the coarse operator 29% (`coarse_pass<float,1>` 24%), P
 (restrict 12%, prolong 8%, orthonormalize 5%) 24%.
@@ -877,7 +877,7 @@ says nothing about one kernel or one step. Plan, on an `exp/*` branch (not main)
   vctime: smoother 65%, coarse solve 13%, restriction 11%).
 - **Parsers to update with it**: `tests/spectrum.rs`, `tests/run.rs`, the examples in
   `docs/USAGE.md`, and scripts that read the `seed …: … iterations` lines (e.g.
-  `collect_results_20261026.py` on as13). The other apps (`mdwf.rs`, `mdwf_cuda.rs`, `hmc.rs`)
+  `collect_results_20261026.py`). The other apps (`mdwf.rs`, `mdwf_cuda.rs`, `hmc.rs`)
   get the same layout.
 
 ### 24. Residual histories of every solver (evaluated 2026-10-27, not started)
@@ -907,7 +907,7 @@ Size: medium (trait, eight solvers, params, three apps), no algorithmic change; 
 With exact coarse solves (1e-20, BiCGStab on the exact PV adjoint) GCR(2) on 12⁴ S reaches a
 residual with |⟨r, Ã M r⟩|/(|r||Ã M r|) ≈ 1e-10 after ~15 steps and keeps it: |r|² does not change
 in any digit for the next 480 steps (2e-11, 6e-8, 5e-10 for three rhs). A fixed M repeats the step.
-Measured (`ruttice_a30_20261016/gcr_rescue2`, `gcr_rescue3`, `gcr_blocks12`, `gcr_angle12`, binaries
+Measured (`ruttice_20261016/gcr_rescue2`, `gcr_rescue3`, `gcr_blocks12`, `gcr_angle12`, binaries
 `fflowHPC_gcrtest3`–`7`, example patches there): exact cycle 0/5 on 12⁴ (also with 3⁴ blocks 0/3,
 2⁴ blocks 2/3), 5/5 on quenched and dynamical 16⁴, 2/2 on 24⁴ (Q +4); random perturbations of the
 exact cycle 75/75 on 12⁴ (δ 0.02–0.5); fixed ones stagnate on 12⁴, δΓ5M also on 24⁴. The solver's
@@ -989,7 +989,7 @@ With `bootstrap_number_of_rounds : auto` the setup on 24³×48 (S, m 0.001, v2) 
 against 203 s with 2 rounds: the filter 59 s, rounds 1–3 50, 70 and 67 s, the probe of round 4
 33 s, the final P, coarse operators and levels 26 s. From the probe's 33 s a cycle takes about
 30 s to make and the 16 vectors about 40 s per round (an estimate by difference; nothing timed
-inside the setup yet). The rerun with `auto` (`rerunA/` on as13) keeps the worst configuration at
+inside the setup yet). The rerun with `auto` (`rerunA/`) keeps the worst configuration at
 21–22 iterations against 43–44 with 2 rounds at m 0.001, and stops after 1 round at m 0.1–0.05.
 
 Two changes are made and checked on the device (2026-11-13):
@@ -1077,7 +1077,7 @@ Next:
 - `bootstrap_number_of_steps` (4) and the gain of the probe (4): scans once the profile is in.
 - The 16 vectors of a round through the cycle together: the coarse operators would be read once
   for all of them, but 16 FGMRES(4) at once need about 50 GB on 24³×48 (estimated: about 3 GB per
-  vector in single precision), beyond the A30; at most 2 at a time there.
+  vector in single precision), beyond the GPU; at most 2 at a time there.
 
 ## Ideas from the literature (to evaluate later)
 
@@ -1097,7 +1097,7 @@ Next:
   enlarges the coarse space without more setup vectors and keeps s and t̂ in the span
   (Proposition 1 still exact); the coarse operator grows as the square of its dimension.
   Motivation: on 24³×48 (S, m 0.001) 16 test vectors stagnate and 24 need 162 iterations
-  against 29–32 with 32 (A30, 6d5bf18), while 16 suffice on 12⁴.
+  against 29–32 with 32 (6d5bf18), while 16 suffice on 12⁴.
 
 ## Continuous integration
 
@@ -1120,18 +1120,36 @@ Target (2026-10-26): arXiv, then Phys. Rev. D. Needed before submitting: more co
 the third baseline and the volume trend (below), a dynamical ensemble, a rewrite to the
 journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
+- **Why the automatic bootstrap needs g_min = 4 and two rounds** (2026-11-14). The rule (probe
+  the next round on the lowest Ritz vector, stop below a gain of 4, at least two rounds from
+  the filtered vectors, at most 8) is the best setting found so far, not derived. Find the
+  mechanism: how the gain of the probe on u_r relates to the gain of the round on all vectors,
+  and why after one round a cycle of few vectors or smoother steps (12⁴ S with 6 smoother steps,
+  24⁴ S with 24 vectors, `autoR/old1/`) gains less than 4 on vectors still far from the lowest
+  modes. Check: the probe gain against the measured gain of the round on every run of
+  `autoR/` (the Ritz values are in the logs).
+- **`examples/coarse_hermiticity` on the device** (2026-11-14). It measures how far the coarse
+  operators X = P†DP and P†D_PV P are from Σ-Hermitian, δ(v) = |ΣXΣv − X†v|/|X†v|, on random
+  v and on the singular vectors of the smallest singular values of X (Lanczos on X†X): the
+  data of the Pauli-Villars coarse table. It is written for the CPU only (`Field`, `CoarseOp`;
+  12⁴ takes 646 s of setup on 16 threads), from before the device had a coarse setup. Port it
+  to the device setup and the device coarse operators (X†X as the Tikhonov CG uses it), then
+  rerun the table with the automatic bootstrap. Check: on 12⁴ v2 the smallest singular values
+  of the device run with the same two fixed rounds against the CPU run of `multiconf/pvsvB/`, to
+  the accuracy of single-precision coarse operators.
+
 - Not measured, listed in the note: more configurations (the main request to whoever has GPUs:
   see `reproduce.tex`), Lüscher's coherence test for the
   mass-scan basis, a rigorous lower bound on `sigma_min` (Kato–Temple), the spectrum on
   `24^3x48` (does not fit in 24 GB).
-- **More 24³×48 quenched configurations** (2026-10-26, plan; not on as13). Continue the chain of
+- **More 24³×48 quenched configurations** (2026-10-26, plan; not on the test machine). Continue the chain of
   `conf_quench_24x24x24x48_v2` (trajectory 602; β 6.0 plaquette action, trajectories of length
   0.5, Omelyan [22], acceptance 0.87, 45 s a trajectory on 12 CPU threads; the plaquette is flat
   at 0.59370–0.59373 from about trajectory 300, τ_int(plaquette) ≈ 4 trajectories). Save 3–5
   configurations far enough apart: the separation to be set from the topological charge
   (gradient flow, `gauge/flow.rs`), not from the plaquette; keep only the saved ones. Memory of
   the quenched HMC was not recorded; from the field sizes (one gauge field 382 MB in double) it
-  should be 2–3 GB (an estimate), so a 16 GB machine is enough. Measured peaks on the A30 for the
+  should be 2–3 GB (an estimate), so a 16 GB machine is enough. Measured peaks on the GPU for the
   solves of 24³×48 (S, m 0.001): the multigrid host 19.7 GB, device 20.2 GB; CGNE mixed host
   3.5 GB, device 7.2 GB; 24⁴ multigrid host 10.0 GB, device 10.1 GB. The CPU multigrid on 32⁴
   (`cpu32/mg_32_m0.005`) stopped with exit status 1 after 6 min and left no memory record.
@@ -1143,7 +1161,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   note cannot claim that the two lifts help in practice.
   **Measured on 12⁴ (2026-10-26, branch exp/basis-lifts, RUTTICE_BASIS_LIFTS; note Sec. V,
   "Choice of the prolongation basis", data/basis_12.tsv):** {s, t̂} best in three of four cases,
-  left form in S 14 against 35 ({s, Ds}) and 155–311 ({s}). 16⁴ run (`basis16/` on as13),
+  left form in S 14 against 35 ({s, Ds}) and 155–311 ({s}). 16⁴ run (`basis16/`),
   24³×48 left form at m 0.001 running (`basis2448/`); both to be tabulated into the note.
 - **Krylov on Ã without the multigrid, as a third baseline** (2026-10-26; after the basis-lift
   runs). The note compares the multigrid with CGNE only, so its 4.5–4.8× mixes A′ (Kanamori,
@@ -1159,7 +1177,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   see from which volume the multigrid wins once its setup and coarse cost are counted.
   BiCGStab on Ã runs in double only (mixed precision is CG on Normal_left only), so compare
   its time with double CGNE and its Ã applications with all. **All 100 runs done (2026-10-26,
-  `baseline3/` on as13, e044050)**, none at the 30 min cap; the Chebyshev-only runs were rerun
+  `baseline3/`, e044050)**, none at the 30 min cap; the Chebyshev-only runs were rerun
   after a wrong parameter file (the `Chebyshev` block belongs under `Solver`; `ruttice` returned
   0 on the parse error). To be tabulated into the note.
 - **Coarsening structures compared in one implementation** (2026-10-26, design agreed; after the
@@ -1180,9 +1198,9 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   coarse extents ≥ 5 (12⁴ with 4⁴ blocks gives 3⁴); the 33-point coarse solve at 24³×48
   (~1.7e5 dims, no dense inverse); fairness (Boyle's Grid tuning is known only from slides).
   Phases (revised 2026-10-27, deferred): write and check on the CPU at 12⁴/16⁴ (2⁴ blocks for
-  coarse extents ≥ 5); compare on the A30 at 16⁴/20⁴, where all four fit (estimated, not measured:
+  coarse extents ≥ 5); compare on the GPU at 16⁴/20⁴, where all four fit (estimated, not measured:
   ~6 GB at 16⁴), porting only the 2-hop coarse kernel; 24³×48 only if asked (whole-lattice (a)–(c)
-  estimated 60–80 GB host, beyond the A30). State results as a comparison at fixed volume.
+  estimated 60–80 GB host, beyond the GPU). State results as a comparison at fixed volume.
 - **Coarse deflation with the present basis** (2026-10-26). The only test of deflating the coarse
   factors (Lanczos, 32 Ritz pairs; H⁻¹ subspace iteration) used the basis {s, Ds}, which the
   basis-lift runs show to be a poorer coarse space (2.5× the iterations of {s, t̂} on 12⁴). Its
@@ -1204,7 +1222,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   `Cg::inner`; `levels_for_pauli_villars` and `Normal_left` refuse CG when read; `PvEoParams::default()`
   regularized too (e55771c); `FactorSolve` in place of `CoarseKrylov::Cg` and the ε fields, adjoints given
   to `Correction::new` (61f05b0). MINRES, `|H_xx|⁻¹` and the Pauli-Villars levels stay (user, 2026-11-01); `RUTTICE_BASIS_LIFTS` stays on `exp/basis-lifts-tikhonov` (not merged).
-  Review: multiconf/ARCH_REVIEW_20261101.md on the A30.
+  Review: multiconf/ARCH_REVIEW_20261101.md on the GPU.
 
 - **Adjoint coarse kernel for the regularized Pauli-Villars solve: done (2026-11-01, 0bced8a).**
   `coarse_adjoint_pass_kernel` applies A† from A's blocks on one GPU (`RUTTICE_COARSE_ADJOINT=copy`
@@ -1214,11 +1232,11 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
 ## Device robustness
 
-- **The 24³×48 setup on the A30 was about 30% slower than in the mass scan** (505–511 s at
+- **The 24³×48 setup on the GPU was about 30% slower than in the mass scan** (505–511 s at
   cbe655b against 389–393 s at 6c7ff42, setup S and B; the solve is unchanged within an
   iteration). Not the code: the runs at cbe655b were those with `RUTTICE_CHECKSUM=1`
   (29 checksums), and the checksums are taken inside the timed setup (item 16). Measured on the
-  A30 on 2026-10-20: cbe655b without the variable 391 s, a fresh build of 6c7ff42 395 s; with it
+  GPU on 2026-10-20: cbe655b without the variable 391 s, a fresh build of 6c7ff42 395 s; with it
   7376a0f, 0c13b18, 192657f, 1371927 and cbe655b all 509–512 s (+118 s, all in the two
   bootstrap rounds). The barrier of 0c13b18 costs nothing measurable (2592 blocks of dim 64:
   12 s either way on the RTX 3080). The run-to-run differences are gone: two runs at cbe655b
@@ -1282,7 +1300,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   0.147 (b 1.5, c 0.5), 0.22 (b 2, c 1), 0 (Shamir); the relation holds to 3e-16.
   **D- cannot be inverted in practice:** D- = c (W − 1/c) is c times the Wilson operator at mass
   −M5 − 1/c (−3 in S, −3.8 in B), deep among the doublers; its spectrum surrounds the origin.
-  On the A30 (12⁴, `examples/dminus_cost`), D- and D-† by GCR(8) stall at
+  On the GPU (12⁴, `examples/dminus_cost`), D- and D-† by GCR(8) stall at
   |r|² 0.74 (S) and 0.96 (B) after 20000 iterations, BiCGStab diverges. So the exact map of
   the basis, or solving D† through D, costs more than the solve itself. On smooth modes D- is
   about −(1 + c M5) (a number), so Γ5 v is close to a dual near-null vector up to its high
@@ -1294,8 +1312,8 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   more than the solve with D, in S and B, on random and HMC-like right-hand sides; HMC uses it
   with GCR(2). Open: the 12⁴ S configuration with Q = +1 at m 0.001 needs GCR(8) on the
   residual of a sweep (topological mode?); a bound on ‖N²‖. The CPU path of HMC with it has
-  not been run (as13's CPU is shared). The items below record what was tried before.
-- **A P for D† from the test vectors of D** (2026-10-22, A30, `examples/dual_basis`;
+  not been run (the test machine's CPU is shared). The items below record what was tried before.
+- **A P for D† from the test vectors of D** (2026-10-22, GPU, `examples/dual_basis`;
   m 0.001, 32 vectors, blocks 4⁴, GCR(8) to 1e-12). The Galerkin P†ÃP needs both sides: for Ã† the left near-null vectors are y (those of D), the right ones close
   to Γ5 y. span(Γ5 y) is almost orthogonal to span(y) (0.001 of its norm in it). Iterations
   (Ã with P(y): 7 S, 9 B on 12⁴; 7, 9 on 16⁴; 9, 13 on 24⁴):
@@ -1330,7 +1348,7 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   lattice fields of the sweeps (about 1 GB).
   Since then the solves with D† use Γ5 M Γ5 and GCR(2) (no cycle or coarse operator of Ã†):
   20.5 GB on 24⁴ (nvidia-smi). Left: the sweep fields in f64. 24³×48 needs about twice all of
-  it: not on the A30.
+  it: not on the GPU.
 - **The example's GCR(2) does not converge in setup B on 12⁴**, with either cycle, even with
   B's smoother (`--steps 12 --ratio 30`), where the solver of the note needs 15 (Ã_R, Table
   gcrk). Its differences from the solver: both coarse factors by BiCGStab (the note's B with
@@ -1348,7 +1366,7 @@ Found while bisecting a +29% in the iterations of the 16⁴ HMC (therm16/t_mg_m0
 α 0.6) to beeeb18: the cause was the rebuild of the cache, which made P of the kept test vectors
 for links that had moved away (5-9× the iterations after it), not the Tikhonov default; a rebuild
 now runs the bootstrap first and the cache is the default (`rebuild_iteration_growth` 1.5, 0 for
-none). Logs: ruttice_a30_20261016/therm16/regcheck_20261106/REPORT.md. Left:
+none). Logs: ruttice_20261016/therm16/regcheck_20261106/REPORT.md. Left:
 
 - **`number_of_kept_directions` of HMC defaults to 32** (`hmc_params.rs`, `kept()`), while the files
   use 2 (24³×48 fits only with 2). Decide the default.

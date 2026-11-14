@@ -148,7 +148,7 @@ last bit as $\psi + H_\kappa\psi$. \code{Clover}: the sum starts from $T\,\text{
 (\code{clover\_site}) and the legs are added to it, $\text{out}=T\psi+H\psi$ in one pass, the order
 of the old fused kernel. Because the interior and surface parts (Sec.~2 of the multi-GPU note)
 are instances of the same kernel, the two operators on several processes give the result of one
-bit for bit. On the A30 at $16^4$ their time is that of the two kernels they replace
+bit for bit. On the GPU at $16^4$ their time is that of the two kernels they replace
 (\code{wilson\_interior\_kernel}, \code{clover\_dslash\_kernel}).
 
 \subsection{\code{mdwf\_dslash\_1pass\_kernel}: all of $D$ in one pass}
@@ -566,7 +566,7 @@ times 4 fibers (128 threads). Each thread keeps the 24 reals of its sum in share
 stride of the block, so a warp reads 32 consecutive words. Each leg calls \code{hops} with its
 mask known at compile time, through a \code{switch} on the leg. In single precision the kernel
 then runs four blocks an SM at 128 registers without spilling. Three other layouts failed on
-the A30. The sum in registers spilled 448 bytes per thread at 128 registers. One block of 256
+the GPU. The sum in registers spilled 448 bytes per thread at 128 registers. One block of 256
 threads an SM, with no spill, was latency bound: 57~ms for two vectors on $24^3\times48$,
 $L_s=8$. With the leg known only at run time, \code{hops} kept the code of all eight legs and
 spilled 384 bytes. The kernel takes 20~ms for two vectors. The eight launches of one leg each

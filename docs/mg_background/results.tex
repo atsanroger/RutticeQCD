@@ -28,7 +28,8 @@ Chebyshev smoother $\nu$, $\kappa_s$ & $8$, $10$ & $12$, $30$ \\
 \multicolumn{3}{@{}l}{multigrid (both setups)}\\
 aggregates & \multicolumn{2}{l}{$4^4$ ($24^3\times48$: levels below with super-blocks $2$, $3$)} \\
 test vectors & \multicolumn{2}{l}{$32$ ($16$ filtered low modes of $\AR\dg\AR$, lifted to $\{s,\hat t\}$)} \\
-setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps (\textcolor{red}{New!!!} automatic count: Sec.~\ref{sec:autorounds})} \\
+setup & \multicolumn{2}{l}{filter 2 rounds; bootstrap 2 rounds of 4 FGMRES steps} \\
+ & \multicolumn{2}{l}{(\textcolor{red}{New!!!} automatic count: Sec.~\ref{sec:autorounds})} \\
 coarse solves & \multicolumn{2}{l}{single precision, $|r|^2/|b|^2<10^{-2}$; Pauli--Villars $\tau=10^{-3}$} \\
 precision & \multicolumn{2}{l}{$\Pro$ half, cycle single, outer solver double} \\
 outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ to $|r|^2/|b|^2<10^{-18}$} \\
@@ -85,6 +86,12 @@ point-source propagator.}
 
 \paragraph{The reference solver.} It is CG on $\mathcal K\dg\mathcal K$, $\mathcal K=\Ce^{-1}S$,
 the even-odd operator of Bridge++, with Neff's $\alpha$ as for the multigrid, in mixed precision.
+In double precision it runs at the memory bandwidth of the GPU: in the byte count of QUDA, which
+counts every value a site reads, including those found in the cache, it moves $1.09$ times the
+peak memory bandwidth. The even-odd CG of Bridge++~2.1.3 (OpenACC) on the same GPU
+needs $3612$--$3618$ iterations for the 12 columns of a point source on configuration~1 at
+$m=0.001$ in setup~S, against $3616$ here for a random right-hand side, and $1.5$ times as long
+per iteration.
 Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterations
 (Appendix~\ref{sec:cgform}).
 
@@ -145,18 +152,19 @@ on $\AL$: configuration~1. The ranges are in Table~\ref{tab:volume}.}
 
 \subsubsection{Solves with $D\dg$}
 \label{sec:daggerresults}
-\paragraph{Single solves.} One setup of $D$ also solves with $D\dg$: flexible GCR on $D\dg$ with
+\paragraph{Single solves.} \textcolor{red}{New!!!} For the constant coefficients used here the
+exact relation of Sec.~\ref{sec:b5} makes a solve with $D\dg$ a solve with $D$, with the iterations
+of Table~\ref{tab:b5}. The tests below concern the preconditioner of Sec.~\ref{sec:c4idea}, the
+route for coefficients that depend on $s$. One setup of $D$ also solves with $D\dg$: flexible GCR on $D\dg$ with
 $\Gfive\mathcal M\Gfive$, Eq.~\eqref{eq:c4}, one cycle per step, needs one to four
 iterations more than the solve with $D$ on $16^4$ at $m=0.01$ (Table~\ref{tab:c4}). The right-hand sides are a
 random vector $b$ and the residual $r=b-D\dg Dx_0$ of one sweep of the normal equations, where
 $D\dg w_0=b$ and $Dx_0=w_0$ are solved to $|r|^2/|b|^2<10^{-10}$ (the first by GCR(8) with the cycle
-that has $D$ and $\Dpv$ exchanged, Sec.~\ref{sec:open}), which leaves
-$|r|^2/|b|^2=1.4\times10^{-10}$--$3\times10^{-9}$; HMC meets right-hand sides of the second kind. On $16^4$ on
+that has $D$ and $\Dpv$ exchanged, Sec.~\ref{sec:open}); HMC meets right-hand sides of the second kind. On $16^4$ on
 the random right-hand side more inner cycles per step do not reduce the count, which suggests that
-there the extra steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S at $m=0.001$ the residual right-hand side is harder. GCR(2) with one
-cycle per step does not converge, GCR(8) converges on three of the four configurations and GCR(2)
-with two cycles per step on two, and GCR(8) with two cycles per step needs $10$ iterations on all
-four.
+there the extra steps come from $N$; on the residual right-hand side two cycles per step save a few iterations. On $12^4$ in setup~S at $m=0.001$ the residual right-hand side is harder: it needs more kept
+directions and more cycles per step, and GCR(8) with two cycles per step converges on all four
+configurations (Table~\ref{tab:c4}).
 
 The exact map of Eq.~\eqref{eq:g5exact} would give the null vectors of $D\dg$ and reduce $D\dg w=r$ to
 a solve with $D$, but it needs $D_-^{-1}$, which does not converge (Sec.~\ref{sec:g5fail}).
@@ -181,7 +189,6 @@ preconditioner needs fewer iterations than BiCGStab but more time.
 
 \subsubsection{Choice of the prolongation basis}
 \label{sec:basischoice}
-The lift $\hat t$ lets a given number of vectors $y$ suffice (Table~\ref{tab:basischoice}).
 The exactness~\eqref{eq:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
 $\operatorname{range}\Pro$, but the left form used in practice is not exact
 (Sec.~\ref{sec:basis}). To see what $\hat t$ does there, we replace it by $Ds$, which
@@ -189,27 +196,22 @@ vanishes on the odd sites, or drop it (Table~\ref{tab:basischoice}). With $\{s\}
 has half the columns; to compare at the same size we also take $32$ vectors $y$, which doubles
 the vectors of the filter and of the bootstrap.
 
-With the same vectors $y$, the two lifts give the fewest iterations on every volume. In setup~S,
-replacing $\hat t$ by $Ds$ or dropping it stagnates or slows down several times on one or two of
-the four $12^4$ and $16^4$ configurations and takes $2.5$--$3.2$ times the iterations on
-$24^3\times48$; in setup~B it costs
+With the same vectors $y$, the two lifts give the fewest iterations on every volume. Without
+$\hat t$, setup~S stagnates or slows down several times on some configurations, and setup~B needs
 more iterations. Twice as many vectors $y$ with $\{s\}$ alone, the same number of columns, do as well
-on $12^4$ and $16^4$ and need fewer iterations on $24^3\times48$, but the filter and the bootstrap
-then handle twice the vectors and the setup takes $1.6$--$1.7$ times as long.
+or better, but the filter and the bootstrap then handle twice the vectors and the setup takes
+$1.6$--$1.7$ times as long.
 
 \subsubsection{The regularized Pauli--Villars solve}
 \label{sec:pvcoarse}
 
-The regularized solve removes the slow solves (Table~\ref{tab:noshift}). Without the shift, with
-BiCGStab on the exact adjoint, setup~S needs $84$ to more than $2000$ iterations on $12^4$ and
-$29$--$50$ on $16^4$; with the shift it needs $10$--$18$. Without smearing it needs $13$--$15$ either
-way. The slow solves come with stout smearing, which gives the Galerkin factor a smallest singular value of $1/120$ to $1/41$ of
-that of the fine $\Dpv$ on $12^4$ and $1/46$ to $1/9$ on $16^4$; without smearing it is about $0.6$
-of it (Table~\ref{tab:pvsv}). Among the smeared configurations this value does not order the
-iteration counts. The exact coarse solve amplifies the directions of small singular values, and the
-shift damps them. With the shift, $40$ setups of setup~S on $12^4$ (ten seeds
-on each of the four configurations) need $10$--$17$ iterations. Other values of $\tau$ from $10^{-4}$ to $3\times10^{-2}$ give
-$11$--$19$ iterations, except one run at $\tau=10^{-2}$ (Table~\ref{tab:tikhonov}).
+The regularized solve removes the slow solves of setup~S (Table~\ref{tab:noshift}). They come with
+stout smearing, which makes the smallest singular value of the Galerkin Pauli--Villars factor one to
+two orders of magnitude smaller than that of the fine $\Dpv$; without smearing the two are of the
+same order (Table~\ref{tab:pvsv}). Without the shift the solve then needs several times the
+iterations or stagnates. With the shift it converges in fewer than $20$ iterations on every
+configuration and setup seed, and in all runs but one the count hardly depends on $\tau$ between
+$10^{-4}$ and $3\times10^{-2}$ (Table~\ref{tab:tikhonov}).
 
 \subsubsection{Sensitivity to the parameters}
 \label{sec:sensitivity}
@@ -243,25 +245,11 @@ $32$ it is slow or stagnates on both volumes.
 
 \paragraph{\textcolor{red}{New!!!} Automatic number of rounds.}
 \label{sec:autorounds}
-The rule of Sec.~\ref{sec:autoboot} does more rounds at small masses and fewer at large ones. We
-compare it with the two rounds of Table~\ref{tab:setups} on the mass scan on $24^3\times48$, four
-configurations and $\alpha=0.6$, $1.0$, one random right-hand side per run. In setup~S it does one
-round at $m\ge0.05$, two at $m=0.01$ and $0.02$, two or three at $m=0.005$ and three at
-$m\le0.002$. In setup~B it does two rounds at $m\ge0.02$ (one on one configuration at $m=0.1$),
-two or three at $m=0.01$ and three at $m\le0.005$. At $m=0.001$ the GCR(2) iterations fall from
-$22$--$44$ to $18$--$22$ in setup~S and from $23$--$29$ to $16$--$18$ in setup~B. At
-$m\ge0.05$ in setup~S the single round costs up to three iterations ($8$--$14$ become $8$--$16$),
-under $1$~s of solve, against $40$--$65$~s per round. On this scan the probe gains of the rounds not done lie
-between $1.2$ and $3.9$. The case at $3.9$, closest to $g_{\min}$, is setup~B at $m=0.1$ on one
-configuration: it stops after one round and needs $9$ and $12$ iterations, against $7$ and $10$
-with two rounds. With the current code the three rounds at $m=0.001$ in setup~S take $204$~s of
-setup on the A30, the time two rounds took with the code of the tables ($203$~s); the tables
-themselves still use two rounds.
-
-Outside the window the failures can come from the outer solver alone. With $\kappa_s=10$ in
-setup~B, GCR(2) reaches a plateau on one of the four $12^4$ configurations, and other setup seeds
-converge (Sec.~\ref{sec:gcrk}). This plateau comes with the regularization: without the shift the
-same setup converges.
+The rule of Sec.~\ref{sec:autoboot} does more rounds at small masses and fewer at large ones:
+on the mass scan on $24^3\times48$ it does one or two rounds at $m\ge0.05$ and three at
+$m\le0.002$. At $m=0.001$ this lowers the GCR(2) iterations from up to $44$ to at most $22$. At the
+large masses the round it saves costs at most three iterations, under a second of solve against
+about a minute of setup. The tables use two rounds.
 
 \subsection{Why the method converges}
 \label{sec:why}
@@ -269,8 +257,7 @@ same setup converges.
 We infer that the spectrum and the pseudospectra of the preconditioned operator govern the
 convergence, since its field of values reaches into the left half-plane and the bound of
 Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. The quantities of this section are
-for $\alpha=1$. $\AR$ does not depend on $\alpha$, but $\AL$ at $\alpha=0.6$ is a different
-operator (Eq.~\eqref{eq:ALalpha}) that the analysis does not cover; at $\alpha=1$ the solves of
+for $\alpha=1$; $\AR$ does not depend on $\alpha$. At $\alpha=1$ the solves of
 Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$ in the mean over the
 configurations. As usual for multigrid preconditioners of lattice Dirac operators, the
 convergence of the truncated flexible outer method is established numerically.
@@ -312,9 +299,8 @@ guaranteed to converge for every $k$ with a fixed cycle~\cite{ESS}.
 \subsubsection{Spectrum}
 \label{sec:spectrum}
 
-The spectrum, unlike the field of values, stays far from the origin (Table~\ref{tab:spectrum},
-Fig.~\ref{fig:spectrum}). Every eigenvalue lies at $\Re\lambda\ge0.70$, with moderate condition
-numbers. A few eigenvalues lie farther from $1$ than the rest, isolated outliers (Table~\ref{tab:spectrum} gives those of configuration~1),
+Every eigenvalue lies at $\Re\lambda\ge0.70$, far from the origin, with moderate condition
+numbers (Table~\ref{tab:spectrum}, Fig.~\ref{fig:spectrum}). A few eigenvalues lie farther from $1$ than the rest, isolated outliers (Table~\ref{tab:spectrum} gives those of configuration~1),
 and all other eigenvalues lie in a disc about $1$ that excludes the origin. The left and right forms have nearly the same spectrum.
 
 \subsubsection{Pseudospectra and a bound for GMRES}
@@ -347,8 +333,8 @@ $|z-c|=r$ and $p_k(z)=(1-z/\lambda_o)(1-z/c)^{k-1}$,
 $\AR\mathcal M$ of smallest real part, the four farthest from $1$, and
 $\sigma_{\min}(z-\AR\mathcal M)$ (color) at the points where it was computed: the contours of
 Table~\ref{tab:pseudo}, among them the dense circles $|z-1|=0.6$ (S) and
-$|z-1.4|=0.93$ (B). The field of values reaches into the left half-plane (its real
-range in the corner), the spectrum does not.}
+$|z-1.4|=0.93$ (B). The corner gives the real range of the field of values,
+which extends into the left half-plane.}
 \label{fig:spectrum}
 \end{figure}
 
@@ -377,16 +363,14 @@ iterations and GCR($\ge16$) $15$.
 
 In the directions that $E$ amplifies, the solver's cycle, with coarse solves to $10^{-2}$, does
 better than the fixed map. At the vector $x$ at the left
-end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by large factors against
-exact ones and in most cases make $\Re\,x\dg\AR\mathcal Mx$ positive. With Krylov coarse solves stopped
-early the cycle is not a fixed linear map, so this holds for these vectors only.
+end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by large factors relative to
+exact coarse solves and in most cases make $\Re\,x\dg\AR\mathcal Mx$ positive. With Krylov coarse solves stopped
+early the cycle is not a fixed linear map.
 
 A truncated method has no guarantee when the field of values contains the origin~\cite{ESS,Embree}.
 With a fixed cycle GCR(2) can reach a fixed point, where the new direction is orthogonal to the
 residual and the next step repeats it. With the parameters of Table~\ref{tab:setups} no solve with
-$D$ reached a plateau. The one plateau we checked, at $\kappa_s=10$ in setup~B (Sec.~\ref{sec:sensitivity}),
-agrees with this picture, since the same cycle converges with GCR(16); we did not measure the angle
-between the new direction and the residual there.
+$D$ on random and point-source right-hand sides reached a plateau.
 
 Configuration~2 of $24^3\times48$ needs more iterations than the other three
 (Table~\ref{tab:volume}); which property of that configuration causes this is open.

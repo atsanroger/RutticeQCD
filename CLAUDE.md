@@ -107,7 +107,7 @@ The kernels live in `cuda_bridge/include/<area>/*.cuh` (templates), their launch
   pool (`DeviceBuffer`), never `cudaMalloc` in a loop.
 - Host memory that data crosses the bus to or from often (the stash of the bootstrap's vectors,
   anything moved every round or every solve) is pinned (`PinnedHost`, reused from a cache): into
-  a new `Vec` a copy runs at 1.8 GB/s, into pinned memory at about 20 GB/s on the A30. A copy
+  a new `Vec` a copy runs at 1.8 GB/s, into pinned memory at about 20 GB/s on the GPU. A copy
   into pageable memory goes at least into memory already written, never into a fresh `Vec`.
 - The wrapper counts the launch (`meter::add`, `count_fine`): its flops (Bridge++'s count) and
   bytes (QUDA's convention: every value a site reads from memory). The same for a new CPU
