@@ -137,11 +137,11 @@ deflation. These choices address the three reasons Boyle and Yamaguchi gave for 
 did not beat red-black CG. A single setup serves every value of Neff's $\alpha$. 
 \ifresults{} The field of
 values of the preconditioned operator reaches into the left half-plane, yet at $\alpha=1$ its spectrum has
-$\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
-$24^3\times48$ configurations the iteration count grows by a factor of $2.8$--$5.4$ from $m=0.1$ to
+$\Re\lambda\ge0.72$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
+$24^3\times48$ configurations the iteration count grows by a factor of $2.0$--$2.4$ from $m=0.1$ to
 $m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$4.1$--$7.3$ times faster than mixed-precision CGNE, and a point-source propagator takes
-$0.40$--$0.56$ of its time, setup included.\else{} We state
+$6.6$--$11.1$ times faster than mixed-precision CGNE, and a point-source propagator takes
+$0.33$--$0.49$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, \textcolor{red}{New!!!} we show that for
 coefficients $b$, $c$ independent of the fifth coordinate $(D\dg)^{-1}=\Gfive B_5D^{-1}B_5^{-1}\Gfive$
@@ -1335,10 +1335,9 @@ reduces $D\dg w=b$ to one solve with $D$ on the right-hand side $B_5^{-1}\Gfive 
 the iterations of a solve with $D$ within two. The
 preconditioner $\Gfive\mathcal M\Gfive$ needs a few more, and on $12^4$ in setup~S it stalls on the
 residual right-hand side, where Eq.~\eqref{eq:b5} converges. Equation~\eqref{eq:b5} is also the
-faster of the two on every lattice and right-hand side. In setup~S on $24^4$ and $24^3\times48$ the solve $Dx_0=w_0$
-of the sweep does not converge in $2000$ iterations on two of the four configurations. This is the
-stall of $D$ on right-hand sides $D^{-\dagger}b$ explained below, and on those two configurations
-the residual right-hand side is that of the unconverged sweep.
+faster of the two on every lattice and right-hand side. With two bootstrap rounds in place of the automatic number, the solve $Dx_0=w_0$ of the sweep in
+setup~S on $24^4$ and $24^3\times48$ does not converge in $2000$ iterations on two of the four
+configurations. This is the stall of $D$ on right-hand sides $D^{-\dagger}b$ explained below.
 
 \paragraph{\textcolor{red}{New!!!} Why the solve with $D$ stalls on these right-hand sides.} The
 right-hand side $w_0$ of the solve with $D$ in a sweep comes out of a solve with $D\dg$, so it lies
@@ -1373,14 +1372,14 @@ coarse lattice.}
  & & \multicolumn{2}{c}{$D$} & \multicolumn{2}{c}{$D\dg$ by $\Gfive\mathcal M\Gfive$} & \multicolumn{2}{c}{$D\dg$ through $D$, Eq.~\eqref{eq:b5}}\\
 lattice & setup & rand & res & rand & res & rand & res\\
 \midrule
-$12^4$ & S & 5 & 7 & 11 [1] & stall & 5 & 8\\
- & B & 7 & 9 & 11 & 14 & 7 & 10\\
-$16^4$ & S & 5 & 6.5 & 8.5 & 10.5 & 5 & 7.5\\
+$12^4$ & S & 5 & 7 & 12 [1] & stall & 5 & 8\\
+ & B & 6 & 8 & 11 & 13.5 & 6 & 9\\
+$16^4$ & S & 5 & 6.5 & 8.5 & 10.5 & 5 & 8\\
  & B & 7 & 8.5 & 10 & 12 & 7 & 10\\
-$24^4$ & S & 7.5 & 12.5 & 10.5 & 14 & 7.5 & 11\\
- & B & 11 & 17.5 & 14.5 & 20 & 11 & 16.5\\
-$24^3\times48$ & S & 11 & 19 & 13.5 & 20.5 & 10 & 17\\
- & B & 11 & 18 & 14.5 & 21 & 11 & 17\\
+$24^4$ & S & 6 & 9 & 9.5 & 14 & 6 & 10\\
+ & B & 7 & 10 & 10 & 12.5 & 7 & 10.5\\
+$24^3\times48$ & S & 7 & 11.5 & 9.5 & 14 & 7 & 11.5\\
+ & B & 7 & 11 & 10 & 13 & 7 & 11\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1395,9 +1394,9 @@ $24^3\times48$ & S & 11 & 19 & 13.5 & 20.5 & 10 & 17\\
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$4.1$--$7.3$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
-$0.40$--$0.56$ of its wall time, setup included. Its iterations grow by a factor of
-$2.8$--$5.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $20$--$32$. In solve time, setup
+$6.6$--$11.1$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
+$0.33$--$0.49$ of its wall time, setup included. Its iterations grow by a factor of
+$2.0$--$2.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $20$--$32$. In solve time, setup
 excluded, the multigrid is faster from $16^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
 
@@ -1410,7 +1409,7 @@ $1.6$--$1.7$ times the setup time. One setup serves every value of
 Neff's $\alpha$.
 
 The field of values of the preconditioned operator reaches into the left half-plane, so the
-bound for GCR is lost in both setups. At $\alpha=1$ its spectrum has $\Re\lambda\ge0.70$, and on $12^4$ (one configuration) its
+bound for GCR is lost in both setups. At $\alpha=1$ its spectrum has $\Re\lambda\ge0.72$, and on $12^4$ (one configuration) its
 pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~\ref{tab:setups},
 truncated GCR(2) solved with $D$ without a plateau on every volume on random and point-source
 right-hand sides.
@@ -1421,7 +1420,7 @@ setup~S the residual right-hand side needs GCR(8) with two cycles per step, whic
 four configurations. \textcolor{red}{New!!!} The exact relation of Sec.~\ref{sec:b5} turns the
 solve with $D\dg$ into a solve with $D$, which needs the iterations of a solve with $D$ within two
 on every volume up to $24^3\times48$; on that residual right-hand side of $12^4$ it converges with
-GCR(2) in $7$ to $11$ iterations (Table~\ref{tab:b5}).
+GCR(2) in $7$ to $8$ iterations (Table~\ref{tab:b5}).
 
 Applying the coarse operators to the 12 columns of a point
 source together should raise the arithmetic intensity from about one flop per byte to about ten, as
