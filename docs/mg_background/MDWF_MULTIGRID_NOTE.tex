@@ -332,14 +332,7 @@ $32^3\times16\times12$. From Ref.~\cite{KCM2024}, Fig.~4.}
 \label{fig:A}
 \end{figure}
 
-\paragraph{Two caveats.}
-First, the figures show the full-lattice operator $A'$; the even-odd operators of
-Sec.~\ref{sec:eo} are not shown. Second, eigenvalues in the right half-plane do not give a field of values
-there. For a non-normal operator the GCR bound~\cite{ESS} needs the Hermitian part $(A+A\dg)/2$ to
-be positive definite, which can fail while every eigenvalue has positive real part, as
-Ref.~\cite{BoyleOare} discusses for $\Dpv\dg D$.\ifresults{} It fails for the even-odd form and for
-the preconditioned operator (Sec.~\ref{sec:fov}).\else{} Whether it fails for $A'$ and its
-even-odd forms is open (Sec.~\ref{sec:open}).\fi
+The figures show the full-lattice operator $A'$; the even-odd operators of Sec.~\ref{sec:eo} are not shown.
 
 % ============================================================
 \subsection{The operator and Pauli--Villars preconditioning}
@@ -1463,11 +1456,9 @@ $s$ and $\hat t$ exactly, and whether the gain outweighs that loss is open.
 \item \textbf{Convergence theory.} The pseudospectral bound rests on Lanczos estimates of
 $\sigma_{\min}$, which approach it from above, and on the eigenvalues farthest from the center
 found by Arnoldi (Sec.~\ref{sec:pseudo}). Obtaining a bound from an inclusion theorem, and tracking how the outliers
-of setup~S and the pseudospectra develop beyond $16^4$, remain to be done; on $24^4$ the Arnoldi iteration
-does not fit in $24$\,GB of device memory. No theory covers truncated GCR with a preconditioner that
+of setup~S and the pseudospectra develop beyond $16^4$, remain to be done. No theory covers truncated GCR with a preconditioner that
 varies from step to step. GCR(2) can reach a residual orthogonal to its new direction and stay
-there (Sec.~\ref{sec:gcrk}), and on the residual right-hand side of HMC the solve with $D\dg$ on
-$12^4$ in setup~S needs more kept directions (Sec.~\ref{sec:daggerresults}). The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
+there (Sec.~\ref{sec:gcrk}). The cycle with $D$ and $\Dpv$ exchanged and its Pauli--Villars
 factor regularized can also precondition solves with $D\dg$ from the same $\Pro$, with coarse
 operators of its own; it converges on $16^4$ and stagnates with GCR(2) on $12^4$ in setup~S, and its
 cost in HMC remains to be measured. Why stout smearing gives the Galerkin

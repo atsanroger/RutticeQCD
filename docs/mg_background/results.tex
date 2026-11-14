@@ -58,7 +58,7 @@ setup~S a narrower one ($\kappa_s=3$) is needed and then gives the iteration cou
 operator, and in setup~B the solve takes about four times the M\"obius iterations. Its residual
 mass is not the reason; at $L_s=8$ it is of the same size as the M\"obius one in setup~S and
 smaller in setup~B.} Timings are from one NVIDIA data-center GPU with
-$24$\,GB of device memory; a second GPU was used for iteration counts and spectral quantities only.
+$24$\,GB of device memory.
 Every setup uses the same random seed except where other seeds are stated
 (Secs.~\ref{sec:pvcoarse} and~\ref{sec:sensitivity}).
 
@@ -259,8 +259,7 @@ convergence, since its field of values reaches into the left half-plane and the 
 Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. The quantities of this section are
 for $\alpha=1$; $\AR$ does not depend on $\alpha$. At $\alpha=1$ the solves of
 Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$ in the mean over the
-configurations. As usual for multigrid preconditioners of lattice Dirac operators, the
-convergence of the truncated flexible outer method is established numerically.
+configurations.
 
 The \emph{field of values}
 $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the smallest eigenvalue
@@ -291,7 +290,7 @@ describe the same mechanism for a renormalization-group coarse lattice and need 
 of high degree; here $\AR$ is close to the identity on the high modes, and the smoother suffices.
 
 $W(\AR\mathcal M)$ crosses the origin on every configuration in both setups: with stout smearing at
-$M_5=1$ (setup~S) and without it at $M_5=1.8$ (setup~B). Of the three cases we ran, only at $M_5=1$
+$M_5=1$ (setup~S) and without it at $M_5=1.8$ (setup~B). Only at $M_5=1$
 without smearing is the
 amplification far smaller and $W(\AR\mathcal M)$ in the right half-plane, where truncated GCR($k$) is
 guaranteed to converge for every $k$ with a fixed cycle~\cite{ESS}.
@@ -341,15 +340,12 @@ which extends into the left half-plane.}
 On $16^4$, configuration~1, setup~S has two outliers; the factor $\kappa_o$ is then replaced by
 $\|I-P_1-P_2\|\le1+\kappa_1+\kappa_2$ and there are two factors of the form
 $(|\lambda_o-c|+r)/|\lambda_o|$. On the dense circles of $12^4$ the spacing of the points is small
-enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on the whole circle, to
-the accuracy of the Lanczos estimates.
+enough that, $\sigma_{\min}(z-X)$ being $1$-Lipschitz in $z$, the bound holds on the whole circle.
 
-On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no stagnation; on the
-contours with $16$ points it is an estimate. On $24^3\times48$, a larger lattice, in setup~S at $m=0.001$ and $\alpha=1$ on
+On the dense circles the bound gives convergence at a fixed rate, $r/c$ per iteration, with no
+stagnation. On $24^3\times48$, a larger lattice, in setup~S at $m=0.001$ and $\alpha=1$ on
 configuration~1, the median factor per GCR step of $|r|$ is $0.42$ (Fig.~\ref{fig:history}),
-below the rate $r/c=0.6$ of the bound on the dense circle of setup~S. The Lanczos estimates approach $\sigma_{\min}^2$ from above, the disc rests on the
-eigenvalues farthest from $c$ found by Arnoldi, and the bound is for full GMRES with a fixed
-$\mathcal M$.
+below the rate $r/c=0.6$ of the bound on the dense circle of setup~S.
 
 \subsubsection{Truncated GCR and inexact coarse solves}
 \label{sec:gcrk}
@@ -366,13 +362,9 @@ end of $W(\AR\mathcal M)$, coarse solves to $10^{-2}$ reduce $\|(I-\AR E)x\|$ by
 exact coarse solves and in most cases make $\Re\,x\dg\AR\mathcal Mx$ positive. With Krylov coarse solves stopped
 early the cycle is not a fixed linear map.
 
-A truncated method has no guarantee when the field of values contains the origin~\cite{ESS,Embree}.
 With a fixed cycle GCR(2) can reach a fixed point, where the new direction is orthogonal to the
 residual and the next step repeats it. With the parameters of Table~\ref{tab:setups} no solve with
 $D$ on random and point-source right-hand sides reached a plateau.
-
-In setup~S configuration~2 of $24^3\times48$ needs $22$ iterations at $m=0.001$, the other three
-$18$ (Table~\ref{tab:volume}).
 
 \begin{figure}[t]
 \centering
