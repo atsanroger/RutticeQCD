@@ -221,7 +221,7 @@ __global__ void fold_restrict_kernel(
 // f_s +- gamma_5 f_(Ls-1-s), which every thread of a group reads alike. Thread (group, k) adds
 // row k against them; at the end the groups are added in order, so the result does not depend
 // on the timing. (A thread for each output read its own row of P one number at a time, its
-// neighbours 192 bytes away: on the A30 11% of the bandwidth, held up by the load units.)
+// neighbours 192 bytes away: on the GPU 11% of the bandwidth, held up by the load units.)
 //
 // Shared memory: groups dim fold_row_stride Stored, then groups `per_site` 2 kept Float (the
 // folded fine fields of up to `per_site` vectors), then the active sites (x and its index in
@@ -479,7 +479,7 @@ __global__ void fold_prolong_kernel(
 // every (i, c) at once, two 16-byte words of half precision; the results go into the shared
 // memory in the order of the field, which the block then writes as one stretch in 16-byte
 // words. (A thread for each entry read P 4 bytes at a time, and wrote the field 32 reals apart:
-// 15.9 ms for 20 test vectors on 24^4, Ls 8, on the A30, about 175 GB/s.) The sums are those of
+// 15.9 ms for 20 test vectors on 24^4, Ls 8, on the GPU, about 175 GB/s.) The sums are those of
 // fold_prolong_kernel in the same order. 6 Ls a multiple of FoldPerThread.
 // Shared memory: 24 Ls WarpSize Float.
 // -------------------------------------------------------------------------
@@ -943,10 +943,10 @@ __device__ __forceinline__ Float coarse_pass_sum(Float x) {
 }
 
 // Hops: whether d_hops_of is given. A pass without the hops is a kernel of its own, so that it
-// does not carry the registers of the eight links unrolled (128 against about 80: on the A30
+// does not carry the registers of the eight links unrolled (128 against about 80: on the GPU
 // its occupancy fell from 35 to 24% and the passes without hops took 18% longer).
 // With the hops at most 85 registers, three blocks an SM: CUDA 13 gave it 128 for sm_80 (two
-// blocks, 24% warps active on the A30); CUDA 12.5 gives 62 under this bound, without spills.
+// blocks, 24% warps active on the GPU); CUDA 12.5 gives 62 under this bound, without spills.
 template <typename Float, bool Hops>
 __global__ void __launch_bounds__(256, Hops ? 3 : 5) coarse_pass_kernel(
     Float* __restrict__ d_out,
@@ -1492,11 +1492,11 @@ __global__ void blocks_abs_inverse_gamma5_kernel(
 // every pair's phase and rotation act on columns (then rows) no other pair touches; the entry
 // (p, q) after a round is that of its own rotation alone, and is set to zero as there.
 // (blocks_abs_inverse_gamma5_kernel went through the pairs one at a time with H and V in global
-// memory: 3.8 s a launch for 2592 sites of dim 64 on the A30, 1.15 TB of DRAM traffic.)
+// memory: 3.8 s a launch for 2592 sites of dim 64 on the GPU, 1.15 TB of DRAM traffic.)
 //
 // H in shared memory, rows abs_inverse_stride(n) doubles apart (an odd number, so that the
 // threads of a warp, one row each, read different banks); V there too with VShared (it fits
-// the 164 kB of an A30 at n = 64, not the 99 kB of an RTX 3080; in global memory the warps
+// the 164 kB of the GPU at n = 64, not the 99 kB of an RTX 3080; in global memory the warps
 // waited on it: 6% warps active, long scoreboard), else in d_scratch as before.
 // Shared memory: abs_inverse_shared(n, VShared).
 // -------------------------------------------------------------------------

@@ -670,7 +670,7 @@ impl DeviceBasis {
         // The vectors of an aggregate and chirality in double precision: as many coarse sites
         // at a time as an eighth of the room on the device holds, between a quarter of a GB and
         // 2 GB (a quarter of a GB was 34 blocks a launch on 24⁴ with 20 test vectors, too few
-        // for CholeskyQR2 on the 56 SMs of an A30: P 2.9 s, against 1.8 s with 2 GB).
+        // for CholeskyQR2 on the SMs of the GPU: P 2.9 s, against 1.8 s with 2 GB).
         let per_site = 2 * n * dim * 2;
         let budget = (super::device_room() / 8).clamp(1 << 28, 1 << 31) / 8;
         let count = (budget / per_site).clamp(1, self.coarse_sites);

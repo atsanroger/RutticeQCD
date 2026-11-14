@@ -293,7 +293,7 @@ __global__ void fifth_gemm_columns_kernel(
 // it (8 NT * K16 doubles, or 8 NT * K4 floats).
 //
 // Registers: in single precision at most 128, two blocks of 256 threads on an SM. Left alone,
-// nvcc gives the kernel 168 for sm_80 (one block, 8 warps of the A30's 64) and 128 or 168 for
+// nvcc gives the kernel 168 for sm_80 (one block, 8 warps of the GPU's 64) and 128 or 168 for
 // sm_86 depending on small changes; at 128 it spills nothing (ptxas -v). In double precision at
 // most 168 with blocks of at most HopGemmThreadsDouble threads (128 for Ls 8: three blocks, 12
 // warps, where 254 registers left 8); no spill with the legs one after the other (`hops`). 128
