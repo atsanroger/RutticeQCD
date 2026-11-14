@@ -40,8 +40,10 @@ paper, not the MG note; not to be written yet.
 2. **Neff's α in the multigrid of HMC** (CG has it, so the comparison is not fair without it).
    The right form Ã_R, which HMC uses, does not depend on α (Sec. V of the note); the solves
    must move to the left form Ã_L^(α): for D the correction of the propagator runs with the
-   factors of Q (Table "factors"), for D† the dual correction of Ã_L^(α)† has to be derived
-   (lifts, factors, coarse solves) and implemented. Then the refusal in `hmc_params.rs`
+   factors of Q (Table "factors"). For D† nothing is needed (checked 2026-11-15): with
+   `dagger_solve : Through_D`, the default where B5 is invertible, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5 is one
+   solve with D in the left form with α (`adjoint_even` → `forward_even` with `d_alpha`); on the
+   Γ5 M Γ5 route D^(α)† = Q D†, so α only scales the right-hand side. Then the refusal in `hmc_params.rs`
    ("without Fopr.neff_alpha") goes.
 3. **Faster**: on 24⁴, m 0.001, a trajectory with the multigrid (setup and rebuilds included)
    faster than with mixed CG, both at α 0.6, measured. The setup (87 s on 24⁴) and the rebuilds
@@ -77,6 +79,12 @@ the retries before CG where the multigrid stalls (device and CPU), CG with α on
 on the CPU, the note's α discussion and HMC results, the walkthrough. Checked: both builds compile
 clippy-clean, the device HMC on 16⁴ gives ΔH and iterations of before bit for bit. Not run: the
 CPU paths (the retries and α on the CPU compile only), the HMC tests.
+
+**HMC on 24³×48 on one 24 GB GPU (2026-11-15, 6dde884, `multiconf/hmcmem2448/`)**: setup S, m 0.001,
+GCR(2), fine_precision single, trajectory length 0.01. With 32 test vectors out of device memory
+after 164 s (22.8 of 23.6 GB held). With 24 no error, about 22.3 GB in use, but the trajectory
+did not end within the hour of the time limit; where the time went is not known (the run prints
+nothing per solve). Next: the same with the per-solve report, or 24³×48 on two GPUs.
 
 **0.5.0 (2026-10-24)**: the domain-wall fermions the same on the CPU and the device
 (DEVELOPMENT.md, "One algorithm, two backends"). Checked on 4³×8 (`conf_04040408.txt`, Ls 4,
@@ -1120,23 +1128,23 @@ Target (2026-10-26): arXiv, then Phys. Rev. D. Needed before submitting: more co
 the third baseline and the volume trend (below), a dynamical ensemble, a rewrite to the
 journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
-- **Why the automatic bootstrap needs g_min = 4 and two rounds** (2026-11-14). The rule (probe
-  the next round on the lowest Ritz vector, stop below a gain of 4, at least two rounds from
-  the filtered vectors, at most 8) is the best setting found so far, not derived. Find the
-  mechanism: how the gain of the probe on u_r relates to the gain of the round on all vectors,
-  and why after one round a cycle of few vectors or smoother steps (12⁴ S with 6 smoother steps,
-  24⁴ S with 24 vectors, `autoR/old1/`) gains less than 4 on vectors still far from the lowest
-  modes. Check: the probe gain against the measured gain of the round on every run of
-  `autoR/` (the Ritz values are in the logs).
-- **`examples/coarse_hermiticity` on the device** (2026-11-14). It measures how far the coarse
-  operators X = P†DP and P†D_PV P are from Σ-Hermitian, δ(v) = |ΣXΣv − X†v|/|X†v|, on random
-  v and on the singular vectors of the smallest singular values of X (Lanczos on X†X): the
-  data of the Pauli-Villars coarse table. It is written for the CPU only (`Field`, `CoarseOp`;
-  12⁴ takes 646 s of setup on 16 threads), from before the device had a coarse setup. Port it
-  to the device setup and the device coarse operators (X†X as the Tikhonov CG uses it), then
-  rerun the table with the automatic bootstrap. Check: on 12⁴ v2 the smallest singular values
-  of the device run with the same two fixed rounds against the CPU run of `multiconf/pvsvB/`, to
-  the accuracy of single-precision coarse operators.
+- **The automatic bootstrap: a stop that tells a weak cycle from vectors at the lowest modes**
+  (2026-11-14). Found (results.tex, Sec. autorounds, from `autoR/rerunT` and `rerunT/old1`): the
+  rounds are as many as θ needs to fall from the filter (1.5e-2 S, 4e-2 B) to a level set by the
+  mass (S: 2e-4 at m 0.1, 1-4e-7 at m 0.001), by 10-150 per round; the probe gain is a lower estimate of
+  the round's gain (32 pairs r_min 1 / r_min 2 from identical first rounds: round/probe 1.06-20.6,
+  median 1.15), so the rule never does a round that gains less than 4, but it stops too early when
+  a weak round comes before a strong one (12⁴ S blocks 6⁴: 3.5, then 280), which r_min 2 covers
+  for the first round only. Open: 12⁴ B with 6 smoother steps, configuration 1, stops after two
+  rounds at θ 4.4e-4 and GCR(2) stalls (1000 iterations; configuration 2 goes on to 1.9e-6, 21).
+  A stop that also asks θ to be near the floor (an estimate of the lowest eigenvalue of Ã†Ã) would
+  separate the two; not tried.
+- **`examples/coarse_hermiticity` on the device**: done 2026-11-15 (`--device`, a1d84fe on
+  exp/coarseherm-device): the setup on the device, P†DP and P†D_PV P in double precision on the
+  host. Table pvsv rerun with it and the automatic bootstrap (`autoR/pvsvD/`). Check on 12⁴ v2,
+  stout, two fixed rounds: σ_min 1.2552e-2 on the device against 1.2860e-2 on the CPU
+  (`pvsvB12_sm1__v2`), 2.4% apart; the two filters start from different random vectors, so the
+  check is not bit for bit.
 
 - Not measured, listed in the note: more configurations (the main request to whoever has GPUs:
   see `reproduce.tex`), Lüscher's coherence test for the

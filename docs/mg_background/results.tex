@@ -251,6 +251,23 @@ on the mass scan on $24^3\times48$ it does two rounds at $m\ge0.02$ and three at
 $m\le0.002$. At $m=0.001$ the GCR(2) iterations are $18$--$22$ (S) and $16$--$18$ (B), against up
 to $44$ with two rounds. The tables use the automatic number of rounds.
 
+The number of rounds is set by how far the lowest Ritz value has to fall. The filter leaves
+$\theta_0\approx1.5\times10^{-2}$ (S) and $4\times10^{-2}$ (B) at every mass. While the vectors are
+far from the lowest modes, a round lowers $\theta$ by a factor of $10$ to $150$. The bootstrap stops
+near a value that falls with the mass: for setup~S from $\theta\approx2\times10^{-4}$ at $m=0.1$ to
+$1$--$4\times10^{-7}$ at $m=0.001$. That is below three orders of magnitude under $\theta_0$ at
+$m\ge0.02$, which two rounds cover, and five orders at $m\le0.002$, which take three.
+
+The gain of the probe is a lower estimate of the gain of the round. We compare the $32$ setups
+where a rule with $r_{\min}=1$ ends after the first round with the same setups at $r_{\min}=2$. Up
+to the probe the two runs are identical, so their second round uses the same cycle. In every pair
+the second round lowers $\theta$ by more than the probe predicts: by a factor $1.06$--$1.15$ more on the mass
+scan, and by a factor $1.15$ in the median over all $32$. The probe errs on the
+side of stopping, so it never adds a round that gains less than $g_{\min}$. It can stop too early, because the
+gain of a round need not fall from round to round. The cycle improves with the vectors, so a weak
+round can come before a strong one. On $12^4$ S with blocks $6^4$, for example, the second round gains
+$3.5$ and the third $280$. This is why the first two rounds run without a probe.
+
 \subsection{Why the method converges}
 \label{sec:why}
 
