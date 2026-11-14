@@ -12,8 +12,13 @@
 //!
 //! ```text
 //! cargo run --release --example coarse_hermiticity -- L FORMAT FILE M5 MASS SMEAR [--c C]
-//!     [--block B] [--vectors N] [--t T]
+//!     [--block B] [--vectors N] [--t T] [--auto] [--bicgstab] [--nsv K] [--skipd 1] [--device]
 //! ```
+//!
+//! `--device` (with `--features cuda-bridge`): the test vectors, the bootstrap and P on the
+//! device as the solver makes them, P in half precision; P†DP and P†D_PV P in double precision
+//! are then brought to the host, and δ and the Lanczos run there as without it. The coarse
+//! lattice is small (81 sites on 12⁴), so the host part takes seconds.
 //!
 //! Ls 8, b = 1 + c (b − c = 1 as for the usual b 1.5, c 0.5), c 0.5 by default; SMEAR 1 for
 //! stout 0.1 × 3. The basis as in the solver: 16 vectors filtered in 2 rounds, the bootstrap
@@ -33,6 +38,9 @@ use std::path::Path;
 use std::time::Instant;
 
 type V = Field<f64, Coarse>;
+
+/// A coarse field of one vector, the coarse operators by name, the complex numbers per coarse site.
+type Setup = (V, Vec<(&'static str, CoarseOp<f64>)>, usize);
 
 /// X†X.
 struct NormalOf<'a>(&'a mut CoarseOp<f64>, V);
@@ -127,10 +135,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             Boundary::Antiperiodic,
         ],
     };
-    let mut op = Mdwf::<f64>::new(&lat, params(mass));
-    op.set_gauge(&u)?;
-    let mut pv = Mdwf::<f64>::new(&lat, params(1.0));
-    pv.set_gauge(&u)?;
     // --bicgstab: the bootstrap cycle solves the Pauli-Villars factor by BiCGStab on its exact
     // adjoint (the solve without the Tikhonov shift) instead of the default.
     let cycle = PvEoParams {
@@ -147,29 +151,47 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         false => cycle,
     };
-    let (y, _) = pv_eo_low_modes(&op, &pv, &lat, LowModeParams::default());
-    let mut y = y.select(&(0..vectors).collect::<Vec<_>>());
-    let agg = Aggregation::new(&lat, [block; ND]);
-    let basis = pv_eo_bootstrap(
-        &op,
-        &pv,
-        &agg,
-        &mut y,
-        BootstrapParams { cycle, ..boot_base },
-    )?;
+    let (like, ops, dim) = match args.iter().any(|a| a == "--device") {
+        true => device::coarse_ops(
+            &lat,
+            &u,
+            (params(mass), params(1.0)),
+            cycle,
+            boot_base,
+            block,
+            vectors,
+            skip_d,
+        )?,
+        false => {
+            let mut op = Mdwf::<f64>::new(&lat, params(mass));
+            op.set_gauge(&u)?;
+            let mut pv = Mdwf::<f64>::new(&lat, params(1.0));
+            pv.set_gauge(&u)?;
+            let (y, _) = pv_eo_low_modes(&op, &pv, &lat, LowModeParams::default());
+            let mut y = y.select(&(0..vectors).collect::<Vec<_>>());
+            let agg = Aggregation::new(&lat, [block; ND]);
+            let basis = pv_eo_bootstrap(
+                &op,
+                &pv,
+                &agg,
+                &mut y,
+                BootstrapParams { cycle, ..boot_base },
+            )?;
+            let mut ops = Vec::new();
+            if !skip_d {
+                ops.push(("P^dag D P", basis.coarse_op(&op, &mut op.work())));
+            }
+            ops.push(("P^dag D_PV P", basis.coarse_op(&pv, &mut pv.work())));
+            (basis.coarse_field(1), ops, basis.coarse_dim())
+        }
+    };
     println!(
-        "# {l}^3x{nt} {}; M5 {m5}, m {mass}, b {}, c {c}, stout 0.1x3: {smear}; blocks {block}^4, {} coarse components per site; setup {:.0} s",
+        "# {l}^3x{nt} {}; M5 {m5}, m {mass}, b {}, c {c}, stout 0.1x3: {smear}; blocks {block}^4, {dim} coarse components per site; setup {:.0} s",
         args[2],
         1.0 + c,
-        basis.coarse_dim(),
         start.elapsed().as_secs_f64()
     );
-    let like = basis.coarse_field(1);
-    for (name, fine) in [("P^dag D P", &op), ("P^dag D_PV P", &pv)] {
-        if skip_d && name == "P^dag D P" {
-            continue;
-        }
-        let mut x = basis.coarse_op(fine, &mut fine.work());
+    for (name, mut x) in ops {
         let random: Vec<f64> = (1..=4)
             .map(|s| defect(&mut x, &random_like(&like, s)))
             .collect();
@@ -207,4 +229,108 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(not(feature = "cuda-bridge"))]
+mod device {
+    use super::*;
+
+    /// Without the device: `--device` is refused.
+    #[allow(clippy::too_many_arguments)]
+    pub fn coarse_ops(
+        _: &std::sync::Arc<Lattice>,
+        _: &Field<f64, ruttice::Gauge>,
+        _: (MdwfParams, MdwfParams),
+        _: PvEoParams,
+        _: BootstrapParams,
+        _: usize,
+        _: usize,
+        _: bool,
+    ) -> Result<Setup, Box<dyn Error>> {
+        Err("--device needs --features cuda-bridge".into())
+    }
+}
+
+#[cfg(feature = "cuda-bridge")]
+mod device {
+    use super::*;
+    use ruttice::backend::cuda_bridge::multigrid::{
+        bootstrap, device_correction, filtered_test_vectors, Stage,
+    };
+    use ruttice::backend::cuda_bridge::{CudaMdwf, DeviceBasis, DeviceSpinor};
+    use ruttice::{EvenOddIndex, Parity};
+    use std::sync::Arc;
+
+    /// Prints each round of the bootstrap and where the probe ends it.
+    fn print_rounds(stage: Stage<'_, f64>) {
+        match stage {
+            Stage::Round { round, lowest, .. } => println!(
+                "# bootstrap round {}: lowest Ritz value of Ã†Ã {lowest:.3e}",
+                round + 1
+            ),
+            Stage::Ended {
+                round,
+                lowest,
+                probed,
+            } => println!(
+                "# bootstrap round {} not needed: its cycle lowers {lowest:.3e} to {probed:.3e}",
+                round + 1
+            ),
+            _ => {}
+        }
+    }
+
+    /// The test vectors, the bootstrap and P on the device as the solver makes them (P in half
+    /// precision), then P†DP (unless `skip_d`) and P†D_PV P in double precision on the host.
+    #[allow(clippy::too_many_arguments)]
+    pub fn coarse_ops(
+        lat: &Arc<Lattice>,
+        u: &Field<f64, ruttice::Gauge>,
+        (d_params, pv_params): (MdwfParams, MdwfParams),
+        cycle: PvEoParams,
+        boot_base: BootstrapParams,
+        block: usize,
+        vectors: usize,
+        skip_d: bool,
+    ) -> Result<Setup, Box<dyn Error>> {
+        let mut d = CudaMdwf::<f64>::new(lat, d_params)?;
+        d.set_gauge(u)?;
+        let mut pv = CudaMdwf::<f64>::new(lat, pv_params)?;
+        pv.set_gauge(u)?;
+        let (d, pv) = (&d, &pv);
+        let even = DeviceSpinor::<f64>::shape_half(lat, 8, Parity::Even)?;
+        let odd = DeviceSpinor::<f64>::shape_half(lat, 8, Parity::Odd)?;
+        let index = EvenOddIndex::new(lat);
+        let mut y = filtered_test_vectors(
+            (d, pv),
+            (&even, &odd),
+            lat,
+            &index,
+            LowModeParams::default(),
+            vectors,
+            &mut |_: Stage<'_, f64>| {},
+        )?;
+        let agg = Aggregation::new(lat, [block; ND]);
+        let mut with = device_correction((d, pv), &agg, cycle, &even, true);
+        bootstrap(
+            (d, pv),
+            (&even, &odd),
+            lat,
+            &mut y,
+            BootstrapParams { cycle, ..boot_base },
+            &mut with,
+            &mut print_rounds,
+        )?;
+        drop(with);
+        let basis = DeviceBasis::pv_eo(d, pv, &agg, &y, true)?;
+        drop(y);
+        let mut ops = Vec::new();
+        if !skip_d {
+            ops.push(("P^dag D P", d.coarse_operator(&basis)?));
+        }
+        ops.push(("P^dag D_PV P", pv.coarse_operator(&basis)?));
+        let dim = basis.coarse_dim();
+        let like = Field::with_shape(agg.coarse_lattice(), 2 * dim, 1, 1, 1);
+        Ok((like, ops, dim))
+    }
 }
