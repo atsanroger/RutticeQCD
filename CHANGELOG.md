@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- HMC with the domain-wall multigrid solves with D† through one solve with D by default
+  (`MultiGrid_HMC.dagger_solve : Through_D`, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5), which is exact for the
+  constant b and c of this code. Before, the default was GCR with Γ5 M Γ5, which on 12⁴ in
+  setup S at m = 0.001 stalls on the residual right-hand side of a sweep on every configuration
+  (the MG note, Table 3) where the solve through D converges in 7 to 8 iterations.
+  `Gamma5_cycle` stays the default where B5 = b − cY is singular (b = 0 with c = 0 or m = 0).
+  `DwfMultigridSetup::new` chooses the same way, from the b, c and m of the operator
+  (`MdwfParams::b5_invertible`).
+- The automatic bootstrap does at least two rounds from the filtered vectors (`min_rounds` 2 in
+  `BootstrapParams::automatic`). After one round a cycle of few test vectors or few smoother
+  steps can gain less than the factor 4 on vectors still far from the lowest modes: with one
+  round, 12⁴ with 6 smoother steps and 24⁴ with 24 test vectors in setup S did not converge in
+  1000 and 2000 iterations; on 24⁴ v2, which went on to four rounds, the same setting converges
+  in 27. A bootstrap of HMC from the vectors of an earlier solve keeps no minimum.
 - The Γ-method no longer prints an error of 0 and a negative τ_int for a short series. When the
   variance of the mean it estimates, C_F(W)/N after the bias correction, is not positive (two
   or three anti-correlated measurements, as the flow of 24⁴ 602/702 gave), `gamma_method`

@@ -69,6 +69,12 @@ impl MdwfParams {
         }
     }
 
+    /// Whether B5 = b − cY is invertible: Y has the eigenvalues ±1 and, at m = 0, also 0, so B5
+    /// is singular only for b = 0 with c = 0 or m = 0.
+    pub fn b5_invertible(&self) -> bool {
+        self.b != 0.0 || (self.c != 0.0 && self.mass != 0.0)
+    }
+
     /// The parameters of the Pauli-Villars operator: the same operator at unit mass.
     pub fn pauli_villars(self) -> Self {
         Self { mass: 1.0, ..self }

@@ -277,9 +277,13 @@ impl MdwfBackend for OnDevice {
         Ok(with_alpha(op, alpha)?)
     }
 
-    fn b5_of(op: &CudaMdwf<f64>) -> Result<CudaMdwf<f64>, Box<dyn Error>> {
+    fn b5_of(op: &CudaMdwf<f64>) -> Result<Option<CudaMdwf<f64>>, Box<dyn Error>> {
         debug_assert_eq!(op.alpha(), 1.0, "B5 of the plain operator");
-        Ok(CudaMdwf::on_the_links_of(op, op.params().b5_site())?)
+        let p = op.params();
+        match p.b5_invertible() {
+            true => Ok(Some(CudaMdwf::on_the_links_of(op, p.b5_site())?)),
+            false => Ok(None),
+        }
     }
 
     fn vectors_from_host(

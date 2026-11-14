@@ -90,3 +90,22 @@ fn test_b5_dagger_through_d() {
         assert!(e2 < 1e-12, "{e2}");
     }
 }
+
+/// B5 = b − cY is singular only for b = 0 with c = 0 or m = 0 (Y has the eigenvalues ±1, and 0
+/// at m = 0): there the D† solves of HMC default to Γ5 M Γ5.
+#[test]
+fn test_b5_invertible() {
+    let p = |b, c, mass| MdwfParams {
+        ls: 8,
+        m5: 1.8,
+        mass,
+        b,
+        c,
+        boundary: [Boundary::Periodic; 4],
+    };
+    assert!(p(1.5, 0.5, 0.001).b5_invertible());
+    assert!(p(1.0, 0.0, 0.0).b5_invertible());
+    assert!(p(0.0, 1.0, 0.1).b5_invertible());
+    assert!(!p(0.0, 0.0, 0.1).b5_invertible());
+    assert!(!p(0.0, 1.0, 0.0).b5_invertible());
+}

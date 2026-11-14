@@ -532,7 +532,7 @@ impl HmcSolver {
                 setup.fgmres = self.kind == Some(HmcSolverKind::Fgmres);
                 setup.refresh_every = refresh_every;
                 setup.rebuild_growth = rebuild_growth;
-                setup.through_d = through_d;
+                setup.through_d = Some(through_d);
                 setup.alpha = self.neff_alpha;
                 Preconditioner::DomainWallMultigrid(Box::new(setup))
             }

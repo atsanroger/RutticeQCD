@@ -275,14 +275,17 @@ impl Default for BootstrapParams {
 }
 
 impl BootstrapParams {
-    /// Rounds of four steps until the next would gain less than a factor 4, at most 8: what a
-    /// parameter file without `bootstrap_number_of_rounds` asks. Two rounds leave the vectors a
-    /// factor 60 above the lowest modes on 24⁴ at m = 0.001, where the solves with D of HMC then
-    /// stall; the third round gains 20-31, a fourth less than 2.
+    /// Rounds of four steps until the next would gain less than a factor 4, at least 2 and at
+    /// most 8: what a parameter file without `bootstrap_number_of_rounds` asks. Two rounds leave
+    /// the vectors a factor 60 above the lowest modes on 24⁴ at m = 0.001, where the solves with D
+    /// of HMC then stall; the third round gains 20-31, a fourth less than 2. After the first round
+    /// a weak cycle (few vectors or smoother steps) can gain less than 4 on vectors still far
+    /// from the lowest modes, so the probe begins before the third.
     pub fn automatic() -> Self {
         Self {
             rounds: 8,
             min_gain: Some(4.0),
+            min_rounds: 2,
             ..Self::default()
         }
     }

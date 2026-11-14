@@ -125,7 +125,10 @@ Solver:
         assert_eq!(cycle.d_solver, CoarseKrylov::BiCgStab);
         assert_eq!(cycle.pv_solver, FactorSolve::Regularized { eps: 1e-3 });
         assert_eq!(low.vectors, 16);
-        assert_eq!((boot.rounds, boot.min_gain), (8, Some(4.0)));
+        assert_eq!(
+            (boot.rounds, boot.min_gain, boot.min_rounds),
+            (8, Some(4.0), 2)
+        );
         assert_eq!(p.form(), (EoForm::Left, false));
         assert!(p.multigrid.as_ref().unwrap().super_blocks().is_empty());
     }
