@@ -88,10 +88,9 @@ point-source propagator.}
 the even-odd operator of Bridge++, with Neff's $\alpha$ as for the multigrid, in mixed precision.
 In double precision it runs at the memory bandwidth of the GPU: in the byte count of QUDA, which
 counts every value a site reads, including those found in the cache, it moves $1.09$ times the
-peak memory bandwidth. The even-odd CG of Bridge++~2.1.3 (OpenACC) on the same GPU
-needs $3612$--$3618$ iterations for the 12 columns of a point source on configuration~1 at
-$m=0.001$ in setup~S, against $3616$ here for a random right-hand side, and $1.5$ times as long
-per iteration.
+peak memory bandwidth. The even-odd CG of Bridge++~2.1.3 (OpenACC) on the same GPU needs the
+same number of iterations at every mass and $1.46$--$1.54$ times as long per iteration
+(Table~\ref{tab:bridge}).
 Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterations
 (Appendix~\ref{sec:cgform}).
 
