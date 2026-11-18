@@ -190,7 +190,7 @@ preconditioner needs fewer iterations than BiCGStab but more time.
 \label{sec:basischoice}
 The exactness~\eqref{eq:exact} needs both lifts $s$ and $\hat t$ of each $y$ in
 $\operatorname{range}\Pro$, but the left form used in practice is not exact
-(Sec.~\ref{sec:basis}). To see what $\hat t$ does there, we replace it by $Ds$, which
+(Sec.~\ref{sec:exactness}). To see what $\hat t$ does there, we replace it by $Ds$, which
 vanishes on the odd sites, or drop it (Table~\ref{tab:basischoice}). With $\{s\}$ alone $\Pro$
 has half the columns; to compare at the same size we also take $32$ vectors $y$, which doubles
 the vectors of the filter and of the bootstrap.
