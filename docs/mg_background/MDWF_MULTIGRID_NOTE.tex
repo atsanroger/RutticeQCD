@@ -730,7 +730,10 @@ a product of two inverses of one-hop operators and site-local factors. \textcolo
 Galerkin operator of $\AR$ itself would have all $81$ points. $S$ reaches two hops, through
 $D_{oe}$ and then $D_{eo}$, and $\AR$ contains $S$ and $\Spv\dg$, so it reaches four. The Galerkin
 operators of $D$ and $\Dpv$ are nearest-neighbor, since $D$ is nearest-neighbor in four dimensions
-and every aggregate contains the whole fifth dimension. We therefore replace each inverse by its
+and every aggregate contains the whole fifth dimension. \textcolor{red}{New!!!}
+Eq.~\eqref{eq:ARinv} keeps the elimination of the odd sites, $\pi$ and $\iota$, on the fine
+lattice, so the coarse operators need to approximate only the one-hop $D$ and $\Dpv$ instead of
+the two-hop $S$. We therefore replace each inverse by its
 Galerkin approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. The outer system stays on the even
 sites, and the coarse operators are those of the whole lattice; $\iota$ and $\pi$ carry the
 residual from the even sites to the whole lattice and back. For both forms and any $\alpha$, the
@@ -842,7 +845,11 @@ $4.0$\,s to $1.8$\,s. With $n_v$ test vectors a coarse site then carries $2n_v$
 components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
 
 As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
-eigenvector of $\Gfive$. Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$ reads
+eigenvector of $\Gfive$.\footnote{\textcolor{red}{New!!!} Two choices keep this property. $\Gfive$ acts within one
+four-dimensional site, and each block holds the whole fifth dimension, so the restriction of
+$v_\pm$ to a block is still an eigenvector of $\Gfive$. The $+$ and $-$ parts are orthonormalized
+separately, and a linear combination of eigenvectors with one eigenvalue is again an eigenvector
+with that eigenvalue.} Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$ reads
 $v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$. So each part is fixed by its values for $s<L_s/2$, and
 $\Pro$ is stored only there, at half the memory. On the even sites the transfer operators are $\Pro\dg\iota$ and
 $\pi\Pro$.
@@ -853,9 +860,11 @@ The prolongation is built from vectors $y_j$ on the even sites that approximate 
 $\AR$ (Sec.~\ref{sec:setup}). Two facts shape how we use them.
 \begin{itemize}
 \item $\Pro$ and the coarse operators act on all lattice sites, so each $y$ must be extended, or
-\emph{lifted}, to all lattice sites. We fill the odd sites so that the fine operator maps the
-lifted vector to the even-odd quantity, just as $\psi_o$ is rebuilt from $\psi_e$ after an
-even-odd solve.
+\emph{lifted}, to all lattice sites. \textcolor{red}{New!!!} The coarse correction works when $\operatorname{range}\Pro$
+contains low modes of $D$ on the whole lattice, and the odd sites decide whether a lifted $y$ is
+one. With zeros there, $D\iota y$ has the odd part $D_{oe}y$, which is as large as $y$. We fill
+the odd sites so that the fine operator maps the lifted vector to the even-odd quantity, just as
+$\psi_o$ is rebuilt from $\psi_e$ after an even-odd solve.
 \item The correction~\eqref{eq:corr} contains two Galerkin solves, one with $\Dpv\dg$ and one with
 $D$. Each is exact only on vectors in $\operatorname{range}\Pro$. So we lift each $y$ in two ways,
 one for each solve.
@@ -874,9 +883,13 @@ Ds=\begin{pmatrix}\Ce\Ce^{-1}y-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}y\\
 D_{oe}\Ce^{-1}y-\Co\Co^{-1}D_{oe}\Ce^{-1}y\end{pmatrix}
 =\begin{pmatrix}S\Ce^{-1}y\\0\end{pmatrix}=\iota\,S\Ce^{-1}y .
 \end{equation}
+\textcolor{red}{New!!!} So $Ds$ is small when $S\Ce^{-1}y$ is small. That holds for a low mode $y$ of $\AR$, since the
+Pauli--Villars factor of Eq.~\eqref{eq:AR} has no small singular values, and $s$ is then a low
+mode of $D$ on the whole lattice.
 In the same way $\hat t$ is chosen so that $\Dpv\dg\hat t$ vanishes on the odd sites. The block
 form of $\Dpv\dg$ has $(D_{\mathrm{PV},eo})\dg$ as its odd-even block and $\Cpvo\dg$ as its odd
-diagonal block, and the same computation gives $\Dpv\dg\hat t=\iota\,\Spv\dg a$.
+diagonal block, and the same computation gives $\Dpv\dg\hat t=\iota\,\Spv\dg a$, \textcolor{red}{New!!!} which is small
+with $a=\pi Ds$.
 
 The first coarse solve of the correction returns $\hat t$ and the second returns $s$
 (Eq.~\eqref{eq:exact} below). Since $\hat t$ is made from $Ds$, the two lifts follow the
