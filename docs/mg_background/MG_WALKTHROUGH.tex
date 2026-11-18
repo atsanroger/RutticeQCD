@@ -91,12 +91,14 @@ correction.
 $\Ce\,\pi D^{-1}\iota\,\pi(\Dpv\dg)^{-1}\iota\,\Cpve\dg$; each inverse is replaced by a solve on
 the coarse lattice, the Pauli--Villars factor by CG on a regularized normal equation and the quark
 factor by BiCGStab with further levels (Sec.~\ref{sec:coarsesolve}).
-\item \emph{The coarse space} (Secs.~\ref{sec:agg}--\ref{sec:probe} and \ref{sec:filter}).
+\item \emph{The coarse space} (Secs.~\ref{sec:lifts}--\ref{sec:probe} and \ref{sec:filter}).
 The setup finds vectors $y_j$ near the low modes of $\AR\dg\AR$ by a Chebyshev filter and a
 bootstrap, lifts each to $s_j$ and $\hat t_j$ so that the correction is exact on their span
-(Sec.~\ref{sec:exact}), and builds $\Pro$ and the coarse operators from them.
-\item \emph{Solves with $D\dg$} (Sec.~\ref{sec:dagger}) reuse the same setup through
-$\Gfive D^{-1}\Gfive$.
+(Secs.~\ref{sec:lifts} and~\ref{sec:exact}), and builds $\Pro$ and the coarse operators from them.
+\item \emph{Solves with $D\dg$} (Sec.~\ref{sec:dagger}) reuse the same setup. \textcolor{red}{New!!!} For $b$ and $c$
+independent of $s$, as here, $\Gfive D\dg\Gfive=B_5DB_5^{-1}$ with $B_5=b-cY$ turns each into one
+solve with $D$ (note Sec.~IV.A), the default in HMC; for coefficients that depend on $s$,
+$\Gfive D^{-1}\Gfive$ preconditions $D\dg$.
 \item \emph{Why it converges} (Sec.~\ref{sec:why}): the spectrum and pseudospectra of $\tilde A\mathcal M$.
 \end{enumerate}
 
@@ -129,7 +131,7 @@ $\mathcal K$, $\mathcal K^{(\alpha)}$ & left Schur factor $\Ce^{-1}S$, and with 
 $\Pro$, $\Dc$, $\Dcpv$ & prolongation; coarse operators $\Pro\dg D\Pro$, $\Pro\dg\Dpv\Pro$ & \ref{sec:factor} & \\
 $O_R,O_M,O_L$, $e$ & site-local factors of the correction; the correction & \ref{sec:factor} & \\
 $n_v$, $\Sigma$ & test vectors ($2n_v$ components per coarse site); their chirality signs & \ref{sec:agg} & \\
-$y_j$, $s$, $\hat t$, $a$ & setup vectors; their two lifts; $a=\pi Ds$ & \ref{sec:exact} & \\
+$y_j$, $s$, $\hat t$, $a$ & setup vectors; their two lifts; $a=\pi Ds$ & \ref{sec:lifts} & \\
 $\phi_{X,k}$, $A(X)$, $B^\pm_\mu(X)$ & basis vector on block $X$; diagonal and link blocks of $\Dc$ & \ref{sec:probe} & \\
 $\tau$ & shift of the regularized Pauli--Villars solve & \ref{sec:coarsesolve} & \\
 $\mathcal D_\ell$, $B_\ell$, $\Pro_\ell$ & operator, diagonal blocks, prolongation of level $\ell$ & \ref{sec:coarsesolve} & $Q_\ell$\\
@@ -348,7 +350,7 @@ application of $S$ contains one $\Co^{-1}$; one application of $\AR=(\Spv\Cpve^{
 $(\Cpvo\dg)^{-1}$ in $\Spv\dg$ and $(\Cpve^{-1})\dg$;
 \item the reconstruction $|\psi_e\rangle=\Ce^{-1}|y\rangle$, $|\psi_o\rangle=\Co^{-1}(|\eta_o\rangle-D_{oe}|\psi_e\rangle)$;
 \item the two lifts $|s\rangle$ and $|\hat t\rangle$ of the prolongation, whose odd parts are built with
-$\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$ (Sec.~\ref{sec:exact});
+$\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$ (Sec.~\ref{sec:lifts});
 \item the solve with $D\dg$, through $(\Ce\dg)^{-1}$ and $(\Co\dg)^{-1}$ (Sec.~\ref{sec:dagger});
 \item in HMC, $\det\Ce\det\Co$ is a constant and drops out of the probability of the links.
 \end{itemize}
@@ -675,10 +677,66 @@ returns $y$.}
 Unlike the right form, the Galerkin factor of $\Dpv\dg$ acts on the plain residual, and
 $\Cpve\dg$ lands between the two coarse solves, in $O_M$.
 
+\subsection{The basis $\{s,\hat t\}$}
+\label{sec:lifts}
+The setup produces vectors $|y_j\rangle$ on the even sites (next section), near the low modes of
+$\AR$. $\Pro$ and the coarse operators act on the whole lattice, so each $|y\rangle$ must be
+extended, or \emph{lifted}, to the whole lattice.
+
+\paragraph{Why the odd sites matter.} \textcolor{red}{New!!!} The correction works when $\operatorname{range}\Pro$ contains
+low modes of $D$ on the whole lattice. With zeros on the odd sites,
+\begin{equation}
+D\,\iota|y\rangle=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}\begin{pmatrix}|y\rangle\\0\end{pmatrix}
+=\begin{pmatrix}\Ce|y\rangle\\D_{oe}|y\rangle\end{pmatrix},
+\end{equation}
+and the odd part $D_{oe}|y\rangle$, one hop of $|y\rangle$, is as large as $|y\rangle$. So the odd
+sites are filled as in the reconstruction of $\psi_o$ after an even-odd solve. Each $|y\rangle$ is
+lifted in two ways, one for each coarse solve:
+\begin{equation}
+|s\rangle=\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix},\qquad
+|\hat t\rangle=\begin{pmatrix}|a\rangle\\-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg|a\rangle\end{pmatrix},\qquad |a\rangle=\pi D|s\rangle ,
+\end{equation}
+with the even sites on top, as in the block form of $D$ below.
+\paragraph{$D|s\rangle$ vanishes on the odd sites.}
+\begin{align}
+D|s\rangle&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
+\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
+&=\begin{pmatrix}\Ce\Ce^{-1}|y\rangle-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\\
+D_{oe}\Ce^{-1}|y\rangle-\Co\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
+&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}|y\rangle\\0\end{pmatrix}\nonumber\\
+&=\iota\,S\Ce^{-1}|y\rangle .
+\end{align}
+\paragraph{$|s\rangle$ is a low mode of $D$.} \textcolor{red}{New!!!} The norm of $|s\rangle$ is at least that of its even part, so
+\begin{align}
+|s|^2&=|\Ce^{-1}y|^2+|\Co^{-1}D_{oe}\Ce^{-1}y|^2\ \ge\ |\Ce^{-1}y|^2,\nonumber\\
+\frac{|Ds|}{|s|}&\le\frac{|S\Ce^{-1}y|}{|\Ce^{-1}y|} .
+\end{align}
+By the definition of $\AR$ (Sec.~\ref{sec:pvforms}), $\AR|y\rangle=(\Spv\Cpve^{-1})\dg\,S\Ce^{-1}|y\rangle$, and the Pauli--Villars
+factor has no small singular values, so $|S\Ce^{-1}y|$ is small when $|\AR y|$ is. For a low mode
+$|y\rangle$ of $\AR$ the ratio $|Ds|/|s|$ is then small: $|s\rangle$ is a low mode of $D$ on the
+whole lattice.
+
+\paragraph{$\Dpv\dg|\hat t\rangle$ vanishes on the odd sites.} The same computation with the blocks
+of $\Dpv\dg$ gives $\Dpv\dg|\hat t\rangle=\iota\Spv\dg|a\rangle$. \textcolor{red}{New!!!} $|\hat t\rangle$ is not a low mode
+of $\Dpv\dg$: both of its parts are of the size of $|a\rangle$, and so is $\Spv\dg|a\rangle$. It is
+in the basis for another reason, given next.
+
+\paragraph{Which solve needs which lift.} \textcolor{red}{New!!!} For $|r\rangle=\AR|y\rangle$ the first coarse solve of the
+correction must return $|\hat t\rangle$ and the second $|s\rangle$ (Fig.~\ref{fig:correction};
+the steps are in Sec.~\ref{sec:exact}). By the Galerkin property of Sec.~\ref{sec:factor}, a coarse
+solve returns a vector exactly only if it lies in $\operatorname{range}\Pro$, so both lifts must
+lie in $\operatorname{range}\Pro$. With $|s\rangle$ alone the solve with $D$ is still exact for the
+right-hand side $D|s\rangle$, but the solve with $\Dpv\dg$ is not exact for $\Dpv\dg|\hat t\rangle$:
+the odd parts of the two lifts are built with $\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$, which carry
+each chirality toward opposite ends of the fifth dimension, so the span of the $s_j$ does not
+contain the $\hat t_j$. The $2n$ vectors $\{|s_j\rangle,|\hat t_j\rangle\}$ are the \emph{test
+vectors}, $n_v=2n$.
+
 \subsection{Aggregation and the chirality split}
 \label{sec:agg}
 The fine lattice is divided into $4^4$ blocks, each with the whole fifth dimension; each block is
-one coarse site. For a test vector $|v\rangle$ and a block $X$, restrict it to the block and split it
+one coarse site. \textcolor{red}{New!!!} The columns of $\Pro$ are made from the test vectors $|s_j\rangle$ and
+$|\hat t_j\rangle$ of Sec.~\ref{sec:lifts}. For a test vector $|v\rangle$ and a block $X$, restrict it to the block and split it
 by $\Gfive=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$:
 \begin{equation}
 |X,v\rangle=\begin{cases}|v\rangle, & x\in X,\\ 0, & x\notin X,\end{cases}\qquad
@@ -710,8 +768,8 @@ computes.
 
 \subsection{Orthonormalization per block: CholeskyQR2}
 \label{sec:cholqr}
-In each block and chirality the columns $w_1,\dots,w_n$ ($n=2\times$ the number of filtered
-vectors, see below) are made orthonormal. Collect them as the columns of $W$ and write the QR
+In each block and chirality the columns $w_1,\dots,w_n$, the parts $|X,v,\pm\rangle$ of the
+$n=n_v$ test vectors, are made orthonormal. Collect them as the columns of $W$ and write the QR
 decomposition with a positive diagonal of $R$:
 \begin{align}
 W&=QR\nonumber\\
@@ -728,27 +786,21 @@ sweeps for $n=40$). Where a pivot of the first pass falls below $10^{-12}$ of it
 dependent columns) in any block, the code redoes the whole batch of blocks by Gram--Schmidt; for
 $n>48$ it uses Gram--Schmidt throughout.
 
-\subsection{The basis $\{s,\hat t\}$ and why the correction is exact}
-\label{sec:exact}
-The setup produces vectors $|y_j\rangle$ on the even sites (next section). Each is lifted to the
-whole lattice in two ways, one for each coarse solve:
+\paragraph{The test vectors lie in $\operatorname{range}\Pro$.} \textcolor{red}{New!!!} The blocks cover the lattice and
+$\frac12(1+\Gfive)+\frac12(1-\Gfive)=1$, so a test vector is the sum of its parts:
 \begin{equation}
-|s\rangle=\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix},\qquad
-|\hat t\rangle=\begin{pmatrix}|a\rangle\\-(\Cpvo\dg)^{-1}D_{\mathrm{PV},eo}\dg|a\rangle\end{pmatrix},\qquad |a\rangle=\pi D|s\rangle ,
+|v\rangle=\sum_X|X,v\rangle=\sum_X\big(|X,v,+\rangle+|X,v,-\rangle\big).
 \end{equation}
-with the even sites on top, as in the block form of $D$ below.
-\paragraph{$D|s\rangle$ vanishes on the odd sites.}
-\begin{align}
-D|s\rangle&=\begin{pmatrix}\Ce&D_{eo}\\D_{oe}&\Co\end{pmatrix}
-\begin{pmatrix}\Ce^{-1}|y\rangle\\-\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
-&=\begin{pmatrix}\Ce\Ce^{-1}|y\rangle-D_{eo}\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\\
-D_{oe}\Ce^{-1}|y\rangle-\Co\Co^{-1}D_{oe}\Ce^{-1}|y\rangle\end{pmatrix}\nonumber\\
-&=\begin{pmatrix}\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)\Ce^{-1}|y\rangle\\0\end{pmatrix}\nonumber\\
-&=\iota\,S\Ce^{-1}|y\rangle .
-\end{align}
-In the same way $\Dpv\dg|\hat t\rangle=\iota\Spv\dg|a\rangle$.
-\paragraph{Exactness of the right form.} Let $|s\rangle,|\hat t\rangle\in\operatorname{range}\Pro$
-and solve both coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the
+In one block and chirality, $|X,v,\pm\rangle$ is one of the columns $w_k$ of $W$, and $W=QR$ gives
+$w_k=\sum_lq_lR_{lk}$, a combination of the columns $q_l$ of $\Pro$ there. Summing over $X$ and
+$\pm$, $|v\rangle=\Pro|\zeta_v\rangle$ with the coarse vector $|\zeta_v\rangle$ whose entries are the
+$R_{lk}$ of each block and chirality. So $|s_j\rangle,|\hat t_j\rangle\in\operatorname{range}\Pro$
+by construction.
+
+\subsection{Why the correction is exact}
+\label{sec:exact}
+\paragraph{Exactness of the right form.} \textcolor{red}{New!!!} By Sec.~\ref{sec:cholqr}, $|s\rangle,|\hat t\rangle\in\operatorname{range}\Pro$.
+Solve both coarse systems exactly. The Galerkin map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the
 identity on $\operatorname{range}\Pro$. Follow $|r\rangle=\AR|y\rangle$ through
 Algorithm~\ref{alg:corr} ($O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$):
 \begin{align}
@@ -935,7 +987,7 @@ Each round is Algorithm~\ref{alg:boot}.
 \AIn{vectors $|y_1\rangle,\dots,|y_n\rangle$ on the even sites}
 \AOut{improved $|y_j\rangle$}
 \begin{steps}
-\item lift each $|y_j\rangle$ to $|s_j\rangle$ and $|\hat t_j\rangle$\Cm{Sec.~\ref{sec:exact}}
+\item lift each $|y_j\rangle$ to $|s_j\rangle$ and $|\hat t_j\rangle$\Cm{Sec.~\ref{sec:lifts}}
 \item split by chirality, orthonormalize per block (CholeskyQR2): $\Pro$\Cm{Secs.~\ref{sec:agg}, \ref{sec:cholqr}}
 \item probe $\Dc$ and $\Dcpv$; from the second round on, build the levels below\Cm{Secs.~\ref{sec:probe}, \ref{sec:coarsesolve}}
 \item build the cycle $\mathcal M$\Cm{Algorithm~\ref{alg:cycle}}
@@ -1098,6 +1150,82 @@ HMC needs $(D\dg D)^{-1}$, so it solves with $D\dg$ as often as with $D$. A seco
 would double the cost. The tool that avoids it is an exact relation between $D$ and $D\dg$.
 
 The $\Gfive$-transformation and the exact relation it rests on were derived in Sec.~\ref{sec:g5}.
+
+\textcolor{red}{New!!!} For $b$ and $c$ independent of $s$, the note (Sec.~IV.A) solves with $D\dg$ through
+$(D\dg)^{-1}=\Gfive B_5D^{-1}B_5^{-1}\Gfive$, $B_5=b-cY$, one solve with $D$ (Sec.~\ref{sec:b5}); it is the
+default in HMC. The preconditioner of Sec.~\ref{sec:c4} serves coefficients that depend on $s$.
+
+\subsection{\textcolor{red}{New!!!} $D\dg$ through $D$ (note Sec.~IV.A)}
+\label{sec:b5}
+\paragraph{$D$ with $B_5$.} The third line of Eq.~\eqref{eq:Dsplit} reads
+\begin{equation}
+D=1+Y+W B_5,\qquad B_5\equiv b-cY .
+\end{equation}
+$B_5$ acts within a site, on $s$ and spin. It is a polynomial in $Y$, so it commutes with $1+Y$.
+
+\paragraph{The adjoint.} Take the adjoint term by term; the product $WB_5$ reverses:
+\begin{equation}
+D\dg=1+Y\dg+B_5\dg W\dg .
+\end{equation}
+Multiply by $\Gfive$ on both sides and insert $\Gfive^2=1$ between $B_5\dg$ and $W\dg$:
+\begin{align}
+\Gfive D\dg\Gfive&=1+\Gfive Y\dg\Gfive+\big(\Gfive B_5\dg\Gfive\big)\big(\Gfive W\dg\Gfive\big)\nonumber\\
+&=1+Y+B_5W .
+\end{align}
+The second line uses three facts from Sec.~\ref{sec:g5}. $\Gfive Y\Gfive=Y\dg$ gives
+$\Gfive Y\dg\Gfive=Y$, and $\Gfive W\Gfive=W\dg$ gives $\Gfive W\dg\Gfive=W$. With $b$, $c$ real,
+$\Gfive B_5\dg\Gfive=b-c\,\Gfive Y\dg\Gfive=b-cY=B_5$.
+
+\paragraph{The same operator from $D$.} Conjugate $D$ by $B_5$:
+\begin{align}
+B_5DB_5^{-1}&=B_5(1+Y)B_5^{-1}+B_5WB_5B_5^{-1}\nonumber\\
+&=1+Y+B_5W ,
+\end{align}
+since $B_5$ commutes with $1+Y$. The two right-hand sides agree, so
+\begin{equation}
+\boxed{\;\Gfive D\dg\Gfive=B_5DB_5^{-1},\qquad(D\dg)^{-1}=\Gfive B_5\,D^{-1}B_5^{-1}\,\Gfive .\;}
+\end{equation}
+The second form is the inverse of the first, with $\Gfive^{-1}=\Gfive$.
+
+\paragraph{The solve.} $D\dg=\Gfive B_5DB_5^{-1}\Gfive$, so $D\dg|w\rangle=|r\rangle$ reads
+\begin{align}
+\Gfive B_5DB_5^{-1}\Gfive|w\rangle&=|r\rangle\nonumber\\
+D\,\big(B_5^{-1}\Gfive|w\rangle\big)&=B_5^{-1}\Gfive|r\rangle .
+\end{align}
+Solve $D|x\rangle=B_5^{-1}\Gfive|r\rangle$ with the multigrid of $D$, then
+$|w\rangle=\Gfive B_5|x\rangle$. The cost is that of one solve with $D$ and two site-local
+operations.
+
+\paragraph{Inverting $B_5$.} $B_5$ has the form $d_++d_-Y$ of $C$ (Sec.~\ref{sec:Cinv}) with
+$d_+=b$, $d_-=-c$, so the substitution that inverts $C$ inverts $B_5$. On each chirality $Y$ is a
+shift in $s$ with entries $-1$ and one entry $m$ at the wrap, so $\|Y\|=1$ for $|m|\le1$. For $b>c$,
+\begin{align}
+\|B_5\|&\le b+c\|Y\|=b+c,\nonumber\\
+\|B_5^{-1}\|&=\frac1b\Big\|\Big(1-\frac cbY\Big)^{-1}\Big\|\le\frac1b\,\frac1{1-c/b}=\frac1{b-c},
+\nonumber\\
+\kappa(B_5)&\le\frac{b+c}{b-c}=2\qquad(b=1.5,\ c=0.5),
+\end{align}
+the second line by the geometric series in $(c/b)Y$. $B_5$ is singular where $b=c\lambda$ for an
+eigenvalue $\lambda$ of $Y$. Going once around $s$ on one chirality multiplies by $(-1)^{L_s-1}m$,
+so $(-Y)^{L_s}=-m$ and $(-\lambda)^{L_s}=-m$. $B_5$ is therefore singular where
+$(-b/c)^{L_s}=-m$: for real $b$, $c$ and $m>0$ only at odd $L_s$, never at $L_s=8$ or $16$.
+
+\paragraph{On the even sites.} $\Gfive$ and $B_5$ act within a site, so they commute with $\pi$
+and $\iota$. With Eq.~\eqref{eq:Sinv} and $\iota\dg=\pi$,
+\begin{align}
+(S\dg)^{-1}&=\big(\pi D^{-1}\iota\big)\dg=\pi(D\dg)^{-1}\iota\nonumber\\
+&=\pi\,\Gfive B_5D^{-1}B_5^{-1}\Gfive\,\iota\nonumber\\
+&=\Gfive B_5\,\pi D^{-1}\iota\,B_5^{-1}\Gfive=\Gfive B_5\,S^{-1}B_5^{-1}\Gfive ,
+\end{align}
+with $B_5$ on the even sites. The solve with $D\dg$ of HMC is one even-site solve with $D$, with
+the same cycle and Krylov method.
+
+\paragraph{Where it fails.} With coefficients $b_s$, $c_s$ that depend on $s$,
+$B_5=\mathrm{diag}(b_s)-\mathrm{diag}(c_s)\,Y$. $Y$ shifts $s$ by one, so a diagonal matrix in $s$
+commutes with $Y$ only when it is a multiple of the identity: $B_5$ no longer commutes with $1+Y$,
+and the conjugation $B_5DB_5^{-1}$ no longer gives $1+Y+B_5W$. $\Gfive$ also turns $b_s$ into
+$b_{L_s-1-s}$. Such operators need the preconditioner of
+Sec.~\ref{sec:c4}.
 
 \subsection{$\Gfive D^{-1}\Gfive$ as a preconditioner of $D\dg$ (note Sec.~IV.B)}
 \label{sec:c4}

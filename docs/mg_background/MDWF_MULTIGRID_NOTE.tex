@@ -731,9 +731,9 @@ Galerkin operator of $\AR$ itself would have all $81$ points. $S$ reaches two ho
 $D_{oe}$ and then $D_{eo}$, and $\AR$ contains $S$ and $\Spv\dg$, so it reaches four. The Galerkin
 operators of $D$ and $\Dpv$ are nearest-neighbor, since $D$ is nearest-neighbor in four dimensions
 and every aggregate contains the whole fifth dimension. \textcolor{red}{New!!!}
-Eq.~\eqref{eq:ARinv} keeps the elimination of the odd sites, $\pi$ and $\iota$, on the fine
-lattice, so the coarse operators need to approximate only the one-hop $D$ and $\Dpv$ instead of
-the two-hop $S$. We therefore replace each inverse by its
+Through $\pi$ and $\iota$, Eq.~\eqref{eq:ARinv} writes the even-site inverses $S^{-1}$ and
+$(\Spv\dg)^{-1}$ with the inverses $D^{-1}$ and $(\Dpv\dg)^{-1}$ on the whole lattice, so the
+coarse operators need to approximate only the one-hop $D$ and $\Dpv$ instead of the two-hop $S$. We therefore replace each inverse by its
 Galerkin approximation $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$. The outer system stays on the even
 sites, and the coarse operators are those of the whole lattice; $\iota$ and $\pi$ carry the
 residual from the even sites to the whole lattice and back. For both forms and any $\alpha$, the
@@ -760,8 +760,8 @@ nine points each. The $\Dpv\dg D$ of all lattice sites coarsens to $33$
 points~\cite{BoyleOare}, and $\AR$ as a whole to $81$, as above. A truncation of either to nearest neighbors
 is no longer a Galerkin projection. Coarsening them separately incurs two costs. First, each cycle solves two
 coarse systems, where the product needs one. Second, the product of the two Galerkin inverses in
-Eq.~\eqref{eq:corr} differs from the Galerkin inverse of the product. The two lifts of each test
-vector (Sec.~\ref{sec:basis}) make the correction exact on the test vectors again
+Eq.~\eqref{eq:corr} differs from the Galerkin inverse of the product. \textcolor{red}{New!!!} The two lifts of each setup
+vector $y$ (Sec.~\ref{sec:basis}) make the correction exact on the test vectors again
 (Eq.~\eqref{eq:exact}), at twice the columns of $\Pro$.
 
 \begin{figure}[tbp]
@@ -829,47 +829,16 @@ left, $\alpha$ in $D$ and $\Dpv$ & $Q_e^{-1}$ & $\Ce Q_e^2\Cpve\dg$ & $Q_e^{-1}$
 \end{tabular}
 \end{table}
 
-\subsubsection{Aggregation and prolongation}
-We divide the fine lattice into rectangular four-dimensional blocks. Each block contains the
-whole fifth dimension and becomes one coarse site. We split each test vector $v$ into its $\Gfive$
-eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$ and orthonormalize the $+$ parts and the $-$ parts
-separately within each block. \textcolor{red}{New!!!} We orthonormalize by CholeskyQR2. With the
-$n$ columns of one block and chirality collected in $W$, the Gram matrix $G=W\dg W=R\dg R$ has the
-Cholesky factor $R$ of the QR decomposition $W=QR$, so $Q=WR^{-1}$ needs one Gram matrix, one
-Cholesky factor and one triangular solve. One pass loses orthogonality like the square of the
-condition number of $W$, so we do it twice; the second Gram matrix is close to the identity. Each
-pass reads $W$ twice, where Gram--Schmidt reads it once per pair of columns. Where a pivot of the
-first pass falls below $10^{-12}$ of its diagonal, the block's vectors are nearly dependent and we
-use Gram--Schmidt instead. On $24^4$ with $40$ columns this took the construction of $\Pro$ from
-$4.0$\,s to $1.8$\,s. With $n_v$ test vectors a coarse site then carries $2n_v$
-components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
-
-As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
-eigenvector of $\Gfive$.\footnote{\textcolor{red}{New!!!} Two choices keep this property. $\Gfive$ acts within one
-four-dimensional site, and each block holds the whole fifth dimension, so the restriction of
-$v_\pm$ to a block is still an eigenvector of $\Gfive$. The $+$ and $-$ parts are orthonormalized
-separately, and a linear combination of eigenvectors with one eigenvalue is again an eigenvector
-with that eigenvalue.} Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$ reads
-$v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$. So each part is fixed by its values for $s<L_s/2$, and
-$\Pro$ is stored only there, at half the memory. On the even sites the transfer operators are $\Pro\dg\iota$ and
-$\pi\Pro$.
-
 \subsubsection{The basis \texorpdfstring{$\{s,\hat t\}$}{s, t}}
 \label{sec:basis}
 The prolongation is built from vectors $y_j$ on the even sites that approximate low modes of
-$\AR$ (Sec.~\ref{sec:setup}). Two facts shape how we use them.
-\begin{itemize}
-\item $\Pro$ and the coarse operators act on all lattice sites, so each $y$ must be extended, or
+$\AR$ (Sec.~\ref{sec:setup}). $\Pro$ and the coarse operators act on all lattice sites, so each $y$ must be extended, or
 \emph{lifted}, to all lattice sites. \textcolor{red}{New!!!} The coarse correction works when $\operatorname{range}\Pro$
 contains low modes of $D$ on the whole lattice, and the odd sites decide whether a lifted $y$ is
 one. With zeros there, $D\iota y$ has the odd part $D_{oe}y$, which is as large as $y$. We fill
 the odd sites so that the fine operator maps the lifted vector to the even-odd quantity, just as
 $\psi_o$ is rebuilt from $\psi_e$ after an even-odd solve.
-\item The correction~\eqref{eq:corr} contains two Galerkin solves, one with $\Dpv\dg$ and one with
-$D$. Each is exact only on vectors in $\operatorname{range}\Pro$. So we lift each $y$ in two ways,
-one for each solve.
-\end{itemize}
-The two lifts are
+We lift each $y$ in two ways,
 \begin{align}
 s&=\big(\Ce^{-1}y,\;-\Co^{-1}D_{oe}\Ce^{-1}y\big),
 \label{eq:s}\\
@@ -888,20 +857,57 @@ Pauli--Villars factor of Eq.~\eqref{eq:AR} has no small singular values, and $s$
 mode of $D$ on the whole lattice.
 In the same way $\hat t$ is chosen so that $\Dpv\dg\hat t$ vanishes on the odd sites. The block
 form of $\Dpv\dg$ has $(D_{\mathrm{PV},eo})\dg$ as its odd-even block and $\Cpvo\dg$ as its odd
-diagonal block, and the same computation gives $\Dpv\dg\hat t=\iota\,\Spv\dg a$, \textcolor{red}{New!!!} which is small
-with $a=\pi Ds$.
+diagonal block, and the same computation gives $\Dpv\dg\hat t=\iota\,\Spv\dg a$.
 
-The first coarse solve of the correction returns $\hat t$ and the second returns $s$
-(Eq.~\eqref{eq:exact} below). Since $\hat t$ is made from $Ds$, the two lifts follow the
-order of the solves. With the $y$ alone in the basis, each factor of the correction would be an
-approximation, and the errors of the two would multiply. The $2n$ vectors $\{s_j,\hat t_j\}$ are
+\textcolor{red}{New!!!} Each lift serves one of the two coarse solves of Eq.~\eqref{eq:corr}: for $r=\AR y$
+the first solve must return $\hat t$ and the second $s$ (Fig.~\ref{fig:correction};
+Sec.~\ref{sec:exactness} gives the steps). A Galerkin approximation
+$\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg$ inverts $X$ exactly on $\operatorname{range}\Pro$, so both lifts
+must lie in $\operatorname{range}\Pro$. Since $\hat t$ is made from $Ds$, the two lifts follow
+the order of the solves.
+
+\textcolor{red}{New!!!} With $s$ alone, the solve with $D$ is still exact for the right-hand side $Ds$, but the
+solve with $\Dpv\dg$ is not exact for $\Dpv\dg\hat t$. The two lifts differ in the fifth dimension:
+their odd parts are built with $\Co^{-1}$ and with $(\Cpvo\dg)^{-1}$, which by
+Eq.~\eqref{eq:Cinv} carry each chirality toward opposite ends of the fifth dimension. So a space
+built from the $s_j$ alone does not contain the $\hat t_j$. The $2n$ vectors $\{s_j,\hat t_j\}$ are
 the test vectors, $n_v=2n$.
 
-The two lifts differ in the fifth dimension: their odd parts are built with $\Co^{-1}$ and with
-$(\Cpvo\dg)^{-1}$, which by Eq.~\eqref{eq:Cinv} carry each chirality toward opposite ends of the
-fifth dimension. So a space built from the $s_j$ alone does not contain the $\hat t_j$.
+\subsubsection{Aggregation and prolongation}
+\label{sec:agg}
+We divide the fine lattice into rectangular four-dimensional blocks. Each block contains the
+whole fifth dimension and becomes one coarse site. \textcolor{red}{New!!!} The columns of $\Pro$ are made from the test vectors $s_j$ and $\hat t_j$ of
+Sec.~\ref{sec:basis}. We split each test vector $v$ into its $\Gfive$
+eigencomponents $v_\pm=\frac12(1\pm\Gfive)v$ and orthonormalize the $+$ parts and the $-$ parts
+separately within each block. \textcolor{red}{New!!!} We orthonormalize by CholeskyQR2. With the
+$n$ columns of one block and chirality collected in $W$, the Gram matrix $G=W\dg W=R\dg R$ has the
+Cholesky factor $R$ of the QR decomposition $W=QR$, so $Q=WR^{-1}$ needs one Gram matrix, one
+Cholesky factor and one triangular solve. One pass loses orthogonality like the square of the
+condition number of $W$, so we do it twice; the second Gram matrix is close to the identity. Each
+pass reads $W$ twice, where Gram--Schmidt reads it once per pair of columns. Where a pivot of the
+first pass falls below $10^{-12}$ of its diagonal, the block's vectors are nearly dependent and we
+use Gram--Schmidt instead. On $24^4$ with $40$ columns this took the construction of $\Pro$ from
+$4.0$\,s to $1.8$\,s. With $n_v$ test vectors a coarse site then carries $2n_v$
+components: the first $n_v$ of positive and the last $n_v$ of negative $\Gfive$-chirality.
 
-\paragraph{The right form.} Let $s,\hat t\in\operatorname{range}\Pro$, let $\Dc$
+\textcolor{red}{New!!!} By construction the test vectors lie in $\operatorname{range}\Pro$. A test vector $v$
+is the sum, over the blocks and the two chiralities, of its parts $v_\pm$ restricted to each block.
+Each such part is one of the vectors orthonormalized for that block and chirality, so it is a
+combination of the columns made from them, and $v$ is a combination of the columns of $\Pro$.
+
+As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
+eigenvector of $\Gfive$.\footnote{\textcolor{red}{New!!!} Two choices keep this property. $\Gfive$ acts within one
+four-dimensional site, and each block holds the whole fifth dimension, so the restriction of
+$v_\pm$ to a block is still an eigenvector of $\Gfive$. The $+$ and $-$ parts are orthonormalized
+separately, and a linear combination of eigenvectors with one eigenvalue is again an eigenvector
+with that eigenvalue.} Since $\Gfive=\gamma_5R$, the condition $\Gfive v_\pm=\pm v_\pm$ reads
+$v_\pm(L_s-1-s)=\pm\gamma_5v_\pm(s)$. So each part is fixed by its values for $s<L_s/2$, and
+$\Pro$ is stored only there, at half the memory. On the even sites the transfer operators are $\Pro\dg\iota$ and
+$\pi\Pro$.
+
+\subsubsection{\textcolor{red}{New!!!} Exactness on the test vectors}
+\label{sec:exactness}
+\paragraph{The right form.} Let $\Dc$
 and $\Pro\dg\Dpv\dg\Pro$ be invertible, and let both coarse systems in Eq.~\eqref{eq:corr} be
 solved exactly, with the exact adjoint $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$. Then the right-form
 correction returns the vector it is built from,
@@ -910,7 +916,8 @@ e(\AR y)=y .
 \label{eq:exact}
 \end{equation}
 For any invertible $\Pro\dg X\Pro$ the map $\Pro(\Pro\dg X\Pro)^{-1}\Pro\dg X$ is the identity on
-$\operatorname{range}\Pro$, and we follow $r=\AR y$ through the correction with the factors of the
+$\operatorname{range}\Pro$, \textcolor{red}{New!!!} and $s,\hat t\in\operatorname{range}\Pro$
+(Sec.~\ref{sec:agg}). We follow $r=\AR y$ through the correction with the factors of the
 right form, $O_R=\Cpve\dg$, $O_M=1$, $O_L=\Ce$. First, $O_Rr=\Cpve\dg\AR y=\Spv\dg S\Ce^{-1}y=\Spv\dg a$
 and $\iota\Spv\dg a=\Dpv\dg\hat t$, so the first coarse solve returns $\hat t$, whose even part is
 $\pi\hat t=a=\pi Ds$. The second solve then has the right-hand side $\Pro\dg\iota\pi Ds=\Pro\dg Ds$,
@@ -1449,7 +1456,7 @@ program.
 
 \ifresults
 The following questions remain open; the left form and the field of values are discussed in
-Secs.~\ref{sec:basis}, \ref{sec:spectra} and \ref{sec:fov}--\ref{sec:pseudo}.
+Secs.~\ref{sec:exactness}, \ref{sec:spectra} and \ref{sec:fov}--\ref{sec:pseudo}.
 
 \begin{enumerate}
 \item \textbf{Parameters from the operator.} The smoother interval
@@ -1518,7 +1525,7 @@ The following questions of theory and algorithm remain open.
 \begin{enumerate}
 \item \textbf{Exactness for the left form.} Eq.~\eqref{eq:exact} holds
 for the right form. For $\AL$ (with or without $\alpha$) the Pauli--Villars lift
-that would be needed differs from $\hat t$ by site-local factors (Sec.~\ref{sec:basis}). Whether a basis can be made exact for both forms at
+that would be needed differs from $\hat t$ by site-local factors (Sec.~\ref{sec:exactness}). Whether a basis can be made exact for both forms at
 once, and what is lost by using the right-form basis for the left form, remains to be seen.
 
 \item \textbf{Smoother interval for a non-normal operator.} The interval
@@ -1573,6 +1580,11 @@ solution before $\omega$ is computed and before the Arnoldi vector is normalized
 connect the even-odd system with the coarse operators of the whole lattice. Sec.~\ref{sec:basis}
 is preceded by a paragraph on the cost of coarsening the two factors separately. The open problem on formulations gives the memory read per coarse application
 of the two methods.
+
+\textit{2026-11-18.} Sec.~\ref{sec:basis} comes before Sec.~\ref{sec:agg} and says which solve
+needs which lift. Sec.~\ref{sec:agg} states that $\Pro$ is made from $s_j$ and $\hat t_j$ and that
+they lie in $\operatorname{range}\Pro$. The exactness of the correction has its own
+Sec.~\ref{sec:exactness}.
 
 \section*{Acknowledgments}
 \addcontentsline{toc}{section}{Acknowledgments}

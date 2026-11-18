@@ -1279,9 +1279,13 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   only Through_D, so Γ5 M Γ5 has no unit test; `b5_of` builds B5 again for every solve.
 - (On exp/b5-check, 86d6501, not merged.) Through_D is refused for |c| > |b|, where B5 = b − cY
   is badly conditioned (condition number 199 at b/c = 0.5, L_s 16, m 0.01, against 2 at b/c = 3);
-  `b5_invertible` was wrong: Y^L_s = −m, so B5 is singular exactly where (b/c)^L_s = −m (only odd
-  L_s or m ≤ 0 for real b, c), checked with the dense L_s × L_s matrix. Not run: the long HMC
-  test in `tests/run.rs` and the `cuda-bridge` build.
+  `b5_invertible` was wrong. With Y of the note (entries −1 and m at the wrap), (−Y)^L_s = −m, so
+  B5 is singular exactly where (−b/c)^L_s = −m: for real b, c at odd L_s, or at m ≤ 0. Open: the
+  branch tests (b/c)^L_s ≠ −m, which is right for even L_s and has the wrong sign for odd L_s (the
+  dense check used Y with entries +1; corrected 2026-11-18 against the substitution of `C⁻¹` and
+  Eq. B5matrix of the note). The fix is `(-b / c).powi(ls) != -mass`; its comments and refusal
+  messages say (b/c)^L_s too. Not run: the long HMC test in `tests/run.rs` and the
+  `cuda-bridge` build.
 
 ## Known, not understood
 
