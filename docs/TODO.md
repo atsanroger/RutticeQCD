@@ -1268,6 +1268,20 @@ journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
   we do not, so on 10 anti-correlated measurements we give τ_int 0.32 and an error 0.72 times
   pyerrors'. Whether to floor τ_int at ½ (never an error below that of independent
   measurements) is undecided.
+- (Open, from the review of ac8a6bb, 2026-11-18.) `bootstrap_minimum_gain` is ignored silently
+  with `bootstrap_number_of_rounds : N` for N ≤ 2: every file now carries `min_rounds = 2`
+  (`params/convert.rs:617`), and the probe starts at the third round. Fix decided: the gain only
+  with `auto`. `N` alone does exactly N rounds; `N` with `bootstrap_minimum_gain` is refused when
+  the file is read, with a message naming `auto`. The cap of `auto` stays 8 and is no longer set
+  by a file. Update USAGE ("with both keys N is the most rounds") and `examples/mdwf_pv_eo_mg.yaml`.
+  The same review: the doc of `BootstrapParams::min_rounds` (`mdwf_vectors.rs:254`) and the comment
+  of `tests/mdwf.rs:1752` describe `min_rounds = 0`; the HMC unit tests in `src/hmc/mod.rs` run
+  only Through_D, so Γ5 M Γ5 has no unit test; `b5_of` builds B5 again for every solve.
+- (On exp/b5-check, 86d6501, not merged.) Through_D is refused for |c| > |b|, where B5 = b − cY
+  is badly conditioned (condition number 199 at b/c = 0.5, L_s 16, m 0.01, against 2 at b/c = 3);
+  `b5_invertible` was wrong: Y^L_s = −m, so B5 is singular exactly where (b/c)^L_s = −m (only odd
+  L_s or m ≤ 0 for real b, c), checked with the dense L_s × L_s matrix. Not run: the long HMC
+  test in `tests/run.rs` and the `cuda-bridge` build.
 
 ## Known, not understood
 
