@@ -2126,18 +2126,10 @@ fn test_mg_the_domain_wall_multigrid_takes_the_iterations_it_took() {
     }
 }
 
-/// HMC with the domain-wall multigrid on the 4^3x8 test configuration, Möbius (1.5, 0.5) at
-/// m = 0.01, trajectories of length 1 in two fermion steps with the cache rebuilt at 1.1 times
-/// the iterations: with `Gamma5_cycle` two trajectories, which the rebuild from stale test
-/// vectors of before 1e1646c makes 12% longer (703 against 787 iterations, measured with the
-/// command-line program on this file), with `Through_D` one at 1.5, where only the first setup
-/// is made: at 1.1 a rebuild there falls on either side of the threshold with the last bits of
-/// the machine (296 here, 329 on the GitHub runner). The setup does exactly two bootstrap
-/// rounds, as when the references were measured; with the automatic rule (4eb336b) the same file
-/// takes 720 here and 739 on the GitHub runner, which is past the tolerance of 703 there.
-#[test]
-fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
-    let dir = scratch("dw_hmc_iterations");
+/// The HMC file of the domain-wall multigrid tests: `hmc_domainwall_pv.yaml` on the 4^3x8 test
+/// configuration, Möbius (1.5, 0.5) at m = 0.01, the even-odd Ratio solved by GCR with the
+/// multigrid.
+fn dw_hmc_multigrid_base() -> String {
     let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/conf_04040408.txt");
     let mut base = with(
         include_str!("../examples/hmc_domainwall_pv.yaml"),
@@ -2176,6 +2168,53 @@ fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
         "    solver_type                   : GCR\n    preconditioner_type           : MG\n    number_of_kept_directions     : 8",
     );
     base.push_str("  MultiGrid:\n    Setup:\n      filter_number_of_vectors : 8\n      filter_number_of_rounds  : 1\n      bootstrap_number_of_rounds : 2\n    MultiGrid_Level1:\n      block_size             : [2, 2, 2, 4]\n      number_of_test_vectors : 16\n      Coarse_Solver_PV:\n        solver_type                   : CG\n        tikhonov_epsilon              : 1.0e-3\n        maximum_number_of_iteration   : 2000\n        convergence_criterion_squared : 1.0e-2\n");
+    base
+}
+
+/// Through_D, also as the default, is refused for |c| > |b|, where B5 = b − cY is badly
+/// conditioned (and singular at (b/c)^L_s = −m); Gamma5_cycle is accepted.
+#[test]
+fn test_hmc_through_d_is_refused_for_c_above_b() {
+    let base = dw_hmc_multigrid_base();
+    let coefficients = |b: &str, c: &str| {
+        with(
+            &with(
+                &base,
+                "coefficient_b           : 1.5",
+                &format!("coefficient_b           : {b}"),
+            ),
+            "coefficient_c           : 0.5",
+            &format!("coefficient_c           : {c}"),
+        )
+    };
+    let refusal = |text: &str| match ruttice::app::hmc::HmcConfig::from_yaml(text) {
+        Ok(_) => panic!("accepted:\n{text}"),
+        Err(e) => e.to_string(),
+    };
+    let c_above_b = coefficients("0.5", "1.5");
+    for route in ["", "  MultiGrid_HMC:\n    dagger_solve : Through_D\n"] {
+        let e = refusal(&format!("{c_above_b}{route}"));
+        assert!(e.contains("(1.5 > 0.5 here)"), "{e}");
+    }
+    assert!(ruttice::app::hmc::HmcConfig::from_yaml(&format!(
+        "{c_above_b}  MultiGrid_HMC:\n    dagger_solve : Gamma5_cycle\n"
+    ))
+    .is_ok());
+}
+
+/// HMC with the domain-wall multigrid on the 4^3x8 test configuration, Möbius (1.5, 0.5) at
+/// m = 0.01, trajectories of length 1 in two fermion steps with the cache rebuilt at 1.1 times
+/// the iterations: with `Gamma5_cycle` two trajectories, which the rebuild from stale test
+/// vectors of before 1e1646c makes 12% longer (703 against 787 iterations, measured with the
+/// command-line program on this file), with `Through_D` one at 1.5, where only the first setup
+/// is made: at 1.1 a rebuild there falls on either side of the threshold with the last bits of
+/// the machine (296 here, 329 on the GitHub runner). The setup does exactly two bootstrap
+/// rounds, as when the references were measured; with the automatic rule (4eb336b) the same file
+/// takes 720 here and 739 on the GitHub runner, which is past the tolerance of 703 there.
+#[test]
+fn test_hmc_the_domain_wall_multigrid_takes_the_iterations_it_took() {
+    let dir = scratch("dw_hmc_iterations");
+    let base = dw_hmc_multigrid_base();
     // b = c = 0 makes B5 = b − cY zero: Through_D is refused when the file is read.
     let singular = with(
         &with(

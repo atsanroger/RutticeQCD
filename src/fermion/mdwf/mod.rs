@@ -69,10 +69,24 @@ impl MdwfParams {
         }
     }
 
-    /// Whether B5 = b − cY is invertible: Y has the eigenvalues ±1 and, at m = 0, also 0, so B5
-    /// is singular only for b = 0 with c = 0 or m = 0.
+    /// Whether B5 = b − cY is invertible (`b5_invertible_for`).
     pub fn b5_invertible(&self) -> bool {
-        self.b != 0.0 || (self.c != 0.0 && self.mass != 0.0)
+        Self::b5_invertible_for(self.b, self.c, self.mass, self.ls)
+    }
+
+    /// Whether B5 = b − cY is invertible for real b, c, the mass m and L_s. On each chirality Y
+    /// shifts s by one with −m at the wrap, so Y^L_s = −m and the eigenvalues of Y are the
+    /// L_s-th roots of −m. B5 is singular when b = cλ for one of them: for c = 0 when b = 0,
+    /// otherwise when (b/c)^L_s = −m, which real b, c reach only for odd L_s or m ≤ 0. For
+    /// |c| > |b| B5 is invertible at other masses but badly conditioned (condition number about
+    /// 200 at b/c = 0.5, L_s 16, m 0.01, against 2 at b/c = 3); this test says only whether it
+    /// is singular.
+    pub(crate) fn b5_invertible_for(b: f64, c: f64, mass: f64, ls: usize) -> bool {
+        if c == 0.0 {
+            b != 0.0
+        } else {
+            (b / c).powi(i32::try_from(ls).expect("Ls is at most MAX_LS")) != -mass
+        }
     }
 
     /// The parameters of the Pauli-Villars operator: the same operator at unit mass.

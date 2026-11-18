@@ -57,6 +57,7 @@ use super::params::{
     SolverType,
 };
 use super::CliError;
+use crate::fermion::MdwfParams;
 use crate::gauge::flow::WilsonFlow;
 use crate::{keyword_enum, ND};
 use serde::Deserialize;
@@ -1078,17 +1079,29 @@ impl FermionActionBlock {
                 ));
             }
             mg.check_domain_wall(&at, lattice, false)?;
-            // Through_D needs B5 = b − cY invertible. Y^L_s is ±m on each chirality, so the
-            // eigenvalues of Y have |λ|^L_s = |m|, and B5 is singular when b = cλ: with b = 0
-            // when c = 0 or m = 0. The coefficients b and c do not depend on s here, so where B5
-            // is invertible the solve through D is exact, and it is the default; Γ5 M Γ5 is the
-            // default only where B5 is singular.
+            // Through_D solves with D† through B5 = b − cY. B5 is singular where
+            // (b/c)^L_s = −m (`MdwfParams::b5_invertible_for`), and for |c| > |b| it is badly
+            // conditioned at any mass, so Through_D (also as the default) is refused there.
+            // Where B5 is invertible the solve through D is exact, and it is the default; Γ5 M Γ5
+            // is the default only where B5 is singular.
             let f = &self.fopr;
-            let b5_singular =
-                f.coefficient_b == 0.0 && (f.coefficient_c == 0.0 || f.quark_mass == Some(0.0));
-            if h.dagger_solve == Some(DaggerSolve::ThroughD) && b5_singular {
+            let (b, c) = (f.coefficient_b, f.coefficient_c);
+            let b5_invertible = MdwfParams::b5_invertible_for(
+                b,
+                c,
+                f.quark_mass.unwrap_or(0.0),
+                f.extent_of_5th_dimension.unwrap_or(1),
+            );
+            if h.dagger_solve != Some(DaggerSolve::Gamma5Cycle) && c.abs() > b.abs() {
                 return invalid(format!(
-                    "{name}.MultiGrid_HMC.dagger_solve: Through_D needs B5 = b − cY invertible, which coefficient_b 0 with coefficient_c 0 or quark_mass 0 is not; use Gamma5_cycle"
+                    "{name}.MultiGrid_HMC.dagger_solve: Through_D, the default, solves with D-dagger through B5 = b − cY, which is badly conditioned for |coefficient_c| > |coefficient_b| ({} > {} here) and singular where (b/c)^L_s = −quark_mass. Set dagger_solve : Gamma5_cycle, or take |coefficient_c| ≤ |coefficient_b|",
+                    c.abs(),
+                    b.abs()
+                ));
+            }
+            if h.dagger_solve == Some(DaggerSolve::ThroughD) && !b5_invertible {
+                return invalid(format!(
+                    "{name}.MultiGrid_HMC.dagger_solve: Through_D needs B5 = b − cY invertible, which it is not for coefficient_b {b}, coefficient_c {c} and this quark_mass ((b/c)^L_s = −quark_mass); use Gamma5_cycle"
                 ));
             }
             Ok(HmcMultigrid::DomainWall {
@@ -1107,7 +1120,7 @@ impl FermionActionBlock {
                 through_d: match h.dagger_solve {
                     Some(DaggerSolve::ThroughD) => true,
                     Some(DaggerSolve::Gamma5Cycle) => false,
-                    None => !b5_singular,
+                    None => b5_invertible,
                 },
             })
         } else {
