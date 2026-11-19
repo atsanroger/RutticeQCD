@@ -50,9 +50,9 @@ links~\cite{Arthur2013}.
 steps, Sec.~\ref{sec:smearing}) and uses $M_5=1.0$, as in the JLQCD ensembles of
 Ref.~\cite{JLQCDBpi}.
 \end{itemize}
-Both suppress the near-zero modes of $W=D_W(-M_5)$, by moving $M_5$ (B) or by smoothing the
-field (S), and so give the multigrid low modes of different character; they need different
-smoother intervals (Table~\ref{tab:setups}).\footnote{\textcolor{red}{New!!!} The multigrid also
+\textcolor{red}{New!!!} Smearing suppresses the near-zero modes of $W=D_W(-M_5)$ (Sec.~\ref{sec:smearing}); setup~B
+keeps the bare links with the larger $M_5$. The two setups need different smoother intervals
+(Table~\ref{tab:setups}).\footnote{\textcolor{red}{New!!!} The multigrid also
 works for Bori\c{c}i's operator, $(b,c)=(1,1)$, with a smoother interval chosen for it: on $24^3\times48$, in
 setup~S a narrower one ($\kappa_s=3$) is needed and then gives the iteration count of the M\"obius
 operator, and in setup~B the solve takes about four times the M\"obius iterations. Its residual
@@ -97,7 +97,8 @@ Boyle and Yamaguchi~\cite{BY} used CG on $S\dg S$, which here needs more iterati
 \paragraph{Mass dependence.} The multigrid removes most of the critical slowing down of CGNE
 (Fig.~\ref{fig:massscan}, Table~\ref{tab:massscan}). From $m=0.1$ to $m=0.001$ the iterations of
 CGNE grow by $20$--$32$, those of the multigrid by $2.0$--$2.4$. Its setup is paid back after
-$2.5$--$4.6$ right-hand sides at $m=0.001$. The multigrid is faster at every mass. The multigrid needs three times the device memory of CGNE.
+$2.5$--$4.6$ right-hand sides at $m=0.001$. The multigrid is faster at every mass. \textcolor{red}{New!!!} The multigrid needs about three times the device memory of CGNE: $20$--$23$\,GB
+(Sec.~\ref{sec:outer}) against $7.7$\,GB (Appendix~\ref{sec:cgform}) on $24^3\times48$.
 
 \paragraph{A point-source propagator.} At $m=0.001$ the multigrid takes $0.33$--$0.49$ of the wall
 time of CGNE for a whole propagator, setup included (Table~\ref{tab:pointsource}). At $m=0.01$ it
@@ -270,13 +271,6 @@ $3.5$ and the third $280$. This is why the first two rounds run without a probe.
 \subsection{Why the method converges}
 \label{sec:why}
 
-We infer that the spectrum and the pseudospectra of the preconditioned operator govern the
-convergence, since its field of values reaches into the left half-plane and the bound of
-Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not apply. The quantities of this section are
-for $\alpha=1$; $\AR$ does not depend on $\alpha$. At $\alpha=1$ the solves of
-Table~\ref{tab:massscan} need $1$--$4$ more iterations than at $\alpha=0.6$ in the mean over the
-configurations.
-
 The \emph{field of values}
 $W(X)=\{z\dg Xz/z\dg z\}$ contains the spectrum, and its leftmost point is the smallest eigenvalue
 of the Hermitian part $(X+X\dg)/2$; GCR converges at every restart length when $W$ lies in the
@@ -287,10 +281,20 @@ GMRES~\cite{TrefethenEmbree}. The condition number of an eigenvalue, $\kappa=1/|
 normalized right and left eigenvectors, is $1$ for a normal matrix and widens the pseudospectrum
 around the eigenvalue.
 
+\textcolor{red}{New!!!} We infer that the spectrum and the pseudospectra of the preconditioned operator govern the
+convergence, since its field of values reaches into the left half-plane
+(Sec.~\ref{sec:fov}) and the bound of Eisenstat, Elman and Schultz~\cite{ESS} for GCR does not
+apply.
+
 For these quantities $\mathcal M$ is a fixed linear map: both coarse factors solved
 to $|r|^2/|b|^2<10^{-20}$ in double precision, the Pauli--Villars factor regularized as in
 Eq.~\eqref{eq:tikhonov}, and $\mathcal M\dg$ built as its adjoint, so that
 $\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to about $10^{-10}$.
+\textcolor{red}{New!!!} We write $\mathcal S=p(\AR)$ for the smoother polynomial of Sec.~\ref{sec:smoother} and $E$ for
+the coarse correction~\eqref{eq:corr} with these exact coarse solves, $Er=e$; the cycle is
+$\mathcal M$ of Algorithm~\ref{alg:cycle}. The quantities of this section are for $\alpha=1$;
+$\AR$ does not depend on $\alpha$. At $\alpha=1$ the solves of Table~\ref{tab:massscan} need
+$1$--$4$ more iterations than at $\alpha=0.6$ in the mean over the configurations.
 
 \subsubsection{Field of values}
 \label{sec:fov}
@@ -298,12 +302,13 @@ $\langle z|\AR\mathcal M w\rangle$ and $\langle\mathcal M\dg\AR\dg z|w\rangle$ a
 The coarse correction pushes the field of values into the left half-plane (Table~\ref{tab:fov}).
 The field of values of $\AR$ itself reaches only just below zero, a little further on larger volumes,
 and the smoother is harmless, $\|I-\AR\mathcal S\|\approx1$. Without the shift the coarse correction $E$ is the identity
-on the vectors it is built from (Eq.~\eqref{eq:exact}). With stout smearing it amplifies other
-directions, like a strongly oblique projection, by three orders of magnitude, without smearing by
-less than a hundred (both with the shift). The post-smoothing acts as a filter
-and brings the whole cycle back to within a factor of ten of the identity. Eick and Mawhinney~\cite{EickMawhinney}
+on the vectors it is built from (Eq.~\eqref{eq:exact}). \textcolor{red}{New!!!} Other directions it amplifies: $\|I-\AR E\|$ is $2.2$--$3.1\times10^3$ in setup~S,
+$1.7$--$2.0\times10^3$ in setup~B, and $63$--$82$ at $M_5=1$ without smearing (all with the shift).
+The post-smoothing brings the whole cycle back to $\|I-\AR\mathcal M\|=6.7$--$10$ (S),
+$3.7$--$4.5$ (B) and $1.5$--$2.0$ (no smearing). Eick and Mawhinney~\cite{EickMawhinney}
 describe the same mechanism for a renormalization-group coarse lattice and need a Chebyshev filter
-of high degree; here $\AR$ is close to the identity on the high modes, and the smoother suffices.
+of high degree; \textcolor{red}{New!!!} here the Chebyshev smoother of degree $7$ (S) or $11$ (B) suffices
+for that reduction.
 
 $W(\AR\mathcal M)$ crosses the origin on every configuration in both setups: with stout smearing at
 $M_5=1$ (setup~S) and without it at $M_5=1.8$ (setup~B). Only at $M_5=1$

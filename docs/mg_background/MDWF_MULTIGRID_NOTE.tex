@@ -683,6 +683,13 @@ paid once per gauge field. The setup uses only the plain $D$ and $\Dpv$; Neff's 
 only the outer operator $\AL^{(\alpha)}$, the smoother that works on it, and \textcolor{red}{New!!!} site-local factors
 of the coarse correction (Sec.~\ref{sec:correction}), so one setup serves both forms and every $\alpha$.
 
+\textcolor{red}{New!!!} The prolongation, the coarse operators and solvers, and the cycle
+(Secs.~\ref{sec:correction}--\ref{sec:smoother}) are defined for given vectors $y_1,\dots,y_n$ on
+the even sites of the whole lattice that approximate low modes of $\AR$. The setup
+(Sec.~\ref{sec:setup}) computes these vectors, and its bootstrap improves them with the cycle
+built from the current ones. Since everything before the setup needs only some such vectors, we
+take the $y_j$ as given there and describe how they are found in Sec.~\ref{sec:setup}.
+
 \subsection{The factorized coarse-grid correction and the prolongation}
 \label{sec:correction}
 
@@ -918,21 +925,42 @@ Sec.~\ref{sec:exactness} states the result.
 
 \subsubsection{Aggregation and prolongation}
 \label{sec:agg}
-We divide the fine lattice into rectangular four-dimensional blocks. Each block contains the
-whole fifth dimension and becomes one coarse site. \textcolor{red}{New!!!} The columns of $\Pro$ are made
-from the $2n$ lifts $\{s_j,\hat t_j\}$ of Sec.~\ref{sec:basis}, the \emph{test vectors}, so
-$n_v=2n$. We split each test vector $v$ into its $\Gfive$ eigencomponents
+\textcolor{red}{New!!!} The coarse space is defined in three steps: blocks of the lattice, a coarse
+vector with a few components per block, and the map $\Pro$ from such a vector to a fine field.
+We divide the four-dimensional lattice into rectangular blocks $X$; the blocks are fixed before
+$\Pro$ and do not depend on the operators. A block is not cut in the fifth dimension, so it
+holds all $(x,s)$ with $x\in X$ and $s=0,\dots,L_s-1$. With $4^4$ blocks on $24^3\times48$ there
+are $6^3\times12$ blocks, and a fine field has $4^4\times L_s\times12$ complex components on each.
+The \emph{coarse lattice} has one site for each block, and two coarse sites are neighbors in
+direction $\mu$ when their blocks are. A coarse vector $c$ has $2n_v$ complex components
+$c_{X,1},\dots,c_{X,2n_v}$ on each coarse site $X$. On each block we construct below $2n_v$
+orthonormal fine fields $q_{X,1},\dots,q_{X,2n_v}$, zero outside $X$, and define
+\begin{equation}
+(\Pro c)(x,s)=\sum_{l=1}^{2n_v}c_{X,l}\,q_{X,l}(x,s)\quad\text{for }x\in X,\qquad
+(\Pro\dg\psi)_{X,l}=\sum_{x\in X}\sum_{s}q_{X,l}(x,s)\dg\,\psi(x,s).
+\label{eq:Pdef}
+\end{equation}
+So $\Pro$ represents a fine field on a block by its $2n_v$ coefficients along the $q_{X,l}$, and
+$\Pro\dg\psi$ collects the projections of $\psi$ on them.
+
+The coarse vector with the single component $c_{X,l}=1$ is mapped to $q_{X,l}$, so the
+$q_{X,l}$ are the columns of $\Pro$.
+
+The $q_{X,l}$ are made from the two lifts of each of the $n$ vectors $y_j$ of Sec.~\ref{sec:basis}. We call these
+$2n$ vectors $s_1,\dots,s_n,\hat t_1,\dots,\hat t_n$ the \emph{test vectors}; each is a vector
+on all lattice sites, and their number is $n_v=2n$. Below, $v$ stands for any one of them. We split each test vector $v$ into its $\Gfive$ eigencomponents
 $v_\pm=\frac12(1\pm\Gfive)v$ and cut each of them into pieces, one per block, each equal to $v_\pm$
 on the sites of its block and zero elsewhere. For one block and one chirality, the pieces of the
 $n_v$ test vectors are the columns $w_k$ of a matrix $W$. We orthonormalize them, $W=QR$ with $R$
-upper triangular, and the columns $q_l$ of $Q$, zero outside the block, are the columns of $\Pro$
-for that block and chirality. A coarse site thus carries $2n_v$ components: the first $n_v$ of
-positive and the last $n_v$ of negative $\Gfive$-chirality.
+upper triangular. The $n_v$ columns of $Q$, zero outside the block, are
+$q_{X,1},\dots,q_{X,n_v}$ for the positive chirality and $q_{X,n_v+1},\dots,q_{X,2n_v}$ for the
+negative one. So the first $n_v$ components of a coarse site belong to positive and the last
+$n_v$ to negative $\Gfive$-chirality.
 
 \textcolor{red}{New!!!} By construction the test vectors lie in $\operatorname{range}\Pro$. Since
 $v=v_++v_-$, a test vector is the sum of its pieces over the blocks and the two chiralities. Each
 piece is a column $w_k$ of the $W$ of its block and chirality, and $W=QR$ gives
-$w_k=\sum_lq_lR_{lk}$, a combination of columns of $\Pro$. So $v$ is a combination of the columns
+$w_k=\sum_l q_{X,l}R_{lk}$, with $l$ over the columns of that chirality, a combination of columns of $\Pro$. So $v$ is a combination of the columns
 of $\Pro$.
 
 As in the chirality split of Wilson multigrid~\cite{Babich}, each column of $\Pro$ is then an
@@ -1001,7 +1029,10 @@ $u=(\Cpve\dg)^{-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ and need the quark lift of $Q_ey'$ as 
 
 \subsubsection{The coarse operators}
 We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
-between neighboring blocks and from its part within a block. Each coarse site has a
+between neighboring blocks and from its part within a block. \textcolor{red}{New!!!} By
+Eq.~\eqref{eq:Pdef} the entries of $\Dc$ are $q_{X',k}\dg Dq_{X,l}$. $D$ moves a field by at most
+one site in four dimensions, so $Dq_{X,l}$ vanishes outside $X$ and its neighbors, and the entry
+vanishes unless $X'=X$ or $X'$ is a neighbor of $X$. Each coarse site has a
 $2n_v\times2n_v$ diagonal block and one link block for each of its eight nearest neighbors, nine blocks in all. The
 adjoint factor $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$ is the conjugate transpose of these blocks. When all
 extents of the coarse lattice are even, the coarse hops connect coarse sites of opposite parity,
@@ -1045,7 +1076,10 @@ fine $\Dpv$ (Sec.~\ref{sec:pvcoarse}).
 \subsubsection{Levels below the coarse lattice}
 The quark factor may be preconditioned by further levels. \textcolor{red}{New!!!} The coarse lattice is level
 $1$, with the operator $\mathcal D_1=\Dc$. The sites of level $\ell$ are grouped into
-super-blocks, each of which becomes one site of level $\ell+1$; on each super-block, local
+rectangular super-blocks, as the fine sites are grouped into blocks in Sec.~\ref{sec:agg}, and
+each super-block becomes one site of level $\ell+1$. \textcolor{red}{New!!!} On $24^3\times48$,
+super-blocks of $2^4$ and then $3^4$ sites reduce the $6^3\times12$ coarse lattice to $3^3\times6$
+and $1^3\times2$. On each super-block, local
 vectors are formed from the test vectors of the level, starting with $\Pro\dg s_j$ and
 $\Pro\dg\hat t_j$, split by chirality and orthonormalized (Gram--Schmidt applied twice). These
 give the prolongation $Q_{\ell+1}$ from level $\ell+1$ to level $\ell$ and the operator
@@ -1080,15 +1114,52 @@ $\{s_j,\hat t_j\}$, $\Pro$ and the coarse operators. It always uses the right fo
 setup serves the left forms and every $\alpha$ (Sec.~\ref{sec:correction}). It has two stages.
 A Chebyshev filter finds approximate low modes without any multigrid. A bootstrap then improves
 them with the cycle built from them, so that they also cover what the first coarse space misses.
+\textcolor{red}{New!!!} The filter comes first because the cycle is built from such vectors and
+none exist at the start. The bootstrap follows because the polynomial degree that the filter
+needs grows like the inverse square root of the lowest eigenvalue of $\AR\dg\AR$ it has to
+separate (Sec.~\ref{sec:filter}), while a bootstrap round is a step of inverse iteration, which
+changes the weights of the low modes by the ratios of their singular values alone
+(Sec.~\ref{sec:bootstrap}).
 
 \subsubsection{Chebyshev-filtered subspace iteration}
-The vectors approximate the right singular vectors of the smallest singular values of $\AR$,
-that is the low eigenvectors of the Hermitian positive operator $H_n=\AR\dg\AR$. We find them by
-filtering. Let $T_d$ be the Chebyshev polynomial of degree $d$ and
-$\ell(x)=\big(2x-(\lambda_{\rm hi}+\lambda_{\rm lo})\big)/(\lambda_{\rm hi}-\lambda_{\rm lo})$.
-Then $|T_d(\ell(x))|\le1$ on $[\lambda_{\rm lo},\lambda_{\rm hi}]$, while it grows quickly below
-$\lambda_{\rm lo}$. So $T_d(\ell(H_n))$ amplifies the low modes against the rest. We apply it by
-the three-term recurrence.
+\label{sec:filter}
+The vectors $y_1,\dots,y_n$ approximate the right singular vectors of the smallest singular values of $\AR$,
+that is the eigenvectors of the lowest eigenvalues of the Hermitian positive operator $H_n=\AR\dg\AR$.
+\textcolor{red}{New!!!} $H_n$ acts on the even sites of the whole lattice; the blocks enter only
+afterwards, when $\Pro$ is made from the $y_j$ (Sec.~\ref{sec:agg}). No cycle exists yet at this
+stage, so we enlarge the low-mode components of $n$ vectors by a polynomial in $H_n$, which
+needs only applications of $\AR$ and $\AR\dg$.
+
+\textcolor{red}{New!!!} Write $H_n=\sum_i\lambda_iv_iv_i\dg$ with $\lambda_i=\sigma_i^2$ and $v_i$
+the right singular vectors of $\AR$. A polynomial $p$ acts on a vector $x$ as
+$p(H_n)x=\sum_ip(\lambda_i)\,v_i\,(v_i\dg x)$: it multiplies the component along each $v_i$ by
+$p(\lambda_i)$. The $n$ starting vectors are random, so they have components along all the
+$v_i$. The coarse space is for the low modes, since the smoother damps the high ones
+(Sec.~\ref{sec:method}), so the filter should keep the components of small $\lambda_i$ and
+suppress the others. Let $T_d$ be the Chebyshev polynomial of degree $d$. For $|t|\le1$,
+$T_d(t)=\cos(d\arccos t)$, so $|T_d(t)|\le1$; for $|t|>1$, $|T_d(t)|=\cosh(d\,\mathrm{arccosh}|t|)$,
+which grows like $\frac12\big(|t|+\sqrt{t^2-1}\big)^d$. So we map the part of the spectrum to
+suppress onto $[-1,1]$. We choose this interval $[\lambda_{\rm lo},\lambda_{\rm hi}]$, with
+$\lambda_{\rm hi}$ slightly above $\lambda_{\max}(H_n)$ (from a few steps of power iteration) and
+$\lambda_{\rm lo}$ at first a small fraction of $\lambda_{\rm hi}$. The map
+\begin{equation*}
+\ell(x)=\frac{2x-(\lambda_{\rm hi}+\lambda_{\rm lo})}{\lambda_{\rm hi}-\lambda_{\rm lo}}
+\end{equation*}
+takes this interval to $[-1,1]$, and we take $p=T_d\circ\ell$, so $|p(\lambda)|\le1$ on the
+interval. Below $\lambda_{\rm lo}$, $\ell(\lambda)<-1$. So the
+components along the $v_i$ with $\lambda_i<\lambda_{\rm lo}$ are multiplied by factors above $1$
+that grow with $d$, and those with $\lambda_i$ in the interval by at most $1$. At $\lambda=0$,
+$|\ell(0)|=1+2\lambda_{\rm lo}/(\lambda_{\rm hi}-\lambda_{\rm lo})$, and
+$\mathrm{arccosh}(1+\epsilon)\approx\sqrt{2\epsilon}$ gives the factor
+$\approx\cosh\big(2d\sqrt{\lambda_{\rm lo}/\lambda_{\rm hi}}\big)$ for $\lambda_{\rm lo}\ll\lambda_{\rm hi}$; a degree proportional to
+$\sqrt{\lambda_{\rm hi}/\lambda_{\rm lo}}$ keeps it fixed. We apply $p(H_n)$ by the recurrence
+$T_{k+1}(t)=2tT_k(t)-T_{k-1}(t)$, $T_0=1$, $T_1=t$, with one application of $H_n$ (one of $\AR$
+followed by one of $\AR\dg$) per degree.
+
+\textcolor{red}{New!!!} Algorithm~\ref{alg:lowmodes} repeats this in rounds. Each round filters the
+$n$ vectors, orthonormalizes them, and diagonalizes $H_n$ on their span (Rayleigh--Ritz), which
+gives $n$ Ritz values. The next round sets $\lambda_{\rm lo}$ to the largest of them, so that it
+enlarges the components below the current $n$ Ritz values and suppresses those above.
 
 \begin{algorithm}
 \caption{\textsc{LowModes}: Chebyshev-filtered subspace iteration on $H_n=\AR\dg\AR$.}
@@ -1107,46 +1178,49 @@ the three-term recurrence.
 \end{algorithm}
 
 \subsubsection{Bootstrap}
-Each bootstrap round has three steps. It builds the basis and the two-grid cycle of
-Sec.~\ref{sec:smoother} from the current $y$. It replaces every $y_j$ by a few FGMRES steps (Algorithm~\ref{alg:fgmres}) on
-$\AR x=y_j$ from $x=0$, preconditioned by that cycle. And it orthonormalizes the new $y$ through
-their Gram matrix ($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$). \textcolor{red}{New!!!} The FGMRES steps approximate
-$\AR^{-1}y_j$. With the singular value decomposition $\AR=\sum_i\sigma_iu_iv_i\dg$,
+\label{sec:bootstrap}
+\textcolor{red}{New!!!} A bootstrap round is one step of inverse iteration: it replaces each
+$y_j$ by an approximation of $\AR^{-1}y_j$, which the cycle built from the current vectors makes
+affordable. With the singular value decomposition $\AR=\sum_i\sigma_iu_iv_i\dg$,
 \begin{equation*}
 \AR^{-1}y_j=\sum_iv_i\,\frac{u_i\dg y_j}{\sigma_i},
 \end{equation*}
-so the new vectors weight the right singular vectors of small $\sigma_i$ most: a round is a step
-of inverse iteration, made affordable by the cycle.
+so the new vectors weight most the right singular vectors $v_i$ of small $\sigma_i$, the low
+modes that the $y_j$ approximate. A round has three steps. It builds the basis and the two-grid cycle of
+Sec.~\ref{sec:smoother} from the current $y$. It replaces every $y_j$ by a few FGMRES steps (Algorithm~\ref{alg:fgmres}) on
+$\AR x=y_j$ from $x=0$, preconditioned by that cycle. And it orthonormalizes the new $y$ through
+their Gram matrix ($y\leftarrow yV\Lambda^{-1/2}$ with $y\dg y=V\Lambda V\dg$).
 
 \paragraph{\textcolor{red}{New!!!} Number of rounds.}
 \label{sec:autoboot}
 The bootstrap stops when one more round would no longer bring the vectors closer to the low modes.
 We measure that distance by the lowest Ritz value of $H_n=\AR\dg\AR$ on the vectors. After round
 $r$ the vectors $y$ are orthonormal, so the Ritz values are the eigenvalues of the $n\times n$
-matrix $(\AR y)\dg(\AR y)$. We call the lowest one $\theta_r$ and its Ritz vector $u_r$; the
-filter gives $\theta_0$ and $u_0$. Computing them costs one application of $\AR$ per vector.
+matrix $(\AR y)\dg(\AR y)$. We call the lowest one $\theta_r$ and its Ritz vector $\phi_r$; the
+filter gives $\theta_0$ and $\phi_0$. Computing them costs one application of $\AR$ per vector.
 
 Round $r+1$ begins with a probe. It builds the cycle $\mathcal M_{r+1}$ from the current $y$, as
-the round would, and improves $u_r$ alone with the same FGMRES steps:
+the round would, and improves $\phi_r$ alone with the same FGMRES steps:
 \begin{equation}
-x=\textsc{Fgmres}_k(\AR,\mathcal M_{r+1},u_r),\qquad
+x=\textsc{Fgmres}_k(\AR,\mathcal M_{r+1},\phi_r),\qquad
 \rho_{r+1}=\frac{|\AR x|^2}{|x|^2},\qquad g_{r+1}=\frac{\theta_r}{\rho_{r+1}}.
 \label{eq:probe}
 \end{equation}
 Here $k$ is the number of FGMRES steps per vector and round (4), $\rho_{r+1}$ is the Rayleigh
 quotient of $H_n$ at the improved vector, and $g_{r+1}$ is the gain of the probe. The gain says how
-much the round would lower the lowest Ritz value if it lowered it as much as it lowers $u_r$. If
+much the round would lower the lowest Ritz value if it lowered it as much as it lowers $\phi_r$. If
 $g_{r+1}<g_{\min}$ the round is not done, and the bootstrap ends with $y$ unchanged. Otherwise
 the round improves every vector with $\mathcal M_{r+1}$. We take $g_{\min}=4$ and at most $8$
 rounds. The first $r_{\min}$ rounds run without a probe. A setup from the filtered vectors has
 $r_{\min}=2$, since the cycle of the second round, when it is made of few vectors or few smoother
-steps, can lower $u_1$ by less than $g_{\min}$ although the vectors are still far from the lowest
-modes\ifresults{} (Sec.~\ref{sec:autorounds})\fi. When HMC
-starts the bootstrap from the vectors of an earlier solve, $r_{\min}=0$, and $r_{\min}=1$ after a
-stalled solve, since the stall itself shows that the vectors are not good enough.
+steps, can lower $\phi_1$ by less than $g_{\min}$ although the vectors are still far from the lowest
+modes\ifresults{} (Sec.~\ref{sec:autorounds})\fi. \textcolor{red}{New!!!} In HMC
+(Sec.~\ref{sec:open}) the bootstrap starts from the vectors of an earlier solve and has
+$r_{\min}=0$. After a solve that does not converge within its iteration limit it has
+$r_{\min}=1$, since that failure shows that the vectors are not good enough.
 
 The probe of Eq.~\eqref{eq:probe} uses $\theta_r$ in place of the residual
-$|H_nu_r-\theta_ru_r|$, because at small masses $\theta_r$ falls below single precision relative to
+$|H_n\phi_r-\theta_r\phi_r|$, because at small masses $\theta_r$ falls below single precision relative to
 the largest eigenvalue of $H_n$, and the residual then stops falling while $\theta_r$ still falls.
 It uses the cycle of the next round, because the cycle of the round just done is built from the
 earlier vectors and does not see what the last round gained. When the probe ends the bootstrap, $\mathcal M_{r+1}$ is
@@ -1158,20 +1232,18 @@ and a Ritz pair after each round. Sec.~\ref{sec:autorounds} gives the rounds the
 \caption{Setup of the two-grid method. \textcolor{red}{New!!!} With a fixed number of rounds $R$, the loop runs $R$ times without the test.}
 \label{alg:setup}
 \begin{algorithmic}
-\State $y\gets\textsc{LowModes}(H_n)$;\quad $(\theta,u)\gets$ lowest Ritz pair of $H_n$ on $y$
+\State $y\gets\textsc{LowModes}(H_n)$;\quad $(\theta,\phi)\gets$ lowest Ritz pair of $H_n$ on $y$
 \For{$r=0,\dots,7$}
-  \State build $\Pro$ from $\{s_j,\hat t_j\}$ of $y$ and the cycle $\mathcal M$ on it
+  \State \textcolor{red}{New!!!} from $y$, build $\Pro$ (the lifts $s_j,\hat t_j$ of Eq.~\eqref{eq:lifts}, split by $\Gfive$ and orthonormalized per block), $\Dc$ and $\Dcpv$ with the inverses of their diagonal blocks and their even-odd forms, optionally the levels below, and the cycle $\mathcal M$
   \If{$r\ge r_{\min}$ and $\theta<g_{\min}\,\rho$ for $\rho$ of Eq.~\eqref{eq:probe}} \textbf{break} \Comment{\textcolor{red}{New!!!} keep $\Pro$, $\mathcal M$}
   \EndIf
   \For{$j=1,\dots,n$}
     \State $y_j\gets$ a few FGMRES steps on $\AR x=y_j$, preconditioned by $\mathcal M$
   \EndFor
-  \State orthonormalize $y$;\quad $(\theta,u)\gets$ lowest Ritz pair of $H_n$ on $y$
+  \State orthonormalize $y$;\quad $(\theta,\phi)\gets$ lowest Ritz pair of $H_n$ on $y$
 \EndFor
-\If{the loop did not end by the test} \Comment{\textcolor{red}{New!!!}}
-  \State compute $s_j,\hat t_j$ by Eq.~\eqref{eq:lifts}; split by $\Gfive$; orthonormalize per block $\to\Pro$
-  \State assemble $\Dc$, $\Dcpv$, the inverses of their diagonal blocks, their even-odd forms
-  \State optionally, build the levels below from $\Pro\dg s_j$, $\Pro\dg\hat t_j$
+\If{the loop did not end by the test} \Comment{\textcolor{red}{New!!!} the last round changed $y$}
+  \State build $\Pro$, the coarse operators and $\mathcal M$ from the final $y$, as at the top of the loop
 \EndIf
 \end{algorithmic}
 \end{algorithm}

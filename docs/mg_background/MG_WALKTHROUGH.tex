@@ -755,9 +755,42 @@ the \emph{test vectors}, $n_v=2n$.
 
 \subsection{Aggregation and the chirality split}
 \label{sec:agg}
-The fine lattice is divided into $4^4$ blocks, each with the whole fifth dimension; each block is
-one coarse site. \textcolor{red}{New!!!} The columns of $\Pro$ are made from the test vectors $|s_j\rangle$ and
-$|\hat t_j\rangle$ of Sec.~\ref{sec:lifts}. For a test vector $|v\rangle$ and a block $X$, restrict it to the block and split it
+\textcolor{red}{New!!!} The coarse space is defined in three steps: blocks, coarse vectors, and
+the map $\Pro$ between them.
+
+\emph{Blocks.} The four-dimensional lattice is divided into $4^4$ blocks $X$; the blocks are fixed
+before $\Pro$ and do not depend on the operators. A block is not cut in the fifth dimension: it
+holds all $(x,s)$ with $x\in X$ and $s=0,\dots,L_s-1$. On $24^3\times48$ there are
+$6^3\times12=2592$ blocks, and a fine field has $256\times L_s\times12=24576$ complex components
+on each (12 for spin and color).
+
+\emph{Coarse vectors.} The coarse lattice has one site for each block; two coarse sites are
+neighbors in direction $\mu$ when their blocks are, so the coarse lattice is $6^3\times12$. A
+coarse vector $|c\rangle$ has $2n_v$ complex components $c_{X,1},\dots,c_{X,2n_v}$ on each coarse
+site $X$.
+
+\emph{The map.} On each block there are $2n_v$ orthonormal fine fields
+$|q_{X,1}\rangle,\dots,|q_{X,2n_v}\rangle$, zero outside $X$ (made below from the test vectors).
+Then
+\begin{equation}
+(\Pro c)(x,s)=\sum_{l=1}^{2n_v}c_{X,l}\,q_{X,l}(x,s)\quad (x\in X),\qquad
+(\Pro\dg\psi)_{X,l}=\langle q_{X,l}|\psi\rangle=\sum_{x\in X}\sum_s q_{X,l}(x,s)\dg\psi(x,s).
+\end{equation}
+The coarse vector with the single component $c_{X,l}=1$ goes to $|q_{X,l}\rangle$, so these are
+the columns of $\Pro$. The $24576$ components of a fine field on a block are thus represented by
+$2n_v$ coefficients. A one-dimensional example: $8$ sites, blocks of $2$, one test vector $v$
+and no chirality split. Then $X_1=\{1,2\},\dots,X_4=\{7,8\}$,
+$q_{X_1}=(v_1,v_2,0,\dots,0)/\sqrt{|v_1|^2+|v_2|^2}$ and so on, and
+$c_X=\sqrt{|v_{2X-1}|^2+|v_{2X}|^2}$ gives $\Pro c=v$.
+
+\emph{The coarse operator is nearest-neighbor.} The entries of $\Pro\dg D\Pro$ are $\langle
+q_{X',k}|D|q_{X,l}\rangle$. $D$ moves a field by at most one site in four dimensions
+(Eq.~\eqref{eq:Dslice}), so $D|q_{X,l}\rangle$ vanishes outside $X$ and its eight neighbors, and the
+entry vanishes unless $X'=X$ or $X'$ is a neighbor of $X$: nine blocks of $2n_v\times2n_v$ per coarse site.
+
+The columns of $\Pro$ are made from the test vectors of Sec.~\ref{sec:lifts}, the
+$n_v=2n$ vectors $|s_1\rangle,\dots,|s_n\rangle,|\hat t_1\rangle,\dots,|\hat t_n\rangle$, each on
+all lattice sites; below, $|v\rangle$ stands for any one of them. For a test vector $|v\rangle$ and a block $X$, restrict it to the block and split it
 by $\Gfive=\gamma_5R$, $(R\psi)_s=\psi_{L_s-1-s}$:
 \begin{equation}
 |X,v\rangle=\begin{cases}|v\rangle, & x\in X,\\ 0, & x\notin X,\end{cases}\qquad
@@ -923,7 +956,10 @@ Both factors stop at $|r|^2/|b|^2<10^{-2}$ (for the Pauli--Villars factor, the r
 equation).
 
 \paragraph{Levels below.} At small masses the coarse solves themselves become expensive. The coarse sites are then
-grouped into super-blocks (2, then 3), local vectors are formed from $\Pro\dg|s_j\rangle$,
+grouped into rectangular super-blocks, as the fine sites into blocks in Sec.~\ref{sec:agg}; each
+super-block becomes one site of the next level. \textcolor{red}{New!!!} On $24^3\times48$,
+super-blocks of $2^4$ and then $3^4$ sites reduce the $6^3\times12$ coarse lattice to
+$3^3\times6$ and $1^3\times2$. On each super-block, local vectors are formed from $\Pro\dg|s_j\rangle$,
 $\Pro\dg|\hat t_j\rangle$, and a V-cycle preconditions the coarse solve of the quark factor. Number the levels from the
 coarse lattice, $\ell=1$, down; let $\mathcal D_\ell$ be the operator on level $\ell$, $B_\ell$ its
 diagonal blocks, and $\Pro_{\ell+1}$ the prolongation from level $\ell+1$ to level $\ell$ ($Q_{\ell+1}$ in the note). The
