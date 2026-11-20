@@ -139,9 +139,9 @@ did not beat red-black CG. A single setup serves every value of Neff's $\alpha$.
 values of the preconditioned operator reaches into the left half-plane, yet at $\alpha=1$ its spectrum has
 $\Re\lambda\ge0.72$, and on $12^4$ (one configuration) its pseudospectra bound the convergence of full GMRES. On four quenched
 $24^3\times48$ configurations the iteration count grows by a factor of $2.0$--$2.4$ from $m=0.1$ to
-$m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE. At $m=0.001$ a solve is
-$6.6$--$11.1$ times faster than mixed-precision CGNE, and a point-source propagator takes
-$0.33$--$0.49$ of its time, setup included.\else{} We state
+$m=0.001$, against $20$--$32$ for mixed-precision even-odd CGNE \textcolor{red}{New!!!} without deflation. At $m=0.001$ a solve is
+$6.6$--$11.1$ times faster than that CGNE, and a point-source propagator takes
+\textcolor{red}{New!!!}~$0.27$--$0.49$ of its time, setup included.\else{} We state
 the method and the questions that are open.\fi{}
 For future HMC work, which needs solves with $D\dg$, \textcolor{red}{New!!!} we show that for
 coefficients $b$, $c$ independent of the fifth coordinate $(D\dg)^{-1}=\Gfive B_5D^{-1}B_5^{-1}\Gfive$
@@ -268,7 +268,7 @@ with $D\dg$ into a solve with $D$ with the same multigrid. For coefficients that
 Eq.~\eqref{eq:c4} makes the multigrid of $D$, placed between two $\Gfive=\gamma_5R$, a
 preconditioner for $D\dg$. Neither needs a second setup.\ifresults{} We test the
 method on quenched configurations from $12^4$ to $24^3\times48$ on a single GPU against even-odd
-CGNE.\fi
+CGNE \textcolor{red}{New!!!} without deflation.\fi
 
 % ============================================================
 \section{The operator and its preconditioning}
@@ -975,8 +975,8 @@ $\pi\Pro$.
 
 \paragraph{\textcolor{red}{New!!!} CholeskyQR2.} We compute $W=QR$ through the Gram matrix: $G=W\dg W=R\dg R$, so
 the Cholesky factor of $G$ is $R$, and $Q=WR^{-1}$ needs one Gram matrix, one Cholesky factor and
-one triangular solve. One pass loses orthogonality like the square of the condition number of
-$W$, so we do it twice; the second Gram matrix is close to the identity. Each pass reads $W$
+one triangular solve. \textcolor{red}{New!!!} One pass loses orthogonality like the square of the condition number of
+$W$~\cite{CholQR2}, so we do it twice; the second Gram matrix is close to the identity. Each pass reads $W$
 twice, where Gram--Schmidt reads it once per pair of columns. Where a pivot $R_{jj}^2$ of the
 first pass falls below $10^{-12}\,G_{jj}$, the block's vectors are nearly dependent and we use
 Gram--Schmidt instead. On $24^4$ with $n_v=40$ this took the construction of $\Pro$ from $4.0$\,s
@@ -1143,7 +1143,7 @@ suppress onto $[-1,1]$. We choose this interval $[\lambda_{\rm lo},\lambda_{\rm 
 $\lambda_{\rm hi}$ slightly above $\lambda_{\max}(H_n)$ (from a few steps of power iteration) and
 $\lambda_{\rm lo}$ at first a small fraction of $\lambda_{\rm hi}$. The map
 \begin{equation*}
-\ell(x)=\frac{2x-(\lambda_{\rm hi}+\lambda_{\rm lo})}{\lambda_{\rm hi}-\lambda_{\rm lo}}
+\ell(\lambda)=\frac{2\lambda-(\lambda_{\rm hi}+\lambda_{\rm lo})}{\lambda_{\rm hi}-\lambda_{\rm lo}}
 \end{equation*}
 takes this interval to $[-1,1]$, and we take $p=T_d\circ\ell$, so $|p(\lambda)|\le1$ on the
 interval. Below $\lambda_{\rm lo}$, $\ell(\lambda)<-1$. So the
@@ -1331,8 +1331,9 @@ methods converge for every restart length if the field of values of $\tilde A\ma
 the right half-plane~\cite{ESS}. Otherwise only the full method is covered, by the spectrum and
 the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a truncated method can
 stagnate~\cite{Embree}.
-We monitor convergence on the even-odd system and evaluate the residual of the original equation,
-$\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
+\textcolor{red}{New!!!} Unless stated otherwise, a solve stops on the residual of the original equation, $|D\psi-\eta|^2/|\eta|^2$, with the
+plain $D$ after reconstruction. When the solver of the even-odd system meets its own tolerance
+before that residual does, it lowers its tolerance and continues. The reference solver is CG on
 the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). \textcolor{red}{New!!!} Its operator
 $(\Ce^{-1}S)\dg\Ce^{-1}S$ is Hermitian positive definite for any nonsingular $S$, so CG converges, but
 its condition number is the square of that of $\Ce^{-1}S$. It runs in double precision, or in mixed precision: CG in single precision with
@@ -1447,8 +1448,8 @@ fifth. So $N$ is large only where $D^{-1}$ is large, on the low modes of $D$.
 \item On a low mode $v$ the commutator acts through the $\gamma_\mu$ in $K$, which flip
 chirality. A low mode of $D$ carries on each wall the chirality bound there, $\Pm$ at $s=0$ and
 $\Pp$ at $s=L_s-1$; $[Y,W]v$ carries on each wall the opposite chirality, which no low mode has
-there. So $N$ takes the low modes out of their
-span, and $N^2$ is small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method needs only a few
+there. \textcolor{red}{New!!!} So we expect $N$ to take the low modes out of their
+span and $N^2$ to be small. Then $(1-N)^{-1}\approx1+N$, and a Krylov method would need only a few
 steps more than for the identity.
 \end{itemize}
 The third remark is a heuristic\ifresults{}; Sec.~\ref{sec:daggerresults} tests it and finds
@@ -1535,18 +1536,19 @@ configurations in setup~S at $m=0.001$ the cosine between $r$ and $\AR\mathcal M
 $10^{-4}$ at every stall; on one of them $|\AR\mathcal Mr|/|r|\approx6$--$10$, while the Ritz
 values of $\AR\mathcal M$ lie in $0.6$--$1.7$. A non-normal operator can do this, and two kept
 directions then cannot lower the residual (the fixed point of Sec.~\ref{sec:gcrk}). A larger Krylov space gets past the stall, and so do better
-test vectors: with the automatic number of bootstrap rounds of Sec.~\ref{sec:autoboot}, one HMC
-step on three of these quenched $24^4$ configurations finishes its solves with GCR(2) in about
-$50$ iterations each, where two rounds stall.
+test vectors: with the automatic number of bootstrap rounds of Sec.~\ref{sec:autoboot}, \textcolor{red}{New!!!} one HMC
+step on each of the four quenched $24^4$ configurations finishes its five solves with GCR(2) in
+$217$ to $247$ iterations, $43$ to $49$ per solve on average; with two rounds the sweep stalls on two
+of them.
 
 \begin{table}[t]
 \centering
-\caption{GCR(2) iterations of solves with $D$ and with $D\dg$ from one setup of $D$ on the GPU,
-one cycle per step, to $|r|^2/|b|^2<10^{-10}$, medians over four configurations (in brackets the
-number that do not converge in $300$ iterations; ``stall'': all four). ``rand'': random
-right-hand side; ``res'': the residual of one sweep of $D\dg D$ (Sec.~\ref{sec:daggerresults}).
-$16^4$ at $m=0.01$, the others at $m=0.001$; $24^4$ and $24^3\times48$ with the levels below the
-coarse lattice.}
+\caption{\textcolor{red}{New!!!} GCR(2) iterations of solves with $D$ and with $D\dg$ from one setup of $D$, one cycle per step.
+Each solve stops when the residual of the even-site system it solves satisfies $|r|^2/|b|^2<10^{-10}$. $16^4$ is at $m=0.01$, the other lattices at $m=0.001$;
+$24^4$ and $24^3\times48$ use the levels below the coarse lattice. ``rand'' is a random
+right-hand side, ``res'' the residual of one sweep of $D\dg D$ (Sec.~\ref{sec:daggerresults}).
+Entries are medians over the four configurations. A number in brackets counts the configurations
+that do not converge in $300$ iterations; ``stall'' means that none converges.}
 \label{tab:b5}
 \renewcommand{\arraystretch}{1.15}
 \begin{tabular}{@{}llcccccc@{}}
@@ -1576,8 +1578,8 @@ $24^3\times48$ & S & 7 & 11.5 & 9.5 & 14 & 7 & 11.5\\
 \label{sec:summary}
 
 At $m=0.001$ on four $24^3\times48$ quenched configurations, one GPU, the multigrid solve is
-$6.6$--$11.1$ times faster than mixed-precision even-odd CGNE, and a point-source propagator takes
-$0.33$--$0.49$ of its wall time, setup included. Its iterations grow by a factor of
+$6.6$--$11.1$ times faster than mixed-precision even-odd CGNE \textcolor{red}{New!!!} without deflation, and a point-source propagator takes
+\textcolor{red}{New!!!}~$0.27$--$0.49$ of its wall time, setup included. Its iterations grow by a factor of
 $2.0$--$2.4$ from $m=0.1$ to $m=0.001$, those of CGNE by $20$--$32$. In solve time, setup
 excluded, the multigrid is faster from $16^4$ on. BiCGStab and GCR(2) with the Chebyshev smoother on $\AL$ alone are slower
 than mixed-precision CGNE, so the gain comes from the coarse correction.
@@ -1596,13 +1598,14 @@ pseudospectra bound full GMRES with a fixed cycle. With the parameters of Table~
 truncated GCR(2) solved with $D$ without a plateau on every volume on random and point-source
 right-hand sides.
 
-Solving with $D\dg$, as HMC needs, uses the cycle of $D$ between two $\Gfive$, with no second setup.
-On $16^4$ at $m=0.01$ it takes one to four iterations more than solving with $D$; on $12^4$ in
-setup~S the residual right-hand side needs GCR(8) with two cycles per step, which converges on all
-four configurations. \textcolor{red}{New!!!} The exact relation of Sec.~\ref{sec:b5} turns the
-solve with $D\dg$ into a solve with $D$, which needs the iterations of a solve with $D$ within two
-on every volume up to $24^3\times48$; on that residual right-hand side of $12^4$ it converges with
-GCR(2) in $7$ to $8$ iterations (Table~\ref{tab:b5}).
+\textcolor{red}{New!!!} Solving with $D\dg$, as HMC needs, takes no second setup. For coefficients $b$, $c$ independent
+of $s$ the exact relation of Sec.~\ref{sec:b5} turns the solve with $D\dg$ into a solve with $D$,
+which needs the iterations of a solve with $D$ within two on every volume up to $24^3\times48$; on
+the residual right-hand side of $12^4$ in setup~S it converges with GCR(2) in $7$ to $8$ iterations
+(Table~\ref{tab:b5}). For coefficients that depend on $s$ the cycle of $D$ between two $\Gfive$
+is the preconditioner. With one cycle per step it takes two to four iterations more than solving
+with $D$ on $16^4$ at $m=0.01$; on $12^4$ in setup~S the residual right-hand side needs GCR(8) with
+two cycles per step, which converges on all four configurations.
 
 Applying the coarse operators to the 12 columns of a point
 source together should raise the arithmetic intensity from about one flop per byte to about ten, as
@@ -1620,7 +1623,7 @@ Bridge++ does not have, is checked against CGNE, whose propagators it reproduces
 program.
 \fi
 % ============================================================
-\section{Open problems}
+\section{\textcolor{red}{New!!!} Future work}
 \label{sec:open}
 
 \ifresults
@@ -1959,7 +1962,8 @@ For $D\psi=\eta$ the even-odd reduction of Sec.~\ref{sec:eo} gives $\mathcal K^{
 with $\mathcal K^{(\alpha)}=Q_e^{-1}\mathcal KQ_e$, Eq.~\eqref{eq:Ksimilar}, and CG solves its normal
 equation $A y=b$, $A=\mathcal K^{(\alpha)\dagger}\mathcal K^{(\alpha)}$,
 $b=\mathcal K^{(\alpha)\dagger}Q_e^{-1}\Ce^{-1}\eta'_e$; $\psi_o$ and $\psi=Q\psi^{(\alpha)}$ follow as for the
-multigrid. The stopping criterion is $|b-Ay|^2/|b|^2<10^{-18}$. Since the unknown
+multigrid. \textcolor{red}{New!!!} CG stops when $|D\psi-\eta|^2/|\eta|^2<10^{-18}$ (Sec.~\ref{sec:outer}); if $|b-Ay|^2/|b|^2$ reaches
+its tolerance first, the tolerance is lowered and CG continues. Since the unknown
 is $y$ itself and $A$ has $\mathcal K^{(\alpha)}$ on the right, Bridge++ and Ref.~\cite{Saad} call this method CGNR; we
 keep the name CGNE that is common in lattice QCD.
 
@@ -2053,19 +2057,19 @@ compared with it.
 \begin{figure}[tbp]
 \centering
 \includegraphics[height=0.78\textheight]{fig_cgform}
-\caption{CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open,
-dashed), with $\mathcal K=1-\Ce^{-1}D_{eo}\Co^{-1}D_{oe}$ (the even-odd operator of Bridge++) and
-$S=\Ce-D_{eo}\Co^{-1}D_{oe}$ (the Schur complement of Grid's default \texttt{SchurDiagMooeeOperator},
-there on the odd sites), against the M\"obius $c$, $b=1+c$, and below each their ratio; above $1$ the left-preconditioned form
-is faster. Upper four panels $\alpha=1$, lower four $\alpha=0.6$. CG stops at $|r|^2/|b|^2<10^{-18}$ of
-its normal equations.}
+\caption{\textcolor{red}{New!!!} CG iterations on $\mathcal K\dg\mathcal K$ (filled, solid) and on $S\dg S$ (open,
+dashed) against the M\"obius $c$, with $b=1+c$. Here $\mathcal K=1-\Ce^{-1}D_{eo}\Co^{-1}D_{oe}$ is the
+even-odd operator of Bridge++, and $S=\Ce-D_{eo}\Co^{-1}D_{oe}$ is the Schur complement of Grid's
+default \texttt{SchurDiagMooeeOperator} (there on the odd sites). Below each panel is the ratio of the
+$S\dg S$ count to the $\mathcal K\dg\mathcal K$ count. The upper four panels are at $\alpha=1$, the lower four at $\alpha=0.6$. In this comparison CG stops at
+$|r|^2/|b|^2<10^{-18}$ of its normal equations.}
 \label{fig:cgform}
 \end{figure}
 
 \clearpage
 \section{Tables of the numerical results}
 \label{sec:tables}
-This appendix holds the tables that support Sec.~\ref{sec:results}. Medians over an even number of
+\textcolor{red}{New!!!} This appendix holds the further tables of Sec.~\ref{sec:results}. Medians over an even number of
 configurations are the mean of the two middle values; halves are rounded up.
 
 \input{results_tables}
@@ -2155,6 +2159,7 @@ SIAM Rev.\ \textbf{45} (2003) 259.
 \bibitem{ChiuZolo} T.-W.~Chiu, \emph{Optimal domain wall fermions}, Phys.\ Rev.\ Lett.\ \textbf{90} (2003) 071601 [hep-lat/0209153].
 \bibitem{YasunagaML} S.~Yasunaga, K.~Yoshimura, A.~Tomiya and Y.~Nagai, \emph{Parameter optimization of domain-wall fermion using machine learning}, contribution to LATTICE2025, arXiv:2603.16329.
 \bibitem{WhyteSVD} T.~Whyte, A.~Stathopoulos and E.~Romero, \emph{Accelerating multigrid with streaming chiral SVD for Wilson fermions in lattice QCD}, arXiv:2505.14399.
+\bibitem{CholQR2} Y.~Yamamoto, Y.~Nakatsukasa, Y.~Yanagisawa and T.~Fukaya, \emph{Roundoff error analysis of the CholeskyQR2 algorithm}, Electron.\ Trans.\ Numer.\ Anal.\ \textbf{44} (2015) 306.
 \end{thebibliography}
 
 \end{document}

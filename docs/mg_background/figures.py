@@ -227,7 +227,9 @@ def sensitivity():
     data = rows("sensitivity_12_configs.tsv")
     prefix = {"S": "stout", "B": "m18"}
     base_x = {"block": 4, "vectors": 32, "steps": {"S": 8, "B": 12}, "ratio": {"S": 10, "B": 30},
-              "coarse": 1e-2, "bootstrap": 2}
+              "coarse": 1e-2, "bootstrap": {"S": 2, "B": 3}}
+    # The default number of bootstrap rounds is automatic: in the runs of
+    # sensitivity_12_configs.tsv it is 2 for setup S and 3 for setup B on all four configurations.
     panels = [("block", r"aggregate edge"), ("vectors", "test vectors"), ("steps", r"smoother steps $\nu$"),
               ("ratio", r"interval ratio $\kappa_s$"), ("coarse", "coarse tolerance"),
               ("bootstrap", "bootstrap rounds")]
@@ -235,7 +237,7 @@ def sensitivity():
     fig, axes = plt.subplots(2, 3, figsize=(6.6, 4.6), sharey=True)
     for ax, (key, xlabel) in zip(axes.flat, panels):
         for setup, color, mk in (("S", "C3", "o"), ("B", "C0", "s")):
-            xs = {}
+            xs, base = {}, []
             for r in data:
                 if r["setup"] != setup:
                     continue
@@ -244,9 +246,16 @@ def sensitivity():
                     x = float(name.split("_", 1)[1])
                 elif name == "base":
                     x = base_x[key][setup] if isinstance(base_x[key], dict) else base_x[key]
+                    base.append((x, cap if "!" in r["iterations"] else int(r["iterations"])))
+                    continue
                 else:
                     continue
                 xs.setdefault(x, []).append(cap if "!" in r["iterations"] else int(r["iterations"]))
+            # The default runs, unless a run of the same value is there already (B, 3 rounds).
+            explicit = set(xs)
+            for x, v in base:
+                if x not in explicit:
+                    xs.setdefault(x, []).append(v)
             for x in xs:
                 pass
             if key in ("block", "vectors", "steps", "ratio", "bootstrap", "coarse"):
