@@ -107,7 +107,7 @@ What runs on the GPU with `backend : cuda_bridge`, and what does not yet:
 | On the GPU | Not yet |
 |---|---|
 | Wilson, clover and domain-wall propagators, with the solvers of the CPU, in double, single or mixed precision, several right-hand sides at a time | |
-| the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) and either treatment of the Pauli-Villars factor (MINRES, or the exact adjoint) | |
+| the domain-wall multigrid with all of its setup (filter, bootstrap, prolongation, coarse operators and their solves), with the levels below the coarse lattice (`MultiGrid_Level2` and on) and the treatments of the Pauli-Villars factor (CG on its regularized normal equations by default, MINRES, or the exact adjoint) | |
 | the Wilson and clover multigrid (P made on the host, the coarse operator, SAP and the coarse solves on the device), for propagators and HMC | its levels below the coarse lattice and `precondition_diagonal` (refused when the file is read) |
 | HMC: the links, the momenta and the integrator, the gauge actions, stout smearing and its chain rule, the domain-wall Standard and Ratio actions, the Wilson and clover Standard, Ratio and Rational actions with the clover term and its force | the gradient flow (the links cross over to the CPU for it and to be saved) |
 | several GPUs: `ruttice-mpi` with one GPU a process, every fermion and its multigrid, the result of one process bit for bit | checked so far with several processes sharing one GPU; NCCL and nodes of several GPUs not yet run |

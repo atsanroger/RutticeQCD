@@ -1255,8 +1255,8 @@ and a Ritz pair after each round. Sec.~\ref{sec:autorounds} gives the rounds the
 \subsubsection{Smoother}
 The smoother is $\nu$ steps of Chebyshev iteration~\cite{Manteuffel,Saad} for
 $\tilde Ax=b$ from $x=0$, i.e.\ a fixed polynomial $x=p(\tilde A)b$ of degree
-$\nu-1$. It is defined by an ellipse with real foci
-$[\lambda_{\rm lo},\lambda_{\rm hi}]$: $\lambda_{\rm hi}$ slightly above an
+$\nu-1$. It is defined by an interval
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ on the real axis: $\lambda_{\rm hi}$ slightly above an
 estimate of the spectral radius of $\tilde A$ from a power iteration, and
 $\lambda_{\rm lo}=\lambda_{\rm hi}/\kappa_s$ for a chosen ratio $\kappa_s$. With
 $\theta=\frac12(\lambda_{\rm hi}+\lambda_{\rm lo})$,
@@ -1267,16 +1267,29 @@ x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
 \varrho_{k+1}=\frac{1}{2\sigma-\varrho_k},\quad
 d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1},
 \end{equation}
-The last step, $k=\nu-1$, only updates $x$, so $\nu$ steps cost $\nu-1$ applications of $\tilde A$. The
-recurrence keeps four fine vectors, $x$, $r$, $d$ and $\tilde Ad$, whatever $\nu$, and needs no
+The last step, $k=\nu-1$, only updates $x$, so $\nu$ steps cost $\nu-1$ applications of $\tilde A$.
+
+\textcolor{red}{New!!!} After the $\nu$ steps the residual is $b-\tilde Ax=q_\nu(\tilde A)\,b$ with
+\begin{equation*}
+q_\nu(\lambda)=\frac{T_\nu\big((\theta-\lambda)/\delta\big)}{T_\nu(\sigma)}
+\end{equation*}
+\cite{Saad}, with $T_\nu$ the Chebyshev polynomial of Sec.~\ref{sec:filter}. For $\lambda$ in
+$[\lambda_{\rm lo},\lambda_{\rm hi}]$ the argument $(\theta-\lambda)/\delta$ lies in $[-1,1]$, so
+$|q_\nu(\lambda)|\le1/T_\nu(\sigma)$, while $q_\nu(0)=1$. For real eigenvalues the smoother thus
+multiplies the components in the interval by at most $1/T_\nu(\sigma)$, about $1/94$ for $\nu=8$
+and $\kappa_s=10$ and $1/42$ for $\nu=12$ and $\kappa_s=30$, and leaves those near $0$ almost
+unchanged, for the coarse correction. $\tilde A$ is not Hermitian, so its eigenvalues are in
+general complex. Chebyshev iteration can then be defined by an ellipse in the complex plane with
+foci $\lambda_{\rm lo}$ and $\lambda_{\rm hi}$~\cite{Manteuffel}; we use the degenerate ellipse,
+the interval itself, and choose $\kappa_s$ by hand.\ifresults{} An interval that is too wide or
+too narrow can make the outer solve stagnate, and the interval that works differs between the two
+setups of Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
+
+The recurrence keeps four fine vectors, $x$, $r$, $d$ and $\tilde Ad$, whatever $\nu$, and needs no
 inner products; the smoother is the same linear map at every application. A Krylov smoother, such
 as the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps two more
-fine vectors per step, which in a fixed amount of memory lowers the largest volume that can be
-solved. We use
-only a real focal interval. The ratio $\kappa_s$ is chosen by hand. The polynomial damps the part of the spectrum above $\lambda_{\rm lo}$ and leaves the rest
-to the coarse correction, and an interval that is too wide or too narrow can make the outer solve
-stagnate.\ifresults{} The interval that works differs between the two setups of
-Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
+fine vectors per step, \textcolor{red}{New!!!} the direction and its image under $\tilde A$, which in a fixed amount of memory lowers the largest volume that can be
+solved.
 
 \subsubsection{Cycle}
 \begin{algorithm}
@@ -1296,7 +1309,8 @@ and two residuals) plus the two coarse solves. \textcolor{red}{New!!!} One appli
 Schur factors, $S$ and $\Spv\dg$, of two hops each, four hops in all, so $\nu=8$ means
 $16\times4=64$ applications of $D_{eo}$ or $D_{oe}$ per cycle. One CG iteration on $\mathcal K\dg\mathcal K$ has four, so the hops of one cycle are those of
 $16$ CG iterations, before the coarse solves. Because the coarse solves are Krylov
-iterations stopped by a residual test, $\mathcal M$ is not a fixed linear map.
+iterations stopped by a residual test, \textcolor{red}{New!!!} whose coefficients and number of steps depend on the
+right-hand side, $\mathcal M$ is not a fixed linear map.
 
 % ============================================================
 \subsection{The outer solver}
@@ -1306,8 +1320,7 @@ The outer iteration solves $\tilde Ay=\rho$ with the cycle as a right preconditi
 rebuild $\psi$ as in Sec.~\ref{sec:eo}. The cycle $\mathcal M$ changes from one application to the
 next, so the outer method must be flexible: FGMRES or flexible GCR (Algorithms~\ref{alg:fgmres}
 and~\ref{alg:gcr}, Appendix~\ref{sec:cgform}), which keep the preconditioned
-directions. The method allows any number $k$ of kept directions; the largest $k$ that fits in memory
-is the natural choice. Each kept direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the
+directions. The method allows any number $k$ of kept directions, \textcolor{red}{New!!!} and memory bounds it. Each kept direction costs two fine vectors, about $1$\,GB on $24^3\times48$, where the
 multigrid with GCR(2) already needs $20$--$23$ of the $24$\,GB of device memory, so $k=2$ there. For
 solves with $D$ we use $k=2$ on every volume, so that the volumes compare directly.\ifresults{} A
 larger $k$ changes only the outer solver and leaves the cycle as it is; on $12^4$ it changes the
@@ -1320,8 +1333,9 @@ the pseudospectra of $\tilde A\mathcal M$~\cite{NRT,TrefethenEmbree}, and a trun
 stagnate~\cite{Embree}.
 We monitor convergence on the even-odd system and evaluate the residual of the original equation,
 $\|D\psi-\eta\|/\|\eta\|$, with the plain $D$ after reconstruction. The reference solver is CG on
-the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). It is robust but squares the
-condition number. It runs in double precision, or in mixed precision: CG in single precision with
+the normal equation of the even-odd operator $\Ce^{-1}S$ (CGNE). \textcolor{red}{New!!!} Its operator
+$(\Ce^{-1}S)\dg\Ce^{-1}S$ is Hermitian positive definite for any nonsingular $S$, so CG converges, but
+its condition number is the square of that of $\Ce^{-1}S$. It runs in double precision, or in mixed precision: CG in single precision with
 reliable updates in double precision.\ifresults{} Appendix~\ref{sec:cgform} compares it with CG on
 $S\dg S$.\fi
 
