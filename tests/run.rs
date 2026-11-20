@@ -2079,11 +2079,6 @@ fn mdwf_mg_yaml(setup: char) -> String {
         "number_of_test_vectors : 32",
         "number_of_test_vectors : 8",
     );
-    y = with(
-        &y,
-        "    Coarse_Solver_PV:\n      solver_type                   : MINRES\n",
-        "    Coarse_Solver_PV:\n      solver_type                   : CG\n      tikhonov_epsilon              : 1.0e-3\n",
-    );
     if setup == 'B' {
         y = with(
             &y,

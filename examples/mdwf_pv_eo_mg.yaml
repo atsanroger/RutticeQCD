@@ -103,17 +103,19 @@ MultiGrid:
       solver_type                   : BiCGStab
       maximum_number_of_iteration   : 2000
       convergence_criterion_squared : 1.0e-2
-    ## the second factor P^dag D_PV^dag P (P^dag D^dag P with Normal_left):
-    ## {MINRES (not with Normal_left), BiCGStab, GCR}
+    ## the second factor P^dag D_PV^dag P (P^dag D^dag P with Normal_left): CG on its
+    ## regularized normal equations (A^dag A + eps) w = A^dag g, eps = tikhonov_epsilon (the
+    ## default); also {MINRES (not with Normal_left), BiCGStab, GCR}
     Coarse_Solver_PV:
-      solver_type                   : MINRES
+      solver_type                   : CG
+      tikhonov_epsilon              : 1.0e-3
       maximum_number_of_iteration   : 2000
       convergence_criterion_squared : 1.0e-2
   ## Levels below the coarse lattice for the solves of P^dag D P (optional, up to
   ## MultiGrid_Level4): super-blocks of super_block_size sites of the level above per
   ## direction; the last level is solved exactly, so keep it small. On 16^4 in blocks of
   ## 4^4 (4^4 coarse sites), Level2 + Level3 of 2 end in one site.
-  ## levels_for_pauli_villars : true   # the levels also under the Pauli-Villars factor (MINRES);
+  ## levels_for_pauli_villars : true   # the levels also under the Pauli-Villars factor (needs MINRES);
   ##                                   # on 16^4 it cost more coarse applications, not fewer
   # MultiGrid_Level2:
   #   super_block_size : 2
