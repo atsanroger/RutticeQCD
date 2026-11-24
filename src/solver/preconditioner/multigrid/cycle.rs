@@ -168,12 +168,15 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
             b.dot(&v, &mut d);
             let cos = d[0].re / (nb * norm(&v));
             eprintln!(
-                "diag cycle: pre {:.3e} coarse {:.3e} post {:.3e} whole {:.3e} cos(b, AMb) {:.4e}",
+                "diag cycle: pre {:.3e} coarse {:.3e} post {:.3e} whole {:.3e} cos(b, AMb) {:.4e} b†AMb/|b|^2 {:.4e}{:+.4e}i |b†AMb|/(|b||AMb|) {:.4e}",
                 n1 / nb,
                 n2 / n1,
                 n3 / n2,
                 n3 / nb,
-                cos
+                cos,
+                d[0].re / (nb * nb),
+                d[0].im / (nb * nb),
+                d[0].norm_sqr().sqrt() / (nb * norm(&v))
             );
         }
     }
