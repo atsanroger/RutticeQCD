@@ -1,13 +1,13 @@
 config	setup	mass	solver	setup_s	iterations_per_column	seconds_per_column	wall_s	worst_Dx_b_sq	PS_rel_diff_t0_3	commit
-2	S	0.001	MG	207	21-22	11.2-12.0	361	9e-19	9.8e-07	3500a58
+2	S	0.001	MG	207	21-22	11.2-12.0	361	9e-19	2.1e-08	3500a58 (PS_rel_diff vs truestop/ps_*)
 2	S	0.001	CGNE_mixed		6393-7363	91.5-105.4	1204	9e-19		3500a58 (multiconf/autoR/truestop)
-3	S	0.001	MG	222	17-18	7.7-8.4	335	8e-19	1.3e-07	3500a58
+3	S	0.001	MG	222	17-18	7.7-8.4	335	8e-19	3.2e-07	3500a58 (PS_rel_diff vs truestop/ps_*)
 3	S	0.001	CGNE_mixed		3862-3944	55.5-56.6	689	1e-18		3500a58 (multiconf/autoR/truestop)
-4	S	0.001	MG	215	17-18	7.7-8.2	325	9e-19	6.2e-08	3500a58
+4	S	0.001	MG	215	17-18	7.7-8.2	325	9e-19	2.8e-08	3500a58 (PS_rel_diff vs truestop/ps_*)
 4	S	0.001	CGNE_mixed		4025-4202	57.7-60.3	719	1e-18		3500a58 (multiconf/autoR/truestop)
-2	B	0.001	MG	205	18-18	8.5-8.6	319	9e-19	9.4e-08	3500a58
+2	B	0.001	MG	205	18-18	8.5-8.6	319	9e-19	9.4e-09	3500a58 (PS_rel_diff vs truestop/ps_*)
 2	B	0.001	CGNE_mixed		6398-6909	91.6-98.8	1166	9e-19		3500a58 (multiconf/autoR/truestop)
-3	B	0.001	MG	205	17-18	7.9-8.5	313	8e-19	1.9e-07	3500a58
+3	B	0.001	MG	205	17-18	7.9-8.5	313	8e-19	1.7e-08	3500a58 (PS_rel_diff vs truestop/ps_*)
 3	B	0.001	CGNE_mixed		5143-5480	73.6-78.5	930	9e-19		3500a58 (multiconf/autoR/truestop)
-4	B	0.001	MG	206	18-19	8.6-9.2	324	1e-18	1.7e-07	3500a58
+4	B	0.001	MG	206	18-19	8.6-9.2	324	1e-18	4.1e-09	3500a58 (PS_rel_diff vs truestop/ps_*)
 4	B	0.001	CGNE_mixed		5452-5676	78.0-81.2	971	9e-19		3500a58 (multiconf/autoR/truestop)

@@ -1,7 +1,7 @@
 # 24^3x48 configuration 1, setup S (stout 0.1x3, M5 1, Ls 8, b 1.5, c 0.5), alpha 0.6, |r|^2/|b|^2 < 1e-18, double precision, the same GPU.
 # Bridge++ 2.1.3 (OpenACC): even-odd CGNR, the 12 columns of a point source (bridge_vs_ru/stout_m*, 2026-10-20); time for all 12.
-# RutticeQCD: even-odd CGNE in double, one random right-hand side (multiconf/cgneT, 8ae9255).
+# RutticeQCD: even-odd CGNE in double, one random right-hand side (multiconf/autoR/final, ruttice2 = 3500a58, solve-only).
 mass	bridge_iter_min	bridge_iter_max	bridge_s_12col	bridge_s_per_iter	ruttice_iter	ruttice_s	ruttice_s_per_iter	ratio_per_iter
-0.1	184	189	113.9	0.0509	189	6.6	0.0349	1.46
-0.01	1336	1387	689.6	0.0422	1400	39.4	0.0281	1.50
-0.001	3612	3618	1836.6	0.0423	3616	99.4	0.0275	1.54
+0.1	184	189	113.9	0.0507	189	5.2	0.0275	1.84
+0.01	1336	1387	689.6	0.0424	1400	37.9	0.0271	1.56
+0.001	3612	3618	1836.6	0.0423	3616	97.8	0.0270	1.56

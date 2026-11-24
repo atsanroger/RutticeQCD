@@ -1,9 +1,9 @@
 setup	mass	solver	setup_s	iterations_per_column	seconds_per_column	wall_s	worst_Dx-b_sq	device_peak_GB	PS_rel_diff_t0-3	commit
-S	0.001	MG	203	19-19	8.4-8.6	319	1e-18	22.48	1.0e-07	3500a58
+S	0.001	MG	203	19-19	8.4-8.6	319	1e-18	22.48	1.5e-08	3500a58 (PS_rel_diff vs truestop/ps_*)
 S	0.001	CGNE_mixed		4826-5371	69.3-77.0	913	9e-19	9.61		3500a58 (multiconf/autoR/truestop)
 S	0.01	MG	143	14	5.6-5.7	226	9e-19	22.48		3500a58 (multiconf/autoR/psT)
 S	0.01	CGNE_mixed		1550-1582	22.4-22.9	286	7e-19	9.61		3500a58 (multiconf/autoR/truestop)
-B	0.001	MG	205	17-18	8.1-8.6	320	7e-19	22.48	6.6e-07	3500a58
+B	0.001	MG	205	17-18	8.1-8.6	320	7e-19	22.48	1.0e-08	3500a58 (PS_rel_diff vs truestop/ps_*)
 B	0.001	CGNE_mixed		6107-6270	87.4-89.8	1072	9e-19	9.61		3500a58 (multiconf/autoR/truestop)
 B	0.01	MG	204	13-14	6.0-6.5	292	9e-19	22.48		3500a58 (multiconf/autoR/psT)
 B	0.01	CGNE_mixed		1887-1985	27.2-28.6	349	6e-19	9.61		3500a58 (multiconf/autoR/truestop)

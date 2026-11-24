@@ -427,7 +427,6 @@ INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/ec-lmri9.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx10.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx8.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx6.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx12.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx10.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx7.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx5.tfm
@@ -438,6 +437,7 @@ INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/lmsy10.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx12.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/amsfonts/symbols/msam10.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/amsfonts/symbols/msbm10.tfm
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/public/lm/rm-lmbx12.tfm
 INPUT MG_WALKTHROUGH.aux
 INPUT ./MG_WALKTHROUGH.out
 INPUT ./MG_WALKTHROUGH.out

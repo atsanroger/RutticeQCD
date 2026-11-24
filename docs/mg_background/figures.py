@@ -67,7 +67,6 @@ def massscan():
             ax.set_xscale("log")
             ax.set_yscale("log")
             for solver, alpha, fmt, color, a, lab in [
-                    ("CGNE", "0.6", "o-", "C3", 1.0, "CGNE"),
                     ("CGNE_mixed", "0.6", "o--", "C3", 0.6, "CGNE, mixed"),
                     ("MG", "0.6", "s-", "C0", 1.0, r"MG, $\alpha=0.6$" if row == 0 else "MG, solve"),
                     ("MG", "1.0", "^--", "C0", 0.6, r"MG, $\alpha=1$")]:

@@ -35,45 +35,60 @@
 \contentsline {paragraph}{Why the Galerkin approximation is exact on $\operatorname {range}\mathcal P$.}{11}{section*.20}%
 \contentsline {paragraph}{The size of the coarse stencil.}{11}{section*.21}%
 \contentsline {paragraph}{The left form with $\alpha $.}{12}{section*.22}%
-\contentsline {subsection}{\numberline {3.2}Aggregation and the chirality split}{13}{subsection.3.2}%
-\contentsline {paragraph}{Half the storage.}{13}{section*.23}%
-\contentsline {subsection}{\numberline {3.3}Orthonormalization per block: CholeskyQR2}{13}{subsection.3.3}%
-\contentsline {subsection}{\numberline {3.4}The basis $\{s,\hat t\}$ and why the correction is exact}{14}{subsection.3.4}%
-\contentsline {paragraph}{$D|s\rangle $ vanishes on the odd sites.}{14}{section*.24}%
-\contentsline {paragraph}{Exactness of the right form.}{14}{section*.25}%
-\contentsline {paragraph}{Why the left form is not exact.}{14}{section*.26}%
-\contentsline {subsection}{\numberline {3.5}The coarse operators by probing}{15}{subsection.3.5}%
-\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{15}{section.4}%
-\contentsline {paragraph}{Quark factor.}{15}{section*.27}%
-\contentsline {paragraph}{Pauli--Villars factor.}{15}{section*.28}%
-\contentsline {paragraph}{Levels below.}{16}{section*.29}%
-\contentsline {section}{\numberline {5}Setup (note Sec.~III.C)}{16}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{16}{subsection.5.1}%
-\contentsline {paragraph}{How much the filter amplifies, and the degree.}{17}{section*.30}%
-\contentsline {subsection}{\numberline {5.2}Bootstrap}{17}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Cost and memory}{17}{subsection.5.3}%
-\contentsline {section}{\numberline {6}The Chebyshev smoother and the cycle (note Sec.~III.D)}{18}{section.6}%
-\contentsline {paragraph}{Cost of one cycle.}{18}{section*.31}%
-\contentsline {subsection}{\numberline {6.1}The Chebyshev smoother, derived}{18}{subsection.6.1}%
-\contentsline {section}{\numberline {7}The outer solver: flexible GCR (note Sec.~III.E)}{19}{section.7}%
-\contentsline {section}{\numberline {8}Solving with $D^{\dagger }$ (note Sec.~IV)}{20}{section.8}%
-\contentsline {subsection}{\numberline {8.1}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.B)}{20}{subsection.8.1}%
-\contentsline {paragraph}{The commutator written out.}{20}{section*.32}%
-\contentsline {paragraph}{$N^2$ written out.}{21}{section*.33}%
-\contentsline {subsection}{\numberline {8.2}On the even sites (note Sec.~IV.C)}{21}{subsection.8.2}%
-\contentsline {subsection}{\numberline {8.3}Why $D_-$ cannot be inverted (note Sec.~IV.D)}{22}{subsection.8.3}%
-\contentsline {section}{\numberline {9}Why the method converges (note Sec.~V.D)}{22}{section.9}%
-\contentsline {subsection}{\numberline {9.1}The field of values and the bound for GCR}{22}{subsection.9.1}%
-\contentsline {paragraph}{Definition.}{22}{section*.34}%
-\contentsline {paragraph}{One step of GCR.}{22}{section*.35}%
-\contentsline {paragraph}{When $W$ contains the origin.}{23}{section*.36}%
-\contentsline {subsection}{\numberline {9.2}The spectrum and eigenvalue condition numbers}{23}{subsection.9.2}%
-\contentsline {subsection}{\numberline {9.3}Pseudospectra and the bound for GMRES}{23}{subsection.9.3}%
-\contentsline {paragraph}{Definition.}{23}{section*.37}%
-\contentsline {paragraph}{The bound.}{23}{section*.38}%
-\contentsline {paragraph}{A circle.}{23}{section*.39}%
-\contentsline {paragraph}{An outlier.}{23}{section*.40}%
-\contentsline {paragraph}{Checking a contour with finitely many points.}{24}{section*.41}%
-\contentsline {subsection}{\numberline {9.4}Truncated GCR with inexact coarse solves}{24}{subsection.9.4}%
-\contentsline {section}{\numberline {10}Choices of the detail}{24}{section.10}%
-\contentsline {section}{\numberline {11}Map to the code}{25}{section.11}%
+\contentsline {subsection}{\numberline {3.2}The basis $\{s,\hat t\}$}{13}{subsection.3.2}%
+\contentsline {paragraph}{When a Galerkin solve is exact.}{13}{section*.23}%
+\contentsline {paragraph}{The first solve.}{13}{section*.24}%
+\contentsline {paragraph}{The second solve.}{13}{section*.25}%
+\contentsline {paragraph}{The two lifts.}{14}{section*.26}%
+\contentsline {subsection}{\numberline {3.3}Aggregation and the chirality split}{14}{subsection.3.3}%
+\contentsline {paragraph}{Half the storage.}{15}{section*.27}%
+\contentsline {subsection}{\numberline {3.4}Orthonormalization per block: CholeskyQR2}{15}{subsection.3.4}%
+\contentsline {paragraph}{The test vectors lie in $\operatorname {range}\mathcal P$.}{15}{section*.28}%
+\contentsline {subsection}{\numberline {3.5}Why the correction is exact}{15}{subsection.3.5}%
+\contentsline {paragraph}{Exactness of the right form.}{15}{section*.29}%
+\contentsline {paragraph}{Why both lifts.}{16}{section*.30}%
+\contentsline {paragraph}{In practice.}{16}{section*.31}%
+\contentsline {paragraph}{Why the left form is not exact.}{16}{section*.32}%
+\contentsline {subsection}{\numberline {3.6}The coarse operators by probing}{16}{subsection.3.6}%
+\contentsline {section}{\numberline {4}The coarse solvers (note Sec.~III.B)}{17}{section.4}%
+\contentsline {paragraph}{Quark factor.}{17}{section*.33}%
+\contentsline {paragraph}{Pauli--Villars factor.}{17}{section*.34}%
+\contentsline {paragraph}{Levels below.}{17}{section*.35}%
+\contentsline {section}{\numberline {5}Setup (note Sec.~III.D)}{18}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Chebyshev-filtered subspace iteration}{18}{subsection.5.1}%
+\contentsline {paragraph}{How much the filter amplifies, and the degree.}{18}{section*.36}%
+\contentsline {subsection}{\numberline {5.2}Bootstrap}{18}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Cost and memory}{19}{subsection.5.3}%
+\contentsline {section}{\numberline {6}The Chebyshev smoother and the cycle (note Sec.~III.C)}{19}{section.6}%
+\contentsline {paragraph}{Cost of one cycle.}{19}{section*.37}%
+\contentsline {subsection}{\numberline {6.1}The Chebyshev smoother, derived}{20}{subsection.6.1}%
+\contentsline {section}{\numberline {7}The outer solver: flexible GCR (note Sec.~III.E)}{21}{section.7}%
+\contentsline {section}{\numberline {8}Solving with $D^{\dagger }$ (note Sec.~IV)}{21}{section.8}%
+\contentsline {subsection}{\numberline {8.1}\textcolor {red}{New!!!} $D^{\dagger }$ through $D$ (note Sec.~IV.A)}{22}{subsection.8.1}%
+\contentsline {paragraph}{$D$ with $B_5$.}{22}{section*.38}%
+\contentsline {paragraph}{The adjoint.}{22}{section*.39}%
+\contentsline {paragraph}{The same operator from $D$.}{22}{section*.40}%
+\contentsline {paragraph}{The solve.}{22}{section*.41}%
+\contentsline {paragraph}{Inverting $B_5$.}{22}{section*.42}%
+\contentsline {paragraph}{On the even sites.}{23}{section*.43}%
+\contentsline {paragraph}{Where it fails.}{23}{section*.44}%
+\contentsline {subsection}{\numberline {8.2}$\Gamma _5D^{-1}\Gamma _5$ as a preconditioner of $D^{\dagger }$ (note Sec.~IV.B)}{23}{subsection.8.2}%
+\contentsline {paragraph}{The commutator written out.}{23}{section*.45}%
+\contentsline {paragraph}{$N^2$ written out.}{24}{section*.46}%
+\contentsline {subsection}{\numberline {8.3}On the even sites (note Sec.~IV.C)}{24}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Why $D_-$ cannot be inverted (note Sec.~IV.D)}{25}{subsection.8.4}%
+\contentsline {section}{\numberline {9}Why the method converges (note Sec.~V.D)}{25}{section.9}%
+\contentsline {subsection}{\numberline {9.1}The field of values and the bound for GCR}{25}{subsection.9.1}%
+\contentsline {paragraph}{Definition.}{25}{section*.47}%
+\contentsline {paragraph}{One step of GCR.}{25}{section*.48}%
+\contentsline {paragraph}{When $W$ contains the origin.}{26}{section*.49}%
+\contentsline {subsection}{\numberline {9.2}The spectrum and eigenvalue condition numbers}{26}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Pseudospectra and the bound for GMRES}{26}{subsection.9.3}%
+\contentsline {paragraph}{Definition.}{26}{section*.50}%
+\contentsline {paragraph}{The bound.}{26}{section*.51}%
+\contentsline {paragraph}{A circle.}{26}{section*.52}%
+\contentsline {paragraph}{An outlier.}{26}{section*.53}%
+\contentsline {paragraph}{Checking a contour with finitely many points.}{27}{section*.54}%
+\contentsline {subsection}{\numberline {9.4}Truncated GCR with inexact coarse solves}{27}{subsection.9.4}%
+\contentsline {section}{\numberline {10}Choices of the detail}{27}{section.10}%
+\contentsline {section}{\numberline {11}Map to the code}{28}{section.11}%
