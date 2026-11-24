@@ -78,6 +78,9 @@ impl<V: Vector> Solver<V> for Gcr<V> {
                 }
                 // RUTTICE_DIAG=1 (exp/ls16-diag): every 10 steps |A r|/|r| of the residual, one
                 // more application of A, to place it against the interval of the smoother.
+                if self.history.is_some() && iterations == 0 && crate::env::switch("RUTTICE_DIAG") {
+                    crate::env::DIAG_POWER.with(|p| p.set(true));
+                }
                 if self.history.is_some()
                     && iterations % 10 == 0
                     && crate::env::switch("RUTTICE_DIAG")

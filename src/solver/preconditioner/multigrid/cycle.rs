@@ -88,6 +88,36 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
             v.norm_sqr(&mut s);
             s[0].sqrt()
         };
+        if diag && crate::env::DIAG_POWER.with(|p| p.replace(false)) {
+            // Power iteration on the coarse correction E (e = E r): its dominant eigenvalue λ
+            // and vector x. For an E that inverts Ã on range P, Ã x ≈ x/λ, so
+            // μ = |λ| |Ã x|/|x| is 1; μ ≫ 1 means E inverts as small a direction Ã keeps O(1).
+            let mut x = b.zeros_like();
+            x.copy_from(b);
+            let mut ex = b.zeros_like();
+            let mut ax = b.zeros_like();
+            let zero = b.zeros_like();
+            for k in 1..=30 {
+                let nx = norm(&x);
+                x.scale(&vec![1.0 / nx; nv]);
+                self.correction.correct(&mut ex, &x);
+                let mut d = vec![C64::ZERO; nv];
+                x.dot(&ex, &mut d);
+                // Ã x = −(0 − Ã x)
+                self.smoother.residual(&mut ax, &x, &zero);
+                let gain = norm(&ex);
+                if k % 5 == 0 || k == 1 {
+                    eprintln!(
+                        "diag power {k}: |E x|/|x| {gain:.4e} x†Ex {:.4e}{:+.4e}i |A x|/|x| {:.4e} mu {:.4e}",
+                        d[0].re,
+                        d[0].im,
+                        norm(&ax),
+                        gain * norm(&ax)
+                    );
+                }
+                x.copy_from(&ex);
+            }
+        }
         let nb = if diag { norm(b) } else { 0.0 };
         self.smoother.pre(y, b);
         self.smoother.residual(&mut self.r, y, b);
