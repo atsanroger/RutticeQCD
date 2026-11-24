@@ -135,6 +135,15 @@ fn diag_residual<C: Vector>(apply: impl FnOnce(&mut C, &C), x: &C, b: &C) -> f64
     rr.iter().zip(&bb).fold(0.0, |m, (r, b)| f64::max(m, r / b))
 }
 
+/// |x|/|b| of the first vector, for the diagnostics of `correct`.
+fn norm_ratio<C: Vector>(x: &C, b: &C) -> f64 {
+    let nv = b.num_vectors();
+    let (mut xx, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
+    x.norm_sqr(&mut xx);
+    b.norm_sqr(&mut bb);
+    (xx[0] / bb[0]).sqrt()
+}
+
 /// c = A⁻¹ g approximately for the coarse operator `a`, by `solve`: on the even coarse sites
 /// where `a` has the even-odd form (preconditioned by the inverses of the blocks there, or
 /// with `levels` by the even sites of their cycle), otherwise on all of them, right-
@@ -525,6 +534,7 @@ where
             n.get() - n_start,
             diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc)),
         );
+        let pv_gain = diag.then(|| norm_ratio(w, gc));
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
         g.convert_from(w);
         transfer.prolong(h, g);
@@ -554,6 +564,11 @@ where
 
         if let Some(pv_rel) = pv_rel {
             let d_rel = diag_residual(|o, i| coarse_d.mult(o, i), c, gc);
+            eprintln!(
+                "diag gain: pv |w|/|g| {:.3e}; d |c|/|g| {:.3e}",
+                pv_gain.unwrap_or(f64::NAN),
+                norm_ratio(c, gc)
+            );
             eprintln!(
                 "diag coarse: pv {n_pv} applications |r|^2/|b|^2 {pv_rel:.2e}; d {} applications |r|^2/|b|^2 {d_rel:.2e}; in range P {:.3e}",
                 n.get() - n_start - n_pv,
