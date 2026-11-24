@@ -76,6 +76,25 @@ impl<V: Vector> Solver<V> for Gcr<V> {
                         what: "the residual is not finite",
                     });
                 }
+                // RUTTICE_DIAG=1 (exp/ls16-diag): every 10 steps |A r|/|r| of the residual, one
+                // more application of A, to place it against the interval of the smoother.
+                if self.history.is_some()
+                    && iterations % 10 == 0
+                    && crate::env::switch("RUTTICE_DIAG")
+                {
+                    let mut ar = r.zeros_like();
+                    a.mult(&mut ar, r);
+                    let mut aa = vec![0.0; nv];
+                    ar.norm_sqr(&mut aa);
+                    let q: Vec<String> = (0..nv)
+                        .map(|j| format!("{:.4e}", (aa[j] / rr[j]).sqrt()))
+                        .collect();
+                    eprintln!(
+                        "diag gcr step {iterations}: |r|^2/|b|^2 {:.3e} |A r|/|r| {}",
+                        rr[0] / b_norm[0],
+                        q.join(" ")
+                    );
+                }
                 if let Some(h) = self.history.as_mut() {
                     h.push(
                         (0..nv)

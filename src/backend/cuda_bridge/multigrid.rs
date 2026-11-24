@@ -288,6 +288,13 @@ pub fn two_grid<'a, T: DeviceReal>(
         Some(hi) => hi,
         None => top_of(&mut operator(), lat, even, cycle.seed, cycle.power_steps)?,
     };
+    if crate::env::switch("RUTTICE_DIAG") {
+        eprintln!(
+            "diag smoother: interval [{:.4e}, {hi:.4e}], {} steps",
+            hi / cycle.chebyshev_ratio,
+            cycle.chebyshev_steps
+        );
+    }
     let smoother = Chebyshev::new(
         operator(),
         cycle.chebyshev_steps,

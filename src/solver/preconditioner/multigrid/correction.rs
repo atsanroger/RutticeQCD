@@ -475,8 +475,19 @@ where
         gc.convert_from(g);
 
         // RUTTICE_DIAG=1 (exp/ls16-diag): per correction, the coarse applications of each solve
-        // and |b − A x|²/|b|² of its system, at the cost of one more application of each.
+        // and |b − A x|²/|b|² of its system, at the cost of one more application of each; and
+        // |π P P† ι h|²/|h|², the share of the residual (after O_R) that range P holds.
         let diag = crate::env::switch("RUTTICE_DIAG");
+        let in_range = diag.then(|| {
+            let mut back = h.zeros_like();
+            transfer.prolong(&mut back, g);
+            let (mut pb, mut hh) = (vec![0.0; nv], vec![0.0; nv]);
+            back.norm_sqr(&mut pb);
+            h.norm_sqr(&mut hh);
+            pb.iter()
+                .zip(&hh)
+                .fold(f64::INFINITY, |m, (p, h)| m.min(p / h))
+        });
         let n_start = n.get();
         // w = (P†D_PV†P)⁻¹ g: by CG on the regularized normal equations of the exact adjoint
         // (`coarse_pv`), by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its own
@@ -544,8 +555,9 @@ where
         if let Some(pv_rel) = pv_rel {
             let d_rel = diag_residual(|o, i| coarse_d.mult(o, i), c, gc);
             eprintln!(
-                "diag coarse: pv {n_pv} applications |r|^2/|b|^2 {pv_rel:.2e}; d {} applications |r|^2/|b|^2 {d_rel:.2e}",
-                n.get() - n_start - n_pv
+                "diag coarse: pv {n_pv} applications |r|^2/|b|^2 {pv_rel:.2e}; d {} applications |r|^2/|b|^2 {d_rel:.2e}; in range P {:.3e}",
+                n.get() - n_start - n_pv,
+                in_range.unwrap_or(f64::NAN)
             );
         }
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
