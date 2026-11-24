@@ -135,6 +135,12 @@ fn diag_residual<C: Vector>(apply: impl FnOnce(&mut C, &C), x: &C, b: &C) -> f64
     rr.iter().zip(&bb).fold(0.0, |m, (r, b)| f64::max(m, r / b))
 }
 
+thread_local! {
+    /// exp/ls16-diag: when set, `correct` only stores |π P P† ι O_R r|²/|O_R r|² of its input.
+    pub(crate) static DIAG_PROBE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub(crate) static DIAG_SHARE: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NAN) };
+}
+
 /// |x|/|b| of the first vector, for the diagnostics of `correct`.
 fn norm_ratio<C: Vector>(x: &C, b: &C) -> f64 {
     let nv = b.num_vectors();
@@ -482,6 +488,18 @@ where
         }
         transfer.restrict(g, h);
         gc.convert_from(g);
+
+        // RUTTICE_DIAG=1 probe (set by the two-grid cycle): only the share of O_R r in range P.
+        if DIAG_PROBE.with(|p| p.get()) {
+            let mut back = h.zeros_like();
+            transfer.prolong(&mut back, g);
+            let (mut pb, mut hh) = (vec![0.0; nv], vec![0.0; nv]);
+            back.norm_sqr(&mut pb);
+            h.norm_sqr(&mut hh);
+            DIAG_SHARE.with(|s| s.set(pb[0] / hh[0]));
+            e.set_zero();
+            return;
+        }
 
         // RUTTICE_DIAG=1 (exp/ls16-diag): per correction, the coarse applications of each solve
         // and |b − A x|²/|b|² of its system, at the cost of one more application of each; and

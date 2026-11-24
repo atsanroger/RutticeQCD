@@ -92,10 +92,35 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
         self.smoother.pre(y, b);
         self.smoother.residual(&mut self.r, y, b);
         let n1 = if diag { norm(&self.r) } else { 0.0 };
+        let r1 = diag.then(|| {
+            let mut c = self.r.zeros_like();
+            c.copy_from(&self.r);
+            c
+        });
         self.correction.correct(&mut self.e, &self.r);
         y.axpy(&one, &self.e);
         self.smoother.residual(&mut self.r, y, b);
         let n2 = if diag { norm(&self.r) } else { 0.0 };
+        if let Some(mut d) = r1 {
+            // d = r1 − r2 = Ã e, the change the coarse correction makes to the residual; the
+            // share of O_R d in range P (the rest is what range P fails to hold of Ã e), and
+            // the share of O_R r1, both by the correction's own restriction.
+            d.axpy(&vec![C64::new(-1.0, 0.0); nv], &self.r);
+            let nd = norm(&d);
+            let mut scratch = d.zeros_like();
+            let share = |c: &mut E, v: &V, s: &mut V| {
+                super::correction::DIAG_PROBE.with(|p| p.set(true));
+                c.correct(s, v);
+                super::correction::DIAG_PROBE.with(|p| p.set(false));
+                super::correction::DIAG_SHARE.with(|x| x.get())
+            };
+            let s_d = share(&mut self.correction, &d, &mut scratch);
+            eprintln!(
+                "diag probe: |A e|/|r1| {:.3e} share of O_R A e in range P {:.4e}",
+                nd / n1,
+                s_d
+            );
+        }
         self.smoother.post(&mut self.e, &self.r);
         y.axpy(&one, &self.e);
         if diag {
