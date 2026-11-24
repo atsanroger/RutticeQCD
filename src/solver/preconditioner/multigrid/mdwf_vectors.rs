@@ -324,6 +324,10 @@ pub(crate) fn lowest_ritz_pair<H: Subspace>(a: &mut dyn LinearFn<H>, y: &H) -> (
         ay.assign(&[j], &t);
     }
     let (theta, v) = sorted_eigen(n, &ay.gram(&ay));
+    if crate::env::switch("RUTTICE_DIAG") {
+        let all: Vec<String> = theta.iter().map(|x| format!("{x:.3e}")).collect();
+        eprintln!("diag ritz: {}", all.join(" "));
+    }
     let mut u = y.select(&[0]).zeros_like();
     for j in 0..n {
         u.axpy(&[v[j * n]], &y.select(&[j]));
@@ -450,6 +454,22 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
         if let Some(probed) = ended {
             on_end(round, value, probed);
             break;
+        }
+        if crate::env::switch("RUTTICE_DIAG") {
+            // The eigenvalues of the Gram matrix of the new vectors scaled to unit length: near
+            // 0 where they have become nearly dependent.
+            let n = y.num_vectors();
+            let g = y.gram(&y);
+            let s: Vec<f64> = (0..n).map(|i| g[i * n + i].re.sqrt()).collect();
+            let scaled: Vec<C64> = (0..n * n)
+                .map(|k| {
+                    let f = 1.0 / (s[k / n] * s[k % n]);
+                    C64::new(g[k].re * f, g[k].im * f)
+                })
+                .collect();
+            let (ev, _) = sorted_eigen(n, &scaled);
+            let all: Vec<String> = ev.iter().map(|x| format!("{x:.2e}")).collect();
+            eprintln!("diag gram round {round}: {}", all.join(" "));
         }
         orthonormalise_all(&mut y);
         (value, vector) = lowest(&y);

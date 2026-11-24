@@ -123,6 +123,18 @@ fn regularized_solve<C: Vector, D: CoarseOperator<C> + ?Sized>(
     let _ = crate::solver::Cg::inner(stop).solve(&mut normal, None, x, &b);
 }
 
+/// The largest |b − A x|²/|b|² over the vectors, for the diagnostics of `correct`.
+fn diag_residual<C: Vector>(apply: impl FnOnce(&mut C, &C), x: &C, b: &C) -> f64 {
+    let nv = b.num_vectors();
+    let mut t = b.zeros_like();
+    apply(&mut t, x);
+    t.axpy(&vec![C64::new(-1.0, 0.0); nv], b);
+    let (mut rr, mut bb) = (vec![0.0; nv], vec![0.0; nv]);
+    t.norm_sqr(&mut rr);
+    b.norm_sqr(&mut bb);
+    rr.iter().zip(&bb).fold(0.0, |m, (r, b)| f64::max(m, r / b))
+}
+
 /// c = A⁻¹ g approximately for the coarse operator `a`, by `solve`: on the even coarse sites
 /// where `a` has the even-odd form (preconditioned by the inverses of the blocks there, or
 /// with `levels` by the even sites of their cycle), otherwise on all of them, right-
@@ -462,6 +474,10 @@ where
         transfer.restrict(g, h);
         gc.convert_from(g);
 
+        // RUTTICE_DIAG=1 (exp/ls16-diag): per correction, the coarse applications of each solve
+        // and |b − A x|²/|b|² of its system, at the cost of one more application of each.
+        let diag = crate::env::switch("RUTTICE_DIAG");
+        let n_start = n.get();
         // w = (P†D_PV†P)⁻¹ g: by CG on the regularized normal equations of the exact adjoint
         // (`coarse_pv`), by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its own
         // Γ5-adjoint), or by a Krylov solver on the exact adjoint. The last two preconditioned by
@@ -494,6 +510,10 @@ where
             );
         }
 
+        let (n_pv, pv_rel) = (
+            n.get() - n_start,
+            diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc)),
+        );
         // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
         g.convert_from(w);
         transfer.prolong(h, g);
@@ -521,6 +541,13 @@ where
             );
         }
 
+        if let Some(pv_rel) = pv_rel {
+            let d_rel = diag_residual(|o, i| coarse_d.mult(o, i), c, gc);
+            eprintln!(
+                "diag coarse: pv {n_pv} applications |r|^2/|b|^2 {pv_rel:.2e}; d {} applications |r|^2/|b|^2 {d_rel:.2e}",
+                n.get() - n_start - n_pv
+            );
+        }
         // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
         g.convert_from(c);
         transfer.prolong(h, g);
