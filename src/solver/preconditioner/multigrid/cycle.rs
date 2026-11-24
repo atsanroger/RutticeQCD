@@ -115,10 +115,13 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                 super::correction::DIAG_SHARE.with(|x| x.get())
             };
             let s_d = share(&mut self.correction, &d, &mut scratch);
+            let ne = norm(&self.e);
             eprintln!(
-                "diag probe: |A e|/|r1| {:.3e} share of O_R A e in range P {:.4e}",
+                "diag probe: |A e|/|r1| {:.3e} share of O_R A e in range P {:.4e} |e|/|r1| {:.3e} |A e|/|e| {:.3e}",
                 nd / n1,
-                s_d
+                s_d,
+                ne / n1,
+                nd / ne
             );
         }
         self.smoother.post(&mut self.e, &self.r);
