@@ -170,33 +170,40 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                 }
             }
             super::correction::DIAG_FACTOR.with(|f| f.set(0));
-            // Power iteration on the residual propagator K = 1 − Ã M of one cycle (r ↦ b − Ã M b
-            // for b = r): |K x|/|x| above 1 on its dominant vector means the cycle alone
-            // makes that residual grow, and x†Kx its Rayleigh quotient (1 − x†ÃMx).
-            let mut x = b.zeros_like();
-            x.copy_from(b);
-            let mut y = b.zeros_like();
-            let mut kx = b.zeros_like();
-            for k in 1..=40 {
-                let nx = norm(&x);
-                x.scale(&vec![1.0 / nx; nv]);
-                y.scale(&vec![0.0; nv]);
-                self.plain_cycle(&mut y, &x);
-                self.smoother.residual(&mut kx, &y, &x);
-                let mut d = vec![C64::ZERO; nv];
-                x.dot(&kx, &mut d);
-                if k == 40 {
-                    self.diag_stages(&x);
+            // Power iteration on the residual propagator K = 1 − Ã M of one cycle, then on
+            // 3 − Ã M = 2 + K. |K x|/|x| above 1 means the cycle alone makes that residual
+            // grow; the shifted one favors the eigenvalue of Ã M of smallest real part (the
+            // largest |3 − λ| when the spectrum lies in Re λ < 3), which K may hide behind an
+            // overcorrected one (λ near 3, harmless to GCR). x†Ã M x = shift − x†(shift − ÃM)x.
+            for (label, shift) in [("K", 1.0), ("3-AM", 3.0)] {
+                let mut x = b.zeros_like();
+                x.copy_from(b);
+                let mut y = b.zeros_like();
+                let mut kx = b.zeros_like();
+                for k in 1..=40 {
+                    let nx = norm(&x);
+                    x.scale(&vec![1.0 / nx; nv]);
+                    y.scale(&vec![0.0; nv]);
+                    self.plain_cycle(&mut y, &x);
+                    self.smoother.residual(&mut kx, &y, &x);
+                    kx.axpy(&vec![C64::new(shift - 1.0, 0.0); nv], &x);
+                    if k == 40 {
+                        self.diag_stages(&x);
+                    }
+                    let mut d = vec![C64::ZERO; nv];
+                    x.dot(&kx, &mut d);
+                    if k % 5 == 0 || k == 1 {
+                        eprintln!(
+                            "diag power {label} {k}: |. x|/|x| {:.4e} x†(.)x {:.4e}{:+.4e}i x†AMx {:.4e}{:+.4e}i",
+                            norm(&kx),
+                            d[0].re,
+                            d[0].im,
+                            shift - d[0].re,
+                            -d[0].im
+                        );
+                    }
+                    x.copy_from(&kx);
                 }
-                if k % 5 == 0 || k == 1 {
-                    eprintln!(
-                        "diag power K {k}: |K x|/|x| {:.4e} x†Kx {:.4e}{:+.4e}i",
-                        norm(&kx),
-                        d[0].re,
-                        d[0].im
-                    );
-                }
-                x.copy_from(&kx);
             }
         }
         let nb = if diag { norm(b) } else { 0.0 };
