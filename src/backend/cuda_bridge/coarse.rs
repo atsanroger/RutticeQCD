@@ -717,6 +717,11 @@ impl DeviceBasis {
                 gram_schmidt = fail.download(2 * sites)?.contains(&u32::MAX);
             }
             if gram_schmidt {
+                if crate::env::switch("RUTTICE_REPAIR") && n <= 48 {
+                    eprintln!(
+                        "repair: CholeskyQR fell back to Gram-Schmidt at coarse sites from {first}"
+                    );
+                }
                 run(bridge_cuda_fold_orthonormalise);
             }
             if let Some((k, vector)) = fail
@@ -777,16 +782,53 @@ impl DeviceBasis {
         if let Some(e) = failed {
             return Err(e.into());
         }
+        // RUTTICE_REPAIR_F: the fraction of |w|² (0: nothing replaced, P as before bit for
+        // bit); RUTTICE_REPAIR_PIECES: at most that many pieces; RUTTICE_REPAIR_KIND=slift:
+        // in place of w the s lift of its even part, (w_e, −C_o⁻¹ D_oe w_e).
+        let env_f = |k: &str, d: f64| {
+            std::env::var(k)
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(d)
+        };
+        let fraction = env_f("RUTTICE_REPAIR_F", 0.99);
+        let pieces = env_f("RUTTICE_REPAIR_PIECES", f64::INFINITY);
+        let slift = std::env::var("RUTTICE_REPAIR_KIND").as_deref() == Ok("slift");
         for (k, (_, w)) in pairs.iter().enumerate() {
             let orig = originals[k]
                 .as_ref()
                 .expect("the lift of the replaced column");
-            let mixed = repair_mix(agg, ls, orig, w, 0.99, k);
+            let lifted;
+            let w = match slift {
+                false => w,
+                true => {
+                    use crate::fermion::{Dagger, EvenOdd, SplitParity};
+                    let mut wt = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(1);
+                    ConvertFrom::convert_from(&mut wt, &DeviceSpinor::<f64>::from_host(w)?);
+                    let mut x_e = DeviceParities.half_like(&wt, Parity::Even);
+                    DeviceParities.extract(&mut x_e, &wt, Parity::Even);
+                    let mut t = DeviceParities.half_like(&wt, Parity::Odd);
+                    let mut x_o = t.zeros_like();
+                    let mut work = op.even_odd_work();
+                    op.hop(&mut work, &mut t, &x_e, Parity::Odd, Dagger::No);
+                    op.diag_inv(&mut work, &mut x_o, &t, Parity::Odd, Dagger::No);
+                    x_o.scale(&[-1.0]);
+                    let mut s = wt.zeros_like();
+                    DeviceParities.insert(&mut s, &x_e);
+                    DeviceParities.insert(&mut s, &x_o);
+                    lifted = s.to_host()?;
+                    &lifted
+                }
+            };
+            let mixed = repair_mix(agg, ls, orig, w, fraction, pieces, k);
             let mut g = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(1);
             ConvertFrom::convert_from(&mut g, &DeviceSpinor::<f64>::from_host(&mixed)?);
             basis.add(targets[k], &g);
         }
         basis.finish()?;
+        if crate::env::switch("RUTTICE_REPAIR") {
+            eprintln!("repair P checksum {:016x}", basis.checksum()?);
+        }
         for (k, (v, w)) in pairs.iter().enumerate() {
             for (name, f) in [("w", w), ("v", v)] {
                 let f = DeviceSpinor::<f64>::from_host(f)?;
@@ -1893,6 +1935,7 @@ fn repair_mix(
     orig: &Field<f64, crate::Spinor>,
     w: &Field<f64, crate::Spinor>,
     f: f64,
+    pieces: f64,
     k: usize,
 ) -> Field<f64, crate::Spinor> {
     let g5 = Dirac::GAMMA5;
@@ -1931,14 +1974,17 @@ fn repair_mix(
     let mut chosen = vec![false; energy.len()];
     let (mut acc, mut count) = (0.0, 0);
     for &p in &order {
-        if acc >= f * total {
+        if acc >= f * total || count as f64 >= pieces {
             break;
         }
         chosen[p] = true;
         acc += energy[p];
         count += 1;
     }
-    let last = energy[order[count - 1]];
+    let last = match count {
+        0 => 0.0,
+        _ => energy[order[count - 1]],
+    };
     eprintln!(
         "repair mix {k}: {count} of {} (block, chirality) pieces replaced; their |w|² from {:.3e} to {:.3e} of the total",
         energy.len(),

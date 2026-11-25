@@ -275,7 +275,12 @@ pub(super) fn run(
                         crate::env::REPAIR_LAMBDA.with(|l| l.get())
                     };
                     eprintln!("  repair round {round}: lambda_min {lambda:.4e}");
-                    if lambda > 0.1 || round == 3 {
+                    // RUTTICE_REPAIR_FORCE: one round whatever λ_min (small test lattices).
+                    let forced = crate::env::switch("RUTTICE_REPAIR_FORCE");
+                    if (lambda > 0.1 && !(forced && round == 0))
+                        || round == 3
+                        || (forced && round == 1)
+                    {
                         break;
                     }
                     let pair = REPAIR_STASH
