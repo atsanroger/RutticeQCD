@@ -1035,7 +1035,8 @@ impl SolverBlock {
                 "{name}: coarse solvers are preconditioned by the inverses of their diagonal blocks"
             )));
         }
-        if self.tikhonov_epsilon != 0.0 && !(second && self.solver_type == SolverType::Cg) {
+        // exp/ls16-diag: the quark factor may be regularized as well (CG with tikhonov_epsilon).
+        if self.tikhonov_epsilon != 0.0 && self.solver_type != SolverType::Cg {
             return Err(invalid(format!(
                 "{name}: tikhonov_epsilon goes with solver_type CG in Coarse_Solver_PV"
             )));
@@ -1045,8 +1046,7 @@ impl SolverBlock {
             SolverType::Cg if second && normal => Err(invalid(format!(
                 "{name}: with operator_type Normal_left the second factor is P†D†P, not the Pauli-Villars factor the regularized solve is for; use BiCGStab or GCR"
             ))),
-            SolverType::Cg
-                if second && self.tikhonov_epsilon > 0.0 && self.tikhonov_epsilon.is_finite() =>
+            SolverType::Cg if self.tikhonov_epsilon > 0.0 && self.tikhonov_epsilon.is_finite() =>
             {
                 Ok(())
             }
