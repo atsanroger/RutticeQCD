@@ -33,13 +33,13 @@ pub(crate) fn choice(name: &str, choices: &[&str]) -> Option<usize> {
     })
 }
 
-/// A switch: `1` on, `0` off, unset off.
 thread_local! {
     /// exp/ls16-diag: set by GCR at the first step of a solve with a history; the two-grid
     /// cycle then runs its power iteration once.
     pub(crate) static DIAG_POWER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// A switch: `1` on, `0` off, unset off.
 pub(crate) fn switch(name: &str) -> bool {
     choice(name, &["0", "1"]) == Some(1)
 }

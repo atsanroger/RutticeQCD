@@ -1208,10 +1208,14 @@ GradientFlow:
         text.contains("# without the first 2 trajectories:"),
         "{text}"
     );
+    // Two measurements give no error: from two points the Γ-method's variance of the mean,
+    // Γ(0) + 2Γ(1), is not positive.
+    let t0: Vec<&str> = text.lines().filter(|l| l.starts_with("# t0/a^2")).collect();
     assert!(
-        text.lines()
-            .filter(|l| l.starts_with("# t0/a^2"))
-            .all(|l| l.ends_with("; 2 measurements)")),
+        !t0.is_empty()
+            && t0
+                .iter()
+                .all(|l| l.contains("no error: 2 measurements are too few")),
         "{text}"
     );
 
