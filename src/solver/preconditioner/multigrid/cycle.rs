@@ -50,6 +50,18 @@ pub struct TwoGrid<V, S, E> {
     e: V,
 }
 
+/// exp/ls16-diag: e ← ω e for ω = RUTTICE_COARSE_OMEGA (1 when unset): the coarse
+/// correction damped against the smoothers.
+fn damp_coarse<V: Vector>(e: &mut V) {
+    let omega = std::env::var("RUTTICE_COARSE_OMEGA")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    if omega != 1.0 {
+        e.scale(&vec![omega; e.num_vectors()]);
+    }
+}
+
 impl<V: Vector, S: Smooths<V>, E: Corrects<V>> TwoGrid<V, S, E> {
     pub fn new(smoother: S, correction: E, like: &V) -> Self {
         Self {
@@ -81,6 +93,7 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> TwoGrid<V, S, E> {
         self.smoother.residual(&mut self.r, &y, x);
         crate::env::DIAG_DETAIL.with(|f| f.set(true));
         self.correction.correct(&mut self.e, &self.r);
+        damp_coarse(&mut self.e);
         crate::env::DIAG_DETAIL.with(|f| f.set(false));
         let t_coarse = term(&mut self.smoother, &self.e, &mut ay);
         y.axpy(&one, &self.e);
@@ -100,6 +113,7 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> TwoGrid<V, S, E> {
         self.smoother.pre(y, b);
         self.smoother.residual(&mut self.r, y, b);
         self.correction.correct(&mut self.e, &self.r);
+        damp_coarse(&mut self.e);
         y.axpy(&one, &self.e);
         self.smoother.residual(&mut self.r, y, b);
         self.smoother.post(&mut self.e, &self.r);
@@ -216,6 +230,7 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
             c
         });
         self.correction.correct(&mut self.e, &self.r);
+        damp_coarse(&mut self.e);
         y.axpy(&one, &self.e);
         self.smoother.residual(&mut self.r, y, b);
         let n2 = if diag { norm(&self.r) } else { 0.0 };
