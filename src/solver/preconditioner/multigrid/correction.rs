@@ -315,6 +315,11 @@ pub(crate) fn minres_on_hermitian<C: Vector, D: CoarseOperator<C> + ?Sized>(
 pub trait NeffQ<V>: EvenOdd<V> {
     /// `out = Q inp`, or `Q⁻¹ inp`.
     fn mult_q(&self, out: &mut V, inp: &V, inverse: bool);
+    /// exp/ls16-diag (RUTTICE_DSYM): `out = B⁻¹ inp` with B = b − cY of the quark operator,
+    /// whose coarse operator is then P† D B⁻¹ P; false (and nothing done) otherwise.
+    fn dsym_right(&self, _out: &mut V, _inp: &V) -> bool {
+        false
+    }
 }
 
 /// e = O_L π P (P†DP)⁻¹ P† ι M π P (P†D_PV†P)⁻¹ P† ι O_R r, the coarse correction for the
@@ -608,6 +613,22 @@ where
             }
         }
         if let Some(pv_rel) = pv_rel {
+            // Γ5-Hermiticity of the coarse quark operator A: <c, Γ5 A g> against <Γ5 A c, g>.
+            let (mut ag, mut ac) = (c.zeros_like(), c.zeros_like());
+            coarse_d.mult(&mut ag, gc);
+            coarse_d.gamma5(&mut ag);
+            coarse_d.mult(&mut ac, c);
+            coarse_d.gamma5(&mut ac);
+            let (mut x1, mut x2) = (
+                vec![crate::C64::new(0.0, 0.0); nv],
+                vec![crate::C64::new(0.0, 0.0); nv],
+            );
+            c.dot(&ag, &mut x1);
+            ac.dot(gc, &mut x2);
+            eprintln!(
+                "diag hermiticity of Γ5 P†DP: |<c,Γ5Ag> − <Γ5Ac,g>|/|<c,Γ5Ag>| {:.3e}",
+                ((x1[0] - x2[0]).norm_sqr() / x1[0].norm_sqr()).sqrt()
+            );
             let d_rel = diag_residual(|o, i| coarse_d.mult(o, i), c, gc);
             eprintln!(
                 "diag gain: pv |w|/|g| {:.3e}; d |c|/|g| {:.3e}",
@@ -620,9 +641,13 @@ where
                 in_range.unwrap_or(f64::NAN)
             );
         }
-        // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
+        // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form); with RUTTICE_DSYM
+        // e = O_L B_e⁻¹ π P c.
         g.convert_from(c);
         transfer.prolong(h, g);
+        if op.dsym_right(e, h) {
+            h.copy_from(e);
+        }
         match form {
             EoForm::Right => op.diag(work, e, h, even, Dagger::No),
             EoForm::Left => op_a.mult_q(e, h, true),

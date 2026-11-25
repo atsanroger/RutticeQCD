@@ -779,7 +779,15 @@ impl DeviceBasis {
             (0..pairs.len()).map(|_| None).collect();
         let mut failed: Option<CudaError> = None;
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
-            basis.add(i, s);
+            // RUTTICE_DSYM: B s in place of the s lifts (columns 0 .. n).
+            if op.dsym() && i < n {
+                assert!(i + s.vectors <= n, "a chunk of lifts of one kind");
+                let mut bs = s.zeros_like();
+                op.dsym_lift(&mut bs, s);
+                basis.add(i, &bs);
+            } else {
+                basis.add(i, s);
+            }
             for (k, &col) in targets.iter().enumerate() {
                 if (i..i + s.vectors).contains(&col) {
                     match s.to_host() {

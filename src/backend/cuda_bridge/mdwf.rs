@@ -620,7 +620,26 @@ impl<T: DeviceReal> CudaMdwf<T> {
             self.alpha == 1.0,
             "the coarse operator is that of the plain operator"
         );
-        let MdwfParams { mass, b, c, .. } = self.params;
+        let MdwfParams {
+            ls, m5, mass, b, c, ..
+        } = self.params;
+        if self.dsym() {
+            // D_sym = [(1 + Y) B⁻¹ + (4 − M5)] − ½ K: the hop with b = 1, c = 0.
+            let mut site = FifthMatrix::linear(ls, 1.0, 1.0, mass).times(&self.dsym_b().inverse());
+            for s in 0..ls {
+                site.plus[s * ls + s] += 4.0 - m5;
+                site.minus[s * ls + s] += 4.0 - m5;
+            }
+            let site = site.on_device::<T>()?;
+            return super::coarse::coarse_blocks(
+                basis,
+                (&*self.gauge, &self.geometry, self.halos.as_deref()),
+                [0.5, mass, 1.0, 0.0],
+                &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| {
+                    self.gemm(out, inp, &site, None)
+                },
+            );
+        }
         super::coarse::coarse_blocks(
             basis,
             (&*self.gauge, &self.geometry, self.halos.as_deref()),
@@ -933,6 +952,34 @@ impl<T: DeviceReal> FermionOp<DeviceSpinor<T>> for CudaMdwf<T> {
 impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
     fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
         CudaMdwf::mult_q(self, out, inp, inverse);
+    }
+    fn dsym_right(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) -> bool {
+        if !self.dsym() {
+            return false;
+        }
+        let m = must(self.dsym_b().inverse().on_device::<T>());
+        self.gemm(out, inp, &m, None);
+        true
+    }
+}
+
+/// exp/ls16-diag (RUTTICE_DSYM): the quark operator's coarse operator is that of
+/// D_sym = D B⁻¹ = (1 + Y) B⁻¹ + W with B = b − cY, Γ5-Hermitian; P holds B s for the lifts s.
+impl<T: DeviceReal> CudaMdwf<T> {
+    /// Whether this operator is the quark operator under RUTTICE_DSYM (the Pauli-Villars
+    /// operator, mass 1, keeps D).
+    pub(crate) fn dsym(&self) -> bool {
+        crate::env::switch("RUTTICE_DSYM") && self.params.mass != 1.0
+    }
+    /// B = b − cY at the quark mass.
+    fn dsym_b(&self) -> FifthMatrix {
+        let MdwfParams { ls, mass, b, c, .. } = self.params;
+        FifthMatrix::linear(ls, b, -c, mass)
+    }
+    /// `out = B inp`, on the whole lattice or one parity.
+    pub(crate) fn dsym_lift(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        let m = must(self.dsym_b().on_device::<T>());
+        self.gemm(out, inp, &m, None);
     }
 }
 
