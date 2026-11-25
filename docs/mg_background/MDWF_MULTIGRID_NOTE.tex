@@ -257,8 +257,8 @@ coarse space is built from block-restricted near-null vectors and the coarse ope
 projections. The outer solve is formulated on the even-odd system, matching the red-black CG
 baseline; its inverse factorizes into the inverses of $D$ and $\Dpv\dg$, each replaced by a
 Galerkin coarse inverse. \New We coarsen the quark factor as $DB_5^{-1}$, with the site-local
-$B_5=b-cY$, which is $\Gfive$-Hermitian where $D$ is not, so its coarse operator is
-$\sigma_3$-Hermitian (Eq.~\eqref{eq:Dsymherm}, Sec.~\ref{sec:coarseops}). Every aggregate contains the entire fifth dimension, so the coarse lattice
+$B_5=b-cY$, which is $\Gfive$-Hermitian where $D$ is not, and its coarse operator keeps this
+property (Eq.~\eqref{eq:Dsymherm}, Sec.~\ref{sec:coarseops}). Every aggregate contains the entire fifth dimension, so the coarse lattice
 is four-dimensional and both coarse operators remain nearest-neighbor. To treat the remaining low
 modes of the quark factor without explicit coarse-grid deflation, we add further aggregation levels
 below the coarse lattice with a dense LU solve at the bottom (Sec.~\ref{sec:coarse}). For the Pauli--Villars coarse
@@ -1107,12 +1107,12 @@ vanishes unless $X'=X$ or $X'$ is a neighbor of $X$. Each coarse site has a
 $2n_v\times2n_v$ diagonal block and one link block for each of its eight nearest neighbors, nine blocks in all. The
 adjoint factor $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$ is the conjugate transpose of these blocks.
 \New Every column of $\Pro$ is an eigenvector of $\Gfive$ (Sec.~\ref{sec:agg}), so
-$\Gfive\Pro=\Pro\sigma_3$, where $\sigma_3$ is $+1$ on the first $n_v$ and $-1$ on the last $n_v$
+$\Gfive\Pro=\Pro\sigma_3$, where $\sigma_3$, the coarse chirality matrix of Ref.~\cite{Babich}, is $+1$ on the first $n_v$ and $-1$ on the last $n_v$
 components of each coarse site. With Eq.~\eqref{eq:Dsymherm},
 \begin{equation}
 \Dc\dg=\Pro\dg\Dsym\dg\Pro=\Pro\dg\Gfive\Dsym\Gfive\Pro=\sigma_3\Dc\sigma_3 ,
 \end{equation}
-so $\Dc$ is $\sigma_3$-Hermitian. The same steps do not apply to $\Dcpv$, since $\Dpv$ is not
+so $\sigma_3\Dc$ is Hermitian. The same steps do not apply to $\Dcpv$, since $\Dpv$ is not
 $\Gfive$-Hermitian (Eq.~\eqref{eq:g5herm} at $m=1$). When all
 extents of the coarse lattice are even, the coarse hops connect coarse sites of opposite parity,
 and both coarse operators have an even-odd form of their own.
