@@ -161,6 +161,15 @@ keyword_enum! {
 }
 
 keyword_enum! {
+    /// The quark factor of the domain-wall multigrid's coarse correction: P†D B5⁻¹P,
+    /// Γ5-Hermitian (the default), or P†DP.
+    pub enum QuarkCoarsening {
+        Symmetric => ["symmetric"],
+        Plain => ["plain"],
+    }
+}
+
+keyword_enum! {
     /// How a device keeps the prolongation of the multigrid.
     pub enum BasisPrecision {
         Half => ["half", "f16", "fp16", "float16", "binary16", "hp"],

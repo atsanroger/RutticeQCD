@@ -496,10 +496,10 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
         taken,
         params,
         &mut |y, with_levels, work| {
-            let basis = pv_eo_basis_stored(op, pv, agg, &y, storage)?;
+            let basis = pv_eo_basis_stored(op, pv, agg, &y, storage, params.cycle.quark_factor)?;
             let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
             if with_levels && !super_blocks.is_empty() {
-                let v = pv_eo_coarse_vectors(op, pv, &basis, &y);
+                let v = pv_eo_coarse_vectors(op, pv, &basis, &y, params.cycle.quark_factor)?;
                 cycle.add_levels_with(&v, super_blocks, refine)?;
                 if for_pv {
                     if params.cycle.pv_solver != CoarseKrylov::Minres {
@@ -518,5 +518,5 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
         &mut |_, _, _| {},
         &mut |_, _, _| {},
     )?;
-    pv_eo_basis_stored(op, pv, agg, y, storage)
+    pv_eo_basis_stored(op, pv, agg, y, storage, params.cycle.quark_factor)
 }

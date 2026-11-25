@@ -17,7 +17,7 @@ use crate::fermion::{
     inverse_hops_twice_of, Dagger, EvenOdd, FermionOp, MdwfParams, Then, Variant,
 };
 use crate::kernel::NC;
-use crate::solver::preconditioner::multigrid::{CoarseOp, NeffQ};
+use crate::solver::preconditioner::multigrid::{CoarseOp, MultigridError, NeffQ, QuarkFactor};
 use crate::{Parity, Vector};
 use std::rc::Rc;
 
@@ -585,16 +585,35 @@ impl<T: DeviceReal> CudaMdwf<T> {
         self.walls_to_4d(out, psi, (ls / 2, ls / 2 - 1));
     }
 
+    /// B5 = b − cY of this operator (an operator on its links whose site-local part is B5) for
+    /// the symmetric quark factor, `None` for the plain one, as `b5_for` on the CPU.
+    pub(crate) fn b5_for(&self, quark: QuarkFactor) -> Result<Option<Self>, MultigridError> {
+        let p = self.params;
+        match quark {
+            QuarkFactor::Plain => Ok(None),
+            QuarkFactor::Symmetric if p.b5_invertible() => Self::on_the_links_of(self, p.b5_site())
+                .map(Some)
+                .map_err(|e| MultigridError::Backend(e.to_string())),
+            QuarkFactor::Symmetric => Err(MultigridError::SingularB5),
+        }
+    }
+
     /// The coarse operator `P† D P` of this operator (plain: without Neff's α) on the host, as
-    /// `CoarseOp::build` makes it on the CPU: `coarse_blocks`, brought to the host once.
-    pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
-        let (diag, links) = self.coarse_blocks::<f64>(basis)?;
-        Ok(CoarseOp::from_parts(
+    /// `CoarseOp::build` makes it on the CPU: `coarse_blocks`, brought to the host once; with
+    /// `symmetric` P† D B5⁻¹ P, as `PvEoBasis::coarse_op_symmetric`.
+    pub fn coarse_operator(
+        &self,
+        basis: &DeviceBasis,
+        symmetric: bool,
+    ) -> Result<CoarseOp<f64>, CudaError> {
+        let (diag, links) = self.coarse_blocks::<f64>(basis, symmetric)?;
+        let op = CoarseOp::from_parts(
             &basis.coarse,
             basis.coarse_dim(),
             diag.download()?,
             links.download()?,
-        ))
+        );
+        Ok(op)
     }
 
     /// The same coarse operator as it is used, on the device in the precision `CT`: made there
@@ -604,8 +623,9 @@ impl<T: DeviceReal> CudaMdwf<T> {
         &self,
         basis: &DeviceBasis,
         even_odd: bool,
+        symmetric: bool,
     ) -> Result<DeviceCoarseOp<CT>, Box<dyn std::error::Error>> {
-        let (diag, links) = self.coarse_blocks::<CT>(basis)?;
+        let (diag, links) = self.coarse_blocks::<CT>(basis, symmetric)?;
         DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
     }
 
@@ -615,12 +635,30 @@ impl<T: DeviceReal> CudaMdwf<T> {
     fn coarse_blocks<L: DeviceReal>(
         &self,
         basis: &DeviceBasis,
+        symmetric: bool,
     ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
         assert!(
             self.alpha == 1.0,
             "the coarse operator is that of the plain operator"
         );
-        let MdwfParams { mass, b, c, .. } = self.params;
+        let MdwfParams { ls, mass, b, c, .. } = self.params;
+        if symmetric {
+            // D B5⁻¹ = C B5⁻¹ − ½ K: the site-local part C B5⁻¹ (an Ls × Ls matrix on each
+            // chirality) and the hops on the field itself (b = 1, c = 0 in the kernel).
+            let b5 = FifthMatrix::linear(ls, b, -c, mass);
+            let height = 4.0 - self.params.m5;
+            let site = FifthMatrix::linear(ls, 1.0 + b * height, 1.0 - c * height, mass)
+                .times(&b5.inverse())
+                .on_device::<T>()?;
+            return super::coarse::coarse_blocks(
+                basis,
+                (&*self.gauge, &self.geometry, self.halos.as_deref()),
+                [0.5, mass, 1.0, 0.0],
+                &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| {
+                    self.gemm(out, inp, &site, None)
+                },
+            );
+        }
         super::coarse::coarse_blocks(
             basis,
             (&*self.gauge, &self.geometry, self.halos.as_deref()),

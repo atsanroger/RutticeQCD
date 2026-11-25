@@ -358,9 +358,13 @@ fn parts_in<F: Storage, G: GammaRepre>(
         return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
     }
     let agg = Aggregation::new(lat, settings.block);
-    let basis = pv_eo_basis_stored(op, pv, &agg, y, settings.storage())?;
+    let quark = settings.cycle.quark_factor;
+    let basis = pv_eo_basis_stored(op, pv, &agg, y, settings.storage(), quark)?;
     let (super_blocks, refine) = settings.level_lists();
-    let vectors = (!super_blocks.is_empty()).then(|| pv_eo_coarse_vectors(op, pv, &basis, y));
+    let vectors = match super_blocks.is_empty() {
+        true => None,
+        false => Some(pv_eo_coarse_vectors(op, pv, &basis, y, quark)?),
+    };
     let outer = (op, pv, EoForm::Right);
     macro_rules! made {
         ($ct:ty, $variant:ident) => {{

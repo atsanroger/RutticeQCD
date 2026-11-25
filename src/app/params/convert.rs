@@ -2,7 +2,7 @@
 
 use super::blocks::MultigridBlock;
 use super::*;
-use crate::solver::preconditioner::multigrid::{CoarseLevels, MdwfMultigridSettings};
+use crate::solver::preconditioner::multigrid::{CoarseLevels, MdwfMultigridSettings, QuarkFactor};
 
 /// Whether a file is a parameter file in the style of Bridge++: one with a `Main` section.
 pub(crate) fn is_bridge_style(path: &Path) -> Result<bool, CliError> {
@@ -602,6 +602,10 @@ impl MultigridBlock {
             pv_max_iterations: coarse_pv.maximum_number_of_iteration,
             d_solver: coarse_d.factor_solve(),
             pv_solver: coarse_pv.factor_solve(),
+            quark_factor: match self.coarse_quark_operator_given {
+                None | Some(QuarkCoarsening::Symmetric) => QuarkFactor::Symmetric,
+                Some(QuarkCoarsening::Plain) => QuarkFactor::Plain,
+            },
             ..PvEoParams::default()
         };
         let low = LowModeParams {
@@ -802,6 +806,10 @@ impl MultigridBlock {
             ),
             ("fine_precision", self.fine_precision_given.is_some()),
             ("basis_precision", self.basis_precision_given.is_some()),
+            (
+                "coarse_quark_operator",
+                self.coarse_quark_operator_given.is_some(),
+            ),
             ("levels_for_pauli_villars", self.levels_for_pauli_villars),
             ("Setup.checkpoint", self.setup.checkpoint.is_some()),
             (

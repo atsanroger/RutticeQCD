@@ -51,7 +51,14 @@ fn main() {
         .clone();
     let y = random_even::<f64>(&lat, &index, params.ls, vectors, 11);
     let agg = Aggregation::new(&lat, [4; ND]);
-    let basis = pv_eo_basis(&op, &pv, &agg, &y).expect("the basis");
+    let basis = pv_eo_basis(
+        &op,
+        &pv,
+        &agg,
+        &y,
+        ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+    )
+    .expect("the basis");
 
     let mut seconds = Vec::new();
     let mut coarse = None;

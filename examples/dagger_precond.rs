@@ -237,7 +237,14 @@ mod device {
             quiet,
         )?;
         drop(with);
-        let basis = Rc::new(DeviceBasis::pv_eo(&d, &pv, &agg, &y, true)?);
+        let basis = Rc::new(DeviceBasis::pv_eo(
+            &d,
+            &pv,
+            &agg,
+            &y,
+            true,
+            cycle.quark_factor,
+        )?);
         println!("# setup {:.1} s", t.elapsed().as_secs_f64());
         let mut c = DeviceCorrection::<f64, f32>::shared(
             basis.clone(),
@@ -628,7 +635,14 @@ mod device {
                         dual_boot(z, params)?
                     }
                 };
-                let basis_l = Rc::new(DeviceBasis::pv_eo(&pv, &d, &agg, &z, true)?);
+                let basis_l = Rc::new(DeviceBasis::pv_eo(
+                    &pv,
+                    &d,
+                    &agg,
+                    &z,
+                    true,
+                    params.quark_factor,
+                )?);
                 let made = t.elapsed().as_secs_f64();
                 let mut c_l = DeviceCorrection::<f64, f32>::shared(
                     basis_l,

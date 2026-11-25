@@ -157,10 +157,10 @@ pub(crate) fn device_correction_with_levels<'o, T: DeviceReal>(
     ending: Option<&'o RefCell<Option<DeviceParts<f32>>>>,
 ) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
     move |y, with_levels, round| {
-        let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half)?;
+        let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half, cycle.quark_factor)?;
         let level_vectors = match super_blocks.is_empty() || !with_levels {
             true => None,
-            false => Some(basis.pv_eo_coarse_vectors(d, pv, &y)?),
+            false => Some(basis.pv_eo_coarse_vectors(d, pv, &y, cycle.quark_factor)?),
         };
         let mut c =
             DeviceCorrection::<T, f32>::new(basis, (d, pv), (d, pv), EoForm::Right, cycle, even)?;

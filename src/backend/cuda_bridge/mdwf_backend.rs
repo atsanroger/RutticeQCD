@@ -190,7 +190,15 @@ fn basis_in<T: DeviceReal>(
     y: &DeviceSpinor<T>,
     report: &mut dyn FnMut(SetupStage<'_>),
 ) -> Result<(Rc<DeviceBasis>, Option<LevelVectors>), Box<dyn Error>> {
-    let basis = Rc::new(DeviceBasis::pv_eo(d, pv, agg, y, !settings.basis_single)?);
+    let quark = settings.cycle.quark_factor;
+    let basis = Rc::new(DeviceBasis::pv_eo(
+        d,
+        pv,
+        agg,
+        y,
+        !settings.basis_single,
+        quark,
+    )?);
     report(SetupStage::Checksum("P", &|| {
         basis.checksum().expect("a checksum on the device")
     }));
@@ -198,7 +206,7 @@ fn basis_in<T: DeviceReal>(
         0 => None,
         _ => Some(
             basis
-                .pv_eo_coarse_vectors(d, pv, y)?
+                .pv_eo_coarse_vectors(d, pv, y, quark)?
                 .to_precision::<f64>()?,
         ),
     };

@@ -250,7 +250,14 @@ mod device {
         };
         let mut with = device_correction((d, pv), &agg, cycle, &even, true);
         bootstrap((d, pv), (&even, &odd), &lat, &mut y, boot, &mut with, quiet)?;
-        let basis = Rc::new(DeviceBasis::pv_eo(d, pv, &agg, &y, true)?);
+        let basis = Rc::new(DeviceBasis::pv_eo(
+            d,
+            pv,
+            &agg,
+            &y,
+            true,
+            ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+        )?);
         drop(y);
         let exact = PvEoParams {
             pv_solver: match tikhonov > 0.0 {

@@ -10,7 +10,9 @@ use ruttice::fermion::{
 };
 use ruttice::gauge::random_gauge;
 use ruttice::kernel::{Dirac, LaneOf};
-use ruttice::solver::preconditioner::multigrid::{pv_eo_basis, Aggregation, PvEoCycle, PvEoParams};
+use ruttice::solver::preconditioner::multigrid::{
+    pv_eo_basis, Aggregation, PvEoCycle, PvEoParams, QuarkFactor,
+};
 use ruttice::solver::{solve_cgne, BiCgStab, Cg, Gcr, Solver, Stop};
 use ruttice::{
     assemble, extract_parity, insert_parity, local_part, random_spinor, Aosoa, Boundary,
@@ -928,7 +930,14 @@ fn test_simd_mdwf_multigrid_on_blocks_agrees() {
         &index,
         Parity::Even,
     );
-    let basis = pv_eo_basis(&op, &pv, &Aggregation::new(&lat, [2, 2, 2, 2]), &y).unwrap();
+    let basis = pv_eo_basis(
+        &op,
+        &pv,
+        &Aggregation::new(&lat, [2, 2, 2, 2]),
+        &y,
+        QuarkFactor::Symmetric,
+    )
+    .unwrap();
     let b = random_5d(&lat, MOBIUS.ls, 1, 997);
     let stop = Stop::simple(1e-20, 200);
 

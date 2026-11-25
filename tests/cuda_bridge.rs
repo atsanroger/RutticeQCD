@@ -9,6 +9,7 @@ use ruttice::fermion::{
     MdwfParams, PvEvenOdd, PvRatio, Schur, Variant, Wilson, WilsonParams,
 };
 use ruttice::gauge::random_gauge;
+use ruttice::solver::preconditioner::multigrid::QuarkFactor;
 use ruttice::solver::{solve_cgne, Cg, Convert, Refine, Solve, Solver, Stop};
 use ruttice::{
     extract_parity, random_spinor, Boundary, EvenOddIndex, Field, Gauge, Half, Lattice, LinearFn,
@@ -1642,7 +1643,8 @@ fn test_mg_multigrid_transfers_on_the_device() {
         h
     };
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
-    let basis = pv_eo_basis(&cpu, &pv, &agg, &half(Parity::Even, n, 432)).unwrap();
+    let quark = QuarkFactor::Symmetric;
+    let basis = pv_eo_basis(&cpu, &pv, &agg, &half(Parity::Even, n, 432), quark).unwrap();
     let device = DeviceBasis::from_pv_eo(&basis).unwrap();
     let same = |a: &Field<f64, Coarse>, b: &DeviceCoarse, what: &str| {
         let b = b.to_host(a).unwrap();
@@ -1667,7 +1669,7 @@ fn test_mg_multigrid_transfers_on_the_device() {
             },
         );
         let y = DeviceSpinor::from_host_half(&half(Parity::Even, n, 432), &index).unwrap();
-        let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y, false).unwrap();
+        let made = DeviceBasis::pv_eo(&gpu, &gpu_pv, &agg, &y, false, quark).unwrap();
         let ruttice::solver::preconditioner::multigrid::PvEoBasis::Half(stored) = &basis else {
             panic!("pv_eo_basis keeps P in half precision");
         };
@@ -1719,25 +1721,29 @@ fn test_mg_multigrid_transfers_on_the_device() {
         use ruttice::backend::cuda_bridge::DeviceCoarseOp;
         use ruttice::solver::preconditioner::multigrid::BlockMap;
         use ruttice::{LinearFn, LinearOp};
-        let mut op = basis.coarse_op(&cpu, &mut cpu.work());
+        // The coarse operator built on the device is the one built on the CPU, P†DP and
+        // P†D B5⁻¹P (on the same P).
+        let (_, gpu) = mdwf_pair(&lat, &u, params);
+        for (quark, symmetric) in [(QuarkFactor::Plain, false), (QuarkFactor::Symmetric, true)] {
+            let op = basis.coarse_quark_op(&cpu, &mut cpu.work(), quark).unwrap();
+            let built = gpu.coarse_operator(&device, symmetric).unwrap();
+            for (what, a, b) in [
+                ("blocks", op.blocks().0, built.blocks().0),
+                ("links", op.blocks().1, built.blocks().1),
+            ] {
+                let d = a
+                    .iter()
+                    .zip(b)
+                    .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
+                assert!(
+                    d < 1e-13,
+                    "{quark:?}: the {what} of the coarse operator differ by {d:e}"
+                );
+            }
+        }
+        let mut op = basis.coarse_quark_op(&cpu, &mut cpu.work(), quark).unwrap();
         assert!(op.prepare_even_odd().unwrap());
         let device_op = DeviceCoarseOp::<f64>::new(&op, true).unwrap();
-        // The coarse operator built on the device is the one built on the CPU.
-        let (_, gpu) = mdwf_pair(&lat, &u, params);
-        let built = gpu.coarse_operator(&device).unwrap();
-        for (what, a, b) in [
-            ("blocks", op.blocks().0, built.blocks().0),
-            ("links", op.blocks().1, built.blocks().1),
-        ] {
-            let d = a
-                .iter()
-                .zip(b)
-                .fold(0.0f64, |m, (a, b)| m.max((a - b).abs()));
-            assert!(
-                d < 1e-13,
-                "the {what} of the coarse operator differ by {d:e}"
-            );
-        }
         let mut seed = 0x2545_f491_4f6c_dd1du64;
         let mut random = || {
             let mut f = basis.coarse_field(nv);
@@ -1866,7 +1872,7 @@ fn test_mg_multigrid_correction_on_the_device() {
         h
     };
     let agg = Aggregation::new(&lat, [2, 2, 2, 4]);
-    let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &half(n, 442)).unwrap();
+    let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &half(n, 442), QuarkFactor::Symmetric).unwrap();
     // The default: the regularized CG of the Pauli-Villars factor.
     let regularized = PvEoParams {
         coarse_tolerance_sqr: 1e-26,
@@ -2002,14 +2008,15 @@ fn test_mg_multigrid_levels_on_the_device() {
             Parity::Even,
         );
         let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-        let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &y).unwrap();
+        let basis = pv_eo_basis(&cpu, &cpu_pv, &agg, &y, QuarkFactor::Symmetric).unwrap();
         let device_basis = DeviceBasis::from_pv_eo(&basis).unwrap();
 
         // The test vectors.
-        let vectors = pv_eo_coarse_vectors(&cpu, &cpu_pv, &basis, &y);
+        let vectors =
+            pv_eo_coarse_vectors(&cpu, &cpu_pv, &basis, &y, QuarkFactor::Symmetric).unwrap();
         let device_y = DeviceSpinor::from_host_half(&y, &index).unwrap();
         let device_vectors = device_basis
-            .pv_eo_coarse_vectors(&gpu, &gpu_pv, &device_y)
+            .pv_eo_coarse_vectors(&gpu, &gpu_pv, &device_y, QuarkFactor::Symmetric)
             .unwrap();
         for (j, v) in vectors.iter().enumerate() {
             let d = device_vectors.select(&[j]).to_host(v).unwrap();
@@ -3428,8 +3435,10 @@ fn coarse_results(
     let mut y_e = DeviceParities.half_like(&y, Parity::Even);
     DeviceParities.extract(&mut y_e, &y, Parity::Even);
     let agg = Aggregation::new(lat, [2, 2, 2, 2]);
-    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false).unwrap();
-    let coarse = d.coarse_operator_on_device::<f64>(&basis, true).unwrap();
+    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false, QuarkFactor::Plain).unwrap();
+    let coarse = d
+        .coarse_operator_on_device::<f64>(&basis, true, false)
+        .unwrap();
     let x = DeviceSpinor::from_host(psi).unwrap();
     let mut x_e = DeviceParities.half_like(&x, Parity::Even);
     DeviceParities.extract(&mut x_e, &x, Parity::Even);
@@ -3548,10 +3557,16 @@ fn level_results(
     let mut y_e = DeviceParities.half_like(&y, Parity::Even);
     DeviceParities.extract(&mut y_e, &y, Parity::Even);
     let agg = Aggregation::new(lat, [2, 2, 2, 2]);
-    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false).unwrap();
-    let coarse_d = d.coarse_operator_on_device::<f64>(&basis, true).unwrap();
-    let coarse_pv = pv.coarse_operator_on_device::<f64>(&basis, true).unwrap();
-    let tests = basis.pv_eo_coarse_vectors(&d, &pv, &y_e).unwrap();
+    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y_e, false, QuarkFactor::Plain).unwrap();
+    let coarse_d = d
+        .coarse_operator_on_device::<f64>(&basis, true, false)
+        .unwrap();
+    let coarse_pv = pv
+        .coarse_operator_on_device::<f64>(&basis, true, false)
+        .unwrap();
+    let tests = basis
+        .pv_eo_coarse_vectors(&d, &pv, &y_e, QuarkFactor::Plain)
+        .unwrap();
     let ml = DeviceMultilevel::build(&coarse_d, agg.coarse_lattice(), &tests, &[2], &[]).unwrap();
     let abs = DeviceAbsMultilevel::build(&coarse_pv, agg.coarse_lattice(), &tests, &[2]).unwrap();
     let x = DeviceSpinor::from_host(psi).unwrap();
@@ -3829,7 +3844,10 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
         tolerance: f64,
         name: &str,
     ) {
-        let coarse = Rc::new(d.coarse_operator_on_device::<T>(basis, true).unwrap());
+        let coarse = Rc::new(
+            d.coarse_operator_on_device::<T>(basis, true, false)
+                .unwrap(),
+        );
         let copy = coarse.adjoint().unwrap();
         let pass = coarse.adjoint_pass().unwrap().expect("one process");
         let mut c64 = basis.coarse_field::<f64>(x_e.num_vectors());
@@ -3902,11 +3920,21 @@ fn test_mg_coarse_adjoint_from_the_blocks_matches_the_explicit_adjoint() {
         }
         let mut y_e = DeviceParities.half_like(&y, Parity::Even);
         DeviceParities.extract(&mut y_e, &y, Parity::Even);
-        let basis = DeviceBasis::pv_eo(&d, &pv, &Aggregation::new(&lat, [2, 2, 2, 2]), &y_e, false)
-            .unwrap();
+        let basis = DeviceBasis::pv_eo(
+            &d,
+            &pv,
+            &Aggregation::new(&lat, [2, 2, 2, 2]),
+            &y_e,
+            false,
+            QuarkFactor::Plain,
+        )
+        .unwrap();
         if n > 64 {
             // A coarse dimension above 256: the kernel's limit; the solve takes the copy.
-            let coarse = Rc::new(d.coarse_operator_on_device::<f64>(&basis, true).unwrap());
+            let coarse = Rc::new(
+                d.coarse_operator_on_device::<f64>(&basis, true, false)
+                    .unwrap(),
+            );
             assert!(coarse.dim() > 256 && coarse.adjoint_pass().unwrap().is_none());
             continue;
         }

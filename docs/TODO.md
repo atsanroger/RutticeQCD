@@ -1128,6 +1128,12 @@ Target (2026-10-26): arXiv, then Phys. Rev. D. Needed before submitting: more co
 the third baseline and the volume trend (below), a dynamical ensemble, a rewrite to the
 journal's length (revtex, the line-by-line derivations to MG_WALKTHROUGH).
 
+- **The symmetric quark factor P†D B5⁻¹P in the note** (2026-11-25, `coarse_quark_operator`,
+  exp/dsym). Order: a timing comparison without diagnostics (24⁴ B, L_s = 16, v2/602/502, both
+  factors); the test matrix (every L_s = 8 number of the note rerun with one binary, setups S and
+  B, 24³×48, three grids); Sec. IV (D† through the same hierarchy) re-derived for D B5⁻¹; then the
+  note: the definition in Sec. III.A, the L_s = 16 evidence once in Sec. V.
+
 - **The automatic bootstrap: a stop that tells a weak cycle from vectors at the lowest modes**
   (2026-11-14). Found (results.tex, Sec. autorounds, from `autoR/rerunT` and `rerunT/old1`): the
   rounds are as many as θ needs to fall from the filter (1.5e-2 S, 4e-2 B) to a level set by the

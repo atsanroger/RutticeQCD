@@ -436,6 +436,10 @@ pub struct MultigridBlock {
     /// precision unless this says single. The coarse operators are built from it as it is kept.
     #[serde(rename = "basis_precision")]
     pub(crate) basis_precision_given: Option<BasisPrecision>,
+    /// Domain-wall fermions: how the quark factor is coarsened, P†D B5⁻¹P (`symmetric`, the
+    /// default) or P†DP (`plain`), as given.
+    #[serde(rename = "coarse_quark_operator")]
+    pub(crate) coarse_quark_operator_given: Option<QuarkCoarsening>,
     #[serde(rename = "Setup", default)]
     pub setup: SetupBlock,
     #[serde(rename = "Smoother", default)]

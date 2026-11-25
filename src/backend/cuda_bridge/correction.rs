@@ -7,6 +7,7 @@ use super::*;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
     Adjoint, ApplyAdjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
+    QuarkFactor,
 };
 use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
@@ -104,7 +105,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         Self::from_parts(parts, plain, outer, form, params, like)
     }
 
-    /// P†DP and the second factor on `device`, and the matrices on their sites.
+    /// P†DP (P†D B5⁻¹P for the symmetric quark factor) and the second factor on `device`, and
+    /// the matrices on their sites.
     fn build(
         device: Rc<DeviceBasis>,
         plain: (&CudaMdwf<F>, &CudaMdwf<F>),
@@ -112,17 +114,18 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     ) -> Result<DeviceParts<CT>, Box<dyn Error>> {
         let even_odd = params.coarse_even_odd;
         // Made on the device and kept there.
-        let build = |op: &CudaMdwf<F>| -> Result<_, Box<dyn Error>> {
-            op.coarse_operator_on_device::<CT>(&device, even_odd)
+        let build = |op: &CudaMdwf<F>, symmetric: bool| -> Result<_, Box<dyn Error>> {
+            op.coarse_operator_on_device::<CT>(&device, even_odd, symmetric)
         };
         let minres = params.pv_solver == CoarseKrylov::Minres;
-        let coarse_d = Rc::new(build(plain.0)?);
+        let symmetric = params.quark_factor == QuarkFactor::Symmetric;
+        let coarse_d = Rc::new(build(plain.0, symmetric)?);
         let coarse_d_adj = match params.d_solver.regularized() {
             Some(_) => Some(DeviceAdjoint::of(&coarse_d, None)?),
             None => None,
         };
         // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
-        let pv_op = build(plain.1)?;
+        let pv_op = build(plain.1, false)?;
         let (coarse_pv, coarse_pv_adj) = match (minres, params.pv_solver.regularized()) {
             (true, _) => (Rc::new(pv_op), None),
             (false, None) => (Rc::new(pv_op.adjoint()?), None),
@@ -219,6 +222,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             coarse,
             parts,
         };
+        c.correction.set_b5(plain.0.b5_for(params.quark_factor)?);
         if let Some(l) = levels_d {
             c.correction
                 .set_levels_d(Box::new(move |out, inp| l(out, inp)));

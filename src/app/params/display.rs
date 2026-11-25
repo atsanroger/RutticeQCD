@@ -122,10 +122,14 @@ impl fmt::Display for Params {
                 let l = &mg.level1;
                 write!(
                     f,
-                    "\npreconditioned by the multigrid: {:?} blocks, {} test vectors; coarse {} (P†DP) to {:e} and {} ({}) to {:e} in {}, above the coarse lattice in {}; smoother Chebyshev {}/{}",
+                    "\npreconditioned by the multigrid: {:?} blocks, {} test vectors; coarse {} ({}) to {:e} and {} ({}) to {:e} in {}, above the coarse lattice in {}; smoother Chebyshev {}/{}",
                     l.block_size,
                     l.test_vectors(true),
                     l.solver_d(true).solver_type,
+                    match mg.coarse_quark_operator_given {
+                        Some(QuarkCoarsening::Plain) => "P†DP",
+                        _ => "P†D B5⁻¹P",
+                    },
                     l.solver_d(true).convergence_criterion_squared,
                     l.solver_pv().solver_type,
                     match (operator, l.solver_pv().solver_type) {
@@ -146,7 +150,7 @@ impl fmt::Display for Params {
                 if !levels.is_empty() {
                     write!(
                         f,
-                        "\nlevels below the coarse lattice for P†DP: super-blocks {levels:?} (V-cycle, the last solved exactly)"
+                        "\nlevels below the coarse lattice for the quark factor: super-blocks {levels:?} (V-cycle, the last solved exactly)"
                     )?;
                     if mg.levels_for_pauli_villars {
                         write!(f, "; for P†D_PV†P too (|H|⁻¹, added to the blocks)")?;

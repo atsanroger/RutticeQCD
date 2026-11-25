@@ -5,7 +5,8 @@ use super::halo::{Faces, Halos};
 use super::*;
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
 use crate::solver::preconditioner::multigrid::{
-    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, Transfer,
+    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, MultigridError, QuarkFactor,
+    Transfer,
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
@@ -737,23 +738,33 @@ impl DeviceBasis {
     /// The P of the even-odd Pauli-Villars multigrid from the vectors `y` on the even sites,
     /// as `pv_eo_basis` makes it on the CPU: for every y, s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
     /// and t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s) (see the top of
-    /// `multigrid::mdwf_even_odd`); `op` and `pv` the plain operators.
+    /// `multigrid::mdwf_even_odd`); `op` and `pv` the plain operators. For the symmetric
+    /// quark factor P holds B5 s in place of s.
     pub fn pv_eo<T: DeviceReal>(
         op: &CudaMdwf<T>,
         pv: &CudaMdwf<T>,
         agg: &Arc<Aggregation>,
         y: &DeviceSpinor<T>,
         half: bool,
+        quark: QuarkFactor,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let b5 = op.b5_for(quark)?;
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
         let mut basis = Self::empty(agg, ls, 2 * n, half)?;
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         let sites = Some(lat.num_global_sites() as f64);
         // Two vectors at a time: the fields on the whole lattice are large.
-        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
-            basis.add(i, s)
-        });
+        lifted_vectors(
+            (op, pv),
+            b5.as_ref(),
+            &DeviceParities,
+            &whole,
+            y,
+            2,
+            sites,
+            |i, s| basis.add(i, s),
+        );
         basis.finish()?;
         trace_checksum("P made on the device", || basis.checksum());
         Ok(basis)
@@ -767,17 +778,28 @@ impl DeviceBasis {
         op: &CudaMdwf<T>,
         pv: &CudaMdwf<T>,
         y: &DeviceSpinor<T>,
-    ) -> Result<DeviceCoarse<T>, CudaError> {
+        quark: QuarkFactor,
+    ) -> Result<DeviceCoarse<T>, Box<dyn std::error::Error>> {
+        let b5 = op.b5_for(quark)?;
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
         let mut out =
             DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), 2 * n)?.on(&self.coarse);
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
-        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, None, |i, s| {
-            let mut c = self.coarse_field::<T>(s.vectors);
-            self.restrict(&mut c, s);
-            out.assign(&(i..i + s.vectors).collect::<Vec<_>>(), &c);
-        });
+        lifted_vectors(
+            (op, pv),
+            b5.as_ref(),
+            &DeviceParities,
+            &whole,
+            y,
+            2,
+            None,
+            |i, s| {
+                let mut c = self.coarse_field::<T>(s.vectors);
+                self.restrict(&mut c, s);
+                out.assign(&(i..i + s.vectors).collect::<Vec<_>>(), &c);
+            },
+        );
         Ok(out)
     }
 

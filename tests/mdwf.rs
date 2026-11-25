@@ -14,7 +14,7 @@ use ruttice::measure::{meson_correlator, pion_correlator, point_source, NUM_SOUR
 use ruttice::solver::preconditioner::multigrid::{
     mdwf_multigrid, pv_eo_basis, pv_eo_bootstrap, pv_eo_coarse_vectors, pv_eo_low_modes,
     Aggregation, Basis, BasisBuilder, BootstrapParams, CoarseKrylov, CoarseOp, LowModeParams,
-    MdwfCoarse, MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, Reflection,
+    MdwfCoarse, MdwfMultigridParams, MdwfSmoother, PvEoCycle, PvEoParams, QuarkFactor, Reflection,
 };
 use ruttice::solver::{
     largest_magnitude, solve_cgne, BiCgStab, Cg, ChebyshevFilter, Convert, Fgmres, Gcr, Polynomial,
@@ -1323,7 +1323,7 @@ fn test_mg_even_odd_pv_multigrid_solves_d() {
         y.assign(&[i], &v);
     }
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+    let basis = pv_eo_basis(&op, &pv, &agg, &y, QuarkFactor::Symmetric).unwrap();
     assert!(basis.is_folded());
 
     let b = random(&lat, MOBIUS.ls, 1, 164);
@@ -1395,7 +1395,7 @@ fn test_mg_even_odd_pv_multigrid_solves_d() {
         // outer steps.
         let mut two =
             PvEoCycle::new(&op, &pv, (op_a, &pv, form), &basis, PvEoParams::default()).unwrap();
-        let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y);
+        let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y, QuarkFactor::Symmetric).unwrap();
         let setup = two.add_levels(&vectors, &[2]).unwrap();
         let mut sol = like.zeros_like();
         let two_info = Gcr::new(stop, 2)
@@ -1469,9 +1469,11 @@ fn test_comm_even_odd_pv_multigrid_on_several_processes() {
         extract_parity(&mut y, &local_part(&start, &lat), &index, Parity::Even);
         let like = y.select(&[0]);
         let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-        let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+        let basis = pv_eo_basis(&op, &pv, &agg, &y, QuarkFactor::Symmetric).unwrap();
 
-        let mut coarse = basis.coarse_op(&op, &mut op.work());
+        let mut coarse = basis
+            .coarse_quark_op(&op, &mut op.work(), QuarkFactor::Symmetric)
+            .unwrap();
         let v = match coarse_v {
             Some(v) => local_part(v, agg.coarse_lattice()),
             None => {
@@ -1513,7 +1515,8 @@ fn test_comm_even_odd_pv_multigrid_on_several_processes() {
             )
             .unwrap();
             if levels {
-                let vectors = pv_eo_coarse_vectors(&op, &pv, &basis, &y);
+                let vectors =
+                    pv_eo_coarse_vectors(&op, &pv, &basis, &y, QuarkFactor::Symmetric).unwrap();
                 cycle.add_levels(&vectors, &[2]).unwrap();
             }
             let mut sol = like.zeros_like();
@@ -1853,7 +1856,7 @@ fn cycle_on_vectors_that_converge_apart() {
         },
     );
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    let basis = pv_eo_basis(&op, &pv, &agg, &y).unwrap();
+    let basis = pv_eo_basis(&op, &pv, &agg, &y, QuarkFactor::Symmetric).unwrap();
     let mut cycle = PvEoCycle::new(
         &op,
         &pv,
@@ -1984,7 +1987,7 @@ fn test_solver_cgne_with_alpha_and_the_multigrid() {
         },
     );
     let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
-    let basis = pv_eo_basis(&op, &op, &agg, &y).unwrap();
+    let basis = pv_eo_basis(&op, &op, &agg, &y, QuarkFactor::Symmetric).unwrap();
     let mut like = Field::<f64, Spinor, Half>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
     like.set_parity(Parity::Even);
     let b = random(&lat, MOBIUS.ls, 1, 183);
@@ -2330,4 +2333,84 @@ fn test_comm_a_domain_wall_run_on_several_processes() {
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The symmetric quark factor P†D B5⁻¹P (B5 = b − cY): D B5⁻¹ is Γ5-Hermitian, so its Γ5
+/// adjoint is its exact adjoint, while that of P†DP is not (c ≠ 0). At b = 1, c = 0 (B5 = 1) P
+/// and the coarse operator are those of the plain factor bit for bit.
+#[test]
+fn test_mg_symmetric_quark_factor() {
+    let lat = Lattice::single_node([4, 4, 4, 4]);
+    let u = random_gauge(&lat, 191);
+    let fill = |basis: &ruttice::solver::preconditioner::multigrid::PvEoBasis, seed: usize| {
+        let mut c = basis.coarse_field(1);
+        for (i, v) in c.as_mut_slice().iter_mut().enumerate() {
+            *v = ((i * 7 + seed) as f64 * 0.37).sin();
+        }
+        c
+    };
+    let made = |params: MdwfParams, quark: QuarkFactor| {
+        let op = operator(&lat, params, &u);
+        let pv = operator(
+            &lat,
+            MdwfParams {
+                mass: 1.0,
+                ..params
+            },
+            &u,
+        );
+        let (y, _) = pv_eo_low_modes(
+            &op,
+            &pv,
+            &lat,
+            LowModeParams {
+                vectors: 4,
+                rounds: 1,
+                chunk: 2,
+                seed: 192,
+            },
+        );
+        let agg = Aggregation::new(&lat, [2, 2, 2, 2]);
+        let basis = pv_eo_basis(&op, &pv, &agg, &y, quark).unwrap();
+        let coarse = basis.coarse_quark_op(&op, &mut op.work(), quark).unwrap();
+        (basis, coarse)
+    };
+
+    // |D_c† x − Γ5 D_c Γ5 x| / |D_c† x|, D_c† the exact adjoint.
+    let defect = |quark: QuarkFactor| {
+        let (basis, mut coarse) = made(MOBIUS, quark);
+        let x = fill(&basis, 3);
+        let (mut exact, mut by_gamma5) = (x.zeros_like(), x.zeros_like());
+        coarse.mult_adjoint(&mut exact, &x);
+        coarse.mult_dag(&mut by_gamma5, &x);
+        let mut diff = exact.zeros_like();
+        diff.copy_from(&exact);
+        diff.axpy(&[C64::new(-1.0, 0.0)], &by_gamma5);
+        let (mut d, mut s) = ([0.0], [0.0]);
+        diff.norm_sqr(&mut d);
+        exact.norm_sqr(&mut s);
+        (d[0] / s[0]).sqrt()
+    };
+    let (symmetric, plain) = (defect(QuarkFactor::Symmetric), defect(QuarkFactor::Plain));
+    eprintln!("Γ5-Hermiticity defect: P†D B5⁻¹P {symmetric:.2e}, P†DP {plain:.2e}");
+    assert!(
+        symmetric < 1e-12,
+        "P†D B5⁻¹P is not Γ5-Hermitian: {symmetric:e}"
+    );
+    assert!(plain > 1e-6, "P†DP is Γ5-Hermitian, c = 0?");
+
+    let wilson_like = MdwfParams {
+        b: 1.0,
+        c: 0.0,
+        ..MOBIUS
+    };
+    let (basis_s, coarse_s) = made(wilson_like, QuarkFactor::Symmetric);
+    let (basis_p, coarse_p) = made(wilson_like, QuarkFactor::Plain);
+    let x = fill(&basis_s, 5);
+    let mut fine_s = Field::<f64, Spinor>::with_shape(&lat, 24, MOBIUS.ls, 1, 1);
+    let mut fine_p = fine_s.zeros_like();
+    basis_s.prolong(&mut fine_s, &x);
+    basis_p.prolong(&mut fine_p, &x);
+    assert_eq!(fine_s.as_slice(), fine_p.as_slice(), "P at b = 1, c = 0");
+    assert_eq!(coarse_s.blocks(), coarse_p.blocks(), "D_c at b = 1, c = 0");
 }

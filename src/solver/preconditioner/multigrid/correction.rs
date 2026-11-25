@@ -2,7 +2,7 @@
 //! domain-wall fermions (the top of `mdwf_even_odd`), and the solve of a coarse system, for
 //! any kind of field: on the CPU and on a device they are this.
 
-use super::mdwf_even_odd::{coarse_solve, CoarseKrylov, FactorSolve, PvEoParams};
+use super::mdwf_even_odd::{coarse_solve, CoarseKrylov, FactorSolve, PvEoParams, QuarkFactor};
 use crate::fermion::{Dagger, EoForm, EvenOdd};
 use crate::solver::{Solver, Stop};
 use crate::{fit, ConvertFrom, LinearFn, Parity, Vector, C64};
@@ -303,7 +303,9 @@ pub trait NeffQ<V>: EvenOdd<V> {
 ///   `blocks_pv` the inverses of its blocks;
 /// - a factor solved by `FactorSolve::Regularized` applies its adjoint as well (`adjoints`:
 ///   (P†DP)† for the first, P†D_PV P for the second), however it is applied;
-/// - levels below the coarse lattice for either factor, if they are set.
+/// - levels below the coarse lattice for either factor, if they are set;
+/// - B5 of the first plain operator for the symmetric quark factor (`set_b5`), whose
+///   solution is then e = O_L B5_e⁻¹ π P c.
 pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     plain: (&'a O, &'a O),
     outer: (&'a O, &'a O),
@@ -318,6 +320,8 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     /// The adjoints of the coarse factors solved by `FactorSolve::Regularized`.
     coarse_d_adj: Option<Adjoint<'a, C>>,
     coarse_pv_adj: Option<Adjoint<'a, C>>,
+    /// B5 = b − cY of `plain.0` and its work, with `QuarkFactor::Symmetric`.
+    b5: Option<(O, O::Work)>,
     params: PvEoParams,
     work: (O::Work, O::Work),
     /// Scratch on the even sites and on the coarse lattice: `g` as P gives it, the others
@@ -384,6 +388,7 @@ where
             levels_pv: None,
             coarse_d_adj,
             coarse_pv_adj,
+            b5: None,
             params,
             h: like.zeros_with(1),
             gc: coarse_like.zeros_with(1),
@@ -395,6 +400,20 @@ where
 
     pub fn params(&self) -> &PvEoParams {
         &self.params
+    }
+
+    /// B5 = b − cY of the first plain operator (`b5_for`), which the symmetric quark factor
+    /// P†D B5⁻¹P needs (`QuarkFactor::Symmetric`), and only it.
+    pub(crate) fn set_b5(&mut self, b5: Option<O>) {
+        assert_eq!(
+            b5.is_some(),
+            self.params.quark_factor == QuarkFactor::Symmetric,
+            "B5 goes with the symmetric quark factor, and only with it"
+        );
+        self.b5 = b5.map(|b| {
+            let work = b.even_odd_work();
+            (b, work)
+        });
     }
 
     /// Levels below the coarse lattice for the solves of the quark factor: an approximate
@@ -434,6 +453,7 @@ where
             levels_pv,
             coarse_pv_adj,
             coarse_d_adj,
+            b5,
             params,
             work: (work, work_a),
             h,
@@ -521,9 +541,19 @@ where
             );
         }
 
-        // e = O_L π P c: C_e (right form) or Q_e⁻¹ (left form).
+        // e = O_L π P c, or O_L B5_e⁻¹ π P c for the symmetric quark factor: O_L = C_e
+        // (right form) or Q_e⁻¹ (left form). B5_e⁻¹ comes first: it and Q_e⁻¹ do not commute.
         g.convert_from(c);
         transfer.prolong(h, g);
+        assert_eq!(
+            b5.is_some(),
+            params.quark_factor == QuarkFactor::Symmetric,
+            "the symmetric quark factor needs B5 (`set_b5`)"
+        );
+        if let Some((b5, w5)) = b5 {
+            b5.diag_inv(w5, e, h, even, Dagger::No);
+            h.copy_from(e);
+        }
         match form {
             EoForm::Right => op.diag(work, e, h, even, Dagger::No),
             EoForm::Left => op_a.mult_q(e, h, true),

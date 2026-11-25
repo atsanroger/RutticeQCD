@@ -277,6 +277,13 @@ impl<T: Storage> CoarseOp<T> {
         })
     }
 
+    /// This operator, built with a factor R on the right (`build_with`) for which D R is
+    /// Γ5-Hermitian (R = B5⁻¹ of a Möbius operator): then its adjoint is Γ5 of it, as without R.
+    pub fn with_gamma5_adjoint(mut self) -> Self {
+        self.adjoint_from_gamma5 = true;
+        self
+    }
+
     /// The operator from its blocks and links as `blocks` gives them, made elsewhere (on a
     /// device), for a fine operator with `D† = γ5 D γ5`.
     pub fn from_parts(lat: &Arc<Lattice>, dim: usize, diag: Vec<T>, links: Vec<T>) -> Self {

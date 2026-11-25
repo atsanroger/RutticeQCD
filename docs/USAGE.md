@@ -199,7 +199,13 @@ everything the CPU has: the outer solvers and operator types, mixed-precision CG
 preconditioner, `Chebyshev` or the multigrid with its setup, the same keys meaning the same
 thing (above the coarse lattice in single precision unless `MultiGrid.fine_precision : double`,
 the outer solver in double precision either way; the prolongation in half precision unless
-`basis_precision : single`, which is most of its memory). `Setup.filter_number_in_block`
+`basis_precision : single`, which is most of its memory). The quark factor of the coarse
+correction is P†D B5⁻¹P with B5 = b − cY (`MultiGrid.coarse_quark_operator : symmetric`, the
+default): D B5⁻¹ is Γ5-Hermitian, its coarse operator too, and P is made of the lifts B5 s. With
+`plain` it is P†DP, as before 2026-11-25; on 24⁴ at L_s = 16, c = 0.5 the two-grid solve with
+P†DP stalls on three of four configurations and with P†D B5⁻¹P converges in 28 to 34 iterations.
+A file with `symmetric` where B5 is singular (b = 0 with c = 0 or m = 0) is refused.
+`Setup.filter_number_in_block`
 vectors are filtered at a time: fewer take less memory. The bootstrap of the domain-wall
 multigrid ends by itself: after every round it measures the lowest Ritz value of Ã†Ã on the test
 vectors (printed on the device), and from the third round on a round begins by improving the

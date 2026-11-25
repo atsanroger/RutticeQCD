@@ -4,7 +4,9 @@
 use super::correction::{Adjoint, Correction, NeffQ, Transfer};
 use super::cycle::{Corrects, TwoGrid};
 use super::levels::{AbsMultilevel, BlockMap};
-use super::mdwf_even_odd::{coarse_field, CoarseKrylov, PvEoBasis, PvEoParams, SharedOperator};
+use super::mdwf_even_odd::{
+    b5_for, coarse_field, CoarseKrylov, PvEoBasis, PvEoParams, SharedOperator,
+};
 use super::mdwf_vectors::random_even;
 use super::{CoarseOp, LevelBootstrap, MultigridError, SignedMultilevel};
 use crate::fermion::{EoForm, FermionOp, Mdwf, MdwfLayout, PvEvenOdd};
@@ -341,7 +343,9 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         // The coarse operators, with the even-odd form where they are solved in it, and the
         // matrices on the coarse sites that precondition their solves.
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
-        let mut coarse_d = basis.coarse_op(op, &mut op.work()).to_storage::<f64>();
+        let mut coarse_d = basis
+            .coarse_quark_op(op, &mut op.work(), params.quark_factor)?
+            .to_storage::<f64>();
         // The regularized solve of the first factor also applies (P†DP)†.
         let adjoint_d = params.d_solver.regularized().map(|_| coarse_d.adjoint());
         // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
@@ -445,6 +449,9 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
             params,
             &like,
             &coarse_field::<CT, F>(basis, 1),
+        );
+        correction.set_b5(
+            b5_for(op, params.quark_factor).expect("B5 was invertible when the parts were built"),
         );
         if let Some(l) = parts.levels.0.clone() {
             correction.set_levels_d(Box::new(move |out, inp| l(out, inp)));

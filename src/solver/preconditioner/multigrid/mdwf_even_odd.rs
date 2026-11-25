@@ -21,6 +21,19 @@
 //! with O_L = C_e, M = 1, O_R = C_PV,e† for the right form. P and the two coarse factors
 //! are those of the plain operators: one setup serves every α and both forms.
 //!
+//! The quark factor is coarsened symmetrically by default (`QuarkFactor::Symmetric`): with
+//! B5 = b − cY, D⁻¹ = B5⁻¹ (D B5⁻¹)⁻¹ and D B5⁻¹ is Γ5-Hermitian (Γ5 D† Γ5 = B5 D B5⁻¹), so
+//! its Galerkin operator P†D B5⁻¹P is Γ5-Hermitian on the coarse lattice as well, as P†DP is
+//! only for c = 0. Then
+//!
+//! ```text
+//!   e = O_L B5_e⁻¹ π P (P†D B5⁻¹P)⁻¹ P† ι M π P (P†D_PV†P)⁻¹ P† ι O_R r,
+//! ```
+//!
+//! and P holds B5 s in place of s, on which D B5⁻¹ gives D s: the correction stays exact on
+//! the vectors it is built from. B5 acts within a site, so P†D B5⁻¹P has the nine-point
+//! stencil of P†DP. At c = 0 it is P†DP / b. The plain form P†DP is `QuarkFactor::Plain`.
+//!
 //! P is built from vectors y on the even sites (approximate low modes of Ã): for each,
 //! s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y), whose image D s lives on the even sites, and
 //! t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s), whose image under D_PV† does; with these
@@ -135,6 +148,39 @@ impl<F: Storage> PvEoBasis<F> {
     ) -> CoarseOp<F> {
         on_basis!(self, b => CoarseOp::build(op, work, b))
     }
+
+    /// The quark factor of the Möbius operator `op` as `quark` says: P†D B5⁻¹P (symmetric;
+    /// D B5⁻¹ is Γ5-Hermitian, so the coarse adjoint is Γ5 of the operator as for P†DP) or
+    /// P†DP. P must have been built for the same `quark`.
+    pub fn coarse_quark_op<G: GammaRepre>(
+        &self,
+        op: &Mdwf<F, G>,
+        work: &mut <Mdwf<F, G> as FermionOp<Field<F, Spinor>>>::Work,
+        quark: QuarkFactor,
+    ) -> Result<CoarseOp<F>, MultigridError> {
+        let Some(b5) = b5_for(op, quark)? else {
+            return Ok(self.coarse_op(op, work));
+        };
+        let mass = b5.params().mass;
+        let mut right =
+            super::correction::FnMap(|out: &mut Field<F, Spinor>, inp: &Field<F, Spinor>| {
+                b5.mult_site_inv(out, inp, mass, false)
+            });
+        Ok(
+            on_basis!(self, b => CoarseOp::build_with(op, work, b, Some(&mut right), false)?
+            .with_gamma5_adjoint()),
+        )
+    }
+}
+
+/// How the quark factor of the coarse correction is coarsened (see the top of the file).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum QuarkFactor {
+    /// P†D B5⁻¹P, Γ5-Hermitian, with B5 s in P.
+    #[default]
+    Symmetric,
+    /// P†DP.
+    Plain,
 }
 
 /// The vectors s_j and t̂_j on the whole lattice of the vectors y_j on the even sites (see the
@@ -142,9 +188,12 @@ impl<F: Storage> PvEoBasis<F> {
 /// of y_j .. y_(j+k−1) and `visit(n + j, t̂)` their t̂, in fields like `whole`. With
 /// `unit_sites`, s is scaled to |s|² = `unit_sites` before t̂ is made of it, as P keeps its
 /// vectors (`BasisBuilder::add`): P is the same, and its parts stay far from the smallest
-/// numbers of half precision.
+/// numbers of half precision. With `b5` (the symmetric quark factor) `visit(j, ·)` gets B5 s
+/// in place of s, and t̂ is made of s as before (D B5⁻¹ B5 s = D s).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lifted_vectors<O, V, H, S>(
     (op, pv): (&O, &O),
+    b5: Option<&O>,
     split: &S,
     whole: &V,
     y: &H,
@@ -159,6 +208,7 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
 {
     let n = y.num_vectors();
     let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
+    let mut work_b5 = b5.map(|b| b.even_odd_work());
     let mut full_work = op.work();
     let all: Vec<usize> = (0..n).collect();
     for which in all.chunks(chunk.max(1)) {
@@ -179,7 +229,24 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
         if let Some(sites) = unit_sites {
             to_unit_sites(&mut s, sites);
         }
-        visit(which[0], &s);
+        match (b5, work_b5.as_mut()) {
+            (Some(b5), Some(w)) => {
+                // B5 s, parity by parity (B5 acts within a site).
+                let mut bs = s.zeros_like();
+                for parity in [Parity::Even, Parity::Odd] {
+                    let (mut part, mut b_part) =
+                        (split.half_like(&s, parity), split.half_like(&s, parity));
+                    split.extract(&mut part, &s, parity);
+                    b5.diag(w, &mut b_part, &part, parity, Dagger::No);
+                    split.insert(&mut bs, &b_part);
+                }
+                if let Some(sites) = unit_sites {
+                    to_unit_sites(&mut bs, sites);
+                }
+                visit(which[0], &bs);
+            }
+            _ => visit(which[0], &s),
+        }
         // t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s), in the fields of s
         let mut ds = s.zeros_like();
         op.mult(&mut full_work, &mut ds, &s, Variant::D);
@@ -220,8 +287,23 @@ pub fn pv_eo_basis<F: Storage, G: GammaRepre>(
     pv: &Mdwf<F, G>,
     agg: &Arc<Aggregation>,
     y: &HalfField<Aos, F>,
+    quark: QuarkFactor,
 ) -> Result<PvEoBasis<F>, MultigridError> {
-    pv_eo_basis_stored(op, pv, agg, y, BasisStorage::Half)
+    pv_eo_basis_stored(op, pv, agg, y, BasisStorage::Half, quark)
+}
+
+/// B5 = b − cY of `op` (an operator whose site-local part is B5) for the symmetric quark
+/// factor, `None` for the plain one; an error where B5 is singular.
+pub(crate) fn b5_for<F: Storage, G: GammaRepre>(
+    op: &Mdwf<F, G>,
+    quark: QuarkFactor,
+) -> Result<Option<Mdwf<F, G>>, MultigridError> {
+    let p = op.params();
+    match quark {
+        QuarkFactor::Plain => Ok(None),
+        QuarkFactor::Symmetric if p.b5_invertible() => Ok(Some(Mdwf::site_only(op, p.b5_site()))),
+        QuarkFactor::Symmetric => Err(MultigridError::SingularB5),
+    }
 }
 
 /// `pv_eo_basis` with P kept as `storage` says.
@@ -231,13 +313,16 @@ pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
     agg: &Arc<Aggregation>,
     y: &HalfField<Aos, F>,
     storage: BasisStorage,
+    quark: QuarkFactor,
 ) -> Result<PvEoBasis<F>, MultigridError> {
     fn built<F: Storage, S: Storage, G: GammaRepre>(
         op: &Mdwf<F, G>,
         pv: &Mdwf<F, G>,
         agg: &Arc<Aggregation>,
         y: &HalfField<Aos, F>,
+        quark: QuarkFactor,
     ) -> Result<Basis<F, S>, MultigridError> {
+        let b5 = b5_for(op, quark)?;
         let lat = agg.fine_lattice().clone();
         let mut builder =
             BasisBuilder::<F, S>::new(agg, 2 * y.num_vectors()).folded(Reflection(G::GAMMA5));
@@ -245,15 +330,24 @@ pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
         let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
         let mut g5 = whole.zeros_like();
         let sites = Some(lat.num_global_sites() as f64);
-        lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, sites, |i, v| {
-            op.mult_gamma5(&mut work, &mut g5, v);
-            builder.add(i, v, &g5);
-        });
+        lifted_vectors(
+            (op, pv),
+            b5.as_ref(),
+            &**index_of(op),
+            &whole,
+            y,
+            1,
+            sites,
+            |i, v| {
+                op.mult_gamma5(&mut work, &mut g5, v);
+                builder.add(i, v, &g5);
+            },
+        );
         builder.finish()
     }
     Ok(match storage {
-        BasisStorage::Half => PvEoBasis::Half(built(op, pv, agg, y)?),
-        BasisStorage::Single => PvEoBasis::Single(built(op, pv, agg, y)?),
+        BasisStorage::Half => PvEoBasis::Half(built(op, pv, agg, y, quark)?),
+        BasisStorage::Single => PvEoBasis::Single(built(op, pv, agg, y, quark)?),
     })
 }
 
@@ -264,21 +358,32 @@ pub fn pv_eo_coarse_vectors<F: Storage, G: GammaRepre>(
     pv: &Mdwf<F, G>,
     basis: &PvEoBasis<F>,
     y: &HalfField<Aos, F>,
-) -> Vec<CoarseField> {
+    quark: QuarkFactor,
+) -> Result<Vec<CoarseField>, MultigridError> {
+    let b5 = b5_for(op, quark)?;
     let lat = basis.aggregation().fine_lattice().clone();
     let mut restricted: Vec<Option<CoarseField>> = (0..2 * y.num_vectors()).map(|_| None).collect();
     let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
-    lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, None, |i, v| {
-        let mut c = basis.coarse_field(1);
-        basis.restrict(&mut c, v);
-        let mut d = coarse_field::<f64, F>(basis, 1);
-        d.convert_from(&c);
-        restricted[i] = Some(d);
-    });
-    restricted
+    lifted_vectors(
+        (op, pv),
+        b5.as_ref(),
+        &**index_of(op),
+        &whole,
+        y,
+        1,
+        None,
+        |i, v| {
+            let mut c = basis.coarse_field(1);
+            basis.restrict(&mut c, v);
+            let mut d = coarse_field::<f64, F>(basis, 1);
+            d.convert_from(&c);
+            restricted[i] = Some(d);
+        },
+    );
+    Ok(restricted
         .into_iter()
         .map(|c| c.expect("every vector visited"))
-        .collect()
+        .collect())
 }
 
 /// The Krylov solver of a coarse factor, right-preconditioned by the inverses of its
@@ -380,6 +485,8 @@ pub struct PvEoParams {
     /// Steps of the power iteration for |λ_max|, from a random vector with this seed.
     pub power_steps: usize,
     pub seed: u64,
+    /// The quark factor: P†D B5⁻¹P (by default) or P†DP. P is built for it.
+    pub quark_factor: QuarkFactor,
 }
 
 impl Default for PvEoParams {
@@ -402,6 +509,7 @@ impl Default for PvEoParams {
             pv_solver: FactorSolve::Regularized { eps: 1e-3 },
             power_steps: 50,
             seed: 5,
+            quark_factor: QuarkFactor::Symmetric,
         }
     }
 }

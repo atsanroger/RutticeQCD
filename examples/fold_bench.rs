@@ -55,7 +55,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let y = DeviceSpinor::<f32>::from_host_half(&random_even(&lat, &index, ls, n, 11), &index)?;
     let agg = Aggregation::new(&lat, [4; ND]);
     let start = Instant::now();
-    let basis = DeviceBasis::pv_eo(&d, &pv, &agg, &y, true)?;
+    let basis = DeviceBasis::pv_eo(
+        &d,
+        &pv,
+        &agg,
+        &y,
+        true,
+        ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+    )?;
     println!("P made in {:.2} s", start.elapsed().as_secs_f64());
     drop(y);
 

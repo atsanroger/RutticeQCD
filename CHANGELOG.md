@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The domain-wall multigrid coarsens D B5⁻¹ (B5 = b − cY) in place of D by default
+  (`MultiGrid.coarse_quark_operator : symmetric`; `plain` keeps P†DP). D B5⁻¹ is Γ5-Hermitian,
+  so the coarse operator is too (defect 3e-16 on 4⁴ against 3e-2 for P†DP), and the lifts that
+  P is made of are B5 s. The correction is e = O_L B5⁻¹ π P c. On 24⁴ in setup B at L_s = 16,
+  c = 0.5, block 4³×2, two grids, the solve with P†DP stalls on configurations v2, 602 and 702
+  (the leftmost point of the field of values of the preconditioned operator is negative) and
+  takes 26 iterations on 502 with three grids; with P†D B5⁻¹P all four converge in 21 to 34
+  iterations, the leftmost point between 0.28 and 0.55. At b = 1, c = 0 the two are the same
+  bit for bit. CPU and device; the device builds the quark coarse operator from the hops with
+  b = 1, c = 0 and the site matrix C B5⁻¹.
+
 - HMC with the domain-wall multigrid solves with D† through one solve with D by default
   (`MultiGrid_HMC.dagger_solve : Through_D`, D⁻† = Γ5 B5 D⁻¹ B5⁻¹ Γ5), which is exact for the
   constant b and c of this code. Before, the default was GCR with Γ5 M Γ5, which on 12⁴ in

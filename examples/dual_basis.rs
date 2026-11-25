@@ -193,7 +193,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     };
 
-    let basis_d = Rc::new(DeviceBasis::pv_eo(&d, &pv, &agg, &y, true)?);
+    let basis_d = Rc::new(DeviceBasis::pv_eo(
+        &d,
+        &pv,
+        &agg,
+        &y,
+        true,
+        ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+    )?);
     line(
         "primal D: Ã, P(y)",
         setup_d,
@@ -300,7 +307,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             "|A z|²/|z|² of {name:5}: for Ã mean {pm:.2e} max {px:.2e};  for the operator of D† mean {dm:.2e} max {dx:.2e}"
         );
     }
-    let b10 = Rc::new(DeviceBasis::pv_eo(&d, &pv, &agg, &both, true)?);
+    let b10 = Rc::new(DeviceBasis::pv_eo(
+        &d,
+        &pv,
+        &agg,
+        &both,
+        true,
+        ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+    )?);
     line(
         "primal 10: Ã with P(y and Γ5 y), 2n vectors",
         0.0,
@@ -331,8 +345,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         let t = Instant::now();
         let b = Rc::new(match ops_d {
-            false => DeviceBasis::pv_eo(&pv, &d, &agg, z, true)?,
-            true => DeviceBasis::pv_eo(&d, &pv, &agg, z, true)?,
+            false => DeviceBasis::pv_eo(
+                &pv,
+                &d,
+                &agg,
+                z,
+                true,
+                ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+            )?,
+            true => DeviceBasis::pv_eo(
+                &d,
+                &pv,
+                &agg,
+                z,
+                true,
+                ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+            )?,
         });
         let made = t.elapsed().as_secs_f64();
         line(name, made, solve((&pv, &d), b, dual, &rhs_dag)?);
@@ -342,7 +370,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let t = Instant::now();
     let z = full_setup((&pv, &d), dual, &mut |_: Stage<'_, f64>| {})?;
-    let b = Rc::new(DeviceBasis::pv_eo(&pv, &d, &agg, &z, true)?);
+    let b = Rc::new(DeviceBasis::pv_eo(
+        &pv,
+        &d,
+        &agg,
+        &z,
+        true,
+        ruttice::solver::preconditioner::multigrid::QuarkFactor::default(),
+    )?);
     let made = t.elapsed().as_secs_f64();
     line(
         "dual 6: a full setup of its own (filter, 2 rounds)",
