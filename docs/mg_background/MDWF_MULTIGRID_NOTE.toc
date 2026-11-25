@@ -19,83 +19,85 @@
 \contentsline {paragraph}{The exact relation.}{7}{section*.14}%
 \contentsline {subsubsection}{\numberline {3}The site-diagonal part and its inverse}{8}{subsubsection.2.2.3}%
 \contentsline {paragraph}{The inverse.}{8}{section*.15}%
-\contentsline {subsubsection}{\numberline {4}The preconditioned operator}{8}{subsubsection.2.2.4}%
+\contentsline {paragraph}{\New The factor $B_5$.}{8}{section*.16}%
+\contentsline {subsubsection}{\numberline {4}The preconditioned operator}{9}{subsubsection.2.2.4}%
 \contentsline {subsubsection}{\numberline {5}Link smearing}{9}{subsubsection.2.2.5}%
 \contentsline {subsubsection}{\numberline {6}Neff's $\alpha $}{9}{subsubsection.2.2.6}%
-\contentsline {subsection}{\numberline {C}Even-odd forms}{9}{subsection.2.3}%
-\contentsline {paragraph}{Two forms.}{10}{section*.16}%
-\contentsline {paragraph}{With Neff's $\alpha $.}{10}{section*.17}%
-\contentsline {paragraph}{\New Right-hand side and reconstruction.}{10}{section*.18}%
-\contentsline {paragraph}{Choice of form.}{10}{section*.19}%
-\contentsline {paragraph}{$\alpha $ in CG and in the multigrid.}{10}{section*.20}%
+\contentsline {subsection}{\numberline {C}Even-odd forms}{10}{subsection.2.3}%
+\contentsline {paragraph}{Two forms.}{10}{section*.17}%
+\contentsline {paragraph}{With Neff's $\alpha $.}{10}{section*.18}%
+\contentsline {paragraph}{\New Right-hand side and reconstruction.}{10}{section*.19}%
+\contentsline {paragraph}{Choice of form.}{11}{section*.20}%
+\contentsline {paragraph}{$\alpha $ in CG and in the multigrid.}{11}{section*.21}%
 \contentsline {section}{\numberline {III}The two-grid method}{11}{section.3}%
 \contentsline {subsection}{\numberline {A}The factorized coarse-grid correction and the prolongation}{11}{subsection.3.1}%
 \contentsline {subsubsection}{\numberline {1}Why factorize}{11}{subsubsection.3.1.1}%
-\contentsline {paragraph}{The correction.}{11}{section*.21}%
-\contentsline {paragraph}{\New Cost of factorized coarsening.}{12}{section*.22}%
-\contentsline {subsubsection}{\numberline {2}The basis $\{s,\hat t\}$}{12}{subsubsection.3.1.2}%
-\contentsline {paragraph}{The first solve.}{13}{section*.23}%
-\contentsline {paragraph}{The second solve.}{13}{section*.24}%
-\contentsline {paragraph}{The two lifts.}{14}{section*.25}%
-\contentsline {subsubsection}{\numberline {3}Aggregation and prolongation}{14}{subsubsection.3.1.3}%
-\contentsline {paragraph}{\New CholeskyQR2.}{15}{section*.26}%
+\contentsline {paragraph}{The correction.}{12}{section*.22}%
+\contentsline {paragraph}{\New Cost of factorized coarsening.}{13}{section*.23}%
+\contentsline {subsubsection}{\numberline {2}The basis $\{s,\hat t\}$}{13}{subsubsection.3.1.2}%
+\contentsline {paragraph}{The first solve.}{13}{section*.24}%
+\contentsline {paragraph}{The second solve.}{14}{section*.25}%
+\contentsline {paragraph}{The two lifts.}{14}{section*.26}%
+\contentsline {subsubsection}{\numberline {3}Aggregation and prolongation}{15}{subsubsection.3.1.3}%
+\contentsline {paragraph}{\New CholeskyQR2.}{15}{section*.27}%
 \contentsline {subsubsection}{\numberline {4}\New Exactness on the test vectors}{15}{subsubsection.3.1.4}%
-\contentsline {paragraph}{The right form.}{15}{section*.27}%
-\contentsline {paragraph}{\New Why both lifts.}{15}{section*.28}%
-\contentsline {paragraph}{In practice.}{15}{section*.29}%
-\contentsline {paragraph}{The left form.}{15}{section*.30}%
+\contentsline {paragraph}{The right form.}{15}{section*.28}%
+\contentsline {paragraph}{\New Why both lifts.}{16}{section*.29}%
+\contentsline {paragraph}{In practice.}{16}{section*.30}%
+\contentsline {paragraph}{The left form.}{16}{section*.31}%
 \contentsline {subsubsection}{\numberline {5}The coarse operators}{16}{subsubsection.3.1.5}%
 \contentsline {subsection}{\numberline {B}The coarse solvers}{16}{subsection.3.2}%
-\contentsline {subsubsection}{\numberline {1}The quark factor}{16}{subsubsection.3.2.1}%
-\contentsline {subsubsection}{\numberline {2}The Pauli--Villars factor}{16}{subsubsection.3.2.2}%
-\contentsline {subsubsection}{\numberline {3}Levels below the coarse lattice}{16}{subsubsection.3.2.3}%
-\contentsline {subsection}{\numberline {C}The Chebyshev smoother and the cycle}{17}{subsection.3.3}%
-\contentsline {subsubsection}{\numberline {1}Smoother}{17}{subsubsection.3.3.1}%
-\contentsline {subsubsection}{\numberline {2}Cycle}{18}{subsubsection.3.3.2}%
-\contentsline {subsection}{\numberline {D}Setup}{18}{subsection.3.4}%
-\contentsline {subsubsection}{\numberline {1}Chebyshev-filtered subspace iteration}{18}{subsubsection.3.4.1}%
-\contentsline {subsubsection}{\numberline {2}Bootstrap}{19}{subsubsection.3.4.2}%
-\contentsline {paragraph}{\New Number of rounds.}{19}{section*.31}%
-\contentsline {subsection}{\numberline {E}The outer solver}{20}{subsection.3.5}%
-\contentsline {section}{\numberline {IV}Solving with $D^{\dagger }$}{21}{section.4}%
-\contentsline {subsection}{\numberline {A}\New $D^{\dagger }$ through $D$ itself}{21}{subsection.4.1}%
-\contentsline {subsection}{\numberline {B}\New A preconditioner for any coefficients}{22}{subsection.4.2}%
-\contentsline {subsection}{\numberline {C}On the even sites}{22}{subsection.4.3}%
-\contentsline {subsection}{\numberline {D}\New Why we do not invert $D_-$}{23}{subsection.4.4}%
-\contentsline {section}{\numberline {V}Numerical results}{25}{section.5}%
-\contentsline {subsection}{\numberline {A}Setups}{25}{subsection.5.1}%
-\contentsline {paragraph}{Numerical setup.}{25}{section*.32}%
-\contentsline {subsection}{\numberline {B}Performance}{25}{subsection.5.2}%
-\contentsline {subsubsection}{\numberline {1}Comparison with CGNE}{25}{subsubsection.5.2.1}%
-\contentsline {paragraph}{The reference solver.}{25}{section*.33}%
-\contentsline {paragraph}{Mass dependence.}{26}{section*.34}%
-\contentsline {paragraph}{A point-source propagator.}{26}{section*.35}%
-\contentsline {paragraph}{Volume.}{26}{section*.36}%
-\contentsline {subsubsection}{\numberline {2}Solves with $D^{\dagger }$}{27}{subsubsection.5.2.2}%
-\contentsline {paragraph}{Single solves.}{27}{section*.37}%
-\contentsline {subsection}{\numberline {C}What each part contributes}{27}{subsection.5.3}%
-\contentsline {subsubsection}{\numberline {1}Krylov on $\tilde A_{L}$ without the multigrid}{27}{subsubsection.5.3.1}%
-\contentsline {subsubsection}{\numberline {2}Choice of the prolongation basis}{28}{subsubsection.5.3.2}%
-\contentsline {subsubsection}{\numberline {3}The regularized Pauli--Villars solve}{29}{subsubsection.5.3.3}%
-\contentsline {subsubsection}{\numberline {4}Sensitivity to the parameters}{29}{subsubsection.5.3.4}%
-\contentsline {paragraph}{\New Automatic number of rounds.}{30}{section*.38}%
-\contentsline {subsection}{\numberline {D}Why the method converges}{30}{subsection.5.4}%
-\contentsline {paragraph}{Truncated GCR and inexact coarse solves.}{31}{section*.39}%
-\contentsline {section}{\numberline {VI}Summary}{31}{section.6}%
-\contentsline {paragraph}{Code.}{32}{section*.40}%
-\contentsline {section}{\numberline {VII}\New Future work}{32}{section.7}%
-\contentsline {section}{Acknowledgments}{33}{section*.41}%
-\contentsline {section}{Appendices}{34}{section*.41}%
-\contentsline {section}{\numberline {A}The notation of other references}{34}{appendix.A}%
-\contentsline {section}{\numberline {B}Gauge configurations}{34}{appendix.B}%
-\contentsline {section}{\numberline {C}Krylov solvers}{35}{appendix.C}%
-\contentsline {paragraph}{Flexible GCR($k$).}{35}{section*.42}%
-\contentsline {paragraph}{FGMRES.}{35}{section*.43}%
-\contentsline {paragraph}{CGNE.}{35}{section*.44}%
-\contentsline {paragraph}{Mixed precision.}{36}{section*.45}%
-\contentsline {paragraph}{BiCGStab.}{36}{section*.46}%
-\contentsline {paragraph}{Two even-odd forms.}{36}{section*.47}%
-\contentsline {section}{\numberline {D}\New Spectrum and pseudospectra of the cycle}{38}{appendix.D}%
-\contentsline {subsection}{\numberline {1}Spectrum}{38}{subsection.D.1}%
-\contentsline {subsection}{\numberline {2}Pseudospectra and a bound for GMRES}{38}{subsection.D.2}%
-\contentsline {section}{\numberline {E}Tables of the numerical results}{40}{appendix.E}%
+\contentsline {subsubsection}{\numberline {1}The quark factor}{17}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {2}The Pauli--Villars factor}{17}{subsubsection.3.2.2}%
+\contentsline {subsubsection}{\numberline {3}Levels below the coarse lattice}{18}{subsubsection.3.2.3}%
+\contentsline {subsection}{\numberline {C}The Chebyshev smoother and the cycle}{18}{subsection.3.3}%
+\contentsline {subsubsection}{\numberline {1}Smoother}{18}{subsubsection.3.3.1}%
+\contentsline {subsubsection}{\numberline {2}Cycle}{19}{subsubsection.3.3.2}%
+\contentsline {subsection}{\numberline {D}Setup}{19}{subsection.3.4}%
+\contentsline {subsubsection}{\numberline {1}Chebyshev-filtered subspace iteration}{19}{subsubsection.3.4.1}%
+\contentsline {subsubsection}{\numberline {2}Bootstrap}{20}{subsubsection.3.4.2}%
+\contentsline {paragraph}{\New Number of rounds.}{20}{section*.32}%
+\contentsline {subsection}{\numberline {E}The outer solver}{21}{subsection.3.5}%
+\contentsline {section}{\numberline {IV}Solving with $D^{\dagger }$}{22}{section.4}%
+\contentsline {subsection}{\numberline {A}\New $D^{\dagger }$ through $D$ itself}{22}{subsection.4.1}%
+\contentsline {subsection}{\numberline {B}\New A preconditioner for any coefficients}{23}{subsection.4.2}%
+\contentsline {subsection}{\numberline {C}On the even sites}{23}{subsection.4.3}%
+\contentsline {subsection}{\numberline {D}\New Why we do not invert $D_-$}{24}{subsection.4.4}%
+\contentsline {section}{\numberline {V}Numerical results}{26}{section.5}%
+\contentsline {subsection}{\numberline {A}Setups}{26}{subsection.5.1}%
+\contentsline {paragraph}{Numerical setup.}{26}{section*.33}%
+\contentsline {subsection}{\numberline {B}Performance}{26}{subsection.5.2}%
+\contentsline {subsubsection}{\numberline {1}Comparison with CGNE}{26}{subsubsection.5.2.1}%
+\contentsline {paragraph}{The reference solver.}{26}{section*.34}%
+\contentsline {paragraph}{Mass dependence.}{27}{section*.35}%
+\contentsline {paragraph}{A point-source propagator.}{27}{section*.36}%
+\contentsline {paragraph}{Volume.}{27}{section*.37}%
+\contentsline {subsubsection}{\numberline {2}Solves with $D^{\dagger }$}{28}{subsubsection.5.2.2}%
+\contentsline {paragraph}{Single solves.}{28}{section*.38}%
+\contentsline {subsection}{\numberline {C}What each part contributes}{28}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {1}Krylov on $\tilde A_{L}$ without the multigrid}{28}{subsubsection.5.3.1}%
+\contentsline {subsubsection}{\numberline {2}Choice of the prolongation basis}{29}{subsubsection.5.3.2}%
+\contentsline {subsubsection}{\numberline {3}The regularized Pauli--Villars solve}{30}{subsubsection.5.3.3}%
+\contentsline {subsubsection}{\numberline {4}Sensitivity to the parameters}{30}{subsubsection.5.3.4}%
+\contentsline {paragraph}{\New Automatic number of rounds.}{31}{section*.39}%
+\contentsline {subsection}{\numberline {D}Why the method converges}{31}{subsection.5.4}%
+\contentsline {paragraph}{Truncated GCR and inexact coarse solves.}{32}{section*.40}%
+\contentsline {section}{\numberline {VI}Summary}{32}{section.6}%
+\contentsline {paragraph}{Code.}{33}{section*.41}%
+\contentsline {section}{\numberline {VII}\New Future work}{33}{section.7}%
+\contentsline {section}{Acknowledgments}{34}{section*.42}%
+\contentsline {section}{Appendices}{35}{section*.42}%
+\contentsline {section}{\numberline {A}The notation of other references}{35}{appendix.A}%
+\contentsline {section}{\numberline {B}Gauge configurations}{35}{appendix.B}%
+\contentsline {section}{\numberline {C}Krylov solvers and Chebyshev iteration}{36}{appendix.C}%
+\contentsline {paragraph}{Flexible GCR($k$).}{36}{section*.43}%
+\contentsline {paragraph}{FGMRES.}{36}{section*.44}%
+\contentsline {paragraph}{CGNE.}{36}{section*.45}%
+\contentsline {paragraph}{Mixed precision.}{37}{section*.46}%
+\contentsline {paragraph}{BiCGStab.}{37}{section*.47}%
+\contentsline {paragraph}{Chebyshev iteration.}{37}{section*.48}%
+\contentsline {paragraph}{Two even-odd forms.}{37}{section*.49}%
+\contentsline {section}{\numberline {D}\New Spectrum and pseudospectra of the cycle}{39}{appendix.D}%
+\contentsline {subsection}{\numberline {1}Spectrum}{39}{subsection.D.1}%
+\contentsline {subsection}{\numberline {2}Pseudospectra and a bound for GMRES}{39}{subsection.D.2}%
+\contentsline {section}{\numberline {E}Tables of the numerical results}{41}{appendix.E}%

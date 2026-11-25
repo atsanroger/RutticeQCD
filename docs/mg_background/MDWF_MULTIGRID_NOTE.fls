@@ -420,14 +420,14 @@ INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmri8t.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmri8r.tfm
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmr8c.vf
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8t.tfm
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmb8t.vf
+INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8r.tfm
 INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT ./spectrum_fig1.png
 INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmrc8t.tfm
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/vf/adobe/times/ptmb8t.vf
-INPUT /home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8r.tfm
 INPUT ./spectrum_fig4.png
 INPUT ./spectrum_fig4.png
 INPUT ./spectrum_fig4.png

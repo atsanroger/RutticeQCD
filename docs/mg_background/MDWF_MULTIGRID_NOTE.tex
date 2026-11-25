@@ -106,6 +106,7 @@
 \newcommand{\AL}{\tilde A_{L}}
 \newcommand{\Pro}{\mathcal P}
 \newcommand{\Dc}{\mathcal D_{\mathrm c}}
+\newcommand{\Dsym}{D_{\mathrm{sym}}}
 \newcommand{\Dcpv}{\mathcal D_{\mathrm c}^{\mathrm{PV}}}
 \renewcommand{\Re}{\operatorname{Re}}
 \newcommand{\Ce}{C_{e}}
@@ -255,7 +256,9 @@ addressing each of \New these three points. As in standard adaptive aggregation,
 coarse space is built from block-restricted near-null vectors and the coarse operators are Galerkin
 projections. The outer solve is formulated on the even-odd system, matching the red-black CG
 baseline; its inverse factorizes into the inverses of $D$ and $\Dpv\dg$, each replaced by a
-Galerkin coarse inverse. Every aggregate contains the entire fifth dimension, so the coarse lattice
+Galerkin coarse inverse. \New We coarsen the quark factor as $DB_5^{-1}$, with the site-local
+$B_5=b-cY$, which is $\Gfive$-Hermitian where $D$ is not, so its coarse operator is
+$\sigma_3$-Hermitian (Eq.~\eqref{eq:Dsymherm}, Sec.~\ref{sec:coarseops}). Every aggregate contains the entire fifth dimension, so the coarse lattice
 is four-dimensional and both coarse operators remain nearest-neighbor. To treat the remaining low
 modes of the quark factor without explicit coarse-grid deflation, we add further aggregation levels
 below the coarse lattice with a dense LU solve at the bottom (Sec.~\ref{sec:coarse}). For the Pauli--Villars coarse
@@ -518,6 +521,38 @@ an upper bidiagonal matrix on $\psi^+$ (solved like $C^-$) and a lower one on $\
 is thus exact, costs $O(L_s)$ per site, and does not depend on the gauge field~\cite{KCM2024}.
 It exists unless $d_++m\,d_-q^{L_s-1}=0$.
 
+\paragraph{\New The factor $B_5$.} Eq.~\eqref{eq:D} also reads
+\begin{equation}
+D=1+Y+W B_5,\qquad B_5=b-cY .
+\label{eq:DB5}
+\end{equation}
+With Eq.~\eqref{eq:Y},
+\begin{equation}
+(B_5\psi)_s=b\,\psi_s+c\,\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),
+\end{equation}
+where the boundary terms that wrap around carry the factor $-mc$. For $L_s=4$, as a matrix in $s$
+(compare Eq.~\eqref{eq:Ymatrix}),
+\begin{equation}
+B_5=\begin{pmatrix}
+b & c\Pm & 0 & -mc\Pp\\
+c\Pp & b & c\Pm & 0\\
+0 & c\Pp & b & c\Pm\\
+-mc\Pm & 0 & c\Pp & b
+\end{pmatrix}.
+\label{eq:B5matrix}
+\end{equation}
+$B_5$ acts within each four-dimensional site and has the form $d_++d_-Y$ of $C$ with $d_+=b$ and
+$d_-=-c$, so Eq.~\eqref{eq:Cinv} inverts it exactly. Like $C$, it depends on $m$ through the
+corners. The properties of Sec.~\ref{sec:g5} give $\Gfive Y\dg\Gfive=Y$ and
+$\Gfive W\dg\Gfive=W$, hence $\Gfive B_5\dg\Gfive=B_5$ and $\Gfive D\dg\Gfive=1+Y+B_5W$. Because
+$B_5$ is a polynomial in $Y$, it commutes with $1+Y$, so $B_5DB_5^{-1}=1+Y+B_5W$ as well, and
+\begin{equation}
+\boxed{\;\Gfive D\dg\Gfive=B_5\,D\,B_5^{-1}\;}
+\label{eq:b5sim}
+\end{equation}
+Sec.~\ref{sec:correction} coarsens $DB_5^{-1}$ with it, and Sec.~\ref{sec:b5} solves with $D\dg$
+through it.
+
 \subsubsection{The preconditioned operator}
 Ref.~\cite{KCM2024} multiplies $D\psi=\eta$
 from the left by $(\Dpv\Cpv^{-1})\dg$ and substitutes $\psi=C^{-1}y$:
@@ -732,7 +767,7 @@ HDCG~\cite{HDCG,BoyleMRHS} & even sites, $S\dg S$ & $S\dg S$ (four hops) & $81$ 
 HDCR~\cite{HDCR} & all sites, $\gamma_5RD$ & $\gamma_5RD$, $c=0$ (one hop) & $9$ points\\
 MG-PV~\cite{BCHW,BY} & all sites, $\Dpv\dg D$ & $D$ and $\Dpv$ separately, $c=0$ & $9$ points per slice\\
 Boyle and Oare~\cite{BoyleOare} & all sites, $\Dpv\dg D$ & $\Dpv\dg D$ (two hops) & $33$ points\\
-this work & even sites, $\AR$ or $\AL$ & $D$ and $\Dpv$ separately (one hop each) & $9$ points each\\
+this work & even sites, $\AR$ or $\AL$ & \New $DB_5^{-1}$ and $\Dpv$ separately (one hop each) & $9$ points each\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -753,15 +788,31 @@ $D_{oe}$ and then $D_{eo}$, and $\AR$ contains $S$ and $\Spv\dg$, so it reaches 
 operators of $D$ and $\Dpv$ are nearest-neighbor, since $D$ is nearest-neighbor in four dimensions
 and every aggregate contains the whole fifth dimension. \New Through $\pi$ and $\iota$, Eq.~\eqref{eq:ARinv} writes the even-site inverses $S^{-1}$ and
 $(\Spv\dg)^{-1}$ with the inverses $D^{-1}$ and $(\Dpv\dg)^{-1}$ on the whole lattice, so the
-coarse operators need to approximate only the one-hop $D$ and $\Dpv$ (the Schur complement $S$ is two-hop). We therefore replace each inverse by its
-Galerkin approximation \New $\Pro(\Pro\dg \mathcal F\Pro)^{-1}\Pro\dg$, with $\mathcal F=D$ or $\Dpv\dg$. The outer system stays on the even
+coarse operators need to approximate only the one-hop $D$ and $\Dpv$ (the Schur complement $S$ is two-hop).
+
+\New Before coarsening we write $D^{-1}=B_5^{-1}\Dsym^{-1}$, with $B_5$ of Eq.~\eqref{eq:DB5} and
+\begin{equation}
+\Dsym=DB_5^{-1}=CB_5^{-1}-\tfrac12K
+\label{eq:Dsym}
+\end{equation}
+by Eq.~\eqref{eq:D}. $B_5$ is site-local, so $\Dsym$ reaches one hop, as $D$ does. Unlike $D$
+(Eq.~\eqref{eq:g5herm}), $\Dsym$ is $\Gfive$-Hermitian. By $\Gfive B_5\dg\Gfive=B_5$ and
+Eq.~\eqref{eq:b5sim},
+\begin{equation}
+\Gfive\Dsym\dg\Gfive=\big(\Gfive B_5\dg\Gfive\big)^{-1}\,\Gfive D\dg\Gfive
+=B_5^{-1}\,B_5DB_5^{-1}=\Dsym .
+\label{eq:Dsymherm}
+\end{equation}
+Sec.~\ref{sec:coarseops} shows that its coarse operator inherits this property. We therefore
+replace each inverse by its Galerkin approximation $\Pro(\Pro\dg \mathcal F\Pro)^{-1}\Pro\dg$, with
+$\mathcal F=\Dsym$ or $\Dpv\dg$. The outer system stays on the even
 sites, and the coarse operators are those of the whole lattice; $\iota$ and $\pi$ carry the
 residual from the even sites to the whole lattice and back. For both forms and any $\alpha$, the
 correction of a residual $r$ on the even sites is
 \begin{equation}
-e=O_L\;\pi\Pro\,\Dc^{-1}\Pro\dg\iota\;\;O_M\;\;
+e=O_L\;\pi B_5^{-1}\Pro\,\Dc^{-1}\Pro\dg\iota\;\;O_M\;\;
   \pi\Pro\,\big(\Pro\dg\Dpv\dg\Pro\big)^{-1}\Pro\dg\iota\;\;O_R\,r,
-\qquad \Dc=\Pro\dg D\Pro .
+\qquad \Dc=\Pro\dg\Dsym\Pro .
 \label{eq:corr}
 \end{equation}
 
@@ -772,7 +823,9 @@ $\alpha$ in both operators, Eq.~\eqref{eq:ALalpha} gives
 \AL^{(\alpha)\,-1}=Q_e^{-1}\,S^{-1}\,\Ce Q_e^2\Cpve\dg\,(\Spv\dg)^{-1}\,Q_e^{-1},
 \end{equation}
 so $O_R=Q_e^{-1}$, $O_M=\Ce Q_e^2\Cpve\dg$ and $O_L=Q_e^{-1}$. The two coarse inverses are those
-of the plain $D$ and $\Dpv$; within the correction, $\alpha$ is in these factors only.
+of \New $\Dsym$ and $\Dpv$ without $\alpha$; within the correction, $\alpha$ is in these factors only.
+\New $B_5$ and $\pi$ commute, since $B_5$ is site-local, so $\pi B_5^{-1}=B_{5,e}^{-1}\pi$. $B_{5,e}^{-1}$ comes
+before $O_L$, since for $\alpha\neq1$ it does not commute with $O_L=Q_e^{-1}$.
 Figure~\ref{fig:correction} follows a residual through Eq.~\eqref{eq:corr}. The residual moves
 between the even sites, all lattice sites and the coarse lattice twice, and the result of the
 first coarse solve, taken on the even sites, is the right-hand side of the second.
@@ -781,7 +834,7 @@ first coarse solve, taken on the even sites, is the right-hand side of the secon
 $\Dpv\dg D$ directly produces a $33$-point coarse stencil~\cite{BoyleOare}, whereas truncating
 either $\Dpv\dg D$ or $\AR$ to nearest neighbors destroys the Galerkin property. Coarsening the two
 factors separately avoids these wider stencils at two expenses. Each cycle performs two coarse
-solves (one for $\Dpv\dg$ and one for $D$), and the product of the two Galerkin inverses in Eq.~\eqref{eq:corr} differs
+solves (one for $\Dpv\dg$ and one for \New $\Dsym$), and the product of the two Galerkin inverses in Eq.~\eqref{eq:corr} differs
 in general from the Galerkin inverse of the product. \New Incorporating both
 lifts into the prolongation basis (Sec.~\ref{sec:basis}) restores exactness of the correction on
 the test vectors (Sec.~\ref{sec:exactness}), at the cost of doubling the number of columns in
@@ -810,7 +863,7 @@ $\Pro$.
   \node[val]   (e2) at (7.2,0)     {$\pi u$\exactval{=a=\pi Ds}};
   \node[val]   (w3) at (9.0,-1)    {$\iota O_M\pi u$\exactval{=Ds}};
   \node[qsolve] (c2) at (10.8,-2)  {$\Dc^{-1}$};
-  \node[val]   (w4) at (12.6,-1)   {$v$\exactval{=s}};
+  \node[val]   (w4) at (12.6,-1)   {$v$\exactval{=B_5s}};
   \node[val]   (e)  at (14.4,0)    {$e$\exactval{=y}};
   \draw[->] (r)  -- node[lab,sloped,above] {$\iota O_R$} (w1);
   \draw[->] (w1) -- node[lab,sloped,above] {$\Pro\dg$} (c1);
@@ -819,19 +872,19 @@ $\Pro$.
   \draw[->] (e2) -- node[lab,sloped,above] {$\iota O_M$} (w3);
   \draw[->] (w3) -- node[lab,sloped,above] {$\Pro\dg$} (c2);
   \draw[->] (c2) -- node[lab,sloped,above] {$\Pro$} (w4);
-  \draw[->] (w4) -- node[lab,sloped,above] {$O_L\pi$} (e);
+  \draw[->] (w4) -- node[lab,sloped,above] {$O_L\pi B_5^{-1}$} (e);
 \end{tikzpicture}
 \caption{One factorized coarse correction, from $r$ (left) to $e$ (right), which is Eq.~\eqref{eq:corr} read from the right,
 on its three lattices (the Pauli--Villars coarse solve in orange, the quark one in
 green): $u=\Pro(\Pro\dg\Dpv\dg\Pro)^{-1}\Pro\dg\iota O_Rr$ is the
 result of the first coarse solve, that of the adjoint Pauli--Villars operator, and
 its even part, with $O_M$, is the right-hand side of the second, that of the quark
-operator, whose result is $v=\Pro\Dc^{-1}\Pro\dg\iota O_M\pi u$; $e=O_L\pi v$. In
+operator, whose result is $v=\Pro\Dc^{-1}\Pro\dg\iota O_M\pi u$; $e=O_L\pi B_5^{-1}v$. In
 blue, after ``$=$'', the values for $r=\AR y$ in the right form with exact coarse solves, \New with
 the vectors $s$, $\hat t$ and $a$ that Sec.~\ref{sec:basis} derives and
-$s,\hat t\in\operatorname{range}\Pro$ (Eq.~\eqref{eq:exact}; $O_R=\Cpve\dg$,
+$B_5s,\hat t\in\operatorname{range}\Pro$ (Eq.~\eqref{eq:exact}; $O_R=\Cpve\dg$,
 $O_M=1$, $O_L=\Ce$): the first solve returns the lift $\hat t$, whose even part is
-$a=\pi Ds$, the second returns the lift $s$, and the correction returns $y$.}
+$a=\pi Ds$, the second returns $B_5s$, and the correction returns $y$.}
 \label{fig:correction}
 \end{figure}
 
@@ -905,8 +958,9 @@ with $\mathcal F=D$, gets
 \begin{equation*}
 \iota O_M\pi\hat t=\iota\hat t_e=\iota a=\begin{pmatrix}S\Ce^{-1}y\\0\end{pmatrix}.
 \end{equation*}
-By Eq.~\eqref{eq:galexact} it returns the solution $s$ of $Ds=\iota S\Ce^{-1}y$ if
-$s\in\operatorname{range}\Pro$. We eliminate the odd sites in the same way. With the blocks of
+\New With $\mathcal F=\Dsym$, Eq.~\eqref{eq:galexact} returns the solution $x$ of
+$\Dsym x=\iota S\Ce^{-1}y$ if $x\in\operatorname{range}\Pro$. Since $\Dsym x=DB_5^{-1}x$, this is
+$x=B_5s$, where $s$ solves $Ds=\iota S\Ce^{-1}y$. We find $s$ by eliminating the odd sites in the same way. With the blocks of
 Eq.~\eqref{eq:Dblocks}, the odd rows give
 \begin{align*}
 D_{oe}s_e+\Co s_o&=0,\\
@@ -917,9 +971,9 @@ and the even rows then read
 \Ce s_e+D_{eo}s_o&=\big(\Ce-D_{eo}\Co^{-1}D_{oe}\big)s_e\\
 &=Ss_e=S\Ce^{-1}y ,
 \end{align*}
-so $s_e=\Ce^{-1}y$. The last factor gives the correction,
+so $s_e=\Ce^{-1}y$. The last factors give the correction,
 \begin{equation*}
-e=O_L\pi s=\Ce s_e=\Ce\Ce^{-1}y=y .
+e=O_L\pi B_5^{-1}B_5s=\Ce s_e=\Ce\Ce^{-1}y=y .
 \end{equation*}
 
 \paragraph{The two lifts.} The two solves thus need the vectors
@@ -932,9 +986,10 @@ s&=\big(\Ce^{-1}y,\;-\Co^{-1}D_{oe}\Ce^{-1}y\big),\\
 \end{equation}
 where $a=\pi Ds$ because $Ds=\iota S\Ce^{-1}y$. The setup uses this form, building $s$ from $y$,
 applying $D$ once and taking the even sites to get $a$ without applying the two-hop $S$. We call $s$ and $\hat t$ the two \emph{lifts} of $y$.
+\New The second solve returns $B_5s$, which the setup gets from $s$ by the site-local $B_5$.
 Each extends a field on the even sites to all lattice sites by solving the odd rows of one
 operator, as $\psi_o$ is rebuilt from $\psi_e$ after an even-odd solve. The correction returns $y$
-when both lifts lie in $\operatorname{range}\Pro$. Sec.~\ref{sec:agg} builds $\Pro$ from them, and
+when \New $B_5s$ and $\hat t$ lie in $\operatorname{range}\Pro$. Sec.~\ref{sec:agg} builds $\Pro$ from them, and
 Sec.~\ref{sec:exactness} states the result.
 
 \subsubsection{Aggregation and prolongation}
@@ -962,7 +1017,7 @@ The coarse vector with the single component $c_{X,l}=1$ is mapped to $q_{X,l}$, 
 $q_{X,l}$ are the columns of $\Pro$.
 
 The $q_{X,l}$ are made from the two lifts of each of the $n$ vectors $y_j$ of Sec.~\ref{sec:basis}. We call these
-$2n$ vectors $s_1,\dots,s_n,\hat t_1,\dots,\hat t_n$ the \emph{test vectors}; each is a vector
+$2n$ vectors \New $B_5s_1,\dots,B_5s_n,\hat t_1,\dots,\hat t_n$ the \emph{test vectors}; each is a vector
 on all lattice sites, and their number is $n_v=2n$. Below, $v$ stands for any one of them. We split each test vector $v$ into its $\Gfive$ eigencomponents
 $v_\pm=\frac12(1\pm\Gfive)v$ and cut each of them into pieces, one per block, each equal to $v_\pm$
 on the sites of its block and zero elsewhere. For one block and one chirality, the pieces of the
@@ -1004,11 +1059,11 @@ correction returns the vector it is built from,
 e(\AR y)=y .
 \label{eq:exact}
 \end{equation}
-\New The two solves of Sec.~\ref{sec:basis} return $\hat t$ and $s$ by
+\New The two solves of Sec.~\ref{sec:basis} return $\hat t$ and $B_5s$ by
 Eq.~\eqref{eq:galexact}, because both lie in $\operatorname{range}\Pro$ (Sec.~\ref{sec:agg}), and
 the correction then returns $y$.
 
-\paragraph{\New Why both lifts.} With $\Pro$ made from the $s_j$ alone, the
+\paragraph{\New Why both lifts.} With $\Pro$ made from the $B_5s_j$ alone, the
 first solve returns $\hat t$ only if $\hat t$ lies in the span of the $s_j$. Otherwise its result
 differs from $\hat t$, the second solve receives a right-hand side other than $Ds$, and $e\neq y$
 in general. The two lifts differ in the fifth dimension. Their odd parts are built
@@ -1030,10 +1085,10 @@ O_Rr=(\Cpve^{-1}\Spv)\dg\,\Ce^{-1}Sy'=\Spv\dg u,\qquad u\equiv(\Cpve\dg)^{-1}\Ce
 The first coarse solve must therefore return the Pauli--Villars lift $\hat t'$ of $u$, constructed
 from $u$ in the same manner as $\hat t$ is constructed from $a$. Its even-site component is $u$, so
 the second solve receives $\iota O_Mu=\iota\Ce\Cpve\dg(\Cpve\dg)^{-1}\Ce^{-1}a=\iota a$, identical
-to the right-form case; it therefore returns $s$, giving $e=O_L\pi s=\Ce^{-1}y=y'$. Exactness for
+to the right-form case; it therefore returns $B_5s$, giving \New $e=O_L\pi B_5^{-1}B_5s=\Ce^{-1}y=y'$. Exactness for
 the left form thus requires $\hat t'\in\operatorname{range}\Pro$. However, because $u$ differs from
 $a$ by the site-local matrix $(\Cpve\dg)^{-1}\Ce^{-1}$, which couples spin and the fifth dimension,
-$\hat t'$ does not generally lie in the span of $\{s_j,\hat t_j\}$, and the correction is not exact
+$\hat t'$ does not generally lie in the span of \New $\{B_5s_j,\hat t_j\}$, and the correction is not exact
 for the left form. With $\alpha$ introduced in both operators, the same algebra yields
 $u=(\Cpve\dg)^{-1}Q_e^{-2}\Ce^{-1}SQ_ey'$ and additionally requires the quark lift associated with
 $Q_ey'$.\ifresults{} In practice, the left form nevertheless converges cleanly, exhibiting nearly
@@ -1041,13 +1096,24 @@ the same spectrum as the right form at $\alpha=1$ (\New Appendix~\ref{sec:spectr
 substantially from including $\hat t$ in the basis (Sec.~\ref{sec:basischoice}).\fi
 
 \subsubsection{The coarse operators}
-We assemble $\Dc=\Pro\dg D\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
-between neighboring blocks and from its part within a block. \New By
-Eq.~\eqref{eq:Pdef} the entries of $\Dc$ are $q_{X',k}\dg Dq_{X,l}$. $D$ moves a field by at most
-one site in four dimensions, so $Dq_{X,l}$ vanishes outside $X$ and its neighbors, and the entry
+\label{sec:coarseops}
+We assemble $\Dc=\Pro\dg\Dsym\Pro$ and $\Dcpv=\Pro\dg\Dpv\Pro$ from the hops of the fine operator
+between neighboring blocks and from its part within a block. \New By Eq.~\eqref{eq:Dsym}, the
+hop of $\Dsym$ is $-\frac12K$, that of Shamir's operator, and its part within a site is the
+$L_s\times L_s$ matrix $CB_5^{-1}$ on each chirality. By
+Eq.~\eqref{eq:Pdef} the entries of $\Dc$ are $q_{X',k}\dg\Dsym q_{X,l}$. $\Dsym$ moves a field by at most
+one site in four dimensions, so $\Dsym q_{X,l}$ vanishes outside $X$ and its neighbors, and the entry
 vanishes unless $X'=X$ or $X'$ is a neighbor of $X$. Each coarse site has a
 $2n_v\times2n_v$ diagonal block and one link block for each of its eight nearest neighbors, nine blocks in all. The
-adjoint factor $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$ is the conjugate transpose of these blocks. When all
+adjoint factor $\Pro\dg\Dpv\dg\Pro=(\Dcpv)\dg$ is the conjugate transpose of these blocks.
+\New Every column of $\Pro$ is an eigenvector of $\Gfive$ (Sec.~\ref{sec:agg}), so
+$\Gfive\Pro=\Pro\sigma_3$, where $\sigma_3$ is $+1$ on the first $n_v$ and $-1$ on the last $n_v$
+components of each coarse site. With Eq.~\eqref{eq:Dsymherm},
+\begin{equation}
+\Dc\dg=\Pro\dg\Dsym\dg\Pro=\Pro\dg\Gfive\Dsym\Gfive\Pro=\sigma_3\Dc\sigma_3 ,
+\end{equation}
+so $\Dc$ is $\sigma_3$-Hermitian. The same steps do not apply to $\Dcpv$, since $\Dpv$ is not
+$\Gfive$-Hermitian (Eq.~\eqref{eq:g5herm} at $m=1$). When all
 extents of the coarse lattice are even, the coarse hops connect coarse sites of opposite parity,
 and both coarse operators have an even-odd form of their own.
 
@@ -1079,8 +1145,29 @@ preconditioned by the exact inverses of the diagonal blocks $A_{ee}^{-1}$
 unit mass and no critical slowing down. Its Galerkin coarse factor $\mathcal F=(\Dcpv)\dg$,
 however, can acquire singular values far smaller than those of $\Dpv$ (Sec.~\ref{sec:pvcoarse}),
 so an unregularized solve of $\mathcal Fw=g$ strongly amplifies those directions and can cause the
-outer solve to slow down or stagnate. We solve the normal equation, which is Hermitian positive
-definite and so solvable by CG, with a Tikhonov shift $\tau$ that damps those directions:
+outer solve to slow down or stagnate.
+
+\New The Galerkin projection bounds the small singular values of a coarse operator only through
+the \emph{field of values} $W(M)=\{v\dg Mv/v\dg v : v\neq0\}$ of the fine operator $M$. Since the
+$q_{X,l}$ of Eq.~\eqref{eq:Pdef} are orthonormal and the blocks are disjoint, $\Pro\dg\Pro=1$ and
+$|\Pro c|=|c|$. For a coarse vector $c$ with $|c|=1$, the Cauchy--Schwarz inequality gives
+\begin{equation*}
+|\Pro\dg M\Pro\,c|\;\ge\;|c\dg\Pro\dg M\Pro\,c|\;=\;|(\Pro c)\dg M(\Pro c)|\;\ge\;
+\min_{z\in W(M)}|z|,
+\end{equation*}
+since $(\Pro c)\dg M(\Pro c)$ is a point of $W(M)$. Minimizing over $c$ gives
+$\sigma_{\min}(\Pro\dg M\Pro)\ge\min_{z\in W(M)}|z|$. \New For a Hermitian positive definite $M$,
+$W(M)$ is the interval between its smallest and largest eigenvalues, so the bound equals
+$\sigma_{\min}(M)$ and the coarse operator has no singular value below the smallest one of $M$.
+\New $\Dpv$ is not Hermitian, and the bound is only the distance of $W(\Dpv)$ from the origin. A
+coarse singular value near zero means a unit vector $x=\Pro c$ with $\Pro\dg\Dpv x\approx0$ although
+$|\Dpv x|\ge\sigma_{\min}(\Dpv)$, so $\Dpv x$ is nearly orthogonal to the range of $\Pro$. Then
+$x\dg\Dpv x=c\dg\Pro\dg\Dpv x\approx0$ is a point of $W(\Dpv)$ near the origin, which the bound
+permits.\ifresults{} Table~\ref{tab:pvsv} shows that this occurs with smeared links, where the coarse
+smallest singular value falls far below that of $\Dpv$.\fi
+
+\New We solve the normal equation, which is Hermitian positive definite and so solvable by CG,
+with a Tikhonov shift $\tau$ that damps the directions with small singular values:
 \begin{equation}
 \big(\mathcal F\dg \mathcal F+\tau\big)\,w=\mathcal F\dg g
 \label{eq:tikhonov}
@@ -1161,17 +1248,11 @@ choose $\kappa_s$ by hand.\ifresults{} An interval that is too wide or too narro
 solve stagnate, and the interval that works differs between the two setups of
 Sec.~\ref{sec:results} (Secs.~\ref{sec:setups} and \ref{sec:sensitivity}).\fi
 
-\New We compute $x$ by the Chebyshev recurrence. Starting from $x=0$, $\varrho_0=1/\sigma$,
-$r_0=b$ and $d_0=r_0/\bar\lambda$, step $k=0,\dots,\nu-1$ is
-\begin{equation}
-x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
-\varrho_{k+1}=\frac{1}{2\sigma-\varrho_k},\quad
-d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1}.
-\end{equation}
-The last step, $k=\nu-1$, only updates $x$, so $\nu$ steps cost $\nu-1$ applications of $\tilde A$.
-The recurrence keeps four fine vectors, $x$, $r$, $d$ and $\tilde Ad$, whatever $\nu$, and needs no
-inner products; the smoother is the same linear map at every application. A Krylov smoother, such
-as the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps two more
+\New Evaluating $x=p(\tilde A)b$ by the Chebyshev recurrence of Appendix~\ref{sec:cgform},
+Eq.~\eqref{eq:cheb_rec}, costs $\nu-1$ applications of $\tilde A$, since the last step only updates
+$x$. Eq.~\eqref{eq:cheb_rec} keeps four fine vectors regardless of $\nu$ and needs no inner
+products, so the smoother is the same linear map at every application. A Krylov smoother, such as
+the fixed number of GCR steps of the Pauli--Villars multigrid of Ref.~\cite{BY}, keeps two more
 fine vectors per step, the direction and its image under $\tilde A$; in a fixed amount of memory it
 therefore solves smaller volumes.
 
@@ -1324,7 +1405,7 @@ the filter, the rounds and the probe together.
 \begin{algorithmic}
 \State $y\gets\textsc{LowModes}(H)$;\quad $(\theta,\phi)\gets$ lowest Ritz pair of $H$ on $y$
 \For{$r=0,\dots,7$}
-  \State \New from $y$, build $\Pro$ (the lifts $s_j,\hat t_j$ of Eq.~\eqref{eq:lifts}, split by $\Gfive$ and orthonormalized per block), $\Dc$ and $\Dcpv$ with the inverses of their diagonal blocks and their even-odd forms, optionally the levels below, and the cycle $\mathcal M$
+  \State \New from $y$, build $\Pro$ (\New $B_5s_j$ and $\hat t_j$ from the lifts of Eq.~\eqref{eq:lifts}, split by $\Gfive$ and orthonormalized per block), $\Dc$ and $\Dcpv$ with the inverses of their diagonal blocks and their even-odd forms, optionally the levels below, and the cycle $\mathcal M$
   \If{$r\ge r_{\min}$ and $\theta<g_{\min}\,\tilde\theta$ for $\tilde\theta$ of Eq.~\eqref{eq:probe}} \textbf{break} \Comment{\New keep $\Pro$, $\mathcal M$}
   \EndIf
   \For{$j=1,\dots,n$}
@@ -1392,47 +1473,22 @@ operator.
 
 \subsection{\New \texorpdfstring{$D\dg$}{D-dagger} through \texorpdfstring{$D$}{D} itself}
 \label{sec:b5}
-Write the operator of Eq.~\eqref{eq:D} as
+\New Inverting Eq.~\eqref{eq:b5sim} of Sec.~\ref{sec:C} gives
 \begin{equation}
-D=1+Y+W B_5,\qquad B_5=b-cY .
-\end{equation}
-With Eq.~\eqref{eq:Y},
-\begin{equation}
-(B_5\psi)_s=b\,\psi_s+c\,\big(\Pm\psi_{s+1}+\Pp\psi_{s-1}\big),
-\end{equation}
-where the boundary terms that wrap around carry the factor $-mc$. For $L_s=4$, as a matrix in $s$
-(compare Eq.~\eqref{eq:Ymatrix}),
-\begin{equation}
-B_5=\begin{pmatrix}
-b & c\Pm & 0 & -mc\Pp\\
-c\Pp & b & c\Pm & 0\\
-0 & c\Pp & b & c\Pm\\
--mc\Pm & 0 & c\Pp & b
-\end{pmatrix}.
-\label{eq:B5matrix}
-\end{equation}
-On $\psi^+=\Pp\psi$ it is lower bidiagonal with one corner element, on $\psi^-$ upper
-bidiagonal, as $C$ in Eq.~\eqref{eq:Cblocks}.
-$B_5$ acts within each four-dimensional site, on the fifth dimension and the spin. The properties
-of Sec.~\ref{sec:g5} give $\Gfive Y\dg\Gfive=Y$ and $\Gfive W\dg\Gfive=W$, hence
-$\Gfive B_5\dg\Gfive=B_5$ and $\Gfive D\dg\Gfive=1+Y+B_5W$. Because $B_5$ is a polynomial in $Y$, it
-commutes with $1+Y$, so $B_5DB_5^{-1}=1+Y+B_5W$ as well, and
-\begin{equation}
-\boxed{\;\Gfive D\dg\Gfive=B_5\,D\,B_5^{-1},\qquad
-(D\dg)^{-1}=\Gfive B_5\,D^{-1}B_5^{-1}\,\Gfive .\;}
+\boxed{\;(D\dg)^{-1}=\Gfive B_5\,D^{-1}B_5^{-1}\,\Gfive .\;}
 \label{eq:b5}
 \end{equation}
 The solve of $D\dg w=r$ is then the solve of $Dx=B_5^{-1}\Gfive r$, and $w=\Gfive B_5x$.
 
 Here $B_5$ plays the role that $D_-=cW-1$ plays in Eq.~\eqref{eq:g5exact}.
-\New $D_-$ couples neighboring sites, so its inverse is a solve of its own (Sec.~\ref{sec:g5fail}); $B_5$ has the form
-$d_++d_-Y$ of the site-local part $C$ of Sec.~\ref{sec:C}, with $d_+=b$ and $d_-=-c$, so the exact
-inverse of $C$ inverts it, and by the argument of Eq.~\eqref{eq:kappaC} (Appendix~\ref{sec:cgform})
+\New $D_-$ couples neighboring sites, so its inverse is a solve of its own (Sec.~\ref{sec:g5fail}).
+$B_5$ is site-local and inverted exactly (Sec.~\ref{sec:C}), and by the argument of
+Eq.~\eqref{eq:kappaC} (Appendix~\ref{sec:cgform})
 \begin{equation}
 \kappa(B_5)\le\frac{b+c}{b-c}=2\qquad(b=1.5,\ c=0.5).
 \end{equation}
 
-\New Equation~\eqref{eq:b5} needs $b$ and $c$ independent of $s$, as they are
+\New Equations~\eqref{eq:b5sim} and~\eqref{eq:b5} need $b$ and $c$ independent of $s$, as they are
 here. With coefficients $b_s$, $c_s$ that depend on $s$,
 $B_5=\operatorname{diag}(b_s)-\operatorname{diag}(c_s)\,Y$ with diagonal matrices in $s$. $Y$
 shifts $s$ by one, so $\operatorname{diag}(b_s)$ and $\operatorname{diag}(c_s)$ commute with $Y$
@@ -1865,11 +1921,12 @@ $24^3\times48$ & 1 & $0.593548$ & $3.20$ & $+4.47$ & $+4.78$ & $+5$\\
 \end{table}
 
 % ============================================================
-\section{Krylov solvers}
+\section{Krylov solvers and Chebyshev iteration}
 \label{sec:cgform}
 
 The multigrid uses four Krylov solvers, flexible GCR for the outer system, BiCGStab and CG for
-the coarse factors and FGMRES in the bootstrap, and the comparison uses CG as well.
+the coarse factors and FGMRES in the bootstrap, together with Chebyshev iteration for the smoother.
+The comparison uses CG as well.
 
 \paragraph{Flexible GCR($k$).} The outer solver of Sec.~\ref{sec:outer} is GCR~\cite{ESS} with a
 preconditioner $\mathcal M$ that may change from one step to the next, keeping the last $k$
@@ -1915,6 +1972,21 @@ safeguard of Ref.~\cite{SleijpenvdVomega} with $\omega_c=0.7$, and after a break
 or $n_{\max}$ steps it restarts from the true residual.\ifresults{} The same algorithm, with
 $\mathcal M_A=1$ and in double precision, is the Krylov solver on $\AL$ alone of
 Sec.~\ref{sec:nomg}.\fi
+
+\paragraph{Chebyshev iteration.} \New The smoother of Sec.~\ref{sec:smoother} evaluates
+$x=p(\tilde A)b$ for $\tilde Ax=b$ on $[\lambda_{\rm lo},\lambda_{\rm hi}]$, with
+$\bar\lambda=\frac12(\lambda_{\rm hi}+\lambda_{\rm lo})$,
+$\delta=\frac12(\lambda_{\rm hi}-\lambda_{\rm lo})$ and $\sigma=\bar\lambda/\delta$, by the
+Chebyshev recurrence~\cite{Saad}. Defining $\varrho_k=T_k(\sigma)/T_{k+1}(\sigma)$ and dividing
+$T_{k+2}(\sigma)=2\sigma T_{k+1}(\sigma)-T_k(\sigma)$ by $T_{k+2}(\sigma)$ gives
+$\varrho_{k+1}=1/(2\sigma-\varrho_k)$, starting from $\varrho_0=T_0(\sigma)/T_1(\sigma)=1/\sigma$.
+With $x=0$, $r_0=b$ and $d_0=r_0/\bar\lambda$, step $k=0,\dots,\nu-1$ is
+\begin{equation}
+x\leftarrow x+d_k,\quad r_{k+1}=r_k-\tilde Ad_k,\quad
+\varrho_{k+1}=\frac{1}{2\sigma-\varrho_k},\quad
+d_{k+1}=\varrho_{k+1}\varrho_k\,d_k+\frac{2\varrho_{k+1}}{\delta}\,r_{k+1}.
+\label{eq:cheb_rec}
+\end{equation}
 
 \paragraph{Two even-odd forms.} Boyle and Yamaguchi~\cite{BY} used CG
 on $S\dg S$, which for Shamir fermions needed 3224 iterations against 3880 for the left-preconditioned

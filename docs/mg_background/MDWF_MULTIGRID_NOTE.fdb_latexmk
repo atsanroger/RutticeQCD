@@ -1,5 +1,5 @@
 # Fdb version 4
-["pdflatex"] 1795513917.6507 "MDWF_MULTIGRID_NOTE.tex" "MDWF_MULTIGRID_NOTE.pdf" "MDWF_MULTIGRID_NOTE" 1795513920.08825 0
+["pdflatex"] 1795609071.77557 "MDWF_MULTIGRID_NOTE.tex" "MDWF_MULTIGRID_NOTE.pdf" "MDWF_MULTIGRID_NOTE" 1795609073.00585 0
   "/home/chen/.TinyTeX/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8r.tfm" 1136768653 4524 6bce29db5bc272ba5f332261583fee9c ""
   "/home/chen/.TinyTeX/texmf-dist/fonts/tfm/adobe/times/ptmb8t.tfm" 1136768653 6880 f19b8995b61c334d78fc734065f6b4d4 ""
@@ -206,16 +206,16 @@
   "/home/chen/.TinyTeX/texmf-var/fonts/pk/ljfour/jknappen/ec/ectt1095.600pk" 1792049707.93192 21952 8ed2b269ff189c21fa5b78066218e561 ""
   "/home/chen/.TinyTeX/texmf-var/web2c/pdftex/pdflatex.fmt" 1788146875 2253715 d3cf6316d3a0140f3aea70ea9c7b2ca1 ""
   "/home/chen/.TinyTeX/texmf.cnf" 1788146843 637 edd806fb06a89761a6034e1968af9017 ""
-  "MDWF_MULTIGRID_NOTE.aux" 1795513919.90391 45072 ece121886e577d05b50343a0cc634393 "pdflatex"
-  "MDWF_MULTIGRID_NOTE.out" 1795513919.90891 10097 5bb9c2f100cd3b384849aa5ad6f3f75e "pdflatex"
-  "MDWF_MULTIGRID_NOTE.tex" 1795513915.06896 135193 a846049cc82e4410db172c3aef9a59fc ""
-  "MDWF_MULTIGRID_NOTE.toc" 1795513919.90891 8031 0ab9b04e9bbcf93e775a5fbffa2465c0 "pdflatex"
+  "MDWF_MULTIGRID_NOTE.aux" 1795609072.89824 45735 8ed1b332884d97f97f6b8d9a729ee686 "pdflatex"
+  "MDWF_MULTIGRID_NOTE.out" 1795609072.90124 10226 e3bc7a18dd719620fba222d074f5eda1 "pdflatex"
+  "MDWF_MULTIGRID_NOTE.tex" 1795609070.42727 139701 cedf0b701268974135153725ccb5a087 ""
+  "MDWF_MULTIGRID_NOTE.toc" 1795609072.90224 8189 2639bb1d813f7915ef44d476cc42f1a2 "pdflatex"
   "fig_cgform.pdf" 1795163339.68203 43995 cadd10bc83c8ccafefbf9c5ef64b1e94 ""
   "fig_massscan.pdf" 1795337217.82394 40452 518d3b5f9468b498968c04184f7c7bd8 ""
   "fig_sensitivity.pdf" 1795163338.37104 46221 246be7cddacb1ea8b96103bfe13119c5 ""
   "fig_spectrum.pdf" 1795163339.68303 37229 0463f00effdd6b644e0b2c4944b46a58 ""
   "fig_volume.pdf" 1795337218.18093 27884 577263f0d1481d0c076b8b5df3a9383a ""
-  "results.tex" 1795505530.58338 23727 4438705d57b2ae6f02e4455634c08b4a ""
+  "results.tex" 1795571134.04546 23730 e7c8edb65aecedd97700dd66badc285d ""
   "results_tables.tex" 1795486653.35802 5659 9454f1ce102790e13ecdb73f211ccfe5 ""
   "spectrum_fig1.png" 1792458938.92178 18467 a139f0d4ea2f2078ab9b3fa554a69679 ""
   "spectrum_fig4.png" 1793260531.8809 108568 ec5d29e039f65a34a16b6f8bf4713465 ""
