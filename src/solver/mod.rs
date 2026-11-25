@@ -14,7 +14,7 @@ pub use bicgstab::BiCgStab;
 pub use block_gcr::BlockGcr;
 pub use cg::Cg;
 pub use fgmres::Fgmres;
-pub use gcr::Gcr;
+pub use gcr::{Gcr, GcrLow};
 pub use minres::Minres;
 pub(crate) use mixed::refine_normal;
 pub use mixed::{reliable_cg, Convert, Refine, Solve};

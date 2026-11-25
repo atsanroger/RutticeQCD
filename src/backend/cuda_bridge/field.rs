@@ -105,6 +105,11 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         Self::new(lat, ls, Some(parity), 0)
     }
 
+    /// exp/ls16-diag: the shape of this field (no vectors) in the precision `U`.
+    pub(crate) fn shape_in<U: DeviceReal>(&self) -> Result<DeviceSpinor<U>, CudaError> {
+        DeviceSpinor::<U>::new(&self.lat, self.ls, self.parity, 0)
+    }
+
     /// The fields of `psi` on the device, the host site `sites[x]` at `place(x)` there.
     fn upload<S: Sites>(
         psi: &Field<f64, Spinor, S>,

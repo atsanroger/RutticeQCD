@@ -564,6 +564,16 @@ pub(super) fn run(
                     let solved = sc.reliable_normal(&mut a, &mut sol, &rhs, stop, *drop_sqr);
                     (solved, None)
                 }
+                // exp/ls16-diag: GCR with its kept pairs in single precision.
+                (SolverType::Gcr, _) if crate::env::switch("RUTTICE_GCR_F32") => {
+                    let like = rhs.shape_in::<f32>()?;
+                    let mut g = crate::solver::GcrLow::new(stop, s.number_of_kept_directions, like);
+                    if detailed {
+                        g = g.recording();
+                    }
+                    let solved = g.solve(&mut a, m, &mut sol, &rhs);
+                    (solved, g.history.take())
+                }
                 _ => s.solve_with(stop, &mut a, m, &mut sol, &rhs, detailed),
             };
             solving += began.elapsed();

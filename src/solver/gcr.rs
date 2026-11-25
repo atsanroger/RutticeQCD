@@ -184,3 +184,139 @@ impl<V: Vector> Solver<V> for Gcr<V> {
         }
     }
 }
+
+/// exp/ls16-diag: GCR(k) with the kept pairs stored as `W` (single precision), to keep more of
+/// them in the memory of the device. The current pair, the residual and the solution stay `V`;
+/// a kept pair is converted to `V` each time it is used.
+pub struct GcrLow<V, W> {
+    pub stop: Stop,
+    pub k: usize,
+    like: W,
+    pub(crate) history: Option<Vec<Vec<f64>>>,
+    _v: std::marker::PhantomData<V>,
+}
+
+impl<V, W> GcrLow<V, W>
+where
+    V: Vector + crate::field::vector::ConvertFrom<W>,
+    W: Vector + crate::field::vector::ConvertFrom<V>,
+{
+    /// `like`: one vector of the shape and precision of the kept pairs.
+    pub fn new(stop: Stop, k: usize, like: W) -> Self {
+        Self {
+            stop,
+            k: k.max(1),
+            like,
+            history: None,
+            _v: std::marker::PhantomData,
+        }
+    }
+
+    /// Keep the residual history, as `Gcr::recording`.
+    pub fn recording(mut self) -> Self {
+        self.history = Some(Vec::new());
+        self
+    }
+
+    pub fn solve(
+        &mut self,
+        a: &mut dyn LinearFn<V>,
+        mut m: Option<&mut dyn LinearFn<V>>,
+        x: &mut V,
+        b: &V,
+    ) -> Result<SolveInfo, SolveError> {
+        assert!(x.same_shape(b));
+        let nv = b.num_vectors();
+        let mut pairs: Vec<(W, W)> = (0..self.k)
+            .map(|_| (self.like.zeros_with(nv), self.like.zeros_with(nv)))
+            .collect();
+        let (mut r, mut zc, mut qc, mut zo, mut qo) = (
+            b.zeros_like(),
+            b.zeros_like(),
+            b.zeros_like(),
+            b.zeros_like(),
+            b.zeros_like(),
+        );
+        let minus_one = vec![C64::new(-1.0, 0.0); nv];
+        let mut b_norm = vec![0.0; nv];
+        b.norm_sqr(&mut b_norm);
+        let tol = self.stop.tolerance_sqr;
+        let limit = self.stop.max_iterations * (self.stop.max_restarts + 1);
+        let (mut rr, mut nq, mut residual) = (vec![0.0; nv], vec![0.0; nv], vec![0.0; nv]);
+        let mut dots = vec![C64::ZERO; nv];
+        let (mut iterations, mut cycles) = (0, 0);
+        loop {
+            a.mult_xpay(&mut r, x, &minus_one, b);
+            let (mut next, mut kept, mut in_cycle) = (0, 0, 0);
+            while in_cycle < self.stop.max_iterations && iterations < limit {
+                r.norm_sqr(&mut rr);
+                if not_finite(&rr) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "the residual is not finite",
+                    });
+                }
+                if let Some(h) = self.history.as_mut() {
+                    h.push(
+                        (0..nv)
+                            .map(|j| rr[j] / b_norm[j].max(f64::MIN_POSITIVE))
+                            .collect(),
+                    );
+                }
+                let active: Vec<bool> = (0..nv).map(|j| rr[j] > tol * b_norm[j]).collect();
+                if !active.iter().any(|a| *a) {
+                    break;
+                }
+                match m.as_mut() {
+                    Some(m) => m.mult(&mut zc, &r),
+                    None => zc.copy_from(&r),
+                }
+                a.mult(&mut qc, &zc);
+                for back in 1..=kept {
+                    let old = (next + self.k - back) % self.k;
+                    zo.convert_from(&pairs[old].0);
+                    qo.convert_from(&pairs[old].1);
+                    qo.dot(&qc, &mut dots);
+                    let minus: Vec<C64> = dots.iter().map(|d| -*d).collect();
+                    qc.axpy(&minus, &qo);
+                    zc.axpy(&minus, &zo);
+                }
+                qc.norm_sqr(&mut nq);
+                if (0..nv).any(|j| active[j] && !(nq[j] > 0.0 && nq[j].is_finite())) {
+                    return Err(SolveError::Breakdown {
+                        iterations,
+                        what: "A z vanished",
+                    });
+                }
+                let scale: Vec<f64> = (0..nv)
+                    .map(|j| if active[j] { 1.0 / nq[j].sqrt() } else { 0.0 })
+                    .collect();
+                qc.scale(&scale);
+                zc.scale(&scale);
+                qc.dot(&r, &mut dots);
+                x.axpy(&dots, &zc);
+                let minus: Vec<C64> = dots.iter().map(|d| -*d).collect();
+                r.axpy(&minus, &qc);
+                pairs[next].0.convert_from(&zc);
+                pairs[next].1.convert_from(&qc);
+                next = (next + 1) % self.k;
+                kept = (kept + 1).min(self.k);
+                iterations += 1;
+                in_cycle += 1;
+            }
+            true_residual(a, x, b, &b_norm, &mut r, &minus_one, &mut residual);
+            let info = SolveInfo {
+                iterations,
+                restarts: cycles,
+                residual_sqr: residual.clone(),
+            };
+            if residual.iter().all(|r| *r <= tol) {
+                return Ok(info);
+            }
+            if cycles >= self.stop.max_restarts || iterations >= limit {
+                return Err(SolveError::NotConverged(info));
+            }
+            cycles += 1;
+        }
+    }
+}

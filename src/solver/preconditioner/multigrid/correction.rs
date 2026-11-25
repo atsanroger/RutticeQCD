@@ -139,6 +139,9 @@ thread_local! {
     /// exp/ls16-diag: when set, `correct` only stores |π P P† ι O_R r|²/|O_R r|² of its input.
     pub(crate) static DIAG_PROBE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     pub(crate) static DIAG_SHARE: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NAN) };
+    /// exp/ls16-diag: 0 the whole correction, 1 the quark factor alone (no PV solve), 2 the
+    /// Pauli-Villars factor alone (no quark solve).
+    pub(crate) static DIAG_FACTOR: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
 /// |x|/|b| of the first vector, for the diagnostics of `correct`.
@@ -520,32 +523,39 @@ where
         // (`coarse_pv`), by MINRES, w = Γ5 u with P†D_PV P u = Γ5 g (P†D_PV P taken as its own
         // Γ5-adjoint), or by a Krylov solver on the exact adjoint. The last two preconditioned by
         // the blocks, and the levels below if there are any.
-        w.set_zero();
-        if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.pv_solver, coarse_pv_adj) {
-            regularized_solve(coarse_pv, &**adj, eps, pv_stop, n, w, gc);
-        } else if params.pv_solver == CoarseKrylov::Minres {
-            coarse_pv.gamma5(gc);
-            minres_on_hermitian(
-                coarse_pv,
-                &mut **blocks_pv,
-                levels_pv.as_deref(),
-                n,
-                pv_stop,
-                w,
-                gc,
-            );
-            coarse_pv.gamma5(w);
+        let factor = DIAG_FACTOR.with(|f| f.get());
+        if factor == 1 {
+            // exp/ls16-diag: the quark factor alone, w = g.
+            w.copy_from(gc);
         } else {
-            let pv_solver = params.pv_solver.krylov().expect("a Krylov solver");
-            solve_shared(
-                coarse_pv,
-                Some(&mut **blocks_pv),
-                levels_pv.as_deref(),
-                n,
-                &mut |a, m, x, b| coarse_solve(pv_solver, pv_stop, a, m, x, b),
-                w,
-                gc,
-            );
+            w.set_zero();
+            if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.pv_solver, coarse_pv_adj)
+            {
+                regularized_solve(coarse_pv, &**adj, eps, pv_stop, n, w, gc);
+            } else if params.pv_solver == CoarseKrylov::Minres {
+                coarse_pv.gamma5(gc);
+                minres_on_hermitian(
+                    coarse_pv,
+                    &mut **blocks_pv,
+                    levels_pv.as_deref(),
+                    n,
+                    pv_stop,
+                    w,
+                    gc,
+                );
+                coarse_pv.gamma5(w);
+            } else {
+                let pv_solver = params.pv_solver.krylov().expect("a Krylov solver");
+                solve_shared(
+                    coarse_pv,
+                    Some(&mut **blocks_pv),
+                    levels_pv.as_deref(),
+                    n,
+                    &mut |a, m, x, b| coarse_solve(pv_solver, pv_stop, a, m, x, b),
+                    w,
+                    gc,
+                );
+            }
         }
 
         let (n_pv, pv_rel) = (
@@ -553,33 +563,37 @@ where
             diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc)),
         );
         let pv_gain = diag.then(|| norm_ratio(w, gc));
-        // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
-        g.convert_from(w);
-        transfer.prolong(h, g);
-        if *form == EoForm::Left {
-            pv_a.diag(work_a, e, h, even, Dagger::Yes);
-            op_a.diag(work_a, h, e, even, Dagger::No);
-        }
-        transfer.restrict(g, h);
-        gc.convert_from(g);
-
-        // c = (P†DP)⁻¹ g, or regularized as the second factor.
-        c.set_zero();
-        if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.d_solver, coarse_d_adj) {
-            regularized_solve(&*coarse_d, &**adj, eps, stop, n, c, gc);
+        if factor == 2 {
+            // exp/ls16-diag: the Pauli-Villars factor alone, c = w.
+            c.copy_from(w);
         } else {
-            let d_solver = params.d_solver.krylov().expect("a Krylov solver");
-            solve_shared(
-                &*coarse_d,
-                Some(&mut **blocks_d),
-                levels_d.as_deref(),
-                n,
-                &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
-                c,
-                gc,
-            );
-        }
+            // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
+            g.convert_from(w);
+            transfer.prolong(h, g);
+            if *form == EoForm::Left {
+                pv_a.diag(work_a, e, h, even, Dagger::Yes);
+                op_a.diag(work_a, h, e, even, Dagger::No);
+            }
+            transfer.restrict(g, h);
+            gc.convert_from(g);
 
+            // c = (P†DP)⁻¹ g, or regularized as the second factor.
+            c.set_zero();
+            if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.d_solver, coarse_d_adj) {
+                regularized_solve(&*coarse_d, &**adj, eps, stop, n, c, gc);
+            } else {
+                let d_solver = params.d_solver.krylov().expect("a Krylov solver");
+                solve_shared(
+                    &*coarse_d,
+                    Some(&mut **blocks_d),
+                    levels_d.as_deref(),
+                    n,
+                    &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
+                    c,
+                    gc,
+                );
+            }
+        }
         if let Some(pv_rel) = pv_rel {
             let d_rel = diag_residual(|o, i| coarse_d.mult(o, i), c, gc);
             eprintln!(
