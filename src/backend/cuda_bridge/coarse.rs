@@ -751,40 +751,57 @@ impl DeviceBasis {
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         let sites = Some(lat.num_global_sites() as f64);
         // Two vectors at a time: the fields on the whole lattice are large.
-        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
-            basis.add(i, s)
-        });
-        // exp/ls16-diag (RUTTICE_REPAIR): the pairs (v, w) in place of the last columns, the
-        // k-th pair in columns n − 2k − 2 and n − 2k − 1.
-        let pairs = super::correction::REPAIR_COLUMNS.with(|c| {
-            c.borrow()
-                .iter()
-                .map(|(v, w)| {
-                    Ok((
-                        DeviceSpinor::<f64>::from_host(v)?,
-                        DeviceSpinor::<f64>::from_host(w)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, CudaError>>()
-        })?;
+        // exp/ls16-diag (RUTTICE_REPAIR): the k-th pair (v, w) replaces, on the (block,
+        // chirality) pieces that hold the fraction 0.99 of |w|², column 2n − 1 − k (the t̂ lift
+        // of test vector n − 1 − k); elsewhere that column keeps its lift.
+        let pairs =
+            super::correction::REPAIR_COLUMNS.with(|c| std::mem::take(&mut *c.borrow_mut()));
         let cols = basis.n;
-        for (k, (v, w)) in pairs.iter().enumerate() {
-            let at = cols - 2 * k - 2;
-            for (col, f) in [(at, v), (at + 1, w)] {
-                let mut g = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(1);
-                crate::ConvertFrom::convert_from(&mut g, f);
-                basis.add(col, &g);
+        let targets: Vec<usize> = (0..pairs.len()).map(|k| cols - 1 - k).collect();
+        let mut originals: Vec<Option<Field<f64, crate::Spinor>>> =
+            (0..pairs.len()).map(|_| None).collect();
+        let mut failed: Option<CudaError> = None;
+        lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
+            basis.add(i, s);
+            for (k, &col) in targets.iter().enumerate() {
+                if (i..i + s.vectors).contains(&col) {
+                    match s.to_host() {
+                        Ok(h) => originals[k] = Some(one_vector(&h, col - i, ls)),
+                        Err(e) => {
+                            failed.get_or_insert(e);
+                        }
+                    }
+                }
             }
+        });
+        if let Some(e) = failed {
+            return Err(e.into());
+        }
+        for (k, (_, w)) in pairs.iter().enumerate() {
+            let orig = originals[k]
+                .as_ref()
+                .expect("the lift of the replaced column");
+            let mixed = repair_mix(agg, ls, orig, w, 0.99, k);
+            let mut g = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(1);
+            ConvertFrom::convert_from(&mut g, &DeviceSpinor::<f64>::from_host(&mixed)?);
+            basis.add(targets[k], &g);
         }
         basis.finish()?;
-        for (k, (_, w)) in pairs.iter().enumerate() {
-            let mut c = basis.coarse_field::<f64>(1);
-            basis.restrict(&mut c, w);
-            let (mut a, mut b) = (vec![0.0], vec![0.0]);
-            c.norm_sqr(&mut a);
-            w.norm_sqr(&mut b);
-            eprintln!("repair check {k}: |P†w|/|w| {:.6e}", (a[0] / b[0]).sqrt());
+        for (k, (v, w)) in pairs.iter().enumerate() {
+            for (name, f) in [("w", w), ("v", v)] {
+                let f = DeviceSpinor::<f64>::from_host(f)?;
+                let mut c = basis.coarse_field::<f64>(1);
+                basis.restrict(&mut c, &f);
+                let (mut a, mut b) = (vec![0.0], vec![0.0]);
+                c.norm_sqr(&mut a);
+                f.norm_sqr(&mut b);
+                eprintln!(
+                    "repair check {k}: |P†{name}|/|{name}| {:.6e}",
+                    (a[0] / b[0]).sqrt()
+                );
+            }
         }
+        super::correction::REPAIR_COLUMNS.with(|c| *c.borrow_mut() = pairs);
         trace_checksum("P made on the device", || basis.checksum());
         Ok(basis)
     }
@@ -1855,4 +1872,93 @@ impl<T: DeviceReal> Transfer<DeviceSpinor<T>, DeviceCoarse<T>> for DeviceBasis {
     fn prolong(&self, fine: &mut DeviceSpinor<T>, coarse: &DeviceCoarse<T>) {
         DeviceBasis::prolong(self, fine, coarse);
     }
+}
+
+/// exp/ls16-diag: vector `v` of a host field of several, as a field of one.
+fn one_vector(h: &Field<f64, crate::Spinor>, v: usize, ls: usize) -> Field<f64, crate::Spinor> {
+    let mut out = Field::<f64, crate::Spinor>::with_shape(h.lattice(), SPINOR, ls, 1, 1);
+    let len = SPINOR * ls;
+    for x in 0..h.num_sites() {
+        out.site_mut(0, x)
+            .copy_from_slice(&h.site(0, x)[v * len..(v + 1) * len]);
+    }
+    out
+}
+
+/// exp/ls16-diag: `orig` with its (block, chirality) pieces replaced by those of `w` on the
+/// pieces that hold the fraction `f` of |w|², the largest first; chirality by Γ5 = R ⊗ γ5.
+fn repair_mix(
+    agg: &Aggregation,
+    ls: usize,
+    orig: &Field<f64, crate::Spinor>,
+    w: &Field<f64, crate::Spinor>,
+    f: f64,
+    k: usize,
+) -> Field<f64, crate::Spinor> {
+    let g5 = Dirac::GAMMA5;
+    // The ± chirality part of the spinor at (x, s): ½ (ψ(s) ± γ5 ψ(Ls − 1 − s)).
+    let part = |h: &Field<f64, crate::Spinor>, x: usize, s: usize, sign: f64| -> [f64; SPINOR] {
+        let site = h.site(0, x);
+        let (a, b) = (
+            &site[s * SPINOR..(s + 1) * SPINOR],
+            &site[(ls - 1 - s) * SPINOR..(ls - s) * SPINOR],
+        );
+        let mut out = [0.0; SPINOR];
+        for spin in 0..4 {
+            for c in 0..3 {
+                let kk = 2 * (c + 3 * g5.col[spin]);
+                let z = g5.val[spin].times(crate::kernel::Cplx::new(b[kk], b[kk + 1]));
+                let o = 2 * (c + 3 * spin);
+                out[o] = 0.5 * (a[o] + sign * z.re);
+                out[o + 1] = 0.5 * (a[o + 1] + sign * z.im);
+            }
+        }
+        out
+    };
+    let blocks = agg.coarse_lattice().num_sites();
+    let mut energy = vec![0.0f64; 2 * blocks];
+    for x in 0..w.num_sites() {
+        let b = agg.coarse_site(x);
+        for s in 0..ls {
+            for (ci, sign) in [(0, 1.0), (1, -1.0)] {
+                energy[2 * b + ci] += part(w, x, s, sign).iter().map(|v| v * v).sum::<f64>();
+            }
+        }
+    }
+    let total: f64 = energy.iter().sum();
+    let mut order: Vec<usize> = (0..energy.len()).collect();
+    order.sort_by(|&a, &b| energy[b].total_cmp(&energy[a]).then(a.cmp(&b)));
+    let mut chosen = vec![false; energy.len()];
+    let (mut acc, mut count) = (0.0, 0);
+    for &p in &order {
+        if acc >= f * total {
+            break;
+        }
+        chosen[p] = true;
+        acc += energy[p];
+        count += 1;
+    }
+    let last = energy[order[count - 1]];
+    eprintln!(
+        "repair mix {k}: {count} of {} (block, chirality) pieces replaced; their |w|² from {:.3e} to {:.3e} of the total",
+        energy.len(),
+        last / total,
+        energy[order[0]] / total
+    );
+    let mut out = one_vector(orig, 0, ls);
+    for x in 0..w.num_sites() {
+        let b = agg.coarse_site(x);
+        for s in 0..ls {
+            let mut spinor = [0.0; SPINOR];
+            for (ci, sign) in [(0, 1.0), (1, -1.0)] {
+                let from = if chosen[2 * b + ci] { w } else { orig };
+                let p = part(from, x, s, sign);
+                for (o, v) in spinor.iter_mut().zip(p) {
+                    *o += v;
+                }
+            }
+            out.site_mut(0, x)[s * SPINOR..(s + 1) * SPINOR].copy_from_slice(&spinor);
+        }
+    }
+    out
 }
