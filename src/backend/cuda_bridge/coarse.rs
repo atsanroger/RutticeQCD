@@ -1561,6 +1561,25 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
                 coarse_site,
             }));
         }
+        // exp/ls16-diag (RUTTICE_REPAIR): the largest |A_xx|_F |A_xx⁻¹|_F over the coarse
+        // sites (a bound on the condition number of a block) and the largest |A_xx⁻¹|_F.
+        if crate::env::switch("RUTTICE_REPAIR") {
+            let (a, b) = (diag_f64.download_raw()?, inverse.download_raw()?);
+            let block = 2 * dim * dim;
+            let fro = |v: &[f64]| v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let (mut worst, mut at, mut inv_max) = (0.0f64, 0, 0.0f64);
+            for x in 0..sites {
+                let (na, nb) = (
+                    fro(&a[x * block..(x + 1) * block]),
+                    fro(&b[x * block..(x + 1) * block]),
+                );
+                if na * nb > worst {
+                    (worst, at) = (na * nb, x);
+                }
+                inv_max = inv_max.max(nb);
+            }
+            eprintln!("repair blocks: {sites} sites of dimension {dim}; largest |A_xx| |A_xx^-1| {worst:.3e} at {at}; largest |A_xx^-1| {inv_max:.3e}");
+        }
         Ok(Self {
             diag: in_precision(&diag_f64)?,
             links,
