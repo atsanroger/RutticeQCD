@@ -37,6 +37,9 @@ thread_local! {
     /// exp/ls16-diag: set by GCR at the first step of a solve with a history; the two-grid
     /// cycle then runs its power iteration once.
     pub(crate) static DIAG_POWER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// exp/ls16-diag: set by the two-grid cycle around the last step of its power iteration on
+    /// E; the device correction then prints |D P c| against |P†D P c| of its quark solution c.
+    pub(crate) static DIAG_DETAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// A switch: `1` on, `0` off, unset off.

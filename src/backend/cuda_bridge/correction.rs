@@ -243,6 +243,44 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     /// `e` = the coarse correction of `r`, fields on the even sites.
     pub fn correct(&mut self, e: &mut DeviceSpinor<F>, r: &DeviceSpinor<F>) {
         self.correction.correct(e, r);
+        if crate::env::DIAG_DETAIL.with(|f| f.get()) {
+            self.diag_detail(e);
+        }
+    }
+
+    /// exp/ls16-diag: for the quark solution c of the last correction, v = P c on the whole
+    /// lattice, |D v|/|v|, |P†D v|/|v| and their ratio (about 1 for a low mode of D, large where
+    /// D v is nearly orthogonal to range P), and |P†D v − (P†DP) c|/|P†D v| as a check.
+    fn diag_detail(&self, like: &DeviceSpinor<F>) {
+        use crate::field::vector::ConvertFrom;
+        use crate::solver::preconditioner::multigrid::CoarseOperator;
+        let (g, c, basis, d, coarse_d) = self.correction.diag_parts();
+        let nv = g.num_vectors();
+        let norm = |x: &dyn Fn(&mut [f64])| {
+            let mut s = vec![0.0; nv];
+            x(&mut s);
+            s[0].sqrt()
+        };
+        let mut v = must(DeviceSpinor::<F>::zeros_fifth(&like.lat, like.ls)).zeros_with(nv);
+        basis.prolong(&mut v, g);
+        let mut dv = v.zeros_like();
+        d.mult_plain(&mut dv, &v);
+        let mut pdv = g.zeros_like();
+        basis.restrict(&mut pdv, &dv);
+        let mut dc = c.zeros_like();
+        coarse_d.mult(&mut dc, c);
+        let mut dc_f = g.zeros_like();
+        dc_f.convert_from(&dc);
+        let n_pdv = norm(&|s| pdv.norm_sqr(s));
+        dc_f.axpy(&vec![crate::C64::new(-1.0, 0.0); nv], &pdv);
+        let (n_v, n_dv) = (norm(&|s| v.norm_sqr(s)), norm(&|s| dv.norm_sqr(s)));
+        eprintln!(
+            "diag detail: |D Pc|/|Pc| {:.4e} |P†D Pc|/|Pc| {:.4e} ratio {:.4e} check {:.2e}",
+            n_dv / n_v,
+            n_pdv / n_v,
+            n_dv / n_pdv,
+            norm(&|s| dc_f.norm_sqr(s)) / n_pdv
+        );
     }
 }
 

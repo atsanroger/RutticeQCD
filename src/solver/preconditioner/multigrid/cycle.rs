@@ -103,7 +103,9 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                 for k in 1..=30 {
                     let nx = norm(&x);
                     x.scale(&vec![1.0 / nx; nv]);
+                    crate::env::DIAG_DETAIL.with(|f| f.set(factor == 0 && k == 30));
                     self.correction.correct(&mut ex, &x);
+                    crate::env::DIAG_DETAIL.with(|f| f.set(false));
                     let mut d = vec![C64::ZERO; nv];
                     x.dot(&ex, &mut d);
                     // Ã x = −(0 − Ã x)

@@ -443,6 +443,19 @@ where
         self.levels_pv = Some(levels);
     }
 
+    /// exp/ls16-diag: after `correct`, the quark solution c in the fine precision (`g`), the
+    /// same in the coarse precision, P, D and P†DP.
+    #[cfg(feature = "cuda-bridge")]
+    pub(crate) fn diag_parts(&self) -> (&G, &C, &T, &O, &D) {
+        (
+            &self.g,
+            &self.c,
+            &self.transfer,
+            self.plain.0,
+            &self.coarse_d,
+        )
+    }
+
     /// Coarse-operator applications so far (both factors, the preconditioners' included).
     pub fn coarse_applications(&self) -> usize {
         self.coarse_applications.get()
