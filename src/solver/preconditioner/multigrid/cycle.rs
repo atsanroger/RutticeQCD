@@ -75,31 +75,28 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> TwoGrid<V, S, E> {
     /// exp/ls16-diag: x†Ã M x of a unit x split by the stages of the cycle, M x = y1 + e + f
     /// (y1 the pre-smoother's, e the coarse correction's, f the post-smoother's), each term
     /// x†Ã(·); the device correction prints the profiles of its input and output.
-    fn diag_stages(&mut self, x: &V) {
+    fn diag_stages(&mut self, x: &V, y: &mut V, ay: &mut V) {
         let nv = x.num_vectors();
         let one = vec![C64::new(1.0, 0.0); nv];
-        let zero = x.zeros_like();
-        let mut y = x.zeros_like();
-        let mut ay = x.zeros_like();
+        // x†Ã v = x†x − x†(x − Ã v) for a unit x, with no field besides the two given.
         let term = |s: &mut S, v: &V, out: &mut V| {
-            // Ã v = −(0 − Ã v)
-            s.residual(out, v, &zero);
+            s.residual(out, v, x);
             let mut d = vec![C64::ZERO; nv];
             x.dot(out, &mut d);
-            -d[0]
+            C64::new(1.0, 0.0) - d[0]
         };
-        self.smoother.pre(&mut y, x);
-        let t_pre = term(&mut self.smoother, &y, &mut ay);
-        self.smoother.residual(&mut self.r, &y, x);
+        self.smoother.pre(y, x);
+        let t_pre = term(&mut self.smoother, y, ay);
+        self.smoother.residual(&mut self.r, y, x);
         crate::env::DIAG_DETAIL.with(|f| f.set(true));
         self.correction.correct(&mut self.e, &self.r);
-        damp_coarse(&mut self.e);
         crate::env::DIAG_DETAIL.with(|f| f.set(false));
-        let t_coarse = term(&mut self.smoother, &self.e, &mut ay);
+        damp_coarse(&mut self.e);
+        let t_coarse = term(&mut self.smoother, &self.e, ay);
         y.axpy(&one, &self.e);
-        self.smoother.residual(&mut self.r, &y, x);
+        self.smoother.residual(&mut self.r, y, x);
         self.smoother.post(&mut self.e, &self.r);
-        let t_post = term(&mut self.smoother, &self.e, &mut ay);
+        let t_post = term(&mut self.smoother, &self.e, ay);
         let total = t_pre + t_coarse + t_post;
         eprintln!(
             "diag stages: x†A(pre) {:.4e}{:+.4e}i x†A(coarse) {:.4e}{:+.4e}i x†A(post) {:.4e}{:+.4e}i sum {:.4e}{:+.4e}i",
@@ -201,9 +198,6 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                     self.plain_cycle(&mut y, &x);
                     self.smoother.residual(&mut kx, &y, &x);
                     kx.axpy(&vec![C64::new(shift - 1.0, 0.0); nv], &x);
-                    if k == 40 {
-                        self.diag_stages(&x);
-                    }
                     let mut d = vec![C64::ZERO; nv];
                     x.dot(&kx, &mut d);
                     if k % 5 == 0 || k == 1 {
@@ -216,7 +210,12 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                             -d[0].im
                         );
                     }
-                    x.copy_from(&kx);
+                    if k == 40 {
+                        // Last step: kx is no longer needed.
+                        self.diag_stages(&x, &mut y, &mut kx);
+                    } else {
+                        x.copy_from(&kx);
+                    }
                 }
             }
         }

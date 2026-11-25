@@ -244,7 +244,6 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     pub fn correct(&mut self, e: &mut DeviceSpinor<F>, r: &DeviceSpinor<F>) {
         self.correction.correct(e, r);
         if crate::env::DIAG_DETAIL.with(|f| f.get()) {
-            self.diag_detail(e);
             for (name, f) in [("r (input)", r), ("e (output)", &*e)] {
                 let (by_s, peak, pr) = must(f.diag_profile());
                 let s: Vec<String> = by_s.iter().map(|v| format!("{v:.3}")).collect();
@@ -253,6 +252,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                     s.join(" ")
                 );
             }
+            self.diag_detail(e);
         }
     }
 
