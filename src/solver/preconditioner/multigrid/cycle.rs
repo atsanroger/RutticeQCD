@@ -186,7 +186,14 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
             // grow; the shifted one favors the eigenvalue of Ã M of smallest real part (the
             // largest |3 − λ| when the spectrum lies in Re λ < 3), which K may hide behind an
             // overcorrected one (λ near 3, harmless to GCR). x†Ã M x = shift − x†(shift − ÃM)x.
-            for (label, shift) in [("K", 1.0), ("3-AM", 3.0)] {
+            // The shift of the second: s = max(2, 1 + ρ_K), ρ_K from the first, so that
+            // Re λ ≤ 1 + ρ_K ≤ s for the eigenvalues λ of Ã M (as far as ρ_K is right).
+            let mut rho_k = 0.0f64;
+            for label in ["K", "s-AM"] {
+                let shift = match label {
+                    "K" => 1.0,
+                    _ => (1.0 + rho_k).max(2.0),
+                };
                 let mut x = b.zeros_like();
                 x.copy_from(b);
                 let mut y = b.zeros_like();
@@ -211,6 +218,16 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                         );
                     }
                     if k == 40 {
+                        match label {
+                            "K" => rho_k = norm(&kx),
+                            _ => {
+                                crate::env::REPAIR_LAMBDA.with(|l| l.set(shift - d[0].re));
+                                eprintln!(
+                                    "diag leftmost: shift {shift:.4e} lambda_min {:.4e}",
+                                    shift - d[0].re
+                                );
+                            }
+                        }
                         // Last step: kx is no longer needed.
                         self.diag_stages(&x, &mut y, &mut kx);
                     } else {

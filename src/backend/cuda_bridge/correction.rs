@@ -12,6 +12,21 @@ use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
 use std::rc::Rc;
 
+/// exp/ls16-diag: a pair (v, w) of fields on the whole lattice, on the host.
+pub(crate) type RepairPair = (
+    crate::Field<f64, crate::Spinor>,
+    crate::Field<f64, crate::Spinor>,
+);
+
+thread_local! {
+    // exp/ls16-diag (RUTTICE_REPAIR): v = P c and w = D v of the last `diag_detail`, and the
+    // pairs (v, w) put in place of the last columns of P when it is made (`DeviceBasis::pv_eo`).
+    pub(crate) static REPAIR_STASH: std::cell::RefCell<Option<RepairPair>> =
+        const { std::cell::RefCell::new(None) };
+    pub(crate) static REPAIR_COLUMNS: std::cell::RefCell<Vec<RepairPair>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// `Correction` with what is on the device.
 type OnDevice<'a, F, CT> = Correction<
     'a,
@@ -279,6 +294,10 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         coarse_d.mult(&mut dc, c);
         let mut dc_f = g.zeros_like();
         dc_f.convert_from(&dc);
+        // RUTTICE_REPAIR: the last v = P c and w = D v, on the host (the device is full).
+        REPAIR_STASH.with(|s| {
+            *s.borrow_mut() = Some((must(v.to_host()), must(dv.to_host())));
+        });
         let n_pdv = norm(&|s| pdv.norm_sqr(s));
         dc_f.axpy(&vec![crate::C64::new(-1.0, 0.0); nv], &pdv);
         let (n_v, n_dv) = (norm(&|s| v.norm_sqr(s)), norm(&|s| dv.norm_sqr(s)));

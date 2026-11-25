@@ -18,7 +18,7 @@
 mod blas;
 mod coarse;
 mod columns;
-mod correction;
+pub(crate) mod correction;
 mod ffi;
 mod field;
 mod gauge;

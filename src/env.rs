@@ -40,6 +40,8 @@ thread_local! {
     /// exp/ls16-diag: set by the two-grid cycle around the last step of its power iteration on
     /// E; the device correction then prints |D P c| against |P†D P c| of its quark solution c.
     pub(crate) static DIAG_DETAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// exp/ls16-diag (RUTTICE_REPAIR): Re x†ÃMx of the last shifted power iteration.
+    pub(crate) static REPAIR_LAMBDA: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NAN) };
 }
 
 /// A switch: `1` on, `0` off, unset off.

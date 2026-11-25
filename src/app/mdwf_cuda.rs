@@ -250,7 +250,53 @@ pub(super) fn run(
                 }
             };
             let plain = ops.plain()?;
-            let (_, parts, _) = backend.rebuild(plain, &outers, lat, m, kept, true, &mut report)?;
+            let (mut vectors, mut parts, _) =
+                backend.rebuild(plain, &outers, lat, m, kept, true, &mut report)?;
+            // exp/ls16-diag, RUTTICE_REPAIR (with RUTTICE_DIAG=1, two grids): up to three rounds
+            // of the shifted power iteration on the cycle; while its λ_min is below 0.1, v = P c
+            // and w = D v of its last coarse correction replace the last two columns not yet
+            // replaced, and P with the coarse parts is made again from the same test vectors.
+            if crate::env::switch("RUTTICE_REPAIR") {
+                use crate::backend::cuda_bridge::correction::{REPAIR_COLUMNS, REPAIR_STASH};
+                if !crate::env::switch("RUTTICE_DIAG") || m.levels.count != 0 {
+                    return Err("RUTTICE_REPAIR needs RUTTICE_DIAG=1 and no levels".into());
+                }
+                for round in 0..=3 {
+                    let lambda = {
+                        let cycles = backend.cycles(plain, &outers, lat, m, &parts)?;
+                        let mut cycle = cycles.cycle(0);
+                        let b = DeviceSpinor::from_host(&random_fifth(lat, ls, 92))?;
+                        use crate::fermion::SplitParity;
+                        let mut half = DeviceParities.half_like(&b, Parity::Even);
+                        DeviceParities.extract(&mut half, &b, Parity::Even);
+                        let mut y = half.zeros_like();
+                        crate::env::DIAG_POWER.with(|p| p.set(true));
+                        cycle.mult(&mut y, &half);
+                        crate::env::REPAIR_LAMBDA.with(|l| l.get())
+                    };
+                    eprintln!("  repair round {round}: lambda_min {lambda:.4e}");
+                    if lambda > 0.1 || round == 3 {
+                        break;
+                    }
+                    let pair = REPAIR_STASH
+                        .with(|s| s.borrow_mut().take())
+                        .ok_or("RUTTICE_REPAIR: no coarse solution was kept")?;
+                    REPAIR_COLUMNS.with(|c| c.borrow_mut().push(pair));
+                    // The old P and coarse parts first: the device holds one set.
+                    drop(parts);
+                    let (v, p, _) = backend.rebuild(
+                        plain,
+                        &outers,
+                        lat,
+                        m,
+                        Some(vectors),
+                        false,
+                        &mut report,
+                    )?;
+                    vectors = v;
+                    parts = p;
+                }
+            }
             if let Some(e) = failed {
                 return Err(e.into());
             }

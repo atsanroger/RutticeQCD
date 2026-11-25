@@ -754,7 +754,37 @@ impl DeviceBasis {
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
             basis.add(i, s)
         });
+        // exp/ls16-diag (RUTTICE_REPAIR): the pairs (v, w) in place of the last columns, the
+        // k-th pair in columns n − 2k − 2 and n − 2k − 1.
+        let pairs = super::correction::REPAIR_COLUMNS.with(|c| {
+            c.borrow()
+                .iter()
+                .map(|(v, w)| {
+                    Ok((
+                        DeviceSpinor::<f64>::from_host(v)?,
+                        DeviceSpinor::<f64>::from_host(w)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, CudaError>>()
+        })?;
+        let cols = basis.n;
+        for (k, (v, w)) in pairs.iter().enumerate() {
+            let at = cols - 2 * k - 2;
+            for (col, f) in [(at, v), (at + 1, w)] {
+                let mut g = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(1);
+                crate::ConvertFrom::convert_from(&mut g, f);
+                basis.add(col, &g);
+            }
+        }
         basis.finish()?;
+        for (k, (_, w)) in pairs.iter().enumerate() {
+            let mut c = basis.coarse_field::<f64>(1);
+            basis.restrict(&mut c, w);
+            let (mut a, mut b) = (vec![0.0], vec![0.0]);
+            c.norm_sqr(&mut a);
+            w.norm_sqr(&mut b);
+            eprintln!("repair check {k}: |P†w|/|w| {:.6e}", (a[0] / b[0]).sqrt());
+        }
         trace_checksum("P made on the device", || basis.checksum());
         Ok(basis)
     }
