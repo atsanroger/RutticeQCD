@@ -762,7 +762,19 @@ impl DeviceBasis {
         let pairs =
             super::correction::REPAIR_COLUMNS.with(|c| std::mem::take(&mut *c.borrow_mut()));
         let cols = basis.n;
-        let targets: Vec<usize> = (0..pairs.len()).map(|k| cols - 1 - k).collect();
+        // RUTTICE_REPAIR_COL=slift: the s lift of test vector n − 1 − k (column n − 1 − k)
+        // in place of its t̂ lift, so that with one test vector more than before P keeps every
+        // column it had and gains w.
+        let first_half = std::env::var("RUTTICE_REPAIR_COL").as_deref() == Ok("slift");
+        let targets: Vec<usize> = (0..pairs.len())
+            .map(|k| {
+                if first_half {
+                    cols / 2 - 1 - k
+                } else {
+                    cols - 1 - k
+                }
+            })
+            .collect();
         let mut originals: Vec<Option<Field<f64, crate::Spinor>>> =
             (0..pairs.len()).map(|_| None).collect();
         let mut failed: Option<CudaError> = None;
