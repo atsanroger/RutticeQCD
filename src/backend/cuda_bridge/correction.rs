@@ -245,6 +245,14 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         self.correction.correct(e, r);
         if crate::env::DIAG_DETAIL.with(|f| f.get()) {
             self.diag_detail(e);
+            for (name, f) in [("r (input)", r), ("e (output)", &*e)] {
+                let (by_s, peak, pr) = must(f.diag_profile());
+                let s: Vec<String> = by_s.iter().map(|v| format!("{v:.3}")).collect();
+                eprintln!(
+                    "diag profile {name}: |.|^2 by s [{}] site max/mean {peak:.3e} participation {pr:.3e}",
+                    s.join(" ")
+                );
+            }
         }
     }
 

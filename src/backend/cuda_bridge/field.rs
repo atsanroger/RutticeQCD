@@ -203,6 +203,31 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         Ok(psi)
     }
 
+    /// exp/ls16-diag: of the first vector, the share of |ψ|² at each s, the largest |ψ_x|²
+    /// of a site over the mean, and the participation ratio (Σ_x n_x)² / (N Σ_x n_x²) of the
+    /// N sites (1 for a field spread evenly, about k/N for one on k sites).
+    pub(crate) fn diag_profile(&self) -> Result<(Vec<f64>, f64, f64), CudaError> {
+        let host = self.data.download()?;
+        let (ls, n) = (self.ls, self.sites());
+        let mut by_s = vec![0.0; ls];
+        let mut by_site = vec![0.0; n];
+        for x in 0..n {
+            for s in 0..ls {
+                for c in 0..SPINOR {
+                    let v = host[at_fifth(c, s, x, ls)];
+                    by_s[s] += v * v;
+                    by_site[x] += v * v;
+                }
+            }
+        }
+        let total: f64 = by_s.iter().sum();
+        by_s.iter_mut().for_each(|v| *v /= total);
+        let mean = total / n as f64;
+        let max = by_site.iter().cloned().fold(0.0, f64::max);
+        let sq: f64 = by_site.iter().map(|v| v * v).sum();
+        Ok((by_s, max / mean, total * total / (n as f64 * sq)))
+    }
+
     /// Spinors per site.
     pub fn ls(&self) -> usize {
         self.ls

@@ -60,6 +60,40 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> TwoGrid<V, S, E> {
         }
     }
 
+    /// exp/ls16-diag: x†Ã M x of a unit x split by the stages of the cycle, M x = y1 + e + f
+    /// (y1 the pre-smoother's, e the coarse correction's, f the post-smoother's), each term
+    /// x†Ã(·); the device correction prints the profiles of its input and output.
+    fn diag_stages(&mut self, x: &V) {
+        let nv = x.num_vectors();
+        let one = vec![C64::new(1.0, 0.0); nv];
+        let zero = x.zeros_like();
+        let mut y = x.zeros_like();
+        let mut ay = x.zeros_like();
+        let term = |s: &mut S, v: &V, out: &mut V| {
+            // Ã v = −(0 − Ã v)
+            s.residual(out, v, &zero);
+            let mut d = vec![C64::ZERO; nv];
+            x.dot(out, &mut d);
+            -d[0]
+        };
+        self.smoother.pre(&mut y, x);
+        let t_pre = term(&mut self.smoother, &y, &mut ay);
+        self.smoother.residual(&mut self.r, &y, x);
+        crate::env::DIAG_DETAIL.with(|f| f.set(true));
+        self.correction.correct(&mut self.e, &self.r);
+        crate::env::DIAG_DETAIL.with(|f| f.set(false));
+        let t_coarse = term(&mut self.smoother, &self.e, &mut ay);
+        y.axpy(&one, &self.e);
+        self.smoother.residual(&mut self.r, &y, x);
+        self.smoother.post(&mut self.e, &self.r);
+        let t_post = term(&mut self.smoother, &self.e, &mut ay);
+        let total = t_pre + t_coarse + t_post;
+        eprintln!(
+            "diag stages: x†A(pre) {:.4e}{:+.4e}i x†A(coarse) {:.4e}{:+.4e}i x†A(post) {:.4e}{:+.4e}i sum {:.4e}{:+.4e}i",
+            t_pre.re, t_pre.im, t_coarse.re, t_coarse.im, t_post.re, t_post.im, total.re, total.im
+        );
+    }
+
     /// exp/ls16-diag: `y = M b`, one cycle without the diagnostics.
     fn plain_cycle(&mut self, y: &mut V, b: &V) {
         let one = vec![C64::new(1.0, 0.0); b.num_vectors()];
@@ -151,6 +185,9 @@ impl<V: Vector, S: Smooths<V>, E: Corrects<V>> LinearFn<V> for TwoGrid<V, S, E> 
                 self.smoother.residual(&mut kx, &y, &x);
                 let mut d = vec![C64::ZERO; nv];
                 x.dot(&kx, &mut d);
+                if k == 40 {
+                    self.diag_stages(&x);
+                }
                 if k % 5 == 0 || k == 1 {
                     eprintln!(
                         "diag power K {k}: |K x|/|x| {:.4e} x†Kx {:.4e}{:+.4e}i",
