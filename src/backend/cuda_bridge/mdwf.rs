@@ -33,6 +33,11 @@ extern "C" {
     );
 }
 
+thread_local! {
+    /// exp/ls16-diag (RUTTICE_DSYM_PV): the quark mass of the last quark coarse operator built.
+    static QUARK_MASS: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NAN) };
+}
+
 /// An operator within a site that acts on the fifth dimension and the chirality:
 /// `Σ_s' (plus_ss' P+ + minus_ss' P−)`, the two Ls × Ls matrices row after row. P± are
 /// orthogonal projectors that commute with the fifth dimension, so such operators multiply,
@@ -631,6 +636,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 site.minus[s * ls + s] += 4.0 - m5;
             }
             let site = site.on_device::<T>()?;
+            QUARK_MASS.with(|m| m.set(mass));
             return super::coarse::coarse_blocks(
                 basis,
                 (&*self.gauge, &self.geometry, self.halos.as_deref()),
@@ -640,13 +646,32 @@ impl<T: DeviceReal> CudaMdwf<T> {
                 },
             );
         }
-        super::coarse::coarse_blocks(
+        // exp/ls16-diag (RUTTICE_DSYM_PV): for the Pauli-Villars operator B = P† D_PV R P with
+        // R = B_PV⁻¹ B⁻† (B of the quark mass), so that σ3 B σ3 = P† D_PV,sym† B⁻¹ P.
+        let pre = match self.dsym_pv() {
+            true => {
+                let quark = QUARK_MASS.with(|m| m.get());
+                assert!(quark.is_finite(), "the quark coarse operator is built first");
+                let r = FifthMatrix::linear(ls, b, -c, mass)
+                    .inverse()
+                    .times(&FifthMatrix::linear(ls, b, -c, quark).inverse().adjoint());
+                Some(r.on_device::<T>()?)
+            }
+            false => None,
+        };
+        let pre_fn = pre.as_ref().map(|r| {
+            move |out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| self.gemm(out, inp, r, None)
+        });
+        super::coarse::coarse_blocks_pre(
             basis,
             (&*self.gauge, &self.geometry, self.halos.as_deref()),
             [0.5, mass, b, c],
             &|out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| {
                 self.gemm(out, inp, &self.matrices.diag[0], None)
             },
+            pre_fn
+                .as_ref()
+                .map(|f| f as &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>)),
         )
     }
 
@@ -953,6 +978,20 @@ impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
     fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
         CudaMdwf::mult_q(self, out, inp, inverse);
     }
+    fn dsym_pv_left(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) -> bool {
+        if !self.dsym_pv() {
+            return false;
+        }
+        let MdwfParams { ls, mass, b, c, .. } = self.params;
+        let m = must(
+            FifthMatrix::linear(ls, b, -c, mass)
+                .inverse()
+                .adjoint()
+                .on_device::<T>(),
+        );
+        self.gemm(out, inp, &m, None);
+        true
+    }
     fn dsym_right(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) -> bool {
         if !self.dsym() {
             return false;
@@ -970,6 +1009,13 @@ impl<T: DeviceReal> CudaMdwf<T> {
     /// operator, mass 1, keeps D).
     pub(crate) fn dsym(&self) -> bool {
         crate::env::switch("RUTTICE_DSYM") && self.params.mass != 1.0
+    }
+    /// exp/ls16-diag (RUTTICE_DSYM_PV, with RUTTICE_DSYM): this is the Pauli-Villars operator,
+    /// whose factor is then B⁻¹P (P† D_PV,sym† B⁻¹ P)⁻¹ P† B_PV⁻†.
+    pub(crate) fn dsym_pv(&self) -> bool {
+        crate::env::switch("RUTTICE_DSYM")
+            && crate::env::switch("RUTTICE_DSYM_PV")
+            && self.params.mass == 1.0
     }
     /// B = b − cY at the quark mass.
     fn dsym_b(&self) -> FifthMatrix {

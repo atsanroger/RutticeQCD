@@ -320,6 +320,11 @@ pub trait NeffQ<V>: EvenOdd<V> {
     fn dsym_right(&self, _out: &mut V, _inp: &V) -> bool {
         false
     }
+    /// exp/ls16-diag (RUTTICE_DSYM_PV): `out = B_PV⁻† inp` for the Pauli-Villars operator,
+    /// whose factor is then B⁻¹P (P† D_PV,sym† B⁻¹ P)⁻¹ P† B_PV⁻†; false otherwise.
+    fn dsym_pv_left(&self, _out: &mut V, _inp: &V) -> bool {
+        false
+    }
 }
 
 /// e = O_L π P (P†DP)⁻¹ P† ι M π P (P†D_PV†P)⁻¹ P† ι O_R r, the coarse correction for the
@@ -507,8 +512,17 @@ where
             EoForm::Right => pv.diag(work, h, r, even, Dagger::Yes),
             EoForm::Left => pv_a.mult_q(h, r, true),
         }
+        // exp/ls16-diag (RUTTICE_DSYM_PV): h = B_PV,e⁻† h first (site-local, so it commutes
+        // with ι); the coarse system is then σ3 B σ3 w = g, solved as B (σ3 w) = σ3 g.
+        let dsym_pv = pv.dsym_pv_left(e, h);
+        if dsym_pv {
+            h.copy_from(e);
+        }
         transfer.restrict(g, h);
         gc.convert_from(g);
+        if dsym_pv {
+            coarse_pv.gamma5(gc);
+        }
 
         // RUTTICE_DIAG=1 probe (set by the two-grid cycle): only the share of O_R r in range P.
         if DIAG_PROBE.with(|p| p.get()) {
@@ -581,13 +595,20 @@ where
             diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc)),
         );
         let pv_gain = diag.then(|| norm_ratio(w, gc));
+        if dsym_pv {
+            coarse_pv.gamma5(w);
+        }
         if factor == 2 {
             // exp/ls16-diag: the Pauli-Villars factor alone, c = w.
             c.copy_from(w);
         } else {
-            // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form).
+            // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form); with
+            // RUTTICE_DSYM_PV π B⁻¹ P w = B_e⁻¹ π P w in place of π P w.
             g.convert_from(w);
             transfer.prolong(h, g);
+            if dsym_pv && op.dsym_right(e, h) {
+                h.copy_from(e);
+            }
             if *form == EoForm::Left {
                 pv_a.diag(work_a, e, h, even, Dagger::Yes);
                 op_a.diag(work_a, h, e, even, Dagger::No);

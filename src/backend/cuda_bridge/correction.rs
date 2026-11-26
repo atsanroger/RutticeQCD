@@ -138,7 +138,19 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         };
         // The second factor: P†D_PV P for MINRES, else its exact adjoint P†D_PV†P.
         let pv_op = build(plain.1)?;
+        let dsym_pv = plain.1.dsym_pv();
+        assert!(
+            !dsym_pv || (!minres && params.pv_solver.regularized().is_some()),
+            "RUTTICE_DSYM_PV goes with the regularized solve of the second factor"
+        );
         let (coarse_pv, coarse_pv_adj) = match (minres, params.pv_solver.regularized()) {
+            // exp/ls16-diag (RUTTICE_DSYM_PV): B = P† D_PV R P itself and its adjoint; the
+            // correction solves σ3 B σ3.
+            (false, Some(_)) if dsym_pv => {
+                let b = Rc::new(pv_op);
+                let adjoint = DeviceAdjoint::of(&b, None)?;
+                (b, Some(adjoint))
+            }
             (true, _) => (Rc::new(pv_op), None),
             (false, None) => (Rc::new(pv_op.adjoint()?), None),
             (false, Some(_)) => {

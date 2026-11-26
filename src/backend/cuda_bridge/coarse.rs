@@ -888,9 +888,17 @@ impl DeviceBasis {
         )?
         .on(&self.coarse);
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
+        let both = op.dsym() && crate::env::switch("RUTTICE_DSYM_T");
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, None, |i, s| {
             let mut c = self.coarse_field::<T>(s.vectors);
-            self.restrict(&mut c, s);
+            if both {
+                // exp/ls16-diag (RUTTICE_DSYM_T): P† B s and P† B t̂, as P holds B s and B t̂.
+                let mut bs = s.zeros_like();
+                op.dsym_lift(&mut bs, s);
+                self.restrict(&mut c, &bs);
+            } else {
+                self.restrict(&mut c, s);
+            }
             out.assign(&(i..i + s.vectors).collect::<Vec<_>>(), &c);
         });
         Ok(out)
@@ -1112,9 +1120,21 @@ impl<T: DeviceReal> AggregateFaces<T> {
 /// of the unit vectors.
 pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
     basis: &DeviceBasis,
+    links3: (&DeviceGauge<T>, &Geometry, Option<&Halos<T>>),
+    coefficients: [f64; 4],
+    site: &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>),
+) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
+    coarse_blocks_pre(basis, links3, coefficients, site, None)
+}
+
+/// exp/ls16-diag (RUTTICE_DSYM_PV): `coarse_blocks` of the operator times `pre` on the right,
+/// a matrix within a site: P† F R P, R applied to each prolonged unit vector.
+pub(super) fn coarse_blocks_pre<T: DeviceReal, L: DeviceReal>(
+    basis: &DeviceBasis,
     (gauge, geometry, halos): (&DeviceGauge<T>, &Geometry, Option<&Halos<T>>),
     [kappa, mass, b, c]: [f64; 4],
     site: &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>),
+    pre: Option<&dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>)>,
 ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
     let (sites, dim) = (basis.coarse_sites, basis.coarse_dim());
     let matrix = 2 * dim * dim;
@@ -1165,6 +1185,11 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
         let mut inside = phi.zeros_like();
         let mut restricted = unit.zeros_like();
         basis.prolong(&mut phi, &unit);
+        if let Some(pre) = pre {
+            let mut t = phi.zeros_like();
+            pre(&mut t, &phi);
+            phi = t;
+        }
         site(&mut inside, &phi);
         // The 8 legs of the hops H (b − c Y) in one pass: inside += those within an aggregate,
         // the others into their faces. On several processes the legs across a cut read the
