@@ -628,6 +628,11 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let MdwfParams {
             ls, m5, mass, b, c, ..
         } = self.params;
+        // exp/ls16-diag (RUTTICE_SPLIT): the Pauli-Villars coarse operator on P_v.
+        let basis = match crate::env::split() && mass == 1.0 {
+            true => basis.pv_basis(),
+            false => basis,
+        };
         if self.dsym() {
             // D_sym = [(1 + Y) B⁻¹ + (4 − M5)] − ½ K: the hop with b = 1, c = 0.
             let mut site = FifthMatrix::linear(ls, 1.0, 1.0, mass).times(&self.dsym_b().inverse());

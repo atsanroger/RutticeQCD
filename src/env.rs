@@ -42,6 +42,15 @@ thread_local! {
     pub(crate) static DIAG_DETAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// exp/ls16-diag (RUTTICE_REPAIR): Re x†ÃMx of the last shifted power iteration.
     pub(crate) static REPAIR_LAMBDA: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NAN) };
+    /// exp/ls16-diag (RUTTICE_SPLIT): set by the correction around the restriction and the
+    /// prolongation of its Pauli-Villars step; a split P then uses its second basis P_v.
+    pub(crate) static PV_TRANSFER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// exp/ls16-diag: RUTTICE_SPLIT=1 (with RUTTICE_DSYM=1): two bases, P_q of the χ± B5 s for the
+/// quark factor and P_v of the χ± t̂ for the Pauli-Villars factor.
+pub(crate) fn split() -> bool {
+    switch("RUTTICE_SPLIT") && switch("RUTTICE_DSYM")
 }
 
 /// A switch: `1` on, `0` off, unset off.

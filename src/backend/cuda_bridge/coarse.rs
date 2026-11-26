@@ -492,6 +492,9 @@ pub struct DeviceBasis {
     /// γ5 of the fold: the column and the sign of the entry of every row; then whether P is
     /// in half precision.
     gamma: [i32; 9],
+    /// exp/ls16-diag (RUTTICE_SPLIT): P_v, the basis of the Pauli-Villars factor; this one
+    /// is then P_q. Restrict and prolong use P_v while `env::PV_TRANSFER` is set.
+    pub(super) pv: Option<Box<DeviceBasis>>,
 }
 
 impl DeviceBasis {
@@ -626,6 +629,7 @@ impl DeviceBasis {
             dims: lat.local.map(|l| l as i32),
             lat,
             gamma,
+            pv: None,
         })
     }
 
@@ -752,7 +756,17 @@ impl DeviceBasis {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut basis = Self::empty(agg, ls, Lifts::from_env().columns(n), half)?;
+        let split = crate::env::split();
+        let columns = match split {
+            true => n,
+            false => Lifts::from_env().columns(n),
+        };
+        let mut basis = Self::empty(agg, ls, columns, half)?;
+        // exp/ls16-diag (RUTTICE_SPLIT): P_v of the t̂ lifts.
+        let mut basis_v = match split {
+            true => Some(Self::empty(agg, ls, n, half)?),
+            false => None,
+        };
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         let sites = Some(lat.num_global_sites() as f64);
         // Two vectors at a time: the fields on the whole lattice are large.
@@ -782,7 +796,16 @@ impl DeviceBasis {
             // RUTTICE_DSYM: B s in place of the s lifts (columns 0 .. n); with RUTTICE_DSYM_T=1
             // also B t̂ in place of the t̂ lifts (diagnostic: then B⁻¹P holds t̂ itself).
             let t_too = crate::env::switch("RUTTICE_DSYM_T");
-            if op.dsym() && (i < n || t_too) {
+            if let Some(bv) = basis_v.as_mut() {
+                assert!(i + s.vectors <= n || i >= n, "a chunk of lifts of one kind");
+                if i < n {
+                    let mut bs = s.zeros_like();
+                    op.dsym_lift(&mut bs, s);
+                    basis.add(i, &bs);
+                } else {
+                    bv.add(i - n, s);
+                }
+            } else if op.dsym() && (i < n || t_too) {
                 assert!(i + s.vectors <= n || i >= n, "a chunk of lifts of one kind");
                 let mut bs = s.zeros_like();
                 op.dsym_lift(&mut bs, s);
@@ -848,6 +871,10 @@ impl DeviceBasis {
             basis.add(targets[k], &g);
         }
         basis.finish()?;
+        if let Some(mut bv) = basis_v {
+            bv.finish()?;
+            basis.pv = Some(Box::new(bv));
+        }
         if crate::env::switch("RUTTICE_REPAIR") {
             eprintln!("repair P checksum {:016x}", basis.checksum()?);
         }
@@ -881,17 +908,22 @@ impl DeviceBasis {
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let mut out = DeviceCoarse::<T>::zeros(
-            self.coarse_sites,
-            self.coarse_dim(),
-            Lifts::from_env().columns(n),
-        )?
-        .on(&self.coarse);
+        let split = self.pv.is_some();
+        let columns = match split {
+            true => n,
+            false => Lifts::from_env().columns(n),
+        };
+        let mut out = DeviceCoarse::<T>::zeros(self.coarse_sites, self.coarse_dim(), columns)?
+            .on(&self.coarse);
         let whole = DeviceSpinor::<T>::zeros_fifth(lat, ls)?.zeros_with(0);
         let both = op.dsym() && crate::env::switch("RUTTICE_DSYM_T");
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, None, |i, s| {
+            if split && i >= n {
+                // exp/ls16-diag (RUTTICE_SPLIT): the levels of the quark factor from P_q† B s.
+                return;
+            }
             let mut c = self.coarse_field::<T>(s.vectors);
-            if both {
+            if both || split {
                 // exp/ls16-diag (RUTTICE_DSYM_T): P† B s and P† B t̂, as P holds B s and B t̂.
                 let mut bs = s.zeros_like();
                 op.dsym_lift(&mut bs, s);
@@ -930,6 +962,18 @@ impl DeviceBasis {
         self.n
     }
 
+    /// exp/ls16-diag (RUTTICE_SPLIT): P_v while the correction is in its Pauli-Villars step.
+    fn pv_now(&self) -> Option<&DeviceBasis> {
+        self.pv
+            .as_deref()
+            .filter(|_| crate::env::PV_TRANSFER.with(|f| f.get()))
+    }
+
+    /// exp/ls16-diag (RUTTICE_SPLIT): the basis the Pauli-Villars coarse operator is built on.
+    pub(super) fn pv_basis(&self) -> &DeviceBasis {
+        self.pv.as_deref().unwrap_or(self)
+    }
+
     pub fn coarse_dim(&self) -> usize {
         2 * self.n
     }
@@ -956,6 +1000,9 @@ impl DeviceBasis {
     /// `coarse = P† fine`, or `P† ι fine` for a field on the sites of one parity (ι puts it
     /// onto the whole lattice, zero on the other sites).
     pub fn restrict<T: DeviceReal>(&self, coarse: &mut DeviceCoarse<T>, fine: &DeviceSpinor<T>) {
+        if let Some(pv) = self.pv_now() {
+            return pv.restrict(coarse, fine);
+        }
         self.check(coarse, fine);
         let sites = fine.sites();
         self.count(coarse, sites, fine.vectors, fine.data.len, 1.0);
@@ -1038,6 +1085,9 @@ impl DeviceBasis {
 
     /// `fine = P coarse`, or `π P coarse` on the sites of the parity `fine` is on.
     pub fn prolong<T: DeviceReal>(&self, fine: &mut DeviceSpinor<T>, coarse: &DeviceCoarse<T>) {
+        if let Some(pv) = self.pv_now() {
+            return pv.prolong(fine, coarse);
+        }
         self.check(coarse, fine);
         self.count(coarse, fine.sites(), fine.vectors, fine.data.len, 1.0);
         // SAFETY: as in `restrict`.

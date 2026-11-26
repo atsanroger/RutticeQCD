@@ -523,7 +523,10 @@ where
         if dsym_pv {
             h.copy_from(e);
         }
+        // exp/ls16-diag (RUTTICE_SPLIT): the Pauli-Villars step restricts and prolongs with P_v.
+        crate::env::PV_TRANSFER.with(|f| f.set(true));
         transfer.restrict(g, h);
+        crate::env::PV_TRANSFER.with(|f| f.set(false));
         gc.convert_from(g);
         if dsym_pv {
             coarse_pv.gamma5(gc);
@@ -610,7 +613,9 @@ where
             // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form); with
             // RUTTICE_DSYM_PV π B⁻¹ P w = B_e⁻¹ π P w in place of π P w.
             g.convert_from(w);
+            crate::env::PV_TRANSFER.with(|f| f.set(true));
             transfer.prolong(h, g);
+            crate::env::PV_TRANSFER.with(|f| f.set(false));
             if dsym_pv && op.dsym_right(e, h) {
                 h.copy_from(e);
             }
