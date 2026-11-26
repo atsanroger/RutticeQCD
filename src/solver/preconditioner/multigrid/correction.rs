@@ -325,6 +325,11 @@ pub trait NeffQ<V>: EvenOdd<V> {
     fn dsym_pv_left(&self, _out: &mut V, _inp: &V) -> bool {
         false
     }
+    /// exp/ls16-diag (RUTTICE_DL): `out = B5,e inp` for the quark operator, whose coarse
+    /// factor is then P (P† B5 D P)⁻¹ P† ι B5,e; false otherwise.
+    fn dl_left(&self, _out: &mut V, _inp: &V) -> bool {
+        false
+    }
 }
 
 /// e = O_L π P (P†DP)⁻¹ P† ι M π P (P†D_PV†P)⁻¹ P† ι O_R r, the coarse correction for the
@@ -612,6 +617,9 @@ where
             if *form == EoForm::Left {
                 pv_a.diag(work_a, e, h, even, Dagger::Yes);
                 op_a.diag(work_a, h, e, even, Dagger::No);
+            }
+            if op.dl_left(e, h) {
+                h.copy_from(e);
             }
             transfer.restrict(g, h);
             gc.convert_from(g);

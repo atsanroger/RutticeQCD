@@ -1124,7 +1124,7 @@ pub(super) fn coarse_blocks<T: DeviceReal, L: DeviceReal>(
     coefficients: [f64; 4],
     site: &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>),
 ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
-    coarse_blocks_pre(basis, links3, coefficients, site, None)
+    coarse_blocks_pre(basis, links3, coefficients, site, None, None)
 }
 
 /// exp/ls16-diag (RUTTICE_DSYM_PV): `coarse_blocks` of the operator times `pre` on the right,
@@ -1135,7 +1135,11 @@ pub(super) fn coarse_blocks_pre<T: DeviceReal, L: DeviceReal>(
     [kappa, mass, b, c]: [f64; 4],
     site: &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>),
     pre: Option<&dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>)>,
+    post: Option<&DeviceBuffer<T>>,
 ) -> Result<(DeviceBuffer<f64>, DeviceBuffer<L>), CudaError> {
+    // exp/ls16-diag (RUTTICE_DL): `post`, a padded Ls × Ls matrix within a site (B5), applied
+    // to the operator's image before P†: P† B5 D P. The faces have the layout of a field on
+    // their sites, so the fifth-dimension gemm runs on them leg by leg.
     let (sites, dim) = (basis.coarse_sites, basis.coarse_dim());
     let matrix = 2 * dim * dim;
     let diag = DeviceBuffer::<f64>::zeros(sites * matrix)?;
@@ -1148,7 +1152,8 @@ pub(super) fn coarse_blocks_pre<T: DeviceReal, L: DeviceReal>(
     // Whole groups of the vectors P is read once for, if that is several.
     let mut phi: DeviceSpinor<T> = basis.fine_field(1)?;
     let budget = (super::device_room() / 4 * 3).clamp(1 << 29, 8 << 30);
-    let per_component = 2 * phi.data.bytes() + AggregateFaces::<T>::bytes_per_vector(basis);
+    let per_component = (2 + usize::from(post.is_some())) * phi.data.bytes()
+        + (1 + usize::from(post.is_some())) * AggregateFaces::<T>::bytes_per_vector(basis);
     let fit = (budget / per_component).clamp(1, dim);
     let batch = if fit >= 8 { fit / 8 * 8 } else { fit };
     // Columns `first ..` of the matrices from `target` on (f32 with `single`, else f64) from
@@ -1170,6 +1175,7 @@ pub(super) fn coarse_blocks_pre<T: DeviceReal, L: DeviceReal>(
         }
     };
     let mut faces: Option<AggregateFaces<T>> = None;
+    let mut faces_post: Option<AggregateFaces<T>> = None;
     for first in (0..dim).step_by(batch) {
         let nv = batch.min(dim - first);
         let unit = DeviceCoarse::<T>::units(sites, dim, first, nv)?;
@@ -1229,6 +1235,46 @@ pub(super) fn coarse_blocks_pre<T: DeviceReal, L: DeviceReal>(
                 );
             },
         }
+        let faces: &AggregateFaces<T> = match post {
+            Some(m) => {
+                if faces_post.as_ref().is_none_or(|f| f.vectors != nv) {
+                    drop(faces_post.take());
+                    faces_post = Some(AggregateFaces::new(basis, nv)?);
+                }
+                let out = faces_post.as_mut().expect("made above");
+                for leg in 0..8 {
+                    // SAFETY: leg `leg` of both buffers from `offsets[leg]` on holds `nv`
+                    // fields of `sites[leg]` sites (padded) with `ls` spinors each; the two
+                    // buffers are distinct; the matrix is padded for this `ls`.
+                    unsafe {
+                        T::fifth_gemm(
+                            out.data.ptr.add(out.offsets[leg]),
+                            faces.data.ptr.add(faces.offsets[leg]).cast_const(),
+                            std::ptr::null(),
+                            m.ptr.cast_const(),
+                            (nv * super::padded(faces.sites[leg])) as i32,
+                            basis.ls as i32,
+                        );
+                    }
+                }
+                let t = inside.zeros_like();
+                // SAFETY: inside and t are fields of the whole lattice, `nv` vectors, `ls`
+                // spinors per site; distinct.
+                unsafe {
+                    T::fifth_gemm(
+                        t.data.ptr,
+                        inside.data.ptr.cast_const(),
+                        std::ptr::null(),
+                        m.ptr.cast_const(),
+                        (nv * super::padded(inside.sites())) as i32,
+                        basis.ls as i32,
+                    );
+                }
+                inside = t;
+                faces_post.as_ref().expect("made above")
+            }
+            None => faces,
+        };
         for leg in 0..8 {
             basis.restrict_face(&mut restricted, faces, leg);
             // SAFETY: the links of `leg` are those from `leg sites matrix` on.
@@ -1610,7 +1656,8 @@ impl<T: DeviceReal> DeviceCoarseOp<T> {
         }
         // exp/ls16-diag (RUTTICE_REPAIR): the largest |A_xx|_F |A_xx⁻¹|_F over the coarse
         // sites (a bound on the condition number of a block) and the largest |A_xx⁻¹|_F.
-        if crate::env::switch("RUTTICE_REPAIR") {
+        // RUTTICE_BLOCKCOND: the same numbers without the repair.
+        if crate::env::switch("RUTTICE_REPAIR") || crate::env::switch("RUTTICE_BLOCKCOND") {
             let (a, b) = (diag_f64.download_raw()?, inverse.download_raw()?);
             let block = 2 * dim * dim;
             let fro = |v: &[f64]| v.iter().map(|x| x * x).sum::<f64>().sqrt();

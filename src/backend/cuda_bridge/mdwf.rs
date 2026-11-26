@@ -659,6 +659,11 @@ impl<T: DeviceReal> CudaMdwf<T> {
             }
             false => None,
         };
+        // exp/ls16-diag (RUTTICE_DL): the quark coarse operator P† B5 D P.
+        let post = match self.dl() {
+            true => Some(self.dsym_b().on_device::<T>()?),
+            false => None,
+        };
         let pre_fn = pre.as_ref().map(|r| {
             move |out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>| self.gemm(out, inp, r, None)
         });
@@ -672,6 +677,7 @@ impl<T: DeviceReal> CudaMdwf<T> {
             pre_fn
                 .as_ref()
                 .map(|f| f as &dyn Fn(&mut DeviceSpinor<T>, &DeviceSpinor<T>)),
+            post.as_ref(),
         )
     }
 
@@ -978,6 +984,14 @@ impl<T: DeviceReal> NeffQ<DeviceSpinor<T>> for CudaMdwf<T> {
     fn mult_q(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>, inverse: bool) {
         CudaMdwf::mult_q(self, out, inp, inverse);
     }
+    fn dl_left(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) -> bool {
+        if !self.dl() {
+            return false;
+        }
+        let m = must(self.dsym_b().on_device::<T>());
+        self.gemm(out, inp, &m, None);
+        true
+    }
     fn dsym_pv_left(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) -> bool {
         if !self.dsym_pv() {
             return false;
@@ -1009,6 +1023,13 @@ impl<T: DeviceReal> CudaMdwf<T> {
     /// operator, mass 1, keeps D).
     pub(crate) fn dsym(&self) -> bool {
         crate::env::switch("RUTTICE_DSYM") && self.params.mass != 1.0
+    }
+    /// exp/ls16-diag (RUTTICE_DL, without RUTTICE_DSYM): the quark factor coarsened as
+    /// P† B5 D P on the plain P; the correction applies B5,e before the quark restriction.
+    pub(crate) fn dl(&self) -> bool {
+        crate::env::switch("RUTTICE_DL")
+            && !crate::env::switch("RUTTICE_DSYM")
+            && self.params.mass != 1.0
     }
     /// exp/ls16-diag (RUTTICE_DSYM_PV, with RUTTICE_DSYM): this is the Pauli-Villars operator,
     /// whose factor is then B⁻¹P (P† D_PV,sym† B⁻¹ P)⁻¹ P† B_PV⁻†.
