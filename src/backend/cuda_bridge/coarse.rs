@@ -779,9 +779,11 @@ impl DeviceBasis {
             (0..pairs.len()).map(|_| None).collect();
         let mut failed: Option<CudaError> = None;
         lifted_vectors((op, pv), &DeviceParities, &whole, y, 2, sites, |i, s| {
-            // RUTTICE_DSYM: B s in place of the s lifts (columns 0 .. n).
-            if op.dsym() && i < n {
-                assert!(i + s.vectors <= n, "a chunk of lifts of one kind");
+            // RUTTICE_DSYM: B s in place of the s lifts (columns 0 .. n); with RUTTICE_DSYM_T=1
+            // also B t̂ in place of the t̂ lifts (diagnostic: then B⁻¹P holds t̂ itself).
+            let t_too = crate::env::switch("RUTTICE_DSYM_T");
+            if op.dsym() && (i < n || t_too) {
+                assert!(i + s.vectors <= n || i >= n, "a chunk of lifts of one kind");
                 let mut bs = s.zeros_like();
                 op.dsym_lift(&mut bs, s);
                 basis.add(i, &bs);
