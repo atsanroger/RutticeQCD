@@ -223,6 +223,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         };
         let device = parts.basis.clone();
         let coarse_like = device.coarse_field::<CT>(1);
+        // exp/ls16-diag (RUTTICE_SPLIT): the coarse fields of the second factor on P_v.
+        let pv_like = device.pv.as_ref().map(|b| b.coarse_field::<CT>(1));
         let coarse = device.coarse.clone();
         let (levels_d, levels_pv) = (parts.levels_d.clone(), parts.levels_pv.clone());
         let mut c = Self {
@@ -246,6 +248,9 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             coarse,
             parts,
         };
+        if let Some(like) = &pv_like {
+            c.correction.set_pv_like(like);
+        }
         if let Some(l) = levels_d {
             c.correction
                 .set_levels_d(Box::new(move |out, inp| l(out, inp)));
@@ -269,6 +274,14 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
 
     /// `e` = the coarse correction of `r`, fields on the even sites.
     pub fn correct(&mut self, e: &mut DeviceSpinor<F>, r: &DeviceSpinor<F>) {
+        // exp/ls16-diag (RUTTICE_DUMP_QUARK=dir): once, at the first correction of the solve.
+        if crate::env::DUMP_ARMED.with(|a| a.replace(false)) {
+            if let Some(dir) = std::env::var_os("RUTTICE_DUMP_QUARK") {
+                if let Err(e) = self.dump_quark(std::path::Path::new(&dir)) {
+                    panic!("RUTTICE_DUMP_QUARK: {e}");
+                }
+            }
+        }
         self.correction.correct(e, r);
         if crate::env::DIAG_DETAIL.with(|f| f.get()) {
             for (name, f) in [("r (input)", r), ("e (output)", &*e)] {
@@ -281,6 +294,107 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             }
             self.diag_detail(e);
         }
+    }
+
+    /// exp/ls16-diag (RUTTICE_DUMP_QUARK=dir): the quark coarse operator D_c as a dense matrix,
+    /// dir/dc.bin (n as a little-endian u64, then D_c e_j for j = 0..n, n complex numbers each
+    /// as f32 re, im) and dir/sigma3.bin (the coarse Γ5 on each e_j, n f32); then it waits for
+    /// dir/c.bin (k as u64, then k coarse vectors of n complex numbers as f64 re, im), which the
+    /// analysis writes, and prints for each c: |c|, |P c|, |D_c c|, |P† D_f P c| and
+    /// |D_f P c|, D_f = D B5⁻¹ under RUTTICE_DSYM (the operator D_c is the Galerkin one of),
+    /// else D, and the share of |P c|² and |D_f P c|² on each s with the participation ratio
+    /// of the sites. A singular vector c of D_c with |D_f P c| ≫ |D_c c| is not a low mode of D_f.
+    fn dump_quark(&self, dir: &std::path::Path) -> Result<(), Box<dyn Error>> {
+        use crate::solver::preconditioner::multigrid::{CoarseOperator, NeffQ};
+        use crate::C64;
+        use std::io::Write;
+        let (_, _, basis, d, coarse_d) = self.correction.diag_parts();
+        let (sites, dim) = (coarse_d.sites(), coarse_d.dim());
+        let n = sites * dim;
+        std::fs::create_dir_all(dir)?;
+        let mut out = std::io::BufWriter::new(std::fs::File::create(dir.join("dc.bin"))?);
+        out.write_all(&(n as u64).to_le_bytes())?;
+        let mut sigma = Vec::with_capacity(4 * n);
+        let batch = 256;
+        for start in (0..n).step_by(batch) {
+            let count = batch.min(n - start);
+            let mut units = vec![C64::new(0.0, 0.0); count * n];
+            for j in 0..count {
+                units[j * n + start + j] = C64::new(1.0, 0.0);
+            }
+            let mut x = DeviceCoarse::<CT>::from_complex(sites, dim, &units)?;
+            let mut y = x.zeros_like();
+            coarse_d.mult(&mut y, &x);
+            for z in y.to_complex()? {
+                out.write_all(&(z.re as f32).to_le_bytes())?;
+                out.write_all(&(z.im as f32).to_le_bytes())?;
+            }
+            coarse_d.gamma5(&mut x);
+            let g = x.to_complex()?;
+            for j in 0..count {
+                sigma.extend_from_slice(&(g[j * n + start + j].re as f32).to_le_bytes());
+            }
+        }
+        out.flush()?;
+        drop(out);
+        std::fs::write(dir.join("sigma3.bin"), &sigma)?;
+        eprintln!("dump: D_c of dimension {n} in {}; waiting for c.bin", dir.display());
+        let path = dir.join("c.bin");
+        let start = std::time::Instant::now();
+        while !path.exists() {
+            if start.elapsed().as_secs() > 5400 {
+                return Err("RUTTICE_DUMP_QUARK: no c.bin within 90 minutes".into());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+        let bytes = std::fs::read(&path)?;
+        let k = u64::from_le_bytes(bytes[..8].try_into()?) as usize;
+        assert_eq!(bytes.len(), 8 + 16 * k * n, "c.bin: k vectors of n complex f64");
+        let f = |i: usize| f64::from_le_bytes(bytes[8 + 8 * i..16 + 8 * i].try_into().unwrap());
+        let cz: Vec<C64> = (0..k * n).map(|i| C64::new(f(2 * i), f(2 * i + 1))).collect();
+        let norms = |v: &dyn Fn(&mut [f64])| {
+            let mut s = vec![0.0; k];
+            v(&mut s);
+            s.iter().map(|x| x.sqrt()).collect::<Vec<f64>>()
+        };
+        let xc = DeviceCoarse::<CT>::from_complex(sites, dim, &cz)?;
+        let mut yc = xc.zeros_like();
+        coarse_d.mult(&mut yc, &xc);
+        let xf = DeviceCoarse::<F>::from_complex(sites, dim, &cz)?;
+        let mut v = basis.fine_field::<F>(k)?;
+        basis.prolong(&mut v, &xf);
+        let mut w = v.zeros_like();
+        if !d.dsym_right(&mut w, &v) {
+            w.copy_from(&v);
+        }
+        let mut dv = v.zeros_like();
+        d.mult_plain(&mut dv, &w);
+        let mut pdv = xf.zeros_like();
+        basis.restrict(&mut pdv, &dv);
+        let (nc, npc, ndc, npd, nd) = (
+            norms(&|s| xf.norm_sqr(s)),
+            norms(&|s| v.norm_sqr(s)),
+            norms(&|s| yc.norm_sqr(s)),
+            norms(&|s| pdv.norm_sqr(s)),
+            norms(&|s| dv.norm_sqr(s)),
+        );
+        for i in 0..k {
+            eprintln!(
+                "dump c{i}: |c| {:.4e} |Pc| {:.4e} |D_c c| {:.4e} |P†D_f Pc| {:.4e} |D_f Pc| {:.4e} ratio {:.3e}",
+                nc[i], npc[i], ndc[i], npd[i], nd[i], nd[i] / ndc[i]
+            );
+        }
+        // The share of |P c|² and of |D_f P c|² on each s, by vector.
+        for i in 0..k {
+            let shape = |f: &DeviceSpinor<F>| -> Result<String, Box<dyn Error>> {
+                let (by_s, _, pr) = f.select(&[i]).diag_profile()?;
+                let s: Vec<String> = by_s.iter().map(|v| format!("{v:.3}")).collect();
+                Ok(format!("[{}] PR {pr:.3}", s.join(" ")))
+            };
+            eprintln!("dump c{i} profile Pc: {}", shape(&v)?);
+            eprintln!("dump c{i} profile D_f Pc: {}", shape(&dv)?);
+        }
+        Ok(())
     }
 
     /// exp/ls16-diag: for the quark solution c of the last correction, v = P c on the whole

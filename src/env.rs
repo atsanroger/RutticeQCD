@@ -45,12 +45,21 @@ thread_local! {
     /// exp/ls16-diag (RUTTICE_SPLIT): set by the correction around the restriction and the
     /// prolongation of its Pauli-Villars step; a split P then uses its second basis P_v.
     pub(crate) static PV_TRANSFER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// exp/ls16-diag (RUTTICE_DUMP_QUARK): set by the app after the setup; the first coarse
+    /// correction of the solve then writes its quark coarse operator once.
+    pub(crate) static DUMP_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// exp/ls16-diag: RUTTICE_SPLIT=1 (with RUTTICE_DSYM=1): two bases, P_q of the χ± B5 s for the
 /// quark factor and P_v of the χ± t̂ for the Pauli-Villars factor.
 pub(crate) fn split() -> bool {
     switch("RUTTICE_SPLIT") && switch("RUTTICE_DSYM")
+}
+
+/// exp/ls16-diag: RUTTICE_SPLIT_QT=1 (with `split`): P_q of the χ± B5 s and χ± B5 t̂ (2n test
+/// vectors), P_v of the χ± t̂ (n).
+pub(crate) fn split_qt() -> bool {
+    split() && switch("RUTTICE_SPLIT_QT")
 }
 
 /// A switch: `1` on, `0` off, unset off.

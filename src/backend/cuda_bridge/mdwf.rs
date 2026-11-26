@@ -593,6 +593,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
     /// The coarse operator `P† D P` of this operator (plain: without Neff's α) on the host, as
     /// `CoarseOp::build` makes it on the CPU: `coarse_blocks`, brought to the host once.
     pub fn coarse_operator(&self, basis: &DeviceBasis) -> Result<CoarseOp<f64>, CudaError> {
+        let basis = match crate::env::split() && self.params.mass == 1.0 {
+            true => basis.pv_basis(),
+            false => basis,
+        };
         let (diag, links) = self.coarse_blocks::<f64>(basis)?;
         Ok(CoarseOp::from_parts(
             &basis.coarse,
@@ -610,6 +614,11 @@ impl<T: DeviceReal> CudaMdwf<T> {
         basis: &DeviceBasis,
         even_odd: bool,
     ) -> Result<DeviceCoarseOp<CT>, Box<dyn std::error::Error>> {
+        // exp/ls16-diag (RUTTICE_SPLIT): the Pauli-Villars operator on P_v, of its dimension.
+        let basis = match crate::env::split() && self.params.mass == 1.0 {
+            true => basis.pv_basis(),
+            false => basis,
+        };
         let (diag, links) = self.coarse_blocks::<CT>(basis)?;
         DeviceCoarseOp::on_lattice(&basis.coarse, diag, links, basis.coarse_dim(), even_odd)
     }

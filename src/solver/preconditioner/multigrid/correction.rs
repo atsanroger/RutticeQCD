@@ -372,6 +372,10 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     gc: C,
     w: C,
     c: C,
+    /// exp/ls16-diag (RUTTICE_SPLIT): the coarse fields of the Pauli-Villars step, of the
+    /// dimension of P_v (that of P otherwise).
+    g_pv: G,
+    gc_pv: C,
     coarse_applications: Cell<usize>,
 }
 
@@ -414,7 +418,12 @@ where
                 "the {name} coarse factor: its adjoint goes with the regularized solve, and only with it"
             );
         }
+        crate::env::PV_TRANSFER.with(|f| f.set(true));
+        let g_pv = transfer.coarse_field(1);
+        crate::env::PV_TRANSFER.with(|f| f.set(false));
         Self {
+            g_pv,
+            gc_pv: coarse_like.zeros_with(1),
             work: (plain.0.even_odd_work(), outer.0.even_odd_work()),
             plain,
             outer,
@@ -440,6 +449,13 @@ where
 
     pub fn params(&self) -> &PvEoParams {
         &self.params
+    }
+
+    /// exp/ls16-diag (RUTTICE_SPLIT): the coarse fields of the Pauli-Villars step like `c`
+    /// (the dimension of P_v).
+    pub(crate) fn set_pv_like(&mut self, c: &C) {
+        self.gc_pv = c.zeros_with(1);
+        self.w = c.zeros_with(1);
     }
 
     /// Levels below the coarse lattice for the solves of the quark factor: an approximate
@@ -499,14 +515,17 @@ where
             gc,
             w,
             c,
+            g_pv,
+            gc_pv,
             coarse_applications: n,
         } = self;
         fit(h, r);
         if g.num_vectors() != nv {
             *g = transfer.coarse_field(nv);
-            for f in [&mut *gc, &mut *w, &mut *c] {
+            for f in [&mut *gc, &mut *w, &mut *c, &mut *gc_pv] {
                 *f = f.zeros_with(nv);
             }
+            *g_pv = g_pv.zeros_with(nv);
         }
         let (even, coarse_pv, n) = (Parity::Even, &*coarse_pv, &*n);
         let stop = Stop::simple(params.coarse_tolerance_sqr, params.coarse_max_iterations);
@@ -525,17 +544,19 @@ where
         }
         // exp/ls16-diag (RUTTICE_SPLIT): the Pauli-Villars step restricts and prolongs with P_v.
         crate::env::PV_TRANSFER.with(|f| f.set(true));
-        transfer.restrict(g, h);
+        transfer.restrict(g_pv, h);
         crate::env::PV_TRANSFER.with(|f| f.set(false));
-        gc.convert_from(g);
+        gc_pv.convert_from(g_pv);
         if dsym_pv {
-            coarse_pv.gamma5(gc);
+            coarse_pv.gamma5(gc_pv);
         }
 
         // RUTTICE_DIAG=1 probe (set by the two-grid cycle): only the share of O_R r in range P.
         if DIAG_PROBE.with(|p| p.get()) {
             let mut back = h.zeros_like();
-            transfer.prolong(&mut back, g);
+            crate::env::PV_TRANSFER.with(|f| f.set(true));
+            transfer.prolong(&mut back, g_pv);
+            crate::env::PV_TRANSFER.with(|f| f.set(false));
             let (mut pb, mut hh) = (vec![0.0; nv], vec![0.0; nv]);
             back.norm_sqr(&mut pb);
             h.norm_sqr(&mut hh);
@@ -550,7 +571,9 @@ where
         let diag = crate::env::switch("RUTTICE_DIAG");
         let in_range = diag.then(|| {
             let mut back = h.zeros_like();
-            transfer.prolong(&mut back, g);
+            crate::env::PV_TRANSFER.with(|f| f.set(true));
+            transfer.prolong(&mut back, g_pv);
+            crate::env::PV_TRANSFER.with(|f| f.set(false));
             let (mut pb, mut hh) = (vec![0.0; nv], vec![0.0; nv]);
             back.norm_sqr(&mut pb);
             h.norm_sqr(&mut hh);
@@ -566,14 +589,14 @@ where
         let factor = DIAG_FACTOR.with(|f| f.get());
         if factor == 1 {
             // exp/ls16-diag: the quark factor alone, w = g.
-            w.copy_from(gc);
+            w.copy_from(gc_pv);
         } else {
             w.set_zero();
             if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.pv_solver, coarse_pv_adj)
             {
-                regularized_solve(coarse_pv, &**adj, eps, pv_stop, n, w, gc);
+                regularized_solve(coarse_pv, &**adj, eps, pv_stop, n, w, gc_pv);
             } else if params.pv_solver == CoarseKrylov::Minres {
-                coarse_pv.gamma5(gc);
+                coarse_pv.gamma5(gc_pv);
                 minres_on_hermitian(
                     coarse_pv,
                     &mut **blocks_pv,
@@ -581,7 +604,7 @@ where
                     n,
                     pv_stop,
                     w,
-                    gc,
+                    gc_pv,
                 );
                 coarse_pv.gamma5(w);
             } else {
@@ -593,16 +616,16 @@ where
                     n,
                     &mut |a, m, x, b| coarse_solve(pv_solver, pv_stop, a, m, x, b),
                     w,
-                    gc,
+                    gc_pv,
                 );
             }
         }
 
         let (n_pv, pv_rel) = (
             n.get() - n_start,
-            diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc)),
+            diag.then(|| diag_residual(|o, i| coarse_pv.mult(o, i), w, gc_pv)),
         );
-        let pv_gain = diag.then(|| norm_ratio(w, gc));
+        let pv_gain = diag.then(|| norm_ratio(w, gc_pv));
         if dsym_pv {
             coarse_pv.gamma5(w);
         }
@@ -612,9 +635,9 @@ where
         } else {
             // g = P† ι M π P w; M = 1 (right form) or C_e^(α) C_PV,e^(α)† (left form); with
             // RUTTICE_DSYM_PV π B⁻¹ P w = B_e⁻¹ π P w in place of π P w.
-            g.convert_from(w);
+            g_pv.convert_from(w);
             crate::env::PV_TRANSFER.with(|f| f.set(true));
-            transfer.prolong(h, g);
+            transfer.prolong(h, g_pv);
             crate::env::PV_TRANSFER.with(|f| f.set(false));
             if dsym_pv && op.dsym_right(e, h) {
                 h.copy_from(e);

@@ -204,6 +204,39 @@ impl<T: DeviceReal> DeviceCoarse<T> {
         })
     }
 
+    /// exp/ls16-diag (RUTTICE_DUMP_QUARK): `values.len() / (sites dim)` vectors from the host,
+    /// vector v at `values[v sites dim + q]`, q = site · dim + component.
+    pub(crate) fn from_complex(sites: usize, dim: usize, values: &[C64]) -> Result<Self, CudaError> {
+        let n = sites * dim;
+        assert!(n > 0 && values.len() % n == 0);
+        let (vectors, one) = (values.len() / n, Self::reals_of(sites, dim));
+        let mut host = vec![0.0; vectors * one];
+        for (i, z) in values.iter().enumerate() {
+            let (v, q) = (i / n, i % n);
+            host[v * one + at(0, q, 2)] = z.re;
+            host[v * one + at(1, q, 2)] = z.im;
+        }
+        Ok(Self {
+            data: DeviceBuffer::from_host(&host)?,
+            sites,
+            dim,
+            vectors,
+            comm: None,
+        })
+    }
+
+    /// exp/ls16-diag: the vectors on the host in the order of `from_complex`.
+    pub(crate) fn to_complex(&self) -> Result<Vec<C64>, CudaError> {
+        let (n, one) = (self.sites * self.dim, Self::reals_of(self.sites, self.dim));
+        let host = self.data.download()?;
+        Ok((0..self.vectors * n)
+            .map(|i| {
+                let (v, q) = (i / n, i % n);
+                C64::new(host[v * one + at(0, q, 2)], host[v * one + at(1, q, 2)])
+            })
+            .collect())
+    }
+
     /// Vectors that are 1 in component `first + v` of every site (vector v) and zero elsewhere.
     pub(super) fn units(
         sites: usize,
@@ -757,7 +790,7 @@ impl DeviceBasis {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
         let split = crate::env::split();
-        let columns = match split {
+        let columns = match split && !crate::env::split_qt() {
             true => n,
             false => Lifts::from_env().columns(n),
         };
@@ -798,11 +831,12 @@ impl DeviceBasis {
             let t_too = crate::env::switch("RUTTICE_DSYM_T");
             if let Some(bv) = basis_v.as_mut() {
                 assert!(i + s.vectors <= n || i >= n, "a chunk of lifts of one kind");
-                if i < n {
+                if i < n || crate::env::split_qt() {
                     let mut bs = s.zeros_like();
                     op.dsym_lift(&mut bs, s);
                     basis.add(i, &bs);
-                } else {
+                }
+                if i >= n {
                     bv.add(i - n, s);
                 }
             } else if op.dsym() && (i < n || t_too) {
@@ -908,7 +942,8 @@ impl DeviceBasis {
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
         let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
-        let split = self.pv.is_some();
+        let split = self.pv.is_some() && !crate::env::split_qt();
+        let qt = self.pv.is_some() && crate::env::split_qt();
         let columns = match split {
             true => n,
             false => Lifts::from_env().columns(n),
@@ -923,7 +958,7 @@ impl DeviceBasis {
                 return;
             }
             let mut c = self.coarse_field::<T>(s.vectors);
-            if both || split {
+            if both || split || qt {
                 // exp/ls16-diag (RUTTICE_DSYM_T): P† B s and P† B t̂, as P holds B s and B t̂.
                 let mut bs = s.zeros_like();
                 op.dsym_lift(&mut bs, s);
@@ -988,6 +1023,9 @@ impl DeviceBasis {
 
     /// A zero field on the coarse lattice.
     pub fn coarse_field<T: DeviceReal>(&self, vectors: usize) -> DeviceCoarse<T> {
+        if let Some(pv) = self.pv_now() {
+            return pv.coarse_field(vectors);
+        }
         must(DeviceCoarse::zeros(self.coarse_sites, 2 * self.n, vectors)).on(&self.coarse)
     }
 
