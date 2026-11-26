@@ -228,6 +228,24 @@ impl<T: DeviceReal> DeviceSpinor<T> {
         Ok((by_s, max / mean, total * total / (n as f64 * sq)))
     }
 
+    /// exp/ls16-diag: a copy with the spinors of the slices s with `!keep(s)` set to zero.
+    pub(crate) fn only_slices(&self, keep: impl Fn(usize) -> bool) -> Result<Self, CudaError> {
+        let mut host = self.data.download()?;
+        let (ls, n, one) = (self.ls, self.sites(), self.reals());
+        for v in 0..self.vectors {
+            for x in 0..n {
+                for s in (0..ls).filter(|&s| !keep(s)) {
+                    for c in 0..SPINOR {
+                        host[v * one + at_fifth(c, s, x, ls)] = 0.0;
+                    }
+                }
+            }
+        }
+        let mut out = Self::new(&self.lat, ls, self.parity, self.vectors)?;
+        out.data = DeviceBuffer::from_host(&host)?;
+        Ok(out)
+    }
+
     /// Spinors per site.
     pub fn ls(&self) -> usize {
         self.ls

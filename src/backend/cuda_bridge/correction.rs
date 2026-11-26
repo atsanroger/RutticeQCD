@@ -403,6 +403,24 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             eprintln!("dump c{i} profile Pc: {}", shape(&v)?);
             eprintln!("dump c{i} profile D_f Pc: {}", shape(&dv)?);
         }
+        // P† of each slice of D_f P c: the coarse value |P† D_f P c| = |sum_s g_s| against
+        // the |g_s|, to see whether it is small by cancellation between slices.
+        let mut by_slice = vec![Vec::new(); k];
+        for s in 0..dv.ls() {
+            let part = dv.only_slices(|t| t == s)?;
+            let mut g = xf.zeros_like();
+            basis.restrict(&mut g, &part);
+            for (i, x) in norms(&|x| g.norm_sqr(x)).into_iter().enumerate() {
+                by_slice[i].push(format!("{x:.2e}"));
+            }
+        }
+        for (i, g) in by_slice.iter().enumerate() {
+            eprintln!(
+                "dump c{i} |P† (D_f Pc)_s|: [{}] sum {:.3e}",
+                g.join(" "),
+                npd[i]
+            );
+        }
         Ok(())
     }
 
