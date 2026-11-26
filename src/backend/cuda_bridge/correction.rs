@@ -285,6 +285,11 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         // exp/mr-coarse (RUTTICE_MR=dir): once, the low modes of dir/mr.bin.
         // exp/mr-coarse (RUTTICE_MR_K=k): the same, found on the device.
         if crate::env::MR_ARMED.with(|a| a.replace(false)) {
+            eprintln!(
+                "mr memory {}: {:.2} GB",
+                "at the first correction",
+                super::device_memory().0 as f64 / 1e9
+            );
             let found = if let Some(dir) = std::env::var_os("RUTTICE_MR") {
                 Some(read_mr(std::path::Path::new(&dir)))
             } else if let Ok(k) = std::env::var("RUTTICE_MR_K") {
@@ -323,6 +328,8 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             if let Some(found) = found {
                 match found.and_then(|(v, u, sigma)| self.low_modes(&v, &u, &sigma)) {
                     Ok(low) => self.correction.set_low(low),
+                    // RUTTICE_MR_R above every r_j: Galerkin throughout.
+                    Err(e) if e.to_string() == "no direction kept" => {}
                     Err(e) => panic!("RUTTICE_MR: {e}"),
                 }
             }
@@ -342,8 +349,9 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
     }
 
     /// exp/mr-coarse: from k singular triplets D_c v_j = σ_j u_j of the quark coarse operator
-    /// (`vz`, `uz`: k vectors one after the other), makes Z = A P V, π Z, P†A†Z and (Z†Z)⁻¹ on
-    /// the device. Prints |D_c v_j| against σ_j, r_j = |Z_j|/σ_j and a check of A†.
+    /// (`vz`, `uz`: k vectors one after the other), makes G = P†A†Z with Z = A P V, (Z†Z)⁻¹ =
+    /// (V†G)⁻¹ and the map h ↦ P†A†ι h, one fine field and one of scratch at a time. Prints
+    /// |D_c v_j| against σ_j and r_j = |Z_j|/σ_j.
     #[allow(clippy::type_complexity)]
     fn low_modes(
         &self,
@@ -351,13 +359,15 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         uz: &[crate::C64],
         sigma: &[f64],
     ) -> Result<
-        crate::solver::preconditioner::multigrid::LowModes<DeviceSpinor<F>, DeviceCoarse<CT>>,
+        crate::solver::preconditioner::multigrid::LowModes<'a, DeviceSpinor<F>, DeviceCoarse<CT>>,
         Box<dyn Error>,
     > {
         use crate::fermion::SplitParity;
         use crate::solver::preconditioner::multigrid::{CoarseOperator, LowModes};
-        use crate::{ConvertFrom, Subspace, C64};
-        let (_, _, basis, d, coarse_d) = self.correction.diag_parts();
+        use crate::{ConvertFrom, C64};
+        let (_, _, basis, _, coarse_d) = self.correction.diag_parts();
+        let d: &'a CudaMdwf<F> = self.correction.plain_op();
+        let basis = Rc::clone(basis);
         let (sites, dim) = (coarse_d.sites(), coarse_d.dim());
         let n = sites * dim;
         let k = sigma.len();
@@ -376,97 +386,85 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         coarse_d.mult(&mut dv, &v);
         let mut ndv = vec![0.0; k];
         dv.norm_sqr(&mut ndv);
-        // Z = A P V on the whole lattice, a few vectors at a time (a fine field of 24⁴ × 16 is
-        // half a GB): Z_c of the chunk c, kept are π Z, G = P†A†Z and the Gram matrix Z†Z, whose
-        // blocks between chunks need Z of the earlier chunk again.
         let vf = DeviceCoarse::<F>::from_complex(sites, dim, vz)?;
-        let chunk =
-            std::env::var("RUTTICE_MR_CHUNK").map_or(1, |s| s.parse().expect("RUTTICE_MR_CHUNK"));
-        let chunks: Vec<Vec<usize>> = (0..k)
-            .collect::<Vec<_>>()
-            .chunks(chunk)
-            .map(|c| c.to_vec())
-            .collect();
-        let make_z =
-            |which: &[usize]| -> Result<(DeviceSpinor<F>, DeviceSpinor<F>), Box<dyn Error>> {
-                let mut pv = basis.fine_field::<F>(which.len())?;
-                basis.prolong(&mut pv, &vf.select(which));
-                let mut z = pv.zeros_like();
-                d.mult_coarsened(&mut z, &pv);
-                Ok((pv, z))
-            };
         let mut nz = vec![0.0; k];
         let mut gf = vf.zeros_like();
-        let mut ztz = vec![C64::new(0.0, 0.0); k * k];
-        let mut zh: Option<DeviceSpinor<F>> = None;
-        let mut check = 0.0f64;
-        for (ci, a) in chunks.iter().enumerate() {
-            let (pa, za) = make_z(a)?;
-            let mut n2 = vec![0.0; a.len()];
-            za.norm_sqr(&mut n2);
-            for (x, &j) in n2.iter().zip(a) {
-                nz[j] = *x;
-            }
-            // A† checked on the first vector (RUTTICE_MR_CHECK): <P v, A Z> against <A† P v, Z>;
-            // four fine fields, too many beside the solve on 24⁴ at L_s = 16.
-            if ci == 0 && std::env::var_os("RUTTICE_MR_CHECK").is_some() {
-                let (mut az, mut adv) = (za.zeros_like(), za.zeros_like());
-                d.mult_coarsened(&mut az, &za);
-                d.mult_coarsened_dagger(&mut adv, &pa);
-                let (mut x1, mut x2) = (
-                    vec![C64::new(0.0, 0.0); a.len()],
-                    vec![C64::new(0.0, 0.0); a.len()],
-                );
-                pa.dot(&az, &mut x1);
-                adv.dot(&za, &mut x2);
-                check = (x1[0] - x2[0]).norm_sqr().sqrt() / x1[0].norm_sqr().sqrt();
-            }
-            drop(pa);
-            let mut adz = za.zeros_like();
-            d.mult_coarsened_dagger(&mut adz, &za);
-            let mut gc = vf.select(a);
-            basis.restrict(&mut gc, &adz);
-            gf.assign(a, &gc);
-            drop(adz);
-            let mut half = SplitParity::half_like(&DeviceParities, &za, Parity::Even);
-            SplitParity::extract(&DeviceParities, &mut half, &za, Parity::Even);
-            let all = zh.get_or_insert_with(|| half.zeros_with(k));
-            all.assign(a, &half);
-            drop(half);
-            for b in chunks.iter().take(ci + 1) {
-                let block = if b == a {
-                    za.gram(&za)
-                } else {
-                    let zb = make_z(b)?.1;
-                    za.gram(&zb)
-                };
-                for (x, &i) in a.iter().enumerate() {
-                    for (y, &j) in b.iter().enumerate() {
-                        ztz[i * k + j] = block[x * b.len() + y];
-                        ztz[j * k + i] = block[x * b.len() + y].conj();
-                    }
-                }
-            }
+        for j in 0..k {
+            let mut x = basis.fine_field::<F>(1)?;
+            basis.prolong(&mut x, &vf.select(&[j]));
+            d.mult_coarsened_in_place(&mut x);
+            let mut n2 = [0.0];
+            x.norm_sqr(&mut n2);
+            nz[j] = n2[0];
+            d.mult_coarsened_dagger_in_place(&mut x);
+            let mut gc = vf.select(&[j]);
+            basis.restrict(&mut gc, &x);
+            gf.assign(&[j], &gc);
         }
-        let zh = zh.ok_or("no vectors")?;
-        let mut g = v.zeros_like();
-        g.convert_from(&gf);
-        let ztz_inv = invert(&ztz, k).ok_or("Z†Z is singular")?;
         for j in 0..k {
             eprintln!(
                 "mr v{j}: sigma {:.4e} |D_c v| {:.4e} r {:.3e}",
                 sigma[j],
                 ndv[j].sqrt(),
-                nz[j].sqrt() / sigma[j],
+                nz[j].sqrt() / sigma[j]
             );
         }
-        eprintln!("mr: adjoint check {check:.1e}");
+        // RUTTICE_MR_R=r0: only the directions with r_j > r0 (the others stay Galerkin).
+        let keep: Vec<usize> = match std::env::var("RUTTICE_MR_R") {
+            Ok(r0) => {
+                let r0: f64 = r0.parse().expect("RUTTICE_MR_R");
+                (0..k).filter(|&j| nz[j].sqrt() / sigma[j] > r0).collect()
+            }
+            Err(_) => (0..k).collect(),
+        };
+        eprintln!("mr: {} of {k} directions kept", keep.len());
+        if keep.is_empty() {
+            return Err("no direction kept".into());
+        }
+        let (v, u, vf, gf) = (
+            v.select(&keep),
+            u.select(&keep),
+            vf.select(&keep),
+            gf.select(&keep),
+        );
+        let k = keep.len();
+        let mut ztz = vec![C64::new(0.0, 0.0); k * k];
+        for i in 0..k {
+            let vi = vf.select(&[i]);
+            for j in 0..k {
+                let mut x = [C64::new(0.0, 0.0)];
+                vi.dot(&gf.select(&[j]), &mut x);
+                ztz[i * k + j] = x[0];
+            }
+        }
+        let mut g = v.zeros_like();
+        g.convert_from(&gf);
+        let ztz_inv = invert(&ztz, k).ok_or("Z†Z is singular")?;
+        eprintln!(
+            "mr: |Z_0|^2 against (V^dag G)_00: {:.1e}",
+            (ztz[0].re - nz[keep[0]]).abs() / nz[keep[0]]
+        );
+        let (fine1, coarse1) = (vf.zeros_with(1), v.zeros_with(1));
+        let adj = move |h: &DeviceSpinor<F>| -> DeviceCoarse<CT> {
+            let mut out = coarse1.zeros_with(h.num_vectors());
+            for r in 0..h.num_vectors() {
+                let mut x = must(basis.fine_field::<F>(1));
+                SplitParity::insert(&DeviceParities, &mut x, &h.select(&[r]));
+                d.mult_coarsened_dagger_in_place(&mut x);
+                let mut gc = fine1.zeros_like();
+                basis.restrict(&mut gc, &x);
+                let mut gct = coarse1.zeros_like();
+                gct.convert_from(&gc);
+                out.assign(&[r], &gct);
+            }
+            out
+        };
         Ok(LowModes {
             v,
             u,
-            z: zh,
             g,
             ztz_inv,
+            adj: Box::new(adj),
         })
     }
 
@@ -500,12 +498,22 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         let mut x = DeviceCoarse::<CT>::from_complex(sites, dim, &init)?;
         orthonormalize(&mut x);
         let n0 = self.correction.coarse_applications();
+        eprintln!(
+            "mr memory {}: {:.2} GB",
+            "search start",
+            super::device_memory().0 as f64 / 1e9
+        );
         for _ in 0..iters {
             let mut y = x.zeros_like();
             self.correction.solve_quark_coarse(&mut y, &x, tol, 5000);
             orthonormalize(&mut y);
             x = y;
         }
+        eprintln!(
+            "mr memory {}: {:.2} GB",
+            "search end",
+            super::device_memory().0 as f64 / 1e9
+        );
         let coarse_d = self.correction.diag_parts().4;
         let mut b = x.zeros_like();
         coarse_d.mult(&mut b, &x);

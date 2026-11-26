@@ -1088,6 +1088,31 @@ impl<T: DeviceReal> CudaMdwf<T> {
         }
         super::wilson::gamma5(out, &t, true);
     }
+    /// exp/mr-coarse: `x ← A x` with one field of scratch (two fine fields in all, not three).
+    pub(crate) fn mult_coarsened_in_place(&self, x: &mut DeviceSpinor<T>) {
+        let mut w = x.zeros_like();
+        if self.dsym_right(&mut w, x) {
+            self.mult_plain(x, &w);
+        } else {
+            self.mult_plain(&mut w, x);
+            x.copy_from(&w);
+        }
+    }
+    /// exp/mr-coarse: `x ← A† x` with one field of scratch, the steps of `mult_coarsened_dagger`.
+    pub(crate) fn mult_coarsened_dagger_in_place(&self, x: &mut DeviceSpinor<T>) {
+        let mut u = x.zeros_like();
+        super::wilson::gamma5(&mut u, x, true);
+        let binv = must(self.dsym_b().inverse().on_device::<T>());
+        self.gemm(x, &u, &binv, None);
+        self.mult_plain(&mut u, x);
+        if self.dsym() {
+            super::wilson::gamma5(x, &u, true);
+        } else {
+            self.dsym_lift(x, &u);
+            super::wilson::gamma5(&mut u, x, true);
+            x.copy_from(&u);
+        }
+    }
 }
 
 extern "C" {

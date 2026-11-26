@@ -379,20 +379,21 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     coarse_applications: Cell<usize>,
     /// exp/mr-coarse: the low directions of the quark coarse operator, solved by minimal
     /// residual (`LowModes`).
-    low: Option<LowModes<V, C>>,
+    low: Option<LowModes<'a, V, C>>,
 }
 
 /// exp/mr-coarse: k singular triplets (u_j, σ_j, v_j) of the quark coarse operator D_c = P†AP
-/// and, with Z = A P V_k on the whole lattice, `z` = π Z (the even sites), `g` = P†A†Z and
-/// `ztz_inv` = (Z†Z)⁻¹ (k × k, row-major). The quark solve then takes the left test space
-/// [P U_⊥, Z] in place of P: y_⊥ = D_c⁻¹ (1 − U_k U_k†) g on the other directions, and on
-/// these α = (Z†Z)⁻¹ (Z† f − G† y_⊥), the minimal residual over span A P V_k.
-pub struct LowModes<V, C> {
+/// and, with Z = A P V_k on the whole lattice, `g` = P†A†Z, `ztz_inv` = (Z†Z)⁻¹ (k × k,
+/// row-major; Z†Z = V†G) and `adj`, the map h ↦ P†A†ι h of a field h on the even sites. The
+/// quark solve then takes the left test space [P U_⊥, Z] in place of P: y_⊥ = D_c⁻¹ (1 −
+/// U_k U_k†) g on the other directions, and on these α = (Z†Z)⁻¹ (V† P†A†ι h − G† y_⊥), the
+/// minimal residual over span A P V_k. Z itself is not kept (on 24⁴ at L_s = 16 it is a GB).
+pub struct LowModes<'a, V, C> {
     pub v: C,
     pub u: C,
-    pub z: V,
     pub g: C,
     pub ztz_inv: Vec<crate::C64>,
+    pub adj: Box<dyn Fn(&V) -> C + 'a>,
 }
 
 impl<'a, V, G, C, O, T, D> Correction<'a, V, G, C, O, T, D>
@@ -486,7 +487,7 @@ where
     }
 
     /// exp/mr-coarse: solve the low directions of the quark factor by minimal residual.
-    pub(crate) fn set_low(&mut self, low: LowModes<V, C>) {
+    pub(crate) fn set_low(&mut self, low: LowModes<'a, V, C>) {
         self.low = Some(low);
     }
 
@@ -520,6 +521,11 @@ where
     /// exp/ls16-diag: after `correct`, the quark solution c in the fine precision (`g`), the
     /// same in the coarse precision, P, D and P†DP.
     #[cfg(feature = "cuda-bridge")]
+    /// exp/mr-coarse: the quark operator that the quark factor coarsens.
+    pub(crate) fn plain_op(&self) -> &'a O {
+        self.plain.0
+    }
+
     pub(crate) fn diag_parts(&self) -> (&G, &C, &T, &O, &D) {
         (
             &self.g,
@@ -781,14 +787,15 @@ fn low_project<C: Vector>(x: &mut C, a: &C, b: &C) {
 }
 
 /// exp/mr-coarse: c_r ← c_r + Σ_j α_j v_j, α = (Z†Z)⁻¹ (Z† ι h_r − G† c_r).
-fn low_minres<V: Vector, C: Vector>(c: &mut C, h: &V, lm: &LowModes<V, C>) {
+fn low_minres<V: Vector, C: Vector>(c: &mut C, h: &V, lm: &LowModes<'_, V, C>) {
     let k = lm.v.num_vectors();
     for r in 0..c.num_vectors() {
-        let (mut cr, hr) = (c.select(&[r]), h.select(&[r]));
+        let mut cr = c.select(&[r]);
+        let w = (lm.adj)(&h.select(&[r]));
         let mut rhs = vec![crate::C64::new(0.0, 0.0); k];
         for (j, x) in rhs.iter_mut().enumerate() {
             let (mut zf, mut gy) = ([crate::C64::new(0.0, 0.0)], [crate::C64::new(0.0, 0.0)]);
-            lm.z.select(&[j]).dot(&hr, &mut zf);
+            lm.v.select(&[j]).dot(&w, &mut zf);
             lm.g.select(&[j]).dot(&cr, &mut gy);
             *x = zf[0] - gy[0];
         }
