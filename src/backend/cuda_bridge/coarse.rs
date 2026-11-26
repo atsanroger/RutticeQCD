@@ -206,7 +206,11 @@ impl<T: DeviceReal> DeviceCoarse<T> {
 
     /// exp/ls16-diag (RUTTICE_DUMP_QUARK): `values.len() / (sites dim)` vectors from the host,
     /// vector v at `values[v sites dim + q]`, q = site · dim + component.
-    pub(crate) fn from_complex(sites: usize, dim: usize, values: &[C64]) -> Result<Self, CudaError> {
+    pub(crate) fn from_complex(
+        sites: usize,
+        dim: usize,
+        values: &[C64],
+    ) -> Result<Self, CudaError> {
         let n = sites * dim;
         assert!(n > 0 && values.len() % n == 0);
         let (vectors, one) = (values.len() / n, Self::reals_of(sites, dim));

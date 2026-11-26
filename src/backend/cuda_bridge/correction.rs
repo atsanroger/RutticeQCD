@@ -338,7 +338,10 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         out.flush()?;
         drop(out);
         std::fs::write(dir.join("sigma3.bin"), &sigma)?;
-        eprintln!("dump: D_c of dimension {n} in {}; waiting for c.bin", dir.display());
+        eprintln!(
+            "dump: D_c of dimension {n} in {}; waiting for c.bin",
+            dir.display()
+        );
         let path = dir.join("c.bin");
         let start = std::time::Instant::now();
         while !path.exists() {
@@ -349,9 +352,15 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         }
         let bytes = std::fs::read(&path)?;
         let k = u64::from_le_bytes(bytes[..8].try_into()?) as usize;
-        assert_eq!(bytes.len(), 8 + 16 * k * n, "c.bin: k vectors of n complex f64");
+        assert_eq!(
+            bytes.len(),
+            8 + 16 * k * n,
+            "c.bin: k vectors of n complex f64"
+        );
         let f = |i: usize| f64::from_le_bytes(bytes[8 + 8 * i..16 + 8 * i].try_into().unwrap());
-        let cz: Vec<C64> = (0..k * n).map(|i| C64::new(f(2 * i), f(2 * i + 1))).collect();
+        let cz: Vec<C64> = (0..k * n)
+            .map(|i| C64::new(f(2 * i), f(2 * i + 1)))
+            .collect();
         let norms = |v: &dyn Fn(&mut [f64])| {
             let mut s = vec![0.0; k];
             v(&mut s);

@@ -665,7 +665,10 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let pre = match self.dsym_pv() {
             true => {
                 let quark = QUARK_MASS.with(|m| m.get());
-                assert!(quark.is_finite(), "the quark coarse operator is built first");
+                assert!(
+                    quark.is_finite(),
+                    "the quark coarse operator is built first"
+                );
                 let r = FifthMatrix::linear(ls, b, -c, mass)
                     .inverse()
                     .times(&FifthMatrix::linear(ls, b, -c, quark).inverse().adjoint());
