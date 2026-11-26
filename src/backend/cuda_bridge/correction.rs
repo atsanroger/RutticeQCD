@@ -297,6 +297,29 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             } else {
                 None
             };
+            // RUTTICE_MR_SIGMA=s: only the directions with σ < s (none: Galerkin throughout).
+            let cut: Option<f64> = std::env::var("RUTTICE_MR_SIGMA")
+                .ok()
+                .map(|s| s.parse().expect("RUTTICE_MR_SIGMA"));
+            let found = found.map(|f| {
+                f.map(|(v, u, sigma)| {
+                    let Some(cut) = cut else { return (v, u, sigma) };
+                    let n = v.len() / sigma.len().max(1);
+                    let keep: Vec<usize> = (0..sigma.len()).filter(|&j| sigma[j] < cut).collect();
+                    eprintln!(
+                        "mr: {} of {} directions with sigma < {cut:.1e}",
+                        keep.len(),
+                        sigma.len()
+                    );
+                    let pick = |x: &[crate::C64]| -> Vec<crate::C64> {
+                        keep.iter()
+                            .flat_map(|&j| x[j * n..(j + 1) * n].iter().copied())
+                            .collect()
+                    };
+                    (pick(&v), pick(&u), keep.iter().map(|&j| sigma[j]).collect())
+                })
+            });
+            let found = found.filter(|f| f.as_ref().map_or(true, |(_, _, s)| !s.is_empty()));
             if let Some(found) = found {
                 match found.and_then(|(v, u, sigma)| self.low_modes(&v, &u, &sigma)) {
                     Ok(low) => self.correction.set_low(low),
@@ -358,7 +381,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         // blocks between chunks need Z of the earlier chunk again.
         let vf = DeviceCoarse::<F>::from_complex(sites, dim, vz)?;
         let chunk =
-            std::env::var("RUTTICE_MR_CHUNK").map_or(2, |s| s.parse().expect("RUTTICE_MR_CHUNK"));
+            std::env::var("RUTTICE_MR_CHUNK").map_or(1, |s| s.parse().expect("RUTTICE_MR_CHUNK"));
         let chunks: Vec<Vec<usize>> = (0..k)
             .collect::<Vec<_>>()
             .chunks(chunk)
@@ -384,8 +407,9 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             for (x, &j) in n2.iter().zip(a) {
                 nz[j] = *x;
             }
-            // A† checked on the first vectors: <P v, A Z> against <A† P v, Z>.
-            if ci == 0 {
+            // A† checked on the first vector (RUTTICE_MR_CHECK): <P v, A Z> against <A† P v, Z>;
+            // four fine fields, too many beside the solve on 24⁴ at L_s = 16.
+            if ci == 0 && std::env::var_os("RUTTICE_MR_CHECK").is_some() {
                 let (mut az, mut adv) = (za.zeros_like(), za.zeros_like());
                 d.mult_coarsened(&mut az, &za);
                 d.mult_coarsened_dagger(&mut adv, &pa);
@@ -413,7 +437,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 let block = if b == a {
                     za.gram(&za)
                 } else {
-                    let (_, zb) = make_z(b)?;
+                    let zb = make_z(b)?.1;
                     za.gram(&zb)
                 };
                 for (x, &i) in a.iter().enumerate() {
