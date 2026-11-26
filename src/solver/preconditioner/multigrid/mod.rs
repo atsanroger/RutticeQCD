@@ -31,7 +31,7 @@ pub(crate) use mdwf_backend::{CoarseLevels, Cycles, MdwfBackend, OnCpu, SetupSta
 pub(crate) use mdwf_vectors::LevelLists;
 // What only the device backend uses.
 #[cfg(feature = "cuda-bridge")]
-pub(crate) use correction::{Correction, FnMap, NeffQ};
+pub(crate) use correction::{Correction, FnMap, LowModes, NeffQ};
 #[cfg(feature = "cuda-bridge")]
 pub(crate) use cycle::TwoGrid;
 #[cfg(feature = "cuda-bridge")]

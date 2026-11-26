@@ -341,6 +341,11 @@ pub(super) fn run(
         memory()
     )?;
     crate::env::DUMP_ARMED.with(|a| a.set(std::env::var_os("RUTTICE_DUMP_QUARK").is_some()));
+    crate::env::MR_ARMED.with(|a| {
+        a.set(
+            std::env::var_os("RUTTICE_MR").is_some() || std::env::var_os("RUTTICE_MR_K").is_some(),
+        )
+    });
     writeln!(
         out,
         "  basis lifts: {:?}",

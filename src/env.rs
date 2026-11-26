@@ -48,6 +48,8 @@ thread_local! {
     /// exp/ls16-diag (RUTTICE_DUMP_QUARK): set by the app after the setup; the first coarse
     /// correction of the solve then writes its quark coarse operator once.
     pub(crate) static DUMP_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// exp/mr-coarse (RUTTICE_MR=dir): load the low modes of dir/mr.bin at the next correction.
+    pub(crate) static MR_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// exp/ls16-diag: RUTTICE_SPLIT=1 (with RUTTICE_DSYM=1): two bases, P_q of the χ± B5 s for the

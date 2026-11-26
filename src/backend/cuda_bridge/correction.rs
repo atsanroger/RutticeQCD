@@ -282,6 +282,28 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                 }
             }
         }
+        // exp/mr-coarse (RUTTICE_MR=dir): once, the low modes of dir/mr.bin.
+        // exp/mr-coarse (RUTTICE_MR_K=k): the same, found on the device.
+        if crate::env::MR_ARMED.with(|a| a.replace(false)) {
+            let found = if let Some(dir) = std::env::var_os("RUTTICE_MR") {
+                Some(read_mr(std::path::Path::new(&dir)))
+            } else if let Ok(k) = std::env::var("RUTTICE_MR_K") {
+                let k: usize = k.parse().expect("RUTTICE_MR_K: a number");
+                let iters = std::env::var("RUTTICE_MR_ITERS")
+                    .map_or(8, |s| s.parse().expect("RUTTICE_MR_ITERS"));
+                let tol = std::env::var("RUTTICE_MR_TOL")
+                    .map_or(1e-8, |s| s.parse().expect("RUTTICE_MR_TOL"));
+                Some(self.low_modes_device(k, iters, tol))
+            } else {
+                None
+            };
+            if let Some(found) = found {
+                match found.and_then(|(v, u, sigma)| self.low_modes(&v, &u, &sigma)) {
+                    Ok(low) => self.correction.set_low(low),
+                    Err(e) => panic!("RUTTICE_MR: {e}"),
+                }
+            }
+        }
         self.correction.correct(e, r);
         if crate::env::DIAG_DETAIL.with(|f| f.get()) {
             for (name, f) in [("r (input)", r), ("e (output)", &*e)] {
@@ -294,6 +316,208 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             }
             self.diag_detail(e);
         }
+    }
+
+    /// exp/mr-coarse: from k singular triplets D_c v_j = σ_j u_j of the quark coarse operator
+    /// (`vz`, `uz`: k vectors one after the other), makes Z = A P V, π Z, P†A†Z and (Z†Z)⁻¹ on
+    /// the device. Prints |D_c v_j| against σ_j, r_j = |Z_j|/σ_j and a check of A†.
+    #[allow(clippy::type_complexity)]
+    fn low_modes(
+        &self,
+        vz: &[crate::C64],
+        uz: &[crate::C64],
+        sigma: &[f64],
+    ) -> Result<
+        crate::solver::preconditioner::multigrid::LowModes<DeviceSpinor<F>, DeviceCoarse<CT>>,
+        Box<dyn Error>,
+    > {
+        use crate::fermion::SplitParity;
+        use crate::solver::preconditioner::multigrid::{CoarseOperator, LowModes};
+        use crate::{ConvertFrom, Subspace, C64};
+        let (_, _, basis, d, coarse_d) = self.correction.diag_parts();
+        let (sites, dim) = (coarse_d.sites(), coarse_d.dim());
+        let n = sites * dim;
+        let k = sigma.len();
+        if vz.len() != k * n || uz.len() != k * n {
+            return Err(format!(
+                "{} and {} values for {k} vectors of {n}",
+                vz.len(),
+                uz.len()
+            )
+            .into());
+        }
+        let v = DeviceCoarse::<CT>::from_complex(sites, dim, vz)?;
+        let u = DeviceCoarse::<CT>::from_complex(sites, dim, uz)?;
+        // |D_c v_j| against σ_j: the setup is the one the vectors were made for.
+        let mut dv = v.zeros_like();
+        coarse_d.mult(&mut dv, &v);
+        let mut ndv = vec![0.0; k];
+        dv.norm_sqr(&mut ndv);
+        // Z = A P V on the whole lattice, a few vectors at a time (a fine field of 24⁴ × 16 is
+        // half a GB): Z_c of the chunk c, kept are π Z, G = P†A†Z and the Gram matrix Z†Z, whose
+        // blocks between chunks need Z of the earlier chunk again.
+        let vf = DeviceCoarse::<F>::from_complex(sites, dim, vz)?;
+        let chunk =
+            std::env::var("RUTTICE_MR_CHUNK").map_or(2, |s| s.parse().expect("RUTTICE_MR_CHUNK"));
+        let chunks: Vec<Vec<usize>> = (0..k)
+            .collect::<Vec<_>>()
+            .chunks(chunk)
+            .map(|c| c.to_vec())
+            .collect();
+        let make_z =
+            |which: &[usize]| -> Result<(DeviceSpinor<F>, DeviceSpinor<F>), Box<dyn Error>> {
+                let mut pv = basis.fine_field::<F>(which.len())?;
+                basis.prolong(&mut pv, &vf.select(which));
+                let mut z = pv.zeros_like();
+                d.mult_coarsened(&mut z, &pv);
+                Ok((pv, z))
+            };
+        let mut nz = vec![0.0; k];
+        let mut gf = vf.zeros_like();
+        let mut ztz = vec![C64::new(0.0, 0.0); k * k];
+        let mut zh: Option<DeviceSpinor<F>> = None;
+        let mut check = 0.0f64;
+        for (ci, a) in chunks.iter().enumerate() {
+            let (pa, za) = make_z(a)?;
+            let mut n2 = vec![0.0; a.len()];
+            za.norm_sqr(&mut n2);
+            for (x, &j) in n2.iter().zip(a) {
+                nz[j] = *x;
+            }
+            // A† checked on the first vectors: <P v, A Z> against <A† P v, Z>.
+            if ci == 0 {
+                let (mut az, mut adv) = (za.zeros_like(), za.zeros_like());
+                d.mult_coarsened(&mut az, &za);
+                d.mult_coarsened_dagger(&mut adv, &pa);
+                let (mut x1, mut x2) = (
+                    vec![C64::new(0.0, 0.0); a.len()],
+                    vec![C64::new(0.0, 0.0); a.len()],
+                );
+                pa.dot(&az, &mut x1);
+                adv.dot(&za, &mut x2);
+                check = (x1[0] - x2[0]).norm_sqr().sqrt() / x1[0].norm_sqr().sqrt();
+            }
+            drop(pa);
+            let mut adz = za.zeros_like();
+            d.mult_coarsened_dagger(&mut adz, &za);
+            let mut gc = vf.select(a);
+            basis.restrict(&mut gc, &adz);
+            gf.assign(a, &gc);
+            drop(adz);
+            let mut half = SplitParity::half_like(&DeviceParities, &za, Parity::Even);
+            SplitParity::extract(&DeviceParities, &mut half, &za, Parity::Even);
+            let all = zh.get_or_insert_with(|| half.zeros_with(k));
+            all.assign(a, &half);
+            drop(half);
+            for b in chunks.iter().take(ci + 1) {
+                let block = if b == a {
+                    za.gram(&za)
+                } else {
+                    let (_, zb) = make_z(b)?;
+                    za.gram(&zb)
+                };
+                for (x, &i) in a.iter().enumerate() {
+                    for (y, &j) in b.iter().enumerate() {
+                        ztz[i * k + j] = block[x * b.len() + y];
+                        ztz[j * k + i] = block[x * b.len() + y].conj();
+                    }
+                }
+            }
+        }
+        let zh = zh.ok_or("no vectors")?;
+        let mut g = v.zeros_like();
+        g.convert_from(&gf);
+        let ztz_inv = invert(&ztz, k).ok_or("Z†Z is singular")?;
+        for j in 0..k {
+            eprintln!(
+                "mr v{j}: sigma {:.4e} |D_c v| {:.4e} r {:.3e}",
+                sigma[j],
+                ndv[j].sqrt(),
+                nz[j].sqrt() / sigma[j],
+            );
+        }
+        eprintln!("mr: adjoint check {check:.1e}");
+        Ok(LowModes {
+            v,
+            u,
+            z: zh,
+            g,
+            ztz_inv,
+        })
+    }
+
+    /// exp/mr-coarse (RUTTICE_MR_K=k): the k smallest singular triplets of the quark coarse
+    /// operator D_c, by subspace iteration with D_c⁻¹ on 2k vectors (`iters` rounds, each a
+    /// solve of the cycle's coarse solver to |r|²/|b|² < `tol`, then Gram–Schmidt), and the
+    /// Rayleigh–Ritz step for D_c†D_c on their span. U is D_c V made orthonormal.
+    #[allow(clippy::type_complexity)]
+    fn low_modes_device(
+        &mut self,
+        k: usize,
+        iters: usize,
+        tol: f64,
+    ) -> Result<(Vec<crate::C64>, Vec<crate::C64>, Vec<f64>), Box<dyn Error>> {
+        use crate::solver::preconditioner::multigrid::CoarseOperator;
+        use crate::C64;
+        let start = std::time::Instant::now();
+        let (sites, dim) = {
+            let coarse_d = self.correction.diag_parts().4;
+            (coarse_d.sites(), coarse_d.dim())
+        };
+        let (n, m) = (sites * dim, 2 * k);
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut rnd = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
+        };
+        let init: Vec<C64> = (0..m * n).map(|_| C64::new(rnd(), rnd())).collect();
+        let mut x = DeviceCoarse::<CT>::from_complex(sites, dim, &init)?;
+        orthonormalize(&mut x);
+        let n0 = self.correction.coarse_applications();
+        for _ in 0..iters {
+            let mut y = x.zeros_like();
+            self.correction.solve_quark_coarse(&mut y, &x, tol, 5000);
+            orthonormalize(&mut y);
+            x = y;
+        }
+        let coarse_d = self.correction.diag_parts().4;
+        let mut b = x.zeros_like();
+        coarse_d.mult(&mut b, &x);
+        let mut gram = vec![C64::new(0.0, 0.0); m * m];
+        for i in 0..m {
+            let bi = b.select(&[i]);
+            for j in 0..m {
+                let mut d = [C64::new(0.0, 0.0)];
+                bi.dot(&b.select(&[j]), &mut d);
+                gram[i * m + j] = d[0];
+            }
+        }
+        let (lam, w) = crate::numerics::hermitian_eigen(m, &gram);
+        let mut order: Vec<usize> = (0..m).collect();
+        order.sort_by(|&a, &b| lam[a].total_cmp(&lam[b]));
+        let mut v = x.zeros_with(k);
+        for (j, &c) in order.iter().take(k).enumerate() {
+            let mut vj = x.zeros_with(1);
+            for l in 0..m {
+                vj.axpy(&[w[l * m + c]], &x.select(&[l]));
+            }
+            v.assign(&[j], &vj);
+        }
+        let mut u = v.zeros_like();
+        coarse_d.mult(&mut u, &v);
+        let mut nu = vec![0.0; k];
+        u.norm_sqr(&mut nu);
+        let sigma: Vec<f64> = nu.iter().map(|x| x.sqrt()).collect();
+        orthonormalize(&mut u);
+        eprintln!(
+            "mr: {k} of {m} vectors, {iters} rounds, |r|^2/|b|^2 < {tol:.0e}: {} coarse applications, {:.1} s; sigma {}",
+            self.correction.coarse_applications() - n0,
+            start.elapsed().as_secs_f64(),
+            sigma.iter().map(|x| format!("{x:.3e}")).collect::<Vec<_>>().join(" ")
+        );
+        Ok((v.to_complex()?, u.to_complex()?, sigma))
     }
 
     /// exp/ls16-diag (RUTTICE_DUMP_QUARK=dir): the quark coarse operator D_c as a dense matrix,
@@ -587,5 +811,91 @@ impl<CT: LevelReal> DeviceParts<CT> {
     /// The prolongation the parts were made on.
     pub(crate) fn basis(&self) -> &DeviceBasis {
         &self.basis
+    }
+}
+
+/// exp/mr-coarse: the inverse of the k × k matrix `a` (row-major) by Gauss–Jordan with partial
+/// pivoting; `None` if it is singular.
+fn invert(a: &[crate::C64], k: usize) -> Option<Vec<crate::C64>> {
+    use crate::C64;
+    let mut m: Vec<C64> = a.to_vec();
+    let mut inv = vec![C64::new(0.0, 0.0); k * k];
+    for i in 0..k {
+        inv[i * k + i] = C64::new(1.0, 0.0);
+    }
+    for col in 0..k {
+        let p = (col..k).max_by(|&x, &y| {
+            m[x * k + col]
+                .norm_sqr()
+                .total_cmp(&m[y * k + col].norm_sqr())
+        })?;
+        if m[p * k + col].norm_sqr() == 0.0 {
+            return None;
+        }
+        for j in 0..k {
+            m.swap(col * k + j, p * k + j);
+            inv.swap(col * k + j, p * k + j);
+        }
+        let piv = m[col * k + col];
+        let r = piv.conj().scale(1.0 / piv.norm_sqr());
+        for j in 0..k {
+            m[col * k + j] = m[col * k + j] * r;
+            inv[col * k + j] = inv[col * k + j] * r;
+        }
+        for i in (0..k).filter(|&i| i != col) {
+            let f = m[i * k + col];
+            for j in 0..k {
+                let (a, b) = (m[col * k + j], inv[col * k + j]);
+                m[i * k + j] = m[i * k + j] - f * a;
+                inv[i * k + j] = inv[i * k + j] - f * b;
+            }
+        }
+    }
+    Some(inv)
+}
+
+/// exp/mr-coarse: dir/mr.bin, k and n as little-endian u64, then the k vectors V, the k vectors
+/// U (n complex f64 each), then σ (k f64).
+#[allow(clippy::type_complexity)]
+fn read_mr(
+    dir: &std::path::Path,
+) -> Result<(Vec<crate::C64>, Vec<crate::C64>, Vec<f64>), Box<dyn Error>> {
+    use crate::C64;
+    let bytes = std::fs::read(dir.join("mr.bin"))?;
+    let word = |i: usize| u64::from_le_bytes(bytes[8 * i..8 * i + 8].try_into().unwrap());
+    let (k, n) = (word(0) as usize, word(1) as usize);
+    if bytes.len() != 16 + 32 * k * n + 8 * k {
+        return Err(format!("mr.bin: k {k}, n {n}, {} bytes", bytes.len()).into());
+    }
+    let f = |i: usize| f64::from_le_bytes(bytes[16 + 8 * i..24 + 8 * i].try_into().unwrap());
+    let cplx = |off: usize| -> Vec<C64> {
+        (0..k * n)
+            .map(|i| C64::new(f(off + 2 * i), f(off + 2 * i + 1)))
+            .collect()
+    };
+    Ok((
+        cplx(0),
+        cplx(2 * k * n),
+        (0..k).map(|j| f(4 * k * n + j)).collect(),
+    ))
+}
+
+/// exp/mr-coarse: the vectors of `x` made orthonormal by Gram–Schmidt, twice.
+fn orthonormalize<C: Vector>(x: &mut C) {
+    use crate::C64;
+    for _ in 0..2 {
+        for j in 0..x.num_vectors() {
+            let mut xj = x.select(&[j]);
+            for l in 0..j {
+                let xl = x.select(&[l]);
+                let mut d = [C64::new(0.0, 0.0)];
+                xl.dot(&xj, &mut d);
+                xj.axpy(&[C64::new(-d[0].re, -d[0].im)], &xl);
+            }
+            let mut nn = [0.0];
+            xj.norm_sqr(&mut nn);
+            xj.scale(&[1.0 / nn[0].sqrt()]);
+            x.assign(&[j], &xj);
+        }
     }
 }

@@ -1065,6 +1065,29 @@ impl<T: DeviceReal> CudaMdwf<T> {
         let m = must(self.dsym_b().on_device::<T>());
         self.gemm(out, inp, &m, None);
     }
+    /// exp/mr-coarse: `out = A inp` on the whole lattice for the operator A that the quark
+    /// factor coarsens, D B⁻¹ with RUTTICE_DSYM, else D.
+    pub(crate) fn mult_coarsened(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        let mut w = inp.zeros_like();
+        if !self.dsym_right(&mut w, inp) {
+            w.copy_from(inp);
+        }
+        self.mult_plain(out, &w);
+    }
+    /// exp/mr-coarse: `out = A† inp` for the same A: Γ5 D B⁻¹ Γ5 for D B⁻¹ (Γ5-Hermitian), and
+    /// D† = Γ5 B D B⁻¹ Γ5 for D (from Γ5 D† Γ5 = B D B⁻¹).
+    pub(crate) fn mult_coarsened_dagger(&self, out: &mut DeviceSpinor<T>, inp: &DeviceSpinor<T>) {
+        let (mut t, mut u) = (inp.zeros_like(), inp.zeros_like());
+        super::wilson::gamma5(&mut t, inp, true);
+        let binv = must(self.dsym_b().inverse().on_device::<T>());
+        self.gemm(&mut u, &t, &binv, None);
+        self.mult_plain(&mut t, &u);
+        if !self.dsym() {
+            self.dsym_lift(&mut u, &t);
+            t.copy_from(&u);
+        }
+        super::wilson::gamma5(out, &t, true);
+    }
 }
 
 extern "C" {

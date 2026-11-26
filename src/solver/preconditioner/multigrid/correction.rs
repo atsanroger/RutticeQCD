@@ -377,6 +377,22 @@ pub struct Correction<'a, V, G, C, O: NeffQ<V>, T, D> {
     g_pv: G,
     gc_pv: C,
     coarse_applications: Cell<usize>,
+    /// exp/mr-coarse: the low directions of the quark coarse operator, solved by minimal
+    /// residual (`LowModes`).
+    low: Option<LowModes<V, C>>,
+}
+
+/// exp/mr-coarse: k singular triplets (u_j, σ_j, v_j) of the quark coarse operator D_c = P†AP
+/// and, with Z = A P V_k on the whole lattice, `z` = π Z (the even sites), `g` = P†A†Z and
+/// `ztz_inv` = (Z†Z)⁻¹ (k × k, row-major). The quark solve then takes the left test space
+/// [P U_⊥, Z] in place of P: y_⊥ = D_c⁻¹ (1 − U_k U_k†) g on the other directions, and on
+/// these α = (Z†Z)⁻¹ (Z† f − G† y_⊥), the minimal residual over span A P V_k.
+pub struct LowModes<V, C> {
+    pub v: C,
+    pub u: C,
+    pub z: V,
+    pub g: C,
+    pub ztz_inv: Vec<crate::C64>,
 }
 
 impl<'a, V, G, C, O, T, D> Correction<'a, V, G, C, O, T, D>
@@ -444,7 +460,34 @@ where
             w: coarse_like.zeros_with(1),
             c: coarse_like.zeros_with(1),
             coarse_applications: Cell::new(0),
+            low: None,
         }
+    }
+
+    /// exp/mr-coarse: c = D_c⁻¹ g for the quark coarse operator, by the solver of the cycle
+    /// (its preconditioners and levels) to |r|²/|b|² < `tolerance_sqr`.
+    pub(crate) fn solve_quark_coarse(&mut self, c: &mut C, g: &C, tolerance_sqr: f64, max: usize) {
+        let stop = Stop::simple(tolerance_sqr, max);
+        let d_solver = self
+            .params
+            .d_solver
+            .krylov()
+            .expect("a Krylov solver for the quark factor");
+        c.set_zero();
+        solve_shared(
+            &self.coarse_d,
+            Some(&mut *self.blocks_d),
+            self.levels_d.as_deref(),
+            &self.coarse_applications,
+            &mut |a, m, x, b| coarse_solve(d_solver, stop, a, m, x, b),
+            c,
+            g,
+        );
+    }
+
+    /// exp/mr-coarse: solve the low directions of the quark factor by minimal residual.
+    pub(crate) fn set_low(&mut self, low: LowModes<V, C>) {
+        self.low = Some(low);
     }
 
     pub fn params(&self) -> &PvEoParams {
@@ -518,6 +561,7 @@ where
             g_pv,
             gc_pv,
             coarse_applications: n,
+            low,
         } = self;
         fit(h, r);
         if g.num_vectors() != nv {
@@ -652,6 +696,10 @@ where
             transfer.restrict(g, h);
             gc.convert_from(g);
 
+            // exp/mr-coarse: g ← (1 − U_k U_k†) g before the solve.
+            if let Some(lm) = low.as_ref() {
+                low_project(gc, &lm.u, &lm.u);
+            }
             // c = (P†DP)⁻¹ g, or regularized as the second factor.
             c.set_zero();
             if let (FactorSolve::Regularized { eps }, Some(adj)) = (params.d_solver, coarse_d_adj) {
@@ -668,6 +716,12 @@ where
                     gc,
                 );
             }
+        }
+        // exp/mr-coarse: c ← (1 − V_k V_k†) c + V_k α, α = (Z†Z)⁻¹ (Z† ι h − G† c), with h the
+        // field on the even sites that g was restricted from.
+        if let (Some(lm), true) = (low.as_ref(), factor != 2) {
+            low_project(c, &lm.v, &lm.v);
+            low_minres(c, h, lm);
         }
         if let Some(pv_rel) = pv_rel {
             // Γ5-Hermiticity of the coarse quark operator A: <c, Γ5 A g> against <Γ5 A c, g>.
@@ -709,6 +763,42 @@ where
             EoForm::Right => op.diag(work, e, h, even, Dagger::No),
             EoForm::Left => op_a.mult_q(e, h, true),
         }
+    }
+}
+
+/// exp/mr-coarse: x_r ← x_r − Σ_j a_j ⟨b_j, x_r⟩ for each vector x_r of `x` (a, b: k vectors).
+fn low_project<C: Vector>(x: &mut C, a: &C, b: &C) {
+    let k = a.num_vectors();
+    for r in 0..x.num_vectors() {
+        let mut xr = x.select(&[r]);
+        for j in 0..k {
+            let mut d = [crate::C64::new(0.0, 0.0)];
+            b.select(&[j]).dot(&xr, &mut d);
+            xr.axpy(&[-d[0]], &a.select(&[j]));
+        }
+        x.assign(&[r], &xr);
+    }
+}
+
+/// exp/mr-coarse: c_r ← c_r + Σ_j α_j v_j, α = (Z†Z)⁻¹ (Z† ι h_r − G† c_r).
+fn low_minres<V: Vector, C: Vector>(c: &mut C, h: &V, lm: &LowModes<V, C>) {
+    let k = lm.v.num_vectors();
+    for r in 0..c.num_vectors() {
+        let (mut cr, hr) = (c.select(&[r]), h.select(&[r]));
+        let mut rhs = vec![crate::C64::new(0.0, 0.0); k];
+        for (j, x) in rhs.iter_mut().enumerate() {
+            let (mut zf, mut gy) = ([crate::C64::new(0.0, 0.0)], [crate::C64::new(0.0, 0.0)]);
+            lm.z.select(&[j]).dot(&hr, &mut zf);
+            lm.g.select(&[j]).dot(&cr, &mut gy);
+            *x = zf[0] - gy[0];
+        }
+        for j in 0..k {
+            let a = (0..k).fold(crate::C64::new(0.0, 0.0), |a, l| {
+                a + lm.ztz_inv[j * k + l] * rhs[l]
+            });
+            cr.axpy(&[a], &lm.v.select(&[j]));
+        }
+        c.assign(&[r], &cr);
     }
 }
 
