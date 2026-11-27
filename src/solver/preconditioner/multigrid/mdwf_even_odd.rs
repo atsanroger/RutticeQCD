@@ -98,11 +98,11 @@ impl<F: Storage> PvEoBasis<F> {
     }
 
     pub fn coarse_field(&self, num_vectors: usize) -> CoarseField<F> {
-        on_basis!(self, b => b.coarse_field(num_vectors))
+        on_basis!(self, b => b.pv_now().coarse_field(num_vectors))
     }
 
     pub fn restrict(&self, coarse: &mut CoarseField<F>, fine: &Field<F, Spinor>) {
-        on_basis!(self, b => b.restrict(coarse, fine))
+        on_basis!(self, b => b.pv_now().restrict(coarse, fine))
     }
 
     pub fn restrict_half(
@@ -111,11 +111,11 @@ impl<F: Storage> PvEoBasis<F> {
         half: &HalfField<Aos, F>,
         index: &EvenOddIndex,
     ) {
-        on_basis!(self, b => b.restrict_half(coarse, half, index))
+        on_basis!(self, b => b.pv_now().restrict_half(coarse, half, index))
     }
 
     pub fn prolong(&self, fine: &mut Field<F, Spinor>, coarse: &CoarseField<F>) {
-        on_basis!(self, b => b.prolong(fine, coarse))
+        on_basis!(self, b => b.pv_now().prolong(fine, coarse))
     }
 
     pub fn prolong_half(
@@ -124,7 +124,7 @@ impl<F: Storage> PvEoBasis<F> {
         coarse: &CoarseField<F>,
         index: &EvenOddIndex,
     ) {
-        on_basis!(self, b => b.prolong_half(half, coarse, index))
+        on_basis!(self, b => b.pv_now().prolong_half(half, coarse, index))
     }
 
     /// P†AP for the operator `op` (`CoarseOp::build`).
@@ -135,6 +135,38 @@ impl<F: Storage> PvEoBasis<F> {
     ) -> CoarseOp<F> {
         on_basis!(self, b => CoarseOp::build(op, work, b))
     }
+
+    /// exp/ls16-diag (RUTTICE_SPLIT): P_v† D_PV P_v for the Pauli-Villars operator `op` (P† D_PV
+    /// P without a second basis).
+    pub fn coarse_op_pv<O: HopTerms<Field<F, Spinor>>>(
+        &self,
+        op: &O,
+        work: &mut O::Work,
+    ) -> CoarseOp<F> {
+        on_basis!(self, b => CoarseOp::build(op, work, b.pv_basis()))
+    }
+
+    /// exp/ls16-diag (RUTTICE_DSYM): P† D B5⁻¹ P for the quark operator `op`. D B5⁻¹ is
+    /// Γ5-Hermitian (Γ5 D† Γ5 = B5 D B5⁻¹), so its adjoint is Γ5 of it as for D itself.
+    pub fn coarse_op_dsym<G: GammaRepre>(
+        &self,
+        op: &Mdwf<F, G>,
+        work: &mut <Mdwf<F, G> as FermionOp<Field<F, Spinor>>>::Work,
+    ) -> Result<CoarseOp<F>, MultigridError> {
+        let mut b5_inv =
+            super::correction::FnMap(|out: &mut Field<F, Spinor>, inp: &Field<F, Spinor>| {
+                op.mult_b5(out, inp, true)
+            });
+        let built =
+            on_basis!(self, b => CoarseOp::build_with(op, work, b, Some(&mut b5_inv), false))?;
+        Ok(built.with_gamma5_adjoint())
+    }
+}
+
+/// exp/ls16-diag (RUTTICE_DSYM): whether `op` is the quark operator coarsened as D B5⁻¹ (the
+/// Pauli-Villars operator, at mass 1, keeps D).
+pub(crate) fn dsym<F: Storage, G: GammaRepre, L: MdwfLayout<F>>(op: &Mdwf<F, G, L>) -> bool {
+    crate::env::switch("RUTTICE_DSYM") && op.params().mass != 1.0
 }
 
 /// Which full-lattice vectors P is made of, for each y_j (`RUTTICE_BASIS_LIFTS`, for the
@@ -280,18 +312,59 @@ pub fn pv_eo_basis_stored<F: Storage, G: GammaRepre>(
         y: &HalfField<Aos, F>,
     ) -> Result<Basis<F, S>, MultigridError> {
         let lat = agg.fine_lattice().clone();
-        let mut builder =
-            BasisBuilder::<F, S>::new(agg, Lifts::from_env().columns(y.num_vectors()))
-                .folded(Reflection(G::GAMMA5));
+        let n = y.num_vectors();
+        // exp/ls16-diag (RUTTICE_SPLIT, as `DeviceBasis::pv_eo`): P_q of the B5 s (n columns)
+        // and P_v of the t̂ (n columns). RUTTICE_DSYM alone: B5 s in place of the s lifts.
+        let split = crate::env::split();
+        if crate::env::split_qt() {
+            return Err(MultigridError::Backend(
+                "RUTTICE_SPLIT_QT acts only in the device multigrid".into(),
+            ));
+        }
+        if split && Lifts::from_env() != Lifts::ST {
+            return Err(MultigridError::Backend(
+                "RUTTICE_SPLIT needs the s and t-hat lifts (RUTTICE_BASIS_LIFTS=st)".into(),
+            ));
+        }
+        let columns = match split {
+            true => n,
+            false => Lifts::from_env().columns(n),
+        };
+        let new = |columns| BasisBuilder::<F, S>::new(agg, columns).folded(Reflection(G::GAMMA5));
+        let (mut builder, mut builder_v) = (new(columns), split.then(|| new(n)));
+        let dsym = dsym(op);
         let mut work = op.work();
         let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
-        let mut g5 = whole.zeros_like();
+        let (mut g5, mut bs) = (whole.zeros_like(), whole.zeros_like());
         let sites = Some(lat.num_global_sites() as f64);
-        lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, sites, |i, v| {
-            op.mult_gamma5(&mut work, &mut g5, v);
-            builder.add(i, v, &g5);
-        });
-        builder.finish()
+        lifted_vectors(
+            (op, pv),
+            &**index_of(op),
+            &whole,
+            y,
+            1,
+            sites,
+            |i, v| match (&mut builder_v, i < n) {
+                (Some(bv), false) => {
+                    op.mult_gamma5(&mut work, &mut g5, v);
+                    bv.add(i - n, v, &g5);
+                }
+                (_, true) if dsym => {
+                    op.mult_b5(&mut bs, v, false);
+                    op.mult_gamma5(&mut work, &mut g5, &bs);
+                    builder.add(i, &bs, &g5);
+                }
+                _ => {
+                    op.mult_gamma5(&mut work, &mut g5, v);
+                    builder.add(i, v, &g5);
+                }
+            },
+        );
+        let mut basis = builder.finish()?;
+        if let Some(bv) = builder_v {
+            basis.pv = Some(Box::new(bv.finish()?));
+        }
+        Ok(basis)
     }
     Ok(match storage {
         BasisStorage::Half => PvEoBasis::Half(built(op, pv, agg, y)?),
@@ -308,13 +381,28 @@ pub fn pv_eo_coarse_vectors<F: Storage, G: GammaRepre>(
     y: &HalfField<Aos, F>,
 ) -> Vec<CoarseField> {
     let lat = basis.aggregation().fine_lattice().clone();
-    let mut restricted: Vec<Option<CoarseField>> = (0..Lifts::from_env().columns(y.num_vectors()))
-        .map(|_| None)
-        .collect();
+    let n = y.num_vectors();
+    // exp/ls16-diag (RUTTICE_SPLIT, as `DeviceBasis::pv_eo_coarse_vectors`): the levels of the
+    // quark factor from P_q† B5 s alone.
+    let split = on_basis!(basis, b => b.pv.is_some());
+    let columns = match split {
+        true => n,
+        false => Lifts::from_env().columns(n),
+    };
+    let mut restricted: Vec<Option<CoarseField>> = (0..columns).map(|_| None).collect();
     let whole = Field::<F, Spinor>::with_shape(&lat, 24, op.params().ls, 1, 1);
+    let mut bs = whole.zeros_like();
     lifted_vectors((op, pv), &**index_of(op), &whole, y, 1, None, |i, v| {
+        if split && i >= n {
+            return;
+        }
         let mut c = basis.coarse_field(1);
-        basis.restrict(&mut c, v);
+        if split {
+            op.mult_b5(&mut bs, v, false);
+            basis.restrict(&mut c, &bs);
+        } else {
+            basis.restrict(&mut c, v);
+        }
         let mut d = coarse_field::<f64, F>(basis, 1);
         d.convert_from(&c);
         restricted[i] = Some(d);

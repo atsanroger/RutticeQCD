@@ -204,9 +204,13 @@ pub(super) struct Substitution<N> {
 
 impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     pub(super) fn substitution(&self, mass: f64) -> Substitution<L::Num> {
+        self.substitution_of(mass, self.site_coefficients())
+    }
+
+    /// `substitution` for the site part d+ + d- Y with the coefficients given.
+    fn substitution_of(&self, mass: f64, (d_plus, d_minus): (f64, f64)) -> Substitution<L::Num> {
         let number = <L::Num as Number>::from_f64;
         let ls = self.params.ls;
-        let (d_plus, d_minus) = self.site_coefficients();
         let q = d_minus / d_plus;
         Substitution {
             corner: number(
@@ -329,11 +333,28 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         // (C Q)⁻¹ = Q⁻¹ C⁻¹ and (Q C†)⁻¹ = C†⁻¹ Q⁻¹, Q⁻¹ in the same pass.
         let a = 1.0 / self.alpha;
         let q = if dagger { (a, 1.0) } else { (1.0, a) };
-        self.site_inv_plain(out, inp, mass, dagger, q);
+        self.site_inv_plain(out, inp, mass, dagger, q, self.site_coefficients());
+    }
+
+    /// exp/ls16-diag (RUTTICE_DSYM): `out = B5 inp`, or `B5⁻¹ inp`, B5 = b − cY at the mass
+    /// of this operator (`MdwfParams::b5_site`), on the sites `inp` has. D B5⁻¹ is then the
+    /// operator the quark factor coarsens, and P holds B5 s for the lifts s.
+    pub(crate) fn mult_b5<S: Sites>(
+        &self,
+        out: &mut Field<T, Spinor, S, L>,
+        inp: &Field<T, Spinor, S, L>,
+        inverse: bool,
+    ) {
+        assert!(inp.ls() == self.params.ls && out.same_shape(inp));
+        let (b5, mass) = ((self.params.b, -self.params.c), self.params.mass);
+        match inverse {
+            false => self.combine(out, &[(inp, b5.0, b5.1)], (false, false), mass),
+            true => self.site_inv_plain(out, inp, mass, false, (1.0, 1.0), b5),
+        }
     }
 
     /// C⁻¹ or C†⁻¹ of the plain operator (α = 1), between Q at `q.0` on its input and Q at `q.1`
-    /// on its output (`neff_q`; 1 for none).
+    /// on its output (`neff_q`; 1 for none); C = d+ + d- Y with `coefficients` = (d+, d-).
     fn site_inv_plain<S: Sites>(
         &self,
         out: &mut Field<T, Spinor, S, L>,
@@ -341,6 +362,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
         mass: f64,
         dagger: bool,
         (q_in, q_out): (f64, f64),
+        coefficients: (f64, f64),
     ) {
         let (ls, sp) = (self.params.ls, SPINOR_REALS * L::LANES);
         let number = <L::Num as Number>::from_f64;
@@ -350,7 +372,7 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
             per_step,
             d_minus,
             q,
-        } = self.substitution(mass);
+        } = self.substitution_of(mass, coefficients);
         let per_spinor = flops::site_inv_plain(ls, q_in != 1.0, q_out != 1.0);
         count_fifth::<T>(out.num_sites(), out.copies(), per_spinor, 2.0);
         let scaled = |k: L::Num, x: &SiteSpinor<L::Num>| SiteSpinor::zero().sub_scaled(-k, x);

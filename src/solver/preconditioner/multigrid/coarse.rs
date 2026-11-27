@@ -277,6 +277,13 @@ impl<T: Storage> CoarseOp<T> {
         })
     }
 
+    /// exp/ls16-diag (RUTTICE_DSYM): the adjoint from Γ5 again, for P† A R P with A R
+    /// Γ5-Hermitian (D B5⁻¹), which `build_with` with R cannot know.
+    pub(crate) fn with_gamma5_adjoint(mut self) -> Self {
+        self.adjoint_from_gamma5 = true;
+        self
+    }
+
     /// The operator from its blocks and links as `blocks` gives them, made elsewhere (on a
     /// device), for a fine operator with `D† = γ5 D γ5`.
     pub fn from_parts(lat: &Arc<Lattice>, dim: usize, diag: Vec<T>, links: Vec<T>) -> Self {

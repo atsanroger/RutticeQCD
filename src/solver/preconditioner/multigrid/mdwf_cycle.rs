@@ -99,6 +99,14 @@ impl<F: Storage, G: GammaRepre> NeffQ<HalfField<Aos, F>> for Mdwf<F, G> {
     fn mult_q(&self, out: &mut HalfField<Aos, F>, inp: &HalfField<Aos, F>, inverse: bool) {
         Mdwf::mult_q(self, out, inp, inverse);
     }
+    /// exp/ls16-diag (RUTTICE_DSYM): B5⁻¹ on the even sites (site-local), as on the device.
+    fn dsym_right(&self, out: &mut HalfField<Aos, F>, inp: &HalfField<Aos, F>) -> bool {
+        if !super::mdwf_even_odd::dsym(self) {
+            return false;
+        }
+        self.mult_b5(out, inp, true);
+        true
+    }
 }
 
 /// The coarse correction on the CPU, in the usual layout, the coarse systems stored as `CT`.
@@ -341,14 +349,20 @@ impl<'a, G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> PvEoCycle<'a
         // The coarse operators, with the even-odd form where they are solved in it, and the
         // matrices on the coarse sites that precondition their solves.
         // Built as the fields are stored; the inverses on the coarse sites in double precision.
-        let mut coarse_d = basis.coarse_op(op, &mut op.work()).to_storage::<f64>();
+        // exp/ls16-diag (RUTTICE_DSYM): the quark factor coarsened as P† D B5⁻¹ P.
+        let mut coarse_d = match super::mdwf_even_odd::dsym(op) {
+            true => basis.coarse_op_dsym(op, &mut op.work())?,
+            false => basis.coarse_op(op, &mut op.work()),
+        }
+        .to_storage::<f64>();
         // The regularized solve of the first factor also applies (P†DP)†.
         let adjoint_d = params.d_solver.regularized().map(|_| coarse_d.adjoint());
         // The second factor: P†D_PV P for MINRES on its Hermitian form, else its exact
         // adjoint P†D_PV†P, solved as the first factor is; the regularized solve also applies
         // P†D_PV P.
         let minres = params.pv_solver == CoarseKrylov::Minres;
-        let plain_pv = basis.coarse_op(pv, &mut pv.work()).to_storage::<f64>();
+        // exp/ls16-diag (RUTTICE_SPLIT): on P_v.
+        let plain_pv = basis.coarse_op_pv(pv, &mut pv.work()).to_storage::<f64>();
         let (mut coarse_pv, adjoint_pv) = match minres {
             true => (plain_pv, None),
             false => {

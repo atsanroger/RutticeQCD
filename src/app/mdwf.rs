@@ -198,14 +198,15 @@ pub fn run_on(
     out: &mut dyn Write,
     comm: Arc<dyn Comm>,
 ) -> Result<(), Box<dyn Error>> {
-    // The experimental switches of the coarse correction exist only in the device multigrid; the
+    // The other experimental switches of the coarse correction exist only in the device multigrid; the
     // CPU multigrid would run the paper's correction instead, so a run asking for them is refused.
     if params.main.backend != Backend::CudaBridge {
+        // RUTTICE_DSYM and RUTTICE_SPLIT (the split basis) run on the CPU as well.
         const DEVICE_ONLY: [&str; 15] = [
-            "RUTTICE_DSYM",
             "RUTTICE_DSYM_PV",
             "RUTTICE_DSYM_T",
-            "RUTTICE_SPLIT",
+            "RUTTICE_SPLIT_QT",
+            "RUTTICE_DL",
             "RUTTICE_MR_K",
             "RUTTICE_MR_R",
             "RUTTICE_MR_SIGMA",

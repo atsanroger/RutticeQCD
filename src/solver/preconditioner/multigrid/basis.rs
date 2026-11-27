@@ -18,6 +18,9 @@ pub struct Basis<T: Storage, S: Storage = T> {
     /// `[fine site][vector][chirality][kept]`, orthonormal over every aggregate.
     data: Vec<S>,
     fields: PhantomData<T>,
+    /// exp/ls16-diag (RUTTICE_SPLIT): P_v, the basis of the Pauli-Villars factor; this one is
+    /// then P_q. `PvEoBasis` restricts and prolongs with P_v while `env::PV_TRANSFER` is set.
+    pub(crate) pv: Option<Box<Basis<T, S>>>,
 }
 
 /// Γ5 = R ⊗ g for fields with a fifth dimension of even extent: R reverses it, s → Ls − 1 − s, and
@@ -89,6 +92,20 @@ impl<T: Storage, S: Storage> Basis<T, S> {
             builder.add(i, &x.select(&[i]), &g5x.select(&[i]));
         }
         builder.finish()
+    }
+
+    /// exp/ls16-diag (RUTTICE_SPLIT): P_v while the correction is in its Pauli-Villars step,
+    /// else this basis.
+    pub(crate) fn pv_now(&self) -> &Self {
+        match (&self.pv, crate::env::PV_TRANSFER.with(|f| f.get())) {
+            (Some(pv), true) => pv,
+            _ => self,
+        }
+    }
+
+    /// exp/ls16-diag (RUTTICE_SPLIT): the basis the Pauli-Villars coarse operator is built on.
+    pub(crate) fn pv_basis(&self) -> &Self {
+        self.pv.as_deref().unwrap_or(self)
     }
 
     pub fn aggregation(&self) -> &Arc<Aggregation> {
@@ -610,6 +627,7 @@ impl<T: Storage, S: Storage> BasisBuilder<T, S> {
             fold: self.fold,
             data: self.data,
             fields: PhantomData,
+            pv: None,
         })
     }
 }
