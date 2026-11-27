@@ -198,6 +198,38 @@ pub fn run_on(
     out: &mut dyn Write,
     comm: Arc<dyn Comm>,
 ) -> Result<(), Box<dyn Error>> {
+    // The experimental switches of the coarse correction exist only in the device multigrid; the
+    // CPU multigrid would run the paper's correction instead, so a run asking for them is refused.
+    if params.main.backend != Backend::CudaBridge {
+        const DEVICE_ONLY: [&str; 15] = [
+            "RUTTICE_DSYM",
+            "RUTTICE_DSYM_PV",
+            "RUTTICE_DSYM_T",
+            "RUTTICE_SPLIT",
+            "RUTTICE_MR_K",
+            "RUTTICE_MR_R",
+            "RUTTICE_MR_SIGMA",
+            "RUTTICE_MR_ITERS",
+            "RUTTICE_MR_TOL",
+            "RUTTICE_GHOST_DIAG",
+            "RUTTICE_DAGGER_TEST",
+            "RUTTICE_REPAIR",
+            "RUTTICE_REPAIR_COL",
+            "RUTTICE_REPAIR_FORCE",
+            "RUTTICE_REPAIR_KIND",
+        ];
+        if let Some(v) = DEVICE_ONLY
+            .iter()
+            .find(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
+        {
+            return Err(format!(
+                "{v} is set, but it acts only in the device multigrid (Main.backend: cuda_bridge); \
+                 the {:?} backend would ignore it. Unset {v} or run on the device.",
+                params.main.backend
+            )
+            .into());
+        }
+    }
     let size = params.main.lattice_size;
     let requested = (params.main.grid_size != [1; ND]).then_some(params.main.grid_size);
     let grid = super::grid_for(size, requested, comm.size())?;
