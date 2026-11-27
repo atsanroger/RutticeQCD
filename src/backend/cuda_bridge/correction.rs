@@ -302,6 +302,20 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             } else {
                 None
             };
+            // exp/ghost-mr (RUTTICE_GHOST_DIAG=1): diagnostics of the low directions only; the
+            // solve stays Galerkin throughout.
+            let ghost = crate::env::switch("RUTTICE_GHOST_DIAG");
+            let found = match (ghost, found) {
+                (false, f) => f,
+                (true, Some(Ok((v, _, _)))) => {
+                    if let Err(e) = self.ghost_diag(&v) {
+                        panic!("RUTTICE_GHOST_DIAG: {e}");
+                    }
+                    None
+                }
+                (true, Some(Err(e))) => panic!("RUTTICE_GHOST_DIAG: {e}"),
+                (true, None) => panic!("RUTTICE_GHOST_DIAG needs RUTTICE_MR_K"),
+            };
             // RUTTICE_MR_SIGMA=s: only the directions with σ < s (none: Galerkin throughout).
             let cut: Option<f64> = std::env::var("RUTTICE_MR_SIGMA")
                 .ok()
@@ -466,6 +480,145 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
             ztz_inv,
             adj: Box::new(adj),
         })
+    }
+
+    /// exp/ghost-mr (RUTTICE_GHOST_DIAG=1): tells the true low modes of the quark coarse
+    /// operator from their wrong-wall images. Γ5 P = P σ3, so the image Γ5 (P w) of a coarse
+    /// vector w is P (σ3 w). On the k orthonormal low directions V (`vz`, from
+    /// `low_modes_device`) it forms three k×k matrices:
+    /// H = V† σ3 D_c V (the Rayleigh–Ritz matrix of H_c = σ3 D_c), M = V† P†A†A P V (so that
+    /// |A P V c|² = c†M c) and S = V† σ3 V, with K = (σ3 D_c V)†(σ3 D_c V) for residuals.
+    /// For each Ritz pair H c_a = θ_a c_a, w_a = V c_a, it prints θ_a, η_a = |A P w_a|,
+    /// r_a = η_a/|θ_a|, ⟨σ3⟩_a = c_a† S c_a, the coarse residual |H_c w_a − θ_a w_a|² =
+    /// c_a†K c_a − θ_a², the length |S c_a| of the part of σ3 w_a inside V, η of that part
+    /// (normalized), their ratio to η_a, and the Ritz vector b with the largest |c_b† S c_a|.
+    /// A true mode has a small η and an image with a large one (ratio ≫ 1); a ghost the reverse.
+    /// Then the eigenvectors y_b of M (the combinations of V with the smallest |A P y|): η_b,
+    /// θ_b = y_b† H y_b and |(H − θ_b) y_b|, which separate a true mode from a ghost it is
+    /// mixed with when the two θ nearly coincide.
+    fn ghost_diag(&self, vz: &[crate::C64]) -> Result<(), Box<dyn Error>> {
+        use crate::solver::preconditioner::multigrid::CoarseOperator;
+        use crate::{ConvertFrom, C64};
+        let (_, _, basis, _, coarse_d) = self.correction.diag_parts();
+        let d: &CudaMdwf<F> = self.correction.plain_op();
+        let (sites, dim) = (coarse_d.sites(), coarse_d.dim());
+        let n = sites * dim;
+        let k = vz.len() / n;
+        if k == 0 || vz.len() != k * n {
+            return Err(format!("{} values for vectors of {n}", vz.len()).into());
+        }
+        let v = DeviceCoarse::<CT>::from_complex(sites, dim, vz)?;
+        let all: Vec<usize> = (0..k).collect();
+        let gram = |a: &DeviceCoarse<CT>, b: &DeviceCoarse<CT>| -> Vec<C64> {
+            let mut out = vec![C64::new(0.0, 0.0); k * k];
+            for i in 0..k {
+                let ai = a.select(&[i]);
+                for j in 0..k {
+                    let mut x = [C64::new(0.0, 0.0)];
+                    ai.dot(&b.select(&[j]), &mut x);
+                    out[i * k + j] = x[0];
+                }
+            }
+            out
+        };
+        let mut hv = v.zeros_like();
+        coarse_d.mult(&mut hv, &v);
+        coarse_d.gamma5(&mut hv);
+        let mut sv = v.select(&all);
+        coarse_d.gamma5(&mut sv);
+        // P†A†A P V, one fine field at a time.
+        let vf = DeviceCoarse::<F>::from_complex(sites, dim, vz)?;
+        let mut gf = vf.zeros_like();
+        for j in 0..k {
+            let mut x = basis.fine_field::<F>(1)?;
+            basis.prolong(&mut x, &vf.select(&[j]));
+            d.mult_coarsened_in_place(&mut x);
+            d.mult_coarsened_dagger_in_place(&mut x);
+            let mut gc = vf.select(&[j]);
+            basis.restrict(&mut gc, &x);
+            gf.assign(&[j], &gc);
+        }
+        let mut g = v.zeros_like();
+        g.convert_from(&gf);
+        let (h, m, s, kk) = (gram(&v, &hv), gram(&v, &g), gram(&v, &sv), gram(&hv, &hv));
+        // c†A c and A c for k×k matrices stored by rows.
+        let quad = |a: &[C64], c: &[C64]| -> f64 {
+            let mut t = C64::new(0.0, 0.0);
+            for i in 0..k {
+                for j in 0..k {
+                    t += c[i].conj() * a[i * k + j] * c[j];
+                }
+            }
+            t.re
+        };
+        let apply = |a: &[C64], c: &[C64]| -> Vec<C64> {
+            (0..k)
+                .map(|i| {
+                    let mut t = C64::new(0.0, 0.0);
+                    for j in 0..k {
+                        t += a[i * k + j] * c[j];
+                    }
+                    t
+                })
+                .collect()
+        };
+        let col = |w: &[C64], a: usize| -> Vec<C64> { (0..k).map(|l| w[l * k + a]).collect() };
+        let len = |c: &[C64]| c.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt();
+        let (theta, wh) = crate::numerics::hermitian_eigen(k, &h);
+        let mut order: Vec<usize> = (0..k).collect();
+        order.sort_by(|&a, &b| theta[a].abs().total_cmp(&theta[b].abs()));
+        let ritz: Vec<Vec<C64>> = order.iter().map(|&a| col(&wh, a)).collect();
+        let th: Vec<f64> = order.iter().map(|&a| theta[a]).collect();
+        let eta: Vec<f64> = ritz.iter().map(|c| quad(&m, c).max(0.0).sqrt()).collect();
+        let (mut net, mut count) = (0i64, 0usize);
+        for a in 0..k {
+            let c = &ritz[a];
+            let res = (quad(&kk, c) - th[a] * th[a]).max(0.0).sqrt();
+            let p = apply(&s, c);
+            let plen = len(&p);
+            let eta_img = (quad(&m, &p).max(0.0)).sqrt() / plen.max(1e-300);
+            let ratio = eta_img / eta[a].max(1e-300);
+            let (mut best, mut bval) = (0usize, 0.0);
+            for (b, cb) in ritz.iter().enumerate() {
+                let mut t = C64::new(0.0, 0.0);
+                for i in 0..k {
+                    t += cb[i].conj() * p[i];
+                }
+                if t.norm_sqr().sqrt() > bval {
+                    (best, bval) = (b, t.norm_sqr().sqrt());
+                }
+            }
+            if ratio > 1.0 {
+                count += 1;
+                net += if th[a] > 0.0 { 1 } else { -1 };
+            }
+            eprintln!(
+                "ghost w{a}: theta {:+.4e} eta {:.3e} r {:.3e} <s3> {:+.3} |(H_c-theta)w| {res:.2e} | s3 w: in V {plen:.3} eta {eta_img:.3e} ratio {ratio:.2e} nearest w{best} ({bval:.2})",
+                th[a],
+                eta[a],
+                eta[a] / th[a].abs(),
+                quad(&s, c),
+            );
+        }
+        eprintln!("ghost: {count} of {k} with ratio > 1; their #(theta>0) - #(theta<0) = {net:+}");
+        let (mu, wm) = crate::numerics::hermitian_eigen(k, &m);
+        let mut order: Vec<usize> = (0..k).collect();
+        order.sort_by(|&a, &b| mu[a].total_cmp(&mu[b]));
+        for (b, &bi) in order.iter().enumerate() {
+            let y = col(&wm, bi);
+            let tb = quad(&h, &y);
+            let hy = apply(&h, &y);
+            let res: f64 = (0..k)
+                .map(|i| (hy[i] - y[i].scale(tb)).norm_sqr())
+                .sum::<f64>()
+                .sqrt();
+            eprintln!(
+                "ghost y{b}: eta {:.3e} theta {tb:+.4e} <s3> {:+.3} |(H-theta)y| in V {res:.2e}",
+                mu[bi].max(0.0).sqrt(),
+                quad(&s, &y)
+            );
+        }
+        Ok(())
     }
 
     /// exp/mr-coarse (RUTTICE_MR_K=k): the k smallest singular triplets of the quark coarse
