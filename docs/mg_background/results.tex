@@ -40,20 +40,12 @@ outer solver & \multicolumn{2}{l}{GCR(2) on $\AL$ until \New $|D\psi-\eta|^2/|\e
 \paragraph{Numerical setup.} The quenched configurations use the plaquette action at $\beta=6.0$,
 a lattice spacing of about $0.1$~fm~\cite{NeccoSommer}; Table~\ref{tab:configs} lists the configurations. Results are means, medians or
 ranges over the four configurations of each volume as the captions state; the solvers without the
-multigrid and the pseudospectra (Appendix~\ref{sec:spectral}) use configuration~1. The two setups of the M\"obius operator
-(Table~\ref{tab:setups}) share $(b,c)=(1.5,0.5)$, the choice of the JLQCD and the RBC/UKQCD
-Collaborations, and $L_s=8$.
-\begin{itemize}
-\item \emph{Setup B (bare links)} uses $M_5=1.8$, the value typical of simulations on unsmeared
-links~\cite{Arthur2013}.
-\item \emph{Setup S (stout links)} smears the links of the fermion operator (stout, $\rho=0.1$, three
-steps, Sec.~\ref{sec:smearing}) and uses $M_5=1.0$, as in the JLQCD ensembles of
-Ref.~\cite{JLQCDBpi}.
-\end{itemize}
-\New Smearing suppresses the near-zero modes of $W=D_W(-M_5)$ (Sec.~\ref{sec:smearing}); setup~B
-keeps the bare links with the larger $M_5$. The two setups need different smoother intervals
-(Table~\ref{tab:setups}). Timings are from one NVIDIA data-center GPU with
-$24$\,GB of device memory.
+multigrid and the pseudospectra (Appendix~\ref{sec:spectral}) use configuration~1. \New Unless
+stated otherwise, the $L_s=8$ benchmarks of Secs.~\ref{sec:performance}--\ref{sec:why} use the
+shared-basis coarsening of $D$ (Eq.~\eqref{eq:corrplain}) on setups~S and~B
+(Sec.~\ref{sec:opsetups}), with the solver and smoother parameters in Table~\ref{tab:setups};
+Sec.~\ref{sec:ls16comp} compares both nine-point variants across $L_s=8$ and $L_s=16$. Timings are
+from one NVIDIA data-center GPU with $24$\,GB of device memory.
 
 
 \subsection{Performance}
@@ -198,7 +190,7 @@ occur as right-hand sides in HMC.
 \New A larger Krylov space removes the stall. We repeat the $12^4$ setup-S test at $m=0.001$ with a
 separate setup of $D$ and flexible GCR on $D\dg$ over the whole lattice. Here the residual
 $b-D\dg Dx_0$ is formed from an initial solve $D\dg w_0=b$ using GCR(8) with a second cycle built
-like $\mathcal M$ with $D$ and $\Dpv$ exchanged in Eq.~\eqref{eq:corr}. On that residual, GCR(2)
+like $\mathcal M$ with $D$ and $\Dpv$ exchanged in Eq.~\eqref{eq:corrplain}. On that residual, GCR(2)
 with $\Gfive\mathcal M\Gfive$ again stalls on all four configurations, while GCR(8) converges on all
 four in $14$, $19$, $15$ and $12$ iterations.
 
@@ -319,7 +311,8 @@ memory on $24^3\times48$.
 \label{sec:autorounds}
 The rule of Sec.~\ref{sec:autoboot} does more rounds at small masses and fewer at large ones.
 On the mass scan on $24^3\times48$ it does two rounds at $m\ge0.02$ and three at
-$m\le0.002$. At $m=0.001$ the GCR(2) iterations are $18$--$22$ (S) and $16$--$18$ (B)\New{}. The tables use the automatic number of rounds.
+$m\le0.002$. At $m=0.001$ the GCR(2) iterations are $18$--$22$ (S) and $16$--$18$ (B)\New{}. The
+$L_s=8$ tables of Secs.~\ref{sec:performance}--\ref{sec:parts} use the automatic number of rounds.
 
 The number of rounds is set by how far the lowest Ritz value has to fall. The filter leaves
 $\theta_0\approx1.5\times10^{-2}$ (S) and $4\times10^{-2}$ (B) at every mass. While the vectors are
@@ -344,7 +337,7 @@ regularization~\eqref{eq:tikhonov} on the Pauli--Villars factor) and constructin
 as its exact adjoint, verified so that $\langle z|\AR\mathcal M w\rangle$ and
 $\langle\mathcal M\dg\AR\dg z|w\rangle$ agree to roughly $10^{-10}$. We denote the smoother
 polynomial of Sec.~\ref{sec:smoother} by $\mathcal S=p(\AR)$, the exact coarse-grid
-correction~\eqref{eq:corr} by $E$ ($Er=e$), and the full cycle of Algorithm~\ref{alg:cycle} by
+correction~\eqref{eq:corrplain} by $E$ ($Er=e$), and the full cycle of Algorithm~\ref{alg:cycle} by
 $\mathcal M$. All spectral quantities are evaluated at $\alpha=1$, since $\AR$ is independent of
 $\alpha$; in Table~\ref{tab:massscan}, setting $\alpha=1$ increases the mean iteration count by
 only $0$--$3$ relative to $\alpha=0.6$, suggesting comparable spectral behavior.
@@ -387,4 +380,154 @@ orthogonal to the current residual, causing subsequent iterations to stall. Unde
 Table~\ref{tab:setups}, however, \New every solve with $D$ converged across all
 volumes for both random and point-source right-hand sides (Tables~\ref{tab:massscan},
 \ref{tab:pointsource}, and~\ref{tab:volume}).
+
+\subsection{\New Shared-basis and split-basis coarsening across $L_s$ and volume}
+\label{sec:ls16comp}
+
+At $L_s=8$, both nine-point variants of Sec.~\ref{sec:correction} converge across all tested
+volumes from $12^4$ to $24^3\times48$. At $L_s=16$ on $24^4$, the two variants fail on opposite
+setups, so the shared basis covers setup~S while the split basis covers setup~B
+(Table~\ref{tab:ls16comp}).
+
+\paragraph{Spurious coarse directions and the ratio $r_i$.}
+Let $\Dc=\Pro\dg A\Pro=\sum_i\sigma_i u_i v_i\dg$ be the singular value decomposition of the quark
+coarse operator, with $\sigma_1\le\sigma_2\le\dots$, where $A=D$ for the shared basis and
+$A=\Dsym$ (with $\Pro=\Pq$) for the split basis. For each unit right singular vector $v_i$, we
+define the fine residual norm $\eta_i=\|A\Pro v_i\|$ and the dimensionless ratio
+\begin{equation}
+r_i=\frac{\|A\Pro v_i\|}{\sigma_i}=\frac{\eta_i}{\sigma_i}\ge1 .
+\label{eq:ratio_r}
+\end{equation}
+Decomposing $A\Pro v_i=\Pro(\Pro\dg A\Pro v_i)+(1-\Pro\Pro\dg)A\Pro v_i=\sigma_i\Pro u_i+w_i^\perp$
+with $\Pro\dg w_i^\perp=0$ gives $\|w_i^\perp\|=\sigma_i\sqrt{r_i^2-1}$. An exact coarse step
+$e=\Pro\Dc^{-1}\Pro\dg h$ therefore cancels the coarse residual component $u_i\dg\Pro\dg h$ while
+leaving a fine residual of norm $|u_i\dg\Pro\dg h|\,\sqrt{r_i^2-1}$ outside $\operatorname{range}\Pro$.
+For the split basis, $\Dsym$ is $\Gfive$-Hermitian (Eq.~\eqref{eq:Dsymherm}) and $\Gfive\Pq=\Pq\sigma_3$,
+so $\Dc=\sigma_3 H_c$ with the Hermitian indefinite matrix $H_c=\Pq\dg H\Pq$ and $H=\Gfive\Dsym$~\cite{BY}.
+Each singular value satisfies $\sigma_i=|\theta_i|$, where $\theta_i$ is a Ritz value of $H$ on
+$\operatorname{range}\Pq$. Expanding $\Pq v_i=\sum_a c_a|\lambda_a\rangle$ in fine eigenstates of
+$H$ gives the convex combination~\cite{BrowerStag}
+\begin{equation}
+\theta_i=\sum_a |c_a|^2\lambda_a , \qquad
+\|(H-\theta_i)\Pq v_i\|^2=\sum_a |c_a|^2(\lambda_a-\theta_i)^2=\theta_i^2(r_i^2-1) .
+\label{eq:pollution}
+\end{equation}
+A large $r_i$ at small $|\theta_i|$ means that $\Pq v_i$ combines positive and negative fine modes
+far from $\theta_i$, producing spectral pollution inside the gap of $H$~\cite{LevitinShargorodsky,BCHW}.
+
+\begin{table}[t]
+\centering
+\caption{\New Shared-basis ($A=D$, $n=16$, $32$ test vectors, $64$ columns per coarse site) and
+split-basis ($A=\Dsym$, $n=20$ per factor, $40$ columns per coarse site) nine-point coarsening
+across $L_s$ and volume at $m=0.001$ on $4^4$ blocks unless noted. At $L_s=8$, shared-basis GCR(2)
+counts repeat the automatic-bootstrap runs of Table~\ref{tab:volume}; all $r_{\mathrm{med}}$ and
+$r_{\max}$ entries and all $L_s\ge12$ runs use three fixed bootstrap rounds. GCR(2) gives the range
+over four configurations (or the listed configuration); ``stall'' marks runs that do not reach
+$|r|^2/|b|^2<10^{-18}$ within the iteration limit ($300$ or $2000$). The last two columns list the
+median and maximum of $r_i$ (Eq.~\eqref{eq:ratio_r}) over the $16$ smallest singular directions of
+$\Dc$ on configurations~1 and~4 (all four configurations on $24^3\times48$ at $L_s=8$).}
+\label{tab:ls16comp}
+\footnotesize
+\renewcommand{\arraystretch}{1.08}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}lllccc@{}}
+\toprule
+lattice, $L_s$ & setup & basis & GCR(2) & $r_{\mathrm{med}}$ & $r_{\max}$\\
+\midrule
+$12^4$, $L_s=8$ & S & shared & $11$--$19$ & $6.6$--$8.6$ & $258$--$440$\\
+ & S & split & $11$--$15$ & --- & ---\\
+ & B & shared & $12$--$13$ & $20.8$ & $35.8$\\
+ & B & split & $13$--$14$ & $11.9$--$13.0$ & $20.5$--$21.9$\\
+\addlinespace[2pt]
+$16^4$, $L_s=8$ & S & shared & $11$ & $14.1$--$14.6$ & $62.5$--$172$\\
+ & S & split & $11$--$14$ & $15.3$ & $219$\\
+ & B & shared & $13$ & $26.8$ & $39.8$\\
+ & B & split & $14$--$15$ & $10.6$--$11.9$ & $22.6$--$24.2$\\
+\addlinespace[2pt]
+$24^4$, $L_s=8$ & S & shared & $13$--$16$ & $17.3$--$19.7$ & $50.9$--$74.7$\\
+ & S & split & $14$--$21$ & $106$ & $341$\\
+ & B & shared & $15$--$16$ & $35.7$ & $62.2$\\
+ & B & split & $17$--$19$ & $22.8$--$25.7$ & $36.7$--$44.8$\\
+\addlinespace[2pt]
+$24^3\times48$, $L_s=8$ & S & shared & $18$--$22$ & $25.3$--$35.5$ & $36.7$--$80.0$\\
+ & S & split & $23$--$31$ & $64.7$ & $274$\\
+ & B & shared & $16$--$18$ & $49.3$ & $63.4$\\
+ & B & split & $18$--$22$ & $30.2$--$39.6$ & $39.5$--$51.2$\\
+\midrule
+$16^4$, $L_s=12$ (c.~4) & S & shared & $16$ & $12.5$ & $93.6$\\
+ & S & split & stall & $17.1$ & $2402$\\
+$24^4$, $L_s=12$ & S & shared & $15$--$24$ & --- & ---\\
+\midrule
+$16^4$, $L_s=16$ & S & shared & $11$--$21$ & $14.1$--$17.5$ & $83.1$--$89.7$\\
+ & S & split & $11$--$65$ & $23.8$ & $1197$\\
+ & B & shared & $14$--$22$ & $50.5$ & $112$\\
+ & B & split & $15$--$20$ & $43.1$--$54.9$ & $89.1$--$167$\\
+\addlinespace[2pt]
+$24^4$, $L_s=16$ & S & shared & $18$--$29^{a}$ & $50.7$--$53.9$ & $146$--$211$\\
+ & S & split & stall ($4/4$) & $118$--$131$ & $2.7{\times}10^3$--$2.3{\times}10^5$\\
+ & B & shared & $26$ / stall$^{b}$ & $264^{b}$ & $704^{b}$\\
+ & B & split & $20$--$29^{b}$ & $117$--$132$ & $299$--$416$\\
+\addlinespace[2pt]
+$24^4$, $L_s=20$ (c.~1) & B & split ($n=16$)$^{b}$ & $49$ & --- & ---\\
+\bottomrule
+\end{tabular}
+\vspace{2pt}
+\parbox{\linewidth}{\footnotesize $^{a}$With three fixed bootstrap rounds on $4^4$ blocks,
+configuration~1 of $24^4$ shared~S converges in $23$ iterations ($r_{\mathrm{med}}=53.9$);
+configurations~2--4 converge in $18$, $29$, and $25$ iterations. $^{b}$On $24^4$ at $L_s=16$ with
+$4^3\times2$ blocks and three fixed bootstrap rounds, pure-Galerkin shared~B converges on
+configuration~2 ($26$ iterations) and stalls on configurations~1 and~3 ($r_{\mathrm{med}}=264$,
+$r_{\max}=704$ on configuration~1); split~B converges in $20$, $26$, $28$, and $29$ iterations on
+all four configurations ($r_{\mathrm{med}}=123$ on configuration~1 and $109$ on configuration~4)
+and in $27$ and $29$ iterations on configurations~1 and~4 with $4^4$ blocks
+($r_{\mathrm{med}}=132.1$ and $116.8$).}
+\end{table}
+
+\paragraph{Wrong-wall ghosts and why the two bases avoid opposite failures.}
+In the split basis, $\Gfive\Pq=\Pq\sigma_3$ implies that for any fine low mode $\psi_0\approx\Pq c$
+localized on one wall, its reflection $\phi=\Gfive\psi_0\approx\Pq(\sigma_3 c)$ also lies in
+$\operatorname{range}\Pq$, with the same four-dimensional chirality on the opposite wall. On the
+fine lattice, $\|H\phi\|=O(1)$ (measured as $1.06$--$1.12$ in setup~S and $1.50$--$1.53$ in setup~B
+on $16^4$ configuration~4), whereas the coarse Ritz value $\theta=\langle\phi|H|\phi\rangle$ is a
+wall-to-wall matrix element that decreases as $L_s$ grows. On $16^4$ configuration~4 ($Q=+3$) in
+setup~S, the spurious directions across $L_s=8$--$20$ have overlap
+$|c_{\mathrm{true}}\dg\sigma_3 c_{\mathrm{ghost}}|=0.72$--$0.98$ with the three true zero modes
+(whose net chirality $\#(\theta>0)-\#(\theta<0)=+3$ matches $Q$ at $L_s=8,10,12,14,20$). At
+$L_s=12$, one ghost crosses near zero ($\theta=-4.4\times10^{-4}$, matching the $r_{\max}=2402$
+spike in Table~\ref{tab:ls16comp}), stalling GCR(2). On the same configuration in setup~B, the
+$\sigma_3$-overlap ghosts also appear (overlap $0.5$--$0.7$), but the wider wall profiles at
+$M_5=1.8$ keep them at $|\theta|\approx10^{-2}$ up to $L_s=20$, more than an order of magnitude
+farther from zero.
+
+A single-switch ablation on $16^4$ configuration~4 tests the effect of including $\hat t$ in the
+quark basis. Retaining $\Dsym$ and $\Pv$ of the split basis while adding the $\Gfive$-split
+components $\frac12(1\pm\Gfive)B_5\hat t$ to $\Pq$ restores convergence in setup~S ($16$
+iterations at $L_s=12$, $22$ at $L_s=16$), consistent with the opposite-wall weight expected for
+$\hat t$ (Sec.~\ref{sec:exactness}), while causing setup~B at $L_s=16$ to stall ($300$ iterations,
+compared with $20$ without $B_5\hat t$). In setup~B on $24^4$ at $L_s=16$ with matched $4^3\times2$
+blocks (configuration~1, three bootstrap rounds), the shared basis stalls with
+$r_{\mathrm{med}}=264$ and $r_{\max}=704$, whereas the split basis lowers $r_{\mathrm{med}}$ by
+about half ($123$, $r_{\max}=316$) and converges in $28$ iterations.
+
+\paragraph{Volume dependence of $r_i$ and $\eta_i$.}
+At $L_s=8$, outer iterations grow slowly from $12^4$ to $24^3\times48$ ($32\times$ in
+four-dimensional volume) for both adopted variants, and all $64$ measured low modes of each adopted
+variant across the four $24^3\times48$ configurations stay below $r=100$
+($r_{\mathrm{med}}=25.3$--$35.5$ for shared~S and $30.2$--$39.6$ for split~B, with
+$\eta_{\mathrm{med}}=0.211$--$0.224$ across all four split~B configurations). At $L_s=16$ with
+$4^4$ blocks ($12^4$, $16^4$, and $24^4$), the singular-vector residual $\eta_i=\|A\Pro v_i\|$
+collapses onto a volume-independent plateau of $1.1$--$1.8$ for $\sigma_i\gtrsim10^{-2}$. To
+separate true low modes from mixed singular directions in the split basis, we diagonalize the
+$16\times16$ Gram matrix $V_k\dg\Pq\dg\Dsym\dg\Dsym\Pq V_k$ on the lowest $k=16$ singular subspace
+$V_k$, giving unit eigenvectors $y_j$ with fine residual norms $\tilde\eta_j=\|\Dsym\Pq y_j\|$.
+With three fixed bootstrap rounds at $L_s=16$, the smallest residual $\tilde\eta_1$ increases from
+$16^4$ (configuration~4) to $24^4$ in both setups, from $0.0021$ to $0.010$--$0.048$ across the
+four configurations in setup~S and from $0.017$ to $0.11$--$0.21$ (configurations~1 and~4) in
+setup~B. With three bootstrap rounds on $24^4$ at $L_s=16$, split~B shows no near-zero wrong-wall
+ghost (no mode has pair ratio $\eta(\sigma_3 w)/\eta(w)<0.2$, where $\eta(w)=\|\Dsym\Pq w\|$),
+while its $r_i$ values reach $r_{\mathrm{med}}=117$--$132$ and $r_{\max}=299$--$416$. Raising the bootstrap from three to five rounds on
+configurations~1 and~4 cuts the smallest three $\tilde\eta_j$ from $0.11$--$0.30$ to
+$0.006$--$0.039$, showing that three rounds had not finished refining the lowest modes. Yet five
+rounds cause GCR(2) to stall at $300$ iterations on both configurations, showing that outer
+convergence at $L_s=16$ is sensitive to the number of bootstrap rounds.
 
