@@ -1706,7 +1706,8 @@ Equations~\eqref{eq:b5} and~\eqref{eq:c4} need no such solve.
 
 \begin{table}[t]
 \centering
-\caption{\New GCR(2) iterations of solves with $D$ and with $D\dg$ from one setup of $D$, one cycle per step,
+\caption{\New GCR(2) iterations of solves with $D$ and with $D\dg$ from one setup of $D$ (shared basis,
+$L_s=8$), one cycle per step,
 right form, $\alpha=1$. Every solve stops when the residual of its even-site system satisfies
 $|r|^2/|b|^2<10^{-10}$. $16^4$ is at $m=0.01$, the other lattices at $m=0.001$; $24^4$ and
 $24^3\times48$ use the levels below the coarse lattice. ``rand'' is a random right-hand side, ``res''
@@ -1796,7 +1797,8 @@ both random and point-source right-hand sides.
 \New Finally, solves with $D\dg$ as required in HMC reuse the multigrid
 hierarchy of $D$ without a second setup. When $b$ and $c$ are independent of $s$, the exact
 identity of Sec.~\ref{sec:b5} maps a solve with $D\dg$ onto a solve with $D$, matching its
-iteration count to within two iterations up to $24^3\times48$ (Table~\ref{tab:b5}). \New For
+iteration count to within two iterations up to $24^3\times48$ with the shared basis at
+$L_s=8$ (Table~\ref{tab:b5}). \New For
 $s$-dependent coefficients, the cycle of $D$ conjugated by $\Gfive$ can serve as the preconditioner.
 We tested it with constant $b$ and $c$. With GCR(2) it needs $2$ to $7$ more iterations than $D$
 and stalls on the residual of $12^4$ in setup~S; GCR(8) removes the stall (Sec.~\ref{sec:daggerresults}).
