@@ -483,21 +483,42 @@ and in $27$ and $29$ iterations on configurations~1 and~4 with $4^4$ blocks
 ($r_{\mathrm{med}}=132.1$ and $116.8$).}
 \end{table}
 
-\paragraph{Wrong-wall ghosts and why the two bases avoid opposite failures.}
-In the split basis, $\Gfive\Pq=\Pq\sigma_3$ implies that for any fine low mode $\psi_0\approx\Pq c$
-localized on one wall, its reflection $\phi=\Gfive\psi_0\approx\Pq(\sigma_3 c)$ also lies in
-$\operatorname{range}\Pq$, with the same four-dimensional chirality on the opposite wall. On the
-fine lattice, $\|H\phi\|=O(1)$ (measured as $1.06$--$1.12$ in setup~S and $1.50$--$1.53$ in setup~B
-on $16^4$ configuration~4), whereas the coarse Ritz value $\theta=\langle\phi|H|\phi\rangle$ is a
-wall-to-wall matrix element that decreases as $L_s$ grows. On $16^4$ configuration~4 ($Q=+3$) in
-setup~S, the spurious directions across $L_s=8$--$20$ have overlap
-$|c_{\mathrm{true}}\dg\sigma_3 c_{\mathrm{ghost}}|=0.72$--$0.98$ with the three true zero modes
-(whose net chirality $\#(\theta>0)-\#(\theta<0)=+3$ matches $Q$ at $L_s=8,10,12,14,20$). At
-$L_s=12$, one ghost crosses near zero ($\theta=-4.4\times10^{-4}$, matching the $r_{\max}=2402$
-spike in Table~\ref{tab:ls16comp}), stalling GCR(2). On the same configuration in setup~B, the
-$\sigma_3$-overlap ghosts also appear (overlap $0.5$--$0.7$), but the wider wall profiles at
-$M_5=1.8$ keep them at $|\theta|\approx10^{-2}$ up to $L_s=20$, more than an order of magnitude
-farther from zero.
+\paragraph{Wrong-wall ghosts.}
+We first define the quantities used to tell true low modes from spurious coarse directions in the
+split basis. Let $V_k$ be the span of the $k=16$ right singular vectors of $\Dc$ with the smallest
+singular values, and let $w_1,\dots,w_k$ be the Ritz vectors of $H_c=\Pq\dg H\Pq$ on $V_k$, with
+Ritz values $\theta_j$. For a unit coarse vector $w$ we write $\eta(w)=\|\Dsym\Pq w\|=\|H\Pq w\|$
+($\Gfive$ is unitary), so $\eta(w)\ge|\theta|$ by Eq.~\eqref{eq:pollution}. Let $w'$ be the
+normalized projection of $\sigma_3w$ onto $V_k$, and define the pair ratio
+\begin{equation}
+\rho(w)=\frac{\eta(w')}{\eta(w)} .
+\label{eq:pairratio}
+\end{equation}
+
+The ratio separates the two kinds of direction as follows. Let $\psi_0$ be an eigenvector of $H$,
+$H\psi_0=\lambda\psi_0$ with small $|\lambda|$, localized on one wall, and let $\psi_0\approx\Pq c$.
+Then $\eta(c)\approx\|H\psi_0\|=|\lambda|$ is small. Since $\Gfive\Pq=\Pq\sigma_3$, the reflection
+$\phi=\Gfive\psi_0\approx\Pq\sigma_3c$ also lies in $\operatorname{range}\Pq$; $\Gfive=\gamma_5R$
+keeps the four-dimensional chirality and moves $\phi$ to the opposite wall. Its residual is
+$\eta(\sigma_3c)=\|H\Gfive\psi_0\|=\|\Dsym\Gfive\psi_0\|$, and its Ritz value is
+$\phi\dg H\phi=\psi_0\dg\Dsym\phi$, a matrix element between states on the two walls. A direction
+close to $\sigma_3c$ thus has a residual of order one (measured below), while its Ritz value can be
+small, and its partner under $\sigma_3$ is $c$, so $\rho\ll1$ for it and $\rho\gg1$ for $c$. We call a Ritz vector with $\rho(w)>10$ a \emph{true mode} and one with
+$\rho(w)<0.2$ a \emph{wrong-wall ghost}.
+
+On $16^4$ configuration~4 in setup~S, three Ritz vectors are true modes at $L_s=8$, $10$, $12$,
+$14$ and $20$, and two at $L_s=16$, with $\rho=24$--$214$ and $\eta=0.005$--$0.045$. The ghosts have
+$\eta=1.06$--$1.12$ and $|\theta|=4.4\times10^{-4}$--$1.7\times10^{-2}$. On the full $H_c$ at
+$L_s=8$, $\sigma_3$ maps the two lowest true modes onto the two ghosts with overlaps $0.98$ and
+$0.91$. The true modes have $\#(\theta>0)-\#(\theta<0)=+3$, equal to $Q$ of this configuration
+(Table~\ref{tab:configs}), at every $L_s$ except $16$, where it is $+2$. At $L_s=12$ a ghost lies at
+$\theta=-4.4\times10^{-4}$, the direction of $r_{\max}=2402$ in Table~\ref{tab:ls16comp}, and
+GCR(2) stalls. In setup~B on the same configuration, four Ritz vectors are true modes at every
+$L_s$ ($\rho=13$--$63$, $\eta=0.024$--$0.12$), so their count $+4$ differs from $Q$. The ghosts
+have $\eta=1.50$--$1.53$ and stay at $|\theta|\ge8\times10^{-3}$ for $L_s=8$--$20$. On
+$24^4$ at $L_s=16$ with three bootstrap rounds, at most one Ritz vector per configuration has
+$\rho>10$ (four configurations in setup~S, two in setup~B), so there the ratio does not identify
+the true modes.
 
 A single-switch ablation on $16^4$ configuration~4 tests the effect of including $\hat t$ in the
 quark basis. Retaining $\Dsym$ and $\Pv$ of the split basis while adding the $\Gfive$-split
@@ -523,8 +544,8 @@ $V_k$, giving unit eigenvectors $y_j$ with fine residual norms $\tilde\eta_j=\|\
 With three fixed bootstrap rounds at $L_s=16$, the smallest residual $\tilde\eta_1$ increases from
 $16^4$ (configuration~4) to $24^4$ in both setups, from $0.0021$ to $0.010$--$0.048$ across the
 four configurations in setup~S and from $0.017$ to $0.11$--$0.21$ (configurations~1 and~4) in
-setup~B. With three bootstrap rounds on $24^4$ at $L_s=16$, split~B shows no near-zero wrong-wall
-ghost (no mode has pair ratio $\eta(\sigma_3 w)/\eta(w)<0.2$, where $\eta(w)=\|\Dsym\Pq w\|$),
+setup~B. With three bootstrap rounds on $24^4$ at $L_s=16$, split~B has no Ritz vector with
+$\rho<0.2$ (Eq.~\eqref{eq:pairratio}),
 while its $r_i$ values reach $r_{\mathrm{med}}=117$--$132$ and $r_{\max}=299$--$416$. Raising the bootstrap from three to five rounds on
 configurations~1 and~4 cuts the smallest three $\tilde\eta_j$ from $0.11$--$0.30$ to
 $0.006$--$0.039$, showing that three rounds had not finished refining the lowest modes. Yet five

@@ -86,7 +86,7 @@
 \contentsline {paragraph}{Truncated GCR and inexact coarse solves.}{33}{section*.42}%
 \contentsline {subsection}{\numberline {E}\New Shared-basis and split-basis coarsening across $L_s$ and volume}{33}{subsection.5.5}%
 \contentsline {paragraph}{Spurious coarse directions and the ratio $r_i$.}{33}{section*.43}%
-\contentsline {paragraph}{Wrong-wall ghosts and why the two bases avoid opposite failures.}{33}{section*.44}%
+\contentsline {paragraph}{Wrong-wall ghosts.}{33}{section*.44}%
 \contentsline {paragraph}{Volume dependence of $r_i$ and $\eta _i$.}{34}{section*.45}%
 \contentsline {section}{\numberline {VI}Summary}{36}{section.6}%
 \contentsline {paragraph}{Code.}{36}{section*.46}%
