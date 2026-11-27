@@ -105,6 +105,46 @@ pub fn top_of<T: DeviceReal, A: LinearFn<DeviceSpinor<T>>>(
     Ok(1.1 * largest_magnitude(a, &mut start, steps))
 }
 
+/// exp/round-probe: GCR(2) on `a` x = b with the cycle `cycle`, b random on the even sites (seed
+/// 4242), at most `steps` steps to |r|²/|b|² < 1e-12; prints the residual of every step.
+fn round_probe<T: DeviceReal>(
+    a: &mut dyn LinearFn<DeviceSpinor<T>>,
+    cycle: &mut dyn LinearFn<DeviceSpinor<T>>,
+    lat: &Arc<Lattice>,
+    even: &DeviceSpinor<T>,
+    round: usize,
+    steps: usize,
+) -> Result<(), CudaError> {
+    use crate::solver::{Gcr, Solver, Stop};
+    let ls = even.ls();
+    let mut host = Field::<f64, Spinor>::with_shape(lat, 24, ls, 1, 1);
+    host.as_mut_slice()
+        .copy_from_slice(random_spinor(lat, ls, 4242).as_slice());
+    let mut b = even.zeros_with(1);
+    DeviceParities.extract(&mut b, &DeviceSpinor::<T>::from_host(&host)?, Parity::Even);
+    let mut x = b.zeros_like();
+    let stop = Stop {
+        tolerance_sqr: 1e-12,
+        max_iterations: steps,
+        max_restarts: 0,
+    };
+    let mut gcr = Gcr::new(stop, 2).recording();
+    let info = gcr.solve(a, Some(cycle), &mut x, &b);
+    let history: Vec<String> = gcr
+        .history
+        .unwrap_or_default()
+        .iter()
+        .map(|h| format!("{:.3e}", h[0]))
+        .collect();
+    let iterations = info.as_ref().map_or(0, |i| i.iterations);
+    eprintln!(
+        "round probe {round}: GCR(2) {iterations} steps{}; |r|^2/|b|^2 {}",
+        if info.is_err() { " (breakdown)" } else { "" },
+        history.join(" ")
+    );
+    Ok(())
+}
+
 /// The lowest `keep` of `low.vectors` vectors of Chebyshev-filtered subspace iteration on Ã†Ã
 /// (Ã of `d` over `pv`, the right form) from random vectors on the even sites, and the Ritz
 /// values of all of them.
@@ -220,6 +260,7 @@ pub fn bootstrap<T: DeviceReal>(
     let report = RefCell::new(report);
     // The top of the smoother is that of Ã, the same in every round: one power iteration.
     let top = Cell::new(None);
+    let probe_round = Cell::new(0usize);
     // A set of no vectors stands in for the vectors while they go through the rounds.
     let taken = std::mem::replace(y, y.zeros_with(0));
     *y = bootstrap_rounds::<_, Stashed<T>, _>(
@@ -241,6 +282,17 @@ pub fn bootstrap<T: DeviceReal>(
                     even,
                 );
                 let mut two_grid = TwoGrid::new(smoother, correction, even);
+                // exp/round-probe (RUTTICE_ROUND_PROBE=k): before the round improves its vectors,
+                // GCR(2) with this round's cycle on Ã x = b (right form, b random from seed 4242,
+                // the same in every round), at most k steps, |r|²/|b|² of every step printed.
+                // A diagnostic: the vectors and the rounds are those of a run without it.
+                if let Some(k) =
+                    crate::env::parsed::<usize>("RUTTICE_ROUND_PROBE", "a number of steps")
+                {
+                    let round = probe_round.get();
+                    probe_round.set(round + 1);
+                    round_probe(&mut ratio(), &mut two_grid, lat, even, round, k)?;
+                }
                 let (waiting, ends) = work(&mut ratio(), &mut two_grid, vectors)?;
                 drop(two_grid);
                 Ok((waiting.back()?, ends))
