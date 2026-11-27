@@ -156,7 +156,7 @@ $6.4$--$10.9$ times faster than mixed-precision CGNE, and a complete 12-column p
 propagator takes \New $0.27$--$0.49$ of its wall-clock time including setup. At $L_s=16$ on
 $24^4$ with three bootstrap rounds, neither nine-point variant covers both link setups. The shared
 basis converges with stout links at $M_5=1.0$ ($18$--$29$ iterations) where the split basis stalls,
-whereas with bare links at $M_5=1.8$ the split basis converges ($20$--$29$ iterations) while the
+whereas with bare links at $M_5=1.8$ the split basis converges ($23$--$29$ iterations) while the
 shared basis stalls on two of three tested configurations.\else{} We state the formulation and outline the remaining open
 questions.\fi{}
 \end{abstract}
@@ -1776,7 +1776,7 @@ bootstrap rounds, the two variants cover opposite setups. The shared-basis coars
 converges on all four configurations of setup~S ($18$--$29$ iterations), where the split basis
 stalls; on $16^4$ we trace the stall to wrong-wall ghost modes near zero. In setup~B, the split-basis coarsening of
 $\Dsym=DB_5^{-1}$ keeps $\sigma_3\Dc$ Hermitian and converges on all four configurations
-($20$--$29$ iterations), where the shared basis stalls on two of three tested configurations.
+($23$--$29$ iterations), where the shared basis stalls on two of three tested configurations.
 Although the factorized correction is exact on the test vectors only for the
 right-preconditioned form, omitting the Pauli--Villars lift $\hat t$ from the shared basis causes
 GCR(2) to stagnate or increase its iteration count by several times on configurations in setup~S,
@@ -1853,9 +1853,10 @@ with $24$\,GB, so this comparison needs a GPU with more memory.
 neither static nine-point basis works for both setups on $24^4$ (Sec.~\ref{sec:ls16comp}). On a
 single $24$\,GB GPU, $24^3\times48$ exceeds device memory from $L_s=10$ upward during the
 post-setup solve allocation, so testing both variants at $L_s=16$ on $24^3\times48$ and $32^4$
-requires more memory or multiple GPUs. Understanding why extra bootstrap rounds degrade outer
-GCR(2) convergence at $L_s=16$ on $24^4$ (Sec.~\ref{sec:ls16comp}), for example through loss of
-local test-vector diversity or sensitivity of GCR(2) to isolated outliers, remains open. Finding
+requires more memory or multiple GPUs. At $L_s=16$ on $24^4$, both fewer and more bootstrap rounds than three, and the
+automatic rule, stall one of the adopted variants on some configurations
+(Sec.~\ref{sec:ls16comp}). A rule that chooses the number of rounds there remains open; we expect
+that it has to test the cycle on the outer operator $\AL$, whose convergence the stalls concern. Finding
 a single nine-point basis that avoids both wrong-wall ghosts in setup~S and high-$r$ modes in
 setup~B, and choosing unequal basis sizes for $\Pq$ and $\Pv$, also remain for future work.
 

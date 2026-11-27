@@ -463,24 +463,18 @@ $16^4$, $L_s=16$ & S & shared & $11$--$21$ & $14.1$--$17.5$ & $83.1$--$89.7$\\
  & B & shared & $14$--$22$ & $50.5$ & $112$\\
  & B & split & $15$--$20$ & $43.1$--$54.9$ & $89.1$--$167$\\
 \addlinespace[2pt]
-$24^4$, $L_s=16$ & S & shared & $18$--$29^{a}$ & $50.7$--$53.9$ & $146$--$211$\\
+$24^4$, $L_s=16$ & S & shared & $18$--$29$ & $50.7$--$53.9$ & $146$--$211$\\
  & S & split & stall ($4/4$) & $118$--$131$ & $2.7{\times}10^3$--$2.3{\times}10^5$\\
- & B & shared & $26$ / stall$^{b}$ & $264^{b}$ & $704^{b}$\\
- & B & split & $20$--$29^{b}$ & $117$--$132$ & $299$--$416$\\
+ & B & shared & $26$ / stall$^{a}$ & $264^{a}$ & $704^{a}$\\
+ & B & split & $23$--$29$ & $117$--$132$ & $299$--$416$\\
 \addlinespace[2pt]
-$24^4$, $L_s=20$ (c.~1) & B & split ($n=16$)$^{b}$ & $49$ & --- & ---\\
+$24^4$, $L_s=20$ (c.~1) & B & split ($n=16$)$^{a}$ & $49$ & --- & ---\\
 \bottomrule
 \end{tabular}
 \vspace{2pt}
-\parbox{\linewidth}{\footnotesize $^{a}$With three fixed bootstrap rounds on $4^4$ blocks,
-configuration~1 of $24^4$ shared~S converges in $23$ iterations ($r_{\mathrm{med}}=53.9$);
-configurations~2--4 converge in $18$, $29$, and $25$ iterations. $^{b}$On $24^4$ at $L_s=16$ with
-$4^3\times2$ blocks and three fixed bootstrap rounds, pure-Galerkin shared~B converges on
-configuration~2 ($26$ iterations) and stalls on configurations~1 and~3 ($r_{\mathrm{med}}=264$,
-$r_{\max}=704$ on configuration~1); split~B converges in $20$, $26$, $28$, and $29$ iterations on
-all four configurations ($r_{\mathrm{med}}=123$ on configuration~1 and $109$ on configuration~4)
-and in $27$ and $29$ iterations on configurations~1 and~4 with $4^4$ blocks
-($r_{\mathrm{med}}=132.1$ and $116.8$).}
+\parbox{\linewidth}{\footnotesize $^{a}$$4^3\times2$ blocks. On $24^4$ at $L_s=16$, pure-Galerkin
+shared~B converges on configuration~2 ($26$ iterations) and stalls on configurations~1 and~3
+($r_{\mathrm{med}}=264$, $r_{\max}=704$ on configuration~1).}
 \end{table}
 
 \paragraph{Wrong-wall ghosts.}
@@ -549,6 +543,9 @@ $\rho<0.2$ (Eq.~\eqref{eq:pairratio}),
 while its $r_i$ values reach $r_{\mathrm{med}}=117$--$132$ and $r_{\max}=299$--$416$. Raising the bootstrap from three to five rounds on
 configurations~1 and~4 cuts the smallest three $\tilde\eta_j$ from $0.11$--$0.30$ to
 $0.006$--$0.039$, showing that three rounds had not finished refining the lowest modes. Yet five
-rounds cause GCR(2) to stall at $300$ iterations on both configurations, showing that outer
-convergence at $L_s=16$ is sensitive to the number of bootstrap rounds.
+rounds cause GCR(2) to stall at $300$ iterations on both configurations, and six rounds stall
+split~B on configuration~4. The automatic rule of Sec.~\ref{sec:autoboot} stops shared~S on
+configuration~2 after two rounds and split~B on configuration~3 after four, and both stall. Of the
+numbers of rounds tested on $24^4$ at $L_s=16$, three is the only one with which both adopted
+variants converge on all four configurations.
 
