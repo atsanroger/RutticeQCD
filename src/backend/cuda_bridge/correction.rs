@@ -286,6 +286,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         // exp/mr-coarse (RUTTICE_MR=dir): once, the low modes of dir/mr.bin.
         // exp/mr-coarse (RUTTICE_MR_K=k): the same, found on the device.
         if crate::env::MR_ARMED.with(|a| a.replace(false)) {
+            crate::solver::preconditioner::multigrid::memdiag("first correction");
             eprintln!(
                 "mr memory at the first correction: {:.2} GB",
                 super::device_memory().0 as f64 / 1e9
@@ -338,6 +339,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                     (pick(&v), pick(&u), keep.iter().map(|&j| sigma[j]).collect())
                 })
             });
+            crate::solver::preconditioner::multigrid::memdiag("after the search");
             let found = found.filter(|f| f.as_ref().map_or(true, |(_, _, s)| !s.is_empty()));
             if let Some(found) = found {
                 match found.and_then(|(v, u, sigma)| self.low_modes(&v, &u, &sigma)) {
@@ -347,6 +349,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
                     Err(e) => panic!("RUTTICE_MR: {e}"),
                 }
             }
+            crate::solver::preconditioner::multigrid::memdiag("after the measurement");
         }
         self.correction.correct(e, r);
         if crate::env::DIAG_DETAIL.with(|f| f.get()) {

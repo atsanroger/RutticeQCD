@@ -313,7 +313,9 @@ pub(super) fn run(
         Some((parts, m)) => Some(backend.cycles(ops.plain()?, &outers, lat, m, parts)?),
         None => None,
     };
-    let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
+    // Its work fields are made for each product: between products they would wait beside
+    // those of the cycle.
+    let operator = || PvRatio::new(outer.0, outer.1, form, even, odd).release_scratch();
     let mut pre: Option<Box<dyn LinearFn<DeviceSpinor> + '_>> = match s.preconditioner_type {
         PreconditionerType::Chebyshev => {
             let c = s.chebyshev_settings();
@@ -608,10 +610,12 @@ pub(super) fn run(
                     ..s.stop()
                 },
             };
+            crate::solver::preconditioner::multigrid::memdiag("solve start");
             let mut rhs = even.zeros_with(nv);
             a.right_hand_side(&DeviceParities, &mut rhs, &target);
             let target = target.park()?;
             let mut sol = rhs.zeros_like();
+            crate::solver::preconditioner::multigrid::memdiag("solve rhs and solution");
             let m = pre
                 .as_mut()
                 .map(|m| m.as_mut() as &mut dyn LinearFn<DeviceSpinor>);
@@ -634,6 +638,7 @@ pub(super) fn run(
                 _ => s.solve_with(stop, &mut a, m, &mut sol, &rhs, detailed),
             };
             solving += began.elapsed();
+            crate::solver::preconditioner::multigrid::memdiag("solve end");
             if history.is_none() {
                 history = recorded;
             }

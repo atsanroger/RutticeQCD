@@ -129,6 +129,7 @@ fn vectors_in<T: DeviceReal>(
         Some(k) if due => k.restore()?,
         Some(k) => return Ok((k.restore()?, None)),
     };
+    crate::solver::preconditioner::multigrid::memdiag("device filtered");
     let ending = RefCell::new(None);
     let same = settings.bootstrap.cycle == settings.cycle && !settings.coarse_double;
     let mut with = device_correction_with_levels(
@@ -187,10 +188,16 @@ fn basis_in<T: DeviceReal>(
     (d, pv): (&CudaMdwf<T>, &CudaMdwf<T>),
     agg: &Arc<Aggregation>,
     settings: &MdwfMultigridSettings,
-    y: &DeviceSpinor<T>,
+    y: &Stashed<T>,
     report: &mut dyn FnMut(SetupStage<'_>),
 ) -> Result<(Rc<DeviceBasis>, Option<LevelVectors>), Box<dyn Error>> {
-    let basis = Rc::new(DeviceBasis::pv_eo(d, pv, agg, y, !settings.basis_single)?);
+    let basis = Rc::new(DeviceBasis::pv_eo_stashed(
+        d,
+        pv,
+        agg,
+        y,
+        !settings.basis_single,
+    )?);
     report(SetupStage::Checksum("P", &|| {
         basis.checksum().expect("a checksum on the device")
     }));
@@ -198,7 +205,7 @@ fn basis_in<T: DeviceReal>(
         0 => None,
         _ => Some(
             basis
-                .pv_eo_coarse_vectors(d, pv, y)?
+                .pv_eo_coarse_vectors_stashed(d, pv, y)?
                 .to_precision::<f64>()?,
         ),
     };
@@ -331,10 +338,10 @@ impl MdwfBackend for OnDevice {
                         (parked, DeviceKept::Single(parts, tops))
                     }
                     None => {
-                        let (basis, levels) = basis_in(ops, &agg, settings, &y, report)?;
-                        // The test vectors are not needed for the coarse parts: on the host
-                        // from here.
+                        // The test vectors are not needed on the device for P (made of them two
+                        // at a time) and the coarse parts: on the host from here.
                         let parked = y.stash()?;
+                        let (basis, levels) = basis_in(ops, &agg, settings, &parked, report)?;
                         let levels = levels.as_ref();
                         let parts = match settings.coarse_double {
                             false => DeviceKept::Single(

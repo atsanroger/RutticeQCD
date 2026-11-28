@@ -301,6 +301,8 @@ pub struct PvRatio<'a, F: EvenOdd<H>, H> {
     /// With `keep_true_residual`: b′_e = b_e − D_eo C_o⁻¹ b_o and |b|² of the last
     /// `right_hand_side`, for `true_residual`.
     kept: Option<Option<(H, Vec<f64>)>>,
+    /// With `release_scratch`: the work fields are given back after each product.
+    release: bool,
 }
 
 impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
@@ -315,7 +317,17 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
             odd: [like_odd.zeros_like(), like_odd.zeros_like()],
             even: [like_even.zeros_like(), like_even.zeros_like()],
             kept: None,
+            release: false,
         }
+    }
+
+    /// The work fields made for each product and given back after it, for an operator whose
+    /// fields would otherwise wait beside those of a preconditioner applied between its
+    /// products (on the device, from the memory pool, which gives them out again at once).
+    /// The results are the same.
+    pub fn release_scratch(mut self) -> Self {
+        self.release = true;
+        self
     }
 
     /// Keep b′_e of every `right_hand_side` (one field on the even sites more), so that the
@@ -347,6 +359,11 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
                 schur_factor(op, work, self.form, scratch, e1, inp, dagger);
             } else {
                 schur_factor(op, work, self.form, scratch, out, e1, dagger);
+            }
+        }
+        if self.release {
+            for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
+                *f = f.zeros_with(0);
             }
         }
     }

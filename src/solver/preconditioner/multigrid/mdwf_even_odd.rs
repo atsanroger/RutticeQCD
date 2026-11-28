@@ -198,17 +198,34 @@ impl Lifts {
     }
 }
 
+/// Where `lifted_vectors` takes the y_j from, `chunk` of them at a time: the fields themselves,
+/// or (on the device) the copy on the host, so that only a chunk is on the device.
+pub(crate) trait LiftSource<H> {
+    fn count(&self) -> usize;
+    /// The vectors `range`.
+    fn chunk(&self, range: std::ops::Range<usize>) -> H;
+}
+
+impl<H: Vector> LiftSource<H> for H {
+    fn count(&self) -> usize {
+        self.num_vectors()
+    }
+    fn chunk(&self, range: std::ops::Range<usize>) -> H {
+        self.select(&range.collect::<Vec<_>>())
+    }
+}
+
 /// The vectors s_j and t̂_j on the whole lattice of the vectors y_j on the even sites (see the
 /// top of the file), on every backend: `chunk` of the j at a time, `visit(j, s)` getting the s
 /// of y_j .. y_(j+k−1) and `visit(n + j, t̂)` their t̂, in fields like `whole`. With
 /// `unit_sites`, s is scaled to |s|² = `unit_sites` before t̂ is made of it, as P keeps its
 /// vectors (`BasisBuilder::add`): P is the same, and its parts stay far from the smallest
 /// numbers of half precision.
-pub(crate) fn lifted_vectors<O, V, H, S>(
+pub(crate) fn lifted_vectors<O, V, H, S, Y>(
     (op, pv): (&O, &O),
     split: &S,
     whole: &V,
-    y: &H,
+    y: &Y,
     chunk: usize,
     unit_sites: Option<f64>,
     mut visit: impl FnMut(usize, &V),
@@ -217,8 +234,9 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
     V: Vector,
     H: Vector,
     S: SplitParity<V, H>,
+    Y: LiftSource<H> + ?Sized,
 {
-    let n = y.num_vectors();
+    let n = y.count();
     let (mut work, mut work_pv) = (op.even_odd_work(), pv.even_odd_work());
     let mut full_work = op.work();
     let lifts = Lifts::from_env();
@@ -226,7 +244,7 @@ pub(crate) fn lifted_vectors<O, V, H, S>(
     for which in all.chunks(chunk.max(1)) {
         let nv = which.len();
         let minus = vec![-1.0; nv];
-        let yj = y.select(which);
+        let yj = y.chunk(which[0]..which[0] + nv);
         let mut s = whole.zeros_with(nv);
         let mut x_e = split.half_like(&s, Parity::Even);
         let mut t = split.half_like(&s, Parity::Odd);

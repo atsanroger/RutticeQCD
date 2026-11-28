@@ -247,7 +247,22 @@ pub fn pv_eo_low_modes<F: Storage, G: GammaRepre>(
 /// Diagnostic (RUTTICE_MEMDIAG=1): the memory of the process at a step of the setup.
 pub(crate) fn memdiag(step: &str) {
     if crate::env::switch("RUTTICE_MEMDIAG") {
-        eprintln!("memdiag {step}: {}", crate::app::memory_line());
+        #[cfg(feature = "cuda-bridge")]
+        let device = {
+            let (now, peak) = crate::backend::cuda_bridge::device_memory();
+            format!(
+                "; device {:.2} GB, peak {:.2} GB; held {}",
+                now as f64 / 1e9,
+                peak as f64 / 1e9,
+                crate::backend::cuda_bridge::live_buffers()
+            )
+        };
+        #[cfg(not(feature = "cuda-bridge"))]
+        let device = "";
+        eprintln!("memdiag {step}: {}{device}", crate::app::memory_line());
+        // Each step's own peak (the device's), from here on.
+        #[cfg(feature = "cuda-bridge")]
+        crate::backend::cuda_bridge::reset_device_peak();
     }
 }
 
@@ -359,10 +374,10 @@ fn rayleigh_quotient<H: Vector>(a: &mut dyn LinearFn<H>, x: &H) -> f64 {
 pub type LevelLists<'l> = (&'l [usize], &'l [LevelBootstrap], bool);
 
 /// Where the test vectors wait while a round of the bootstrap improves them one at a time: on
-/// the CPU where they are (`InPlace`), on the device on the host (`DeviceSpinor::stash`), so that
-/// the device holds only the vector worked on besides the cycle.
+/// the CPU where they are (`InPlace`), on the device on the host (`DeviceSpinor::stash`, from
+/// before P is made of them), so that the device holds only the vector worked on besides the
+/// cycle.
 pub(crate) trait Waiting<H, E>: Sized {
-    fn wait(y: H) -> Result<Self, E>;
     fn num_vectors(&self) -> usize;
     fn vector(&self, j: usize) -> Result<H, E>;
     fn set_vector(&mut self, j: usize, x: &H) -> Result<(), E>;
@@ -374,9 +389,6 @@ pub(crate) trait Waiting<H, E>: Sized {
 pub(crate) struct InPlace<H>(H);
 
 impl<H: Vector, E> Waiting<H, E> for InPlace<H> {
-    fn wait(y: H) -> Result<Self, E> {
-        Ok(Self(y))
-    }
     fn num_vectors(&self) -> usize {
         self.0.num_vectors()
     }
@@ -393,9 +405,10 @@ impl<H: Vector, E> Waiting<H, E> for InPlace<H> {
 }
 
 /// What a round of the bootstrap does with Ã and the cycle of the current vectors, given the
-/// vectors: `bootstrap_vector` for each, the vectors waiting in `W` meanwhile.
+/// vectors waiting in `W` (on the device, on the host since P was made of them):
+/// `bootstrap_vector` for each.
 pub(crate) type RoundWork<'r, H, W, E> =
-    dyn FnMut(&mut dyn LinearFn<H>, &mut dyn LinearFn<H>, H) -> Result<(W, bool), E> + 'r;
+    dyn FnMut(&mut dyn LinearFn<H>, &mut dyn LinearFn<H>, W) -> Result<(W, bool), E> + 'r;
 
 /// How a backend makes the cycle of a round of the bootstrap: `with_cycle(y, levels, work)`
 /// makes P and the coarse correction of the vectors y (with the levels below the coarse lattice
@@ -439,9 +452,10 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
     for round in 0..params.rounds {
         let mut ended = None;
         {
-            let mut work = |a: &mut dyn LinearFn<H>, cycle: &mut dyn LinearFn<H>, vectors: H| {
-                // The vectors wait first: on the device the probe then has the room of a round.
-                let mut waiting = W::wait(vectors)?;
+            let mut work = |a: &mut dyn LinearFn<H>,
+                            cycle: &mut dyn LinearFn<H>,
+                            mut waiting: W| {
+                memdiag("bootstrap vectors waiting");
                 if let Some(gain) = params.min_gain.filter(|_| round >= params.min_rounds) {
                     let x = bootstrap_vector(&mut *a, &mut *cycle, &vector, params.steps);
                     let probed = rayleigh_quotient(&mut *a, &x);
@@ -480,6 +494,7 @@ pub(crate) fn bootstrap_rounds<H: Subspace, W: Waiting<H, E>, E>(
             let all: Vec<String> = ev.iter().map(|x| format!("{x:.2e}")).collect();
             eprintln!("diag gram round {round}: {}", all.join(" "));
         }
+        memdiag("bootstrap vectors back");
         orthonormalise_all(&mut y);
         (value, vector) = lowest(&y);
         on_round(round, &y, value);
@@ -546,7 +561,7 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
                 memdiag("bootstrap levels");
             }
             let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
-            let (waiting, _) = work(&mut a, &mut cycle, y)?;
+            let (waiting, _) = work(&mut a, &mut cycle, InPlace(y))?;
             memdiag("bootstrap vectors");
             drop(cycle);
             waiting.back()

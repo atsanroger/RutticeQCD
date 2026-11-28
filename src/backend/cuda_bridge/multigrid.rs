@@ -32,13 +32,10 @@ pub type Correction<'c, T> = Box<dyn FnMut(&mut DeviceSpinor<T>, &DeviceSpinor<T
 pub(crate) type Grown<T> = Result<DeviceSpinor<T>, Box<dyn Error>>;
 
 /// What a round of `bootstrap` does with the coarse correction of the current vectors: given it,
-/// the top of the smoother if known, and the vectors themselves, it returns the new vectors and
-/// whether the bootstrap ends on this correction (the vectors are then those it was made of).
-pub(crate) type Round<'r, T> = dyn FnMut(
-        Correction<'_, T>,
-        Option<f64>,
-        DeviceSpinor<T>,
-    ) -> Result<(DeviceSpinor<T>, bool), Box<dyn Error>>
+/// the top of the smoother if known, and the vectors waiting on the host, it returns the new
+/// vectors, still on the host, and whether the bootstrap ends on this correction (the vectors
+/// are then those it was made of).
+pub(crate) type Round<'r, T> = dyn FnMut(Correction<'_, T>, Option<f64>, Stashed<T>) -> Result<(Stashed<T>, bool), Box<dyn Error>>
     + 'r;
 
 /// How `bootstrap` gets the coarse correction of the current vectors: it makes it (with the
@@ -197,13 +194,19 @@ pub fn device_correction_with_levels<'o, T: DeviceReal>(
     ending: Option<&'o RefCell<Option<DeviceParts<f32>>>>,
 ) -> impl FnMut(DeviceSpinor<T>, bool, &mut Round<'_, T>) -> Grown<T> + 'o {
     move |y, with_levels, round| {
-        let basis = DeviceBasis::pv_eo(d, pv, agg, &y, half)?;
+        crate::solver::preconditioner::multigrid::memdiag("device round start");
+        // The vectors wait on the host while P is made of them, two at a time on the device: P
+        // and all of them would not fit on the device for the largest lattices.
+        let parked = y.stash()?;
+        let basis = DeviceBasis::pv_eo_stashed(d, pv, agg, &parked, half)?;
+        crate::solver::preconditioner::multigrid::memdiag("device basis");
         let level_vectors = match super_blocks.is_empty() || !with_levels {
             true => None,
-            false => Some(basis.pv_eo_coarse_vectors(d, pv, &y)?),
+            false => Some(basis.pv_eo_coarse_vectors_stashed(d, pv, &parked)?),
         };
         let mut c =
             DeviceCorrection::<T, f32>::new(basis, (d, pv), (d, pv), EoForm::Right, cycle, even)?;
+        crate::solver::preconditioner::multigrid::memdiag("device coarse operators");
         if let Some(v) = &level_vectors {
             c.add_levels(v, super_blocks, refine)?;
             if for_pv {
@@ -211,22 +214,22 @@ pub fn device_correction_with_levels<'o, T: DeviceReal>(
             }
         }
         drop(level_vectors);
-        let (y, ends) = round(Box::new(|e, r| c.correct(e, r)), None, y)?;
+        crate::solver::preconditioner::multigrid::memdiag("device levels");
+        let (parked, ends) = round(Box::new(|e, r| c.correct(e, r)), None, parked)?;
         // The first round's cycle has no levels: the solve's would differ.
         let complete = with_levels || super_blocks.is_empty();
         if let (true, true, Some(slot)) = (ends, complete, ending) {
             *slot.borrow_mut() = Some(c.parts());
         }
-        Ok(y)
+        // P and the coarse operators go before the vectors come back to the device.
+        drop(c);
+        Ok(parked.restore()?)
     }
 }
 
 /// The test vectors wait on the host while the cycle of a round of the bootstrap works on one at
 /// a time.
 impl<T: DeviceReal> Waiting<DeviceSpinor<T>, Box<dyn Error>> for Stashed<T> {
-    fn wait(y: DeviceSpinor<T>) -> Result<Self, Box<dyn Error>> {
-        Ok(y.stash()?)
-    }
     fn num_vectors(&self) -> usize {
         Stashed::num_vectors(self)
     }
@@ -295,7 +298,7 @@ pub fn bootstrap<T: DeviceReal>(
                 }
                 let (waiting, ends) = work(&mut ratio(), &mut two_grid, vectors)?;
                 drop(two_grid);
-                Ok((waiting.back()?, ends))
+                Ok((waiting, ends))
             })
         },
         &mut |y| lowest_ritz_pair(&mut ratio(), y),
@@ -335,7 +338,9 @@ pub fn two_grid<'a, T: DeviceReal>(
     correction: Correction<'a, T>,
     hi: Option<f64>,
 ) -> Result<DeviceCycle<'a, T>, CudaError> {
-    let operator = || PvRatio::new(outer.0, outer.1, form, even, odd);
+    // The smoother's work fields are made for each product: between them they would wait
+    // beside those of the coarse correction.
+    let operator = || PvRatio::new(outer.0, outer.1, form, even, odd).release_scratch();
     let hi = match hi {
         Some(hi) => hi,
         None => top_of(&mut operator(), lat, even, cycle.seed, cycle.power_steps)?,

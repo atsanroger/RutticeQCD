@@ -316,7 +316,7 @@ impl<T: DeviceReal> crate::field::park::Park for DeviceSpinor<T> {
 /// Fields kept on the host as they are on the device, while the device needs the room
 /// (`DeviceSpinor::stash`): back all at once or one vector at a time. The bootstrap moves its
 /// vectors through here every round, so they wait in pinned memory (`PinnedHost`).
-pub(crate) struct Stashed<T> {
+pub struct Stashed<T> {
     host: PinnedHost<T>,
     lat: Arc<Lattice>,
     ls: usize,
@@ -334,8 +334,20 @@ impl<T: DeviceReal> Stashed<T> {
         self.host.len() / self.vectors
     }
 
+    pub(crate) fn ls(&self) -> usize {
+        self.ls
+    }
+
+    pub(crate) fn parity(&self) -> Option<Parity> {
+        self.parity
+    }
+
+    pub(crate) fn lattice(&self) -> &Arc<Lattice> {
+        &self.lat
+    }
+
     /// The vectors `range` on the device.
-    fn part(&self, range: std::ops::Range<usize>) -> Result<DeviceSpinor<T>, CudaError> {
+    pub(crate) fn part(&self, range: std::ops::Range<usize>) -> Result<DeviceSpinor<T>, CudaError> {
         let one = self.one();
         Ok(DeviceSpinor {
             data: DeviceBuffer::upload(&self.host[range.start * one..range.end * one])?,
@@ -641,5 +653,17 @@ impl<T: DeviceReal> SplitParity<DeviceSpinor<T>, DeviceSpinor<T>> for DevicePari
 
     fn insert(&self, full: &mut DeviceSpinor<T>, half: &DeviceSpinor<T>) {
         Self::copy(half, full, false);
+    }
+}
+
+/// `lifted_vectors` from the copy on the host: a chunk of the vectors on the device at a time.
+impl<T: DeviceReal> crate::solver::preconditioner::multigrid::LiftSource<DeviceSpinor<T>>
+    for Stashed<T>
+{
+    fn count(&self) -> usize {
+        self.vectors
+    }
+    fn chunk(&self, range: std::ops::Range<usize>) -> DeviceSpinor<T> {
+        must(self.part(range))
     }
 }

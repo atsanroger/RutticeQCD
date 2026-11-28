@@ -5,7 +5,8 @@ use super::halo::{Faces, Halos};
 use super::*;
 use crate::kernel::{Dirac, Gamma, GammaRepre, Number, Real, Unit};
 use crate::solver::preconditioner::multigrid::{
-    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, Lifts, MultigridError, Transfer,
+    lifted_vectors, Aggregation, Basis, CoarseOp, CoarseOperator, LiftSource, Lifts,
+    MultigridError, Transfer,
 };
 use crate::Parity;
 use crate::{Coarse, ConvertFrom, Storage, Vector, C64, F16};
@@ -781,7 +782,8 @@ impl DeviceBasis {
     }
 
     /// The P of the even-odd Pauli-Villars multigrid from the vectors `y` on the even sites,
-    /// as `pv_eo_basis` makes it on the CPU: for every y, s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
+    /// kept on the host and brought to the device two at a time (P itself is the largest thing
+    /// of the setup), as `pv_eo_basis` makes it on the CPU: for every y, s = (C_e⁻¹ y, −C_o⁻¹ D_oe C_e⁻¹ y)
     /// and t̂ = (π D s, −(D_PV†)_oo⁻¹ (D_PV†)_oe π D s) (see the top of
     /// `multigrid::mdwf_even_odd`); `op` and `pv` the plain operators.
     pub fn pv_eo<T: DeviceReal>(
@@ -792,13 +794,42 @@ impl DeviceBasis {
         half: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         assert_eq!(y.parity, Some(Parity::Even));
-        let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
+        Self::pv_eo_of(op, pv, agg, y, (y.ls, &y.lat), half)
+    }
+
+    /// `pv_eo` of the vectors waiting on the host (`DeviceSpinor::stash`): two of them on the
+    /// device at a time.
+    pub(crate) fn pv_eo_stashed<T: DeviceReal>(
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
+        agg: &Arc<Aggregation>,
+        y: &Stashed<T>,
+        half: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        assert_eq!(y.parity(), Some(Parity::Even));
+        Self::pv_eo_of(op, pv, agg, y, (y.ls(), y.lattice()), half)
+    }
+
+    fn pv_eo_of<T: DeviceReal, Y: LiftSource<DeviceSpinor<T>>>(
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
+        agg: &Arc<Aggregation>,
+        y: &Y,
+        (ls, lat): (usize, &Arc<Lattice>),
+        half: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let n = y.count();
         let split = crate::env::split();
         let columns = match split && !crate::env::split_qt() {
             true => n,
             false => Lifts::from_env().columns(n),
         };
         let mut basis = Self::empty(agg, ls, columns, half)?;
+        crate::solver::preconditioner::multigrid::memdiag(&format!(
+            "device P allocated ({columns} columns, half {half}; y {n} vectors of {} bytes, {:.2} GB on the host)",
+            std::mem::size_of::<T>(),
+            (n * lat.num_sites() / 2 * 24 * ls * std::mem::size_of::<T>()) as f64 / (1u64 << 30) as f64
+        ));
         // exp/ls16-diag (RUTTICE_SPLIT): P_v of the t̂ lifts.
         let mut basis_v = match split {
             true => Some(Self::empty(agg, ls, n, half)?),
@@ -945,7 +976,28 @@ impl DeviceBasis {
         y: &DeviceSpinor<T>,
     ) -> Result<DeviceCoarse<T>, CudaError> {
         assert_eq!(y.parity, Some(Parity::Even));
-        let (n, ls, lat) = (y.vectors, y.ls, &y.lat);
+        self.pv_eo_coarse_vectors_of(op, pv, y, (y.ls, &y.lat))
+    }
+
+    /// `pv_eo_coarse_vectors` of the vectors waiting on the host, two on the device at a time.
+    pub(crate) fn pv_eo_coarse_vectors_stashed<T: DeviceReal>(
+        &self,
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
+        y: &Stashed<T>,
+    ) -> Result<DeviceCoarse<T>, CudaError> {
+        assert_eq!(y.parity(), Some(Parity::Even));
+        self.pv_eo_coarse_vectors_of(op, pv, y, (y.ls(), y.lattice()))
+    }
+
+    fn pv_eo_coarse_vectors_of<T: DeviceReal, Y: LiftSource<DeviceSpinor<T>>>(
+        &self,
+        op: &CudaMdwf<T>,
+        pv: &CudaMdwf<T>,
+        y: &Y,
+        (ls, lat): (usize, &Arc<Lattice>),
+    ) -> Result<DeviceCoarse<T>, CudaError> {
+        let n = y.count();
         let split = self.pv.is_some() && !crate::env::split_qt();
         let qt = self.pv.is_some() && crate::env::split_qt();
         let columns = match split {

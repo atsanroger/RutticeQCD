@@ -142,6 +142,39 @@ fn finish() {
 static IN_USE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
+/// exp/gpu-mem (RUTTICE_MEMDIAG): the buffers held, counted by size, printed when the device
+/// refuses one (`live_buffers`).
+static LIVE: std::sync::Mutex<std::collections::BTreeMap<usize, usize>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn memdiag_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| crate::env::switch("RUTTICE_MEMDIAG"))
+}
+
+fn count_live(bytes: usize, add: bool) {
+    if memdiag_on() {
+        let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+        let n = live.entry(bytes).or_insert(0);
+        if add {
+            *n += 1;
+        } else {
+            *n = n.saturating_sub(1);
+        }
+    }
+}
+
+/// exp/gpu-mem (RUTTICE_MEMDIAG): the buffers of at least 32 MiB held now, by size.
+pub(crate) fn live_buffers() -> String {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+    live.iter()
+        .rev()
+        .filter(|(b, n)| **b >= 32 << 20 && **n > 0)
+        .map(|(b, n)| format!("{n} x {:.3} GB", *b as f64 / (1u64 << 30) as f64))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The stream-ordered memory pool of the device the fields are allocated from, made to keep
 /// what is freed for the next allocation (by default it gives it back at every
 /// synchronisation); null where the device has no pools, and then every field is a
@@ -257,6 +290,13 @@ fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
         // The refusal is not an error of the kernels: not for `finish` to find.
         // SAFETY: no arguments.
         unsafe { cudaGetLastError() };
+        if memdiag_on() {
+            eprintln!(
+                "memdiag refused {:.3} GB; held: {}",
+                bytes as f64 / (1u64 << 30) as f64,
+                live_buffers()
+            );
+        }
         let (mut free, mut total) = (0usize, 0usize);
         // SAFETY: places for the two numbers.
         if unsafe { cudaMemGetInfo(&mut free, &mut total) } != 0 {
@@ -273,6 +313,7 @@ fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
         ));
     }
     check(code)?;
+    count_live(bytes, true);
     PEAK.fetch_max(
         IN_USE.fetch_add(bytes, Ordering::Relaxed) + bytes,
         Ordering::Relaxed,
@@ -297,6 +338,7 @@ unsafe fn device_free(ptr: *mut c_void, bytes: usize) {
         cudaFreeAsync(ptr, STREAM);
     }
     IN_USE.fetch_sub(bytes, Ordering::Relaxed);
+    count_live(bytes, false);
 }
 
 /// FNV-1a of the bytes of `data`: what a buffer holds, to compare runs bit by bit.
@@ -324,6 +366,12 @@ pub(crate) fn trace_checksum(what: &str, sum: impl FnOnce() -> Result<u64, CudaE
 /// The bytes this program holds on the device, and the most it has held.
 pub(crate) fn device_memory() -> (usize, usize) {
     (IN_USE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
+}
+
+/// exp/gpu-mem (RUTTICE_MEMDIAG): the most held from here on, so that each step of the setup
+/// shows its own peak.
+pub(crate) fn reset_device_peak() {
+    PEAK.store(IN_USE.load(Ordering::Relaxed), Ordering::Relaxed);
 }
 
 /// The bytes of the device not held by this program now: its total memory less `device_memory`
