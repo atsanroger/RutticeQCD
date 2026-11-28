@@ -201,17 +201,16 @@ pub fn run_on(
     // The other experimental switches of the coarse correction exist only in the device multigrid; the
     // CPU multigrid would run the paper's correction instead, so a run asking for them is refused.
     if params.main.backend != Backend::CudaBridge {
-        // RUTTICE_DSYM and RUTTICE_SPLIT (the split basis) run on the CPU as well.
-        const DEVICE_ONLY: [&str; 15] = [
+        // RUTTICE_DSYM and RUTTICE_SPLIT (the split basis) run on the CPU as well, and so does
+        // the measurement of RUTTICE_MR_K (σ_j and r_j), with RUTTICE_MR_ITERS, RUTTICE_MR_TOL
+        // and RUTTICE_MR_R, which must keep no direction.
+        const DEVICE_ONLY: [&str; 12] = [
             "RUTTICE_DSYM_PV",
             "RUTTICE_DSYM_T",
             "RUTTICE_SPLIT_QT",
             "RUTTICE_DL",
-            "RUTTICE_MR_K",
-            "RUTTICE_MR_R",
+            "RUTTICE_MR",
             "RUTTICE_MR_SIGMA",
-            "RUTTICE_MR_ITERS",
-            "RUTTICE_MR_TOL",
             "RUTTICE_GHOST_DIAG",
             "RUTTICE_DAGGER_TEST",
             "RUTTICE_REPAIR",
@@ -229,6 +228,14 @@ pub fn run_on(
                 params.main.backend
             )
             .into());
+        }
+        if std::env::var_os("RUTTICE_MR_K").is_some() && std::env::var_os("RUTTICE_MR_R").is_none()
+        {
+            return Err(
+                "RUTTICE_MR_K is set without RUTTICE_MR_R; the CPU only measures the low \
+                 directions, so set RUTTICE_MR_R above every r_j (e.g. 999999)"
+                    .into(),
+            );
         }
     }
     let size = params.main.lattice_size;
@@ -540,6 +547,8 @@ where
     };
     // The solvers stop on |D x − b|²/|b|², as on the device (one more field on the even sites).
     a.keep_true_residual();
+    // exp/mr-coarse (RUTTICE_MR_K): σ_j and r_j at the first correction of the first solve.
+    crate::env::MR_ARMED.with(|f| f.set(std::env::var_os("RUTTICE_MR_K").is_some()));
     let coarse_applications = |pre: &Preconditioner<L>, single_pre: &Option<SinglePre<L>>| {
         single_pre.as_ref().map_or(pre.coarse_applications(), |c| {
             c.inner().coarse_applications()

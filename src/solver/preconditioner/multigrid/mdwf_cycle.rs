@@ -120,6 +120,94 @@ type CpuCorrection<'a, G, CT, F> = Correction<
     Rc<RefCell<CoarseOp<CT>>>,
 >;
 
+impl<G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> InLayout<'_, G, CT, L, F> {
+    /// exp/mr-coarse (RUTTICE_MR_K=k), as on the device but measuring only: the k smallest
+    /// singular triplets D_c v_j = σ_j u_j of the quark coarse operator
+    /// (`Correction::quark_low_singular`, the same start as on the device), |D_c v_j| against
+    /// σ_j and r_j = |A P v_j|/σ_j for the operator A that the quark factor coarsens (D B5⁻¹
+    /// with RUTTICE_DSYM, else D), P on the whole lattice. The solve stays Galerkin: a direction
+    /// with r_j above RUTTICE_MR_R is refused.
+    fn mr_measure(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use super::correction::{mr_start, CoarseOperator};
+        use crate::kernel::Number;
+        use crate::ConvertFrom;
+        let start = std::time::Instant::now();
+        let k: usize = std::env::var("RUTTICE_MR_K")?.parse()?;
+        let iters: usize = std::env::var("RUTTICE_MR_ITERS").map_or(Ok(8), |s| s.parse())?;
+        let tol: f64 = std::env::var("RUTTICE_MR_TOL").map_or(Ok(1e-8), |s| s.parse())?;
+        let r0: f64 = std::env::var("RUTTICE_MR_R")
+            .map_err(|_| "RUTTICE_MR_R is needed on the CPU, which only measures")?
+            .parse()?;
+        let m = 2 * k;
+        // The start in the order of the device (`DeviceCoarse::from_complex`): vector v at
+        // v n + x dim + component.
+        let mut x = self.correction.diag_parts().1.zeros_with(m);
+        let (sites, dim) = (x.num_sites(), x.internal_dof() / 2);
+        let n = sites * dim;
+        let init = mr_start(n, m);
+        for site in 0..sites {
+            for (v, part) in x.site_mut(0, site).chunks_exact_mut(2 * dim).enumerate() {
+                for c in 0..dim {
+                    let z = init[v * n + site * dim + c];
+                    part[2 * c] = CT::store(Number::from_f64(z.re));
+                    part[2 * c + 1] = CT::store(Number::from_f64(z.im));
+                }
+            }
+        }
+        let (v, _u, sigma, applications) = self.correction.quark_low_singular(x, k, iters, tol);
+        eprintln!(
+            "mr: {k} of {m} vectors, {iters} rounds, |r|^2/|b|^2 < {tol:.0e}: {applications} coarse applications, {:.1} s; sigma {}",
+            start.elapsed().as_secs_f64(),
+            sigma.iter().map(|x| format!("{x:.3e}")).collect::<Vec<_>>().join(" ")
+        );
+        let (g, _, transfer, op, coarse_d) = self.correction.diag_parts();
+        let mut dv = v.zeros_like();
+        coarse_d.mult(&mut dv, &v);
+        let mut ndv = vec![0.0; k];
+        dv.norm_sqr(&mut ndv);
+        let mut vf = g.zeros_with(k);
+        vf.convert_from(&v);
+        let ls = op.params().ls;
+        let (mut px, mut w, mut apx) = (
+            Field::<F, Spinor>::with_shape(&self.lat, 24, ls, 1, 1),
+            Field::<F, Spinor>::with_shape(&self.lat, 24, ls, 1, 1),
+            Field::<F, Spinor>::with_shape(&self.lat, 24, ls, 1, 1),
+        );
+        let mut work = FermionOp::<Field<F, Spinor>>::work(op);
+        let dsym = super::mdwf_even_odd::dsym(op);
+        let mut r = vec![0.0; k];
+        for j in 0..k {
+            transfer.basis.prolong(&mut px, &vf.select(&[j]));
+            let a_in = if dsym {
+                op.mult_b5(&mut w, &px, true);
+                &w
+            } else {
+                &px
+            };
+            op.mult(&mut work, &mut apx, a_in, crate::fermion::Variant::D);
+            let mut n2 = [0.0];
+            apx.norm_sqr(&mut n2);
+            r[j] = n2[0].sqrt() / sigma[j];
+            eprintln!(
+                "mr v{j}: sigma {:.4e} |D_c v| {:.4e} r {:.3e}",
+                sigma[j],
+                ndv[j].sqrt(),
+                r[j]
+            );
+        }
+        let kept = r.iter().filter(|&&rj| rj > r0).count();
+        eprintln!("mr: {kept} of {k} directions kept");
+        if kept > 0 {
+            return Err(format!(
+                "{kept} directions with r > RUTTICE_MR_R = {r0}; the CPU only measures, so set \
+                 RUTTICE_MR_R above every r_j (e.g. 999999) or run on the device"
+            )
+            .into());
+        }
+        Ok(())
+    }
+}
+
 /// The coarse correction for an operator in the layout `L`: P and the coarse operators work in
 /// the usual layout, so in blocks the residual is converted before it and the correction
 /// after it.
@@ -135,6 +223,12 @@ impl<G: GammaRepre, CT: Storage, L: CycleLayout<F>, F: Storage> Corrects<HalfFie
     for InLayout<'_, G, CT, L, F>
 {
     fn correct(&mut self, e: &mut HalfField<L, F>, r: &HalfField<L, F>) {
+        // exp/mr-coarse (RUTTICE_MR_K=k): once, at the first correction of the solve.
+        if crate::env::MR_ARMED.with(|a| a.replace(false)) {
+            if let Err(err) = self.mr_measure() {
+                panic!("RUTTICE_MR_K: {err}");
+            }
+        }
         if let (Some(r), Some(e)) = (L::as_sites(r), L::as_sites_mut(e)) {
             self.correction.correct(e, r);
             return;

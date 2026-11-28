@@ -6,7 +6,8 @@ use super::levels::AdjointPass;
 use super::*;
 use crate::fermion::EoForm;
 use crate::solver::preconditioner::multigrid::{
-    Adjoint, ApplyAdjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels, PvEoParams,
+    mr_start, Adjoint, ApplyAdjoint, CoarseKrylov, Correction, FnMap, LevelBootstrap, Levels,
+    PvEoParams,
 };
 use crate::{LinearFn, Parity, Vector};
 use std::error::Error;
@@ -286,8 +287,7 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         // exp/mr-coarse (RUTTICE_MR_K=k): the same, found on the device.
         if crate::env::MR_ARMED.with(|a| a.replace(false)) {
             eprintln!(
-                "mr memory {}: {:.2} GB",
-                "at the first correction",
+                "mr memory at the first correction: {:.2} GB",
                 super::device_memory().0 as f64 / 1e9
             );
             let found = if let Some(dir) = std::env::var_os("RUTTICE_MR") {
@@ -632,73 +632,24 @@ impl<'a, F: DeviceReal, CT: LevelReal> DeviceCorrection<'a, F, CT> {
         iters: usize,
         tol: f64,
     ) -> Result<(Vec<crate::C64>, Vec<crate::C64>, Vec<f64>), Box<dyn Error>> {
-        use crate::solver::preconditioner::multigrid::CoarseOperator;
-        use crate::C64;
         let start = std::time::Instant::now();
         let (sites, dim) = {
             let coarse_d = self.correction.diag_parts().4;
             (coarse_d.sites(), coarse_d.dim())
         };
-        let (n, m) = (sites * dim, 2 * k);
-        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
-        let mut rnd = || {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            ((state >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
-        };
-        let init: Vec<C64> = (0..m * n).map(|_| C64::new(rnd(), rnd())).collect();
-        let mut x = DeviceCoarse::<CT>::from_complex(sites, dim, &init)?;
-        orthonormalize(&mut x);
-        let n0 = self.correction.coarse_applications();
+        let m = 2 * k;
+        let x = DeviceCoarse::<CT>::from_complex(sites, dim, &mr_start(sites * dim, m))?;
         eprintln!(
-            "mr memory {}: {:.2} GB",
-            "search start",
+            "mr memory search start: {:.2} GB",
             super::device_memory().0 as f64 / 1e9
         );
-        for _ in 0..iters {
-            let mut y = x.zeros_like();
-            self.correction.solve_quark_coarse(&mut y, &x, tol, 5000);
-            orthonormalize(&mut y);
-            x = y;
-        }
+        let (v, u, sigma, applications) = self.correction.quark_low_singular(x, k, iters, tol);
         eprintln!(
-            "mr memory {}: {:.2} GB",
-            "search end",
+            "mr memory search end: {:.2} GB",
             super::device_memory().0 as f64 / 1e9
         );
-        let coarse_d = self.correction.diag_parts().4;
-        let mut b = x.zeros_like();
-        coarse_d.mult(&mut b, &x);
-        let mut gram = vec![C64::new(0.0, 0.0); m * m];
-        for i in 0..m {
-            let bi = b.select(&[i]);
-            for j in 0..m {
-                let mut d = [C64::new(0.0, 0.0)];
-                bi.dot(&b.select(&[j]), &mut d);
-                gram[i * m + j] = d[0];
-            }
-        }
-        let (lam, w) = crate::numerics::hermitian_eigen(m, &gram);
-        let mut order: Vec<usize> = (0..m).collect();
-        order.sort_by(|&a, &b| lam[a].total_cmp(&lam[b]));
-        let mut v = x.zeros_with(k);
-        for (j, &c) in order.iter().take(k).enumerate() {
-            let mut vj = x.zeros_with(1);
-            for l in 0..m {
-                vj.axpy(&[w[l * m + c]], &x.select(&[l]));
-            }
-            v.assign(&[j], &vj);
-        }
-        let mut u = v.zeros_like();
-        coarse_d.mult(&mut u, &v);
-        let mut nu = vec![0.0; k];
-        u.norm_sqr(&mut nu);
-        let sigma: Vec<f64> = nu.iter().map(|x| x.sqrt()).collect();
-        orthonormalize(&mut u);
         eprintln!(
-            "mr: {k} of {m} vectors, {iters} rounds, |r|^2/|b|^2 < {tol:.0e}: {} coarse applications, {:.1} s; sigma {}",
-            self.correction.coarse_applications() - n0,
+            "mr: {k} of {m} vectors, {iters} rounds, |r|^2/|b|^2 < {tol:.0e}: {applications} coarse applications, {:.1} s; sigma {}",
             start.elapsed().as_secs_f64(),
             sigma.iter().map(|x| format!("{x:.3e}")).collect::<Vec<_>>().join(" ")
         );
@@ -1063,24 +1014,4 @@ fn read_mr(
         cplx(2 * k * n),
         (0..k).map(|j| f(4 * k * n + j)).collect(),
     ))
-}
-
-/// exp/mr-coarse: the vectors of `x` made orthonormal by Gram–Schmidt, twice.
-fn orthonormalize<C: Vector>(x: &mut C) {
-    use crate::C64;
-    for _ in 0..2 {
-        for j in 0..x.num_vectors() {
-            let mut xj = x.select(&[j]);
-            for l in 0..j {
-                let xl = x.select(&[l]);
-                let mut d = [C64::new(0.0, 0.0)];
-                xl.dot(&xj, &mut d);
-                xj.axpy(&[C64::new(-d[0].re, -d[0].im)], &xl);
-            }
-            let mut nn = [0.0];
-            xj.norm_sqr(&mut nn);
-            xj.scale(&[1.0 / nn[0].sqrt()]);
-            x.assign(&[j], &xj);
-        }
-    }
 }

@@ -486,6 +486,59 @@ where
         );
     }
 
+    /// exp/mr-coarse (RUTTICE_MR_K=k): the k smallest singular triplets D_c v_j = σ_j u_j of
+    /// the quark coarse operator, by subspace iteration with D_c⁻¹ on the 2k vectors `x` (`iters`
+    /// rounds, each a solve of the cycle's coarse solver to |r|²/|b|² < `tol`, then
+    /// Gram–Schmidt), and the Rayleigh–Ritz step for D_c†D_c on their span. Returns V, U (D_c V
+    /// made orthonormal), the σ_j and the coarse-operator applications it took.
+    pub(crate) fn quark_low_singular(
+        &mut self,
+        mut x: C,
+        k: usize,
+        iters: usize,
+        tol: f64,
+    ) -> (C, C, Vec<f64>, usize) {
+        let m = x.num_vectors();
+        assert!(m >= k);
+        let n0 = self.coarse_applications();
+        orthonormalize(&mut x);
+        for _ in 0..iters {
+            let mut y = x.zeros_like();
+            self.solve_quark_coarse(&mut y, &x, tol, 5000);
+            orthonormalize(&mut y);
+            x = y;
+        }
+        let mut b = x.zeros_like();
+        self.coarse_d.mult(&mut b, &x);
+        let mut gram = vec![C64::new(0.0, 0.0); m * m];
+        for i in 0..m {
+            let bi = b.select(&[i]);
+            for j in 0..m {
+                let mut d = [C64::new(0.0, 0.0)];
+                bi.dot(&b.select(&[j]), &mut d);
+                gram[i * m + j] = d[0];
+            }
+        }
+        let (lam, w) = crate::numerics::hermitian_eigen(m, &gram);
+        let mut order: Vec<usize> = (0..m).collect();
+        order.sort_by(|&a, &b| lam[a].total_cmp(&lam[b]));
+        let mut v = x.zeros_with(k);
+        for (j, &c) in order.iter().take(k).enumerate() {
+            let mut vj = x.zeros_with(1);
+            for l in 0..m {
+                vj.axpy(&[w[l * m + c]], &x.select(&[l]));
+            }
+            v.assign(&[j], &vj);
+        }
+        let mut u = v.zeros_like();
+        self.coarse_d.mult(&mut u, &v);
+        let mut nu = vec![0.0; k];
+        u.norm_sqr(&mut nu);
+        let sigma: Vec<f64> = nu.iter().map(|x| x.sqrt()).collect();
+        orthonormalize(&mut u);
+        (v, u, sigma, self.coarse_applications() - n0)
+    }
+
     /// exp/mr-coarse: solve the low directions of the quark factor by minimal residual.
     pub(crate) fn set_low(&mut self, low: LowModes<'a, V, C>) {
         self.low = Some(low);
@@ -868,5 +921,37 @@ impl<T: crate::Storage> CoarseOperator<crate::Field<T, crate::Coarse>>
         inp: &crate::Field<T, crate::Coarse>,
     ) {
         self.borrow().even_block_inverse(out, inp);
+    }
+}
+
+/// exp/mr-coarse: the start of the search of `Correction::quark_low_singular`, `m` vectors of
+/// `n` complex numbers one after the other, the same on every backend.
+pub(crate) fn mr_start(n: usize, m: usize) -> Vec<C64> {
+    let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut rnd = || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((state >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
+    };
+    (0..m * n).map(|_| C64::new(rnd(), rnd())).collect()
+}
+
+/// Gram–Schmidt, twice, on the vectors of `x`.
+pub(crate) fn orthonormalize<C: Vector>(x: &mut C) {
+    for _ in 0..2 {
+        for j in 0..x.num_vectors() {
+            let mut xj = x.select(&[j]);
+            for l in 0..j {
+                let xl = x.select(&[l]);
+                let mut d = [C64::new(0.0, 0.0)];
+                xl.dot(&xj, &mut d);
+                xj.axpy(&[C64::new(-d[0].re, -d[0].im)], &xl);
+            }
+            let mut nn = [0.0];
+            xj.norm_sqr(&mut nn);
+            xj.scale(&[1.0 / nn[0].sqrt()]);
+            x.assign(&[j], &xj);
+        }
     }
 }
