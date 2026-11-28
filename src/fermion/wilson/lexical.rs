@@ -26,13 +26,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
         let convert = |x: &f64| T::store(Number::from_f64(*x));
         let stored: &[[f64; FULL_LINK_REALS]] = u.as_slice().as_chunks().0;
         let links = match self.link_format {
-            LinkFormat::Full => LinkStore::Full(
+            LinkFormat::Full => LinkStore::Full(Arc::new(
                 stored
                     .par_iter()
                     .with_min_len(LINKS_PER_TASK)
                     .map(|link| core::array::from_fn(|k| convert(&link[k])))
                     .collect(),
-            ),
+            )),
             LinkFormat::TwoRows => {
                 let n = self.lat.num_sites();
                 for (i, link) in stored.iter().enumerate() {
@@ -45,13 +45,13 @@ impl<T: Storage, G: GammaRepre, D: DiagTerm<T>> FermionOp<Field<T, Spinor>> for 
                         });
                     }
                 }
-                LinkStore::TwoRows(
+                LinkStore::TwoRows(Arc::new(
                     stored
                         .par_iter()
                         .with_min_len(LINKS_PER_TASK)
                         .map(|link| core::array::from_fn(|k| convert(&link[k])))
                         .collect(),
-                )
+                ))
             }
         };
         self.diag.set_gauge(&self.lat, u)?;

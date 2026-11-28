@@ -115,6 +115,13 @@ pub trait MdwfLayout<T: Storage>: WilsonLayout<T> {
         w: &mut WilsonOp<T, G, UnitDiag, Self>,
         u: &Field<f64, Gauge>,
     ) -> Result<(), GaugeError>;
+    /// The links of `from`, an operator set from `u`: shared where the layout keeps them in a
+    /// form it can share, else set from `u` again.
+    fn share_links<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        from: &WilsonOp<T, G, UnitDiag, Self>,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError>;
     fn mult<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
@@ -174,6 +181,14 @@ impl<T: Storage> MdwfLayout<T> for Aos {
         u: &Field<f64, Gauge>,
     ) -> Result<(), GaugeError> {
         FermionOp::<Field<T, Spinor>>::set_gauge(w, u)
+    }
+    fn share_links<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        from: &WilsonOp<T, G, UnitDiag, Self>,
+        _u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError> {
+        w.share_links_of(from);
+        Ok(())
     }
     fn mult<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
@@ -258,6 +273,13 @@ where
     ) -> Result<(), GaugeError> {
         FermionOp::<Field<T, Spinor, Lexical, Self>>::set_gauge(w, u)
     }
+    fn share_links<G: GammaRepre>(
+        w: &mut WilsonOp<T, G, UnitDiag, Self>,
+        _from: &WilsonOp<T, G, UnitDiag, Self>,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError> {
+        FermionOp::<Field<T, Spinor, Lexical, Self>>::set_gauge(w, u)
+    }
     fn mult<G: GammaRepre>(
         w: &WilsonOp<T, G, UnitDiag, Self>,
         work: &mut WilsonWork<T>,
@@ -317,6 +339,19 @@ impl<T: Storage, G: GammaRepre> Mdwf<T, G> {
         m
     }
 
+    /// `converted_from(op)` with the links of `links`, the conversion of an operator with the
+    /// same links as `op` (checked), shared instead of converted again.
+    pub(crate) fn converted_sharing<U: Storage>(op: &Mdwf<U, G>, links: &Self) -> Self {
+        assert!(
+            links.wilson.links_equal_converted(&op.wilson),
+            "converted_sharing: the operators have different links"
+        );
+        let mut m = Self::new(op.wilson.lattice(), op.params);
+        m.wilson.share_links_of(&links.wilson);
+        m.alpha = op.alpha;
+        m
+    }
+
     /// The operator with `params` on the lattice of `op`, without links (α 1): for its
     /// site-local parts only (`diag`, `diag_inv`), which do not read the links.
     pub(crate) fn site_only(op: &Self, params: MdwfParams) -> Self {
@@ -364,6 +399,17 @@ impl<T: Storage, G: GammaRepre, L: MdwfLayout<T>> Mdwf<T, G, L> {
     }
 
     /// Neff's form D^(α) = D Q (see the top of the file); 1 is the plain operator.
+    /// The gauge field of `other`, an operator set from `u` on the same lattice: its links shared
+    /// where the layout allows it (an operator that differs from `other` only in its parameters
+    /// then costs no second copy of the links), else set from `u`.
+    pub(crate) fn share_gauge_of(
+        &mut self,
+        other: &Self,
+        u: &Field<f64, Gauge>,
+    ) -> Result<(), GaugeError> {
+        L::share_links(&mut self.wilson, &other.wilson, u)
+    }
+
     pub fn set_alpha(&mut self, alpha: f64) {
         assert!(alpha > 0.0, "α must be positive");
         self.alpha = alpha;

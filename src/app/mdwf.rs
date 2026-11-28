@@ -264,16 +264,22 @@ pub fn run_on(
 }
 
 /// The operator stored as `T` in the layout `L`, at a mass and with Neff's α.
+/// The operator with `mass` and `alpha` on the links of `u`; with `links`, an operator already
+/// set from `u`, sharing its links instead of keeping a copy of its own.
 fn operator<T: Storage, L: MdwfLayout<T>>(
     params: &Params,
     lat: &Arc<Lattice>,
     u: &Field<f64, Gauge>,
     mass: f64,
     alpha: f64,
+    links: Option<&Mdwf<T, Dirac, L>>,
 ) -> Result<Mdwf<T, Dirac, L>, Box<dyn Error>> {
     let mut op = Mdwf::<T, Dirac, L>::in_layout(lat, params.mdwf_params(mass))
         .ok_or("the lattice cannot be cut for the SIMD layout")?;
-    op.set_gauge(u)?;
+    match links {
+        Some(other) => op.share_gauge_of(other, u)?,
+        None => op.set_gauge(u)?,
+    }
     op.set_alpha(alpha);
     Ok(op)
 }
@@ -286,30 +292,32 @@ struct Pair<T: Storage, L: MdwfLayout<T>> {
 }
 
 impl<T: Storage, L: MdwfLayout<T>> Pair<T, L> {
-    /// With the α of the file if `alpha`, else the plain operators.
+    /// With the α of the file if `alpha`, else the plain operators; on the links of `links`
+    /// if given (`operator`), the second operator always on those of the first.
     fn new(
         params: &Params,
         lat: &Arc<Lattice>,
         u: &Field<f64, Gauge>,
         alpha: bool,
+        links: Option<&Mdwf<T, Dirac, L>>,
     ) -> Result<Self, Box<dyn Error>> {
         let fo = &params.fopr;
         let of = |a: f64| if alpha { a } else { 1.0 };
         let (_, normal) = params.form();
-        Ok(Self {
-            d: operator(params, lat, u, fo.mass(), of(fo.neff_alpha))?,
-            other: if normal {
-                None
-            } else {
-                Some(operator(
-                    params,
-                    lat,
-                    u,
-                    fo.quark_mass_pauli_villars,
-                    of(fo.neff_alpha_pauli_villars),
-                )?)
-            },
-        })
+        let d = operator(params, lat, u, fo.mass(), of(fo.neff_alpha), links)?;
+        let other = if normal {
+            None
+        } else {
+            Some(operator(
+                params,
+                lat,
+                u,
+                fo.quark_mass_pauli_villars,
+                of(fo.neff_alpha_pauli_villars),
+                Some(&d),
+            )?)
+        };
+        Ok(Self { d, other })
     }
 
     fn both(&self) -> (&Mdwf<T, Dirac, L>, &Mdwf<T, Dirac, L>) {
@@ -333,11 +341,13 @@ impl<T: Storage, L: MdwfLayout<T>> CycleOperators<T, L> {
         u: &Field<f64, Gauge>,
         smoother: bool,
     ) -> Result<Self, Box<dyn Error>> {
+        let plain = Pair::new(params, lat, u, false, None)?;
+        let alpha = Pair::new(params, lat, u, true, Some(&plain.d))?;
         Ok(Self {
-            plain: Pair::new(params, lat, u, false)?,
-            alpha: Pair::new(params, lat, u, true)?,
+            plain,
+            alpha,
             smoother: if smoother {
-                Some(Pair::new(params, lat, u, true)?)
+                Some(Pair::new(params, lat, u, true, None)?)
             } else {
                 None
             },
@@ -370,11 +380,18 @@ where
     );
     // The operator of the outer solver, in double precision, with the Pauli-Villars one (the
     // normal equations are the operator with D in place of D_PV).
-    let outer = Pair::<f64, L>::new(params, &lat, u, true)?;
+    let outer = Pair::<f64, L>::new(params, &lat, u, true, None)?;
     let (op_l, pv_l) = outer.both();
     // The plain D for the check of the solution, when the operator carries α.
     let op_check_l = if fo.neff_alpha != 1.0 {
-        Some(operator::<f64, L>(params, &lat, u, fo.mass(), 1.0)?)
+        Some(operator::<f64, L>(
+            params,
+            &lat,
+            u,
+            fo.mass(),
+            1.0,
+            Some(&outer.d),
+        )?)
     } else {
         None
     };
@@ -397,11 +414,12 @@ where
     let mg = params.multigrid.as_ref().filter(|_| mg_settings.is_some());
     let settings = mg.map(|mg| mg.mdwf_settings(PrecisionType::Single));
     // The plain operators the parts are made for and the outer operator, in the usual layout.
-    let aos = match settings {
-        Some(_) => Some((
-            Pair::<f64, Aos>::new(params, &lat, u, false)?,
-            Pair::<f64, Aos>::new(params, &lat, u, true)?,
-        )),
+    let mut aos = match settings {
+        Some(_) => {
+            let plain = Pair::<f64, Aos>::new(params, &lat, u, false, None)?;
+            let alpha = Pair::<f64, Aos>::new(params, &lat, u, true, Some(&plain.d))?;
+            Some((plain, alpha))
+        }
         None => None,
     };
     let single_ops = match settings.is_some_and(|m| m.fine_single) {
@@ -448,8 +466,13 @@ where
                         out,
                         "  the same levels for the Pauli-Villars factor: {applications} coarse applications ({seconds:.0} s)"
                     ),
-                    SetupStage::Round { .. }
-                    | SetupStage::Ended { .. }
+                    SetupStage::Round { round, lowest } => writeln!(
+                        out,
+                        "  bootstrap round {}: lowest Ritz value of Ã†Ã {lowest:.3e} ({:.0} s)",
+                        round + 1,
+                        start.elapsed().as_secs_f64()
+                    ),
+                    SetupStage::Ended { .. }
                     | SetupStage::Kept
                     | SetupStage::Checksum(..) => Ok(()),
                 };
@@ -457,6 +480,9 @@ where
                     failed.get_or_insert(e);
                 }
             };
+            if crate::env::switch("RUTTICE_MEMDIAG") {
+                eprintln!("memdiag operators built: {}", super::memory_line());
+            }
             let (d, pv) = alpha.both();
             let outers = [(d, pv, form)];
             let (_, parts, _) =
@@ -474,15 +500,19 @@ where
     match (s.preconditioner_type, &mg_settings) {
         (PreconditionerType::Multigrid, Some((cycle_params, _, _))) => {
             steps = cycle_params.chebyshev_steps;
-            match (&parts, &aos, &single_ops) {
-                (Some(CpuParts::Double(p)), Some((plain, alpha)), _) => {
+            match (&parts, &single_ops) {
+                (Some(CpuParts::Double(p)), _) => {
+                    let (plain, alpha) = aos.as_ref().expect("made with the parts");
                     let (d, pv) = alpha.both();
                     let map = <L as CycleLayout<f64>>::map(&lat)
                         .ok_or("the lattice cannot be cut for the SIMD layout")?;
                     let outer = (d, pv, form);
                     pre = cycle_of(plain.both(), outer, (op_l, pv_l), map, p, *cycle_params);
                 }
-                (Some(CpuParts::Single(p)), _, Some(o)) => {
+                (Some(CpuParts::Single(p)), Some(o)) => {
+                    // The double-precision operators the parts were made for are not used
+                    // again: their links (a field of the whole lattice) go now.
+                    drop(aos.take());
                     let (d, pv) = o.alpha.both();
                     let smoother = o.smoother.as_ref().expect("made with them");
                     let map = <L as CycleLayout<f32>>::map(&lat)
@@ -559,7 +589,7 @@ where
     // fallen by `drop_sqr` (`SingleEven::reliable_normal`, as on the device).
     let mut single = match s.mixed() {
         Some(drop_sqr) => {
-            let op32 = operator::<f32, L>(params, &lat, u, fo.mass(), fo.neff_alpha)?;
+            let op32 = operator::<f32, L>(params, &lat, u, fo.mass(), fo.neff_alpha, None)?;
             Some((SingleEven::new(op32, &lat, drop_sqr), drop_sqr))
         }
         None => None,
@@ -585,9 +615,11 @@ where
         let tolerance = s.stop().tolerance_sqr;
         let mut bb = vec![0.0; nv];
         b.norm_sqr(&mut bb);
-        let mut x = b.zeros_like();
-        let mut target = b.zeros_like();
-        target.copy_from(b);
+        // The solution and the right-hand side of the next correction, made when needed: on a
+        // large lattice each is a field of the whole lattice in double precision, and the first
+        // solve needs neither (its right-hand side is b, its solution the first δ).
+        let mut x: Option<F<L>> = None;
+        let mut target: Option<F<L>> = None;
         let (mut results, mut history) = (Vec::new(), None);
         let mut worst;
         loop {
@@ -595,7 +627,7 @@ where
                 0 => s.stop(),
                 _ => {
                     let mut rr = vec![0.0; nv];
-                    target.norm_sqr(&mut rr);
+                    target.as_ref().unwrap_or(b).norm_sqr(&mut rr);
                     crate::solver::Stop {
                         tolerance_sqr: super::correction_tolerance(tolerance, &rr, &bb),
                         ..s.stop()
@@ -603,7 +635,7 @@ where
                 }
             };
             if !results.is_empty() {
-                a.right_hand_side(&mut rhs, &target);
+                a.right_hand_side(&mut rhs, target.as_ref().unwrap_or(b));
             }
             let mut sol = rhs.zeros_like();
             let began = Instant::now();
@@ -632,10 +664,19 @@ where
                 history = recorded;
             }
             let mut delta = b.zeros_like();
-            a.solution(&mut delta, &sol, &target);
-            x.axpy(&vec![C64::new(1.0, 0.0); nv], &delta);
+            a.solution(&mut delta, &sol, target.as_ref().unwrap_or(b));
+            drop(sol);
+            // x = 0 + δ is δ: the first δ becomes x without a second field.
+            let x = match &mut x {
+                Some(x) => {
+                    x.axpy(&vec![C64::new(1.0, 0.0); nv], &delta);
+                    drop(delta);
+                    x
+                }
+                None => x.insert(delta),
+            };
             let mut r = b.zeros_like();
-            op_check.mult(&mut op_check.work(), &mut r, &x, Variant::D);
+            op_check.mult(&mut op_check.work(), &mut r, x, Variant::D);
             r.aypx(&vec![C64::new(-1.0, 0.0); nv], b);
             let mut rr = vec![0.0; nv];
             r.norm_sqr(&mut rr);
@@ -645,8 +686,9 @@ where
             if failed || worst <= tolerance || results.len() > super::MAX_CORRECTIONS {
                 break;
             }
-            target = r;
+            target = Some(r);
         }
+        let x = x.expect("at least one solve");
         let (seconds, all) = (solving.as_secs_f64(), start.elapsed().as_secs_f64());
         let work = crate::meter::Counts::now().since(&counted);
         let iterations = super::rounds_text(&results);

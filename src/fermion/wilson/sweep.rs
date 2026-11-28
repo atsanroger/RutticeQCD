@@ -393,11 +393,14 @@ pub enum LinkFormat {
 /// for `LinkFormat::TwoRows`.
 pub(super) const SU3_TOLERANCE: f64 = 1e-10;
 
-/// The links of the operator, `[mu * num_sites + site]`, in the format it was asked for.
+/// The links of the operator, `[mu * num_sites + site]`, in the format it was asked for. Shared
+/// by the operators made from one gauge field that differ only in their parameters (mass, α,
+/// `share_links_of`), so a clone does not copy them.
+#[derive(Clone)]
 pub(super) enum LinkStore<T> {
     Unset,
-    Full(Vec<[T; FULL_LINK_REALS]>),
-    TwoRows(Vec<[T; TWO_ROW_REALS]>),
+    Full(Arc<Vec<[T; FULL_LINK_REALS]>>),
+    TwoRows(Arc<Vec<[T; TWO_ROW_REALS]>>),
 }
 
 impl<T: Storage> LinkStore<T> {
@@ -416,8 +419,8 @@ impl<T: Storage> LinkStore<T> {
         }
         match self {
             LinkStore::Unset => LinkStore::Unset,
-            LinkStore::Full(links) => LinkStore::Full(each(links)),
-            LinkStore::TwoRows(links) => LinkStore::TwoRows(each(links)),
+            LinkStore::Full(links) => LinkStore::Full(Arc::new(each(links))),
+            LinkStore::TwoRows(links) => LinkStore::TwoRows(Arc::new(each(links))),
         }
     }
 }
@@ -448,7 +451,7 @@ impl LinkRepr for FullLinks {
 
     fn of<T: Storage>(store: &LinkStore<T>) -> &[Self::Stored<T>] {
         match store {
-            LinkStore::Full(links) => links,
+            LinkStore::Full(links) => links.as_slice(),
             _ => unreachable!("the sweep is chosen from the format of the store"),
         }
     }
@@ -471,7 +474,7 @@ impl LinkRepr for TwoRowLinks {
 
     fn of<T: Storage>(store: &LinkStore<T>) -> &[Self::Stored<T>] {
         match store {
-            LinkStore::TwoRows(links) => links,
+            LinkStore::TwoRows(links) => links.as_slice(),
             _ => unreachable!("the sweep is chosen from the format of the store"),
         }
     }

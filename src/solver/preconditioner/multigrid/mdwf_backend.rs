@@ -137,9 +137,8 @@ impl MdwfMultigridSettings {
 pub enum SetupStage<'s> {
     /// The filter: the Ritz values of Ã†Ã of the test vectors.
     Filtered(&'s [f64]),
-    /// A round of the bootstrap (reported by the device), and the lowest Ritz value of Ã†Ã on
+    /// A round of the bootstrap, and the lowest Ritz value of Ã†Ã on
     /// the test vectors after it.
-    #[cfg_attr(not(feature = "cuda-bridge"), allow(dead_code))]
     Round { round: usize, lowest: f64 },
     /// The bootstrap ended before round `round` (reported by the device): its cycle lowers the
     /// lowest Ritz value `lowest` only to `probed`.
@@ -295,9 +294,12 @@ fn vectors_in<F: Storage, G: GammaRepre>(
     let agg = Aggregation::new(lat, settings.block);
     Ok(match kept {
         None => {
-            let (y, theta) = pv_eo_low_modes(op, pv, lat, settings.low_modes);
+            let (filtered, theta) = pv_eo_low_modes(op, pv, lat, settings.low_modes);
             report(SetupStage::Filtered(&theta));
-            let mut y = y.select(&(0..settings.test_vectors).collect::<Vec<_>>());
+            // The filtered vectors are dropped here, not at the end of the bootstrap: kept, they
+            // hold a second copy of the test vectors through it.
+            let mut y = filtered.select(&(0..settings.test_vectors).collect::<Vec<_>>());
+            drop(filtered);
             pv_eo_bootstrap_stored(
                 op,
                 pv,
@@ -306,6 +308,7 @@ fn vectors_in<F: Storage, G: GammaRepre>(
                 settings.bootstrap,
                 settings.storage(),
                 settings.levels(),
+                &mut |round, lowest| report(SetupStage::Round { round, lowest }),
             )?;
             y
         }
@@ -318,6 +321,7 @@ fn vectors_in<F: Storage, G: GammaRepre>(
                 settings.bootstrap,
                 settings.storage(),
                 settings.levels(),
+                &mut |round, lowest| report(SetupStage::Round { round, lowest }),
             )?;
             y
         }
@@ -357,7 +361,9 @@ fn parts_in<F: Storage, G: GammaRepre>(
         return Err("MultiGrid.levels_for_pauli_villars needs MINRES for the Pauli-Villars factor (Coarse_Solver_PV)".into());
     }
     let agg = Aggregation::new(lat, settings.block);
+    super::mdwf_vectors::memdiag("parts start");
     let basis = pv_eo_basis_stored(op, pv, &agg, y, settings.storage())?;
+    super::mdwf_vectors::memdiag("parts basis");
     let (super_blocks, refine) = settings.level_lists();
     let vectors = (!super_blocks.is_empty()).then(|| pv_eo_coarse_vectors(op, pv, &basis, y));
     let outer = (op, pv, EoForm::Right);
@@ -370,6 +376,7 @@ fn parts_in<F: Storage, G: GammaRepre>(
                 &basis,
                 settings.cycle,
             )?;
+            super::mdwf_vectors::memdiag("parts coarse");
             if let Some(v) = &vectors {
                 let start = std::time::Instant::now();
                 let applications = c.add_levels_with(v, super_blocks, refine)?;
@@ -388,6 +395,7 @@ fn parts_in<F: Storage, G: GammaRepre>(
                     });
                 }
             }
+            super::mdwf_vectors::memdiag("parts levels");
             AnyParts::$variant(c.into_parts())
         }};
     }
@@ -587,19 +595,18 @@ impl<G: GammaRepre> MdwfBackend for OnCpu<G> {
                 (CpuVectors::Double(y), CpuParts::Double(parts), seconds)
             }
             true => {
-                let ops = (Mdwf::converted_from(d), Mdwf::converted_from(pv));
-                let outers32: Vec<_> = outers
-                    .iter()
-                    .map(|(a, b, form)| (Mdwf::converted_from(*a), Mdwf::converted_from(*b), *form))
-                    .collect();
-                let outers32: Vec<_> = outers32.iter().map(|(a, b, f)| (a, b, *f)).collect();
+                // One conversion of the links, which the Pauli-Villars operator shares.
+                let d32 = Mdwf::converted_from(d);
+                let pv32 = Mdwf::converted_sharing(pv, &d32);
                 let kept = match kept {
                     Some(CpuVectors::Single(y)) => Some(y),
                     _ => None,
                 };
-                let y = vectors_in((&ops.0, &ops.1), lat, settings, kept, due, report)?;
+                let y = vectors_in((&d32, &pv32), lat, settings, kept, due, report)?;
                 let seconds = start.elapsed().as_secs_f64();
-                let parts = parts_in((&ops.0, &ops.1), lat, settings, &y, tops(&outers32), report)?;
+                // The tops from the outer operators as given (double precision): `tops` takes
+                // one type, and the copies converted from them before were in double precision too.
+                let parts = parts_in((&d32, &pv32), lat, settings, &y, tops(outers), report)?;
                 (CpuVectors::Single(y), CpuParts::Single(parts), seconds)
             }
         })

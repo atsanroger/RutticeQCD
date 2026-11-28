@@ -90,6 +90,37 @@ impl<T: Storage, G: GammaRepre> WilsonOp<T, G, UnitDiag, Aos> {
         self.state.links = other.state.links.converted();
         self.link_format = other.link_format;
     }
+
+    /// Whether the links of `other` stored as `T` are those of this operator, link by link.
+    pub(crate) fn links_equal_converted<U: Storage>(
+        &self,
+        other: &WilsonOp<U, G, UnitDiag, Aos>,
+    ) -> bool {
+        fn each<T: Storage, U: Storage, const N: usize>(a: &[[T; N]], b: &[[U; N]]) -> bool {
+            a.len() == b.len()
+                && a.par_iter().zip(b.par_iter()).all(|(x, y)| {
+                    (0..N).all(|c| {
+                        let z =
+                            T::store(Number::from_f64(crate::kernel::Real::to_f64(y[c].load())));
+                        crate::kernel::Real::to_f64(z.load())
+                            == crate::kernel::Real::to_f64(x[c].load())
+                    })
+                })
+        }
+        match (&self.state.links, &other.state.links) {
+            (LinkStore::Full(a), LinkStore::Full(b)) => each(a, b),
+            (LinkStore::TwoRows(a), LinkStore::TwoRows(b)) => each(a, b),
+            _ => false,
+        }
+    }
+
+    /// The links of `other`, an operator on the same lattice in the same precision, shared (not
+    /// copied): an operator that differs from `other` only in its parameters.
+    pub(crate) fn share_links_of(&mut self, other: &Self) {
+        assert!(Arc::ptr_eq(&self.lat, &other.lat) || self.lat.local == other.lat.local);
+        self.state.links = other.state.links.clone();
+        self.link_format = other.link_format;
+    }
 }
 
 /// A layout the Wilson operator has a sweep for.

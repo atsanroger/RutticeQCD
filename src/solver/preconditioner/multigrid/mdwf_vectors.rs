@@ -189,6 +189,7 @@ pub fn low_modes<V: Subspace, N: LinearFn<V>>(
     let like = x.select(&[0]);
     let mut start = x.select(&[0]);
     let hi = 1.1 * largest_magnitude(&mut normal(&like), &mut start, 50);
+    memdiag("filter start");
     let mut lo = hi / 1000.0;
     let mut theta = vec![0.0; m];
     let chunks: Vec<Vec<usize>> = (0..m)
@@ -222,6 +223,7 @@ pub fn low_modes<V: Subspace, N: LinearFn<V>>(
         x.rotate(&v);
         theta = values;
         lo = theta[m - 1];
+        memdiag("filter round");
     }
     (x, theta)
 }
@@ -240,6 +242,13 @@ pub fn pv_eo_low_modes<F: Storage, G: GammaRepre>(
         pv_eo_start(op, lat, params),
         params,
     )
+}
+
+/// Diagnostic (RUTTICE_MEMDIAG=1): the memory of the process at a step of the setup.
+pub(crate) fn memdiag(step: &str) {
+    if crate::env::switch("RUTTICE_MEMDIAG") {
+        eprintln!("memdiag {step}: {}", crate::app::memory_line());
+    }
 }
 
 /// Settings of the multigrid-accelerated improvement of the test vectors.
@@ -495,11 +504,14 @@ pub fn pv_eo_bootstrap<F: Storage, G: GammaRepre>(
         params,
         BasisStorage::Half,
         (&[], &[], false),
+        &mut |_, _| {},
     )
 }
 
 /// `pv_eo_bootstrap` with P kept as `storage` says, in its rounds too, and the cycles of the
-/// rounds after the first with the levels below the coarse lattice `levels`.
+/// rounds after the first with the levels below the coarse lattice `levels`. `on_round` is
+/// given each round and the lowest Ritz value of Ã†Ã on the vectors after it.
+#[allow(clippy::too_many_arguments)]
 pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
     op: &Mdwf<F, G>,
     pv: &Mdwf<F, G>,
@@ -508,6 +520,7 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
     params: BootstrapParams,
     storage: BasisStorage,
     (super_blocks, refine, for_pv): LevelLists<'_>,
+    on_round: &mut dyn FnMut(usize, f64),
 ) -> Result<PvEoBasis<F>, MultigridError> {
     let like = y.select(&[0]);
     // The vectors go through the rounds by value; one vector stands in for them meanwhile.
@@ -516,8 +529,11 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
         taken,
         params,
         &mut |y, with_levels, work| {
+            memdiag("bootstrap round start");
             let basis = pv_eo_basis_stored(op, pv, agg, &y, storage)?;
+            memdiag("bootstrap basis");
             let mut cycle = PvEoCycle::new(op, pv, (op, pv, EoForm::Right), &basis, params.cycle)?;
+            memdiag("bootstrap cycle");
             if with_levels && !super_blocks.is_empty() {
                 let v = pv_eo_coarse_vectors(op, pv, &basis, &y);
                 cycle.add_levels_with(&v, super_blocks, refine)?;
@@ -527,15 +543,17 @@ pub fn pv_eo_bootstrap_stored<F: Storage, G: GammaRepre>(
                     }
                     cycle.add_pv_levels(&v, super_blocks)?;
                 }
+                memdiag("bootstrap levels");
             }
             let mut a = PvEvenOdd::new(op, pv, EoForm::Right, &like);
             let (waiting, _) = work(&mut a, &mut cycle, y)?;
+            memdiag("bootstrap vectors");
             drop(cycle);
             waiting.back()
         },
         &mut |y| lowest_ritz_pair(&mut PvEvenOdd::new(op, pv, EoForm::Right, &like), y),
         &mut |_, _, _| {},
-        &mut |_, _, _| {},
+        &mut |round, _, lowest| on_round(round, lowest),
         &mut |_, _, _| {},
     )?;
     pv_eo_basis_stored(op, pv, agg, y, storage)
