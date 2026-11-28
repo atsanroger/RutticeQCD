@@ -273,6 +273,8 @@ pub struct Convert<M2, V2> {
     inner: M2,
     inp: V2,
     out: V2,
+    /// With `release_scratch`: `inp` and `out` given back after each application.
+    release: bool,
 }
 
 impl<M2, V2: Vector> Convert<M2, V2> {
@@ -282,7 +284,16 @@ impl<M2, V2: Vector> Convert<M2, V2> {
             inner,
             inp: like.zeros_like(),
             out: like.zeros_like(),
+            release: false,
         }
+    }
+
+    /// The inner vectors made for each application and given back after it (on the device,
+    /// from the memory pool): between applications they would wait beside the fields of the
+    /// outer solver. The results are the same.
+    pub fn release_scratch(mut self) -> Self {
+        self.release = true;
+        self
     }
 
     pub fn inner(&self) -> &M2 {
@@ -306,6 +317,10 @@ where
         self.inp.convert_from(inp);
         self.inner.mult(&mut self.out, &self.inp);
         out.convert_from(&self.out);
+        if self.release {
+            self.inp = self.inp.zeros_with(0);
+            self.out = self.out.zeros_with(0);
+        }
     }
 }
 

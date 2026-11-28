@@ -108,6 +108,8 @@ pub struct Chebyshev<A, V> {
     r: V,
     d: V,
     ad: V,
+    /// With `release_scratch`: the work vectors given back after each application.
+    release: bool,
 }
 
 impl<A: LinearFn<V>, V: Vector> Chebyshev<A, V> {
@@ -122,7 +124,16 @@ impl<A: LinearFn<V>, V: Vector> Chebyshev<A, V> {
             r: like.zeros_like(),
             d: like.zeros_like(),
             ad: like.zeros_like(),
+            release: false,
         }
+    }
+
+    /// The work vectors made for each application and given back after it (on the device,
+    /// from the memory pool): between applications they would wait beside the fields of the
+    /// coarse correction and the outer solver. The results are the same.
+    pub fn release_scratch(mut self) -> Self {
+        self.release = true;
+        self
     }
 
     /// The operator, for a caller that needs it besides the polynomial (a multigrid cycle
@@ -160,6 +171,11 @@ impl<A: LinearFn<V>, V: Vector> LinearFn<V> for Chebyshev<A, V> {
             rho = rho_next;
         }
         out.axpy(&vec![C64::new(1.0, 0.0); nv], &self.d);
+        if self.release {
+            for w in [&mut self.r, &mut self.d, &mut self.ad] {
+                *w = w.zeros_with(0);
+            }
+        }
     }
 }
 

@@ -513,7 +513,7 @@ impl DeviceCycles<'_> {
                     }),
                     Some(hi),
                 )?;
-                Box::new(Convert::new(m, &s.even))
+                Box::new(Convert::new(m, &s.even).release_scratch())
             }
         })
     }

@@ -361,6 +361,11 @@ impl<'a, F: EvenOdd<H>, H: Vector> PvRatio<'a, F, H> {
                 schur_factor(op, work, self.form, scratch, out, e1, dagger);
             }
         }
+        self.give_back();
+    }
+
+    /// With `release_scratch`, the work fields back to the memory: no vectors.
+    fn give_back(&mut self) {
         if self.release {
             for f in self.odd.iter_mut().chain(self.even.iter_mut()) {
                 *f = f.zeros_with(0);
@@ -433,6 +438,7 @@ impl<F: EvenOdd<H>, H: Vector> PvRatio<'_, F, H> {
             &t_e,
             Dagger::Yes,
         );
+        self.give_back();
     }
 
     /// The solution x of `M x = b` from the solution y of `Ã y = rhs`, M the operator this was
@@ -801,12 +807,13 @@ impl<F: EvenOdd<H>, H: Vector> LinearFn<H> for PvRatio<'_, F, H> {
         e1.axpy(&vec![C64::new(-1.0, 0.0); nv], b_prime);
         let mut rr = vec![0.0; nv];
         e1.norm_sqr(&mut rr);
-        Some(
-            rr.iter()
-                .zip(b_norm)
-                .map(|(r, b)| r / b.max(f64::MIN_POSITIVE))
-                .collect(),
-        )
+        let out = rr
+            .iter()
+            .zip(b_norm)
+            .map(|(r, b)| r / b.max(f64::MIN_POSITIVE))
+            .collect();
+        self.give_back();
+        Some(out)
     }
 }
 

@@ -358,6 +358,7 @@ pub fn two_grid<'a, T: DeviceReal>(
         hi / cycle.chebyshev_ratio,
         hi,
         even,
-    );
+    )
+    .release_scratch();
     Ok(TwoGrid::new(smoother, correction, even))
 }

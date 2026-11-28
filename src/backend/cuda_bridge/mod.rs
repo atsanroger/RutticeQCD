@@ -292,9 +292,10 @@ fn device_alloc(bytes: usize) -> Result<*mut c_void, CudaError> {
         unsafe { cudaGetLastError() };
         if memdiag_on() {
             eprintln!(
-                "memdiag refused {:.3} GB; held: {}",
+                "memdiag refused {:.3} GB; held: {}\n{}",
                 bytes as f64 / (1u64 << 30) as f64,
-                live_buffers()
+                live_buffers(),
+                std::backtrace::Backtrace::force_capture()
             );
         }
         let (mut free, mut total) = (0usize, 0usize);
